@@ -59,8 +59,13 @@ test("SqlStore: piggybacked feedback on a write advances the cursor; only author
   const updated = (await (
     await app.request(`/api/snippets/${s.id}`, { ...json({ html: "<p>v2</p>" }), method: "PUT" })
   ).json()) as any;
+  // `userFeedback` is the batch shape now: one entry per post, comments inside.
   assert.equal(updated.userFeedback.length, 1);
-  assert.equal(updated.userFeedback[0].text, "tweak it");
+  assert.equal(updated.userFeedback[0].postId, s.id);
+  assert.deepEqual(
+    updated.userFeedback[0].comments.map((c: any) => c.text),
+    ["tweak it"],
+  );
 
   // ...so a cursor-less wait on another channel must not re-deliver it
   const wait = (await (

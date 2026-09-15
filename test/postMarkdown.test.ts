@@ -206,3 +206,55 @@ test("an excerpt ending in a newline is not counted one line too long", () => {
   assert.match(heading("a\nb\nc"), /\(lines 10–12\)/);
   assert.match(heading(""), /\(lines 10–10\)/);
 });
+
+// A paste with no server context: `sideshow show` renders offline, so every
+// by-reference surface must degrade to readable text instead of a dead link.
+test("a post rendered without a URL or asset base still reads as markdown", () => {
+  const md = postToMarkdown(
+    post(
+      [
+        { kind: "html", html: "<p>hi</p>" },
+        { kind: "trace", steps: [{ label: "ran" }] },
+        { kind: "image", assetId: "a1", caption: "the shot" },
+        { kind: "diff", files: [] },
+        { kind: "terminal", text: "ok" },
+        { kind: "code", code: "const a = 1;" },
+      ],
+      { version: 1, updatedAt: "not a date" },
+    ),
+  );
+  assert.match(md, /_Html surface 1_/);
+  assert.match(md, /_Trace surface 2_/);
+  assert.match(md, /_the shot_/, "no asset base: the caption stands in for the image");
+  assert.ok(!md.includes("]("), "nothing links anywhere");
+  // an unparseable timestamp is omitted rather than rendered as Invalid Date
+  assert.ok(!md.includes("Invalid"));
+  assert.ok(!md.includes("v1"), "version 1 is not worth a line");
+  assert.match(md, /```console\nok\n```/);
+  assert.match(md, /```text\nconst a = 1;\n```/);
+});
+
+test("a surface kind this build does not know still links back to the surface", () => {
+  const md = postToMarkdown(post([{ kind: "hologram" } as unknown as Surface]), OPTS);
+  assert.match(md, /\[hologram surface — open in sideshow\]\(https:\/\/ex\.test\/p\/abc\?part=0\)/);
+});
+
+test("an empty diff and a bodiless code surface fall back rather than emit an empty fence", () => {
+  const empty = postToMarkdown(
+    post([{ kind: "diff", files: [{ filename: "f.txt", before: "same", after: "same" }] }]),
+    OPTS,
+  );
+  assert.match(empty, /\[diff surface — open in sideshow\]/, "a no-op patch is not a diff block");
+
+  const code = postToMarkdown(
+    post([{ kind: "code", title: "f.ts", lineStart: 80, code: "a\nb\nc\n" } as Surface]),
+    OPTS,
+  );
+  assert.match(code, /\*\*`f\.ts`\*\* \(lines 80–82\)/, "a trailing newline is not a fourth line");
+
+  const excerpt = postToMarkdown(
+    post([{ kind: "code", lineStart: 5, code: "x" } as Surface]),
+    OPTS,
+  );
+  assert.match(excerpt, /\*\*Excerpt\*\* \(lines 5–5\)/);
+});

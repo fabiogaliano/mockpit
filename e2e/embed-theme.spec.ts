@@ -8,61 +8,29 @@
 // dist-embed bundle on the server's own origin so the engine's same-origin
 // /api/* calls hit real data. The injected host stashes each pushed palette on
 // `window.__tokens` so the test can assert what the engine sent.
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { expect, publish, test } from "./fixtures.ts";
-
-const embedDir = fileURLToPath(new URL("../viewer/dist-embed", import.meta.url));
-
-function contentType(path: string): string {
-  if (path.endsWith(".js") || path.endsWith(".mjs")) return "text/javascript";
-  if (path.endsWith(".wasm")) return "application/wasm";
-  if (path.endsWith(".css")) return "text/css";
-  return "application/octet-stream";
-}
-
-// Default (full) layout so the engine's theme picker (#themeSel) is present. The
-// host records every onThemeChange payload and a call count on window.
-const embedHtml = (sessionId: string) => `<!doctype html>
-<html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%}#m{position:fixed;inset:0}</style></head>
-<body><div id="m"></div>
-<script type="module">
-  import { mountViewer } from "/__embed/engine.js";
-  window.__themeCalls = 0;
-  mountViewer(document.getElementById("m"), {
-    basePath: "",
-    router: {
-      get: () => ({ sessionId: ${JSON.stringify(sessionId)} }),
-      navigate() {},
-      subscribe() { return () => {}; },
-    },
-    onThemeChange(tokens, meta) { window.__themeCalls++; window.__tokens = tokens; window.__meta = meta; },
-  });
-</script></body></html>`;
+import { expect, mountEmbed, navigatingRouter, publish, stage, test } from "./fixtures.ts";
 
 test("embedded engine pushes the resolved palette to the host on mount and on theme switch", async ({
   page,
   server,
 }) => {
-  const surface = await publish(
+  const post = await publish(
     server.url,
     { html: "<p>themed embed card</p>", title: "Themed embed", agent: "e2e" },
     "",
   );
 
-  page.on("pageerror", (e) => console.error("[pageerror]", e.message));
-  page.on("console", (m) => m.type() === "error" && console.error("[console]", m.text()));
-
-  await page.route("**/__embedtest", (route) =>
-    route.fulfill({ contentType: "text/html", body: embedHtml(surface.sessionId) }),
-  );
-  await page.route("**/__embed/**", (route) => {
-    const name = new URL(route.request().url()).pathname.replace("/__embed/", "");
-    route.fulfill({ contentType: contentType(name), body: readFileSync(`${embedDir}/${name}`) });
+  // Default (full) layout so the engine's theme picker (#themeSel) is present.
+  // The host records every onThemeChange payload and a call count on window.
+  await mountEmbed(page, server.url, {
+    prelude: `<script>window.__themeCalls = 0;</script>`,
+    host: `{
+      basePath: "",
+      router: ${navigatingRouter({ sessionId: post.sessionId })},
+      onThemeChange(tokens, meta) { window.__themeCalls++; window.__tokens = tokens; window.__meta = meta; },
+    }`,
   });
-
-  await page.goto(`${server.url}/__embedtest`);
-  await expect(page.locator(".card:not(#whatsNew)")).toBeVisible();
+  await expect(stage(page).locator("iframe")).toBeVisible();
 
   // On mount the engine resolves + pushes the default (github) light palette.
   await expect.poll(() => page.evaluate(() => window.__tokens?.["--bg"])).toBe("#f6f8fa");
@@ -83,6 +51,9 @@ test("embedded engine pushes the resolved palette to the host on mount and on th
 
 declare global {
   interface Window {
+    __route?: Record<string, unknown>;
+    __navigated?: Record<string, unknown>;
+    __subs?: ((route: unknown) => void)[];
     __themeCalls: number;
     __tokens?: Record<string, string>;
     __meta?: { theme: string; mode: "light" | "dark" };

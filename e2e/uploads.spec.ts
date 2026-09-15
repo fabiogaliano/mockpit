@@ -2,25 +2,29 @@ import {
   expect,
   expectIframesNoHorizontalOverflow,
   expectNoHorizontalOverflow,
+  itemPath,
   publish,
   publishParts,
   serveEmbedBundle,
+  stage,
   test,
   TINY_PNG_B64,
   upload,
 } from "./fixtures.ts";
 
-const embedHtml = (sessionId: string) => `<!doctype html>
+// The engine mounted on a post permalink route: the standalone full-page post,
+// which is the one screen that still renders every native surface (including the
+// experimental trace) as a card.
+const embedHtml = (postId: string) => `<!doctype html>
 <html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%}#m{position:fixed;inset:0}</style></head>
 <body><div id="m"></div>
 <script type="module">
   import { mountViewer } from "/__embed/engine.js";
   mountViewer(document.getElementById("m"), {
     basePath: "/u/alice",
-    layout: "stream",
     readonly: true,
     router: {
-      get: () => ({ sessionId: ${JSON.stringify(sessionId)} }),
+      get: () => ({ surfaceId: ${JSON.stringify(postId)} }),
       navigate() {},
       subscribe() { return () => {}; },
     },
@@ -42,7 +46,7 @@ test("an image surface renders an <img> served from /a/:id", async ({ page, serv
   });
 
   await page.goto(server.url);
-  const img = page.locator(".card .asset-img");
+  const img = stage(page).locator(".asset-img");
   await expect(img).toBeVisible();
   await expect(img).toHaveAttribute("src", `/a/${asset.id}`);
   // the bytes actually loaded (not a broken image)
@@ -67,7 +71,7 @@ test("embedded native image and trace assets use the host base path", async ({ p
     kind: "trace",
     session: image.sessionId,
   });
-  await publishParts(server.url, {
+  const post = await publishParts(server.url, {
     title: "Prefixed assets",
     agent: "e2e",
     session: image.sessionId,
@@ -78,7 +82,7 @@ test("embedded native image and trace assets use the host base path", async ({ p
   });
 
   await page.route("**/__embedtest", (route) =>
-    route.fulfill({ contentType: "text/html", body: embedHtml(image.sessionId) }),
+    route.fulfill({ contentType: "text/html", body: embedHtml(post.id) }),
   );
   await serveEmbedBundle(page);
   await page.route("**/u/alice/**", (route) => {
@@ -99,8 +103,10 @@ test("embedded native image and trace assets use the host base path", async ({ p
   await expect(card.locator(".trace-label")).toHaveText("from prefixed asset");
 });
 
+// Trace stays an experimental, card-only surface: it renders on the standalone
+// post page (/p/:id), not on the item stage.
 test("a trace surface renders a step timeline with expandable detail", async ({ page, server }) => {
-  await publishParts(server.url, {
+  const post = await publishParts(server.url, {
     title: "Run trace",
     agent: "e2e",
     parts: [
@@ -115,7 +121,7 @@ test("a trace surface renders a step timeline with expandable detail", async ({ 
     ],
   });
 
-  await page.goto(server.url);
+  await page.goto(`${server.url}/p/${post.id}`);
   const card = page.locator(".card:not(#whatsNew)");
   await expect(card.locator(".trace-title")).toHaveText("What I did");
   await expect(card.locator(".trace-step")).toHaveCount(2);
@@ -138,14 +144,14 @@ test("a trace surface backed by an uploaded file offers a download and renders s
     filename: "trace.jsonl",
     kind: "trace",
   });
-  await publishParts(server.url, {
+  const post = await publishParts(server.url, {
     title: "Uploaded trace",
     agent: "e2e",
     session: asset.sessionId,
     parts: [{ kind: "trace", assetId: asset.id }],
   });
 
-  await page.goto(server.url);
+  await page.goto(`${server.url}/p/${post.id}`);
   const card = page.locator(".card:not(#whatsNew)");
   await expect(card.locator(".trace-dl")).toHaveAttribute("href", `/a/${asset.id}`);
   // steps are fetched from the asset and rendered
@@ -154,7 +160,7 @@ test("a trace surface backed by an uploaded file offers a download and renders s
 });
 
 test("a trace surface stays readable on an iPhone-sized viewport", async ({ page, server }) => {
-  await publishParts(server.url, {
+  const post = await publishParts(server.url, {
     title: "Trace on mobile",
     agent: "e2e",
     parts: [
@@ -183,7 +189,7 @@ test("a trace surface stays readable on an iPhone-sized viewport", async ({ page
   });
 
   await page.setViewportSize({ width: 393, height: 852 });
-  await page.goto(server.url);
+  await page.goto(`${server.url}/p/${post.id}`);
 
   const card = page.locator(".card:not(#whatsNew)");
   await expect(card.locator(".trace-title")).toBeVisible();
@@ -203,7 +209,7 @@ test("all native surface primitives fit the iPhone 14 Pro viewer", async ({ page
     filename: "mobile-primitive.png",
     kind: "image",
   });
-  await publishParts(server.url, {
+  const post = await publishParts(server.url, {
     title: "Every primitive on mobile",
     agent: "e2e",
     session: asset.sessionId,
@@ -260,7 +266,7 @@ test("all native surface primitives fit the iPhone 14 Pro viewer", async ({ page
   });
 
   await page.setViewportSize({ width: 393, height: 852 });
-  await page.goto(server.url);
+  await page.goto(`${server.url}/p/${post.id}`);
 
   const card = page.locator(".card:not(#whatsNew)");
   await expect(card).toBeVisible();
@@ -300,7 +306,7 @@ test("an uploaded image embeds by URL inside an html surface under the CSP", asy
     (r) => r.url().endsWith(`/a/${asset.id}`) && r.status() === 200,
   );
   await page.goto(server.url);
-  await expect(page.locator(".card iframe")).toBeVisible();
+  await expect(stage(page).locator("iframe")).toBeVisible();
   await assetResponse;
 });
 
@@ -315,6 +321,8 @@ test("a missing/evicted image shows a placeholder, not a broken image", async ({
     parts: [{ kind: "image", assetId: "does-not-exist" }],
   });
 
-  await page.goto(server.url);
-  await expect(page.locator(".asset-gone")).toContainText("evicted");
+  // Two posts in the session are two items, so address the one under test
+  // rather than whichever the workspace auto-opens.
+  await page.goto(`${server.url}${itemPath("workspace", "gone")}`);
+  await expect(stage(page).locator(".asset-gone")).toContainText("evicted");
 });

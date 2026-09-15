@@ -1,17 +1,25 @@
 import type { Hono } from "hono";
 import type { CommentWait, Feedback } from "./app.ts";
-import { feedbackView, mcpPostListRowView, postDetailView, postWriteView } from "./apiViews.ts";
+import { buildFeedbackBatches } from "./feedbackBatch.ts";
+import { mcpPostListRowView, postDetailView, postWriteView } from "./apiViews.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
   type Asset,
   type AssetKind,
   type Comment,
   htmlSurface,
+  type ItemDetail,
   type Store,
   type Post,
   type Surface,
 } from "./types.ts";
-import { HTTP_MCP_TOOLS, MCP_INSTRUCTIONS, MCP_SERVER_INFO } from "./mcpSpec.ts";
+import {
+  DEPRECATED_HTTP_MCP_TOOLS,
+  HTTP_MCP_TOOLS,
+  includeLegacyMcpTools,
+  MCP_INSTRUCTIONS,
+  MCP_SERVER_INFO,
+} from "./mcpSpec.ts";
 import { coerceSurfaces } from "./postSurfaces.ts";
 import {
   findWelcomePost,
@@ -37,6 +45,14 @@ export interface McpDeps {
     session?: string;
     sessionTitle?: string;
     agent?: string;
+    // project › item › variant: an existing (project, slug, variant) becomes a
+    // new version of that post, anything else creates one.
+    project?: string;
+    slug?: string;
+    kind?: string;
+    variant?: string;
+    from?: number;
+    prompt?: string;
   }): FlowResult<Post>;
   revisePost(id: string, patch: { surfaces?: Surface[]; title?: string }): FlowResult<Post>;
   appendPostSurface(
@@ -63,7 +79,8 @@ export interface McpDeps {
     kind?: AssetKind;
     session?: string;
   }): Promise<{ asset: Omit<Asset, "data"> } | { error: string; status: number }>;
-  guide: string;
+  // A static guide, or one rendered for a project (palette, kit, icons).
+  guide: string | ((project: string) => string | Promise<string>);
 }
 
 // Coerce loosely-typed tool args into a validated Surface[]. Unknown kinds
@@ -86,8 +103,182 @@ export function registerMcp(app: Hono, deps: McpDeps) {
       2,
     );
 
+  // The item tools read through the Store's project/item methods rather than
+  // re-entering the HTTP layer; the writes still go through the shared publish
+  // flow so events, feedback piggyback, and validation stay in one place.
+  const store = deps.store;
+
+  async function projectOf(args: any): Promise<string> {
+    if (typeof args.project === "string" && args.project) return args.project;
+    if (typeof args.session === "string") {
+      const session = await store.getSession(args.session);
+      if (session?.project) return session.project;
+    }
+    const projects = await store.listProjects();
+    return projects[0]?.name ?? "workspace";
+  }
+
+  // Which variant a tool call means: explicit wins, a single variant is
+  // unambiguous, several without a choice is an error that names them.
+  function chooseVariant(item: ItemDetail, wanted: unknown): ItemDetail["variants"][number] {
+    const variants = item.variants ?? [];
+    if (typeof wanted === "string" && wanted) {
+      const found = variants.find((v) => v.variant === wanted);
+      if (!found) throw new Error(`${item.slug} has no variant "${wanted}"`);
+      return found;
+    }
+    if (variants.length === 1) return variants[0];
+    throw new Error(
+      `${item.slug} has ${variants.length} variants; pass variant: ${variants
+        .map((v) => v.variant)
+        .join("|")}`,
+    );
+  }
+
+  const htmlOf = (post: any) =>
+    (post?.surfaces ?? []).find((s: any) => s.kind === "html")?.html ?? "";
+
+  // History without bodies — the metadata is what an agent reasons about.
+  const historyMeta = (history: any[] | undefined) =>
+    (history ?? []).map((h) => ({
+      version: h.version,
+      ...(h.from !== undefined && { from: h.from }),
+      ...(h.prompt && { prompt: h.prompt }),
+      ...(h.author && { author: h.author }),
+      ...(h.updatedAt && { updatedAt: h.updatedAt }),
+    }));
+
+  async function publishItem(args: any, origin: string, kind?: string) {
+    const slug = String(args.slug ?? "");
+    if (!slug) throw new Error("slug is required");
+    const project = await projectOf(args);
+    // An existing page stays a page across revisions, so its <sideshow-slot>
+    // tags keep being re-snapshotted.
+    const existingKind = (await store.getItem(project, slug))?.kind;
+    const surfaces =
+      typeof args.html === "string"
+        ? await coerceSurfaces([htmlSurface(args.html)])
+        : await coerceSurfaces(args.surfaces ?? []);
+    if (surfaces.length === 0) throw new Error("an item needs html or surfaces");
+    const result = await deps.publishPost({
+      surfaces,
+      project,
+      slug,
+      variant: typeof args.variant === "string" ? args.variant : undefined,
+      kind: kind ?? (args.kind === "page" ? "page" : (existingKind ?? "component")),
+      title: typeof args.title === "string" ? args.title : undefined,
+      from: typeof args.from === "number" ? args.from : undefined,
+      prompt: typeof args.prompt === "string" ? args.prompt : undefined,
+      session: typeof args.session === "string" ? args.session : undefined,
+      sessionTitle: typeof args.sessionTitle === "string" ? args.sessionTitle : undefined,
+    });
+    if ("error" in result) throw new Error(result.error);
+    // Item tools answer in the CLI's vocabulary — the post view alone leaves
+    // out the identity (project/slug/variant) the agent addresses it by.
+    const post = result.post;
+    return JSON.stringify(
+      {
+        ...postWriteView(post),
+        project: post.project,
+        slug: post.slug,
+        kind: post.kind,
+        variant: post.variant,
+        status: post.status,
+        ask: post.ask,
+        slots: post.slots,
+        ...(post.from === undefined ? {} : { from: post.from }),
+        ...(post.prompt === undefined ? {} : { prompt: post.prompt }),
+        url: `${origin}/p/${post.id}`,
+        ...(result.userFeedback && { userFeedback: result.userFeedback }),
+      },
+      null,
+      2,
+    );
+  }
+
   async function callTool(name: string, args: any, origin: string): Promise<string> {
     switch (name) {
+      case "publish_item":
+        return publishItem(args, origin);
+      case "revise_item":
+        return publishItem(args, origin);
+      case "ask_user": {
+        const project = await projectOf(args);
+        const item = await store.getItem(project, String(args.slug ?? ""));
+        if (!item) throw new Error(`${project} has no item "${args.slug}"`);
+        const variant = chooseVariant(item, args.variant);
+        const text = String(args.text ?? "");
+        if (!text) throw new Error("ask_user needs text");
+        const post = await store.setPostAsk(variant.postId, {
+          text,
+          at: new Date().toISOString(),
+        });
+        // The question also lands in the card's thread, so the operator reads it
+        // where they answer it.
+        await deps.createComment({ text, surface: variant.postId });
+        return JSON.stringify(
+          {
+            project,
+            slug: item.slug,
+            variant: variant.variant,
+            version: post?.version ?? variant.version,
+            ask: text,
+            url: `${origin}/p/${variant.postId}`,
+          },
+          null,
+          2,
+        );
+      }
+      case "list_items": {
+        const project = await projectOf(args);
+        const items = await store.listItems(project);
+        return JSON.stringify({ project, items }, null, 2);
+      }
+      case "get_item": {
+        const project = await projectOf(args);
+        const item = await store.getItem(project, String(args.slug ?? ""));
+        if (!item) throw new Error(`${project} has no item "${args.slug}"`);
+        const variants = (item.variants ?? [])
+          // `variant` narrows the read to one take, as it does on the stdio
+          // tier — an item with five variants is five bodies otherwise.
+          .filter((v) => !args.variant || v.variant === args.variant)
+          .map((v) => ({
+            variant: v.variant,
+            postId: v.postId,
+            version: v.version,
+            status: v.status,
+            ask: v.ask,
+            updatedAt: v.updatedAt,
+            ...(args.history && { history: historyMeta(v.history) }),
+            ...(args.body && { html: htmlOf(v) }),
+          }));
+        return JSON.stringify(
+          { project, slug: item.slug, kind: item.kind, title: item.title, variants },
+          null,
+          2,
+        );
+      }
+      case "export_item": {
+        const project = await projectOf(args);
+        const item = await store.getItem(project, String(args.slug ?? ""));
+        if (!item) throw new Error(`${project} has no item "${args.slug}"`);
+        const chosen = chooseVariant(item, args.variant);
+        const post = await store.findVariant(project, item.slug, chosen.variant);
+        if (!post) throw new Error("variant not found");
+        return JSON.stringify(
+          {
+            project,
+            slug: item.slug,
+            variant: chosen.variant,
+            version: post.version,
+            status: post.status,
+            html: htmlOf(post),
+            history: historyMeta(post.history),
+          },
+          null,
+          2,
+        );
+      }
       case "publish_post":
       case "publish_surface":
       case "publish_snippet": {
@@ -141,14 +332,11 @@ export function registerMcp(app: Hono, deps: McpDeps) {
             note: "no user feedback yet — continue, or wait again later",
           });
         }
-        return JSON.stringify(
-          {
-            comments: result.comments.map(feedbackView),
-            lastSeq: result.lastSeq,
-          },
-          null,
-          2,
-        );
+        // One batch per post: the decision the operator made, the comments they
+        // batched with it, and which sibling variants it archived. Built by the
+        // same function the HTTP tier uses, so MCP and CLI cannot drift.
+        const batches = await buildFeedbackBatches(deps.store, result.comments);
+        return JSON.stringify(batches.length === 1 ? batches[0] : batches, null, 2);
       }
       case "reply_to_user": {
         // createComment derives the reply author from the session; MCP cannot
@@ -175,7 +363,11 @@ export function registerMcp(app: Hono, deps: McpDeps) {
       case "get_post": {
         const post = await deps.store.getPost(String(args.id ?? ""));
         if (!post) throw new Error("post not found");
-        return JSON.stringify(postDetailView(post), null, 2);
+        return JSON.stringify(
+          postDetailView(post, { history: args.history === "full" ? "full" : "meta" }),
+          null,
+          2,
+        );
       }
       case "upload_asset": {
         if (typeof args.data !== "string" || args.data.length === 0) {
@@ -205,8 +397,12 @@ export function registerMcp(app: Hono, deps: McpDeps) {
           2,
         );
       }
-      case "get_design_guide":
-        return deps.guide;
+      case "get_design_guide": {
+        // app.ts may hand us a static guide or a project-aware renderer; either
+        // is fine here, and the project only matters to the latter.
+        const guide: any = deps.guide;
+        return typeof guide === "function" ? await guide(await projectOf(args)) : guide;
+      }
       case "send_test_post": {
         // Idempotent: a board only ever needs one welcome card. If it's already
         // there, hand back the existing post instead of stacking duplicates —
@@ -312,7 +508,15 @@ export function registerMcp(app: Hono, deps: McpDeps) {
     }
     if (msg.id === undefined) return c.body(null, 202); // notifications
     if (msg.method === "ping") return rpc(msg.id, {});
-    if (msg.method === "tools/list") return rpc(msg.id, { tools: HTTP_MCP_TOOLS });
+    if (msg.method === "tools/list") {
+      // The retired spellings stay callable but are not advertised, so a fresh
+      // agent never pays context for them.
+      return rpc(msg.id, {
+        tools: includeLegacyMcpTools()
+          ? [...HTTP_MCP_TOOLS, ...DEPRECATED_HTTP_MCP_TOOLS]
+          : HTTP_MCP_TOOLS,
+      });
+    }
     if (msg.method === "tools/call") {
       const url = new URL(c.req.url);
       const baseUrl = `${url.origin}${deps.basePath?.(c.req.raw) ?? ""}`;

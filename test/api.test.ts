@@ -513,6 +513,23 @@ test("/s served versioned + themed is cacheable; an unpinned load is not", async
   assert.match(bare.headers.get("cache-control") ?? "", /no-cache/);
 });
 
+// `userFeedback` (and agent-facing comment reads) return the batch shape: one
+// entry per post, its comments inside. Flatten it where a test only cares that
+// the right texts were delivered, in order.
+const feedbackTexts = (batches: any[]): string[] =>
+  batches.flatMap((b: any) => b.comments.map((c: any) => c.text));
+
+// Surface documents reference the bridge and the static stylesheets by
+// content-hashed URL instead of inlining them; fetch one back through the app
+// so these tests assert the bytes the browser actually gets.
+async function assetBody(app: any, doc: string, pattern: RegExp): Promise<string> {
+  const match = pattern.exec(doc);
+  assert.ok(match, `document must reference ${pattern}`);
+  const res = await app.request(match![0]);
+  assert.equal(res.status, 200);
+  return await res.text();
+}
+
 test("a snippet's kits ride the html surface and inject the kit CSS/JS at /s", async () => {
   const app = makeApp();
   const res = await app.request(
@@ -526,9 +543,11 @@ test("a snippet's kits ride the html surface and inject the kit CSS/JS at /s", a
   const full = (await (await app.request(`/api/surfaces/${surface.id}`)).json()) as any;
   assert.deepEqual(full.surfaces[0].kits, ["slides"]);
 
-  // /s injects the kit's css (rail/deck rules) and its behavior js
+  // /s links the kit's css from its content-hashed asset URL and inlines its
+  // behavior js
   const doc = await (await app.request(`/s/${surface.id}?part=0`)).text();
-  assert.match(doc, /\.deck>\.slide/);
+  const kitCss = await assetBody(app, doc, /\/asset\/kit-slides\.[a-z0-9]+\.css/);
+  assert.match(kitCss, /\.deck>\.slide/);
   assert.match(doc, /querySelector\('\.deck'\)/);
 
   // a plain snippet (no kits) gets neither
@@ -617,8 +636,9 @@ test("publish_surface MCP tool round-trips a diff surface", async () => {
   const app = makeApp();
   const list = (await (await app.request("/mcp", mcpCall(1, "tools/list"))).json()) as any;
   const names = list.result.tools.map((t: any) => t.name);
-  assert.ok(names.includes("publish_surface"));
-  assert.ok(names.includes("publish_snippet")); // alias still advertised
+  // Retired spellings are hidden from discovery but stay callable forever.
+  assert.ok(!names.includes("publish_surface"));
+  assert.ok(!names.includes("publish_snippet"));
 
   const published = (await (
     await app.request(
@@ -901,11 +921,14 @@ test("snippet page is wrapped with CSP, bridge, and kit", async () => {
   const s = (await (await app.request("/api/snippets", json({ html: "<p>x</p>" }))).json()) as any;
   const page = await (await app.request(`/s/${s.id}?part=0`)).text();
   assert.ok(page.includes("Content-Security-Policy"));
-  assert.ok(page.includes("window.sendPrompt"));
-  assert.ok(page.includes("__sideshow"));
+  // The bridge is served from its own immutable asset URL, not inlined.
+  const bridge = await assetBody(app, page, /\/asset\/bridge\.[a-z0-9]+\.js/);
+  assert.ok(bridge.includes("window.sendPrompt"));
+  assert.ok(bridge.includes("__sideshow"));
   // Snippet kit: SVG utilities in the stylesheet and the shared arrow marker
   // injected before the snippet body so url(#arrow) resolves.
-  assert.ok(page.includes(".c-blue"));
+  const base = await assetBody(app, page, /\/asset\/base\.[a-z0-9]+\.css/);
+  assert.ok(base.includes(".c-blue"));
   assert.ok(page.indexOf('<marker id="arrow"') < page.indexOf("<p>x</p>"));
   assert.ok(page.includes('<marker id="arrow"'));
 });
@@ -1063,8 +1086,8 @@ test("piggyback delivery advances the cursor seen by author=user waits", async (
       method: "PUT",
     })
   ).json()) as any;
-  assert.equal(updated.userFeedback.length, 1);
-  assert.equal(updated.userFeedback[0].text, "tweak it");
+  assert.deepEqual(feedbackTexts(updated.userFeedback), ["tweak it"]);
+  assert.equal(updated.userFeedback[0].postId, s.id);
 
   // ...so a cursor-less wait on another channel must not re-deliver it
   const wait = (await (
@@ -1524,7 +1547,7 @@ test("mcp endpoint: initialize, tools/list, publish round trip", async () => {
 
   const list = (await (await app.request("/mcp", mcpCall(2, "tools/list"))).json()) as any;
   const names = list.result.tools.map((t: any) => t.name);
-  assert.ok(names.includes("publish_snippet"));
+  assert.ok(!names.includes("publish_snippet"), "retired spellings are not advertised");
   assert.ok(names.includes("wait_for_feedback"));
 
   const published = (await (
@@ -1564,14 +1587,17 @@ test("mcp endpoint: initialize, tools/list, publish round trip", async () => {
       }),
     )
   ).json()) as any;
+  // wait_for_feedback returns the batch: the post it belongs to once, its
+  // comments inside, so the agent doesn't re-derive the item per comment.
   const fb = JSON.parse(feedback.result.content[0].text);
-  assert.equal(fb.comments.length, 1);
-  assert.equal(fb.comments[0].postId, payload.id);
-  assert.equal(fb.comments[0].postTitle, "Via MCP");
-  assert.equal(fb.comments[0].surfaceId, payload.id);
-  assert.equal(fb.comments[0].surfaceTitle, "Via MCP");
-  assert.equal(fb.comments[0].text, "nice");
-  assert.ok(fb.lastSeq > 0);
+  assert.equal(fb.postId, payload.id);
+  assert.equal(fb.title, "Via MCP");
+  assert.equal(fb.decision, null);
+  assert.deepEqual(
+    fb.comments.map((c: any) => c.text),
+    ["nice"],
+  );
+  assert.ok(fb.comments[0].seq > 0);
 });
 
 test("mcp publish_snippet honors sessionTitle on first publish only", async () => {
@@ -1689,13 +1715,17 @@ test("mcp upload_asset with an explicit session attaches the asset to it", async
   assert.equal(asset.sessionId, session.id);
 });
 
-test("mcp get_design_guide returns the guide text", async () => {
+test("mcp get_design_guide returns the project's design brief", async () => {
   const app = makeApp();
   const res = (await (
     await app.request("/mcp", mcpCall(1, "tools/call", { name: "get_design_guide", arguments: {} }))
   ).json()) as any;
   assert.equal(res.result.isError, undefined);
-  assert.equal(res.result.content[0].text, "# guide");
+  // The brief is rendered from the project's STORED design, not the static
+  // workspace guide — the HTTP tier used to serve the latter while stdio served
+  // the brief, so the same tool answered differently per transport.
+  assert.match(res.result.content[0].text, /run `sideshow init`/);
+  assert.match(res.result.content[0].text, /Kit: none/);
 });
 
 test("mcp publish_post with no surfaces fails with a clear error", async () => {
@@ -1781,14 +1811,13 @@ test("agent writes piggyback unseen user comments, delivered once", async () => 
   const updated = (await (
     await app.request(`/api/snippets/${s.id}`, { ...json({ html: "<p>v2</p>" }), method: "PUT" })
   ).json()) as any;
-  assert.deepEqual(
-    updated.userFeedback.map((f: any) => f.text),
-    ["wrong color", "also add a key"],
-  );
+  // one batch for the post, both comments inside it, in seq order
+  assert.equal(updated.userFeedback.length, 1);
+  assert.deepEqual(feedbackTexts(updated.userFeedback), ["wrong color", "also add a key"]);
   assert.equal(updated.userFeedback[0].postId, s.id);
-  assert.equal(updated.userFeedback[0].postTitle, "Doc");
-  assert.equal(updated.userFeedback[0].surfaceId, s.id);
-  assert.equal(updated.userFeedback[0].surfaceTitle, "Doc");
+  assert.equal(updated.userFeedback[0].title, "Doc");
+  assert.equal(updated.userFeedback[0].version, 2);
+  assert.equal(updated.userFeedback[0].decision, null);
 
   // delivered once — the next write is clean
   const again = (await (
@@ -1805,10 +1834,7 @@ test("agent writes piggyback unseen user comments, delivered once", async () => 
   const reply = (await (
     await app.request("/api/comments", json({ snippet: s.id, text: "on it", author: "claude" }))
   ).json()) as any;
-  assert.deepEqual(
-    reply.userFeedback.map((f: any) => f.text),
-    ["more", "and more"],
-  );
+  assert.deepEqual(feedbackTexts(reply.userFeedback), ["more", "and more"]);
 });
 
 test("a consumed wait is not re-delivered as piggyback", async () => {
@@ -1837,10 +1863,7 @@ test("a consumed wait is not re-delivered as piggyback", async () => {
   const next = (await (
     await app.request(`/api/snippets/${s.id}`, { ...json({ html: "<p>v3</p>" }), method: "PUT" })
   ).json()) as any;
-  assert.deepEqual(
-    next.userFeedback.map((f: any) => f.text),
-    ["fresh"],
-  );
+  assert.deepEqual(feedbackTexts(next.userFeedback), ["fresh"]);
 });
 
 // The agentSeq cursor is shared across every delivery channel, so a comment
@@ -1958,10 +1981,7 @@ test("mcp publish result carries userFeedback", async () => {
     )
   ).json()) as any;
   const payload = JSON.parse(second.result.content[0].text);
-  assert.deepEqual(
-    payload.userFeedback.map((f: any) => f.text),
-    ["neat"],
-  );
+  assert.deepEqual(feedbackTexts(payload.userFeedback), ["neat"]);
 });
 
 test("rejects empty and oversized html", async () => {
@@ -2467,8 +2487,13 @@ test("GET /api/sessions/:id/posts mirrors /surfaces", async () => {
   const viaSurfaces = (await (
     await app.request(`/api/sessions/${created.sessionId}/surfaces`)
   ).json()) as any;
-  assert.deepEqual(viaPosts, viaSurfaces);
+  // Same rows; the canonical route drops the legacy `parts` duplicate.
+  assert.deepEqual(
+    viaSurfaces.map(({ parts: _parts, ...rest }: any) => rest),
+    viaPosts,
+  );
   assert.equal(viaPosts.length, 1);
+  assert.deepEqual(viaSurfaces[0].parts, viaSurfaces[0].surfaces);
 });
 
 test("GET /api/sessions/:id/posts lists lean surfaces with ids and omitted html bodies", async () => {
@@ -2500,7 +2525,11 @@ test("GET /api/sessions/:id/posts lists lean surfaces with ids and omitted html 
   );
   assert.ok(!("html" in list[0].surfaces[0]), "elided html body key is absent");
   assert.equal(list[0].surfaces[1].markdown, "# shipped");
-  assert.deepEqual(list[0].parts, list[0].surfaces, "legacy parts aliases surfaces");
+  assert.equal(list[0].parts, undefined, "canonical list drops the parts duplicate");
+  const legacy = (await (
+    await app.request(`/api/sessions/${created.sessionId}/surfaces`)
+  ).json()) as any[];
+  assert.deepEqual(legacy[0].parts, legacy[0].surfaces, "legacy parts aliases surfaces");
 });
 
 test("GET /api/posts/:id/viewer is compact while canonical and legacy details stay full", async () => {
@@ -2544,11 +2573,24 @@ test("GET /api/posts/:id/viewer is compact while canonical and legacy details st
   const canonical = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
   const legacySurface = (await (await app.request(`/api/surfaces/${created.id}`)).json()) as any;
   const legacySnippet = (await (await app.request(`/api/snippets/${created.id}`)).json()) as any;
-  assert.deepEqual(legacySurface, canonical);
-  assert.deepEqual(legacySnippet, canonical);
+  // The canonical detail ships history METADATA only; the legacy aliases keep
+  // the old full shape byte-for-byte, and `?history=full` restores it.
+  assert.deepEqual(canonical.history, [
+    {
+      version: 1,
+      title: "Viewer v1",
+      at: canonical.history[0].at,
+      surfaceCount: 2,
+      surfaceKinds: ["html", "json"],
+    },
+  ]);
+  assert.ok(!("surfaces" in canonical.history[0]), "history bodies are opt-in");
+  const full = (await (await app.request(`/api/posts/${created.id}?history=full`)).json()) as any;
+  assert.deepEqual(legacySurface, full);
+  assert.deepEqual(legacySnippet, full);
   assert.equal((await app.request(`/api/surfaces/${created.id}/viewer`)).status, 404);
   assert.equal((await app.request(`/api/snippets/${created.id}/viewer`)).status, 404);
-  assert.equal(canonical.history[0].surfaces[0].html, "<p>historical body</p>");
+  assert.equal(full.history[0].surfaces[0].html, "<p>historical body</p>");
   assert.equal(canonical.surfaces[0].markdown, "# current body");
 });
 
@@ -2677,8 +2719,13 @@ test("read responses expose derived surface indexes and renumber after edits", a
       { index: 2, kind: "terminal" },
     ],
   );
+  // history bodies (and their indexes) are opt-in
+  const detailFull = (await (
+    await app.request(`/api/posts/${created.id}?history=full`)
+  ).json()) as any;
+  assert.deepEqual(detail.history[0].surfaceKinds, ["html", "markdown", "terminal"]);
   assert.deepEqual(
-    detail.history[0].surfaces.map((p: any) => ({ index: p.index, kind: p.kind })),
+    detailFull.history[0].surfaces.map((p: any) => ({ index: p.index, kind: p.kind })),
     [
       { index: 0, kind: "html" },
       { index: 1, kind: "markdown" },
@@ -2729,9 +2776,9 @@ test("publish_post / update_post / list_posts MCP tools accept surfaces", async 
   assert.ok(names.includes("publish_post"));
   assert.ok(names.includes("update_post"));
   assert.ok(names.includes("list_posts"));
-  // old tools still advertised
-  assert.ok(names.includes("publish_surface"));
-  assert.ok(names.includes("list_surfaces"));
+  // the old tools are callable but no longer advertised
+  assert.ok(!names.includes("publish_surface"));
+  assert.ok(!names.includes("list_surfaces"));
 
   const published = (await (
     await app.request(
@@ -3158,9 +3205,11 @@ test("PATCH /api/posts/:id bumps version and keeps history", async () => {
 
   await app.request(`/api/posts/${created.id}`, patch({ content: "# v2" }));
 
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(full.version, 2);
-  assert.equal(full.history.length, 1);
+  const meta = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
+  assert.equal(meta.version, 2);
+  assert.equal(meta.history.length, 1);
+  assert.deepEqual(meta.history[0].surfaceKinds, ["markdown"]);
+  const full = (await (await app.request(`/api/posts/${created.id}?history=full`)).json()) as any;
   assert.equal(full.history[0].surfaces[0].markdown, "# v1");
 });
 
@@ -3639,14 +3688,29 @@ test("mcp get_post fetches full indexed post detail via HTTP MCP", async () => {
   assert.equal(post.surfaces[1].markdown, "# b2");
   assert.ok(post.surfaces[0].id, "surface ids are present");
   assert.ok(post.surfaces[1].id);
+  // history is metadata by default...
+  assert.deepEqual(post.history[0].surfaceKinds, ["html", "markdown"]);
+  assert.equal(post.history[0].surfaces, undefined);
+
+  // ...and `history: "full"` opts back into the bodies
+  const fullRes = (await (
+    await app.request(
+      "/mcp",
+      mcpCall(3, "tools/call", {
+        name: "get_post",
+        arguments: { id: postId, history: "full" },
+      }),
+    )
+  ).json()) as any;
+  const fullPost = JSON.parse(fullRes.result.content[0].text);
   assert.deepEqual(
-    post.history[0].surfaces.map((s: any) => ({ kind: s.kind, index: s.index })),
+    fullPost.history[0].surfaces.map((s: any) => ({ kind: s.kind, index: s.index })),
     [
       { kind: "html", index: 0 },
       { kind: "markdown", index: 1 },
     ],
   );
-  assert.equal(post.history[0].surfaces[0].html, "<p>a</p>");
+  assert.equal(fullPost.history[0].surfaces[0].html, "<p>a</p>");
 });
 
 test("mcp tools/list includes get_post", async () => {

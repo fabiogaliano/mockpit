@@ -33,6 +33,16 @@ import type { CodeSurface, DiffSurface, MarkdownSurface, TerminalSurface } from 
 export type RenderedSurface = { body: string; css: string };
 export type RenderOpts = { theme?: string; mode?: Mode };
 
+// Above this many bytes of source, syntax highlighting is skipped and the
+// surface renders as plain escaped text. Tokenizing a multi-megabyte paste
+// costs seconds of CPU in a single-threaded Durable Object — which stalls SSE
+// and every long-poll for the whole workspace, not just this one render — and
+// the resulting document is unreadable anyway. 200 KB is far above any real
+// code excerpt (the bench's "large" code fixture is ~45 KB).
+export const MAX_HIGHLIGHT_BYTES = 200_000;
+
+const overBudget = (text: string) => text.length > MAX_HIGHLIGHT_BYTES;
+
 // ---------------------------------------------------------------------------
 // shiki: one shared highlighter on the JS regex engine (no oniguruma WASM —
 // the Workers-safe path, same engine the viewer's highlight.ts uses). Themes
@@ -179,13 +189,16 @@ export async function renderMarkdown(
 ): Promise<RenderedSurface> {
   const src = part.markdown ?? "";
   const themeOpts = shikiThemeOptions(opts.theme, opts.mode);
-  const hl = await getHighlighter();
-  await loadLangs(hl, fenceLangs(src));
+  // Oversized prose renders without highlighting rather than tokenizing every
+  // fenced block (see MAX_HIGHLIGHT_BYTES); markdown-it's own escaping still
+  // produces a correct, readable document.
+  const hl = overBudget(src) ? null : await getHighlighter();
+  if (hl) await loadLangs(hl, fenceLangs(src));
 
   const md = new MarkdownIt({
     html: false,
     linkify: true,
-    highlight: (code, lang) => highlight(hl, code, lang, themeOpts) ?? "",
+    highlight: (code, lang) => (hl ? (highlight(hl, code, lang, themeOpts) ?? "") : ""),
   });
   const renderLinkOpen =
     md.renderer.rules.link_open ??
@@ -315,10 +328,11 @@ export async function renderCode(
   const lang = part.language ?? "text";
   const lineStart = part.lineStart ?? 1;
   const themeOpts = shikiThemeOptions(opts.theme, opts.mode);
-  const hl = await getHighlighter();
-  if (lang && lang !== "text") await loadLangs(hl, [lang]);
+  const plain = overBudget(code);
+  const hl = plain ? null : await getHighlighter();
+  if (hl && lang && lang !== "text") await loadLangs(hl, [lang]);
 
-  const highlighted = highlight(hl, code, lang, themeOpts);
+  const highlighted = hl ? highlight(hl, code, lang, themeOpts) : null;
   const pre = highlighted
     ? highlighted.replace(/\n*(<\/span>)\n*(<span class="line")/g, "$1$2")
     : plainHtml(code);
@@ -359,6 +373,15 @@ diffs-container { display: block; }
 diffs-container + diffs-container { border-top: 0.5px solid var(--border); }
 `;
 
+// Fallback styling for a patch too large to render as a real diff.
+const DIFF_PLAIN_CSS = `
+.diff-plain {
+  margin: 0; padding: 12px 14px; color: var(--text); background: var(--panel);
+  border: 0.5px solid var(--border); border-radius: 8px; overflow: auto;
+  font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+`;
+
 const BASE_LANGS = ["text", "json", "javascript", "typescript", "tsx", "jsx"];
 
 function buildFileDiffs(part: DiffSurface): { diffs: FileDiffMetadata[]; langs: string[] } {
@@ -396,6 +419,18 @@ export async function renderDiff(
 ): Promise<RenderedSurface> {
   const t = themeById(opts.theme);
   const shiki = { dark: t.shiki.dark, light: t.shiki.light };
+  const source =
+    part.patch ??
+    (part.files ?? []).map((f) => `${f.filename}\n${f.before}\n${f.after}`).join("\n");
+  // A giant patch is the most expensive render there is (parse + per-file SSR +
+  // highlighting). Past the budget, show it as a plain escaped patch instead of
+  // pinning the single-threaded runtime for seconds.
+  if (overBudget(source)) {
+    return {
+      body: `<pre class="diff-plain">${escapeHtml(source)}</pre>`,
+      css: `${DIFF_CSS}${DIFF_PLAIN_CSS}`,
+    };
+  }
   const { diffs, langs } = buildFileDiffs(part);
   if (diffs.length === 0) throw new Error("No diff content.");
   await preloadHighlighter({

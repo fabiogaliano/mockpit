@@ -1,11 +1,25 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
+  anchorFromLegacy,
   type Asset,
   type WorkspaceSnapshot,
   collectAssetIds,
   type Comment,
   type CommentQuery,
+  DEFAULT_PROJECT,
+  DEFAULT_VARIANT,
+  detailForItem,
+  type ItemDetail,
+  type ItemSummary,
+  type PostAsk,
+  type PostStatus,
+  type ProjectSummary,
+  projectFromCwd,
+  slugify,
+  summarizeItems,
+  summarizeProjects,
+  uniqueSlug,
   type CreateAssetInput,
   type CreateCommentInput,
   type CreateSessionInput,
@@ -87,16 +101,26 @@ function liftSnippet(s: LegacySnippet): Post {
       surfaces: [htmlSurface(h.html)],
       at: h.at,
     })),
+    // Pre-item fields. project/slug can only be resolved against the session,
+    // so loadFromDisk fills them in its second pass (same as liftPost).
+    project: "",
+    slug: "",
+    kind: "component",
+    variant: DEFAULT_VARIANT,
+    status: "open",
+    ask: null,
+    slots: [],
   };
 }
 
-type LegacyComment = Comment & {
-  snippetId?: string | null;
-  snippetTitle?: string | null;
-  // 0.5.x workspaces keyed comments by `surfaceId`/`surfaceTitle`.
-  surfaceId?: string | null;
-  surfaceTitle?: string | null;
-};
+type LegacyComment = Omit<Comment, "kind" | "anchors" | "draft" | "postVersion" | "viewport"> &
+  Partial<Comment> & {
+    snippetId?: string | null;
+    snippetTitle?: string | null;
+    // 0.5.x workspaces keyed comments by `surfaceId`/`surfaceTitle`.
+    surfaceId?: string | null;
+    surfaceTitle?: string | null;
+  };
 
 function liftComment(c: LegacyComment): Comment {
   return {
@@ -109,17 +133,29 @@ function liftComment(c: LegacyComment): Comment {
     text: c.text,
     createdAt: c.createdAt,
     ...(c.anchor && { anchor: c.anchor }),
+    kind: c.kind ?? "comment",
+    anchors: c.anchors ?? anchorFromLegacy(c.anchor),
+    draft: c.draft ?? false,
+    postVersion: c.postVersion ?? null,
+    viewport: c.viewport ?? null,
   };
 }
 
 // 0.5.x workspaces stored each post's blocks under a `parts` field (and
 // `history[].parts`). Map those to the `surfaces` field so old files still load.
-type LegacyPostVersion = PostVersion & { parts?: Surface[] };
-type LegacyPost = Omit<Post, "surfaces" | "history"> & {
+type LegacyPostVersion = Omit<PostVersion, "surfaces"> & {
   surfaces?: Surface[];
   parts?: Surface[];
-  history?: LegacyPostVersion[];
 };
+type LegacyPost = Omit<
+  Post,
+  "surfaces" | "history" | "project" | "slug" | "kind" | "variant" | "status" | "ask" | "slots"
+> &
+  Partial<Post> & {
+    surfaces?: Surface[];
+    parts?: Surface[];
+    history?: LegacyPostVersion[];
+  };
 
 function liftPost(s: LegacyPost): Post {
   return {
@@ -130,12 +166,33 @@ function liftPost(s: LegacyPost): Post {
     createdAt: s.createdAt,
     updatedAt: s.updatedAt,
     version: s.version,
-    history: (s.history ?? []).map((h) => ({
-      version: h.version,
-      title: h.title,
-      surfaces: h.surfaces ?? h.parts ?? [],
-      at: h.at,
-    })),
+    history: (s.history ?? []).map((h: LegacyPostVersion, i, all) => {
+      const from = h.from ?? (i > 0 ? all[i - 1].version : undefined);
+      return {
+        version: h.version,
+        title: h.title,
+        surfaces: h.surfaces ?? h.parts ?? [],
+        at: h.at,
+        // Keep the key absent (not `undefined`) so a JSON round-trip and the
+        // SQLite import produce byte-identical snapshots.
+        ...(from === undefined ? {} : { from }),
+        prompt: h.prompt ?? "",
+        ...(h.author === undefined ? {} : { author: h.author }),
+      };
+    }),
+    // Project and slug can only be resolved against the session, so the caller
+    // (loadFromDisk) fills them in a second pass; these are the neutral values
+    // an unmigrated row carries until then.
+    project: s.project ?? "",
+    slug: s.slug ?? "",
+    kind: s.kind ?? "component",
+    variant: s.variant ?? DEFAULT_VARIANT,
+    status: s.status ?? "open",
+    ask: s.ask ?? null,
+    slots: s.slots ?? [],
+    ...(s.from === undefined ? {} : { from: s.from }),
+    ...(s.prompt === undefined ? {} : { prompt: s.prompt }),
+    ...(s.author === undefined ? {} : { author: s.author }),
   };
 }
 
@@ -180,7 +237,11 @@ export class JsonFileStore implements Store {
       const data = JSON.parse(raw) as LegacyShape;
       // agentSeq arrived after 0.2.0 — default it for data files written before
       for (const s of data.sessions ?? []) {
-        this.sessions.set(s.id, { ...s, agentSeq: s.agentSeq ?? 0 });
+        this.sessions.set(s.id, {
+          ...s,
+          agentSeq: s.agentSeq ?? 0,
+          project: s.project ?? projectFromCwd(s.cwd) ?? null,
+        });
       }
       // Prefer the surfaces array; fall back to lifting legacy snippets.
       if (data.surfaces) {
@@ -194,6 +255,26 @@ export class JsonFileStore implements Store {
       for (const p of this.surfaces.values()) {
         p.surfaces = normalizeSurfaceIds(p.surfaces);
         for (const h of p.history) h.surfaces = normalizeSurfaceIds(h.surfaces);
+      }
+      // Second pass: resolve each pre-item post into a project › item › variant
+      // (the project comes from its session, so it can't be done while lifting).
+      const takenSlugs = new Map<string, Set<string>>();
+      for (const p of [...this.surfaces.values()].sort((a, b) =>
+        a.createdAt.localeCompare(b.createdAt),
+      )) {
+        if (p.slug) {
+          const used = takenSlugs.get(p.project) ?? new Set<string>();
+          used.add(p.slug);
+          takenSlugs.set(p.project, used);
+          continue;
+        }
+        const session = this.sessions.get(p.sessionId);
+        p.project =
+          p.project || session?.project || projectFromCwd(session?.cwd ?? null) || DEFAULT_PROJECT;
+        let used = takenSlugs.get(p.project);
+        if (!used) takenSlugs.set(p.project, (used = new Set<string>()));
+        p.slug = uniqueSlug(p.title, p.id, used);
+        used.add(p.slug);
       }
       this.comments = (data.comments ?? []).map(liftComment);
       for (const a of data.assets ?? []) {
@@ -280,6 +361,8 @@ export class JsonFileStore implements Store {
       createdAt: now,
       lastActiveAt: now,
       agentSeq: 0,
+      project:
+        stripNul(input.project)?.trim() || projectFromCwd(stripNul(input.cwd ?? null)) || null,
     };
     this.sessions.set(session.id, session);
     await this.persist();
@@ -379,17 +462,33 @@ export class JsonFileStore implements Store {
 
   async createPost(input: CreatePostInput) {
     await this.load();
-    if (!this.sessions.has(input.sessionId)) return null;
+    const session = this.sessions.get(input.sessionId);
+    if (!session) return null;
     const now = new Date().toISOString();
+    const title = stripNul(input.title)?.trim() || "Untitled";
     const post: Post = {
       id: newId(),
       sessionId: input.sessionId,
-      title: stripNul(input.title)?.trim() || "Untitled",
+      title,
       surfaces: normalizeSurfaceIds(clone(input.surfaces)),
       createdAt: now,
       updatedAt: now,
       version: 1,
       history: [],
+      project:
+        stripNul(input.project)?.trim() ||
+        session.project ||
+        projectFromCwd(session.cwd) ||
+        DEFAULT_PROJECT,
+      slug: slugify(stripNul(input.slug)?.trim() || title),
+      kind: input.kind === "page" ? "page" : "component",
+      variant: stripNul(input.variant)?.trim() || DEFAULT_VARIANT,
+      status: "open",
+      ask: null,
+      slots: clone(input.slots ?? []),
+      ...(input.from === undefined ? {} : { from: input.from }),
+      ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
+      ...(input.author === undefined ? {} : { author: stripNul(input.author) }),
     };
     this.surfaces.set(post.id, post);
     this.touch(input.sessionId);
@@ -407,10 +506,18 @@ export class JsonFileStore implements Store {
       title: post.title,
       surfaces: clone(post.surfaces),
       at: post.updatedAt,
+      ...(post.from === undefined ? {} : { from: post.from }),
+      ...(post.prompt === undefined ? {} : { prompt: post.prompt }),
+      ...(post.author === undefined ? {} : { author: post.author }),
     });
     if (post.history.length > HISTORY_LIMIT) post.history.shift();
     if (patch.title !== undefined) post.title = stripNul(patch.title).trim() || post.title;
     if (patch.surfaces !== undefined) post.surfaces = normalizeSurfaceIds(clone(patch.surfaces));
+    if (patch.slots !== undefined) post.slots = clone(patch.slots);
+    // A revision may branch from any earlier version; default to the one it replaces.
+    post.from = patch.from ?? post.version;
+    post.prompt = patch.prompt ?? "";
+    if (patch.author !== undefined) post.author = stripNul(patch.author);
     post.version += 1;
     post.updatedAt = new Date().toISOString();
     this.touch(post.sessionId);
@@ -430,6 +537,79 @@ export class JsonFileStore implements Store {
     return true;
   }
 
+  // --- projects / items / variants ---
+
+  async listProjects(): Promise<ProjectSummary[]> {
+    await this.load();
+    return summarizeProjects([...this.surfaces.values()].map(clone), [...this.sessions.values()]);
+  }
+
+  async listItems(project: string): Promise<ItemSummary[]> {
+    await this.load();
+    return summarizeItems(
+      [...this.surfaces.values()].filter((p) => p.project === project).map(clone),
+    );
+  }
+
+  async getItem(project: string, slug: string): Promise<ItemDetail | null> {
+    await this.load();
+    const posts = [...this.surfaces.values()]
+      .filter((p) => p.project === project && p.slug === slug)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map(clone);
+    return detailForItem(posts);
+  }
+
+  async findVariant(project: string, slug: string, variant: string): Promise<Post | null> {
+    await this.load();
+    const found = [...this.surfaces.values()]
+      .filter((p) => p.project === project && p.slug === slug && p.variant === variant)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+    return found ? clone(found) : null;
+  }
+
+  async setPostStatus(id: string, status: PostStatus): Promise<Post | null> {
+    await this.load();
+    const post = this.surfaces.get(id);
+    if (!post) return null;
+    post.status = status;
+    await this.persist();
+    return clone(post);
+  }
+
+  async setPostAsk(id: string, ask: PostAsk | null): Promise<Post | null> {
+    await this.load();
+    const post = this.surfaces.get(id);
+    if (!post) return null;
+    post.ask = ask ? clone(ask) : null;
+    await this.persist();
+    return clone(post);
+  }
+
+  async listDrafts(postId: string): Promise<Comment[]> {
+    await this.load();
+    return this.comments.filter((c) => c.postId === postId && c.draft).map(clone);
+  }
+
+  async releaseDrafts(postId: string): Promise<Comment[]> {
+    await this.load();
+    const drafts = this.comments.filter((c) => c.postId === postId && c.draft);
+    if (drafts.length === 0) return [];
+    // Fresh seqs, not an in-place flag flip: the session's agentSeq has already
+    // stepped past the seqs the drafts were written with, so reusing them would
+    // drop the feedback on the floor. Remove and re-append above the cursor so
+    // the one delivery stream picks each up exactly once.
+    this.comments = this.comments.filter((c) => !(c.postId === postId && c.draft));
+    const released: Comment[] = [];
+    for (const d of drafts) {
+      const next: Comment = { ...d, seq: ++this.lastSeq, draft: false };
+      this.comments.push(next);
+      released.push(clone(next));
+    }
+    await this.persist();
+    return released;
+  }
+
   // --- comments ---
 
   async listComments(query: CommentQuery) {
@@ -439,7 +619,10 @@ export class JsonFileStore implements Store {
         (c) =>
           (query.sessionId === undefined || c.sessionId === query.sessionId) &&
           (query.postId === undefined || c.postId === query.postId) &&
-          (query.afterSeq === undefined || c.seq > query.afterSeq),
+          (query.afterSeq === undefined || c.seq > query.afterSeq) &&
+          // Drafts are the operator's unsent notes: agent-facing reads (the
+          // default) must never see them.
+          (query.includeDrafts === true || !c.draft),
       )
       .map(clone);
   }
@@ -458,6 +641,11 @@ export class JsonFileStore implements Store {
       text: stripNul(input.text),
       createdAt: new Date().toISOString(),
       ...(input.anchor && { anchor: input.anchor }),
+      kind: input.kind ?? "comment",
+      anchors: clone(input.anchors ?? []),
+      draft: input.draft === true,
+      postVersion: input.postVersion ?? post?.version ?? null,
+      viewport: input.viewport ?? null,
     };
     this.comments.push(comment);
     this.touch(input.sessionId);

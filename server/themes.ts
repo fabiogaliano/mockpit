@@ -401,3 +401,195 @@ export function themeById(id: string | null | undefined): Theme {
 
 // Compact descriptor for the picker (avoids shipping full palettes to list).
 export const themeOptions = () => THEMES.map((t) => ({ id: t.id, label: t.label }));
+
+// --- Imported project palettes -------------------------------------------
+//
+// `sideshow init` reads a repo's own design tokens (a `:root{}` / `@theme`
+// block from Tailwind or shadcn) and stores them per project. The raw text is
+// injected verbatim into the html-surface sandbox, but the VIEWER chrome and
+// the `--color-*` contract still need a Palette — so the recognised token
+// names are mapped onto one here, runtime-agnostic like the rest of this file.
+//
+// Anything the repo doesn't declare falls back per field to the default theme,
+// so a partial import can never leave a color undefined (an undefined token
+// renders as unstyled black-on-white, which reads as "sideshow is broken"
+// rather than "your repo declares no border color").
+
+// Colour values arrive in three dialects: real CSS colors (`#fff`,
+// `oklch(...)`), shadcn's channel-only triplets (`0 0% 100%`, meant to be
+// wrapped by `hsl(var(--x))` at the use site), and bare rgb triplets. Only the
+// first is usable as-is, so the other two are re-wrapped into a function.
+function normalizeCssColor(raw: string): string | null {
+  const v = raw.trim().replace(/\s*!important$/, "");
+  if (!v) return null;
+  if (v.startsWith("var(")) return null; // an indirection we can't resolve here
+  if (/^#[0-9a-f]{3,8}$/i.test(v)) return v;
+  if (/^[a-z-]+\(/i.test(v)) return v; // oklch() / hsl() / rgb() / color-mix() / …
+  // `H S% L%` or `H S% L% / A` — shadcn's pre-v4 channel form.
+  if (/^-?[\d.]+(deg|turn|rad)?\s+[\d.]+%\s+[\d.]+%(\s*\/\s*[\d.]+%?)?$/.test(v)) {
+    return `hsl(${v})`;
+  }
+  // `R G B` or `R G B / A` — Tailwind's channel form for rgb(var(--x)).
+  if (/^\d+(\.\d+)?\s+\d+(\.\d+)?\s+\d+(\.\d+)?(\s*\/\s*[\d.]+%?)?$/.test(v)) {
+    return `rgb(${v})`;
+  }
+  if (/^[a-z]+$/i.test(v)) return v; // named color (white, transparent, …)
+  return null;
+}
+
+interface CssBlock {
+  selector: string;
+  dark: boolean;
+  declarations: string;
+}
+
+const DARK_SELECTOR = /(^|[\s,.[:])dark\b|prefers-color-scheme\s*:\s*dark/i;
+
+// Walk `selector { … }` blocks, recursing into at-rules so a
+// `@media (prefers-color-scheme: dark) { :root { … } }` inherits the dark flag.
+// Deliberately tolerant: this parses files we did not write and must never
+// throw, so anything it can't understand is simply skipped.
+function collectBlocks(css: string, dark: boolean, out: CssBlock[]): void {
+  let i = 0;
+  while (i < css.length) {
+    const open = css.indexOf("{", i);
+    if (open === -1) return;
+    // Everything since the previous block can include statement at-rules
+    // (`@import …;`, `@custom-variant dark (…);`) whose text would otherwise be
+    // read as part of this selector — and `@custom-variant dark` would then
+    // misfile the next block as a dark override. Keep only the last statement.
+    const selector = css.slice(i, open).split(";").pop()!.trim();
+    let depth = 1;
+    let j = open + 1;
+    while (j < css.length && depth > 0) {
+      const ch = css[j];
+      if (ch === "{") depth++;
+      else if (ch === "}") depth--;
+      j++;
+    }
+    const body = css.slice(open + 1, depth === 0 ? j - 1 : css.length);
+    const isDark = dark || DARK_SELECTOR.test(selector);
+    if (body.includes("{")) collectBlocks(body, isDark, out);
+    else out.push({ selector, dark: isDark, declarations: body });
+    i = j;
+  }
+}
+
+function readCustomProps(declarations: string): Record<string, string> {
+  const vars: Record<string, string> = {};
+  const re = /--([\w-]+)\s*:\s*([^;]+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(declarations))) vars[m[1]] = m[2].trim();
+  return vars;
+}
+
+// Ordered lookup: first declared name wins, so a repo that defines both
+// `--card` and `--background` gets the more specific one for a surface.
+function pick(vars: Record<string, string>, names: string[]): string | null {
+  for (const name of names) {
+    const raw = vars[name];
+    if (raw == null) continue;
+    const color = normalizeCssColor(raw);
+    if (color) return color;
+  }
+  return null;
+}
+
+function accentFrom(
+  vars: Record<string, string>,
+  bg: string[],
+  text: string[],
+  border: string[],
+  fallback: Accent,
+): Accent {
+  return {
+    bg: pick(vars, bg) ?? fallback.bg,
+    text: pick(vars, text) ?? fallback.text,
+    border: pick(vars, border) ?? fallback.border,
+  };
+}
+
+function paletteFrom(vars: Record<string, string>, fallback: Palette): Palette {
+  return {
+    bg: pick(vars, ["background", "color-background", "body-background"]) ?? fallback.bg,
+    panel: pick(vars, ["muted", "secondary", "color-muted", "popover"]) ?? fallback.panel,
+    surface: pick(vars, ["card", "popover", "background", "color-background"]) ?? fallback.surface,
+    text: pick(vars, ["foreground", "color-foreground", "card-foreground"]) ?? fallback.text,
+    muted: pick(vars, ["muted-foreground", "secondary-foreground"]) ?? fallback.muted,
+    faint: pick(vars, ["muted-foreground", "secondary-foreground"]) ?? fallback.faint,
+    border: pick(vars, ["border", "color-border", "input"]) ?? fallback.border,
+    border2: pick(vars, ["input", "ring", "border", "color-border"]) ?? fallback.border2,
+    hover: pick(vars, ["accent", "muted", "secondary"]) ?? fallback.hover,
+    // `info` doubles as the accent/link color everywhere in the viewer, so it
+    // is the one that must track the project's brand: primary for ink, accent
+    // for the wash, ring for the focus edge.
+    info: accentFrom(
+      vars,
+      ["accent", "primary-foreground", "secondary"],
+      ["primary", "ring", "accent-foreground"],
+      ["ring", "primary", "border"],
+      fallback.info,
+    ),
+    // Tailwind/shadcn ship no success or warning token, so these stay on the
+    // default theme unless a repo happens to declare them.
+    success: accentFrom(
+      vars,
+      ["success-background", "success-bg"],
+      ["success", "success-foreground"],
+      ["success-border", "success"],
+      fallback.success,
+    ),
+    warning: accentFrom(
+      vars,
+      ["warning-background", "warning-bg"],
+      ["warning", "warning-foreground"],
+      ["warning-border", "warning"],
+      fallback.warning,
+    ),
+    danger: accentFrom(
+      vars,
+      ["destructive-background", "destructive-bg", "danger-bg"],
+      ["destructive", "danger", "destructive-foreground"],
+      ["destructive-border", "destructive", "danger"],
+      fallback.danger,
+    ),
+  };
+}
+
+// Map a repo's CSS custom properties onto the two Palettes a theme needs.
+// Returns null when the text declares no recognisable color token at all —
+// the caller (`sideshow init`) then keeps the default theme rather than
+// storing a palette that is 100% fallback.
+//
+// `--radius` is intentionally NOT mapped: Palette carries colors only, and the
+// raw block is injected into the sandbox verbatim, so the repo's radius reaches
+// surfaces through `var(--radius)` without a second source of truth.
+export function paletteFromCssVars(cssVars: string): { light: Palette; dark: Palette } | null {
+  if (!cssVars || !cssVars.trim()) return null;
+  const blocks: CssBlock[] = [];
+  // Strip comments first so a commented-out token can't win the ordered pick.
+  collectBlocks(cssVars.replace(/\/\*[\s\S]*?\*\//g, ""), false, blocks);
+  // A bare declaration list (no selector) is treated as the light root, so
+  // callers may pass either `:root{…}` or just its contents.
+  if (blocks.length === 0) blocks.push({ selector: ":root", dark: false, declarations: cssVars });
+
+  const light: Record<string, string> = {};
+  const dark: Record<string, string> = {};
+  for (const b of blocks) {
+    const vars = readCustomProps(b.declarations);
+    Object.assign(b.dark ? dark : light, vars);
+  }
+  const base = themeById(DEFAULT_THEME_ID);
+  const lightPalette = paletteFrom(light, base.light);
+  // Dark inherits the light declarations first: a repo that only overrides
+  // `--background`/`--foreground` in `.dark` still gets its brand `--primary`.
+  // A repo with no dark block at all is single-palette (Loom, for one, is
+  // dark-only with everything in `:root`) — reusing the same values in both
+  // schemes keeps it looking like itself, where falling back to the default
+  // theme's dark would make the two modes look like two different products.
+  const darkPalette = paletteFrom({ ...light, ...dark }, base.dark);
+  const recognised =
+    JSON.stringify(lightPalette) !== JSON.stringify(base.light) ||
+    JSON.stringify(darkPalette) !== JSON.stringify(base.dark);
+  return recognised ? { light: lightPalette, dark: darkPalette } : null;
+}

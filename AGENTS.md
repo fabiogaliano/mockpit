@@ -6,17 +6,26 @@ _use_ a running sideshow lives in `guide/AGENT_SETUP.md`, served at `/setup`.)
 
 ## What this is and why
 
-A live visual surface for terminal coding agents: agents publish posts
-(multi-surface cards — html, markdown, diff, terminal, image, mermaid, json, code) over
-CLI/MCP/HTTP; the user watches them render in a browser and comments back. The
-two-way loop — publish → live render → comment → revise/reply — is the product.
-When in doubt, optimize for the loop.
+A live visual surface for terminal coding agents: agents publish items
+(multi-surface renders — html, markdown, diff, terminal, image, mermaid, json, code)
+over CLI/MCP/HTTP; the user watches them render in a browser and comments back.
+The two-way loop — publish → live render → comment/decide → revise/reply — is the
+product. When in doubt, optimize for the loop.
+
+Navigation is **project › item › variant › version**: a project is a repo (derived
+from the agent's cwd/git remote), an item is a component or a page addressed by a
+stable slug, variants are sibling posts under an item shown as tabs, versions are
+the item's history. The agent's verbs are `init`, `publish`, `ask`, `wait`,
+`revise`, `page`, `status`, `show`, `export`; the user's are Revise / Accept /
+Drop, which release the comments they batched up as drafts.
 
 Current product stances (deliberate choices, not accidents — revisit
 consciously, not as a side effect):
 
-- One workspace per person; one session per agent conversation. Accounts and
-  multi-user are out of scope; auth is a single deploy token.
+- One workspace per person; one session per agent conversation. Sessions are
+  metadata only — auth, the feedback cursor, and authorship on versions; they are
+  not a navigation unit. Accounts and multi-user are out of scope; auth is a
+  single deploy token.
 - Three integration tiers, most universal first: zero-dependency CLI, MCP
   (stdio and streamable HTTP at `/mcp`), raw HTTP. Features should work on
   all three — the CLI and curl tiers are why agents with only a shell can
@@ -236,16 +245,23 @@ test.ts` covers the JSON→SQLite import.
 
 ## Conventions
 
-- **Naming (rename in progress).** A published artifact is a **post** (an ordered
-  list of **surfaces**); a surface is one block (html/markdown/diff/image/…). In
-  new code use these names — never `part`, never `surface` for the artifact. The
+- **Naming (rename in progress).** The user-facing model is **project › item ›
+  variant › version**; a **variant** is stored as a `Post`, and its versions are
+  that post's history. A published artifact is a **post** (an ordered list of
+  **surfaces**); a surface is one block (html/markdown/diff/image/…). In new code
+  use these names — never `part`, never `surface` for the artifact, and never
+  `stream`/`snippet` for what the viewer shows. The
   data layer (`server/types.ts`, the stores), the wire (canonical `/api/posts`),
-  MCP tools (canonical `publish_post`/`update_post`/`list_posts`), the viewer
+  MCP tools (canonical `publish_item`/`revise_item`/`list_items`/`get_item`/
+  `ask_user`/`export_item`, with `publish_post`/`update_post`/`list_posts` still
+  canonical for the post-level API), the viewer
   engine, the CLI help, and `guide/*.md` all use them now. Retired spellings stay
   as back-compat ONLY at the boundary: the legacy HTTP routes (`/api/surfaces`,
   `/api/snippets`), the `parts` request-body key, the `?part=` query key, the
   `/s/:id` route alias, and the deprecated MCP tool
-  aliases (`publish_surface`, etc.) — keep these byte-identical. The tenant DB is
+  aliases (`publish_surface`, etc.) — keep these byte-identical. Deprecated MCP
+  aliases are hidden from `tools/list` unless `SIDESHOW_MCP_LEGACY=1`; hiding is
+  allowed, changing them is not. The tenant DB is
   a **workspace** (`board` is being retired). Canonical glossary: sideshow-cloud
   `docs/glossary.md`.
 - Conventional Commits: `type(scope): description`.

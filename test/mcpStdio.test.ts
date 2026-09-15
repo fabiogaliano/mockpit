@@ -150,7 +150,10 @@ const json = (body: unknown, method = "POST"): RequestInit => ({
   body: JSON.stringify(body),
 });
 
-type FeedbackResult = { userFeedback?: Array<{ text: string; postId: string }> };
+// `userFeedback` is the batch shape: one entry per post, its comments inside.
+type FeedbackResult = {
+  userFeedback?: Array<{ postId: string; comments: Array<{ text: string }> }>;
+};
 
 async function queueFeedback(url: string, postId: string, text: string) {
   await fetchJson(url, "/api/comments", json({ surface: postId, text, author: "user" }));
@@ -158,7 +161,7 @@ async function queueFeedback(url: string, postId: string, text: string) {
 
 function assertFeedback(result: FeedbackResult, text: string, postId: string) {
   assert.deepEqual(
-    result.userFeedback?.map((feedback) => feedback.text),
+    result.userFeedback?.flatMap((batch) => batch.comments.map((c) => c.text)),
     [text],
   );
   assert.equal(result.userFeedback?.[0].postId, postId);
@@ -182,16 +185,24 @@ test(
 
     await t.test("advertises every HTTP-equivalent tool and starts without a session", async () => {
       assert.equal(mcp.client.getServerVersion()?.name, "sideshow");
-      assert.match(mcp.client.getInstructions() ?? "", /publish_post/);
+      assert.match(mcp.client.getInstructions() ?? "", /publish_item/);
 
       const listed = await mcp.client.listTools();
+      // stdio advertises the HTTP catalog plus `init_project`, which only makes
+      // sense with a local checkout; retired spellings stay callable but are
+      // not listed (SIDESHOW_MCP_LEGACY=1 brings them back).
       assert.deepEqual(
         listed.tools.map((tool) => tool.name).sort(),
-        HTTP_MCP_TOOLS.map((tool) => tool.name).sort(),
+        [...HTTP_MCP_TOOLS.map((tool) => tool.name), "init_project"].sort(),
       );
+      assert.ok(!listed.tools.some((tool) => tool.name === "publish_surface"));
       assert.deepEqual(await callJson(mcp.client, "list_posts"), []);
       assert.deepEqual(await callJson(mcp.client, "list_surfaces"), []);
-      assert.equal(await callText(mcp.client, "get_design_guide"), "# stdio design guide");
+      // get_design_guide renders the project-aware brief (the reshape's short
+      // guide), not the raw workspace guide markdown.
+      const guide = await callText(mcp.client, "get_design_guide");
+      assert.match(guide, /design brief/);
+      assert.match(guide, /publish --item/);
     });
 
     await t.test("rejects invalid input before creating a lazy session", async () => {
@@ -396,18 +407,12 @@ test(
           "/api/comments",
           json({ surface: post.id, text: "Piggyback on the next write", author: "user" }),
         );
-        const updated = await callJson<
-          PostResult & { userFeedback?: Array<{ text: string; postId: string }> }
-        >(mcp.client, "update_post", {
+        const updated = await callJson<PostResult & FeedbackResult>(mcp.client, "update_post", {
           id: post.id,
           title: "stdio canonical feedback",
           surfaces: [{ kind: "markdown", markdown: "# feedback revision" }],
         });
-        assert.deepEqual(
-          updated.userFeedback?.map((feedback) => feedback.text),
-          ["Piggyback on the next write"],
-        );
-        assert.equal(updated.userFeedback?.[0].postId, post.id);
+        assertFeedback(updated, "Piggyback on the next write", post.id);
         post = updated;
 
         const afterWrite = await callJson<{ comments: unknown[] }>(
@@ -422,13 +427,20 @@ test(
           "/api/comments",
           json({ surface: post.id, text: "Please tighten this", author: "user" }),
         );
+        // A wait returns the batch for the post: its identity once, comments inside.
         const waited = await callJson<{
-          comments: Array<{ text: string; postId: string; postTitle: string }>;
+          postId: string;
+          title: string;
+          decision: unknown;
+          comments: Array<{ text: string; seq: number }>;
         }>(mcp.client, "wait_for_feedback", { timeoutSeconds: 0 });
-        assert.equal(waited.comments.length, 1);
-        assert.equal(waited.comments[0].text, "Please tighten this");
-        assert.equal(waited.comments[0].postId, post.id);
-        assert.equal(waited.comments[0].postTitle, "stdio canonical feedback");
+        assert.equal(waited.postId, post.id);
+        assert.equal(waited.title, "stdio canonical feedback");
+        assert.equal(waited.decision, null);
+        assert.deepEqual(
+          waited.comments.map((c) => c.text),
+          ["Please tighten this"],
+        );
 
         const afterWait = await callJson<{ comments: unknown[]; note: string }>(
           mcp.client,
@@ -443,15 +455,11 @@ test(
           "/api/comments",
           json({ surface: post.id, text: "Explain the change", author: "user" }),
         );
-        const reply = await callJson<{ userFeedback?: Array<{ text: string }> }>(
-          mcp.client,
-          "reply_to_user",
-          { postId: post.id, message: "Tightened." },
-        );
-        assert.deepEqual(
-          reply.userFeedback?.map((feedback) => feedback.text),
-          ["Explain the change"],
-        );
+        const reply = await callJson<FeedbackResult>(mcp.client, "reply_to_user", {
+          postId: post.id,
+          message: "Tightened.",
+        });
+        assertFeedback(reply, "Explain the change", post.id);
         const afterReply = await callJson<{ comments: unknown[] }>(
           mcp.client,
           "wait_for_feedback",
@@ -474,6 +482,107 @@ test(
       },
     );
 
+    await t.test("the item tools drive the project > item > variant loop", async () => {
+      // The stdio tier answers in the item vocabulary (project/slug/variant/
+      // version + a project URL), not the post shape.
+      const published = await callJson<{
+        project: string;
+        slug: string;
+        variant: string;
+        version: number;
+        url: string;
+      }>(mcp.client, "publish_item", {
+        slug: "pricing-card",
+        variant: "highlighted",
+        title: "Pricing card",
+        html: "<div class=card>v1</div>",
+      });
+      assert.equal(published.slug, "pricing-card");
+      assert.equal(published.variant, "highlighted");
+      assert.equal(published.version, 1);
+      assert.match(published.url, /\/project\/.+\/pricing-card$/);
+
+      // the same (project, slug, variant) is a new VERSION, not a second item
+      const revised = await callJson<{ slug: string; variant: string; version: number }>(
+        mcp.client,
+        "revise_item",
+        {
+          slug: "pricing-card",
+          variant: "highlighted",
+          html: "<div class=card>v2</div>",
+          from: 1,
+          prompt: "tighten the spacing",
+        },
+      );
+      assert.equal(revised.slug, "pricing-card");
+      assert.equal(revised.version, 2);
+
+      const listed = await callJson<{
+        project: string;
+        items: Array<{ slug: string; kind: string; variants: Array<{ variant: string }> }>;
+      }>(mcp.client, "list_items", { project: published.project });
+      const row = listed.items.find((item) => item.slug === "pricing-card");
+      assert.ok(row, "the published item is listed");
+      assert.equal(row!.kind, "component");
+      assert.deepEqual(
+        row!.variants.map((v) => v.variant),
+        ["highlighted"],
+      );
+
+      const item = await callJson<{
+        slug: string;
+        kind: string;
+        variants: Array<{ variant: string; version: number; status: string; html?: string }>;
+      }>(mcp.client, "get_item", {
+        slug: "pricing-card",
+        project: published.project,
+        body: true,
+      });
+      assert.equal(item.kind, "component");
+      const highlighted = item.variants.find((v) => v.variant === "highlighted")!;
+      assert.equal(highlighted.version, 2);
+      assert.equal(highlighted.status, "open");
+      assert.equal(highlighted.html, "<div class=card>v2</div>");
+
+      // ask marks the item as waiting on the operator, and lands in its thread
+      const asked = await callJson<{ ask: string; variant: string; version: number }>(
+        mcp.client,
+        "ask_user",
+        {
+          slug: "pricing-card",
+          project: published.project,
+          variant: "highlighted",
+          text: "tighter or roomier?",
+        },
+      );
+      assert.equal(asked.ask, "tighter or roomier?");
+      const asking = await callJson<{ variants: Array<{ variant: string; ask: any }> }>(
+        mcp.client,
+        "get_item",
+        { slug: "pricing-card", project: published.project, variant: "highlighted" },
+      );
+      assert.equal(asking.variants[0].ask?.text, "tighter or roomier?");
+
+      const exported = await callJson<{
+        variant: string;
+        version: number;
+        html: string;
+        prompts: Array<{ version: number; prompt: string }>;
+      }>(mcp.client, "export_item", {
+        slug: "pricing-card",
+        project: published.project,
+        variant: "highlighted",
+      });
+      assert.equal(exported.version, 2);
+      assert.equal(exported.html, "<div class=card>v2</div>");
+      // newest first, current version included, each with what prompted it
+      assert.deepEqual(
+        exported.prompts.map((h) => h.version),
+        [2, 1],
+      );
+      assert.equal(exported.prompts[0].prompt, "tighten the spacing");
+    });
+
     await t.test("the welcome tool is idempotent and isolated from the conversation", async () => {
       const first = await callJson<{ id: string; alreadySent?: boolean }>(
         mcp.client,
@@ -488,12 +597,15 @@ test(
       assert.equal(second.id, first.id);
 
       const posts = await callJson<Array<{ id: string }>>(mcp.client, "list_posts");
-      assert.equal(posts.length, 3, "welcome post must not enter the conversation session");
+      assert.equal(posts.length, 4, "welcome post must not enter the conversation session");
       const sessions = await fetchJson<SessionRow[]>(app.url, "/api/sessions");
       assert.equal(sessions.length, 2);
+      const invoked = invokedTools.get(mcp.client) ?? new Set<string>();
       assert.deepEqual(
-        [...(invokedTools.get(mcp.client) ?? [])].sort(),
-        HTTP_MCP_TOOLS.map((tool) => tool.name).sort(),
+        HTTP_MCP_TOOLS.map((tool) => tool.name)
+          .filter((name) => !invoked.has(name))
+          .sort(),
+        [],
         "every advertised tool must be invoked, not merely listed",
       );
     });

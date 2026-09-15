@@ -2,7 +2,20 @@
 // is the Vite-built viewer/dist-embed/engine.js; these declarations describe its
 // surface so hosts get types without depending on the viewer source.
 
-export type Route = { sessionId?: string | null; surfaceId?: string | null };
+/**
+ * The engine's route. `project`/`slug`/`variant`/`version` address the item
+ * screen (project › item › variant › version); `sessionId`/`surfaceId` stay for
+ * session permalinks and the standalone post page, which the engine resolves
+ * into the item screen.
+ */
+export type Route = {
+  sessionId?: string | null;
+  surfaceId?: string | null;
+  project?: string | null;
+  slug?: string | null;
+  variant?: string | null;
+  version?: number | null;
+};
 export type LiveTransport = "sse" | "ws";
 
 export interface HostRouter {
@@ -21,9 +34,14 @@ export interface SideshowHost {
   /** The caller's own identity, when the host knows it. */
   identity?: { login: string; workspaceSlug?: string; role?: string };
   /**
-   * Layout the engine renders. "full" (default) shows the sidebar + stream;
-   * "stream" shows only the current session's stream — no sidebar, session list,
-   * or session chrome. (Self-hosted public-read "session" links map to "stream".)
+   * Layout the engine renders. "full" (default) is the whole navigation:
+   * projects sidebar, items column, item screen.
+   *
+   * @deprecated "stream" named the mixed post stream, which the reshape removed.
+   * It is still accepted and now means "the item screen alone" — no projects
+   * sidebar, no items column — with the item resolved from the route's
+   * session/post rather than the project reads. (Self-hosted public-read
+   * "session" links map to it.)
    */
   layout?: "full" | "stream";
   /**
@@ -46,12 +64,12 @@ export interface SideshowHost {
    */
   screenshots?: boolean;
   /**
-   * The host renders its own session-less landing (a "home" view) when the route
-   * carries no session. The engine then does NOT auto-pick a session: on boot it
-   * honors a deep-linked `route.sessionId` but otherwise stays session-less (no
-   * selection, nothing highlighted), and when the route later becomes session-less
-   * it clears its selection instead of leaving the last session highlighted behind
-   * the host's landing. Self-hosted leaves this unset and is unchanged. Defaults to off.
+   * The host renders its own landing when the route carries no project. The
+   * engine then does NOT auto-pick one: it stays on the projects list (route
+   * "/") with nothing selected, and clears its selection when the route later
+   * becomes project-less. Self-hosted leaves this unset and is unchanged — "/"
+   * auto-opens the most recent project. Defaults to off. (Before the reshape
+   * this read the same way one level down, on sessions.)
    */
   homeView?: boolean;
   /**
@@ -76,9 +94,9 @@ export interface SideshowHost {
    */
   onThemeChange?(tokens: ThemeTokens, meta: { theme: string; mode: "light" | "dark" }): void;
   /**
-   * Called once, after the engine's first session-list fetch resolves and the
-   * initial workspace (a session, or the empty-workspace onboarding) is decided — the
-   * moment the engine knows what to show. Hold a loading overlay over the mount
+   * Called once, after the engine's first route resolution completes and the
+   * initial screen (an item, a project, or the empty-workspace onboarding) is
+   * decided — the moment the engine knows what to show. Hold a loading overlay over the mount
    * until then to avoid showing the pre-load workspace flash; the engine's own
    * onboarding pane is internally gated on the same signal. Fires even if that
    * fetch failed (workspace falls back to onboarding), so an overlay can't get
@@ -107,7 +125,7 @@ export function mountViewer(el: Element, host?: SideshowHost): ViewerHandle;
 export declare const SLOTS: {
   /**
    * Sidebar header: the host-overridable region at the top of the sidebar, above
-   * the session list. Empty by default (self-hosted shows nothing here); project a
+   * the projects list. Empty by default (self-hosted shows nothing here); project a
    * `slot="ss:aside-head"` child for a host header — e.g. a workspace picker and a
    * pinned Home link.
    */
@@ -115,18 +133,28 @@ export declare const SLOTS: {
   /** Sidebar footer: doc links, connect action, theme picker. */
   readonly asideFoot: "ss:aside-foot";
   /**
-   * Empty-sidebar affordance shown in the session list when no sessions exist.
+   * Empty-sidebar affordance shown in the projects list when no projects exist.
    * Fallback is a native "Connect an agent" row that scrolls to the empty-workspace
    * pane (ss:empty); project a `slot="ss:aside-empty"` child for a host-specific
    * nudge. Renders only on an empty (post-load) workspace.
    */
   readonly asideEmpty: "ss:aside-empty";
-  /** Empty-workspace onboarding shown before any session exists. */
+  /** Empty-workspace onboarding shown before any project exists. */
   readonly empty: "ss:empty";
-  /** Per-session actions in the session header, beside the stream/timeline toggle. */
+  /**
+   * Per-item actions in the item header, beside the title/kind line. Empty by
+   * default; project a `slot="ss:item-actions"` child for item-scoped controls
+   * (a cloud "Share" button, say).
+   */
+  readonly itemActions: "ss:item-actions";
+  /**
+   * @deprecated Alias of `itemActions` — the session header it named is gone
+   * with the session screen. Content projected under the old name still renders
+   * in the item header.
+   */
   readonly sessionActions: "ss:session-actions";
   /**
-   * The whole main content pane (onboarding + session stream). Fallback is the
+   * The whole main content pane (onboarding + the item screen). Fallback is the
    * normal workspace; project a `slot="ss:main"` child to take over the main area
    * (e.g. a cloud Settings page) while the sidebar stays. Meant to be projected
    * conditionally — when no child is assigned the engine shows the workspace.

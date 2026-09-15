@@ -133,6 +133,7 @@ test("importBoard (legacy snapshot API) rolls back fully if an insert fails part
     agent: "pi",
     title: null,
     cwd: null,
+    project: null,
     createdAt: now,
     lastActiveAt: now,
     agentSeq: 0,

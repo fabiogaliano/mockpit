@@ -1,4 +1,5 @@
-import { kitAssets } from "./kits.ts";
+import { CORE_CSS, type Kit, KITS, kitAssets } from "./kits.ts";
+import type { DesignSettings } from "./types.ts";
 import {
   type Mode,
   type Palette,
@@ -54,14 +55,29 @@ const cdns = CDN_ALLOWLIST.join(" ");
 // (served at <origin>/a/:id) embed by URL. It is needed because the iframe runs
 // at an opaque origin (sandbox without allow-same-origin), so `'self'` matches
 // nothing, and a local http origin isn't covered by the `https:` source.
-function buildCsp(origin: string): string {
+// `extraConnect` widens connect-src for the ONE case that needs it: an html
+// surface whose project has an icon sprite, which the injected loader fetches
+// from `<origin>/a/<id>`. It is passed as a path-scoped source (`<origin>/a/`),
+// so the sandbox gains read access to uploaded assets only — never to the
+// workspace API (`/api/*`), which is what the empty connect-src was protecting.
+// Assets are already world-readable by id (`img-src` has allowed the same URLs
+// all along) and the fetch is credential-less from an opaque origin, so this
+// grants no capability the frame did not already have via <img>. Rich surfaces
+// never pass it and keep no connect-src at all.
+// `${origin}/asset/` is the fixed, content-hashed path the bridge script and the
+// static stylesheets are served from (see registerAsset). It is deliberately a
+// single directory of server-authored, workspace-data-free files: nothing an
+// agent or a user can write is ever reachable under it, so widening script-src
+// to it grants the sandbox no capability beyond running our own bridge.
+function buildCsp(origin: string, extraConnect?: string): string {
+  const assets = `${origin}${STATIC_ASSET_PREFIX}`;
   return [
     `default-src 'none'`,
-    `script-src 'unsafe-inline' ${cdns}`,
-    `style-src 'unsafe-inline' ${cdns}`,
+    `script-src 'unsafe-inline' ${assets} ${cdns}`,
+    `style-src 'unsafe-inline' ${assets} ${cdns}`,
     `font-src ${cdns} data:`,
     `img-src https: data: blob: ${origin}`,
-    `connect-src ${cdns}`,
+    `connect-src ${cdns}${extraConnect ? ` ${extraConnect}` : ""}`,
     `media-src https: data: blob: ${origin}`,
   ].join("; ");
 }
@@ -279,6 +295,230 @@ if (window.ResizeObserver) {
 }
 `;
 
+// Hit test: the viewer's marker overlay lives in the trusted origin ABOVE the
+// sandboxed frame, so when the operator drops a pin it knows the normalized
+// point but nothing about what sits under it. This answers that question over
+// one narrow message — the viewer asks, we reply with data (a css path, a text
+// snippet, a normalized rect) that it renders as text nodes only.
+//
+// Narrow-channel rules, both directions:
+//   - we only answer `parent`, so a nested frame or a popup can't harvest the
+//     document by spamming hit tests;
+//   - the reply is DATA, never markup, and `text` is clamped so a surface can't
+//     use a pin as a megaphone into the viewer's chrome.
+//
+// Coordinates are normalized against the DOCUMENT box (clientWidth ×
+// body.scrollHeight), i.e. the same box the resize bridge reports and the
+// viewer sizes the iframe to — so an anchor drawn over the frame maps 1:1
+// whatever the viewport preset scales it to.
+//
+// Kept separate from BRIDGE_JS: the resize half is a load-bearing, WebKit-
+// quirked script with its own regression test that runs it verbatim in a vm.
+export const HIT_TEST_JS = `
+(function () {
+  var MAX_DEPTH = 6;
+  var MAX_TEXT = 60;
+  function docBox() {
+    var w = document.documentElement.clientWidth || 1;
+    var h = (document.body && document.body.scrollHeight) || document.documentElement.scrollHeight || 1;
+    return { w: w, h: h };
+  }
+  function ident(v) { return typeof v === 'string' && /^[A-Za-z][\\w-]*$/.test(v); }
+  function cssPath(el) {
+    var parts = [];
+    while (el && el.nodeType === 1 && el !== document.body && el !== document.documentElement) {
+      var tag = el.tagName.toLowerCase();
+      if (ident(el.id)) { parts.unshift(tag + '#' + el.id); break; }
+      var sel = tag;
+      var cls = (el.getAttribute('class') || '').split(/\\s+/).filter(ident).slice(0, 2);
+      if (cls.length) sel += '.' + cls.join('.');
+      var p = el.parentElement;
+      if (p) {
+        var sibs = [];
+        for (var i = 0; i < p.children.length; i++) {
+          if (p.children[i].tagName === el.tagName) sibs.push(p.children[i]);
+        }
+        if (sibs.length > 1) sel += ':nth-of-type(' + (sibs.indexOf(el) + 1) + ')';
+      }
+      parts.unshift(sel);
+      if (parts.length >= MAX_DEPTH) break;
+      el = p;
+    }
+    return parts.join(' > ');
+  }
+  function firstLine(el) {
+    var t = (el.innerText || el.textContent || '').replace(/\\s+/g, ' ').trim();
+    var line = t.split('\\n')[0].trim();
+    return line.length > MAX_TEXT ? line.slice(0, MAX_TEXT - 1) + '\\u2026' : line;
+  }
+  window.addEventListener('message', function (e) {
+    if (e.source !== parent || parent === window) return;
+    var d = e.data;
+    if (!d || d.__sideshow !== true || d.type !== 'hit-test') return;
+    var box = docBox();
+    var px = Math.max(0, Math.min(1, Number(d.x) || 0)) * box.w;
+    var py = Math.max(0, Math.min(1, Number(d.y) || 0)) * box.h;
+    var el = document.elementFromPoint(px - (window.scrollX || 0), py - (window.scrollY || 0));
+    var reply = { __sideshow: true, type: 'hit-test-result', ref: d.ref, path: '', text: '', rect: [0, 0, 0, 0] };
+    if (el && el.nodeType === 1) {
+      var r = el.getBoundingClientRect();
+      reply.path = cssPath(el);
+      reply.text = firstLine(el);
+      reply.rect = [
+        (r.left + (window.scrollX || 0)) / box.w,
+        (r.top + (window.scrollY || 0)) / box.h,
+        r.width / box.w,
+        r.height / box.h,
+      ];
+    }
+    parent.postMessage(reply, '*');
+  });
+})();
+`;
+
+// Tailwind's browser build, pinned to a major (jsdelivr is already on the CDN
+// allowlist, so this needs no CSP widening). Injected only when a project's
+// design settings say `kit: "tailwind"`, i.e. the repo itself is a Tailwind
+// repo — so the agent writes the same classes it writes in the codebase.
+const TAILWIND_CDN = "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4";
+
+// Sizing for `<svg class="icon"><use href="#mage-…"/></svg>` — shipped with
+// the sprite loader so the markup in `.sideshow/starter.html` works whichever
+// kit a project ended up on.
+const ICON_CSS = `.icon{width:1em;height:1em;flex:none;vertical-align:-0.125em;fill:none;stroke:currentColor}`;
+
+// ---------------------------------------------------------------------------
+// Content-hashed static assets for surface documents
+// ---------------------------------------------------------------------------
+//
+// The bridge script and the theme-independent stylesheets used to be inlined
+// into EVERY surface document — ~11 KB of identical bytes per surface, paid
+// again for every post, every version, every theme and every mode. They are
+// served instead from `/asset/<name>.<hash>.<ext>`, so the browser fetches each
+// one once and reuses it across the whole workspace.
+//
+// The hash is derived from the content at module load (FNV-1a — no crypto, no
+// async, runtime-agnostic), so an upgrade that changes a byte changes the URL:
+// a surface document cached as immutable for a year can never pair with stale
+// asset bytes.
+//
+// Only content that does NOT depend on the theme or the resolved mode lives
+// here. Theme tokens are per (theme, mode) and stay inline in the document,
+// where they are already covered by its cache key.
+
+const fnv1a = (input: string): string => {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  return h.toString(36);
+};
+
+export interface StaticAsset {
+  path: string;
+  contentType: string;
+  body: string;
+}
+
+// Every path is registered at module load, so a document served from a
+// long-lived cache after a restart always finds the asset it references.
+export const STATIC_ASSET_PREFIX = "/asset/";
+const STATIC_ASSETS = new Map<string, StaticAsset>();
+
+function registerAsset(name: string, ext: "js" | "css", body: string): string {
+  const path = `${STATIC_ASSET_PREFIX}${name}.${fnv1a(body)}.${ext}`;
+  STATIC_ASSETS.set(path, {
+    path,
+    contentType: ext === "js" ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8",
+    body,
+  });
+  return path;
+}
+
+export const staticAsset = (path: string): StaticAsset | null => STATIC_ASSETS.get(path) ?? null;
+
+const BRIDGE_PATH = registerAsset("bridge", "js", BRIDGE_JS);
+const HIT_TEST_PATH = registerAsset("hit-test", "js", HIT_TEST_JS);
+// The base html-surface stylesheet: static design tokens + the surface kit.
+const BASE_CSS_PATH = registerAsset("base", "css", `${TOKENS_CSS}${KIT_CSS}`);
+const KIT_CORE_PATH = registerAsset("kit-core", "css", CORE_CSS);
+const KIT_PATHS = new Map(KITS.map((k) => [k.id, registerAsset(`kit-${k.id}`, "css", k.css)]));
+const ICON_CSS_PATH = registerAsset("icon", "css", ICON_CSS);
+
+const scriptTag = (origin: string, path: string) => `<script src="${origin}${path}"></script>`;
+const styleTag = (origin: string, path: string) =>
+  `<link rel="stylesheet" href="${origin}${path}">`;
+
+// The same resolution kitAssets does (known ids, first occurrence wins), but
+// yielding one stylesheet per kit instead of one concatenated string.
+function resolveKits(ids: readonly string[] | undefined): Kit[] {
+  if (!ids || ids.length === 0) return [];
+  const seen = new Set<string>();
+  const chosen: Kit[] = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    const kit = KITS.find((k) => k.id === id);
+    if (!kit) continue;
+    seen.add(id);
+    chosen.push(kit);
+  }
+  return chosen;
+}
+
+// Fetch the project's uploaded icon sprite and append it, so `<use>` resolves.
+// A cross-document `<use href="/a/<id>#mage-home">` is blocked by the SVG
+// same-origin rule (and doubly so from an opaque origin), so the symbols have
+// to live in THIS document — hence fetch + append rather than a plain
+// reference. `credentials: 'omit'` keeps the request anonymous; a failure is
+// swallowed because a missing icon must never take the whole surface down.
+const spriteLoaderJs = (origin: string, assetId: string) => `
+(function () {
+  fetch(${JSON.stringify(`${origin}/a/${assetId}`)}, { credentials: 'omit' })
+    .then(function (r) { return r.ok ? r.text() : null; })
+    .then(function (svg) {
+      if (!svg) return;
+      var host = document.createElement('div');
+      host.setAttribute('aria-hidden', 'true');
+      host.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden';
+      host.innerHTML = svg;
+      document.body.appendChild(host);
+    })
+    .catch(function () {});
+})();
+`;
+
+// Everything a project's DesignSettings contributes to one html-surface doc.
+// Kept in one place so the ordering rule is visible: the project's own tokens
+// land AFTER sideshow's, because a repo that declares `--radius` or a brand
+// color should win inside its own project's surfaces.
+function designAssets(
+  design: DesignSettings | null | undefined,
+  origin: string,
+): {
+  css: string;
+  kits: string[];
+  headScripts: string;
+  bodyScripts: string;
+  connect?: string;
+  icons: boolean;
+} {
+  if (!design) return { css: "", kits: [], headScripts: "", bodyScripts: "", icons: false };
+  const raw = design.cssVars?.trim() ?? "";
+  // `cssVars` is stored as the repo's raw block; accept either the full
+  // `:root{…}` text or a bare declaration list.
+  const vars = raw ? (raw.includes("{") ? raw : `:root{${raw}}`) : "";
+  const iconId = design.iconsAssetId;
+  return {
+    css: vars,
+    icons: !!iconId,
+    kits: design.kit === "builtin" ? ["builtin"] : [],
+    headScripts: design.kit === "tailwind" ? `<script src="${TAILWIND_CDN}"></script>` : "",
+    bodyScripts: iconId ? `<script>${spriteLoaderJs(origin, iconId)}</script>` : "",
+    connect: iconId ? `${origin}/a/` : undefined,
+  };
+}
+
 export const escapeHtml = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -296,7 +536,9 @@ export const escapeHtml = (s: string) =>
 function buildRichCsp(origin: string): string {
   return [
     `default-src 'none'`,
-    `script-src 'unsafe-inline'`,
+    // Same fixed same-origin asset directory as buildCsp — only the bridge
+    // script lives there. Still no connect-src.
+    `script-src 'unsafe-inline' ${origin}${STATIC_ASSET_PREFIX}`,
     `style-src 'unsafe-inline'`,
     `img-src https: data: blob: ${origin}`,
     `font-src data:`,
@@ -343,7 +585,7 @@ export function renderSandboxedPart(doc: {
 </head>
 <body>
 ${doc.body}
-<script>${BRIDGE_JS}</script>
+${scriptTag(doc.origin, BRIDGE_PATH)}
 </body>
 </html>`;
 }
@@ -528,7 +770,7 @@ try {
 <body>
 <div id="m"></div>
 <script type="module">${loader}</script>
-<script>${BRIDGE_JS}</script>
+${scriptTag(doc.origin, BRIDGE_PATH)}
 </body>
 </html>`;
 }
@@ -545,24 +787,48 @@ export function renderHtmlPage(doc: {
   // is plain inline script — same trust level as the bridge, already covered by
   // the html-surface CSP's `script-src 'unsafe-inline'`. Unknown ids are ignored.
   kits?: string[];
+  // The post's project design settings (`design:<project>`), imported from the
+  // repo by `sideshow init`. Null/absent → the surface renders exactly as it
+  // did before this existed.
+  design?: DesignSettings | null;
 }): string {
   const theme =
     typeof doc.theme === "string" || doc.theme == null ? themeById(doc.theme) : doc.theme;
-  const kit = kitAssets(doc.kits);
+  const design = designAssets(doc.design, doc.origin);
+  // The project kit is appended, so with both present its components win over
+  // a surface-requested kit's same-named classes.
+  const kitIds = [...(doc.kits ?? []), ...design.kits];
+  const kits = resolveKits(kitIds);
+  const kit = kitAssets(kitIds);
+  // Document order still decides the cascade, so the externalized stylesheets
+  // sit exactly where their inlined text used to: theme tokens, base, kit
+  // accents, kit(s), then the project's own vars (which must win last).
+  const styles = [
+    `<style>${tokenThemeCss(theme, doc.mode)}</style>`,
+    styleTag(doc.origin, BASE_CSS_PATH),
+    `<style>${kitAccentCss(doc.mode)}</style>`,
+    ...(kits.length > 0 ? [styleTag(doc.origin, KIT_CORE_PATH)] : []),
+    ...kits.map((k) => styleTag(doc.origin, KIT_PATHS.get(k.id)!)),
+    ...(design.icons ? [styleTag(doc.origin, ICON_CSS_PATH)] : []),
+    `<style>${design.css}${colorSchemeCss(doc.mode)}</style>`,
+  ].join("\n");
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="${buildCsp(doc.origin)}">
+<meta http-equiv="Content-Security-Policy" content="${buildCsp(doc.origin, design.connect)}">
 <title>${escapeHtml(doc.title)}</title>
-<style>${tokenThemeCss(theme, doc.mode)}${TOKENS_CSS}${KIT_CSS}${kitAccentCss(doc.mode)}${kit.css}${colorSchemeCss(doc.mode)}</style>
+${styles}
+${design.headScripts}
 </head>
 <body>
 ${SVG_DEFS}
 ${doc.html}
-<script>${BRIDGE_JS}</script>
+${scriptTag(doc.origin, BRIDGE_PATH)}
+${scriptTag(doc.origin, HIT_TEST_PATH)}
 ${kit.js ? `<script>${kit.js}</script>` : ""}
+${design.bodyScripts}
 </body>
 </html>`;
 }

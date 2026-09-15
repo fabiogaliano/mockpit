@@ -201,14 +201,20 @@ test("GET /api/posts/recent?preview=home returns one compact surface per post", 
   });
 
   const feed = (await (await app.request("/api/posts/recent?preview=home")).json()) as any[];
-  assert.deepEqual(feed[0].partKinds, ["html", "markdown", "json"]);
   assert.equal(feed[0].surfaces.length, 1);
   assert.deepEqual(feed[0].surfaces[0], {
     id: feed[0].surfaces[0].id,
     kind: "html",
     index: 0,
   });
-  assert.deepEqual(feed[0].parts, feed[0].surfaces);
+  // the canonical route carries no `parts`/`partKinds` duplicates
+  assert.equal(feed[0].parts, undefined);
+  assert.equal(feed[0].partKinds, undefined);
+
+  // the legacy spelling keeps both aliases, byte-identical to before
+  const legacy = (await (await app.request("/api/surfaces/recent?preview=home")).json()) as any[];
+  assert.deepEqual(legacy[0].partKinds, ["html", "markdown", "json"]);
+  assert.deepEqual(legacy[0].parts, legacy[0].surfaces);
 });
 
 test("GET /api/surfaces/recent leaves image parts as plain assetId refs", async () => {
@@ -252,7 +258,13 @@ test("GET /api/posts/recent aliases /api/surfaces/recent with identical auth", a
 
   const viaSurfaces = (await (await app.request("/api/surfaces/recent")).json()) as any[];
   const viaPosts = (await (await app.request("/api/posts/recent")).json()) as any[];
-  assert.deepEqual(viaPosts, viaSurfaces);
+  // Same rows and same auth; the canonical route just drops the legacy
+  // `parts`/`partKinds` duplicates of `surfaces`.
+  assert.deepEqual(
+    viaSurfaces.map(({ parts: _parts, partKinds: _partKinds, ...rest }: any) => rest),
+    viaPosts,
+  );
+  assert.deepEqual(viaSurfaces[0].parts, viaSurfaces[0].surfaces);
 
   const guarded = makeApp("secret", { publicRead: "session" });
   assert.equal((await guarded.request("/api/surfaces/recent")).status, 401);

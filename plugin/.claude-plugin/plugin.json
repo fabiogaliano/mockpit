@@ -3,12 +3,12 @@
   "name": "sideshow",
   "displayName": "sideshow",
   "version": "0.1.0",
-  "description": "Stream sideshow browser comments to Claude Code as notifications, and publish snippets over MCP.",
+  "description": "Publish design items and variants to sideshow over MCP, and stream the user's browser comments and decisions back to Claude Code as notifications.",
   "author": { "name": "modem", "email": "ben@modem.dev" },
   "homepage": "https://github.com/modem-dev/sideshow",
   "repository": "https://github.com/modem-dev/sideshow",
   "license": "MIT",
-  "keywords": ["sideshow", "visualization", "feedback", "mcp"],
+  "keywords": ["sideshow", "design", "visualization", "feedback", "mcp"],
   "skills": "./skills/",
   "mcpServers": {
     "sideshow": {

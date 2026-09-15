@@ -1,81 +1,81 @@
-// End-to-end browser proof of the `homeView` host flag: when an embedder owns its
-// own session-less landing (e.g. sideshow cloud's "Home" feed), the engine must NOT
-// auto-pick a session on boot — it stays session-less so nothing is highlighted
-// behind the host's landing. With the flag OFF (self-hosted default) the engine
-// auto-selects the latest session exactly as before, so parity is preserved.
-//
-// Same harness as embed-main-slot.spec.ts: publish a real surface (which creates a
-// session), then mount the engine with a router whose route carries NO session
-// (`sessionId: null`) — the host's home state — and toggle `homeView`.
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { expect, publish, test } from "./fixtures.ts";
+// End-to-end browser proof of the `homeView` host flag. An embedder that renders
+// its own landing for a project-less route needs the engine NOT to auto-pick a
+// project: it stays on the projects list with nothing selected, so nothing is
+// highlighted behind the host's landing. With the flag OFF (the self-hosted
+// default) "/" resolves to the most recent project and its first item, exactly
+// as before — that parity is the second test.
+import {
+  expect,
+  fixedRouter,
+  itemPath,
+  mountEmbed,
+  navigatingRouter,
+  publishItem,
+  test,
+} from "./fixtures.ts";
 
-const embedDir = fileURLToPath(new URL("../viewer/dist-embed", import.meta.url));
+const host = (homeView: boolean) => `{
+  basePath: "",
+  homeView: ${homeView},
+  router: ${fixedRouter({ project: null, slug: null })},
+}`;
 
-function contentType(path: string): string {
-  if (path.endsWith(".js") || path.endsWith(".mjs")) return "text/javascript";
-  if (path.endsWith(".wasm")) return "application/wasm";
-  if (path.endsWith(".css")) return "text/css";
-  return "application/octet-stream";
-}
-
-// Mount with a session-less route (the host's home state) and a togglable homeView.
-const embedHtml = (homeView: boolean) => `<!doctype html>
-<html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%}#m{position:fixed;inset:0}</style></head>
-<body><div id="m"></div>
-<script type="module">
-  import { mountViewer } from "/__embed/engine.js";
-  mountViewer(document.getElementById("m"), {
-    basePath: "",
-    homeView: ${homeView ? "true" : "false"},
-    router: {
-      get: () => ({ sessionId: null }),
-      navigate() {},
-      subscribe() { return () => {}; },
-    },
+test("homeView: a project-less route lands with NO project selected", async ({ page, server }) => {
+  await publishItem(server.url, {
+    project: "acme/site",
+    slug: "hero",
+    title: "Hero",
+    html: "<p>hero</p>",
+    agent: "designer",
   });
-</script></body></html>`;
 
-async function mount(page: import("@playwright/test").Page, serverUrl: string, homeView: boolean) {
-  page.on("pageerror", (e) => console.error("[pageerror]", e.message));
-  page.on("console", (m) => m.type() === "error" && console.error("[console]", m.text()));
-  const path = `/__embedtest-home-${homeView ? "on" : "off"}`;
-  await page.route(`**${path}`, (route) =>
-    route.fulfill({ contentType: "text/html", body: embedHtml(homeView) }),
-  );
-  await page.route("**/__embed/**", (route) => {
-    const name = new URL(route.request().url()).pathname.replace("/__embed/", "");
-    route.fulfill({ contentType: contentType(name), body: readFileSync(`${embedDir}/${name}`) });
-  });
-  await page.goto(`${serverUrl}${path}`);
-}
+  await mountEmbed(page, server.url, { host: host(true), path: "/__embedtest-home-on" });
 
-test("homeView: a session-less route lands with NO session selected", async ({ page, server }) => {
-  // Seed a real session so the sidebar has something to (not) select.
-  await publish(server.url, { html: "<p>card</p>", title: "Seeded", agent: "e2e" }, "");
-
-  await mount(page, server.url, true);
-
-  // The session loads into the sidebar...
-  await expect(page.locator("aside .sess").first()).toBeVisible();
-  // ...but none is selected, and the engine never auto-opened the session (its
-  // post cards aren't loaded — the stream stays empty behind the host's home).
-  await expect(page.locator(".sess.sel")).toHaveCount(0);
-  await expect(page.locator(".sess[aria-current='true']")).toHaveCount(0);
-  await expect(page.locator(".card:not(#whatsNew)")).toHaveCount(0);
-  await expect(page.locator(".home-page")).toHaveCount(0);
+  // The project loads into the sidebar…
+  await expect(page.locator(".ss-proj")).toHaveCount(1);
+  // …but none is selected, and the engine never opened an item behind the
+  // host's own landing.
+  await expect(page.locator(".ss-proj.on")).toHaveCount(0);
+  await expect(page.locator(".ss-items")).toHaveCount(0);
+  await expect(page.locator(".ss-item")).toHaveCount(0);
 });
 
-test("homeView OFF (self-hosted default): a session-less route auto-selects the latest", async ({
+test("homeView OFF (self-hosted default): a project-less route opens the recent project", async ({
   page,
   server,
 }) => {
-  await publish(server.url, { html: "<p>card</p>", title: "Seeded", agent: "e2e" }, "");
+  await publishItem(server.url, {
+    project: "acme/site",
+    slug: "hero",
+    title: "Hero",
+    html: "<p>hero</p>",
+    agent: "designer",
+  });
 
-  await mount(page, server.url, false);
+  // The default host owns the URL, so this one records where the engine asked
+  // to go instead of navigating for real.
+  await mountEmbed(page, server.url, {
+    path: "/__embedtest-home-off",
+    host: `{
+      basePath: "",
+      homeView: false,
+      router: ${navigatingRouter({ project: null, slug: null })},
+    }`,
+  });
 
-  // Parity: with the flag off the engine auto-selects the one session and opens it.
-  await expect(page.locator(".sess.sel")).toHaveCount(1);
-  await expect(page.locator("#stream")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__navigated?.project)).toBe("acme/site");
+  await expect(page.locator(".ss-proj.on")).toHaveCount(1);
+  await expect(page.locator(".ss-head h1")).toHaveText("Hero");
+  await expect(page).toHaveURL(new RegExp("/__embedtest-home-off$"));
+  // Parity check on the shape the engine asked for: the item route, not a path.
+  expect(await page.evaluate(() => window.__navigated?.slug)).toBe("hero");
+  expect(itemPath("acme/site", "hero")).toContain("hero");
 });
+
+declare global {
+  interface Window {
+    __route?: Record<string, unknown>;
+    __navigated?: { project?: string | null; slug?: string | null };
+    __subs?: ((route: unknown) => void)[];
+  }
+}

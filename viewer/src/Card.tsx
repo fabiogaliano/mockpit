@@ -63,6 +63,19 @@ export const cardEls = new Map<
   { id: string; card: HTMLDivElement; iframes: Set<HTMLIFrameElement> }
 >();
 
+// Register a post's surface iframes with the bridge registry (see cardEls for
+// why the key is a per-registration token). Returns the cleanup. Shared by the
+// Card and by the item screen's Stage, so both are sized by the same bridge.
+export function registerCard(
+  id: string,
+  card: HTMLDivElement,
+  iframes: Set<HTMLIFrameElement>,
+): () => void {
+  const token = {};
+  cardEls.set(token, { id, card, iframes });
+  return () => cardEls.delete(token);
+}
+
 // Resolve which post + iframe a postMessage came from, by contentWindow.
 export function frameForSource(source: unknown): { id: string; iframe: HTMLIFrameElement } | null {
   for (const { id, iframes } of cardEls.values()) {
@@ -314,9 +327,7 @@ export function Card(props: { post: Post | ViewerPost; standalone?: boolean }) {
 
   onMount(() => {
     // Key by a token UNIQUE to this Card instance, never by post.id — see cardEls.
-    const token = {};
-    cardEls.set(token, { id: props.post.id, card, iframes });
-    onCleanup(() => cardEls.delete(token));
+    onCleanup(registerCard(props.post.id, card, iframes));
     // Standalone is a single, full-page post — there is no feed to scroll
     // through and no session route to track, so skip the deep-link scroll and
     // the URL-syncing observer. The cardEls registration above still runs so the

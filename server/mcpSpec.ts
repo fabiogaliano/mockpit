@@ -10,10 +10,10 @@ export const MCP_SERVER_INFO = { name: "sideshow", version: "0.1.0" };
 const PART_KIND_ENUM = [...SURFACE_KINDS] as [SurfaceKind, ...SurfaceKind[]];
 
 export const MCP_INSTRUCTIONS =
-  "Use Sideshow for diagrams, UI sketches, data, and code review. Publish with publish_post; " +
-  "revise with update_post. Set sessionTitle to the task name on first publish. Read userFeedback " +
-  "in write/reply results; comments are delivered once. Use wait_for_feedback when you need a " +
-  "reaction. Fetch get_design_guide only for html. Use send_test_post to test a connection or fresh workspace.";
+  "Sideshow shows design work to the operator: project > item > variant > version. Publish a " +
+  "variant with publish_item, iterate with revise_item, ask with ask_user, then wait_for_feedback " +
+  "for one batched decision. Read state with list_items/get_item (bodies are opt-in). Read " +
+  "userFeedback in write results; comments are delivered once. Fetch get_design_guide before html.";
 
 const field = {
   title: "Short card title",
@@ -38,8 +38,8 @@ const field = {
 } as const;
 
 const MCP_SURFACE_DESCRIPTION =
-  "One surface. Use html for custom visuals, markdown for prose, mermaid for diagrams, diff for review, " +
-  "image for uploads, terminal for logs, json for trees, and code for source excerpts. Match kind to its named content field.";
+  "One surface: html for custom visuals, markdown for prose, mermaid for diagrams, diff for review, " +
+  "image, terminal, json, code. Match kind to its named content field.";
 
 const MCP_SURFACE_JSON_SCHEMA = {
   type: "object",
@@ -130,19 +130,42 @@ const MCP_DOCUMENTED_SURFACES_JSON_SCHEMA = {
   items: MCP_DOCUMENTED_SURFACE_JSON_SCHEMA,
 } as const;
 
+// project › item › variant › version. These fields are spelled the same on the
+// CLI, so one vocabulary covers all three tiers.
+const itemField = {
+  project: "Project name; omit for the session's",
+  slug: "Item slug, e.g. pricing-card",
+  variant: 'Variant label; default "default"',
+  kind: "component or page",
+  from: "Branch from this version instead of the latest",
+  prompt: "What prompted this version; usually omit",
+  html: "HTML body fragment; no doctype/html/head/body",
+} as const;
+
+// One shared surface definition per tool, referenced rather than inlined — the
+// item tools take the same surfaces as publish_post without repeating the
+// schema in every advertised tool.
+// The item tools' surface definition omits the experimental trace fields: items
+// are the product-facing taxonomy, and every advertised byte is agent context.
+const { steps: _traceSteps, ...ITEM_SURFACE_PROPERTIES } = MCP_SURFACE_JSON_SCHEMA.properties;
+const surfaceDefs = {
+  surface: { ...MCP_SURFACE_JSON_SCHEMA, properties: ITEM_SURFACE_PROPERTIES },
+} as const;
+const surfaceRef = { $ref: "#/$defs/surface" } as const;
+const itemSurfaces = { type: "array", items: surfaceRef } as const;
+
 export const MCP_TOOL_DESCRIPTIONS = {
   publishPostHttp:
-    "Publish ordered surfaces as one post. Returns post id, URL, sessionId, and surface ids; reuse sessionId later. Set sessionTitle on the first publish. Read userFeedback.",
+    "Publish ordered surfaces as one post. Returns post id, URL, sessionId, and surface ids; reuse sessionId. Set sessionTitle on the first publish. Read userFeedback.",
   publishPostStdio:
     "Publish ordered surfaces as one post. Returns post id, URL, and surface ids. Set sessionTitle on the first publish. Read userFeedback.",
   updatePost:
-    "Revise a post in place instead of publishing a duplicate. Pass title and/or full replacement surfaces using the publish_post shape. Returns new surface ids. Read userFeedback.",
-  listPostsHttp:
-    "List posts, optionally scoped by session. Returns surface id/kind/index metadata without bodies.",
+    "Revise a post in place rather than publishing a duplicate. Pass title and/or replacement surfaces in the publish_post shape. Read userFeedback.",
+  listPostsHttp: "List posts, optionally scoped by session. Metadata only, no bodies.",
   listPostsStdio:
     "List posts in this conversation. Returns surface id/kind/index metadata without bodies.",
   getPost:
-    "Get one full post with surface ids/indexes, version, and history; use before targeted edits or after compaction.",
+    "Get one post with surface ids/indexes and version; use before targeted edits or after compaction.",
   publishSurfaceHttp:
     "Deprecated publish_post alias; pass the same surface shape as parts. Read userFeedback.",
   publishSurfaceStdio:
@@ -153,27 +176,38 @@ export const MCP_TOOL_DESCRIPTIONS = {
     "Deprecated HTML-only publish_post sugar. Send a body fragment in html. Read userFeedback.",
   updateSnippet: "Deprecated HTML-only update_post sugar. Read userFeedback.",
   waitForFeedback:
-    "Wait up to 300 seconds for comments not yet delivered on any channel; 0 is a non-blocking check.",
+    "Wait up to 300 seconds for one batched operator request: {project, slug, variant, version, decision, comments, archived}. 0 is a non-blocking check.",
+  publishItem:
+    "Publish a variant of an item. An existing (project, slug, variant) becomes a new version; anything else creates it. Read userFeedback.",
+  reviseItem:
+    "Publish the next version of an existing variant; from branches off an earlier one. Read userFeedback.",
+  askUser:
+    "Mark an item as waiting on the operator and ask one question. Follow with wait_for_feedback.",
+  listItems: "List a project's items: slug, kind, variants, and what is waiting. No bodies.",
+  getItem: "One item's metadata and variants. Bodies and version rows are opt-in.",
+  exportItem: "The accepted html, version, prompt history, and screenshot URL for one variant.",
+  initProject:
+    "Detect this repo's design system, store its palette/kit/icons on the project, and write .sideshow/starter.html. Run once per repo.",
   replyToUser:
     "Post a short plain-text reply using postId (surfaceId is deprecated). Read userFeedback.",
   listSurfacesHttp: "Deprecated list_posts alias.",
   listSurfacesStdio: "Deprecated list_posts alias.",
   uploadAsset:
-    "Upload base64 bytes and return id and URL. Reference id as image assetId; pass the publish session when available for grouping and cleanup.",
+    "Upload base64 bytes and return id and URL. Reference id as image assetId; pass the publish session for grouping.",
   uploadAssetStdio:
     "Upload base64 bytes and return id and URL. Reference id as image assetId; it attaches to this conversation.",
   getDesignGuide:
     "Fetch HTML fragment, sizing, theme, kit, CDN, and interactivity guidance. Not needed for non-HTML kinds.",
   sendTestPost:
-    "Publish the idempotent built-in welcome post to test a connection or fresh workspace; returns the existing post if already sent.",
+    "Publish the built-in welcome post to test a connection; idempotent, returns the existing post if already sent.",
   addSurface:
-    "Insert one publish_post-shaped surface into a post; before/after accepts an id or 0-based index. Read userFeedback.",
+    "Insert one publish_post-shaped surface; before/after take an id or 0-based index. Read userFeedback.",
   editSurface:
-    "Replace one surface by id/index, or pass content to preserve its kind-specific options. Read userFeedback.",
+    "Replace one surface by id/index, or pass content to keep its kind options. Read userFeedback.",
   removeSurface:
     "Remove one surface by id/index; a post must retain at least one. Read userFeedback.",
   reorderSurfaces:
-    "Reorder every surface using ids or 0-based indexes; order length must match. Read userFeedback.",
+    "Reorder every surface by id or 0-based index; order length must match. Read userFeedback.",
 } as const;
 
 export const HTTP_MCP_TOOLS = [
@@ -218,66 +252,103 @@ export const HTTP_MCP_TOOLS = [
     description: MCP_TOOL_DESCRIPTIONS.getPost,
     inputSchema: {
       type: "object",
-      properties: { id: { type: "string", description: field.postId } },
-      required: ["id"],
-    },
-  },
-  {
-    name: "publish_surface",
-    description: MCP_TOOL_DESCRIPTIONS.publishSurfaceHttp,
-    inputSchema: {
-      type: "object",
       properties: {
-        title: { type: "string" },
-        parts: MCP_SURFACES_JSON_SCHEMA,
-        session: { type: "string" },
-        sessionTitle: { type: "string" },
-        agent: { type: "string" },
-      },
-      required: ["title", "parts"],
-    },
-  },
-  {
-    name: "update_surface",
-    description: MCP_TOOL_DESCRIPTIONS.updateSurface,
-    inputSchema: {
-      type: "object",
-      properties: {
-        id: { type: "string" },
-        parts: MCP_SURFACES_JSON_SCHEMA,
-        title: { type: "string" },
+        id: { type: "string", description: field.postId },
+        history: {
+          type: "string",
+          enum: ["meta", "full"],
+          description: "History detail: metadata only (default) or full surface bodies per version",
+        },
       },
       required: ["id"],
     },
   },
   {
-    name: "publish_snippet",
-    description: MCP_TOOL_DESCRIPTIONS.publishSnippet,
+    name: "publish_item",
+    description: MCP_TOOL_DESCRIPTIONS.publishItem,
     inputSchema: {
       type: "object",
+      $defs: surfaceDefs,
       properties: {
-        title: { type: "string" },
-        html: { type: "string" },
-        kits: { type: "array", items: { type: "string" } },
-        session: { type: "string" },
-        sessionTitle: { type: "string" },
-        agent: { type: "string" },
+        slug: { type: "string", description: itemField.slug },
+        project: { type: "string", description: itemField.project },
+        variant: { type: "string", description: itemField.variant },
+        kind: { type: "string", enum: ["component", "page"], description: itemField.kind },
+        title: { type: "string", description: field.title },
+        html: { type: "string", description: itemField.html },
+        surfaces: itemSurfaces,
+        from: { type: "number", description: itemField.from },
+        prompt: { type: "string", description: itemField.prompt },
+        session: { type: "string", description: field.session },
+        sessionTitle: { type: "string", description: field.sessionTitle },
       },
-      required: ["title", "html"],
+      required: ["slug"],
     },
   },
   {
-    name: "update_snippet",
-    description: MCP_TOOL_DESCRIPTIONS.updateSnippet,
+    name: "revise_item",
+    description: MCP_TOOL_DESCRIPTIONS.reviseItem,
     inputSchema: {
       type: "object",
       properties: {
-        id: { type: "string" },
-        html: { type: "string" },
-        kits: { type: "array", items: { type: "string" } },
-        title: { type: "string" },
+        slug: { type: "string", description: itemField.slug },
+        project: { type: "string", description: itemField.project },
+        variant: { type: "string", description: itemField.variant },
+        html: { type: "string", description: itemField.html },
+        from: { type: "number", description: itemField.from },
+        prompt: { type: "string", description: itemField.prompt },
       },
-      required: ["id"],
+      required: ["slug"],
+    },
+  },
+  {
+    name: "ask_user",
+    description: MCP_TOOL_DESCRIPTIONS.askUser,
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: { type: "string", description: itemField.slug },
+        project: { type: "string", description: itemField.project },
+        variant: { type: "string", description: itemField.variant },
+        text: { type: "string", description: "The question, one sentence" },
+      },
+      required: ["slug", "text"],
+    },
+  },
+  {
+    name: "list_items",
+    description: MCP_TOOL_DESCRIPTIONS.listItems,
+    inputSchema: {
+      type: "object",
+      properties: { project: { type: "string", description: itemField.project } },
+    },
+  },
+  {
+    name: "get_item",
+    description: MCP_TOOL_DESCRIPTIONS.getItem,
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: { type: "string", description: itemField.slug },
+        project: { type: "string", description: itemField.project },
+        variant: { type: "string", description: itemField.variant },
+        body: { type: "boolean", description: "Include the current html body" },
+        history: { type: "boolean", description: "Include version rows" },
+      },
+      required: ["slug"],
+    },
+  },
+  {
+    name: "export_item",
+    description: MCP_TOOL_DESCRIPTIONS.exportItem,
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: { type: "string", description: itemField.slug },
+        project: { type: "string", description: itemField.project },
+        variant: { type: "string", description: itemField.variant },
+      },
+      required: ["slug"],
     },
   },
   {
@@ -310,14 +381,6 @@ export const HTTP_MCP_TOOLS = [
     },
   },
   {
-    name: "list_surfaces",
-    description: MCP_TOOL_DESCRIPTIONS.listSurfacesHttp,
-    inputSchema: {
-      type: "object",
-      properties: { session: { type: "string" } },
-    },
-  },
-  {
     name: "upload_asset",
     description: MCP_TOOL_DESCRIPTIONS.uploadAsset,
     inputSchema: {
@@ -335,7 +398,10 @@ export const HTTP_MCP_TOOLS = [
   {
     name: "get_design_guide",
     description: MCP_TOOL_DESCRIPTIONS.getDesignGuide,
-    inputSchema: { type: "object", properties: {} },
+    inputSchema: {
+      type: "object",
+      properties: { project: { type: "string", description: itemField.project } },
+    },
   },
   {
     name: "send_test_post",
@@ -406,6 +472,143 @@ export const HTTP_MCP_TOOLS = [
   },
 ] as const;
 
+// Retired spellings. Byte-identical to what they always were — they stay
+// callable forever, but they are omitted from tools/list unless
+// SIDESHOW_MCP_LEGACY=1, so a fresh agent never pays for them.
+export const DEPRECATED_HTTP_MCP_TOOLS = [
+  {
+    name: "publish_surface",
+    description: MCP_TOOL_DESCRIPTIONS.publishSurfaceHttp,
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        parts: MCP_SURFACES_JSON_SCHEMA,
+        session: { type: "string" },
+        sessionTitle: { type: "string" },
+        agent: { type: "string" },
+      },
+      required: ["title", "parts"],
+    },
+  },
+  {
+    name: "update_surface",
+    description: MCP_TOOL_DESCRIPTIONS.updateSurface,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        parts: MCP_SURFACES_JSON_SCHEMA,
+        title: { type: "string" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "publish_snippet",
+    description: MCP_TOOL_DESCRIPTIONS.publishSnippet,
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        html: { type: "string" },
+        kits: { type: "array", items: { type: "string" } },
+        session: { type: "string" },
+        sessionTitle: { type: "string" },
+        agent: { type: "string" },
+      },
+      required: ["title", "html"],
+    },
+  },
+  {
+    name: "update_snippet",
+    description: MCP_TOOL_DESCRIPTIONS.updateSnippet,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        html: { type: "string" },
+        kits: { type: "array", items: { type: "string" } },
+        title: { type: "string" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "list_surfaces",
+    description: MCP_TOOL_DESCRIPTIONS.listSurfacesHttp,
+    inputSchema: {
+      type: "object",
+      properties: { session: { type: "string" } },
+    },
+  },
+] as const;
+
+export const DEPRECATED_MCP_TOOL_NAMES = new Set([
+  "publish_surface",
+  "update_surface",
+  "publish_snippet",
+  "update_snippet",
+  "list_surfaces",
+  "list_snippets",
+]);
+
+// Whether a transport advertises the retired spellings. Reads the environment
+// defensively: there is no `process` on the Worker runtime.
+export function includeLegacyMcpTools(): boolean {
+  return (globalThis as any).process?.env?.SIDESHOW_MCP_LEGACY === "1";
+}
+
+// The batch an agent gets back from a wait or a piggybacked write: one entry per
+// post, decisions separated from plain comments, in delivery order.
+export interface FeedbackBatch {
+  project: string | null;
+  slug: string | null;
+  variant: string | null;
+  version: number | null;
+  decision: { kind: string; text: string } | null;
+  comments: {
+    seq: number;
+    text: string;
+    anchors?: unknown[];
+    viewport?: number;
+    version?: number;
+  }[];
+  archived: string[];
+}
+
+export function toFeedbackBatches(comments: any[]): FeedbackBatch[] {
+  const groups = new Map<string, FeedbackBatch>();
+  for (const c of comments ?? []) {
+    const key = String(c.postId ?? "");
+    let batch = groups.get(key);
+    if (!batch) {
+      batch = {
+        project: c.project ?? null,
+        slug: c.slug ?? null,
+        variant: c.variant ?? null,
+        version: c.postVersion ?? null,
+        decision: null,
+        comments: [],
+        archived: [],
+      };
+      groups.set(key, batch);
+    }
+    if (c.kind === "accept" || c.kind === "revise" || c.kind === "drop") {
+      batch.decision = { kind: c.kind, text: c.text ?? "" };
+      continue;
+    }
+    batch.comments.push({
+      seq: c.seq,
+      text: c.text,
+      ...(c.anchors?.length && { anchors: c.anchors }),
+      ...(c.viewport != null && { viewport: c.viewport }),
+      ...(c.postVersion != null && { version: c.postVersion }),
+    });
+  }
+  return [...groups.values()];
+}
+
 const diffFileSchema = z.object({
   filename: z.string(),
   before: z.string(),
@@ -473,29 +676,55 @@ export const STDIO_MCP_INPUT_SCHEMAS = {
     surfaces: z.array(mcpSurfaceSchema).optional(),
     title: z.string().optional().describe("Replacement card title"),
   },
-  getPost: { id: z.string().describe(field.postId) },
-  publishSurface: {
-    title: z.string(),
-    parts: z.array(mcpSurfaceSchema),
-    sessionTitle: z.string().optional(),
+  getPost: {
+    id: z.string().describe(field.postId),
+    history: z
+      .enum(["meta", "full"])
+      .optional()
+      .describe("History detail: metadata only (default) or full surface bodies per version"),
   },
-  updateSurface: {
-    id: z.string(),
-    parts: z.array(mcpSurfaceSchema).optional(),
-    title: z.string().optional(),
+  // Over stdio the agent shares a filesystem with the server, so `html` may be
+  // a path — the markup never has to pass through the model's context.
+  publishItem: {
+    slug: z.string().describe(itemField.slug),
+    project: z.string().optional().describe(itemField.project),
+    variant: z.string().optional().describe(itemField.variant),
+    kind: z.enum(["component", "page"]).optional().describe(itemField.kind),
+    title: z.string().optional().describe(field.title),
+    html: z.string().optional().describe(`${itemField.html}, or a file path`),
+    from: z.number().int().optional().describe(itemField.from),
+    prompt: z.string().optional().describe(itemField.prompt),
+    sessionTitle: z.string().optional().describe(field.sessionTitle),
   },
-  publishSnippet: {
-    title: z.string(),
-    html: z.string(),
-    kits: z.array(z.string()).optional(),
-    sessionTitle: z.string().optional(),
+  reviseItem: {
+    slug: z.string().describe(itemField.slug),
+    project: z.string().optional().describe(itemField.project),
+    variant: z.string().optional().describe(itemField.variant),
+    html: z.string().optional().describe(`${itemField.html}, or a file path`),
+    from: z.number().int().optional().describe(itemField.from),
+    prompt: z.string().optional().describe(itemField.prompt),
   },
-  updateSnippet: {
-    id: z.string(),
-    html: z.string().optional(),
-    kits: z.array(z.string()).optional(),
-    title: z.string().optional(),
+  askUser: {
+    slug: z.string().describe(itemField.slug),
+    project: z.string().optional().describe(itemField.project),
+    variant: z.string().optional().describe(itemField.variant),
+    text: z.string().describe("The question, one sentence"),
   },
+  listItems: { project: z.string().optional().describe(itemField.project) },
+  getItem: {
+    slug: z.string().describe(itemField.slug),
+    project: z.string().optional().describe(itemField.project),
+    variant: z.string().optional().describe(itemField.variant),
+    body: z.boolean().optional().describe("Include the current html body"),
+    history: z.boolean().optional().describe("Include version rows"),
+  },
+  exportItem: {
+    slug: z.string().describe(itemField.slug),
+    project: z.string().optional().describe(itemField.project),
+    variant: z.string().optional().describe(itemField.variant),
+  },
+  initProject: { project: z.string().optional().describe(itemField.project) },
+  getDesignGuide: { project: z.string().optional().describe(itemField.project) },
   waitForFeedback: {
     timeoutSeconds: z
       .number()
@@ -510,8 +739,9 @@ export const STDIO_MCP_INPUT_SCHEMAS = {
     message: z.string().describe("Plain-text reply"),
   },
   uploadAsset: {
-    data: z.string().describe("Base64 file bytes"),
-    contentType: z.string().describe("MIME type, e.g. image/png"),
+    path: z.string().optional().describe("Local file path; use instead of data"),
+    data: z.string().optional().describe("Base64 file bytes"),
+    contentType: z.string().optional().describe("MIME type; inferred from path"),
     filename: z.string().optional().describe("Original download filename"),
     kind: z.enum(["image", "trace", "file"]).optional(),
   },
@@ -537,5 +767,32 @@ export const STDIO_MCP_INPUT_SCHEMAS = {
     order: z
       .array(z.union([z.string(), z.number()]))
       .describe("All surface ids or 0-based indexes in desired order"),
+  },
+} as const;
+
+// The retired stdio spellings, kept exactly as they were. Split out of
+// STDIO_MCP_INPUT_SCHEMAS because they are no longer advertised by default.
+export const DEPRECATED_STDIO_MCP_INPUT_SCHEMAS = {
+  publishSurface: {
+    title: z.string(),
+    parts: z.array(mcpSurfaceSchema),
+    sessionTitle: z.string().optional(),
+  },
+  updateSurface: {
+    id: z.string(),
+    parts: z.array(mcpSurfaceSchema).optional(),
+    title: z.string().optional(),
+  },
+  publishSnippet: {
+    title: z.string(),
+    html: z.string(),
+    kits: z.array(z.string()).optional(),
+    sessionTitle: z.string().optional(),
+  },
+  updateSnippet: {
+    id: z.string(),
+    html: z.string().optional(),
+    kits: z.array(z.string()).optional(),
+    title: z.string().optional(),
   },
 } as const;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -122,10 +122,13 @@ for (const cmd of [
   "show",
   "kits",
 ]) {
-  test(`${cmd} --help prints usage and exits 0`, async () => {
+  test(`${cmd} --help prints help and exits 0`, async () => {
     const { code, stdout, stderr } = await run(cmd, "--help");
     assert.equal(code, 0);
-    assert.match(stdout, /usage:/);
+    // Help was merged so each verb appears once: a verb with its own help
+    // prints that, anything else falls back to the single catalog — either way
+    // the verb's own invocation line is in the output.
+    assert.ok(stdout.includes(`sideshow ${cmd}`), `help must document "${cmd}"`);
     assert.equal(stderr, "");
   });
 }
@@ -133,23 +136,27 @@ for (const cmd of [
 test("-h is a short alias for --help", async () => {
   const { code, stdout } = await run("publish", "-h");
   assert.equal(code, 0);
-  assert.match(stdout, /usage:/);
+  assert.ok(stdout.includes("sideshow publish"));
 });
 
-test("top-level help prints usage", async () => {
+test("top-level help prints the command catalog", async () => {
   for (const args of [[], ["help"], ["--help"], ["-h"]]) {
     const { code, stdout, stderr } = await run(...args);
     assert.equal(code, 0);
-    assert.match(stdout, /usage:/);
+    assert.match(stdout, /^sideshow — a live visual surface/);
+    // the design loop the reshape put first, and the older verbs below it
+    for (const verb of ["init", "publish", "revise", "ask", "wait", "serve", "list"]) {
+      assert.ok(stdout.includes(`sideshow ${verb}`), `catalog must list "${verb}"`);
+    }
     assert.equal(stderr, "");
   }
 });
 
-test("--help on a flag-less subcommand prints usage instead of running it", async () => {
+test("--help on a flag-less subcommand prints help instead of running it", async () => {
   // would otherwise seed demo data (or fail reaching the server)
   const { code, stdout } = await run("demo", "--help");
   assert.equal(code, 0);
-  assert.match(stdout, /usage:/);
+  assert.ok(stdout.includes("sideshow demo"));
 });
 
 test("unknown command fails with a one-line hint", async () => {
@@ -1233,10 +1240,12 @@ test("show prints a single post with surface ids", async () => {
   }
 });
 
-test("show without an id fails with a usage error", async () => {
-  const { code, stderr } = await run("show");
-  assert.notEqual(code, 0);
-  assert.match(stderr, /usage: sideshow show/);
+test("show without an item fails with the one-line agent error format", async () => {
+  const { code, stdout, stderr } = await run("show");
+  // `error <what>` + a `fix:` line + exit 2, and nothing on stdout
+  assert.equal(code, 2);
+  assert.equal(stdout, "");
+  assert.match(stderr, /^error show needs an item\n {2}fix: sideshow show --item /);
 });
 
 // --- assets (image / upload / asset-url) ----------------------------------
@@ -1385,6 +1394,540 @@ test("a server error is surfaced as the server's error message", async () => {
     const { code, stderr } = await cli(server, "update", "no-such-id", tmpFile("v.html", "<p/>"));
     assert.notEqual(code, 0);
     assert.match(stderr, /not found|no such/i);
+  } finally {
+    await server.close();
+  }
+});
+
+// --- the design loop: init / publish --item / revise / ask / status / show /
+// export / page / wait ------------------------------------------------------
+
+// The item verbs write into the repo they run in (.sideshow/…), so they get a
+// throwaway cwd and an explicit project — never the checkout this test runs in.
+function itemCli(
+  server: { url: string; session: { id: string } },
+  opts: { cwd: string; project?: string },
+  ...args: string[]
+) {
+  return runWith(
+    {
+      cwd: opts.cwd,
+      env: {
+        SIDESHOW_URL: server.url,
+        SIDESHOW_SESSION: server.session.id,
+        SIDESHOW_PROJECT: opts.project ?? "acme/site",
+      },
+    },
+    ...args,
+  );
+}
+
+const tmpRepo = () => mkdtempSync(join(tmpdir(), "sideshow-cli-repo-"));
+
+test("publish --item creates an item, and a second publish is a new version", async () => {
+  const server = await serveSession();
+  const cwd = tmpRepo();
+  try {
+    const v1 = tmpFile("card.html", "<p>v1</p>");
+    const first = await itemCli(server, { cwd }, "publish", "--item", "pricing-card", "--html", v1);
+    assert.equal(first.code, 0);
+    assert.match(first.stdout, /pricing-card/);
+
+    const v2 = tmpFile("card2.html", "<p>v2</p>");
+    const second = await itemCli(
+      server,
+      { cwd },
+      "revise",
+      "--item",
+      "pricing-card",
+      "--html",
+      v2,
+      "--from",
+      "1",
+      "--prompt",
+      "tighter",
+      "--json",
+    );
+    assert.equal(second.code, 0);
+    const revised = JSON.parse(second.stdout);
+    assert.equal(revised.version, 2);
+    assert.equal(revised.slug, "pricing-card");
+    assert.equal(revised.from, 1);
+
+    // a sibling variant, not a version
+    const variant = await itemCli(
+      server,
+      { cwd },
+      "publish",
+      "--item",
+      "pricing-card",
+      "--variant",
+      "highlighted",
+      "--html",
+      v1,
+      "--json",
+    );
+    assert.equal(JSON.parse(variant.stdout).variant, "highlighted");
+
+    const status = await itemCli(server, { cwd }, "status");
+    assert.match(status.stdout, /acme\/site · 1 item/);
+    assert.match(status.stdout, /pricing-card · component/);
+    assert.match(status.stdout, /default\(v2\)/);
+    assert.match(status.stdout, /highlighted\(v1\)/);
+    assert.match(status.stdout, /nothing waiting on you/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("revise refuses to create an item, and publish reports a missing file", async () => {
+  const server = await serveSession();
+  const cwd = tmpRepo();
+  try {
+    const file = tmpFile("card.html", "<p>x</p>");
+    const missing = await itemCli(server, { cwd }, "revise", "--item", "ghost", "--html", file);
+    assert.equal(missing.code, 2);
+    assert.match(
+      missing.stderr,
+      /^error acme\/site has no item "ghost"\n {2}fix: sideshow publish/,
+    );
+
+    const noFile = await itemCli(
+      server,
+      { cwd },
+      "publish",
+      "--item",
+      "card",
+      "--html",
+      "/no/such",
+    );
+    assert.equal(noFile.code, 2);
+    assert.match(noFile.stderr, /^error cannot read \/no\/such\n {2}fix: ls/);
+
+    const noHtml = await itemCli(server, { cwd }, "publish", "--item", "card");
+    assert.equal(noHtml.code, 2);
+    assert.match(noHtml.stderr, /^error no html for card\n/);
+
+    const badFrom = await itemCli(
+      server,
+      { cwd },
+      "publish",
+      "--item",
+      "card",
+      "--html",
+      file,
+      "--from",
+      "x",
+    );
+    assert.equal(badFrom.code, 2);
+    assert.match(badFrom.stderr, /--from must be a version number/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("ask marks the item waiting, and status says who is waiting", async () => {
+  const server = await serveSession();
+  const cwd = tmpRepo();
+  try {
+    const file = tmpFile("card.html", "<p>x</p>");
+    await itemCli(server, { cwd }, "publish", "--item", "pricing-card", "--html", file);
+
+    const asked = await itemCli(server, { cwd }, "ask", "--item", "pricing-card", "pick one");
+    assert.equal(asked.code, 0);
+    assert.match(asked.stdout, /asked on pricing-card\/default: pick one/);
+
+    const status = await itemCli(server, { cwd }, "status");
+    assert.match(status.stdout, /1 waiting on you: pricing-card \(pick one\)/);
+    assert.match(status.stdout, /default\(v1, waiting\)/);
+
+    const noText = await itemCli(server, { cwd }, "ask", "--item", "pricing-card");
+    assert.equal(noText.code, 2);
+    assert.match(noText.stderr, /^error ask needs a question\n/);
+
+    const noItem = await itemCli(server, { cwd }, "ask", "--item", "ghost", "hi");
+    assert.equal(noItem.code, 2);
+    assert.match(noItem.stderr, /has no item "ghost"/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("show --item prints metadata, and bodies and history are opt-in", async () => {
+  const server = await serveSession();
+  const cwd = tmpRepo();
+  try {
+    await itemCli(
+      server,
+      { cwd },
+      "publish",
+      "--item",
+      "pricing-card",
+      "--html",
+      tmpFile("v1.html", "<p>v1</p>"),
+    );
+    await itemCli(
+      server,
+      { cwd },
+      "revise",
+      "--item",
+      "pricing-card",
+      "--html",
+      tmpFile("v2.html", "<p>v2</p>"),
+      "--prompt",
+      "tighter",
+      "--from",
+      "1",
+    );
+
+    const lean = await itemCli(server, { cwd }, "show", "--item", "pricing-card");
+    assert.equal(lean.code, 0);
+    assert.match(lean.stdout, /^pricing-card · component/);
+    assert.ok(!lean.stdout.includes("<p>v2</p>"), "bodies are opt-in");
+
+    const full = await itemCli(
+      server,
+      { cwd },
+      "show",
+      "--item",
+      "pricing-card",
+      "--body",
+      "--history",
+    );
+    assert.match(full.stdout, /default v2 ← v1 · tighter/);
+    assert.match(full.stdout, /--- pricing-card\/default v2\n<p>v2<\/p>/);
+
+    const unknown = await itemCli(server, { cwd }, "show", "--item", "ghost");
+    assert.equal(unknown.code, 2);
+    assert.match(unknown.stderr, /has no item "ghost"/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("export writes the accepted html and its prompt history into the repo", async () => {
+  const server = await serveSession();
+  const cwd = tmpRepo();
+  try {
+    const pub = await itemCli(
+      server,
+      { cwd },
+      "publish",
+      "--item",
+      "pricing-card",
+      "--html",
+      tmpFile("v1.html", "<p>accepted</p>"),
+      "--json",
+    );
+    const id = JSON.parse(pub.stdout).id;
+    await post(`${server.url}/api/posts/${id}/decision`, { kind: "accept" });
+
+    const exported = await itemCli(server, { cwd }, "export", "--item", "pricing-card");
+    assert.equal(exported.code, 0);
+    assert.match(exported.stdout, /pricing-card\/default v1 → /);
+
+    const dir = join(cwd, ".sideshow", "accepted", "pricing-card", "default");
+    assert.equal(readFileSync(join(dir, "index.html"), "utf8"), "<p>accepted</p>");
+    const history = JSON.parse(readFileSync(join(dir, "history.json"), "utf8"));
+    assert.equal(history.slug, "pricing-card");
+    assert.equal(history.version, 1);
+    assert.equal(history.status, "accepted");
+    assert.deepEqual(
+      history.history.map((h: any) => h.version),
+      [1],
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test("page publishes a page item whose slot tags the server expands", async () => {
+  const server = await serveSession();
+  const cwd = tmpRepo();
+  try {
+    await itemCli(
+      server,
+      { cwd },
+      "publish",
+      "--item",
+      "pricing-card",
+      "--html",
+      tmpFile("card.html", "<p>card body</p>"),
+    );
+    const page = await itemCli(
+      server,
+      { cwd },
+      "page",
+      "--item",
+      "landing",
+      "--html",
+      tmpFile("page.html", '<main><sideshow-slot slug="pricing-card"></sideshow-slot></main>'),
+      "--json",
+    );
+    const body = JSON.parse(page.stdout);
+    assert.equal(body.kind, "page");
+    assert.deepEqual(body.slots, [{ slug: "pricing-card", variant: "default", version: 1 }]);
+
+    const doc = await fetch(`${server.url}/s/${body.id}?part=0`).then((r) => r.text());
+    assert.ok(doc.includes("<p>card body</p>"), "the component is inlined server-side");
+  } finally {
+    await server.close();
+  }
+});
+
+test("wait prints the batched decision the operator made", async () => {
+  const server = await serveSession();
+  const cwd = tmpRepo();
+  try {
+    const pub = await itemCli(
+      server,
+      { cwd },
+      "publish",
+      "--item",
+      "pricing-card",
+      "--html",
+      tmpFile("v1.html", "<p>v1</p>"),
+      "--json",
+    );
+    const id = JSON.parse(pub.stdout).id;
+    // the operator drafts a note and then decides
+    await post(`${server.url}/api/comments`, {
+      surface: id,
+      text: "make @1 wider",
+      author: "user",
+      draft: true,
+    });
+    await post(`${server.url}/api/posts/${id}/decision`, { kind: "revise", text: "one more pass" });
+
+    const waited = await itemCli(server, { cwd }, "wait", "--timeout", "5");
+    assert.equal(waited.code, 0);
+    const batch = JSON.parse(waited.stdout);
+    const one = Array.isArray(batch) ? batch[0] : batch;
+    assert.equal(one.slug ?? one.postId, one.slug ? "pricing-card" : id);
+    assert.deepEqual(one.decision, { kind: "revise", text: "one more pass" });
+    assert.deepEqual(
+      one.comments.map((c: any) => c.text),
+      ["make @1 wider"],
+    );
+
+    // the revise that follows reuses that prompt without being told it
+    const next = await itemCli(
+      server,
+      { cwd },
+      "revise",
+      "--item",
+      "pricing-card",
+      "--html",
+      tmpFile("v2.html", "<p>v2</p>"),
+      "--json",
+    );
+    const revised = JSON.parse(next.stdout);
+    assert.match(revised.prompt, /one more pass/);
+    assert.match(revised.prompt, /make @1 wider/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("init imports the repo's design system and writes the starter", async () => {
+  const server = await serveSession();
+  const cwd = tmpRepo();
+  try {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ devDependencies: { tailwindcss: "^4" } }),
+    );
+    mkdirSync(join(cwd, "src"), { recursive: true });
+    writeFileSync(
+      join(cwd, "src", "globals.css"),
+      ":root{--background:#ffffff;--foreground:#111111;--primary:#0af;--radius:0.5rem}",
+    );
+
+    const { code, stdout } = await itemCli(server, { cwd }, "init");
+    assert.equal(code, 0);
+    // one line per step, so the agent can read what init decided
+    assert.match(stdout, /^project: +acme\/site \(from SIDESHOW_PROJECT\)$/m);
+    assert.match(stdout, /^design: +tailwind · 4 css vars from src\/globals\.css$/m);
+    assert.match(stdout, /^kit: +tailwind$/m);
+    assert.match(stdout, /^icons: +mage \(\d+ icons\) → /m);
+    assert.match(stdout, /^wrote: +\.sideshow\/starter\.html$/m);
+    assert.match(stdout, /^wrote: +\.gitignore/m);
+
+    // the starter is a fragment on this project's kit
+    const starter = readFileSync(join(cwd, ".sideshow", "starter.html"), "utf8");
+    assert.ok(!starter.includes("<!doctype"));
+    assert.match(starter, /kit: tailwind/);
+    assert.match(readFileSync(join(cwd, ".gitignore"), "utf8"), /^\.sideshow\/$/m);
+
+    // and the server now injects the repo's tokens into this project's frames
+    const design = await fetch(
+      `${server.url}/api/projects/${encodeURIComponent("acme/site")}/design`,
+    ).then((r) => r.json() as Promise<any>);
+    assert.equal(design.kit, "tailwind");
+    assert.equal(design.detected.tailwind, true);
+    assert.ok(design.cssVars.includes("--primary"));
+    assert.ok(design.iconsAssetId, "the mage sprite is uploaded as a project asset");
+
+    // the brief guide renders that stored design
+    const brief = await itemCli(server, { cwd }, "guide", "--brief");
+    assert.match(brief.stdout, /Kit: tailwind/);
+    assert.match(brief.stdout, /mage sprite is loaded in every frame/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("demo seeds the reshape project alongside the legacy sessions", async () => {
+  const server = await serveSession();
+  try {
+    const { code, stdout } = await cli(server, "demo");
+    assert.equal(code, 0);
+    assert.match(stdout, /Seeded .+ items\) and \d+ demo sessions/);
+
+    const projects = (await fetch(`${server.url}/api/projects`).then((r) => r.json())) as any[];
+    const seeded = projects.find((p) => p.name === "acme/site")!;
+    assert.ok(seeded, "the demo seeds a named project");
+    const items = (await fetch(
+      `${server.url}/api/projects/${encodeURIComponent(seeded.name)}/items`,
+    ).then((r) => r.json())) as any[];
+    assert.ok(
+      items.some((i) => i.variants.length > 1),
+      "a multi-variant item to pick between",
+    );
+    assert.ok(
+      items.some((i) => i.waiting),
+      "an item waiting on the operator",
+    );
+    assert.ok(
+      items.some((i) => i.kind === "page"),
+      "a composed page",
+    );
+    // the legacy sessions still seed the stream demo
+    const sessions = (await fetch(`${server.url}/api/sessions`).then((r) => r.json())) as any[];
+    assert.ok(sessions.length > 1);
+  } finally {
+    await server.close();
+  }
+});
+
+test("the item verbs honor --variant new:, --kit, --quiet, --json and --out", async () => {
+  const server = await serveSession();
+  const cwd = tmpRepo();
+  const outDir = tmpRepo();
+  try {
+    const file = tmpFile("card.html", "<p>x</p>");
+    // --quiet publishes without a word on stdout
+    const quiet = await itemCli(
+      server,
+      { cwd },
+      "publish",
+      "--item",
+      "Pricing Card",
+      "--html",
+      file,
+      "--title",
+      "Pricing card",
+      "--kit",
+      "issues",
+      "--quiet",
+    );
+    assert.equal(quiet.code, 0);
+    assert.equal(quiet.stdout, "");
+
+    // "new:<name>" adds a variant to an item that already has one
+    const added = await itemCli(
+      server,
+      { cwd },
+      "publish",
+      "--item",
+      "pricing-card",
+      "--variant",
+      "new:Highlighted",
+      "--html",
+      file,
+      "--kit",
+      "issues",
+      "--json",
+    );
+    const variant = JSON.parse(added.stdout);
+    assert.equal(variant.variant, "highlighted", "the label is slugified into the identity");
+    const stored = (await fetch(`${server.url}/api/posts/${variant.id}`).then((r) =>
+      r.json(),
+    )) as any;
+    assert.deepEqual(stored.surfaces[0].kits, ["issues"], "kits ride the html surface");
+
+    // ambiguity is an error that names the variants and the way out
+    const ambiguous = await itemCli(
+      server,
+      { cwd },
+      "publish",
+      "--item",
+      "pricing-card",
+      "--html",
+      file,
+    );
+    assert.equal(ambiguous.code, 2);
+    assert.match(
+      ambiguous.stderr,
+      /^error pricing-card has 2 variants; say which one: --variant default\|highlighted or --variant new:<name>\n/,
+    );
+    const ambiguousRead = await itemCli(
+      server,
+      { cwd },
+      "show",
+      "--item",
+      "pricing-card",
+      "--variant",
+      "nope",
+    );
+    assert.equal(ambiguousRead.code, 2);
+    assert.match(ambiguousRead.stderr, /has no variant "nope"/);
+
+    // --json prints the raw payloads for status and show
+    const status = await itemCli(server, { cwd }, "status", "--json");
+    const statusJson = JSON.parse(status.stdout);
+    assert.equal(statusJson.project, "acme/site");
+    assert.equal(statusJson.summary.items, 1);
+    assert.equal(statusJson.items[0].variants.length, 2);
+    const show = await itemCli(server, { cwd }, "show", "--item", "pricing-card", "--json");
+    assert.equal(JSON.parse(show.stdout).slug, "pricing-card");
+    assert.equal((await itemCli(server, { cwd }, "status", "--quiet")).stdout, "");
+
+    // export --out writes outside the repo
+    const exported = await itemCli(
+      server,
+      { cwd },
+      "export",
+      "--item",
+      "pricing-card",
+      "--variant",
+      "highlighted",
+      "--out",
+      outDir,
+      "--json",
+    );
+    assert.equal(JSON.parse(exported.stdout).variant, "highlighted");
+    const written = await itemCli(
+      server,
+      { cwd },
+      "export",
+      "--item",
+      "pricing-card",
+      "--variant",
+      "highlighted",
+      "--out",
+      outDir,
+      "--quiet",
+    );
+    assert.equal(written.stdout, "");
+    assert.equal(
+      readFileSync(join(outDir, "pricing-card", "highlighted", "index.html"), "utf8"),
+      "<p>x</p>",
+    );
+
+    // --project overrides the resolved project, and an empty one says so
+    const other = await itemCli(server, { cwd }, "status", "--project", "acme/docs");
+    assert.match(other.stdout, /acme\/docs · 0 items · nothing waiting on you/);
   } finally {
     await server.close();
   }

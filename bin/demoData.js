@@ -171,3 +171,115 @@ export const DEMO_SESSIONS = [
     ],
   },
 ];
+
+// --- reshape demo: one project, items with variants, a composed page ---------
+// Seeded through the project › item › variant path so `sideshow demo` shows the
+// navigation model, not just a stream of cards.
+
+const CARD_SHELL = (accent, body) => `
+<section style="font-family: var(--font-sans); color: var(--color-text-primary); border: 1px solid ${accent}; border-radius: 14px; padding: 22px 20px; max-width: 320px;">
+  ${body}
+</section>`;
+
+const PRICE_ROWS = `
+  <ul style="list-style: none; padding: 0; margin: 16px 0 0; color: var(--color-text-secondary); font-size: 14px; line-height: 2;">
+    <li>Unlimited projects</li><li>Live preview</li><li>Priority support</li>
+  </ul>`;
+
+const PRICING_QUIET = CARD_SHELL(
+  "var(--color-border-tertiary)",
+  `<div style="font-size: 13px; color: var(--color-text-secondary);">Pro</div>
+   <div style="font-size: 34px; font-weight: 500; margin-top: 4px;">$24<span style="font-size: 14px; color: var(--color-text-tertiary);">/mo</span></div>
+   ${PRICE_ROWS}
+   <button style="margin-top: 18px; width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--color-border-secondary); background: transparent; color: inherit; font: inherit;">Choose Pro</button>`,
+);
+
+const PRICING_HIGHLIGHTED = CARD_SHELL(
+  "var(--color-text-info)",
+  `<div style="display: flex; justify-content: space-between; align-items: center;">
+     <span style="font-size: 13px; color: var(--color-text-secondary);">Pro</span>
+     <span style="font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--color-background-info); color: var(--color-text-info);">Most popular</span>
+   </div>
+   <div style="font-size: 40px; font-weight: 600; margin-top: 6px;">$24<span style="font-size: 14px; color: var(--color-text-tertiary);">/mo</span></div>
+   ${PRICE_ROWS}
+   <button style="margin-top: 18px; width: 100%; padding: 11px; border-radius: 8px; border: 0; background: var(--color-text-info); color: var(--color-background-primary); font: inherit; font-weight: 500;">Start free trial</button>`,
+);
+
+const PRICING_STACKED = CARD_SHELL(
+  "var(--color-border-tertiary)",
+  `<div style="display: flex; align-items: baseline; gap: 10px;">
+     <span style="font-size: 26px; font-weight: 500;">$24</span>
+     <span style="font-size: 13px; color: var(--color-text-secondary);">per month, billed annually</span>
+   </div>
+   ${PRICE_ROWS}
+   <button style="margin-top: 18px; width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--color-text-info); background: transparent; color: var(--color-text-info); font: inherit;">Choose Pro</button>`,
+);
+
+const HERO = `
+<section style="font-family: var(--font-sans); color: var(--color-text-primary); text-align: center; padding: 48px 24px;">
+  <h1 style="font-size: 38px; font-weight: 600; margin: 0;">Ship the design, not the description</h1>
+  <p style="color: var(--color-text-secondary); max-width: 460px; margin: 12px auto 0; line-height: 1.6;">
+    Your agent publishes what it built. You react in the browser. It revises.
+  </p>
+</section>`;
+
+const FAQ = `
+<section style="font-family: var(--font-sans); color: var(--color-text-primary); max-width: 560px;">
+  <h2 style="font-size: 20px; font-weight: 600;">Questions</h2>
+  <dl style="line-height: 1.7;">
+    <dt style="font-weight: 500; margin-top: 14px;">Can I switch plans?</dt>
+    <dd style="margin: 2px 0 0; color: var(--color-text-secondary);">Any time, prorated to the day.</dd>
+    <dt style="font-weight: 500; margin-top: 14px;">Is there a free tier?</dt>
+    <dd style="margin: 2px 0 0; color: var(--color-text-secondary);">One project, unlimited versions.</dd>
+  </dl>
+</section>`;
+
+const PRICING_PAGE = `
+<main style="font-family: var(--font-sans); display: grid; gap: 40px; justify-items: center; padding: 24px;">
+  <sideshow-slot slug="hero" variant="default" version="1"></sideshow-slot>
+  <sideshow-slot slug="pricing-card" variant="highlighted" version="2"></sideshow-slot>
+  <sideshow-slot slug="faq" variant="default" version="1"></sideshow-slot>
+</main>`;
+
+export const DEMO_PROJECT = {
+  project: "acme/site",
+  agent: "designer",
+  sessionTitle: "Pricing page",
+  items: [
+    {
+      slug: "hero",
+      kind: "component",
+      title: "Hero",
+      variants: [{ variant: "default", html: HERO }],
+    },
+    {
+      slug: "pricing-card",
+      kind: "component",
+      title: "Pricing card",
+      variants: [
+        { variant: "quiet", html: PRICING_QUIET },
+        {
+          variant: "highlighted",
+          html: PRICING_HIGHLIGHTED,
+          // A second version so the history rail and "from" have something real
+          // to show; the prompt is what the operator asked for.
+          versions: [{ html: PRICING_HIGHLIGHTED, from: 1, prompt: "make the price bigger" }],
+          ask: "pick one",
+        },
+        { variant: "stacked", html: PRICING_STACKED },
+      ],
+    },
+    {
+      slug: "faq",
+      kind: "component",
+      title: "FAQ",
+      variants: [{ variant: "default", html: FAQ }],
+    },
+    {
+      slug: "pricing-page",
+      kind: "page",
+      title: "Pricing page",
+      variants: [{ variant: "default", html: PRICING_PAGE }],
+    },
+  ],
+};

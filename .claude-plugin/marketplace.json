@@ -7,9 +7,9 @@
     {
       "name": "sideshow",
       "source": "./plugin",
-      "description": "Stream sideshow browser comments to Claude Code as notifications; publish snippets over MCP.",
+      "description": "Publish design items and variants to sideshow over MCP (publish_item, revise_item, ask_user, list_items, get_item, export_item, wait_for_feedback, get_design_guide); stream the user's comments and decisions back to Claude Code as notifications.",
       "category": "Integrations",
-      "keywords": ["sideshow", "visualization", "feedback", "mcp"]
+      "keywords": ["sideshow", "design", "visualization", "feedback", "mcp"]
     }
   ]
 }

@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   DEFAULT_THEME_ID,
   type Palette,
+  paletteFromCssVars,
   THEMES,
   themeById,
   themeOptions,
@@ -132,4 +133,69 @@ test("omitting the mode preserves the OS media-query behavior unchanged", () => 
       "no-mode output keeps the dark-scheme override",
     );
   }
+});
+
+// --- imported project palettes (sideshow init) ---------------------------
+
+test("paletteFromCssVars maps a shadcn :root/.dark pair onto both palettes", () => {
+  const imported = paletteFromCssVars(`
+    /* --background: 0 0% 0%; a commented-out token must not win */
+    :root {
+      --background: 0 0% 100%;
+      --foreground: 222 47% 11%;
+      --card: #fdfdfd;
+      --muted: 210 40% 96%;
+      --muted-foreground: 215 16% 47%;
+      --border: 214 32% 91%;
+      --primary: oklch(0.55 0.2 260);
+      --accent: 210 40% 96%;
+      --ring: #3b82f6;
+      --radius: 0.5rem;
+    }
+    .dark {
+      --background: 222 47% 11%;
+      --foreground: 210 40% 98%;
+    }
+  `);
+  assert.ok(imported, "recognisable tokens produce a palette");
+  // channel-only triplets are re-wrapped so they are usable as real colors
+  assert.equal(imported!.light.bg, "hsl(0 0% 100%)");
+  assert.equal(imported!.light.surface, "#fdfdfd");
+  assert.equal(imported!.light.text, "hsl(222 47% 11%)");
+  assert.equal(imported!.light.border, "hsl(214 32% 91%)");
+  // info is the brand accent: primary for ink, ring for the focus edge
+  assert.equal(imported!.light.info.text, "oklch(0.55 0.2 260)");
+  assert.equal(imported!.light.info.border, "#3b82f6");
+  // dark inherits the light declarations it does not override
+  assert.equal(imported!.dark.bg, "hsl(222 47% 11%)");
+  assert.equal(imported!.dark.text, "hsl(210 40% 98%)");
+  assert.equal(imported!.dark.info.text, "oklch(0.55 0.2 260)");
+  // colors only: --radius reaches surfaces through the injected raw block
+  assert.ok(!JSON.stringify(imported).includes("0.5rem"));
+});
+
+test("paletteFromCssVars reads a media-query dark block and a bare declaration list", () => {
+  const media = paletteFromCssVars(`
+    @import "tailwindcss";
+    @custom-variant dark (&:where(.dark, .dark *));
+    :root { --background: #ffffff; --foreground: #111111; }
+    @media (prefers-color-scheme: dark) {
+      :root { --background: #101010; --foreground: #f5f5f5; }
+    }
+  `);
+  assert.equal(media!.light.bg, "#ffffff");
+  assert.equal(media!.dark.bg, "#101010", "the at-rule's dark flag reaches the nested block");
+
+  // callers may pass just the declarations
+  const bare = paletteFromCssVars("--background: rgb(250 250 250); --foreground: white;");
+  assert.equal(bare!.light.bg, "rgb(250 250 250)");
+  assert.equal(bare!.light.text, "white");
+});
+
+test("paletteFromCssVars returns null when nothing recognisable is declared", () => {
+  assert.equal(paletteFromCssVars(""), null);
+  assert.equal(paletteFromCssVars("   "), null);
+  assert.equal(paletteFromCssVars(":root { --spacing: 4px; --font-sans: Inter; }"), null);
+  // an unresolvable indirection is not a color we can store
+  assert.equal(paletteFromCssVars(":root { --background: var(--brand); }"), null);
 });

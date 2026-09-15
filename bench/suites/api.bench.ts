@@ -164,7 +164,7 @@ export const apiSuite: Suite = {
       // and the server renders differently when the mode is pinned — so a bench
       // that omits them measures a URL shape no viewer ever sends, and would score
       // a change to the pinned path as no change at all. Match the real client.
-      const viewerQuery = "part=0&theme=github&mode=dark";
+      const viewerQuery = "part=0&ver=1&theme=github&mode=dark";
       for (const [kind, id] of Object.entries(perKind)) {
         const path = `/s/${id}?${viewerQuery}`;
         // Warm: every request after the first hits the memoized document.
@@ -200,10 +200,10 @@ export const apiSuite: Suite = {
     }
 
     // --- render cache footprint ---------------------------------------------
-    // MAX_RENDER_CACHE bounds the ENTRY COUNT, not the bytes, so the ceiling is
-    // "512 × whatever a document happens to weigh". This measures what a
-    // realistically-filled cache actually holds — the number that decides whether
-    // that bound is generous or dangerous.
+    // The cache is bounded by BYTES (MAX_RENDER_CACHE_BYTES), so this measures
+    // what a realistically-filled cache holds against that budget — and would
+    // catch a regression back to an entry-count bound, where the ceiling is
+    // "N × whatever a document happens to weigh".
     if (ctx.matches("render cache heap (64 mixed surfaces)")) {
       const store = new SqlStore(createSqliteStorage());
       const session = await store.createSession({ agent: "bench", title: "cache" });

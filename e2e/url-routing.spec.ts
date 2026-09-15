@@ -1,221 +1,246 @@
-import { expect, publish, test } from "./fixtures.ts";
+import { expect, itemPath, publish, publishItem, test } from "./fixtures.ts";
 
-test("clicking a session updates the URL to /session/:id", async ({ page, server }) => {
-  const s1 = await publish(server.url, { html: "<p>one</p>", title: "First", agent: "a1" });
-  const s2 = await publish(server.url, { html: "<p>two</p>", title: "Second", agent: "a2" });
-  await page.goto(server.url);
-  await expect(page.locator("#sessionList .sess")).toHaveCount(2);
+// Navigation is project › item › variant › version, and every step of it is
+// addressable: the item lives in the path, the variant and the browsed version
+// in the query, so a copied link restores exactly what was on screen.
 
-  // Selecting a session pushes /session/:id. The topmost surface auto-focuses
-  // internally, but the engine no longer pins it in the URL — only an explicit
-  // surface open (a deep link, or scrolling into one) writes /session/:id/p/:id.
-  await page.locator(`#sessionList .sess[data-id="${s2.sessionId}"]`).click();
-  await expect(page).toHaveURL(new RegExp(`/session/${s2.sessionId}$`));
-
-  // click the first session row
-  await page.locator(`#sessionList .sess[data-id="${s1.sessionId}"]`).click();
-  await expect(page).toHaveURL(new RegExp(`/session/${s1.sessionId}$`));
-});
-
-test("auto-selecting a session on boot does not pin the default surface in the URL", async ({
+test("the workspace root opens the most recent project and its first item", async ({
   page,
   server,
 }) => {
-  // A session with a post: landing at root auto-selects it. The topmost surface
-  // auto-focuses internally, but the URL must stay /session/:id — no /p/:id —
-  // because the user didn't open a specific surface.
-  const s = await publish(server.url, { html: "<p>hi</p>", title: "Top", agent: "pi" });
+  await publishItem(server.url, {
+    project: "acme/site",
+    slug: "hero",
+    title: "Hero",
+    html: "<p>hero</p>",
+    agent: "designer",
+  });
+
   await page.goto(server.url);
-  await expect(page.locator(`#sessionList .sess[data-id="${s.sessionId}"]`)).toHaveClass(/sel/);
-  await expect(page).toHaveURL(new RegExp(`/session/${s.sessionId}$`));
+
+  // "/" never lands on a chooser: it resolves to the live edge of the workspace.
+  await expect(page).toHaveURL(new RegExp(`${itemPath("acme/site", "hero")}$`));
+  await expect(page.locator(".ss-head h1")).toHaveText("Hero");
 });
 
-test("navigating to /session/:id selects that session", async ({ page, server }) => {
-  await publish(server.url, { html: "<p>one</p>", title: "First", agent: "a1" });
-  const s2 = await publish(server.url, { html: "<p>two</p>", title: "Second", agent: "a2" });
-
-  // go directly to the second session
-  await page.goto(`${server.url}/session/${s2.sessionId}`);
-  await expect(page.locator(`#sessionList .sess[data-id="${s2.sessionId}"]`)).toHaveClass(/sel/);
-  await expect(page.locator(".card .card-title")).toHaveText("Second");
-});
-
-test("the browser title follows the selected session", async ({ page, server }) => {
-  const s1 = await publish(server.url, {
-    html: "<p>one</p>",
-    title: "First post",
-    agent: "a1",
-    sessionTitle: "Auth refactor",
-  });
-  const s2 = await publish(server.url, {
-    html: "<p>two</p>",
-    title: "Second post",
-    agent: "a2",
-    sessionTitle: "Release prep",
-  });
-
-  await page.goto(`${server.url}/session/${s1.sessionId}`);
-  await expect(page).toHaveTitle("Auth refactor · sideshow");
-
-  await page.locator(`#sessionList .sess[data-id="${s2.sessionId}"]`).click();
-  await expect(page).toHaveTitle("Release prep · sideshow");
-});
-
-test("the standalone share page title uses the shared post title", async ({ page, server }) => {
-  const post = await publish(server.url, {
-    html: "<p>one</p>",
-    title: "First post",
-    agent: "a1",
-    sessionTitle: "Auth refactor",
-  });
-  const sessionListRequests: string[] = [];
-  page.on("request", (req) => {
-    const url = new URL(req.url());
-    if (req.method() === "GET" && url.pathname === "/api/sessions") {
-      sessionListRequests.push(req.url());
-    }
-  });
-
-  await page.goto(`${server.url}/s/${post.id}`);
-  await expect(page).toHaveTitle("First post");
-
-  await publish(server.url, { html: "<p>two</p>", title: "Other work", agent: "a2" });
-  await expect.poll(() => sessionListRequests.length).toBeGreaterThan(0);
-  await expect(page).toHaveTitle("First post");
-});
-
-test("navigating to /session/:id/s/:surfaceId selects session and scrolls to surface", async ({
+test("clicking a project switches the items column and the item screen", async ({
   page,
   server,
 }) => {
-  // Publish enough tall surfaces so the target is off-screen initially.
-  const s1 = await publish(server.url, {
-    html: '<div style="height:800px"><h2>Top</h2></div>',
-    title: "A",
-    agent: "pi",
+  await publishItem(server.url, {
+    project: "acme/site",
+    slug: "hero",
+    title: "Hero",
+    html: "<p>hero</p>",
+    agent: "designer",
   });
-  await publish(server.url, {
-    html: '<div style="height:800px"><h2>Middle</h2></div>',
-    title: "B",
-    agent: "pi",
-    session: s1.sessionId,
-  });
-  const s3 = await publish(server.url, {
-    html: '<div style="height:800px"><h2>Bottom</h2></div>',
-    title: "C",
-    agent: "pi",
-    session: s1.sessionId,
+  await publishItem(server.url, {
+    project: "loom",
+    slug: "sidebar",
+    title: "Sidebar",
+    html: "<p>sidebar</p>",
+    agent: "designer",
   });
 
-  // Deep link to the last surface
-  await page.goto(`${server.url}/session/${s1.sessionId}/s/${s3.id}`);
-  await expect(page.locator(`#sessionList .sess[data-id="${s1.sessionId}"]`)).toHaveClass(/sel/);
-  // All surfaces should be loaded (full session view)
-  await expect(page.locator(".card:not(#whatsNew) .card-title")).toHaveCount(3);
-  // The target surface should be scrolled near the top of the viewport.
-  // pollScrollIntoView retries every 50 ms until the position stabilises (≤ 5 s).
-  await expect
-    .poll(
-      async () => {
-        return page.locator(`.card[data-id="${s3.id}"]`).evaluate((el) => {
-          const r = el.getBoundingClientRect();
-          return r.top >= -10 && r.top <= 200;
-        });
-      },
-      { timeout: 6000 },
-    )
-    .toBe(true);
-  // URL should include the surface id (either the legacy inbound shape or the
-  // canonical /p/ shape the router writes)
-  await expect(page).toHaveURL(new RegExp(`/session/${s1.sessionId}/[sp]/${s3.id}`));
+  await page.goto(server.url);
+  await expect(page.locator(".ss-proj")).toHaveCount(2);
+
+  await page.locator(".ss-proj", { hasText: "acme/site" }).click();
+  await expect(page).toHaveURL(new RegExp(`${itemPath("acme/site", "hero")}$`));
+  await expect(page.locator(".ss-items h1")).toHaveText("acme/site");
+  await expect(page.locator(".ss-head h1")).toHaveText("Hero");
 });
 
-test("browser back/forward navigates between sessions", async ({ page, server }) => {
-  const s1 = await publish(server.url, { html: "<p>one</p>", title: "First", agent: "a1" });
-  const s2 = await publish(server.url, { html: "<p>two</p>", title: "Second", agent: "a2" });
-  await page.goto(server.url);
-  await expect(page.locator("#sessionList .sess")).toHaveCount(2);
+test("clicking an item row writes /project/:name/:slug", async ({ page, server }) => {
+  await publishItem(server.url, {
+    project: "acme/site",
+    slug: "hero",
+    title: "Hero",
+    html: "<p>hero</p>",
+    agent: "designer",
+  });
+  await publishItem(server.url, {
+    project: "acme/site",
+    slug: "faq",
+    title: "FAQ",
+    html: "<p>faq</p>",
+    agent: "designer",
+  });
 
-  await page.locator(`#sessionList .sess[data-id="${s1.sessionId}"]`).click();
-  await expect(page).toHaveURL(new RegExp(`/session/${s1.sessionId}(\\b|/)`));
+  await page.goto(`${server.url}${itemPath("acme/site")}`);
+  await page.locator(".ss-item-row", { hasText: "FAQ" }).click();
 
-  await page.locator(`#sessionList .sess[data-id="${s2.sessionId}"]`).click();
-  await expect(page).toHaveURL(new RegExp(`/session/${s2.sessionId}(\\b|/)`));
+  await expect(page).toHaveURL(new RegExp(`${itemPath("acme/site", "faq")}$`));
+  await expect(page.locator(".ss-head h1")).toHaveText("FAQ");
+});
 
-  // go back — should return to first session
+test("a variant tab and a history entry are addressable in the query", async ({ page, server }) => {
+  await publishItem(server.url, {
+    project: "acme/site",
+    slug: "pricing-card",
+    variant: "quiet",
+    title: "Pricing card",
+    html: "<p>quiet</p>",
+    agent: "designer",
+  });
+  await publishItem(server.url, {
+    project: "acme/site",
+    slug: "pricing-card",
+    variant: "loud",
+    title: "Pricing card",
+    html: "<p>loud v1</p>",
+    agent: "designer",
+  });
+  await publishItem(server.url, {
+    project: "acme/site",
+    slug: "pricing-card",
+    variant: "loud",
+    html: "<p>loud v2</p>",
+    prompt: "you: bigger",
+    agent: "designer",
+  });
+
+  await page.goto(`${server.url}${itemPath("acme/site", "pricing-card")}`);
+
+  // Picking a variant keys the URL to it, so the tab survives a copy/paste.
+  await page.locator(".ss-tabs:not(.ss-vp) button", { hasText: "quiet" }).click();
+  await expect(page).toHaveURL(/[?&]variant=quiet/);
+
+  await page.locator(".ss-tabs:not(.ss-vp) button", { hasText: "loud" }).click();
+  await expect(page).toHaveURL(/[?&]variant=loud/);
+
+  // Browsing history pins the version as well, and the stage says which one.
+  await page.locator('.ss-h:has(.th:text-is("v1"))').click();
+  await expect(page).toHaveURL(/[?&]v=1/);
+  await expect(page.locator(".ss-badge")).toContainText("viewing v1");
+
+  // A reload restores that exact view from the URL alone.
+  await page.reload();
+  await expect(page.locator(".ss-badge")).toContainText("viewing v1");
+  await expect(page.locator(".ss-tabs:not(.ss-vp) button.on")).toHaveText("loud");
+});
+
+test("a deep link to /project/:name/:slug renders the item directly", async ({ page, server }) => {
+  await publishItem(server.url, {
+    project: "acme/site",
+    slug: "hero",
+    title: "Hero",
+    html: "<h2>Hero body</h2>",
+    agent: "designer",
+  });
+
+  await page.goto(`${server.url}${itemPath("acme/site", "hero")}`);
+
+  await expect(page).toHaveTitle("acme/site");
+  await expect(page.locator(".ss-head h1")).toHaveText("Hero");
+  await expect(page.frameLocator(".ss-stagewrap iframe").locator("h2")).toHaveText("Hero body");
+});
+
+// The pre-reshape permalinks stay alive: they resolve onto the item screen
+// instead of a session stream that no longer exists.
+test("/session/:id resolves to the session's item screen", async ({ page, server }) => {
+  const post = await publishItem(server.url, {
+    project: "acme/site",
+    slug: "hero",
+    title: "Hero",
+    html: "<p>hero</p>",
+    agent: "designer",
+  });
+
+  await page.goto(`${server.url}/session/${post.sessionId}`);
+
+  await expect(page).toHaveURL(new RegExp(`${itemPath("acme/site", "hero")}`));
+  await expect(page.locator(".ss-head h1")).toHaveText("Hero");
+});
+
+test("/session/:id/p/:postId resolves to that post's item and variant", async ({
+  page,
+  server,
+}) => {
+  const quiet = await publishItem(server.url, {
+    project: "acme/site",
+    slug: "pricing-card",
+    variant: "quiet",
+    title: "Pricing card",
+    html: "<p>quiet</p>",
+    agent: "designer",
+  });
+  await publishItem(server.url, {
+    project: "acme/site",
+    slug: "pricing-card",
+    variant: "loud",
+    title: "Pricing card",
+    html: "<p>loud</p>",
+    session: quiet.sessionId,
+  });
+
+  await page.goto(`${server.url}/session/${quiet.sessionId}/p/${quiet.id}`);
+
+  await expect(page).toHaveURL(/variant=quiet/);
+  await expect(page.locator(".ss-head h1")).toHaveText("Pricing card");
+  await expect(page.locator(".ss-tabs:not(.ss-vp) button.on")).toHaveText("quiet");
+});
+
+test("browser back/forward navigates between items", async ({ page, server }) => {
+  await publishItem(server.url, {
+    project: "acme/site",
+    slug: "hero",
+    title: "Hero",
+    html: "<p>hero</p>",
+    agent: "designer",
+  });
+  await publishItem(server.url, {
+    project: "acme/site",
+    slug: "faq",
+    title: "FAQ",
+    html: "<p>faq</p>",
+    agent: "designer",
+  });
+
+  await page.goto(`${server.url}${itemPath("acme/site")}`);
+  await page.locator(".ss-item-row", { hasText: "Hero" }).click();
+  await expect(page).toHaveURL(new RegExp(`${itemPath("acme/site", "hero")}$`));
+  await page.locator(".ss-item-row", { hasText: "FAQ" }).click();
+  await expect(page).toHaveURL(new RegExp(`${itemPath("acme/site", "faq")}$`));
+
   await page.goBack();
-  await expect(page).toHaveURL(new RegExp(`/session/${s1.sessionId}(\\b|/)`));
-  await expect(page.locator(`#sessionList .sess[data-id="${s1.sessionId}"]`)).toHaveClass(/sel/);
+  await expect(page).toHaveURL(new RegExp(`${itemPath("acme/site", "hero")}$`));
+  await expect(page.locator(".ss-head h1")).toHaveText("Hero");
 
-  // go forward — should return to second session
   await page.goForward();
-  await expect(page).toHaveURL(new RegExp(`/session/${s2.sessionId}(\\b|/)`));
-  await expect(page.locator(`#sessionList .sess[data-id="${s2.sessionId}"]`)).toHaveClass(/sel/);
+  await expect(page).toHaveURL(new RegExp(`${itemPath("acme/site", "faq")}$`));
+  await expect(page.locator(".ss-head h1")).toHaveText("FAQ");
 });
 
-test("clicking the sidebar wordmark returns home and clears the selection", async ({
+// On a phone the items list is a screen of its own: the item screen covers it
+// and its back link returns, and the drawer's wordmark goes back to projects.
+test("at phone width the item screen has a back link to the item list", async ({
   page,
   server,
 }) => {
-  const s1 = await publish(server.url, { html: "<p>one</p>", title: "First", agent: "a1" });
-  await page.goto(server.url);
-  await page.locator(`#sessionList .sess[data-id="${s1.sessionId}"]`).click();
-  await expect(page).toHaveURL(new RegExp(`/session/${s1.sessionId}(\\b|/)`));
-  await expect(page.locator(`#sessionList .sess[data-id="${s1.sessionId}"]`)).toHaveClass(/sel/);
-
-  // The wordmark is a home button: it drops the selection and routes back to the
-  // session-less base path — the guaranteed way back to the board when no session
-  // row is available to click (e.g. a host's full-page view over an empty board).
-  await page.locator("aside .brand").click();
-  await expect(page).not.toHaveURL(/\/session\//);
-  await expect(page.locator(`#sessionList .sess[data-id="${s1.sessionId}"]`)).not.toHaveClass(
-    /sel/,
-  );
-});
-
-test("/ redirects to the last viewed session from localStorage", async ({ page, server }) => {
-  const s = await publish(server.url, { html: "<p>hi</p>", title: "Sticky", agent: "pi" });
-
-  // visit the session to populate localStorage
-  await page.goto(`${server.url}/session/${s.sessionId}`);
-  await expect(page.locator(`#sessionList .sess[data-id="${s.sessionId}"]`)).toHaveClass(/sel/);
-
-  // now visit root — should redirect to the last session
-  await page.goto(server.url);
-  await expect(page).toHaveURL(new RegExp(`/session/${s.sessionId}$`));
-  await expect(page.locator(`#sessionList .sess[data-id="${s.sessionId}"]`)).toHaveClass(/sel/);
-});
-
-test("scrolling through surfaces updates the URL", async ({ page, server }) => {
-  // publish enough surfaces to force scrolling
-  const s1 = await publish(server.url, {
-    html: '<div style="height:800px"><h2>Top</h2></div>',
-    title: "Surface A",
-    agent: "pi",
+  await publishItem(server.url, {
+    project: "acme/site",
+    slug: "hero",
+    title: "Hero",
+    html: "<p>hero</p>",
+    agent: "designer",
   });
-  await publish(server.url, {
-    html: '<div style="height:800px"><h2>Middle</h2></div>',
-    title: "Surface B",
-    agent: "pi",
-    session: s1.sessionId,
-  });
-  const s3 = await publish(server.url, {
-    html: '<div style="height:800px"><h2>Bottom</h2></div>',
-    title: "Surface C",
-    agent: "pi",
-    session: s1.sessionId,
-  });
+  await page.setViewportSize({ width: 393, height: 852 });
 
-  await page.goto(`${server.url}/session/${s1.sessionId}`);
-  await expect(page.locator(".card:not(#whatsNew)")).toHaveCount(3);
+  await page.goto(`${server.url}${itemPath("acme/site")}`);
+  await expect(page.locator(".ss-item-row")).toBeVisible();
 
-  // scroll the last surface into view
-  await page.locator(`.card[data-id="${s3.id}"]`).scrollIntoViewIfNeeded();
-  await expect(page).toHaveURL(new RegExp(`/session/${s1.sessionId}/p/${s3.id}$`));
+  await page.locator(".ss-item-row", { hasText: "Hero" }).click();
+  await expect(page).toHaveURL(new RegExp(`${itemPath("acme/site", "hero")}$`));
+  await expect(page.locator(".ss-item .ss-mtop h1")).toHaveText("Hero");
 
-  // scroll back to the first surface
-  await page.locator(`.card[data-id="${s1.id}"]`).scrollIntoViewIfNeeded();
-  await expect(page).toHaveURL(new RegExp(`/session/${s1.sessionId}/p/${s1.id}$`));
+  await page.locator(".ss-item .ss-mtop .back").click();
+  await expect(page).toHaveURL(new RegExp(`${itemPath("acme/site")}$`));
+  await expect(page.locator(".ss-item-row")).toBeVisible();
+
+  // The projects drawer is the way up from the item list.
+  await page.locator("button.m", { hasText: "projects" }).click();
+  await expect(page.locator(".ss-side .ss-proj")).toBeVisible();
 });
 
 test("/s/:id bare surface route shows the standalone full-page surface", async ({
@@ -225,18 +250,18 @@ test("/s/:id bare surface route shows the standalone full-page surface", async (
   const s = await publish(server.url, { html: "<h2>Standalone</h2>", title: "Solo" });
   await page.goto(`${server.url}/s/${s.id}`);
 
-  // A bare direct link is the full-page standalone view: just that one surface,
-  // no sidebar / session feed / comments, with a sideshow watermark beneath.
+  // A bare direct link is the full-page standalone view: just that one post, no
+  // navigation chrome, with a sideshow watermark beneath.
   await expect(page.locator("#standalone")).toHaveCount(1);
-  await expect(page.locator("#sessionList")).toHaveCount(0);
+  await expect(page.locator(".ss-side")).toHaveCount(0);
   await expect(page.locator("#standalone .card[data-id]")).toHaveCount(1);
   await expect(page.locator(`.card[data-id="${s.id}"] .card-title`)).toHaveText("Solo");
   // No comment thread chrome in standalone mode.
   await expect(page.locator(".card .thread")).toHaveCount(0);
   await expect(page.locator(".standalone-foot a")).toHaveAttribute("href", "https://sideshow.sh");
 
-  // It stays on the canonical share URL — it does not rewrite into a
-  // session-scoped deep link the way the in-feed deep link does.
+  // It stays on the canonical share URL — it does not rewrite into the item
+  // screen the way a session permalink does.
   await expect(page).toHaveURL(new RegExp(`/s/${s.id}$`));
 
   // The authored HTML is still rendered only inside the sandboxed part iframe.
@@ -256,10 +281,27 @@ test("/p/:id canonical post route shows the standalone full-page surface", async
   await page.goto(`${server.url}/p/${s.id}`);
 
   await expect(page.locator("#standalone")).toHaveCount(1);
-  await expect(page.locator("#sessionList")).toHaveCount(0);
+  await expect(page.locator(".ss-side")).toHaveCount(0);
   await expect(page.locator(`.card[data-id="${s.id}"] .card-title`)).toHaveText("Perma");
   await expect(page).toHaveURL(new RegExp(`/p/${s.id}$`));
   await expect(page.frameLocator(`.card[data-id="${s.id}"] iframe`).locator("h2")).toHaveText(
     "Canonical",
   );
+});
+
+test("the standalone share page title uses the shared post title", async ({ page, server }) => {
+  const post = await publish(server.url, {
+    html: "<p>one</p>",
+    title: "First post",
+    agent: "a1",
+    sessionTitle: "Auth refactor",
+  });
+
+  await page.goto(`${server.url}/p/${post.id}`);
+  await expect(page).toHaveTitle("First post");
+
+  // Another agent publishing elsewhere must not retitle this page.
+  await publish(server.url, { html: "<p>two</p>", title: "Other work", agent: "a2" });
+  await page.waitForTimeout(300);
+  await expect(page).toHaveTitle("First post");
 });

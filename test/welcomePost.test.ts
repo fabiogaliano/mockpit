@@ -79,7 +79,11 @@ test("the send_test_post MCP tool is advertised and publishes the same card", as
   // Advertised on tools/list, and nudged in the initialize instructions.
   const list = (await (await app.request("/mcp", mcpCall(1, "tools/list"))).json()) as any;
   assert.ok(list.result.tools.some((t: any) => t.name === "send_test_post"));
-  assert.match(MCP_INSTRUCTIONS, /send_test_post/);
+  // The 400-byte instructions now spend their budget on the design loop
+  // (publish_item → ask_user → wait_for_feedback), not on the smoke-test tool,
+  // which stays discoverable through tools/list.
+  assert.doesNotMatch(MCP_INSTRUCTIONS, /send_test_post/);
+  assert.match(MCP_INSTRUCTIONS, /publish_item/);
   assert.ok(HTTP_MCP_TOOLS.some((t) => t.name === "send_test_post"));
 
   const call = (await (

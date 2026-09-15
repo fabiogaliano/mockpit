@@ -1,5 +1,7 @@
 // Shared data model — no runtime imports, safe for any platform.
 
+import type { Palette } from "./themes.ts";
+
 export interface Session {
   id: string;
   agent: string;
@@ -10,6 +12,9 @@ export interface Session {
   // Highest comment seq already delivered to the agent — lets responses to
   // agent writes piggyback comments the agent has not seen yet.
   agentSeq: number;
+  // The repo this session's agent is working in (project › item › variant ›
+  // version). Resolved once at session create; null only for legacy rows.
+  project: string | null;
 }
 
 // A post is an ordered list of surfaces. Each surface declares its own kind;
@@ -232,11 +237,39 @@ export type Surface =
   | (JsonSurface & { id?: string })
   | (CodeSurface & { id?: string });
 
+// An item is a component or a whole page. A page composes components by
+// reference (<sideshow-slot>), expanded server-side at render time.
+export type ItemKind = "component" | "page";
+// A variant's review state. `accepted` is the operator's pick; accepting one
+// archives its siblings. Archived variants are hidden but restorable.
+export type PostStatus = "open" | "accepted" | "archived";
+
+// One component included in a page, pinned to an exact version (snapshot
+// semantics: pulling a newer version is an explicit new page version).
+export interface Slot {
+  slug: string;
+  variant: string;
+  version: number;
+}
+
+// The agent is blocked on the operator for this variant.
+export interface PostAsk {
+  text: string;
+  at: string;
+}
+
 export interface PostVersion {
   version: number;
   title: string;
   surfaces: Surface[];
   at: string;
+  // The version this one was based on — usually the previous one, but an agent
+  // may branch from any earlier version.
+  from?: number;
+  // What prompted this version (the operator's revise text, or the agent's own
+  // note). Empty for the initial version and for legacy history entries.
+  prompt?: string;
+  author?: string;
 }
 
 export interface Post {
@@ -248,6 +281,77 @@ export interface Post {
   updatedAt: string;
   version: number;
   history: PostVersion[];
+  project: string;
+  // Stable across sessions so an agent can revise an item by name. Unique
+  // with `variant` inside a project.
+  slug: string;
+  kind: ItemKind;
+  variant: string;
+  status: PostStatus;
+  ask: PostAsk | null;
+  slots: Slot[];
+  // Provenance of the CURRENT version — the same three fields a PostVersion
+  // carries. Kept here because history only holds past versions; on the next
+  // update these move into the history entry this version becomes.
+  from?: number;
+  prompt?: string;
+  author?: string;
+}
+
+// A per-project summary for the projects list.
+export interface ProjectSummary {
+  name: string;
+  items: number;
+  waiting: number;
+  lastActiveAt: string;
+  sessions: number;
+}
+
+export interface VariantSummary {
+  postId: string;
+  variant: string;
+  version: number;
+  status: PostStatus;
+  ask: PostAsk | null;
+  updatedAt: string;
+}
+
+export interface ItemSummary {
+  project: string;
+  slug: string;
+  kind: ItemKind;
+  title: string;
+  variants: VariantSummary[];
+  waiting: boolean;
+  updatedAt: string;
+}
+
+// A variant with its current surfaces and history METADATA — history entries
+// carry no surface bodies, so an item screen costs one bounded response.
+export interface VariantDetail extends VariantSummary {
+  title: string;
+  surfaces: Surface[];
+  slots: Slot[];
+  createdAt: string;
+  sessionId: string;
+  history: { version: number; title: string; at: string; from?: number; prompt?: string }[];
+}
+
+export interface ItemDetail extends Omit<ItemSummary, "variants"> {
+  variants: VariantDetail[];
+}
+
+// Per-project design system state, imported from the repo by `sideshow init`
+// and rendered into every html surface's sandbox (see renderHtmlPage). Stored
+// as JSON under the settings key `design:<project>`.
+export interface DesignSettings {
+  detected: { tailwind: boolean; shadcn: boolean; cssVars: number; fonts: string[] } | null;
+  palette: { light: Palette; dark: Palette } | null;
+  kit: "tailwind" | "builtin" | "none";
+  // Raw `:root{...}` block imported from the repo, injected into the frame.
+  cssVars: string;
+  iconsAssetId: string | null;
+  updatedAt: string;
 }
 
 export type CommentAnchor =
@@ -282,6 +386,27 @@ export type CommentAnchor =
       file?: string;
     };
 
+// A decision is a comment with a kind, so delivery reuses the one cursor.
+export type CommentKind = "comment" | "revise" | "accept" | "drop" | "ask" | "reply";
+
+// One point-and-comment marker drawn over a rendered surface. Everything here
+// is DATA: the overlay lives in the trusted viewer origin and renders it as
+// text nodes / positioned elements, never as HTML.
+export interface Anchor {
+  // The `@n` token that ties this marker to its mention in the comment text.
+  ref: string;
+  shape: "pin" | "rect" | "circle";
+  // [x,y] for a pin, [x,y,w,h] for rect/circle — normalized 0..1 of the surface.
+  box: number[];
+  surfaceIndex: number;
+  postVersion: number;
+  // CSS path and first line of visible text, answered by the sandbox hit test.
+  path?: string;
+  text?: string;
+  // Viewport preset (390 | 820 | 1280) in use when the marker was drawn.
+  viewport?: number;
+}
+
 export interface Comment {
   id: string;
   seq: number;
@@ -295,6 +420,13 @@ export interface Comment {
   // area/line. It is data only: render with text/positioned elements in the
   // trusted viewer, never as HTML.
   anchor?: CommentAnchor;
+  kind: CommentKind;
+  anchors: Anchor[];
+  // Drafts accumulate in the viewer and are NEVER delivered to the agent until
+  // Revise releases them (with fresh seqs, so the one cursor picks them up).
+  draft: boolean;
+  postVersion: number | null;
+  viewport: number | null;
 }
 
 // An uploaded blob (image, trace file, arbitrary file) the agent pushes once and
@@ -328,17 +460,30 @@ export interface CreateSessionInput {
   agent: string;
   title?: string;
   cwd?: string;
+  project?: string;
 }
 
 export interface CreatePostInput {
   sessionId: string;
   title?: string;
   surfaces: Surface[];
+  project?: string;
+  slug?: string;
+  kind?: ItemKind;
+  variant?: string;
+  from?: number;
+  prompt?: string;
+  slots?: Slot[];
+  author?: string;
 }
 
 export interface UpdatePostInput {
   title?: string;
   surfaces?: Surface[];
+  from?: number;
+  prompt?: string;
+  author?: string;
+  slots?: Slot[];
 }
 
 export interface CreateCommentInput {
@@ -347,12 +492,19 @@ export interface CreateCommentInput {
   author: string;
   text: string;
   anchor?: CommentAnchor;
+  kind?: CommentKind;
+  anchors?: Anchor[];
+  draft?: boolean;
+  postVersion?: number | null;
+  viewport?: number | null;
 }
 
 export interface CommentQuery {
   sessionId?: string;
   postId?: string;
   afterSeq?: number;
+  // Agent-facing reads never include drafts; viewer reads pass true.
+  includeDrafts?: boolean;
 }
 
 // Storage interface — implementations: JsonFileStore (local Node),
@@ -386,6 +538,20 @@ export interface Store {
   createPost(input: CreatePostInput): Promise<Post | null>;
   updatePost(id: string, patch: UpdatePostInput): Promise<Post | null>;
   removePost(id: string): Promise<boolean>;
+
+  // --- project › item › variant navigation ---
+  listProjects(): Promise<ProjectSummary[]>;
+  listItems(project: string): Promise<ItemSummary[]>;
+  getItem(project: string, slug: string): Promise<ItemDetail | null>;
+  findVariant(project: string, slug: string, variant: string): Promise<Post | null>;
+  setPostStatus(id: string, status: PostStatus): Promise<Post | null>;
+  setPostAsk(id: string, ask: PostAsk | null): Promise<Post | null>;
+  // Release the operator's accumulated drafts as real feedback. Drafts are
+  // DELETED and reinserted so each gets a FRESH seq above the session's
+  // agentSeq — otherwise the one cursor would have already stepped past them
+  // and the feedback would be silently lost. Returned in new seq order.
+  releaseDrafts(postId: string): Promise<Comment[]>;
+  listDrafts(postId: string): Promise<Comment[]>;
 
   listComments(query: CommentQuery): Promise<Comment[]>;
   createComment(input: CreateCommentInput): Promise<Comment | null>;
@@ -518,6 +684,190 @@ export async function hashAssetId(data: Uint8Array): Promise<string> {
 // surface so untouched surfaces keep their ids.
 export function normalizeSurfaceIds(surfaces: Surface[]): Surface[] {
   return surfaces.map((s) => (s.id ? s : { ...s, id: newId() }));
+}
+
+// Fallback project for posts whose session never declared one (legacy rows,
+// bare `curl` publishes).
+export const DEFAULT_PROJECT = "workspace";
+export const DEFAULT_VARIANT = "default";
+
+// Stable, url-safe item id derived from a title. Empty input yields "item" so a
+// slug is never the empty string.
+export function slugify(input: string): string {
+  const slug = input
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60)
+    .replace(/-+$/g, "");
+  return slug || "item";
+}
+
+// --- project › item › variant aggregation ---
+// Pure, store-independent: both backends hand their rows to these so the two
+// can't drift on what "waiting" or "items" means.
+
+const variantSummary = (p: Post): VariantSummary => ({
+  postId: p.id,
+  variant: p.variant,
+  version: p.version,
+  status: p.status,
+  ask: p.ask,
+  updatedAt: p.updatedAt,
+});
+
+// Pages first, then most recently updated — the order the items column uses.
+const itemOrder = (a: ItemSummary, b: ItemSummary): number =>
+  a.kind === b.kind ? b.updatedAt.localeCompare(a.updatedAt) : a.kind === "page" ? -1 : 1;
+
+export function summarizeItems(posts: Post[]): ItemSummary[] {
+  const bySlug = new Map<string, Post[]>();
+  for (const p of posts) {
+    const list = bySlug.get(p.slug);
+    if (list) list.push(p);
+    else bySlug.set(p.slug, [p]);
+  }
+  const items: ItemSummary[] = [];
+  for (const [slug, group] of bySlug) {
+    const sorted = [...group].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    items.push({
+      project: sorted[0].project,
+      slug,
+      kind: sorted.some((p) => p.kind === "page") ? "page" : "component",
+      title: sorted[0].title,
+      variants: sorted.map(variantSummary),
+      waiting: sorted.some((p) => p.ask !== null && p.status !== "archived"),
+      updatedAt: sorted.reduce((max, p) => (p.updatedAt > max ? p.updatedAt : max), ""),
+    });
+  }
+  return items.sort(itemOrder);
+}
+
+export function summarizeProjects(posts: Post[], sessions: Session[]): ProjectSummary[] {
+  const byProject = new Map<string, Post[]>();
+  for (const p of posts) {
+    const list = byProject.get(p.project);
+    if (list) list.push(p);
+    else byProject.set(p.project, [p]);
+  }
+  const sessionCounts = new Map<string, number>();
+  const sessionActive = new Map<string, string>();
+  for (const s of sessions) {
+    const name = s.project ?? projectFromCwd(s.cwd) ?? DEFAULT_PROJECT;
+    sessionCounts.set(name, (sessionCounts.get(name) ?? 0) + 1);
+    const prev = sessionActive.get(name);
+    if (!prev || s.lastActiveAt > prev) sessionActive.set(name, s.lastActiveAt);
+  }
+  const names = new Set([...byProject.keys(), ...sessionCounts.keys()]);
+  return [...names]
+    .map((name) => {
+      const items = summarizeItems(byProject.get(name) ?? []);
+      const lastPost = items.reduce((max, i) => (i.updatedAt > max ? i.updatedAt : max), "");
+      return {
+        name,
+        items: items.length,
+        waiting: items.filter((i) => i.waiting).length,
+        lastActiveAt: [lastPost, sessionActive.get(name) ?? ""].sort().pop() ?? "",
+        sessions: sessionCounts.get(name) ?? 0,
+      };
+    })
+    .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt));
+}
+
+// History metadata only — no surface bodies, so an item screen is one bounded
+// response. The current version leads the list (newest first).
+export function variantDetail(p: Post): VariantDetail {
+  return {
+    ...variantSummary(p),
+    title: p.title,
+    surfaces: p.surfaces,
+    slots: p.slots,
+    createdAt: p.createdAt,
+    sessionId: p.sessionId,
+    history: [
+      {
+        version: p.version,
+        title: p.title,
+        at: p.updatedAt,
+        ...(p.from === undefined ? {} : { from: p.from }),
+        ...(p.prompt === undefined ? {} : { prompt: p.prompt }),
+      },
+      ...[...p.history]
+        .sort((a, b) => b.version - a.version)
+        .map((h) => ({
+          version: h.version,
+          title: h.title,
+          at: h.at,
+          ...(h.from === undefined ? {} : { from: h.from }),
+          ...(h.prompt === undefined ? {} : { prompt: h.prompt }),
+        })),
+    ],
+  };
+}
+
+export function detailForItem(posts: Post[]): ItemDetail | null {
+  const [summary] = summarizeItems(posts);
+  if (!summary) return null;
+  const order = new Map(summary.variants.map((v, i) => [v.postId, i]));
+  return {
+    ...summary,
+    variants: [...posts]
+      .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+      .map(variantDetail),
+  };
+}
+
+// Migration slug for a legacy post: kebab-case title plus a short suffix from
+// the post id, so two posts with the same title stay distinct items.
+export function uniqueSlug(title: string, id: string, taken: Set<string>): string {
+  const base = slugify(title);
+  const suffix = id
+    .slice(0, 4)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "0");
+  let slug = `${base}-${suffix}`;
+  let n = 2;
+  while (taken.has(slug)) slug = `${base}-${suffix}-${n++}`;
+  return slug;
+}
+
+// Last path segment of a working directory, for sessions that never declared a
+// project. Handles both separators so a Windows cwd resolves the same way.
+export function projectFromCwd(cwd: string | null | undefined): string | null {
+  if (!cwd) return null;
+  const parts = cwd.split(/[/\\]+/).filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : null;
+}
+
+// Legacy single `anchor` → the Anchor list markers use. Line-range anchors have
+// no box, so they don't convert.
+export function anchorFromLegacy(anchor: CommentAnchor | undefined): Anchor[] {
+  if (!anchor) return [];
+  if (anchor.kind === "point") {
+    return [
+      {
+        ref: "@1",
+        shape: "pin",
+        box: [anchor.x, anchor.y],
+        surfaceIndex: anchor.surfaceIndex,
+        postVersion: anchor.postVersion,
+      },
+    ];
+  }
+  if (anchor.kind === "rect") {
+    return [
+      {
+        ref: "@1",
+        shape: "rect",
+        box: [anchor.x, anchor.y, anchor.w, anchor.h],
+        surfaceIndex: anchor.surfaceIndex,
+        postVersion: anchor.postVersion,
+      },
+    ];
+  }
+  return [];
 }
 
 // A snippet is sugar for a single html surface; this bridges the legacy

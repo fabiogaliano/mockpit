@@ -1,289 +1,172 @@
-# sideshow — design guide for agents
+# sideshow — design guide
 
-You are drawing to a persistent visual surface the user keeps open in a browser.
-Your posts appear instantly as cards, grouped into a session for this
-conversation. Read this once before your first publish.
+Three sections, each readable on its own:
 
-## Posts and surfaces
+1. **Surfaces** — what an item's body can be made of.
+2. **HTML contract** — the hard rules for the markup you write.
+3. **Kits and tokens** — the vocabulary and colors available inside the frame.
 
-A **post** is a card built from an ordered list of **surfaces**. Each surface has
-a `kind`:
+For the publish/ask/wait/revise workflow see `sideshow agent-howto`. For this
+project's actual palette, kit and icons see `sideshow guide --brief`.
 
-- **`html`** — arbitrary markup you write, rendered in a sandboxed iframe (the
-  rest of this guide is the contract for it). Reach for it for diagrams, UI
-  sketches, data viz — anything you draw.
-- **`markdown`** — prose you hand over as _text_; the viewer renders it with
-  consistent typography (headings, lists, tables, links, and syntax-highlighted
-  fenced code blocks — tag the fence with a language, e.g. ` ```ts `). Reach for
-  it for explanations, plans, and tradeoff write-ups — anything you'd otherwise
-  hand-format in html. Markdown image syntax works too: `![caption](/a/<id>)`
-  embeds an uploaded image (see Uploads below) inline, so one markdown surface can
-  interleave prose, tables, code, and pictures. Only raw _HTML_ in the source is
-  escaped, not rendered — reach for an `html` surface when you need live markup
-  (interactivity, vector graphics, custom layout), not just to show a picture.
-- **`mermaid`** — diagram source you hand over as _text_; the viewer renders it
-  to an SVG (flowcharts, sequence diagrams, ERDs, gantt, state, …). Reach for it
-  when the _shape_ of a system is the point and you'd rather describe it than
-  draw SVG by hand. The source travels as data and renders in a sandboxed Mermaid
-  frame (securityLevel `strict`); for bespoke vector art hand-write inline `<svg>`
-  in an `html` surface instead. Prefer vertical flowcharts (`flowchart TD`/`TB`)
-  for sideshow cards;
-  wide `LR` system maps shrink to fit the card and become unreadable. The viewer
-  themes the diagram (light and dark) automatically — **don't set your own
-  colors**. Highlight flowchart nodes with `:::accent` (or `class A,B accent`)
-  and edges with `accentLine` (pair with `linkStyle`); sequence diagrams style
-  actors globally only.
-- **`diff`** — a patch you hand over as _data_; the trusted viewer renders it
-  natively as a syntax-highlighted code review (split or unified). Reach for it
-  to show a changeset or review code, not to draw.
-- **`image`** — an uploaded image, referenced by `assetId` (see Uploads below),
-  rendered natively by the viewer. Reach for it to show a screenshot or a
-  generated picture.
-- **`trace`** — an agent trace rendered as a step timeline beside the post.
-  Steps can travel inline, or live in an uploaded file you reference and offer
-  for download.
-- **`terminal`** — monospace terminal output, rendered natively as a terminal
-  window. The `text` travels inline and may carry ANSI SGR escapes (colors,
-  bold, italic, underline); the viewer renders those and HTML-escapes the rest.
-  Reach for it to share shell output, build logs, or example commands. (Colors
-  yes; cursor-addressing TUIs are not resolved — share a captured frame.)
-- **`json`** — a pre-parsed JSON value (`data`), rendered natively by the viewer
-  as a collapsible tree. Objects and arrays expand/collapse on click; primitives
-  show inline with type-colored values (strings, numbers, booleans, null). Reach
-  for it for API responses, config files, test results — any structured data
-  where a tree beats a fenced code block. Like image/trace it is data, not
-  markup: the viewer renders it with escaped text nodes, so no sandbox is needed.
-- **`code`** — source code you hand over as _text_; the trusted viewer highlights
-  it with shiki (same highlighter as markdown fenced code blocks) and renders it
-  in a sandboxed iframe. `language` is a shiki lang id (`ts`, `js`, `python`,
-  `rust`, `go`, …); omit or use `text` for plain monospace. `title` is an
-  optional label (e.g. a filename) shown above the code. `lineStart` is an
-  optional 1-based line number the excerpt starts at — the viewer shows original
-  line numbers instead of 1-based, so you can say "lines 80-150 of x.ts".
-  Reach for it when a whole file or snippet is the point — cleaner than a
-  markdown surface with one fenced block, and the kind shows up as `code` in the
-  card metadata.
+---
 
-For an issue/PR/CI tree, status board, or stepped deck, reach for an `html`
-surface with a kit (see Kits below) rather than a dedicated surface kind.
+## 1. Surfaces
 
-A post can combine surfaces, e.g. `[html, diff]` is a diagram with its code
-review in one card, and `[markdown, diff]` is a written rationale above its
-changeset. Trust differs: html surfaces are sandboxed because you author the
-markup; markdown/mermaid/diff/image/trace/terminal surfaces are rendered
-by the viewer from data — send data, never markup.
-
-A **`Surface`** is one of:
+An item version is an ordered list of **surfaces**. Each has a `kind`:
 
 ```
 { "kind": "html", "html": "<p>...</p>" }
-{ "kind": "markdown", "markdown": "## Plan\n\n1. ...\n2. ..." }
-{ "kind": "mermaid", "mermaid": "graph TD; A[Start] --> B{Ok?}; B -->|yes| C; B -->|no| D" }
-{ "kind": "diff", "patch": "<unified or git diff text>" }                          # preferred — compact
-{ "kind": "diff", "files": [{ "filename": "a.ts", "before": "...", "after": "...", "language": "ts" }] }  # fallback
-{ "kind": "image", "assetId": "<id from an upload>", "alt": "...", "caption": "..." }
-{ "kind": "trace", "steps": [{ "label": "...", "kind": "tool", "detail": "...", "ts": "..." }] }
-{ "kind": "trace", "assetId": "<id of an uploaded JSON/JSONL trace>", "title": "..." }
-{ "kind": "terminal", "text": "<output, may include ANSI SGR escapes>", "cols": 80, "title": "..." }
-{ "kind": "json", "data": { "a": 1, "b": [true, null, "hi"] } }
-{ "kind": "code", "code": "const x = 42;", "language": "ts", "title": "example.ts" }
-{ "kind": "code", "code": "...", "language": "ts", "title": "x.ts", "lineStart": 80 }
-{ "kind": "html", "html": "<ul class=\"tree\">...</ul>", "kits": ["issues"] }   # opt into a kit (see Kits)
+{ "kind": "html", "html": "<ul class=\"tree\">…</ul>", "kits": ["issues"] }
+{ "kind": "markdown", "markdown": "## Plan\n\n1. …" }
+{ "kind": "mermaid", "mermaid": "flowchart TD; A[Start] --> B{Ok?}" }
+{ "kind": "diff", "patch": "<unified or git diff text>", "layout": "split" }
+{ "kind": "diff", "files": [{ "filename": "a.ts", "before": "…", "after": "…", "language": "ts" }] }
+{ "kind": "image", "assetId": "<id from an upload>", "alt": "…", "caption": "…" }
+{ "kind": "terminal", "text": "<output, may carry ANSI SGR escapes>", "cols": 80 }
+{ "kind": "json", "data": { "a": 1 } }
+{ "kind": "code", "code": "const x = 42;", "language": "ts", "title": "x.ts", "lineStart": 80 }
 ```
 
-For a diff, send a `patch` — it carries only the changed lines, so it is the
-compact, preferred form. Use `files` (full before/after contents) only when you
-don't have a patch. A diff surface takes an optional `"layout": "unified" | "split"`.
+Pick by what the thing IS:
 
-### Mermaid layout tips
+- **`html`** — you are drawing. UI, diagrams, data viz, anything interactive.
+  This is the kind design items use.
+- **`markdown`** — prose, plans, tradeoff write-ups. Fenced code is highlighted
+  (tag the fence); `![caption](/a/<id>)` embeds an uploaded image. Raw HTML in
+  the source is escaped, not rendered.
+- **`mermaid`** — the _shape_ of a system, described rather than drawn. Prefer
+  `flowchart TD`/`TB`; wide `LR` maps shrink until unreadable. Never set your own
+  colors — the viewer themes the diagram. Highlight with `:::accent` on nodes and
+  `accentLine` on edges.
+- **`diff`** — a changeset, sent as data. `patch` is preferred (changed lines
+  only); `files` is the fallback when you have no patch.
+- **`code`** — a whole file or excerpt, highlighted. `lineStart` keeps the
+  original line numbers.
+- **`terminal`** — shell output or build logs, ANSI colors included.
+- **`json`** — structured data as a collapsible tree.
+- **`image`** — a screenshot or generated picture.
 
-Mermaid diagrams render inside the same card column as everything else, so huge
-left-to-right canvases are scaled down until the text is tiny. Optimize for the
-card first:
+A version can combine surfaces: `[html, diff]` is a design with its code review
+in one card; `[markdown, diff]` is a rationale above its changeset.
 
-- Default to `flowchart TD` or `flowchart TB`. Use `LR` only for short, truly
-  linear flows with a handful of columns.
-- Split whole-system architecture maps into multiple diagrams/posts: context,
-  data flow, deploy/runtime, and ownership are usually easier to read separately.
-- Keep node labels short; put explanation in a markdown surface above or below
-  the diagram. Use `<br/>` in labels when a name needs wrapping.
-- Use `subgraph` blocks to group layers vertically rather than stretching one
-  row across the screen.
-- If a diagram still needs to be wide, it is okay: the viewer offers a fullscreen
-  control on Mermaid surfaces, but the inline card should remain legible enough
-  to preview.
+**Trust rule:** html is sandboxed because you author the markup. Everything else
+is rendered by the trusted viewer from data — so for those kinds, send data,
+never markup.
 
-Prefer this shape:
+### Uploads
 
-```mermaid
-flowchart TD
-  subgraph Product[Product surface]
-    Dashboard[Dashboard<br/>Next.js]
-    Agent[Agent gateway<br/>MCP tools]
-  end
-  subgraph Backend[Backend]
-    API[API<br/>oRPC]
-    Ingest[Ingest pipeline]
-    DB[(Postgres)]
-  end
-  Dashboard --> API
-  Agent --> API
-  API --> Ingest
-  Ingest --> DB
-```
-
-Avoid one-screen maps that put every package/service in a single `flowchart LR`
-row; they will fit the width by shrinking the text.
-
-## Uploads (images, traces, files)
-
-Push a binary asset once, reference it by id. Three ways, same result:
+Push a binary once, reference it by id:
 
 ```
-POST /api/assets   (raw)   Content-Type: image/png   <bytes>     ?filename=shot.png&kind=image&session=<id>
-POST /api/assets   (json)  { "data": "<base64>", "contentType": "image/png", "filename": "shot.png", "session": "<id>" }
-MCP  upload_asset  { data: "<base64>", contentType, filename?, kind?, session? }
-CLI  sideshow upload shot.png         # prints { id, url }
+POST /api/assets   (raw)   Content-Type: image/png   <bytes>   ?filename=shot.png&kind=image
+POST /api/assets   (json)  { "data": "<base64>", "contentType": "image/png", "filename": "shot.png" }
+MCP  upload_asset  { data | path, contentType, filename?, kind? }
+CLI  sideshow upload shot.png          # prints { id, url }
 ```
-
-The response carries `{ id, url }`. Then reference the asset three ways: as an
-`image` surface (`{ "kind": "image", "assetId": "<id>" }`) when the picture is the
-post; inline in a `markdown` surface (`![caption](/a/<id>)`) to sit it beside
-prose; or inside an html surface (`<img src="<url>">`) when you're drawing. Per-asset
-limit is 5 MB.
 
 An asset's **id is the SHA-256 of its bytes**, so the URL is content-addressed:
-derive it locally (`sideshow asset-url shot.png`, or `shasum -a 256`) and write
-the `<img src="/a/<hash>">` or `assetId` into your post _before_ uploading —
-bytes can follow in any order and the viewer briefly waits for an in-flight asset
-rather than showing a broken image. Identical bytes dedupe to one blob, and an
-asset survives as long as any post references it (even across sessions).
+derive it locally (`sideshow asset-url shot.png`) and write `<img src="/a/<hash>">`
+into your markup _before_ uploading — the viewer briefly waits for an in-flight
+asset rather than showing a broken image. Identical bytes dedupe; an asset
+survives as long as anything references it. Per-asset limit is 5 MB.
 
-CLI shortcuts: `sideshow image shot.png --title "…"` (upload + publish in one
-shot), `sideshow trace run.json --title "…"`, `sideshow publish sketch.html
---image shot.png`, and `sideshow asset-url shot.png` (print the URL without
-uploading).
+---
 
-## Publishing
+## 2. HTML contract
 
-Via MCP tools (preferred): `publish_post`, `update_post`,
-`wait_for_feedback`, `reply_to_user`, `list_posts`. (`publish_surface` /
-`update_surface` remain as deprecated aliases; `publish_snippet` /
-`update_snippet` remain as html-only sugar aliases.) Via CLI:
-`sideshow publish file.html --title "..."`, `sideshow diff change.patch
---title "..."`, `sideshow wait`. Via raw HTTP:
+An `html` surface is a blank canvas — invent the thing the idea deserves.
+Custom SVG, bespoke layout, small interactions, animation: all fair game. What
+follows is the short list of hard constraints; everything inside them is yours.
 
-```
-POST /api/posts          { "title": "...", "surfaces": [...], "session": "<id>", "agent": "your-name" }
-PUT  /api/posts/:id        { "surfaces": [...] }   # revise — same card, new version
-GET  /api/sessions/:id/posts                       # list a session's posts
-GET  /api/comments?session=<id>&author=user&wait=60   # user feedback (long-poll, resumes where you left off)
-```
-
-The legacy `POST /api/surfaces` (body key `parts`) and `POST /api/snippets
-{ "html": "..." }` endpoints still work as back-compat aliases.
-
-### Examples
-
-A combined `[html, diff]` post — a diagram above its code review. Drop a
-surface for the single-surface cases:
-
-```
-POST /api/posts  { "title": "Retry flow", "surfaces": [
-  { "kind": "html", "html": "<svg ...>" },
-  { "kind": "diff", "patch": "--- a/x.ts\n+++ b/x.ts\n@@ ..." }
-]}
-```
-
-CLI equivalents — one verb per kind, or compose with `--diff`:
-
-```
-sideshow publish sketch.html --title "Cache layout"        # html
-sideshow markdown plan.md --title "Migration plan"         # markdown
-sideshow mermaid flow.mmd --title "Request flow"           # mermaid
-sideshow diff change.patch --layout split --title "..."    # diff
-sideshow json data.json --title "API response"             # json (collapsible tree)
-sideshow code app.ts --title "Entry point"                  # code (lang inferred from filename)
-sideshow code - --language python --title "Script"          # code from stdin
-sideshow code app.ts --line-start 80 --title "app.ts"       # excerpt with original line numbers
-sideshow publish sketch.html --diff change.patch --title "Retry flow"   # [html, diff]
-```
-
-Omit `session` on your first publish; the response's `sessionId` is yours —
-reuse it to keep posts grouped. On that first publish also set a session
-title naming the _task_ ("Auth refactor"), not your tool — `sessionTitle` (MCP
-and HTTP) or `--session-title` (CLI); it applies only at creation, so never
-retitle later. To refine a post, UPDATE it rather than republishing a
-near-duplicate — versions are kept and the user can flip between them.
-
-## The feedback loop
-
-The user can type comments under any post. Comments attach to a post
-(`postId`). Feedback reaches you three ways:
-
-- **Piggyback (automatic).** Every publish/update/reply response may include a
-  `userFeedback` array — comments the user left since your last call. Treat
-  them as messages from the user; they are delivered once. You never need to
-  poll while you are actively publishing.
-- **Blocking wait.** `wait_for_feedback` (MCP), `sideshow wait` (CLI), or the
-  long-poll endpoint — use at a checkpoint when you explicitly want a reaction
-  before continuing.
-- **Background watch.** If your harness supports background processes, arm
-  `sideshow wait --timeout 600` in the background after your first publish and
-  keep working; when it exits with comments, handle them and re-arm. Always arm
-  it on the session you actually published to.
-
-You can answer in the thread with `reply_to_user` / `sideshow comment` — keep
-replies short; do substantial revisions as post updates instead.
-
-## HTML contract
-
-An `html` surface is a blank canvas — invent the visualization the idea deserves.
-Custom SVG, bespoke layouts, small interactions, animation, an unusual way to
-show a relationship: all fair game, and more useful than a safe diagram. The
-contract below is a short list of hard constraints (sandboxing, sizing) plus
-helpers — the kit and theme tokens — that exist to remove busywork and
-guarantee legibility in both themes, **not** to push every post toward one
-look. Reach for them when they fit; hand-roll freely when your idea is better
-served another way. The constraints keep it readable; what you draw inside them
-is yours.
-
-- Send a **body fragment only** — no `<!doctype>`, `<html>`, `<head>`, or `<body>`.
-  The server wraps your fragment in a themed, sandboxed document.
-- The rendered column is roughly **720–800px wide**. Content sizes its own
-  height automatically.
-- `<style>` and `<script>` tags are allowed. Scripts run inside a sandboxed
-  iframe with no access to the host page.
-- **Keep content in normal flow.** The frame measures your content's height from
-  the document box, so anything taken out of flow is invisible to the sizer and
-  can leave the surface clipped — or frozen at the wrong height after load.
+- **Body fragment only.** No `<!doctype>`, `<html>`, `<head>`, or `<body>` — the
+  server wraps your fragment in a themed, sandboxed document.
+- **Sizing.** The rendered column is roughly 720–800px wide by default; the
+  operator can also view it at the 390 / 820 / 1280 viewport presets, so make it
+  responsive. Height is measured from your content.
+- **Keep content in normal flow.** The frame measures the document box, so
+  anything out of flow is invisible to the sizer and can leave the surface
+  clipped or frozen at the wrong height.
   - Never use `position: fixed`.
   - Don't stack `position: absolute` layers over a fixed-`height`/`min-height`
-    box (the usual cross-fade-deck mistake): the overlay grows `scrollHeight` but
-    not the measured box, so the frame won't follow it.
-  - To **overlap** elements (e.g. a cross-fading slide deck), grid-stack them in
-    normal flow instead — `display: grid` on the container, `grid-area: 1 / 1` on
-    each child: they overlap, but the container still sizes to the tallest child.
-    (The `slides` kit does exactly this — reach for it before hand-rolling a deck.)
+    box (the usual cross-fade-deck mistake): the overlay grows `scrollHeight`
+    but not the measured box, so the frame won't follow it.
+  - To **overlap** elements, grid-stack them in normal flow instead:
+    `display: grid` on the container, `grid-area: 1 / 1` on each child. They
+    overlap, but the container still sizes to the tallest child. (The `slides`
+    kit does exactly this.)
+- **Never hardcode a color.** `color: #333` is invisible in dark mode. Drive
+  every color from the tokens in section 3. Mental test: if the background were
+  near-black, would every element still read?
+- `<style>` and `<script>` are allowed. Scripts run inside a sandboxed iframe
+  with no access to the host page.
 
-## Built-in kit — a head start, not a straitjacket
+### External resources
 
-These primitives save you from restyling the basics; ignore any that don't suit
-the picture you have in mind. Bare `button`, `input`, `select`, and `textarea`
-are pre-styled to match the viewer, hover/focus included — write the plain
-element, don't restyle it.
-Checkboxes, radios, ranges, and progress bars are themed via `accent-color`.
+A CSP allows loading ONLY from these origins (anything else silently fails):
+`cdnjs.cloudflare.com`, `esm.sh`, `cdn.jsdelivr.net`, `unpkg.com`,
+`fonts.googleapis.com`, `fonts.gstatic.com`. Images may load from any https URL,
+a `data:` URI, or an asset you uploaded (`<img src="/a/<id>">`).
 
-SVG utility classes, available in every html surface:
+### Host bridge
 
-| class                                                            | effect                                                                                                               |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `t` / `ts` / `th`                                                | text presets: 14px / 12px muted / 14px medium heading                                                                |
-| `box`                                                            | neutral rect — secondary fill, faint stroke, rx 8                                                                    |
-| `arr`                                                            | 1.2px connector line                                                                                                 |
-| `leader`                                                         | dashed guide line                                                                                                    |
-| `node`                                                           | pointer cursor + hover dim, for clickable shapes                                                                     |
-| `c-blue` `c-teal` `c-amber` `c-coral` `c-green` `c-red` `c-gray` | color ramp: fill+stroke on shapes (or a whole `<g>`); child `<text>` auto-switches to readable ink in light and dark |
+Two globals are injected into every html surface:
+
+- `sendPrompt(text)` — posts `text` to the item's thread as a _surface_ message.
+  The operator sees it; it does NOT reach you on its own and can never
+  impersonate them. Use it for "explore X" affordances they can relay
+  deliberately.
+- `openLink(url)` — asks the operator to confirm opening an external link. Plain
+  `<a href>` clicks are routed through this automatically.
+
+### Finish
+
+Guardrails that keep items feeling native to the viewer. They shape the finish,
+not the idea:
+
+- Flat and clean: no gradients, drop shadows, or decorative effects.
+- Sentence case for headings and labels. No emoji.
+- Two font weights: 400 and 500.
+- For diagrams, `<svg width="100%" viewBox="0 0 680 H">` with the classes below.
+- One concept per item. Publish several small items with distinct slugs rather
+  than one giant page.
+
+---
+
+## 3. Kits and tokens
+
+### Theme tokens
+
+Available in every html surface, and re-resolved whenever the operator switches
+theme or color scheme:
+
+- Backgrounds: `--color-background-primary|secondary|tertiary`, plus semantic
+  `--color-background-info|success|warning|danger`
+- Text: `--color-text-primary|secondary|tertiary`, plus the same semantic set
+- Borders: `--color-border-tertiary` (faint default), `-secondary`, `-primary`,
+  plus the semantic set
+- Type: `--font-sans|serif|mono`; radius: `--border-radius-md|lg|xl` (8/12/16px)
+
+If `sideshow init` imported a design system, that project's own `:root` block is
+injected too — `var(--radius)`, `var(--primary)`, its font tokens — and
+`sideshow guide --brief` prints the real values.
+
+### Base kit (always on)
+
+Bare `button`, `input`, `select`, and `textarea` are pre-styled to match the
+viewer, hover and focus included — write the plain element, don't restyle it.
+Checkboxes, radios, ranges and progress bars are themed via `accent-color`.
+
+SVG utility classes:
+
+| class                                                            | effect                                                                                                          |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `t` / `ts` / `th`                                                | text presets: 14px / 12px muted / 14px medium heading                                                           |
+| `box`                                                            | neutral rect — secondary fill, faint stroke, rx 8                                                               |
+| `arr`                                                            | 1.2px connector line                                                                                            |
+| `leader`                                                         | dashed guide line                                                                                               |
+| `node`                                                           | pointer cursor + hover dim, for clickable shapes                                                                |
+| `c-blue` `c-teal` `c-amber` `c-coral` `c-green` `c-red` `c-gray` | color ramp: fill+stroke on shapes (or a whole `<g>`); child `<text>` switches to readable ink in light and dark |
 
 A `<marker id="arrow">` is injected into every html surface — end any line with
 `marker-end="url(#arrow)"` and the arrowhead inherits the line's stroke color.
@@ -299,89 +182,62 @@ A `<marker id="arrow">` is injected into every html surface — end any line wit
 </svg>
 ```
 
-Icons: the Tabler webfont is on the CSP allowlist —
-`<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">`
-then `<i class="ti ti-check"></i>`.
+### Opt-in kits
 
-## Kits — opt-in component bundles
+List kit ids in a surface's `kits` and that kit's CSS (and JS) is injected on top
+of the base. A surface with no `kits` is untouched, so default html stays fully
+freeform. Discover them with `sideshow kits` (or `GET /api/kits`).
 
-A **kit** is a richer vocabulary an html surface opts into. List kit ids in the
-surface's `kits` and the sandbox doc gets that kit's CSS (and, for behavior kits,
-JS) on top of the base — so you write compact class-based markup instead of
-hand-rolling styles. A plain html surface (no `kits`) is untouched: the vocabulary
-ships only when you ask, so default html stays fully freeform. Discover them
-with `sideshow kits` (or `GET /api/kits`). Every class resolves against the
-theme tokens, so kit output re-themes with the workspace.
-
-- **`issues`** — `.card` · nesting `.tree` rail · `.badge` (`.ok`/`.info`/`.warn`/`.danger`)
-  · `.dot` · mono `.chip` · `.bar > i` rollup, plus layout (`.row`/`.stack`/`.between`/`.grow`)
-  and text (`.dim`/`.faint`/`.mono`/`.title`) helpers. Composes an issue/PR/CI
-  tree — nest a `.tree` inside a `.tree` to indent — or a status board, from
-  generic primitives.
+- **`builtin`** — shadcn-shaped components, CSS only, no build step: `.btn`
+  (`.btn-primary`/`.btn-secondary`/`.btn-ghost`/`.btn-destructive`, `.btn-sm`/`.btn-lg`),
+  `.card` (`.card-header`/`.card-title`/`.card-desc`/`.card-content`/`.card-footer`),
+  `.input`/`.textarea`/`.select`/`.label`/`.field`, `.badge`
+  (`.badge-secondary`/`.badge-outline`/`.badge-destructive`),
+  `.tabs`/`.tabs-list`/`.tab.on`/`.tab-panel.on`,
+  `.dialog`/`.dialog-header`/`.dialog-title`/`.dialog-footer`, `.table`, `.sep`.
+  Radius follows the project's `--radius` when one was imported. This kit is
+  injected automatically for projects where `sideshow init` found no Tailwind.
+- **`issues`** — `.card` · nesting `.tree` rail · `.badge`
+  (`.ok`/`.info`/`.warn`/`.danger`) · `.dot` · mono `.chip` · `.bar > i` rollup.
+  Composes an issue/PR/CI tree — nest a `.tree` inside a `.tree` to indent — or a
+  status board.
 - **`slides`** — author a `.deck` with `.slide` children; the kit cross-fades one
-  at a time (grid-stacked in normal flow, so the frame always sizes to the tallest
-  slide) and injects prev/dots/counter/next controls. Arrow keys and PageUp/Down
-  navigate.
+  at a time (grid-stacked, so the frame sizes to the tallest slide) and injects
+  prev/dots/counter/next controls. Arrow keys and PageUp/Down navigate.
+
+Any kit also ships layout (`.row`/`.stack`/`.between`/`.grow`) and text
+(`.title`/`.dim`/`.faint`/`.mono`/`.num`/`.kbd`/`.hr`) helpers.
 
 ```sh
-sideshow publish board.html --kit issues       # CLI (repeatable: --kit a --kit b)
+sideshow publish --item ci-board --html board.html --kit issues   # repeatable: --kit a --kit b
 ```
 
 ```js
-publish_post({ surfaces: [{ kind: "html", html, kits: ["issues"] }] }); // MCP
+publish_item({ slug: "ci-board", surfaces: [{ kind: "html", html, kits: ["issues"] }] });
 ```
 
-```json
-{ "html": "<ul class=\"tree\">…</ul>", "kits": ["issues"] } // POST /api/snippets
+A kit only adds vocabulary — hand-roll custom markup right beside kit classes in
+the same surface.
+
+### Tailwind projects
+
+When `sideshow init` detected Tailwind, the sandbox loads the Tailwind browser
+build, so you write the same utility classes you write in the repo. The repo's
+**compiled theme is not loaded** — only its custom properties — so reach its
+tokens through arbitrary values: `bg-[var(--card)]`, not `bg-card`.
+
+### Icons
+
+When `init` uploaded the icon sprite, every html surface can use it:
+
+```html
+<svg class="icon"><use href="#mage-check" /></svg>
 ```
 
-A kit only adds vocabulary — you can hand-roll custom markup right beside the
-kit classes in the same surface.
-
-## Theming — dark mode is mandatory
-
-This is the one firm rule, because it's about adaptiveness, not taste: drive
-every color from the pre-defined CSS variables (a full semantic palette to
-compose with) so it adapts to light/dark automatically. Never hardcode colors;
-`color: #333` is invisible in dark mode.
-
-- Backgrounds: `--color-background-primary|secondary|tertiary` and semantic
-  `-info|-danger|-success|-warning`
-- Text: `--color-text-primary|secondary|tertiary`, plus the same semantic variants
-- Borders: `--color-border-tertiary` (default, faint), `-secondary`, `-primary`,
-  plus semantic variants
-- Fonts: `--font-sans|serif|mono`; radius: `--border-radius-md|lg|xl` (8/12/16px)
-
-Mental test: if the background were near-black, would every element still read?
-
-## External resources
-
-A CSP allows loading ONLY from these origins (anything else silently fails):
-`cdnjs.cloudflare.com`, `esm.sh`, `cdn.jsdelivr.net`, `unpkg.com`,
-`fonts.googleapis.com`, `fonts.gstatic.com`. Images may load from any https URL,
-a `data:` URI, or an asset you uploaded to this server (`<img src="/a/<id>">`).
-
-## Interactivity
-
-Two globals are injected into every html surface:
-
-- `sendPrompt(text)` — posts `text` to this post's thread as a `surface`
-  message (not a user comment): the user sees it, but it does NOT reach you
-  through the feedback loop on its own, and it can never impersonate the user.
-  Use it for "explore X" affordances the user can then relay to you deliberately.
-- `openLink(url)` — asks the user to confirm opening an external link.
-  Plain `<a href>` clicks are routed through this automatically.
-
-## Style
-
-A few guardrails that keep posts feeling native to the viewer — they shape
-the finish, not the idea. Be as inventive as you like with structure, layout,
-and how you show a relationship; just land it in this register:
-
-- Flat and clean: no gradients, drop shadows, or decorative effects.
-- Sentence case for headings and labels. No emoji.
-- Two font weights only: 400 and 500.
-- SVG works great — for diagrams use `<svg width="100%" viewBox="0 0 680 H">`
-  with the kit classes above.
-- Keep it focused: one concept per post. Publish a series of small posts
-  with distinct titles rather than one giant page.
+Names are the [mage](https://icon-sets.iconify.design/mage/) set prefixed with
+`mage-` (`mage-home`, `mage-search`, `mage-settings`, `mage-user`,
+`mage-chevron-right`, …). `.icon` sizes to `1em` and inherits `currentColor`.
+Without a sprite, inline your own `<svg>` — or the Tabler webfont, which is on
+the CDN allowlist:
+`<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">`
+then `<i class="ti ti-check"></i>`.

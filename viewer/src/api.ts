@@ -56,32 +56,6 @@ export interface VersionInfo {
   notes?: string | null;
 }
 
-// A compact, cross-session row returned by GET /api/posts/recent?preview=home.
-// Sandboxed surface bodies are never rendered from this data; Home uses their
-// /s document. Image and JSON retain the small native payload Home needs.
-type RecentSurfaceRef = {
-  id: string;
-  index: number;
-  truncated?: boolean;
-  kind: Exclude<Surface["kind"], "image" | "json">;
-};
-type RecentImageSurface = ImageSurface & { index: number; truncated?: boolean };
-type RecentJsonSurface = JsonSurface & { index: number; truncated?: boolean };
-export type RecentSurface = RecentSurfaceRef | RecentImageSurface | RecentJsonSurface;
-
-export interface RecentPostRow {
-  id: string;
-  sessionId: string;
-  sessionTitle: string | null;
-  agent: string | null;
-  title: string;
-  createdAt: string;
-  updatedAt: string;
-  version: number;
-  surfaces: RecentSurface[];
-  partKinds: string[];
-}
-
 declare global {
   interface Window {
     // __SIDESHOW_BASE_PATH__ lives in host.ts (the default host reads it).
@@ -116,10 +90,12 @@ export function initialPageTitle(): string | undefined {
   return window.__SIDESHOW_PAGE_TITLE__;
 }
 
-// The engine's layout. "full" shows the sidebar + stream; "stream" shows only
-// the current session's stream (no sidebar/session list). An embedder requests
-// it through the host; the self-hosted public-read "session" link maps to
-// "stream", so that flow is unchanged with no host field set.
+// The engine's layout. "full" is the whole navigation (projects sidebar, items
+// column, item screen); "stream" — the deprecated spelling kept for embedders —
+// is the item screen alone, resolved from the route's session/post rather than
+// the project reads. An embedder requests it through the host; the self-hosted
+// public-read "session" link maps to it, because such a workspace does not
+// expose /api/projects.
 export function layoutMode(): "full" | "stream" {
   return host().layout ?? (publicReadMode() === "session" ? "stream" : "full");
 }
@@ -166,10 +142,6 @@ export async function apiText(path: string): Promise<string> {
   const res = await fetch(appPath(path));
   if (!res.ok) throw new Error(String(res.status));
   return res.text();
-}
-
-export function getRecentPosts(limit = 20): Promise<RecentPostRow[]> {
-  return api<RecentPostRow[]>(`/api/posts/recent?limit=${limit}&preview=home`);
 }
 
 export const sessionLabel = (s: Session) => s.title || s.agent + " session";

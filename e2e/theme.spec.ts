@@ -1,4 +1,4 @@
-import { expect, publishParts, test } from "./fixtures.ts";
+import { expect, publishParts, stage, test } from "./fixtures.ts";
 
 // A surface with the two parts whose theming runs through different layers: an
 // html part (re-themed by reloading its sandboxed iframe at /s/:id?part=0) and a
@@ -19,7 +19,7 @@ test("switching the board theme re-themes chrome, html parts, and markdown toget
   await publishParts(server.url, { title: "Themed", agent: "e2e", parts: PARTS });
 
   await page.goto(server.url);
-  const card = page.locator(".card");
+  const card = stage(page);
   // every part is now an iframe with a `src`, so target the html part by its
   // part index; the markdown part is iframe.mdframe and its shiki token is inside
   const iframe = card.locator('iframe[src*="part=0"]');
@@ -75,7 +75,10 @@ test("the picked theme persists across a reload", async ({ page, server }) => {
   // of the default
   await page.reload();
   await expect(page.locator("#themeSel")).toHaveValue("gruvbox");
-  await expect(page.locator('.card iframe[src*="part=0"]')).toHaveAttribute("src", /theme=gruvbox/);
+  await expect(page.locator('.ss-stagewrap iframe[src*="part=0"]')).toHaveAttribute(
+    "src",
+    /theme=gruvbox/,
+  );
   await expect
     .poll(() =>
       page.evaluate(() =>
@@ -103,12 +106,12 @@ test.describe("with the OS in dark mode", () => {
     });
     await page.goto(server.url);
 
-    const iframe = page.locator(".card iframe[src]");
+    const iframe = page.locator(".ss-stagewrap iframe[src]");
     await expect(iframe).toHaveAttribute("src", /mode=dark/);
 
     // the iframe document actually paints the dark surface — not the light
     // default it would fall back to if it re-derived the scheme on its own
-    const body = page.locator(".card iframe[src]").contentFrame().locator("body");
+    const body = page.locator(".ss-stagewrap iframe[src]").contentFrame().locator("body");
     await expect
       .poll(() => body.evaluate((el) => getComputedStyle(el).backgroundColor))
       .toBe("rgb(28, 33, 40)");
@@ -122,7 +125,7 @@ test.describe("with the OS in dark mode", () => {
     });
     await page.goto(server.url);
 
-    const iframe = page.locator(".card iframe[src]");
+    const iframe = page.locator(".ss-stagewrap iframe[src]");
     await expect(iframe).toHaveAttribute("src", /mode=dark/);
 
     await page.getByRole("button", { name: "Light mode" }).click();
@@ -144,7 +147,7 @@ test.describe("with the OS in dark mode", () => {
       "aria-pressed",
       "true",
     );
-    await expect(page.locator(".card iframe[src]")).toHaveAttribute("src", /mode=light/);
+    await expect(page.locator(".ss-stagewrap iframe[src]")).toHaveAttribute("src", /mode=light/);
   });
 
   // A markdown part's frame is a sandboxed opaque-origin iframe, which defaults
@@ -163,7 +166,7 @@ test.describe("with the OS in dark mode", () => {
     });
     await page.goto(server.url);
 
-    const frame = page.locator(".card iframe.mdframe").contentFrame();
+    const frame = page.locator(".ss-stagewrap iframe.mdframe").contentFrame();
     // pinned dark: the chrome text var resolved to the github dark ink
     await expect
       .poll(() => frame.locator("body").evaluate((el) => getComputedStyle(el).color))
@@ -186,9 +189,9 @@ test.describe("with the OS in light mode", () => {
     });
     await page.goto(server.url);
 
-    const iframe = page.locator(".card iframe[src]");
+    const iframe = page.locator(".ss-stagewrap iframe[src]");
     await expect(iframe).toHaveAttribute("src", /mode=light/);
-    const body = page.locator(".card iframe[src]").contentFrame().locator("body");
+    const body = page.locator(".ss-stagewrap iframe[src]").contentFrame().locator("body");
     await expect
       .poll(() => body.evaluate((el) => getComputedStyle(el).backgroundColor))
       .toBe("rgb(255, 255, 255)");
@@ -205,14 +208,17 @@ test("a theme switch in one tab re-themes another open tab via SSE", async ({
   await page.goto(server.url);
   const other = await context.newPage();
   await other.goto(server.url);
-  await expect(other.locator('.card iframe[src*="part=0"]')).toHaveAttribute("src", /theme=github/);
+  await expect(other.locator('.ss-stagewrap iframe[src*="part=0"]')).toHaveAttribute(
+    "src",
+    /theme=github/,
+  );
 
   // switch in the first tab; the second re-themes off the theme-changed SSE
   // event without its own user action
   await page.locator("#themeSel").selectOption("gruvbox");
 
   await expect(other.locator("#themeSel")).toHaveValue("gruvbox");
-  await expect(other.locator('.card iframe[src*="part=0"]')).toHaveAttribute(
+  await expect(other.locator('.ss-stagewrap iframe[src*="part=0"]')).toHaveAttribute(
     "src",
     /theme=gruvbox/,
   );

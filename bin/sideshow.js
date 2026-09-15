@@ -1,7 +1,15 @@
 #!/usr/bin/env node
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+  writeSync,
+} from "node:fs";
 import { homedir, tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,12 +26,24 @@ const SELF = fileURLToPath(import.meta.url);
 
 const HELP = `sideshow — a live visual surface for terminal coding agents
 
-usage:
-  sideshow serve [--port N] [--host H] [--open]
-                                          start the surface (API + viewer)
-      --host <addr>     bind to one address (e.g. 127.0.0.1); default is every
-                        interface
-  sideshow publish <file|-> [options]     publish an HTML post (one html surface)
+vocabulary: project › item › variant › version. A project is a repo, an item is
+a component or a page, a variant is one take on it, a version is its history.
+
+design loop:
+  sideshow init [--project name]          detect the repo's design system, store
+                                          palette/kit/icons, write .sideshow/starter.html
+  sideshow publish --item <slug> --html <file> [options]
+                                          publish (or re-version) a variant
+      --variant <name>  variant label (default "default"; "new:<name>" adds one)
+      --kind <k>        component|page (default component)
+      --from <N>        branch from version N
+      --prompt <text>   what prompted this version
+      --title <t>       item title
+      --project <name>  project (default: git remote, else directory name)
+      --kit <id>        opt the html surface into a kit (repeatable; see "sideshow kits")
+    legacy form — sideshow publish <file|-> [options]
+                                          publish a multi-surface post into the
+                                          current session (no item/variant)
       --title <t>       post title
       --md <file|->     add a markdown surface (prose) — repeatable
       --mermaid <file|-> add a mermaid surface (diagram source → SVG) — repeatable
@@ -31,14 +51,45 @@ usage:
       --terminal <file|->  add a terminal surface from monospace/ANSI output — repeatable
       --json <file|->    add a json surface from a JSON file (collapsible tree) — repeatable
       --code <file|->    add a code surface from a file (shiki-highlighted) — repeatable
-      --kit <id>        opt the html surface into a kit (repeatable; see "sideshow kits")
       --image <file>    upload an image and append it as an image surface — repeatable
       --session <id>    target session (default: auto per agent session)
-      surfaces appear in command-line flag order; repeat a flag to add several of one kind
       --session-title <t>  name for a newly created session — name the task,
                         e.g. "Auth refactor" (ignored if the session exists)
       --agent <name>    agent name for new sessions (default: $SIDESHOW_AGENT or "agent")
       --new-session     force a fresh session
+      surfaces appear in command-line flag order; repeat a flag to add several of one kind
+  sideshow revise --item <slug> --html <file> [--variant n] [--from N]
+                                          publish the next version of a variant
+  sideshow page --item <slug> --html <file>
+                                          publish a page item (<sideshow-slot> tags
+                                          are expanded server-side)
+  sideshow ask --item <slug> [--variant n] "<text>"
+                                          mark the item as waiting on the operator
+  sideshow wait [--item <slug>] [--timeout s]
+                                          block until the operator decides; prints
+                                          one batched feedback request as JSON
+      --item <slug>     only return batches for this item
+      --timeout <sec>   max seconds to wait (default 120)
+      --session <id>    session to watch (default: auto)
+      --after <seq>     re-read comments after this cursor (default: where the
+                        agent left off, tracked server-side across CLI/MCP)
+  sideshow status [--project <name>]      one line per item: kind, variants, state
+  sideshow show --item <slug> [--variant n] [--body] [--history]
+                                          item metadata; bodies and version rows
+                                          are opt-in
+    legacy form — sideshow show <postId> [--history]
+                                          one post by id (surfaces, indexes, ids,
+                                          version, history metadata)
+  sideshow export --item <slug> [--variant n] [--out <dir>]
+                                          write the accepted html + history to
+                                          .sideshow/accepted/<slug>/<variant>/
+  sideshow guide --brief                  the short, project-aware agent guide
+
+other commands:
+  sideshow serve [--port N] [--host H] [--open]
+                                          start the surface (API + viewer)
+      --host <addr>     bind to one address (e.g. 127.0.0.1); default is every
+                        interface
   sideshow upload <file> [options]        upload an asset, print its id and URL
       --kind <k>        image|trace|file (default: inferred from the file type)
       --session <id>    session to attach to (default: auto)
@@ -97,11 +148,6 @@ usage:
     surface remove <id> <N>               remove surface N (id or 0-based index)
     surface edit <id> <N> <file|->        replace surface N's content (kind preserved)
     surface move <id> <N> --to <M>        move surface N to position M
-  sideshow wait [options]                 block until the user comments (long-poll)
-      --session <id>    session to watch (default: auto)
-      --timeout <sec>   max seconds to wait (default 120)
-      --after <seq>     re-read comments after this cursor (default: where the
-                        agent left off, tracked server-side across CLI/MCP)
   sideshow watch [options]                stream user comments forever, one per
                                           line (re-arms the long-poll; for a
                                           background monitor)
@@ -129,10 +175,10 @@ usage:
       --reset           replace the session's trace (full re-sync, not just the tail)
       --quiet           print nothing on success
   sideshow comment <text> [options]       reply to the user on a post
-      --post <id>       post to attach the comment to (required;
-                        --surface is a deprecated alias)
+      --item <slug>     item to reply on (with --variant, --project)
+      --post <id>       post to attach the comment to instead of --item
+                        (--surface is a deprecated alias)
   sideshow list [--session <id>|--all]    list posts
-  sideshow show <id>                      show a single post (surfaces, indexes, ids, version, history)
   sideshow sessions                       list sessions
   sideshow demo                           seed two example sessions to explore the viewer
   sideshow test-post [--agent <name>]     publish the built-in welcome post (idempotent)
@@ -144,8 +190,12 @@ usage:
 
 flags:
   --version, -V                           print version and exit
+  --json                                  print the raw server response
+  --quiet                                 print nothing on success
+  --help, -h                              per-command help (sideshow publish --help)
 
 environment:
+  SIDESHOW_PROJECT  project name; overrides the git-remote/directory default
   SIDESHOW_URL      server base URL (default http://localhost:8228; set to a
                     deployed instance, e.g. https://sideshow.you.workers.dev)
   SIDESHOW_TOKEN    bearer token for a deployed instance
@@ -155,12 +205,83 @@ environment:
   SIDESHOW_AGENT    agent name used when creating sessions
 `;
 
+// Per-command help, so `sideshow publish --help` costs a few lines instead of
+// the whole manual. Commands without an entry fall back to HELP.
+const COMMAND_HELP = {
+  init: `sideshow init [--project <name>]
+  Detect the repo's design system, store palette + kit + icon sprite for the
+  project, and write .sideshow/starter.html (gitignored).`,
+  publish: `sideshow publish --item <slug> --html <file> [options]
+  --variant <name>   variant label (default "default"; "new:<name>" to add one)
+  --kind <k>         component|page (default component)
+  --from <N>         branch from version N
+  --prompt <text>    what prompted this version
+  --title <t>        item title
+  --project <name>   project (default: git remote, else directory name)
+  --json / --quiet
+
+sideshow publish <file|-> [--title t] [--md f] [--diff f] ...
+  Legacy form: publish a multi-surface post into the current session.`,
+  revise: `sideshow revise --item <slug> --html <file> [--variant <name>] [--from <N>]
+  Publish the next version of an existing variant. The prompt is filled
+  server-side from the feedback that triggered it unless you pass --prompt.`,
+  page: `sideshow page --item <slug> --html <file> [--variant <name>] [--title t]
+  Publish a page item. <sideshow-slot slug variant version> tags are expanded
+  server-side with snapshot semantics.`,
+  ask: `sideshow ask --item <slug> [--variant <name>] "<text>"
+  Mark the item as waiting on the operator and ask the question.`,
+  wait: `sideshow wait [--item <slug>] [--timeout <seconds>] [--session <id>]
+  Block until the operator decides, then print one batched feedback request:
+  {project, slug, variant, version, decision, comments, archived}.`,
+  status: `sideshow status [--project <name>]
+  One line per item: slug, kind, variants, and what is waiting on whom.`,
+  show: `sideshow show --item <slug> [--variant <name>] [--body] [--history]
+  Metadata only by default. --body prints the current html, --history the
+  version rows.
+
+sideshow show <postId> [--history]   legacy form: one post by id.`,
+  export: `sideshow export --item <slug> [--variant <name>] [--out <dir>]
+  Write index.html + history.json to .sideshow/accepted/<slug>/<variant>/.`,
+  comment: `sideshow comment <text> [--item <slug>] [--variant <name>] [--post <id>]
+  Reply to the operator in an item's thread. --post targets a post id directly
+  (--surface / --snippet are deprecated aliases).`,
+  guide: `sideshow guide [--brief]
+  --brief prints the short, project-aware agent guide (~600 tokens).`,
+};
+
+// `console.log(...)` on a pipe is asynchronous, so exiting on the next line
+// truncates anything past the pipe buffer (~8 KB) — which is most of the help
+// text. Write to fd 1 synchronously, retrying the non-blocking EAGAIN, then exit.
+function printAndExit(text) {
+  let buf = Buffer.from(text.endsWith("\n") ? text : `${text}\n`);
+  while (buf.length > 0) {
+    try {
+      buf = buf.subarray(writeSync(1, buf));
+    } catch (err) {
+      if (err?.code !== "EAGAIN") throw err;
+    }
+  }
+  process.exit(0);
+}
+
 function fail(msg) {
   console.error(`sideshow: ${msg}`);
   process.exit(1);
 }
 
-async function api(path, init = {}) {
+// The reshape error format: name the thing, offer one fix, say nothing was
+// written, exit 2. No stack traces, no prose.
+function die(what, fix) {
+  console.error(`error ${what}`);
+  if (fix) console.error(`  fix: ${fix}`);
+  process.exit(2);
+}
+
+// `report` decides how a failure reads: the legacy verbs keep the one-line
+// `sideshow: …` (exit 1); the item verbs pass `die` so the reshape format
+// (error / fix / exit 2) is what an agent parses everywhere.
+async function api(path, init = {}, { report, fix } = {}) {
+  const bail = (what, hint) => (report === "die" ? die(what, hint ?? fix) : fail(what));
   let res;
   try {
     res = await fetch(`${BASE}${path}`, {
@@ -172,10 +293,18 @@ async function api(path, init = {}) {
       },
     });
   } catch {
+    if (report === "die") die(`cannot reach sideshow at ${BASE}`, "sideshow serve");
     fail(`server not reachable at ${BASE} — start it with: sideshow serve`);
   }
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) fail(body.error ?? `${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    // A surface validation failure carries typed issues; the first one is the
+    // actionable line ("error … : <message>") the agent needs.
+    const issue = Array.isArray(body.issues) ? body.issues[0] : null;
+    const main = body.error ?? `${res.status} ${res.statusText}`;
+    const extra = issue?.message ?? issue?.code;
+    bail(extra && !main.includes(extra) ? `${main}: ${extra}` : main);
+  }
   return body;
 }
 
@@ -300,6 +429,7 @@ async function resolveSession(flags, { create = false } = {}) {
       agent: agentName(flags),
       title: flags["session-title"],
       cwd: process.cwd(),
+      project: resolveProject(flags).name,
     }),
   });
   writeState({ session: session.id, agent: agentName(flags) });
@@ -445,16 +575,10 @@ function inferLang(file) {
   return LANG_BY_EXT[ext];
 }
 
-// Upload raw file bytes to /api/assets. Returns { id, url, contentType, ... }.
-async function uploadFile(file, { session, kind } = {}) {
-  let bytes;
-  try {
-    bytes = readFileSync(file);
-  } catch {
-    fail(`cannot read file: ${file}`);
-  }
+// POST raw bytes to /api/assets. Returns { id, url, contentType, ... }.
+async function uploadBytes(bytes, { filename, contentType, session, kind } = {}) {
   const params = new URLSearchParams();
-  params.set("filename", file.split(/[\\/]/).pop() ?? "upload");
+  params.set("filename", filename ?? "upload");
   if (session) params.set("session", session);
   if (kind) params.set("kind", kind);
   let res;
@@ -462,7 +586,7 @@ async function uploadFile(file, { session, kind } = {}) {
     res = await fetch(`${BASE}/api/assets?${params}`, {
       method: "POST",
       headers: {
-        "content-type": contentTypeFor(file),
+        "content-type": contentType ?? "application/octet-stream",
         ...(TOKEN ? { authorization: `Bearer ${TOKEN}` } : {}),
       },
       body: bytes,
@@ -473,6 +597,22 @@ async function uploadFile(file, { session, kind } = {}) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) fail(body.error ?? `${res.status} ${res.statusText}`);
   return body;
+}
+
+// Upload a file from disk to /api/assets.
+async function uploadFile(file, { session, kind } = {}) {
+  let bytes;
+  try {
+    bytes = readFileSync(file);
+  } catch {
+    fail(`cannot read file: ${file}`);
+  }
+  return uploadBytes(bytes, {
+    filename: file.split(/[\\/]/).pop() ?? "upload",
+    contentType: contentTypeFor(file),
+    session,
+    kind,
+  });
 }
 
 // Normalize repeated/comma-joined --kit flags into a deduped id list (or
@@ -570,6 +710,332 @@ async function publishPost(surfaces, flags) {
   });
 }
 
+// --- project › item › variant › version ------------------------------------
+
+// A project is the repo the agent runs in. Resolution order is explicit flag,
+// environment, git remote (owner/repo), then the directory name — so an agent
+// that passes nothing still lands in a stable, human-recognizable project.
+function resolveProject(flags = {}) {
+  if (flags.project) return { name: String(flags.project), source: "flag" };
+  if (process.env.SIDESHOW_PROJECT) {
+    return { name: process.env.SIDESHOW_PROJECT, source: "SIDESHOW_PROJECT" };
+  }
+  const remote = gitRemoteProject();
+  if (remote) return { name: remote, source: "git remote" };
+  return { name: process.cwd().split(/[\\/]/).filter(Boolean).pop() || "workspace", source: "cwd" };
+}
+
+function gitRemoteProject() {
+  let url;
+  try {
+    url = execFileSync("git", ["remote", "get-url", "origin"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+  if (!url) return null;
+  const m = url.match(/[:/]([^/:]+)\/([^/]+?)(?:\.git)?\/?$/);
+  return m ? `${m[1]}/${m[2]}` : null;
+}
+
+function slugify(text) {
+  return String(text)
+    .normalize("NFKD")
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .replace(/[\s_]+/g, "-")
+    .replace(/-+/g, "-")
+    .toLowerCase();
+}
+
+const titleFromSlug = (slug) => slug.replace(/-/g, " ").replace(/^./, (ch) => ch.toUpperCase());
+
+const projectPath = (project) => `/api/projects/${encodeURIComponent(project)}`;
+
+const itemUrl = (project, slug) => `${BASE}/project/${encodeURIComponent(project)}/${slug}`;
+
+// GET where "not there yet" is an answer, not an exit — a project or item that
+// doesn't exist is the normal state before the first publish.
+async function apiSoft(path) {
+  let res;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      headers: TOKEN ? { authorization: `Bearer ${TOKEN}` } : {},
+    });
+  } catch {
+    die(`cannot reach sideshow at ${BASE}`, "sideshow serve");
+  }
+  if (!res.ok) return null;
+  return res.json().catch(() => null);
+}
+
+const getItem = (project, slug) =>
+  apiSoft(`${projectPath(project)}/items/${encodeURIComponent(slug)}`);
+
+// Which variant a command means. An explicit --variant always wins ("new:x"
+// declares a new one). Otherwise a single-variant item is unambiguous, and a
+// multi-variant item is an error that names the choices rather than guessing.
+function pickVariant(item, flag, { slug, forWrite = false } = {}) {
+  // Variant identity is the slug of the label, so "Highlighted" and
+  // "highlighted" are the same variant however the agent typed it.
+  if (flag) return slugify(String(flag).replace(/^new:/, ""));
+  const variants = item?.variants ?? [];
+  if (variants.length === 0) return "default";
+  if (variants.length === 1) return variants[0].variant;
+  const names = variants.map((v) => v.variant).join("|");
+  die(
+    `${slug} has ${variants.length} variants; say which one: --variant ${names}` +
+      (forWrite ? " or --variant new:<name>" : ""),
+    `sideshow ${forWrite ? "publish" : "show"} --item ${slug} --variant ${variants[0].variant}`,
+  );
+}
+
+function variantOrDie(item, name, slug) {
+  const found = (item.variants ?? []).find((v) => v.variant === name);
+  if (!found) {
+    die(
+      `${slug} has no variant "${name}"`,
+      `sideshow show --item ${slug}   # lists the variants it does have`,
+    );
+  }
+  return found;
+}
+
+// One line per write: what was published, where it branched from, its URL, and
+// whether the operator left anything while the agent was working.
+function printPublished(post, flags, { project, from } = {}) {
+  if (flags.json) return out(post);
+  if (flags.quiet) return;
+  const slug = post.slug ?? post.id;
+  const variant = post.variant ?? "default";
+  const branch = from !== undefined && from !== null && from !== post.version - 1;
+  console.log(
+    `${slug}/${variant} v${post.version}${branch ? ` (from v${from})` : ""} · ${itemUrl(project, slug)}`,
+  );
+  // Only speak when there IS feedback: an empty line per publish is pure token
+  // cost, and the cursor guarantees anything pending arrives on some write.
+  const feedback = post.userFeedback;
+  const empty = !feedback || (Array.isArray(feedback) && feedback.length === 0);
+  if (!empty) console.log(`userFeedback: ${JSON.stringify(feedback)}`);
+}
+
+// Normalize whatever an agent-facing comment read returns into the batch shape
+// ({project, slug, variant, version, decision, comments, archived}). The server
+// sends batches directly; a plain comment list (older server, or a mixed read)
+// is grouped here so `wait` always prints one shape.
+function toBatches(body) {
+  if (Array.isArray(body)) return body;
+  // The server rides the batch alongside the legacy comment list under both
+  // the wait-side (`feedback`) and write-side (`userFeedback`) names.
+  if (Array.isArray(body?.feedback)) return body.feedback;
+  if (Array.isArray(body?.userFeedback)) return body.userFeedback;
+  if (Array.isArray(body?.batches)) return body.batches;
+  if (body && typeof body === "object" && "decision" in body) return [body];
+  const comments = body?.comments ?? [];
+  const groups = new Map();
+  for (const c of comments) {
+    const key = c.postId ?? "";
+    if (!groups.has(key)) {
+      groups.set(key, {
+        project: c.project ?? null,
+        slug: c.slug ?? c.postTitle ?? null,
+        variant: c.variant ?? null,
+        version: c.postVersion ?? c.version ?? null,
+        decision: null,
+        comments: [],
+        archived: [],
+      });
+    }
+    const batch = groups.get(key);
+    if (c.kind === "accept" || c.kind === "revise" || c.kind === "drop") {
+      batch.decision = { kind: c.kind, text: c.text ?? "" };
+      continue;
+    }
+    batch.comments.push({
+      seq: c.seq,
+      text: c.text,
+      ...(c.anchors && { anchors: c.anchors }),
+      ...(c.viewport != null && { viewport: c.viewport }),
+      ...(c.postVersion != null && { version: c.postVersion }),
+    });
+  }
+  return [...groups.values()];
+}
+
+// Strip surface bodies out of history entries — the metadata is what an agent
+// needs to reason about versions; the bodies are what blow up its context.
+function historyMeta(history) {
+  return (history ?? []).map((h) => ({
+    version: h.version,
+    ...(h.from !== undefined && { from: h.from }),
+    ...(h.prompt && { prompt: h.prompt }),
+    ...(h.author && { author: h.author }),
+    ...(h.title && { title: h.title }),
+    ...(h.updatedAt && { updatedAt: h.updatedAt }),
+    ...(h.createdAt && { createdAt: h.createdAt }),
+  }));
+}
+
+// One item, one line: what it is, which variants exist, and where each stands.
+function itemLine(item) {
+  const variants = (item.variants ?? [])
+    .map(
+      (v) =>
+        `${v.variant}(v${v.version}${v.status && v.status !== "open" ? `, ${v.status}` : ""}${v.ask ? ", waiting" : ""})`,
+    )
+    .join(" ");
+  return `${item.slug} · ${item.kind}${variants ? ` · ${variants}` : ""}`;
+}
+
+// Keep the scratch directory out of the repo. Returns true when .gitignore was
+// touched, so init can report it.
+function ignoreSideshowDir() {
+  const file = join(process.cwd(), ".gitignore");
+  let current = "";
+  try {
+    current = readFileSync(file, "utf8");
+  } catch {
+    // no .gitignore yet — create one
+  }
+  if (/^\.sideshow\/?$/m.test(current)) return false;
+  writeFileSync(
+    file,
+    current && !current.endsWith("\n") ? `${current}\n.sideshow/\n` : `${current}.sideshow/\n`,
+  );
+  return true;
+}
+
+// The flag set shared by publish/revise/page.
+function parseItemFlags() {
+  const { values, positionals } = parse({
+    allowPositionals: true,
+    options: {
+      item: { type: "string" },
+      variant: { type: "string" },
+      kind: { type: "string" },
+      html: { type: "string" },
+      from: { type: "string" },
+      prompt: { type: "string" },
+      title: { type: "string" },
+      project: { type: "string" },
+      kit: { type: "string", multiple: true },
+      session: { type: "string" },
+      "session-title": { type: "string" },
+      agent: { type: "string" },
+    },
+  });
+  return { ...values, _: positionals };
+}
+
+const DECISION_KINDS = new Set(["revise", "accept", "drop"]);
+
+// What prompted this revision, so the agent never has to restate it. Read from
+// the variant's thread with an unfiltered GET — that read does not advance the
+// session's agent cursor, so nothing is consumed or re-delivered here.
+async function revisePrompt(postId) {
+  const body = await apiSoft(`/api/comments?surface=${encodeURIComponent(postId)}`);
+  const list = (body?.comments ?? []).filter((c) => c.author === "user" && !c.draft);
+  let last = -1;
+  let prev = -1;
+  for (let i = 0; i < list.length; i++) {
+    if (!DECISION_KINDS.has(list[i].kind)) continue;
+    prev = last;
+    last = i;
+  }
+  if (last === -1 || list[last].kind !== "revise") return undefined;
+  const texts = [
+    list[last].text,
+    // The drafts the operator released with that Revise sit between the two
+    // decisions, in the order they were released.
+    ...list.slice(prev + 1, last).map((c) => c.text),
+  ]
+    .map((t) => String(t ?? "").trim())
+    .filter(Boolean);
+  return texts.length ? texts.join(" · ").slice(0, 2000) : undefined;
+}
+
+// publish / revise / page all resolve to one POST /api/posts: the server turns
+// an existing (project, slug, variant) into a new version and anything else
+// into a new variant.
+async function publishItem(flags, { kind, requireExisting = false } = {}) {
+  const slug = slugify(flags.item);
+  if (!slug) die("--item needs a slug", "sideshow publish --item pricing-card --html card.html");
+  const project = resolveProject(flags).name;
+  const file = flags.html ?? flags._?.[0];
+  if (!file) {
+    die(`no html for ${slug}`, `sideshow publish --item ${slug} --html <file>`);
+  }
+  if (!existsSync(file) && file !== "-") {
+    die(`cannot read ${file}`, `ls ${file}`);
+  }
+  const item = await getItem(project, slug);
+  if (requireExisting && !item) {
+    die(
+      `${project} has no item "${slug}"`,
+      `sideshow publish --item ${slug} --html ${file}   # creates it`,
+    );
+  }
+  const variant = pickVariant(item, flags.variant, { slug, forWrite: true });
+  const from = flags.from === undefined ? undefined : Number(flags.from);
+  if (from !== undefined && !Number.isInteger(from)) {
+    die(
+      `--from must be a version number (got "${flags.from}")`,
+      `sideshow show --item ${slug} --history`,
+    );
+  }
+  const htmlSurface = { kind: "html", html: readContent(file) };
+  const kits = normalizeKits(flags.kit);
+  if (kits) htmlSurface.kits = kits;
+  const existing = (item?.variants ?? []).find((v) => v.variant === variant);
+  const prompt =
+    flags.prompt !== undefined
+      ? flags.prompt
+      : existing
+        ? await revisePrompt(existing.postId)
+        : undefined;
+  const session = await resolveSession(flags, { create: true });
+  const post = await api(
+    "/api/posts",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        session,
+        project,
+        slug,
+        variant,
+        // An existing page keeps being a page on revise — the server only
+        // re-snapshots <sideshow-slot> tags when it is told the item is one.
+        kind: kind ?? flags.kind ?? item?.kind ?? "component",
+        // A new item with no --title reads better in the viewer as its slug than
+        // as "Untitled"; an existing one keeps the title it already has.
+        title: flags.title ?? (item ? undefined : titleFromSlug(slug)),
+        ...(from !== undefined && { from }),
+        ...(prompt !== undefined && { prompt }),
+        surfaces: [htmlSurface],
+      }),
+    },
+    { report: "die", fix: `sideshow show --item ${slug}` },
+  );
+  printPublished(post, flags, { project, from });
+  return post;
+}
+
+// Resolve (project, slug, variant) to a post id for the verbs that act on one
+// variant — ask, export, show --body.
+async function resolveVariant(flags, { forWrite = false } = {}) {
+  const slug = slugify(flags.item);
+  if (!slug) die("--item is required", "sideshow status   # lists the items");
+  const project = resolveProject(flags).name;
+  const item = await getItem(project, slug);
+  if (!item) {
+    die(`${project} has no item "${slug}"`, `sideshow status --project ${project}`);
+  }
+  const name = pickVariant(item, flags.variant, { slug, forWrite });
+  return { project, slug, item, variant: variantOrDie(item, name, slug) };
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Semver greater-than for plain x.y.z (mirrors server/app.ts versionGt).
@@ -646,16 +1112,20 @@ function parse(config = {}) {
     parsed = parseArgs({
       args,
       ...config,
-      options: { ...config.options, help: { type: "boolean", short: "h" } },
+      // --json/--quiet are global, but a command may redefine them (legacy
+      // `publish --json <file>` adds a json surface), so config wins.
+      options: {
+        json: { type: "boolean" },
+        quiet: { type: "boolean" },
+        ...config.options,
+        help: { type: "boolean", short: "h" },
+      },
     });
   } catch (err) {
     if (!String(err?.code).startsWith("ERR_PARSE_ARGS")) throw err;
     fail(`${err.message.split(". ")[0]} — run "sideshow help"`);
   }
-  if (parsed.values.help) {
-    console.log(HELP);
-    process.exit(0);
-  }
+  if (parsed.values.help) printAndExit(COMMAND_HELP[cmd] ?? HELP);
   const restore = (v) => (typeof v === "string" && rescued.has(v) ? rescued.get(v) : v);
   if (parsed.positionals) parsed.positionals = parsed.positionals.map(restore);
   if (parsed.tokens) {
@@ -927,6 +1397,13 @@ const commands = {
   },
 
   async publish() {
+    // --item selects the reshape path (project › item › variant › version);
+    // without it this stays the legacy multi-surface publish into the current
+    // session. The two paths spell --json differently (a boolean vs. a json
+    // surface file), so the flag set is chosen before parsing.
+    if (rest.some((a) => a === "--item" || a.startsWith("--item="))) {
+      return publishItem(parseItemFlags());
+    }
     const {
       values: flags,
       positionals,
@@ -964,6 +1441,163 @@ const commands = {
       ...(await surfacesFromFlags(flags, tokens, { session, layout: flags.layout })),
     ];
     outPost(await publishPost(surfaces, { ...flags, session }));
+  },
+
+  // Detect the repo's design system once, store it on the project, and leave a
+  // starter file behind — so every later publish is markup only, with no CSS or
+  // icon paths pasted into the agent's context.
+  async init() {
+    const { values: flags } = parse({ options: { project: { type: "string" } } });
+    const { name: project, source } = resolveProject(flags);
+    const say = (label, text) => {
+      if (!flags.quiet && !flags.json) console.log(`${label.padEnd(8)} ${text}`);
+    };
+    const { detectDesign, buildIconSprite, renderStarter } = await import("./initDesign.js");
+    say("project:", `${project} (from ${source})`);
+
+    const design = await detectDesign(process.cwd());
+    const d = design.detected;
+    // `detected` is always an object, so emptiness has to be read off the
+    // fields — otherwise a repo with no design system printed a blank line.
+    const found = [
+      d?.tailwind && "tailwind",
+      d?.shadcn && "shadcn",
+      d?.cssVars ? `${d.cssVars} css vars${design.source ? ` from ${design.source}` : ""}` : null,
+      d?.fonts?.length ? `fonts ${d.fonts.join(", ")}` : null,
+    ].filter(Boolean);
+    say(
+      "design:",
+      found.length ? found.join(" · ") : "nothing detected — using the built-in palette",
+    );
+    say("kit:", design.kit);
+
+    let stored = await api(`${projectPath(project)}/design`, {
+      method: "PUT",
+      body: JSON.stringify({
+        detected: design.detected ?? null,
+        palette: design.palette ?? null,
+        cssVars: design.cssVars ?? "",
+        kit: design.kit ?? "builtin",
+      }),
+    });
+
+    const sprite = await buildIconSprite();
+    const asset = await uploadBytes(new TextEncoder().encode(sprite.svg), {
+      filename: "icons-mage.svg",
+      contentType: "image/svg+xml",
+      kind: "file",
+    });
+    stored = await api(`${projectPath(project)}/design`, {
+      method: "PUT",
+      body: JSON.stringify({ ...stored, iconsAssetId: asset.id }),
+    });
+    say("icons:", `mage (${sprite.count} icons) → ${BASE}/a/${asset.id}`);
+
+    const starter = join(process.cwd(), ".sideshow", "starter.html");
+    mkdirSync(dirname(starter), { recursive: true });
+    // The starter only names an icon it can prove is in the sprite it just
+    // uploaded, so the <use href> in it always resolves.
+    const iconNames = sprite.svg.includes('id="mage-check"') ? ["check"] : [];
+    writeFileSync(starter, renderStarter(design, iconNames));
+    say("wrote:", ".sideshow/starter.html");
+    if (ignoreSideshowDir()) say("wrote:", ".gitignore (+ .sideshow/)");
+    say("next:", "sideshow guide --brief");
+    if (flags.json) out({ project, design: stored, iconsAssetId: asset.id, starter });
+  },
+
+  async revise() {
+    await publishItem(parseItemFlags(), { requireExisting: true });
+  },
+
+  async page() {
+    await publishItem(parseItemFlags(), { kind: "page" });
+  },
+
+  async ask() {
+    const { values: flags, positionals } = parse({
+      allowPositionals: true,
+      options: {
+        item: { type: "string" },
+        variant: { type: "string" },
+        project: { type: "string" },
+        text: { type: "string" },
+      },
+    });
+    const text = (flags.text ?? positionals.join(" ")).trim();
+    if (!text) die("ask needs a question", 'sideshow ask --item pricing-card "pick one"');
+    const { slug, variant } = await resolveVariant(flags);
+    const post = await api(
+      `/api/posts/${variant.postId}/ask`,
+      { method: "POST", body: JSON.stringify({ text }) },
+      { report: "die", fix: `sideshow status` },
+    );
+    if (flags.json) return out(post);
+    if (!flags.quiet) console.log(`asked on ${slug}/${variant.variant}: ${text}`);
+  },
+
+  async status() {
+    const { values: flags } = parse({ options: { project: { type: "string" } } });
+    const project = resolveProject(flags).name;
+    const projects = (await apiSoft("/api/projects")) ?? [];
+    const summary = projects.find((p) => p.name === project);
+    const items = (await apiSoft(`${projectPath(project)}/items`)) ?? [];
+    if (flags.json) return out({ project, summary: summary ?? null, items });
+    if (flags.quiet) return;
+    const waiting = items.filter((i) => i.waiting);
+    const askText = (i) =>
+      i.variants?.find((v) => v.ask)?.ask?.text ?? i.variants?.find((v) => v.ask)?.ask ?? "";
+    console.log(
+      `${project} · ${items.length} item${items.length === 1 ? "" : "s"}` +
+        (waiting.length
+          ? ` · ${waiting.length} waiting on you: ${waiting
+              .map((i) => `${i.slug}${askText(i) ? ` (${askText(i)})` : ""}`)
+              .join(", ")}`
+          : " · nothing waiting on you"),
+    );
+    for (const item of items) console.log(`  ${itemLine(item)}`);
+  },
+
+  async export() {
+    const { values: flags } = parse({
+      options: {
+        item: { type: "string" },
+        variant: { type: "string" },
+        project: { type: "string" },
+        out: { type: "string" },
+      },
+    });
+    const { project, slug, variant } = await resolveVariant(flags);
+    const params = new URLSearchParams({ variant: variant.variant });
+    const data = await api(
+      `${projectPath(project)}/items/${encodeURIComponent(slug)}/export?${params}`,
+      {},
+      { report: "die", fix: `sideshow show --item ${slug}` },
+    );
+    if (flags.json) return out(data);
+    const dir = join(
+      flags.out ? flags.out : join(process.cwd(), ".sideshow", "accepted"),
+      slug,
+      variant.variant,
+    );
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "index.html"), data.html ?? "");
+    writeFileSync(
+      join(dir, "history.json"),
+      JSON.stringify(
+        {
+          project,
+          slug,
+          variant: variant.variant,
+          version: data.version,
+          ...(data.status && { status: data.status }),
+          history: data.prompts ?? data.history ?? [],
+          ...(data.screenshotUrl && { screenshotUrl: data.screenshotUrl }),
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    if (!flags.quiet) console.log(`${slug}/${variant.variant} v${data.version} → ${dir}`);
   },
 
   async upload() {
@@ -1197,10 +1831,7 @@ const commands = {
 
   async surface() {
     const sub = rest.shift();
-    if (!sub || sub === "--help" || sub === "-h") {
-      console.log(HELP);
-      process.exit(0);
-    }
+    if (!sub || sub === "--help" || sub === "-h") printAndExit(HELP);
 
     if (sub === "add") {
       const {
@@ -1306,6 +1937,7 @@ const commands = {
         session: { type: "string" },
         timeout: { type: "string" },
         after: { type: "string" },
+        item: { type: "string" },
       },
     });
     const session = await resolveSession(flags);
@@ -1318,22 +1950,40 @@ const commands = {
     // No client-side cursor: without --after, the server resumes from the
     // session's agent cursor, shared with piggyback and MCP delivery.
     let cursor = flags.after;
-    let result = { comments: [] };
-    while (Date.now() < deadline && result.comments.length === 0) {
+    let batches = [];
+    while (Date.now() < deadline && batches.length === 0) {
       const chunk = Math.min(60, Math.ceil((deadline - Date.now()) / 1000));
       const afterParam = cursor === undefined ? "" : `&after=${cursor}`;
-      result = await api(`/api/comments?session=${session}&author=user${afterParam}&wait=${chunk}`);
-      cursor = result.lastSeq;
+      const result = await api(
+        `/api/comments?session=${session}&author=user${afterParam}&wait=${chunk}`,
+      );
+      if (flags.json) {
+        // --json is the escape hatch: the raw response, whatever its shape.
+        if (
+          result.comments?.length ||
+          result.feedback?.length ||
+          Array.isArray(result) ||
+          result.decision !== undefined
+        ) {
+          return out(result);
+        }
+      }
+      cursor = result.lastSeq ?? cursor;
+      batches = toBatches(result);
+      if (flags.item) {
+        const slug = slugify(flags.item);
+        batches = batches.filter((b) => b.slug === slug);
+      }
     }
-    out(
-      result.comments.length > 0
-        ? { comments: result.comments }
-        : {
-            comments: [],
-            timedOut: true,
-            hint: "no user feedback yet — run wait again or continue",
-          },
-    );
+    if (flags.quiet) return;
+    if (batches.length === 0) {
+      return out({
+        comments: [],
+        timedOut: true,
+        hint: "no user feedback yet — run wait again or continue",
+      });
+    }
+    out(batches.length === 1 ? batches[0] : batches);
   },
 
   async watch() {
@@ -1503,16 +2153,24 @@ const commands = {
       allowPositionals: true,
       options: {
         post: { type: "string" },
+        item: { type: "string" },
+        variant: { type: "string" },
+        project: { type: "string" },
         surface: { type: "string" }, // deprecated alias
         snippet: { type: "string" }, // legacy alias
       },
     });
     const text = positionals.join(" ").trim();
-    if (!text) fail("usage: sideshow comment <text> --post <id>");
+    if (!text) die("comment needs text", 'sideshow comment "…" --item pricing-card');
     // --surface / --snippet stay as back-compat aliases for --post; the request
     // body key is the wire field `surface`, kept as-is.
-    const post = flags.post ?? flags.surface ?? flags.snippet;
-    if (!post) fail("a comment must target a post — pass --post <id>");
+    let post = flags.post ?? flags.surface ?? flags.snippet;
+    // An agent knows items by slug, not by post id — resolve it the same way
+    // every other item verb does.
+    if (!post && flags.item) post = (await resolveVariant(flags)).variant.postId;
+    if (!post) {
+      die("a comment must target a post", 'sideshow comment "…" --item pricing-card');
+    }
     out(
       await api("/api/comments", {
         method: "POST",
@@ -1538,11 +2196,50 @@ const commands = {
     out(await api(`/api/sessions/${session}/posts`));
   },
 
+  // Metadata by default. Bodies and version rows are opt-in, because a full
+  // post with its history is the single biggest thing an agent can pull into
+  // its context.
   async show() {
-    const { positionals } = parse({ allowPositionals: true });
-    const id = positionals[0];
-    if (!id) fail("usage: sideshow show <id>");
-    out(await api(`/api/posts/${id}`));
+    const { values: flags, positionals } = parse({
+      allowPositionals: true,
+      options: {
+        item: { type: "string" },
+        variant: { type: "string" },
+        project: { type: "string" },
+        body: { type: "boolean" },
+        history: { type: "boolean" },
+      },
+    });
+    if (!flags.item) {
+      const id = positionals[0];
+      if (!id) die("show needs an item", "sideshow show --item pricing-card");
+      const post = await api(`/api/posts/${id}`);
+      return out(flags.history ? post : { ...post, history: historyMeta(post.history) });
+    }
+    const slug = slugify(flags.item);
+    const project = resolveProject(flags).name;
+    const item = await getItem(project, slug);
+    if (!item) die(`${project} has no item "${slug}"`, `sideshow status --project ${project}`);
+    if (flags.json) return out(item);
+    if (!flags.quiet) console.log(itemLine(item));
+    const variants = flags.variant
+      ? [variantOrDie(item, slugify(String(flags.variant).replace(/^new:/, "")), slug)]
+      : (item.variants ?? []);
+    if (flags.history) {
+      for (const v of variants) {
+        for (const h of historyMeta(v.history)) {
+          console.log(
+            `  ${v.variant} v${h.version}${h.from ? ` ← v${h.from}` : ""}${h.prompt ? ` · ${h.prompt}` : ""}`,
+          );
+        }
+      }
+    }
+    if (flags.body) {
+      for (const v of variants) {
+        const html = (v.surfaces ?? []).find((s) => s.kind === "html")?.html ?? "";
+        console.log(`--- ${slug}/${v.variant} v${v.version}\n${html}`);
+      }
+    }
   },
 
   async sessions() {
@@ -1559,7 +2256,45 @@ const commands = {
 
   async demo() {
     parse();
-    const { DEMO_SESSIONS } = await import("./demoData.js");
+    const { DEMO_SESSIONS, DEMO_PROJECT } = await import("./demoData.js");
+    // The reshape demo goes in through the same path an agent uses: one session
+    // carrying the project, then one publish per variant.
+    const demoSession = await api("/api/sessions", {
+      method: "POST",
+      body: JSON.stringify({
+        agent: DEMO_PROJECT.agent,
+        title: DEMO_PROJECT.sessionTitle,
+        project: DEMO_PROJECT.project,
+      }),
+    });
+    for (const item of DEMO_PROJECT.items) {
+      for (const variant of item.variants) {
+        const publish = (html, extra = {}) =>
+          api("/api/posts", {
+            method: "POST",
+            body: JSON.stringify({
+              session: demoSession.id,
+              project: DEMO_PROJECT.project,
+              slug: item.slug,
+              kind: item.kind,
+              title: item.title,
+              variant: variant.variant,
+              surfaces: [{ kind: "html", html }],
+              ...extra,
+            }),
+          });
+        let post = await publish(variant.html);
+        for (const version of variant.versions ?? []) {
+          post = await publish(version.html, { from: version.from, prompt: version.prompt });
+        }
+        if (variant.ask) {
+          await api(`/api/posts/${post.id}/ask`, {
+            method: "POST",
+            body: JSON.stringify({ text: variant.ask }),
+          });
+        }
+      }
+    }
     for (const demo of DEMO_SESSIONS) {
       const session = await api("/api/sessions", {
         method: "POST",
@@ -1593,7 +2328,9 @@ const commands = {
         }
       }
     }
-    console.log(`Seeded ${DEMO_SESSIONS.length} demo sessions — open ${BASE} to look around.`);
+    console.log(
+      `Seeded ${DEMO_PROJECT.project} (${DEMO_PROJECT.items.length} items) and ${DEMO_SESSIONS.length} demo sessions — open ${BASE} to look around.`,
+    );
   },
 
   // Publish the built-in welcome/test post (server/welcomePost.ts) — the same
@@ -1610,7 +2347,19 @@ const commands = {
   },
 
   async guide() {
-    parse();
+    const { values: flags } = parse({
+      options: { brief: { type: "boolean" }, project: { type: "string" } },
+    });
+    if (flags.brief) {
+      const params = new URLSearchParams({ brief: "1", project: resolveProject(flags).name });
+      console.log(
+        await fetchTextWithFallback(
+          `/agent-howto?${params}`,
+          join(ROOT, "guide", "AGENT_HOWTO.md"),
+        ),
+      );
+      return;
+    }
     console.log(await fetchTextWithFallback("/guide", join(ROOT, "guide", "DESIGN_GUIDE.md")));
   },
 

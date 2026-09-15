@@ -1,4 +1,4 @@
-import { expect, publishParts, test } from "./fixtures.ts";
+import { expect, itemScreen, publishParts, stage, test } from "./fixtures.ts";
 
 const DIAGRAM = [
   "graph TD",
@@ -36,7 +36,7 @@ test("a mermaid part renders inside an opaque-origin frame served from /s", asyn
   });
 
   await page.goto(server.url);
-  const card = page.locator(".card:not(#sessionThread)");
+  const card = stage(page);
 
   // the diagram renders inside an opaque-origin sandbox iframe — a second
   // boundary behind mermaid's DOMPurify. No allow-same-origin.
@@ -80,7 +80,8 @@ test("the native posts endpoint rejects invalid mermaid with actionable details"
   );
 
   await page.goto(server.url);
-  await expect(page.locator(".card:not(#whatsNew)")).toHaveCount(0);
+  // Nothing was published, so the workspace stays on its empty state.
+  await expect(itemScreen(page)).toHaveCount(0);
 });
 
 test("an invalid mermaid part shows the source in an error fallback, not a crash", async ({
@@ -104,7 +105,7 @@ test("an invalid mermaid part shows the source in an error fallback, not a crash
   });
 
   await page.goto(server.url);
-  const card = page.locator(".card:not(#sessionThread)");
+  const card = stage(page);
   const frame = card.frameLocator("iframe.mermaidframe");
   const err = frame.locator(".mmd-error");
   await expect(err).toBeVisible();

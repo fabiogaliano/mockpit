@@ -1,5 +1,5 @@
 import { isSandboxedSurfaceKind, SURFACE_CONTENT_FIELDS } from "./types.ts";
-import type { Comment, CommentAnchor, Post, Session, Surface } from "./types.ts";
+import type { Comment, CommentAnchor, Post, PostVersion, Session, Surface } from "./types.ts";
 
 export interface Feedback {
   postId: string | null;
@@ -55,13 +55,35 @@ export const postWriteView = (post: Post) => ({
   surfaces: post.surfaces.map(surfaceRef),
 });
 
-export const postDetailView = (post: Post) => ({
+// One past version, without its bodies: enough to list the history rail or pick
+// a version to fetch, at a bounded cost. A 20-version post used to ship every
+// surface of every version — ~27k tokens for a 5 KB post — on a read agents are
+// told to make after every compaction.
+const historyMetaView = (version: PostVersion) => ({
+  version: version.version,
+  title: version.title,
+  at: version.at,
+  ...(version.from === undefined ? {} : { from: version.from }),
+  ...(version.prompt === undefined ? {} : { prompt: version.prompt }),
+  ...(version.author === undefined ? {} : { author: version.author }),
+  surfaceCount: version.surfaces.length,
+  surfaceKinds: version.surfaces.map((s) => s.kind),
+});
+
+export type HistoryMode = "meta" | "full";
+
+// `history: "full"` restores the old shape byte-for-byte — the legacy detail
+// routes (/api/surfaces/:id, /api/snippets/:id) pass it and must never change.
+export const postDetailView = (post: Post, opts: { history?: HistoryMode } = {}) => ({
   ...post,
   surfaces: post.surfaces.map(fullSurfaceView),
-  history: post.history.map((version) => ({
-    ...version,
-    surfaces: version.surfaces.map(fullSurfaceView),
-  })),
+  history:
+    opts.history === "full"
+      ? post.history.map((version) => ({
+          ...version,
+          surfaces: version.surfaces.map(fullSurfaceView),
+        }))
+      : post.history.map(historyMetaView),
 });
 
 // The current surface metadata/data the viewer renders. Sandboxed kinds omit
@@ -104,7 +126,10 @@ export const viewerPostView = (post: Post): ViewerPost => ({
 // uses the same compact wire contract as the per-post live-update route.
 export const sessionPostHydratedView = viewerPostView;
 
-export const sessionPostListRowView = (post: Post) => {
+// `legacy` keeps the duplicate `parts` alias for /api/sessions/:id/{surfaces,
+// snippets}, which must stay byte-identical. The canonical route drops it: the
+// array is the single largest field in the response and it was being sent twice.
+export const sessionPostListRowView = (post: Post, legacy = false) => {
   const surfaces = post.surfaces.map(sessionListSurfaceView);
   return {
     id: post.id,
@@ -114,7 +139,7 @@ export const sessionPostListRowView = (post: Post) => {
     updatedAt: post.updatedAt,
     version: post.version,
     surfaces,
-    parts: surfaces,
+    ...(legacy ? { parts: surfaces } : {}),
   };
 };
 
@@ -255,10 +280,12 @@ export const recentHomeSurfaceView = (surface: Surface, index: number) =>
     ? recentSurfacePreviewView(surface, index)
     : surfaceRef(surface, index);
 
+// Same rule as sessionPostListRowView: `parts`/`partKinds` are legacy aliases of
+// `surfaces`, kept only on /api/surfaces/recent.
 export const recentPostRowView = (
   post: Post,
   session: Session | null | undefined,
-  opts?: { homePreview?: boolean },
+  opts?: { homePreview?: boolean; legacy?: boolean },
 ) => {
   const surfaces = opts?.homePreview
     ? post.surfaces.slice(0, 1).map(recentHomeSurfaceView)
@@ -273,8 +300,9 @@ export const recentPostRowView = (
     updatedAt: post.updatedAt,
     version: post.version,
     surfaces,
-    parts: surfaces,
-    partKinds: post.surfaces.map((surface) => surface.kind),
+    ...(opts?.legacy
+      ? { parts: surfaces, partKinds: post.surfaces.map((surface) => surface.kind) }
+      : {}),
   };
 };
 

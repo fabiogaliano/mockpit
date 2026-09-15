@@ -946,6 +946,239 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     assert.equal(await store.isAssetReferenced(newAsset.id), true);
   });
 
+  // --- project > item > variant ---
+
+  contract("createPost defaults the item fields and findVariant addresses them", async (store) => {
+    const session = await store.createSession({ agent: "pi", project: "acme/site" });
+    const post = await store.createPost({
+      sessionId: session.id,
+      surfaces: [htmlSurface("<p>a</p>")],
+      title: "Pricing card",
+    });
+    assert.ok(post);
+    assert.equal(post!.project, "acme/site");
+    assert.equal(post!.slug, "pricing-card");
+    assert.equal(post!.kind, "component");
+    assert.equal(post!.variant, "default");
+    assert.equal(post!.status, "open");
+    assert.equal(post!.ask, null);
+    assert.deepEqual(post!.slots, []);
+
+    const found = await store.findVariant("acme/site", "pricing-card", "default");
+    assert.equal(found?.id, post!.id);
+    assert.equal(await store.findVariant("acme/site", "pricing-card", "other"), null);
+    assert.equal(await store.findVariant("other/repo", "pricing-card", "default"), null);
+  });
+
+  contract("a session without a project falls back to its cwd basename", async (store) => {
+    const session = await store.createSession({ agent: "pi", cwd: "/work/widgets" });
+    const post = await store.createPost({
+      sessionId: session.id,
+      surfaces: [htmlSurface("<p>a</p>")],
+    });
+    assert.equal(post!.project, "widgets");
+  });
+
+  contract("listProjects/listItems/getItem aggregate variants and waiting", async (store) => {
+    const session = await store.createSession({ agent: "pi", project: "acme/site" });
+    const make = (slug: string, variant: string, kind?: "component" | "page") =>
+      store.createPost({
+        sessionId: session.id,
+        surfaces: [htmlSurface(`<p>${slug}/${variant}</p>`)],
+        title: slug,
+        project: "acme/site",
+        slug,
+        variant,
+        kind,
+      });
+    const plain = await make("pricing-card", "default");
+    const loud = await make("pricing-card", "highlighted");
+    await make("landing", "default", "page");
+    // a second project, so listProjects has something to separate
+    const other = await store.createSession({ agent: "pi", project: "acme/docs" });
+    await store.createPost({
+      sessionId: other.id,
+      surfaces: [htmlSurface("<p>x</p>")],
+      project: "acme/docs",
+      slug: "nav",
+    });
+
+    const projects = await store.listProjects();
+    const site = projects.find((p) => p.name === "acme/site")!;
+    assert.equal(site.items, 2, "variants of one item count once");
+    assert.equal(site.sessions, 1);
+    assert.equal(site.waiting, 0);
+    assert.ok(projects.some((p) => p.name === "acme/docs"));
+
+    const items = await store.listItems("acme/site");
+    assert.deepEqual(items.map((i) => i.slug).sort(), ["landing", "pricing-card"]);
+    const card = items.find((i) => i.slug === "pricing-card")!;
+    assert.equal(card.kind, "component");
+    assert.equal(card.waiting, false);
+    assert.deepEqual(card.variants.map((v) => v.variant).sort(), ["default", "highlighted"]);
+
+    // an ask marks the item — and its project — as waiting on the operator
+    const asked = await store.setPostAsk(loud!.id, {
+      text: "which one?",
+      at: "2026-01-01T00:00:00.000Z",
+    });
+    assert.equal(asked?.ask?.text, "which one?");
+    assert.equal(
+      (await store.listItems("acme/site")).find((i) => i.slug === "pricing-card")!.waiting,
+      true,
+    );
+    assert.equal((await store.listProjects()).find((p) => p.name === "acme/site")!.waiting, 1);
+    assert.equal((await store.setPostAsk(loud!.id, null))?.ask, null);
+
+    const detail = await store.getItem("acme/site", "pricing-card");
+    assert.equal(detail?.slug, "pricing-card");
+    assert.equal(detail!.variants.length, 2);
+    const current = detail!.variants.find((v) => v.postId === plain!.id)!;
+    assert.deepEqual(stripIds(current.surfaces), [htmlSurface("<p>pricing-card/default</p>")]);
+    // history metadata carries no surface bodies
+    assert.deepEqual(
+      current.history.map((h) => h.version),
+      [1],
+    );
+    assert.equal((current.history[0] as { surfaces?: unknown }).surfaces, undefined);
+    assert.equal(await store.getItem("acme/site", "missing"), null);
+  });
+
+  contract("setPostStatus flips a variant and getItem reports it", async (store) => {
+    const session = await store.createSession({ agent: "pi", project: "acme/site" });
+    const post = await store.createPost({
+      sessionId: session.id,
+      surfaces: [htmlSurface("<p>a</p>")],
+      project: "acme/site",
+      slug: "card",
+    });
+    assert.equal((await store.setPostStatus(post!.id, "accepted"))?.status, "accepted");
+    assert.equal((await store.getItem("acme/site", "card"))!.variants[0].status, "accepted");
+    assert.equal((await store.setPostStatus(post!.id, "archived"))?.status, "archived");
+    assert.equal(await store.setPostStatus("missing", "open"), null);
+    assert.equal(await store.setPostAsk("missing", null), null);
+  });
+
+  contract("a version records what it branched from and what prompted it", async (store) => {
+    const session = await store.createSession({ agent: "pi" });
+    const post = await store.createPost({
+      sessionId: session.id,
+      surfaces: [htmlSurface("<p>v1</p>")],
+      prompt: "first cut",
+      author: "pi",
+    });
+    const v2 = await store.updatePost(post!.id, {
+      surfaces: [htmlSurface("<p>v2</p>")],
+      from: 1,
+      prompt: "tighter spacing",
+      author: "pi",
+    });
+    assert.equal(v2!.version, 2);
+    assert.equal(v2!.from, 1);
+    assert.equal(v2!.prompt, "tighter spacing");
+    assert.equal(v2!.history[0].prompt, "first cut");
+    assert.equal(v2!.history[0].author, "pi");
+  });
+
+  // --- drafts ---
+
+  contract("drafts are withheld from agent reads until released", async (store) => {
+    const session = await store.createSession({ agent: "pi" });
+    const post = await store.createPost({
+      sessionId: session.id,
+      surfaces: [htmlSurface("<p>a</p>")],
+    });
+    const draft = await store.createComment({
+      sessionId: session.id,
+      postId: post!.id,
+      author: "user",
+      text: "make it wider",
+      draft: true,
+      kind: "comment",
+      anchors: [
+        {
+          ref: "@1",
+          shape: "pin",
+          box: [0.5, 0.25],
+          surfaceIndex: 0,
+          postVersion: 1,
+          path: "div > button",
+          text: "Go",
+        },
+      ],
+      postVersion: 1,
+      viewport: 390,
+    });
+    assert.equal(draft!.draft, true);
+    assert.equal(draft!.anchors[0].ref, "@1");
+    assert.equal(draft!.viewport, 390);
+    assert.equal(draft!.postVersion, 1);
+
+    const sent = await store.createComment({
+      sessionId: session.id,
+      postId: post!.id,
+      author: "user",
+      text: "sent right away",
+    });
+    assert.equal(sent!.draft, false);
+    assert.equal(sent!.kind, "comment");
+    assert.deepEqual(sent!.anchors, []);
+
+    // agent-facing reads (the default) never see the draft
+    const agentRead = await store.listComments({ postId: post!.id });
+    assert.deepEqual(
+      agentRead.map((c) => c.text),
+      ["sent right away"],
+    );
+    // the viewer opts in
+    const viewerRead = await store.listComments({ postId: post!.id, includeDrafts: true });
+    assert.deepEqual(
+      viewerRead.map((c) => c.text),
+      ["make it wider", "sent right away"],
+    );
+    assert.deepEqual(
+      (await store.listDrafts(post!.id)).map((c) => c.text),
+      ["make it wider"],
+    );
+
+    // releasing re-seqs the draft so it lands AFTER everything already delivered
+    const released = await store.releaseDrafts(post!.id);
+    assert.deepEqual(
+      released.map((c) => c.text),
+      ["make it wider"],
+    );
+    assert.equal(released[0].draft, false);
+    assert.ok(released[0].seq > sent!.seq, "a released draft gets a fresh seq");
+    assert.deepEqual(
+      (await store.listComments({ postId: post!.id })).map((c) => c.text),
+      ["sent right away", "make it wider"],
+    );
+    assert.deepEqual(await store.listDrafts(post!.id), []);
+    assert.deepEqual(await store.releaseDrafts(post!.id), []);
+  });
+
+  contract("a decision comment carries its kind", async (store) => {
+    const session = await store.createSession({ agent: "pi" });
+    const post = await store.createPost({
+      sessionId: session.id,
+      surfaces: [htmlSurface("<p>a</p>")],
+    });
+    for (const kind of ["revise", "accept", "drop", "ask", "reply"] as const) {
+      const comment = await store.createComment({
+        sessionId: session.id,
+        postId: post!.id,
+        author: "user",
+        text: kind,
+        kind,
+      });
+      assert.equal(comment!.kind, kind);
+    }
+    assert.deepEqual(
+      (await store.listComments({ postId: post!.id })).map((c) => c.kind),
+      ["revise", "accept", "drop", "ask", "reply"],
+    );
+  });
+
   contract("an unreferenced asset is reported unreferenced from a cold cache", async (store) => {
     const session = await store.createSession({ agent: "pi" });
     const asset = await store.putAsset({

@@ -13,10 +13,12 @@ runStoreContract("SqlStore", () => new SqlStore(createSqliteStorage()));
 const hotPathIndexes = {
   sideshow_assets_session_idx: ["sessionId"],
   sideshow_comments_id_idx: ["id"],
+  sideshow_comments_post_draft_idx: ["postId", "draft"],
   sideshow_comments_post_seq_idx: ["postId", "seq"],
   sideshow_comments_session_seq_idx: ["sessionId", "seq"],
   sideshow_posts_session_created_at_idx: ["sessionId", "createdAt"],
   sideshow_posts_updated_at_idx: ["updatedAt"],
+  sideshow_posts_variant_idx: ["project", "slug", "variant"],
 } as const;
 
 test("SqlStore adds hot-path indexes to existing workspaces idempotently", () => {

@@ -1,12 +1,9 @@
 // End-to-end proof that an embedding host can opt the viewer engine into the
 // WebSocket live-update transport while keeping the same event payloads and
 // reconciliation behavior as the default EventSource path.
-import { expect, publish, serveEmbedBundle, test } from "./fixtures.ts";
+import { expect, mountEmbed, navigatingRouter, publish, test } from "./fixtures.ts";
 
-const embedHtml = (sessionId: string) => `<!doctype html>
-<html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%}#m{position:fixed;inset:0}</style></head>
-<body><div id="m"></div>
-<script>
+const WS_HARNESS = `<script>
   window.__SIDESHOW_PUBLIC_READ__ = "session";
   const NativeSetInterval = window.setInterval.bind(window);
   window.setInterval = (cb, ms, ...args) => NativeSetInterval(cb, ms === 30000 ? 10 : ms, ...args);
@@ -60,21 +57,7 @@ const embedHtml = (sessionId: string) => `<!doctype html>
     deliver(event) { sockets.at(-1)?.deliver(event); },
     closeLatest() { sockets.at(-1)?.close(); },
   };
-</script>
-<script type="module">
-  import { mountViewer } from "/__embed/engine.js";
-  window.__viewerHandle = mountViewer(document.getElementById("m"), {
-    basePath: "",
-    layout: "stream",
-    readonly: true,
-    liveTransport: "ws",
-    router: {
-      get: () => ({ sessionId: ${JSON.stringify(sessionId)} }),
-      navigate() {},
-      subscribe() { return () => {}; },
-    },
-  });
-</script></body></html>`;
+</script>`;
 
 test("embedded engine: liveTransport:'ws' applies events, reconnects, and heartbeats", async ({
   page,
@@ -86,16 +69,17 @@ test("embedded engine: liveTransport:'ws' applies events, reconnects, and heartb
     "",
   );
 
-  page.on("pageerror", (e) => console.error("[pageerror]", e.message));
-  page.on("console", (m) => m.type() === "error" && console.error("[console]", m.text()));
-
-  await page.route("**/__embedtest", (route) =>
-    route.fulfill({ contentType: "text/html", body: embedHtml(first.sessionId) }),
-  );
-  await serveEmbedBundle(page);
-
-  await page.goto(`${server.url}/__embedtest`);
-  await expect(page.locator(".card-title")).toContainText("First WS");
+  await mountEmbed(page, server.url, {
+    prelude: WS_HARNESS,
+    host: `{
+      basePath: "",
+      layout: "stream",
+      readonly: true,
+      liveTransport: "ws",
+      router: ${navigatingRouter({ sessionId: first.sessionId })},
+    }`,
+  });
+  await expect(page.locator(".ss-head h1")).toHaveText("First WS");
 
   await expect
     .poll(() => page.evaluate(() => window.__wsHarness.urls[0]))
@@ -118,7 +102,9 @@ test("embedded engine: liveTransport:'ws' applies events, reconnects, and heartb
     sessionId: second.sessionId,
     version: second.version,
   });
-  await expect(page.locator(".card-title")).toContainText(["First WS", "Second WS"]);
+  // The stream layout shows one item; the newest post in the shared session is
+  // what a delivered event must bring on screen.
+  await expect(page.locator(".ss-head h1")).toHaveText("Second WS");
 
   await page.evaluate(() => window.__wsHarness.closeLatest());
   const third = await publish(
@@ -134,7 +120,7 @@ test("embedded engine: liveTransport:'ws' applies events, reconnects, and heartb
   expect(third.sessionId).toBe(first.sessionId);
 
   await expect.poll(() => page.evaluate(() => window.__wsHarness.urls.length)).toBeGreaterThan(1);
-  await expect(page.locator(".card-title")).toContainText(["First WS", "Second WS", "Third WS"]);
+  await expect(page.locator(".ss-head h1")).toHaveText("Third WS");
 
   const socketsBeforeDispose = await page.evaluate(() => window.__wsHarness.urls.length);
   await page.evaluate(() => window.__viewerHandle.dispose());
@@ -145,6 +131,9 @@ test("embedded engine: liveTransport:'ws' applies events, reconnects, and heartb
 
 declare global {
   interface Window {
+    __route?: Record<string, unknown>;
+    __navigated?: Record<string, unknown>;
+    __subs?: ((route: unknown) => void)[];
     __viewerHandle: { dispose(): void };
     __wsHarness: {
       sent: string[];

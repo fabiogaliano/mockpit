@@ -4,7 +4,6 @@ import { getCookie, setCookie } from "hono/cookie";
 import { streamSSE } from "hono/streaming";
 import { decodeBase64 } from "./base64.ts";
 import {
-  feedbackView,
   postDetailView,
   postWriteView,
   recentPostRowView,
@@ -12,10 +11,23 @@ import {
   sessionPostListRowView,
   sessionRowView,
   viewerPostView,
-  type Feedback,
 } from "./apiViews.ts";
 import { EventBus, type FeedEvent } from "./events.ts";
+import { buildFeedbackBatches, type FeedbackBatch } from "./feedbackBatch.ts";
 import { kitSummaries } from "./kits.ts";
+import {
+  addHook,
+  addSubscription,
+  type Hook,
+  type HookEvent,
+  isPushSubscription,
+  listHooks,
+  type NotifyPayload,
+  notify,
+  removeHook,
+  vapidKeys,
+} from "./push.ts";
+import { expandSlots, parseSlotTags } from "./slots.ts";
 import { registerMcp } from "./mcpHttp.ts";
 import { postToMarkdown } from "./postMarkdown.ts";
 import {
@@ -23,20 +35,32 @@ import {
   renderHtmlPage,
   renderMermaidPage,
   renderSandboxedPart,
+  STATIC_ASSET_PREFIX,
+  staticAsset,
 } from "./surfacePage.ts";
-import { DEFAULT_THEME_ID, themeById, themeOptions } from "./themes.ts";
+import { DEFAULT_THEME_ID, type Mode, themeById, themeOptions } from "./themes.ts";
 import {
+  type Anchor,
   type Asset,
   type AssetKind,
   type CodeSurface,
   type Comment,
   type CommentAnchor,
+  type CommentKind,
+  DEFAULT_PROJECT,
+  DEFAULT_VARIANT,
+  type DesignSettings,
   type DiffSurface,
   htmlSurface,
   isSandboxedSurfaceKind,
+  type ItemKind,
+  newId,
+  projectFromCwd,
   reservedAgent,
   type MarkdownSurface,
   MAX_ASSET_BYTES,
+  type Slot,
+  slugify,
   surfacesByteLength,
   type Session,
   type Store,
@@ -55,7 +79,10 @@ import {
 } from "./welcomePost.ts";
 
 export type { FeedEvent } from "./events.ts";
-export type { Feedback } from "./apiViews.ts";
+// `Feedback` is the agent-facing feedback unit; it is now the per-post batch
+// (feedbackBatch.ts). The export name is unchanged so embedders and the MCP
+// tier keep compiling against one name.
+export type { FeedbackBatch as Feedback } from "./feedbackBatch.ts";
 
 const MAX_SURFACE_BYTES = 2 * 1024 * 1024;
 const MAX_WAIT_SECONDS = 300;
@@ -258,6 +285,12 @@ function isPublicReadAllowed(path: string, mode: PublicReadMode): boolean {
   // per-surface /api/surfaces/:id reads below.
   if (path === "/api/surfaces/recent") return false;
   if (path === "/api/posts/recent") return false;
+  // Project/item reads are addressed by NAME, not by an unguessable id, so they
+  // are not capabilities the way /api/posts/:id is: exposing them on a
+  // session-scoped public workspace would let anyone enumerate the whole
+  // workspace from a single shared session link. Same call as the recent feed
+  // above. `publicRead: "full"` already returned true before reaching here.
+  if (path.startsWith("/api/projects")) return false;
   if (path.startsWith("/api/surfaces/")) return true;
   if (path.startsWith("/api/posts/")) return true;
   if (path.startsWith("/api/snippets/")) return true;
@@ -275,6 +308,9 @@ export interface CommentWait {
   author?: string;
   afterSeq?: number;
   waitSeconds: number;
+  // Viewer reads only: the operator's own unsent drafts belong in the card's
+  // thread. Agent-facing reads leave this off and never see them.
+  includeDrafts?: boolean;
 }
 
 export function createApp({
@@ -298,7 +334,14 @@ export function createApp({
   // `?key=` bootstraps cookie auth, so never let a board URL disclose that
   // credential to another origin through an outbound Referer header. Set this
   // before auth so denied and public routes carry the same policy.
+  // The origin of the most recent request. A surface document bakes its origin
+  // in (CSP, <base>, asset URLs), so the publish-time pre-warm needs one — and a
+  // write arrives over the same origin the viewer is about to read from. It is
+  // only ever a cache-key input: an origin that turns out to be wrong wastes a
+  // warm entry, it can never be served to the wrong caller (renderKey includes it).
+  let lastOrigin: string | null = null;
   app.use("*", (c, next) => {
+    lastOrigin = new URL(c.req.url).origin;
     c.header("Referrer-Policy", "no-referrer");
     return next();
   });
@@ -337,26 +380,73 @@ export function createApp({
   // key pins everything the output depends on — post id, surface index, the
   // RESOLVED version number, theme, mode — and a version's content is immutable,
   // so a hit is always correct (a post edit bumps the version → a new key).
-  // Bounded + FIFO-evicted: a dropped entry costs a re-render, never
-  // correctness. The DurableObject is single-instance per workspace, so this
-  // in-memory cache is authoritative; a multi-instance deploy could back it with
-  // KV/Cache API behind the same key without changing callers.
-  const MAX_RENDER_CACHE = 512;
+  // Bounded by BYTES and LRU-evicted: a dropped entry costs a re-render, never
+  // correctness. Bounding the entry COUNT was the wrong axis — a document can
+  // weigh anything from 2 KB to ~900 KB, so 512 entries could mean 450 MB in an
+  // isolate with a 128 MB budget. The DurableObject is single-instance per
+  // workspace, so this in-memory cache is authoritative; a multi-instance deploy
+  // could back it with KV/Cache API behind the same key without changing callers.
+  const MAX_RENDER_CACHE_BYTES = 32 * 1024 * 1024;
   const renderCache = new Map<string, string>();
-  async function cachedRender(key: string, build: () => Promise<string> | string): Promise<string> {
+  let renderCacheBytes = 0;
+  // UTF-16 code units × 2 is the retained JS string size, which is what this
+  // bound is protecting — not the transferred UTF-8 length.
+  const docBytes = (doc: string) => doc.length * 2;
+  const dropCacheEntry = (key: string) => {
+    const doc = renderCache.get(key);
+    if (doc === undefined) return;
+    renderCacheBytes -= docBytes(doc);
+    renderCache.delete(key);
+  };
+  const clearRenderCache = () => {
+    renderCache.clear();
+    renderCacheBytes = 0;
+  };
+  // The response headers every surface document carries, on the cache-first
+  // path and the render path alike.
+  //
+  // The `sandbox` CSP sandboxes the document however it is loaded. The viewer
+  // embeds it in an iframe whose `sandbox="allow-scripts"` attribute gives it an
+  // opaque origin, but the document is served from the workspace's own origin —
+  // so a TOP-LEVEL load (a user opening /s/:id in a new tab, an agent-shared
+  // link) would otherwise run the agent's script in the workspace origin, where
+  // it could reach same-origin storage or window.open('/') the real viewer. A
+  // `sandbox` CSP can only be set as a response header (not the meta tag the
+  // page carries), and it forces the same opaque-origin sandbox on a direct
+  // navigation: allow-scripts so the bridge still runs, but no allow-same-origin,
+  // so agent code can never touch the workspace origin. Mirrors the iframe's
+  // sandbox flags.
+  //
+  // Version-pinned + themed requests (what the viewer always sends) are
+  // immutable, so they allow long-lived shared caching; an unpinned direct load
+  // is not.
+  function surfaceDocHeaders(c: Context, immutable: boolean): void {
+    c.header("X-Content-Type-Options", "nosniff");
+    c.header("Content-Security-Policy", "sandbox allow-scripts");
+    c.header(
+      "Cache-Control",
+      immutable ? "public, max-age=31536000, immutable" : "private, no-cache",
+    );
+  }
+
+  function renderCacheHit(key: string): string | undefined {
     const hit = renderCache.get(key);
-    if (hit !== undefined) {
-      // refresh LRU recency
-      renderCache.delete(key);
-      renderCache.set(key, hit);
-      return hit;
-    }
+    if (hit === undefined) return undefined;
+    // refresh LRU recency
+    renderCache.delete(key);
+    renderCache.set(key, hit);
+    return hit;
+  }
+  async function cachedRender(key: string, build: () => Promise<string> | string): Promise<string> {
+    const hit = renderCacheHit(key);
+    if (hit !== undefined) return hit;
     const doc = await build();
     renderCache.set(key, doc);
-    while (renderCache.size > MAX_RENDER_CACHE) {
+    renderCacheBytes += docBytes(doc);
+    while (renderCacheBytes > MAX_RENDER_CACHE_BYTES && renderCache.size > 1) {
       const oldest = renderCache.keys().next().value;
       if (oldest === undefined) break;
-      renderCache.delete(oldest);
+      dropCacheEntry(oldest);
     }
     return doc;
   }
@@ -396,15 +486,72 @@ export function createApp({
   // User comments the agent has not seen yet ride along on its next write, so
   // agents hear feedback without blocking on the long-poll. The cursor also
   // advances past the agent's own comments to keep reads cheap.
-  async function collectFeedback(sessionId: string): Promise<Feedback[] | undefined> {
+  async function collectFeedback(sessionId: string): Promise<FeedbackBatch[] | undefined> {
     const session = await store.getSession(sessionId);
     if (!session) return undefined;
     const fresh = await store.listComments({ sessionId, afterSeq: session.agentSeq });
     if (fresh.length === 0) return undefined;
     await store.markAgentSeen(sessionId, fresh[fresh.length - 1].seq);
     const feedback = fresh.filter((cm) => cm.author === "user");
-    return feedback.length > 0 ? feedback.map(feedbackView) : undefined;
+    return feedback.length > 0 ? await batchFeedback(feedback) : undefined;
   }
+
+  // The per-post grouping every agent-facing channel returns (resolves each
+  // batch's post and, for an accept, the sibling variants it archived).
+  const batchFeedback = (comments: Comment[]) => buildFeedbackBatches(store, comments);
+
+  // Per-comment delivery state for the viewer: `seen` once the session's
+  // agentSeq has passed the comment. Computed, never stored.
+  async function withSeen(comments: Comment[]): Promise<(Comment & { seen: boolean })[]> {
+    const cursors = new Map<string, number>();
+    for (const c of comments) {
+      if (!cursors.has(c.sessionId)) {
+        cursors.set(c.sessionId, (await store.getSession(c.sessionId))?.agentSeq ?? 0);
+      }
+    }
+    // A draft was never delivered, whatever its seq — it is written below the
+    // cursor and only crosses it when Revise releases it with a fresh one.
+    return comments.map((c) => ({
+      ...c,
+      seen: !c.draft && c.seq <= (cursors.get(c.sessionId) ?? 0),
+    }));
+  }
+
+  // The item fields every post response carries alongside the legacy shape.
+  const itemFields = (post: Post) => ({
+    project: post.project,
+    slug: post.slug,
+    kind: post.kind,
+    variant: post.variant,
+    status: post.status,
+    ask: post.ask,
+    slots: post.slots,
+    ...(post.from === undefined ? {} : { from: post.from }),
+    ...(post.prompt === undefined ? {} : { prompt: post.prompt }),
+  });
+
+  // A project's imported design system (settings key `design:<project>`), or
+  // null when `sideshow init` has never run for it.
+  async function designFor(project: string): Promise<DesignSettings | null> {
+    const raw = await store.getSetting(`design:${project}`);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as DesignSettings;
+    } catch {
+      return null;
+    }
+  }
+
+  // Push + webhooks. Detached on purpose: a dead push endpoint must never fail
+  // (or slow) the write that triggered it.
+  function fireNotify(payload: NotifyPayload): void {
+    void notify(store, payload).catch((err) => console.warn("[sideshow] notify failed", err));
+  }
+
+  const postUrl = (request: Request, post: Post) =>
+    `${new URL(request.url).origin}${requestBasePath(request)}/project/${encodeURIComponent(
+      post.project,
+    )}/${encodeURIComponent(post.slug)}?variant=${encodeURIComponent(post.variant)}`;
 
   // Find a surface's index by id (first match) or 0-based numeric index.
   function findSurfaceIndex(surfaces: Surface[], target: string): number {
@@ -446,8 +593,17 @@ export function createApp({
     sessionTitle?: string;
     agent?: string;
     cwd?: string;
+    project?: string;
+    slug?: string;
+    kind?: ItemKind;
+    variant?: string;
+    from?: number;
+    prompt?: string;
+    slots?: Slot[];
+    author?: string;
+    request?: Request;
   }): Promise<
-    { post: Post; userFeedback?: Feedback[] } | { error: string; status: 400 | 404 | 413 }
+    { post: Post; userFeedback?: FeedbackBatch[] } | { error: string; status: 400 | 404 | 413 }
   > {
     if (input.surfaces.length === 0) {
       return { error: "a post needs at least one surface", status: 400 };
@@ -456,28 +612,115 @@ export function createApp({
       return { error: `surface exceeds ${MAX_SURFACE_BYTES} bytes`, status: 413 };
     }
     let sessionId = input.session;
-    if (sessionId && !(await store.getSession(sessionId))) {
+    let session = sessionId ? await store.getSession(sessionId) : null;
+    if (sessionId && !session) {
       return { error: `session "${sessionId}" not found`, status: 404 };
     }
     if (!sessionId) {
       // sessionTitle applies only here — an existing session keeps its title,
       // which the user may have set by renaming it in the viewer.
-      const session = await store.createSession({
+      session = await store.createSession({
         agent: input.agent ?? "agent",
         title: input.sessionTitle?.slice(0, MAX_TITLE),
         cwd: input.cwd,
+        project: resolveProject(input.project, input.cwd),
       });
       bus.broadcast({ type: "session-created", id: session.id });
+
       sessionId = session.id;
+    }
+    const project =
+      input.project?.trim() || session?.project || projectFromCwd(session?.cwd) || DEFAULT_PROJECT;
+    const variant = input.variant?.trim() || DEFAULT_VARIANT;
+    const title = input.title?.slice(0, MAX_TITLE);
+    // Publishing the same (project, slug, variant) twice is a new VERSION of
+    // that variant, not a second item — the agent addresses items by name
+    // across sessions, so it must not have to remember post ids. Only an
+    // EXPLICIT slug addresses an item that way: a publish that names no item
+    // (the legacy snippet flow) always creates a new one, so two untitled
+    // cards can never collapse into one item's history.
+    const addressed = input.slug?.trim();
+    const slug = addressed
+      ? slugify(addressed)
+      : await freeSlug(project, slugify(title || "Untitled"), variant);
+    const existing = addressed ? await store.findVariant(project, slug, variant) : null;
+    const slots = input.kind === "page" ? await pageSlots(project, input.surfaces) : input.slots;
+    if (existing) {
+      const revised = await revisePost(existing.id, {
+        surfaces: input.surfaces,
+        title,
+        from: input.from,
+        prompt: input.prompt,
+        author: input.author,
+        slots,
+      });
+      if ("error" in revised) return revised;
+      if (input.prompt && input.request) {
+        fireNotify({
+          event: "publish",
+          project: revised.post.project,
+          slug: revised.post.slug,
+          variant: revised.post.variant,
+          version: revised.post.version,
+          text: input.prompt,
+          url: postUrl(input.request, revised.post),
+        });
+      }
+      return revised;
     }
     const post = await store.createPost({
       sessionId,
       surfaces: input.surfaces,
-      title: input.title?.slice(0, MAX_TITLE),
+      title,
+      project,
+      slug,
+      kind: input.kind,
+      variant,
+      from: input.from,
+      prompt: input.prompt,
+      slots,
+      author: input.author,
     });
     if (!post) return { error: "session not found", status: 404 };
     bus.broadcast({ type: "post-created", id: post.id, sessionId, version: 1 });
+    warmPost(post);
     return { post, userFeedback: await collectFeedback(sessionId) };
+  }
+
+  // A slug for an item nobody named. The title's kebab-case is used as-is when
+  // it is free; otherwise a short random suffix keeps item identity unique
+  // inside the project without scanning every post.
+  async function freeSlug(project: string, base: string, variant: string): Promise<string> {
+    if (!(await store.findVariant(project, base, variant))) return base;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const slug = `${base}-${newId()
+        .slice(0, 4)
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "0")}`;
+      if (!(await store.findVariant(project, slug, variant))) return slug;
+    }
+    return `${base}-${Date.now().toString(36)}`;
+  }
+
+  // Project resolution for a session: explicit wins, then the cwd's basename,
+  // then the single-workspace fallback.
+  const resolveProject = (project?: string, cwd?: string | null): string =>
+    project?.trim() || projectFromCwd(cwd) || DEFAULT_PROJECT;
+
+  // A page's slot list, with each missing version pinned to the referenced
+  // component's current one (snapshot semantics).
+  async function pageSlots(project: string, surfaces: Surface[]): Promise<Slot[]> {
+    const html = surfaces.find((s) => s.kind === "html");
+    if (!html || html.kind !== "html") return [];
+    const slots: Slot[] = [];
+    for (const tag of parseSlotTags(html.html)) {
+      let version = tag.version;
+      if (version == null) {
+        version = (await store.findVariant(project, tag.slug, tag.variant))?.version ?? null;
+      }
+      if (version != null) slots.push({ slug: tag.slug, variant: tag.variant, version });
+    }
+    return slots;
   }
 
   // Store an uploaded blob. Like publishPostFlow, an explicit session is
@@ -518,9 +761,16 @@ export function createApp({
 
   async function revisePost(
     id: string,
-    patch: { surfaces?: Surface[]; title?: string },
+    patch: {
+      surfaces?: Surface[];
+      title?: string;
+      from?: number;
+      prompt?: string;
+      author?: string;
+      slots?: Slot[];
+    },
   ): Promise<
-    { post: Post; userFeedback?: Feedback[] } | { error: string; status: 400 | 404 | 413 }
+    { post: Post; userFeedback?: FeedbackBatch[] } | { error: string; status: 400 | 404 | 413 }
   > {
     if (patch.surfaces) {
       if (patch.surfaces.length === 0) {
@@ -531,7 +781,14 @@ export function createApp({
       }
     }
     if (patch.title !== undefined) patch.title = patch.title.slice(0, MAX_TITLE);
-    const post = await store.updatePost(id, { surfaces: patch.surfaces, title: patch.title });
+    const post = await store.updatePost(id, {
+      surfaces: patch.surfaces,
+      title: patch.title,
+      from: patch.from,
+      prompt: patch.prompt,
+      author: patch.author,
+      slots: patch.slots,
+    });
     if (!post) return { error: "post not found", status: 404 };
     bus.broadcast({
       type: "post-updated",
@@ -539,6 +796,7 @@ export function createApp({
       sessionId: post.sessionId,
       version: post.version,
     });
+    warmPost(post);
     return { post, userFeedback: await collectFeedback(post.sessionId) };
   }
 
@@ -552,7 +810,7 @@ export function createApp({
     surface: Surface,
     pos?: { before?: string; after?: string },
   ): Promise<
-    { post: Post; userFeedback?: Feedback[] } | { error: string; status: 400 | 404 | 413 }
+    { post: Post; userFeedback?: FeedbackBatch[] } | { error: string; status: 400 | 404 | 413 }
   > {
     const existing = await store.getPost(id);
     if (!existing) return { error: "post not found", status: 404 };
@@ -576,7 +834,7 @@ export function createApp({
     target: string,
     replacement: { surface?: Surface; content?: string; kits?: unknown },
   ): Promise<
-    { post: Post; userFeedback?: Feedback[] } | { error: string; status: 400 | 404 | 413 }
+    { post: Post; userFeedback?: FeedbackBatch[] } | { error: string; status: 400 | 404 | 413 }
   > {
     const existing = await store.getPost(id);
     if (!existing) return { error: "post not found", status: 404 };
@@ -620,7 +878,7 @@ export function createApp({
     id: string,
     target: string,
   ): Promise<
-    { post: Post; userFeedback?: Feedback[] } | { error: string; status: 400 | 404 | 413 }
+    { post: Post; userFeedback?: FeedbackBatch[] } | { error: string; status: 400 | 404 | 413 }
   > {
     const existing = await store.getPost(id);
     if (!existing) return { error: "post not found", status: 404 };
@@ -637,7 +895,7 @@ export function createApp({
     id: string,
     order: (string | number)[],
   ): Promise<
-    { post: Post; userFeedback?: Feedback[] } | { error: string; status: 400 | 404 | 413 }
+    { post: Post; userFeedback?: FeedbackBatch[] } | { error: string; status: 400 | 404 | 413 }
   > {
     const existing = await store.getPost(id);
     if (!existing) return { error: "post not found", status: 404 };
@@ -714,6 +972,58 @@ export function createApp({
     return { kind: "point", ...base, x, y };
   }
 
+  // Viewport presets the stage lays out at; anything else is dropped rather
+  // than echoed back to the agent as a made-up width.
+  const VIEWPORTS = new Set([390, 820, 1280]);
+  const sanitizeViewport = (raw: unknown): number | null => {
+    const n = Number(raw);
+    return VIEWPORTS.has(n) ? n : null;
+  };
+
+  const sanitizePostVersion = (raw: unknown, post: Post): number => {
+    const n = Number(raw);
+    return Number.isInteger(n) && n >= 1 && n <= post.version ? n : post.version;
+  };
+
+  // Markers are DATA: every field is re-derived or range-checked here, so
+  // whatever the overlay (or a forged request) sends, the agent only ever
+  // receives a bounded shape it can render as text.
+  const MAX_ANCHORS = 20;
+  const MAX_ANCHOR_TEXT = 200;
+  function sanitizeAnchors(raw: unknown, post: Post, viewport: number | null): Anchor[] {
+    if (!Array.isArray(raw)) return [];
+    const out: Anchor[] = [];
+    for (const entry of raw.slice(0, MAX_ANCHORS)) {
+      if (!entry || typeof entry !== "object") continue;
+      const a = entry as Record<string, unknown>;
+      const shape = a.shape === "rect" || a.shape === "circle" ? a.shape : "pin";
+      const box = Array.isArray(a.box) ? a.box.map((n) => numberInRange(n, 0, 1)) : [];
+      const need = shape === "pin" ? 2 : 4;
+      if (box.length < need || box.slice(0, need).some((n) => n == null)) continue;
+      let surfaceIndex = Number(a.surfaceIndex);
+      if (
+        !Number.isInteger(surfaceIndex) ||
+        surfaceIndex < 0 ||
+        surfaceIndex >= post.surfaces.length
+      ) {
+        surfaceIndex = 0;
+      }
+      const ref =
+        typeof a.ref === "string" && /^@\d{1,3}$/.test(a.ref) ? a.ref : `@${out.length + 1}`;
+      out.push({
+        ref,
+        shape,
+        box: box.slice(0, need) as number[],
+        surfaceIndex,
+        postVersion: sanitizePostVersion(a.postVersion, post),
+        ...(typeof a.path === "string" && { path: a.path.slice(0, MAX_ANCHOR_TEXT) }),
+        ...(typeof a.text === "string" && { text: a.text.slice(0, MAX_ANCHOR_TEXT) }),
+        ...(viewport === null ? {} : { viewport }),
+      });
+    }
+    return out;
+  }
+
   async function createComment(input: {
     text: string;
     surface?: string;
@@ -721,8 +1031,15 @@ export function createApp({
     // channels omit this and derive their author from the owning session.
     author?: "user" | "surface";
     anchor?: unknown;
+    kind?: CommentKind;
+    anchors?: unknown;
+    // Only the trusted viewer may hold a comment back as a draft (same
+    // origin rule as `author`); agent channels can never write one.
+    draft?: boolean;
+    viewport?: unknown;
+    postVersion?: unknown;
   }): Promise<
-    { comment: Comment; userFeedback?: Feedback[] } | { error: string; status: 400 | 404 }
+    { comment: Comment; userFeedback?: FeedbackBatch[] } | { error: string; status: 400 | 404 }
   > {
     // Comments always attach to a post — a comment with nothing to point at
     // is just a message to the agent, which is what the agent's own prompt is for.
@@ -738,6 +1055,11 @@ export function createApp({
       author,
       text: input.text.trim().slice(0, MAX_COMMENT_TEXT),
       anchor: sanitizeCommentAnchor(input.anchor, post),
+      kind: input.kind ?? "comment",
+      anchors: sanitizeAnchors(input.anchors, post, sanitizeViewport(input.viewport)),
+      draft: input.draft === true,
+      postVersion: sanitizePostVersion(input.postVersion, post),
+      viewport: sanitizeViewport(input.viewport),
     });
     if (!comment) return { error: "session not found", status: 404 };
     bus.broadcast({
@@ -765,7 +1087,12 @@ export function createApp({
     if (afterSeq === undefined && q.author === "user" && q.sessionId) {
       afterSeq = (await store.getSession(q.sessionId))?.agentSeq;
     }
-    const query = { sessionId: q.sessionId, postId: q.surfaceId, afterSeq };
+    const query = {
+      sessionId: q.sessionId,
+      postId: q.surfaceId,
+      afterSeq,
+      includeDrafts: q.includeDrafts === true,
+    };
     const matches = (list: Comment[]) =>
       q.author ? list.filter((cm) => cm.author === q.author) : list;
     const wait = Math.min(Math.max(q.waitSeconds, 0), MAX_WAIT_SECONDS);
@@ -824,6 +1151,13 @@ export function createApp({
   app.use("*", async (c, next) => {
     const path = new URL(c.req.url).pathname;
 
+    // Content-hashed static assets (the surface bridge script and the static
+    // stylesheets) are served unauthenticated on purpose: they are our own code,
+    // carry no workspace data, and the sandboxed frames that load them run at an
+    // opaque origin, so their subresource requests carry no SameSite cookie and
+    // could not authenticate even on a tokened workspace.
+    if (path.startsWith(STATIC_ASSET_PREFIX)) return next();
+
     if (authenticate) {
       const result = await authenticate(c.req.raw);
       if (result === true) return next();
@@ -836,6 +1170,7 @@ export function createApp({
 
     if (!authToken) return next();
     if (path === "/guide" || path === "/setup" || path === "/agent-howto") return next();
+    if (path.startsWith(STATIC_ASSET_PREFIX)) return next();
 
     const key = c.req.query("key");
     if (key === authToken) {
@@ -992,6 +1327,12 @@ export function createApp({
   app.get("/connect", async (c) =>
     c.html(await configuredViewerHtml(c, { title: "Connect an agent" })),
   );
+  // The reshaped viewer routes. They render the same shell as "/" — the engine
+  // reads the project/item out of the URL itself.
+  const projectPage = async (c: Context) =>
+    c.html(await configuredViewerHtml(c, { title: decodeURIComponent(c.req.param("name") ?? "") }));
+  app.get("/project/:name", projectPage);
+  app.get("/project/:name/:slug", projectPage);
   app.get("/session/:id", async (c) => {
     const session = await store.getSession(c.req.param("id"));
     if (isUnauthenticatedSessionRead(c) && !session) {
@@ -1012,9 +1353,34 @@ export function createApp({
   };
   app.get("/session/:id/s/:surfaceId", sessionPostPage); // legacy alias
   app.get("/session/:id/p/:postId", sessionPostPage);
+  // Content-hashed bridge/token assets the surface documents reference, so
+  // every surface doesn't re-inline the same ~11 KB. Without this route the
+  // in-frame bridge never loads and iframes never report their height.
+  app.get("/asset/:file", (c) => {
+    const asset = staticAsset(`/asset/${c.req.param("file")}`);
+    if (!asset) return c.text("Not found", 404);
+    c.header("Content-Type", asset.contentType);
+    c.header("Cache-Control", "public, max-age=31536000, immutable");
+    return c.body(asset.body);
+  });
   app.get("/guide", (c) => c.text(withOrigin(guideMarkdown, c)));
   app.get("/setup", (c) => c.text(withOrigin(setupText, c)));
-  app.get("/agent-howto", (c) => c.text(withOrigin(agentHowtoText, c)));
+  // `?brief=1` renders the project-aware short guide (its real palette, kit and
+  // icon set) instead of the generic text. The renderer lives in designGuide.ts;
+  // if it is unavailable or throws, the full guide is still served — an agent
+  // asking for instructions must never get an error page.
+  app.get("/agent-howto", async (c) => {
+    if (c.req.query("brief") !== "1") return c.text(withOrigin(agentHowtoText, c));
+    try {
+      const { renderBriefGuide } = await import("./designGuide.ts");
+      const project =
+        c.req.query("project") ?? (await store.listProjects())[0]?.name ?? DEFAULT_PROJECT;
+      return c.text(withOrigin(renderBriefGuide(await designFor(project)), c));
+    } catch (err) {
+      console.warn("[sideshow] brief guide unavailable", err);
+      return c.text(withOrigin(agentHowtoText, c));
+    }
+  });
 
   // Opt-in html kits available on this workspace (id, label, summary, classes) —
   // for discovery (`sideshow kits`); the CSS/JS payloads are server-only.
@@ -1068,29 +1434,42 @@ export function createApp({
   // post for the self-hosted Home. Same auth as /api/sessions — see
   // isPublicReadAllowed, which intentionally does NOT expose this path on a
   // session-scoped publicRead workspace.
-  const listRecentPosts = async (c: any) => {
-    const limit = parseRecentLimit(c.req.query("limit"));
-    const homePreview = c.req.query("preview") === "home";
-    const posts = await store.listRecentPosts(limit);
-    // Resolve each post's session once (agent + session title for the feed card).
-    const sessions = new Map<string, Session | null>();
-    for (const p of posts) {
-      if (!sessions.has(p.sessionId))
-        sessions.set(p.sessionId, await store.getSession(p.sessionId));
-    }
-    return c.json(
-      posts.map((p) => recentPostRowView(p, sessions.get(p.sessionId), { homePreview })),
-    );
-  };
-  app.get("/api/surfaces/recent", listRecentPosts);
-  app.get("/api/posts/recent", listRecentPosts);
+  // `legacy` is set only by the /api/surfaces/recent registration below, which
+  // must stay byte-identical; the canonical route drops the duplicate
+  // `parts`/`partKinds` aliases of `surfaces`.
+  const listRecentPosts =
+    (legacy = false) =>
+    async (c: any) => {
+      const limit = parseRecentLimit(c.req.query("limit"));
+      const homePreview = c.req.query("preview") === "home";
+      const posts = await store.listRecentPosts(limit);
+      // Resolve each post's session once (agent + session title for the feed card).
+      const sessions = new Map<string, Session | null>();
+      for (const p of posts) {
+        if (!sessions.has(p.sessionId))
+          sessions.set(p.sessionId, await store.getSession(p.sessionId));
+      }
+      return c.json(
+        posts.map((p) => recentPostRowView(p, sessions.get(p.sessionId), { homePreview, legacy })),
+      );
+    };
+  app.get("/api/surfaces/recent", listRecentPosts(true)); // legacy alias
+  app.get("/api/posts/recent", listRecentPosts());
 
   app.post("/api/sessions", async (c) => {
     const body = await c.req.json().catch(() => ({}));
+    const cwd = typeof body.cwd === "string" ? body.cwd : undefined;
     const session = await store.createSession({
       agent: typeof body.agent === "string" ? body.agent : "agent",
       title: typeof body.title === "string" ? body.title.slice(0, MAX_TITLE) : undefined,
-      cwd: typeof body.cwd === "string" ? body.cwd : undefined,
+      cwd,
+      // Explicit project, else the cwd's basename, else the single-workspace
+      // fallback — resolved once here so every post this session publishes
+      // lands in the same project.
+      project: resolveProject(
+        typeof body.project === "string" ? body.project.slice(0, MAX_TITLE) : undefined,
+        cwd,
+      ),
     });
     bus.broadcast({ type: "session-created", id: session.id });
     return c.json(session, 201);
@@ -1114,19 +1493,23 @@ export function createApp({
     return c.json({ ok: true });
   });
 
-  const listSessionPosts = async (c: any) => {
-    const session = await store.getSession(c.req.param("id"));
-    if (!session) return c.json({ error: "session not found" }, 404);
-    const posts = await store.listPosts(session.id);
-    return c.json(
-      c.req.query("hydrate") === "1"
-        ? posts.map(sessionPostHydratedView)
-        : posts.map(sessionPostListRowView),
-    );
-  };
-  app.get("/api/sessions/:id/surfaces", listSessionPosts); // legacy alias
-  app.get("/api/sessions/:id/posts", listSessionPosts);
-  app.get("/api/sessions/:id/snippets", listSessionPosts); // legacy alias
+  // `legacy` keeps the duplicate `parts` alias on the two retired spellings,
+  // which stay byte-identical; the canonical route drops it.
+  const listSessionPosts =
+    (legacy = false) =>
+    async (c: any) => {
+      const session = await store.getSession(c.req.param("id"));
+      if (!session) return c.json({ error: "session not found" }, 404);
+      const posts = await store.listPosts(session.id);
+      return c.json(
+        c.req.query("hydrate") === "1"
+          ? posts.map(sessionPostHydratedView)
+          : posts.map((p) => sessionPostListRowView(p, legacy)),
+      );
+    };
+  app.get("/api/sessions/:id/surfaces", listSessionPosts(true)); // legacy alias
+  app.get("/api/sessions/:id/posts", listSessionPosts());
+  app.get("/api/sessions/:id/snippets", listSessionPosts(true)); // legacy alias
 
   // --- session trace ---
 
@@ -1167,18 +1550,26 @@ export function createApp({
 
   // --- posts ---
 
-  const getPost = async (c: any) => {
-    const post = await store.getPost(c.req.param("id"));
-    if (!post) return c.json({ error: "post not found" }, 404);
-    return c.json(postDetailView(post));
-  };
+  // History METADATA only by default (version, title, at, from, prompt, author,
+  // surface kinds/count — no bodies): the full shape was ~27k tokens for a
+  // 20-version post, on the read agents make most often. `?history=full` opts
+  // back in, and the legacy aliases below pass it unconditionally so their
+  // responses stay byte-identical.
+  const getPost =
+    (legacy = false) =>
+    async (c: any) => {
+      const post = await store.getPost(c.req.param("id"));
+      if (!post) return c.json({ error: "post not found" }, 404);
+      const history = legacy || c.req.query("history") === "full" ? "full" : "meta";
+      return c.json(postDetailView(post, { history }));
+    };
   // Viewer-only projection for live create/update refetches. Keep this a
   // canonical post subresource: the legacy detail aliases remain byte-for-byte
   // on the full postDetailView contract above.
   app.get("/api/posts/:id/viewer", async (c) => {
     const post = await store.getPost(c.req.param("id"));
     if (!post) return c.json({ error: "post not found" }, 404);
-    return c.json(viewerPostView(post));
+    return c.json({ ...viewerPostView(post), ...itemFields(post) });
   });
   // The post flattened to portable markdown — what the viewer's share menu
   // copies, and the same text on the CLI/HTTP tiers. Another canonical post
@@ -1193,9 +1584,9 @@ export function createApp({
     const markdown = postToMarkdown(post, { postUrl: `${base}/p/${post.id}`, assetBase: base });
     return c.text(markdown, 200, { "content-type": "text/markdown; charset=utf-8" });
   });
-  app.get("/api/surfaces/:id", getPost); // legacy alias
-  app.get("/api/posts/:id", getPost);
-  app.get("/api/snippets/:id", getPost); // legacy alias
+  app.get("/api/surfaces/:id", getPost(true)); // legacy alias
+  app.get("/api/posts/:id", getPost());
+  app.get("/api/snippets/:id", getPost(true)); // legacy alias
 
   // Accepts either an existing session id, or agent/cwd fields to
   // auto-create a session — so a bare `curl` one-liner works with no ceremony.
@@ -1248,6 +1639,7 @@ export function createApp({
     return c.json(
       {
         ...postWriteView(result.post),
+        ...itemFields(result.post),
         ...(result.userFeedback && { userFeedback: result.userFeedback }),
       },
       201,
@@ -1255,6 +1647,7 @@ export function createApp({
   });
 
   async function publish(c: any, body: any, surfaces: Surface[]) {
+    const version = Number(body.from);
     const result = await publishPostFlow({
       surfaces,
       title: typeof body.title === "string" ? body.title : undefined,
@@ -1262,15 +1655,42 @@ export function createApp({
       sessionTitle: typeof body.sessionTitle === "string" ? body.sessionTitle : undefined,
       agent: typeof body.agent === "string" ? body.agent : undefined,
       cwd: typeof body.cwd === "string" ? body.cwd : undefined,
+      project: typeof body.project === "string" ? body.project.slice(0, MAX_TITLE) : undefined,
+      slug: typeof body.slug === "string" ? body.slug.slice(0, MAX_TITLE) : undefined,
+      kind: body.kind === "page" ? "page" : body.kind === "component" ? "component" : undefined,
+      variant: typeof body.variant === "string" ? body.variant.slice(0, MAX_TITLE) : undefined,
+      from: Number.isInteger(version) && version > 0 ? version : undefined,
+      prompt: typeof body.prompt === "string" ? body.prompt.slice(0, MAX_COMMENT_TEXT) : undefined,
+      slots: sanitizeSlots(body.slots),
+      author: typeof body.author === "string" ? body.author.slice(0, MAX_TITLE) : undefined,
+      request: c.req.raw,
     });
     if ("error" in result) return c.json({ error: result.error }, result.status);
     return c.json(
       {
         ...postWriteView(result.post),
+        ...itemFields(result.post),
         ...(result.userFeedback && { userFeedback: result.userFeedback }),
       },
       201,
     );
+  }
+
+  function sanitizeSlots(raw: unknown): Slot[] | undefined {
+    if (!Array.isArray(raw)) return undefined;
+    const slots: Slot[] = [];
+    for (const entry of raw.slice(0, 50)) {
+      if (!entry || typeof entry !== "object") continue;
+      const s = entry as Record<string, unknown>;
+      if (typeof s.slug !== "string" || !s.slug) continue;
+      const version = Number(s.version);
+      slots.push({
+        slug: slugify(s.slug),
+        variant: typeof s.variant === "string" && s.variant ? s.variant : DEFAULT_VARIANT,
+        version: Number.isInteger(version) && version > 0 ? version : 1,
+      });
+    }
+    return slots;
   }
 
   const revise = async (c: any) => {
@@ -1294,13 +1714,19 @@ export function createApp({
       if (!parsed.ok) return c.json(surfaceValidationErrorBody(parsed), 400);
       surfaces = parsed.surfaces;
     }
+    const from = Number(body.from);
     const result = await revisePost(c.req.param("id"), {
       surfaces,
       title: typeof body.title === "string" ? body.title : undefined,
+      from: Number.isInteger(from) && from > 0 ? from : undefined,
+      prompt: typeof body.prompt === "string" ? body.prompt.slice(0, MAX_COMMENT_TEXT) : undefined,
+      author: typeof body.author === "string" ? body.author.slice(0, MAX_TITLE) : undefined,
+      slots: sanitizeSlots(body.slots),
     });
     if ("error" in result) return c.json({ error: result.error }, result.status);
     return c.json({
       ...postWriteView(result.post),
+      ...itemFields(result.post),
       ...(result.userFeedback && { userFeedback: result.userFeedback }),
     });
   };
@@ -1366,6 +1792,7 @@ export function createApp({
     if ("error" in result) return c.json({ error: result.error }, result.status);
     return c.json({
       ...postWriteView(result.post),
+      ...itemFields(result.post),
       ...(result.userFeedback && { userFeedback: result.userFeedback }),
     });
   });
@@ -1388,6 +1815,7 @@ export function createApp({
     if ("error" in result) return c.json({ error: result.error }, result.status);
     return c.json({
       ...postWriteView(result.post),
+      ...itemFields(result.post),
       ...(result.userFeedback && { userFeedback: result.userFeedback }),
     });
   });
@@ -1414,6 +1842,7 @@ export function createApp({
     if ("error" in result) return c.json({ error: result.error }, result.status);
     return c.json({
       ...postWriteView(result.post),
+      ...itemFields(result.post),
       ...(result.userFeedback && { userFeedback: result.userFeedback }),
     });
   });
@@ -1425,6 +1854,7 @@ export function createApp({
     if ("error" in result) return c.json({ error: result.error }, result.status);
     return c.json({
       ...postWriteView(result.post),
+      ...itemFields(result.post),
       ...(result.userFeedback && { userFeedback: result.userFeedback }),
     });
   });
@@ -1439,6 +1869,7 @@ export function createApp({
     if ("error" in result) return c.json({ error: result.error }, result.status);
     return c.json({
       ...postWriteView(result.post),
+      ...itemFields(result.post),
       ...(result.userFeedback && { userFeedback: result.userFeedback }),
     });
   });
@@ -1472,11 +1903,23 @@ export function createApp({
       isViewerOrigin && (body.author === "user" || body.author === "surface")
         ? body.author
         : undefined;
+    const kind: CommentKind | undefined =
+      typeof body.kind === "string" &&
+      ["comment", "revise", "accept", "drop", "ask", "reply"].includes(body.kind)
+        ? (body.kind as CommentKind)
+        : undefined;
     const result = await createComment({
       text: body.text,
       surface: typeof surface === "string" ? surface : undefined,
       author,
       anchor: body.anchor,
+      kind,
+      anchors: body.anchors,
+      // Same trust rule as `author`: only the viewer origin may hold a comment
+      // back as a draft, so no agent channel can hide feedback from itself.
+      draft: isViewerOrigin && body.draft === true,
+      postVersion: body.postVersion,
+      viewport: body.viewport,
     });
     if ("error" in result) return c.json({ error: result.error }, result.status);
     return c.json(
@@ -1526,35 +1969,610 @@ export function createApp({
       }
     }
     const waitSeconds = Number(c.req.query("wait") ?? 0) || 0;
+    const author = c.req.query("author");
+    // An `author=user` read (or any wait) is the agent listening. Everything
+    // else is the viewer reading a card's thread: it gets the drafts and the
+    // per-comment delivery state, and it is NOT batched.
+    const isAgentRead = author === "user" || waitSeconds > 0;
+    const query = {
+      sessionId,
+      surfaceId,
+      author,
+      afterSeq: c.req.query("after") ? Number(c.req.query("after")) : undefined,
+      waitSeconds,
+      includeDrafts: !isAgentRead,
+    };
+    const respond = async (result: { comments: Comment[]; lastSeq: number }) => {
+      if (isAgentRead) {
+        const feedback = await batchFeedback(result.comments);
+        // Legacy fields stay byte-identical; the batch rides alongside under
+        // both the wait-side and write-side names.
+        return c.json({ ...result, feedback, userFeedback: feedback });
+      }
+      return c.json({ ...result, comments: await withSeen(result.comments) });
+    };
     if (waitSeconds > 0) {
       if (!acquireHold()) return c.json({ error: "too many concurrent connections" }, 503);
       const release = makeRelease();
       // If the client disconnects mid-wait, release the slot promptly.
       c.req.raw.signal.addEventListener("abort", release, { once: true });
       try {
-        const result = await waitForComments(
-          {
-            sessionId,
-            surfaceId,
-            author: c.req.query("author"),
-            afterSeq: c.req.query("after") ? Number(c.req.query("after")) : undefined,
-            waitSeconds,
-          },
-          c.req.raw.signal,
-        );
-        return c.json(result);
+        return await respond(await waitForComments(query, c.req.raw.signal));
       } finally {
         release();
       }
     }
-    const result = await waitForComments({
-      sessionId,
-      surfaceId,
-      author: c.req.query("author"),
-      afterSeq: c.req.query("after") ? Number(c.req.query("after")) : undefined,
-      waitSeconds: 0,
+    return respond(await waitForComments(query));
+  });
+
+  // Inline each `<sideshow-slot>` with the referenced variant version's first
+  // html surface body. The stored `slots` list (resolved at publish) wins over
+  // a bare tag, so a page keeps rendering the versions it was composed from.
+  async function expandPageHtml(post: Post, html: string): Promise<string> {
+    const pinned = new Map(post.slots.map((s) => [`${s.slug}::${s.variant}`, s.version]));
+    const bodies = new Map<string, string | null>();
+    for (const tag of parseSlotTags(html)) {
+      const key = `${tag.slug}::${tag.variant}`;
+      const version = tag.version ?? pinned.get(key) ?? null;
+      const cacheKey = `${key}::${version}`;
+      if (bodies.has(cacheKey)) continue;
+      const variant = await store.findVariant(post.project, tag.slug, tag.variant);
+      if (!variant) {
+        bodies.set(cacheKey, null);
+        continue;
+      }
+      const surfaces =
+        version == null || version === variant.version
+          ? variant.surfaces
+          : (variant.history.find((h) => h.version === version)?.surfaces ?? null);
+      const body = surfaces?.find((s) => s.kind === "html");
+      bodies.set(cacheKey, body && body.kind === "html" ? body.html : null);
+    }
+    return expandSlots(html, ({ slug, variant, version }) => {
+      const key = `${slug}::${variant}`;
+      const pinnedVersion = version ?? pinned.get(key) ?? null;
+      return bodies.get(`${key}::${pinnedVersion}`) ?? null;
     });
-    return c.json(result);
+  }
+
+  // --- demo workspace (reshape) ---
+  //
+  // Seeds one realistic project so the item screen, variant tabs, version rail,
+  // slots, drafts and the waiting state all have something to render. Idempotent:
+  // a second call returns the existing project rather than duplicating it.
+
+  const DEMO_PROJECT = "acme/site";
+
+  const demoCard = (name: string, price: string, sub: string, hi: boolean, feats: string[]) =>
+    `<div class="tier${hi ? " hi" : ""}"><h4>${name}</h4><div class="price">${price}<span class="per">/mo</span></div><p class="sub">${sub}</p><ul>${feats
+      .map((f) => `<li>${f}</li>`)
+      .join("")}</ul><button class="btn${hi ? " primary" : ""}">Choose ${name}</button></div>`;
+
+  const DEMO_CSS = `<style>
+    :root{color-scheme:light dark}
+    body{margin:0;padding:24px;font:14px/1.55 ui-sans-serif,system-ui,sans-serif;color:var(--color-text,#111);background:var(--color-surface,#fff)}
+    h1,h4{margin:0}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+    .tier{border:1px solid var(--color-border,#e4e4e7);border-radius:12px;padding:16px;display:flex;flex-direction:column}
+    .tier.hi{border-color:var(--color-info-border,#2563eb);box-shadow:0 0 0 1px var(--color-info-border,#2563eb)}
+    .price{font-size:26px;font-weight:650;margin:8px 0 2px}
+    .per{font-size:12px;font-weight:400;color:var(--color-muted,#71717a)}
+    .sub{color:var(--color-muted,#71717a);font-size:12px;margin:0 0 10px}
+    ul{margin:0 0 14px;padding-left:16px;color:var(--color-muted,#71717a);font-size:12px;line-height:1.7}
+    .btn{margin-top:auto;padding:8px 12px;border-radius:8px;border:1px solid var(--color-border,#e4e4e7);background:transparent;color:inherit;font:inherit;cursor:pointer}
+    .btn.primary{background:var(--color-info-bg,#2563eb);border-color:transparent;color:var(--color-info-text,#fff)}
+    .toggle{display:inline-flex;gap:6px;align-items:center;margin-bottom:12px;color:var(--color-muted,#71717a);font-size:12px}
+    .row{display:flex;align-items:center;gap:14px;border:1px solid var(--color-border,#e4e4e7);border-radius:10px;padding:12px 14px;margin-bottom:8px}
+    .row b{display:block}
+    .eyebrow{font-size:11px;color:var(--color-info-text,#2563eb);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px}
+    details{border-bottom:1px solid var(--color-border,#e4e4e7);padding:10px 0}
+    summary{cursor:pointer;font-weight:600}
+  </style>`;
+
+  const demoToggle = `<label class="toggle"><input type="checkbox"> Annual (&minus;20%)</label>`;
+
+  const demoGrid = (toggle: boolean) =>
+    `${DEMO_CSS}${toggle ? demoToggle : ""}<div class="grid">${demoCard("Starter", "$0", "For trying things out", false, ["Unlimited posts", "5 agents", "Email support"])}${demoCard("Pro", "$12", "For daily use", true, ["Unlimited posts", "Unlimited agents", "Email support"])}${demoCard("Team", "$40", "For groups", false, ["Unlimited posts", "Unlimited agents", "SSO + priority support"])}</div>`;
+
+  const demoQuiet = `${DEMO_CSS}<div class="grid">${[
+    ["Starter", "$0", "Try it"],
+    ["Pro", "$12", "Daily use"],
+    ["Team", "$40", "Groups"],
+  ]
+    .map(
+      ([n, p, sub]) =>
+        `<div class="tier"><h4 style="font-weight:500">${n}</h4><div class="price" style="font-weight:500">${p}</div><p class="sub">${sub}</p><a href="#" style="color:inherit;font-size:12px">Choose &rarr;</a></div>`,
+    )
+    .join("")}</div>`;
+
+  const demoStacked = (toggle: boolean) =>
+    `${DEMO_CSS}${toggle ? demoToggle : ""}${[
+      ["Starter", "$0", "Try it, 5 agents"],
+      ["Pro", "$12", "Daily use, unlimited agents"],
+      ["Team", "$40", "SSO, priority support"],
+    ]
+      .map(
+        ([n, p, sub]) =>
+          `<div class="row"><div style="flex:1"><b>${n}</b><span class="sub">${sub}</span></div><div style="font-size:18px;font-weight:600">${p}</div><button class="btn${n === "Pro" ? " primary" : ""}">Choose</button></div>`,
+      )
+      .join("")}`;
+
+  const demoHero = (long: boolean) =>
+    `${DEMO_CSS}<div style="max-width:560px"><div class="eyebrow">New &middot; Teams</div><h1 style="font-size:30px;line-height:1.15;margin:0 0 12px">Ship the design, not the handoff.</h1><p class="sub" style="font-size:14px">Agents publish what they built. You react from your phone.${
+      long
+        ? " Every post keeps its history, every comment reaches the agent, and nothing gets lost between the chat and the code, ever."
+        : " Nothing gets lost between the chat and the code."
+    }</p><div style="display:flex;gap:8px"><button class="btn primary">Start free</button><button class="btn">See pricing</button></div></div>`;
+
+  const demoFaq = `${DEMO_CSS}<div>${[
+    [
+      "Can I cancel any time?",
+      "Yes. Cancelling stops the next charge; the workspace stays readable.",
+    ],
+    ["Does Team include SSO?", "SAML SSO is included on Team."],
+    ["What counts as a seat?", "Anyone who can comment. Agents are free."],
+  ]
+    .map(
+      ([q, a], i) =>
+        `<details ${i ? "" : "open"}><summary>${q}</summary><p class="sub" style="margin:6px 0 0">${a}</p></details>`,
+    )
+    .join("")}</div>`;
+
+  const demoCta = (solid: boolean) =>
+    `${DEMO_CSS}<div style="display:flex;gap:10px;align-items:center"><button class="btn${solid ? " primary" : ""}">Start free</button><span class="sub">${solid ? "solid" : "ghost"} — 14px/8px, 8px radius</span></div>`;
+
+  const demoPage = `${DEMO_CSS}<main style="display:flex;flex-direction:column;gap:32px">
+    <sideshow-slot slug="hero" variant="default"></sideshow-slot>
+    <sideshow-slot slug="pricing-card" variant="highlighted"></sideshow-slot>
+    <sideshow-slot slug="faq" variant="default"></sideshow-slot>
+  </main>`;
+
+  app.post("/api/demo/reshape", async (c) => {
+    const existing = await store.listItems(DEMO_PROJECT);
+    if (existing.length > 0) {
+      return c.json({ project: DEMO_PROJECT, items: existing, alreadySent: true });
+    }
+    // Two more projects: one with a single item, one a connected session that
+    // has published nothing yet (the "waiting for the first publish" state).
+    const appSession = await store.createSession({
+      agent: "designer",
+      title: "Designer — acme/app",
+      cwd: "/Users/demo/code/app",
+      project: "acme/app",
+    });
+    const appResult = await publishPostFlow({
+      session: appSession.id,
+      project: "acme/app",
+      surfaces: [htmlSurface(demoHero(false))],
+      title: "App hero",
+      slug: "app-hero",
+      author: "designer",
+      prompt: "initial",
+    });
+    if ("error" in appResult) throw new Error(appResult.error);
+    await store.createSession({
+      agent: "designer",
+      title: "Designer — loom",
+      cwd: "/Users/demo/code/loom",
+      project: "loom",
+    });
+
+    const session = await store.createSession({
+      agent: "designer",
+      title: "Designer — acme/site",
+      cwd: "/Users/demo/code/site",
+      project: DEMO_PROJECT,
+    });
+    bus.broadcast({ type: "session-created", id: session.id });
+
+    const publish = async (input: {
+      slug: string;
+      title: string;
+      variant?: string;
+      kind?: ItemKind;
+      html: string;
+      prompt?: string;
+      from?: number;
+    }) => {
+      const result = await publishPostFlow({
+        session: session.id,
+        project: DEMO_PROJECT,
+        surfaces: [htmlSurface(input.html)],
+        title: input.title,
+        slug: input.slug,
+        variant: input.variant,
+        kind: input.kind,
+        prompt: input.prompt,
+        from: input.from,
+        author: "designer",
+      });
+      if ("error" in result) throw new Error(result.error);
+      return result.post;
+    };
+
+    await publish({
+      slug: "pricing-card",
+      title: "Pricing card",
+      variant: "quiet",
+      html: demoQuiet,
+      prompt: "initial exploration",
+    });
+    await publish({
+      slug: "pricing-card",
+      title: "Pricing card",
+      variant: "stacked",
+      html: demoStacked(false),
+      prompt: "initial exploration",
+    });
+    // The highlighted variant carries the real history: v2 added the toggle,
+    // v3 branched back from v1 keeping it.
+    await publish({
+      slug: "pricing-card",
+      title: "Pricing card",
+      variant: "highlighted",
+      html: demoGrid(false),
+      prompt: "initial exploration",
+    });
+    await publish({
+      slug: "pricing-card",
+      title: "Pricing card",
+      variant: "highlighted",
+      html: demoStacked(true),
+      prompt: "you: add an annual toggle",
+      from: 1,
+    });
+    const pricing = await publish({
+      slug: "pricing-card",
+      title: "Pricing card",
+      variant: "highlighted",
+      html: demoGrid(true),
+      prompt: "you: prefer the highlighted middle from v1, keep the toggle",
+      from: 1,
+    });
+
+    await publish({ slug: "hero", title: "Hero", html: demoHero(true), prompt: "initial" });
+    await publish({
+      slug: "hero",
+      title: "Hero",
+      html: demoHero(false),
+      prompt: "you: too much copy",
+      from: 1,
+    });
+    await publish({ slug: "faq", title: "FAQ accordion", html: demoFaq, prompt: "initial" });
+    const page = await publish({
+      slug: "pricing-page",
+      title: "Pricing page",
+      kind: "page",
+      html: demoPage,
+      prompt: "composed from the picked components",
+    });
+
+    // A decided item: one accepted variant, one archived sibling — so the tabs,
+    // the ✓ and the "archived (n)" line all have something to render.
+    const solid = await publish({
+      slug: "cta-button",
+      title: "CTA button",
+      variant: "solid",
+      html: demoCta(true),
+      prompt: "initial",
+    });
+    const ghost = await publish({
+      slug: "cta-button",
+      title: "CTA button",
+      variant: "ghost",
+      html: demoCta(false),
+      prompt: "initial",
+    });
+    await store.setPostStatus(solid.id, "accepted");
+    await store.setPostStatus(ghost.id, "archived");
+
+    // A comment the agent already picked up, so the thread shows `seen`.
+    const delivered = await store.createComment({
+      sessionId: session.id,
+      postId: pricing.id,
+      author: "user",
+      text: "Prefer the highlighted middle from v1, keep the annual toggle.",
+      kind: "comment",
+      postVersion: pricing.version,
+      viewport: 1280,
+    });
+    if (delivered) await store.markAgentSeen(session.id, delivered.seq);
+
+    // One unsent draft with a marker, so the overlay and the "not sent yet"
+    // state have something to show.
+    const draft = await store.createComment({
+      sessionId: session.id,
+      postId: pricing.id,
+      author: "user",
+      text: "Make @1 wider — the middle tier gets cramped at 820.",
+      kind: "comment",
+      draft: true,
+      postVersion: pricing.version,
+      viewport: 820,
+      anchors: [
+        {
+          ref: "@1",
+          shape: "rect",
+          box: [0.34, 0.12, 0.32, 0.7],
+          surfaceIndex: 0,
+          postVersion: pricing.version,
+          path: "div.grid > div.tier.hi",
+          text: "Pro",
+          viewport: 820,
+        },
+      ],
+    });
+    // ...and an ask, so the item shows as waiting on the operator.
+    const askText = "Branched v3 from v1 with the toggle. Accept or revise?";
+    await store.setPostAsk(pricing.id, { text: askText, at: new Date().toISOString() });
+    await createComment({ text: askText, surface: pricing.id, kind: "ask" });
+    bus.broadcast({
+      type: "post-updated",
+      id: pricing.id,
+      sessionId: session.id,
+      version: pricing.version,
+    });
+
+    return c.json(
+      {
+        project: DEMO_PROJECT,
+        sessionId: session.id,
+        items: await store.listItems(DEMO_PROJECT),
+        pageId: page.id,
+        pricingId: pricing.id,
+        draftId: draft?.id ?? null,
+      },
+      201,
+    );
+  });
+
+  // --- projects, items, variants ---
+  //
+  // Navigation is project > item > variant > version. These are reads over the
+  // same posts the legacy session routes serve; nothing here changes the old
+  // shapes.
+
+  app.get("/api/projects", async (c) => c.json(await store.listProjects()));
+
+  app.get("/api/projects/:name/items", async (c) =>
+    c.json(await store.listItems(c.req.param("name"))),
+  );
+
+  app.get("/api/projects/:name/items/:slug", async (c) => {
+    const item = await store.getItem(c.req.param("name"), c.req.param("slug"));
+    if (!item) return c.json({ error: "item not found" }, 404);
+    return c.json(item);
+  });
+
+  // The project's design system, imported by `sideshow init` and injected into
+  // every html surface of the project (see renderHtmlPage).
+  app.get("/api/projects/:name/design", async (c) => c.json(await designFor(c.req.param("name"))));
+
+  app.put("/api/projects/:name/design", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body !== "object") return c.json({ error: "invalid JSON body" }, 400);
+    const kit = body.kit === "tailwind" || body.kit === "builtin" ? body.kit : "none";
+    const design: DesignSettings = {
+      detected:
+        body.detected && typeof body.detected === "object"
+          ? {
+              tailwind: body.detected.tailwind === true,
+              shadcn: body.detected.shadcn === true,
+              cssVars: Number(body.detected.cssVars) || 0,
+              fonts: Array.isArray(body.detected.fonts)
+                ? body.detected.fonts.filter((f: unknown) => typeof f === "string").slice(0, 20)
+                : [],
+            }
+          : null,
+      palette:
+        body.palette && typeof body.palette === "object" && body.palette.light && body.palette.dark
+          ? body.palette
+          : null,
+      kit,
+      cssVars: typeof body.cssVars === "string" ? body.cssVars.slice(0, 64_000) : "",
+      iconsAssetId: typeof body.iconsAssetId === "string" ? body.iconsAssetId : null,
+      updatedAt: new Date().toISOString(),
+    };
+    await store.setSetting(`design:${c.req.param("name")}`, JSON.stringify(design));
+    // Every rendered surface bakes the design into its document string, so a
+    // design change invalidates them all.
+    clearRenderCache();
+    bus.broadcast({
+      type: "theme-changed",
+      id: (await store.getSetting("theme")) ?? DEFAULT_THEME_ID,
+    });
+    return c.json(design);
+  });
+
+  // The accepted html an implementing agent compares its own work against.
+  app.get("/api/projects/:name/items/:slug/export", async (c) => {
+    const item = await store.getItem(c.req.param("name"), c.req.param("slug"));
+    if (!item) return c.json({ error: "item not found" }, 404);
+    const wanted = c.req.query("variant");
+    const variant =
+      (wanted && item.variants.find((v) => v.variant === wanted)) ||
+      item.variants.find((v) => v.status === "accepted") ||
+      item.variants[0];
+    if (!variant) return c.json({ error: "variant not found" }, 404);
+    const html = variant.surfaces.find((s) => s.kind === "html");
+    const origin = new URL(c.req.url).origin;
+    const base = `${origin}${requestBasePath(c.req.raw)}`;
+    return c.json({
+      project: item.project,
+      slug: item.slug,
+      variant: variant.variant,
+      version: variant.version,
+      status: variant.status,
+      html: html && html.kind === "html" ? html.html : "",
+      prompts: variant.history.map((h) => ({
+        version: h.version,
+        at: h.at,
+        from: h.from ?? null,
+        prompt: h.prompt ?? "",
+      })),
+      screenshotUrl: screenshots ? `${base}/p/${variant.postId}.png?v=${variant.version}` : null,
+    });
+  });
+
+  // --- ask / decisions ---
+
+  // The agent blocks on the operator: marks the variant waiting and files an
+  // agent-authored `ask` comment so the request shows in the card's thread.
+  app.post("/api/posts/:id/ask", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const text = typeof body?.text === "string" ? body.text.trim() : "";
+    if (!text) return c.json({ error: 'body must include non-empty "text" string' }, 400);
+    const post = await store.getPost(c.req.param("id"));
+    if (!post) return c.json({ error: "post not found" }, 404);
+    const ask = { text: text.slice(0, MAX_COMMENT_TEXT), at: new Date().toISOString() };
+    const updated = await store.setPostAsk(post.id, ask);
+    if (!updated) return c.json({ error: "post not found" }, 404);
+    await createComment({ text: ask.text, surface: post.id, kind: "ask" });
+    bus.broadcast({
+      type: "post-updated",
+      id: updated.id,
+      sessionId: updated.sessionId,
+      version: updated.version,
+    });
+    fireNotify({
+      event: "ask",
+      project: updated.project,
+      slug: updated.slug,
+      variant: updated.variant,
+      version: updated.version,
+      text: ask.text,
+      url: postUrl(c.req.raw, updated),
+    });
+    return c.json({ ...postWriteView(updated), ...itemFields(updated) });
+  });
+
+  // Accept / revise / drop. Each is a comment with a kind, so delivery rides
+  // the one cursor unchanged — the agent hears the verdict through the same
+  // channel as any other feedback.
+  app.post("/api/posts/:id/decision", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const kind = body?.kind;
+    if (kind !== "accept" && kind !== "revise" && kind !== "drop") {
+      return c.json({ error: 'kind must be "accept", "revise" or "drop"' }, 400);
+    }
+    const post = await store.getPost(c.req.param("id"));
+    if (!post) return c.json({ error: "post not found" }, 404);
+    const text = typeof body.text === "string" ? body.text.trim().slice(0, MAX_COMMENT_TEXT) : "";
+    if (kind === "accept") {
+      await store.setPostStatus(post.id, "accepted");
+      const item = await store.getItem(post.project, post.slug);
+      for (const sibling of item?.variants ?? []) {
+        if (sibling.postId !== post.id) await store.setPostStatus(sibling.postId, "archived");
+      }
+    } else if (kind === "drop") {
+      await store.setPostStatus(post.id, "archived");
+    }
+    // EVERY decision releases the operator's accumulated drafts, not just
+    // Revise. Notes written before an Accept or a Drop are still feedback the
+    // agent must hear (why this variant won, what to fix next time) — leaving
+    // them as drafts silently loses them, since nothing else ever releases a
+    // draft on a decided variant. They get fresh seqs, so the one cursor
+    // delivers them exactly once alongside the decision.
+    const released: Comment[] = await store.releaseDrafts(post.id);
+    await store.setPostAsk(post.id, null);
+    const decision = await store.createComment({
+      sessionId: post.sessionId,
+      postId: post.id,
+      author: "user",
+      text,
+      kind,
+      draft: false,
+      postVersion: post.version,
+    });
+    for (const comment of [...released, ...(decision ? [decision] : [])]) {
+      bus.broadcast({
+        type: "comment-created",
+        id: comment.id,
+        sessionId: comment.sessionId,
+        surfaceId: comment.postId,
+        seq: comment.seq,
+      });
+    }
+    const updated = (await store.getPost(post.id)) ?? post;
+    bus.broadcast({
+      type: "post-updated",
+      id: updated.id,
+      sessionId: updated.sessionId,
+      version: updated.version,
+    });
+    fireNotify({
+      event: "decision",
+      project: updated.project,
+      slug: updated.slug,
+      variant: updated.variant,
+      version: updated.version,
+      text: text || kind,
+      url: postUrl(c.req.raw, updated),
+    });
+    return c.json({
+      ...postWriteView(updated),
+      ...itemFields(updated),
+      released: released.length,
+    });
+  });
+
+  // Un-archive a variant hidden behind the "archived (n)" line.
+  app.post("/api/posts/:id/restore", async (c) => {
+    const updated = await store.setPostStatus(c.req.param("id"), "open");
+    if (!updated) return c.json({ error: "post not found" }, 404);
+    bus.broadcast({
+      type: "post-updated",
+      id: updated.id,
+      sessionId: updated.sessionId,
+      version: updated.version,
+    });
+    return c.json({ ...postWriteView(updated), ...itemFields(updated) });
+  });
+
+  // The operator's unsent notes on a variant (viewer read only).
+  app.get("/api/posts/:id/drafts", async (c) =>
+    c.json(await withSeen(await store.listDrafts(c.req.param("id")))),
+  );
+
+  // --- push and webhooks ---
+
+  app.get("/api/push/vapid", async (c) =>
+    c.json({ publicKey: (await vapidKeys(store)).publicKey }),
+  );
+
+  app.post("/api/push/subscribe", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const subscription = body?.subscription ?? body;
+    if (!isPushSubscription(subscription)) {
+      return c.json({ error: "invalid push subscription" }, 400);
+    }
+    await addSubscription(store, subscription);
+    return c.body(null, 204);
+  });
+
+  app.get("/api/hooks", async (c) => c.json(await listHooks(store)));
+
+  app.post("/api/hooks", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const url = typeof body?.url === "string" ? body.url : "";
+    if (!/^https?:\/\//.test(url))
+      return c.json({ error: 'body must include an http(s) "url"' }, 400);
+    const events = (Array.isArray(body.events) ? body.events : []).filter(
+      (e: unknown): e is HookEvent => e === "ask" || e === "publish" || e === "decision",
+    );
+    if (events.length === 0) {
+      return c.json({ error: '"events" must list "ask", "publish" and/or "decision"' }, 400);
+    }
+    const hook: Hook = { id: newId(), url, events };
+    await addHook(store, hook);
+    return c.json({ id: hook.id }, 201);
+  });
+
+  app.delete("/api/hooks/:id", async (c) => {
+    if (!(await removeHook(store, c.req.param("id")))) {
+      return c.json({ error: "hook not found" }, 404);
+    }
+    return c.json({ ok: true });
   });
 
   // --- rendering ---
@@ -1565,14 +2583,164 @@ export function createApp({
   // server-side; mermaid as a self-rendering CDN doc). Image/trace/json surfaces
   // are data the viewer renders natively (text nodes / <img> / JSX), so they
   // never reach here.
+  // Everything a rendered document depends on. The resolved version makes a
+  // version's content immutable, and `origin` is in the key because it is baked
+  // into the document (CSP, <base>, asset URLs) — a pre-warm triggered by an
+  // agent publishing over one origin must never be served to a viewer on another.
+  const renderKey = (o: {
+    postId: string;
+    idx: number;
+    version: number;
+    themeId: string;
+    mode?: Mode;
+    origin: string;
+  }) => `${o.postId}:${o.idx}:${o.version}:${o.themeId}:${o.mode ?? "os"}:${o.origin}`;
+
+  // The document itself. Shared by the GET below and the publish-time pre-warm,
+  // so both produce byte-identical output for one key.
+  async function buildSurfaceDoc(args: {
+    post: Post;
+    surface: Surface;
+    title: string;
+    themeId: string;
+    mode?: Mode;
+    origin: string;
+    design: DesignSettings | null;
+  }): Promise<string> {
+    const { surface, themeId, mode, origin } = args;
+    const theme = themeById(themeId);
+    if (surface.kind === "html") {
+      return renderHtmlPage({
+        title: args.title,
+        // A page item composes published components by reference; the tags
+        // are expanded here, server-side, so the whole page is still ONE
+        // sandboxed document rather than nested frames.
+        html:
+          args.post.kind === "page" ? await expandPageHtml(args.post, surface.html) : surface.html,
+        origin,
+        theme,
+        mode,
+        kits: surface.kits,
+        design: args.design,
+      });
+    }
+    if (surface.kind === "mermaid") {
+      return renderMermaidPage({ mermaid: surface.mermaid, origin, theme, mode });
+    }
+    // Load the rich renderers on first use, not at module load. richRender.ts
+    // pulls in shiki, @pierre/diffs, markdown-it and ansi_up — measured at ~48 MB
+    // of RSS and ~240 ms of import time (`npm run bench:all`, process suite), which
+    // every server paid at boot whether or not it ever rendered a rich surface.
+    // Deferring it past the html and mermaid branches above means an html-only
+    // workspace never loads any of it.
+    //
+    // The runtime's module cache makes every later call cheap, so there's no memo
+    // here to keep in sync. On the Worker the module is already inside the
+    // deployed bundle — the import defers evaluating it, not fetching it — so this
+    // needs no network at runtime. test/workerIntegration covers that on real
+    // workerd, because a dynamic import resolving differently there is exactly the
+    // way this optimization could break in production and nowhere else.
+    const { renderCode, renderDiff, renderMarkdown, renderTerminal } =
+      await import("./richRender.ts");
+    const rendered =
+      surface.kind === "markdown"
+        ? await renderMarkdown(surface as MarkdownSurface, { theme: themeId, mode })
+        : surface.kind === "code"
+          ? await renderCode(surface as CodeSurface, { theme: themeId, mode })
+          : surface.kind === "terminal"
+            ? renderTerminal(surface as TerminalSurface)
+            : await renderDiff(surface as DiffSurface, { theme: themeId, mode }).catch((e) => ({
+                body: `<div class="rich-error">Couldn’t render diff — ${escapeHtml(
+                  e instanceof Error ? e.message : "render error",
+                )}</div>`,
+                css: `.rich-error{color:var(--danger);font:13px/1.5 ui-monospace,monospace;padding:8px 12px;}`,
+              }));
+    return renderSandboxedPart({ body: rendered.body, css: rendered.css, origin, theme, mode });
+  }
+
+  // Render the current version of a post into the cache, off the write path.
+  // The first thing the viewer does after a publish is load an iframe per
+  // surface; warming both schemes of the workspace theme turns that cold render
+  // (up to a second for a large code surface) into a cache hit. Detached on
+  // purpose: a render failure must never fail — or delay — the write. (The DO
+  // stays alive for the duration; there is no ExecutionContext to hand this to.)
+  const PREWARM_SURFACE_LIMIT = 4;
+  function warmPost(post: Post): void {
+    const origin = lastOrigin;
+    if (!origin) return;
+    void (async () => {
+      const themeId = (await store.getSetting("theme")) ?? DEFAULT_THEME_ID;
+      const design = await designFor(post.project);
+      let warmed = 0;
+      for (const [idx, surface] of post.surfaces.entries()) {
+        if (warmed >= PREWARM_SURFACE_LIMIT) break;
+        if (!isSandboxedSurfaceKind(surface.kind)) continue;
+        warmed++;
+        for (const mode of ["light", "dark"] as const) {
+          const key = renderKey({
+            postId: post.id,
+            idx,
+            version: post.version,
+            themeId,
+            mode,
+            origin,
+          });
+          if (renderCache.has(key)) continue;
+          await cachedRender(key, () =>
+            buildSurfaceDoc({
+              post,
+              surface,
+              title: post.title,
+              themeId,
+              mode,
+              origin,
+              design,
+            }),
+          );
+        }
+      }
+    })().catch((err) => console.warn("[sideshow] render pre-warm failed", err));
+  }
+
   const renderPostPage = async (c: any) => {
-    const post = await store.getPost(c.req.param("id"));
-    if (!post) return c.text("Post not found", 404);
     // `part` is the legacy query key; `surface` is canonical.
     const surfaceParam = c.req.query("surface") ?? c.req.query("part");
+    const ver = c.req.query("ver");
+    const themeQuery = c.req.query("theme");
+    const modeParam = c.req.query("mode");
+    const mode: Mode | undefined =
+      modeParam === "light" || modeParam === "dark" ? modeParam : undefined;
+    const origin = new URL(c.req.url).origin;
+
+    // Cache-first. A hit needs nothing from the post row, and the row is the
+    // expensive part of this route (surfaces + every retained version). Only a
+    // version-pinned request can take this path: without `ver` the current
+    // version — and so the key — is unknown until the row is read.
+    const pinned = Number(ver);
+    if (surfaceParam != null && Number.isInteger(pinned) && pinned > 0) {
+      const themeId = themeQuery ?? (await store.getSetting("theme")) ?? DEFAULT_THEME_ID;
+      const hit = renderCacheHit(
+        renderKey({
+          postId: c.req.param("id"),
+          idx: Number(surfaceParam),
+          version: pinned,
+          themeId,
+          mode,
+          origin,
+        }),
+      );
+      if (hit !== undefined) {
+        // `ver` is non-null on this path by construction, so this is the same
+        // immutability test the render path below applies.
+        surfaceDocHeaders(c, themeQuery != null && ver != null);
+        return c.html(hit);
+      }
+    }
+
+    const post = await store.getPost(c.req.param("id"));
+    if (!post) return c.text("Post not found", 404);
     if (surfaceParam == null) return c.html(await configuredViewerHtml(c, { post }));
 
-    const ver = c.req.query("ver");
     let title = post.title;
     let surfaces = post.surfaces;
     let version = post.version;
@@ -1590,82 +2758,20 @@ export function createApp({
     if (!surface || !isSandboxedSurfaceKind(surface.kind)) {
       return c.text("No renderable surface at that index", 404);
     }
-    c.header("X-Content-Type-Options", "nosniff");
-    // Sandbox the document however it is loaded. The viewer embeds this in an
-    // iframe whose `sandbox="allow-scripts"` attribute gives it an opaque origin,
-    // but the document is served from the workspace's own origin — so a TOP-LEVEL
-    // load (a user opening /s/:id in a new tab, an agent-shared link) would
-    // otherwise run the agent's script in the workspace origin, where it could reach
-    // same-origin storage or window.open('/') the real viewer. A `sandbox` CSP
-    // can only be set as a response header (not the meta tag the page carries),
-    // and it forces the same opaque-origin sandbox on a direct navigation:
-    // allow-scripts so the bridge still runs, but no allow-same-origin, so agent
-    // code can never touch the workspace origin. Mirrors the iframe's sandbox flags.
-    c.header("Content-Security-Policy", "sandbox allow-scripts");
     // Theme: an explicit ?theme= (the viewer keys iframe srcs by it so a switch
     // reloads the frame) wins; otherwise the persisted workspace theme; else default.
-    const themeId = c.req.query("theme") ?? (await store.getSetting("theme")) ?? DEFAULT_THEME_ID;
-    const theme = themeById(themeId);
-    // Scheme: the viewer passes the light/dark mode it resolved so the iframe is
-    // pinned to it rather than re-deriving from the OS (which can diverge from
-    // the chrome across the frame boundary). Absent/invalid → follow the OS.
-    const modeParam = c.req.query("mode");
-    const mode = modeParam === "light" || modeParam === "dark" ? modeParam : undefined;
-    const origin = new URL(c.req.url).origin;
+    const themeId = themeQuery ?? (await store.getSetting("theme")) ?? DEFAULT_THEME_ID;
+    surfaceDocHeaders(c, themeQuery != null && ver != null);
 
-    // Cache the finished document. The key pins everything the output depends
-    // on; the resolved `version` makes it immutable, so a hit is always correct.
-    // Versioned + themed requests (what the viewer always sends) are immutable,
-    // so allow long-lived shared caching; an unpinned direct load is not.
-    const cacheKey = `${post.id}:${idx}:${version}:${themeId}:${mode ?? "os"}`;
-    const immutable = c.req.query("ver") != null && c.req.query("theme") != null;
-    if (immutable) c.header("Cache-Control", "public, max-age=31536000, immutable");
-    else c.header("Cache-Control", "private, no-cache");
-
-    const doc = await cachedRender(cacheKey, async () => {
-      if (surface.kind === "html") {
-        return renderHtmlPage({
-          title,
-          html: surface.html,
-          origin,
-          theme,
-          mode,
-          kits: surface.kits,
-        });
-      }
-      if (surface.kind === "mermaid") {
-        return renderMermaidPage({ mermaid: surface.mermaid, origin, theme, mode });
-      }
-      // Load the rich renderers on first use, not at module load. richRender.ts
-      // pulls in shiki, @pierre/diffs, markdown-it and ansi_up — measured at ~48 MB
-      // of RSS and ~240 ms of import time (`npm run bench:all`, process suite), which
-      // every server paid at boot whether or not it ever rendered a rich surface.
-      // Deferring it past the html and mermaid branches above means an html-only
-      // workspace never loads any of it.
-      //
-      // The runtime's module cache makes every later call cheap, so there's no memo
-      // here to keep in sync. On the Worker the module is already inside the
-      // deployed bundle — the import defers evaluating it, not fetching it — so this
-      // needs no network at runtime. test/workerIntegration covers that on real
-      // workerd, because a dynamic import resolving differently there is exactly the
-      // way this optimization could break in production and nowhere else.
-      const { renderCode, renderDiff, renderMarkdown, renderTerminal } =
-        await import("./richRender.ts");
-      const rendered =
-        surface.kind === "markdown"
-          ? await renderMarkdown(surface as MarkdownSurface, { theme: themeId, mode })
-          : surface.kind === "code"
-            ? await renderCode(surface as CodeSurface, { theme: themeId, mode })
-            : surface.kind === "terminal"
-              ? renderTerminal(surface as TerminalSurface)
-              : await renderDiff(surface as DiffSurface, { theme: themeId, mode }).catch((e) => ({
-                  body: `<div class="rich-error">Couldn’t render diff — ${escapeHtml(
-                    e instanceof Error ? e.message : "render error",
-                  )}</div>`,
-                  css: `.rich-error{color:var(--danger);font:13px/1.5 ui-monospace,monospace;padding:8px 12px;}`,
-                }));
-      return renderSandboxedPart({ body: rendered.body, css: rendered.css, origin, theme, mode });
-    });
+    // Cache the finished document under the same key the pre-warm uses; the
+    // resolved `version` makes it immutable, so a hit is always correct.
+    // A page's slots are pinned at publish, so they are a function of
+    // (id, version) too and need no separate key component.
+    const cacheKey = renderKey({ postId: post.id, idx, version, themeId, mode, origin });
+    const design = await designFor(post.project);
+    const doc = await cachedRender(cacheKey, async () =>
+      buildSurfaceDoc({ post, surface, title, themeId, mode, origin, design }),
+    );
     return c.html(doc);
   };
   app.get("/s/:id", renderPostPage); // legacy alias
@@ -1747,6 +2853,11 @@ export function createApp({
     c.header("Content-Type", contentType);
     c.header("Content-Disposition", disposition);
     c.header("X-Content-Type-Options", "nosniff");
+    // html surfaces render at an opaque origin, so the icon-sprite loader's
+    // fetch of /a/:id is cross-origin. It sends no credentials, and assets are
+    // already readable by anyone who can reach the workspace, so allowing the
+    // read adds no exposure — without it the sprite silently fails to load.
+    c.header("Access-Control-Allow-Origin", "*");
     // Short revalidating cache (not immutable) so touch-on-serve keeps firing
     // and the LRU clock reflects real views; asset ids are unique anyway.
     c.header("Cache-Control", "private, max-age=60");
@@ -1833,7 +2944,18 @@ export function createApp({
     createComment,
     waitForComments,
     uploadAsset,
-    guide: guideMarkdown,
+    // The same project-aware brief the CLI gets from /agent-howto?brief=1 —
+    // every feature works on every tier, and a remote MCP agent needs the
+    // project's real palette and kit as much as a shell one does.
+    guide: async (project: string) => {
+      try {
+        const { renderBriefGuide } = await import("./designGuide.ts");
+        return renderBriefGuide(await designFor(project));
+      } catch (err) {
+        console.warn("[sideshow] brief guide unavailable", err);
+        return guideMarkdown;
+      }
+    },
   });
 
   return app;

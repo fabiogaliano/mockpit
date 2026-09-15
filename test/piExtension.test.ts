@@ -257,6 +257,10 @@ test(
       [...harness.tools.keys()],
       [
         "sideshow_get_design_guide",
+        "sideshow_publish_item",
+        "sideshow_revise_item",
+        "sideshow_ask_user",
+        "sideshow_list_items",
         "sideshow_publish_surface",
         "sideshow_update_surface",
         "sideshow_wait_for_feedback",
@@ -346,7 +350,9 @@ test(
     );
     assert.match(text(updated), /version 2/);
     assert.match(text(updated), /User feedback delivered/);
-    assert.match(text(updated), /Contract card: Make the heading shorter/);
+    // Feedback now arrives as one batch per item, identified by slug/variant
+    // rather than by the post's title.
+    assert.match(text(updated), /contract-card\/default: Make the heading shorter/);
 
     const emptyWait = await invoke(
       harness,
@@ -367,7 +373,7 @@ test(
       { session: surface.sessionId, timeoutSeconds: 0 },
       ctx,
     );
-    assert.match(text(waited), /Received 1 sideshow comment/);
+    assert.match(text(waited), /Received 1 sideshow feedback batch/);
     assert.match(text(waited), /Looks good/);
     assert.equal(waited.details?.sessionId, surface.sessionId);
 
@@ -571,6 +577,79 @@ test(
       noSessionCtx,
     );
     assert.notEqual(forcedSession.details?.sessionId, surface.sessionId);
+
+    // The design loop: publish a variant, revise it, ask, list. The surface
+    // tools below are the back-compat half of the same extension.
+    const item = await invoke(
+      harness,
+      "sideshow_publish_item",
+      {
+        slug: "pricing-card",
+        project: "acme/site",
+        variant: "highlighted",
+        title: "Pricing card",
+        html: "<p>v1</p>",
+      },
+      ctx,
+    );
+    assert.match(text(item), /^pricing-card\/highlighted v1 · /);
+    assert.equal(item.details?.project, "acme/site");
+    assert.equal(item.details?.status, "open");
+
+    // an html file on disk instead of an inline string
+    writeFileSync(join(dir, "card.html"), "<p>v2</p>");
+    const revised = await invoke(
+      harness,
+      "sideshow_revise_item",
+      {
+        slug: "pricing-card",
+        project: "acme/site",
+        variant: "highlighted",
+        path: "card.html",
+        from: 1,
+        prompt: "tighter",
+      },
+      ctx,
+    );
+    assert.match(text(revised), /^pricing-card\/highlighted v2 · /);
+    assert.equal(revised.details?.version, 2);
+    await assert.rejects(
+      invoke(harness, "sideshow_publish_item", { slug: "no-body", project: "acme/site" }, ctx),
+      /Provide html or path/,
+    );
+
+    const asked = await invoke(
+      harness,
+      "sideshow_ask_user",
+      { slug: "pricing-card", project: "acme/site", variant: "highlighted", text: "pick one" },
+      ctx,
+    );
+    assert.equal(text(asked), "Asked on pricing-card/highlighted: pick one");
+
+    // a second variant makes the item ambiguous, so ask must be told which one
+    await invoke(
+      harness,
+      "sideshow_publish_item",
+      { slug: "pricing-card", project: "acme/site", variant: "quiet", html: "<p>quiet</p>" },
+      ctx,
+    );
+    await assert.rejects(
+      invoke(
+        harness,
+        "sideshow_ask_user",
+        { slug: "pricing-card", project: "acme/site", text: "?" },
+        ctx,
+      ),
+      /pricing-card has 2 variants; pass variant: /,
+    );
+
+    const listedItems = await invoke(harness, "sideshow_list_items", { project: "acme/site" }, ctx);
+    assert.match(text(listedItems), /pricing-card · component · /);
+    assert.match(text(listedItems), /highlighted\(v2\)/);
+    assert.equal(
+      text(await invoke(harness, "sideshow_list_items", { project: "empty/repo" }, ctx)),
+      "No items in empty/repo.",
+    );
 
     process.env.SIDESHOW_TOKEN = "wrong-token";
     await assert.rejects(

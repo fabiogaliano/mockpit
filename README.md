@@ -10,9 +10,11 @@
 **A live visual surface for your terminal coding agent.**
 
 Your agent works in a wall of text; Sideshow gives it a screen. It publishes
-**surfaces** — diagrams, UI sketches, rendered markdown, syntax-highlighted
-diffs, terminal output, images — and they render live in your browser while it
-works.
+**items** — UI components and pages, diagrams, rendered markdown,
+syntax-highlighted diffs, terminal output, images — and they render live in your
+browser while it works. You navigate **project › item › variant › version**: a
+project is a repo, an item is a component or a page addressed by a stable slug,
+variants are parallel takes shown as tabs, versions are its history.
 
 <table>
   <tr>
@@ -60,72 +62,83 @@ curl -s http://localhost:8228/setup >> AGENTS.md
 
 That bootstrap tells any agent with a shell (Pi, opencode, amp, codex, Claude
 Code) to fetch the current instructions from the running server, then publish
-surfaces and read your comments. Ask it to "sketch this on sideshow" and watch
-the card appear.
+items and read your comments. Ask it to "sketch this on sideshow" and watch it
+appear.
+
+The agent's loop is five verbs — `publish`, `ask`, `wait`, `revise`, `export` —
+plus a one-time `sideshow init` in each repo, which detects the repo's design
+system and stores its palette, kit and icons on the server so the agent's markup
+matches your codebase. Your side of the loop: comment on the render (drop
+markers on it with `@1`, `@2` refs), then **Revise**, **Accept**, or **Drop**.
+Comments stay drafts until you decide, and the whole batch reaches the agent in
+one wake-up. MCP twins — `publish_item`, `revise_item`, `ask_user`,
+`wait_for_feedback`, `list_items`, `get_item`, `export_item`,
+`get_design_guide` — carry the same fields, and raw HTTP mirrors both.
 
 The running viewer has the same handoff built in: its sidebar footer carries an
 **agent setup** link (the block above) and a polished **connect agent** screen, so
 you can grab the right MCP command without leaving the browser.
 
-No agent handy? `npx sideshow demo` seeds two example sessions to look around.
+No agent handy? `npx sideshow demo` seeds an example project to look around.
 
 **Going further:** richer integration tiers (CLI, MCP, the Pi extension, and the
 Claude Code skill + plugin) are in **[docs/connecting-agents.md](docs/connecting-agents.md)**.
 
 ## What your agent can show
 
-Every card below is real — published over the API and captured straight from the
-viewer. A surface is an ordered list of **parts**; one card can carry several.
+Every render below is real — published over the API and captured straight from
+the viewer. An item version is an ordered list of **surfaces**; one version can
+carry several.
 
 <table>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/surfaces/01-html.png" width="100%" alt="html part — an interactive UI you author">
+      <img src="docs/surfaces/01-html.png" width="100%" alt="html surface — an interactive UI you author">
       <p><b><code>html</code></b> — markup the agent authors, rendered sandboxed. Shapes and buttons can call <code>sendPrompt()</code> to post back to the thread.</p>
     </td>
     <td width="50%" valign="top">
-      <img src="docs/surfaces/02-markdown.png" width="100%" alt="markdown part — prose, tables and code, rendered">
+      <img src="docs/surfaces/02-markdown.png" width="100%" alt="markdown surface — prose, tables and code, rendered">
       <p><b><code>markdown</code></b> — prose, tables, and fenced code handed over as text, rendered in the viewer's own typography.</p>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/surfaces/03-diff.png" width="100%" alt="diff part — a patch rendered as code review">
+      <img src="docs/surfaces/03-diff.png" width="100%" alt="diff surface — a patch rendered as code review">
       <p><b><code>diff</code></b> — a patch rendered natively as a syntax-highlighted code review (unified or split).</p>
     </td>
     <td width="50%" valign="top">
-      <img src="docs/surfaces/04-terminal.png" width="100%" alt="terminal part — shell output with ANSI color">
+      <img src="docs/surfaces/04-terminal.png" width="100%" alt="terminal surface — shell output with ANSI color">
       <p><b><code>terminal</code></b> — monospace output with ANSI color, in a terminal-window frame.</p>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/surfaces/05-trace.png" width="100%" alt="trace part — an agent run as a step timeline">
+      <img src="docs/surfaces/05-trace.png" width="100%" alt="trace surface — an agent run as a step timeline">
       <p><b><code>trace</code></b> — an agent run as a step timeline, each step expandable to its detail.</p>
     </td>
     <td width="50%" valign="top">
-      <img src="docs/surfaces/06-image.png" width="100%" alt="image part — an uploaded, content-addressed asset">
+      <img src="docs/surfaces/06-image.png" width="100%" alt="image surface — an uploaded, content-addressed asset">
       <p><b><code>image</code></b> — an uploaded, content-addressed asset (screenshot, generated chart) rendered with a caption.</p>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/surfaces/07-mermaid.png" width="100%" alt="mermaid part — a flowchart rendered from a few lines of text">
+      <img src="docs/surfaces/07-mermaid.png" width="100%" alt="mermaid surface — a flowchart rendered from a few lines of text">
       <p><b><code>mermaid</code></b> — a few lines of diagram source, rendered to an SVG in the sideshow palette. Tag nodes with <code>:::accent</code> to highlight them.</p>
     </td>
     <td width="50%" valign="top">
-      <img src="docs/surfaces/08-json.png" width="100%" alt="json part — a JSON value rendered as a collapsible tree">
+      <img src="docs/surfaces/08-json.png" width="100%" alt="json surface — a JSON value rendered as a collapsible tree">
       <p><b><code>json</code></b> — a JSON value rendered natively as a collapsible tree; objects and arrays expand and collapse, primitives show inline.</p>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/surfaces/09-code.png" width="100%" alt="code part — source highlighted with line numbers">
+      <img src="docs/surfaces/09-code.png" width="100%" alt="code surface — source highlighted with line numbers">
       <p><b><code>code</code></b> — source highlighted with shiki and numbered; pass a starting line to show an excerpt at its original line numbers.</p>
     </td>
     <td width="50%" valign="top">
-      <img src="docs/surfaces/10-combined.png" width="100%" alt="markdown + diff — two parts composed in one card">
-      <p><b>Parts compose.</b> One card can carry several — here a <code>markdown</code> rationale stacked above its <code>diff</code>, so a single surface holds the why and the what.</p>
+      <img src="docs/surfaces/10-combined.png" width="100%" alt="markdown + diff — two surfaces composed in one item">
+      <p><b>Surfaces compose.</b> One item version can carry several — here a <code>markdown</code> rationale stacked above its <code>diff</code>, so a single render holds the why and the what.</p>
     </td>
   </tr>
 </table>
@@ -157,7 +170,7 @@ sideshow runs locally as a small Node server, or on Cloudflare Workers when your
 agent and your browser live on different machines (or you want the viewer on your
 phone). See **[docs/deploying.md](docs/deploying.md)**.
 
-Each card's footer carries a **share** menu for taking a post elsewhere: copy its
+Each render's footer carries a **share** menu for taking an item elsewhere: copy its
 link, copy the whole post as markdown (`/api/posts/:id/markdown` — prose stays
 prose, code/diffs/terminal output/JSON/mermaid become fenced blocks, and an html
 surface links back rather than pasting its markup), open it in a new tab, or open

@@ -117,6 +117,89 @@ export async function upload(
   return res.json() as Promise<{ id: string; sessionId: string; url: string; kind: string }>;
 }
 
+// A post published through the reshape contract: project › item › variant.
+// `publish`/`publishParts` above stay on the legacy routes (which the server
+// still resolves into an item), so both entry points keep coverage.
+export interface PublishedItem {
+  id: string;
+  sessionId: string;
+  version: number;
+  project: string;
+  slug: string;
+  variant: string;
+}
+
+export async function publishItem(
+  serverUrl: string,
+  body: {
+    surfaces?: unknown[];
+    html?: string;
+    title?: string;
+    project?: string;
+    slug?: string;
+    kind?: "component" | "page";
+    variant?: string;
+    prompt?: string;
+    from?: number;
+    slots?: unknown[];
+    agent?: string;
+    session?: string;
+  },
+  token?: string,
+): Promise<PublishedItem> {
+  const { html, ...rest } = body;
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (token) headers.authorization = `Bearer ${token}`;
+  const res = await fetch(`${serverUrl}/api/posts`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      ...rest,
+      surfaces: body.surfaces ?? [{ kind: "html", html: html ?? "<p>item</p>" }],
+    }),
+  });
+  if (!res.ok) throw new Error(`publishItem failed: ${res.status} ${await res.text()}`);
+  return res.json() as Promise<PublishedItem>;
+}
+
+// The three-project demo workspace (`POST /api/demo/reshape`, the same seed
+// `sideshow demo` writes) — for specs that need a populated navigation.
+export async function seedDemo(serverUrl: string): Promise<{
+  project: string;
+  sessionId: string;
+  pricingId: string;
+  pageId: string;
+  draftId: string | null;
+}> {
+  const res = await fetch(`${serverUrl}/api/demo/reshape`, { method: "POST" });
+  if (!res.ok) throw new Error(`demo seed failed: ${res.status}`);
+  return res.json() as Promise<{
+    project: string;
+    sessionId: string;
+    pricingId: string;
+    pageId: string;
+    draftId: string | null;
+  }>;
+}
+
+export const itemPath = (project: string, slug?: string) =>
+  slug
+    ? `/project/${encodeURIComponent(project)}/${encodeURIComponent(slug)}`
+    : `/project/${encodeURIComponent(project)}`;
+
+// The item screen is the post surface now; `.ss-item` is its root and
+// `.ss-stagewrap` holds the rendered variant. Scoping through this keeps specs
+// off the update-notes card, the way `.card:not(#whatsNew)` used to.
+export const itemScreen = (page: Page): Locator => page.locator(".ss-item");
+export const stage = (page: Page): Locator => page.locator(".ss-stagewrap");
+
+// The stage scales its frame to fit the pane (`transform: scale()`), so a
+// bounding box is the SCALED height. Layout height is what the resize bridge
+// actually set.
+export function frameHeight(frame: Locator): Promise<number> {
+  return frame.evaluate((el) => (el as HTMLElement).offsetHeight);
+}
+
 export async function publishParts(
   serverUrl: string,
   body: { title?: string; parts: unknown[]; agent?: string; session?: string },
@@ -159,6 +242,55 @@ export async function serveEmbedBundle(page: Page) {
     });
   });
 }
+
+// Mount the built embeddable engine on the sideshow server's own origin, so its
+// same-origin /api/* reads hit real data. `host` is the JS source of the host
+// object passed to mountViewer; `body` is the light DOM inside the mount element
+// (where an embedder projects `slot=` children). The engine attaches an OPEN
+// shadow root, so Playwright's CSS locators pierce it.
+export async function mountEmbed(
+  page: Page,
+  serverUrl: string,
+  opts: { host: string; body?: string; prelude?: string; path?: string },
+): Promise<void> {
+  const path = opts.path ?? "/__embedtest";
+  const html = `<!doctype html>
+<html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%}#m{position:fixed;inset:0}</style></head>
+<body><div id="m">${opts.body ?? ""}</div>
+${opts.prelude ?? ""}
+<script type="module">
+  import { mountViewer } from "/__embed/engine.js";
+  window.__viewerHandle = mountViewer(document.getElementById("m"), ${opts.host});
+</script></body></html>`;
+  page.on("pageerror", (e) => console.error("[pageerror]", e.message));
+  page.on("console", (m) => m.type() === "error" && console.error("[console]", m.text()));
+  await page.route(`**${path}`, (route) => route.fulfill({ contentType: "text/html", body: html }));
+  await serveEmbedBundle(page);
+  await page.goto(`${serverUrl}${path}`);
+}
+
+// The host source for a router pinned to one route — for specs about a route the
+// engine never leaves.
+export const fixedRouter = (route: Record<string, unknown>) =>
+  `{ get: () => (${JSON.stringify(route)}), navigate() {}, subscribe() { return () => {}; } }`;
+
+// A host router that actually owns a route in memory: the engine resolves a
+// session permalink onto the item screen by NAVIGATING, so any full-layout embed
+// starting from `/session/:id` needs its host to honour that. The route it last
+// received is readable as `window.__navigated`.
+export const navigatingRouter = (initial: Record<string, unknown>) =>
+  `{
+    get: () => window.__route ?? (${JSON.stringify(initial)}),
+    navigate(to) {
+      window.__route = to;
+      window.__navigated = to;
+      for (const cb of (window.__subs ??= [])) cb(to);
+    },
+    subscribe(cb) {
+      (window.__subs ??= []).push(cb);
+      return () => { window.__subs = (window.__subs ?? []).filter((x) => x !== cb); };
+    },
+  }`;
 
 export async function expectIframesNoHorizontalOverflow(page: Page, container: Locator) {
   const frameUrls = await container

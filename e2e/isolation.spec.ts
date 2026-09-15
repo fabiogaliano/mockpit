@@ -1,4 +1,4 @@
-import { expect, publish, publishParts, test } from "./fixtures.ts";
+import { expect, publish, publishParts, stage, test } from "./fixtures.ts";
 
 // The sandbox attribute (asserted across the part specs) is the *shape* of the
 // isolation; this spec asserts the *behavior* the project's core invariant
@@ -26,7 +26,7 @@ test("an html part's script is CSP-blocked from fetching the board API", async (
   await publish(server.url, { html: PROBE, title: "probe", agent: "e2e" });
 
   await page.goto(server.url);
-  const card = page.locator(".card:not(#whatsNew)").first();
+  const card = stage(page);
   const probe = card.frameLocator("iframe").locator("#r");
 
   // the fetch is refused before it leaves the frame -> the catch runs
@@ -54,7 +54,7 @@ test("an auto-fired send-prompt is labeled surface, never user", async ({ page, 
   });
 
   await page.goto(server.url);
-  await expect(page.locator(".card:not(#whatsNew) iframe")).toBeVisible();
+  await expect(stage(page).locator("iframe")).toBeVisible();
   await expect(page.locator("#toast")).toHaveClass(/show/, { timeout: 5_000 });
 
   expect(posted).toMatchObject({ surface: id, text: "injected by surface", author: "surface" });
@@ -73,7 +73,7 @@ test("a surface send is not delivered to the agent as user feedback", async ({
   });
 
   await page.goto(server.url);
-  await expect(page.locator(".card:not(#whatsNew) iframe")).toBeVisible();
+  await expect(stage(page).locator("iframe")).toBeVisible();
   await expect(page.locator("#toast")).toHaveClass(/show/, { timeout: 5_000 });
 
   // The surface comment exists on the thread (unfiltered read sees it)...
@@ -115,7 +115,7 @@ test("openLink ignores non-http(s) and malformed urls — no prompt, no open", a
   });
 
   await page.goto(server.url);
-  await expect(page.locator(".card:not(#whatsNew) iframe").first()).toBeVisible();
+  await expect(stage(page).locator("iframe").first()).toBeVisible();
   await page.waitForTimeout(500);
 
   // Each is rejected before the confirm, so no dialog is ever raised.
@@ -136,7 +136,7 @@ test("openLink still prompts for an http(s) url", async ({ page, server }) => {
   });
 
   await page.goto(server.url);
-  await expect(page.locator(".card:not(#whatsNew) iframe").first()).toBeVisible();
+  await expect(stage(page).locator("iframe").first()).toBeVisible();
   await page.waitForTimeout(500);
 
   expect(dialogMsg).toContain("https://example.com/");
@@ -199,14 +199,18 @@ test("a rich part served from /s/:id is opaque-origin with a tight, exfil-proof 
   const docText = await served.text();
   // The injected <script> was escaped, not emitted live...
   expect(docText).not.toContain("<script>parent.document");
-  // ...and the in-doc rich CSP has NO connect-src at all (no exfil channel) and
-  // its script-src is inline-only — no board origin, no CDN — unlike an html
+  // ...and the in-doc rich CSP has NO connect-src at all (no exfil channel).
+  // The resize bridge is no longer inlined — it loads from the content-hashed
+  // /asset/bridge.<hash>.js — so script-src names that one same-origin asset
+  // directory and nothing else: no CDN, no wildcard board origin, unlike an html
   // part. (img-src does include the board origin so inline /a/:id images load;
   // that's not a script/exfil vector.)
   const meta = docText.match(/Content-Security-Policy" content="([^"]+)"/)?.[1] ?? "";
   expect(meta).not.toContain("connect-src");
   const scriptSrc = meta.match(/script-src ([^;]+)/)?.[1] ?? "";
-  expect(scriptSrc).toBe("'unsafe-inline'");
+  expect(scriptSrc).toBe(`'unsafe-inline' ${server.url}/asset/`);
+  // The bridge really is an external, content-hashed asset now.
+  expect(docText).toMatch(/<script src="[^"]*\/asset\/bridge\.[a-z0-9]+\.js"><\/script>/);
 
   // Loaded top-level, the document is opaque-origin (window.origin === "null"),
   // so even a hypothetical escaped script couldn't read board cookies/storage.

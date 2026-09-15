@@ -1,4 +1,4 @@
-import { expect, publishParts, test } from "./fixtures.ts";
+import { expect, publishParts, stage, test } from "./fixtures.ts";
 
 test("a diff part renders a highlighted diff inside a sandbox iframe", async ({ page, server }) => {
   await publishParts(server.url, {
@@ -19,7 +19,8 @@ test("a diff part renders a highlighted diff inside a sandbox iframe", async ({ 
   });
 
   await page.goto(server.url);
-  const card = page.locator(".card:not(#whatsNew)").first();
+  // The rendered variant on the item screen — the only place a surface renders.
+  const card = stage(page);
 
   // the diff renders in an opaque-origin sandbox iframe (no allow-same-origin),
   // so a @pierre/diffs DOM-building regression can't reach the board

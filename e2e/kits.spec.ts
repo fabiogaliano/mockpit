@@ -1,4 +1,4 @@
-import { expect, publishParts, test } from "./fixtures.ts";
+import { expect, publishParts, stage, test } from "./fixtures.ts";
 
 // html-part iframe (the sandboxed /s/:id doc), as opposed to the comment frame.
 const PART_FRAME = 'iframe[src*="/s/"]';
@@ -21,7 +21,7 @@ test("the slides kit renders a stepped deck with injected controls", async ({ pa
   });
 
   await page.goto(server.url);
-  const card = page.locator(".card:not(#whatsNew)").first();
+  const card = stage(page);
   const frame = card.frameLocator(PART_FRAME);
 
   // the kit's js injected a control bar, and the counter reads the deck size
@@ -55,7 +55,7 @@ test("the issues kit styles plain markup as a rail tree", async ({ page, server 
   });
 
   await page.goto(server.url);
-  const card = page.locator(".card:not(#whatsNew)").first();
+  const card = stage(page);
   const frame = card.frameLocator(PART_FRAME);
 
   // the badge picks up the kit's tinted-pill background (not transparent)
@@ -79,7 +79,7 @@ test("a default html part (no kits) gets none of the kit styling", async ({ page
   });
 
   await page.goto(server.url);
-  const card = page.locator(".card:not(#whatsNew)").first();
+  const card = stage(page);
   const frame = card.frameLocator(PART_FRAME);
 
   // the class exists in the markup but no kit defined it → transparent background

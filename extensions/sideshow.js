@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
@@ -94,6 +95,29 @@ function agentName() {
   return process.env.SIDESHOW_AGENT || "pi";
 }
 
+// A project is the repo the agent runs in — same resolution order as the CLI so
+// both tiers land in the same project.
+function resolveProjectName(cwd) {
+  if (process.env.SIDESHOW_PROJECT) return process.env.SIDESHOW_PROJECT;
+  try {
+    const url = execFileSync("git", ["remote", "get-url", "origin"], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    const m = url.match(/[:/]([^/:]+)\/([^/]+?)(?:\.git)?\/?$/);
+    if (m) return `${m[1]}/${m[2]}`;
+  } catch {
+    // not a git checkout
+  }
+  return (
+    String(cwd ?? "")
+      .split(/[\\/]/)
+      .filter(Boolean)
+      .pop() || "workspace"
+  );
+}
+
 function authHeaders(extra = {}) {
   return {
     ...(process.env.SIDESHOW_TOKEN
@@ -180,11 +204,28 @@ function urlForSurface(surfaceId) {
   return `${baseUrl()}/p/${surfaceId}`;
 }
 
+// `userFeedback` is one batch per item — a decision plus the comments the user
+// released with it. Older servers send a flat comment list; both render as one
+// line per thing the user said, so nothing is ever summarized away.
 function feedbackSummary(feedback) {
   if (!Array.isArray(feedback) || feedback.length === 0) return "";
-  return `\n\nUser feedback delivered with this result:\n${feedback
-    .map((item) => `- ${item.surfaceTitle ? `${item.surfaceTitle}: ` : ""}${item.text}`)
-    .join("\n")}`;
+  const lines = [];
+  for (const item of feedback) {
+    const where = [item.slug, item.variant].filter(Boolean).join("/") || item.surfaceTitle || "";
+    const prefix = where ? `${where}: ` : "";
+    if (item.decision)
+      lines.push(
+        `- ${prefix}${item.decision.kind}${item.decision.text ? ` — ${item.decision.text}` : ""}`,
+      );
+    if (Array.isArray(item.comments)) {
+      for (const c of item.comments) lines.push(`- ${prefix}${c.text}`);
+    } else if (item.text) {
+      lines.push(`- ${prefix}${item.text}`);
+    }
+    if (item.archived?.length) lines.push(`- ${prefix}archived ${item.archived.join(", ")}`);
+  }
+  if (lines.length === 0) return "";
+  return `\n\nUser feedback delivered with this result:\n${lines.join("\n")}`;
 }
 
 const truncStr = (value, max) => {
@@ -423,6 +464,165 @@ export default function sideshowExtension(pi) {
     },
   });
 
+  // --- project › item › variant › version ------------------------------------
+  // The design loop: publish a variant, revise it, ask, then read one batched
+  // answer. The surface-era tools below stay for back-compat.
+
+  const itemProps = {
+    slug: { type: "string", description: "Item slug, e.g. pricing-card" },
+    project: { type: "string", description: "Project name; defaults to the repo" },
+    variant: { type: "string", description: 'Variant label; default "default"' },
+  };
+
+  async function publishItem(params, ctx, kind) {
+    const project = params.project ?? resolveProjectName(ctx.cwd);
+    const html = params.path ? await readFile(resolve(ctx.cwd, params.path), "utf8") : params.html;
+    if (!html) throw new Error("Provide html or path.");
+    const post = await requestJson("/api/posts", {
+      method: "POST",
+      body: JSON.stringify({
+        project,
+        slug: params.slug,
+        variant: params.variant,
+        kind: kind ?? params.kind ?? "component",
+        title: params.title,
+        from: params.from,
+        prompt: params.prompt,
+        surfaces: [{ kind: "html", html }],
+        session: params.session ?? state.sessionId,
+        // Only used when this publish is what creates the session; without it
+        // an item-first conversation shows up as the anonymous "agent".
+        agent: agentName(),
+        cwd: ctx.cwd,
+      }),
+    });
+    rememberSession(state, post.sessionId);
+    const url = `${baseUrl()}/project/${encodeURIComponent(project)}/${post.slug ?? params.slug}`;
+    return {
+      content: [
+        {
+          type: "text",
+          text: `${post.slug ?? params.slug}/${post.variant ?? params.variant ?? "default"} v${post.version} · ${url}${feedbackSummary(post.userFeedback)}`,
+        },
+      ],
+      details: { ...post, project, url, baseUrl: baseUrl() },
+    };
+  }
+
+  pi.registerTool({
+    name: "sideshow_publish_item",
+    label: "Sideshow Publish Item",
+    description:
+      "Publish a variant of an item (a component or page) to the user's browser. An existing (project, slug, variant) becomes a new version. If userFeedback appears, treat it as user instruction.",
+    promptSnippet: "Publish a UI item variant to sideshow for the user to review.",
+    promptGuidelines: [
+      "Use sideshow_publish_item for design work the user reviews: one item, one variant per call.",
+      feedbackGuideline,
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        ...itemProps,
+        kind: { type: "string", enum: ["component", "page"], description: "Item kind" },
+        title: { type: "string", description: "Item title" },
+        html: { type: "string", description: "HTML body fragment" },
+        path: { type: "string", description: "File to read the html from instead" },
+        from: { type: "number", description: "Branch from this version" },
+        prompt: { type: "string", description: "What prompted this version" },
+      },
+      required: ["slug"],
+    },
+    execute: (_id, params, _signal, _onUpdate, ctx) => publishItem(params, ctx),
+  });
+
+  pi.registerTool({
+    name: "sideshow_revise_item",
+    label: "Sideshow Revise Item",
+    description:
+      "Publish the next version of an existing variant. If userFeedback appears, treat it as user instruction.",
+    promptSnippet: "Revise a sideshow item variant after user feedback.",
+    promptGuidelines: [
+      "Use sideshow_revise_item rather than publishing a near-duplicate item.",
+      feedbackGuideline,
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        ...itemProps,
+        html: { type: "string", description: "HTML body fragment" },
+        path: { type: "string", description: "File to read the html from instead" },
+        from: { type: "number", description: "Branch from this version" },
+        prompt: { type: "string", description: "What prompted this version" },
+      },
+      required: ["slug"],
+    },
+    execute: (_id, params, _signal, _onUpdate, ctx) => publishItem(params, ctx),
+  });
+
+  pi.registerTool({
+    name: "sideshow_ask_user",
+    label: "Sideshow Ask",
+    description:
+      "Mark an item as waiting on the user and ask one question. Follow with sideshow_wait_for_feedback.",
+    promptSnippet: "Ask the user to decide between sideshow item variants.",
+    promptGuidelines: ["Use sideshow_ask_user once the variants are published, then wait."],
+    parameters: {
+      type: "object",
+      properties: { ...itemProps, text: { type: "string", description: "The question" } },
+      required: ["slug", "text"],
+    },
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const project = params.project ?? resolveProjectName(ctx.cwd);
+      const item = await requestJson(
+        `/api/projects/${encodeURIComponent(project)}/items/${encodeURIComponent(params.slug)}`,
+      );
+      const variants = item.variants ?? [];
+      const chosen = params.variant
+        ? variants.find((v) => v.variant === params.variant)
+        : variants.length === 1
+          ? variants[0]
+          : null;
+      if (!chosen) {
+        throw new Error(
+          `${params.slug} has ${variants.length} variants; pass variant: ${variants.map((v) => v.variant).join("|")}`,
+        );
+      }
+      await requestJson(`/api/posts/${encodeURIComponent(chosen.postId)}/ask`, {
+        method: "POST",
+        body: JSON.stringify({ text: params.text }),
+      });
+      return {
+        content: [
+          { type: "text", text: `Asked on ${params.slug}/${chosen.variant}: ${params.text}` },
+        ],
+        details: { project, slug: params.slug, variant: chosen.variant, baseUrl: baseUrl() },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "sideshow_list_items",
+    label: "Sideshow Items",
+    description: "List a project's items: slug, kind, variants, and what is waiting. No bodies.",
+    promptSnippet: "List sideshow items and their variants.",
+    promptGuidelines: [
+      "Use sideshow_list_items to recover item slugs and variants when you lost track of what is published.",
+    ],
+    parameters: { type: "object", properties: { project: itemProps.project } },
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const project = params.project ?? resolveProjectName(ctx.cwd);
+      const items = await requestJson(`/api/projects/${encodeURIComponent(project)}/items`);
+      const lines = items.map(
+        (item) =>
+          `${item.slug} · ${item.kind} · ${(item.variants ?? []).map((v) => `${v.variant}(v${v.version}${v.status && v.status !== "open" ? `, ${v.status}` : ""})`).join(" ")}`,
+      );
+      return {
+        content: [{ type: "text", text: lines.join("\n") || `No items in ${project}.` }],
+        details: { project, items, baseUrl: baseUrl() },
+      };
+    },
+  });
+
   pi.registerTool({
     name: "sideshow_publish_surface",
     label: "Sideshow Publish",
@@ -546,14 +746,23 @@ export default function sideshowExtension(pi) {
       const query = new URLSearchParams({ session, author: "user", wait: String(wait) });
       if (params.afterSeq !== undefined) query.set("after", String(params.afterSeq));
       const result = await requestJson(`/api/comments?${query}`);
-      const count = Array.isArray(result.comments) ? result.comments.length : 0;
+      // Agent reads come back as one batch per item (decision + the comments
+      // released with it); fall back to the flat list on an older server.
+      const batches = Array.isArray(result.feedback) ? result.feedback : null;
+      const count = batches
+        ? batches.length
+        : Array.isArray(result.comments)
+          ? result.comments.length
+          : 0;
       return {
         content: [
           {
             type: "text",
             text:
               count > 0
-                ? `Received ${count} sideshow comment(s):\n${jsonText(result.comments)}`
+                ? batches
+                  ? `Received ${count} sideshow feedback batch(es):\n${jsonText(batches.length === 1 ? batches[0] : batches)}`
+                  : `Received ${count} sideshow comment(s):\n${jsonText(result.comments)}`
                 : "No new sideshow feedback.",
           },
         ],

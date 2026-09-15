@@ -25,7 +25,9 @@ export interface Kit {
 
 // Layout + text helpers shared by every kit — injected ONCE whenever any kit is
 // requested, so kit-specific css below only declares its distinctive classes.
-const CORE_CSS = `
+// Exported so surfacePage.ts can publish it as its own content-hashed
+// stylesheet instead of inlining it into every surface document.
+export const CORE_CSS = `
 .stack{display:flex;flex-direction:column;gap:8px}.stack.sm{gap:4px}.stack.lg{gap:16px}
 .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.row.sm{gap:4px}
 .between{display:flex;align-items:center;justify-content:space-between;gap:12px}
@@ -111,7 +113,77 @@ const SLIDES_JS = `
 })();
 `;
 
+// builtin: the fallback component vocabulary `sideshow init` injects when a
+// project has no Tailwind/shadcn of its own. Class names mirror shadcn so an
+// agent that knows one writes the other without a lookup, but every rule is
+// CSS-only — no JS, no CDN — and every color comes from the `--color-*` tokens
+// the wrapper already emits, so it re-themes with the workspace and with an
+// imported project palette alike. Radius prefers the project's own `--radius`
+// (imported verbatim by init) and falls back to the sideshow token.
+//
+// It deliberately redeclares `.card`/`.badge` from the `issues` kit: surfaces
+// ask for one or the other, and renderHtmlPage appends builtin last so a
+// project's component look wins if both are somehow present.
+const BUILTIN_CSS = `
+:root{--r:var(--radius,var(--border-radius-md))}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;font:500 14px/1 var(--font-sans);padding:9px 16px;border-radius:var(--r);border:1px solid var(--color-border-secondary);background:var(--color-background-primary);color:var(--color-text-primary);cursor:pointer;text-decoration:none;white-space:nowrap}
+.btn:hover{background:var(--color-background-secondary)}
+.btn:focus-visible{outline:2px solid var(--color-border-info);outline-offset:2px}
+.btn[disabled],.btn.disabled{opacity:.5;pointer-events:none}
+.btn-primary{background:var(--color-text-info);border-color:var(--color-text-info);color:var(--color-background-primary)}
+.btn-primary:hover{opacity:.9;background:var(--color-text-info)}
+.btn-secondary{background:var(--color-background-secondary);border-color:transparent}
+.btn-ghost{background:none;border-color:transparent}
+.btn-ghost:hover{background:var(--color-background-secondary)}
+.btn-destructive{background:var(--color-text-danger);border-color:var(--color-text-danger);color:var(--color-background-primary)}
+.btn-sm{font-size:13px;padding:6px 11px}
+.btn-lg{font-size:15px;padding:12px 22px}
+.card{background:var(--color-background-primary);border:1px solid var(--color-border-secondary);border-radius:calc(var(--r) + 4px);padding:20px;display:flex;flex-direction:column;gap:12px}
+.card-header{display:flex;flex-direction:column;gap:4px}
+.card-title{font:500 16px/1.3 var(--font-sans);margin:0}
+.card-desc{font-size:13px;color:var(--color-text-secondary);margin:0}
+.card-content{display:flex;flex-direction:column;gap:10px}
+.card-footer{display:flex;align-items:center;gap:8px;padding-top:4px}
+.label{font:500 13px/1.3 var(--font-sans);color:var(--color-text-primary)}
+.input,.textarea,.select{width:100%;font:14px/1.4 var(--font-sans);color:var(--color-text-primary);background:var(--color-background-primary);border:1px solid var(--color-border-secondary);border-radius:var(--r);padding:8px 11px;outline:none}
+.input:focus,.textarea:focus,.select:focus{border-color:var(--color-border-info);box-shadow:0 0 0 1px var(--color-border-info)}
+.input::placeholder,.textarea::placeholder{color:var(--color-text-tertiary)}
+.textarea{min-height:76px;resize:vertical}
+.field{display:flex;flex-direction:column;gap:6px}
+.badge{display:inline-flex;align-items:center;gap:5px;font:500 12px/1.4 var(--font-sans);padding:2px 9px;border-radius:999px;background:var(--color-text-info);color:var(--color-background-primary);border:1px solid transparent}
+.badge-secondary{background:var(--color-background-secondary);color:var(--color-text-secondary)}
+.badge-outline{background:none;border-color:var(--color-border-secondary);color:var(--color-text-secondary)}
+.badge-destructive{background:var(--color-text-danger);color:var(--color-background-primary)}
+.tabs{display:flex;flex-direction:column;gap:14px}
+.tabs-list{display:inline-flex;gap:2px;padding:3px;border-radius:var(--r);background:var(--color-background-secondary);align-self:flex-start}
+.tab{font:500 13px/1 var(--font-sans);padding:7px 13px;border:0;border-radius:calc(var(--r) - 2px);background:none;color:var(--color-text-secondary);cursor:pointer}
+.tab:hover{color:var(--color-text-primary)}
+.tab.on,.tab[aria-selected=true]{background:var(--color-background-primary);color:var(--color-text-primary)}
+.tab-panel{display:none}.tab-panel.on{display:block}
+.dialog{position:relative;margin:0 auto;max-width:440px;background:var(--color-background-primary);border:1px solid var(--color-border-secondary);border-radius:calc(var(--r) + 4px);padding:22px;display:flex;flex-direction:column;gap:14px;box-shadow:none}
+.dialog-scrim{padding:26px;border-radius:calc(var(--r) + 6px);background:var(--color-background-tertiary)}
+.dialog-header{display:flex;flex-direction:column;gap:5px}
+.dialog-title{font:500 16px/1.3 var(--font-sans);margin:0}
+.dialog-desc{font-size:13px;color:var(--color-text-secondary);margin:0}
+.dialog-footer{display:flex;justify-content:flex-end;gap:8px}
+.table{width:100%;border-collapse:collapse;font-size:14px}
+.table th{text-align:left;font-weight:500;color:var(--color-text-secondary);padding:8px 12px;border-bottom:1px solid var(--color-border-secondary)}
+.table td{padding:9px 12px;border-bottom:1px solid var(--color-border-tertiary)}
+.table tbody tr:last-child td{border-bottom:0}
+.table tbody tr:hover{background:var(--color-background-secondary)}
+.table .num{text-align:right}
+.sep{height:1px;border:0;margin:0;background:var(--color-border-secondary)}
+.muted-fg{color:var(--color-text-secondary)}
+`;
+
 export const KITS: Kit[] = [
+  {
+    id: "builtin",
+    label: "Builtin",
+    summary: "shadcn-shaped components (CSS only) for projects with no design system",
+    classes: "btn · card · input · label · badge · tabs · dialog · table",
+    css: BUILTIN_CSS,
+  },
   {
     id: "issues",
     label: "Issues",

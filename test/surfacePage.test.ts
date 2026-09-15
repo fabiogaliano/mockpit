@@ -7,6 +7,8 @@ import {
   renderHtmlPage,
   renderMermaidPage,
   renderSandboxedPart,
+  STATIC_ASSET_PREFIX,
+  staticAsset,
 } from "../server/surfacePage.ts";
 import { themeById } from "../server/themes.ts";
 
@@ -96,12 +98,50 @@ test("the surface html is embedded verbatim — the sandbox, not escaping, is th
   assert.ok(page.includes(body), "trusted surface markup must pass through unaltered");
 });
 
-test("the host bridge globals and resize reporter are present in every page", () => {
+// The bridge is no longer inlined: every surface document loads it from one
+// content-hashed `/asset/bridge.<hash>.js`, so the bytes are fetched once per
+// workspace instead of once per surface, version, theme and mode.
+function assetPaths(doc: string, ext: "js" | "css"): string[] {
+  const out: string[] = [];
+  const re = new RegExp(`(?:src|href)="${ORIGIN}(${STATIC_ASSET_PREFIX}[^"]+\\.${ext})"`, "g");
+  for (const m of doc.matchAll(re)) out.push(m[1]);
+  return out;
+}
+
+test("the host bridge globals and resize reporter ship in the linked bridge asset", () => {
   const page = renderHtmlPage({ title: "t", html: "<p>x</p>", origin: ORIGIN });
+  const scripts = assetPaths(page, "js");
+  const bridgePath = scripts.find((p) => p.startsWith(`${STATIC_ASSET_PREFIX}bridge.`));
+  assert.ok(bridgePath, "page must link the bridge asset");
+  // content-hashed: a byte change moves the URL, so an immutable cache entry
+  // can never pair a stale bridge with a fresh document
+  assert.match(bridgePath!, /^\/asset\/bridge\.[a-z0-9]+\.js$/);
+  const asset = staticAsset(bridgePath!);
+  assert.ok(asset, "the linked path must resolve to a registered asset");
+  assert.equal(asset!.body, BRIDGE_JS);
   // a break here silently kills the publish->comment loop, so pin the contract
-  assert.ok(page.includes("window.sendPrompt"), "sendPrompt bridge missing");
-  assert.ok(page.includes("window.openLink"), "openLink bridge missing");
-  assert.ok(page.includes("type: 'resize'"), "resize reporter missing");
+  assert.ok(asset!.body.includes("window.sendPrompt"), "sendPrompt bridge missing");
+  assert.ok(asset!.body.includes("window.openLink"), "openLink bridge missing");
+  assert.ok(asset!.body.includes("type: 'resize'"), "resize reporter missing");
+  // the page itself carries none of those bytes any more
+  assert.ok(!page.includes("window.sendPrompt"), "bridge must not be inlined");
+});
+
+test("every asset URL a surface document references resolves to registered bytes", () => {
+  const page = renderHtmlPage({
+    title: "t",
+    html: "<p>x</p>",
+    origin: ORIGIN,
+    kits: ["slides"],
+  });
+  const paths = [...assetPaths(page, "js"), ...assetPaths(page, "css")];
+  assert.ok(paths.length >= 3, "bridge + base css + kit css are all external");
+  for (const path of paths) {
+    const asset = staticAsset(path);
+    assert.ok(asset, `unresolved asset reference: ${path}`);
+    assert.equal(asset!.path, path);
+    assert.ok(asset!.body.length > 0);
+  }
 });
 
 test("theme tokens are injected and resolve unknown/absent themes to the default", () => {
@@ -266,8 +306,11 @@ test("renderSandboxedPart embeds the body and css inside the sandbox doc", () =>
   // srcdoc's base URL is about:srcdoc, so relative URLs (e.g. a markdown image
   // at /a/:id) need an explicit base pinned to the origin to resolve.
   assert.ok(doc.includes(`<base href="${ORIGIN}/">`), "base href pins the origin");
-  // the resize/openLink bridge ships in the frame so it can self-size
-  assert.ok(doc.includes("postMessage"), "bridge is present");
+  // the resize/openLink bridge is linked (not inlined) so it can self-size
+  assert.ok(
+    /<script src="http:\/\/localhost:4000\/asset\/bridge\.[a-z0-9]+\.js"><\/script>/.test(doc),
+    "bridge is linked",
+  );
   // chrome theme vars are injected (viewerThemeCss) so the surface matches the viewer
   assert.ok(doc.includes("--bg:"), "theme vars are injected");
 });
@@ -275,8 +318,13 @@ test("renderSandboxedPart embeds the body and css inside the sandbox doc", () =>
 test("renderSandboxedPart uses a tighter CSP than html surfaces: no connect-src, no CDN", () => {
   const d = cspDirectives(renderSandboxedPart({ body: "x", css: "", origin: ORIGIN }));
   assert.deepEqual(d["default-src"], ["'none'"], "locked-down default");
-  // script-src is EXACTLY the inline bridge — no CDN sources leak in
-  assert.deepEqual(d["script-src"], ["'unsafe-inline'"], "only the inline bridge runs");
+  // script-src is EXACTLY inline + the one server-authored asset directory —
+  // no CDN sources leak in, and nothing agent- or user-written is reachable there
+  assert.deepEqual(
+    d["script-src"],
+    ["'unsafe-inline'", `${ORIGIN}${STATIC_ASSET_PREFIX}`],
+    "only the bridge asset runs",
+  );
   // a contained script must have no way to phone home
   assert.ok(!("connect-src" in d), "no connect-src");
   // uploaded images still embed by absolute origin URL
@@ -289,7 +337,11 @@ test("html surfaces keep their CDN allowlist (rich-surface tightening did not le
   // rich surfaces lock script-src to the inline bridge alone; html surfaces add the
   // CDN sources on top, so html's source list is strictly larger. (Asserting on
   // the count rather than a host literal keeps this off the URL-substring path.)
-  assert.deepEqual(rich["script-src"], ["'unsafe-inline'"], "rich = inline bridge only");
+  assert.deepEqual(
+    rich["script-src"],
+    ["'unsafe-inline'", `${ORIGIN}${STATIC_ASSET_PREFIX}`],
+    "rich = inline + the bridge asset directory only",
+  );
   assert.ok(
     html["script-src"].length > rich["script-src"].length,
     "html surfaces keep extra (CDN) script sources",
@@ -496,4 +548,58 @@ test("resize bridge late timers catch height growth after the 1500ms warm-up", (
   b.setHeight(640, 7500); // after both earlier late safety nets have fired
   b.runUntil(10000);
   assert.deepEqual(b.posted, [100, 260, 420, 640], "the 10000ms safety timer reports growth");
+});
+
+// A project's imported design system reaches the frame through the surface
+// document itself — this is the only place `sideshow init`'s output is applied,
+// so the ordering rule (the repo's tokens land after sideshow's) is load-bearing.
+test("a project's design injects its tokens, kit and icon sprite into the frame", () => {
+  const page = renderHtmlPage({
+    title: "t",
+    html: "<p>x</p>",
+    origin: ORIGIN,
+    design: {
+      detected: null,
+      palette: null,
+      kit: "tailwind",
+      // a bare declaration list, the other spelling init can store
+      cssVars: "--radius: 0.5rem; --brand: #0af;",
+      iconsAssetId: "asset1",
+      updatedAt: "2026-09-15T00:00:00.000Z",
+    },
+  });
+  assert.match(page, /<style>:root\{--radius: 0\.5rem; --brand: #0af;\}/, "wrapped in :root");
+  assert.match(page, /<script src="https:\/\/cdn\./, "the tailwind kit loads its CDN build");
+  assert.ok(page.includes("asset1"), "the sprite loader names the uploaded asset");
+  // the sprite is fetched, so this doc is the one html-surface CSP that needs
+  // connect-src back to the workspace origin
+  assert.ok(cspDirectives(page)["connect-src"].includes(`${ORIGIN}/a/`));
+
+  const builtin = renderHtmlPage({
+    title: "t",
+    html: "<p>x</p>",
+    origin: ORIGIN,
+    design: {
+      detected: null,
+      palette: null,
+      kit: "builtin",
+      cssVars: ":root{--radius:2px}",
+      iconsAssetId: null,
+      updatedAt: "2026-09-15T00:00:00.000Z",
+    },
+  });
+  assert.match(
+    builtin,
+    /<style>:root\{--radius:2px\}/,
+    "an already-wrapped block is not rewrapped",
+  );
+  assert.ok(!builtin.includes('<script src="https://cdn.'), "no CDN for the CSS-only kit");
+  // the builtin kit is a kit like any other, so it arrives as a linked asset
+  assert.match(builtin, /href="[^"]*\/asset\/kit-builtin\.[a-z0-9]+\.css"/);
+});
+
+test("a surface with no project design injects nothing at all", () => {
+  const page = renderHtmlPage({ title: "t", html: "<p>x</p>", origin: ORIGIN, design: null });
+  assert.ok(!page.includes("kit-builtin"));
+  assert.equal(cspDirectives(page)["connect-src"].includes(`${ORIGIN}/a/`), false);
 });

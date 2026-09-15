@@ -21,6 +21,20 @@ const handle = mountViewer(document.getElementById("mount"), {
 Omit the host to use the built-in History-API host (a drop-in for the
 self-hosted page).
 
+The engine's route is `project › item › variant › version`
+(`{ project, slug, variant, version }`); `{ sessionId, surfaceId }` still resolve
+for old permalinks. A host can also project into the engine's layout regions by
+putting a light-DOM child with a `slot=` attribute in the mount element — this
+demo projects a "Share" button into `ss:item-actions` (the item header).
+
+Host fields that moved with the reshape:
+
+| field                     | now                                                                                                             |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `layout: "stream"`        | deprecated; means "the item screen alone" (no sidebar, no items column), resolved from the route's session/post |
+| `homeView`                | the engine stays on the projects list instead of auto-opening the most recent project                           |
+| slot `ss:session-actions` | deprecated alias of `ss:item-actions`, projected into the item header                                           |
+
 ## Run the local demo
 
 The engine fetches `/api/*` (and `/s/*`, `/a/*`, SSE) relative to the page

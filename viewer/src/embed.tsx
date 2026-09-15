@@ -54,7 +54,13 @@ export function mountViewer(el: Element, host?: SideshowHost): ViewerHandle {
   // in theme.ts.) EMBED_BASE_CSS then re-homes the document-level layout that
   // <html>/<body> carried.
   const style = document.createElement("style");
-  style.textContent = stylesCss.replace(/:root\b/g, ":host") + EMBED_BASE_CSS;
+  // `:root` matches nothing in a shadow root, and a descendant selector can't
+  // cross the shadow boundary — so the mobile-drawer rule, which keys off a
+  // class the engine toggles on the SHADOW HOST, has to become `:host(...)`.
+  // (Self-hosted keeps `body.nav-open`, which this rewrite leaves alone.)
+  style.textContent =
+    stylesCss.replace(/:root\b/g, ":host").replace(/(^|[\s,])\.nav-open\b/g, "$1:host(.nav-open)") +
+    EMBED_BASE_CSS;
   shadow.appendChild(style);
 
   const mount = document.createElement("div");

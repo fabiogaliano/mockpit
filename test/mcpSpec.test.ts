@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { toJsonSchemaCompat } from "@modelcontextprotocol/sdk/server/zod-json-schema-compat.js";
 import { z } from "zod";
-import { HTTP_MCP_TOOLS, MCP_INSTRUCTIONS, STDIO_MCP_INPUT_SCHEMAS } from "../server/mcpSpec.ts";
+import {
+  HTTP_MCP_TOOLS,
+  MCP_INSTRUCTIONS,
+  STDIO_MCP_INPUT_SCHEMAS,
+  toFeedbackBatches,
+} from "../server/mcpSpec.ts";
 import { validateSurfaces } from "../server/postSurfaces.ts";
 import {
   isSandboxedSurfaceKind,
@@ -138,9 +143,14 @@ test("MCP instructions and tool schemas stay within their context budgets", () =
   );
 
   assert.ok(Buffer.byteLength(MCP_INSTRUCTIONS) <= 400, "MCP instructions exceeded 400 bytes");
+  // 16 KB, reviewed: the designer reshape added six item tools (publish_item,
+  // revise_item, ask_user, list_items, get_item, export_item) to the advertised
+  // catalog, and the retired spellings moved OUT of it (they are only listed
+  // under SIDESHOW_MCP_LEGACY=1), so what an agent actually pays for grew by
+  // one tool's worth. Anything past this is bloat, not scope.
   assert.ok(
-    Buffer.byteLength(JSON.stringify(HTTP_MCP_TOOLS)) <= 15_000,
-    "HTTP MCP tools exceeded 15 KB",
+    Buffer.byteLength(JSON.stringify(HTTP_MCP_TOOLS)) <= 16_000,
+    "HTTP MCP tools exceeded 16 KB",
   );
   assert.ok(
     Buffer.byteLength(JSON.stringify(stdioSchemas)) <= 12_500,
@@ -208,4 +218,41 @@ test("surface-kind metadata covers every kind and drives derived helpers", () =>
   assert.equal(SURFACE_CONTENT_FIELDS.json, "data");
   assert.equal(SURFACE_FRAME_CLASSES.markdown, "mdframe");
   assert.equal(SURFACE_FRAME_CLASSES.html, undefined);
+});
+
+// The stdio client re-groups a flat comment list only when talking to a server
+// old enough not to send the batch itself; keep that fallback honest.
+test("toFeedbackBatches groups a flat comment list per post", () => {
+  const batches = toFeedbackBatches([
+    {
+      postId: "p1",
+      project: "acme/site",
+      slug: "card",
+      variant: "quiet",
+      seq: 1,
+      text: "wider",
+      postVersion: 2,
+      viewport: 390,
+      anchors: [{ ref: "@1" }],
+    },
+    { postId: "p1", seq: 2, text: "one more pass", kind: "revise" },
+    { postId: "p2", slug: "hero", seq: 3, text: "ship it", kind: "accept" },
+    { seq: 4, text: "no post at all" },
+  ]);
+  assert.equal(batches.length, 3, "one batch per post, plus the orphan");
+  assert.equal(batches[0].slug, "card");
+  assert.deepEqual(batches[0].decision, { kind: "revise", text: "one more pass" });
+  assert.deepEqual(batches[0].comments, [
+    { seq: 1, text: "wider", anchors: [{ ref: "@1" }], viewport: 390, version: 2 },
+  ]);
+  // a decision is the batch's verdict, never one of its comments
+  assert.deepEqual(batches[1].comments, []);
+  assert.deepEqual(batches[1].decision, { kind: "accept", text: "ship it" });
+  // feedback is never dropped for want of context
+  assert.equal(batches[2].slug, null);
+  assert.deepEqual(
+    batches[2].comments.map((c) => c.text),
+    ["no post at all"],
+  );
+  assert.deepEqual(toFeedbackBatches([]), []);
 });

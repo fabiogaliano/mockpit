@@ -1,4 +1,4 @@
-import { expect, publishParts, test } from "./fixtures.ts";
+import { expect, frameHeight, publishParts, stage, test } from "./fixtures.ts";
 
 const MD = [
   "## Plan",
@@ -26,7 +26,7 @@ test("a markdown part renders typed prose with a highlighted code block", async 
   });
 
   await page.goto(server.url);
-  const card = page.locator(".card");
+  const card = stage(page);
 
   // markdown renders inside an opaque-origin sandbox iframe (defense in depth:
   // even a markdown-it/shiki regression can't reach the board). The sandbox has
@@ -50,8 +50,6 @@ test("a markdown part renders typed prose with a highlighted code block", async 
 
   // the frame's own bridge reports content height, so it grows past the min
   await expect
-    .poll(async () => (await card.locator("iframe.mdframe").boundingBox())?.height ?? 0, {
-      timeout: 10_000,
-    })
+    .poll(() => frameHeight(card.locator("iframe.mdframe")), { timeout: 10_000 })
     .toBeGreaterThan(120);
 });

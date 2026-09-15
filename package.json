@@ -100,6 +100,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.1.0",
+    "@iconify-json/mage": "^1.2.4",
     "@mermaid-js/parser": "^1.2.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@pierre/diffs": "^1.2.11",

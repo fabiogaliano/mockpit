@@ -1,4 +1,4 @@
-import { expect, publishParts, test } from "./fixtures.ts";
+import { expect, publishParts, stage, test } from "./fixtures.ts";
 
 const ESC = "\x1b";
 // a green word via an SGR escape, plus raw HTML that must never become a node
@@ -15,7 +15,7 @@ test("a terminal part renders ANSI in a sandbox iframe, escaping raw HTML", asyn
   });
 
   await page.goto(server.url);
-  const card = page.locator(".card:not(#whatsNew)").first();
+  const card = stage(page);
 
   // terminal output renders inside an opaque-origin sandbox iframe — ansi_up's
   // escaping is no longer the only thing between agent text and the board

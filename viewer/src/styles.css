@@ -2877,3 +2877,1094 @@ iframe {
     padding-left: 0;
   }
 }
+
+/* ------------------------------------------------------------------ *
+ * Reshape: projects › items › variants. The palette comes from the
+ * theme registry (see theme.ts) — only the two status hues below are
+ * local, because the viewer-chrome token set has no success/warning.
+ * ------------------------------------------------------------------ */
+:root {
+  --ok: #1a7f37;
+  --warn: #9a6700;
+  --warn-ink: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ok: #3fb950;
+    --warn: #d29922;
+    --warn-ink: #000000;
+  }
+}
+
+#app.ss-app {
+  display: grid;
+  grid-template-columns: 200px 240px 1fr;
+  height: 100%;
+  overflow: hidden;
+}
+#app.ss-app.no-items {
+  grid-template-columns: 200px 1fr;
+}
+/* Deprecated `layout: "stream"` (and the self-hosted session-scoped public-read
+   link): the item screen alone, no navigation columns. */
+#app.ss-app.stream {
+  grid-template-columns: 1fr;
+}
+
+.ss-side {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  /* The legacy `aside { width: 248px }` rule still applies to this element; the
+     grid column owns the width now, so hand it back. */
+  width: auto;
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+  min-width: 0;
+}
+.ss-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  font-size: 15px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+.ss-brand .livedot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+.ss-brand .livedot.on {
+  background: var(--ok);
+}
+.ss-projects {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ss-proj {
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.ss-proj small {
+  display: block;
+  font-weight: 400;
+  color: var(--muted);
+}
+.ss-proj.on {
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--border);
+}
+.ss-side-foot {
+  margin-top: auto;
+  color: var(--faint);
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+}
+.ss-side-foot a {
+  color: var(--faint);
+  text-decoration: none;
+}
+/* The links are one wrapping line, not a stack: the separators are part of the
+   text, so a column layout strands them on rows of their own. */
+.ss-side-foot > slot {
+  display: block;
+  width: 100%;
+  line-height: 1.9;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ss-side-foot a:hover {
+  color: var(--accent);
+}
+
+.ss-items {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 12px 10px;
+  overflow: auto;
+  min-width: 0;
+}
+.ss-items .sec {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding: 8px 8px 4px;
+}
+.ss-item-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.ss-item-row:hover {
+  background: var(--hover);
+}
+.ss-item-row.on {
+  background: var(--accent-bg);
+}
+.ss-item-row .ic {
+  width: 34px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  flex: none;
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+  color: var(--faint);
+}
+.ss-item-row .n {
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.ss-item-row small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+.ss-item-row .w {
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+.ss-main {
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ss-main-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ss-main-body.dim {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.ss-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.ss-head h1 {
+  font-size: 15px;
+  margin: 0;
+}
+.ss-head .m {
+  color: var(--muted);
+  font-size: 12px;
+}
+.ss-head .m.right {
+  margin-left: auto;
+}
+/* Host-projected item actions sit at the far right of the item header; empty
+   self-hosted, so it must not add a gap of its own. */
+.ss-head-acts {
+  display: contents;
+}
+.ss-mtop {
+  display: none;
+}
+
+.ss-item {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  /* the queued-comment note anchors to this box */
+  position: relative;
+}
+.ss-page {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  flex: 1;
+  min-height: 0;
+}
+.ss-view {
+  overflow: auto;
+  padding: 18px 24px;
+  min-width: 0;
+}
+.ss-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.ss-bar .r {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.ss-tabs {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px;
+}
+.ss-tabs button {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ss-tabs button.on {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--border);
+}
+.ss-tabs .ok {
+  color: var(--ok);
+}
+.ss-pill {
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 1px 7px;
+  color: var(--muted);
+}
+.ss-ask {
+  color: var(--warn);
+  font-size: 12px;
+}
+.ss-picked {
+  color: var(--ok);
+  font-size: 12px;
+}
+.ss-btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  white-space: nowrap;
+}
+.ss-btn.p {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 600;
+}
+.ss-markbtn {
+  white-space: nowrap;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  border-radius: 99px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ss-markbtn.on {
+  background: var(--warn);
+  color: var(--warn-ink);
+  border-color: transparent;
+  font-weight: 600;
+}
+.ss-slots-line {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.ss-slots {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: var(--surface);
+}
+.ss-slot-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 3px 0;
+  font-size: 12.5px;
+}
+.ss-slot-row .n {
+  min-width: 140px;
+  font-weight: 600;
+}
+.ss-slots-note {
+  color: var(--faint);
+  font-size: 11.5px;
+  margin-top: 6px;
+}
+.ss-archived {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.ss-archived .link,
+.ss-archived-row .link {
+  background: none;
+  border: 0;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+.ss-archived-row {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.ss-archived-row .dropped {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+/* stage + markers */
+.ss-stagewrap {
+  position: relative;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.ss-stagewrap.marking {
+  box-shadow: 0 0 0 1px var(--warn);
+}
+.ss-frame {
+  position: relative;
+  transform-origin: 0 0;
+}
+.ss-frame iframe {
+  display: block;
+  width: 100%;
+  border: 0;
+}
+.ss-overlay {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+.ss-overlay.off {
+  pointer-events: none;
+  cursor: auto;
+}
+.ss-mk {
+  position: absolute;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.ss-mk .n {
+  position: absolute;
+  left: -10px;
+  top: -10px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--warn);
+  color: var(--warn-ink);
+  font-size: 11px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+.ss-mk.pin {
+  width: 0;
+  height: 0;
+}
+.ss-mk.rect {
+  border: 2px solid var(--warn);
+  border-radius: 4px;
+}
+.ss-mk.circle {
+  border: 2px solid var(--warn);
+  border-radius: 50%;
+}
+.ss-mk.sent {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.ss-mk.hover .n,
+.ss-mk:hover .n {
+  background: var(--text);
+  color: var(--bg);
+}
+.ss-draft {
+  position: absolute;
+  border: 2px dashed var(--warn);
+  border-radius: 4px;
+  pointer-events: none;
+}
+.ss-pop {
+  position: absolute;
+  z-index: 9;
+  display: flex;
+  gap: 2px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+.ss-pop button {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.ss-pop button:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+.ss-pop button.d:hover {
+  color: var(--danger);
+}
+.ss-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 8;
+  background: var(--warn);
+  color: var(--warn-ink);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 5px;
+}
+.ss-badge a {
+  color: inherit;
+}
+
+/* history rail + thread */
+.ss-hist {
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ss-hist h3 {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin: 0;
+  padding: 14px 14px 8px;
+}
+.ss-h {
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 10px;
+}
+.ss-h:hover {
+  background: var(--hover);
+}
+.ss-h.on {
+  background: var(--accent-bg);
+}
+.ss-h .th {
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  font-size: 9px;
+  color: var(--faint);
+  display: grid;
+  place-items: center;
+}
+.ss-h b {
+  font-size: 12px;
+}
+.ss-h .why {
+  color: var(--muted);
+  font-size: 11.5px;
+  margin-top: 2px;
+}
+.ss-h .why q {
+  color: var(--text);
+}
+.ss-h .meta {
+  color: var(--faint);
+  font-size: 11px;
+  margin-top: 2px;
+}
+.ss-thread {
+  border-top: 1px solid var(--border);
+  padding: 10px 14px;
+  margin-top: auto;
+}
+.ss-cmt {
+  padding: 3px 0;
+  font-size: 12.5px;
+  white-space: pre-wrap;
+}
+.ss-cmt b {
+  color: var(--muted);
+  font-weight: 600;
+  margin-right: 6px;
+}
+.ss-cmt b.you {
+  color: var(--accent);
+}
+.ss-nocmt {
+  color: var(--faint);
+  font-size: 12px;
+}
+.ss-ref {
+  display: inline-block;
+  background: var(--accent-bg);
+  color: var(--warn);
+  border-radius: 4px;
+  padding: 0 5px;
+  font-weight: 600;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.ss-state {
+  font-size: 11px;
+  color: var(--faint);
+  margin-left: 6px;
+}
+.ss-state.seen {
+  color: var(--ok);
+}
+.ss-state.stale {
+  color: var(--warn);
+}
+.ss-compose {
+  margin-top: 8px;
+}
+.ss-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+  min-height: 0;
+}
+.ss-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 1px 8px 1px 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+  background: var(--bg);
+}
+.ss-chip .n {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--warn);
+  color: var(--warn-ink);
+  font-size: 10px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+.ss-chip .x {
+  cursor: pointer;
+  color: var(--faint);
+}
+.ss-chip .x:hover {
+  color: var(--danger);
+}
+.ss-compose textarea {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  resize: vertical;
+  min-height: 58px;
+}
+.ss-acts {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  align-items: center;
+}
+.ss-acts .cnt {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--faint);
+}
+.ss-decide {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  /* A long thread must never push the decision out of reach. */
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+}
+/* The hit-test reply, stringified and shown as one text node (never markup) so
+   the user can see exactly what the agent will receive. */
+.ss-payload {
+  border-top: 1px solid var(--border);
+  margin: 10px -14px 0;
+  padding: 10px 14px;
+  font:
+    11px/1.5 ui-monospace,
+    Menlo,
+    monospace;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow: auto;
+}
+.ss-payload b {
+  color: var(--faint);
+  font: inherit;
+  display: block;
+  margin-bottom: 4px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.ss-mhist,
+.ss-grab,
+.ss-fab {
+  display: none;
+}
+
+/* states */
+.ss-empty {
+  max-width: 520px;
+  margin: 12vh auto 0;
+  padding: 0 20px;
+  text-align: left;
+}
+.ss-empty h2 {
+  font-size: 18px;
+  margin: 0 0 6px;
+}
+.ss-empty p {
+  color: var(--muted);
+  margin: 0 0 16px;
+  font-size: 13.5px;
+}
+.ss-cmd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font:
+    12.5px ui-monospace,
+    Menlo,
+    monospace;
+  margin-bottom: 8px;
+}
+.ss-cmd span {
+  flex: 1;
+  overflow: auto;
+}
+.ss-cmd .cp {
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  background: none;
+  border: 0;
+}
+.ss-empty .alt {
+  color: var(--faint);
+  font-size: 12px;
+}
+.ss-empty .alt a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.ss-small-empty {
+  color: var(--faint);
+  font-size: 12px;
+  padding: 20px 8px;
+  text-align: center;
+}
+.ss-sk,
+.ss-sk-rows .ss-sk {
+  background: linear-gradient(90deg, var(--panel) 25%, var(--hover) 50%, var(--panel) 75%);
+  background-size: 200% 100%;
+  animation: ss-sh 1.3s infinite;
+  border-radius: 6px;
+}
+@keyframes ss-sh {
+  to {
+    background-position: -200% 0;
+  }
+}
+.ss-sk-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+}
+.sk-stage {
+  padding: 22px;
+  min-height: 220px;
+}
+.ss-skg {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.ss-skg .ss-sk {
+  height: 150px;
+}
+.ss-rend {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.ss-ban {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 24px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border);
+}
+.ss-ban.err {
+  background: var(--accent-bg);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.ss-ban.warn {
+  background: var(--panel);
+  color: var(--warn);
+}
+.ss-ban a {
+  color: inherit;
+  text-decoration: underline;
+  margin-left: auto;
+  cursor: pointer;
+}
+.ss-ban .spin {
+  width: 10px;
+  height: 10px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: ss-rot 1s linear infinite;
+}
+@keyframes ss-rot {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.ss-queued {
+  position: absolute;
+  right: 316px;
+  bottom: 16px;
+  max-width: 360px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 12.5px;
+  z-index: 5;
+}
+.ss-queued div {
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+/* phone: list → item → bottom-sheet history */
+@media (max-width: 720px) {
+  #app.ss-app {
+    grid-template-columns: 1fr;
+    height: 100dvh;
+  }
+  .ss-side {
+    display: none;
+  }
+  body.nav-open .ss-side,
+  .nav-open .ss-side {
+    display: flex;
+    position: fixed;
+    inset: 0 30% 0 0;
+    z-index: 30;
+  }
+  .ss-items {
+    border-right: 0;
+    padding: 0;
+  }
+  .ss-items .sec {
+    padding: 16px 16px 6px;
+    font-size: 11px;
+  }
+  .ss-item-row {
+    padding: 14px 16px;
+    border-radius: 0;
+    border-bottom: 1px solid var(--border);
+    gap: 14px;
+  }
+  .ss-item-row .ic {
+    width: 48px;
+    height: 34px;
+  }
+  .ss-item-row .n {
+    font-size: 15px;
+  }
+  .ss-item-row small {
+    font-size: 13px;
+  }
+  .ss-mtop {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
+  .ss-mtop h1 {
+    font-size: 17px;
+    margin: 0;
+  }
+  .ss-mtop .m {
+    color: var(--muted);
+    font-size: 13px;
+    margin-left: auto;
+    background: none;
+    border: 0;
+    font-family: inherit;
+  }
+  .ss-mtop .back {
+    color: var(--accent);
+    font-size: 15px;
+    text-decoration: none;
+  }
+  .ss-main {
+    display: none;
+  }
+  #app.ss-app.item-open .ss-items {
+    display: none;
+  }
+  #app.ss-app.item-open .ss-main,
+  #app.ss-app.stream .ss-main,
+  #app.ss-app.no-items .ss-main {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+  }
+  .ss-head {
+    display: none;
+  }
+  .ss-page {
+    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  .ss-view {
+    padding: 0;
+    flex: 1;
+    overflow: auto;
+  }
+  .ss-bar {
+    padding: 10px 16px 0;
+    margin-bottom: 8px;
+    gap: 8px;
+  }
+  .ss-bar .r {
+    margin-left: 0;
+    width: 100%;
+    justify-content: space-between;
+    /* Phone widths can't fit the viewport tabs and every action on one line;
+       wrapping keeps them reachable instead of clipped off-screen. */
+    flex-wrap: wrap;
+  }
+  .ss-markbtn {
+    display: none;
+  }
+  /* The phone view pane has no padding of its own (the stage is edge-to-edge),
+     so anything outside the stage has to bring its own. */
+  .ss-archived,
+  .ss-slots,
+  .ss-slots-line {
+    margin-left: 16px;
+    margin-right: 16px;
+  }
+  .ss-tabs {
+    display: flex;
+  }
+  .ss-tabs button {
+    flex: 1;
+    padding: 9px 4px;
+    font-size: 14px;
+  }
+  .ss-stagewrap {
+    border: 0;
+    border-radius: 0;
+  }
+  .ss-hist {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    flex: none;
+    overflow: visible;
+  }
+  .ss-hist h3,
+  .ss-h {
+    display: none;
+  }
+  .ss-thread {
+    border-top: 0;
+    padding: 8px 16px 4px;
+    font-size: 14px;
+    position: sticky;
+    bottom: 0;
+    background: var(--surface);
+  }
+  .ss-decide {
+    padding: 8px 16px 18px;
+    gap: 8px;
+  }
+  .ss-decide .ss-btn {
+    flex: 1;
+    padding: 11px;
+    font-size: 15px;
+  }
+  .ss-mhist {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .ss-mhist b {
+    color: var(--text);
+  }
+  .ss-mhist a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .ss-grab {
+    display: block;
+    width: 36px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    margin: 8px auto 0;
+  }
+  .ss-item.sheet-open .ss-hist {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: 96px;
+    background: var(--surface);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    z-index: 3;
+  }
+  .ss-item.sheet-open .ss-hist h3 {
+    display: block;
+    padding: 14px 16px 8px;
+  }
+  .ss-item.sheet-open .ss-h {
+    display: grid;
+    padding: 12px 16px;
+  }
+  .ss-item.sheet-open .ss-mhist {
+    display: none;
+  }
+  .ss-item.sheet-open .ss-thread {
+    margin-top: auto;
+    border-top: 1px solid var(--border);
+  }
+  /* thumb-reachable: the mark toggle floats over the bottom-right corner */
+  .ss-fab {
+    display: grid;
+    place-items: center;
+    position: fixed;
+    z-index: 20;
+    right: 16px;
+    bottom: 88px;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 20px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  }
+  .ss-fab.on {
+    background: var(--warn);
+    color: var(--warn-ink);
+    border-color: transparent;
+  }
+  .ss-queued {
+    right: 12px;
+    left: 12px;
+    bottom: 150px;
+    max-width: none;
+  }
+}

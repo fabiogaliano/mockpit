@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isKnownKit, KIT_IDS, kitAssets, kitSummaries } from "../server/kits.ts";
-import { renderHtmlPage } from "../server/surfacePage.ts";
+import { renderHtmlPage, staticAsset } from "../server/surfacePage.ts";
 import { coerceSurfaces, validateSurfaces } from "../server/postSurfaces.ts";
 
 // --- kitAssets ---
@@ -66,10 +66,15 @@ test("renderHtmlPage injects kit css/js only when the surface opts in", () => {
     origin: "http://x",
     kits: ["slides"],
   });
-  assert.match(kitted, /\.deck>\.slide/); // css
-  assert.match(kitted, /querySelector\('\.deck'\)/); // behavior js
-  // base kit + bridge are still present (kit is additive, not a replacement)
-  assert.match(kitted, /window\.sendPrompt/);
+  // kit CSS is served from its own content-hashed asset URL, not inlined
+  const kitHref = /href="http:\/\/x(\/asset\/kit-slides\.[a-z0-9]+\.css)"/.exec(kitted);
+  assert.ok(kitHref, "kitted page links the slides stylesheet");
+  assert.match(staticAsset(kitHref![1])!.body, /\.deck>\.slide/);
+  assert.match(kitted, /querySelector\('\.deck'\)/); // behavior js stays inline
+  // base stylesheet + bridge are still present (kit is additive, not a replacement)
+  const baseHref = /href="http:\/\/x(\/asset\/base\.[a-z0-9]+\.css)"/.exec(kitted);
+  assert.ok(baseHref, "kitted page keeps the base stylesheet");
+  assert.match(kitted, /<script src="http:\/\/x\/asset\/bridge\.[a-z0-9]+\.js"><\/script>/);
 });
 
 // --- discovery ---

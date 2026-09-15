@@ -1,4 +1,9 @@
-import { expect, publicReadTest as test, publish, startSideshowServer } from "./fixtures.ts";
+import { expect, publicReadTest as test, publish, stage, startSideshowServer } from "./fixtures.ts";
+
+// A session-scoped public workspace exposes its posts but NOT the project/item
+// reads (those are addressed by name, so they would let a shared link enumerate
+// the whole workspace). The viewer therefore renders such a link in the
+// item-screen-only "stream" layout, resolving the item from the session's posts.
 
 async function postComment(
   serverUrl: string,
@@ -32,14 +37,16 @@ test("public read viewer globals are visible to the browser", async ({
     .toEqual({ readonly: true, mode: publicReadServer.mode });
 });
 
-test("readonly session-mode viewer loads without fetching the session list", async ({ page }) => {
+test("readonly session-mode viewer loads without fetching the session or project lists", async ({
+  page,
+}) => {
   const token = "secret";
   const server = await startSideshowServer({
     SIDESHOW_TOKEN: token,
     SIDESHOW_PUBLIC_READ: "session",
   });
   try {
-    const surface = await publish(
+    const post = await publish(
       server.url,
       {
         html: "<p>session scoped</p>",
@@ -49,25 +56,28 @@ test("readonly session-mode viewer loads without fetching the session list", asy
       },
       token,
     );
-    const sessionListRequests: string[] = [];
+    const forbiddenReads: string[] = [];
     const eventUrls: string[] = [];
     page.on("request", (req) => {
       const url = new URL(req.url());
-      if (req.method() === "GET" && url.pathname === "/api/sessions") {
-        sessionListRequests.push(req.url());
+      if (req.method() !== "GET") return;
+      // Neither the session list nor any project read is available here, so the
+      // engine must not ask for them (each would answer 401 and blank the page).
+      if (url.pathname === "/api/sessions" || url.pathname.startsWith("/api/projects")) {
+        forbiddenReads.push(url.pathname);
       }
       if (url.pathname === "/api/events") eventUrls.push(req.url());
     });
 
-    await page.goto(`${server.url}/session/${surface.sessionId}`);
+    await page.goto(`${server.url}/session/${post.sessionId}`);
 
     await expect(page).toHaveTitle("Auth refactor · sideshow");
-    await expect(page.locator(".card:not(#whatsNew)")).toBeVisible();
-    await expect(page.locator(".card-title")).toContainText("Session scoped");
-    expect(sessionListRequests).toEqual([]);
+    await expect(page.locator(".ss-head h1")).toHaveText("Session scoped");
+    await expect(stage(page).locator("iframe")).toBeVisible();
+    expect(forbiddenReads).toEqual([]);
     await expect
       .poll(() =>
-        eventUrls.some((url) => new URL(url).searchParams.get("session") === surface.sessionId),
+        eventUrls.some((url) => new URL(url).searchParams.get("session") === post.sessionId),
       )
       .toBe(true);
   } finally {
@@ -75,7 +85,7 @@ test("readonly session-mode viewer loads without fetching the session list", asy
   }
 });
 
-test("readonly session-mode viewer receives live surfaces without refreshing the list", async ({
+test("readonly session-mode viewer receives live posts without refreshing the list", async ({
   page,
 }) => {
   const token = "secret";
@@ -90,61 +100,64 @@ test("readonly session-mode viewer receives live surfaces without refreshing the
       token,
     );
     const sessionListRequests: string[] = [];
+    let liveStreams = 0;
     page.on("request", (req) => {
       const url = new URL(req.url());
-      if (req.method() === "GET" && url.pathname === "/api/sessions") {
-        sessionListRequests.push(req.url());
-      }
+      if (req.method() !== "GET") return;
+      if (url.pathname === "/api/sessions") sessionListRequests.push(req.url());
+      if (url.pathname === "/api/events") liveStreams++;
     });
 
     await page.goto(`${server.url}/session/${first.sessionId}`);
 
-    await expect(page.locator(".card-title")).toContainText("First live card");
-    await expect(page.locator(".topbar .livedot")).toHaveClass(/on/);
+    await expect(page.locator(".ss-head h1")).toHaveText("First live card");
+    // The stream layout has no wordmark to carry the live dot, so wait on the
+    // SSE connection itself before publishing into it.
+    await expect.poll(() => liveStreams).toBeGreaterThan(0);
 
+    // A newer post in the shared session becomes the item on screen, live.
     await publish(
       server.url,
       { html: "<p>second</p>", title: "Second live card", agent: "e2e", session: first.sessionId },
       token,
     );
 
-    await expect(page.locator(".card-title", { hasText: "Second live card" })).toBeVisible();
+    await expect(page.locator(".ss-head h1")).toHaveText("Second live card");
     expect(sessionListRequests).toEqual([]);
   } finally {
     server.stop();
   }
 });
 
-test("readonly session-mode viewer renders without sidebar chrome", async ({ page }) => {
+test("readonly session-mode viewer renders without navigation chrome", async ({ page }) => {
   const token = "secret";
   const server = await startSideshowServer({
     SIDESHOW_TOKEN: token,
     SIDESHOW_PUBLIC_READ: "session",
   });
   try {
-    const surface = await publish(
+    const post = await publish(
       server.url,
       { html: "<p>single session</p>", title: "Single session", agent: "e2e" },
       token,
     );
 
-    await page.goto(`${server.url}/session/${surface.sessionId}`);
+    await page.goto(`${server.url}/session/${post.sessionId}`);
 
-    await expect(page.locator("aside")).toHaveCount(0);
-    await expect(page.locator("button.menu")).toHaveCount(0);
-    await expect(page.locator("#scrim")).toHaveCount(0);
-    await expect(page.locator("#onboard")).toHaveCount(0);
-    await expect(page.locator(".topbar .brand")).toContainText("sideshow");
-    await expect(page.locator(".card:not(#whatsNew)")).toBeVisible();
+    await expect(page.locator(".ss-item")).toBeVisible();
+    // The item screen alone: no projects sidebar, no items column, no drawer.
+    await expect(page.locator(".ss-side")).toHaveCount(0);
+    await expect(page.locator(".ss-items")).toHaveCount(0);
+    await expect(page.locator("#app.stream")).toHaveCount(1);
+    // ...and no write affordances, since the link is read-only.
+    await expect(page.locator(".ss-compose")).toHaveCount(0);
+    await expect(page.locator(".ss-decide")).toHaveCount(0);
   } finally {
     server.stop();
   }
 });
 
-test("readonly full-mode chrome hides sidebar write controls", async ({
-  page,
-  publicReadServer,
-}) => {
+test("readonly full-mode chrome hides write controls", async ({ page, publicReadServer }) => {
   await publish(
     publicReadServer.url,
     { html: "<p>controls</p>", title: "Readonly chrome", agent: "e2e" },
@@ -153,21 +166,23 @@ test("readonly full-mode chrome hides sidebar write controls", async ({
 
   await page.goto(publicReadServer.url);
 
-  await expect(page.locator("#sessionList .sess .x")).toHaveCount(0);
+  // The whole navigation is there (full mode reads projects), but nothing that
+  // writes: no theme switch, no connect action, no composer, no decisions.
+  await expect(page.locator(".ss-proj")).toHaveCount(1);
   await expect(page.locator(".theme-picker")).toHaveCount(0);
   await expect(page.getByRole("link", { name: "connect agent" })).toHaveCount(0);
-  await expect(page.locator("#sessTitle")).toHaveAttribute("contenteditable", "false");
+  await expect(page.locator(".ss-compose")).toHaveCount(0);
+  await expect(page.locator(".ss-decide")).toHaveCount(0);
+  await expect(page.locator(".ss-fab")).toHaveCount(0);
 });
 
-test("readonly empty board shows a simple empty state", async ({ page, publicReadServer }) => {
+test("readonly empty workspace shows a simple empty state", async ({ page, publicReadServer }) => {
   await page.goto(publicReadServer.url);
 
-  await expect(page.locator("#onboard")).toBeVisible();
-  await expect(page.locator("#onboard h1")).toHaveText("Nothing here yet");
-  await expect(page.locator("#onboard .snip")).toHaveCount(0);
-  await expect(page.locator("#onboard .connect-block")).toHaveCount(0);
+  await expect(page.locator(".ss-empty h2")).toHaveText("Nothing here yet");
   await expect(page.getByRole("link", { name: "design guide" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "agent setup" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "setup" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "connect agent" })).toHaveCount(0);
 });
 
 test("readonly iframe send-prompt bridge messages do not write comments", async ({
@@ -190,33 +205,32 @@ test("readonly iframe send-prompt bridge messages do not write comments", async 
   });
 
   await page.goto(publicReadServer.url);
-  await expect(page.locator(".card:not(#whatsNew) iframe")).toBeVisible();
+  await expect(stage(page).locator("iframe")).toBeVisible();
   await page.waitForTimeout(500);
 
   expect(commentPosts).toBe(0);
   await expect(page.locator("#toast")).not.toHaveClass(/show/);
 });
 
-test("readonly cards hide comment and delete controls but keep read actions", async ({
+test("readonly item screen shows the thread but no way to add to it", async ({
   page,
   publicReadServer,
 }) => {
-  const surface = await publish(
+  const post = await publish(
     publicReadServer.url,
     { html: "<p>readable</p>", title: "Readonly card", agent: "e2e" },
     publicReadServer.token,
   );
   await postComment(publicReadServer.url, publicReadServer.token, {
-    surface: surface.id,
+    surface: post.id,
     text: "existing feedback",
   });
 
   await page.goto(publicReadServer.url);
 
-  const card = page.locator(".card:not(#whatsNew)");
-  await expect(card.locator(".act.comment")).toHaveCount(0);
-  await expect(card.locator(".act.del")).toHaveCount(0);
-  await expect(card.locator(".act.share")).toBeVisible();
-  await expect(card.locator(".cmt-text")).toContainText("existing feedback");
-  await expect(card.locator(".composer")).toHaveCount(0);
+  await expect(page.locator(".ss-cmt")).toContainText("existing feedback");
+  await expect(page.locator(".ss-compose")).toHaveCount(0);
+  await expect(page.locator(".ss-decide")).toHaveCount(0);
+  // Reading a version's history stays available — it is a read.
+  await expect(page.locator(".ss-h")).toHaveCount(1);
 });

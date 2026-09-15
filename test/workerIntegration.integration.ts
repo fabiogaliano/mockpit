@@ -14,7 +14,8 @@ type PostResult = {
   title: string;
   version: number;
   surfaces: Array<{ id: string; kind: string }>;
-  userFeedback?: Array<{ text: string }>;
+  // One batch per item — a decision plus the comments released with it.
+  userFeedback?: Array<{ postId: string | null; comments: Array<{ text: string }> }>;
 };
 
 type AssetResult = {
@@ -332,7 +333,7 @@ test(
       200,
     );
     assert.deepEqual(
-      piggybacked.userFeedback?.map((feedback) => feedback.text),
+      piggybacked.userFeedback?.flatMap((batch) => batch.comments.map((c) => c.text)),
       ["persist this feedback"],
     );
 
@@ -388,7 +389,7 @@ test(
       200,
     );
     assert.deepEqual(
-      afterRestart.userFeedback?.map((feedback) => feedback.text),
+      afterRestart.userFeedback?.flatMap((batch) => batch.comments.map((c) => c.text)),
       ["feedback after restart"],
     );
 

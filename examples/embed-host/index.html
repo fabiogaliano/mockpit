@@ -42,6 +42,17 @@
         flex: 1 1 auto;
         min-height: 0;
       }
+      /* the host's own control, projected INTO the engine's item header */
+      #hostShare {
+        font: inherit;
+        font-size: 12px;
+        padding: 2px 8px;
+        border-radius: 5px;
+        border: 1px solid #30363d;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+      }
     </style>
   </head>
   <body>
@@ -49,7 +60,12 @@
       <b>Cloud shell</b>
       <span class="dim">— host chrome · the viewer engine is mounted below in a shadow root</span>
     </div>
-    <div id="mount"></div>
+    <!-- Light-DOM children with a `slot=` attribute are projected into the
+         engine's host-overridable regions (see SLOTS in viewer/embed.d.ts).
+         `ss:item-actions` is the item header's action area. -->
+    <div id="mount">
+      <button id="hostShare" slot="ss:item-actions" onclick="alert('host action')">Share</button>
+    </div>
     <script type="module">
       import { mountViewer } from "/engine/engine.js";
       // No host passed → the engine uses its default History-API host

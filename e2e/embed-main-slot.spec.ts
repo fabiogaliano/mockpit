@@ -1,123 +1,69 @@
 // End-to-end browser proof that an embedder can take over the engine's MAIN
 // content pane through the shadow boundary via the `ss:main` slot — the seam the
 // sideshow cloud uses to render its full-page "Settings" view in the main area
-// while the engine's sidebar (session list + account footer) stays put.
-//
-// Same harness as embed-slots.spec.ts. We mount in the default "full" layout with
-// a real session in view, and project a light-DOM `<div slot="ss:main">` child of
-// the mount element. The engine's <slot name="ss:main"> projects it in place of
-// the board, so the host pane shows and the engine's own #stream does not.
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { expect, publish, test } from "./fixtures.ts";
-
-const embedDir = fileURLToPath(new URL("../viewer/dist-embed", import.meta.url));
-
-function contentType(path: string): string {
-  if (path.endsWith(".js") || path.endsWith(".mjs")) return "text/javascript";
-  if (path.endsWith(".wasm")) return "application/wasm";
-  if (path.endsWith(".css")) return "text/css";
-  return "application/octet-stream";
-}
-
-const embedHtml = (sessionId: string) => `<!doctype html>
-<html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%}#m{position:fixed;inset:0}</style></head>
-<body><div id="m"><div slot="ss:main" id="hostMain"><h2>Host settings pane</h2></div></div>
-<script type="module">
-  import { mountViewer } from "/__embed/engine.js";
-  mountViewer(document.getElementById("m"), {
-    basePath: "",
-    router: {
-      get: () => ({ sessionId: ${JSON.stringify(sessionId)} }),
-      navigate() {},
-      subscribe() { return () => {}; },
-    },
-  });
-</script></body></html>`;
-
-const fullEmbedHtml = (sessionId: string) => `<!doctype html>
-<html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%}#m{position:fixed;inset:0}</style></head>
-<body><div id="m"></div>
-<script type="module">
-  import { mountViewer } from "/__embed/engine.js";
-  mountViewer(document.getElementById("m"), {
-    basePath: "",
-    router: {
-      get: () => ({ sessionId: ${JSON.stringify(sessionId)} }),
-      navigate() {},
-      subscribe() { return () => {}; },
-    },
-  });
-</script></body></html>`;
+// while the engine's navigation columns stay put.
+import { expect, itemPath, mountEmbed, navigatingRouter, publishItem, test } from "./fixtures.ts";
 
 test("embedded engine: ss:main slot takes over the main pane while the sidebar stays", async ({
   page,
   server,
 }) => {
-  const surface = await publish(
-    server.url,
-    { html: "<p>board card</p>", title: "Board card", agent: "e2e" },
-    "",
-  );
-
-  page.on("pageerror", (e) => console.error("[pageerror]", e.message));
-  page.on("console", (m) => m.type() === "error" && console.error("[console]", m.text()));
-
-  await page.route("**/__embedtest", (route) =>
-    route.fulfill({ contentType: "text/html", body: embedHtml(surface.sessionId) }),
-  );
-  await page.route("**/__embed/**", (route) => {
-    const name = new URL(route.request().url()).pathname.replace("/__embed/", "");
-    route.fulfill({ contentType: contentType(name), body: readFileSync(`${embedDir}/${name}`) });
+  const post = await publishItem(server.url, {
+    project: "acme/site",
+    slug: "hero",
+    title: "Hero",
+    html: "<p>board card</p>",
+    agent: "designer",
   });
 
-  await page.goto(`${server.url}/__embedtest`);
+  await mountEmbed(page, server.url, {
+    body: `<div slot="ss:main" id="hostMain"><h2>Host settings pane</h2></div>`,
+    host: `{ basePath: "", router: ${navigatingRouter({ sessionId: post.sessionId })} }`,
+  });
 
   // The host's light-DOM pane projects into the main slot and is visible.
   const hostMain = page.locator("#hostMain");
   await expect(hostMain).toBeVisible();
   await expect(page.locator("main slot[name='ss:main']")).toHaveCount(1);
 
-  // The sidebar (full layout) stays — the override is the main pane only, not the
-  // whole viewport — and its engine-owned collapse control works across the shadow root.
-  const aside = page.locator("aside");
-  await expect(aside).toBeVisible();
-  await page.getByRole("button", { name: "Collapse sidebar" }).click();
-  await expect(aside).toHaveCSS("width", "40px");
-  await expect(hostMain).toBeVisible();
-  await page.getByRole("button", { name: "Expand sidebar" }).click();
-  await expect(aside).toHaveCSS("width", "248px");
+  // The navigation stays — the override is the main pane only, not the viewport.
+  await expect(page.locator("aside.ss-side")).toBeVisible();
+  await expect(page.locator(".ss-proj")).toHaveCount(1);
 
-  // The engine's own board content is replaced: with a child assigned to ss:main,
-  // the slot's fallback (#sessionView stream) stays in the DOM — native <slot>
-  // mechanics — but is not displayed, so the host pane is what the user sees.
-  await expect(page.locator("#stream")).toBeHidden();
+  // The engine's own item screen is replaced: with a child assigned to ss:main
+  // the slot's fallback stays in the DOM — native <slot> mechanics — but is not
+  // displayed, so the host pane is what the user sees.
+  await expect(page.locator(".ss-item")).toBeHidden();
 });
 
-test("embedded engine: mobile menu opens the session drawer", async ({ page, server }) => {
-  const surface = await publish(
-    server.url,
-    { html: "<p>embedded mobile card</p>", title: "Embedded mobile", agent: "e2e" },
-    "",
-  );
-
-  page.on("pageerror", (e) => console.error("[pageerror]", e.message));
-  page.on("console", (m) => m.type() === "error" && console.error("[console]", m.text()));
-
-  await page.route("**/__embedtest-mobile", (route) =>
-    route.fulfill({ contentType: "text/html", body: fullEmbedHtml(surface.sessionId) }),
-  );
-  await page.route("**/__embed/**", (route) => {
-    const name = new URL(route.request().url()).pathname.replace("/__embed/", "");
-    route.fulfill({ contentType: contentType(name), body: readFileSync(`${embedDir}/${name}`) });
+test("embedded engine: the phone drawer opens the projects sidebar", async ({ page, server }) => {
+  await publishItem(server.url, {
+    project: "acme/site",
+    slug: "hero",
+    title: "Embedded mobile",
+    html: "<p>embedded mobile card</p>",
+    agent: "designer",
   });
 
   await page.setViewportSize({ width: 393, height: 852 });
-  await page.goto(`${server.url}/__embedtest-mobile`);
+  await mountEmbed(page, server.url, {
+    path: "/__embedtest-mobile",
+    host: `{ basePath: "", router: ${navigatingRouter({ project: "acme/site", slug: null })} }`,
+  });
 
-  await expect(page.locator(".card:not(#whatsNew)")).toBeVisible();
-  await expect(page.locator("aside")).not.toBeInViewport();
+  // Phone layout: the items list is the screen, the sidebar is off-canvas.
+  await expect(page.locator(".ss-item-row")).toBeVisible();
+  await expect(page.locator("aside.ss-side")).not.toBeInViewport();
 
-  await page.locator("#menuBtn").click();
-  await expect(page.locator("aside")).toBeInViewport();
+  await page.locator("button.m", { hasText: "projects" }).click();
+  await expect(page.locator("aside.ss-side")).toBeInViewport();
+  expect(itemPath("acme/site")).toContain("acme");
 });
+
+declare global {
+  interface Window {
+    __route?: Record<string, unknown>;
+    __navigated?: Record<string, unknown>;
+    __subs?: ((route: unknown) => void)[];
+  }
+}
