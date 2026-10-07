@@ -1,15 +1,15 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace-manifest.json",
-  "name": "sideshow",
-  "owner": { "name": "modem", "email": "ben@modem.dev" },
-  "description": "The sideshow Claude Code plugin.",
+  "name": "mockpit",
+  "owner": { "name": "Fábio Galiano" },
+  "description": "The mockpit Claude Code plugin.",
   "plugins": [
     {
-      "name": "sideshow",
+      "name": "mockpit",
       "source": "./plugin",
-      "description": "Publish design items and variants to sideshow over MCP (publish_item, revise_item, ask_user, list_items, get_item, export_item, wait_for_feedback, get_design_guide); stream the user's comments and decisions back to Claude Code as notifications.",
+      "description": "Publish design items and variants to mockpit over MCP (publish_item, revise_item, ask_user, list_items, get_item, export_item, wait_for_feedback, get_design_guide); stream the user's comments and decisions back to Claude Code as notifications.",
       "category": "Integrations",
-      "keywords": ["sideshow", "design", "visualization", "feedback", "mcp"]
+      "keywords": ["mockpit", "design", "visualization", "feedback", "mcp"]
     }
   ]
 }

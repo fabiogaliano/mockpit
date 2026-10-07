@@ -1,7 +1,7 @@
 {
-  "name": "sideshow",
+  "name": "mockpit",
   "version": "0.14.0",
-  "description": "A live visual surface for terminal coding agents — agents draw HTML snippets, you watch them in the browser and comment back.",
+  "description": "A design-review loop for terminal coding agents — agents publish items, you comment, then revise, accept or drop.",
   "keywords": [
     "agent-tools",
     "ai-agents",
@@ -12,18 +12,21 @@
     "pi-package",
     "visualization"
   ],
-  "homepage": "https://github.com/modem-dev/sideshow#readme",
+  "homepage": "https://github.com/fabiogaliano/mockpit#readme",
   "bugs": {
-    "url": "https://github.com/modem-dev/sideshow/issues"
+    "url": "https://github.com/fabiogaliano/mockpit/issues"
   },
   "license": "MIT",
-  "author": "Ben Vinegar",
+  "author": "Fábio Galiano",
+  "contributors": [
+    "Ben Vinegar (original sideshow)"
+  ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/modem-dev/sideshow.git"
+    "url": "git+https://github.com/fabiogaliano/mockpit.git"
   },
   "bin": {
-    "sideshow": "bin/sideshow.js"
+    "mockpit": "bin/mockpit.js"
   },
   "files": [
     "bin/",
@@ -66,6 +69,7 @@
   },
   "scripts": {
     "dev": "npm run build:viewer && (npm run build:viewer -- --watch & node --watch server/index.ts)",
+    "dev:sandbox": "node scripts/dev-sandbox.ts",
     "start": "npm run build:viewer && node server/index.ts",
     "build:viewer": "vite build",
     "build:embed": "vite build -c viewer/vite.embed.config.ts",

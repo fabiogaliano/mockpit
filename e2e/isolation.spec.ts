@@ -42,7 +42,7 @@ test("an html part's script is CSP-blocked from fetching the board API", async (
 // feedback loop only delivers "user" comments to the agent. The fix stamps
 // surface sends author:"surface". These tests pin that against a surface that
 // auto-fires on load and would, before the fix, have impersonated the user.
-const AUTO_SEND = `<script>parent.postMessage({__sideshow:true,type:"send-prompt",text:"injected by surface"},"*")</script>`;
+const AUTO_SEND = `<script>parent.postMessage({__mockpit:true,type:"send-prompt",text:"injected by surface"},"*")</script>`;
 
 test("an auto-fired send-prompt is labeled surface, never user", async ({ page, server }) => {
   const { id } = await publish(server.url, { html: AUTO_SEND, title: "auto-send", agent: "e2e" });
@@ -92,7 +92,7 @@ test("a surface send is not delivered to the agent as user feedback", async ({
 // scheme, so the host must re-validate. These pin both edges against a surface
 // that auto-fires the raw message on load — the bypass an attacker would use.
 const openLinkMsg = (url: string) =>
-  `<script>parent.postMessage({__sideshow:true,type:"open-link",url:${JSON.stringify(url)}},"*")</script>`;
+  `<script>parent.postMessage({__mockpit:true,type:"open-link",url:${JSON.stringify(url)}},"*")</script>`;
 
 test("openLink ignores non-http(s) and malformed urls — no prompt, no open", async ({
   page,
@@ -103,7 +103,7 @@ test("openLink ignores non-http(s) and malformed urls — no prompt, no open", a
   const bad = ["javascript:alert(1)", "data:text/html,<b>x</b>", "::: not a url :::"];
   const fire = `<script>${bad
     .map(
-      (u) => `parent.postMessage({__sideshow:true,type:"open-link",url:${JSON.stringify(u)}},"*");`,
+      (u) => `parent.postMessage({__mockpit:true,type:"open-link",url:${JSON.stringify(u)}},"*");`,
     )
     .join("")}</script>`;
   await publish(server.url, { html: fire, title: "bad", agent: "e2e" });

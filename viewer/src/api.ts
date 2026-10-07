@@ -58,11 +58,11 @@ export interface VersionInfo {
 
 declare global {
   interface Window {
-    // __SIDESHOW_BASE_PATH__ lives in host.ts (the default host reads it).
-    __SIDESHOW_READONLY__?: boolean;
-    __SIDESHOW_PUBLIC_READ__?: PublicReadMode;
-    __SIDESHOW_SCREENSHOTS__?: boolean;
-    __SIDESHOW_PAGE_TITLE__?: string;
+    // __MOCKPIT_BASE_PATH__ lives in host.ts (the default host reads it).
+    __MOCKPIT_READONLY__?: boolean;
+    __MOCKPIT_PUBLIC_READ__?: PublicReadMode;
+    __MOCKPIT_SCREENSHOTS__?: boolean;
+    __MOCKPIT_PAGE_TITLE__?: string;
   }
 }
 
@@ -79,15 +79,15 @@ export function appPath(path: string): string {
 export function isReadonly(): boolean {
   // Host-first (cloud embed), falling back to the self-hosted global so the
   // self-hosted public-read page is byte-for-byte unchanged.
-  return host().readonly ?? !!window.__SIDESHOW_READONLY__;
+  return host().readonly ?? !!window.__MOCKPIT_READONLY__;
 }
 
 export function publicReadMode(): PublicReadMode | undefined {
-  return window.__SIDESHOW_PUBLIC_READ__;
+  return window.__MOCKPIT_PUBLIC_READ__;
 }
 
 export function initialPageTitle(): string | undefined {
-  return window.__SIDESHOW_PAGE_TITLE__;
+  return window.__MOCKPIT_PAGE_TITLE__;
 }
 
 // The engine's layout. "full" is the whole navigation (projects sidebar, items
@@ -122,7 +122,7 @@ export function postMarkdownPath(id: string): string {
 // Host-first (cloud embed), falling back to the self-hosted global, mirroring
 // isReadonly(). False on a plain Node server, which has no Browser Rendering.
 export function canScreenshot(): boolean {
-  return host().screenshots ?? !!window.__SIDESHOW_SCREENSHOTS__;
+  return host().screenshots ?? !!window.__MOCKPIT_SCREENSHOTS__;
 }
 
 export async function api<T = unknown>(path: string, init?: RequestInit): Promise<T> {

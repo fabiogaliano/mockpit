@@ -47,13 +47,13 @@ jobs:
       - name: Pack and smoke-test the CLI
         run: |
           npm pack
-          npm install -g --ignore-scripts ./sideshow-*.tgz
-          sideshow help
-          SIDESHOW_DATA=/tmp/sideshow.json sideshow serve &
+          npm install -g --ignore-scripts ./mockpit-*.tgz
+          mockpit help
+          MOCKPIT_DATA=/tmp/mockpit.json mockpit serve &
           for i in $(seq 1 20); do curl -sf localhost:8228/api/sessions > /dev/null && break; sleep 0.5; done
-          echo '<p>ci smoke</p>' | sideshow publish - --title "CI smoke" --agent ci | tee /tmp/out.json
+          echo '<p>ci smoke</p>' | mockpit publish - --title "CI smoke" --agent ci | tee /tmp/out.json
           grep -q '"sessionId"' /tmp/out.json
-          sideshow demo | grep -q "Seeded 2 demo sessions"
+          mockpit demo | grep -q "Seeded 2 demo sessions"
           curl -sf localhost:8228/guide > /dev/null
 
   # Performance regression gate. Runs the in-process benchmark suites and compares
@@ -113,14 +113,14 @@ jobs:
       - run: npm pack
       - name: Install packed CLI
         shell: bash
-        run: npm install -g --ignore-scripts ./sideshow-*.tgz
-      - run: sideshow help
+        run: npm install -g --ignore-scripts ./mockpit-*.tgz
+      - run: mockpit help
         shell: bash
       - name: Smoke-test server and publish round trip
         shell: bash
         run: |
-          SIDESHOW_DATA="$RUNNER_TEMP/sideshow.json" sideshow serve &
+          MOCKPIT_DATA="$RUNNER_TEMP/mockpit.json" mockpit serve &
           for i in $(seq 1 20); do curl -sf localhost:8228/api/sessions > /dev/null && break; sleep 0.5; done
-          echo '<p>ci smoke</p>' | sideshow publish - --title "CI smoke" --agent ci | tee "$RUNNER_TEMP/out.json"
+          echo '<p>ci smoke</p>' | mockpit publish - --title "CI smoke" --agent ci | tee "$RUNNER_TEMP/out.json"
           grep -q '"sessionId"' "$RUNNER_TEMP/out.json"
           curl -sf localhost:8228/guide > /dev/null

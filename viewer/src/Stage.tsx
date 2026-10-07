@@ -54,14 +54,14 @@ function listenForHits() {
   hitListening = true;
   window.addEventListener("message", (ev: MessageEvent) => {
     const d = ev.data as {
-      __sideshow?: boolean;
+      __mockpit?: boolean;
       type?: string;
       ref?: string;
       path?: unknown;
       text?: unknown;
       rect?: unknown;
     } | null;
-    if (!d || !d.__sideshow || d.type !== "hit-test-result") return;
+    if (!d || !d.__mockpit || d.type !== "hit-test-result") return;
     const resolve = pendingHits.get(String(d.ref));
     if (!resolve) return;
     pendingHits.delete(String(d.ref));
@@ -97,7 +97,7 @@ function hitTest(
       resolve(hit);
     });
     frame.contentWindow?.postMessage(
-      { __sideshow: true, type: "hit-test", x, y, xPx, yPx, ref },
+      { __mockpit: true, type: "hit-test", x, y, xPx, yPx, ref },
       "*",
     );
   });
@@ -349,7 +349,7 @@ export function Stage(props: {
             <Switch
               fallback={
                 <div class="surface-unsupported">
-                  Can&rsquo;t show this surface — refresh sideshow to update the viewer.
+                  Can&rsquo;t show this surface — refresh mockpit to update the viewer.
                 </div>
               }
             >

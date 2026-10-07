@@ -9,7 +9,7 @@ import { SqlStore } from "../server/sqlStore.ts";
 import { JsonFileStore } from "../server/storage.ts";
 
 function makeApp(authToken?: string, opts?: { publicRead?: "session" | "full" }) {
-  const dir = mkdtempSync(join(tmpdir(), "sideshow-recent-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "mockpit-recent-test-"));
   const store = new JsonFileStore(join(dir, "data.json"));
   return createApp({
     store,

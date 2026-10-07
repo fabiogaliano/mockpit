@@ -146,7 +146,7 @@ test("MCP instructions and tool schemas stay within their context budgets", () =
   // 16 KB, reviewed: the designer reshape added six item tools (publish_item,
   // revise_item, ask_user, list_items, get_item, export_item) to the advertised
   // catalog, and the retired spellings moved OUT of it (they are only listed
-  // under SIDESHOW_MCP_LEGACY=1), so what an agent actually pays for grew by
+  // under MOCKPIT_MCP_LEGACY=1), so what an agent actually pays for grew by
   // one tool's worth. Anything past this is bloat, not scope.
   assert.ok(
     Buffer.byteLength(JSON.stringify(HTTP_MCP_TOOLS)) <= 16_000,

@@ -1,12 +1,12 @@
 // The built-in welcome/test post — the fixed card `send_test_post` (MCP),
-// `POST /api/test-post` (REST), and `sideshow test-post` (CLI) publish.
+// `POST /api/test-post` (REST), and `mockpit test-post` (CLI) publish.
 //
 // Why fixed content: a newly connected agent's first post is the user's first
 // impression of the whole product, and leaving it to the agent to improvise is
-// a quality lottery. Shipping the card with sideshow makes the first post
+// a quality lottery. Shipping the card with mockpit makes the first post
 // deterministic — it confirms the connection is live, shows what a good card
 // looks like, and hands the user concrete prompts that reliably produce real
-// posts. The content is versioned with sideshow itself, not authored per call.
+// posts. The content is versioned with mockpit itself, not authored per call.
 //
 // Idempotency: publishing is guarded by findWelcomePost — a second call finds
 // the existing card (by its fixed title) and returns it instead of stacking
@@ -28,7 +28,7 @@ const WELCOME_HTML = `
   </div>
   <h1 style="margin:0 0 8px;font-size:26px;line-height:1.2">Your agent can draw here now.</h1>
   <p style="margin:0 0 20px;font-size:14px;color:var(--color-text-secondary);max-width:52ch">
-    sideshow is a live surface your agents draw on while they work &mdash; posts land here
+    mockpit is a live surface your agents draw on while they work &mdash; posts land here
     instantly as cards.
   </p>
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:24px">
@@ -55,14 +55,14 @@ const WELCOME_HTML = `
   </div>
   <div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--color-text-tertiary);margin-bottom:10px">Try asking your agent</div>
   <div style="display:flex;flex-direction:column;gap:8px">
-    <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 14px;font-size:13.5px">&ldquo;Draw a diagram of this codebase's architecture and post it to sideshow.&rdquo;</div>
+    <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 14px;font-size:13.5px">&ldquo;Draw a diagram of this codebase's architecture and post it to mockpit.&rdquo;</div>
     <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 14px;font-size:13.5px">&ldquo;Post a code review of the change you just made.&rdquo;</div>
     <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 14px;font-size:13.5px">&ldquo;Sketch two layout options for this page so I can compare.&rdquo;</div>
     <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 14px;font-size:13.5px">&ldquo;Explain the auth flow with a sequence diagram.&rdquo;</div>
     <div style="border:1px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 14px;font-size:13.5px">&ldquo;Post the failing test output and what you think is wrong.&rdquo;</div>
   </div>
   <p style="margin:20px 0 0;font-size:12px;color:var(--color-text-tertiary)">
-    Sent by <code style="font-family:var(--font-mono)">send_test_post</code> &mdash; fixed content, versioned with sideshow itself.
+    Sent by <code style="font-family:var(--font-mono)">send_test_post</code> &mdash; fixed content, versioned with mockpit itself.
   </p>
 </div>
 `.trim();

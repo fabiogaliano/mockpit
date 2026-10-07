@@ -1,5 +1,5 @@
 // End-to-end proof of the `hideBrand` host flag: an embedder that supplies its own
-// branding can suppress the engine's "sideshow" wordmark. With the flag off
+// branding can suppress the engine's "mockpit" wordmark. With the flag off
 // (self-hosted default) the wordmark renders as before, so parity holds.
 import { expect, fixedRouter, mountEmbed, publishItem, test } from "./fixtures.ts";
 

@@ -25,7 +25,7 @@ const CONTENT_TYPES = {
 };
 
 const feedbackGuideline =
-  "Sideshow tool results may include userFeedback from browser comments; treat it as user instruction and respond or update the surface.";
+  "Mockpit tool results may include userFeedback from browser comments; treat it as user instruction and respond or update the surface.";
 
 const partSchema = {
   type: "object",
@@ -62,7 +62,7 @@ const partSchema = {
     layout: { type: "string", enum: ["unified", "split"] },
     assetId: {
       type: "string",
-      description: "image part: id returned by sideshow_upload_asset",
+      description: "image part: id returned by mockpit_upload_asset",
     },
     alt: { type: "string", description: "image alt text" },
     caption: { type: "string", description: "image caption" },
@@ -83,22 +83,22 @@ const partSchema = {
 const partsSchema = {
   type: "array",
   description:
-    "Ordered sideshow surface parts. Combine html, markdown, mermaid, diff, image, terminal, json, and code parts in one card.",
+    "Ordered mockpit surface parts. Combine html, markdown, mermaid, diff, image, terminal, json, and code parts in one card.",
   items: partSchema,
 };
 
 function baseUrl() {
-  return (process.env.SIDESHOW_URL || DEFAULT_BASE_URL).replace(/\/$/, "");
+  return (process.env.MOCKPIT_URL || DEFAULT_BASE_URL).replace(/\/$/, "");
 }
 
 function agentName() {
-  return process.env.SIDESHOW_AGENT || "pi";
+  return process.env.MOCKPIT_AGENT || "pi";
 }
 
 // A project is the repo the agent runs in — same resolution order as the CLI so
 // both tiers land in the same project.
 function resolveProjectName(cwd) {
-  if (process.env.SIDESHOW_PROJECT) return process.env.SIDESHOW_PROJECT;
+  if (process.env.MOCKPIT_PROJECT) return process.env.MOCKPIT_PROJECT;
   try {
     const url = execFileSync("git", ["remote", "get-url", "origin"], {
       cwd,
@@ -120,9 +120,7 @@ function resolveProjectName(cwd) {
 
 function authHeaders(extra = {}) {
   return {
-    ...(process.env.SIDESHOW_TOKEN
-      ? { authorization: `Bearer ${process.env.SIDESHOW_TOKEN}` }
-      : {}),
+    ...(process.env.MOCKPIT_TOKEN ? { authorization: `Bearer ${process.env.MOCKPIT_TOKEN}` } : {}),
     ...extra,
   };
 }
@@ -156,7 +154,7 @@ async function requestJson(path, init = {}) {
     });
   } catch (error) {
     throw new Error(
-      `sideshow server not reachable at ${baseUrl()} — start it with "sideshow serve" (${error.message})`,
+      `mockpit server not reachable at ${baseUrl()} — start it with "mockpit serve" (${error.message})`,
     );
   }
 
@@ -175,7 +173,7 @@ async function requestJson(path, init = {}) {
       body && typeof body.error === "string"
         ? body.error
         : `${response.status} ${response.statusText}`;
-    throw new Error(`sideshow ${path} failed: ${message}`);
+    throw new Error(`mockpit ${path} failed: ${message}`);
   }
 
   return body;
@@ -187,12 +185,12 @@ async function requestText(path) {
     response = await fetch(`${baseUrl()}${path}`, { headers: authHeaders() });
   } catch (error) {
     throw new Error(
-      `sideshow server not reachable at ${baseUrl()} — start it with "sideshow serve" (${error.message})`,
+      `mockpit server not reachable at ${baseUrl()} — start it with "mockpit serve" (${error.message})`,
     );
   }
   const text = await response.text();
   if (!response.ok)
-    throw new Error(`sideshow ${path} failed: ${response.status} ${response.statusText}`);
+    throw new Error(`mockpit ${path} failed: ${response.status} ${response.statusText}`);
   return text;
 }
 
@@ -264,8 +262,8 @@ function summarizePiTool(name, args) {
     return { kind: "web", label: `Search ${JSON.stringify(args?.query ?? "")}` };
   if (name === "subagent")
     return { kind: "agent", label: args?.agent ?? args?.action ?? "Subagent" };
-  if (name?.startsWith("sideshow_"))
-    return { kind: "sideshow", label: name.replace(/^sideshow_/, "") };
+  if (name?.startsWith("mockpit_"))
+    return { kind: "mockpit", label: name.replace(/^mockpit_/, "") };
   return { kind: (name || "tool").toLowerCase().slice(0, 20), label: name || "tool" };
 }
 
@@ -390,11 +388,11 @@ async function syncPiTrace(state, ctx, { all = false, pad = 5 } = {}) {
 }
 
 function reconstructSession(ctx) {
-  let sessionId = process.env.SIDESHOW_SESSION || undefined;
+  let sessionId = process.env.MOCKPIT_SESSION || undefined;
   for (const entry of ctx.sessionManager.getBranch()) {
     const message = entry?.type === "message" ? entry.message : undefined;
     if (message?.role !== "toolResult") continue;
-    if (!String(message.toolName ?? "").startsWith("sideshow_")) continue;
+    if (!String(message.toolName ?? "").startsWith("mockpit_")) continue;
     const details = message.details;
     if (details && typeof details.sessionId === "string") sessionId = details.sessionId;
     if (details?.surface && typeof details.surface.sessionId === "string")
@@ -405,16 +403,16 @@ function reconstructSession(ctx) {
   return sessionId;
 }
 
-export default function sideshowExtension(pi) {
-  const state = { sessionId: process.env.SIDESHOW_SESSION || undefined };
+export default function mockpitExtension(pi) {
+  const state = { sessionId: process.env.MOCKPIT_SESSION || undefined };
 
   pi.on("session_start", (_event, ctx) => {
     state.sessionId = reconstructSession(ctx);
     ctx.ui.setStatus(
-      "sideshow",
+      "mockpit",
       state.sessionId
-        ? `sideshow ${state.sessionId}`
-        : `sideshow ${baseUrl().replace(/^https?:\/\//, "")}`,
+        ? `mockpit ${state.sessionId}`
+        : `mockpit ${baseUrl().replace(/^https?:\/\//, "")}`,
     );
   });
 
@@ -427,32 +425,31 @@ export default function sideshowExtension(pi) {
     }
   });
 
-  pi.registerCommand("sideshow", {
-    description:
-      "Show sideshow extension status or reset its remembered session: /sideshow [reset]",
+  pi.registerCommand("mockpit", {
+    description: "Show mockpit extension status or reset its remembered session: /mockpit [reset]",
     handler: async (args, ctx) => {
       const command = args.trim();
       if (command === "reset") {
-        state.sessionId = process.env.SIDESHOW_SESSION || undefined;
-        ctx.ui.setStatus("sideshow", `sideshow ${baseUrl().replace(/^https?:\/\//, "")}`);
-        ctx.ui.notify("Reset remembered sideshow session", "info");
+        state.sessionId = process.env.MOCKPIT_SESSION || undefined;
+        ctx.ui.setStatus("mockpit", `mockpit ${baseUrl().replace(/^https?:\/\//, "")}`);
+        ctx.ui.notify("Reset remembered mockpit session", "info");
         return;
       }
       ctx.ui.notify(
-        `sideshow: ${baseUrl()}${state.sessionId ? ` (session ${state.sessionId})` : " (no session yet)"}`,
+        `mockpit: ${baseUrl()}${state.sessionId ? ` (session ${state.sessionId})` : " (no session yet)"}`,
         "info",
       );
     },
   });
 
   pi.registerTool({
-    name: "sideshow_get_design_guide",
-    label: "Sideshow Guide",
+    name: "mockpit_get_design_guide",
+    label: "Mockpit Guide",
     description:
-      "Fetch the sideshow design contract: surface parts, HTML fragment rules, theme variables, and interactivity bridge. Call once before the first sideshow publish in a session.",
-    promptSnippet: "Fetch sideshow's design guide before authoring live preview surfaces.",
+      "Fetch the mockpit design contract: surface parts, HTML fragment rules, theme variables, and interactivity bridge. Call once before the first mockpit publish in a session.",
+    promptSnippet: "Fetch mockpit's design guide before authoring live preview surfaces.",
     promptGuidelines: [
-      "Use sideshow_get_design_guide before your first sideshow_publish_surface call in a session unless you already know the current guide.",
+      "Use mockpit_get_design_guide before your first mockpit_publish_surface call in a session unless you already know the current guide.",
     ],
     parameters: { type: "object", properties: {} },
     async execute() {
@@ -510,13 +507,13 @@ export default function sideshowExtension(pi) {
   }
 
   pi.registerTool({
-    name: "sideshow_publish_item",
-    label: "Sideshow Publish Item",
+    name: "mockpit_publish_item",
+    label: "Mockpit Publish Item",
     description:
       "Publish a variant of an item (a component or page) to the user's browser. An existing (project, slug, variant) becomes a new version. If userFeedback appears, treat it as user instruction.",
-    promptSnippet: "Publish a UI item variant to sideshow for the user to review.",
+    promptSnippet: "Publish a UI item variant to mockpit for the user to review.",
     promptGuidelines: [
-      "Use sideshow_publish_item for design work the user reviews: one item, one variant per call.",
+      "Use mockpit_publish_item for design work the user reviews: one item, one variant per call.",
       feedbackGuideline,
     ],
     parameters: {
@@ -536,13 +533,13 @@ export default function sideshowExtension(pi) {
   });
 
   pi.registerTool({
-    name: "sideshow_revise_item",
-    label: "Sideshow Revise Item",
+    name: "mockpit_revise_item",
+    label: "Mockpit Revise Item",
     description:
       "Publish the next version of an existing variant. If userFeedback appears, treat it as user instruction.",
-    promptSnippet: "Revise a sideshow item variant after user feedback.",
+    promptSnippet: "Revise a mockpit item variant after user feedback.",
     promptGuidelines: [
-      "Use sideshow_revise_item rather than publishing a near-duplicate item.",
+      "Use mockpit_revise_item rather than publishing a near-duplicate item.",
       feedbackGuideline,
     ],
     parameters: {
@@ -560,12 +557,12 @@ export default function sideshowExtension(pi) {
   });
 
   pi.registerTool({
-    name: "sideshow_ask_user",
-    label: "Sideshow Ask",
+    name: "mockpit_ask_user",
+    label: "Mockpit Ask",
     description:
-      "Mark an item as waiting on the user and ask one question. Follow with sideshow_wait_for_feedback.",
-    promptSnippet: "Ask the user to decide between sideshow item variants.",
-    promptGuidelines: ["Use sideshow_ask_user once the variants are published, then wait."],
+      "Mark an item as waiting on the user and ask one question. Follow with mockpit_wait_for_feedback.",
+    promptSnippet: "Ask the user to decide between mockpit item variants.",
+    promptGuidelines: ["Use mockpit_ask_user once the variants are published, then wait."],
     parameters: {
       type: "object",
       properties: { ...itemProps, text: { type: "string", description: "The question" } },
@@ -601,12 +598,12 @@ export default function sideshowExtension(pi) {
   });
 
   pi.registerTool({
-    name: "sideshow_list_items",
-    label: "Sideshow Items",
+    name: "mockpit_list_items",
+    label: "Mockpit Items",
     description: "List a project's items: slug, kind, variants, and what is waiting. No bodies.",
-    promptSnippet: "List sideshow items and their variants.",
+    promptSnippet: "List mockpit items and their variants.",
     promptGuidelines: [
-      "Use sideshow_list_items to recover item slugs and variants when you lost track of what is published.",
+      "Use mockpit_list_items to recover item slugs and variants when you lost track of what is published.",
     ],
     parameters: { type: "object", properties: { project: itemProps.project } },
     async execute(_id, params, _signal, _onUpdate, ctx) {
@@ -624,15 +621,15 @@ export default function sideshowExtension(pi) {
   });
 
   pi.registerTool({
-    name: "sideshow_publish_surface",
-    label: "Sideshow Publish",
+    name: "mockpit_publish_surface",
+    label: "Mockpit Publish",
     description:
-      "Publish a live sideshow surface to the user's browser. A surface is an ordered list of parts: html, markdown, mermaid, diff, image, terminal, json, or code. Returns surfaceId, sessionId, and URL. On first publish, set sessionTitle to the task name. If userFeedback appears, treat it as user instruction.",
+      "Publish a live mockpit surface to the user's browser. A surface is an ordered list of parts: html, markdown, mermaid, diff, image, terminal, json, or code. Returns surfaceId, sessionId, and URL. On first publish, set sessionTitle to the task name. If userFeedback appears, treat it as user instruction.",
     promptSnippet:
-      "Publish diagrams, UI sketches, markdown, diffs, terminal output, images, JSON trees, or code to sideshow.",
+      "Publish diagrams, UI sketches, markdown, diffs, terminal output, images, JSON trees, or code to mockpit.",
     promptGuidelines: [
-      "Use sideshow_publish_surface when a visual preview, diagram, UI sketch, rendered markdown, terminal output, or diff would help the user.",
-      "Pass sessionTitle on the first sideshow_publish_surface call and name the user's task, not the tool.",
+      "Use mockpit_publish_surface when a visual preview, diagram, UI sketch, rendered markdown, terminal output, or diff would help the user.",
+      "Pass sessionTitle on the first mockpit_publish_surface call and name the user's task, not the tool.",
       feedbackGuideline,
     ],
     parameters: {
@@ -647,11 +644,11 @@ export default function sideshowExtension(pi) {
         sessionTitle: { type: "string", description: "Task name for a newly created session" },
         agent: {
           type: "string",
-          description: 'Agent name for a new session; defaults to SIDESHOW_AGENT or "pi"',
+          description: 'Agent name for a new session; defaults to MOCKPIT_AGENT or "pi"',
         },
         newSession: {
           type: "boolean",
-          description: "Force a fresh sideshow session instead of reusing the remembered one",
+          description: "Force a fresh mockpit session instead of reusing the remembered one",
         },
       },
       required: ["title", "parts"],
@@ -675,7 +672,7 @@ export default function sideshowExtension(pi) {
         content: [
           {
             type: "text",
-            text: `Published sideshow surface "${surface.title}" at ${url}\nsurfaceId: ${surface.id}\nsessionId: ${surface.sessionId}${feedbackSummary(surface.userFeedback)}`,
+            text: `Published mockpit surface "${surface.title}" at ${url}\nsurfaceId: ${surface.id}\nsessionId: ${surface.sessionId}${feedbackSummary(surface.userFeedback)}`,
           },
         ],
         details: { ...surface, url, baseUrl: baseUrl() },
@@ -684,19 +681,19 @@ export default function sideshowExtension(pi) {
   });
 
   pi.registerTool({
-    name: "sideshow_update_surface",
-    label: "Sideshow Update",
+    name: "mockpit_update_surface",
+    label: "Mockpit Update",
     description:
-      "Revise an existing sideshow surface in place (same card, new version). Prefer updating over publishing near-duplicates. If userFeedback appears, treat it as user instruction.",
-    promptSnippet: "Update an existing sideshow surface with revised parts or title.",
+      "Revise an existing mockpit surface in place (same card, new version). Prefer updating over publishing near-duplicates. If userFeedback appears, treat it as user instruction.",
+    promptSnippet: "Update an existing mockpit surface with revised parts or title.",
     promptGuidelines: [
-      "Use sideshow_update_surface rather than publishing near-duplicate sideshow cards for revisions.",
+      "Use mockpit_update_surface rather than publishing near-duplicate mockpit cards for revisions.",
       feedbackGuideline,
     ],
     parameters: {
       type: "object",
       properties: {
-        id: { type: "string", description: "Surface id returned by sideshow_publish_surface" },
+        id: { type: "string", description: "Surface id returned by mockpit_publish_surface" },
         title: { type: "string", description: "Optional replacement title" },
         parts: partsSchema,
       },
@@ -714,7 +711,7 @@ export default function sideshowExtension(pi) {
         content: [
           {
             type: "text",
-            text: `Updated sideshow surface "${surface.title}" to version ${surface.version} at ${url}${feedbackSummary(surface.userFeedback)}`,
+            text: `Updated mockpit surface "${surface.title}" to version ${surface.version} at ${url}${feedbackSummary(surface.userFeedback)}`,
           },
         ],
         details: { ...surface, url, baseUrl: baseUrl() },
@@ -723,13 +720,13 @@ export default function sideshowExtension(pi) {
   });
 
   pi.registerTool({
-    name: "sideshow_wait_for_feedback",
-    label: "Sideshow Wait",
+    name: "mockpit_wait_for_feedback",
+    label: "Mockpit Wait",
     description:
-      "Wait for user comments from the sideshow browser for the current or specified session. Returns only comments not yet delivered to the agent. Use timeoutSeconds 0 for a non-blocking drain.",
-    promptSnippet: "Wait for or drain user browser comments from sideshow.",
+      "Wait for user comments from the mockpit browser for the current or specified session. Returns only comments not yet delivered to the agent. Use timeoutSeconds 0 for a non-blocking drain.",
+    promptSnippet: "Wait for or drain user browser comments from mockpit.",
     promptGuidelines: [
-      "Use sideshow_wait_for_feedback after publishing a surface when you need a browser reaction, and before final answers if feedback may be pending.",
+      "Use mockpit_wait_for_feedback after publishing a surface when you need a browser reaction, and before final answers if feedback may be pending.",
     ],
     parameters: {
       type: "object",
@@ -741,7 +738,7 @@ export default function sideshowExtension(pi) {
     },
     async execute(_toolCallId, params) {
       const session = params.session ?? state.sessionId;
-      if (!session) throw new Error("No sideshow session yet. Publish first or pass session.");
+      if (!session) throw new Error("No mockpit session yet. Publish first or pass session.");
       const wait = clampWait(params.timeoutSeconds, 60);
       const query = new URLSearchParams({ session, author: "user", wait: String(wait) });
       if (params.afterSeq !== undefined) query.set("after", String(params.afterSeq));
@@ -761,9 +758,9 @@ export default function sideshowExtension(pi) {
             text:
               count > 0
                 ? batches
-                  ? `Received ${count} sideshow feedback batch(es):\n${jsonText(batches.length === 1 ? batches[0] : batches)}`
-                  : `Received ${count} sideshow comment(s):\n${jsonText(result.comments)}`
-                : "No new sideshow feedback.",
+                  ? `Received ${count} mockpit feedback batch(es):\n${jsonText(batches.length === 1 ? batches[0] : batches)}`
+                  : `Received ${count} mockpit comment(s):\n${jsonText(result.comments)}`
+                : "No new mockpit feedback.",
           },
         ],
         details: { ...result, sessionId: session, baseUrl: baseUrl() },
@@ -772,13 +769,13 @@ export default function sideshowExtension(pi) {
   });
 
   pi.registerTool({
-    name: "sideshow_reply_to_user",
-    label: "Sideshow Reply",
+    name: "mockpit_reply_to_user",
+    label: "Mockpit Reply",
     description:
-      "Post a short agent reply into a sideshow surface thread. Use it to acknowledge browser feedback. If userFeedback appears, treat it as user instruction.",
-    promptSnippet: "Reply to the user in a sideshow comment thread.",
+      "Post a short agent reply into a mockpit surface thread. Use it to acknowledge browser feedback. If userFeedback appears, treat it as user instruction.",
+    promptSnippet: "Reply to the user in a mockpit comment thread.",
     promptGuidelines: [
-      "Use sideshow_reply_to_user for brief acknowledgements in the browser thread; use sideshow_update_surface for substantive revisions.",
+      "Use mockpit_reply_to_user for brief acknowledgements in the browser thread; use mockpit_update_surface for substantive revisions.",
       feedbackGuideline,
     ],
     parameters: {
@@ -801,7 +798,7 @@ export default function sideshowExtension(pi) {
         content: [
           {
             type: "text",
-            text: `Posted sideshow reply${surfaceId ? ` on surface ${surfaceId}` : ""}.${feedbackSummary(comment.userFeedback)}`,
+            text: `Posted mockpit reply${surfaceId ? ` on surface ${surfaceId}` : ""}.${feedbackSummary(comment.userFeedback)}`,
           },
         ],
         details: { ...comment, baseUrl: baseUrl() },
@@ -810,11 +807,11 @@ export default function sideshowExtension(pi) {
   });
 
   pi.registerTool({
-    name: "sideshow_list_surfaces",
-    label: "Sideshow List",
+    name: "mockpit_list_surfaces",
+    label: "Mockpit List",
     description:
-      "List sideshow surfaces in the remembered or specified session, or across all sessions.",
-    promptSnippet: "List sideshow surfaces and ids for updates or replies.",
+      "List mockpit surfaces in the remembered or specified session, or across all sessions.",
+    promptSnippet: "List mockpit surfaces and ids for updates or replies.",
     parameters: {
       type: "object",
       properties: {
@@ -850,7 +847,7 @@ export default function sideshowExtension(pi) {
         }
         return {
           content: [
-            { type: "text", text: lines.length ? lines.join("\n") : "No sideshow surfaces found." },
+            { type: "text", text: lines.length ? lines.join("\n") : "No mockpit surfaces found." },
           ],
           details: { sessions: groups, baseUrl: baseUrl() },
         };
@@ -858,7 +855,7 @@ export default function sideshowExtension(pi) {
 
       const session = params.session ?? state.sessionId;
       if (!session)
-        throw new Error("No sideshow session yet. Publish first, pass session, or set all=true.");
+        throw new Error("No mockpit session yet. Publish first, pass session, or set all=true.");
       const surfaces = await requestJson(`/api/sessions/${encodeURIComponent(session)}/surfaces`);
       const lines = surfaces
         .slice(0, limit)
@@ -870,7 +867,7 @@ export default function sideshowExtension(pi) {
         content: [
           {
             type: "text",
-            text: lines.length ? lines.join("\n") : "No sideshow surfaces in this session.",
+            text: lines.length ? lines.join("\n") : "No mockpit surfaces in this session.",
           },
         ],
         details: { sessionId: session, surfaces, baseUrl: baseUrl() },
@@ -879,13 +876,13 @@ export default function sideshowExtension(pi) {
   });
 
   pi.registerTool({
-    name: "sideshow_upload_asset",
-    label: "Sideshow Upload",
+    name: "mockpit_upload_asset",
+    label: "Mockpit Upload",
     description:
-      "Upload an asset to sideshow and get an assetId/URL. Use image assets in surface parts as {kind:'image', assetId}, or embed the URL in an html part.",
-    promptSnippet: "Upload an image or file asset for use in sideshow surfaces.",
+      "Upload an asset to mockpit and get an assetId/URL. Use image assets in surface parts as {kind:'image', assetId}, or embed the URL in an html part.",
+    promptSnippet: "Upload an image or file asset for use in mockpit surfaces.",
     promptGuidelines: [
-      "Use sideshow_upload_asset before referencing local images or files in sideshow_publish_surface parts.",
+      "Use mockpit_upload_asset before referencing local images or files in mockpit_publish_surface parts.",
     ],
     parameters: {
       type: "object",
@@ -906,7 +903,7 @@ export default function sideshowExtension(pi) {
         },
         newSession: {
           type: "boolean",
-          description: "Force a fresh sideshow session for this upload",
+          description: "Force a fresh mockpit session for this upload",
         },
       },
     },
@@ -954,7 +951,7 @@ export default function sideshowExtension(pi) {
         content: [
           {
             type: "text",
-            text: `Uploaded sideshow asset ${asset.id} (${asset.contentType}, ${asset.byteLength} bytes)\nurl: ${asset.url}\nsessionId: ${asset.sessionId}`,
+            text: `Uploaded mockpit asset ${asset.id} (${asset.contentType}, ${asset.byteLength} bytes)\nurl: ${asset.url}\nsessionId: ${asset.sessionId}`,
           },
         ],
         details: { asset, sessionId: asset.sessionId, baseUrl: baseUrl() },

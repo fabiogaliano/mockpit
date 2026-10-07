@@ -14,7 +14,7 @@ import type { Store } from "../server/types.ts";
 // api.test.ts still owns the legacy post/snippet contract.
 
 function makeApp(opts?: { authToken?: string; publicRead?: "session" | "full"; store?: Store }) {
-  const dir = mkdtempSync(join(tmpdir(), "sideshow-reshape-"));
+  const dir = mkdtempSync(join(tmpdir(), "mockpit-reshape-"));
   const { store = new JsonFileStore(join(dir, "data.json")), ...rest } = opts ?? {};
   return createApp({
     store,
@@ -340,7 +340,7 @@ test("a page inlines the referenced variant version at /s and snapshots it", asy
     slug: "landing",
     kind: "page",
     surfaces: [
-      { kind: "html", html: `<main><sideshow-slot slug="pricing-card"></sideshow-slot></main>` },
+      { kind: "html", html: `<main><mockpit-slot slug="pricing-card"></mockpit-slot></main>` },
     ],
   });
   assert.equal(page.body.kind, "page");
@@ -349,8 +349,8 @@ test("a page inlines the referenced variant version at /s and snapshots it", asy
 
   const doc = await (await app.request(`/s/${page.body.id}?part=0`)).text();
   assert.ok(doc.includes("<p>card v1</p>"), "the component body is inlined server-side");
-  assert.ok(doc.includes('data-sideshow-slot="pricing-card"'));
-  assert.ok(!doc.includes("<sideshow-slot"), "the tag itself is replaced");
+  assert.ok(doc.includes('data-mockpit-slot="pricing-card"'));
+  assert.ok(!doc.includes("<mockpit-slot"), "the tag itself is replaced");
 
   // the component moves on; the page keeps rendering the version it snapshotted
   await publishItem(app, {
@@ -365,10 +365,10 @@ test("a page inlines the referenced variant version at /s and snapshots it", asy
   const broken = await publishItem(app, {
     slug: "broken-page",
     kind: "page",
-    surfaces: [{ kind: "html", html: `<sideshow-slot slug="nothing-here"></sideshow-slot>` }],
+    surfaces: [{ kind: "html", html: `<mockpit-slot slug="nothing-here"></mockpit-slot>` }],
   });
   const brokenDoc = await (await app.request(`/s/${broken.body.id}?part=0`)).text();
-  assert.ok(brokenDoc.includes('data-sideshow-missing="1"'));
+  assert.ok(brokenDoc.includes('data-mockpit-missing="1"'));
 });
 
 // --- static assets and CSP ----------------------------------------------
@@ -423,7 +423,7 @@ test("project reads are not public on a session-scoped workspace", async () => {
 
 test("project design round-trips and normalizes unknown values", async () => {
   const app = makeApp();
-  // a project that never ran `sideshow init` has no design at all
+  // a project that never ran `mockpit init` has no design at all
   const empty = await get(app, "/api/projects/acme%2Fsite/design");
   assert.equal(empty.status, 200);
   assert.equal(empty.body, null);
@@ -743,7 +743,7 @@ test("wait_for_feedback over MCP returns the decision batch", async () => {
   assert.match(again.value!.note, /no user feedback yet/);
 });
 
-test("tools/list hides the retired spellings unless SIDESHOW_MCP_LEGACY=1", async () => {
+test("tools/list hides the retired spellings unless MOCKPIT_MCP_LEGACY=1", async () => {
   const app = makeApp();
   const names = async () => {
     const res = (await (await app.request("/mcp", mcpCall(1, "tools/list"))).json()) as AnyJson;
@@ -751,8 +751,8 @@ test("tools/list hides the retired spellings unless SIDESHOW_MCP_LEGACY=1", asyn
   };
   assert.ok(!(await names()).includes("publish_surface"));
 
-  const previous = process.env.SIDESHOW_MCP_LEGACY;
-  process.env.SIDESHOW_MCP_LEGACY = "1";
+  const previous = process.env.MOCKPIT_MCP_LEGACY;
+  process.env.MOCKPIT_MCP_LEGACY = "1";
   try {
     const legacy = await names();
     for (const name of ["publish_surface", "update_surface", "publish_snippet", "list_surfaces"]) {
@@ -760,8 +760,8 @@ test("tools/list hides the retired spellings unless SIDESHOW_MCP_LEGACY=1", asyn
     }
     assert.ok(legacy.includes("publish_item"), "the canonical tools are still there");
   } finally {
-    if (previous === undefined) delete process.env.SIDESHOW_MCP_LEGACY;
-    else process.env.SIDESHOW_MCP_LEGACY = previous;
+    if (previous === undefined) delete process.env.MOCKPIT_MCP_LEGACY;
+    else process.env.MOCKPIT_MCP_LEGACY = previous;
   }
 });
 

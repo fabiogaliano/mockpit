@@ -170,7 +170,7 @@ test("a trace surface stays readable on an iPhone-sized viewport", async ({ page
         steps: [
           {
             label:
-              "ran a very long shell command with flags --workspace=/tmp/sideshow-mobile --include-traces --verify-sidebar",
+              "ran a very long shell command with flags --workspace=/tmp/mockpit-mobile --include-traces --verify-sidebar",
             kind: "shell",
             ts: "2026-06-25T12:00:00Z",
             detail:
@@ -223,11 +223,11 @@ test("all native surface primitives fit the iPhone 14 Pro viewer", async ({ page
       },
       {
         kind: "terminal",
-        text: "\u001b[32mPASS\u001b[0m mobile primitive check\n$ sideshow trace-sync --all",
+        text: "\u001b[32mPASS\u001b[0m mobile primitive check\n$ mockpit trace-sync --all",
         title: "terminal",
       },
       { kind: "image", assetId: asset.id, caption: "uploaded image primitive" },
-      { kind: "mermaid", mermaid: "flowchart LR\n  A[Agent] --> B[sideshow]\n  B --> C[Phone]" },
+      { kind: "mermaid", mermaid: "flowchart LR\n  A[Agent] --> B[mockpit]\n  B --> C[Phone]" },
       {
         kind: "json",
         data: {

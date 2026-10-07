@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// sideshow-term CLI — Node built-ins only. Talks to the sideshow-term server
+// mockpit-term CLI — Node built-ins only. Talks to the mockpit-term server
 // over HTTP for publishing/listing, and shells out to Bun for the opentui
 // pieces (`watch`, `render`) since opentui's native core needs Bun's FFI.
 
@@ -19,48 +19,48 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
-const BASE = (process.env.SIDESHOW_URL ?? "http://localhost:4243").replace(/\/$/, "");
-const TOKEN = process.env.SIDESHOW_TOKEN;
+const BASE = (process.env.MOCKPIT_URL ?? "http://localhost:4243").replace(/\/$/, "");
+const TOKEN = process.env.MOCKPIT_TOKEN;
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-const HELP = `sideshow-term — a live terminal visual surface for coding agents
+const HELP = `mockpit-term — a live terminal visual surface for coding agents
 
 usage:
-  sideshow-term [--port N]                open the live TUI viewer, starting a local server if needed
-  sideshow-term watch [opts]              open the live TUI viewer (needs Bun)
+  mockpit-term [--port N]                open the live TUI viewer, starting a local server if needed
+  mockpit-term watch [opts]              open the live TUI viewer (needs Bun)
       --port N              local server port when auto-starting (default 4243)
       --url <url>           attach to an existing server instead of localhost
       --no-serve            fail instead of auto-starting a local server
       --keep-server         leave an auto-started server running after the viewer exits
-  sideshow-term serve [--port N]          start the server (REST + SSE + MCP)
-  sideshow-term render <file|-> [--width N]  preview STML to plain text (needs Bun)
-  sideshow-term publish <file|-> [opts]   publish an STML snippet
+  mockpit-term serve [--port N]          start the server (REST + SSE + MCP)
+  mockpit-term render <file|-> [--width N]  preview STML to plain text (needs Bun)
+  mockpit-term publish <file|-> [opts]   publish an STML snippet
       --title <t>            snippet title
       --session <id>         target session (default: auto per cwd)
       --session-title <t>    name for a newly created session
       --agent <name>         agent name for new sessions
       --new-session          force a fresh session
-  sideshow-term update <id> <file|->      revise a snippet (new version)
+  mockpit-term update <id> <file|->      revise a snippet (new version)
       --title <t>            replace title
-  sideshow-term list [--session <id>|--all]   list snippets
-  sideshow-term clear [--session <id>|--all] [--sessions]
+  mockpit-term list [--session <id>|--all]   list snippets
+  mockpit-term clear [--session <id>|--all] [--sessions]
                                       clear existing visualizations
-  sideshow-term sessions                  list sessions
-  sideshow-term comment <text> [opts]     post a comment
+  mockpit-term sessions                  list sessions
+  mockpit-term comment <text> [opts]     post a comment
       --snippet <id> | --session <id>
       --author <name>
-  sideshow-term demo                      seed an example session
-  sideshow-term guide                     print the STML design contract
-  sideshow-term setup                     print the agent integration block
+  mockpit-term demo                      seed an example session
+  mockpit-term guide                     print the STML design contract
+  mockpit-term setup                     print the agent integration block
 
 environment:
-  SIDESHOW_URL    server base URL (default http://localhost:4243)
-  SIDESHOW_TOKEN  bearer token for a deployed instance
-  SIDESHOW_AGENT  agent name used when creating sessions
+  MOCKPIT_URL    server base URL (default http://localhost:4243)
+  MOCKPIT_TOKEN  bearer token for a deployed instance
+  MOCKPIT_AGENT  agent name used when creating sessions
 `;
 
 function fail(msg) {
-  console.error(`sideshow-term: ${msg}`);
+  console.error(`mockpit-term: ${msg}`);
   process.exit(1);
 }
 
@@ -76,7 +76,7 @@ async function api(path, init = {}) {
       },
     });
   } catch {
-    fail(`server not reachable at ${BASE} — start it with: sideshow-term serve`);
+    fail(`server not reachable at ${BASE} — start it with: mockpit-term serve`);
   }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) fail(body.error ?? `${res.status} ${res.statusText}`);
@@ -85,7 +85,7 @@ async function api(path, init = {}) {
 
 // Session grouping: remember the last session id per working directory.
 function stateFile() {
-  const dir = join(tmpdir(), `sideshow-term-${userInfo().username}`);
+  const dir = join(tmpdir(), `mockpit-term-${userInfo().username}`);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const key = createHash("sha1").update(process.cwd()).digest("hex").slice(0, 12);
   return join(dir, `${key}.json`);
@@ -103,12 +103,12 @@ function writeState(patch) {
   return next;
 }
 function agentName(flags) {
-  return flags.agent ?? process.env.SIDESHOW_AGENT ?? readState().agent ?? "agent";
+  return flags.agent ?? process.env.MOCKPIT_AGENT ?? readState().agent ?? "agent";
 }
 
 async function resolveSession(flags, { create = false } = {}) {
   if (flags.session) return flags.session;
-  if (process.env.SIDESHOW_SESSION) return process.env.SIDESHOW_SESSION;
+  if (process.env.MOCKPIT_SESSION) return process.env.MOCKPIT_SESSION;
   const state = readState();
   if (state.session && !flags["new-session"]) {
     const ok = await fetch(`${BASE}/api/sessions/${state.session}/snippets`, {
@@ -200,7 +200,7 @@ async function waitForServer(base, child, logFile) {
 }
 
 function serverLogFile(port) {
-  const dir = join(homedir(), ".sideshow-term", "logs");
+  const dir = join(homedir(), ".mockpit-term", "logs");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   return join(dir, `server-${port}.log`);
 }
@@ -208,7 +208,7 @@ function serverLogFile(port) {
 function startOwnedServer(port) {
   const logFile = serverLogFile(port);
   const log = openSync(logFile, "a");
-  writeSync(log, `\n--- ${new Date().toISOString()} sideshow-term serve --port ${port} ---\n`);
+  writeSync(log, `\n--- ${new Date().toISOString()} mockpit-term serve --port ${port} ---\n`);
   const child = spawn(process.execPath, [entrypoint(["server.ts"], ["dist", "server.js"])], {
     stdio: ["ignore", log, log],
     env: { ...process.env, PORT: port },
@@ -237,7 +237,7 @@ function watchBun(base, ownedServer, { keepServer = false } = {}) {
     };
     const child = spawn("bun", [entrypoint(["src", "watch.ts"], ["dist", "src", "watch.js"])], {
       stdio: "inherit",
-      env: { ...process.env, SIDESHOW_URL: base },
+      env: { ...process.env, MOCKPIT_URL: base },
     });
     child.on("error", (err) => {
       if (ownedServer && !keepServer) stopOwnedServer(ownedServer.child);
@@ -267,7 +267,7 @@ function parse(config = {}) {
     });
   } catch (err) {
     if (!String(err?.code).startsWith("ERR_PARSE_ARGS")) throw err;
-    fail(`${err.message.split(". ")[0]} — run "sideshow-term help"`);
+    fail(`${err.message.split(". ")[0]} — run "mockpit-term help"`);
   }
   if (parsed.values.help) {
     console.log(HELP);
@@ -297,7 +297,7 @@ const commands = {
       },
     });
     if (flags.url && flags.port) fail("pass either --url or --port, not both");
-    const explicitUrl = flags.url ?? process.env.SIDESHOW_URL;
+    const explicitUrl = flags.url ?? process.env.MOCKPIT_URL;
     const port = flags.port ?? process.env.PORT ?? "4243";
     const base = (explicitUrl ?? `http://localhost:${port}`).replace(/\/$/, "");
     const probe = await probeServer(base);
@@ -307,7 +307,7 @@ const commands = {
         fail(`server at ${base} returned ${probe.status} ${probe.statusText ?? ""}`.trim());
       }
       if (explicitUrl || flags["no-serve"]) {
-        fail(`server not reachable at ${base} — start it with: sideshow-term serve`);
+        fail(`server not reachable at ${base} — start it with: mockpit-term serve`);
       }
       ownedServer = startOwnedServer(port);
       await waitForServer(base, ownedServer.child, ownedServer.logFile);
@@ -351,7 +351,7 @@ const commands = {
       options: { title: { type: "string" } },
     });
     const id = positionals[0];
-    if (!id) fail("usage: sideshow-term update <snippetId> <file|->");
+    if (!id) fail("usage: mockpit-term update <snippetId> <file|->");
     const html = readContent(positionals[1]);
     out(
       await api(`/api/snippets/${id}`, {
@@ -424,7 +424,7 @@ const commands = {
       },
     });
     const text = positionals.join(" ").trim();
-    if (!text) fail("usage: sideshow-term comment <text> [--snippet id]");
+    if (!text) fail("usage: mockpit-term comment <text> [--snippet id]");
     const session = flags.snippet ? undefined : await resolveSession(flags);
     if (!flags.snippet && !session) fail("no active session — pass --snippet or --session");
     out(
@@ -453,7 +453,7 @@ const commands = {
         body: JSON.stringify({ session: session.id, title: snip.title, html: snip.html }),
       });
     }
-    console.log(`Seeded a demo session — open the viewer with:  sideshow-term watch`);
+    console.log(`Seeded a demo session — open the viewer with:  mockpit-term watch`);
   },
 
   async guide() {
@@ -483,5 +483,5 @@ if (!cmd) {
 } else if (commands[cmd]) {
   await commands[cmd]();
 } else {
-  fail(`unknown command "${cmd}" — run "sideshow-term help"`);
+  fail(`unknown command "${cmd}" — run "mockpit-term help"`);
 }

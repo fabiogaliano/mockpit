@@ -551,8 +551,8 @@ test("resize bridge late timers catch height growth after the 1500ms warm-up", (
 });
 
 // A project's imported design system reaches the frame through the surface
-// document itself — this is the only place `sideshow init`'s output is applied,
-// so the ordering rule (the repo's tokens land after sideshow's) is load-bearing.
+// document itself — this is the only place `mockpit init`'s output is applied,
+// so the ordering rule (the repo's tokens land after mockpit's) is load-bearing.
 test("a project's design injects its tokens, kit and icon sprite into the frame", () => {
   const page = renderHtmlPage({
     title: "t",

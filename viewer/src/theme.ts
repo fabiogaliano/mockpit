@@ -22,7 +22,7 @@ export { themeOptions };
 
 export type ColorModePreference = "system" | Mode;
 
-const COLOR_MODE_KEY = "sideshow:color-mode";
+const COLOR_MODE_KEY = "mockpit:color-mode";
 const COLOR_MODE_PREFERENCES: ColorModePreference[] = ["system", "light", "dark"];
 
 function readColorModePreference(): ColorModePreference {
@@ -63,7 +63,7 @@ export const resolvedMode = (): Mode => {
 // so re-push it to the host (below) after updating the mode signal. If the user
 // has forced light/dark, the OS change does not affect the resolved mode.
 function syncModeCookie() {
-  document.cookie = `sideshow_mode=${resolvedMode()};path=/;max-age=31536000;SameSite=Lax`;
+  document.cookie = `mockpit_mode=${resolvedMode()};path=/;max-age=31536000;SameSite=Lax`;
 }
 syncModeCookie();
 darkQuery?.addEventListener("change", (e) => {

@@ -5,7 +5,7 @@ made; phases reference the audit in `docs/tmp/improvement-audit-2026-09-14.md`.
 
 ## Intent
 
-Sideshow stays an independently hosted tool (VPS, tokened, phone-reachable).
+Mockpit stays an independently hosted tool (VPS, tokened, phone-reachable).
 Loom's Designer role drives it through the CLI/MCP tiers exactly like any other
 agent; Loom itself holds at most a link-out to the hosted viewer. The reshape
 therefore lands in three places, never in Loom's codebase:
@@ -43,7 +43,7 @@ attempts kept for reference and are superseded.
 
 ### Phase 0 — observe and decide (now)
 
-- Screenshot the current views with seeded data (done: `/tmp/sideshow-audit/shots`).
+- Screenshot the current views with seeded data (done: `/tmp/mockpit-audit/shots`).
 - Mockup rounds in `docs/tmp/mockups/`, one decision per round.
 - Record each decision in the log below before implementing it.
 
@@ -52,7 +52,7 @@ attempts kept for reference and are superseded.
 Goal: an agent can publish, revise and read feedback for a few thousand tokens
 of context, not tens of thousands.
 
-- `get_post` / `sideshow show`: history metadata only by default, `--history`
+- `get_post` / `mockpit show`: history metadata only by default, `--history`
   opt-in for bodies.
 - Canonical list views drop `parts`/`partKinds` duplicates; legacy routes keep them.
 - CLI: `--json`/`--quiet` globals, hydrated list by default, per-command help.
@@ -60,7 +60,7 @@ of context, not tens of thousands.
   schema; stdio `upload_asset` accepts a file path.
 - Guide split: workflow (`/agent-howto`), html contract, kits/tokens, each
   fetchable alone; `get_design_guide` renders the workspace's real tokens/kits.
-- Retire stale forks (`plugin/skills`, `extensions/sideshow.js`) to the new vocabulary.
+- Retire stale forks (`plugin/skills`, `extensions/mockpit.js`) to the new vocabulary.
 
 ### Phase 2 — render latency (audit §B)
 
@@ -107,7 +107,7 @@ Migration: existing posts become items in a project named after the workspace,
   cursor and piggyback unchanged.
 - Stable cards on events, lazy frame creation, theme injected in the shell.
 - States checklist (no copy beyond what is listed):
-  - fresh workspace: the two commands to run (`sideshow init`, first publish);
+  - fresh workspace: the two commands to run (`mockpit init`, first publish);
   - project without items: "waiting for the first item";
   - item rendering: skeleton at the previous version's height;
   - server unreachable: full-screen state with retry, last items dimmed behind;
@@ -117,7 +117,7 @@ Migration: existing posts become items in a project named after the workspace,
 
 ### Phase 5 — design-system hooks (decided, mockup `docs/tmp/mockups/agent-cli.md`)
 
-`sideshow init` is the single scripted entry point; the agent never assembles a
+`mockpit init` is the single scripted entry point; the agent never assembles a
 design set by hand.
 
 1. **Detect.** Look for `tailwind.config.*`, `components.json` (shadcn), a CSS file
@@ -136,9 +136,9 @@ design set by hand.
 4. **Icons.** Build a sprite from `@iconify-json/mage` (Apache-2.0), upload it as a
    project asset, and reference it from the wrapper so `<use href="#mage-…">`
    resolves. Other Iconify sets can be added by name later.
-5. **Starter.** Write `.sideshow/starter.html` (gitignored) showing the kit's
+5. **Starter.** Write `.mockpit/starter.html` (gitignored) showing the kit's
    classes, tokens, and an icon in use, and mention it in `guide --brief`.
-6. **Guide.** `get_design_guide` / `sideshow guide --brief` renders the project's
+6. **Guide.** `get_design_guide` / `mockpit guide --brief` renders the project's
    actual palette, kit mode, and icon set instead of the generic text.
 
 ## Skills alignment
@@ -146,39 +146,39 @@ design set by hand.
 The operator did not supply a separate list; Loom's vendored skills are the
 reference set. Each maps to one place in the reshape:
 
-| skill (Loom `skills/vendor/`)          | where it plugs in                                                                                                                                                                                                                                                                                                                                                      |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `prototype.md` + `prototype-picker.md` | Its "several divergent variants behind a picker" is exactly an item with sibling variants. The Designer agent runs the skill's recon and divergence phases, then publishes each variant with `sideshow publish --variant`. The picker chrome is replaced by the viewer's variant tabs; the skill's Phase 6 (promote the winner) is triggered by the operator's Accept. |
-| `frontend-design.md`                   | Applies to the html the agent writes. The starter file and `guide --brief` reference it instead of restating craft rules.                                                                                                                                                                                                                                              |
-| `web-interface-guidelines.md`          | Same: referenced from the brief guide, not duplicated. Candidate for an agent-side self-check before `ask`.                                                                                                                                                                                                                                                            |
-| `critique-rubric.md`                   | The operator's side of the loop. The batched Revise request can carry an optional severity (P0–P3) per comment, matching the rubric, so the agent prioritises. Optional, not in the first cut.                                                                                                                                                                         |
-| `grilling.md`                          | Not applicable to sideshow; it shapes Loom's clarify stage before a design run starts.                                                                                                                                                                                                                                                                                 |
+| skill (Loom `skills/vendor/`)          | where it plugs in                                                                                                                                                                                                                                                                                                                                                     |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prototype.md` + `prototype-picker.md` | Its "several divergent variants behind a picker" is exactly an item with sibling variants. The Designer agent runs the skill's recon and divergence phases, then publishes each variant with `mockpit publish --variant`. The picker chrome is replaced by the viewer's variant tabs; the skill's Phase 6 (promote the winner) is triggered by the operator's Accept. |
+| `frontend-design.md`                   | Applies to the html the agent writes. The starter file and `guide --brief` reference it instead of restating craft rules.                                                                                                                                                                                                                                             |
+| `web-interface-guidelines.md`          | Same: referenced from the brief guide, not duplicated. Candidate for an agent-side self-check before `ask`.                                                                                                                                                                                                                                                           |
+| `critique-rubric.md`                   | The operator's side of the loop. The batched Revise request can carry an optional severity (P0–P3) per comment, matching the rubric, so the agent prioritises. Optional, not in the first cut.                                                                                                                                                                        |
+| `grilling.md`                          | Not applicable to mockpit; it shapes Loom's clarify stage before a design run starts.                                                                                                                                                                                                                                                                                 |
 
 ### How skills reach the Designer box
 
 Loom's toolkit model (`docs/product.md` §Toolkit: a toolkit is a field on a
 context-tree node, "CLI over skill over MCP", per-run budget of 10k tokens of
 tool and skill definitions, skills copied into the box at launch) is the
-integration surface. Sideshow does not ship or read Loom's skills; Loom does not
-embed sideshow. The toolkit entry for the Designer scope is:
+integration surface. Mockpit does not ship or read Loom's skills; Loom does not
+embed mockpit. The toolkit entry for the Designer scope is:
 
-1. CLI: the `sideshow` binary (npx or global), plus `SIDESHOW_URL` /
-   `SIDESHOW_TOKEN` as egress + env. Cost: 0 definition tokens.
-2. Skill: sideshow's bootstrap `skills/sideshow/SKILL.md` (~300 tokens). It only
-   says "run `sideshow agent-howto`", so the real instructions load lazily from
+1. CLI: the `mockpit` binary (npx or global), plus `MOCKPIT_URL` /
+   `MOCKPIT_TOKEN` as egress + env. Cost: 0 definition tokens.
+2. Skill: mockpit's bootstrap `skills/mockpit/SKILL.md` (~300 tokens). It only
+   says "run `mockpit agent-howto`", so the real instructions load lazily from
    the running server, outside Loom's definition budget, and stay in sync with
    the deployed version.
 3. Design skills (`prototype.md`, `frontend-design.md`, ...) are Loom's own
-   vendored skills, added to the same toolkit by the Provisioner. Sideshow's
+   vendored skills, added to the same toolkit by the Provisioner. Mockpit's
    `guide --brief` references them by name and never restates them.
 4. MCP is optional and only for hosts without a shell; the entry must justify
    itself per Loom's ordering rule, and it carries a tool allowlist.
 
-Project-specific design context (palette, kit, icons from `sideshow init`) is
+Project-specific design context (palette, kit, icons from `mockpit init`) is
 not a skill; it is state on the server that `get_design_guide` renders. That
 keeps per-project knowledge out of the toolkit budget entirely.
 
-Sideshow's own `skills/sideshow/SKILL.md` and the Claude Code plugin skill are
+Mockpit's own `skills/mockpit/SKILL.md` and the Claude Code plugin skill are
 rewritten to the new vocabulary (project, item, variant, version, ask, wait,
 revise) as part of Phase 1.
 
@@ -200,7 +200,7 @@ presets, push, export.
 - **Viewport presets.** Stage lays the iframe out at 390 / 820 / 1280 and scales
   it to fit; pinch and pan inspect at native size on phone. Phone is the default
   preset on phone. The preset is sent with the comment (`viewport`) so the agent
-  knows which layout was reviewed. Agent side: `sideshow show --screenshot
+  knows which layout was reviewed. Agent side: `mockpit show --screenshot
 --viewport` for self-check before `ask`.
 - **Push.** Server-sent Web Push (VAPID via Web Crypto, runtime-agnostic) on
   `ask` and on a new version after Revise; the viewer gains a manifest and a
@@ -208,7 +208,7 @@ presets, push, export.
   (`POST /api/hooks {url, events}`) so Loom can surface the same events; no shared
   code.
 - **Export.** Accept returns the accepted version's exact html and screenshot to
-  the agent; `sideshow export` writes them to `.sideshow/accepted/<item>/<variant>/`
+  the agent; `mockpit export` writes them to `.mockpit/accepted/<item>/<variant>/`
   with the prompt history. The implementing agent renders its result at the same
   viewport and compares screenshots; a diff above threshold fails the step. This
   is the guard against design deviation, and it depends on Phase 5 having put the
@@ -251,8 +251,8 @@ presets, push, export.
 | 2026-09-14 | Phone layout is first-class; mocked before implementation.                                                                                                                                                                                                                                                                                                                                                    | Operator.                                            |
 | 2026-09-14 | Decisions: comments are drafts until Revise sends them as one request; Accept approves a version and archives sibling variants; Drop archives a variant (restorable, hidden by default).                                                                                                                                                                                                                      | Operator.                                            |
 | 2026-09-14 | CLI publishes html from files (`--html path`); stdio MCP accepts a path too; inline strings stay for remote MCP and raw HTTP.                                                                                                                                                                                                                                                                                 | Operator.                                            |
-| 2026-09-14 | `sideshow ask --item <slug> "<text>"` marks an item waiting on the operator.                                                                                                                                                                                                                                                                                                                                  | Operator.                                            |
-| 2026-09-14 | Pages: the agent writes the page html and controls layout; existing components are included by reference (`<sideshow-slot item variant version>`), expanded server-side with snapshot semantics. No pure server stitching.                                                                                                                                                                                    | Operator.                                            |
+| 2026-09-14 | `mockpit ask --item <slug> "<text>"` marks an item waiting on the operator.                                                                                                                                                                                                                                                                                                                                   | Operator.                                            |
+| 2026-09-14 | Pages: the agent writes the page html and controls layout; existing components are included by reference (`<mockpit-slot item variant version>`), expanded server-side with snapshot semantics. No pure server stitching.                                                                                                                                                                                     | Operator.                                            |
 | 2026-09-14 | Design system: `init` detects the repo's existing system and uses it (Tailwind/shadcn CSS variables → palette; Tailwind in the frame so shadcn recipes render as written; built CSS upload later for exact fidelity). If nothing is detected, generate a default palette and CSS-only kit. Kit, palette, and Mage Icons sprite are stored on the server per project; the repo gets only a gitignored starter. | Operator.                                            |
 | 2026-09-15 | Empty/loading/error/idle states as mocked in `states.html`.                                                                                                                                                                                                                                                                                                                                                   | Operator.                                            |
 | 2026-09-15 | Markers: variation A (Mark toggle, tap = pin, drag = box, shape after the fact), no copy or controls inside the render, labels minimal. Snap (B) and inline bubble (C) rejected.                                                                                                                                                                                                                              | Operator.                                            |
@@ -294,8 +294,8 @@ Known deviations and open calls:
 - The share menu, per-comment copy, and delete-post affordances are only
   reachable on the standalone `/p/:id` page now (the item stage does not use
   `Card`). Trace surfaces render only on `/p/:id`.
-- `sideshow item new`, `page new --slots`, and `page pull` from the CLI mockup
-  are not implemented; publish creates items and pages carry `<sideshow-slot>`.
+- `mockpit item new`, `page new --slots`, and `page pull` from the CLI mockup
+  are not implemented; publish creates items and pages carry `<mockpit-slot>`.
 - Per-slot version switch on pages is display-only (no slot-edit route).
 - Agent comment reads return the legacy list plus `feedback`/`userFeedback`
   batch arrays rather than the bare batch shape.

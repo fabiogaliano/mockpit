@@ -11,14 +11,14 @@ import { runStoreContract } from "./storeContract.ts";
 runStoreContract("SqlStore", () => new SqlStore(createSqliteStorage()));
 
 const hotPathIndexes = {
-  sideshow_assets_session_idx: ["sessionId"],
-  sideshow_comments_id_idx: ["id"],
-  sideshow_comments_post_draft_idx: ["postId", "draft"],
-  sideshow_comments_post_seq_idx: ["postId", "seq"],
-  sideshow_comments_session_seq_idx: ["sessionId", "seq"],
-  sideshow_posts_session_created_at_idx: ["sessionId", "createdAt"],
-  sideshow_posts_updated_at_idx: ["updatedAt"],
-  sideshow_posts_variant_idx: ["project", "slug", "variant"],
+  mockpit_assets_session_idx: ["sessionId"],
+  mockpit_comments_id_idx: ["id"],
+  mockpit_comments_post_draft_idx: ["postId", "draft"],
+  mockpit_comments_post_seq_idx: ["postId", "seq"],
+  mockpit_comments_session_seq_idx: ["sessionId", "seq"],
+  mockpit_posts_session_created_at_idx: ["sessionId", "createdAt"],
+  mockpit_posts_updated_at_idx: ["updatedAt"],
+  mockpit_posts_variant_idx: ["project", "slug", "variant"],
 } as const;
 
 test("SqlStore adds hot-path indexes to existing workspaces idempotently", () => {
@@ -33,7 +33,7 @@ test("SqlStore adds hot-path indexes to existing workspaces idempotently", () =>
 
   const indexes = storage
     .exec(
-      "SELECT name, tbl_name FROM sqlite_master WHERE type = 'index' AND name LIKE 'sideshow_%' ORDER BY name",
+      "SELECT name, tbl_name FROM sqlite_master WHERE type = 'index' AND name LIKE 'mockpit_%' ORDER BY name",
     )
     .toArray();
   assert.deepEqual(
@@ -47,6 +47,35 @@ test("SqlStore adds hot-path indexes to existing workspaces idempotently", () =>
       .map((row) => row.name);
     assert.deepEqual(actual, columns, `${name} column order`);
   }
+});
+
+test("SqlStore replaces sideshow-era indexes with their mockpit names", () => {
+  const storage = createSqliteStorage();
+  new SqlStore(storage);
+
+  // Model a database created before the rename: same indexes, old prefix.
+  for (const name of Object.keys(hotPathIndexes)) {
+    const [{ sql }] = storage
+      .exec("SELECT sql FROM sqlite_master WHERE name = ?", name)
+      .toArray() as { sql: string }[];
+    storage.exec(`DROP INDEX ${name}`);
+    storage.exec(sql.replace(name, name.replace(/^mockpit_/, "sideshow_")));
+  }
+
+  new SqlStore(storage);
+
+  const names = storage
+    .exec("SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name")
+    .toArray()
+    .map((row) => row.name);
+  assert.deepEqual(
+    names.filter((name) => String(name).startsWith("sideshow_")),
+    [],
+  );
+  assert.deepEqual(
+    names.filter((name) => String(name).startsWith("mockpit_")),
+    Object.keys(hotPathIndexes),
+  );
 });
 
 test("SqlStore hot queries use their covering or ordering indexes", () => {
@@ -64,34 +93,34 @@ test("SqlStore hot queries use their covering or ordering indexes", () => {
 
   assertUsesIndex(
     "SELECT * FROM posts WHERE sessionId = ? ORDER BY createdAt ASC",
-    "sideshow_posts_session_created_at_idx",
+    "mockpit_posts_session_created_at_idx",
     "session",
   );
   assertUsesIndex(
     "SELECT sessionId, COUNT(*) AS count FROM posts GROUP BY sessionId",
-    "sideshow_posts_session_created_at_idx",
+    "mockpit_posts_session_created_at_idx",
   );
   assertUsesIndex(
     "SELECT * FROM posts ORDER BY updatedAt DESC, rowid DESC LIMIT ?",
-    "sideshow_posts_updated_at_idx",
+    "mockpit_posts_updated_at_idx",
     20,
   );
   assertUsesIndex(
     "SELECT * FROM comments WHERE sessionId = ? AND seq > ? ORDER BY seq ASC",
-    "sideshow_comments_session_seq_idx",
+    "mockpit_comments_session_seq_idx",
     "session",
     10,
   );
   assertUsesIndex(
     "SELECT * FROM comments WHERE postId = ? AND seq > ? ORDER BY seq ASC",
-    "sideshow_comments_post_seq_idx",
+    "mockpit_comments_post_seq_idx",
     "post",
     10,
   );
-  assertUsesIndex("SELECT * FROM comments WHERE id = ?", "sideshow_comments_id_idx", "comment");
+  assertUsesIndex("SELECT * FROM comments WHERE id = ?", "mockpit_comments_id_idx", "comment");
   assertUsesIndex(
     "SELECT * FROM assets WHERE sessionId = ?",
-    "sideshow_assets_session_idx",
+    "mockpit_assets_session_idx",
     "session",
   );
 });

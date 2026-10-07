@@ -121,7 +121,7 @@ export function renderMachine(run: BenchRun): string {
 /** A compact markdown table, for pasting into a PR or an issue. */
 export function renderMarkdown(run: BenchRun): string {
   const lines = [
-    `# sideshow benchmarks`,
+    `# mockpit benchmarks`,
     "",
     `Recorded ${run.recordedAt} on ${run.machine.platform}/${run.machine.arch}, ` +
       `node ${run.machine.nodeVersion}, machine index ${Math.round(run.machine.index)}/s.`,

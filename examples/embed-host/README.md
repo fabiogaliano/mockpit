@@ -1,11 +1,11 @@
-# Embedding the sideshow viewer
+# Embedding the mockpit viewer
 
-A minimal "host" page that mounts the sideshow viewer **engine** into a shadow
-root, with its own chrome above it. It demonstrates the `sideshow/viewer-embed`
+A minimal "host" page that mounts the mockpit viewer **engine** into a shadow
+root, with its own chrome above it. It demonstrates the `mockpit/viewer-embed`
 entry point: the viewer is a self-contained engine, and the host owns the page.
 
 ```js
-import { mountViewer } from "sideshow/viewer-embed";
+import { mountViewer } from "mockpit/viewer-embed";
 
 const handle = mountViewer(document.getElementById("mount"), {
   basePath: "/u/alice", // "" at the root; API calls are `${basePath}/api/...`
@@ -38,14 +38,14 @@ Host fields that moved with the reshape:
 ## Run the local demo
 
 The engine fetches `/api/*` (and `/s/*`, `/a/*`, SSE) relative to the page
-origin, so the demo proxies those to a running sideshow server:
+origin, so the demo proxies those to a running mockpit server:
 
 ```sh
 npm run build:embed                 # build viewer/dist-embed/engine.js
-npm start                           # a sideshow server on :8228 (separate shell)
+npm start                           # a mockpit server on :8228 (separate shell)
 node examples/embed-host/serve.mjs  # demo on http://localhost:5180
 ```
 
 `serve.mjs` serves `index.html` + the engine bundle and proxies everything else
-to the sideshow server (`ORIGIN`, default `http://localhost:8228`). It is a dev
+to the mockpit server (`ORIGIN`, default `http://localhost:8228`). It is a dev
 rig, not production code.

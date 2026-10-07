@@ -2,7 +2,7 @@
 // (the whole document when self-hosted, a shadow root when embedded) and reads
 // its base path + route from an injected host instead of touching window/
 // location directly. Whoever provides the host owns the URL, chrome, and
-// routing; self-hosted sideshow ships the trivial default host below.
+// routing; self-hosted mockpit ships the trivial default host below.
 //
 // Self-hosted parity: when nothing is injected, root() is `document` and host()
 // is a History-API host whose URLs/behaviour match the pre-engine viewer
@@ -35,7 +35,7 @@ export interface HostRouter {
   subscribe(cb: (route: Route) => void): () => void;
 }
 
-export interface SideshowHost {
+export interface MockpitHost {
   // Link/base prefix the engine prepends to every path, e.g. "/alice" ("" at
   // root). API calls are `${basePath}/api/...`.
   basePath: string;
@@ -56,7 +56,7 @@ export interface SideshowHost {
   layout?: "full" | "stream";
   // Read-only embed: hide write affordances (delete, comment-as-owner, the
   // connect action). Orthogonal to `layout` — a host can have either without the
-  // other. Self-hosted drives the same flag via window.__SIDESHOW_READONLY__.
+  // other. Self-hosted drives the same flag via window.__MOCKPIT_READONLY__.
   readonly?: boolean;
   // Live-update transport. Self-hosted defaults to SSE; embedders can opt into
   // WebSocket when their host implements `/api/events` as a hibernatable socket.
@@ -67,7 +67,7 @@ export interface SideshowHost {
   // headless browser, so it is absent there. The engine always shows a
   // screenshot action on each surface, but disables it with an explanatory
   // tooltip when this is false. Self-hosted drives the same flag via
-  // window.__SIDESHOW_SCREENSHOTS__. Optional — defaults to off.
+  // window.__MOCKPIT_SCREENSHOTS__. Optional — defaults to off.
   screenshots?: boolean;
   // The host renders its own landing when the route carries no project, so the
   // engine must NOT auto-pick one: it stays on the projects list (route "/")
@@ -77,7 +77,7 @@ export interface SideshowHost {
   // (Before the reshape this was about sessions; it now reads the same way one
   // level up, on projects.)
   homeView?: boolean;
-  // Omit the engine's own "sideshow" wordmark (the sidebar/header home-link brand)
+  // Omit the engine's own "mockpit" wordmark (the sidebar/header home-link brand)
   // when the host provides its own branding/header — e.g. a cloud that puts a
   // workspace picker at the top of the sidebar and its own wordmark in the footer.
   // Self-hosted leaves this unset and shows the wordmark as before. Optional —
@@ -108,10 +108,10 @@ export interface SideshowHost {
 
 // Host-overridable surfaces. A handful of the engine's layout regions carry
 // deployment-specific guidance (setup snippets, the connect flow, doc links) that
-// only fits self-hosted sideshow. The engine wraps each such region in a
+// only fits self-hosted mockpit. The engine wraps each such region in a
 // `<slot name="...">` whose fallback content IS the self-hosted default — so a
 // plain (host-less) embed and the self-hosted page look identical. An embedder
-// (e.g. sideshow cloud) replaces a whole region by projecting a light-DOM child
+// (e.g. mockpit cloud) replaces a whole region by projecting a light-DOM child
 // with a matching `slot=` attribute into the mount element.
 //
 // These are *regions*, not individual strings — keep the list small and coarse.
@@ -155,12 +155,12 @@ export type SlotName = (typeof SLOTS)[keyof typeof SLOTS];
 type EngineRoot = Document | ShadowRoot;
 
 let engineRoot: EngineRoot = document;
-let injectedHost: SideshowHost | null = null;
-let defaultHostCache: SideshowHost | null = null;
+let injectedHost: MockpitHost | null = null;
+let defaultHostCache: MockpitHost | null = null;
 
 // Called once by mountViewer before <App/> renders, to point the engine at a
 // shadow root + the embedder's host.
-export function setEngine(root: EngineRoot, host: SideshowHost): void {
+export function setEngine(root: EngineRoot, host: MockpitHost): void {
   engineRoot = root;
   injectedHost = host;
 }
@@ -203,7 +203,7 @@ export function probeEl(): HTMLElement {
   return engineRoot instanceof Document ? engineRoot.body : (engineRoot.host as HTMLElement);
 }
 
-export function host(): SideshowHost {
+export function host(): MockpitHost {
   if (injectedHost) return injectedHost;
   return (defaultHostCache ??= createDefaultHost());
 }
@@ -212,8 +212,8 @@ export function host(): SideshowHost {
 // wrapper before the engine loads; empty at root), routing over the History API.
 // Writes canonical URL shapes (/session/:id and /session/:id/p/:pid) and still
 // parses the legacy /s/ spellings on the way in.
-export function createDefaultHost(): SideshowHost {
-  const basePath = window.__SIDESHOW_BASE_PATH__ ?? "";
+export function createDefaultHost(): MockpitHost {
+  const basePath = window.__MOCKPIT_BASE_PATH__ ?? "";
   const subs = new Set<(r: Route) => void>();
 
   const get = (): Route => {
@@ -294,6 +294,6 @@ export function createDefaultHost(): SideshowHost {
 
 declare global {
   interface Window {
-    __SIDESHOW_BASE_PATH__?: string;
+    __MOCKPIT_BASE_PATH__?: string;
   }
 }

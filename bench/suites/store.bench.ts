@@ -1,7 +1,7 @@
 // Store benchmarks: the read/write paths every request sits on top of.
 //
 // Both backends are measured because they have genuinely different cost curves,
-// and the app can run either (`SIDESHOW_STORE=json`). Where a JSON-store number
+// and the app can run either (`MOCKPIT_STORE=json`). Where a JSON-store number
 // is dramatically worse, that IS the finding — the numbers exist to make that
 // visible rather than to be quietly excused.
 //
@@ -31,7 +31,7 @@ import type { Store } from "../../server/types.ts";
 import { buildWorkspace, surfaceOfKind, TYPICAL, type WorkspaceShape } from "../fixtures.ts";
 import { memory, retainedHeap, type Suite, type SuiteContext, time } from "../harness.ts";
 
-const tmpPath = (name: string) => join(mkdtempSync(join(tmpdir(), "sideshow-bench-")), name);
+const tmpPath = (name: string) => join(mkdtempSync(join(tmpdir(), "mockpit-bench-")), name);
 
 /** Ops per write benchmark. Enough samples for a stable median, few enough that
  *  the JSON store's quadratic growth doesn't dominate the suite's wall time. */
@@ -236,7 +236,7 @@ export const storeSuite: Suite = {
 
     // --- memory ------------------------------------------------------------
     // How much heap a loaded workspace costs. This is the direct answer to "why
-    // does the sideshow server hold so much memory?" — the JSON store keeps the
+    // does the mockpit server hold so much memory?" — the JSON store keeps the
     // entire workspace resident by design; SQLite should not.
     for (const backend of BACKENDS) {
       const loadedName = `${backend.id}/heap for loaded workspace`;

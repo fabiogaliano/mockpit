@@ -71,8 +71,8 @@ jobs:
 
       - name: Smoke-test packed CLI
         run: |
-          npm install -g --ignore-scripts ./sideshow-*.tgz
-          sideshow help
+          npm install -g --ignore-scripts ./mockpit-*.tgz
+          mockpit help
 
   publish:
     name: Publish npm package

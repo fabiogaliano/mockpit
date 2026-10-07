@@ -554,7 +554,7 @@ function AgentPayload(props: {
   return (
     <Show when={props.markers.length > 0}>
       <div class="ss-payload">
-        <b>what the agent gets (sideshow wait)</b>
+        <b>what the agent gets (mockpit wait)</b>
         {json()}
       </div>
     </Show>

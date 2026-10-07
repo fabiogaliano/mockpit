@@ -1,12 +1,12 @@
-// Whole-process benchmarks: what sideshow costs before it does any work.
+// Whole-process benchmarks: what mockpit costs before it does any work.
 //
 // These spawn real child processes, so they're slower than the in-process suites
 // and run with a small iteration count. They're worth the wall time because
-// they're the numbers a user meets first: how long `sideshow` takes to respond,
+// they're the numbers a user meets first: how long `mockpit` takes to respond,
 // and how much memory the server holds while idle.
 //
 // RSS (not heap) is the number reported here — it's what a user sees in Activity
-// Monitor, which is where the "sideshow uses too much memory" complaint starts.
+// Monitor, which is where the "mockpit uses too much memory" complaint starts.
 
 import { spawn } from "node:child_process";
 import { mkdtempSync } from "node:fs";
@@ -18,7 +18,7 @@ import { memory, type Suite, time } from "../harness.ts";
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 
 function tmpDataDir(): string {
-  return mkdtempSync(join(tmpdir(), "sideshow-bench-proc-"));
+  return mkdtempSync(join(tmpdir(), "mockpit-bench-proc-"));
 }
 
 /** Run a command to completion and return its wall time. */
@@ -51,12 +51,12 @@ function bootServer(env: Record<string, string> = {}): Promise<RunningServer> {
     env: {
       ...process.env,
       PORT: "0",
-      SIDESHOW_DB: join(dir, "bench.db"),
-      SIDESHOW_DATA: join(dir, "bench.json"),
+      MOCKPIT_DB: join(dir, "bench.db"),
+      MOCKPIT_DATA: join(dir, "bench.json"),
       // Empty version disables the update check — otherwise boot time includes a
       // network round trip that has nothing to do with our code.
-      SIDESHOW_VERSION: "",
-      SIDESHOW_TOKEN: "",
+      MOCKPIT_VERSION: "",
+      MOCKPIT_TOKEN: "",
       ...env,
     },
     stdio: ["ignore", "pipe", "ignore"],
@@ -190,12 +190,12 @@ export const processSuite: Suite = {
     // --- CLI startup ---------------------------------------------------------
     // Every CLI invocation pays module load. Agents call the CLI per publish, so
     // this is multiplied by however chatty the agent is.
-    if (ctx.matches("CLI: sideshow help")) {
+    if (ctx.matches("CLI: mockpit help")) {
       ctx.add(
         await time(
           "process",
-          "CLI: sideshow help",
-          () => runToCompletion(["bin/sideshow.js", "help"]),
+          "CLI: mockpit help",
+          () => runToCompletion(["bin/mockpit.js", "help"]),
           {
             warmup: 1,
             minSamples: 5,

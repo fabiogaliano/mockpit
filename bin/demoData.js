@@ -1,4 +1,4 @@
-// Seed content for `sideshow demo` — two example sessions that show what
+// Seed content for `mockpit demo` — two example sessions that show what
 // agents draw on the surface. Keep this file dependency-free like the CLI.
 
 const JWT_DIAGRAM = `
@@ -173,7 +173,7 @@ export const DEMO_SESSIONS = [
 ];
 
 // --- reshape demo: one project, items with variants, a composed page ---------
-// Seeded through the project › item › variant path so `sideshow demo` shows the
+// Seeded through the project › item › variant path so `mockpit demo` shows the
 // navigation model, not just a stream of cards.
 
 const CARD_SHELL = (accent, body) => `
@@ -236,9 +236,9 @@ const FAQ = `
 
 const PRICING_PAGE = `
 <main style="font-family: var(--font-sans); display: grid; gap: 40px; justify-items: center; padding: 24px;">
-  <sideshow-slot slug="hero" variant="default" version="1"></sideshow-slot>
-  <sideshow-slot slug="pricing-card" variant="highlighted" version="2"></sideshow-slot>
-  <sideshow-slot slug="faq" variant="default" version="1"></sideshow-slot>
+  <mockpit-slot slug="hero" variant="default" version="1"></mockpit-slot>
+  <mockpit-slot slug="pricing-card" variant="highlighted" version="2"></mockpit-slot>
+  <mockpit-slot slug="faq" variant="default" version="1"></mockpit-slot>
 </main>`;
 
 export const DEMO_PROJECT = {

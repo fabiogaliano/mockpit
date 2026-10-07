@@ -11,19 +11,19 @@ type ServerHandle = { url: string; stop: () => void };
 
 type PublicReadServer = { url: string; token: string; mode: "full" | "session" };
 
-export async function startSideshowServer(
+export async function startMockpitServer(
   env: Record<string, string | undefined> = {},
 ): Promise<ServerHandle> {
-  const dataDir = mkdtempSync(join(tmpdir(), "sideshow-e2e-"));
+  const dataDir = mkdtempSync(join(tmpdir(), "mockpit-e2e-"));
   const proc: ChildProcess = spawn(process.execPath, ["server/index.ts"], {
     cwd: fileURLToPath(new URL("..", import.meta.url)),
     env: {
       ...process.env,
       PORT: "0",
-      SIDESHOW_DATA: join(dataDir, "data.json"),
+      MOCKPIT_DATA: join(dataDir, "data.json"),
       // empty = no version = no update check: keeps tests off the network
       // and the update banner out of the DOM
-      SIDESHOW_VERSION: "",
+      MOCKPIT_VERSION: "",
       ...env,
     },
     stdio: ["ignore", "pipe", "inherit"],
@@ -41,12 +41,12 @@ export async function startSideshowServer(
   return { url, stop: () => proc.kill() };
 }
 
-// Each test gets its own sideshow server on an ephemeral port with a fresh
+// Each test gets its own mockpit server on an ephemeral port with a fresh
 // data file, so tests can mutate state freely and run in parallel.
 export const test = base.extend<{ server: { url: string } }>({
   // oxlint-disable-next-line no-empty-pattern
   server: async ({}, use) => {
-    const server = await startSideshowServer({ SIDESHOW_TOKEN: "" });
+    const server = await startMockpitServer({ MOCKPIT_TOKEN: "" });
     try {
       await use({ url: server.url });
     } finally {
@@ -60,7 +60,7 @@ export const publicReadTest = base.extend<{ publicReadServer: PublicReadServer }
   publicReadServer: async ({}, use) => {
     const token = "secret";
     const mode = "full";
-    const server = await startSideshowServer({ SIDESHOW_TOKEN: token, SIDESHOW_PUBLIC_READ: mode });
+    const server = await startMockpitServer({ MOCKPIT_TOKEN: token, MOCKPIT_PUBLIC_READ: mode });
     try {
       await use({ url: server.url, token, mode });
     } finally {
@@ -163,7 +163,7 @@ export async function publishItem(
 }
 
 // The three-project demo workspace (`POST /api/demo/reshape`, the same seed
-// `sideshow demo` writes) — for specs that need a populated navigation.
+// `mockpit demo` writes) — for specs that need a populated navigation.
 export async function seedDemo(serverUrl: string): Promise<{
   project: string;
   sessionId: string;
@@ -243,7 +243,7 @@ export async function serveEmbedBundle(page: Page) {
   });
 }
 
-// Mount the built embeddable engine on the sideshow server's own origin, so its
+// Mount the built embeddable engine on the mockpit server's own origin, so its
 // same-origin /api/* reads hit real data. `host` is the JS source of the host
 // object passed to mountViewer; `body` is the light DOM inside the mount element
 // (where an embedder projects `slot=` children). The engine attaches an OPEN

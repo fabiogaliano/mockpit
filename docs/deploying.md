@@ -5,8 +5,8 @@ machine than the browser, or you want the viewer on your phone.
 
 ```sh
 npx wrangler login
-npx wrangler secret put SIDESHOW_TOKEN   # any long random string
-npm run deploy                           # https://sideshow.<account>.workers.dev
+npx wrangler secret put MOCKPIT_TOKEN   # any long random string
+npm run deploy                           # https://mockpit.<account>.workers.dev
 ```
 
 A deployed instance requires the token on every request. Open the viewer once as
@@ -14,21 +14,21 @@ A deployed instance requires the token on every request. Open the viewer once as
 and stdio MCP pick them up automatically:
 
 ```sh
-export SIDESHOW_URL=https://sideshow.<account>.workers.dev
-export SIDESHOW_TOKEN=<token>
+export MOCKPIT_URL=https://mockpit.<account>.workers.dev
+export MOCKPIT_TOKEN=<token>
 ```
 
 To share read-only access without handing out the token, set
-`SIDESHOW_PUBLIC_READ` on the deployment:
+`MOCKPIT_PUBLIC_READ` on the deployment:
 
-- `SIDESHOW_PUBLIC_READ=session` makes direct `/session/:id` links readable
+- `MOCKPIT_PUBLIC_READ=session` makes direct `/session/:id` links readable
   without a token while keeping `/` and the session list private (unlisted-link
   style).
-- `SIDESHOW_PUBLIC_READ=full` makes all read routes public, including the root
+- `MOCKPIT_PUBLIC_READ=full` makes all read routes public, including the root
   viewer and session list.
 
-Writes still require `SIDESHOW_TOKEN`, and authenticated owners keep the full
-UI. Invalid `SIDESHOW_PUBLIC_READ` values are ignored.
+Writes still require `MOCKPIT_TOKEN`, and authenticated owners keep the full
+UI. Invalid `MOCKPIT_PUBLIC_READ` values are ignored.
 
 Bare post links (`/s/:postId`) include Open Graph/Twitter metadata for inline
 previews. Crawlers only see useful previews when those read routes are publicly
@@ -40,8 +40,8 @@ from `wrangler.jsonc` on deployed Workers.
 Remote agents can connect MCP straight to the deployment:
 
 ```sh
-claude mcp add --transport http sideshow https://sideshow.<account>.workers.dev/mcp \
-  --header "Authorization: Bearer $SIDESHOW_TOKEN"
+claude mcp add --transport http mockpit https://mockpit.<account>.workers.dev/mcp \
+  --header "Authorization: Bearer $MOCKPIT_TOKEN"
 ```
 
 ## Post preview screenshots

@@ -1,6 +1,6 @@
 # Benchmarks
 
-A repeatable performance suite for sideshow: what costs CPU, what costs memory,
+A repeatable performance suite for mockpit: what costs CPU, what costs memory,
 and whether a change made either worse.
 
 ```sh
@@ -42,7 +42,7 @@ The `viewer` suite needs a built viewer (`npm run build:viewer`). If your
 Chromium doesn't match the pinned Playwright revision, point at one:
 
 ```sh
-SIDESHOW_BENCH_CHROMIUM=/path/to/chromium npm run bench:all
+MOCKPIT_BENCH_CHROMIUM=/path/to/chromium npm run bench:all
 ```
 
 Both skip with an explanation rather than failing the run when their

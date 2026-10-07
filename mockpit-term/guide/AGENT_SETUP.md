@@ -1,6 +1,6 @@
-# sideshow-term
+# mockpit-term
 
-The user keeps a live **terminal** visual surface open (`sideshow-term watch`).
+The user keeps a live **terminal** visual surface open (`mockpit-term watch`).
 You can draw to it: publish **STML** (a small HTML-like markup) and it renders
 as real opentui components — bordered boxes, big ASCII text, styled text,
 lists. Use it when a visual explains your work better than prose.
@@ -9,23 +9,23 @@ lists. Use it when a visual explains your work better than prose.
 
 ```sh
 # First publish creates a session — name the task, reuse the returned id.
-sideshow-term publish sketch.stml --title "Cache layout" --session-title "Cache redesign"
-echo '<h1>Done</h1><text>Migration applied.</text>' | sideshow-term publish - --title "Status"
+mockpit-term publish sketch.stml --title "Cache layout" --session-title "Cache redesign"
+echo '<h1>Done</h1><text>Migration applied.</text>' | mockpit-term publish - --title "Status"
 
 # Revise the same card (new version, kept in history):
-sideshow-term update <id> revised.stml
+mockpit-term update <id> revised.stml
 
 # Preview in your own shell, no viewer needed:
-sideshow-term render sketch.stml
+mockpit-term render sketch.stml
 
 # Clear stale visuals before replacing a board:
-sideshow-term clear           # current session
-sideshow-term clear --all     # every session on this surface
+mockpit-term clear           # current session
+mockpit-term clear --all     # every session on this surface
 ```
 
-If `sideshow-term` is not on PATH but you are in this repo, use
-`node sideshow-term/bin/sideshow-term.js …`. If the server is not running,
-start it: `sideshow-term serve`. The viewer is `sideshow-term watch` (needs
+If `mockpit-term` is not on PATH but you are in this repo, use
+`node mockpit-term/bin/mockpit-term.js …`. If the server is not running,
+start it: `mockpit-term serve`. The viewer is `mockpit-term watch` (needs
 Bun).
 
 ## Write STML, not HTML
@@ -33,7 +33,7 @@ Bun).
 Fetch the full contract once before your first publish:
 
 ```sh
-sideshow-term guide        # or: curl -s $SIDESHOW_URL/guide
+mockpit-term guide        # or: curl -s $MOCKPIT_URL/guide
 ```
 
 Quick shape:
@@ -56,6 +56,6 @@ select`. Inline tags: `b i u color kbd badge br`. Colors: semantic tokens
 
 ## Environment
 
-- `SIDESHOW_URL` — server base URL (default `http://localhost:4243`).
-- `SIDESHOW_TOKEN` — bearer token for a deployed instance (sent automatically
-  by the CLI; for raw curl add `-H "Authorization: Bearer $SIDESHOW_TOKEN"`).
+- `MOCKPIT_URL` — server base URL (default `http://localhost:4243`).
+- `MOCKPIT_TOKEN` — bearer token for a deployed instance (sent automatically
+  by the CLI; for raw curl add `-H "Authorization: Bearer $MOCKPIT_TOKEN"`).

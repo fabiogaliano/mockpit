@@ -1,17 +1,17 @@
 ---
 name: launch-video
-description: Produces sideshow release/feature videos by driving the real viewer in a recording Chromium against a live server — 1920x1080 stage with window chrome, captions, and title cards, encoded with ffmpeg. Use for release roundups, single-feature demos, PR walkthroughs, and social announcements.
+description: Produces mockpit release/feature videos by driving the real viewer in a recording Chromium against a live server — 1920x1080 stage with window chrome, captions, and title cards, encoded with ffmpeg. Use for release roundups, single-feature demos, PR walkthroughs, and social announcements.
 ---
 
-# Sideshow video pipeline
+# Mockpit video pipeline
 
-Maintainer-only: requires a sideshow source checkout (the pipeline lives in
+Maintainer-only: requires a mockpit source checkout (the pipeline lives in
 `scripts/launch-video/`, which never ships to npm).
 
-Generates product videos where every app frame is the real sideshow viewer
+Generates product videos where every app frame is the real mockpit viewer
 talking to a real server — no screen recording, no mockups. Unlike hunk's
 keyframe-compositing pipeline (`skills/launch-video` in the hunk repo),
-sideshow's product IS live motion — cards streaming in over SSE, sandboxed
+mockpit's product IS live motion — cards streaming in over SSE, sandboxed
 iframes resizing, the comment loop — so this pipeline records **one real-time
 pass** instead of compositing stills:
 
@@ -37,7 +37,7 @@ a couple of minutes. Total output should stay near 40–60s.
 ```sh
 # 0. one-time work-dir setup (fonts are optional but much nicer than DejaVu)
 mkdir -p .video-work && cd .video-work
-printf '{"name":"sideshow-video-work","private":true}\n' > package.json
+printf '{"name":"mockpit-video-work","private":true}\n' > package.json
 npm i @fontsource-variable/inter @fontsource/jetbrains-mono
 cd ..
 
@@ -48,21 +48,21 @@ node scripts/launch-video/record.mjs
 cd .video-work
 RAW=$(ls page@*.webm)
 ffmpeg -y -i "$RAW" -vf "fps=30,format=yuv420p" \
-  -c:v libx264 -preset slow -crf 18 -movflags +faststart sideshow-X.Y.Z.mp4
+  -c:v libx264 -preset slow -crf 18 -movflags +faststart mockpit-X.Y.Z.mp4
 ffmpeg -y -i "$RAW" -vf "fps=30,format=yuv420p" \
-  -c:v libvpx-vp9 -b:v 0 -crf 32 -row-mt 1 sideshow-X.Y.Z.webm
+  -c:v libvpx-vp9 -b:v 0 -crf 32 -row-mt 1 mockpit-X.Y.Z.webm
 ```
 
 ## Choosing a recipe
 
 - **Full release:** distill 3–5 user-visible headlines from the release's
   `CHANGELOG.md` section (per-PR entries are too granular to shoot; confirm a
-  non-obvious shortlist with the user). Lead with what sideshow _is_ (the
+  non-obvious shortlist with the user). Lead with what mockpit _is_ (the
   publish → live render → comment → revise loop) before the release-specific
   scenes — a social audience hasn't seen it before. End on an install card.
 - **Single feature / PR:** intro card → one or two scenes demonstrating the
   change → outro card. Name the output after the feature
-  (`sideshow-0.13-sidebar-rail.mp4`), keep it 15–30s, and keep the canonical
+  (`mockpit-0.13-sidebar-rail.mp4`), keep it 15–30s, and keep the canonical
   release storyboard in `record.mjs` intact — do the trim as a local edit and
   revert, or copy `record.mjs` to a scratch sibling (imports keep working) and
   delete it after.
@@ -128,8 +128,8 @@ ffmpeg -y -i "$RAW" -vf "fps=30,format=yuv420p" \
 - **Give `.video-work/` its own `package.json` before `npm i`** or the fonts
   land in the repo's `package.json` (revert with
   `git checkout package.json package-lock.json` if that happens).
-- The recorder spawns `server/index.ts` with `PORT=0` and `SIDESHOW_DB` in the
-  work dir — every run is a fresh workspace, nothing touches `~/.sideshow`.
+- The recorder spawns `server/index.ts` with `PORT=0` and `MOCKPIT_DB` in the
+  work dir — every run is a fresh workspace, nothing touches `~/.mockpit`.
   The version being recorded matches `latest` on npm, so the `#whatsNew`
   update card stays away on its own; scope card selectors with
   `:not(#whatsNew)` anyway.
@@ -138,14 +138,14 @@ ffmpeg -y -i "$RAW" -vf "fps=30,format=yuv420p" \
 
 ## Content accuracy
 
-- **Verify install commands against reality**: `npm view sideshow dist-tags`.
-  The outro card's commands are `npm i -g sideshow` + `sideshow serve --open`
-  (or `npx sideshow serve --open`) — check they still match the README.
+- **Verify install commands against reality**: `npm view mockpit dist-tags`.
+  The outro card's commands are `npm i -g mockpit` + `mockpit serve --open`
+  (or `npx mockpit serve --open`) — check they still match the README.
 - Perf/number claims must come from the changelog entry, phrased no stronger
   ("up to 95% lighter" for the 0.13.0 hydrate change, not "95% faster").
 - The window chrome's URL pill shows the real server host:port — decorative
   but it must not lie; `record.mjs` fills it from the actual base URL.
-- Demo content is `bin/demoData.js` (the `sideshow demo` sessions) — label
+- Demo content is `bin/demoData.js` (the `mockpit demo` sessions) — label
   anything invented beyond it honestly, and keep agent names real
   (`claude-code`, `pi`).
 - The video is silent — never imply audio in the video or announcement copy.
@@ -153,7 +153,7 @@ ffmpeg -y -i "$RAW" -vf "fps=30,format=yuv420p" \
 ## Verification and delivery
 
 - After encoding, extract spot frames at each scene boundary and mid-scene:
-  `ffmpeg -y -ss <t> -i sideshow-X.Y.Z.mp4 -frames:v 1 check.png` (Read
+  `ffmpeg -y -ss <t> -i mockpit-X.Y.Z.mp4 -frames:v 1 check.png` (Read
   renders PNGs). Look specifically for: blank surface iframes (cut too early),
   hover artifacts in the sidebar, captions overlapping scene changes, and the
   intro/outro cards fully faded. Check duration with

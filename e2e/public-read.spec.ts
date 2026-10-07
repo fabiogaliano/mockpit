@@ -1,4 +1,4 @@
-import { expect, publicReadTest as test, publish, stage, startSideshowServer } from "./fixtures.ts";
+import { expect, publicReadTest as test, publish, stage, startMockpitServer } from "./fixtures.ts";
 
 // A session-scoped public workspace exposes its posts but NOT the project/item
 // reads (those are addressed by name, so they would let a shared link enumerate
@@ -28,10 +28,10 @@ test("public read viewer globals are visible to the browser", async ({
     .poll(() =>
       page.evaluate(() => {
         const w = window as Window & {
-          __SIDESHOW_READONLY__?: boolean;
-          __SIDESHOW_PUBLIC_READ__?: "session" | "full";
+          __MOCKPIT_READONLY__?: boolean;
+          __MOCKPIT_PUBLIC_READ__?: "session" | "full";
         };
-        return { readonly: w.__SIDESHOW_READONLY__, mode: w.__SIDESHOW_PUBLIC_READ__ };
+        return { readonly: w.__MOCKPIT_READONLY__, mode: w.__MOCKPIT_PUBLIC_READ__ };
       }),
     )
     .toEqual({ readonly: true, mode: publicReadServer.mode });
@@ -41,9 +41,9 @@ test("readonly session-mode viewer loads without fetching the session or project
   page,
 }) => {
   const token = "secret";
-  const server = await startSideshowServer({
-    SIDESHOW_TOKEN: token,
-    SIDESHOW_PUBLIC_READ: "session",
+  const server = await startMockpitServer({
+    MOCKPIT_TOKEN: token,
+    MOCKPIT_PUBLIC_READ: "session",
   });
   try {
     const post = await publish(
@@ -71,7 +71,7 @@ test("readonly session-mode viewer loads without fetching the session or project
 
     await page.goto(`${server.url}/session/${post.sessionId}`);
 
-    await expect(page).toHaveTitle("Auth refactor · sideshow");
+    await expect(page).toHaveTitle("Auth refactor · mockpit");
     await expect(page.locator(".ss-head h1")).toHaveText("Session scoped");
     await expect(stage(page).locator("iframe")).toBeVisible();
     expect(forbiddenReads).toEqual([]);
@@ -89,9 +89,9 @@ test("readonly session-mode viewer receives live posts without refreshing the li
   page,
 }) => {
   const token = "secret";
-  const server = await startSideshowServer({
-    SIDESHOW_TOKEN: token,
-    SIDESHOW_PUBLIC_READ: "session",
+  const server = await startMockpitServer({
+    MOCKPIT_TOKEN: token,
+    MOCKPIT_PUBLIC_READ: "session",
   });
   try {
     const first = await publish(
@@ -131,9 +131,9 @@ test("readonly session-mode viewer receives live posts without refreshing the li
 
 test("readonly session-mode viewer renders without navigation chrome", async ({ page }) => {
   const token = "secret";
-  const server = await startSideshowServer({
-    SIDESHOW_TOKEN: token,
-    SIDESHOW_PUBLIC_READ: "session",
+  const server = await startMockpitServer({
+    MOCKPIT_TOKEN: token,
+    MOCKPIT_PUBLIC_READ: "session",
   });
   try {
     const post = await publish(
@@ -192,7 +192,7 @@ test("readonly iframe send-prompt bridge messages do not write comments", async 
   await publish(
     publicReadServer.url,
     {
-      html: `<script>parent.postMessage({__sideshow:true,type:"send-prompt",text:"please write"},"*")</script>`,
+      html: `<script>parent.postMessage({__mockpit:true,type:"send-prompt",text:"please write"},"*")</script>`,
       title: "Prompt bridge",
       agent: "e2e",
     },

@@ -44,7 +44,7 @@ const payload = (event: NotifyPayload["event"] = "ask"): NotifyPayload => ({
   variant: "highlighted",
   version: 3,
   text: "tighter or roomier?",
-  url: "https://sideshow.example/project/acme%2Fsite/pricing-card",
+  url: "https://mockpit.example/project/acme%2Fsite/pricing-card",
 });
 
 const realFetch = globalThis.fetch;

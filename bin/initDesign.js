@@ -1,4 +1,4 @@
-// Design-system detection for `sideshow init`. Node built-ins only (plus the
+// Design-system detection for `mockpit init`. Node built-ins only (plus the
 // bundled @iconify-json/mage data), so the CLI keeps its zero-runtime-dependency
 // promise and can run straight from a checkout or from the packed npm tarball.
 //
@@ -73,7 +73,7 @@ function readJson(path) {
 }
 
 // Walk a root for .css files, bounded by MAX_FILES across the whole scan so a
-// monorepo can't turn `sideshow init` into a full-disk crawl.
+// monorepo can't turn `mockpit init` into a full-disk crawl.
 function findCssFiles(cwd, budget) {
   const found = [];
   const walk = (dir, depth) => {
@@ -150,7 +150,7 @@ function customProps(body) {
 
 // The raw token text injected into every html surface for this project. Token
 // blocks (`:root`, `.dark`, …) are kept verbatim so the repo's own values —
-// including `--radius` and anything sideshow doesn't map — reach the sandbox.
+// including `--radius` and anything mockpit doesn't map — reach the sandbox.
 // `@theme` blocks are NOT valid CSS outside Tailwind's compiler, so only their
 // resolvable declarations (not the `var(--x)` aliases Tailwind re-exports) are
 // folded into `:root`.
@@ -344,7 +344,7 @@ const STARTER_TOKENS = [
 ];
 
 /**
- * The text of `.sideshow/starter.html` — a body fragment (never a full
+ * The text of `.mockpit/starter.html` — a body fragment (never a full
  * document; that is the html contract) showing the project's kit classes, its
  * tokens, and one icon in use.
  */
@@ -369,10 +369,10 @@ export function renderStarter(design, iconNames = []) {
     .slice(0, 6)
     .map(([name, value]) => `       var(--${name}) = ${value}`)
     .join("\n");
-  return `<!-- .sideshow/starter.html — copy this, don't publish it as-is.
-     Send the BODY FRAGMENT only; sideshow wraps it in a themed sandbox.
+  return `<!-- .mockpit/starter.html — copy this, don't publish it as-is.
+     Send the BODY FRAGMENT only; mockpit wraps it in a themed sandbox.
      kit: ${kit}${icon ? " · icons: mage" : ""}
-${tokens ? `     tokens imported from this repo:\n${tokens}\n` : ""}     Colors come from these vars or from sideshow's --color-* tokens
+${tokens ? `     tokens imported from this repo:\n${tokens}\n` : ""}     Colors come from these vars or from mockpit's --color-* tokens
      (--color-text-primary, --color-background-primary, …), never a hardcoded
      hex — every surface has to read in both light and dark. -->
 ${body}

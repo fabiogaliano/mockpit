@@ -30,7 +30,7 @@ export function planPostScreenshot(
     : Math.min(Math.max(Number(requestUrl.searchParams.get("w")) || 800, 320), 1920);
   const theme = requestUrl.searchParams.get("theme");
   const modeParam = requestUrl.searchParams.get("mode");
-  const modeCookie = cookieHeader?.match(/sideshow_mode=(light|dark)/)?.[1];
+  const modeCookie = cookieHeader?.match(/mockpit_mode=(light|dark)/)?.[1];
   const mode =
     modeParam === "dark" || modeParam === "light"
       ? modeParam

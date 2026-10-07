@@ -17,10 +17,10 @@ import {
   toFeedbackBatches,
 } from "../server/mcpSpec.ts";
 
-// Point at a deployed instance later by setting SIDESHOW_URL.
-const API = process.env.SIDESHOW_URL ?? "http://localhost:8228";
-const TOKEN = process.env.SIDESHOW_TOKEN;
-const AGENT = process.env.SIDESHOW_AGENT ?? "claude-code";
+// Point at a deployed instance later by setting MOCKPIT_URL.
+const API = process.env.MOCKPIT_URL ?? "http://localhost:8228";
+const TOKEN = process.env.MOCKPIT_TOKEN;
+const AGENT = process.env.MOCKPIT_AGENT ?? "claude-code";
 
 async function api(path: string, init: RequestInit = {}) {
   const headers: Record<string, string> = { "content-type": "application/json" };
@@ -30,7 +30,7 @@ async function api(path: string, init: RequestInit = {}) {
     res = await fetch(`${API}${path}`, { ...init, headers });
   } catch {
     throw new Error(
-      `sideshow server not reachable at ${API} — ask the user to start it with "sideshow serve" or "npm run dev"`,
+      `mockpit server not reachable at ${API} — ask the user to start it with "mockpit serve" or "npm run dev"`,
     );
   }
   const text = await res.text();
@@ -63,7 +63,7 @@ function readMaybeFile(value: string): string {
 // name. Same order as the CLI, so both tiers land in the same project.
 function resolveProject(explicit?: string): string {
   if (explicit) return explicit;
-  if (process.env.SIDESHOW_PROJECT) return process.env.SIDESHOW_PROJECT;
+  if (process.env.MOCKPIT_PROJECT) return process.env.MOCKPIT_PROJECT;
   try {
     const url = execFileSync("git", ["remote", "get-url", "origin"], {
       encoding: "utf8",
@@ -98,7 +98,7 @@ const projectPath = (project: string) => `/api/projects/${encodeURIComponent(pro
 
 // One MCP server process lives as long as one agent conversation, so a
 // lazily-created session shared across tool calls maps cleanly onto it.
-let sessionId: string | null = process.env.SIDESHOW_SESSION ?? null;
+let sessionId: string | null = process.env.MOCKPIT_SESSION ?? null;
 
 // `title` is used only when this call creates the session — once one exists
 // (here or in the viewer, where the user can rename it) it is never retitled.
@@ -340,7 +340,7 @@ server.registerTool(
     inputSchema: STDIO_MCP_INPUT_SCHEMAS.initProject,
   },
   async ({ project }) => {
-    const cli = fileURLToPath(new URL("../bin/sideshow.js", import.meta.url));
+    const cli = fileURLToPath(new URL("../bin/mockpit.js", import.meta.url));
     const args = ["init", "--json", ...(project ? ["--project", project] : [])];
     const stdout = execFileSync(process.execPath, [cli, ...args], {
       encoding: "utf8",

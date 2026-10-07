@@ -10,21 +10,21 @@ import { matchPostScreenshot, planPostScreenshot } from "./screenshot.ts";
 import { postScreenshotClientCacheControl, servePostScreenshot } from "./screenshotCache.ts";
 
 interface Env {
-  BOARD: DurableObjectNamespace<SideshowBoard>;
+  BOARD: DurableObjectNamespace<MockpitBoard>;
   BROWSER: BrowserRun;
-  SIDESHOW_TOKEN?: string;
-  SIDESHOW_PUBLIC_READ?: string;
+  MOCKPIT_TOKEN?: string;
+  MOCKPIT_PUBLIC_READ?: string;
 }
 
 // The whole app lives inside one Durable Object: a single instance per workspace
 // means the in-memory event bus is authoritative — SSE and long-poll work
 // exactly as they do locally, with SQLite-in-DO as the store.
-export class SideshowBoard extends DurableObject<Env> {
+export class MockpitBoard extends DurableObject<Env> {
   private app: ReturnType<typeof createApp>;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    const pr = env.SIDESHOW_PUBLIC_READ;
+    const pr = env.MOCKPIT_PUBLIC_READ;
     const publicRead = pr === "session" || pr === "full" ? pr : undefined;
     this.app = createApp({
       store: new SqlStore(ctx.storage.sql),
@@ -32,7 +32,7 @@ export class SideshowBoard extends DurableObject<Env> {
       guideMarkdown,
       setupText,
       agentHowtoText,
-      authToken: env.SIDESHOW_TOKEN,
+      authToken: env.MOCKPIT_TOKEN,
       publicRead,
       // This Worker deploys with the Browser Rendering binding (wrangler.jsonc),
       // so /p/:id.png is live — tell the viewer to enable the screenshot action.
@@ -49,9 +49,9 @@ export class SideshowBoard extends DurableObject<Env> {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
-    if (!env.SIDESHOW_TOKEN) {
+    if (!env.MOCKPIT_TOKEN) {
       return new Response(
-        "sideshow is not configured: set a token first —\n\n  wrangler secret put SIDESHOW_TOKEN\n",
+        "mockpit is not configured: set a token first —\n\n  wrangler secret put MOCKPIT_TOKEN\n",
         { status: 503 },
       );
     }
@@ -71,7 +71,7 @@ export default {
     const plan = planPostScreenshot(url, postId, request.headers.get("cookie"));
     const clientCacheControl = postScreenshotClientCacheControl(
       plan.noCache,
-      env.SIDESHOW_PUBLIC_READ,
+      env.MOCKPIT_PUBLIC_READ,
     );
 
     return servePostScreenshot({
@@ -90,7 +90,7 @@ export default {
           screenshotOptions: plan.screenshotOptions,
           gotoOptions: { waitUntil: "networkidle0", timeout: 15000 },
           cacheTTL: 0,
-          cookies: [{ name: "sideshow_key", value: env.SIDESHOW_TOKEN!, domain: url.hostname }],
+          cookies: [{ name: "mockpit_key", value: env.MOCKPIT_TOKEN!, domain: url.hostname }],
         }),
     });
   },

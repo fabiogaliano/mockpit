@@ -18,7 +18,7 @@ test("card screenshots use stable social-card dimensions without fullPage", () =
       "https://workspace.test/p/abc123.png?card=1&w=640&theme=gruvbox&mode=dark&v=7&key=secret",
     ),
     "abc123",
-    "sideshow_mode=light",
+    "mockpit_mode=light",
   );
 
   assert.deepEqual(plan.viewport, { width: 1200, height: 630 });
@@ -31,7 +31,7 @@ test("non-card screenshots preserve full-page behavior and configurable width", 
   const plan = planPostScreenshot(
     new URL("https://workspace.test/s/abc123.png?w=640&nocache=1"), // legacy inbound shape
     "abc123",
-    "sideshow_mode=dark",
+    "mockpit_mode=dark",
   );
 
   assert.deepEqual(plan.viewport, { width: 640, height: 800 });

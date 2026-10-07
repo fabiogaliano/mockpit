@@ -10,6 +10,6 @@ setup = "npm install"
 run = "PORT=$CONDUCTOR_PORT npm run dev"
 
 # Each workspace has its own port (CONDUCTOR_PORT) and its own gitignored
-# data/sideshow.json under the workspace path, so nothing shared blocks
+# data/mockpit.json under the workspace path, so nothing shared blocks
 # multiple workspaces running at once.
 run_mode = "concurrent"

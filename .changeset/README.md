@@ -1,6 +1,6 @@
 # Changesets
 
-Sideshow uses [Changesets](https://github.com/changesets/changesets) for release-note fragments and npm version preparation.
+Mockpit uses [Changesets](https://github.com/changesets/changesets) for release-note fragments and npm version preparation.
 
 For user-visible changes, add a changeset instead of editing `CHANGELOG.md` directly:
 
@@ -8,7 +8,7 @@ For user-visible changes, add a changeset instead of editing `CHANGELOG.md` dire
 npm run changeset
 ```
 
-Select `sideshow` and choose the semver bump that matches the shipped package change:
+Select `mockpit` and choose the semver bump that matches the shipped package change:
 
 - `patch` for fixes and small behavior changes
 - `minor` for new user-facing features

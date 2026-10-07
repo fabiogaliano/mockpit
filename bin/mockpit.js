@@ -16,23 +16,23 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { serveUrl } from "./serveUrl.js";
 
-const BASE = (process.env.SIDESHOW_URL ?? "http://localhost:8228").replace(/\/$/, "");
-const TOKEN = process.env.SIDESHOW_TOKEN;
+const BASE = (process.env.MOCKPIT_URL ?? "http://localhost:8228").replace(/\/$/, "");
+const TOKEN = process.env.MOCKPIT_TOKEN;
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PKG_VERSION = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
 // This script's own path — used to register the Stop hook so it works whether
-// or not `sideshow` is on PATH (a fresh clone, an npx run, a global install).
+// or not `mockpit` is on PATH (a fresh clone, an npx run, a global install).
 const SELF = fileURLToPath(import.meta.url);
 
-const HELP = `sideshow — a live visual surface for terminal coding agents
+const HELP = `mockpit — a live visual surface for terminal coding agents
 
 vocabulary: project › item › variant › version. A project is a repo, an item is
 a component or a page, a variant is one take on it, a version is its history.
 
 design loop:
-  sideshow init [--project name]          detect the repo's design system, store
-                                          palette/kit/icons, write .sideshow/starter.html
-  sideshow publish --item <slug> --html <file> [options]
+  mockpit init [--project name]          detect the repo's design system, store
+                                          palette/kit/icons, write .mockpit/starter.html
+  mockpit publish --item <slug> --html <file> [options]
                                           publish (or re-version) a variant
       --variant <name>  variant label (default "default"; "new:<name>" adds one)
       --kind <k>        component|page (default component)
@@ -40,8 +40,8 @@ design loop:
       --prompt <text>   what prompted this version
       --title <t>       item title
       --project <name>  project (default: git remote, else directory name)
-      --kit <id>        opt the html surface into a kit (repeatable; see "sideshow kits")
-    legacy form — sideshow publish <file|-> [options]
+      --kit <id>        opt the html surface into a kit (repeatable; see "mockpit kits")
+    legacy form — mockpit publish <file|-> [options]
                                           publish a multi-surface post into the
                                           current session (no item/variant)
       --title <t>       post title
@@ -55,17 +55,17 @@ design loop:
       --session <id>    target session (default: auto per agent session)
       --session-title <t>  name for a newly created session — name the task,
                         e.g. "Auth refactor" (ignored if the session exists)
-      --agent <name>    agent name for new sessions (default: $SIDESHOW_AGENT or "agent")
+      --agent <name>    agent name for new sessions (default: $MOCKPIT_AGENT or "agent")
       --new-session     force a fresh session
       surfaces appear in command-line flag order; repeat a flag to add several of one kind
-  sideshow revise --item <slug> --html <file> [--variant n] [--from N]
+  mockpit revise --item <slug> --html <file> [--variant n] [--from N]
                                           publish the next version of a variant
-  sideshow page --item <slug> --html <file>
-                                          publish a page item (<sideshow-slot> tags
+  mockpit page --item <slug> --html <file>
+                                          publish a page item (<mockpit-slot> tags
                                           are expanded server-side)
-  sideshow ask --item <slug> [--variant n] "<text>"
+  mockpit ask --item <slug> [--variant n] "<text>"
                                           mark the item as waiting on the operator
-  sideshow wait [--item <slug>] [--timeout s]
+  mockpit wait [--item <slug>] [--timeout s]
                                           block until the operator decides; prints
                                           one batched feedback request as JSON
       --item <slug>     only return batches for this item
@@ -73,52 +73,52 @@ design loop:
       --session <id>    session to watch (default: auto)
       --after <seq>     re-read comments after this cursor (default: where the
                         agent left off, tracked server-side across CLI/MCP)
-  sideshow status [--project <name>]      one line per item: kind, variants, state
-  sideshow show --item <slug> [--variant n] [--body] [--history]
+  mockpit status [--project <name>]      one line per item: kind, variants, state
+  mockpit show --item <slug> [--variant n] [--body] [--history]
                                           item metadata; bodies and version rows
                                           are opt-in
-    legacy form — sideshow show <postId> [--history]
+    legacy form — mockpit show <postId> [--history]
                                           one post by id (surfaces, indexes, ids,
                                           version, history metadata)
-  sideshow export --item <slug> [--variant n] [--out <dir>]
+  mockpit export --item <slug> [--variant n] [--out <dir>]
                                           write the accepted html + history to
-                                          .sideshow/accepted/<slug>/<variant>/
-  sideshow guide --brief                  the short, project-aware agent guide
+                                          .mockpit/accepted/<slug>/<variant>/
+  mockpit guide --brief                  the short, project-aware agent guide
 
 other commands:
-  sideshow serve [--port N] [--host H] [--open]
+  mockpit serve [--port N] [--host H] [--open]
                                           start the surface (API + viewer)
       --host <addr>     bind to one address (e.g. 127.0.0.1); default is every
                         interface
-  sideshow upload <file> [options]        upload an asset, print its id and URL
+  mockpit upload <file> [options]        upload an asset, print its id and URL
       --kind <k>        image|trace|file (default: inferred from the file type)
       --session <id>    session to attach to (default: auto)
-  sideshow asset-url <file>               print the URL a file will have (content hash; no upload)
-  sideshow image <file> [options]         upload an image and publish it as a post
+  mockpit asset-url <file>               print the URL a file will have (content hash; no upload)
+  mockpit image <file> [options]         upload an image and publish it as a post
       --title <t>       post title
       --caption <c>     caption shown under the image
       (also: --session, --session-title, --agent, --new-session)
-  sideshow trace <file> [options]         upload a trace file and publish it as a post
+  mockpit trace <file> [options]         upload a trace file and publish it as a post
       --title <t>       post title
       (also: --session, --session-title, --agent, --new-session)
-  sideshow diff <file|-> [options]        publish a diff post from a patch
+  mockpit diff <file|-> [options]        publish a diff post from a patch
       --title <t>       post title
       --layout <mode>   "unified" (default) or "split"
       (also: --session, --session-title, --agent, --new-session)
-  sideshow markdown <file|-> [options]    publish a markdown post (prose)
+  mockpit markdown <file|-> [options]    publish a markdown post (prose)
       --title <t>       post title
-  sideshow terminal <file|-> [options]    publish terminal output (monospace + ANSI)
+  mockpit terminal <file|-> [options]    publish terminal output (monospace + ANSI)
       --title <t>       post title
       --term-title <t>  label shown in the terminal window chrome
       --cols <n>        render width hint, in columns
       (also: --session, --session-title, --agent, --new-session)
-  sideshow mermaid <file|-> [options]     publish a mermaid post (diagram → SVG)
+  mockpit mermaid <file|-> [options]     publish a mermaid post (diagram → SVG)
       --title <t>       post title
       (also: --session, --session-title, --agent, --new-session)
-  sideshow json <file|-> [options]        publish a JSON post (collapsible tree)
+  mockpit json <file|-> [options]        publish a JSON post (collapsible tree)
       --title <t>       post title
       (also: --session, --session-title, --agent, --new-session)
-  sideshow code <file|-> [options]        publish a code post (shiki-highlighted)
+  mockpit code <file|-> [options]        publish a code post (shiki-highlighted)
       --title <t>       post (card) title
       --filename <f>    filename shown in the code header bar (defaults to the
                         file argument's basename)
@@ -127,12 +127,12 @@ other commands:
       --line-start <n>  1-based line number the excerpt starts at (shows
                         original line numbers instead of 1-based)
       (also: --session, --session-title, --agent, --new-session)
-  sideshow kits                           list the opt-in html kits this workspace offers
-  sideshow update <id> <file|->           revise a post (new version, same card)
+  mockpit kits                           list the opt-in html kits this workspace offers
+  mockpit update <id> <file|->           revise a post (new version, same card)
       --title <t>       replace title
       --kit <id>        opt the html surface into a kit (repeatable)
       --surface <N>     target surface N (id or 0-based index) in a multi-surface post
-  sideshow surface <sub> [options]        edit individual surfaces of a post
+  mockpit surface <sub> [options]        edit individual surfaces of a post
     surface add <id> [flags]              append a surface to an existing post
         --md <f>          markdown surface (repeatable)
         --code <f>        code surface (language inferred from filename; repeatable)
@@ -148,21 +148,21 @@ other commands:
     surface remove <id> <N>               remove surface N (id or 0-based index)
     surface edit <id> <N> <file|->        replace surface N's content (kind preserved)
     surface move <id> <N> --to <M>        move surface N to position M
-  sideshow watch [options]                stream user comments forever, one per
+  mockpit watch [options]                stream user comments forever, one per
                                           line (re-arms the long-poll; for a
                                           background monitor)
       --session <id>    session to watch (default: auto, waits for the first
                         publish to create one)
       --after <seq>     re-read comments after this cursor on the first poll
                         (default: resume where the agent left off, server-side)
-  sideshow install-hook [options]         register a Claude Code Stop hook so the
+  mockpit install-hook [options]         register a Claude Code Stop hook so the
                                           trace syncs itself after every turn —
                                           hands-off, no agent effort (Claude Code)
       --shared          write .claude/settings.json (committed) instead of the
                         default .claude/settings.local.json (gitignored, personal)
       --user            write ~/.claude/settings.json (all projects)
       --print           print the hook JSON snippet instead of writing settings
-  sideshow trace-sync [options]           manually sync your step trace from the
+  mockpit trace-sync [options]           manually sync your step trace from the
                                           session transcript onto the timeline —
                                           the fallback when the hook isn't set up
                                           (run after publishing)
@@ -174,44 +174,44 @@ other commands:
       --all             sync the whole transcript, not just the windowed slice
       --reset           replace the session's trace (full re-sync, not just the tail)
       --quiet           print nothing on success
-  sideshow comment <text> [options]       reply to the user on a post
+  mockpit comment <text> [options]       reply to the user on a post
       --item <slug>     item to reply on (with --variant, --project)
       --post <id>       post to attach the comment to instead of --item
                         (--surface is a deprecated alias)
-  sideshow list [--session <id>|--all]    list posts
-  sideshow sessions                       list sessions
-  sideshow demo                           seed two example sessions to explore the viewer
-  sideshow test-post [--agent <name>]     publish the built-in welcome post (idempotent)
-  sideshow guide                          print the design contract for posts
-  sideshow setup                          print the AGENTS.md integration block
-  sideshow agent-howto             print current agent how-to
-  sideshow version                         show version and check for updates
-  sideshow mcp                            run the stdio MCP server (for agent configs)
+  mockpit list [--session <id>|--all]    list posts
+  mockpit sessions                       list sessions
+  mockpit demo                           seed two example sessions to explore the viewer
+  mockpit test-post [--agent <name>]     publish the built-in welcome post (idempotent)
+  mockpit guide                          print the design contract for posts
+  mockpit setup                          print the AGENTS.md integration block
+  mockpit agent-howto             print current agent how-to
+  mockpit version                         show version and check for updates
+  mockpit mcp                            run the stdio MCP server (for agent configs)
 
 flags:
   --version, -V                           print version and exit
   --json                                  print the raw server response
   --quiet                                 print nothing on success
-  --help, -h                              per-command help (sideshow publish --help)
+  --help, -h                              per-command help (mockpit publish --help)
 
 environment:
-  SIDESHOW_PROJECT  project name; overrides the git-remote/directory default
-  SIDESHOW_URL      server base URL (default http://localhost:8228; set to a
-                    deployed instance, e.g. https://sideshow.you.workers.dev)
-  SIDESHOW_TOKEN    bearer token for a deployed instance
-  SIDESHOW_HOST     address serve binds to (default: every interface). Set to
+  MOCKPIT_PROJECT  project name; overrides the git-remote/directory default
+  MOCKPIT_URL      server base URL (default http://localhost:8228; set to a
+                    deployed instance, e.g. https://mockpit.you.workers.dev)
+  MOCKPIT_TOKEN    bearer token for a deployed instance
+  MOCKPIT_HOST     address serve binds to (default: every interface). Set to
                     127.0.0.1 to keep the server off the network entirely
-  SIDESHOW_SESSION  fixed session id (overrides auto-detection)
-  SIDESHOW_AGENT    agent name used when creating sessions
+  MOCKPIT_SESSION  fixed session id (overrides auto-detection)
+  MOCKPIT_AGENT    agent name used when creating sessions
 `;
 
-// Per-command help, so `sideshow publish --help` costs a few lines instead of
+// Per-command help, so `mockpit publish --help` costs a few lines instead of
 // the whole manual. Commands without an entry fall back to HELP.
 const COMMAND_HELP = {
-  init: `sideshow init [--project <name>]
+  init: `mockpit init [--project <name>]
   Detect the repo's design system, store palette + kit + icon sprite for the
-  project, and write .sideshow/starter.html (gitignored).`,
-  publish: `sideshow publish --item <slug> --html <file> [options]
+  project, and write .mockpit/starter.html (gitignored).`,
+  publish: `mockpit publish --item <slug> --html <file> [options]
   --variant <name>   variant label (default "default"; "new:<name>" to add one)
   --kind <k>         component|page (default component)
   --from <N>         branch from version N
@@ -220,32 +220,32 @@ const COMMAND_HELP = {
   --project <name>   project (default: git remote, else directory name)
   --json / --quiet
 
-sideshow publish <file|-> [--title t] [--md f] [--diff f] ...
+mockpit publish <file|-> [--title t] [--md f] [--diff f] ...
   Legacy form: publish a multi-surface post into the current session.`,
-  revise: `sideshow revise --item <slug> --html <file> [--variant <name>] [--from <N>]
+  revise: `mockpit revise --item <slug> --html <file> [--variant <name>] [--from <N>]
   Publish the next version of an existing variant. The prompt is filled
   server-side from the feedback that triggered it unless you pass --prompt.`,
-  page: `sideshow page --item <slug> --html <file> [--variant <name>] [--title t]
-  Publish a page item. <sideshow-slot slug variant version> tags are expanded
+  page: `mockpit page --item <slug> --html <file> [--variant <name>] [--title t]
+  Publish a page item. <mockpit-slot slug variant version> tags are expanded
   server-side with snapshot semantics.`,
-  ask: `sideshow ask --item <slug> [--variant <name>] "<text>"
+  ask: `mockpit ask --item <slug> [--variant <name>] "<text>"
   Mark the item as waiting on the operator and ask the question.`,
-  wait: `sideshow wait [--item <slug>] [--timeout <seconds>] [--session <id>]
+  wait: `mockpit wait [--item <slug>] [--timeout <seconds>] [--session <id>]
   Block until the operator decides, then print one batched feedback request:
   {project, slug, variant, version, decision, comments, archived}.`,
-  status: `sideshow status [--project <name>]
+  status: `mockpit status [--project <name>]
   One line per item: slug, kind, variants, and what is waiting on whom.`,
-  show: `sideshow show --item <slug> [--variant <name>] [--body] [--history]
+  show: `mockpit show --item <slug> [--variant <name>] [--body] [--history]
   Metadata only by default. --body prints the current html, --history the
   version rows.
 
-sideshow show <postId> [--history]   legacy form: one post by id.`,
-  export: `sideshow export --item <slug> [--variant <name>] [--out <dir>]
-  Write index.html + history.json to .sideshow/accepted/<slug>/<variant>/.`,
-  comment: `sideshow comment <text> [--item <slug>] [--variant <name>] [--post <id>]
+mockpit show <postId> [--history]   legacy form: one post by id.`,
+  export: `mockpit export --item <slug> [--variant <name>] [--out <dir>]
+  Write index.html + history.json to .mockpit/accepted/<slug>/<variant>/.`,
+  comment: `mockpit comment <text> [--item <slug>] [--variant <name>] [--post <id>]
   Reply to the operator in an item's thread. --post targets a post id directly
   (--surface / --snippet are deprecated aliases).`,
-  guide: `sideshow guide [--brief]
+  guide: `mockpit guide [--brief]
   --brief prints the short, project-aware agent guide (~600 tokens).`,
 };
 
@@ -265,7 +265,7 @@ function printAndExit(text) {
 }
 
 function fail(msg) {
-  console.error(`sideshow: ${msg}`);
+  console.error(`mockpit: ${msg}`);
   process.exit(1);
 }
 
@@ -278,7 +278,7 @@ function die(what, fix) {
 }
 
 // `report` decides how a failure reads: the legacy verbs keep the one-line
-// `sideshow: …` (exit 1); the item verbs pass `die` so the reshape format
+// `mockpit: …` (exit 1); the item verbs pass `die` so the reshape format
 // (error / fix / exit 2) is what an agent parses everywhere.
 async function api(path, init = {}, { report, fix } = {}) {
   const bail = (what, hint) => (report === "die" ? die(what, hint ?? fix) : fail(what));
@@ -293,8 +293,8 @@ async function api(path, init = {}, { report, fix } = {}) {
       },
     });
   } catch {
-    if (report === "die") die(`cannot reach sideshow at ${BASE}`, "sideshow serve");
-    fail(`server not reachable at ${BASE} — start it with: sideshow serve`);
+    if (report === "die") die(`cannot reach mockpit at ${BASE}`, "mockpit serve");
+    fail(`server not reachable at ${BASE} — start it with: mockpit serve`);
   }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -382,7 +382,7 @@ function agentPid() {
 }
 
 function stateFile() {
-  const dir = join(tmpdir(), `sideshow-${userInfo().username}`);
+  const dir = join(tmpdir(), `mockpit-${userInfo().username}`);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const key = createHash("sha1")
     .update(`${agentPid()}:${process.cwd()}`)
@@ -406,12 +406,12 @@ function writeState(patch) {
 }
 
 function agentName(flags) {
-  return flags.agent ?? process.env.SIDESHOW_AGENT ?? readState().agent ?? "agent";
+  return flags.agent ?? process.env.MOCKPIT_AGENT ?? readState().agent ?? "agent";
 }
 
 async function resolveSession(flags, { create = false } = {}) {
   if (flags.session) return flags.session;
-  if (process.env.SIDESHOW_SESSION) return process.env.SIDESHOW_SESSION;
+  if (process.env.MOCKPIT_SESSION) return process.env.MOCKPIT_SESSION;
   const state = readState();
   if (state.session && !flags["new-session"]) {
     const ok = await fetch(`${BASE}/api/sessions/${state.session}/surfaces`, {
@@ -505,7 +505,7 @@ function contentTypeFor(file) {
 
 // Map a filename extension to a shiki language id. Only common languages —
 // shiki knows many more, but this covers the files an agent is likely to
-// `sideshow code`. Unmapped extensions return undefined (shiki "text").
+// `mockpit code`. Unmapped extensions return undefined (shiki "text").
 const LANG_BY_EXT = {
   ts: "typescript",
   tsx: "tsx",
@@ -592,7 +592,7 @@ async function uploadBytes(bytes, { filename, contentType, session, kind } = {})
       body: bytes,
     });
   } catch {
-    fail(`server not reachable at ${BASE} — start it with: sideshow serve`);
+    fail(`server not reachable at ${BASE} — start it with: mockpit serve`);
   }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) fail(body.error ?? `${res.status} ${res.statusText}`);
@@ -717,8 +717,8 @@ async function publishPost(surfaces, flags) {
 // that passes nothing still lands in a stable, human-recognizable project.
 function resolveProject(flags = {}) {
   if (flags.project) return { name: String(flags.project), source: "flag" };
-  if (process.env.SIDESHOW_PROJECT) {
-    return { name: process.env.SIDESHOW_PROJECT, source: "SIDESHOW_PROJECT" };
+  if (process.env.MOCKPIT_PROJECT) {
+    return { name: process.env.MOCKPIT_PROJECT, source: "MOCKPIT_PROJECT" };
   }
   const remote = gitRemoteProject();
   if (remote) return { name: remote, source: "git remote" };
@@ -765,7 +765,7 @@ async function apiSoft(path) {
       headers: TOKEN ? { authorization: `Bearer ${TOKEN}` } : {},
     });
   } catch {
-    die(`cannot reach sideshow at ${BASE}`, "sideshow serve");
+    die(`cannot reach mockpit at ${BASE}`, "mockpit serve");
   }
   if (!res.ok) return null;
   return res.json().catch(() => null);
@@ -788,7 +788,7 @@ function pickVariant(item, flag, { slug, forWrite = false } = {}) {
   die(
     `${slug} has ${variants.length} variants; say which one: --variant ${names}` +
       (forWrite ? " or --variant new:<name>" : ""),
-    `sideshow ${forWrite ? "publish" : "show"} --item ${slug} --variant ${variants[0].variant}`,
+    `mockpit ${forWrite ? "publish" : "show"} --item ${slug} --variant ${variants[0].variant}`,
   );
 }
 
@@ -797,7 +797,7 @@ function variantOrDie(item, name, slug) {
   if (!found) {
     die(
       `${slug} has no variant "${name}"`,
-      `sideshow show --item ${slug}   # lists the variants it does have`,
+      `mockpit show --item ${slug}   # lists the variants it does have`,
     );
   }
   return found;
@@ -891,7 +891,7 @@ function itemLine(item) {
 
 // Keep the scratch directory out of the repo. Returns true when .gitignore was
 // touched, so init can report it.
-function ignoreSideshowDir() {
+function ignoreMockpitDir() {
   const file = join(process.cwd(), ".gitignore");
   let current = "";
   try {
@@ -899,10 +899,10 @@ function ignoreSideshowDir() {
   } catch {
     // no .gitignore yet — create one
   }
-  if (/^\.sideshow\/?$/m.test(current)) return false;
+  if (/^\.mockpit\/?$/m.test(current)) return false;
   writeFileSync(
     file,
-    current && !current.endsWith("\n") ? `${current}\n.sideshow/\n` : `${current}.sideshow/\n`,
+    current && !current.endsWith("\n") ? `${current}\n.mockpit/\n` : `${current}.mockpit/\n`,
   );
   return true;
 }
@@ -961,11 +961,11 @@ async function revisePrompt(postId) {
 // into a new variant.
 async function publishItem(flags, { kind, requireExisting = false } = {}) {
   const slug = slugify(flags.item);
-  if (!slug) die("--item needs a slug", "sideshow publish --item pricing-card --html card.html");
+  if (!slug) die("--item needs a slug", "mockpit publish --item pricing-card --html card.html");
   const project = resolveProject(flags).name;
   const file = flags.html ?? flags._?.[0];
   if (!file) {
-    die(`no html for ${slug}`, `sideshow publish --item ${slug} --html <file>`);
+    die(`no html for ${slug}`, `mockpit publish --item ${slug} --html <file>`);
   }
   if (!existsSync(file) && file !== "-") {
     die(`cannot read ${file}`, `ls ${file}`);
@@ -974,7 +974,7 @@ async function publishItem(flags, { kind, requireExisting = false } = {}) {
   if (requireExisting && !item) {
     die(
       `${project} has no item "${slug}"`,
-      `sideshow publish --item ${slug} --html ${file}   # creates it`,
+      `mockpit publish --item ${slug} --html ${file}   # creates it`,
     );
   }
   const variant = pickVariant(item, flags.variant, { slug, forWrite: true });
@@ -982,7 +982,7 @@ async function publishItem(flags, { kind, requireExisting = false } = {}) {
   if (from !== undefined && !Number.isInteger(from)) {
     die(
       `--from must be a version number (got "${flags.from}")`,
-      `sideshow show --item ${slug} --history`,
+      `mockpit show --item ${slug} --history`,
     );
   }
   const htmlSurface = { kind: "html", html: readContent(file) };
@@ -1006,7 +1006,7 @@ async function publishItem(flags, { kind, requireExisting = false } = {}) {
         slug,
         variant,
         // An existing page keeps being a page on revise — the server only
-        // re-snapshots <sideshow-slot> tags when it is told the item is one.
+        // re-snapshots <mockpit-slot> tags when it is told the item is one.
         kind: kind ?? flags.kind ?? item?.kind ?? "component",
         // A new item with no --title reads better in the viewer as its slug than
         // as "Untitled"; an existing one keeps the title it already has.
@@ -1016,7 +1016,7 @@ async function publishItem(flags, { kind, requireExisting = false } = {}) {
         surfaces: [htmlSurface],
       }),
     },
-    { report: "die", fix: `sideshow show --item ${slug}` },
+    { report: "die", fix: `mockpit show --item ${slug}` },
   );
   printPublished(post, flags, { project, from });
   return post;
@@ -1026,11 +1026,11 @@ async function publishItem(flags, { kind, requireExisting = false } = {}) {
 // variant — ask, export, show --body.
 async function resolveVariant(flags, { forWrite = false } = {}) {
   const slug = slugify(flags.item);
-  if (!slug) die("--item is required", "sideshow status   # lists the items");
+  if (!slug) die("--item is required", "mockpit status   # lists the items");
   const project = resolveProject(flags).name;
   const item = await getItem(project, slug);
   if (!item) {
-    die(`${project} has no item "${slug}"`, `sideshow status --project ${project}`);
+    die(`${project} has no item "${slug}"`, `mockpit status --project ${project}`);
   }
   const name = pickVariant(item, flags.variant, { slug, forWrite });
   return { project, slug, item, variant: variantOrDie(item, name, slug) };
@@ -1049,12 +1049,12 @@ function versionGt(a, b) {
   return false;
 }
 
-// Disk-cached update check so `sideshow version` doesn't hit the registry every
+// Disk-cached update check so `mockpit version` doesn't hit the registry every
 // time. TTL = 24 hours; stale/missing/corrupt cache is silently ignored.
 const UPDATE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 function updateCachePath() {
-  const dir = join(tmpdir(), `sideshow-${userInfo().username}`);
+  const dir = join(tmpdir(), `mockpit-${userInfo().username}`);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   return join(dir, "update-check.json");
 }
@@ -1082,7 +1082,7 @@ function watchLine(c) {
     .replace(/\s+/g, " ")
     .trim();
   const where = c.postId ? `on “${c.postTitle ?? "a post"}” (post ${c.postId})` : "on the session";
-  return `sideshow comment ${where}: “${text}”`;
+  return `mockpit comment ${where}: “${text}”`;
 }
 
 const [cmd, ...rest] = process.argv.slice(2);
@@ -1123,7 +1123,7 @@ function parse(config = {}) {
     });
   } catch (err) {
     if (!String(err?.code).startsWith("ERR_PARSE_ARGS")) throw err;
-    fail(`${err.message.split(". ")[0]} — run "sideshow help"`);
+    fail(`${err.message.split(". ")[0]} — run "mockpit help"`);
   }
   if (parsed.values.help) printAndExit(COMMAND_HELP[cmd] ?? HELP);
   const restore = (v) => (typeof v === "string" && rescued.has(v) ? rescued.get(v) : v);
@@ -1369,10 +1369,10 @@ const commands = {
       },
     });
     const port = flags.port ?? process.env.PORT ?? "8228";
-    const host = flags.host ?? process.env.SIDESHOW_HOST;
+    const host = flags.host ?? process.env.MOCKPIT_HOST;
     const child = spawn(process.execPath, [entrypoint("server", "index.ts")], {
       stdio: "inherit",
-      env: { ...process.env, PORT: port, ...(host ? { SIDESHOW_HOST: host } : {}) },
+      env: { ...process.env, PORT: port, ...(host ? { MOCKPIT_HOST: host } : {}) },
     });
     if (flags.open) {
       const url = serveUrl(host, port);
@@ -1493,15 +1493,15 @@ const commands = {
     });
     say("icons:", `mage (${sprite.count} icons) → ${BASE}/a/${asset.id}`);
 
-    const starter = join(process.cwd(), ".sideshow", "starter.html");
+    const starter = join(process.cwd(), ".mockpit", "starter.html");
     mkdirSync(dirname(starter), { recursive: true });
     // The starter only names an icon it can prove is in the sprite it just
     // uploaded, so the <use href> in it always resolves.
     const iconNames = sprite.svg.includes('id="mage-check"') ? ["check"] : [];
     writeFileSync(starter, renderStarter(design, iconNames));
-    say("wrote:", ".sideshow/starter.html");
-    if (ignoreSideshowDir()) say("wrote:", ".gitignore (+ .sideshow/)");
-    say("next:", "sideshow guide --brief");
+    say("wrote:", ".mockpit/starter.html");
+    if (ignoreMockpitDir()) say("wrote:", ".gitignore (+ .mockpit/)");
+    say("next:", "mockpit guide --brief");
     if (flags.json) out({ project, design: stored, iconsAssetId: asset.id, starter });
   },
 
@@ -1524,12 +1524,12 @@ const commands = {
       },
     });
     const text = (flags.text ?? positionals.join(" ")).trim();
-    if (!text) die("ask needs a question", 'sideshow ask --item pricing-card "pick one"');
+    if (!text) die("ask needs a question", 'mockpit ask --item pricing-card "pick one"');
     const { slug, variant } = await resolveVariant(flags);
     const post = await api(
       `/api/posts/${variant.postId}/ask`,
       { method: "POST", body: JSON.stringify({ text }) },
-      { report: "die", fix: `sideshow status` },
+      { report: "die", fix: `mockpit status` },
     );
     if (flags.json) return out(post);
     if (!flags.quiet) console.log(`asked on ${slug}/${variant.variant}: ${text}`);
@@ -1571,11 +1571,11 @@ const commands = {
     const data = await api(
       `${projectPath(project)}/items/${encodeURIComponent(slug)}/export?${params}`,
       {},
-      { report: "die", fix: `sideshow show --item ${slug}` },
+      { report: "die", fix: `mockpit show --item ${slug}` },
     );
     if (flags.json) return out(data);
     const dir = join(
-      flags.out ? flags.out : join(process.cwd(), ".sideshow", "accepted"),
+      flags.out ? flags.out : join(process.cwd(), ".mockpit", "accepted"),
       slug,
       variant.variant,
     );
@@ -1606,7 +1606,7 @@ const commands = {
       options: { session: { type: "string" }, kind: { type: "string" } },
     });
     const file = positionals[0];
-    if (!file || file === "-") fail("usage: sideshow upload <file> [--kind k] [--session id]");
+    if (!file || file === "-") fail("usage: mockpit upload <file> [--kind k] [--session id]");
     const session = flags.session ?? (await resolveSession(flags, { create: true }));
     const asset = await uploadFile(file, { session, kind: flags.kind });
     out(asset);
@@ -1618,7 +1618,7 @@ const commands = {
   async "asset-url"() {
     const { positionals } = parse({ allowPositionals: true, options: {} });
     const file = positionals[0];
-    if (!file || file === "-") fail("usage: sideshow asset-url <file>");
+    if (!file || file === "-") fail("usage: mockpit asset-url <file>");
     const id = createHash("sha256").update(readFileSync(file)).digest("hex");
     out({ id, url: `${BASE}/a/${id}` });
   },
@@ -1636,7 +1636,7 @@ const commands = {
       },
     });
     const file = positionals[0];
-    if (!file || file === "-") fail("usage: sideshow image <file> [--title t]");
+    if (!file || file === "-") fail("usage: mockpit image <file> [--title t]");
     const session = await resolveSession(flags, { create: true });
     const asset = await uploadFile(file, { session, kind: "image" });
     const part = {
@@ -1659,7 +1659,7 @@ const commands = {
       },
     });
     const file = positionals[0];
-    if (!file || file === "-") fail("usage: sideshow trace <file> [--title t]");
+    if (!file || file === "-") fail("usage: mockpit trace <file> [--title t]");
     const session = await resolveSession(flags, { create: true });
     const asset = await uploadFile(file, { session, kind: "trace" });
     outPost(
@@ -1758,7 +1758,7 @@ const commands = {
         "new-session": { type: "boolean" },
       },
     });
-    if (!positionals[0]) fail("usage: sideshow json <file|-> [--title t]");
+    if (!positionals[0]) fail("usage: mockpit json <file|-> [--title t]");
     const text = readContent(positionals[0]);
     let data;
     try {
@@ -1785,7 +1785,7 @@ const commands = {
     });
     if (!positionals[0])
       fail(
-        "usage: sideshow code <file|-> [--title t] [--filename f] [--language lang] [--line-start n]",
+        "usage: mockpit code <file|-> [--title t] [--filename f] [--language lang] [--line-start n]",
       );
     const code = readContent(positionals[0]);
     const lang = flags.language ?? (positionals[0] !== "-" ? inferLang(positionals[0]) : undefined);
@@ -1812,7 +1812,7 @@ const commands = {
       },
     });
     const id = positionals[0];
-    if (!id) fail("usage: sideshow update <id> <file|-> [--surface N]");
+    if (!id) fail("usage: mockpit update <id> <file|-> [--surface N]");
     const body = {};
     if (flags.title !== undefined) body.title = flags.title;
     if (positionals[1] !== undefined) {
@@ -1856,7 +1856,7 @@ const commands = {
         },
       });
       const postId = positionals[0];
-      if (!postId) fail("usage: sideshow surface add <postId> [--md f] [--code f] ...");
+      if (!postId) fail("usage: mockpit surface add <postId> [--md f] [--code f] ...");
       const hasSurfaceFlag = (tokens ?? []).some(
         (t) => t.kind === "option" && SURFACE_FLAGS.has(t.name),
       );
@@ -1881,13 +1881,13 @@ const commands = {
     } else if (sub === "remove") {
       const { positionals } = parse({ allowPositionals: true });
       const [postId, target] = positionals;
-      if (!postId || !target) fail("usage: sideshow surface remove <postId> <N|id>");
+      if (!postId || !target) fail("usage: mockpit surface remove <postId> <N|id>");
       outPost(await api(`/api/posts/${postId}/surfaces/${target}`, { method: "DELETE" }));
     } else if (sub === "edit") {
       const { positionals } = parse({ allowPositionals: true });
       const [postId, target, file] = positionals;
       if (!postId || !target || file === undefined) {
-        fail("usage: sideshow surface edit <postId> <N|id> <file|->");
+        fail("usage: mockpit surface edit <postId> <N|id> <file|->");
       }
       outPost(
         await api(`/api/posts/${postId}/surfaces/${target}`, {
@@ -1902,7 +1902,7 @@ const commands = {
       });
       const [postId, target] = positionals;
       if (!postId || !target || flags.to === undefined) {
-        fail("usage: sideshow surface move <postId> <N|id> --to <M>");
+        fail("usage: mockpit surface move <postId> <N|id> --to <M>");
       }
       const post = await api(`/api/posts/${postId}`);
       const surfaces = post.surfaces ?? [];
@@ -2079,7 +2079,7 @@ const commands = {
   },
 
   // Internal: run from a Claude Code Stop hook. Reads the hook payload on stdin
-  // (transcript_path, cwd) and syncs the trace for whichever sideshow session
+  // (transcript_path, cwd) and syncs the trace for whichever mockpit session
   // owns that cwd. Claude Code hands us the exact transcript, so this never has
   // to guess. Must NEVER disturb the agent — every failure path is swallowed and
   // the process exits 0 with no stdout (a Stop hook's stdout is parsed as JSON).
@@ -2090,8 +2090,8 @@ const commands = {
       const transcript = payload.transcript_path;
       const cwd = payload.cwd || process.cwd();
       if (!transcript || !existsSync(transcript)) return;
-      const session = process.env.SIDESHOW_SESSION ?? (await resolveSessionByCwd(cwd));
-      if (!session) return; // no sideshow session for this cwd — nothing to trace
+      const session = process.env.MOCKPIT_SESSION ?? (await resolveSessionByCwd(cwd));
+      if (!session) return; // no mockpit session for this cwd — nothing to trace
       await syncTrace({ session, transcript });
     } catch {
       // A trace hook must never interfere with the agent — stay silent.
@@ -2131,10 +2131,10 @@ const commands = {
     }
     settings.hooks ??= {};
     settings.hooks[event] ??= [];
-    // Match our specific `sideshow[.js] hook` invocation — NOT the feedback
-    // hook (`sideshow-stop-hook.mjs check|watch`), which also contains both
-    // "sideshow" and "hook" but ends in a different verb.
-    const isOurs = (cmd) => typeof cmd === "string" && /sideshow(\.js)?["']?\s+hook\b/.test(cmd);
+    // Match our specific `mockpit[.js] hook` invocation — NOT the feedback
+    // hook (`mockpit-stop-hook.mjs check|watch`), which also contains both
+    // "mockpit" and "hook" but ends in a different verb.
+    const isOurs = (cmd) => typeof cmd === "string" && /mockpit(\.js)?["']?\s+hook\b/.test(cmd);
     const already = settings.hooks[event].some((g) =>
       (g.hooks ?? []).some((h) => isOurs(h.command)),
     );
@@ -2161,7 +2161,7 @@ const commands = {
       },
     });
     const text = positionals.join(" ").trim();
-    if (!text) die("comment needs text", 'sideshow comment "…" --item pricing-card');
+    if (!text) die("comment needs text", 'mockpit comment "…" --item pricing-card');
     // --surface / --snippet stay as back-compat aliases for --post; the request
     // body key is the wire field `surface`, kept as-is.
     let post = flags.post ?? flags.surface ?? flags.snippet;
@@ -2169,7 +2169,7 @@ const commands = {
     // every other item verb does.
     if (!post && flags.item) post = (await resolveVariant(flags)).variant.postId;
     if (!post) {
-      die("a comment must target a post", 'sideshow comment "…" --item pricing-card');
+      die("a comment must target a post", 'mockpit comment "…" --item pricing-card');
     }
     out(
       await api("/api/comments", {
@@ -2212,14 +2212,14 @@ const commands = {
     });
     if (!flags.item) {
       const id = positionals[0];
-      if (!id) die("show needs an item", "sideshow show --item pricing-card");
+      if (!id) die("show needs an item", "mockpit show --item pricing-card");
       const post = await api(`/api/posts/${id}`);
       return out(flags.history ? post : { ...post, history: historyMeta(post.history) });
     }
     const slug = slugify(flags.item);
     const project = resolveProject(flags).name;
     const item = await getItem(project, slug);
-    if (!item) die(`${project} has no item "${slug}"`, `sideshow status --project ${project}`);
+    if (!item) die(`${project} has no item "${slug}"`, `mockpit status --project ${project}`);
     if (flags.json) return out(item);
     if (!flags.quiet) console.log(itemLine(item));
     const variants = flags.variant
@@ -2376,7 +2376,7 @@ const commands = {
   // Print the running version and check for updates (non-blocking, best-effort).
   async version() {
     parse();
-    console.log(`sideshow ${PKG_VERSION}`);
+    console.log(`mockpit ${PKG_VERSION}`);
     try {
       const cached = readUpdateCache();
       let latest = cached;
@@ -2384,7 +2384,7 @@ const commands = {
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), 3000);
         try {
-          const res = await fetch("https://registry.npmjs.org/sideshow/latest", {
+          const res = await fetch("https://registry.npmjs.org/mockpit/latest", {
             signal: ctrl.signal,
           });
           clearTimeout(timer);
@@ -2401,7 +2401,7 @@ const commands = {
       }
       if (latest && versionGt(latest, PKG_VERSION)) {
         console.log(`\nUpdate available: ${PKG_VERSION} → ${latest}`);
-        console.log(`Run: npm install -g sideshow`);
+        console.log(`Run: npm install -g mockpit`);
       }
     } catch {
       // Never let the update check fail the command.
@@ -2424,5 +2424,5 @@ if (cmd === "--version" || cmd === "-V") {
 } else if (commands[cmd]) {
   await commands[cmd]();
 } else {
-  fail(`unknown command "${cmd}" — run "sideshow help"`);
+  fail(`unknown command "${cmd}" — run "mockpit help"`);
 }

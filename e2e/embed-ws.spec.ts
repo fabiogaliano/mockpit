@@ -4,7 +4,7 @@
 import { expect, mountEmbed, navigatingRouter, publish, test } from "./fixtures.ts";
 
 const WS_HARNESS = `<script>
-  window.__SIDESHOW_PUBLIC_READ__ = "session";
+  window.__MOCKPIT_PUBLIC_READ__ = "session";
   const NativeSetInterval = window.setInterval.bind(window);
   window.setInterval = (cb, ms, ...args) => NativeSetInterval(cb, ms === 30000 ? 10 : ms, ...args);
   const sockets = [];

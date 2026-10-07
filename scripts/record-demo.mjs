@@ -6,7 +6,7 @@
 //   node scripts/record-demo.mjs
 //   ffmpeg -y -i <printed path> -vf "fps=12,scale=880:-1:flags=lanczos,\
 //     split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=\
-//     dither=bayer:bayer_scale=5:diff_mode=rectangle" docs/sideshow-demo.gif
+//     dither=bayer:bayer_scale=5:diff_mode=rectangle" docs/mockpit-demo.gif
 
 import { chromium } from "@playwright/test";
 import { execSync, spawn } from "node:child_process";
@@ -20,9 +20,9 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 execSync("npx vite build", { cwd: ROOT, stdio: "inherit" });
-const dataDir = mkdtempSync(join(tmpdir(), "sideshow-rec-"));
+const dataDir = mkdtempSync(join(tmpdir(), "mockpit-rec-"));
 const proc = spawn(process.execPath, [join(ROOT, "server", "index.ts")], {
-  env: { ...process.env, PORT: "0", SIDESHOW_DATA: join(dataDir, "data.json") },
+  env: { ...process.env, PORT: "0", MOCKPIT_DATA: join(dataDir, "data.json") },
   stdio: ["ignore", "pipe", "inherit"],
 });
 const base = await new Promise((resolve, reject) => {

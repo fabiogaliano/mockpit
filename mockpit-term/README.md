@@ -1,7 +1,7 @@
-# sideshow-term
+# mockpit-term
 
 A live **terminal** visual surface for coding agents — a sibling of
-[sideshow](../README.md) that renders to the terminal via
+[mockpit](../README.md) that renders to the terminal via
 [opentui](https://github.com/anomalyco/opentui) instead of the browser.
 
 Agents publish **STML** (a small, HTML-like markup); you keep a TUI viewer open
@@ -27,12 +27,12 @@ Requires Node ≥ 22.18 (server + CLI) and [Bun](https://bun.sh) (the viewer and
 renderer — opentui's native core uses Bun's FFI).
 
 ```sh
-cd sideshow-term
+cd mockpit-term
 npm install                      # installs runtime dependencies
-node bin/sideshow-term.js watch  # starts a local server if needed, then opens the viewer
+node bin/mockpit-term.js watch  # starts a local server if needed, then opens the viewer
 
 # in another terminal, seed a few example snippets to look around:
-node bin/sideshow-term.js demo
+node bin/mockpit-term.js demo
 ```
 
 Then point an agent at the surface (teaches any agent with a shell to publish
@@ -42,10 +42,10 @@ STML):
 curl -s http://localhost:4243/setup >> AGENTS.md
 ```
 
-## How it relates to sideshow
+## How it relates to mockpit
 
-sideshow-term **reuses sideshow's server core** — `createApp` and
-`JsonFileStore` come from the `sideshow` package. Snippets are opaque strings to
+mockpit-term **reuses mockpit's server core** — `createApp` and
+`JsonFileStore` come from the `mockpit` package. Snippets are opaque strings to
 the store, so the same REST API, SSE live feed, long-poll comments, and MCP
 endpoint serve STML exactly as they serve HTML. What's new in this package is:
 
@@ -60,16 +60,16 @@ the CLI shells out to Bun for `watch` and `render`.
 ## CLI
 
 ```
-sideshow-term [--port N]                    open the live TUI viewer, starting a local server if needed
-sideshow-term watch [--port N] [--no-serve] open the live TUI viewer (Bun; keyboard + mouse)
-sideshow-term serve [--port N]              start only the server (REST + SSE + MCP)
-sideshow-term render <file|-> [--width N]   preview STML to plain text (Bun)
-sideshow-term publish <file|-> [--title …]  publish an STML snippet
-sideshow-term update <id> <file|->          revise a snippet (new version)
-sideshow-term list / sessions               inspect what's published
-sideshow-term clear [--session id|--all]    clear existing visualizations
-sideshow-term demo                          seed an example session
-sideshow-term guide / setup                 print the agent contract
+mockpit-term [--port N]                    open the live TUI viewer, starting a local server if needed
+mockpit-term watch [--port N] [--no-serve] open the live TUI viewer (Bun; keyboard + mouse)
+mockpit-term serve [--port N]              start only the server (REST + SSE + MCP)
+mockpit-term render <file|-> [--width N]   preview STML to plain text (Bun)
+mockpit-term publish <file|-> [--title …]  publish an STML snippet
+mockpit-term update <id> <file|->          revise a snippet (new version)
+mockpit-term list / sessions               inspect what's published
+mockpit-term clear [--session id|--all]    clear existing visualizations
+mockpit-term demo                          seed an example session
+mockpit-term guide / setup                 print the agent contract
 ```
 
 ## STML
@@ -93,7 +93,7 @@ at `/guide`). See [`examples/`](examples) for sample snippets.
 
 This is a **render-only** prototype: publish → live render → revise. The
 comment/feedback half of the loop (typing back to the agent from the viewer)
-that sideshow has in the browser is intentionally deferred — the store and API
+that mockpit has in the browser is intentionally deferred — the store and API
 already carry comments, so the seam is in place for a later version.
 
 ## Development

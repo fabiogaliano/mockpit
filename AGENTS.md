@@ -1,7 +1,7 @@
-# sideshow — agent guide
+# mockpit — agent guide
 
 Guidance for agents developing this repo. (The block that teaches agents to
-_use_ a running sideshow lives in `guide/AGENT_SETUP.md`, served at `/setup`.)
+_use_ a running mockpit lives in `guide/AGENT_SETUP.md`, served at `/setup`.)
 `CLAUDE.md` symlinks here.
 
 ## What this is and why
@@ -49,7 +49,7 @@ consciously, not as a side effect):
   `htmlSurface` bridges the legacy snippet shape. Assets (uploaded blobs)
   are a separate entity, referenced by `image` surfaces and the experimental
   trace path; `selectEvictions` is the reference-aware LRU policy.
-- `server/public.ts` — the `sideshow/server` package export (`createApp`,
+- `server/public.ts` — the `mockpit/server` package export (`createApp`,
   `SqlStore`, `createSqliteStorage`, `JsonFileStore`, types) for embedding the app.
 - `server/sqlStore.ts` — `SqlStore`, the SQLite-backed `Store`. It takes a
   `SqlStorage` (the narrow SQL surface declared in `types.ts`, not the ambient
@@ -57,7 +57,7 @@ consciously, not as a side effect):
   (`ctx.storage.sql`) and on Node via `server/sqliteStorage.ts`'s `node:sqlite`
   adapter — the local default, so dev mirrors the deploy. `server/storage.ts` —
   `JsonFileStore`, the legacy single-file store, still selectable with
-  `SIDESHOW_STORE=json`. All must pass `test/storeContract.ts`, and all migrate
+  `MOCKPIT_STORE=json`. All must pass `test/storeContract.ts`, and all migrate
   legacy `snippets`/`snippetId` data to surfaces on load. On first SQLite boot
   `migrateJsonToSqlite` copies an existing JSON workspace in once (identity, history,
   and comment `seq` preserved via `JsonFileStore.exportBoard` →
@@ -95,10 +95,10 @@ consciously, not as a side effect):
   (`vite.config.ts`) into a single self-contained `viewer/dist/index.html`
   (vite-plugin-singlefile) that the server still serves as one in-memory
   document — there are no static-asset routes.
-- `bin/sideshow.js` — CLI, Node built-ins only; `bin/demoData.js` — seed
-  content for `sideshow demo`.
+- `bin/mockpit.js` — CLI, Node built-ins only; `bin/demoData.js` — seed
+  content for `mockpit demo`.
 - `workers/index.ts` — Cloudflare entry; one Durable Object runs the whole app.
-- `skills/sideshow/` + `guide/` — teach agents to use a running sideshow.
+- `skills/mockpit/` + `guide/` — teach agents to use a running mockpit.
 - `scripts/record-demo.mjs` — regenerates the README gif.
 
 ## Architecture invariants
@@ -181,7 +181,7 @@ consciously, not as a side effect):
   root work (`:root` matches nothing in a shadow root, and there is no
   `<html>`/`<body>` — `:host` plays `<body>`'s role; see `embed.tsx`). Build the
   bundle with `npm run build:embed` (→ `viewer/dist-embed/engine.js`, the
-  `sideshow/viewer-embed` export); it is folded into `npm run build`.
+  `mockpit/viewer-embed` export); it is folded into `npm run build`.
   Embed-host contract changes (`liveTransport`, `homeView`, `hideBrand`, slots,
   `onReady`, theme mirroring, etc.) need `viewer/embed.d.ts` and focused embed
   e2e coverage; self-hosted behavior must stay identical.
@@ -260,10 +260,9 @@ test.ts` covers the JSON→SQLite import.
   `/api/snippets`), the `parts` request-body key, the `?part=` query key, the
   `/s/:id` route alias, and the deprecated MCP tool
   aliases (`publish_surface`, etc.) — keep these byte-identical. Deprecated MCP
-  aliases are hidden from `tools/list` unless `SIDESHOW_MCP_LEGACY=1`; hiding is
+  aliases are hidden from `tools/list` unless `MOCKPIT_MCP_LEGACY=1`; hiding is
   allowed, changing them is not. The tenant DB is
-  a **workspace** (`board` is being retired). Canonical glossary: sideshow-cloud
-  `docs/glossary.md`.
+  a **workspace** (`board` is being retired).
 - Conventional Commits: `type(scope): description`.
 - Changesets drive release notes. For user-visible changes run
   `npm run changeset` and select `patch`/`minor`/`major`; for maintenance-only

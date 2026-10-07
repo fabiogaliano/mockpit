@@ -25,9 +25,9 @@ const E = "\x1b["; // ANSI CSI
 
 execSync("npx vite build", { cwd: ROOT, stdio: "inherit" });
 
-const dataDir = mkdtempSync(join(tmpdir(), "sideshow-shots-"));
+const dataDir = mkdtempSync(join(tmpdir(), "mockpit-shots-"));
 const proc = spawn(process.execPath, [join(ROOT, "server", "index.ts")], {
-  env: { ...process.env, PORT: "0", SIDESHOW_DATA: join(dataDir, "data.json") },
+  env: { ...process.env, PORT: "0", MOCKPIT_DATA: join(dataDir, "data.json") },
   stdio: ["ignore", "pipe", "inherit"],
 });
 const base = await new Promise((resolve, reject) => {

@@ -15,7 +15,7 @@ import { JsonFileStore } from "../server/storage.ts";
 import { WELCOME_POST_TITLE, WELCOME_SESSION_TITLE } from "../server/welcomePost.ts";
 
 function makeApp(authToken?: string) {
-  const dir = mkdtempSync(join(tmpdir(), "sideshow-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "mockpit-test-"));
   const store = new JsonFileStore(join(dir, "data.json"));
   return createApp({
     store,

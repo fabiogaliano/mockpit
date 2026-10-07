@@ -1,7 +1,7 @@
-# sideshow-term — design guide for agents
+# mockpit-term — design guide for agents
 
 You are drawing to a **terminal** visual surface the user keeps open in a spare
-terminal (`sideshow-term watch`). You publish **STML** — a small, HTML-like
+terminal (`mockpit-term watch`). You publish **STML** — a small, HTML-like
 markup — and it renders live as real opentui components: bordered boxes, big
 ASCII text, colored and styled inline text, lists, tables of boxes. This is a
 higher-fidelity surface than your normal terminal output. Read this once
@@ -9,12 +9,12 @@ before your first publish.
 
 ## Publishing
 
-Same API and tiers as sideshow — only the markup language differs. Via CLI:
+Same API and tiers as mockpit — only the markup language differs. Via CLI:
 
 ```
-sideshow-term publish sketch.stml --title "Cache layout" --session-title "Cache redesign"
-echo '<h1>Hi</h1>' | sideshow-term publish - --title "Quick note"
-sideshow-term update <id> revised.stml      # same card, new version
+mockpit-term publish sketch.stml --title "Cache layout" --session-title "Cache redesign"
+echo '<h1>Hi</h1>' | mockpit-term publish - --title "Quick note"
+mockpit-term update <id> revised.stml      # same card, new version
 ```
 
 Via raw HTTP (the `html` field carries STML):
@@ -32,7 +32,7 @@ on that first publish only.
 Preview without the viewer (renders to plain text in your shell):
 
 ```
-sideshow-term render sketch.stml --width 80
+mockpit-term render sketch.stml --width 80
 ```
 
 ## STML in one minute

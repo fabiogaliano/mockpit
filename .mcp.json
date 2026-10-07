@@ -1,10 +1,10 @@
 {
   "mcpServers": {
-    "sideshow": {
+    "mockpit": {
       "command": "node",
       "args": ["mcp/server.ts"],
       "env": {
-        "SIDESHOW_URL": "http://localhost:8228"
+        "MOCKPIT_URL": "http://localhost:8228"
       }
     }
   }

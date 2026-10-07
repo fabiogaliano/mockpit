@@ -2,7 +2,7 @@ import { z } from "zod";
 import { KIT_IDS } from "./kits.ts";
 import { SURFACE_KINDS, type SurfaceKind } from "./types.ts";
 
-export const MCP_SERVER_INFO = { name: "sideshow", version: "0.1.0" };
+export const MCP_SERVER_INFO = { name: "mockpit", version: "0.1.0" };
 
 // The `kind` enum both MCP transports advertise — derived from the one canonical
 // list (types.ts) so the MCP tier can never again fall behind what REST/CLI
@@ -10,7 +10,7 @@ export const MCP_SERVER_INFO = { name: "sideshow", version: "0.1.0" };
 const PART_KIND_ENUM = [...SURFACE_KINDS] as [SurfaceKind, ...SurfaceKind[]];
 
 export const MCP_INSTRUCTIONS =
-  "Sideshow shows design work to the operator: project > item > variant > version. Publish a " +
+  "Mockpit shows design work to the operator: project > item > variant > version. Publish a " +
   "variant with publish_item, iterate with revise_item, ask with ask_user, then wait_for_feedback " +
   "for one batched decision. Read state with list_items/get_item (bodies are opt-in). Read " +
   "userFeedback in write results; comments are delivered once. Fetch get_design_guide before html.";
@@ -187,7 +187,7 @@ export const MCP_TOOL_DESCRIPTIONS = {
   getItem: "One item's metadata and variants. Bodies and version rows are opt-in.",
   exportItem: "The accepted html, version, prompt history, and screenshot URL for one variant.",
   initProject:
-    "Detect this repo's design system, store its palette/kit/icons on the project, and write .sideshow/starter.html. Run once per repo.",
+    "Detect this repo's design system, store its palette/kit/icons on the project, and write .mockpit/starter.html. Run once per repo.",
   replyToUser:
     "Post a short plain-text reply using postId (surfaceId is deprecated). Read userFeedback.",
   listSurfacesHttp: "Deprecated list_posts alias.",
@@ -474,7 +474,7 @@ export const HTTP_MCP_TOOLS = [
 
 // Retired spellings. Byte-identical to what they always were — they stay
 // callable forever, but they are omitted from tools/list unless
-// SIDESHOW_MCP_LEGACY=1, so a fresh agent never pays for them.
+// MOCKPIT_MCP_LEGACY=1, so a fresh agent never pays for them.
 export const DEPRECATED_HTTP_MCP_TOOLS = [
   {
     name: "publish_surface",
@@ -556,7 +556,7 @@ export const DEPRECATED_MCP_TOOL_NAMES = new Set([
 // Whether a transport advertises the retired spellings. Reads the environment
 // defensively: there is no `process` on the Worker runtime.
 export function includeLegacyMcpTools(): boolean {
-  return (globalThis as any).process?.env?.SIDESHOW_MCP_LEGACY === "1";
+  return (globalThis as any).process?.env?.MOCKPIT_MCP_LEGACY === "1";
 }
 
 // The batch an agent gets back from a wait or a piggybacked write: one entry per

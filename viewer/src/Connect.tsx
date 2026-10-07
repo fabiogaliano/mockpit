@@ -116,7 +116,7 @@ const CLIENTS: Client[] = [
     name: "Most agents",
     logo: LogoMostAgents,
     setup: (url) => <CopyField value={`npx add-mcp ${url}`} />,
-    approve: () => <>Reload your agent if it asks, then ask it to publish a sideshow test post.</>,
+    approve: () => <>Reload your agent if it asks, then ask it to publish a mockpit test post.</>,
   },
   {
     name: "Pi",
@@ -125,20 +125,20 @@ const CLIENTS: Client[] = [
       const serverUrl = serverUrlFromMcpUrl(url);
       return (
         <>
-          <p class="muted">Install the sideshow extension in Pi:</p>
-          <CopyField value="pi install npm:sideshow" />
+          <p class="muted">Install the mockpit extension in Pi:</p>
+          <CopyField value="pi install npm:mockpit" />
           <p class="muted">Then point it at this server:</p>
-          <CopyField value={`export SIDESHOW_URL=${serverUrl}`} />
+          <CopyField value={`export MOCKPIT_URL=${serverUrl}`} />
           <p class="muted">
-            If this server uses <code>SIDESHOW_TOKEN</code>, also export it as{" "}
-            <code>SIDESHOW_TOKEN</code>.
+            If this server uses <code>MOCKPIT_TOKEN</code>, also export it as{" "}
+            <code>MOCKPIT_TOKEN</code>.
           </p>
         </>
       );
     },
     approve: () => (
       <>
-        <code>/sideshow</code> in Pi confirms the extension can reach this server.
+        <code>/mockpit</code> in Pi confirms the extension can reach this server.
       </>
     ),
   },
@@ -148,7 +148,7 @@ const CLIENTS: Client[] = [
     setup: (url) => (
       <>
         <p class="muted">Most MCP clients accept a generic HTTP server entry:</p>
-        <CopyField value={JSON.stringify({ mcpServers: { sideshow: { url } } }, null, 2)} />
+        <CopyField value={JSON.stringify({ mcpServers: { mockpit: { url } } }, null, 2)} />
       </>
     ),
   },
@@ -255,8 +255,8 @@ export function ConnectInstructions(props: {
       {props.subtitle && <p class="connect-hero-sub">{props.subtitle}</p>}
       <ClientSteps url={url()} awaiting={props.awaiting} />
       <p class="connect-token-note">
-        Protected server? Add <code>Authorization: Bearer &lt;SIDESHOW_TOKEN&gt;</code> in your MCP
-        client, or set <code>SIDESHOW_TOKEN</code> for CLI/Pi integrations.
+        Protected server? Add <code>Authorization: Bearer &lt;MOCKPIT_TOKEN&gt;</code> in your MCP
+        client, or set <code>MOCKPIT_TOKEN</code> for CLI/Pi integrations.
       </p>
     </div>
   );

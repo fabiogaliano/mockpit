@@ -1,4 +1,4 @@
-// STML — Sideshow Terminal Markup Language.
+// STML — Mockpit Terminal Markup Language.
 //
 // A small, tolerant, HTML-like parser. It has no opentui dependency on
 // purpose: it is pure data-in/data-out so it can be unit-tested on plain Node

@@ -1,4 +1,4 @@
-// Seed content for `sideshow-term demo`. One session, a few snippets that
+// Seed content for `mockpit-term demo`. One session, a few snippets that
 // exercise the breadth of STML so the viewer has something to show.
 
 export const DEMO_SESSION = {

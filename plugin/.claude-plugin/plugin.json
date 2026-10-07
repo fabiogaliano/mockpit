@@ -1,22 +1,22 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
-  "name": "sideshow",
-  "displayName": "sideshow",
+  "name": "mockpit",
+  "displayName": "mockpit",
   "version": "0.1.0",
-  "description": "Publish design items and variants to sideshow over MCP, and stream the user's browser comments and decisions back to Claude Code as notifications.",
-  "author": { "name": "modem", "email": "ben@modem.dev" },
-  "homepage": "https://github.com/modem-dev/sideshow",
-  "repository": "https://github.com/modem-dev/sideshow",
+  "description": "Publish design items and variants to mockpit over MCP, and stream the user's browser comments and decisions back to Claude Code as notifications.",
+  "author": { "name": "Fábio Galiano" },
+  "homepage": "https://github.com/fabiogaliano/mockpit",
+  "repository": "https://github.com/fabiogaliano/mockpit",
   "license": "MIT",
-  "keywords": ["sideshow", "design", "visualization", "feedback", "mcp"],
+  "keywords": ["mockpit", "design", "visualization", "feedback", "mcp"],
   "skills": "./skills/",
   "mcpServers": {
-    "sideshow": {
+    "mockpit": {
       "command": "npx",
-      "args": ["-y", "sideshow", "mcp"],
+      "args": ["-y", "mockpit", "mcp"],
       "env": {
-        "SIDESHOW_URL": "${user_config.sideshowUrl}",
-        "SIDESHOW_TOKEN": "${user_config.apiToken}"
+        "MOCKPIT_URL": "${user_config.mockpitUrl}",
+        "MOCKPIT_TOKEN": "${user_config.apiToken}"
       }
     }
   },
@@ -24,17 +24,17 @@
     "monitors": "./monitors.json"
   },
   "userConfig": {
-    "sideshowUrl": {
+    "mockpitUrl": {
       "type": "string",
-      "title": "Sideshow URL",
-      "description": "Base URL of your sideshow server. Local default is http://localhost:8228; set your deployed instance (e.g. https://sideshow.you.workers.dev) otherwise.",
+      "title": "Mockpit URL",
+      "description": "Base URL of your mockpit server. Local default is http://localhost:8228; set your deployed instance (e.g. https://mockpit.you.workers.dev) otherwise.",
       "default": "http://localhost:8228",
       "required": true
     },
     "apiToken": {
       "type": "string",
-      "title": "Sideshow token",
-      "description": "Bearer token for a deployed sideshow instance. Leave blank for a local server.",
+      "title": "Mockpit token",
+      "description": "Bearer token for a deployed mockpit instance. Leave blank for a local server.",
       "sensitive": true
     }
   }

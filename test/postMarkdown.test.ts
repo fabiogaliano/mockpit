@@ -20,7 +20,7 @@ function post(surfaces: Surface[], extra: Partial<MarkdownablePost> = {}): Markd
 function assertApplies(before: string, after: string): void {
   const patch = unifiedDiff("f.txt", before, after);
   assert.notEqual(patch, "", "differing content must produce a patch");
-  const dir = mkdtempSync(join(tmpdir(), "sideshow-diff-"));
+  const dir = mkdtempSync(join(tmpdir(), "mockpit-diff-"));
   try {
     execFileSync("git", ["init", "-q", "."], { cwd: dir });
     writeFileSync(join(dir, "f.txt"), before);
@@ -42,7 +42,7 @@ test("heads the document with the title, permalink, version and an absolute stam
   );
   assert.equal(
     md,
-    "## Retry backoff\n\n[View in sideshow](https://ex.test/p/abc) · v3 · 2026-08-17 21:20 UTC\n\nprose\n",
+    "## Retry backoff\n\n[View in mockpit](https://ex.test/p/abc) · v3 · 2026-08-17 21:20 UTC\n\nprose\n",
   );
 });
 
@@ -68,7 +68,7 @@ test("flattens each surface kind to its honest markdown form", () => {
     md,
     [
       "## Retry backoff",
-      "[View in sideshow](https://ex.test/p/abc)",
+      "[View in mockpit](https://ex.test/p/abc)",
       "prose",
       "**`x.ts`**\n\n```ts\nconst x = 1;\n```",
       "```diff\n--- a/x.ts\n+++ b/x.ts\n@@ -1 +1 @@\n-a\n+b\n```",
@@ -82,14 +82,14 @@ test("flattens each surface kind to its honest markdown form", () => {
 
 test("html has no markdown form, so it links back to the surface", () => {
   const md = postToMarkdown(post([{ kind: "html", html: "<b onclick='x()'>hi</b>" }]), OPTS);
-  assert.match(md, /\[Html surface — open in sideshow\]\(https:\/\/ex\.test\/p\/abc\?part=0\)/);
+  assert.match(md, /\[Html surface — open in mockpit\]\(https:\/\/ex\.test\/p\/abc\?part=0\)/);
   // Never dump markup into a document meant for pasting elsewhere.
   assert.doesNotMatch(md, /onclick/);
 });
 
 test("a kind this build doesn't know still links rather than vanishing", () => {
   const md = postToMarkdown(post([{ kind: "hologram" } as unknown as Surface]), OPTS);
-  assert.match(md, /\[hologram surface — open in sideshow\]\(https:\/\/ex\.test\/p\/abc\?part=0\)/);
+  assert.match(md, /\[hologram surface — open in mockpit\]\(https:\/\/ex\.test\/p\/abc\?part=0\)/);
 });
 
 test("an excerpt keeps the line numbers the viewer shows", () => {
@@ -196,7 +196,7 @@ test("a trailing-newline-only change is a real diff, not an empty one", () => {
   );
   assert.match(md, /```diff/);
   assert.match(md, /\\ No newline at end of file/);
-  assert.doesNotMatch(md, /open in sideshow/);
+  assert.doesNotMatch(md, /open in mockpit/);
 });
 
 test("an excerpt ending in a newline is not counted one line too long", () => {
@@ -207,7 +207,7 @@ test("an excerpt ending in a newline is not counted one line too long", () => {
   assert.match(heading(""), /\(lines 10–10\)/);
 });
 
-// A paste with no server context: `sideshow show` renders offline, so every
+// A paste with no server context: `mockpit show` renders offline, so every
 // by-reference surface must degrade to readable text instead of a dead link.
 test("a post rendered without a URL or asset base still reads as markdown", () => {
   const md = postToMarkdown(
@@ -236,7 +236,7 @@ test("a post rendered without a URL or asset base still reads as markdown", () =
 
 test("a surface kind this build does not know still links back to the surface", () => {
   const md = postToMarkdown(post([{ kind: "hologram" } as unknown as Surface]), OPTS);
-  assert.match(md, /\[hologram surface — open in sideshow\]\(https:\/\/ex\.test\/p\/abc\?part=0\)/);
+  assert.match(md, /\[hologram surface — open in mockpit\]\(https:\/\/ex\.test\/p\/abc\?part=0\)/);
 });
 
 test("an empty diff and a bodiless code surface fall back rather than emit an empty fence", () => {
@@ -244,7 +244,7 @@ test("an empty diff and a bodiless code surface fall back rather than emit an em
     post([{ kind: "diff", files: [{ filename: "f.txt", before: "same", after: "same" }] }]),
     OPTS,
   );
-  assert.match(empty, /\[diff surface — open in sideshow\]/, "a no-op patch is not a diff block");
+  assert.match(empty, /\[diff surface — open in mockpit\]/, "a no-op patch is not a diff block");
 
   const code = postToMarkdown(
     post([{ kind: "code", title: "f.ts", lineStart: 80, code: "a\nb\nc\n" } as Surface]),

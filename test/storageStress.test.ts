@@ -144,7 +144,7 @@ async function snapshot(store: Store) {
   return { sessions, surfaces, comments, trace, assets, settings };
 }
 
-const tmpFile = (name: string) => join(mkdtempSync(join(tmpdir(), "sideshow-stress-")), name);
+const tmpFile = (name: string) => join(mkdtempSync(join(tmpdir(), "mockpit-stress-")), name);
 const filePathOf = (s: JsonFileStore) => (s as unknown as { filePath: string }).filePath;
 
 test("migration is byte-faithful across 25 randomized workspaces", async () => {

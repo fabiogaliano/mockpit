@@ -1,6 +1,6 @@
 // Dev harness for the embeddable engine: serves the example host page +
-// the built engine bundle, and proxies everything else (the sideshow API, SSE,
-// /s surface frames, /a assets) to a running sideshow server — so the embed
+// the built engine bundle, and proxies everything else (the mockpit API, SSE,
+// /s surface frames, /a assets) to a running mockpit server — so the embed
 // page is same-origin with the API. Not shipped; a local test rig.
 //
 //   node examples/embed-host/serve.mjs            # proxies to :8228, serves :5180
@@ -71,7 +71,7 @@ const server = createServer(async (req, res) => {
     res.end("engine asset not found");
     return;
   }
-  // everything else → the sideshow server (API, SSE, /s frames, /a assets, /guide)
+  // everything else → the mockpit server (API, SSE, /s frames, /a assets, /guide)
   proxy(req, res);
 });
 

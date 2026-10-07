@@ -1,13 +1,13 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "sideshow",
+  "name": "mockpit",
   "main": "workers/index.ts",
   "compatibility_date": "2026-06-01",
   "rules": [{ "type": "Text", "globs": ["**/*.html", "**/*.md"], "fallthrough": true }],
   "durable_objects": {
-    "bindings": [{ "name": "BOARD", "class_name": "SideshowBoard" }],
+    "bindings": [{ "name": "BOARD", "class_name": "MockpitBoard" }],
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SideshowBoard"] }],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MockpitBoard"] }],
   "browser": { "binding": "BROWSER" },
   "observability": { "enabled": true },
 }

@@ -1,4 +1,4 @@
-// Stable public server-core entrypoint for integrations that reuse sideshow's
+// Stable public server-core entrypoint for integrations that reuse mockpit's
 // HTTP/SSE/MCP app without depending on the package's internal dist layout.
 
 export { createApp, type AppOptions, type AuthenticateHook, type FeedEvent } from "./app.js";

@@ -137,7 +137,7 @@ const [itemsLoadingState, setItemsLoading] = createSignal(false);
 export const itemsLoading = itemsLoadingState;
 const [itemLoadingState, setItemLoading] = createSignal(false);
 export const itemLoading = itemLoadingState;
-// Set when a read fails: drives the "Can't reach sideshow" banner. The last
+// Set when a read fails: drives the "Can't reach mockpit" banner. The last
 // successfully loaded data stays on screen behind it.
 const [offlineState, setOffline] = createSignal(false);
 export const offline = offlineState;

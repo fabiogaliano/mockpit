@@ -1,6 +1,6 @@
 // End-to-end browser proof that an embedder can take over the engine's MAIN
 // content pane through the shadow boundary via the `ss:main` slot — the seam the
-// sideshow cloud uses to render its full-page "Settings" view in the main area
+// mockpit cloud uses to render its full-page "Settings" view in the main area
 // while the engine's navigation columns stay put.
 import { expect, itemPath, mountEmbed, navigatingRouter, publishItem, test } from "./fixtures.ts";
 

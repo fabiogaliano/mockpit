@@ -42,15 +42,15 @@ function cleanEnv(overrides: Record<string, string> = {}) {
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined) env[key] = value;
   }
-  delete env.SIDESHOW_URL;
-  delete env.SIDESHOW_SESSION;
-  delete env.SIDESHOW_AGENT;
-  delete env.SIDESHOW_TOKEN;
+  delete env.MOCKPIT_URL;
+  delete env.MOCKPIT_SESSION;
+  delete env.MOCKPIT_AGENT;
+  delete env.MOCKPIT_TOKEN;
   return { ...env, ...overrides };
 }
 
 async function serveApp(authToken?: string) {
-  const dir = mkdtempSync(join(tmpdir(), "sideshow-mcp-stdio-"));
+  const dir = mkdtempSync(join(tmpdir(), "mockpit-mcp-stdio-"));
   const app = createApp({
     store: new JsonFileStore(join(dir, "data.json")),
     viewerHtml: "<html>viewer</html>",
@@ -85,8 +85,8 @@ async function connectMcp(url: string, overrides: Record<string, string> = {}) {
     args: [MCP_SERVER],
     cwd: ROOT,
     env: cleanEnv({
-      SIDESHOW_URL: url,
-      SIDESHOW_AGENT: "stdio-agent",
+      MOCKPIT_URL: url,
+      MOCKPIT_AGENT: "stdio-agent",
       ...overrides,
     }),
     stderr: "pipe",
@@ -96,7 +96,7 @@ async function connectMcp(url: string, overrides: Record<string, string> = {}) {
     stderr += String(chunk);
   });
 
-  const client = new Client({ name: "sideshow-stdio-test", version: "1.0.0" });
+  const client = new Client({ name: "mockpit-stdio-test", version: "1.0.0" });
   try {
     await client.connect(transport, { timeout: 5_000 });
   } catch (error) {
@@ -168,7 +168,7 @@ function assertFeedback(result: FeedbackResult, text: string, postId: string) {
 }
 
 test(
-  "stdio MCP exercises the complete tool catalog against a real Sideshow server",
+  "stdio MCP exercises the complete tool catalog against a real Mockpit server",
   { timeout: 15_000 },
   async (t) => {
     const app = await serveApp();
@@ -184,13 +184,13 @@ test(
     let addedSurfaceId!: string;
 
     await t.test("advertises every HTTP-equivalent tool and starts without a session", async () => {
-      assert.equal(mcp.client.getServerVersion()?.name, "sideshow");
+      assert.equal(mcp.client.getServerVersion()?.name, "mockpit");
       assert.match(mcp.client.getInstructions() ?? "", /publish_item/);
 
       const listed = await mcp.client.listTools();
       // stdio advertises the HTTP catalog plus `init_project`, which only makes
       // sense with a local checkout; retired spellings stay callable but are
-      // not listed (SIDESHOW_MCP_LEGACY=1 brings them back).
+      // not listed (MOCKPIT_MCP_LEGACY=1 brings them back).
       assert.deepEqual(
         listed.tools.map((tool) => tool.name).sort(),
         [...HTTP_MCP_TOOLS.map((tool) => tool.name), "init_project"].sort(),
@@ -623,7 +623,7 @@ test(
       await app.close();
     });
 
-    const waitClient = await connectMcp(app.url, { SIDESHOW_AGENT: "wait-first-agent" });
+    const waitClient = await connectMcp(app.url, { MOCKPIT_AGENT: "wait-first-agent" });
     connections.push(waitClient);
     const empty = await callJson<{ comments: unknown[] }>(waitClient.client, "wait_for_feedback", {
       timeoutSeconds: 0,
@@ -638,7 +638,7 @@ test(
     });
     assert.equal(waitPost.sessionId, afterWait[0].id);
 
-    const uploadClient = await connectMcp(app.url, { SIDESHOW_AGENT: "upload-first-agent" });
+    const uploadClient = await connectMcp(app.url, { MOCKPIT_AGENT: "upload-first-agent" });
     connections.push(uploadClient);
     const asset = await callJson<{ sessionId: string }>(uploadClient.client, "upload_asset", {
       data: Buffer.from("upload first").toString("base64"),
@@ -672,7 +672,7 @@ test("stdio MCP honors a preconfigured conversation session", { timeout: 15_000 
     "/api/sessions",
     json({ agent: "preexisting-agent", cwd: "/tmp/fixed", title: "Fixed session" }),
   );
-  const mcp = await connectMcp(app.url, { SIDESHOW_SESSION: session.id });
+  const mcp = await connectMcp(app.url, { MOCKPIT_SESSION: session.id });
   connections.push(mcp);
   assert.deepEqual(await callJson(mcp.client, "list_posts"), []);
 
@@ -746,7 +746,7 @@ test(
     assert.equal(unauthorized.isError, true);
     assert.match(unauthorized.text, /401/);
 
-    const authorized = await connectMcp(protectedApp.url, { SIDESHOW_TOKEN: "secret" });
+    const authorized = await connectMcp(protectedApp.url, { MOCKPIT_TOKEN: "secret" });
     connections.push(authorized);
     const published = await callJson<PostResult>(authorized.client, "publish_post", {
       title: "allowed",
@@ -764,6 +764,6 @@ test(
       "publish_post",
     );
     assert.equal(failed.isError, true);
-    assert.match(failed.text, /sideshow server not reachable/);
+    assert.match(failed.text, /mockpit server not reachable/);
   },
 );

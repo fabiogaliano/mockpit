@@ -1,231 +1,117 @@
-# sideshow
+# mockpit
 
-<p>
-  <a href="https://github.com/modem-dev/sideshow/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/modem-dev/sideshow/ci.yml?branch=main&style=for-the-badge" alt="CI status"></a>
-  <a href="https://www.npmjs.com/package/sideshow"><img src="https://img.shields.io/node/v/sideshow?style=for-the-badge&logo=node.js&logoColor=white" alt="Node version"></a>
-  <a href="docs/connecting-agents.md#mcp"><img src="https://img.shields.io/badge/MCP-compatible-7c3aed?style=for-the-badge" alt="MCP compatible"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
-</p>
+**A design-review loop for terminal coding agents.**
 
-**A live visual surface for your terminal coding agent.**
-
-Your agent works in a wall of text; Sideshow gives it a screen. It publishes
-**items** — UI components and pages, diagrams, rendered markdown,
-syntax-highlighted diffs, terminal output, images — and they render live in your
-browser while it works. You navigate **project › item › variant › version**: a
-project is a repo, an item is a component or a page addressed by a stable slug,
-variants are parallel takes shown as tabs, versions are its history.
+Your agent publishes UI components and pages, diagrams, diffs and other renders;
+they show up live in your browser. You comment on them, then **Revise**,
+**Accept** or **Drop**, and the agent wakes once with the whole batch.
 
 <table>
   <tr>
     <td width="50%" valign="top">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/sideshow-dark.png">
-        <img width="100%" alt="The sideshow viewer: agent sessions in a sidebar, a published JWT-flow diagram with a comment thread between the user and claude-code, and an interactive backoff explainer below" src="docs/sideshow-light.png">
+        <source media="(prefers-color-scheme: dark)" srcset="docs/mockpit-dark.png">
+        <img width="100%" alt="The viewer: agent sessions in a sidebar, a published diagram with a comment thread, and an interactive explainer below" src="docs/mockpit-light.png">
       </picture>
     </td>
     <td width="50%" valign="top">
-      <img width="100%" alt="Animated demo: an agent publishes a diagram that appears live in the viewer, the user types a question under it, and the agent revises the snippet to a second version and replies in the thread" src="docs/sideshow-demo.gif">
+      <img width="100%" alt="Animated demo: an agent publishes a diagram that appears live in the viewer, the user comments under it, and the agent revises it and replies" src="docs/mockpit-demo.gif">
     </td>
   </tr>
 </table>
 
-## Why
+## Fork of sideshow
 
-- **See what your agent means.** An architecture it's proposing, a flow it's
-  tracing, a UI it's about to build — shown, not described in a paragraph you
-  have to picture in your head.
-- **Multimodal.** Combine diffs with mermaid diagrams, terminal output with HTML
-  explainers, and more. Combine surfaces to illustrate ideas better.
-- **Faster, and fewer tokens.** A standalone HTML document re-sends its whole
-  design system every time; a surface sends only the content and the viewer
-  supplies the chrome — far fewer tokens, and a faster draw. See
-  [Token economics](#token-economics).
-- **Works with the agent you already use.** Works with any agent harness: Claude Code
-  (desktop or CLI), Codex (desktop or CLI), Opencode, Pi, etc.
+mockpit is a fork of [sideshow](https://github.com/modem-dev/sideshow) by
+[Ben Vinegar](https://github.com/benvinegar), sponsored by
+[Modem](https://modem.dev). The renderer, sandboxing, MCP/CLI/HTTP tiers and
+Cloudflare deploy all come from that work. Thank you.
+
+Upstream is a live visual surface where agents post renders and you comment.
+mockpit turns that into a design loop:
+
+|               | sideshow                                           | mockpit                                                                                                                                           |
+| ------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Structure     | A stream of posts per session                      | **project › item › variant › version**: a repo, a component or page by slug, parallel takes as tabs, version history                              |
+| Feedback      | Each comment reaches the agent as it's written     | Comments stay drafts until you **Revise**, **Accept** or **Drop**, then go out as one batch                                                       |
+| Comments      | Text on a post                                     | Markers drawn on the render (`@1`, `@2`) with the element's CSS path and viewport preset (390 / 820 / 1280)                                       |
+| Design system | Built-in viewer themes                             | `mockpit init` detects the repo's tokens, fonts and kit so the agent's markup matches your codebase                                               |
+| Agent verbs   | Post-level: `publish`, `update`, `wait`, `comment` | Item-level: `init`, `publish`, `revise`, `page`, `ask`, `wait`, `status`, `show`, `export` (with matching MCP tools; post-level verbs still work) |
+| Outcome       | —                                                  | Accept hands the agent the accepted html, its prompt history and a screenshot; `export` writes them to `.mockpit/accepted/`                       |
+| Notifications | Viewer only                                        | Also Web Push on `ask` and new versions, plus outbound webhooks                                                                                   |
 
 ## Quick start
 
 Requires Node 22.18 or newer.
 
 ```sh
+git clone https://github.com/fabiogaliano/mockpit && cd mockpit
 npm install
-npx sideshow serve --open   # viewer on http://localhost:8228
+npm start                      # viewer on http://localhost:8228
+npm link                       # puts the `mockpit` CLI on your PATH
 ```
 
-Then point your agent at the surface — paste the setup block into its
-instructions:
+Point your agent at it by pasting the setup block into its instructions:
 
 ```sh
 curl -s http://localhost:8228/setup >> AGENTS.md
 ```
 
-That bootstrap tells any agent with a shell (Pi, opencode, amp, codex, Claude
-Code) to fetch the current instructions from the running server, then publish
-items and read your comments. Ask it to "sketch this on sideshow" and watch it
-appear.
+Then run `mockpit init` once per repo and ask the agent to "mock this up on
+mockpit". No agent handy? `mockpit demo` seeds an example project.
 
-The agent's loop is five verbs — `publish`, `ask`, `wait`, `revise`, `export` —
-plus a one-time `sideshow init` in each repo, which detects the repo's design
-system and stores its palette, kit and icons on the server so the agent's markup
-matches your codebase. Your side of the loop: comment on the render (drop
-markers on it with `@1`, `@2` refs), then **Revise**, **Accept**, or **Drop**.
-Comments stay drafts until you decide, and the whole batch reaches the agent in
-one wake-up. MCP twins — `publish_item`, `revise_item`, `ask_user`,
-`wait_for_feedback`, `list_items`, `get_item`, `export_item`,
-`get_design_guide` — carry the same fields, and raw HTTP mirrors both.
+MCP, the Pi extension and the Claude Code plugin are covered in
+**[docs/connecting-agents.md](docs/connecting-agents.md)**.
 
-The running viewer has the same handoff built in: its sidebar footer carries an
-**agent setup** link (the block above) and a polished **connect agent** screen, so
-you can grab the right MCP command without leaving the browser.
+## What an item can show
 
-No agent handy? `npx sideshow demo` seeds an example project to look around.
-
-**Going further:** richer integration tiers (CLI, MCP, the Pi extension, and the
-Claude Code skill + plugin) are in **[docs/connecting-agents.md](docs/connecting-agents.md)**.
-
-## What your agent can show
-
-Every render below is real — published over the API and captured straight from
-the viewer. An item version is an ordered list of **surfaces**; one version can
-carry several.
+A version is an ordered list of **surfaces**, and one version can carry several.
 
 <table>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/surfaces/01-html.png" width="100%" alt="html surface — an interactive UI you author">
-      <p><b><code>html</code></b> — markup the agent authors, rendered sandboxed. Shapes and buttons can call <code>sendPrompt()</code> to post back to the thread.</p>
+      <img src="docs/surfaces/01-html.png" width="100%" alt="html surface">
+      <p><b><code>html</code></b>: markup the agent authors, rendered in a sandbox and themed by your design system.</p>
     </td>
     <td width="50%" valign="top">
-      <img src="docs/surfaces/02-markdown.png" width="100%" alt="markdown surface — prose, tables and code, rendered">
-      <p><b><code>markdown</code></b> — prose, tables, and fenced code handed over as text, rendered in the viewer's own typography.</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <img src="docs/surfaces/03-diff.png" width="100%" alt="diff surface — a patch rendered as code review">
-      <p><b><code>diff</code></b> — a patch rendered natively as a syntax-highlighted code review (unified or split).</p>
-    </td>
-    <td width="50%" valign="top">
-      <img src="docs/surfaces/04-terminal.png" width="100%" alt="terminal surface — shell output with ANSI color">
-      <p><b><code>terminal</code></b> — monospace output with ANSI color, in a terminal-window frame.</p>
+      <img src="docs/surfaces/02-markdown.png" width="100%" alt="markdown surface">
+      <p><b><code>markdown</code></b>: prose, tables and fenced code.</p>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/surfaces/05-trace.png" width="100%" alt="trace surface — an agent run as a step timeline">
-      <p><b><code>trace</code></b> — an agent run as a step timeline, each step expandable to its detail.</p>
+      <img src="docs/surfaces/03-diff.png" width="100%" alt="diff surface">
+      <p><b><code>diff</code></b>: a patch as a syntax-highlighted code review (unified or split).</p>
     </td>
     <td width="50%" valign="top">
-      <img src="docs/surfaces/06-image.png" width="100%" alt="image surface — an uploaded, content-addressed asset">
-      <p><b><code>image</code></b> — an uploaded, content-addressed asset (screenshot, generated chart) rendered with a caption.</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <img src="docs/surfaces/07-mermaid.png" width="100%" alt="mermaid surface — a flowchart rendered from a few lines of text">
-      <p><b><code>mermaid</code></b> — a few lines of diagram source, rendered to an SVG in the sideshow palette. Tag nodes with <code>:::accent</code> to highlight them.</p>
-    </td>
-    <td width="50%" valign="top">
-      <img src="docs/surfaces/08-json.png" width="100%" alt="json surface — a JSON value rendered as a collapsible tree">
-      <p><b><code>json</code></b> — a JSON value rendered natively as a collapsible tree; objects and arrays expand and collapse, primitives show inline.</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <img src="docs/surfaces/09-code.png" width="100%" alt="code surface — source highlighted with line numbers">
-      <p><b><code>code</code></b> — source highlighted with shiki and numbered; pass a starting line to show an excerpt at its original line numbers.</p>
-    </td>
-    <td width="50%" valign="top">
-      <img src="docs/surfaces/10-combined.png" width="100%" alt="markdown + diff — two surfaces composed in one item">
-      <p><b>Surfaces compose.</b> One item version can carry several — here a <code>markdown</code> rationale stacked above its <code>diff</code>, so a single render holds the why and the what.</p>
+      <img src="docs/surfaces/07-mermaid.png" width="100%" alt="mermaid surface">
+      <p><b><code>mermaid</code></b>: diagram source rendered to SVG in the viewer palette.</p>
     </td>
   </tr>
 </table>
 
-## Token economics
-
-Showing something visually costs tokens — the ones your agent spends _writing_
-it. A standalone HTML document pays for its whole design system (doctype, reset,
-palette, typography, component CSS, often a little JS) on every render. A surface
-pays for none of it: it hands the content over as data — mermaid source, a JSON
-value, a markdown table, a diff patch — and the viewer supplies the theme. Fewer
-output tokens also means a faster draw, since a model writes them one at a time.
-
-Measured both ways on identical content (output tokens):
-
-| Showing…              | Hand-built HTML     | sideshow surface     | Saved |
-| --------------------- | ------------------- | -------------------- | ----- |
-| Architecture diagram  | hand-drawn SVG      | mermaid source       | ~90%  |
-| API response          | tree markup + JS    | json surface         | ~88%  |
-| Data table            | table + CSS         | markdown table       | ~83%  |
-| Interactive UI mockup | standalone document | themed html fragment | ~42%  |
-
-Even an HTML surface you author inherits the viewer's theme tokens and
-pre-styled controls instead of shipping its own, so it still comes out ahead.
+There are also `terminal` (ANSI output), `image` (uploaded assets), `json`
+(collapsible tree) and `code` (shiki-highlighted source with line numbers).
 
 ## Run it anywhere
 
-sideshow runs locally as a small Node server, or on Cloudflare Workers when your
-agent and your browser live on different machines (or you want the viewer on your
-phone). See **[docs/deploying.md](docs/deploying.md)**.
-
-Each render's footer carries a **share** menu for taking an item elsewhere: copy its
-link, copy the whole post as markdown (`/api/posts/:id/markdown` — prose stays
-prose, code/diffs/terminal output/JSON/mermaid become fenced blocks, and an html
-surface links back rather than pasting its markup), open it in a new tab, or open
-it as an image.
-
-That last one renders the surface to a PNG (`/p/:id.png`) — handy for pasting
-into a doc or a chat. The image is captured by a headless browser, so it needs
-Cloudflare's [Browser
-Rendering](https://developers.cloudflare.com/browser-rendering/) binding and
-only works on a Workers deployment. On the local Node server there is no headless
-browser, so the action is shown but disabled.
-
-## Docs
-
-- **[Connecting agents](docs/connecting-agents.md)** — every integration tier in
-  detail: CLI, MCP, Pi, plain HTTP, and the Claude Code skill + plugin.
-- **[Deploying to Cloudflare](docs/deploying.md)** — run a shared, tokened
-  instance.
-- **[AGENTS.md](AGENTS.md)** — architecture and contributor guide.
-- **Terminal surface (alpha).** [`sideshow-term/`](sideshow-term/) is an early
-  sibling that renders to a TUI instead of the browser. APIs are unstable.
+It runs locally as a small Node server, or on Cloudflare Workers when your agent
+and browser are on different machines. See **[docs/deploying.md](docs/deploying.md)**.
 
 ## Development
 
 ```sh
 npm run dev          # server with watch + viewer watch build
 npm test             # Node unit/API/store tests + viewer unit tests
-npm run coverage     # separate all-source Node and viewer-TS coverage reports
-npm run test:worker  # real local workerd + Durable Object integration
-npm run typecheck    # three tsc programs: node + workers + viewer
+npm run test:worker  # local workerd + Durable Object integration
+npm run typecheck    # node + workers + viewer
 npm run lint         # oxlint
 npm run format       # oxfmt
+npm run test:e2e     # Playwright, chromium + webkit
 ```
 
-The server and CLI have no build step — TypeScript runs directly on Node via
-native type-stripping, and the npm package ships compiled JS built on prepack.
-The viewer (`viewer/src/`, Solid) is Vite-built into a single self-contained
-`viewer/dist/index.html` (`npm run build:viewer`). Coverage is reported separately
-for Node/Pi code and viewer unit tests rather than combining incompatible runtimes;
-the Worker entrypoint is exercised in `workerd` and browser behavior in Playwright,
-neither of which is folded into a misleading Node percentage. See
-[AGENTS.md](AGENTS.md) for the full architecture and rules.
-
-## Sponsor
-
-Sponsored by [Modem](https://modem.dev?utm_source=github&utm_medium=oss&utm_campaign=oss_sideshow&utm_content=readme_footer).
-
-<a href="https://modem.dev?utm_source=github&utm_medium=oss&utm_campaign=oss_sideshow&utm_content=readme_footer">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://modem.dev/images/logo/svg/modem-combined-white.svg">
-    <source media="(prefers-color-scheme: light)" srcset="https://modem.dev/images/logo/svg/modem-combined-black.svg">
-    <img src="https://modem.dev/images/logo/svg/modem-combined-black.svg" alt="Modem" width="220">
-  </picture>
-</a>
+The architecture and contributor rules are in [AGENTS.md](AGENTS.md).
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). The original sideshow copyright is retained.

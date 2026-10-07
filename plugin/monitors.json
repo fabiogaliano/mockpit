@@ -1,8 +1,8 @@
 [
   {
-    "name": "sideshow-comments",
-    "description": "Streams released sideshow comments and decisions (revise/accept/drop) from your browser to Claude as they land.",
-    "command": "SIDESHOW_URL=\"${user_config.sideshowUrl}\" SIDESHOW_TOKEN=\"${user_config.apiToken}\" npx -y sideshow watch",
+    "name": "mockpit-comments",
+    "description": "Streams released mockpit comments and decisions (revise/accept/drop) from your browser to Claude as they land.",
+    "command": "MOCKPIT_URL=\"${user_config.mockpitUrl}\" MOCKPIT_TOKEN=\"${user_config.apiToken}\" npx -y mockpit watch",
     "when": "always"
   }
 ]

@@ -8,7 +8,7 @@ import { SqlStore } from "../server/sqlStore.ts";
 import { JsonFileStore } from "../server/storage.ts";
 import type { WorkspaceSnapshot } from "../server/types.ts";
 
-const tmpJson = () => join(mkdtempSync(join(tmpdir(), "sideshow-mig-")), "data.json");
+const tmpJson = () => join(mkdtempSync(join(tmpdir(), "mockpit-mig-")), "data.json");
 
 test("migrates a JSON workspace into SQLite preserving identity, history, and seq", async () => {
   const jsonPath = tmpJson();

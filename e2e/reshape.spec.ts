@@ -204,7 +204,7 @@ test("an unreachable server shows the retry state over the last data", async ({ 
     prompt: "you: again",
   });
   await expect(page.locator(".ss-ban.err")).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator(".ss-ban.err")).toContainText("Can’t reach sideshow");
+  await expect(page.locator(".ss-ban.err")).toContainText("Can’t reach mockpit");
   // The last loaded data stays on screen behind it, dimmed.
   await expect(page.locator(".ss-main-body.dim")).toBeVisible();
   await expect(page.locator(".ss-head h1")).toHaveText("Hero");
@@ -236,7 +236,7 @@ test("a dropped live stream shows the reconnecting bar, not an error", async ({ 
   await expect(page.locator(".ss-compose")).toBeVisible();
 });
 
-// The seeded demo workspace (`POST /api/demo/reshape`, what `sideshow demo`
+// The seeded demo workspace (`POST /api/demo/reshape`, what `mockpit demo`
 // writes) is the shape the reshape was designed against: three projects, an item
 // with three variants and a branched history, a page, a decided item, and an ask.
 test("the demo seed renders the whole navigation", async ({ page, server }) => {

@@ -65,13 +65,13 @@ function Brand() {
     <button
       class="ss-brand"
       type="button"
-      aria-label="sideshow — projects"
+      aria-label="mockpit — projects"
       onClick={() => {
         setConnectPath(false);
         openProjects();
       }}
     >
-      <span class="livedot" classList={{ on: live() }}></span>sideshow
+      <span class="livedot" classList={{ on: live() }}></span>mockpit
     </button>
   );
 }
@@ -118,7 +118,7 @@ export default function App() {
 
   createEffect(() => {
     if (isShadow()) return;
-    document.title = standalonePost()?.title || initialPageTitle() || "sideshow";
+    document.title = standalonePost()?.title || initialPageTitle() || "mockpit";
   });
   createEffect(() => navHostEl().classList.toggle("nav-open", navOpen()));
 
@@ -250,15 +250,15 @@ function Workspace() {
 }
 
 // The full-page view a bare /p/:id direct link lands on: just the one post, no
-// chrome, with a small sideshow watermark beneath it.
+// chrome, with a small mockpit watermark beneath it.
 function StandaloneView(props: { post: Post }) {
   return (
     <div id="standalone">
       <main class="standalone-main">
         <Card post={props.post} standalone />
         <footer class="standalone-foot">
-          <a href="https://sideshow.sh" target="_blank" rel="noopener noreferrer">
-            made with <strong>sideshow</strong>
+          <a href="https://mockpit.sh" target="_blank" rel="noopener noreferrer">
+            made with <strong>mockpit</strong>
           </a>
         </footer>
       </main>
@@ -335,13 +335,13 @@ function releaseBridgeListener(): void {
 // `hit-test-result` is handled by Stage.tsx, which owns the request it answers.
 async function onBridgeMessage(ev: MessageEvent) {
   const d = ev.data as {
-    __sideshow?: boolean;
+    __mockpit?: boolean;
     type?: string;
     height?: number;
     text?: unknown;
     url?: string;
   } | null;
-  if (!d || !d.__sideshow) return;
+  if (!d || !d.__mockpit) return;
   const src = frameForSource(ev.source);
   if (d.type === "resize") {
     if (src) applyFrameHeight(src.iframe, d.height);
@@ -390,7 +390,7 @@ function ConnectPage() {
             fallback={<p>This workspace is read-only, so new agents cannot connect from here.</p>}
           >
             <p>
-              One command wires sideshow into Claude Code, Cursor, Codex, VS Code, opencode, and
+              One command wires mockpit into Claude Code, Cursor, Codex, VS Code, opencode, and
               other MCP-capable agents. New posts show up here automatically.
             </p>
           </Show>

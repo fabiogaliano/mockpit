@@ -13,7 +13,7 @@ const MAX_STEP_DETAIL = 4000;
 const MAX_STEP_LABEL = 500;
 
 function makeApp() {
-  const dir = mkdtempSync(join(tmpdir(), "sideshow-trace-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "mockpit-trace-test-"));
   const store = new JsonFileStore(join(dir, "data.json"));
   return createApp({
     store,

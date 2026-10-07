@@ -1,4 +1,4 @@
-// Bun entrypoint behind `sideshow-term render`: read STML from a file or
+// Bun entrypoint behind `mockpit-term render`: read STML from a file or
 // stdin, render it headlessly, and print the frame (plus any render notes).
 
 import { readFileSync } from "node:fs";

@@ -1,4 +1,4 @@
-// The project-aware brief: what `sideshow guide --brief` and MCP
+// The project-aware brief: what `mockpit guide --brief` and MCP
 // `get_design_guide` return. It exists because the generic guide is a document
 // an agent reads once and then paraphrases badly; this one is regenerated from
 // the project's STORED design settings, so the palette values, the kit, and the
@@ -54,7 +54,7 @@ function kitSection(design: DesignSettings | null): string {
 
 function detectedLine(design: DesignSettings | null): string {
   const d = design?.detected;
-  if (!d) return "No design system imported yet — run `sideshow init` in the repo.";
+  if (!d) return "No design system imported yet — run `mockpit init` in the repo.";
   const bits = [
     d.tailwind ? "tailwind" : null,
     d.shadcn ? "shadcn" : null,
@@ -67,15 +67,15 @@ function detectedLine(design: DesignSettings | null): string {
 /**
  * The compact, project-aware design brief. `design` is the stored
  * `design:<project>` settings, or null for a project that never ran
- * `sideshow init`.
+ * `mockpit init`.
  */
 export function renderBriefGuide(design: DesignSettings | null): string {
   const palette = design?.palette?.light ?? null;
   const icons = design?.iconsAssetId
     ? 'Icons: mage sprite is loaded in every frame — `<svg class="icon"><use href="#mage-check"/></svg>` (`mage-home`, `mage-search`, `mage-settings`, `mage-user`, `mage-chevron-right`, …).'
-    : "Icons: none configured. `sideshow init` uploads the mage sprite; until then inline your own `<svg>`.";
+    : "Icons: none configured. `mockpit init` uploads the mage sprite; until then inline your own `<svg>`.";
 
-  return `# sideshow — design brief
+  return `# mockpit — design brief
 
 ${detectedLine(design)}
 
@@ -85,11 +85,11 @@ An **item** is a component or a page; it has **variants**, each with numbered
 **versions**. You address items by slug, across sessions.
 
 \`\`\`sh
-sideshow publish --item pricing-card --variant highlighted --html card.html
-sideshow ask     --item pricing-card "pick one"        # tells the operator you're waiting
-sideshow wait                                          # blocks; returns one batched decision + comments
-sideshow revise  --item pricing-card --variant highlighted --from 1 --html v2.html
-sideshow export  --item pricing-card --variant highlighted
+mockpit publish --item pricing-card --variant highlighted --html card.html
+mockpit ask     --item pricing-card "pick one"        # tells the operator you're waiting
+mockpit wait                                          # blocks; returns one batched decision + comments
+mockpit revise  --item pricing-card --variant highlighted --from 1 --html v2.html
+mockpit export  --item pricing-card --variant highlighted
 \`\`\`
 
 \`wait\` returns \`{item, variant, version, decision, comments, archived}\`. A
@@ -119,7 +119,7 @@ ${icons}
 
 ## Starter
 
-\`.sideshow/starter.html\` in the repo is a working fragment on this exact kit,
+\`.mockpit/starter.html\` in the repo is a working fragment on this exact kit,
 these tokens, and an icon. Copy it rather than starting from a blank file.
 
 ## Craft

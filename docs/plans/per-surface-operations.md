@@ -41,7 +41,7 @@ reorder.
 
 ### Key findings from the investigation
 
-- **CLI** (`bin/sideshow.js`): `publish` builds surfaces via a hardcoded
+- **CLI** (`bin/mockpit.js`): `publish` builds surfaces via a hardcoded
   if-ladder (lines 824–862) in fixed order `html → markdown → mermaid → diff →
 terminal → json → code → image`, regardless of flag order. The flag parser is
   `node:util` `parseArgs` (line 8), which returns a name→value object and
@@ -75,7 +75,7 @@ terminal → json → code → image`, regardless of flag order. The flag parser
 
 ### Phase 1 — Fix #158: honor CLI flag order on publish
 
-**Scope:** `bin/sideshow.js`, `test/cli.test.ts`
+**Scope:** `bin/mockpit.js`, `test/cli.test.ts`
 
 The `publish` command builds surfaces via a hardcoded if-ladder that ignores the
 order flags appear on the command line. `parseArgs` returns a name→value object
@@ -167,21 +167,21 @@ Add four new tools (additive — `update_post` full-replace stays for back-compa
 
 #### 3a. CLI surface commands
 
-**Scope:** `bin/sideshow.js`
+**Scope:** `bin/mockpit.js`
 
 **Extend `update`** for multi-surface:
 
-- `sideshow update <id> <file|-> --surface N` — content-only edit of surface N
+- `mockpit update <id> <file|-> --surface N` — content-only edit of surface N
   (by id or index). Maps to extended PATCH.
 - Without `--surface`, keeps current single-surface behavior (back-compat).
 
 **New `surface` subcommand:**
 
-- `sideshow surface add <id> [--md f] [--code f] [--diff f] ...` — append
+- `mockpit surface add <id> [--md f] [--code f] [--diff f] ...` — append
   surface(s) to an existing post. Uses the same flag-order fix from Phase 1.
-- `sideshow surface remove <id> <N|id>` — remove a surface.
-- `sideshow surface edit <id> <N|id> <file|->` — replace a surface's content.
-- `sideshow surface move <id> <N|id> --to M` — reorder.
+- `mockpit surface remove <id> <N|id>` — remove a surface.
+- `mockpit surface edit <id> <N|id> <file|->` — replace a surface's content.
+- `mockpit surface move <id> <N|id> --to M` — reorder.
 
 **Expose full-replace:** add a path that maps to `PUT /api/posts/:id` with a
 full surfaces array (currently the CLI never calls PUT).
@@ -215,7 +215,7 @@ full surfaces array (currently the CLI never calls PUT).
 
 ## Suggested implementation sequence
 
-1. **P1** (standalone, ships first): CLI flag-order fix — `bin/sideshow.js` +
+1. **P1** (standalone, ships first): CLI flag-order fix — `bin/mockpit.js` +
    test update + changeset.
 2. **P2a**: Surface ids in `types.ts` + store migration + store contract tests.
 3. **P2b**: HTTP per-surface endpoints + flow functions + API tests.

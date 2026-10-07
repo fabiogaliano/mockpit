@@ -1,11 +1,11 @@
 ---
-name: sideshow-term
-description: Draw live terminal visualizations to the user's sideshow-term surface — bordered diagrams, dashboards, big ASCII headings, styled text, lists — using STML (a small HTML-like markup that renders via opentui). Use when the user asks you to illustrate, visualize, sketch, or show something in the terminal, mentions sideshow-term, or when a richer visual would explain your work better than plain output.
+name: mockpit-term
+description: Draw live terminal visualizations to the user's mockpit-term surface — bordered diagrams, dashboards, big ASCII headings, styled text, lists — using STML (a small HTML-like markup that renders via opentui). Use when the user asks you to illustrate, visualize, sketch, or show something in the terminal, mentions mockpit-term, or when a richer visual would explain your work better than plain output.
 ---
 
-# sideshow-term
+# mockpit-term
 
-The user keeps a live terminal visual surface open (`sideshow-term watch`). You
+The user keeps a live terminal visual surface open (`mockpit-term watch`). You
 publish **STML** — an HTML-like markup — and it renders instantly as real
 opentui components (boxes, borders, big ASCII text, styled text, lists, menus).
 This is a higher-fidelity surface than the text you normally print.
@@ -15,13 +15,13 @@ This is a higher-fidelity surface than the text you normally print.
 Fetch the markup contract once per session:
 
 ```sh
-sideshow-term guide        # or: curl -s $SIDESHOW_URL/guide
+mockpit-term guide        # or: curl -s $MOCKPIT_URL/guide
 ```
 
-If `SIDESHOW_URL` is unset, the surface is at `http://localhost:4243`. If the
-server is not running, start it: `sideshow-term serve`. If the
-`sideshow-term` command is not on PATH but you are inside this repo, use
-`node sideshow-term/bin/sideshow-term.js ...`.
+If `MOCKPIT_URL` is unset, the surface is at `http://localhost:4243`. If the
+server is not running, start it: `mockpit-term serve`. If the
+`mockpit-term` command is not on PATH but you are inside this repo, use
+`node mockpit-term/bin/mockpit-term.js ...`.
 
 ## Publishing
 
@@ -29,17 +29,17 @@ Prefer MCP tools if connected (`publish_snippet`, `update_snippet`,
 `list_snippets`). Otherwise use the CLI — session grouping is automatic:
 
 ```sh
-sideshow-term publish sketch.stml --title "Cache layout" --session-title "Cache redesign"
-echo '<h1>Done</h1><text>Migration applied.</text>' | sideshow-term publish - --title "Status"
+mockpit-term publish sketch.stml --title "Cache layout" --session-title "Cache redesign"
+echo '<h1>Done</h1><text>Migration applied.</text>' | mockpit-term publish - --title "Status"
 ```
 
 Save the returned `sessionId` and snippet `id`. Iterate with
-`sideshow-term update <id> revised.stml` (same card, new version) instead of
+`mockpit-term update <id> revised.stml` (same card, new version) instead of
 publishing near-duplicates — versions are kept. Preview without the viewer:
-`sideshow-term render sketch.stml`.
+`mockpit-term render sketch.stml`.
 
-To remove stale visuals before replacing a board, run `sideshow-term clear` for
-the current session or `sideshow-term clear --all` for every session on the
+To remove stale visuals before replacing a board, run `mockpit-term clear` for
+the current session or `mockpit-term clear --all` for every session on the
 surface.
 
 Rules of thumb:
@@ -76,12 +76,12 @@ direction align justify grow border border-style border-color bg title`.
 
 Whitespace in normal text is collapsed, so indent freely. Unknown tags and bad
 colors show up as render notes rather than crashing — but check
-`sideshow-term render` if something looks off.
+`mockpit-term render` if something looks off.
 
 ## Remote surfaces
 
-A deployed instance needs `SIDESHOW_URL` and `SIDESHOW_TOKEN` set; the CLI sends
-the token automatically. For raw curl, add `-H "Authorization: Bearer $SIDESHOW_TOKEN"`.
+A deployed instance needs `MOCKPIT_URL` and `MOCKPIT_TOKEN` set; the CLI sends
+the token automatically. For raw curl, add `-H "Authorization: Bearer $MOCKPIT_TOKEN"`.
 
 ## Note
 

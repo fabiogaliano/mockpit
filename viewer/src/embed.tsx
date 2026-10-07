@@ -1,4 +1,4 @@
-// Embeddable-engine entry point. The host (e.g. the sideshow cloud shell) loads
+// Embeddable-engine entry point. The host (e.g. the mockpit cloud shell) loads
 // this bundle and calls mountViewer(el, host) to render the viewer into a shadow
 // root inside `el`. The engine carries its own Solid runtime, scopes all its DOM
 // and styles to the shadow root, and reads its base path + route from the
@@ -6,17 +6,17 @@
 // the bundle also works as a drop-in for the self-hosted page.
 import { render } from "solid-js/web";
 import App from "./App.tsx";
-import { createDefaultHost, setEngine, type SideshowHost } from "./host.ts";
+import { createDefaultHost, setEngine, type MockpitHost } from "./host.ts";
 import stylesCss from "./styles.css?inline";
 
-export type { SideshowHost, HostRouter, Route, SlotName, LiveTransport } from "./host.ts";
+export type { MockpitHost, HostRouter, Route, SlotName, LiveTransport } from "./host.ts";
 // Runtime registry of host-overridable slot names (embedders project light DOM
 // with these `slot=` attributes). Exported as a value so embedders share one
 // source of truth instead of hardcoding the strings.
 export { SLOTS } from "./host.ts";
 // Theme-token contract: the names a host mirrors + the engine's built-in
 // defaults, re-exported so consumers that already pull the engine bundle get
-// them here. The canonical lightweight entry is `sideshow/theme-tokens`
+// them here. The canonical lightweight entry is `mockpit/theme-tokens`
 // (engine-free, Node-safe) — prefer it in build scripts to avoid bundling the
 // engine just to read these values.
 export { THEME_TOKEN_NAMES, THEME_DEFAULTS } from "../../server/theme-tokens.ts";
@@ -45,7 +45,7 @@ const EMBED_BASE_CSS = `
 .ss-engine-root { position: absolute; inset: 0; }
 `;
 
-export function mountViewer(el: Element, host?: SideshowHost): ViewerHandle {
+export function mountViewer(el: Element, host?: MockpitHost): ViewerHandle {
   const shadow = el.attachShadow({ mode: "open" });
 
   // The viewer's stylesheet declares its palette vars on `:root`, which matches

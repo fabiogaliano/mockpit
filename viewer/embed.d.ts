@@ -1,4 +1,4 @@
-// Public types for the embeddable engine (`sideshow/viewer-embed`). The runtime
+// Public types for the embeddable engine (`mockpit/viewer-embed`). The runtime
 // is the Vite-built viewer/dist-embed/engine.js; these declarations describe its
 // surface so hosts get types without depending on the viewer source.
 
@@ -27,7 +27,7 @@ export interface HostRouter {
   subscribe(cb: (route: Route) => void): () => void;
 }
 
-export interface SideshowHost {
+export interface MockpitHost {
   /** Link/base prefix the engine prepends to every path, e.g. "/alice" (""). */
   basePath: string;
   router: HostRouter;
@@ -73,7 +73,7 @@ export interface SideshowHost {
    */
   homeView?: boolean;
   /**
-   * Omit the engine's own "sideshow" wordmark (the sidebar/header home-link brand)
+   * Omit the engine's own "mockpit" wordmark (the sidebar/header home-link brand)
    * when the host provides its own branding/header — e.g. a cloud with a workspace
    * picker atop the sidebar and its own wordmark in the footer. Self-hosted leaves
    * this unset and shows the wordmark. Defaults to off.
@@ -114,7 +114,7 @@ export interface ViewerHandle {
  * host to own the base path + routing; omit it to use the default History-API
  * host (drop-in for the self-hosted page).
  */
-export function mountViewer(el: Element, host?: SideshowHost): ViewerHandle;
+export function mountViewer(el: Element, host?: MockpitHost): ViewerHandle;
 
 /**
  * Host-overridable layout regions. The engine wraps each in a `<slot name="...">`
@@ -167,7 +167,7 @@ export type SlotName = (typeof SLOTS)[keyof typeof SLOTS];
 /**
  * Theme-token contract. The engine renders its palette as these CSS custom
  * properties; a host mirrors the same set onto its own chrome. The canonical,
- * engine-free entry is `sideshow/theme-tokens` (Node-safe, no viewer runtime) —
+ * engine-free entry is `mockpit/theme-tokens` (Node-safe, no viewer runtime) —
  * prefer it in build scripts; these re-exports exist so a host that already pulls
  * the engine bundle has them too.
  *

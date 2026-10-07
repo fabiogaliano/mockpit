@@ -13,7 +13,7 @@ const SUBS_KEY = "push:subs";
 const HOOKS_KEY = "hooks";
 // Contact for the push service, per the VAPID spec. A mailto is required; this
 // deployment has no operator address, so use the project's.
-const VAPID_SUBJECT = "mailto:sideshow@sideshow.sh";
+const VAPID_SUBJECT = "mailto:mockpit@mockpit.sh";
 
 export interface PushSubscription {
   endpoint: string;
@@ -325,7 +325,7 @@ async function sendPush(store: Store, payload: NotifyPayload): Promise<void> {
   try {
     keys = await vapidKeys(store);
   } catch (err) {
-    console.warn("[sideshow] push: vapid key unavailable", err);
+    console.warn("[mockpit] push: vapid key unavailable", err);
     return;
   }
   const body = utf8(
@@ -352,9 +352,9 @@ async function sendPush(store: Store, payload: NotifyPayload): Promise<void> {
         });
         // 404/410 mean the browser dropped the subscription — stop retrying it.
         if (res.status === 404 || res.status === 410) await dropSubscription(store, sub.endpoint);
-        else if (!res.ok) console.warn(`[sideshow] push rejected (${res.status})`);
+        else if (!res.ok) console.warn(`[mockpit] push rejected (${res.status})`);
       } catch (err) {
-        console.warn("[sideshow] push failed", err);
+        console.warn("[mockpit] push failed", err);
       }
     }),
   );
@@ -371,7 +371,7 @@ async function postHooks(store: Store, payload: NotifyPayload): Promise<void> {
           body: JSON.stringify(payload),
         });
       } catch (err) {
-        console.warn("[sideshow] hook failed", err);
+        console.warn("[mockpit] hook failed", err);
       }
     }),
   );

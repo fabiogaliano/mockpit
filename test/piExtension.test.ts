@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { serve } from "@hono/node-server";
 // @ts-expect-error The distributed Pi extension is intentionally standalone JavaScript.
-import sideshowExtension from "../extensions/sideshow.js";
+import mockpitExtension from "../extensions/mockpit.js";
 import { createApp } from "../server/app.ts";
 import { JsonFileStore } from "../server/storage.ts";
 
@@ -54,7 +54,7 @@ function createPiHarness() {
     },
   };
 
-  sideshowExtension(pi);
+  mockpitExtension(pi);
 
   return {
     tools,
@@ -113,7 +113,7 @@ function startServer(dir: string) {
   const app = createApp({
     store,
     viewerHtml: "<html>viewer</html>",
-    guideMarkdown: "# Sideshow design contract",
+    guideMarkdown: "# Mockpit design contract",
     setupText: "# setup",
     authToken: "test-token",
   });
@@ -172,9 +172,9 @@ function traceBranch(now: number) {
           { type: "toolCall", name: "write", arguments: { path: "src/c.ts" } },
           { type: "toolCall", name: "bash", arguments: { command: "npm test" } },
           { type: "toolCall", name: "web_fetch", arguments: { url: "https://example.com" } },
-          { type: "toolCall", name: "web_search", arguments: { query: "sideshow" } },
+          { type: "toolCall", name: "web_search", arguments: { query: "mockpit" } },
           { type: "toolCall", name: "subagent", arguments: { action: "list" } },
-          { type: "toolCall", name: "sideshow_list_surfaces", arguments: {} },
+          { type: "toolCall", name: "mockpit_list_surfaces", arguments: {} },
           { type: "toolCall", name: "Custom_TOOL_WITH_LONG_NAME", arguments: null },
           { type: "toolCall", name: "", arguments: {} },
         ],
@@ -221,20 +221,20 @@ test(
   "the Pi extension contract works through a fake host and real server",
   { timeout: 10_000 },
   async (t) => {
-    const dir = mkdtempSync(join(tmpdir(), "sideshow-pi-extension-"));
+    const dir = mkdtempSync(join(tmpdir(), "mockpit-pi-extension-"));
     const originalEnv = {
-      url: process.env.SIDESHOW_URL,
-      token: process.env.SIDESHOW_TOKEN,
-      agent: process.env.SIDESHOW_AGENT,
-      session: process.env.SIDESHOW_SESSION,
+      url: process.env.MOCKPIT_URL,
+      token: process.env.MOCKPIT_TOKEN,
+      agent: process.env.MOCKPIT_AGENT,
+      session: process.env.MOCKPIT_SESSION,
     };
     const server = await startServer(dir);
     let serverClosed = false;
 
-    process.env.SIDESHOW_URL = `${server.url}/`;
-    process.env.SIDESHOW_TOKEN = "test-token";
-    process.env.SIDESHOW_AGENT = "contract-pi";
-    delete process.env.SIDESHOW_SESSION;
+    process.env.MOCKPIT_URL = `${server.url}/`;
+    process.env.MOCKPIT_TOKEN = "test-token";
+    process.env.MOCKPIT_AGENT = "contract-pi";
+    delete process.env.MOCKPIT_SESSION;
 
     t.after(async () => {
       try {
@@ -244,7 +244,7 @@ test(
           rmSync(dir, { recursive: true, force: true });
         } finally {
           for (const [key, value] of Object.entries(originalEnv)) {
-            const envName = `SIDESHOW_${key.toUpperCase()}`;
+            const envName = `MOCKPIT_${key.toUpperCase()}`;
             if (value === undefined) delete process.env[envName];
             else process.env[envName] = value;
           }
@@ -256,31 +256,32 @@ test(
     assert.deepEqual(
       [...harness.tools.keys()],
       [
-        "sideshow_get_design_guide",
-        "sideshow_publish_item",
-        "sideshow_revise_item",
-        "sideshow_ask_user",
-        "sideshow_list_items",
-        "sideshow_publish_surface",
-        "sideshow_update_surface",
-        "sideshow_wait_for_feedback",
-        "sideshow_reply_to_user",
-        "sideshow_list_surfaces",
-        "sideshow_upload_asset",
+        "mockpit_get_design_guide",
+        "mockpit_publish_item",
+        "mockpit_revise_item",
+        "mockpit_ask_user",
+        "mockpit_list_items",
+        "mockpit_publish_surface",
+        "mockpit_update_surface",
+        "mockpit_wait_for_feedback",
+        "mockpit_reply_to_user",
+        "mockpit_list_surfaces",
+        "mockpit_upload_asset",
       ],
     );
-    assert.deepEqual([...harness.commands.keys()], ["sideshow"]);
+    assert.deepEqual([...harness.commands.keys()], ["mockpit"]);
     assert.deepEqual(harness.eventNames, ["session_start", "turn_end"]);
-    assert.deepEqual(harness.tool("sideshow_publish_surface").parameters.required, [
+    assert.deepEqual(harness.tool("mockpit_publish_surface").parameters.required, [
       "title",
       "parts",
     ]);
-    assert.deepEqual(harness.tool("sideshow_update_surface").parameters.required, ["id"]);
-    const replySchema = harness.tool("sideshow_reply_to_user").parameters;
+    assert.deepEqual(harness.tool("mockpit_update_surface").parameters.required, ["id"]);
+    const replySchema = harness.tool("mockpit_reply_to_user").parameters;
     assert.deepEqual(replySchema.required, ["surfaceId", "message"]);
     assert.equal("session" in replySchema.properties!, false);
-    const advertisedKinds = harness.tool("sideshow_publish_surface").parameters.properties?.parts
-      .items.properties.kind.enum;
+    const advertisedKinds =
+      harness.tool("mockpit_publish_surface").parameters.properties?.parts.items.properties.kind
+        .enum;
     for (const kind of [
       "html",
       "markdown",
@@ -294,14 +295,14 @@ test(
       assert.ok(advertisedKinds.includes(kind), `publish schema includes ${kind}`);
     }
     assert.equal(advertisedKinds.includes("trace"), false);
-    const advertisedFields = harness.tool("sideshow_publish_surface").parameters.properties?.parts
-      .items.properties;
+    const advertisedFields =
+      harness.tool("mockpit_publish_surface").parameters.properties?.parts.items.properties;
     for (const field of ["data", "code", "language", "lineStart"]) {
       assert.ok(field in advertisedFields, `publish schema includes ${field}`);
     }
     for (const tool of harness.tools.values()) {
       assert.ok(tool.promptSnippet);
-      if (tool.name !== "sideshow_get_design_guide" && tool.name !== "sideshow_list_surfaces") {
+      if (tool.name !== "mockpit_get_design_guide" && tool.name !== "mockpit_list_surfaces") {
         assert.ok(tool.promptGuidelines?.length);
       }
     }
@@ -309,17 +310,17 @@ test(
     const ctx = createContext(dir, traceBranch(Date.now() - 1000));
     await harness.emit("session_start", ctx);
     assert.deepEqual(ctx.statuses.at(-1), {
-      key: "sideshow",
-      value: `sideshow localhost:${new URL(server.url).port}`,
+      key: "mockpit",
+      value: `mockpit localhost:${new URL(server.url).port}`,
     });
 
-    const guide = await invoke(harness, "sideshow_get_design_guide", {}, ctx);
-    assert.match(text(guide), /Sideshow design contract/);
+    const guide = await invoke(harness, "mockpit_get_design_guide", {}, ctx);
+    assert.match(text(guide), /Mockpit design contract/);
     assert.equal(guide.details?.baseUrl, server.url);
 
     const published = await invoke(
       harness,
-      "sideshow_publish_surface",
+      "mockpit_publish_surface",
       {
         title: "Contract card",
         sessionTitle: "Extension contract",
@@ -344,7 +345,7 @@ test(
     });
     const updated = await invoke(
       harness,
-      "sideshow_update_surface",
+      "mockpit_update_surface",
       { id: surface.id, title: "Short card", parts: [{ kind: "markdown", markdown: "# Hi" }] },
       ctx,
     );
@@ -356,11 +357,11 @@ test(
 
     const emptyWait = await invoke(
       harness,
-      "sideshow_wait_for_feedback",
+      "mockpit_wait_for_feedback",
       { timeoutSeconds: -10 },
       ctx,
     );
-    assert.equal(text(emptyWait), "No new sideshow feedback.");
+    assert.equal(text(emptyWait), "No new mockpit feedback.");
 
     await postJson(`${server.url}/api/comments`, {
       surface: surface.id,
@@ -369,11 +370,11 @@ test(
     });
     const waited = await invoke(
       harness,
-      "sideshow_wait_for_feedback",
+      "mockpit_wait_for_feedback",
       { session: surface.sessionId, timeoutSeconds: 0 },
       ctx,
     );
-    assert.match(text(waited), /Received 1 sideshow feedback batch/);
+    assert.match(text(waited), /Received 1 mockpit feedback batch/);
     assert.match(text(waited), /Looks good/);
     assert.equal(waited.details?.sessionId, surface.sessionId);
 
@@ -384,7 +385,7 @@ test(
     });
     const surfaceReply = await invoke(
       harness,
-      "sideshow_reply_to_user",
+      "mockpit_reply_to_user",
       { surfaceId: surface.id, message: "Acknowledged" },
       ctx,
     );
@@ -395,7 +396,7 @@ test(
 
     const second = await invoke(
       harness,
-      "sideshow_publish_surface",
+      "mockpit_publish_surface",
       {
         title: "Second card",
         session: surface.sessionId,
@@ -412,7 +413,7 @@ test(
 
     const listed = await invoke(
       harness,
-      "sideshow_list_surfaces",
+      "mockpit_list_surfaces",
       { session: surface.sessionId, limit: 1.9 },
       ctx,
     );
@@ -420,12 +421,7 @@ test(
     assert.equal(text(listed).split("\n").length, 1);
     assert.match(text(listed), /\/p\//);
 
-    const listedAll = await invoke(
-      harness,
-      "sideshow_list_surfaces",
-      { all: true, limit: 10 },
-      ctx,
-    );
+    const listedAll = await invoke(harness, "mockpit_list_surfaces", { all: true, limit: 10 }, ctx);
     assert.match(text(listedAll), new RegExp(String.raw`\[${surface.sessionId}\]`));
     assert.ok(Array.isArray(listedAll.details?.sessions));
     const publishedGroup = listedAll.details!.sessions.find(
@@ -438,7 +434,7 @@ test(
     writeFileSync(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
     const uploadedFile = await invoke(
       harness,
-      "sideshow_upload_asset",
+      "mockpit_upload_asset",
       { path: "@preview.PNG", kind: "image" },
       ctx,
     );
@@ -448,7 +444,7 @@ test(
 
     const uploadedData = await invoke(
       harness,
-      "sideshow_upload_asset",
+      "mockpit_upload_asset",
       {
         data: Buffer.from("trace data").toString("base64"),
         kind: "file",
@@ -478,14 +474,14 @@ test(
     assert.ok(trace.some((step) => step.kind === "run"));
     assert.ok(trace.some((step) => step.kind === "web"));
     assert.ok(trace.some((step) => step.kind === "agent"));
-    assert.ok(trace.some((step) => step.kind === "sideshow"));
+    assert.ok(trace.some((step) => step.kind === "mockpit"));
     assert.ok(trace.every((step) => !step.detail || step.detail.length <= 1801));
 
-    const command = harness.command("sideshow");
+    const command = harness.command("mockpit");
     await command.handler("", ctx);
     assert.match(ctx.notifications.at(-1)!.message, new RegExp(`session ${traceSession}`));
     await command.handler("reset", ctx);
-    assert.equal(ctx.notifications.at(-1)!.message, "Reset remembered sideshow session");
+    assert.equal(ctx.notifications.at(-1)!.message, "Reset remembered mockpit session");
 
     const scoped = createPiHarness();
     const scopedCtx = createContext(dir, [
@@ -494,7 +490,7 @@ test(
         type: "message",
         message: {
           role: "toolResult",
-          toolName: "sideshow_publish_surface",
+          toolName: "mockpit_publish_surface",
           details: { sessionId: surface.sessionId },
         },
       },
@@ -517,7 +513,7 @@ test(
         type: "message",
         message: {
           role: "toolResult",
-          toolName: "sideshow_publish_surface",
+          toolName: "mockpit_publish_surface",
           details: { surface: { sessionId: surface.sessionId } },
         },
       },
@@ -525,49 +521,44 @@ test(
         type: "message",
         message: {
           role: "toolResult",
-          toolName: "sideshow_upload_asset",
+          toolName: "mockpit_upload_asset",
           details: { asset: { sessionId: traceSession } },
         },
       },
     ]);
     await reconstructed.emit("session_start", reconstructedCtx);
-    assert.equal(reconstructedCtx.statuses.at(-1)?.value, `sideshow ${traceSession}`);
-    const currentEmpty = await invoke(
-      reconstructed,
-      "sideshow_list_surfaces",
-      {},
-      reconstructedCtx,
-    );
-    assert.equal(text(currentEmpty), "No sideshow surfaces in this session.");
+    assert.equal(reconstructedCtx.statuses.at(-1)?.value, `mockpit ${traceSession}`);
+    const currentEmpty = await invoke(reconstructed, "mockpit_list_surfaces", {}, reconstructedCtx);
+    assert.equal(text(currentEmpty), "No mockpit surfaces in this session.");
 
-    process.env.SIDESHOW_SESSION = surface.sessionId;
+    process.env.MOCKPIT_SESSION = surface.sessionId;
     const configured = createPiHarness();
     const configuredCtx = createContext(dir);
     await configured.emit("session_start", configuredCtx);
-    assert.equal(configuredCtx.statuses.at(-1)?.value, `sideshow ${surface.sessionId}`);
-    await configured.command("sideshow").handler("reset", configuredCtx);
-    await configured.command("sideshow").handler("", configuredCtx);
+    assert.equal(configuredCtx.statuses.at(-1)?.value, `mockpit ${surface.sessionId}`);
+    await configured.command("mockpit").handler("reset", configuredCtx);
+    await configured.command("mockpit").handler("", configuredCtx);
     assert.match(configuredCtx.notifications.at(-1)!.message, new RegExp(surface.sessionId));
-    delete process.env.SIDESHOW_SESSION;
+    delete process.env.MOCKPIT_SESSION;
 
     const noSession = createPiHarness();
     const noSessionCtx = createContext(dir);
     await noSession.emit("turn_end", noSessionCtx);
     await assert.rejects(
-      invoke(noSession, "sideshow_wait_for_feedback", {}, noSessionCtx),
-      /No sideshow session yet/,
+      invoke(noSession, "mockpit_wait_for_feedback", {}, noSessionCtx),
+      /No mockpit session yet/,
     );
     await assert.rejects(
-      invoke(noSession, "sideshow_list_surfaces", {}, noSessionCtx),
+      invoke(noSession, "mockpit_list_surfaces", {}, noSessionCtx),
       /Publish first, pass session, or set all=true/,
     );
     await assert.rejects(
-      invoke(noSession, "sideshow_upload_asset", {}, noSessionCtx),
+      invoke(noSession, "mockpit_upload_asset", {}, noSessionCtx),
       /Provide either path or base64 data/,
     );
     const forcedSession = await invoke(
       noSession,
-      "sideshow_publish_surface",
+      "mockpit_publish_surface",
       {
         title: "Forced new session",
         session: surface.sessionId,
@@ -582,7 +573,7 @@ test(
     // tools below are the back-compat half of the same extension.
     const item = await invoke(
       harness,
-      "sideshow_publish_item",
+      "mockpit_publish_item",
       {
         slug: "pricing-card",
         project: "acme/site",
@@ -600,7 +591,7 @@ test(
     writeFileSync(join(dir, "card.html"), "<p>v2</p>");
     const revised = await invoke(
       harness,
-      "sideshow_revise_item",
+      "mockpit_revise_item",
       {
         slug: "pricing-card",
         project: "acme/site",
@@ -614,13 +605,13 @@ test(
     assert.match(text(revised), /^pricing-card\/highlighted v2 · /);
     assert.equal(revised.details?.version, 2);
     await assert.rejects(
-      invoke(harness, "sideshow_publish_item", { slug: "no-body", project: "acme/site" }, ctx),
+      invoke(harness, "mockpit_publish_item", { slug: "no-body", project: "acme/site" }, ctx),
       /Provide html or path/,
     );
 
     const asked = await invoke(
       harness,
-      "sideshow_ask_user",
+      "mockpit_ask_user",
       { slug: "pricing-card", project: "acme/site", variant: "highlighted", text: "pick one" },
       ctx,
     );
@@ -629,34 +620,34 @@ test(
     // a second variant makes the item ambiguous, so ask must be told which one
     await invoke(
       harness,
-      "sideshow_publish_item",
+      "mockpit_publish_item",
       { slug: "pricing-card", project: "acme/site", variant: "quiet", html: "<p>quiet</p>" },
       ctx,
     );
     await assert.rejects(
       invoke(
         harness,
-        "sideshow_ask_user",
+        "mockpit_ask_user",
         { slug: "pricing-card", project: "acme/site", text: "?" },
         ctx,
       ),
       /pricing-card has 2 variants; pass variant: /,
     );
 
-    const listedItems = await invoke(harness, "sideshow_list_items", { project: "acme/site" }, ctx);
+    const listedItems = await invoke(harness, "mockpit_list_items", { project: "acme/site" }, ctx);
     assert.match(text(listedItems), /pricing-card · component · /);
     assert.match(text(listedItems), /highlighted\(v2\)/);
     assert.equal(
-      text(await invoke(harness, "sideshow_list_items", { project: "empty/repo" }, ctx)),
+      text(await invoke(harness, "mockpit_list_items", { project: "empty/repo" }, ctx)),
       "No items in empty/repo.",
     );
 
-    process.env.SIDESHOW_TOKEN = "wrong-token";
+    process.env.MOCKPIT_TOKEN = "wrong-token";
     await assert.rejects(
-      invoke(harness, "sideshow_list_surfaces", { session: surface.sessionId }, ctx),
+      invoke(harness, "mockpit_list_surfaces", { session: surface.sessionId }, ctx),
       /unauthorized/,
     );
-    process.env.SIDESHOW_TOKEN = "test-token";
+    process.env.MOCKPIT_TOKEN = "test-token";
 
     const realFetch = globalThis.fetch;
     const waits: string[] = [];
@@ -687,30 +678,30 @@ test(
     try {
       const clamped = await invoke(
         harness,
-        "sideshow_wait_for_feedback",
+        "mockpit_wait_for_feedback",
         { session: surface.sessionId, timeoutSeconds: 9999, afterSeq: 7 },
         ctx,
       );
-      assert.equal(text(clamped), "No new sideshow feedback.");
+      assert.equal(text(clamped), "No new mockpit feedback.");
       await invoke(
         harness,
-        "sideshow_wait_for_feedback",
+        "mockpit_wait_for_feedback",
         { session: surface.sessionId, timeoutSeconds: Infinity },
         ctx,
       );
       assert.deepEqual(waits, ["300", "60"]);
       const legacyReply = await invoke(
         harness,
-        "sideshow_reply_to_user",
+        "mockpit_reply_to_user",
         { surfaceId: "requested-surface", message: "Legacy response" },
         ctx,
       );
       assert.match(text(legacyReply), /on surface legacy-surface/);
       await assert.rejects(
-        invoke(harness, "sideshow_list_surfaces", { session: surface.sessionId }, ctx),
+        invoke(harness, "mockpit_list_surfaces", { session: surface.sessionId }, ctx),
         /418 Teapot/,
       );
-      await assert.rejects(invoke(harness, "sideshow_get_design_guide", {}, ctx), /418 Teapot/);
+      await assert.rejects(invoke(harness, "mockpit_get_design_guide", {}, ctx), /418 Teapot/);
     } finally {
       globalThis.fetch = realFetch;
     }
@@ -718,12 +709,12 @@ test(
     await server.close();
     serverClosed = true;
     await assert.rejects(
-      invoke(harness, "sideshow_get_design_guide", {}, ctx),
-      /server not reachable.*start it with "sideshow serve"/,
+      invoke(harness, "mockpit_get_design_guide", {}, ctx),
+      /server not reachable.*start it with "mockpit serve"/,
     );
     await assert.rejects(
-      invoke(harness, "sideshow_list_surfaces", { session: surface.sessionId }, ctx),
-      /server not reachable.*start it with "sideshow serve"/,
+      invoke(harness, "mockpit_list_surfaces", { session: surface.sessionId }, ctx),
+      /server not reachable.*start it with "mockpit serve"/,
     );
 
     await reconstructed.emit("turn_end", reconstructedCtx);

@@ -1,7 +1,7 @@
 // End-to-end proof of the Host contract's `onThemeChange` push: the engine TELLS
 // the host its resolved palette (on mount, and on every live theme switch) so an
 // embedder mirrors the colors onto its own chrome WITHOUT scraping computed
-// styles across the shadow boundary. This is the path the sideshow cloud chrome
+// styles across the shadow boundary. This is the path the mockpit cloud chrome
 // uses to stay aligned with the viewer.
 //
 // Harness mirrors embed-stream.spec.ts: serve a tiny embed page + the built

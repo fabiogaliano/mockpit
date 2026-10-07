@@ -64,7 +64,7 @@ test(
   "the local Wrangler runtime wires the Worker, Durable Object, and SQLite store",
   { timeout: 60_000 },
   async (t) => {
-    const root = await mkdtemp(join(tmpdir(), "sideshow-worker-integration-"));
+    const root = await mkdtemp(join(tmpdir(), "mockpit-worker-integration-"));
     const persistTo = join(root, "state");
     let worker: Unstable_DevWorker | undefined;
 
@@ -92,13 +92,13 @@ test(
       }
     });
 
-    worker = await startWorker(persistTo, { SIDESHOW_TOKEN: "" });
+    worker = await startWorker(persistTo, { MOCKPIT_TOKEN: "" });
     const unconfigured = await worker.fetch("/");
     assert.equal(unconfigured.status, 503);
-    assert.match(await unconfigured.text(), /wrangler secret put SIDESHOW_TOKEN/);
+    assert.match(await unconfigured.text(), /wrangler secret put MOCKPIT_TOKEN/);
     await stopWorker();
 
-    worker = await startWorker(persistTo, { SIDESHOW_TOKEN: TOKEN });
+    worker = await startWorker(persistTo, { MOCKPIT_TOKEN: TOKEN });
 
     assert.equal((await worker.fetch("/api/sessions")).status, 401);
 
@@ -339,8 +339,8 @@ test(
 
     await stopWorker();
     worker = await startWorker(persistTo, {
-      SIDESHOW_TOKEN: TOKEN,
-      SIDESHOW_PUBLIC_READ: "session",
+      MOCKPIT_TOKEN: TOKEN,
+      MOCKPIT_PUBLIC_READ: "session",
     });
 
     const publicPost = await expectJson<PostResult>(

@@ -1,6 +1,6 @@
 // End-to-end browser proof of the DEPRECATED `layout: "stream"` host flag and of
 // `readonly`, driven THROUGH THE HOST CONTRACT — not the self-hosted window
-// globals. This is the path the sideshow cloud's shared-link guest view uses.
+// globals. This is the path the mockpit cloud's shared-link guest view uses.
 //
 // "stream" named the mixed post stream the reshape removed. It is still
 // accepted and now means "the item screen alone": no projects sidebar, no items

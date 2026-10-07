@@ -180,13 +180,13 @@ const SVG_DEFS = `<svg width="0" height="0" style="position:absolute" aria-hidde
 // in a vm, instead of scraping it back out of rendered HTML.
 export const BRIDGE_JS = `
 window.sendPrompt = function (text) {
-  parent.postMessage({ __sideshow: true, type: 'send-prompt', text: String(text) }, '*');
+  parent.postMessage({ __mockpit: true, type: 'send-prompt', text: String(text) }, '*');
 };
 window.openLink = function (url) {
-  parent.postMessage({ __sideshow: true, type: 'open-link', url: String(url) }, '*');
+  parent.postMessage({ __mockpit: true, type: 'open-link', url: String(url) }, '*');
 };
 window.copyToClipboard = function (text) {
-  parent.postMessage({ __sideshow: true, type: 'copy', text: String(text) }, '*');
+  parent.postMessage({ __mockpit: true, type: 'copy', text: String(text) }, '*');
 };
 document.addEventListener('click', function (e) {
   var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
@@ -199,7 +199,7 @@ document.addEventListener('keydown', function (e) {
   if (!e.metaKey || !e.altKey || e.ctrlKey || e.shiftKey) return;
   if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
   e.preventDefault();
-  parent.postMessage({ __sideshow: true, type: 'switch-session', key: e.key }, '*');
+  parent.postMessage({ __mockpit: true, type: 'switch-session', key: e.key }, '*');
 });
 // Report content height to the parent so it can size this iframe, while
 // breaking a feedback loop that can peg a CPU core.
@@ -239,7 +239,7 @@ function __postHeight(h, t) {
   __prevH = __lastH;
   __lastH = h;
   __lastT = t;
-  parent.postMessage({ __sideshow: true, type: 'resize', height: h }, '*');
+  parent.postMessage({ __mockpit: true, type: 'resize', height: h }, '*');
 }
 function __clearTrailing() {
   if (__trailTimer && typeof clearTimeout !== 'undefined') clearTimeout(__trailTimer);
@@ -354,12 +354,12 @@ export const HIT_TEST_JS = `
   window.addEventListener('message', function (e) {
     if (e.source !== parent || parent === window) return;
     var d = e.data;
-    if (!d || d.__sideshow !== true || d.type !== 'hit-test') return;
+    if (!d || d.__mockpit !== true || d.type !== 'hit-test') return;
     var box = docBox();
     var px = Math.max(0, Math.min(1, Number(d.x) || 0)) * box.w;
     var py = Math.max(0, Math.min(1, Number(d.y) || 0)) * box.h;
     var el = document.elementFromPoint(px - (window.scrollX || 0), py - (window.scrollY || 0));
-    var reply = { __sideshow: true, type: 'hit-test-result', ref: d.ref, path: '', text: '', rect: [0, 0, 0, 0] };
+    var reply = { __mockpit: true, type: 'hit-test-result', ref: d.ref, path: '', text: '', rect: [0, 0, 0, 0] };
     if (el && el.nodeType === 1) {
       var r = el.getBoundingClientRect();
       reply.path = cssPath(el);
@@ -383,7 +383,7 @@ export const HIT_TEST_JS = `
 const TAILWIND_CDN = "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4";
 
 // Sizing for `<svg class="icon"><use href="#mage-…"/></svg>` — shipped with
-// the sprite loader so the markup in `.sideshow/starter.html` works whichever
+// the sprite loader so the markup in `.mockpit/starter.html` works whichever
 // kit a project ended up on.
 const ICON_CSS = `.icon{width:1em;height:1em;flex:none;vertical-align:-0.125em;fill:none;stroke:currentColor}`;
 
@@ -490,7 +490,7 @@ const spriteLoaderJs = (origin: string, assetId: string) => `
 
 // Everything a project's DesignSettings contributes to one html-surface doc.
 // Kept in one place so the ordering rule is visible: the project's own tokens
-// land AFTER sideshow's, because a repo that declares `--radius` or a brand
+// land AFTER mockpit's, because a repo that declares `--radius` or a brand
 // color should win inside its own project's surfaces.
 function designAssets(
   design: DesignSettings | null | undefined,
@@ -616,8 +616,8 @@ svg { max-width: 100%; height: auto; }
 `;
 
 // Mermaid `base` theme variables + themeCSS derived from the resolved palette,
-// so the diagram matches sideshow's look instead of mermaid's stock theme.
-// Mirrors sideshowTheme() in the old viewer MermaidPart, but reads palette
+// so the diagram matches mockpit's look instead of mermaid's stock theme.
+// Mirrors mockpitTheme() in the old viewer MermaidPart, but reads palette
 // fields directly rather than getComputedStyle.
 //
 // `mode` must match the scheme `p` was resolved into (renderMermaidPage picks
@@ -788,7 +788,7 @@ export function renderHtmlPage(doc: {
   // the html-surface CSP's `script-src 'unsafe-inline'`. Unknown ids are ignored.
   kits?: string[];
   // The post's project design settings (`design:<project>`), imported from the
-  // repo by `sideshow init`. Null/absent → the surface renders exactly as it
+  // repo by `mockpit init`. Null/absent → the surface renders exactly as it
   // did before this existed.
   design?: DesignSettings | null;
 }): string {

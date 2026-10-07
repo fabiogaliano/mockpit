@@ -1,5 +1,5 @@
 // End-to-end browser proof that an embedder can project content into the item
-// header through the shadow boundary — the `ss:item-actions` region the sideshow
+// header through the shadow boundary — the `ss:item-actions` region the mockpit
 // cloud uses for its "Share" button, plus the DEPRECATED `ss:session-actions`
 // name (the session header it used to mean is gone with the session screen; the
 // engine still projects it into the item header so an older host keeps working).

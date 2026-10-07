@@ -11,8 +11,8 @@ import { themeOptions } from "../server/themes.ts";
 import type { PostScreenshotPlan } from "./screenshot.ts";
 
 const EDGE_MAX_AGE_SECONDS = 3600;
-const ORIGIN_CACHE_CONTROL = "x-sideshow-origin-cache-control";
-const CACHE_STATUS_HEADER = "x-sideshow-screenshot-cache";
+const ORIGIN_CACHE_CONTROL = "x-mockpit-origin-cache-control";
+const CACHE_STATUS_HEADER = "x-mockpit-screenshot-cache";
 
 // Only the methods used here, so Node tests can provide a Map-backed stand-in.
 export interface EdgeCache {

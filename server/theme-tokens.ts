@@ -1,7 +1,7 @@
 // The engine↔embedder theme-token contract, as data.
 //
 // The embeddable engine renders its palette as CSS custom properties scoped to
-// its (shadow) root. An embedding host — e.g. sideshow cloud — keeps its own
+// its (shadow) root. An embedding host — e.g. mockpit cloud — keeps its own
 // chrome visually aligned by mirroring a subset of those vars. For that it needs
 // two things as DATA, not by scraping the live DOM:
 //   1. the NAMES of the tokens it mirrors (a stable, coarse subset), and
@@ -13,7 +13,7 @@
 // ships. This module is runtime-agnostic (it imports only themes.ts, which has
 // no node/DOM dependencies): it is safe to import in a Node build script and to
 // bundle into a browser host WITHOUT pulling in the viewer runtime. Published as
-// the lightweight `sideshow/theme-tokens` entry for exactly that reason.
+// the lightweight `mockpit/theme-tokens` entry for exactly that reason.
 import { DEFAULT_THEME_ID, type Mode, type Theme, themeById, viewerVars } from "./themes.ts";
 
 // The palette tokens a host mirrors onto its own chrome. A deliberately coarse

@@ -1,5 +1,5 @@
-// sideshow-term server. It reuses sideshow's runtime-agnostic core
-// (createApp + JsonFileStore) from the sideshow package — snippets are opaque
+// mockpit-term server. It reuses mockpit's runtime-agnostic core
+// (createApp + JsonFileStore) from the mockpit package — snippets are opaque
 // strings to the store, so the same REST API, SSE feed and long-poll serve STML
 // just as well as HTML.
 // What differs is the agent-facing contract: /guide and /setup teach the
@@ -14,9 +14,9 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-const { createApp, JsonFileStore } = await loadSideshowServerCore();
+const { createApp, JsonFileStore } = await loadMockpitServerCore();
 
-async function loadSideshowServerCore() {
+async function loadMockpitServerCore() {
   try {
     return await import("sideshow/server");
   } catch {
@@ -39,32 +39,32 @@ const [guideMarkdown, setupText, pkgJson] = await Promise.all([
   readFile(join(root, "package.json"), "utf8"),
 ]);
 
-const landing = `<!doctype html><meta charset="utf-8"><title>sideshow-term</title>
+const landing = `<!doctype html><meta charset="utf-8"><title>mockpit-term</title>
 <body style="font:16px/1.6 system-ui;max-width:40rem;margin:4rem auto;padding:0 1rem">
-<h1>sideshow-term</h1>
+<h1>mockpit-term</h1>
 <p>This is a terminal visual surface. There is no browser viewer — open the
 live viewer in a terminal:</p>
-<pre style="background:#f4f4f5;padding:1rem;border-radius:8px">sideshow-term watch</pre>
+<pre style="background:#f4f4f5;padding:1rem;border-radius:8px">mockpit-term watch</pre>
 <p>Agents publish opentui markup; see <a href="/guide">/guide</a> and
 <a href="/setup">/setup</a>.</p>
 </body>`;
 
 const app = createApp({
   store: new JsonFileStore(
-    process.env.SIDESHOW_DATA ?? join(homedir(), ".sideshow-term", "sideshow-term.json"),
+    process.env.MOCKPIT_DATA ?? join(homedir(), ".mockpit-term", "mockpit-term.json"),
   ),
   viewerHtml: landing,
   guideMarkdown,
   setupText,
-  authToken: process.env.SIDESHOW_TOKEN,
+  authToken: process.env.MOCKPIT_TOKEN,
   version: (JSON.parse(pkgJson) as { version: string }).version,
-  upgradeCommand: "npm install -g sideshow-term",
-  // sideshow-term isn't on npm under sideshow's name; skip the update probe.
+  upgradeCommand: "npm install -g mockpit-term",
+  // mockpit-term isn't on npm under mockpit's name; skip the update probe.
   fetchLatestRelease: async () => null,
 });
 
 const port = Number(process.env.PORT ?? 4243);
 serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`sideshow-term listening on http://localhost:${info.port}`);
-  console.log(`open the live viewer in a terminal:  sideshow-term watch`);
+  console.log(`mockpit-term listening on http://localhost:${info.port}`);
+  console.log(`open the live viewer in a terminal:  mockpit-term watch`);
 });

@@ -20,7 +20,7 @@ function makeApp(
     store?: Store;
   },
 ) {
-  const dir = mkdtempSync(join(tmpdir(), "sideshow-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "mockpit-test-"));
   const {
     viewerHtml = "<html><head></head><body>viewer</body></html>",
     store = new JsonFileStore(join(dir, "data.json")),
@@ -77,7 +77,7 @@ test("publish without session auto-creates one", async () => {
 });
 
 test("GET /api/sessions uses the narrow post-count capability", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "sideshow-count-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "mockpit-count-test-"));
   const store = new JsonFileStore(join(dir, "data.json"));
   const app = makeApp(undefined, { store });
   const first = (await (
@@ -100,7 +100,7 @@ test("GET /api/sessions uses the narrow post-count capability", async () => {
 });
 
 test("GET /api/sessions falls back to listPosts for custom stores", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "sideshow-count-fallback-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "mockpit-count-fallback-test-"));
   const store: Store = new JsonFileStore(join(dir, "data.json"));
   const app = makeApp(undefined, { store });
   await app.request("/api/snippets", json({ html: "<p>one</p>", agent: "custom" }));
@@ -375,11 +375,8 @@ test("GET /s/:id serves the viewer shell with link-preview metadata", async () =
   assert.match(body, /<title>Auth Flow<\/title>/);
   assert.match(body, /<meta property="og:title" content="Auth Flow">/);
   assert.match(body, /<meta name="twitter:title" content="Auth Flow">/);
-  assert.match(body, /<meta property="og:description" content="A https:\/\/sideshow\.sh surface">/);
-  assert.match(
-    body,
-    /<meta name="twitter:description" content="A https:\/\/sideshow\.sh surface">/,
-  );
+  assert.match(body, /<meta property="og:description" content="A https:\/\/mockpit\.sh surface">/);
+  assert.match(body, /<meta name="twitter:description" content="A https:\/\/mockpit\.sh surface">/);
   assert.doesNotMatch(body, /Secret session/);
 });
 
@@ -404,7 +401,7 @@ test("GET /session/:id serves the viewer shell with the session title", async ()
   assert.match(aliased.headers.get("content-security-policy") ?? "", /frame-ancestors 'self'/);
   const body = await page.text();
   assert.ok(body.includes("viewer"), "should serve the trusted viewer shell");
-  assert.match(body, /<title>Auth refactor · sideshow<\/title>/);
+  assert.match(body, /<title>Auth refactor · mockpit<\/title>/);
 });
 
 test("GET /s/:id emits fully pinned, absolute, token-free preview image URLs", async () => {
@@ -481,7 +478,7 @@ test("GET /s/:id preview metadata respects configured base path", async () => {
       `<meta property="og:image" content="https://board.test/u/alice/p/${surface.id}\\.png\\?card=1&amp;theme=github&amp;mode=dark&amp;v=${surface.version}&amp;g=dev">`,
     ),
   );
-  assert.match(body, /window\.__SIDESHOW_BASE_PATH__="\/u\/alice"/);
+  assert.match(body, /window\.__MOCKPIT_BASE_PATH__="\/u\/alice"/);
 });
 
 test("post preview image URL changes with the workspace theme", async () => {
@@ -768,7 +765,7 @@ test("publishes a mermaid surface; /s emits a self-rendering CDN doc", async () 
 test("publishes a json surface; round-trips data and 404s on /s", async () => {
   const app = makeApp();
   const data = {
-    name: "sideshow",
+    name: "mockpit",
     version: "1.2.3",
     deps: ["a", "b"],
     nested: { x: true, y: null },
@@ -924,7 +921,7 @@ test("snippet page is wrapped with CSP, bridge, and kit", async () => {
   // The bridge is served from its own immutable asset URL, not inlined.
   const bridge = await assetBody(app, page, /\/asset\/bridge\.[a-z0-9]+\.js/);
   assert.ok(bridge.includes("window.sendPrompt"));
-  assert.ok(bridge.includes("__sideshow"));
+  assert.ok(bridge.includes("__mockpit"));
   // Snippet kit: SVG utilities in the stylesheet and the shared arrow marker
   // injected before the snippet body so url(#arrow) resolves.
   const base = await assetBody(app, page, /\/asset\/base\.[a-z0-9]+\.css/);
@@ -1115,7 +1112,7 @@ test("author=user lastSeq reflects the last comment overall, not the last user c
 });
 
 function makeVersionApp(version?: string, latest?: { version: string; notes?: string } | Error) {
-  const dir = mkdtempSync(join(tmpdir(), "sideshow-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "mockpit-test-"));
   return createApp({
     store: new JsonFileStore(join(dir, "data.json")),
     viewerHtml: "<html>viewer</html>",
@@ -1123,7 +1120,7 @@ function makeVersionApp(version?: string, latest?: { version: string; notes?: st
     setupText: "# setup",
     agentHowtoText: "# agent how-to",
     version,
-    upgradeCommand: "npm install -g sideshow",
+    upgradeCommand: "npm install -g mockpit",
     fetchLatestRelease: () =>
       latest instanceof Error ? Promise.reject(latest) : Promise.resolve(latest ?? null),
   });
@@ -1136,7 +1133,7 @@ test("version endpoint reports an available update with notes", async () => {
     current: "0.3.0",
     latest: "0.4.0",
     updateAvailable: true,
-    upgradeCommand: "npm install -g sideshow",
+    upgradeCommand: "npm install -g mockpit",
     notes: "### Added\n- things",
   });
 });
@@ -1271,18 +1268,18 @@ test("rename session", async () => {
 });
 
 test("auth hook can guard an embedding host without authToken", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "sideshow-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "mockpit-test-"));
   const app = createApp({
     store: new JsonFileStore(join(dir, "data.json")),
     viewerHtml: "<html>viewer</html>",
     guideMarkdown: "# guide",
     setupText: "# setup",
-    authenticate: (request) => request.headers.get("x-sideshow-internal") === "ok",
+    authenticate: (request) => request.headers.get("x-mockpit-internal") === "ok",
   });
 
   assert.equal((await app.request("/guide")).status, 401);
   assert.equal((await app.request("/api/sessions")).status, 401);
-  const allowed = await app.request("/api/sessions", { headers: { "x-sideshow-internal": "ok" } });
+  const allowed = await app.request("/api/sessions", { headers: { "x-mockpit-internal": "ok" } });
   assert.equal(allowed.status, 200);
 });
 
@@ -1303,9 +1300,9 @@ test("auth token guards mutating routes when configured", async () => {
   const keyed = await app.request("/?key=secret");
   assert.equal(keyed.status, 200);
   const cookie = keyed.headers.get("set-cookie") ?? "";
-  assert.ok(cookie.includes("sideshow_key=secret"));
+  assert.ok(cookie.includes("mockpit_key=secret"));
   const viaCookie = await app.request("/api/sessions", {
-    headers: { cookie: "sideshow_key=secret" },
+    headers: { cookie: "mockpit_key=secret" },
   });
   assert.equal(viaCookie.status, 200);
 });
@@ -1462,8 +1459,8 @@ test("public read viewer config marks unauthenticated full-mode visitors readonl
   const app = makeApp("secret", { publicRead: "full" });
 
   const html = await (await app.request("/")).text();
-  assert.ok(html.includes("__SIDESHOW_READONLY__=true"));
-  assert.ok(html.includes('__SIDESHOW_PUBLIC_READ__="full"'));
+  assert.ok(html.includes("__MOCKPIT_READONLY__=true"));
+  assert.ok(html.includes('__MOCKPIT_PUBLIC_READ__="full"'));
 });
 
 test("public read viewer config keeps authenticated owners writable", async () => {
@@ -1472,8 +1469,8 @@ test("public read viewer config keeps authenticated owners writable", async () =
   const html = await (
     await app.request("/", { headers: { authorization: "Bearer secret" } })
   ).text();
-  assert.ok(!html.includes("__SIDESHOW_READONLY__"));
-  assert.ok(!html.includes("__SIDESHOW_PUBLIC_READ__"));
+  assert.ok(!html.includes("__MOCKPIT_READONLY__"));
+  assert.ok(!html.includes("__MOCKPIT_PUBLIC_READ__"));
 });
 
 test("public read viewer config marks session-mode visitors readonly", async () => {
@@ -1483,8 +1480,8 @@ test("public read viewer config marks session-mode visitors readonly", async () 
   ).json()) as any;
 
   const html = await (await app.request(`/session/${created.sessionId}`)).text();
-  assert.ok(html.includes("__SIDESHOW_READONLY__=true"));
-  assert.ok(html.includes('__SIDESHOW_PUBLIC_READ__="session"'));
+  assert.ok(html.includes("__MOCKPIT_READONLY__=true"));
+  assert.ok(html.includes('__MOCKPIT_PUBLIC_READ__="session"'));
 });
 
 test("viewer config enables screenshots when the deployment supports them", async () => {
@@ -1493,7 +1490,7 @@ test("viewer config enables screenshots when the deployment supports them", asyn
   const html = await (
     await app.request("/", { headers: { authorization: "Bearer secret" } })
   ).text();
-  assert.ok(html.includes("__SIDESHOW_SCREENSHOTS__=true"));
+  assert.ok(html.includes("__MOCKPIT_SCREENSHOTS__=true"));
 });
 
 test("viewer config omits the screenshots flag by default (Node server)", async () => {
@@ -1502,7 +1499,7 @@ test("viewer config omits the screenshots flag by default (Node server)", async 
   const html = await (
     await app.request("/", { headers: { authorization: "Bearer secret" } })
   ).text();
-  assert.ok(!html.includes("__SIDESHOW_SCREENSHOTS__"));
+  assert.ok(!html.includes("__MOCKPIT_SCREENSHOTS__"));
 });
 
 test("public read viewer config treats query key as authenticated for that response", async () => {
@@ -1511,24 +1508,24 @@ test("public read viewer config treats query key as authenticated for that respo
   const res = await app.request("/?key=secret");
   assert.equal(res.status, 200);
   const html = await res.text();
-  assert.ok(!html.includes("__SIDESHOW_READONLY__"));
-  assert.ok(!html.includes("__SIDESHOW_PUBLIC_READ__"));
+  assert.ok(!html.includes("__MOCKPIT_READONLY__"));
+  assert.ok(!html.includes("__MOCKPIT_PUBLIC_READ__"));
 });
 
 test("public read does not bypass custom authenticate hooks", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "sideshow-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "mockpit-test-"));
   const app = createApp({
     store: new JsonFileStore(join(dir, "data.json")),
     viewerHtml: "<html>viewer</html>",
     guideMarkdown: "# guide",
     setupText: "# setup",
-    authenticate: (request) => request.headers.get("x-sideshow-internal") === "ok",
+    authenticate: (request) => request.headers.get("x-mockpit-internal") === "ok",
     publicRead: "full",
   });
 
   assert.equal((await app.request("/api/sessions")).status, 401);
   assert.equal(
-    (await app.request("/api/sessions", { headers: { "x-sideshow-internal": "ok" } })).status,
+    (await app.request("/api/sessions", { headers: { "x-mockpit-internal": "ok" } })).status,
     200,
   );
 });
@@ -1542,7 +1539,7 @@ test("mcp endpoint: initialize, tools/list, publish round trip", async () => {
   const init = (await (
     await app.request("/mcp", mcpCall(1, "initialize", { protocolVersion: "2025-03-26" }))
   ).json()) as any;
-  assert.equal(init.result.serverInfo.name, "sideshow");
+  assert.equal(init.result.serverInfo.name, "mockpit");
   assert.ok(init.result.instructions.length > 0);
 
   const list = (await (await app.request("/mcp", mcpCall(2, "tools/list"))).json()) as any;
@@ -1724,7 +1721,7 @@ test("mcp get_design_guide returns the project's design brief", async () => {
   // The brief is rendered from the project's STORED design, not the static
   // workspace guide — the HTTP tier used to serve the latter while stdio served
   // the brief, so the same tool answered differently per transport.
-  assert.match(res.result.content[0].text, /run `sideshow init`/);
+  assert.match(res.result.content[0].text, /run `mockpit init`/);
   assert.match(res.result.content[0].text, /Kit: none/);
 });
 

@@ -59,7 +59,7 @@ export function toast(text: string) {
 // Update notice: shown when the server reports a newer release the user has
 // not dismissed. Dismissal stores the version, not a flag, so dismissing
 // 0.4.0 keeps it gone until 0.5.0 actually ships.
-const DISMISSED_UPDATE_KEY = "sideshow-dismissed-update";
+const DISMISSED_UPDATE_KEY = "mockpit-dismissed-update";
 const [versionInfo, setVersionInfo] = createSignal<VersionInfo | null>(null);
 const [dismissedUpdate, setDismissedUpdate] = createSignal(
   localStorage.getItem(DISMISSED_UPDATE_KEY),

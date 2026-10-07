@@ -45,16 +45,16 @@ interface Server {
 }
 
 function bootServer(): Promise<Server> {
-  const dir = mkdtempSync(join(tmpdir(), "sideshow-bench-viewer-"));
+  const dir = mkdtempSync(join(tmpdir(), "mockpit-bench-viewer-"));
   const proc = spawn(process.execPath, ["server/index.ts"], {
     cwd: repoRoot,
     env: {
       ...process.env,
       PORT: "0",
-      SIDESHOW_DB: join(dir, "bench.db"),
-      SIDESHOW_DATA: join(dir, "bench.json"),
-      SIDESHOW_VERSION: "",
-      SIDESHOW_TOKEN: "",
+      MOCKPIT_DB: join(dir, "bench.db"),
+      MOCKPIT_DATA: join(dir, "bench.json"),
+      MOCKPIT_VERSION: "",
+      MOCKPIT_TOKEN: "",
     },
     stdio: ["ignore", "pipe", "ignore"],
   });
@@ -128,9 +128,9 @@ export const viewerSuite: Suite = {
     const { chromium } = await import("@playwright/test");
 
     // Some environments ship a Chromium that doesn't match the pinned Playwright
-    // revision. SIDESHOW_BENCH_CHROMIUM points at one explicitly rather than
+    // revision. MOCKPIT_BENCH_CHROMIUM points at one explicitly rather than
     // forcing a download; without it we use whatever Playwright resolves.
-    const executablePath = process.env.SIDESHOW_BENCH_CHROMIUM || undefined;
+    const executablePath = process.env.MOCKPIT_BENCH_CHROMIUM || undefined;
     const launch = () => chromium.launch({ executablePath });
 
     // Probe the launch before booting a server, so a missing browser is a clean
@@ -140,7 +140,7 @@ export const viewerSuite: Suite = {
     } catch (err) {
       console.error(
         `skipping viewer suite: cannot launch Chromium (${(err as Error).message.split("\n")[0]}).\n` +
-          `Set SIDESHOW_BENCH_CHROMIUM to a Chromium binary, or run \`npx playwright install chromium\`.`,
+          `Set MOCKPIT_BENCH_CHROMIUM to a Chromium binary, or run \`npx playwright install chromium\`.`,
       );
       return;
     }

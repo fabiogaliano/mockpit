@@ -22,13 +22,13 @@ const design = (over: Partial<DesignSettings> = {}): DesignSettings => ({
 
 test("a project that never ran init gets the generic brief", () => {
   const brief = renderBriefGuide(null);
-  assert.match(brief, /No design system imported yet — run `sideshow init`/);
+  assert.match(brief, /No design system imported yet — run `mockpit init`/);
   assert.match(brief, /using the workspace theme/);
   assert.match(brief, /Kit: none/);
   assert.match(brief, /Icons: none configured/);
   // the workflow is always present: it is what the brief exists to teach
-  assert.match(brief, /sideshow publish --item pricing-card/);
-  assert.match(brief, /sideshow wait/);
+  assert.match(brief, /mockpit publish --item pricing-card/);
+  assert.match(brief, /mockpit wait/);
 });
 
 test("the brief reports what init detected", () => {

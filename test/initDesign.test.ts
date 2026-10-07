@@ -6,12 +6,12 @@ import { test } from "node:test";
 // @ts-expect-error — the CLI side is plain JS with JSDoc types
 import { buildIconSprite, detectDesign, renderStarter } from "../bin/initDesign.js";
 
-// `sideshow init`'s detection half: deterministic, no model in the loop, and it
+// `mockpit init`'s detection half: deterministic, no model in the loop, and it
 // parses files we did not write — so it must never throw, whatever the repo
 // looks like.
 
 function repo(files: Record<string, string>): string {
-  const dir = mkdtempSync(join(tmpdir(), "sideshow-init-"));
+  const dir = mkdtempSync(join(tmpdir(), "mockpit-init-"));
   for (const [path, body] of Object.entries(files)) {
     const full = join(dir, path);
     mkdirSync(join(full, ".."), { recursive: true });

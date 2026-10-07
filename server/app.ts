@@ -185,7 +185,7 @@ export interface AppOptions {
   // app route runs. Return true to allow, false to use the default 401, or a
   // Response for custom denials. This is intentionally lower-level than
   // authToken so hosts can validate edge-signed assertions without teaching
-  // sideshow about their session/token systems.
+  // mockpit about their session/token systems.
   authenticate?: AuthenticateHook;
   // When set (self-hosted Worker deployments), every route except /guide,
   // /setup, and /agent-howto requires it: Authorization bearer, ?key= query,
@@ -204,7 +204,7 @@ export interface AppOptions {
   // /s/:id.png route). That route lives in the Cloudflare Worker entry and needs
   // the Browser Rendering binding; the plain Node server can't drive a headless
   // browser, so it leaves this false. Surfaced to the viewer
-  // (window.__SIDESHOW_SCREENSHOTS__) so the screenshot action knows whether to
+  // (window.__MOCKPIT_SCREENSHOTS__) so the screenshot action knows whether to
   // enable itself.
   screenshots?: boolean;
   // Update notice: the running version and the upgrade hint that fits this
@@ -245,15 +245,15 @@ function versionGt(a: string, b: string): boolean {
 // release. Notes are garnish: if GitHub is unreachable the version alone
 // still makes a usable notice.
 async function fetchLatestFromRegistry(): Promise<LatestRelease | null> {
-  const res = await fetch("https://registry.npmjs.org/sideshow/latest");
+  const res = await fetch("https://registry.npmjs.org/mockpit/latest");
   if (!res.ok) return null;
   const pkg = (await res.json()) as { version?: string };
   if (typeof pkg.version !== "string") return null;
   let notes: string | undefined;
   try {
     const gh = await fetch(
-      `https://api.github.com/repos/modem-dev/sideshow/releases/tags/v${pkg.version}`,
-      { headers: { "user-agent": "sideshow", accept: "application/vnd.github+json" } },
+      `https://api.github.com/repos/fabiogaliano/mockpit/releases/tags/v${pkg.version}`,
+      { headers: { "user-agent": "mockpit", accept: "application/vnd.github+json" } },
     );
     if (gh.ok) {
       const rel = (await gh.json()) as { body?: string };
@@ -351,7 +351,7 @@ export function createApp({
       try {
         onEvent(event);
       } catch (err) {
-        console.warn("[sideshow] onEvent listener failed", err);
+        console.warn("[mockpit] onEvent listener failed", err);
       }
     });
   }
@@ -456,7 +456,7 @@ export function createApp({
   // Validation rejects bad input with 4xx before this, so reaching here means an
   // unexpected bug — log it so it isn't swallowed silently.
   app.onError((err, c) => {
-    console.error("sideshow: unhandled error", err);
+    console.error("mockpit: unhandled error", err);
     return c.json({ error: "internal error" }, 500);
   });
 
@@ -531,7 +531,7 @@ export function createApp({
   });
 
   // A project's imported design system (settings key `design:<project>`), or
-  // null when `sideshow init` has never run for it.
+  // null when `mockpit init` has never run for it.
   async function designFor(project: string): Promise<DesignSettings | null> {
     const raw = await store.getSetting(`design:${project}`);
     if (!raw) return null;
@@ -545,7 +545,7 @@ export function createApp({
   // Push + webhooks. Detached on purpose: a dead push endpoint must never fail
   // (or slow) the write that triggered it.
   function fireNotify(payload: NotifyPayload): void {
-    void notify(store, payload).catch((err) => console.warn("[sideshow] notify failed", err));
+    void notify(store, payload).catch((err) => console.warn("[mockpit] notify failed", err));
   }
 
   const postUrl = (request: Request, post: Post) =>
@@ -1141,7 +1141,7 @@ export function createApp({
   const isAuthenticated = (c: Context): boolean => {
     if (!authToken) return true;
     if (c.req.header("authorization") === `Bearer ${authToken}`) return true;
-    if (getCookie(c, "sideshow_key") === authToken) return true;
+    if (getCookie(c, "mockpit_key") === authToken) return true;
     return c.req.query("key") === authToken;
   };
 
@@ -1174,7 +1174,7 @@ export function createApp({
 
     const key = c.req.query("key");
     if (key === authToken) {
-      setCookie(c, "sideshow_key", authToken, {
+      setCookie(c, "mockpit_key", authToken, {
         httpOnly: true,
         sameSite: "Lax",
         secure: new URL(c.req.url).protocol === "https:",
@@ -1239,7 +1239,7 @@ export function createApp({
   const sessionDocumentTitle = (session: Session | null | undefined) => {
     if (!session) return null;
     const label = session.title || (session.agent ? `${session.agent} session` : null);
-    return label ? `${label} · sideshow` : null;
+    return label ? `${label} · mockpit` : null;
   };
 
   const withViewerConfig = (
@@ -1249,13 +1249,13 @@ export function createApp({
     pageTitle?: string | null,
   ) => {
     const config = [
-      `window.__SIDESHOW_BASE_PATH__=${JSON.stringify(requestBasePath(request))};`,
-      pageTitle ? `window.__SIDESHOW_PAGE_TITLE__=${JSON.stringify(pageTitle)};` : "",
-      isReadonly ? "window.__SIDESHOW_READONLY__=true;" : "",
+      `window.__MOCKPIT_BASE_PATH__=${JSON.stringify(requestBasePath(request))};`,
+      pageTitle ? `window.__MOCKPIT_PAGE_TITLE__=${JSON.stringify(pageTitle)};` : "",
+      isReadonly ? "window.__MOCKPIT_READONLY__=true;" : "",
       isReadonly && publicRead
-        ? `window.__SIDESHOW_PUBLIC_READ__=${JSON.stringify(publicRead)};`
+        ? `window.__MOCKPIT_PUBLIC_READ__=${JSON.stringify(publicRead)};`
         : "",
-      screenshots ? "window.__SIDESHOW_SCREENSHOTS__=true;" : "",
+      screenshots ? "window.__MOCKPIT_SCREENSHOTS__=true;" : "",
     ].join("");
     return injectHead(text, `<script>${config}</script>`);
   };
@@ -1280,7 +1280,7 @@ export function createApp({
     imageUrl.searchParams.set("g", rendererGeneration);
     const image = imageUrl.toString();
     const title = escapeHtml(post.title);
-    const description = "A https://sideshow.sh surface";
+    const description = "A https://mockpit.sh surface";
     return [
       `<link rel="canonical" href="${escapeHtml(canonical)}">`,
       `<meta property="og:type" content="website">`,
@@ -1377,13 +1377,13 @@ export function createApp({
         c.req.query("project") ?? (await store.listProjects())[0]?.name ?? DEFAULT_PROJECT;
       return c.text(withOrigin(renderBriefGuide(await designFor(project)), c));
     } catch (err) {
-      console.warn("[sideshow] brief guide unavailable", err);
+      console.warn("[mockpit] brief guide unavailable", err);
       return c.text(withOrigin(agentHowtoText, c));
     }
   });
 
   // Opt-in html kits available on this workspace (id, label, summary, classes) —
-  // for discovery (`sideshow kits`); the CSS/JS payloads are server-only.
+  // for discovery (`mockpit kits`); the CSS/JS payloads are server-only.
   app.get("/api/kits", (c) => c.json(kitSummaries()));
 
   // --- theme (one workspace-level setting) ---
@@ -1619,7 +1619,7 @@ export function createApp({
 
   // The built-in welcome/test post (server/welcomePost.ts): the same fixed card
   // the MCP send_test_post tool publishes, reachable from the CLI and raw-HTTP
-  // tiers (`sideshow test-post`, `curl -X POST .../api/test-post`). The body is
+  // tiers (`mockpit test-post`, `curl -X POST .../api/test-post`). The body is
   // optional (`{agent?}` labels a newly created session). Idempotent — if the
   // card is already on the board it is returned (200 + alreadySent) rather than
   // duplicated; a fresh publish is a 201 like any other post.
@@ -2005,7 +2005,7 @@ export function createApp({
     return respond(await waitForComments(query));
   });
 
-  // Inline each `<sideshow-slot>` with the referenced variant version's first
+  // Inline each `<mockpit-slot>` with the referenced variant version's first
   // html surface body. The stored `slots` list (resolved at publish) wins over
   // a bare tag, so a page keeps rendering the versions it was composed from.
   async function expandPageHtml(post: Post, html: string): Promise<string> {
@@ -2122,9 +2122,9 @@ export function createApp({
     `${DEMO_CSS}<div style="display:flex;gap:10px;align-items:center"><button class="btn${solid ? " primary" : ""}">Start free</button><span class="sub">${solid ? "solid" : "ghost"} — 14px/8px, 8px radius</span></div>`;
 
   const demoPage = `${DEMO_CSS}<main style="display:flex;flex-direction:column;gap:32px">
-    <sideshow-slot slug="hero" variant="default"></sideshow-slot>
-    <sideshow-slot slug="pricing-card" variant="highlighted"></sideshow-slot>
-    <sideshow-slot slug="faq" variant="default"></sideshow-slot>
+    <mockpit-slot slug="hero" variant="default"></mockpit-slot>
+    <mockpit-slot slug="pricing-card" variant="highlighted"></mockpit-slot>
+    <mockpit-slot slug="faq" variant="default"></mockpit-slot>
   </main>`;
 
   app.post("/api/demo/reshape", async (c) => {
@@ -2344,7 +2344,7 @@ export function createApp({
     return c.json(item);
   });
 
-  // The project's design system, imported by `sideshow init` and injected into
+  // The project's design system, imported by `mockpit init` and injected into
   // every html surface of the project (see renderHtmlPage).
   app.get("/api/projects/:name/design", async (c) => c.json(await designFor(c.req.param("name"))));
 
@@ -2699,7 +2699,7 @@ export function createApp({
           );
         }
       }
-    })().catch((err) => console.warn("[sideshow] render pre-warm failed", err));
+    })().catch((err) => console.warn("[mockpit] render pre-warm failed", err));
   }
 
   const renderPostPage = async (c: any) => {
@@ -2952,7 +2952,7 @@ export function createApp({
         const { renderBriefGuide } = await import("./designGuide.ts");
         return renderBriefGuide(await designFor(project));
       } catch (err) {
-        console.warn("[sideshow] brief guide unavailable", err);
+        console.warn("[mockpit] brief guide unavailable", err);
         return guideMarkdown;
       }
     },

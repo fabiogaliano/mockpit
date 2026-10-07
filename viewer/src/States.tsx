@@ -36,7 +36,7 @@ export function FreshWorkspace() {
         Projects appear when an agent publishes from a repo. Run this in the agent&rsquo;s terminal,
         inside the repo you want to design for:
       </p>
-      <CommandBlock cmd="npx sideshow init" />
+      <CommandBlock cmd="npx mockpit init" />
       <p class="alt">
         Detects the repo&rsquo;s design system, writes a starter, and points the agent at this
         workspace. <a href={appPath("/connect")}>Using MCP or curl instead?</a> ·{" "}
@@ -58,7 +58,7 @@ export function NoItems(props: { agent?: string | null }) {
         moment it publishes. If it seems stuck, this is the shape it runs:
       </p>
       <CommandBlock
-        cmd="sideshow publish --item pricing-card --variant highlighted --html pricing.html"
+        cmd="mockpit publish --item pricing-card --variant highlighted --html pricing.html"
         copyable={false}
       />
       <p class="alt">
@@ -87,7 +87,7 @@ export function OfflineBanner(props: { host: string; onRetry: () => void }) {
   return (
     <div class="ss-ban err" role="alert">
       <span class="spin"></span>
-      Can&rsquo;t reach sideshow at <b>{props.host}</b>. Showing what loaded last. Retrying in 4s
+      Can&rsquo;t reach mockpit at <b>{props.host}</b>. Showing what loaded last. Retrying in 4s
       <a
         href="#"
         onClick={(e) => {
@@ -125,7 +125,7 @@ export function QueuedNote() {
     <div class="ss-queued">
       <b>Your comment is queued.</b>
       <div>
-        It reaches the agent on its next write or <code>sideshow wait</code>. If the session ended,
+        It reaches the agent on its next write or <code>mockpit wait</code>. If the session ended,
         start a new one; the comment stays in this item&rsquo;s thread.
       </div>
     </div>

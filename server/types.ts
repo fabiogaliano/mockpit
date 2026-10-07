@@ -238,7 +238,7 @@ export type Surface =
   | (CodeSurface & { id?: string });
 
 // An item is a component or a whole page. A page composes components by
-// reference (<sideshow-slot>), expanded server-side at render time.
+// reference (<mockpit-slot>), expanded server-side at render time.
 export type ItemKind = "component" | "page";
 // A variant's review state. `accepted` is the operator's pick; accepting one
 // archives its siblings. Archived variants are hidden but restorable.
@@ -341,7 +341,7 @@ export interface ItemDetail extends Omit<ItemSummary, "variants"> {
   variants: VariantDetail[];
 }
 
-// Per-project design system state, imported from the repo by `sideshow init`
+// Per-project design system state, imported from the repo by `mockpit init`
 // and rendered into every html surface's sandbox (see renderHtmlPage). Stored
 // as JSON under the settings key `design:<project>`.
 export interface DesignSettings {

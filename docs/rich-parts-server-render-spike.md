@@ -200,7 +200,7 @@ Notes for the refactor:
 - **Serving the viewer:**
   - Node: `server/index.ts:14-22` `readFile(viewer/dist/index.html)` at boot → `viewerHtml`.
   - Workers: `workers/index.ts:7` `import viewerHtml from "../viewer/dist/index.html"` (wrangler.jsonc
-    Text rule: `globs: ["**/*.html","**/*.md"]`). One DO (`SideshowBoard`) runs everything; no static-asset routes.
+    Text rule: `globs: ["**/*.html","**/*.md"]`). One DO (`MockpitBoard`) runs everything; no static-asset routes.
 - **`server/app.ts`:** `createApp({store, viewerHtml, ...})` ~241. `/s/:id` handler ~867
   (html-only, 404s other kinds; sets `sandbox allow-scripts` header ~898; reads `?ver=&theme=&mode=`).
   `isPublicReadAllowed` ~189. Auth middleware ~499-535 (`authToken`/`publicRead`/cookie). `MAX_BODY_BYTES=16MiB` ~34.

@@ -152,7 +152,7 @@ export function registerMcp(app: Hono, deps: McpDeps) {
     const slug = String(args.slug ?? "");
     if (!slug) throw new Error("slug is required");
     const project = await projectOf(args);
-    // An existing page stays a page across revisions, so its <sideshow-slot>
+    // An existing page stays a page across revisions, so its <mockpit-slot>
     // tags keep being re-snapshotted.
     const existingKind = (await store.getItem(project, slug))?.kind;
     const surfaces =
@@ -534,6 +534,6 @@ export function registerMcp(app: Hono, deps: McpDeps) {
   });
 
   // Stateless server: no SSE stream to resume, no session to delete.
-  app.get("/mcp", (c) => c.text("sideshow MCP is stateless — POST JSON-RPC messages here", 405));
+  app.get("/mcp", (c) => c.text("mockpit MCP is stateless — POST JSON-RPC messages here", 405));
   app.delete("/mcp", (c) => c.body(null, 405));
 }

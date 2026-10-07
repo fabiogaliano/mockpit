@@ -82,7 +82,7 @@ const KIND_LABELS: Record<string, string> = {
 function linkFallback(surface: Surface, index: number, opts: PostMarkdownOptions): string {
   const label = KIND_LABELS[surface.kind] ?? `${surface.kind} surface`;
   const url = surfaceUrl(opts, index);
-  return url ? `[${label} — open in sideshow](${url})` : `_${label} ${index + 1}_`;
+  return url ? `[${label} — open in mockpit](${url})` : `_${label} ${index + 1}_`;
 }
 
 function codeBlock(surface: CodeSurface): string {
@@ -164,7 +164,7 @@ export function surfaceToMarkdown(
 
 export function postToMarkdown(post: MarkdownablePost, opts: PostMarkdownOptions = {}): string {
   const meta = [
-    opts.postUrl ? `[View in sideshow](${opts.postUrl})` : null,
+    opts.postUrl ? `[View in mockpit](${opts.postUrl})` : null,
     post.version && post.version > 1 ? `v${post.version}` : null,
     post.updatedAt ? stamp(post.updatedAt) : null,
   ].filter(Boolean);

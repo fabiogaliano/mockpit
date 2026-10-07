@@ -530,7 +530,7 @@ main {
 
 /* Standalone direct-link view (/s/:id with no session): one surface, full page,
    no sidebar or session chrome. Mirrors the #stream column so a surface reads
-   the same as it does in the feed, with a small sideshow watermark beneath. */
+   the same as it does in the feed, with a small mockpit watermark beneath. */
 #standalone {
   height: 100%;
   overflow-y: auto;

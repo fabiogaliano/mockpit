@@ -441,7 +441,7 @@ export function Card(props: { post: Post | ViewerPost; standalone?: boolean }) {
               <Switch
                 fallback={
                   <div class="surface-unsupported">
-                    Can&rsquo;t show this surface — refresh sideshow to update the viewer.
+                    Can&rsquo;t show this surface — refresh mockpit to update the viewer.
                   </div>
                 }
               >
@@ -757,10 +757,10 @@ function pasteBlock(c: ViewComment): string {
   if (c.postId) {
     const anchor = anchorLabel(c.anchor);
     const where = anchor ? ` at ${anchor}` : "";
-    return `sideshow comment on “${c.postTitle ?? "a post"}” (post ${c.postId})${where}:\n“${c.text}”`;
+    return `mockpit comment on “${c.postTitle ?? "a post"}” (post ${c.postId})${where}:\n“${c.text}”`;
   }
   const s = sessions.find((x) => x.id === c.sessionId);
-  return `sideshow comment, session “${s ? sessionLabel(s) : c.sessionId}”:\n“${c.text}”`;
+  return `mockpit comment, session “${s ? sessionLabel(s) : c.sessionId}”:\n“${c.text}”`;
 }
 
 function CommentRow(props: { comment: ViewComment }) {

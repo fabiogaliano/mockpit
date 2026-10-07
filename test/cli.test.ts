@@ -11,7 +11,7 @@ import { createApp } from "../server/app.ts";
 import { JsonFileStore } from "../server/storage.ts";
 import { serveUrl } from "../bin/serveUrl.js";
 
-const CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "bin", "sideshow.js");
+const CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "bin", "mockpit.js");
 
 function run(...args: string[]) {
   return runWith({}, ...args);
@@ -21,10 +21,10 @@ function run(...args: string[]) {
 // CLI at the test server), and stdin (the hook reads its payload from stdin).
 function testEnv(overrides?: Record<string, string>) {
   const env = { ...process.env };
-  delete env.SIDESHOW_URL;
-  delete env.SIDESHOW_SESSION;
-  delete env.SIDESHOW_AGENT;
-  delete env.SIDESHOW_TOKEN;
+  delete env.MOCKPIT_URL;
+  delete env.MOCKPIT_SESSION;
+  delete env.MOCKPIT_AGENT;
+  delete env.MOCKPIT_TOKEN;
   return { ...env, ...overrides };
 }
 
@@ -48,7 +48,7 @@ function runWith(
 // A real listening server for the commands that hit the network (the CLI talks
 // over fetch, not in-process). Stub viewer so no build is needed.
 function serveApp() {
-  const dir = mkdtempSync(join(tmpdir(), "sideshow-cli-"));
+  const dir = mkdtempSync(join(tmpdir(), "mockpit-cli-"));
   const store = new JsonFileStore(join(dir, "data.json"));
   const app = createApp({
     store,
@@ -88,14 +88,14 @@ for (const flag of ["--version", "-V", "version"]) {
   test(`${flag} prints the version`, async () => {
     const { code, stdout } = await run(...(flag.startsWith("-") ? [flag] : [flag]));
     assert.equal(code, 0);
-    assert.match(stdout, /^sideshow \d+\.\d+\.\d+/);
+    assert.match(stdout, /^mockpit \d+\.\d+\.\d+/);
   });
 }
 
 test("version runs end-to-end (update check is best-effort)", async () => {
   const { code, stdout } = await run("version");
   assert.equal(code, 0);
-  assert.match(stdout, /^sideshow \d+\.\d+\.\d+/);
+  assert.match(stdout, /^mockpit \d+\.\d+\.\d+/);
 });
 
 test("serve --open URL uses the concrete bind address", () => {
@@ -128,7 +128,7 @@ for (const cmd of [
     // Help was merged so each verb appears once: a verb with its own help
     // prints that, anything else falls back to the single catalog — either way
     // the verb's own invocation line is in the output.
-    assert.ok(stdout.includes(`sideshow ${cmd}`), `help must document "${cmd}"`);
+    assert.ok(stdout.includes(`mockpit ${cmd}`), `help must document "${cmd}"`);
     assert.equal(stderr, "");
   });
 }
@@ -136,17 +136,17 @@ for (const cmd of [
 test("-h is a short alias for --help", async () => {
   const { code, stdout } = await run("publish", "-h");
   assert.equal(code, 0);
-  assert.ok(stdout.includes("sideshow publish"));
+  assert.ok(stdout.includes("mockpit publish"));
 });
 
 test("top-level help prints the command catalog", async () => {
   for (const args of [[], ["help"], ["--help"], ["-h"]]) {
     const { code, stdout, stderr } = await run(...args);
     assert.equal(code, 0);
-    assert.match(stdout, /^sideshow — a live visual surface/);
+    assert.match(stdout, /^mockpit — a live visual surface/);
     // the design loop the reshape put first, and the older verbs below it
     for (const verb of ["init", "publish", "revise", "ask", "wait", "serve", "list"]) {
-      assert.ok(stdout.includes(`sideshow ${verb}`), `catalog must list "${verb}"`);
+      assert.ok(stdout.includes(`mockpit ${verb}`), `catalog must list "${verb}"`);
     }
     assert.equal(stderr, "");
   }
@@ -156,21 +156,21 @@ test("--help on a flag-less subcommand prints help instead of running it", async
   // would otherwise seed demo data (or fail reaching the server)
   const { code, stdout } = await run("demo", "--help");
   assert.equal(code, 0);
-  assert.ok(stdout.includes("sideshow demo"));
+  assert.ok(stdout.includes("mockpit demo"));
 });
 
 test("unknown command fails with a one-line hint", async () => {
   const { code, stdout, stderr } = await run("bogus-command");
   assert.equal(code, 1);
   assert.equal(stdout, "");
-  assert.match(stderr, /^sideshow: unknown command "bogus-command" — run "sideshow help"\n$/);
+  assert.match(stderr, /^mockpit: unknown command "bogus-command" — run "mockpit help"\n$/);
 });
 
 test("unknown option fails with a one-line error, not a stack trace", async () => {
   const { code, stdout, stderr } = await run("publish", "--bogus");
   assert.equal(code, 1);
   assert.equal(stdout, "");
-  assert.match(stderr, /^sideshow: Unknown option '--bogus' — run "sideshow help"\n$/);
+  assert.match(stderr, /^mockpit: Unknown option '--bogus' — run "mockpit help"\n$/);
 });
 
 test("missing option value fails with a one-line error, not a stack trace", async () => {
@@ -178,7 +178,7 @@ test("missing option value fails with a one-line error, not a stack trace", asyn
   assert.equal(code, 1);
   assert.match(
     stderr,
-    /^sideshow: Option '--title <value>' argument missing — run "sideshow help"\n$/,
+    /^mockpit: Option '--title <value>' argument missing — run "mockpit help"\n$/,
   );
 });
 
@@ -202,7 +202,7 @@ test("watch streams each new user comment as one line and re-arms", async () => 
     });
 
     child = spawn(process.execPath, [CLI, "watch"], {
-      env: testEnv({ SIDESHOW_URL: server.url, SIDESHOW_SESSION: session.id }),
+      env: testEnv({ MOCKPIT_URL: server.url, MOCKPIT_SESSION: session.id }),
     });
     childExit = new Promise<void>((resolve) =>
       child?.once("exit", () => {
@@ -220,7 +220,7 @@ test("watch streams each new user comment as one line and re-arms", async () => 
       author: "user",
     });
     await waitFor(() => stdout.includes("tighten the spacing"));
-    assert.match(stdout, /sideshow comment on “Doc” \(post .+\): “tighten the spacing”/);
+    assert.match(stdout, /mockpit comment on “Doc” \(post .+\): “tighten the spacing”/);
 
     // a second comment proves the loop re-armed (not a one-shot)
     await post(`${server.url}/api/comments`, {
@@ -229,7 +229,7 @@ test("watch streams each new user comment as one line and re-arms", async () => 
       author: "user",
     });
     await waitFor(() => stdout.includes("and ship it"));
-    assert.match(stdout, /sideshow comment on “Doc” \(post .+\): “and ship it”/);
+    assert.match(stdout, /mockpit comment on “Doc” \(post .+\): “and ship it”/);
 
     // exactly-once: neither comment is repeated across the re-arming polls
     assert.equal(stdout.match(/tighten the spacing/g)?.length, 1);
@@ -257,11 +257,11 @@ async function waitFor(pred: () => boolean, timeoutMs = 10_000) {
 test("publish --kit puts the (deduped) kit ids on the html surface", async () => {
   const server = await serveApp();
   try {
-    const dir = mkdtempSync(join(tmpdir(), "sideshow-kit-"));
+    const dir = mkdtempSync(join(tmpdir(), "mockpit-kit-"));
     const file = join(dir, "x.html");
     writeFileSync(file, "<div class=tree></div>");
     const { code, stdout } = await runWith(
-      { env: { SIDESHOW_URL: server.url } },
+      { env: { MOCKPIT_URL: server.url } },
       "publish",
       file,
       "--kit",
@@ -281,11 +281,11 @@ test("publish --kit puts the (deduped) kit ids on the html surface", async () =>
 test("publish --kit with an unknown id fails with a clear error", async () => {
   const server = await serveApp();
   try {
-    const dir = mkdtempSync(join(tmpdir(), "sideshow-kit-"));
+    const dir = mkdtempSync(join(tmpdir(), "mockpit-kit-"));
     const file = join(dir, "x.html");
     writeFileSync(file, "<p>x</p>");
     const { code, stderr } = await runWith(
-      { env: { SIDESHOW_URL: server.url } },
+      { env: { MOCKPIT_URL: server.url } },
       "publish",
       file,
       "--kit",
@@ -301,7 +301,7 @@ test("publish --kit with an unknown id fails with a clear error", async () => {
 test("kits lists the workspace's available kits", async () => {
   const server = await serveApp();
   try {
-    const { code, stdout } = await runWith({ env: { SIDESHOW_URL: server.url } }, "kits");
+    const { code, stdout } = await runWith({ env: { MOCKPIT_URL: server.url } }, "kits");
     assert.equal(code, 0);
     const kits = JSON.parse(stdout);
     assert.ok(kits.some((k: any) => k.id === "issues"));
@@ -311,25 +311,25 @@ test("kits lists the workspace's available kits", async () => {
   }
 });
 
-test("install-hook --print emits a Stop hook that runs `sideshow hook`", async () => {
+test("install-hook --print emits a Stop hook that runs `mockpit hook`", async () => {
   const { code, stdout } = await run("install-hook", "--print");
   assert.equal(code, 0);
   const cfg = JSON.parse(stdout);
   const cmd = cfg.hooks.Stop[0].hooks[0].command;
   assert.equal(cfg.hooks.Stop[0].hooks[0].type, "command");
-  assert.match(cmd, /sideshow(\.js)?["']?\s+hook\b/);
+  assert.match(cmd, /mockpit(\.js)?["']?\s+hook\b/);
 });
 
 test("install-hook merges into existing Stop hooks and is idempotent", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "sideshow-hook-"));
+  const dir = mkdtempSync(join(tmpdir(), "mockpit-hook-"));
   const settings = join(dir, ".claude", "settings.local.json");
   // first install — the CLI creates .claude/ and the settings file
   await runWith({ cwd: dir }, "install-hook");
   // splice in a pre-existing, unrelated Stop hook whose path contains both
-  // "sideshow" and "hook" — install must not mistake it for its own and skip.
+  // "mockpit" and "hook" — install must not mistake it for its own and skip.
   let cfg = JSON.parse(readFileSync(settings, "utf8"));
   cfg.hooks.Stop.unshift({
-    hooks: [{ type: "command", command: 'node ".../sideshow-stop-hook.mjs" check' }],
+    hooks: [{ type: "command", command: 'node ".../mockpit-stop-hook.mjs" check' }],
   });
   writeFileSync(settings, JSON.stringify(cfg));
 
@@ -339,14 +339,14 @@ test("install-hook merges into existing Stop hooks and is idempotent", async () 
   assert.match(again.stdout, /already-installed/);
   cfg = JSON.parse(readFileSync(settings, "utf8"));
   const cmds = cfg.hooks.Stop.flatMap((g: any) => g.hooks.map((h: any) => h.command));
-  assert.equal(cmds.filter((c: string) => /sideshow(\.js)?["']?\s+hook\b/.test(c)).length, 1);
-  assert.ok(cmds.some((c: string) => c.includes("sideshow-stop-hook.mjs")));
+  assert.equal(cmds.filter((c: string) => /mockpit(\.js)?["']?\s+hook\b/.test(c)).length, 1);
+  assert.ok(cmds.some((c: string) => c.includes("mockpit-stop-hook.mjs")));
 });
 
 test("hook reads its stdin payload and syncs the trace for the matching cwd", async () => {
   const server = await serveApp();
   try {
-    const projectCwd = "/tmp/sideshow-hook-project";
+    const projectCwd = "/tmp/mockpit-hook-project";
     const session = await post(`${server.url}/api/sessions`, {
       agent: "e2e",
       title: "Hooked",
@@ -354,7 +354,7 @@ test("hook reads its stdin payload and syncs the trace for the matching cwd", as
     });
 
     // a minimal Claude Code transcript: two prompts around a tool call
-    const transcript = join(mkdtempSync(join(tmpdir(), "sideshow-tx-")), "t.jsonl");
+    const transcript = join(mkdtempSync(join(tmpdir(), "mockpit-tx-")), "t.jsonl");
     writeFileSync(
       transcript,
       [
@@ -371,7 +371,7 @@ test("hook reads its stdin payload and syncs the trace for the matching cwd", as
     });
     // no --session: the hook resolves it purely from the payload cwd
     const { code, stdout } = await runWith(
-      { env: { SIDESHOW_URL: server.url }, stdin: payload },
+      { env: { MOCKPIT_URL: server.url }, stdin: payload },
       "hook",
     );
     assert.equal(code, 0); // never disturbs the agent
@@ -388,10 +388,10 @@ test("hook reads its stdin payload and syncs the trace for the matching cwd", as
   }
 });
 
-test("hook stays silent when no sideshow session owns the cwd", async () => {
+test("hook stays silent when no mockpit session owns the cwd", async () => {
   const server = await serveApp();
   try {
-    const transcript = join(mkdtempSync(join(tmpdir(), "sideshow-tx-")), "t.jsonl");
+    const transcript = join(mkdtempSync(join(tmpdir(), "mockpit-tx-")), "t.jsonl");
     writeFileSync(
       transcript,
       `{"timestamp":"2026-06-18T00:00:00.000Z","message":{"role":"user","content":"hi"}}`,
@@ -399,10 +399,10 @@ test("hook stays silent when no sideshow session owns the cwd", async () => {
     const payload = JSON.stringify({
       hook_event_name: "Stop",
       transcript_path: transcript,
-      cwd: "/tmp/no-such-sideshow-session",
+      cwd: "/tmp/no-such-mockpit-session",
     });
     const { code, stdout, stderr } = await runWith(
-      { env: { SIDESHOW_URL: server.url }, stdin: payload },
+      { env: { MOCKPIT_URL: server.url }, stdin: payload },
       "hook",
     );
     assert.equal(code, 0);
@@ -415,7 +415,7 @@ test("hook stays silent when no sideshow session owns the cwd", async () => {
 
 test("trace-sync posts transcript steps and then only sends the tail", async () => {
   const server = await serveSession();
-  const cwd = mkdtempSync(join(tmpdir(), "sideshow-trace-sync-"));
+  const cwd = mkdtempSync(join(tmpdir(), "mockpit-trace-sync-"));
   try {
     const transcript = join(cwd, "session.jsonl");
     writeFileSync(
@@ -424,13 +424,13 @@ test("trace-sync posts transcript steps and then only sends the tail", async () 
         `{"timestamp":"2026-06-18T00:00:00.000Z","message":{"role":"user","content":[{"type":"text","text":"build the visual"}]}}`,
         `{"timestamp":"2026-06-18T00:00:01.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Need a compact plan"},{"type":"text","text":"I'll inspect the files."},{"type":"tool_use","id":"r1","name":"Read","input":{"file_path":"/repo/src/app.ts"}},{"type":"tool_use","id":"todo","name":"TodoWrite","input":{"todos":[]}}]}}`,
         `{"timestamp":"2026-06-18T00:00:02.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"r1","content":[{"type":"text","text":"export const app = true;"}]}]}}`,
-        `{"timestamp":"2026-06-18T00:00:03.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"w1","name":"WebSearch","input":{"query":"sideshow examples"}},{"type":"tool_use","id":"m1","name":"mcp__sideshow__publish_post","input":{"title":"Demo"}},{"type":"tool_use","id":"x1","name":"CustomTool","input":{"ok":true}}]}}`,
+        `{"timestamp":"2026-06-18T00:00:03.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"w1","name":"WebSearch","input":{"query":"mockpit examples"}},{"type":"tool_use","id":"m1","name":"mcp__mockpit__publish_post","input":{"title":"Demo"}},{"type":"tool_use","id":"x1","name":"CustomTool","input":{"ok":true}}]}}`,
         `not json`,
       ].join("\n"),
     );
 
     const first = await runWith(
-      { cwd, env: { SIDESHOW_URL: server.url, SIDESHOW_SESSION: server.session.id } },
+      { cwd, env: { MOCKPIT_URL: server.url, MOCKPIT_SESSION: server.session.id } },
       "trace-sync",
       "--transcript",
       transcript,
@@ -457,7 +457,7 @@ test("trace-sync posts transcript steps and then only sends the tail", async () 
         `\n{"timestamp":"2026-06-18T00:00:04.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"g1","name":"Grep","input":{"pattern":"TODO"}}]}}`,
     );
     const second = await runWith(
-      { cwd, env: { SIDESHOW_URL: server.url, SIDESHOW_SESSION: server.session.id } },
+      { cwd, env: { MOCKPIT_URL: server.url, MOCKPIT_SESSION: server.session.id } },
       "trace-sync",
       "--transcript",
       transcript,
@@ -474,7 +474,7 @@ test("trace-sync posts transcript steps and then only sends the tail", async () 
 
 test("trace-sync --quiet still syncs while suppressing stdout", async () => {
   const server = await serveSession();
-  const cwd = mkdtempSync(join(tmpdir(), "sideshow-trace-quiet-"));
+  const cwd = mkdtempSync(join(tmpdir(), "mockpit-trace-quiet-"));
   try {
     const transcript = join(cwd, "quiet.jsonl");
     writeFileSync(
@@ -482,7 +482,7 @@ test("trace-sync --quiet still syncs while suppressing stdout", async () => {
       `{"timestamp":"2026-06-18T00:00:00.000Z","message":{"role":"user","content":"quiet sync"}}`,
     );
     const { code, stdout, stderr } = await runWith(
-      { cwd, env: { SIDESHOW_URL: server.url, SIDESHOW_SESSION: server.session.id } },
+      { cwd, env: { MOCKPIT_URL: server.url, MOCKPIT_SESSION: server.session.id } },
       "trace-sync",
       "--transcript",
       transcript,
@@ -513,7 +513,7 @@ test("trace-sync --quiet still syncs while suppressing stdout", async () => {
 
 // A throwaway file under a temp dir; returns its absolute path.
 function tmpFile(name: string, content: string) {
-  const dir = mkdtempSync(join(tmpdir(), "sideshow-cli-file-"));
+  const dir = mkdtempSync(join(tmpdir(), "mockpit-cli-file-"));
   const file = join(dir, name);
   writeFileSync(file, content);
   return file;
@@ -529,10 +529,7 @@ async function serveSession() {
 // Run a CLI command against a running server, pinning the session via env so
 // state-file resolution never interferes across tests.
 function cli(server: { url: string; session: { id: string } }, ...args: string[]) {
-  return runWith(
-    { env: { SIDESHOW_URL: server.url, SIDESHOW_SESSION: server.session.id } },
-    ...args,
-  );
+  return runWith({ env: { MOCKPIT_URL: server.url, MOCKPIT_SESSION: server.session.id } }, ...args);
 }
 
 // --- publish (html + combined surfaces) -----------------------------------
@@ -559,7 +556,7 @@ test("publish reads html from stdin with '-'", async () => {
   try {
     const { code, stdout } = await runWith(
       {
-        env: { SIDESHOW_URL: server.url, SIDESHOW_SESSION: server.session.id },
+        env: { MOCKPIT_URL: server.url, MOCKPIT_SESSION: server.session.id },
         stdin: "<p>piped</p>",
       },
       "publish",
@@ -895,7 +892,7 @@ test("update without an id fails with a usage error", async () => {
   try {
     const { code, stderr } = await cli(server, "update");
     assert.notEqual(code, 0);
-    assert.match(stderr, /usage: sideshow update/);
+    assert.match(stderr, /usage: mockpit update/);
   } finally {
     await server.close();
   }
@@ -1035,7 +1032,7 @@ test("surface move reorders a surface by id", async () => {
 
 test("surface add without a surface flag fails before hitting the API", async () => {
   const { code, stdout, stderr } = await runWith(
-    { env: { SIDESHOW_URL: "http://127.0.0.1:1", SIDESHOW_SESSION: "session123" } },
+    { env: { MOCKPIT_URL: "http://127.0.0.1:1", MOCKPIT_SESSION: "session123" } },
     "surface",
     "add",
     "post123",
@@ -1245,7 +1242,7 @@ test("show without an item fails with the one-line agent error format", async ()
   // `error <what>` + a `fix:` line + exit 2, and nothing on stdout
   assert.equal(code, 2);
   assert.equal(stdout, "");
-  assert.match(stderr, /^error show needs an item\n {2}fix: sideshow show --item /);
+  assert.match(stderr, /^error show needs an item\n {2}fix: mockpit show --item /);
 });
 
 // --- assets (image / upload / asset-url) ----------------------------------
@@ -1292,7 +1289,7 @@ test("asset-url prints the content-hash id and url without hitting the server", 
   const expected = createHash("sha256").update(bytes).digest("hex");
   // No server needed — asset-url is a pure local hash. Point BASE at a dummy.
   const { code, stdout } = await runWith(
-    { env: { SIDESHOW_URL: "http://127.0.0.1:1" } },
+    { env: { MOCKPIT_URL: "http://127.0.0.1:1" } },
     "asset-url",
     file,
   );
@@ -1305,7 +1302,7 @@ test("asset-url prints the content-hash id and url without hitting the server", 
 test("guide commands fall back to bundled markdown when no server is reachable", async () => {
   for (const cmd of ["guide", "setup", "agent-howto"]) {
     const { code, stdout, stderr } = await runWith(
-      { env: { SIDESHOW_URL: "http://127.0.0.1:1" } },
+      { env: { MOCKPIT_URL: "http://127.0.0.1:1" } },
       cmd,
     );
     assert.equal(code, 0);
@@ -1317,19 +1314,19 @@ test("guide commands fall back to bundled markdown when no server is reachable",
 // --- error paths ----------------------------------------------------------
 
 test("local file and usage errors fail before hitting the server", async () => {
-  const missing = join(mkdtempSync(join(tmpdir(), "sideshow-missing-file-")), "missing.html");
+  const missing = join(mkdtempSync(join(tmpdir(), "mockpit-missing-file-")), "missing.html");
   const cases: Array<[string[], RegExp]> = [
     [["publish", missing], /cannot read file/],
-    [["upload"], /usage: sideshow upload/],
-    [["asset-url"], /usage: sideshow asset-url/],
-    [["image"], /usage: sideshow image/],
-    [["json"], /usage: sideshow json/],
-    [["code"], /usage: sideshow code/],
-    [["trace"], /usage: sideshow trace/],
+    [["upload"], /usage: mockpit upload/],
+    [["asset-url"], /usage: mockpit asset-url/],
+    [["image"], /usage: mockpit image/],
+    [["json"], /usage: mockpit json/],
+    [["code"], /usage: mockpit code/],
+    [["trace"], /usage: mockpit trace/],
   ];
   for (const [args, pattern] of cases) {
     const { code, stdout, stderr } = await runWith(
-      { env: { SIDESHOW_URL: "http://127.0.0.1:1" } },
+      { env: { MOCKPIT_URL: "http://127.0.0.1:1" } },
       ...args,
     );
     assert.notEqual(code, 0);
@@ -1342,8 +1339,8 @@ test("wait and list explain when there is no active session", async () => {
   for (const args of [["wait", "--timeout", "1"], ["list"]]) {
     const { code, stdout, stderr } = await runWith(
       {
-        cwd: mkdtempSync(join(tmpdir(), "sideshow-no-session-")),
-        env: { SIDESHOW_URL: "http://127.0.0.1:1" },
+        cwd: mkdtempSync(join(tmpdir(), "mockpit-no-session-")),
+        env: { MOCKPIT_URL: "http://127.0.0.1:1" },
       },
       ...args,
     );
@@ -1356,8 +1353,8 @@ test("wait and list explain when there is no active session", async () => {
 test("trace-sync explains missing session and missing transcript", async () => {
   const noSession = await runWith(
     {
-      cwd: mkdtempSync(join(tmpdir(), "sideshow-no-session-")),
-      env: { SIDESHOW_URL: "http://127.0.0.1:1" },
+      cwd: mkdtempSync(join(tmpdir(), "mockpit-no-session-")),
+      env: { MOCKPIT_URL: "http://127.0.0.1:1" },
     },
     "trace-sync",
     "--transcript",
@@ -1378,13 +1375,13 @@ test("trace-sync explains missing session and missing transcript", async () => {
 
 test("an unreachable server fails with a one-line error, not a stack trace", async () => {
   const { code, stdout, stderr } = await runWith(
-    { env: { SIDESHOW_URL: "http://127.0.0.1:1" } },
+    { env: { MOCKPIT_URL: "http://127.0.0.1:1" } },
     "publish",
     tmpFile("x.html", "<p/>"),
   );
   assert.notEqual(code, 0);
   assert.equal(stdout, "");
-  assert.match(stderr, /^sideshow: server not reachable/);
+  assert.match(stderr, /^mockpit: server not reachable/);
 });
 
 test("a server error is surfaced as the server's error message", async () => {
@@ -1402,7 +1399,7 @@ test("a server error is surfaced as the server's error message", async () => {
 // --- the design loop: init / publish --item / revise / ask / status / show /
 // export / page / wait ------------------------------------------------------
 
-// The item verbs write into the repo they run in (.sideshow/…), so they get a
+// The item verbs write into the repo they run in (.mockpit/…), so they get a
 // throwaway cwd and an explicit project — never the checkout this test runs in.
 function itemCli(
   server: { url: string; session: { id: string } },
@@ -1413,16 +1410,16 @@ function itemCli(
     {
       cwd: opts.cwd,
       env: {
-        SIDESHOW_URL: server.url,
-        SIDESHOW_SESSION: server.session.id,
-        SIDESHOW_PROJECT: opts.project ?? "acme/site",
+        MOCKPIT_URL: server.url,
+        MOCKPIT_SESSION: server.session.id,
+        MOCKPIT_PROJECT: opts.project ?? "acme/site",
       },
     },
     ...args,
   );
 }
 
-const tmpRepo = () => mkdtempSync(join(tmpdir(), "sideshow-cli-repo-"));
+const tmpRepo = () => mkdtempSync(join(tmpdir(), "mockpit-cli-repo-"));
 
 test("publish --item creates an item, and a second publish is a new version", async () => {
   const server = await serveSession();
@@ -1487,10 +1484,7 @@ test("revise refuses to create an item, and publish reports a missing file", asy
     const file = tmpFile("card.html", "<p>x</p>");
     const missing = await itemCli(server, { cwd }, "revise", "--item", "ghost", "--html", file);
     assert.equal(missing.code, 2);
-    assert.match(
-      missing.stderr,
-      /^error acme\/site has no item "ghost"\n {2}fix: sideshow publish/,
-    );
+    assert.match(missing.stderr, /^error acme\/site has no item "ghost"\n {2}fix: mockpit publish/);
 
     const noFile = await itemCli(
       server,
@@ -1626,7 +1620,7 @@ test("export writes the accepted html and its prompt history into the repo", asy
     assert.equal(exported.code, 0);
     assert.match(exported.stdout, /pricing-card\/default v1 → /);
 
-    const dir = join(cwd, ".sideshow", "accepted", "pricing-card", "default");
+    const dir = join(cwd, ".mockpit", "accepted", "pricing-card", "default");
     assert.equal(readFileSync(join(dir, "index.html"), "utf8"), "<p>accepted</p>");
     const history = JSON.parse(readFileSync(join(dir, "history.json"), "utf8"));
     assert.equal(history.slug, "pricing-card");
@@ -1661,7 +1655,7 @@ test("page publishes a page item whose slot tags the server expands", async () =
       "--item",
       "landing",
       "--html",
-      tmpFile("page.html", '<main><sideshow-slot slug="pricing-card"></sideshow-slot></main>'),
+      tmpFile("page.html", '<main><mockpit-slot slug="pricing-card"></mockpit-slot></main>'),
       "--json",
     );
     const body = JSON.parse(page.stdout);
@@ -1746,18 +1740,18 @@ test("init imports the repo's design system and writes the starter", async () =>
     const { code, stdout } = await itemCli(server, { cwd }, "init");
     assert.equal(code, 0);
     // one line per step, so the agent can read what init decided
-    assert.match(stdout, /^project: +acme\/site \(from SIDESHOW_PROJECT\)$/m);
+    assert.match(stdout, /^project: +acme\/site \(from MOCKPIT_PROJECT\)$/m);
     assert.match(stdout, /^design: +tailwind · 4 css vars from src\/globals\.css$/m);
     assert.match(stdout, /^kit: +tailwind$/m);
     assert.match(stdout, /^icons: +mage \(\d+ icons\) → /m);
-    assert.match(stdout, /^wrote: +\.sideshow\/starter\.html$/m);
+    assert.match(stdout, /^wrote: +\.mockpit\/starter\.html$/m);
     assert.match(stdout, /^wrote: +\.gitignore/m);
 
     // the starter is a fragment on this project's kit
-    const starter = readFileSync(join(cwd, ".sideshow", "starter.html"), "utf8");
+    const starter = readFileSync(join(cwd, ".mockpit", "starter.html"), "utf8");
     assert.ok(!starter.includes("<!doctype"));
     assert.match(starter, /kit: tailwind/);
-    assert.match(readFileSync(join(cwd, ".gitignore"), "utf8"), /^\.sideshow\/$/m);
+    assert.match(readFileSync(join(cwd, ".gitignore"), "utf8"), /^\.mockpit\/$/m);
 
     // and the server now injects the repo's tokens into this project's frames
     const design = await fetch(

@@ -135,7 +135,7 @@ test("omitting the mode preserves the OS media-query behavior unchanged", () => 
   }
 });
 
-// --- imported project palettes (sideshow init) ---------------------------
+// --- imported project palettes (mockpit init) ---------------------------
 
 test("paletteFromCssVars maps a shadcn :root/.dark pair onto both palettes", () => {
   const imported = paletteFromCssVars(`

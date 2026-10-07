@@ -1,4 +1,4 @@
-// Records a sideshow release/feature video in one real-time pass: boots a
+// Records a mockpit release/feature video in one real-time pass: boots a
 // fresh server, loads the live viewer inside the 1920x1080 stage
 // (stage.html: window chrome + captions + title cards), drives the storyboard
 // below with Playwright while recording video, and prints the raw webm path.
@@ -31,7 +31,7 @@ if (!existsSync(join(ROOT, "viewer", "dist", "index.html"))) {
 }
 
 const proc = spawn(process.execPath, [join(ROOT, "server", "index.ts")], {
-  env: { ...process.env, PORT: "0", SIDESHOW_DB: join(WORK, `rec-${Date.now()}.db`) },
+  env: { ...process.env, PORT: "0", MOCKPIT_DB: join(WORK, `rec-${Date.now()}.db`) },
   stdio: ["ignore", "pipe", "inherit"],
 });
 const base = await new Promise((resolve, reject) => {
@@ -129,7 +129,7 @@ await stage(
   "card",
   `
   <div class="badge">RELEASE</div>
-  <h1>sideshow <span class="ver">0.13.0</span></h1>
+  <h1>mockpit <span class="ver">0.13.0</span></h1>
   <p class="sub">a live visual surface for your coding agents</p>`,
 );
 await app.locator("aside .sess").first().waitFor();
@@ -217,12 +217,12 @@ await stage("caption", ``);
 await stage(
   "card",
   `
-  <h1>sideshow <span class="ver">0.13.0</span></h1>
+  <h1>mockpit <span class="ver">0.13.0</span></h1>
   <div class="cmds">
-    <div class="cmd"><span class="p">$</span> npm i -g sideshow</div>
-    <div class="cmd"><span class="p">$</span> sideshow serve --open</div>
+    <div class="cmd"><span class="p">$</span> npm i -g mockpit</div>
+    <div class="cmd"><span class="p">$</span> mockpit serve --open</div>
   </div>
-  <p class="foot">github.com/modem-dev/sideshow</p>`,
+  <p class="foot">github.com/fabiogaliano/mockpit</p>`,
 );
 await sleep(4200);
 

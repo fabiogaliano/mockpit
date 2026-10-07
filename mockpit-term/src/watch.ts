@@ -1,5 +1,5 @@
 // The live viewer — a long-running TUI the user keeps open in a spare
-// terminal. It connects to a sideshow server, lists published snippets in a
+// terminal. It connects to a mockpit server, lists published snippets in a
 // sidebar, and renders the selected snippet's STML in a scrollable pane.
 // Server-Sent Events keep it live: a new or revised snippet appears at once.
 // Bun only (opentui native core).
@@ -16,8 +16,8 @@ import {
 import { buildDocument } from "./render.ts";
 import { resolveColor } from "./theme.ts";
 
-const BASE = (process.env.SIDESHOW_URL ?? "http://localhost:4243").replace(/\/$/, "");
-const TOKEN = process.env.SIDESHOW_TOKEN;
+const BASE = (process.env.MOCKPIT_URL ?? "http://localhost:4243").replace(/\/$/, "");
+const TOKEN = process.env.MOCKPIT_TOKEN;
 const authHeaders: Record<string, string> = TOKEN ? { authorization: `Bearer ${TOKEN}` } : {};
 
 interface SnippetMeta {
@@ -126,7 +126,7 @@ async function main() {
     }
     renderSidebar();
     await showSelected();
-    header.content = `sideshow-term  ·  ${BASE}  ·  ${flat.length} snippet${flat.length === 1 ? "" : "s"}`;
+    header.content = `mockpit-term  ·  ${BASE}  ·  ${flat.length} snippet${flat.length === 1 ? "" : "s"}`;
   }
 
   function clearChildren(node: BoxRenderable) {

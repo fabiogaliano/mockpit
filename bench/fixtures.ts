@@ -222,7 +222,7 @@ export const TYPICAL: WorkspaceShape = {
   size: "small",
 };
 
-/** A heavy workspace — the shape behind "sideshow is eating my laptop". */
+/** A heavy workspace — the shape behind "mockpit is eating my laptop". */
 export const HEAVY: WorkspaceShape = {
   sessions: 30,
   postsPerSession: 30,

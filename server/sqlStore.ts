@@ -323,22 +323,34 @@ export class SqlStore implements Store {
   // for deployed Durable Objects as well as local SQLite databases.
   private createIndexes() {
     this.sql.exec(`
-      CREATE INDEX IF NOT EXISTS sideshow_posts_session_created_at_idx
+      CREATE INDEX IF NOT EXISTS mockpit_posts_session_created_at_idx
         ON posts (sessionId, createdAt);
-      CREATE INDEX IF NOT EXISTS sideshow_posts_updated_at_idx
+      CREATE INDEX IF NOT EXISTS mockpit_posts_updated_at_idx
         ON posts (updatedAt DESC);
-      CREATE INDEX IF NOT EXISTS sideshow_comments_session_seq_idx
+      CREATE INDEX IF NOT EXISTS mockpit_comments_session_seq_idx
         ON comments (sessionId, seq);
-      CREATE INDEX IF NOT EXISTS sideshow_comments_post_seq_idx
+      CREATE INDEX IF NOT EXISTS mockpit_comments_post_seq_idx
         ON comments (postId, seq);
-      CREATE INDEX IF NOT EXISTS sideshow_comments_id_idx
+      CREATE INDEX IF NOT EXISTS mockpit_comments_id_idx
         ON comments (id);
-      CREATE INDEX IF NOT EXISTS sideshow_assets_session_idx
+      CREATE INDEX IF NOT EXISTS mockpit_assets_session_idx
         ON assets (sessionId);
-      CREATE INDEX IF NOT EXISTS sideshow_posts_variant_idx
+      CREATE INDEX IF NOT EXISTS mockpit_posts_variant_idx
         ON posts (project, slug, variant);
-      CREATE INDEX IF NOT EXISTS sideshow_comments_post_draft_idx
+      CREATE INDEX IF NOT EXISTS mockpit_comments_post_draft_idx
         ON comments (postId, draft);
+    `);
+    // SQLite has no RENAME INDEX, so databases created before the rename would
+    // otherwise keep a duplicate sideshow_* copy of every index above.
+    this.sql.exec(`
+      DROP INDEX IF EXISTS sideshow_posts_session_created_at_idx;
+      DROP INDEX IF EXISTS sideshow_posts_updated_at_idx;
+      DROP INDEX IF EXISTS sideshow_comments_session_seq_idx;
+      DROP INDEX IF EXISTS sideshow_comments_post_seq_idx;
+      DROP INDEX IF EXISTS sideshow_comments_id_idx;
+      DROP INDEX IF EXISTS sideshow_assets_session_idx;
+      DROP INDEX IF EXISTS sideshow_posts_variant_idx;
+      DROP INDEX IF EXISTS sideshow_comments_post_draft_idx;
     `);
   }
 

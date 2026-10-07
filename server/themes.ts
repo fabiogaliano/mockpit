@@ -404,7 +404,7 @@ export const themeOptions = () => THEMES.map((t) => ({ id: t.id, label: t.label 
 
 // --- Imported project palettes -------------------------------------------
 //
-// `sideshow init` reads a repo's own design tokens (a `:root{}` / `@theme`
+// `mockpit init` reads a repo's own design tokens (a `:root{}` / `@theme`
 // block from Tailwind or shadcn) and stores them per project. The raw text is
 // injected verbatim into the html-surface sandbox, but the VIEWER chrome and
 // the `--color-*` contract still need a Palette — so the recognised token
@@ -412,7 +412,7 @@ export const themeOptions = () => THEMES.map((t) => ({ id: t.id, label: t.label 
 //
 // Anything the repo doesn't declare falls back per field to the default theme,
 // so a partial import can never leave a color undefined (an undefined token
-// renders as unstyled black-on-white, which reads as "sideshow is broken"
+// renders as unstyled black-on-white, which reads as "mockpit is broken"
 // rather than "your repo declares no border color").
 
 // Colour values arrive in three dialects: real CSS colors (`#fff`,
@@ -558,7 +558,7 @@ function paletteFrom(vars: Record<string, string>, fallback: Palette): Palette {
 
 // Map a repo's CSS custom properties onto the two Palettes a theme needs.
 // Returns null when the text declares no recognisable color token at all —
-// the caller (`sideshow init`) then keeps the default theme rather than
+// the caller (`mockpit init`) then keeps the default theme rather than
 // storing a palette that is 100% fallback.
 //
 // `--radius` is intentionally NOT mapped: Palette carries colors only, and the

@@ -109,11 +109,11 @@ test("a miss stores a one-hour internal copy but restores a private client polic
   await Promise.all(deferred);
 
   assert.equal(captures, 1);
-  assert.equal(response.headers.get("x-sideshow-screenshot-cache"), "miss");
+  assert.equal(response.headers.get("x-mockpit-screenshot-cache"), "miss");
   assert.equal(response.headers.get("cache-control"), "private, max-age=300");
   const stored = entries.get(key.url)!;
   assert.equal(stored.headers.get("cache-control"), "public, max-age=3600");
-  assert.equal(stored.headers.get("x-sideshow-origin-cache-control"), "private, max-age=300");
+  assert.equal(stored.headers.get("x-mockpit-origin-cache-control"), "private, max-age=300");
 });
 
 test("a valid hit skips capture and restores its client cache policy", async () => {
@@ -123,7 +123,7 @@ test("a valid hit skips capture and restores its client cache policy", async () 
   await cache.put(
     key,
     png("public, max-age=3600", {
-      "x-sideshow-origin-cache-control": "public, max-age=300",
+      "x-mockpit-origin-cache-control": "public, max-age=300",
     }),
   );
   let captures = 0;
@@ -139,9 +139,9 @@ test("a valid hit skips capture and restores its client cache policy", async () 
   );
 
   assert.equal(captures, 0);
-  assert.equal(response.headers.get("x-sideshow-screenshot-cache"), "hit");
+  assert.equal(response.headers.get("x-mockpit-screenshot-cache"), "hit");
   assert.equal(response.headers.get("cache-control"), "public, max-age=300");
-  assert.equal(response.headers.has("x-sideshow-origin-cache-control"), false);
+  assert.equal(response.headers.has("x-mockpit-origin-cache-control"), false);
 });
 
 test("malformed hits and unsafe capture responses never escape into shared cache", async () => {
@@ -151,7 +151,7 @@ test("malformed hits and unsafe capture responses never escape into shared cache
   await cache.put(
     key,
     png("public, max-age=3600", {
-      "x-sideshow-origin-cache-control": "public, private, max-age=300",
+      "x-mockpit-origin-cache-control": "public, private, max-age=300",
     }),
   );
   let captures = 0;
@@ -167,7 +167,7 @@ test("malformed hits and unsafe capture responses never escape into shared cache
   );
   await Promise.all(deferred);
   assert.equal(captures, 1);
-  assert.equal(repaired.headers.get("x-sideshow-screenshot-cache"), "miss");
+  assert.equal(repaired.headers.get("x-mockpit-screenshot-cache"), "miss");
 
   for (const [label, response] of [
     ["mixed-case no-store", png("public, No-Store")],
@@ -292,9 +292,9 @@ test("orchestration revalidates before hits and applies the current access polic
   // pixels may be reused after authorization, but the OLD public directive must not.
   clientCacheControl = "private, max-age=300";
   const hit = await serve();
-  assert.equal(miss.headers.get("x-sideshow-screenshot-cache"), "miss");
+  assert.equal(miss.headers.get("x-mockpit-screenshot-cache"), "miss");
   assert.equal(miss.headers.get("cache-control"), "public, max-age=300");
-  assert.equal(hit.headers.get("x-sideshow-screenshot-cache"), "hit");
+  assert.equal(hit.headers.get("x-mockpit-screenshot-cache"), "hit");
   assert.equal(hit.headers.get("cache-control"), "private, max-age=300");
   assert.equal(authorizationChecks, 2);
   assert.equal(captures, 1);

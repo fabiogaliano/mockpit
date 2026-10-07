@@ -1,4 +1,4 @@
-// Page composition: `<sideshow-slot slug="…" variant="…" version="…">` tags in a
+// Page composition: `<mockpit-slot slug="…" variant="…" version="…">` tags in a
 // page item's html are expanded server-side by inlining the referenced variant
 // version's first html surface body. Snapshot semantics — publish resolves a
 // missing `version` to the component's current one and stores the resolved list
@@ -17,7 +17,7 @@ export interface SlotTag {
   version: number | null;
 }
 
-const SLOT_TAG = /<sideshow-slot\b([^>]*?)(?:\/>|>\s*<\/sideshow-slot\s*>|>)/gi;
+const SLOT_TAG = /<mockpit-slot\b([^>]*?)(?:\/>|>\s*<\/mockpit-slot\s*>|>)/gi;
 const ATTR = /([a-z-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/gi;
 
 function attributes(raw: string): Record<string, string> {
@@ -80,11 +80,11 @@ export function expandSlots(
     const parsed = Number(attrs.version);
     const version = Number.isInteger(parsed) && parsed > 0 ? parsed : null;
     const resolved = body({ slug, variant, version });
-    const label = `data-sideshow-slot="${escapeAttr(slug)}" data-sideshow-variant="${escapeAttr(
+    const label = `data-mockpit-slot="${escapeAttr(slug)}" data-mockpit-variant="${escapeAttr(
       variant,
-    )}"${version == null ? "" : ` data-sideshow-version="${version}"`}`;
+    )}"${version == null ? "" : ` data-mockpit-version="${version}"`}`;
     return resolved == null
-      ? `<div ${label} data-sideshow-missing="1"></div>`
+      ? `<div ${label} data-mockpit-missing="1"></div>`
       : `<div ${label}>${resolved}</div>`;
   });
 }

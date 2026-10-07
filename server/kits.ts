@@ -13,7 +13,7 @@
 export interface Kit {
   id: string;
   label: string;
-  // One-line summary for discovery (sideshow kits / GET /api/kits).
+  // One-line summary for discovery (mockpit kits / GET /api/kits).
   summary: string;
   // Compact vocabulary blurb, e.g. "tree · badge · chip · dot · bar".
   classes: string;
@@ -113,13 +113,13 @@ const SLIDES_JS = `
 })();
 `;
 
-// builtin: the fallback component vocabulary `sideshow init` injects when a
+// builtin: the fallback component vocabulary `mockpit init` injects when a
 // project has no Tailwind/shadcn of its own. Class names mirror shadcn so an
 // agent that knows one writes the other without a lookup, but every rule is
 // CSS-only — no JS, no CDN — and every color comes from the `--color-*` tokens
 // the wrapper already emits, so it re-themes with the workspace and with an
 // imported project palette alike. Radius prefers the project's own `--radius`
-// (imported verbatim by init) and falls back to the sideshow token.
+// (imported verbatim by init) and falls back to the mockpit token.
 //
 // It deliberately redeclares `.card`/`.badge` from the `issues` kit: surfaces
 // ask for one or the other, and renderHtmlPage appends builtin last so a

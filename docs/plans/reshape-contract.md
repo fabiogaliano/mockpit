@@ -119,7 +119,7 @@ POST /api/hooks {url, events: ("ask"|"publish"|"decision")[]} → {id}
 DELETE /api/hooks/:id
 GET  /api/hooks
 GET  /api/projects/:name/items/:slug/export?variant=  → {html, version, prompt history[], screenshotUrl}
-GET  /s/:id  — for kind=page, expand <sideshow-slot slug variant version> tags
+GET  /s/:id  — for kind=page, expand <mockpit-slot slug variant version> tags
      server-side by inlining the referenced variant version's first html surface
      body (snapshot: version required; publish resolves missing version to current).
 ```
@@ -130,7 +130,7 @@ only, no `node:` imports in app.ts) and POST each matching hook
 `{event, project, slug, variant, version, text, url}`. Failures are logged,
 never block the write.
 
-### Agent-facing feedback batch (wait / piggyback / `sideshow wait`)
+### Agent-facing feedback batch (wait / piggyback / `mockpit wait`)
 
 ```json
 {
@@ -165,22 +165,22 @@ when `builtin` injects `server/kits.ts`'s new `builtin` kit; when
 sprite so `<svg><use href="#mage-home"/></svg>` resolves (the `/a/` origin is
 already allowed for img; add it to `connect-src` for html surfaces only).
 
-## CLI (`bin/sideshow.js`) — new verbs, existing verbs unchanged
+## CLI (`bin/mockpit.js`) — new verbs, existing verbs unchanged
 
 ```
-sideshow init [--project name]      detect design system (bin/initDesign.js), PUT design, upload icons sprite, write .sideshow/starter.html (+ .gitignore line), print one line per step
-sideshow publish --item <slug> [--variant <name>] [--kind component|page] --html <file> [--from N] [--prompt "..."] [--title "..."] [--project name]
-sideshow revise  --item <slug> [--variant] --html <file> [--from N]   (prompt defaults to the last revise decision text + comments)
-sideshow page    --item <slug> --html <file>   (= publish --kind page; slot tags resolved by server)
-sideshow ask     --item <slug> [--variant] "<text>"
-sideshow wait    [--item <slug>] [--timeout s]      prints the batch JSON above
-sideshow status  [--project]                        one line per item: slug, kind, variants, waiting/accepted
-sideshow show    --item <slug> [--variant] [--body] [--history]
-sideshow export  --item <slug> [--variant] [--out dir]   writes .sideshow/accepted/<slug>/<variant>/{index.html,history.json}
-sideshow guide --brief                              GET /agent-howto?brief=1
+mockpit init [--project name]      detect design system (bin/initDesign.js), PUT design, upload icons sprite, write .mockpit/starter.html (+ .gitignore line), print one line per step
+mockpit publish --item <slug> [--variant <name>] [--kind component|page] --html <file> [--from N] [--prompt "..."] [--title "..."] [--project name]
+mockpit revise  --item <slug> [--variant] --html <file> [--from N]   (prompt defaults to the last revise decision text + comments)
+mockpit page    --item <slug> --html <file>   (= publish --kind page; slot tags resolved by server)
+mockpit ask     --item <slug> [--variant] "<text>"
+mockpit wait    [--item <slug>] [--timeout s]      prints the batch JSON above
+mockpit status  [--project]                        one line per item: slug, kind, variants, waiting/accepted
+mockpit show    --item <slug> [--variant] [--body] [--history]
+mockpit export  --item <slug> [--variant] [--out dir]   writes .mockpit/accepted/<slug>/<variant>/{index.html,history.json}
+mockpit guide --brief                              GET /agent-howto?brief=1
 ```
 
-Project resolution in the CLI: `--project`, else `SIDESHOW_PROJECT`, else
+Project resolution in the CLI: `--project`, else `MOCKPIT_PROJECT`, else
 `git remote get-url origin` → `owner/repo`, else basename of cwd. Sent as
 `project` on session create and on every publish.
 Errors: one line `error <what>` + optional `  fix: <command>` + `exit 2`, nothing
@@ -193,7 +193,7 @@ New tools (thin over HTTP, same field names as the CLI): `publish_item`,
 `init_project` (stdio only; runs `bin/initDesign.js` locally). `wait_for_feedback`
 returns the batch shape. `get_design_guide` returns the project-aware brief.
 Deprecated aliases stay byte-identical but are omitted from `tools/list` unless
-`SIDESHOW_MCP_LEGACY=1`. Stdio `publish_item`/`upload_asset` accept a file path.
+`MOCKPIT_MCP_LEGACY=1`. Stdio `publish_item`/`upload_asset` accept a file path.
 
 ## Viewer routes
 
@@ -207,7 +207,7 @@ Deprecated aliases stay byte-identical but are omitted from `tools/list` unless
 Layout, states, and marker behaviour: exactly `docs/tmp/mockups/project-ia.html`,
 `states.html`, `markers-a-gesture.html`. Viewport presets 390/820/1280, scale to
 fit, phone default on phone. Hit-test bridge message:
-viewer → frame `{__sideshow:true,type:"hit-test",x,y,ref}`; frame → viewer
-`{__sideshow:true,type:"hit-test-result",ref,path,text,rect:[x,y,w,h]}` (the
+viewer → frame `{__mockpit:true,type:"hit-test",x,y,ref}`; frame → viewer
+`{__mockpit:true,type:"hit-test-result",ref,path,text,rect:[x,y,w,h]}` (the
 frame script is ours, injected by `renderHtmlPage`; the viewer treats the reply as
 data and renders it as text only).

@@ -14,12 +14,12 @@ path unchanged when the hook is absent.
 
 ## Worker SqlStore export
 
-A stable `sideshow/workers` package subpath exports `SqlStore` for Cloudflare
+A stable `mockpit/workers` package subpath exports `SqlStore` for Cloudflare
 Durable Object wrappers. This avoids relying on raw internal source paths.
 
 ## Runtime-agnostic app export
 
-A stable `sideshow/app` package subpath exports the runtime-agnostic Hono app
+A stable `mockpit/app` package subpath exports the runtime-agnostic Hono app
 without also importing the Node `JsonFileStore`. Worker embedders should prefer
 this subpath to keep Node built-ins out of Worker bundles.
 
@@ -27,12 +27,12 @@ this subpath to keep Node built-ins out of Worker bundles.
 
 Package exports now include:
 
-- `sideshow/viewer` -> `viewer/dist/index.html`
-- `sideshow/guide/*` -> guide markdown files
+- `mockpit/viewer` -> `viewer/dist/index.html`
+- `mockpit/guide/*` -> guide markdown files
 
 The cloud wrapper currently imports the viewer through the explicit
-`sideshow/viewer/dist/index.html` path because Wrangler text rules did not match
-the `sideshow/viewer` export when the local file dependency resolved outside the
+`mockpit/viewer/dist/index.html` path because Wrangler text rules did not match
+the `mockpit/viewer` export when the local file dependency resolved outside the
 Worker project root. Published-package behavior should be rechecked before
 formalizing the documented import shape.
 

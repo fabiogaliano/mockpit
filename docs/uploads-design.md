@@ -1,6 +1,6 @@
 # Design: agent-driven uploads (assets, images, traces)
 
-Status: implemented. Audience: sideshow maintainers/agents. This documents the
+Status: implemented. Audience: mockpit maintainers/agents. This documents the
 design and the decisions behind it; the code lives across `server/`, `workers/`,
 `viewer/src/`, `bin/`, and `mcp/`.
 
@@ -231,7 +231,7 @@ etc.) backs both REST and MCP, matching the existing pattern.
 `/api/assets` and `/a/:id` sit under the existing auth middleware. Embedding
 works because the sandboxed `/s/:id` document is served from the server's own
 origin, so an `<img src="/a/:id">` (or absolute same-origin URL) is a
-same-origin request that carries the `sideshow_key` cookie. No new auth surface,
+same-origin request that carries the `mockpit_key` cookie. No new auth surface,
 no public/unauthenticated asset route.
 
 ## CSP change (the one subtlety for embedding)
@@ -270,16 +270,16 @@ refresh the card).
 
 ## Tiers
 
-**CLI** (`bin/sideshow.js`, Node built-ins only):
+**CLI** (`bin/mockpit.js`, Node built-ins only):
 
 ```
-sideshow upload <file> [--session <id>] [--kind image|trace|file]
+mockpit upload <file> [--session <id>] [--kind image|trace|file]
     -> { id, url }                         # upload once, embed/reference by url
-sideshow image <file> --title "…" [--caption "…"]
+mockpit image <file> --title "…" [--caption "…"]
     -> publishes a surface with one image part (upload + publish in one shot)
-sideshow publish sketch.html --image shot.png --title "…"
+mockpit publish sketch.html --image shot.png --title "…"
     -> uploads shot.png and emits an image part after the html part
-sideshow trace <file.json|-> --title "…"
+mockpit trace <file.json|-> --title "…"
     -> uploads + publishes a trace part (download link + inline if parseable)
 ```
 

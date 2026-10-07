@@ -1,4 +1,4 @@
-# sideshow — design guide
+# mockpit — design guide
 
 Three sections, each readable on its own:
 
@@ -6,8 +6,8 @@ Three sections, each readable on its own:
 2. **HTML contract** — the hard rules for the markup you write.
 3. **Kits and tokens** — the vocabulary and colors available inside the frame.
 
-For the publish/ask/wait/revise workflow see `sideshow agent-howto`. For this
-project's actual palette, kit and icons see `sideshow guide --brief`.
+For the publish/ask/wait/revise workflow see `mockpit agent-howto`. For this
+project's actual palette, kit and icons see `mockpit guide --brief`.
 
 ---
 
@@ -62,11 +62,11 @@ Push a binary once, reference it by id:
 POST /api/assets   (raw)   Content-Type: image/png   <bytes>   ?filename=shot.png&kind=image
 POST /api/assets   (json)  { "data": "<base64>", "contentType": "image/png", "filename": "shot.png" }
 MCP  upload_asset  { data | path, contentType, filename?, kind? }
-CLI  sideshow upload shot.png          # prints { id, url }
+CLI  mockpit upload shot.png          # prints { id, url }
 ```
 
 An asset's **id is the SHA-256 of its bytes**, so the URL is content-addressed:
-derive it locally (`sideshow asset-url shot.png`) and write `<img src="/a/<hash>">`
+derive it locally (`mockpit asset-url shot.png`) and write `<img src="/a/<hash>">`
 into your markup _before_ uploading — the viewer briefly waits for an in-flight
 asset rather than showing a broken image. Identical bytes dedupe; an asset
 survives as long as anything references it. Per-asset limit is 5 MB.
@@ -147,9 +147,9 @@ theme or color scheme:
   plus the semantic set
 - Type: `--font-sans|serif|mono`; radius: `--border-radius-md|lg|xl` (8/12/16px)
 
-If `sideshow init` imported a design system, that project's own `:root` block is
+If `mockpit init` imported a design system, that project's own `:root` block is
 injected too — `var(--radius)`, `var(--primary)`, its font tokens — and
-`sideshow guide --brief` prints the real values.
+`mockpit guide --brief` prints the real values.
 
 ### Base kit (always on)
 
@@ -186,7 +186,7 @@ A `<marker id="arrow">` is injected into every html surface — end any line wit
 
 List kit ids in a surface's `kits` and that kit's CSS (and JS) is injected on top
 of the base. A surface with no `kits` is untouched, so default html stays fully
-freeform. Discover them with `sideshow kits` (or `GET /api/kits`).
+freeform. Discover them with `mockpit kits` (or `GET /api/kits`).
 
 - **`builtin`** — shadcn-shaped components, CSS only, no build step: `.btn`
   (`.btn-primary`/`.btn-secondary`/`.btn-ghost`/`.btn-destructive`, `.btn-sm`/`.btn-lg`),
@@ -196,7 +196,7 @@ freeform. Discover them with `sideshow kits` (or `GET /api/kits`).
   `.tabs`/`.tabs-list`/`.tab.on`/`.tab-panel.on`,
   `.dialog`/`.dialog-header`/`.dialog-title`/`.dialog-footer`, `.table`, `.sep`.
   Radius follows the project's `--radius` when one was imported. This kit is
-  injected automatically for projects where `sideshow init` found no Tailwind.
+  injected automatically for projects where `mockpit init` found no Tailwind.
 - **`issues`** — `.card` · nesting `.tree` rail · `.badge`
   (`.ok`/`.info`/`.warn`/`.danger`) · `.dot` · mono `.chip` · `.bar > i` rollup.
   Composes an issue/PR/CI tree — nest a `.tree` inside a `.tree` to indent — or a
@@ -209,7 +209,7 @@ Any kit also ships layout (`.row`/`.stack`/`.between`/`.grow`) and text
 (`.title`/`.dim`/`.faint`/`.mono`/`.num`/`.kbd`/`.hr`) helpers.
 
 ```sh
-sideshow publish --item ci-board --html board.html --kit issues   # repeatable: --kit a --kit b
+mockpit publish --item ci-board --html board.html --kit issues   # repeatable: --kit a --kit b
 ```
 
 ```js
@@ -221,7 +221,7 @@ the same surface.
 
 ### Tailwind projects
 
-When `sideshow init` detected Tailwind, the sandbox loads the Tailwind browser
+When `mockpit init` detected Tailwind, the sandbox loads the Tailwind browser
 build, so you write the same utility classes you write in the repo. The repo's
 **compiled theme is not loaded** — only its custom properties — so reach its
 tokens through arbitrary values: `bg-[var(--card)]`, not `bg-card`.

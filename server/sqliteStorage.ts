@@ -105,7 +105,7 @@ export async function migrateJsonToSqlite(sqlite: SqlStore, jsonPath: string): P
     snapshot = await new JsonFileStore(jsonPath).exportBoard();
   } catch (e) {
     console.error(
-      `[sideshow] could not read ${jsonPath} to migrate it into SQLite ` +
+      `[mockpit] could not read ${jsonPath} to migrate it into SQLite ` +
         `(${e instanceof Error ? e.message : e}); leaving it untouched and ` +
         `starting with an empty SQLite store. Fix or remove the file to retry.`,
     );
@@ -116,7 +116,7 @@ export async function migrateJsonToSqlite(sqlite: SqlStore, jsonPath: string): P
   const posts = snapshot.posts ?? snapshot.surfaces ?? [];
   if (snapshot.sessions.length || posts.length) {
     console.error(
-      `[sideshow] migrated ${snapshot.sessions.length} session(s), ` +
+      `[mockpit] migrated ${snapshot.sessions.length} session(s), ` +
         `${posts.length} post(s), ${snapshot.comments.length} comment(s), ` +
         `${snapshot.assets.length} asset(s) from ${jsonPath} into SQLite`,
     );

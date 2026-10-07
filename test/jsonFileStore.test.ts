@@ -7,7 +7,7 @@ import { JsonFileStore } from "../server/storage.ts";
 import { htmlSurface } from "../server/types.ts";
 import { runStoreContract } from "./storeContract.ts";
 
-const freshPath = () => join(mkdtempSync(join(tmpdir(), "sideshow-store-")), "data.json");
+const freshPath = () => join(mkdtempSync(join(tmpdir(), "mockpit-store-")), "data.json");
 
 runStoreContract("JsonFileStore", () => new JsonFileStore(freshPath()));
 
