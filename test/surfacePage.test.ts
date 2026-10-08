@@ -571,6 +571,7 @@ test("a project's design injects its tokens and kit into the frame", () => {
       // a bare declaration list, the other spelling init can store
       cssVars: "--radius: 0.5rem; --brand: #0af;",
       iconSets: [],
+      projectKits: [],
       updatedAt: "2026-09-15T00:00:00.000Z",
     },
   });
@@ -590,6 +591,7 @@ test("a project's design injects its tokens and kit into the frame", () => {
       kit: "builtin",
       cssVars: ":root{--radius:2px}",
       iconSets: [],
+      projectKits: [],
       updatedAt: "2026-09-15T00:00:00.000Z",
     },
   });

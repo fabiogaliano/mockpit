@@ -1311,3 +1311,75 @@ test("an unreachable server fails with a one-line error, not a stack trace", asy
     /^error cannot reach mockpit at http:\/\/127\.0\.0\.1:1\n {2}fix: mockpit serve\n$/,
   );
 });
+
+test("kit add/remove and kits manage a project kit; init --kit-url makes it the default", async () => {
+  const server = await serveSession();
+  const url = "https://cdn.jsdelivr.net/npm/@acme/ui@2/dist/ui.css";
+  const sheet = "Buttons: `.acme-btn`. Cards: `.acme-card`.";
+  const doc = tmpFile("acme.md", sheet);
+  const designUrl = `${server.url}/api/projects/${encodeURIComponent("acme/site")}/design`;
+  try {
+    const bad = await cli(
+      server,
+      {},
+      "kit",
+      "add",
+      "acme",
+      "--url",
+      "https://x.example/a.css",
+      "--doc",
+      "x",
+    );
+    assert.equal(bad.code, 1);
+    assert.match(bad.stderr, /must be an https URL on .*cdn\.jsdelivr\.net/);
+
+    const added = await cli(server, {}, "kit", "add", "acme", "--url", url, "--doc", doc);
+    assert.equal(added.code, 0, added.stderr);
+    assert.match(added.stdout, /added kit acme/);
+    const listed = JSON.parse((await cli(server, {}, "kits")).stdout);
+    assert.ok(listed.some((k: any) => k.id === "basecoat"));
+    assert.deepEqual(
+      listed.find((k: any) => k.id === "acme"),
+      {
+        id: "acme",
+        href: url,
+        doc: sheet,
+        source: "project",
+      },
+    );
+
+    const removed = await cli(server, {}, "kit", "remove", "acme");
+    assert.equal(removed.code, 0, removed.stderr);
+    const after = JSON.parse((await cli(server, {}, "kits")).stdout);
+    assert.ok(!after.some((k: any) => k.id === "acme"));
+
+    const cwd = tmpRepo();
+    const init = await cli(
+      server,
+      { cwd },
+      "init",
+      "--kit",
+      "acme",
+      "--kit-url",
+      url,
+      "--kit-doc",
+      doc,
+    );
+    assert.equal(init.code, 0, init.stderr);
+    assert.match(init.stdout, /^kit: +acme$/m);
+    const brief = await cli(server, { cwd }, "guide", "--brief");
+    assert.match(brief.stdout, /Kit: acme[\s\S]*\.acme-card/);
+
+    const basecoat = await cli(server, { cwd }, "init", "--kit", "basecoat");
+    assert.equal(basecoat.code, 0, basecoat.stderr);
+    const design = await getJson(designUrl);
+    assert.equal(design.kit, "basecoat");
+    assert.deepEqual(
+      design.projectKits.map((k: any) => k.id),
+      ["acme"],
+      "init keeps project kits",
+    );
+  } finally {
+    await server.close();
+  }
+});

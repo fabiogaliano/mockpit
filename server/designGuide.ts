@@ -69,6 +69,14 @@ function kitSection(design: DesignSettings | null): string {
       "`.card-footer`, `.badge-outline`, `.tab.on`, `.field`/`.label`. All re-theme for free.",
     ].join("\n");
   }
+  const kit = design?.kit;
+  const bundled = kit ? KIT_CLASSES.get(kit) : undefined;
+  if (kit && bundled) {
+    return `Kit: ${kit}, loaded into every html surface. Classes: \`${bundled}\`.`;
+  }
+  const own = kit ? design?.projectKits?.find((k) => k.id === kit) : undefined;
+  if (own)
+    return `Kit: ${own.id}, this project's own, loaded into every html surface.\n\n${own.doc}`;
   return [
     "Kit: none. Style from the `--color-*` tokens. Opt a surface into a kit with",
     `\`kits: [...]\`: ${KITS.map((k) => `\`${k.id}\``).join(", ")}.`,

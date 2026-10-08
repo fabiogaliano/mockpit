@@ -1,6 +1,7 @@
-import { CORE_CSS, type Kit, KITS, kitAssets } from "./kits.ts";
+import { CDN_ALLOWLIST, checkCdnUrl } from "./cdn.ts";
+import { CORE_CSS, KITS, kitAssets } from "./kits.ts";
 import { expandIcons, type IconResolver } from "./icons.ts";
-import type { DesignSettings } from "./types.ts";
+import type { DesignSettings, ProjectKit } from "./types.ts";
 import {
   type Mode,
   type Palette,
@@ -38,17 +39,6 @@ const kitAccentCss = (mode?: Mode): string => schemeCss(KIT_ACCENTS_LIGHT, KIT_A
 // alone don't drive those). Pinned frames get a single scheme; unpinned/direct
 // loads opt into both schemes so the browser can resolve the user's system mode.
 const colorSchemeCss = (mode?: Mode): string => `:root{color-scheme:${mode ?? "light dark"}}`;
-
-// Origins html surfaces may load external resources from. Mirrors the allowlist
-// agents already know from Claude's inline widget surface.
-const CDN_ALLOWLIST = [
-  "https://cdnjs.cloudflare.com",
-  "https://esm.sh",
-  "https://cdn.jsdelivr.net",
-  "https://unpkg.com",
-  "https://fonts.googleapis.com",
-  "https://fonts.gstatic.com",
-];
 
 const cdns = CDN_ALLOWLIST.join(" ");
 
@@ -816,18 +806,41 @@ const scriptTag = (origin: string, path: string) => `<script src="${origin}${pat
 const styleTag = (origin: string, path: string) =>
   `<link rel="stylesheet" href="${origin}${path}">`;
 
+// A kit as one document references it: our own content-hashed stylesheet,
+// a library on the CDN allowlist, or both (a reference kit's theme bridge).
+interface ResolvedKit {
+  id: string;
+  cssPath?: string;
+  href?: string;
+  script?: string;
+}
+
 // The same resolution kitAssets does (known ids, first occurrence wins), but
-// yielding one stylesheet per kit instead of one concatenated string.
-function resolveKits(ids: readonly string[] | undefined): Kit[] {
+// yielding one stylesheet per kit instead of one concatenated string. Project
+// kit URLs are re-checked here as well as on write: a stored setting is the
+// last thing between a URL and a tag in the document.
+function resolveKits(
+  ids: readonly string[] | undefined,
+  projectKits: readonly ProjectKit[] = [],
+): ResolvedKit[] {
   if (!ids || ids.length === 0) return [];
   const seen = new Set<string>();
-  const chosen: Kit[] = [];
+  const chosen: ResolvedKit[] = [];
   for (const id of ids) {
     if (seen.has(id)) continue;
     const kit = KITS.find((k) => k.id === id);
-    if (!kit) continue;
+    if (kit) {
+      seen.add(id);
+      chosen.push({ id, cssPath: KIT_PATHS.get(id), href: kit.href, script: kit.script });
+      continue;
+    }
+    const own = projectKits.find((k) => k.id === id);
+    if (!own) continue;
+    const href = checkCdnUrl(own.href, "kit url");
+    if ("error" in href) continue;
+    const script = own.script ? checkCdnUrl(own.script, "kit script") : null;
     seen.add(id);
-    chosen.push(kit);
+    chosen.push({ id, href: href.url, script: script && "url" in script ? script.url : undefined });
   }
   return chosen;
 }
@@ -839,17 +852,20 @@ function resolveKits(ids: readonly string[] | undefined): Kit[] {
 function designAssets(design: DesignSettings | null | undefined): {
   css: string;
   kits: string[];
+  projectKits: ProjectKit[];
   headScripts: string;
 } {
-  if (!design) return { css: "", kits: [], headScripts: "" };
+  if (!design) return { css: "", kits: [], projectKits: [], headScripts: "" };
   const raw = design.cssVars?.trim() ?? "";
   // `cssVars` is stored as the repo's raw block; accept either the full
   // `:root{…}` text or a bare declaration list.
   const vars = raw ? (raw.includes("{") ? raw : `:root{${raw}}`) : "";
+  const kit = design.kit;
   return {
     css: vars,
-    kits: design.kit === "builtin" ? ["builtin"] : [],
-    headScripts: design.kit === "tailwind" ? `<script src="${TAILWIND_CDN}"></script>` : "",
+    kits: kit && kit !== "tailwind" && kit !== "none" ? [kit] : [],
+    projectKits: Array.isArray(design.projectKits) ? design.projectKits : [],
+    headScripts: kit === "tailwind" ? `<script src="${TAILWIND_CDN}"></script>` : "",
   };
 }
 
@@ -1140,7 +1156,7 @@ export function renderHtmlPage(doc: {
   // The project kit is appended, so with both present its components win over
   // a surface-requested kit's same-named classes.
   const kitIds = [...(doc.kits ?? []), ...design.kits];
-  const kits = resolveKits(kitIds);
+  const kits = resolveKits(kitIds, design.projectKits);
   const kit = kitAssets(kitIds);
   // Document order still decides the cascade, so the externalized stylesheets
   // sit exactly where their inlined text used to: theme tokens, base, kit
@@ -1149,8 +1165,11 @@ export function renderHtmlPage(doc: {
     `<style>${tokenThemeCss(theme, doc.mode)}</style>`,
     styleTag(doc.origin, BASE_CSS_PATH),
     `<style>${kitAccentCss(doc.mode)}</style>`,
-    ...(kits.length > 0 ? [styleTag(doc.origin, KIT_CORE_PATH)] : []),
-    ...kits.map((k) => styleTag(doc.origin, KIT_PATHS.get(k.id)!)),
+    ...(kits.some((k) => !k.href) ? [styleTag(doc.origin, KIT_CORE_PATH)] : []),
+    ...kits.flatMap((k) => [
+      ...(k.href ? [`<link rel="stylesheet" href="${escapeHtml(k.href)}">`] : []),
+      ...(k.cssPath ? [styleTag(doc.origin, k.cssPath)] : []),
+    ]),
     `<style>${design.css}${colorSchemeCss(doc.mode)}</style>`,
   ].join("\n");
   return `<!doctype html>
@@ -1163,6 +1182,7 @@ ${preamble.htmlTag}
 ${preamble.headScript}
 ${styles}
 ${design.headScripts}
+${kits.flatMap((k) => (k.script ? [`<script src="${escapeHtml(k.script)}" defer></script>`] : [])).join("\n")}
 </head>
 <body>
 ${SVG_DEFS}

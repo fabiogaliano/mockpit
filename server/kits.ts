@@ -10,6 +10,9 @@
 // class resolves against the theme `--color-*` / `--font-*` / radius tokens, so
 // kit output re-themes with the workspace like any other html surface.
 
+import { checkCdnUrl } from "./cdn.ts";
+import type { ProjectKit } from "./types.ts";
+
 export interface Kit {
   id: string;
   label: string;
@@ -17,10 +20,16 @@ export interface Kit {
   summary: string;
   // Compact vocabulary blurb, e.g. "tree · badge · chip · dot · bar".
   classes: string;
-  // CSS injected into the sandbox doc when this kit is requested.
+  // CSS injected into the sandbox doc when this kit is requested. For a
+  // reference kit it is only the bridge from mockpit's tokens to the library's
+  // own variables.
   css: string;
   // Optional inline JS (runs at end of body, after the host bridge). Sandboxed.
   js?: string;
+  // A reference kit loads the library itself from the CDN allowlist (already in
+  // the html-surface CSP) instead of shipping it inline.
+  href?: string;
+  script?: string;
 }
 
 // Layout + text helpers shared by every kit — injected ONCE whenever any kit is
@@ -176,6 +185,18 @@ const BUILTIN_CSS = `
 .muted-fg{color:var(--color-text-secondary)}
 `;
 
+// Basecoat reads shadcn's variable names. A project that imported its own
+// shadcn `:root` block overrides these (its vars are injected last); a project
+// with none still gets a themed Basecoat in both modes, because each name
+// resolves to a mockpit token that already flips with the mode.
+const BASECOAT_THEME_CSS = `
+:root{--radius:var(--border-radius-md);--background:var(--color-background-primary);--foreground:var(--color-text-primary);--card:var(--color-background-primary);--card-foreground:var(--color-text-primary);--popover:var(--color-background-primary);--popover-foreground:var(--color-text-primary);--primary:var(--color-text-primary);--primary-foreground:var(--color-background-primary);--secondary:var(--color-background-secondary);--secondary-foreground:var(--color-text-primary);--muted:var(--color-background-secondary);--muted-foreground:var(--color-text-secondary);--accent:var(--color-background-secondary);--accent-foreground:var(--color-text-primary);--destructive:var(--color-text-danger);--border:var(--color-border-secondary);--input:var(--color-border-secondary);--ring:var(--color-border-info)}
+`;
+
+// Pinned to a major so fixes arrive without a server release. 1.x moved
+// variants from `.btn-primary` classes to `data-variant`.
+const BASECOAT_CDN = "https://cdn.jsdelivr.net/npm/basecoat-css@1/dist";
+
 export const KITS: Kit[] = [
   {
     id: "builtin",
@@ -199,6 +220,19 @@ export const KITS: Kit[] = [
     css: SLIDES_CSS,
     js: SLIDES_JS,
   },
+  {
+    id: "basecoat",
+    label: "Basecoat",
+    summary:
+      "shadcn's look as plain CSS classes (Basecoat UI from jsDelivr); themes from shadcn vars",
+    classes:
+      'btn card input label badge alert table tabs dialog kbd; data-variant="secondary|outline|ghost|destructive"',
+    css: BASECOAT_THEME_CSS,
+    href: `${BASECOAT_CDN}/basecoat.cdn.min.css`,
+    // Tabs (advertised above) switch only with Basecoat's script; the bundle
+    // also drives dropdown-menu, select and popover markup.
+    script: `${BASECOAT_CDN}/js/all.min.js`,
+  },
 ];
 
 const KIT_BY_ID = new Map(KITS.map((k) => [k.id, k]));
@@ -208,9 +242,48 @@ export const isKnownKit = (id: unknown): id is string =>
 
 export const KIT_IDS = KITS.map((k) => k.id);
 
-// Compact descriptor for discovery (no CSS/JS payload).
-export const kitSummaries = () =>
-  KITS.map((k) => ({ id: k.id, label: k.label, summary: k.summary, classes: k.classes }));
+// Compact descriptor for discovery (no CSS/JS payload), followed by the
+// project's own kits when given.
+export const kitSummaries = (projectKits: readonly ProjectKit[] = []) => [
+  ...KITS.map((k) => ({
+    id: k.id,
+    source: "bundled" as const,
+    label: k.label,
+    summary: k.summary,
+    classes: k.classes,
+    ...(k.href ? { href: k.href } : {}),
+  })),
+  ...projectKits.map((k) => ({ ...k, source: "project" as const })),
+];
+
+// Ids a project kit may not take: they already mean something in design.kit.
+export const RESERVED_KIT_IDS = ["tailwind", "none", ...KIT_IDS];
+
+export const PROJECT_KIT_DOC_MAX = 1200;
+const PROJECT_KIT_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+// One project kit as it arrives over the API. Its URLs become tags in the
+// sandboxed document, so they must pass the same allowlist as the CSP.
+export function checkProjectKit(raw: unknown): ProjectKit | string {
+  if (!raw || typeof raw !== "object") return "a kit must be an object {id, href, doc}";
+  const k = raw as Record<string, unknown>;
+  if (typeof k.id !== "string" || !PROJECT_KIT_ID.test(k.id))
+    return "kit id must be lowercase letters, digits and dashes, at most 32";
+  if (RESERVED_KIT_IDS.includes(k.id)) return `kit id "${k.id}" is taken by a bundled kit`;
+  const href = checkCdnUrl(k.href, "kit url");
+  if ("error" in href) return href.error;
+  let script: string | undefined;
+  if (k.script !== undefined && k.script !== null && k.script !== "") {
+    const checked = checkCdnUrl(k.script, "kit script");
+    if ("error" in checked) return checked.error;
+    script = checked.url;
+  }
+  const doc = typeof k.doc === "string" ? k.doc.trim() : "";
+  if (!doc) return "a kit needs a doc: the class cheat sheet the brief prints";
+  if (doc.length > PROJECT_KIT_DOC_MAX)
+    return `kit doc is ${doc.length} chars; keep it under ${PROJECT_KIT_DOC_MAX}`;
+  return { id: k.id, href: href.url, ...(script ? { script } : {}), doc };
+}
 
 // Resolve a list of kit ids to the CSS/JS to inject. Unknown ids are ignored;
 // duplicates collapse; CORE ships once when any known kit is present.
@@ -226,7 +299,9 @@ export function kitAssets(ids: readonly string[] | undefined): { css: string; js
     }
   }
   if (chosen.length === 0) return { css: "", js: "" };
-  let css = CORE_CSS;
+  // A reference kit brings its own vocabulary; CORE's `.kbd` would override
+  // the library's.
+  let css = chosen.some((k) => !k.href) ? CORE_CSS : "";
   let js = "";
   for (const kit of chosen) {
     css += kit.css;

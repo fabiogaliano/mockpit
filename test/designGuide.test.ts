@@ -17,6 +17,7 @@ const design = (over: Partial<DesignSettings> = {}): DesignSettings => ({
   kit: "none",
   cssVars: "",
   iconSets: [],
+  projectKits: [],
   updatedAt: "2026-09-15T00:00:00.000Z",
   ...over,
 });
