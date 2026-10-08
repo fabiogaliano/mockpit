@@ -32,7 +32,7 @@ import {
   STATIC_ASSET_PREFIX,
   staticAsset,
 } from "./surfacePage.ts";
-import { DEFAULT_THEME_ID, type Mode, themeById, themeOptions } from "./themes.ts";
+import { DEFAULT_MODE, DEFAULT_THEME_ID, isMode, type Mode, themeById } from "./themes.ts";
 import {
   type Anchor,
   type Ask,
@@ -51,6 +51,7 @@ import {
   htmlSurface,
   isSandboxedSurfaceKind,
   type Knobs,
+  type KnobValue,
   type MarkdownSurface,
   MAX_ASSET_BYTES,
   type Mock,
@@ -507,6 +508,13 @@ export function createApp({
       }
     }
     return comments.map((c) => ({ ...c, seen: c.seq <= (cursors.get(c.sessionId) ?? 0) }));
+  }
+
+  // The workspace's light/dark choice. Older workspaces stored a theme id under
+  // `theme`; that registry is gone, so they start from the default mode.
+  async function workspaceMode(): Promise<Mode> {
+    const stored = await store.getSetting("mode");
+    return isMode(stored) ? stored : DEFAULT_MODE;
   }
 
   // A project's imported design system (settings key `design:<project>`), or
@@ -2088,7 +2096,7 @@ export function createApp({
     mock: Mock,
     post: Post,
     request: Request,
-    themeId: string,
+    mode: Mode,
     rendererGeneration: string,
   ) => {
     const origin = new URL(request.url).origin;
@@ -2096,8 +2104,8 @@ export function createApp({
     const canonical = `${origin}${publicBasePath}/project/${encodeURIComponent(mock.project)}/${encodeURIComponent(mock.slug)}`;
     const imageUrl = new URL(`${origin}${publicBasePath}/s/${post.id}.png`);
     imageUrl.searchParams.set("card", "1");
-    imageUrl.searchParams.set("theme", themeId);
-    imageUrl.searchParams.set("mode", "dark");
+    imageUrl.searchParams.set("theme", DEFAULT_THEME_ID);
+    imageUrl.searchParams.set("mode", mode);
     imageUrl.searchParams.set("v", String(post.version));
     imageUrl.searchParams.set("g", rendererGeneration);
     const image = imageUrl.toString();
@@ -2140,9 +2148,11 @@ export function createApp({
       opts.title,
     );
     if (!opts.preview) return html;
-    const themeId = (await store.getSetting("theme")) ?? DEFAULT_THEME_ID;
     const { mock, post } = opts.preview;
-    return injectHead(html, mockPreviewHead(mock, post, c.req.raw, themeId, version ?? "dev"));
+    return injectHead(
+      html,
+      mockPreviewHead(mock, post, c.req.raw, await workspaceMode(), version ?? "dev"),
+    );
   };
   app.get("/", async (c) => c.html(await configuredViewerHtml(c)));
   // The engine reads the project/mock out of the URL itself; these render the
@@ -2455,22 +2465,17 @@ export function createApp({
   // for discovery (`mockpit kits`); the CSS/JS payloads are server-only.
   app.get("/api/kits", (c) => c.json(kitSummaries()));
 
-  // --- theme (one workspace-level setting) ---
+  // --- theme: one palette, so the workspace setting is just its mode ---
 
-  app.get("/api/theme", async (c) => {
-    const id = (await store.getSetting("theme")) ?? DEFAULT_THEME_ID;
-    return c.json({ id, themes: themeOptions() });
-  });
+  app.get("/api/theme", async (c) => c.json({ mode: await workspaceMode() }));
 
   app.put("/api/theme", async (c) => {
     const body = await c.req.json().catch(() => null);
-    const id = body && typeof body.id === "string" ? body.id : null;
-    if (!id || !themeOptions().some((t) => t.id === id)) {
-      return c.json({ error: "unknown theme id" }, 400);
-    }
-    await store.setSetting("theme", id);
-    bus.broadcast({ type: "theme-changed", id });
-    return c.json({ id });
+    const mode = body?.mode;
+    if (!isMode(mode)) return c.json({ error: 'mode must be "dark" or "light"' }, 400);
+    await store.setSetting("mode", mode);
+    bus.broadcast({ type: "theme-changed", mode });
+    return c.json({ mode });
   });
 
   // The project's design system, imported by `mockpit init` and injected into
@@ -2506,10 +2511,7 @@ export function createApp({
     // Every rendered surface bakes the design into its document string, so a
     // design change invalidates them all.
     clearRenderCache();
-    bus.broadcast({
-      type: "theme-changed",
-      id: (await store.getSetting("theme")) ?? DEFAULT_THEME_ID,
-    });
+    bus.broadcast({ type: "theme-changed", mode: await workspaceMode() });
     return c.json(design);
   });
 
@@ -2566,14 +2568,16 @@ export function createApp({
   // version's content immutable, and `origin` is in the key because it is baked
   // into the document (CSP, <base>, asset URLs) — a pre-warm triggered by an
   // agent publishing over one origin must never be served to a viewer on another.
+  // `knobs` is the canonical (validated, path-sorted) JSON of `?k=`, so two
+  // spellings of the same values share an entry.
   const renderKey = (o: {
     postId: string;
     idx: number;
     version: number;
-    themeId: string;
     mode?: Mode;
     origin: string;
-  }) => `${o.postId}:${o.idx}:${o.version}:${o.themeId}:${o.mode ?? "os"}:${o.origin}`;
+    knobs?: string;
+  }) => `${o.postId}:${o.idx}:${o.version}:${o.mode ?? "os"}:${o.origin}:${o.knobs ?? ""}`;
 
   // The document itself. Shared by the GET below and the publish-time pre-warm,
   // so both produce byte-identical output for one key.
@@ -2582,13 +2586,15 @@ export function createApp({
     mock: Mock | null;
     surface: Surface;
     title: string;
-    themeId: string;
+    version: number;
     mode?: Mode;
     origin: string;
     design: DesignSettings | null;
+    knobs?: Record<string, KnobValue>;
   }): Promise<string> {
-    const { surface, themeId, mode, origin } = args;
-    const theme = themeById(themeId);
+    const { surface, mode, origin } = args;
+    const theme = themeById(DEFAULT_THEME_ID);
+    const themeId = theme.id;
     if (surface.kind === "html") {
       return renderHtmlPage({
         title: args.title,
@@ -2604,6 +2610,8 @@ export function createApp({
         mode,
         kits: surface.kits,
         design: args.design,
+        version: args.version,
+        knobs: args.knobs,
       });
     }
     if (surface.kind === "mermaid") {
@@ -2651,7 +2659,6 @@ export function createApp({
     const origin = lastOrigin;
     if (!origin) return;
     void (async () => {
-      const themeId = (await store.getSetting("theme")) ?? DEFAULT_THEME_ID;
       const design = await designFor(mock.project);
       let warmed = 0;
       for (const [idx, surface] of post.surfaces.entries()) {
@@ -2659,14 +2666,7 @@ export function createApp({
         if (!isSandboxedSurfaceKind(surface.kind)) continue;
         warmed++;
         for (const mode of ["light", "dark"] as const) {
-          const key = renderKey({
-            postId: post.id,
-            idx,
-            version: post.version,
-            themeId,
-            mode,
-            origin,
-          });
+          const key = renderKey({ postId: post.id, idx, version: post.version, mode, origin });
           if (renderCache.has(key)) continue;
           await cachedRender(key, () =>
             buildSurfaceDoc({
@@ -2674,7 +2674,7 @@ export function createApp({
               mock,
               surface,
               title: post.title,
-              themeId,
+              version: post.version,
               mode,
               origin,
               design,
@@ -2685,36 +2685,37 @@ export function createApp({
     })().catch((err) => console.warn("[mockpit] render pre-warm failed", err));
   }
 
+  // `?k=` arrives URL-encoded; past this it is not a set of knob values.
+  const MAX_KNOB_QUERY = 8 * 1024;
+
   const renderPostPage = async (c: any) => {
     const surfaceParam = c.req.query("surface") ?? "0";
     const ver = c.req.query("ver");
-    const themeQuery = c.req.query("theme");
     const modeParam = c.req.query("mode");
     const mode: Mode | undefined =
       modeParam === "light" || modeParam === "dark" ? modeParam : undefined;
+    const kParam: string | undefined = c.req.query("k");
     const origin = new URL(c.req.url).origin;
 
     // Cache-first. A hit needs nothing from the post row, and the row is the
     // expensive part of this route (surfaces + every retained version). Only a
     // version-pinned request can take this path: without `ver` the current
-    // version — and so the key — is unknown until the row is read.
+    // version — and so the key — is unknown until the row is read. A `?k=`
+    // request never does: its values are checked against the mock's knobs,
+    // which can change under a pinned version.
     const pinned = Number(ver);
-    if (Number.isInteger(pinned) && pinned > 0) {
-      const themeId = themeQuery ?? (await store.getSetting("theme")) ?? DEFAULT_THEME_ID;
+    if (Number.isInteger(pinned) && pinned > 0 && kParam === undefined) {
       const hit = renderCacheHit(
         renderKey({
           postId: c.req.param("id"),
           idx: Number(surfaceParam),
           version: pinned,
-          themeId,
           mode,
           origin,
         }),
       );
       if (hit !== undefined) {
-        // `ver` is non-null on this path by construction, so this is the same
-        // immutability test the render path below applies.
-        surfaceDocHeaders(c, themeQuery != null && ver != null);
+        surfaceDocHeaders(c, true);
         return c.html(hit);
       }
     }
@@ -2740,19 +2741,43 @@ export function createApp({
     if (!surface || !isSandboxedSurfaceKind(surface.kind)) {
       return c.text("No renderable surface at that index", 404);
     }
-    // Theme: an explicit ?theme= (the viewer keys iframe srcs by it so a switch
-    // reloads the frame) wins; otherwise the persisted workspace theme; else default.
-    const themeId = themeQuery ?? (await store.getSetting("theme")) ?? DEFAULT_THEME_ID;
-    surfaceDocHeaders(c, themeQuery != null && ver != null);
+
+    // Knob values are agent/user data: only values the mock (or this variant's
+    // per-part overrides) declares, within their schema, ever reach the document.
+    let knobs: Record<string, KnobValue> | undefined;
+    let knobsKey: string | undefined;
+    if (kParam !== undefined) {
+      const bad = (error: string) => {
+        surfaceDocHeaders(c, false);
+        return c.text(error, 400);
+      };
+      if (kParam.length > MAX_KNOB_QUERY) return bad("k is too long");
+      let raw: unknown;
+      try {
+        raw = JSON.parse(kParam);
+      } catch {
+        return bad("k must be URL-encoded JSON of {path: value}");
+      }
+      const checked = checkKnobValues(raw, mock ?? { knobs: {} }, [post], "k");
+      if (!checked.ok) return bad(checked.error);
+      const paths = Object.keys(checked.value).sort();
+      if (paths.length > 0 && surface.kind === "html") {
+        knobs = Object.fromEntries(paths.map((p) => [p, checked.value[p]]));
+        knobsKey = JSON.stringify(knobs);
+      }
+    }
+    // Every input is in the URL (the palette is fixed, the mode is a query
+    // param), so a version-pinned document never changes.
+    surfaceDocHeaders(c, ver != null);
 
     // Cache the finished document under the same key the pre-warm uses; the
     // resolved `version` makes it immutable, so a hit is always correct.
     // A page's slots are pinned at publish, so they are a function of
     // (id, version) too and need no separate key component.
-    const cacheKey = renderKey({ postId: post.id, idx, version, themeId, mode, origin });
+    const cacheKey = renderKey({ postId: post.id, idx, version, mode, origin, knobs: knobsKey });
     const design = mock ? await designFor(mock.project) : null;
     const doc = await cachedRender(cacheKey, async () =>
-      buildSurfaceDoc({ post, mock, surface, title, themeId, mode, origin, design }),
+      buildSurfaceDoc({ post, mock, surface, title, version, mode, origin, design, knobs }),
     );
     return c.html(doc);
   };

@@ -35,7 +35,7 @@ import {
 } from "../fixtures.ts";
 import { bytes, memory, retainedHeap, type Suite, time } from "../harness.ts";
 
-const THEME = { theme: "github", mode: "dark" as const };
+const THEME = { theme: "dialkit", mode: "dark" as const };
 const ORIGIN = "http://localhost:8228";
 
 /** Byte length of a rendered document as it goes over the wire. */

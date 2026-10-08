@@ -1150,12 +1150,12 @@ test("/s/:id?surface=N serves each surface opaque-sandboxed; native kinds 404", 
   assert.equal((await app.request("/s/nope")).status, 404);
 });
 
-test("/s pinned to version and theme is immutable; old versions stay renderable", async () => {
+test("/s pinned to a version is immutable; old versions stay renderable", async () => {
   const app = makeApp();
   const out = await publish(app, { mock: "card", ...html("<p>v1</p>") });
   await publish(app, { mock: "card", ...html("<p>v2</p>") });
   const id = out.post.id;
-  const pinned = await app.request(`/s/${id}?surface=0&ver=1&theme=github&mode=light`);
+  const pinned = await app.request(`/s/${id}?surface=0&ver=1&mode=light`);
   assert.match(pinned.headers.get("cache-control") ?? "", /immutable/);
   assert.match(await pinned.text(), /<p>v1<\/p>/);
   const bare = await app.request(`/s/${id}?surface=0`);
@@ -1228,7 +1228,7 @@ test("a mock page carries pinned, token-free link-preview metadata", async () =>
   assert.ok(body.includes(`<link rel="canonical" href="${canonical}">`));
   assert.ok(
     body.includes(
-      `<meta property="og:image" content="https://board.test/u/alice/s/${out.post.id}.png?card=1&amp;theme=github&amp;mode=dark&amp;v=1&amp;g=1.2.3">`,
+      `<meta property="og:image" content="https://board.test/u/alice/s/${out.post.id}.png?card=1&amp;theme=dialkit&amp;mode=dark&amp;v=1&amp;g=1.2.3">`,
     ),
   );
   assert.ok(body.includes('<meta property="og:title" content="A &quot;quoted&quot; &lt;tag&gt;">'));
@@ -1237,9 +1237,9 @@ test("a mock page carries pinned, token-free link-preview metadata", async () =>
   for (const line of body.split("\n").filter((l) => /canonical|og:|twitter:/.test(l))) {
     assert.doesNotMatch(line, /secret/);
   }
-  await app.request("/api/theme", authed({ id: "gruvbox" }, "PUT"));
+  await app.request("/api/theme", authed({ mode: "light" }, "PUT"));
   const after = await (await app.request("https://board.test/project/demo/card?key=secret")).text();
-  assert.match(after, /theme=gruvbox/);
+  assert.match(after, /mode=light/);
 });
 
 test("viewer config: screenshots flag and readonly markers", async () => {
@@ -1418,16 +1418,18 @@ test("docs routes serve the guide, setup and how-to; ?brief=1 renders the projec
   assert.match(brief, /--mock writer/);
 });
 
-test("theme is a workspace setting; unknown ids are refused", async () => {
+test("the theme setting is the workspace's mode: dark by default, light or dark only", async () => {
   const events: any[] = [];
   const app = makeApp(undefined, { onEvent: (e) => events.push(e) });
-  const initial = (await call(app, "/api/theme")).body;
-  assert.equal(initial.id, "github");
-  assert.ok(initial.themes.length >= 3);
-  assert.equal((await call(app, "/api/theme", agent({ id: "nope" }, "PUT"))).status, 400);
-  assert.equal((await call(app, "/api/theme", agent({ id: "gruvbox" }, "PUT"))).body.id, "gruvbox");
-  assert.equal((await call(app, "/api/theme")).body.id, "gruvbox");
-  assert.deepEqual(events.at(-1), { type: "theme-changed", id: "gruvbox" });
+  assert.deepEqual((await call(app, "/api/theme")).body, { mode: "dark" });
+  assert.equal((await call(app, "/api/theme", agent({ mode: "sepia" }, "PUT"))).status, 400);
+  // the retired theme-id body is refused, not silently half-applied
+  assert.equal((await call(app, "/api/theme", agent({ id: "gruvbox" }, "PUT"))).status, 400);
+  assert.deepEqual((await call(app, "/api/theme", agent({ mode: "light" }, "PUT"))).body, {
+    mode: "light",
+  });
+  assert.deepEqual((await call(app, "/api/theme")).body, { mode: "light" });
+  assert.deepEqual(events.at(-1), { type: "theme-changed", mode: "light" });
 });
 
 function makeVersionApp(version?: string, latest?: { version: string; notes?: string } | Error) {

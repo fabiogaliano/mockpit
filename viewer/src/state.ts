@@ -14,6 +14,7 @@ import {
   type VersionInfo,
 } from "./api.ts";
 import { host } from "./host.ts";
+import { DEFAULT_THEME_ID } from "../../server/themes.ts";
 import { applyTheme } from "./theme.ts";
 
 // A comment as the viewer renders it: server comments plus the optimistic
@@ -192,7 +193,7 @@ function handleFeedData(data: string) {
   }
   // A theme switch must re-theme the chrome AND every rendered frame, so it is
   // applied centrally rather than by a subscriber.
-  if (event.type === "theme-changed") applyTheme(event.id);
+  if (event.type === "theme-changed") applyTheme(DEFAULT_THEME_ID);
   for (const listener of feedListeners) listener(event);
 }
 

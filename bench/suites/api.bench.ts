@@ -167,11 +167,11 @@ export const apiSuite: Suite = {
       }
       const app = makeApp(store);
 
-      // The viewer appends `&theme=&mode=` to every surface iframe src (Card.tsx),
+      // The viewer appends `&ver=&mode=` to every surface iframe src,
       // and the server renders differently when the mode is pinned — so a bench
       // that omits them measures a URL shape no viewer ever sends, and would score
       // a change to the pinned path as no change at all. Match the real client.
-      const viewerQuery = "surface=0&ver=1&theme=github&mode=dark";
+      const viewerQuery = "surface=0&ver=1&mode=dark";
       for (const [kind, id] of Object.entries(perKind)) {
         const path = `/s/${id}?${viewerQuery}`;
         // Warm: every request after the first hits the memoized document.
@@ -181,17 +181,15 @@ export const apiSuite: Suite = {
         ctx.add(bytes("api", `GET /s/:id ${kind} bytes`, await responseBytes(app, path)));
       }
 
-      // Cold: force a miss on EVERY iteration. `?theme=` is part of the cache key
-      // but an unknown id resolves to the default theme (themeById falls back), so
-      // a counter in the theme slot gives a fresh key with byte-identical render
-      // work. Rotating over the three real themes would not do it — after three
-      // iterations they are all cached and the rest of the run measures hits.
-      // This is what a first view, a theme switch, or a cache eviction costs.
+      // Cold: force a miss on EVERY iteration. The request origin is part of the
+      // cache key (it is baked into the document), so a counter in the host gives
+      // a fresh key with byte-identical render work. This is what a first view, a
+      // mode switch, or a cache eviction costs.
       for (const [kind, id] of Object.entries(perKind)) {
         let n = 0;
         await ctx.time(
           `GET /s/:id ${kind} (cache miss)`,
-          () => hit(app, `/s/${id}?surface=0&mode=dark&theme=bench-${n++}`),
+          () => hit(app, `http://bench-${n++}.test/s/${id}?surface=0&mode=dark`),
           { note: "forced re-render", minSamples: 7, minMs: 300 },
         );
       }

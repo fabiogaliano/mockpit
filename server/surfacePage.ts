@@ -376,6 +376,375 @@ export const HIT_TEST_JS = `
 })();
 `;
 
+// ---------------------------------------------------------------------------
+// Stage bridge: parts and knobs (html surfaces only)
+// ---------------------------------------------------------------------------
+//
+// The message protocol between a surface frame and the trusted host. Every
+// message, in both directions, is a plain object carrying `__mockpit: true` and
+// a `type`. The frame only acts on messages whose source is its parent; the host
+// must only accept messages whose source is a frame it created, and must treat
+// every field as untrusted data (text nodes and numbers, never markup).
+//
+// frame → host
+//   resize           {height}                    body.scrollHeight (BRIDGE_JS)
+//   send-prompt      {text}                      window.sendPrompt (BRIDGE_JS)
+//   open-link        {url}                       http(s) link click / openLink (BRIDGE_JS)
+//   copy             {text}                      window.copyToClipboard (BRIDGE_JS)
+//   switch-session   {key}                       Cmd+Opt+ArrowUp/Down (BRIDGE_JS)
+//   hit-test-result  {ref, path, text, rect}     reply to hit-test (HIT_TEST_JS)
+//   parts            {version, parts, height, scroll:{x,y}, viewport:{w,h}}  (PARTS_JS)
+//       parts[i] = {name, label, key, box:{x,y,w,h}, visible, fixed, depth, parent, order}
+//       box is in DOCUMENT px (viewport rect + scroll), so the host draws
+//       (box − scroll) × scale, which is also right for fixed and sticky parts.
+//       label falls back to name; key is null unless data-part-key is set;
+//       parent is the nearest enclosing part's name (null at top level), depth
+//       counts enclosing parts, order is document order. Invisible parts
+//       (display:none, visibility:hidden, zero size) are listed with
+//       visible:false. `version` is the post version the document was rendered
+//       for: a reloading frame keeps its contentWindow, so the host must drop
+//       reports whose version is not the one it loaded. Sent on load, on
+//       50/150/400/1000ms timers, and on any layout-affecting change; never
+//       twice in a row with identical content.
+//   hit              {ref, part, key}            reply to hit; part = name|null
+//
+// host → frame
+//   hit-test   {ref, x, y}      x,y normalized 0..1 of the document box (Mark tool)
+//   hit        {ref, x, y}      x,y in document px; answered with the deepest
+//                               [data-part] under the point by the page's own
+//                               stacking (elementFromPoint), not overlay order
+//   highlight  {parts:[name]}   outline these parts, replacing the previous set;
+//                               never triggers a parts report
+//   clear      {}               remove every highlight
+//   scroll     {dx, dy}         scrollBy in document px (a wheel over the host's
+//                               overlay, forwarded)
+//   knobs      {values}         {path: value}, merged into the current values
+//                               and applied exactly like the `?k=` preamble
+//
+// Knobs (`/s/:id?k=`, validated by the route against the mock's declared knobs,
+// and the `knobs` command): for each path, dots become "-" in names, and
+//   --k-<path>            on <html style>: numbers as-is, booleans 1/0, strings
+//                         raw when they are plain CSS tokens, else a quoted CSS
+//                         string; an object value ({x, y}) spreads one level
+//                         into --k-<path>-<field>
+//   data-k-<path>         on <html>: numbers, "true"/"false", strings; objects
+//                         get none
+//   [data-k-bind="<path>"]  textContent = the value (objects as JSON)
+//   window `mockpit:knobs` CustomEvent, detail {values} = every current value,
+//                         fired at DOMContentLoaded and after each command.
+// Structural options are pre-rendered by the agent and switched with CSS on
+// `html[data-k-<path>="…"]`.
+
+// Shared by the server-side preamble and the in-frame script so a baked value and
+// a live one land identically; the unit test runs this source to prove it.
+const KNOB_VALUE_JS = `
+var __kPathRe = /^[A-Za-z_][\\w-]{0,63}(\\.[A-Za-z_][\\w-]{0,63}){0,3}$/;
+var __kTokenRe = /^[#\\w(),.%/+-][#\\w\\s(),.%/+-]*$/;
+function __kName(path) { return path.replace(/\\./g, '-'); }
+function __kCssString(s) {
+  return '"' + s.replace(/[\\\\"]/g, function (c) { return '\\\\' + c; })
+    .replace(/[\\u0000-\\u001f\\u007f]/g, function (c) { return '\\\\' + c.charCodeAt(0).toString(16) + ' '; }) + '"';
+}
+function __kCss(v) {
+  if (typeof v === 'number') return isFinite(v) ? String(v) : null;
+  if (typeof v === 'boolean') return v ? '1' : '0';
+  if (typeof v === 'string') return __kTokenRe.test(v) ? v : __kCssString(v);
+  return null;
+}
+function __kVars(path, v) {
+  var name = __kName(path);
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    var out = [];
+    for (var f in v) {
+      if (!Object.prototype.hasOwnProperty.call(v, f) || !/^[A-Za-z_][\\w-]{0,63}$/.test(f)) continue;
+      var c = __kCss(v[f]);
+      if (c !== null) out.push([name + '-' + f, c]);
+    }
+    return out;
+  }
+  var css = __kCss(v);
+  return css === null ? [] : [[name, css]];
+}
+function __kAttr(v) {
+  if (typeof v === 'number') return isFinite(v) ? String(v) : null;
+  if (typeof v === 'boolean') return v ? 'true' : 'false';
+  if (typeof v === 'string') return v;
+  return null;
+}
+`;
+
+// Parts: measure every element the agent marked with data-part and report it.
+// Kept apart from BRIDGE_JS for the same reason HIT_TEST_JS is (that script runs
+// verbatim in a vm regression test), and html-only because only agent markup
+// carries parts.
+export const PARTS_JS = `
+(function () {
+  if (window.parent === window) return;
+  var HL = 'mockpit-part-hl';
+  var MAX_PARTS = 200;
+  var MAX_TEXT = 200;
+  var doc = window.__mockpitDoc || {};
+  var version = typeof doc.version === 'number' ? doc.version : null;
+  function text(v) { return v == null ? null : String(v).slice(0, MAX_TEXT); }
+  function isFixed(el) {
+    for (var n = el; n && n.nodeType === 1; n = n.parentElement) {
+      if (getComputedStyle(n).position === 'fixed') return true;
+    }
+    return false;
+  }
+  function collect() {
+    var sx = window.scrollX || 0, sy = window.scrollY || 0;
+    var els = document.querySelectorAll('[data-part]');
+    var parts = [];
+    for (var i = 0; i < els.length && parts.length < MAX_PARTS; i++) {
+      var el = els[i];
+      var name = text(el.getAttribute('data-part'));
+      if (!name) continue;
+      var r = el.getBoundingClientRect();
+      var depth = 0;
+      for (var p = el.parentElement; p; p = p.parentElement) if (p.hasAttribute('data-part')) depth++;
+      var outer = el.parentElement && el.parentElement.closest('[data-part]');
+      parts.push({
+        name: name,
+        label: text(el.getAttribute('data-part-label')) || name,
+        key: text(el.getAttribute('data-part-key')),
+        box: { x: r.left + sx, y: r.top + sy, w: r.width, h: r.height },
+        visible: (r.width > 0 || r.height > 0) && getComputedStyle(el).visibility !== 'hidden',
+        fixed: isFixed(el),
+        depth: depth,
+        parent: outer ? text(outer.getAttribute('data-part')) : null,
+        order: i,
+      });
+    }
+    return {
+      version: version,
+      parts: parts,
+      height: document.body ? document.body.scrollHeight : document.documentElement.scrollHeight,
+      scroll: { x: sx, y: sy },
+      viewport: { w: innerWidth, h: innerHeight },
+    };
+  }
+  var last = '';
+  var timer = 0;
+  // setTimeout, not rAF: a hidden cross-origin frame may have rendering (and
+  // with it rAF and ResizeObserver) throttled, but timers still run.
+  function schedule() {
+    if (timer) return;
+    timer = setTimeout(function () {
+      timer = 0;
+      var m = collect();
+      var key = JSON.stringify(m);
+      if (key === last) return;
+      last = key;
+      m.__mockpit = true;
+      m.type = 'parts';
+      parent.postMessage(m, '*');
+    }, 0);
+  }
+
+  var ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null;
+  var observed = typeof WeakSet !== 'undefined' ? new WeakSet() : null;
+  function observeAll() {
+    if (!ro || !observed) return;
+    // html/body too: a non-part sibling growing moves parts without resizing them.
+    var els = [document.documentElement, document.body].concat([].slice.call(document.querySelectorAll('[data-part]')));
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (el && !observed.has(el)) { observed.add(el); ro.observe(el); }
+    }
+  }
+  var moTimer = 0;
+  var mo = new MutationObserver(function () {
+    clearTimeout(moTimer);
+    moTimer = setTimeout(function () { observeAll(); schedule(); }, 40);
+  });
+  mo.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+
+  // Transforms and transitions move boxes without resizing or mutating anything.
+  document.addEventListener('animationend', schedule, true);
+  document.addEventListener('transitionend', schedule, true);
+  window.addEventListener('scroll', schedule, { passive: true });
+  window.addEventListener('resize', schedule);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(schedule);
+  observeAll();
+  schedule();
+  // WebKit: RO's initial callback may never fire in a sandboxed frame.
+  function settle() {
+    schedule();
+    [50, 150, 400, 1000].forEach(function (ms) { setTimeout(schedule, ms); });
+  }
+  if (document.readyState === 'complete') settle();
+  else window.addEventListener('load', settle);
+
+  function setHighlight(names) {
+    var on = document.querySelectorAll('.' + HL);
+    for (var i = 0; i < on.length; i++) on[i].classList.remove(HL);
+    if (names && names.length) {
+      var want = {};
+      for (var k = 0; k < names.length && k < MAX_PARTS; k++) want[String(names[k])] = true;
+      var els = document.querySelectorAll('[data-part]');
+      for (var j = 0; j < els.length; j++) {
+        if (want[els[j].getAttribute('data-part')] === true) els[j].classList.add(HL);
+      }
+    }
+    // Our own class flip must not look like the agent's page changing.
+    mo.takeRecords();
+  }
+
+  window.addEventListener('message', function (e) {
+    if (e.source !== parent) return;
+    var d = e.data;
+    if (!d || d.__mockpit !== true) return;
+    if (d.type === 'highlight') setHighlight(Array.isArray(d.parts) ? d.parts : []);
+    else if (d.type === 'clear') setHighlight(null);
+    else if (d.type === 'scroll') window.scrollBy(Number(d.dx) || 0, Number(d.dy) || 0);
+    else if (d.type === 'hit') {
+      var el = document.elementFromPoint(
+        (Number(d.x) || 0) - (window.scrollX || 0),
+        (Number(d.y) || 0) - (window.scrollY || 0)
+      );
+      var part = el && el.closest ? el.closest('[data-part]') : null;
+      parent.postMessage({
+        __mockpit: true,
+        type: 'hit',
+        ref: d.ref,
+        part: part ? text(part.getAttribute('data-part')) : null,
+        key: part ? text(part.getAttribute('data-part-key')) : null,
+      }, '*');
+    }
+  });
+})();
+`;
+
+// Knobs: the `?k=` values are already on <html> (see knobPreamble); this binds
+// text, announces them, and applies the host's live `knobs` commands.
+export const KNOBS_JS = `
+(function () {
+${KNOB_VALUE_JS}
+  var doc = window.__mockpitDoc || {};
+  var current = {};
+  function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+  function bind(path, v) {
+    var els = document.querySelectorAll('[data-k-bind]');
+    for (var i = 0; i < els.length; i++) {
+      if (els[i].getAttribute('data-k-bind') !== path) continue;
+      els[i].textContent = v && typeof v === 'object' ? JSON.stringify(v) : String(v);
+    }
+  }
+  function apply(values, live) {
+    var root = document.documentElement;
+    for (var path in values) {
+      if (!own(values, path) || !__kPathRe.test(path)) continue;
+      var v = values[path];
+      if (v === null || v === undefined) continue;
+      current[path] = v;
+      if (live) {
+        var vars = __kVars(path, v);
+        if (!vars.length) root.style.removeProperty('--k-' + __kName(path));
+        for (var i = 0; i < vars.length; i++) root.style.setProperty('--k-' + vars[i][0], vars[i][1]);
+        var attr = __kAttr(v);
+        if (attr === null) root.removeAttribute('data-k-' + __kName(path));
+        else root.setAttribute('data-k-' + __kName(path), attr);
+      }
+      bind(path, v);
+    }
+    window.dispatchEvent(new CustomEvent('mockpit:knobs', {
+      detail: { values: JSON.parse(JSON.stringify(current)) },
+    }));
+  }
+  function initial() { apply(doc.knobs && typeof doc.knobs === 'object' ? doc.knobs : {}, false); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initial);
+  else initial();
+  window.addEventListener('message', function (e) {
+    if (e.source !== parent || parent === window) return;
+    var d = e.data;
+    if (!d || d.__mockpit !== true || d.type !== 'knobs') return;
+    if (d.values && typeof d.values === 'object' && !Array.isArray(d.values)) apply(d.values, true);
+  });
+})();
+`;
+
+// Server-side twins of KNOB_VALUE_JS, used to bake `?k=` into the document.
+const KNOB_PATH_RE = /^[A-Za-z_][\w-]{0,63}(\.[A-Za-z_][\w-]{0,63}){0,3}$/;
+const KNOB_TOKEN_RE = /^[#\w(),.%/+-][#\w\s(),.%/+-]*$/;
+const KNOB_FIELD_RE = /^[A-Za-z_][\w-]{0,63}$/;
+const knobName = (path: string) => path.replace(/\./g, "-");
+const knobCssString = (s: string) =>
+  `"${s
+    .replace(/[\\"]/g, (c) => `\\${c}`)
+    // oxlint-disable-next-line no-control-regex -- control characters are exactly what must be escaped
+    .replace(/[\u0000-\u001f\u007f]/g, (c) => `\\${c.charCodeAt(0).toString(16)} `)}"`;
+
+export function knobCss(v: unknown): string | null {
+  if (typeof v === "number") return Number.isFinite(v) ? String(v) : null;
+  if (typeof v === "boolean") return v ? "1" : "0";
+  if (typeof v === "string") return KNOB_TOKEN_RE.test(v) ? v : knobCssString(v);
+  return null;
+}
+
+export function knobVars(path: string, v: unknown): [string, string][] {
+  const name = knobName(path);
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    const out: [string, string][] = [];
+    for (const [field, inner] of Object.entries(v)) {
+      if (!KNOB_FIELD_RE.test(field)) continue;
+      const css = knobCss(inner);
+      if (css !== null) out.push([`${name}-${field}`, css]);
+    }
+    return out;
+  }
+  const css = knobCss(v);
+  return css === null ? [] : [[name, css]];
+}
+
+export function knobAttr(v: unknown): string | null {
+  if (typeof v === "number") return Number.isFinite(v) ? String(v) : null;
+  if (typeof v === "boolean") return v ? "true" : "false";
+  if (typeof v === "string") return v;
+  return null;
+}
+
+// The source of KNOB_VALUE_JS, for the parity test.
+export const KNOB_VALUE_SOURCE = KNOB_VALUE_JS;
+
+// JSON inside an inline <script>: `<` can't open `</script>` or `<!--`, and the
+// two JS line terminators that JSON allows can't end the statement early.
+const scriptJson = (v: unknown) =>
+  JSON.stringify(v)
+    .replace(/</g, "\\u003c")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+
+// The `<html>` open tag with the baked knob attributes and vars, plus the head
+// script that hands the version and the values to PARTS_JS / KNOBS_JS. Values
+// are agent/user data: attributes go through escapeHtml, CSS values through
+// knobCss (quoted unless plain tokens) and then escapeHtml as the style
+// attribute, and the JSON through scriptJson.
+export function knobPreamble(
+  version: number | undefined,
+  knobs: Record<string, unknown> | undefined,
+): { htmlTag: string; headScript: string } {
+  const attrs: string[] = [];
+  const vars: string[] = [];
+  const values: Record<string, unknown> = {};
+  for (const [path, v] of Object.entries(knobs ?? {})) {
+    if (!KNOB_PATH_RE.test(path) || v === null || v === undefined) continue;
+    values[path] = v;
+    const attr = knobAttr(v);
+    if (attr !== null) attrs.push(` data-k-${knobName(path)}="${escapeHtml(attr)}"`);
+    for (const [name, css] of knobVars(path, v)) vars.push(`--k-${name}:${css}`);
+  }
+  const style = vars.length ? ` style="${escapeHtml(vars.join(";"))}"` : "";
+  return {
+    htmlTag: `<html lang="en"${attrs.join("")}${style}>`,
+    headScript: `<script>window.__mockpitDoc=${scriptJson({ version: version ?? null, knobs: values })};</script>`,
+  };
+}
+
+// Our own highlight, shipped in the base stylesheet so turning it on is a class
+// flip rather than a DOM insertion the parts observer would report.
+const PART_HIGHLIGHT_CSS = `.mockpit-part-hl{outline:2px solid #8b7bff !important;outline-offset:2px}`;
+
 // Tailwind's browser build, pinned to a major (jsdelivr is already on the CDN
 // allowlist, so this needs no CSP widening). Injected only when a project's
 // design settings say `kit: "tailwind"`, i.e. the repo itself is a Tailwind
@@ -440,8 +809,10 @@ export const staticAsset = (path: string): StaticAsset | null => STATIC_ASSETS.g
 
 const BRIDGE_PATH = registerAsset("bridge", "js", BRIDGE_JS);
 const HIT_TEST_PATH = registerAsset("hit-test", "js", HIT_TEST_JS);
+const PARTS_PATH = registerAsset("parts", "js", PARTS_JS);
+const KNOBS_PATH = registerAsset("knobs", "js", KNOBS_JS);
 // The base html-surface stylesheet: static design tokens + the surface kit.
-const BASE_CSS_PATH = registerAsset("base", "css", `${TOKENS_CSS}${KIT_CSS}`);
+const BASE_CSS_PATH = registerAsset("base", "css", `${TOKENS_CSS}${KIT_CSS}${PART_HIGHLIGHT_CSS}`);
 const KIT_CORE_PATH = registerAsset("kit-core", "css", CORE_CSS);
 const KIT_PATHS = new Map(KITS.map((k) => [k.id, registerAsset(`kit-${k.id}`, "css", k.css)]));
 const ICON_CSS_PATH = registerAsset("icon", "css", ICON_CSS);
@@ -791,10 +1162,15 @@ export function renderHtmlPage(doc: {
   // repo by `mockpit init`. Null/absent → the surface renders exactly as it
   // did before this existed.
   design?: DesignSettings | null;
+  // The post version this document renders; tagged on every parts report.
+  version?: number;
+  // Validated `?k=` values (the route checks them against the declared knobs).
+  knobs?: Record<string, unknown>;
 }): string {
   const theme =
     typeof doc.theme === "string" || doc.theme == null ? themeById(doc.theme) : doc.theme;
   const design = designAssets(doc.design, doc.origin);
+  const preamble = knobPreamble(doc.version, doc.knobs);
   // The project kit is appended, so with both present its components win over
   // a surface-requested kit's same-named classes.
   const kitIds = [...(doc.kits ?? []), ...design.kits];
@@ -813,12 +1189,13 @@ export function renderHtmlPage(doc: {
     `<style>${design.css}${colorSchemeCss(doc.mode)}</style>`,
   ].join("\n");
   return `<!doctype html>
-<html lang="en">
+${preamble.htmlTag}
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${buildCsp(doc.origin, design.connect)}">
 <title>${escapeHtml(doc.title)}</title>
+${preamble.headScript}
 ${styles}
 ${design.headScripts}
 </head>
@@ -827,6 +1204,8 @@ ${SVG_DEFS}
 ${doc.html}
 ${scriptTag(doc.origin, BRIDGE_PATH)}
 ${scriptTag(doc.origin, HIT_TEST_PATH)}
+${scriptTag(doc.origin, KNOBS_PATH)}
+${scriptTag(doc.origin, PARTS_PATH)}
 ${kit.js ? `<script>${kit.js}</script>` : ""}
 ${design.bodyScripts}
 </body>

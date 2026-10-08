@@ -15,7 +15,7 @@ test("post screenshot route matches GET and HEAD requests without baking in an i
 test("card screenshots use stable social-card dimensions without fullPage", () => {
   const plan = planPostScreenshot(
     new URL(
-      "https://workspace.test/s/abc123.png?card=1&w=640&theme=gruvbox&mode=dark&v=7&key=secret",
+      "https://workspace.test/s/abc123.png?card=1&w=640&theme=dialkit&mode=dark&v=7&key=secret",
     ),
     "abc123",
     "mockpit_mode=light",
@@ -25,7 +25,7 @@ test("card screenshots use stable social-card dimensions without fullPage", () =
   assert.deepEqual(plan.screenshotOptions, { fullPage: false });
   assert.equal(
     plan.target,
-    "https://workspace.test/s/abc123?surface=0&ver=7&theme=gruvbox&mode=dark",
+    "https://workspace.test/s/abc123?surface=0&ver=7&theme=dialkit&mode=dark",
   );
   assert.doesNotMatch(plan.target, /key=secret|card=1|w=640|(?:^|[?&])v=/);
 });

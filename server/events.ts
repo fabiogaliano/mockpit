@@ -1,3 +1,5 @@
+import type { Mode } from "./themes.ts";
+
 export type FeedEvent =
   | { type: "session-created" | "session-updated" | "session-deleted"; id: string }
   // A mock's own fields changed (title, states, asks, knobs) or it was created.
@@ -22,8 +24,8 @@ export type FeedEvent =
       seq: number;
     }
   | { type: "comment-deleted"; id: string; sessionId: string }
-  // Workspace theme changed; `id` is the new theme id. Other open tabs re-theme.
-  | { type: "theme-changed"; id: string };
+  // Workspace light/dark mode changed. Other open tabs re-theme.
+  | { type: "theme-changed"; mode: Mode };
 
 type Listener = (event: FeedEvent) => void;
 

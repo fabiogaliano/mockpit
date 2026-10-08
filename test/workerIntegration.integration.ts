@@ -177,7 +177,7 @@ test(
       await eventReader.cancel();
     }
 
-    const rendered = await worker.fetch(`/s/${post.id}?surface=0&ver=1&theme=gruvbox&mode=dark`, {
+    const rendered = await worker.fetch(`/s/${post.id}?surface=0&ver=1&mode=dark`, {
       headers: AUTH,
     });
     assert.equal(rendered.status, 200);
@@ -232,12 +232,9 @@ test(
       ["diff", /diffs-container/],
     ];
     for (const [index, [kind, pattern]] of richExpectations.entries()) {
-      const page = await worker.fetch(
-        `/s/${richPost.post.id}?surface=${index}&theme=github&mode=dark`,
-        {
-          headers: AUTH,
-        },
-      );
+      const page = await worker.fetch(`/s/${richPost.post.id}?surface=${index}&mode=dark`, {
+        headers: AUTH,
+      });
       const body = await page.text();
       assert.equal(page.status, 200, `${kind} surface failed to render: ${body.slice(0, 400)}`);
       assert.match(body, pattern, `${kind} surface rendered without the real renderer's markup`);
@@ -278,7 +275,7 @@ test(
     assert.equal(servedAsset.headers.get("x-content-type-options"), "nosniff");
     assert.deepEqual(new Uint8Array(await servedAsset.arrayBuffer()), bytes);
 
-    await expectJson(await worker.fetch("/api/theme", json({ id: "gruvbox" }, "PUT")), 200);
+    await expectJson(await worker.fetch("/api/theme", json({ mode: "light" }, "PUT")), 200);
 
     const pendingFeedback = worker.fetch(`/api/comments?session=${sessionId}&author=user&wait=2`, {
       headers: AUTH,
@@ -371,11 +368,11 @@ test(
     assert.equal(persisted.variants[0].version, 3);
     assert.equal(persisted.variants[0].surfaces[0].html, `${marker}<p>v3</p>`);
 
-    const persistedTheme = await expectJson<{ id: string }>(
+    const persistedTheme = await expectJson<{ mode: string }>(
       await worker.fetch("/api/theme", { headers: AUTH }),
       200,
     );
-    assert.equal(persistedTheme.id, "gruvbox");
+    assert.equal(persistedTheme.mode, "light");
 
     const persistedAsset = await worker.fetch(`/a/${asset.id}`, { headers: AUTH });
     assert.equal(persistedAsset.status, 200);

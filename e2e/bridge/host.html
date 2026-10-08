@@ -1,0 +1,130 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>parts-bridge host</title>
+    <style>
+      body {
+        margin: 0;
+        font: 13px system-ui;
+        background: #1d1f23;
+        color: #ddd;
+        display: flex;
+        gap: 16px;
+        padding: 16px;
+      }
+      #main {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      #strip {
+        display: flex;
+        gap: 6px;
+      }
+      #strip button {
+        background: #2b2e34;
+        color: #ddd;
+        border: 1px solid #3a3e46;
+        border-radius: 6px;
+        padding: 4px 10px;
+        cursor: pointer;
+      }
+      #strip button.on {
+        background: #3b6cf6;
+        border-color: #3b6cf6;
+        color: #fff;
+      }
+      #stage {
+        position: relative;
+        overflow: hidden;
+        background: #000;
+        border-radius: 6px;
+      }
+      #stage iframe {
+        position: absolute;
+        left: 0;
+        top: 0;
+        border: 0;
+        transform-origin: 0 0;
+        visibility: hidden;
+        background: #fff;
+      }
+      #stage iframe.on {
+        visibility: visible;
+      }
+      #layer {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+      }
+      .ov {
+        position: absolute;
+        pointer-events: none;
+        box-sizing: border-box;
+        border: 1px dashed #3b6cf680;
+        cursor: pointer;
+      }
+      .ov.hot {
+        border: 2px solid #3b6cf6;
+        background: #3b6cf614;
+      }
+      .ov.sel {
+        border: 2px solid #e0631c;
+        background: #e0631c14;
+      }
+      .ov .lbl {
+        display: none;
+        position: absolute;
+        left: -2px;
+        top: -20px;
+        background: #3b6cf6;
+        color: #fff;
+        font: 11px system-ui;
+        padding: 2px 6px;
+        border-radius: 4px;
+        white-space: nowrap;
+      }
+      .ov.hot .lbl,
+      .ov.sel .lbl {
+        display: block;
+      }
+      .ov.sel .lbl {
+        background: #e0631c;
+      }
+      #side {
+        width: 260px;
+      }
+      #side h3 {
+        margin: 0 0 8px;
+        font-size: 12px;
+        text-transform: uppercase;
+        color: #888;
+      }
+      #list div {
+        padding: 4px 6px;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      #list div.sel {
+        background: #e0631c33;
+      }
+      #list .st {
+        color: #888;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="main">
+      <div id="strip"></div>
+      <div id="stage"><div id="layer"></div></div>
+    </div>
+    <div id="side">
+      <h3>Parts (union by name)</h3>
+      <div id="list"></div>
+      <h3 style="margin-top: 14px">Selected</h3>
+      <div id="selinfo">none</div>
+    </div>
+    <script src="host.js"></script>
+  </body>
+</html>

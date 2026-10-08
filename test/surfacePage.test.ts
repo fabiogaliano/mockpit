@@ -4,6 +4,12 @@ import vm from "node:vm";
 import {
   BRIDGE_JS,
   escapeHtml,
+  KNOB_VALUE_SOURCE,
+  knobCss,
+  knobPreamble,
+  knobVars,
+  KNOBS_JS,
+  PARTS_JS,
   renderHtmlPage,
   renderMermaidPage,
   renderSandboxedPart,
@@ -144,17 +150,17 @@ test("every asset URL a surface document references resolves to registered bytes
   }
 });
 
-test("theme tokens are injected and resolve unknown/absent themes to the default", () => {
-  // an explicit known theme injects its tokens
-  const gruvbox = renderHtmlPage({
+test("theme tokens are injected and any theme id renders the one dialkit palette", () => {
+  // a retired theme id still injects tokens rather than crashing
+  const retired = renderHtmlPage({
     title: "t",
     html: "<p>x</p>",
     origin: ORIGIN,
     theme: "gruvbox",
   });
-  assert.ok(gruvbox.includes("--color-background-primary:"), "token CSS missing");
+  assert.ok(retired.includes("--color-background-primary:"), "token CSS missing");
 
-  // an unknown id or no theme both fall back to the default's tokens, never crash
+  // an unknown id or no theme both render the same tokens, never crash
   const unknown = renderHtmlPage({ title: "t", html: "<p>x</p>", origin: ORIGIN, theme: "bogus" });
   const none = renderHtmlPage({ title: "t", html: "<p>x</p>", origin: ORIGIN });
   assert.ok(unknown.includes("--color-text-primary:"));
@@ -195,7 +201,7 @@ test("a pinned mode forces color-scheme into both html surfaces and transparent 
   // this pin the UA paints a white canvas behind the transparent body and the
   // dark-mode text washes out. Pinning it makes the canvas track the dark card.
   const rich = renderSandboxedPart({ body: "x", css: "", origin: ORIGIN, mode: "dark" });
-  const dark = themeById("github").dark;
+  const dark = themeById().dark;
   assert.ok(
     /:root\{color-scheme:dark\}/.test(rich),
     "rich frame must pin color-scheme so the UA canvas isn't white in dark mode",
@@ -225,17 +231,17 @@ test("a pinned mode forces color-scheme into both html surfaces and transparent 
 });
 
 test("a mermaid page pins mermaid's derived colors to the scheme so the whole diagram flips", () => {
-  const theme = themeById("github");
+  const theme = themeById();
   const dark = renderMermaidPage({
     mermaid: "graph TD; A-->B",
     origin: ORIGIN,
-    theme: "github",
+    theme: "dialkit",
     mode: "dark",
   });
   const light = renderMermaidPage({
     mermaid: "graph TD; A-->B",
     origin: ORIGIN,
-    theme: "github",
+    theme: "dialkit",
     mode: "light",
   });
 
@@ -282,7 +288,7 @@ test("a mermaid page pins mermaid's derived colors to the scheme so the whole di
 });
 
 test("a no-mode mermaid page chooses the user's system scheme in the iframe", () => {
-  const auto = renderMermaidPage({ mermaid: "graph TD; A-->B", origin: ORIGIN, theme: "github" });
+  const auto = renderMermaidPage({ mermaid: "graph TD; A-->B", origin: ORIGIN, theme: "dialkit" });
   assert.ok(
     auto.includes("matchMedia('(prefers-color-scheme: dark)')"),
     "direct no-mode mermaid load should read the browser's system scheme",
@@ -602,4 +608,272 @@ test("a surface with no project design injects nothing at all", () => {
   const page = renderHtmlPage({ title: "t", html: "<p>x</p>", origin: ORIGIN, design: null });
   assert.ok(!page.includes("kit-builtin"));
   assert.equal(cspDirectives(page)["connect-src"].includes(`${ORIGIN}/a/`), false);
+});
+
+// --- stage bridge: parts and knobs -----------------------------------------------
+
+test("an html surface links the parts and knobs bridges and tags the document version", () => {
+  const page = renderHtmlPage({ title: "t", html: "<p>x</p>", origin: ORIGIN, version: 7 });
+  const scripts = assetPaths(page, "js");
+  for (const [name, body] of [
+    ["parts", PARTS_JS],
+    ["knobs", KNOBS_JS],
+  ] as const) {
+    const path = scripts.find((p) => p.startsWith(`${STATIC_ASSET_PREFIX}${name}.`));
+    assert.ok(path, `${name} bridge must be linked`);
+    assert.equal(staticAsset(path!)!.body, body);
+  }
+  assert.ok(page.includes('window.__mockpitDoc={"version":7,"knobs":{}}'));
+  // the highlight is a class in the base stylesheet, not a style element the
+  // parts observer would see being inserted
+  const base = assetPaths(page, "css").find((p) => p.startsWith(`${STATIC_ASSET_PREFIX}base.`));
+  assert.ok(staticAsset(base!)!.body.includes(".mockpit-part-hl{"));
+  // rich kinds carry no agent markup, so no parts
+  const rich = renderSandboxedPart({ body: "x", css: "", origin: ORIGIN });
+  assert.ok(!rich.includes("/asset/parts."), "rich frames do not load the parts bridge");
+});
+
+test("the parts bridge keeps the protocol the host codes against", () => {
+  // report triggers, including WebKit's missing initial ResizeObserver callback
+  for (const needle of [
+    "type = 'parts'",
+    "[50, 150, 400, 1000]",
+    "new ResizeObserver",
+    "new MutationObserver",
+    "'animationend'",
+    "'transitionend'",
+    "document.fonts.ready",
+    "addEventListener('scroll'",
+    // our own highlight flip is swallowed before the observer callback runs
+    "mo.takeRecords()",
+    "elementFromPoint",
+    "type: 'hit'",
+    "e.source !== parent",
+  ]) {
+    assert.ok(PARTS_JS.includes(needle), `parts bridge lost ${needle}`);
+  }
+});
+
+test("knob values are baked into the html tag and head script with every sink escaped", () => {
+  const hostile = `a"b<c;d}e</script><script>alert(1)</script>`;
+  const { htmlTag, headScript } = knobPreamble(3, {
+    size: 18,
+    face: "serif",
+    "body.label": hostile,
+    "card.on": true,
+    pad: { x: 0.5, y: -1 },
+  });
+  // attributes: the value round-trips, nothing breaks out of the quotes or the tag
+  assert.ok(htmlTag.startsWith('<html lang="en" '));
+  assert.equal(htmlTag.indexOf("<", 1), -1, "no second tag can open inside <html>");
+  assert.equal(htmlTag.indexOf(">"), htmlTag.length - 1, "the tag ends exactly once");
+  assert.ok(htmlTag.includes(' data-k-size="18"'));
+  assert.ok(htmlTag.includes(' data-k-face="serif"'));
+  assert.ok(htmlTag.includes(' data-k-card-on="true"'));
+  assert.ok(!htmlTag.includes("data-k-pad="), "objects get no attribute");
+  const attrs = [...htmlTag.matchAll(/ ([\w-]+)="([^"]*)"/g)].map((m) => [m[1], m[2]]);
+  const unescape = (s: string) =>
+    s
+      .replace(/&quot;/g, '"')
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&");
+  const attr = Object.fromEntries(attrs.map(([k, v]) => [k, unescape(v)]));
+  assert.equal(attr["data-k-body-label"], hostile);
+
+  // CSS: numbers raw, a hostile string becomes ONE quoted CSS string, so its
+  // `;` and `}` can't end the declaration or the block
+  assert.equal(
+    attr.style,
+    [
+      "--k-size:18",
+      "--k-face:serif",
+      `--k-body-label:"a\\"b<c;d}e</script><script>alert(1)</script>"`,
+      "--k-card-on:1",
+      "--k-pad-x:0.5",
+      "--k-pad-y:-1",
+    ].join(";"),
+  );
+
+  // script: one closing tag (its own), and the JSON parses back to the values
+  assert.equal(headScript.match(/<\/script>/g)!.length, 1);
+  assert.ok(
+    !headScript.slice("<script>".length, -"</script>".length).includes("<"),
+    "no `<` inside the script body",
+  );
+  const json = headScript.slice("<script>window.__mockpitDoc=".length, -";</script>".length);
+  assert.deepEqual(JSON.parse(json), {
+    version: 3,
+    knobs: {
+      size: 18,
+      face: "serif",
+      "body.label": hostile,
+      "card.on": true,
+      pad: { x: 0.5, y: -1 },
+    },
+  });
+});
+
+test("a knob string escapes quotes, backslashes and control characters as a CSS string", () => {
+  assert.equal(knobCss("12px"), "12px");
+  assert.equal(knobCss("#8b7bff"), "#8b7bff");
+  assert.equal(knobCss("oklch(0.6 0.2 260 / 50%)"), "oklch(0.6 0.2 260 / 50%)");
+  assert.equal(knobCss(""), '""');
+  assert.equal(knobCss('say "hi"'), '"say \\"hi\\""');
+  assert.equal(knobCss("a\\b"), '"a\\\\b"');
+  assert.equal(knobCss("x;}y"), '"x;}y"');
+  assert.equal(knobCss("tab\there:"), '"tab\\9 here:"');
+  assert.equal(knobCss(false), "0");
+  assert.equal(knobCss(Number.NaN), null);
+  assert.equal(knobCss({ x: 1 }), null);
+});
+
+test("the in-frame knob mapping matches the server's for baked and live values alike", () => {
+  const ctx: Record<string, any> = {};
+  vm.createContext(ctx);
+  vm.runInContext(KNOB_VALUE_SOURCE, ctx);
+  const samples: unknown[] = [
+    0,
+    -2.5,
+    true,
+    false,
+    "serif",
+    "",
+    "rgb(1, 2, 3)",
+    'a"b<c;d}e',
+    "back\\slash",
+    "line\u0007bell",
+    "café",
+    { x: 1, y: "q;" },
+    { stiffness: 200, damping: 20, type: "spring" },
+    { "bad key": 1, ok: 2 },
+  ];
+  for (const v of samples) {
+    const label = JSON.stringify(v);
+    assert.equal(ctx.__kCss(v), knobCss(v), `css ${label}`);
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(ctx.__kVars("body.size", v))),
+      knobVars("body.size", v),
+      `vars ${label}`,
+    );
+  }
+  assert.ok(ctx.__kPathRe.test("body.size") && !ctx.__kPathRe.test("a b"));
+});
+
+test("an html document carries the baked knobs on <html>", () => {
+  const page = renderHtmlPage({
+    title: "t",
+    html: "<p>x</p>",
+    origin: ORIGIN,
+    version: 2,
+    knobs: { size: 20, face: "mono" },
+  });
+  assert.ok(
+    page.includes(
+      '<html lang="en" data-k-size="20" data-k-face="mono" style="--k-size:20;--k-face:mono">',
+    ),
+  );
+});
+
+// --- /s/:id?k= -------------------------------------------------------------------
+
+async function knobApp() {
+  const { createApp } = await import("../server/app.ts");
+  const { SqlStore } = await import("../server/sqlStore.ts");
+  const { createSqliteStorage } = await import("../server/sqliteStorage.ts");
+  const app = createApp({
+    store: new SqlStore(createSqliteStorage()),
+    viewerHtml: "<html><head></head><body>viewer</body></html>",
+    guideMarkdown: "# guide",
+    setupText: "# setup",
+    agentHowtoText: "# agent how-to",
+  });
+  const publish = async (body: Record<string, unknown>) => {
+    const res = await app.request("/api/mocks", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ project: "demo", ...body }),
+    });
+    assert.ok(res.status < 300, `publish failed ${res.status}`);
+    return (await res.json()) as { post: { id: string; version: number } };
+  };
+  const out = await publish({
+    mock: "card",
+    html: '<h1 data-part="title" data-k-bind="label">T</h1>',
+    knobs: { size: [17, 12, 24], label: "Hello" },
+    variantKnobs: { face: { type: "select", options: ["serif", "mono"] } },
+  });
+  const s = (k: unknown, extra = "") =>
+    app.request(
+      `/s/${out.post.id}?surface=0&ver=1&mode=dark${extra}&k=${encodeURIComponent(
+        typeof k === "string" ? k : JSON.stringify(k),
+      )}`,
+    );
+  return { app, publish, id: out.post.id, s };
+}
+
+test("/s/:id?k= bakes declared mock and variant knobs under the sandbox CSP header", async () => {
+  const { s } = await knobApp();
+  const res = await s({ size: 20, face: "mono", label: 'a"b<c;d}e' });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("content-security-policy"), "sandbox allow-scripts");
+  assert.equal(res.headers.get("x-content-type-options"), "nosniff");
+  assert.match(res.headers.get("cache-control") ?? "", /immutable/);
+  const doc = await res.text();
+  assert.ok(doc.includes(' data-k-size="20"'), "mock-level knob baked");
+  assert.ok(doc.includes(' data-k-face="mono"'), "variant-level knob baked");
+  assert.ok(doc.includes(' data-k-label="a&quot;b&lt;c;d}e"'), "string value escaped");
+  // the html-surface CSP is unchanged by knobs: no connect-src widening
+  const connect = cspDirectives(doc)["connect-src"];
+  assert.deepEqual(connect, ALLOWED_CDNS);
+});
+
+test("/s/:id?k= refuses undeclared, out-of-range and malformed values with 400", async () => {
+  const { s } = await knobApp();
+  for (const [why, k] of [
+    ["out of range", { size: 99 }],
+    ["wrong type", { size: "20" }],
+    ["not an option", { face: "comic" }],
+    ["undeclared", { color: "#fff" }],
+    ["not an object", [1, 2]],
+    ["not JSON", "{size:"],
+  ] as const) {
+    const res = await s(k);
+    assert.equal(res.status, 400, why);
+    // the error never comes back as a document anything could execute in
+    assert.equal(res.headers.get("content-security-policy"), "sandbox allow-scripts", why);
+    assert.ok(!(await res.text()).includes("<html"), why);
+  }
+});
+
+test("the render cache keys on the canonical knob values", async () => {
+  const { app, id, s } = await knobApp();
+  const plain = await (await app.request(`/s/${id}?surface=0&ver=1&mode=dark`)).text();
+  const a = await (await s({ size: 20, face: "mono" })).text();
+  const b = await (await s({ face: "mono", size: 20 })).text();
+  const c = await (await s({ size: 21, face: "mono" })).text();
+  // a cached plain document is never served for a knob URL, or vice versa
+  assert.ok(!plain.includes("data-k-size"));
+  assert.ok(a.includes(' data-k-size="20"'));
+  assert.equal(a, b, "key order does not change the document");
+  assert.ok(c.includes(' data-k-size="21"'), "different values are a different entry");
+  const again = await (await app.request(`/s/${id}?surface=0&ver=1&mode=dark`)).text();
+  assert.equal(again, plain);
+  // an empty set is the plain document
+  assert.equal(await (await s({})).text(), plain);
+});
+
+test("/s/:id?k= is revalidated against the knobs declared now, even for a pinned version", async () => {
+  const { publish, s } = await knobApp();
+  assert.equal((await s({ size: 20 })).status, 200);
+  // a later publish narrows the mock-level knob; the cached document must not
+  // keep serving a value the schema no longer allows
+  await publish({
+    mock: "card",
+    state: undefined,
+    variant: "other",
+    html: "<p/>",
+    knobs: { size: [14, 12, 16] },
+  });
+  assert.equal((await s({ size: 20 })).status, 400);
 });

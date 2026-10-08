@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  DEFAULT_MODE,
   DEFAULT_THEME_ID,
+  DIALKIT,
+  isMode,
   type Palette,
   paletteFromCssVars,
   THEMES,
@@ -40,37 +43,41 @@ function assertPalette(p: Palette, where: string) {
   }
 }
 
-test("every registered theme has a complete light and dark palette", () => {
-  assert.ok(THEMES.length > 0);
-  const ids = new Set<string>();
-  for (const t of THEMES) {
-    assert.ok(t.id, "theme needs an id");
-    assert.ok(!ids.has(t.id), `duplicate theme id: ${t.id}`);
-    ids.add(t.id);
-    assert.ok(t.label, `${t.id} needs a label`);
-    assert.ok(t.shiki.light && t.shiki.dark, `${t.id} needs both shiki themes`);
-    assertPalette(t.light, `${t.id}.light`);
-    assertPalette(t.dark, `${t.id}.dark`);
+test("the registry is the one dialkit theme with complete light and dark palettes", () => {
+  assert.deepEqual(
+    THEMES.map((t) => t.id),
+    ["dialkit"],
+  );
+  assert.equal(DEFAULT_THEME_ID, "dialkit");
+  assert.ok(DIALKIT.shiki.light && DIALKIT.shiki.dark, "needs both shiki themes");
+  assertPalette(DIALKIT.light, "dialkit.light");
+  assertPalette(DIALKIT.dark, "dialkit.dark");
+});
+
+// Pinned to the prototype's tokens (final.css :root and [data-theme="light"]),
+// so a palette edit is a conscious change here, not drift.
+test("dialkit carries the prototype's page, text and accent colours", () => {
+  assert.equal(DIALKIT.dark.bg, "#0f0f0f");
+  assert.equal(DIALKIT.dark.text, "#f5f5f5");
+  assert.equal(DIALKIT.dark.info.text, "#8b7bff");
+  assert.equal(DIALKIT.dark.success.text, "#4ade80");
+  assert.equal(DIALKIT.light.bg, "#fafafa");
+  assert.equal(DIALKIT.light.text, "#1a1a1a");
+  assert.equal(DIALKIT.light.info.text, "#2563eb");
+  assert.equal(DIALKIT.light.success.text, "#2b9348");
+});
+
+test("any theme id, retired or unknown, resolves to dialkit", () => {
+  for (const id of [null, undefined, "", "github", "gruvbox", "one", "nonexistent"]) {
+    assert.equal(themeById(id), DIALKIT);
   }
+  assert.deepEqual(themeOptions(), [{ id: "dialkit", label: "dialkit" }]);
 });
 
-test("the default theme id resolves to a registered theme", () => {
-  assert.ok(THEMES.some((t) => t.id === DEFAULT_THEME_ID));
-});
-
-test("themeById falls back to the default for null, undefined, and unknown ids", () => {
-  for (const bad of [null, undefined, "", "nonexistent"]) {
-    assert.equal(themeById(bad).id, DEFAULT_THEME_ID);
-  }
-  // a known id round-trips
-  assert.equal(themeById("gruvbox").id, "gruvbox");
-});
-
-test("themeOptions lists every theme as an id/label pair", () => {
-  const opts = themeOptions();
-  assert.equal(opts.length, THEMES.length);
-  assert.deepEqual(opts.map((o) => o.id).sort(), THEMES.map((t) => t.id).sort());
-  for (const o of opts) assert.ok(o.label.length > 0);
+test("the workspace mode defaults to dark and admits only light or dark", () => {
+  assert.equal(DEFAULT_MODE, "dark");
+  assert.ok(isMode("light") && isMode("dark"));
+  for (const bad of ["", "auto", "system", null, undefined, 1]) assert.ok(!isMode(bad));
 });
 
 test("viewerThemeCss emits chrome vars with a dark-scheme override for each theme", () => {
@@ -105,11 +112,11 @@ test("tokenThemeCss emits the agent-facing --color-* tokens for each theme", () 
 // media query, so a surface iframe renders the mode the chrome resolved rather
 // than re-deriving it from the OS across the frame boundary.
 test("a pinned mode forces the scheme with no prefers-color-scheme media query", () => {
-  const gh = themeById("github");
+  const gh = themeById();
 
   const dark = tokenThemeCss(gh, "dark");
   assert.ok(!dark.includes("@media"), "dark mode must not emit a media query");
-  // github dark surface is the html-part background-primary token
+  // the dark surface is the html-part background-primary token
   assert.ok(dark.includes(`--color-background-primary: ${gh.dark.surface}`), "dark bg token");
   assert.ok(!dark.includes(gh.light.surface), "dark output must not carry light values");
 
@@ -126,7 +133,7 @@ test("a pinned mode forces the scheme with no prefers-color-scheme media query",
 });
 
 test("omitting the mode preserves the OS media-query behavior unchanged", () => {
-  const gh = themeById("github");
+  const gh = themeById();
   for (const css of [tokenThemeCss(gh), tokenThemeCss(gh, undefined), viewerThemeCss(gh)]) {
     assert.ok(
       css.includes("@media (prefers-color-scheme: dark)"),

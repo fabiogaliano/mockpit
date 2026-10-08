@@ -11,7 +11,7 @@ import {
 
 const GENERATION = "1.2.3";
 const cardUrl = (version = "7", extra = "") =>
-  `https://board.test/s/post_1.png?card=1&theme=github&mode=dark&v=${version}&g=${GENERATION}${extra}`;
+  `https://board.test/s/post_1.png?card=1&theme=dialkit&mode=dark&v=${version}&g=${GENERATION}${extra}`;
 
 function plan(href: string) {
   const url = new URL(href);
@@ -54,10 +54,10 @@ test("social-card key pins version, theme, mode, and renderer generation", () =>
   const key = postScreenshotCacheKey("GET", url, "post_1", screenshot, GENERATION);
   assert.equal(
     key?.url,
-    "https://board.test/__cache/post-screenshot/post_1.png?surface=0&v=7&theme=github&mode=dark&g=1.2.3",
+    "https://board.test/__cache/post-screenshot/post_1.png?surface=0&v=7&theme=dialkit&mode=dark&g=1.2.3",
   );
   assert.equal(screenshot.checkUrl.searchParams.get("ver"), "7");
-  assert.equal(screenshot.checkUrl.searchParams.get("theme"), "github");
+  assert.equal(screenshot.checkUrl.searchParams.get("theme"), "dialkit");
   assert.equal(screenshot.checkUrl.searchParams.get("mode"), "dark");
   assert.doesNotMatch(key!.url, /utm/);
 });
@@ -68,8 +68,8 @@ test("only canonical, fully pinned metadata cards are cacheable", () => {
     ["non-card", cardUrl().replace("card=1&", ""), "GET", GENERATION],
     ["HEAD", cardUrl(), "HEAD", GENERATION],
     ["nocache", cardUrl("1", "&nocache"), "GET", GENERATION],
-    ["missing theme", cardUrl().replace("theme=github&", ""), "GET", GENERATION],
-    ["unknown theme", cardUrl().replace("theme=github", "theme=made-up"), "GET", GENERATION],
+    ["missing theme", cardUrl().replace("theme=dialkit&", ""), "GET", GENERATION],
+    ["unknown theme", cardUrl().replace("theme=dialkit", "theme=made-up"), "GET", GENERATION],
     ["missing mode", cardUrl().replace("mode=dark&", ""), "GET", GENERATION],
     ["OS mode", cardUrl().replace("mode=dark", "mode=os"), "GET", GENERATION],
     ["missing generation", cardUrl().replace(`&g=${GENERATION}`, ""), "GET", GENERATION],

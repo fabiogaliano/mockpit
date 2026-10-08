@@ -20,7 +20,7 @@ export async function startMockpitServer(
     env: {
       ...process.env,
       PORT: "0",
-      MOCKPIT_DATA: join(dataDir, "data.json"),
+      MOCKPIT_DB: join(dataDir, "mockpit.db"),
       // empty = no version = no update check: keeps tests off the network
       // and the update banner out of the DOM
       MOCKPIT_VERSION: "",
