@@ -5,7 +5,7 @@
 
 import { batch, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { createStore } from "solid-js/store";
-import type { Ask, KnobValue, ReplyDecision } from "../../server/types.ts";
+import type { Ask, KnobValue, PartCommentAnchor, ReplyDecision } from "../../server/types.ts";
 import { api, type CommentRow, type DraftInput, type MockDetail, subscribe } from "./api.ts";
 import { host } from "./host.ts";
 import {
@@ -62,6 +62,10 @@ export function createMockScreen(project: string, slug: string) {
   // "No, all <look>" is an answer even though it borrows nothing.
   const [mixTouched, setMixTouched] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  // The Mark tool (D11): while on, a click on the stage leaves a comment there.
+  const [marking, setMarking] = createSignal(false);
+  // Thread's comment field; a frame's sendPrompt fills it.
+  const [threadText, setThreadText] = createSignal("");
   // Where Tune's knob controls mount: tunekit's pane is moved into it while Tune is open.
   const [tuneHost, setTuneHost] = createSignal<HTMLElement | null>(null);
   // The stage frames' latest parts reports, keyed by frameKey(state, variant).
@@ -423,11 +427,47 @@ export function createMockScreen(project: string, slug: string) {
       return d;
     });
   }
-  function addComment(part: string | null, state: string | null, text: string) {
+  function addComment(
+    part: string | null,
+    state: string | null,
+    text: string,
+    anchor?: PartCommentAnchor,
+  ) {
     writeDraft((d) => {
-      d.comments.push({ part, state, text });
+      d.comments.push(anchor ? { part, state, text, anchor } : { part, state, text });
       return d;
     });
+  }
+  // A frame's sendPrompt: the text waits in Thread for the user to send it,
+  // never straight to the agent.
+  function prefill(text: string) {
+    setThreadText(text);
+    setMarking(false);
+    if (mode() !== "thread") setMode("thread");
+  }
+  async function postComment(text: string) {
+    const m = mock();
+    if (!m) return false;
+    try {
+      await api.comment(m.id, text);
+      setThreadText("");
+      await loadComments();
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return false;
+    }
+  }
+  // D13: un-archive a variant in each of the given states.
+  async function restoreVariant(variant: string, inStates: (string | null)[]) {
+    const m = mock();
+    if (!m) return;
+    try {
+      for (const st of inStates) await api.restoreVariant(m.id, st, variant);
+      await loadMock();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }
   // Tune's writer (phase 4b): one tuned knob value into the draft.
   function setTuned(path: string, value: KnobValue | undefined) {
@@ -563,6 +603,13 @@ export function createMockScreen(project: string, slug: string) {
     toggleMix,
     undoMix,
     addComment,
+    marking,
+    setMarking,
+    threadText,
+    setThreadText,
+    prefill,
+    postComment,
+    restoreVariant,
     setTuned,
     replaceTuned,
     knobContext,

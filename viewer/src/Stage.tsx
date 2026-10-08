@@ -23,7 +23,7 @@ import {
 import { createStore } from "solid-js/store";
 import { isSandboxedSurfaceKind, type Surface } from "../../server/types.ts";
 import { assetUrl, surfaceUrl, type VariantView } from "./api.ts";
-import { host } from "./host.ts";
+import { host, readonly, root } from "./host.ts";
 import { JsonTree } from "./JsonTree.tsx";
 import {
   createHitRefs,
@@ -31,7 +31,10 @@ import {
   frameKey,
   historyRow,
   layoutPins,
+  markPins,
+  nextMark,
   type PartBox,
+  partBox,
   type PartsReport,
   reportIsCurrent,
 } from "./logic.ts";
@@ -43,14 +46,40 @@ import { narrow, win } from "./viewport.ts";
 
 const num = (v: unknown, d = 0) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const MAX_TEXT = 200;
-const text = (v: unknown) => String(v ?? "").slice(0, MAX_TEXT);
+const text = (v: unknown, max = MAX_TEXT) => String(v ?? "").slice(0, max);
+const MAX_PROMPT = 4000;
+const MAX_SELECTOR = 500;
+
+// A mark being placed: where the click landed (document px and normalized to
+// the document box), then what the frame says is there, as it arrives.
+interface PendingMark {
+  ref: number;
+  x: number;
+  y: number;
+  offset: [number, number];
+  part?: string | null;
+  selector?: string;
+  quote?: string;
+  rect?: [number, number, number, number];
+}
+
+const httpUrl = (v: unknown): string | null => {
+  try {
+    const u = new URL(String(v));
+    return u.protocol === "http:" || u.protocol === "https:" ? u.href : null;
+  } catch {
+    return null;
+  }
+};
 
 // Everything a frame says is untrusted: copy out plain strings and numbers only.
 function readReport(d: Record<string, unknown>): PartsReport | null {
   if (!Array.isArray(d.parts)) return null;
   const scroll = (d.scroll ?? {}) as Record<string, unknown>;
+  const viewport = (d.viewport ?? {}) as Record<string, unknown>;
   return {
     version: num(d.version),
+    width: num(viewport.w, FRAME_W) || FRAME_W,
     height: num(d.height),
     scroll: { x: num(scroll.x), y: num(scroll.y) },
     parts: d.parts.slice(0, 200).flatMap((p: Record<string, unknown>) => {
@@ -89,6 +118,7 @@ export function Stage(props: { s: MockScreenState }) {
   >();
   const refs = createHitRefs();
   const [vbtn, setVbtn] = createSignal<HTMLElement>();
+  const [pending, setPending] = createSignal<PendingMark | null>(null);
 
   const multiState = () => s.states().length > 1;
   const banner = () => s.viewVersion() !== null || s.boundVersion() !== null;
@@ -140,8 +170,33 @@ export function Stage(props: { s: MockScreenState }) {
       const part = d.part == null ? null : text(d.part);
       if (kind === "hover") s.setHoverPart(part);
       else if (kind === "click") s.selectPart(part);
+      else if (kind === "mark") updatePending(d.ref, { part });
+    } else if (d.type === "hit-test-result" && info.primary && info.key === activeKey()) {
+      const r = Array.isArray(d.rect) ? d.rect.slice(0, 4).map((v) => num(v)) : [];
+      updatePending(d.ref, {
+        selector: text(d.path, MAX_SELECTOR) || undefined,
+        quote: text(d.text) || undefined,
+        rect: r.length === 4 ? (r as [number, number, number, number]) : undefined,
+      });
+    } else if (info.key === activeKey()) {
+      // The page's own channels to the user, honoured only from what is on stage.
+      if (d.type === "send-prompt") {
+        const t = text(d.text, MAX_PROMPT).trim();
+        if (t && !readonly()) s.prefill(t);
+      } else if (d.type === "open-link") {
+        const url = httpUrl(d.url);
+        if (url) host().window.open(url, "_blank", "noopener");
+      } else if (d.type === "copy") {
+        void host()
+          .window.navigator.clipboard?.writeText(text(d.text, MAX_PROMPT))
+          .catch(() => {});
+      }
     }
   };
+  function updatePending(ref: unknown, patch: Partial<PendingMark>) {
+    const p = pending();
+    if (p && p.ref === ref) setPending({ ...p, ...patch });
+  }
   host().window.addEventListener("message", onMessage);
   onCleanup(() => host().window.removeEventListener("message", onMessage));
 
@@ -151,14 +206,27 @@ export function Stage(props: { s: MockScreenState }) {
       post(key, part ? { type: "highlight", parts: [part] } : { type: "clear" });
     }),
   );
-  // Switching what is on stage drops the old frame's hover.
+  // Switching what is on stage drops the old frame's hover and a half-placed mark.
   createEffect(
     on(activeKey, (_k, prev) => {
       if (prev) post(prev, { type: "clear" });
       s.setHoverPart(null);
       refs.leave();
+      setPending(null);
     }),
   );
+  createEffect(() => {
+    if (!s.marking()) setPending(null);
+  });
+  onMount(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || !s.marking()) return;
+      if (pending()) setPending(null);
+      else s.setMarking(false);
+    };
+    root().addEventListener("keydown", onKey);
+    onCleanup(() => root().removeEventListener("keydown", onKey));
+  });
 
   const activeH = () => contentH[activeKey()] ?? 640;
   const layersH = () => Math.min(activeH() * scale(), Math.max(200, availH()));
@@ -205,6 +273,8 @@ export function Stage(props: { s: MockScreenState }) {
                 frames={frames}
                 refs={refs}
                 post={(msg) => post(frameKey(variant.state, variant.variant), msg)}
+                pending={pending()}
+                setPending={setPending}
                 onContent={(h) => setContentH(frameKey(variant.state, variant.variant), h)}
                 onReload={() => setReports(frameKey(variant.state, variant.variant), undefined)}
                 height={contentH[frameKey(variant.state, variant.variant)] ?? 640}
@@ -254,18 +324,61 @@ function StageHead(props: { s: MockScreenState; anchor: (el: HTMLElement) => voi
         <div class="variant-switch" role="tablist" aria-label="Variant">
           <For each={siblings()}>
             {(x) => (
-              <button
-                type="button"
-                role="tab"
-                aria-selected={x.variant === v()?.variant}
-                classList={{ on: x.variant === v()?.variant }}
-                onClick={() => s.chooseVariant(x.variant)}
-              >
-                {x.variant}
-              </button>
+              <>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={x.variant === v()?.variant}
+                  classList={{ on: x.variant === v()?.variant, arch: x.status === "archived" }}
+                  data-variant={x.variant}
+                  title={x.status === "archived" ? `${x.variant} · archived` : undefined}
+                  onClick={() => s.chooseVariant(x.variant)}
+                >
+                  {x.variant}
+                  <Show when={x.status === "accepted"}>
+                    <span class="vok" aria-label="accepted">
+                      ✓
+                    </span>
+                  </Show>
+                </button>
+                <Show when={x.status === "archived" && !readonly()}>
+                  <button
+                    type="button"
+                    class="vrestore"
+                    aria-label={`Restore ${x.variant}`}
+                    onClick={() => void s.restoreVariant(x.variant, [x.state])}
+                  >
+                    restore
+                  </button>
+                </Show>
+              </>
             )}
           </For>
         </div>
+      </Show>
+      <Show when={!readonly()}>
+        <button
+          type="button"
+          class="markbtn"
+          classList={{ on: s.marking() }}
+          aria-pressed={s.marking()}
+          title="Mark: click the stage to leave a comment there (Esc to stop)"
+          onClick={() => s.setMarking(!s.marking())}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 21s-6-5.6-6-11a6 6 0 0 1 12 0c0 5.4-6 11-6 11Z" />
+            <circle cx="12" cy="10" r="2" />
+          </svg>
+          Mark
+        </button>
       </Show>
     </div>
   );
@@ -341,6 +454,8 @@ function VariantFrame(props: {
   frames: Map<HTMLIFrameElement, { key: string; index: number; primary: boolean; version: number }>;
   refs: ReturnType<typeof createHitRefs>;
   post: (msg: Record<string, unknown>) => void;
+  pending: PendingMark | null;
+  setPending: (p: PendingMark | null) => void;
   onContent: (h: number) => void;
   onReload: () => void;
   height: number;
@@ -483,6 +598,8 @@ function VariantFrame(props: {
           height={surfaceH(primary()) * props.scale}
           refs={props.refs}
           post={props.post}
+          pending={props.pending}
+          setPending={props.setPending}
         />
       </Show>
     </div>
@@ -497,6 +614,8 @@ function Overlay(props: {
   height: number;
   refs: ReturnType<typeof createHitRefs>;
   post: (msg: Record<string, unknown>) => void;
+  pending: PendingMark | null;
+  setPending: (p: PendingMark | null) => void;
 }) {
   const s = props.s;
   let layer!: HTMLDivElement;
@@ -518,16 +637,58 @@ function Overlay(props: {
           .sort((a, b) => b.depth - a.depth || a.order - b.order)[0]
       : undefined;
 
-  const hit = (e: MouseEvent, ref: number) => {
-    const r = props.report;
-    if (!r) return;
+  // The pointer in the frame's document px.
+  const docPoint = (e: MouseEvent) => {
+    const r = props.report!;
     const b = layer.getBoundingClientRect();
-    props.post({
-      type: "hit",
-      ref,
+    return {
       x: (e.clientX - b.left) / props.scale + r.scroll.x,
       y: (e.clientY - b.top) / props.scale + r.scroll.y,
+    };
+  };
+  const hit = (e: MouseEvent, ref: number) => {
+    if (!props.report) return;
+    props.post({ type: "hit", ref, ...docPoint(e) });
+  };
+  // One ref asks both questions: which part (hit) and which element (hit-test).
+  const mark = (e: MouseEvent) => {
+    const r = props.report;
+    if (!r || props.pending) return;
+    const p = docPoint(e);
+    const ref = props.refs.mark();
+    const offset: [number, number] = [
+      Math.max(0, Math.min(1, p.x / r.width)),
+      Math.max(0, Math.min(1, p.y / Math.max(1, r.height))),
+    ];
+    props.setPending({ ref, ...p, offset });
+    props.post({ type: "hit", ref, ...p });
+    props.post({ type: "hit-test", ref, x: offset[0], y: offset[1] });
+  };
+  const toView = (x: number, y: number) => {
+    const r = props.report!;
+    return { x: (x - r.scroll.x) * props.scale, y: (y - r.scroll.y) * props.scale };
+  };
+  const marks = createMemo(() =>
+    markPins(s.draft()?.comments ?? [], s.activeState(), props.report),
+  );
+  const save = (body: string) => {
+    const p = props.pending;
+    const r = props.report;
+    if (!p || !r) return;
+    const part = p.part ?? null;
+    const live = partBox(r, part);
+    const box = live
+      ? [live.x, live.y, live.w, live.h]
+      : p.rect
+        ? [p.rect[0] * r.width, p.rect[1] * r.height, p.rect[2] * r.width, p.rect[3] * r.height]
+        : [p.x, p.y, 0, 0];
+    s.addComment(part, s.activeState(), body, {
+      offset: p.offset,
+      ...(p.selector ? { selector: p.selector } : {}),
+      ...(p.quote ? { quote: p.quote } : {}),
+      box: box.map((v) => Math.round(v * 10) / 10),
     });
+    props.setPending(null);
   };
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
@@ -566,6 +727,7 @@ function Overlay(props: {
   return (
     <div
       class="overlay"
+      classList={{ marking: s.marking() }}
       ref={(el) => (layer = el)}
       style={{ top: `${props.top}px`, height: `${props.height}px` }}
       onPointerMove={(e) => hit(e, props.refs.hover())}
@@ -573,7 +735,7 @@ function Overlay(props: {
         props.refs.leave();
         s.setHoverPart(null);
       }}
-      onClick={(e) => hit(e, props.refs.click())}
+      onClick={(e) => (s.marking() ? mark(e) : hit(e, props.refs.click()))}
     >
       <Show when={props.report}>
         <Show when={box(focusPart())}>
@@ -596,8 +758,93 @@ function Overlay(props: {
         <Index each={partPins()}>
           {(p) => <Pin s={s} index={p().index} style={{ left: `${p().x}px`, top: `${p().y}px` }} />}
         </Index>
+        <Index each={marks()}>
+          {(m) => {
+            const at = () => toView(m().x, m().y);
+            return (
+              <button
+                type="button"
+                class="pin mark"
+                classList={{ moved: m().moved }}
+                style={{ left: `${at().x - 11}px`, top: `${at().y - 11}px` }}
+                title={`${m().part ?? "page"}: ${m().text}${m().moved ? " · may have moved" : ""}`}
+                data-mark={m().n}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  s.selectPart(m().part);
+                }}
+              >
+                {String(m().n)}
+              </button>
+            );
+          }}
+        </Index>
+        <Show when={props.pending}>
+          {(p) => (
+            <MarkField
+              n={nextMark(s.draft()?.comments ?? [])}
+              at={toView(p().x, p().y)}
+              width={layer.clientWidth}
+              height={props.height}
+              where={p().part === undefined ? "" : (p().part ?? "page")}
+              onSave={save}
+            />
+          )}
+        </Show>
       </Show>
     </div>
+  );
+}
+
+// The pin being placed and its comment field, kept inside the overlay's box.
+function MarkField(props: {
+  n: number;
+  at: { x: number; y: number };
+  width: number;
+  height: number;
+  where: string;
+  onSave: (text: string) => void;
+}) {
+  const [value, setValue] = createSignal("");
+  const W = 260;
+  const left = () => Math.max(4, Math.min(props.at.x + 16, props.width - W - 4));
+  const below = () => props.at.y + 16 + 76 < props.height;
+  const top = () => Math.max(4, below() ? props.at.y + 16 : props.at.y - 16 - 76);
+  const submit = () => {
+    const t = value().trim();
+    if (t) props.onSave(t);
+  };
+  return (
+    <>
+      <span
+        class="pin mark pending"
+        style={{ left: `${props.at.x - 11}px`, top: `${props.at.y - 11}px` }}
+        aria-hidden="true"
+      >
+        {String(props.n)}
+      </span>
+      <div
+        class="markfield"
+        style={{ left: `${left()}px`, top: `${top()}px`, width: `${W}px` }}
+        onClick={(e) => e.stopPropagation()}
+        onPointerMove={(e) => e.stopPropagation()}
+      >
+        <div class="markfield-hd">
+          {props.where ? `Mark ${props.n} · ${props.where}` : `Mark ${props.n}`}
+        </div>
+        <input
+          class="up-text-input"
+          placeholder="Comment, for the agent…"
+          aria-label={`Comment for mark ${props.n}`}
+          value={value()}
+          ref={(el) => queueMicrotask(() => el.focus())}
+          onInput={(e) => setValue(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+          }}
+        />
+      </div>
+    </>
   );
 }
 

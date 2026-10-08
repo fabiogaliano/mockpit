@@ -277,6 +277,10 @@ export interface CommentWait {
   author?: string;
   afterSeq?: number;
   waitSeconds: number;
+  // True only for the agent's own reads (feedbackFlow, authenticated
+  // author=user reads). The cursor moves for these alone: an anonymous reader on
+  // a public-read workspace must never "take" feedback the agent has not seen.
+  agent?: boolean;
 }
 
 // What every mock flow returns: a status and a JSON body. REST hands it to
@@ -1959,7 +1963,7 @@ export function createApp({
     const lastSeq = all.length > 0 ? all[all.length - 1].seq : (afterSeq ?? 0);
     // An author=user query is the agent listening (the viewer never filters by
     // author) — what it receives here must not be re-delivered as piggyback.
-    if (q.author === "user" && q.sessionId && all.length > 0) {
+    if (q.agent && q.author === "user" && q.sessionId && all.length > 0) {
       await store.markAgentSeen(q.sessionId, lastSeq);
       bus.broadcast({ type: "comment-seen", sessionId: q.sessionId, seq: lastSeq });
     }
@@ -1968,7 +1972,7 @@ export function createApp({
 
   // The agent's read: comments plus the batched feedback built from them.
   async function feedbackFlow(q: CommentWait, signal?: AbortSignal): Promise<FlowResult> {
-    const result = await waitForComments(q, signal);
+    const result = await waitForComments({ ...q, agent: true }, signal);
     const feedback = await buildFeedbackBatches(store, result.comments);
     return ok({ ...result, feedback });
   }
@@ -2463,7 +2467,11 @@ export function createApp({
     };
     // An `author=user` read (or any wait) is the agent listening; anything else
     // is the viewer reading a thread, which gets per-comment delivery state.
-    const isAgentRead = author === "user" || waitSeconds > 0;
+    // Only an authenticated caller can be the agent: on a public-read workspace
+    // an anonymous reader must never advance the feedback cursor, or the agent
+    // would silently lose the comments that reader "took".
+    const isAgentRead = isAuthenticated(c) && (author === "user" || waitSeconds > 0);
+    query.agent = isAgentRead;
     const respond = async (signal?: AbortSignal) => {
       if (isAgentRead) return send(c, await feedbackFlow(query, signal));
       const result = await waitForComments(query, signal);

@@ -1339,6 +1339,29 @@ test("viewer config: screenshots flag and readonly markers", async () => {
   assert.ok(page.includes('__MOCKPIT_PUBLIC_READ__="session"'));
 });
 
+test("public-read session mode: an anonymous author=user read never advances the agent cursor", async () => {
+  const app = makeApp("secret", { publicRead: "session" });
+  const first = await publish(app, { mock: "card", ...html('<p data-part="body">hi</p>') }, authed);
+  const mockId: string = first.mock.id;
+  const sessionId: string = first.sessionId;
+  await app.request("/api/comments", {
+    ...viewer({ mock: mockId, author: "user", text: "needs more air" }),
+    headers: { ...CT, "sec-fetch-site": "same-origin", authorization: "Bearer secret" },
+  });
+  const anon = await app.request(`/api/comments?session=${sessionId}&author=user`);
+  assert.equal(anon.status, 200);
+  const session = (await (
+    await app.request(`/api/sessions/${sessionId}`, { headers: { authorization: "Bearer secret" } })
+  ).json()) as { agentSeq: number };
+  assert.equal(session.agentSeq, 0);
+  const agentRead = (await (
+    await app.request(`/api/comments?session=${sessionId}&author=user`, {
+      headers: { authorization: "Bearer secret" },
+    })
+  ).json()) as { comments: unknown[] };
+  assert.equal(agentRead.comments.length, 1);
+});
+
 // --- auth -----------------------------------------------------------------------------------
 
 test("auth token guards everything but the docs; ?key= sets a cookie", async () => {

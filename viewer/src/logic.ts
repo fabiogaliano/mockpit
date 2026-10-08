@@ -1,7 +1,15 @@
 // Pure rules behind the mock screen — no DOM, no signals — so each one is
 // unit-tested on its own (viewer/test/logic.test.ts).
 
-import type { Ask, AskAnswer, KnobConfig, KnobValue, Knobs, Reply } from "../../server/types.ts";
+import type {
+  Ask,
+  AskAnswer,
+  KnobConfig,
+  KnobValue,
+  Knobs,
+  PartComment,
+  Reply,
+} from "../../server/types.ts";
 import type { CommentRow, DraftInput, HistoryRow, MockDetail, VariantView } from "./api.ts";
 
 type MockLike = Pick<MockDetail, "asks" | "states" | "title" | "knobs">;
@@ -195,7 +203,8 @@ export function summarizeReply(
   if (mix.length) parts.push(`mix ${mix.join(", ")}`);
   const tuned = Object.entries(reply.tuned).map(([k, v]) => `${k} ${fmtValue(v)}`);
   if (tuned.length) parts.push(`tuned ${tuned.join(", ")}`);
-  for (const c of reply.comments) parts.push(`${c.part ?? "page"}: “${c.text}”`);
+  const n = reply.comments.length;
+  if (n) parts.push(`${n} comment${n === 1 ? "" : "s"}`);
   if (reply.decision) parts.push(`${reply.decision.kind} ${reply.decision.variant}`);
   if (reply.text) parts.push(`“${reply.text}”`);
   return parts.length ? `Sent · ${parts.join(" · ")}` : "Sent";
@@ -240,11 +249,12 @@ export function carryOver(
 
 // Hover and click both ask the frame "what part is here?" and the replies come
 // back by ref. Only the latest hover counts (an older one is stale motion); every
-// click is answered once.
+// click and every mark is answered once.
 export function createHitRefs() {
   let n = 0;
   let hover = 0;
   const clicks = new Set<number>();
+  const marks = new Set<number>();
   return {
     hover(): number {
       hover = ++n;
@@ -255,9 +265,15 @@ export function createHitRefs() {
       clicks.add(ref);
       return ref;
     },
-    resolve(ref: unknown): "hover" | "click" | null {
+    mark(): number {
+      const ref = ++n;
+      marks.add(ref);
+      return ref;
+    },
+    resolve(ref: unknown): "hover" | "click" | "mark" | null {
       if (typeof ref !== "number") return null;
       if (clicks.delete(ref)) return "click";
+      if (marks.delete(ref)) return "mark";
       return ref === hover ? "hover" : null;
     },
     leave() {
@@ -278,6 +294,9 @@ export interface PartBox {
 export interface PartsReport {
   version: number;
   parts: PartBox[];
+  // The document box (frame width × body height) that mark offsets are
+  // normalized against, the same box the bridge's hit-test uses.
+  width: number;
   height: number;
   scroll: { x: number; y: number };
 }
@@ -336,7 +355,12 @@ export interface ThreadRow {
   quote?: string;
   seen?: boolean;
   id: string;
+  // A reply's comments, each with where it was left ("title · At rest").
+  comments?: { where: string; text: string }[];
 }
+
+export const commentWhere = (c: Pick<PartComment, "part" | "state">): string =>
+  c.state ? `${c.part ?? "page"} · ${c.state}` : (c.part ?? "page");
 
 // The thread (D8): agent publishes (from version history) and the comment log,
 // oldest first. An agent's ask or reply right after a publish reads as one row:
@@ -376,9 +400,13 @@ export function threadRows(
     }
     const c = e.c;
     if (c.author === "user" || c.author === "surface") {
-      const text =
-        c.kind === "reply" && c.payload ? summarizeReply(c.payload, mock) : c.text || "Sent";
-      rows.push({ who: "you", at: c.createdAt, text, seen: c.seen, id: c.id });
+      const reply = c.kind === "reply" ? c.payload : undefined;
+      const text = reply ? summarizeReply(reply, mock) : c.text || "Sent";
+      const row: ThreadRow = { who: "you", at: c.createdAt, text, seen: c.seen, id: c.id };
+      if (reply?.comments.length) {
+        row.comments = reply.comments.map((x) => ({ where: commentWhere(x), text: x.text }));
+      }
+      rows.push(row);
       lastPublish = null;
       continue;
     }
@@ -417,7 +445,10 @@ export const unanswered = (mock: MockLike, draft: DraftInput | null): Ask[] =>
   openAsks(mock).filter((a) => !answerIds(draft?.answers[a.id]).length);
 
 // The box a part occupies in a frame's document: its deepest visible instance.
-export function partBox(report: PartsReport | undefined, name: string | null | undefined) {
+export function partBox(
+  report: Pick<PartsReport, "parts"> | undefined,
+  name: string | null | undefined,
+) {
   if (!report || !name) return undefined;
   return report.parts
     .filter((p) => p.name === name && p.visible)
@@ -595,3 +626,73 @@ export function layoutPins(pins: PinSpot[], size = 22, gap = 6): PinSpot[] {
   }
   return placed;
 }
+
+// --- marks (D11): comments placed anywhere on the render ---
+
+export interface MarkPin {
+  // 1-based among the draft's marks, so a pin keeps its number across states.
+  n: number;
+  // Index in draft.comments.
+  index: number;
+  part: string | null;
+  text: string;
+  // Document px.
+  x: number;
+  y: number;
+  // Past the first step of the chain: the part it was left on is gone.
+  moved: boolean;
+}
+
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+const isBox = (b: unknown): b is [number, number, number, number] =>
+  Array.isArray(b) && b.length === 4 && b.every((v) => typeof v === "number" && Number.isFinite(v));
+
+// Where a mark sits in the document now (Q11). The host cannot run selectors or
+// match text inside the frame, so of the chain part → key → selector → quote →
+// last box only the two ends apply: on the part's live box (at the same
+// relative spot) while the part is there, else on the box it was left on,
+// flagged as possibly moved. Offsets are read against the current document box,
+// so a page that only grew taller keeps the pin inside its part.
+export function anchorPoint(
+  c: Pick<PartComment, "part" | "anchor">,
+  report: Pick<PartsReport, "parts" | "width" | "height">,
+): { x: number; y: number; moved: boolean } | null {
+  const a = c.anchor;
+  if (!a) return null;
+  const box = isBox(a.box) ? a.box : null;
+  const at =
+    a.offset && a.offset.every(Number.isFinite)
+      ? { x: a.offset[0] * report.width, y: a.offset[1] * report.height }
+      : box
+        ? { x: box[0] + box[2] / 2, y: box[1] + box[3] / 2 }
+        : null;
+  if (!at) return null;
+  if (c.part === null) return { ...at, moved: false };
+  const live = partBox(report, c.part);
+  if (!live) return { ...at, moved: true };
+  const rx = box && box[2] > 0 ? clamp01((at.x - box[0]) / box[2]) : 0.5;
+  const ry = box && box[3] > 0 ? clamp01((at.y - box[1]) / box[3]) : 0.5;
+  return { x: live.x + rx * live.w, y: live.y + ry * live.h, moved: false };
+}
+
+// The mark pins on stage for one state, numbered across the whole draft.
+export function markPins(
+  comments: PartComment[],
+  state: string | null,
+  report: Pick<PartsReport, "parts" | "width" | "height"> | undefined,
+): MarkPin[] {
+  const out: MarkPin[] = [];
+  let n = 0;
+  comments.forEach((c, index) => {
+    if (!c.anchor) return;
+    n++;
+    if (c.state !== state || !report) return;
+    const p = anchorPoint(c, report);
+    if (p) out.push({ n, index, part: c.part, text: c.text, ...p });
+  });
+  return out;
+}
+
+// The number the next mark gets.
+export const nextMark = (comments: PartComment[]): number =>
+  comments.filter((c) => c.anchor).length + 1;

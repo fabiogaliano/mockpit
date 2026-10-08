@@ -130,6 +130,21 @@ try {
   await shot(page, "versions-popover");
   await page.keyboard.press("Escape");
 
+  // The Mark tool: one mark left, a second one being written.
+  await page.goto(screen);
+  await page.locator(".opt").first().waitFor();
+  await page.locator(".markbtn").click();
+  const overlay = page.locator(".frame.on .overlay");
+  await overlay.click({ position: { x: 220, y: 120 } });
+  await page.locator(".markfield input").fill("This heading could carry more weight");
+  await page.locator(".markfield input").press("Enter");
+  await page.locator('.pin.mark[data-mark="1"]').waitFor();
+  await overlay.click({ position: { x: 520, y: 300 } });
+  await page.locator(".markfield input").fill("Less air between these");
+  await shot(page, "mark");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+
   // Tune with the body part selected, in both themes, with one knob moved so
   // the panel shows a tuned value.
   for (const theme of ["dark", "light"] as const) {

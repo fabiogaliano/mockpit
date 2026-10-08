@@ -13,6 +13,7 @@ import {
   askName,
   askState,
   frameKey,
+  isLookAsk,
   type MixOption,
   partBox,
   sendCount,
@@ -256,7 +257,7 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
                 partBox(s.reports[frameKey(p.state, p.variant.variant)], props.ask.part) ?? null
               );
             };
-            return (
+            const card = () => (
               <OptionCard
                 picture={pic() ? <Thumb class="crop" src={pic()!.src} focus={focus()} /> : null}
                 label={o.label}
@@ -267,6 +268,31 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
                 onLeave={() => s.preview()?.key === keyOf(o) && s.setPreview(null)}
                 onChoose={() => choose(o, state())}
               />
+            );
+            // D13: once the Look is sent its losers are archived; each stays restorable.
+            const archivedIn = () => {
+              if (!isLookAsk(props.ask) || props.ask.answer === undefined || !o.variant) return [];
+              const mine = s.variants().filter((v) => v.variant === o.variant);
+              return mine.length && mine.every((v) => v.status === "archived")
+                ? mine.map((v) => v.state)
+                : [];
+            };
+            return (
+              <Show when={archivedIn().length} fallback={card()}>
+                <div class="opt-arch" data-archived={o.variant}>
+                  {card()}
+                  <Show when={!readonly()}>
+                    <button
+                      type="button"
+                      class="vrestore"
+                      aria-label={`Restore ${o.label}`}
+                      onClick={() => void s.restoreVariant(o.variant!, archivedIn())}
+                    >
+                      restore
+                    </button>
+                  </Show>
+                </div>
+              </Show>
             );
           }}
         </For>

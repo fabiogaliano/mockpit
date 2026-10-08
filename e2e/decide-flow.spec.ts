@@ -374,3 +374,180 @@ test("every surface is a sandboxed /s/ frame; agent markup never enters the view
     expect(src?.startsWith("/s/")).toBe(true);
   }
 });
+
+// A mock with one marked part and room around it, published plain (no asks).
+async function publishCard(server: string, variant?: string) {
+  return agentCall(server, "/api/mocks", {
+    project: PROJECT,
+    mock: "card",
+    title: "Card",
+    agent: "e2e",
+    ...(variant ? { variant } : {}),
+    html: `<div style="padding:40px"><h1 data-part="title" style="margin:0;height:60px">Hello card</h1><p style="height:300px">Body (${variant ?? "default"})</p></div>`,
+  });
+}
+
+test("Mark: a pin on the stage, its comment and anchor in the reply, listed in Thread", async ({
+  page,
+  server,
+}) => {
+  const out = await publishCard(server.url);
+  const mockId = out.mock.id;
+  await page.goto(`${server.url}/project/${PROJECT}/card`);
+  const overlay = page.locator(".frame.on .overlay");
+  // The frame has reported its parts once hovering the title boxes it.
+  await overlay.hover({ position: { x: 120, y: 70 } });
+  await expect(overlay.locator('.box[data-part="title"]')).toHaveCount(1);
+
+  const markBtn = page.locator(".markbtn");
+  await markBtn.click();
+  await expect(markBtn).toHaveAttribute("aria-pressed", "true");
+  await overlay.click({ position: { x: 120, y: 70 } });
+  const field = page.locator(".markfield");
+  await expect(field.locator(".markfield-hd")).toHaveText("Mark 1 · title");
+  const write = page.waitForResponse(
+    (r) => r.url().endsWith(`/api/mocks/${mockId}/draft`) && r.request().method() === "PUT",
+  );
+  await field.locator("input").fill("make it louder");
+  await field.locator("input").press("Enter");
+  expect((await write).ok()).toBe(true);
+  await expect(field).toHaveCount(0);
+  const pin = overlay.locator('.pin.mark[data-mark="1"]');
+  await expect(pin).toHaveText("1");
+  await expect(pin).not.toHaveClass(/moved/);
+
+  // Esc leaves the tool; a click then selects instead of marking.
+  await page.keyboard.press("Escape");
+  await expect(markBtn).toHaveAttribute("aria-pressed", "false");
+
+  const { draft } = await viewerGet(page, `/api/mocks/${mockId}/draft`);
+  expect(draft.comments).toHaveLength(1);
+  const c = draft.comments[0];
+  expect([c.part, c.state, c.text]).toEqual(["title", null, "make it louder"]);
+  expect(c.anchor.offset).toHaveLength(2);
+  expect(c.anchor.selector).toContain("h1");
+  expect(c.anchor.quote).toBe("Hello card");
+  // The title's own box (the page's base styles add a body margin around the padding).
+  expect(c.anchor.box).toHaveLength(4);
+  expect(c.anchor.box[3]).toBe(60);
+
+  const reply = page.waitForResponse(
+    (r) => r.url().endsWith(`/api/mocks/${mockId}/reply`) && r.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Revise", exact: true }).click();
+  expect((await reply).status()).toBe(201);
+  const row = page.locator(".trow.you");
+  await expect(row).toContainText("Sent · 1 comment · revise default");
+  await expect(row.locator(".cline")).toHaveText("title “make it louder”");
+
+  const read = await agentCall(
+    server.url,
+    `/api/comments?session=${out.sessionId}&author=user&wait=5`,
+  );
+  expect(read.feedback).toHaveLength(1);
+  const sent = read.feedback[0].reply.comments;
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatchObject({ part: "title", text: "make it louder", anchor: c.anchor });
+});
+
+test("un-archive: a losing look is restored from the answered Look question", async ({
+  page,
+  server,
+}) => {
+  const { mockId } = await seedWriter(server.url);
+  await page.goto(`${server.url}${mockPath}`);
+  await expect(header(page)).toContainText("Question 1 of 3");
+  const status = await page.evaluate(async (id) => {
+    const r = await fetch(`/api/mocks/${id}/reply`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        version: 1,
+        answers: { look: "quiet", versions: "drawer", trim: "below" },
+        mix: {},
+        tuned: {},
+        comments: [],
+      }),
+    });
+    return r.status;
+  }, mockId);
+  expect(status).toBe(201);
+
+  await cornerPin(page, 1).click();
+  await expect(page.locator(".nm")).toHaveText("Look");
+  const dark = page.locator('.opt-arch[data-archived="dark"]');
+  await expect(dark).toHaveCount(1);
+  await expect(page.locator('.opt-arch[data-archived="editorial"]')).toHaveCount(1);
+  await expect(page.locator('.opt-arch[data-archived="quiet"]')).toHaveCount(0);
+  await dark.getByRole("button", { name: "Restore Dark" }).click();
+  await expect(dark).toHaveCount(0);
+  await expect(page.locator('.opt-arch[data-archived="editorial"]')).toHaveCount(1);
+  const detail = await agentCall(server.url, `/api/mocks/${mockId}`);
+  for (const v of detail.variants) {
+    const want = { quiet: "accepted", dark: "open", editorial: "archived" }[v.variant as string];
+    expect([v.state, v.variant, v.status]).toEqual([v.state, v.variant, want]);
+  }
+});
+
+test("un-archive: the variant switcher dims archived variants and restores them", async ({
+  page,
+  server,
+}) => {
+  const a = await publishCard(server.url, "a");
+  await agentCall(server.url, "/api/mocks", {
+    project: PROJECT,
+    mock: "card",
+    session: a.sessionId,
+    variant: "b",
+    html: "<p>b</p>",
+  });
+  await page.goto(`${server.url}/project/${PROJECT}/card`);
+  const sw = page.locator(".variant-switch");
+  await expect(sw.locator('[role="tab"]')).toHaveCount(2);
+  await sw.locator('[data-variant="a"]').click();
+  await page.getByRole("button", { name: "Accept", exact: true }).click();
+  await expect(sw.locator('[data-variant="a"] .vok')).toHaveText("✓");
+  const b = sw.locator('[data-variant="b"]');
+  await expect(b).toHaveClass(/arch/);
+  await sw.getByRole("button", { name: "Restore b" }).click();
+  await expect(b).not.toHaveClass(/arch/);
+  const detail = await agentCall(server.url, `/api/mocks/${a.mock.id}`);
+  const statuses = Object.fromEntries(
+    detail.variants.map((v: { variant: string; status: string }) => [v.variant, v.status]),
+  );
+  expect(statuses).toEqual({ a: "accepted", b: "open" });
+});
+
+test("bridge: sendPrompt from the frame on stage prefills Thread's comment; others are ignored", async ({
+  page,
+  server,
+}) => {
+  const { session } = await seedWriter(server.url);
+  await page.goto(`${server.url}${mockPath}`);
+  await expect(onStage(page)).toHaveAttribute("data-variant", "quiet");
+  await expect(partPin(page, 2)).toHaveCount(0);
+  // By URL rather than contentFrame(): WebKit can hand back null for a frame
+  // that is laid out but hidden. Retried, since a frame still settling (theme,
+  // version) is replaced by a new element and the old one detaches.
+  const prompt = (sel: string, text: string) =>
+    expect(async () => {
+      const src = await page.locator(sel).first().getAttribute("src");
+      const frame = page.frames().find((f) => f.url() === `${server.url}${src}`);
+      expect(frame).toBeTruthy();
+      // The bridge script loads after the body; wait until it defined the global.
+      await frame!.waitForFunction(() => typeof (window as any).sendPrompt === "function");
+      await frame!.evaluate((t) => (window as any).sendPrompt(t), text);
+    }).toPass();
+  await prompt('.frame:not(.on)[data-variant="dark"] iframe', "from a hidden frame");
+  await prompt(".frame.on iframe", "tighten the title");
+
+  await expect(page.locator('[data-mode="thread"]')).toHaveAttribute("aria-selected", "true");
+  const input = page.locator(".tcomment input");
+  await expect(input).toHaveValue("tighten the title");
+  await input.press("Enter");
+  await expect(input).toHaveValue("");
+  await expect(page.locator(".trow.you")).toContainText("tighten the title");
+  const read = await agentCall(server.url, `/api/comments?session=${session}&author=user&wait=5`);
+  expect(JSON.stringify(read.feedback)).toContain("tighten the title");
+  expect(JSON.stringify(read.feedback)).not.toContain("from a hidden frame");
+});

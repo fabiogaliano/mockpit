@@ -79,6 +79,12 @@ export const api = {
       `/api/mocks/${encodeURIComponent(id)}/variants/${encodeURIComponent(postId)}/restore`,
       json("POST", { version }),
     ),
+  // Un-archive one variant of one state (D13).
+  restoreVariant: (id: string, state: string | null, variant: string) =>
+    call<unknown>(`/api/mocks/${encodeURIComponent(id)}/restore`, json("POST", { state, variant })),
+  // A plain comment from the user, outside a reply.
+  comment: (mockId: string, text: string) =>
+    call<CommentRow>("/api/comments", json("POST", { mock: mockId, text, author: "user" })),
   comments: (mockId: string) =>
     call<{ comments: CommentRow[]; lastSeq: number }>(
       `/api/comments?mock=${encodeURIComponent(mockId)}`,

@@ -8,8 +8,11 @@ import {
   frameVersion,
   type KnobContext,
   knobAsk,
+  anchorPoint,
   layoutPins,
+  markPins,
   mixOptions,
+  nextMark,
   overriddenAsks,
   type PartBox,
   type PartsReport,
@@ -89,7 +92,7 @@ describe("summarizeReply", () => {
       mock,
     );
     expect(text).toBe(
-      "Sent · look quiet · trim below · versions open drawer · mix versions · editorial's · tuned body.size 18, toast.show off · title: “bigger”",
+      "Sent · look quiet · trim below · versions open drawer · mix versions · editorial's · tuned body.size 18, toast.show off · 1 comment",
     );
   });
 
@@ -140,6 +143,7 @@ describe("mixOptions", () => {
   const report = (...parts: PartBox[]): PartsReport => ({
     version: 1,
     parts,
+    width: 820,
     height: 600,
     scroll: { x: 0, y: 0 },
   });
@@ -238,6 +242,9 @@ describe("hit refs", () => {
     expect(refs.resolve(h2)).toBe("hover");
     expect(refs.resolve(c1)).toBe("click");
     expect(refs.resolve(c1)).toBe(null);
+    const m1 = refs.mark();
+    expect(refs.resolve(m1)).toBe("mark");
+    expect(refs.resolve(m1)).toBe(null);
     refs.leave();
     expect(refs.resolve(h2)).toBe(null);
     expect(refs.resolve("1")).toBe(null);
@@ -293,6 +300,84 @@ describe("versions and knobs", () => {
   });
 });
 
+describe("marks", () => {
+  const part = (name: string, x: number, y: number, w: number, h: number): PartBox => ({
+    name,
+    label: name,
+    box: { x, y, w, h },
+    visible: true,
+    depth: 0,
+    order: 0,
+  });
+  const doc = (...parts: PartBox[]) => ({ parts, width: 800, height: 400 });
+  // Left at (200, 100) on the title, whose box was 100,80 200×40: a quarter in, half down.
+  const onTitle = {
+    part: "title",
+    state: "At rest",
+    text: "bolder",
+    anchor: { offset: [0.25, 0.25] as [number, number], box: [100, 80, 200, 40] },
+  };
+
+  it("follows the part to its live box, at the same relative spot", () => {
+    expect(anchorPoint(onTitle, doc(part("title", 100, 80, 200, 40)))).toEqual({
+      x: 200,
+      y: 100,
+      moved: false,
+    });
+    expect(anchorPoint(onTitle, doc(part("title", 300, 200, 400, 80)))).toEqual({
+      x: 500,
+      y: 240,
+      moved: false,
+    });
+  });
+
+  it("stays inside the part when the document around it grew", () => {
+    const p = anchorPoint(onTitle, { ...doc(part("title", 100, 80, 200, 40)), height: 2000 });
+    expect(p).toEqual({ x: 200, y: 120, moved: false });
+  });
+
+  it("falls back to the last box, flagged, when the part is gone", () => {
+    expect(anchorPoint(onTitle, doc(part("body", 0, 0, 800, 400)))).toEqual({
+      x: 200,
+      y: 100,
+      moved: true,
+    });
+    const hidden = { ...part("title", 0, 0, 10, 10), visible: false };
+    expect(anchorPoint(onTitle, doc(hidden))?.moved).toBe(true);
+  });
+
+  it("places a page mark by its offset, or its box without one", () => {
+    const page = { part: null, anchor: { offset: [0.5, 0.5] as [number, number] } };
+    expect(anchorPoint(page, doc())).toEqual({ x: 400, y: 200, moved: false });
+    const boxOnly = { part: null, anchor: { box: [10, 20, 30, 40] } };
+    expect(anchorPoint(boxOnly, doc())).toEqual({ x: 25, y: 40, moved: false });
+    expect(anchorPoint({ part: null }, doc())).toBe(null);
+  });
+
+  it("numbers marks across the draft and shows only the state on stage", () => {
+    const comments = [
+      { part: "title", state: "At rest", text: "plain part comment" },
+      onTitle,
+      {
+        part: null,
+        state: "Lab open",
+        text: "here",
+        anchor: { offset: [0.1, 0.1] as [number, number] },
+      },
+      { ...onTitle, text: "again" },
+    ];
+    const pins = markPins(comments, "At rest", doc(part("title", 100, 80, 200, 40)));
+    expect(pins.map((p) => [p.n, p.index, p.text])).toEqual([
+      [1, 1, "bolder"],
+      [3, 3, "again"],
+    ]);
+    expect(markPins(comments, "Lab open", doc()).map((p) => p.n)).toEqual([2]);
+    expect(markPins(comments, "At rest", undefined)).toEqual([]);
+    expect(nextMark(comments)).toBe(4);
+    expect(nextMark([])).toBe(1);
+  });
+});
+
 describe("threadRows", () => {
   const comment = (over: Partial<CommentRow>): CommentRow =>
     ({
@@ -343,7 +428,10 @@ describe("threadRows", () => {
             answers: { look: "dark" },
             mix: {},
             tuned: {},
-            comments: [],
+            comments: [
+              { part: "title", state: "At rest", text: "bolder" },
+              { part: null, state: null, text: "here" },
+            ],
           },
         }),
         comment({ id: "t", text: "Done.", createdAt: "2026-01-01T00:00:06Z" }),
@@ -353,8 +441,12 @@ describe("threadRows", () => {
     );
     expect(rows.map((r) => [r.who, r.text, r.quote, r.seen])).toEqual([
       ["agent", "published v1 · asked 2", undefined, undefined],
-      ["you", "Sent · look dark", undefined, true],
+      ["you", "Sent · look dark · 2 comments", undefined, true],
       ["agent", "published v2 · replied:", "Done.", undefined],
+    ]);
+    expect(rows[1].comments).toEqual([
+      { where: "title · At rest", text: "bolder" },
+      { where: "page", text: "here" },
     ]);
   });
 });
