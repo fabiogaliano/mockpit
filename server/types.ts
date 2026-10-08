@@ -467,7 +467,33 @@ export interface DesignSettings {
   // Iconify sets installed for this project (`mockpit icons add`), on top of
   // the ones bundled with the server. Older settings predate it; read as [].
   iconSets: IconSetRef[];
+  // What the repo's DESIGN.md, DTCG token files and shadcn components.json
+  // say, read by init for the brief. Older settings predate it; read as null.
+  designFiles?: DesignFiles | null;
   updatedAt: string;
+}
+
+// Each part is present only when the repo has that file.
+export interface DesignFiles {
+  designMd?: {
+    name: string;
+    colors: Record<string, string>;
+    typography: Record<string, Record<string, string>>;
+    rounded: Record<string, string>;
+    spacing: Record<string, string>;
+    components: Record<string, Record<string, string>>;
+    headings: string[];
+    dos: string;
+  };
+  tokens?: {
+    files: string[];
+    // Before the cap; `values` holds at most 400.
+    count: number;
+    // Every token name, dots as dashes, is declared in the frame's stylesheet.
+    cssVars: boolean;
+    values: Record<string, string>;
+  };
+  shadcn?: { style: string; baseColor: string; iconLibrary: string; components: string[] };
 }
 
 // One installed Iconify JSON set: the uploaded asset holding it and how many

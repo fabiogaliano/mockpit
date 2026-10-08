@@ -3,8 +3,14 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-// @ts-expect-error — the CLI side is plain JS with JSDoc types
-import { detectDesign, detectIconSets, renderStarter, tailwindSource } from "../bin/initDesign.js";
+import {
+  detectDesign,
+  detectIconSets,
+  readDesignMd,
+  renderStarter,
+  tailwindSource,
+  // @ts-expect-error — the CLI side is plain JS with JSDoc types
+} from "../bin/initDesign.js";
 
 // `mockpit init`'s detection half: deterministic, no model in the loop, and it
 // parses files we did not write — so it must never throw, whatever the repo
@@ -208,4 +214,166 @@ test("renderStarter is a body fragment on the project's own kit and tokens", () 
   assert.match(tailwind, /bg-primary .*text-primary-foreground/);
   assert.ok(!tailwind.includes("[var("), "no arbitrary values");
   assert.ok(!tailwind.includes("tokens imported from this repo"));
+});
+
+const DESIGN_MD = `---
+version: alpha
+name: Heritage
+colors:
+  primary: "#1A1C1E"
+  tertiary: '#B8422E'
+  on-tertiary: "#FFFFFF"  # text on clay
+  neutral: #F7F5F2
+typography:
+  h1:
+    fontFamily: Public Sans
+    fontSize: 3rem
+rounded:
+  sm: 4px
+spacing:
+  md: 16px
+components:
+  button-primary:
+    backgroundColor: "{colors.tertiary}"
+    textColor: "{colors.on-tertiary}"
+    rounded: "{rounded.sm}"
+    padding: 12px
+omitted:
+  - Elevation
+---
+
+## Overview
+
+Architectural minimalism.
+
+## Do's and Don'ts
+
+- Do use Boston Clay only for the primary action.
+- Don't stack cards.
+
+## Appendix
+
+Not part of the rules.
+`;
+
+test("readDesignFiles reads DESIGN.md front matter, references and Do's and Don'ts", async () => {
+  const cwd = repo({ "DESIGN.md": DESIGN_MD });
+  const md = (await detectDesign(cwd)).designFiles.designMd;
+  assert.equal(md.name, "Heritage");
+  assert.deepEqual(md.colors, {
+    primary: "#1A1C1E",
+    tertiary: "#B8422E",
+    "on-tertiary": "#FFFFFF",
+    neutral: "#F7F5F2",
+  });
+  assert.deepEqual(md.typography, { h1: { fontFamily: "Public Sans", fontSize: "3rem" } });
+  assert.deepEqual(md.rounded, { sm: "4px" });
+  assert.deepEqual(md.spacing, { md: "16px" });
+  assert.deepEqual(md.components["button-primary"], {
+    backgroundColor: "#B8422E",
+    textColor: "#FFFFFF",
+    rounded: "4px",
+    padding: "12px",
+  });
+  assert.deepEqual(md.headings, ["Overview", "Do's and Don'ts", "Appendix"]);
+  assert.equal(md.dos, "- Do use Boston Clay only for the primary action.\n- Don't stack cards.");
+});
+
+test("readDesignMd never throws on a malformed file", () => {
+  for (const text of [
+    "",
+    "---\n",
+    "---\ncolors: [unclosed\n  : :\n\t- x\n---\n## Do's & Don'ts\n- keep",
+    '---\ncolors:\n  primary: "{colors.primary}"\n  loop: "{colors.loop}"\n---\n',
+    "no front matter\n## Colors\n",
+    "\u0000\u0001---",
+  ]) {
+    const md = readDesignMd(text);
+    assert.ok(md && typeof md === "object", JSON.stringify(text));
+  }
+  assert.equal(readDesignMd("---\ncolors: [x\n---\n## Do's & Don'ts\n- keep").dos, "- keep");
+  assert.deepEqual(readDesignMd("no front matter\n## Colors\n").colors, {});
+});
+
+test("readDesignFiles flattens DTCG tokens and resolves aliases one level", async () => {
+  const cwd = repo({
+    "tokens/base.tokens.json": JSON.stringify({
+      color: {
+        $type: "color",
+        blue: { 500: { $value: "#2563eb" } },
+        brand: { $value: { colorSpace: "srgb", components: [1, 0, 0], hex: "#ff0000" } },
+        primary: { $value: "{color.blue.500}" },
+        accent: { $value: { $ref: "#/color/primary/$value" } },
+      },
+      radius: { md: { $type: "dimension", $value: { value: 8, unit: "px" } } },
+      font: { sans: { $type: "fontFamily", $value: ["Inter", "sans-serif"] } },
+      shadow: { sm: { $type: "shadow", $value: { blur: "2px" } } },
+    }),
+    "design-tokens.json": JSON.stringify({ space: { 1: { $type: "number", $value: 4 } } }),
+    "node_modules/x/tokens.json": JSON.stringify({ skipped: { $type: "number", $value: 1 } }),
+    "broken.tokens.json": "{ not json",
+  });
+  const tokens = (await detectDesign(cwd)).designFiles.tokens;
+  assert.deepEqual(tokens.values, {
+    "space.1": "4",
+    "color.blue.500": "#2563eb",
+    "color.brand": "#ff0000",
+    "color.primary": "#2563eb",
+    "color.accent": "{color.blue.500}",
+    "radius.md": "8px",
+    "font.sans": "Inter, sans-serif",
+  });
+  assert.equal(tokens.count, 7);
+  assert.equal(tokens.cssVars, false, "a DTCG file alone declares no CSS vars");
+
+  const emitted = repo({
+    "tokens.json": JSON.stringify({ color: { primary: { $type: "color", $value: "#123" } } }),
+    "src/index.css": ":root { --color-primary: #123; }",
+  });
+  assert.equal((await detectDesign(emitted)).designFiles.tokens.cssVars, true);
+});
+
+test("readDesignFiles caps tokens at 400 and keeps the count", async () => {
+  const many = Object.fromEntries(
+    Array.from({ length: 450 }, (_, i) => [`t${i}`, { $type: "number", $value: i }]),
+  );
+  const cwd = repo({ "tokens.json": JSON.stringify({ n: many }) });
+  const tokens = (await detectDesign(cwd)).designFiles.tokens;
+  assert.equal(tokens.count, 450);
+  assert.equal(Object.keys(tokens.values).length, 400);
+});
+
+test("readDesignFiles lists shadcn components through the tsconfig @/ alias", async () => {
+  const cwd = repo({
+    "components.json": JSON.stringify({
+      style: "new-york",
+      tailwind: { css: "app/globals.css", baseColor: "zinc" },
+      iconLibrary: "tabler",
+      aliases: { components: "@/components", ui: "@/components/ui" },
+    }),
+    "tsconfig.json": `{
+      // JSONC, as tsc writes it
+      "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["./web/*"], }, },
+    }`,
+    "web/components/ui/button.tsx": "",
+    "web/components/ui/card.tsx": "",
+    "web/components/ui/index.ts": "",
+    "web/components/ui/sidebar/index.tsx": "",
+  });
+  const design = await detectDesign(cwd);
+  assert.deepEqual(design.designFiles.shadcn, {
+    style: "new-york",
+    baseColor: "zinc",
+    iconLibrary: "tabler",
+    components: ["button", "card", "sidebar"],
+  });
+  assert.equal(design.designFiles.designMd, undefined);
+  assert.equal(design.designFiles.tokens, undefined);
+
+  const fallback = repo({
+    "components.json": JSON.stringify({ aliases: { ui: "@/components/ui" } }),
+    "src/components/ui/dialog.tsx": "",
+  });
+  assert.deepEqual((await detectDesign(fallback)).designFiles.shadcn.components, ["dialog"]);
+  assert.equal((await detectDesign(repo({}))).designFiles, null);
 });
