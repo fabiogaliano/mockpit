@@ -1,16 +1,17 @@
 // Regenerates the README surface gallery (docs/surfaces/*.png): boots a fresh
-// server, publishes one clean card per part kind from scripts/surface-examples/,
-// and screenshots each card in a dark-mode Chromium at 2x. Run after changing a
-// part renderer or an example:
+// server, publishes one mock per surface kind from scripts/surface-examples/,
+// and screenshots each mock's stage in a dark-mode Chromium at 2x. Run after
+// changing a surface renderer or an example:
 //
 //   node scripts/shoot-surfaces.mjs
 //
 // The chart for the image example is rendered by Playwright itself (the example
 // SVG, screenshotted to a PNG and uploaded as an asset) so there is no system
-// image-conversion dependency.
+// image-conversion dependency. The experimental trace kind has no stage
+// renderer; the old 05-trace.png was removed with the trace path.
 
 import { chromium } from "@playwright/test";
-import { execSync, spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -23,11 +24,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const read = (f) => readFileSync(join(EX, f), "utf8");
 const E = "\x1b["; // ANSI CSI
 
-execSync("npx vite build", { cwd: ROOT, stdio: "inherit" });
+execFileSync("npm", ["run", "build:viewer"], { cwd: ROOT, stdio: "inherit" });
 
 const dataDir = mkdtempSync(join(tmpdir(), "mockpit-shots-"));
 const proc = spawn(process.execPath, [join(ROOT, "server", "index.ts")], {
-  env: { ...process.env, PORT: "0", MOCKPIT_DATA: join(dataDir, "data.json") },
+  env: {
+    ...process.env,
+    PORT: "0",
+    MOCKPIT_DB: join(dataDir, "db.sqlite"),
+    MOCKPIT_TOKEN: "",
+    MOCKPIT_VERSION: "",
+  },
   stdio: ["ignore", "pipe", "inherit"],
 });
 const base = await new Promise((resolve, reject) => {
@@ -45,11 +52,16 @@ const post = (path, body) =>
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
-  }).then((r) => r.json());
+  }).then(async (r) => {
+    if (!r.ok) throw new Error(`${path}: ${r.status} ${await r.text()}`);
+    return r.json();
+  });
 
 const browser = await chromium.launch();
 const context = await browser.newContext({
-  viewport: { width: 1100, height: 900 },
+  // Wide enough for an unscaled 820px stage beside the panel, tall enough that
+  // no stage is height-capped.
+  viewport: { width: 1320, height: 1800 },
   colorScheme: "dark",
   deviceScaleFactor: 2,
 });
@@ -80,76 +92,37 @@ const terminal =
   `${E}36m==>${E}0m Rolling  [${E}32m####################${E}0m] 4/4 machines\n` +
   `${E}32m✓${E}0m Deployed ${E}1mworker${E}0m v231 → ${E}1mv232${E}0m\n`;
 
-const trace = [
+// One mock per kind; `n` and `file` name the screenshot (05 was trace).
+const mocks = [
   {
-    label: "Read worker.ts",
-    kind: "read",
-    detail: "server/worker.ts — MAX_ATTEMPTS = 1; failures dropped on the floor.",
-    ts: "2026-06-17T15:40:02Z",
-  },
-  {
-    label: "Draft full-jitter backoff",
-    kind: "reason",
-    detail: "ceil = min(MAX_MS, BASE_MS * 2**attempt); delay = ceil * (0.5 + rand/2).",
-    ts: "2026-06-17T15:40:09Z",
-  },
-  {
-    label: "Edit worker.ts",
-    kind: "edit",
-    detail: "+18 −3 — added backoff(), bumped MAX_ATTEMPTS to 5, requeue on failure.",
-    ts: "2026-06-17T15:40:21Z",
-  },
-  {
-    label: "Run worker tests",
-    kind: "shell",
-    detail: "npm test -- worker → 3 passed, 1 todo in 0.42s",
-    ts: "2026-06-17T15:40:55Z",
-  },
-  {
-    label: "Deploy rolling",
-    kind: "deploy",
-    detail: "fly deploy → v231 → v232, 4/4 machines healthy.",
-    ts: "2026-06-17T15:42:10Z",
-  },
-  {
-    label: "Dropped jobs −98%",
-    kind: "done",
-    detail: "231/hr → 4/hr over the first hour post-deploy.",
-    ts: "2026-06-17T16:42:00Z",
-  },
-];
-
-// One card per kind. `file` is the screenshot name; order is the stream order.
-const cards = [
-  {
+    n: 1,
     file: "html",
-    title: "html part — an interactive UI you author",
-    parts: [{ kind: "html", html: read("html.html") }],
+    title: "html — an interactive UI you author",
+    surfaces: [{ kind: "html", html: read("html.html") }],
   },
   {
+    n: 2,
     file: "markdown",
-    title: "markdown part — prose, tables and code, rendered",
-    parts: [{ kind: "markdown", markdown: read("tradeoff.md") }],
+    title: "markdown — prose, tables and code, rendered",
+    surfaces: [{ kind: "markdown", markdown: read("tradeoff.md") }],
   },
   {
+    n: 3,
     file: "diff",
-    title: "diff part — a patch rendered as code review",
-    parts: [{ kind: "diff", patch: read("retry.patch"), layout: "unified" }],
+    title: "diff — a patch rendered as code review",
+    surfaces: [{ kind: "diff", patch: read("retry.patch"), layout: "unified" }],
   },
   {
+    n: 4,
     file: "terminal",
-    title: "terminal part — shell output with ANSI color",
-    parts: [{ kind: "terminal", text: terminal, cols: 76, title: "deploy.log" }],
+    title: "terminal — shell output with ANSI color",
+    surfaces: [{ kind: "terminal", text: terminal, cols: 76, title: "deploy.log" }],
   },
   {
-    file: "trace",
-    title: "trace part — an agent run as a step timeline",
-    parts: [{ kind: "trace", steps: trace, title: "agent run" }],
-  },
-  {
+    n: 6,
     file: "image",
-    title: "image part — an uploaded, content-addressed asset",
-    parts: [
+    title: "image — an uploaded, content-addressed asset",
+    surfaces: [
       {
         kind: "image",
         assetId: asset.id,
@@ -159,19 +132,22 @@ const cards = [
     ],
   },
   {
+    n: 7,
     file: "mermaid",
-    title: "mermaid part — a diagram from a few lines of text",
-    parts: [{ kind: "mermaid", mermaid: read("loop.mmd") }],
+    title: "mermaid — a diagram from a few lines of text",
+    surfaces: [{ kind: "mermaid", mermaid: read("loop.mmd") }],
   },
   {
+    n: 8,
     file: "json",
-    title: "json part — a JSON value as a collapsible tree",
-    parts: [{ kind: "json", data: JSON.parse(read("queue-stats.json")) }],
+    title: "json — a JSON value as a collapsible tree",
+    surfaces: [{ kind: "json", data: JSON.parse(read("queue-stats.json")) }],
   },
   {
+    n: 9,
     file: "code",
-    title: "code part — source highlighted with line numbers",
-    parts: [
+    title: "code — source highlighted with line numbers",
+    surfaces: [
       {
         kind: "code",
         code: read("backoff.ts.txt"),
@@ -182,38 +158,45 @@ const cards = [
     ],
   },
   {
+    n: 10,
     file: "combined",
-    title: "markdown + diff — two parts composed in one card",
-    parts: [
+    title: "markdown + diff — two surfaces in one version",
+    surfaces: [
       { kind: "markdown", markdown: read("dlq.md") },
       { kind: "diff", patch: read("dlq.patch"), layout: "unified" },
     ],
   },
 ];
 
+const PROJECT = "surfaces";
 let session;
-for (const c of cards) {
-  const res = await post("/api/surfaces", {
-    title: c.title,
-    parts: c.parts,
-    agent: "claude-opus",
-    ...(session ? { session } : { sessionTitle: "Surface kinds" }),
+for (const m of mocks) {
+  const res = await post("/api/mocks", {
+    project: PROJECT,
+    mock: m.file,
+    title: m.title,
+    surfaces: m.surfaces,
+    ...(session ? { session } : { agent: "claude-opus", sessionTitle: "Surface kinds" }),
   });
-  session = session ?? res.sessionId;
+  session = session ?? res.sessionId ?? res.post.sessionId;
 }
 
-await page.goto(`${base}/?session=${session}`, { waitUntil: "domcontentloaded" });
-const stream = ".card:not(#sessionThread):not(#whatsNew)";
-await page.locator(stream).first().waitFor();
-await page.locator(`${stream} iframe`).first().waitFor();
-await page.locator(`${stream} img`).first().waitFor();
-await sleep(2500); // let iframes report height, fonts settle, highlighting paint
+await page.goto(base, { waitUntil: "domcontentloaded" });
+await page.evaluate(() => localStorage.setItem("mockpit-theme", "dark"));
+await fetch(`${base}/api/theme`, {
+  method: "PUT",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ mode: "dark" }),
+});
 
-const shots = page.locator(stream);
-const n = await shots.count();
-for (let i = 0; i < cards.length && i < n; i++) {
-  const path = join(OUT, `${i + 1}`.padStart(2, "0") + `-${cards[i].file}.png`);
-  await shots.nth(i).screenshot({ path });
+for (const m of mocks) {
+  await page.goto(`${base}/project/${PROJECT}/${m.file}`, { waitUntil: "domcontentloaded" });
+  await page.locator(".frame.on .surface").first().waitFor();
+  if (m.surfaces.some((s) => s.kind === "image")) await page.locator(".frame.on img").waitFor();
+  await sleep(2500); // let iframes report height, fonts settle, highlighting paint
+  await page.mouse.move(0, 0);
+  const path = join(OUT, `${m.n}`.padStart(2, "0") + `-${m.file}.png`);
+  await page.locator(".stage").screenshot({ path });
   console.log(path);
 }
 

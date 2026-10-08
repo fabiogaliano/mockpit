@@ -24,6 +24,6 @@ const delay = (attempt: number) =>
 > Full jitter matters more than the base: it's what stops a thundering herd of
 > synchronized retries from knocking the worker over a second time.
 
-This is a **markdown** part — handed over as _text_, not markup. The viewer owns
-the typography, so tables, blockquotes, and fenced code all come out consistent
-with the rest of the board.
+This is a **markdown** surface — handed over as _text_, not markup. The viewer
+owns the typography, so tables, blockquotes, and fenced code all come out
+consistent with the rest of the workspace.
