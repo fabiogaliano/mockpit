@@ -1727,18 +1727,21 @@ async function printTopic(topic) {
   console.log(await fetchTextWithFallback(path, join(TOPICS_DIR, `${topic}.md`)));
 }
 
-// The brief is rendered from the project's stored design settings, so unlike
-// a topic it has no bundled copy to fall back on.
+// The brief is rendered from the project's stored design settings, so the
+// server's copy is the real one. With no server it still has to print: an
+// agent reads it before anything else, so render the generic brief locally
+// (the same code the server runs) and say where the project-aware one comes from.
 async function printBrief(flags) {
   const params = new URLSearchParams({ project: resolveProject(flags).name });
-  let res;
   try {
-    res = await fetch(`${BASE}/agent-howto?${params}`);
-  } catch {
-    die(`cannot reach mockpit at ${BASE}`, "mockpit serve");
-  }
-  if (!res.ok) die(`mockpit at ${BASE} answered ${res.status}`, "mockpit serve");
-  console.log(await res.text());
+    const res = await fetch(`${BASE}/agent-howto?${params}`);
+    if (res.ok) return console.log(await res.text());
+  } catch {}
+  const { renderBriefGuide } = await import(entrypoint("server", "designGuide.ts"));
+  console.log(renderBriefGuide(null));
+  console.error(
+    `note: no mockpit at ${BASE}; this is the generic brief. Run mockpit serve, then mockpit init for this project's palette, kit and icons.`,
+  );
 }
 
 async function fetchTextWithFallback(path, localFile) {

@@ -1276,13 +1276,15 @@ test("topics and setup fall back to bundled markdown when no server is reachable
   assert.match((await runWith(offline, "guide")).stdout, /# mockpit topic: html/);
 });
 
-test("the brief needs a server; an unknown topic lists the real ones", async () => {
+test("the brief prints the generic version with no server; an unknown topic lists the real ones", async () => {
   const offline = { cwd: tmpRepo(), env: { MOCKPIT_URL: "http://127.0.0.1:1" } };
   const brief = await runWith(offline, "agent-howto");
-  assert.equal(brief.code, 2);
+  assert.equal(brief.code, 0);
+  assert.match(brief.stdout, /^# mockpit brief\n/);
+  assert.match(brief.stdout, /Run `mockpit init` in the repo/);
   assert.match(
     brief.stderr,
-    /^error cannot reach mockpit at http:\/\/127\.0\.0\.1:1\n {2}fix: mockpit serve\n$/,
+    /^note: no mockpit at http:\/\/127\.0\.0\.1:1; this is the generic brief/,
   );
 
   const unknown = await runWith(offline, "agent-howto", "--topic", "colours");
