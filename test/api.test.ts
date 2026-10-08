@@ -384,6 +384,170 @@ test("revise addresses a mock by slug and refuses to create one", async () => {
   assert.equal(missing.status, 404);
 });
 
+// --- part-scoped revise ------------------------------------------------------
+
+const CARD =
+  '<main><h1 data-part="title">T</h1><ul><li data-part="row" data-part-key="a">A</li>' +
+  '<li data-part="row" data-part-key="b">B</li></ul><p data-part="body">old</p></main>';
+
+const currentHtml = async (app: App, mockId: string) =>
+  (await call(app, `/api/mocks/${mockId}?body=1`)).body.variants[0].surfaces[0].html as string;
+
+test("revise with parts splices into the current html and diffs against it", async () => {
+  const app = makeApp();
+  const out = await publish(app, { mock: "card", ...html(CARD), kits: ["builtin"] });
+  const rev = await call(
+    app,
+    `/api/mocks/${out.mock.id}/revise`,
+    agent({
+      parts: {
+        body: '<section data-part="copy">new</section>',
+        "row#b": '<li data-part="row" data-part-key="b">B2</li>',
+      },
+    }),
+  );
+  assert.equal(rev.status, 200, JSON.stringify(rev.body));
+  assert.equal(rev.body.post.version, 2);
+  assert.deepEqual(rev.body.applied, ["body", "row#b"]);
+  assert.deepEqual(rev.body.partChanges, { vanished: ["body"], renamed: [] });
+  assert.deepEqual(
+    rev.body.parts[0].parts.map((p: any) => p.name),
+    ["title", "row", "copy"],
+  );
+  const full = (await call(app, `/api/mocks/${out.mock.id}?body=1`)).body.variants[0];
+  assert.equal(
+    full.surfaces[0].html,
+    '<main><h1 data-part="title">T</h1><ul><li data-part="row" data-part-key="a">A</li>' +
+      '<li data-part="row" data-part-key="b">B2</li></ul><section data-part="copy">new</section></main>',
+  );
+  assert.deepEqual(full.surfaces[0].kits, ["builtin"]);
+
+  // A plain revise answers without `applied`.
+  const plain = await call(app, `/api/mocks/${out.mock.id}/revise`, agent({ html: CARD }));
+  assert.equal(plain.body.applied, undefined);
+});
+
+test("revise with parts reports what is wrong and writes nothing", async () => {
+  const app = makeApp();
+  const out = await publish(app, { mock: "card", ...html(CARD) });
+  const revise = (body: unknown) => call(app, `/api/mocks/${out.mock.id}/revise`, agent(body));
+  const cases: [unknown, RegExp][] = [
+    [{ parts: { nav: "<nav/>" } }, /no part "nav"; parts present: title, row, body/],
+    [{ parts: { row: "<li/>" } }, /2 instances; target one: row#a, row#b/],
+    [{ parts: { "row#z": "<li/>" } }, /no key "z"; instances: row#a, row#b/],
+    [{ parts: { body: "<p/>" }, html: "<p/>" }, /"parts" or "html"\/"surfaces", not both/],
+    [{ parts: {} }, /"parts" is empty/],
+    [{ parts: ["<p/>"] }, /"parts" must be an object/],
+    [{ parts: { body: 3 } }, /must be the html string/],
+  ];
+  for (const [body, error] of cases) {
+    const res = await revise(body);
+    assert.equal(res.status, 400, JSON.stringify(body));
+    assert.match(res.body.error, error);
+  }
+  assert.equal(await currentHtml(app, out.mock.id), CARD);
+});
+
+test("revise with parts and from splices into that earlier version", async () => {
+  const app = makeApp();
+  const out = await publish(app, { mock: "card", ...html(CARD) });
+  await call(app, `/api/mocks/${out.mock.id}/revise`, agent({ html: "<p>v2</p>" }));
+  const rev = await call(
+    app,
+    `/api/mocks/${out.mock.id}/revise`,
+    agent({ from: 1, parts: { title: '<h1 data-part="title">T3</h1>' } }),
+  );
+  assert.equal(rev.status, 200, JSON.stringify(rev.body));
+  assert.equal(rev.body.post.version, 3);
+  assert.equal(await currentHtml(app, out.mock.id), CARD.replace(">T<", ">T3<"));
+  const missing = await call(
+    app,
+    `/api/mocks/${out.mock.id}/revise`,
+    agent({ from: 9, parts: { title: "<h1/>" } }),
+  );
+  assert.equal(missing.status, 404);
+});
+
+test("parts across several html surfaces: unique names splice, shared names are ambiguous", async () => {
+  const app = makeApp();
+  const out = await publish(app, {
+    mock: "page",
+    surfaces: [
+      { kind: "html", html: '<h1 data-part="title">T</h1><i data-part="dup">1</i>' },
+      { kind: "markdown", markdown: "# notes" },
+      { kind: "html", html: '<p data-part="foot">F</p><i data-part="dup">2</i>' },
+    ],
+  });
+  const ok = await call(
+    app,
+    `/api/mocks/${out.mock.id}/revise`,
+    agent({ parts: { foot: '<p data-part="foot">F2</p>' } }),
+  );
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  const surfaces = (await call(app, `/api/mocks/${out.mock.id}?body=1`)).body.variants[0].surfaces;
+  assert.equal(surfaces[2].html, '<p data-part="foot">F2</p><i data-part="dup">2</i>');
+  assert.equal(surfaces[1].markdown, "# notes");
+  const dup = await call(app, `/api/mocks/${out.mock.id}/revise`, agent({ parts: { dup: "" } }));
+  assert.equal(dup.status, 400);
+  assert.match(dup.body.error, /part "dup" is in several html surfaces \(0, 2\)/);
+});
+
+test("edit_surface and revise_mock take parts over MCP HTTP", async () => {
+  const app = makeApp();
+  const out = await publish(app, {
+    mock: "card",
+    surfaces: [
+      { kind: "html", html: CARD },
+      { kind: "markdown", markdown: "# notes" },
+    ],
+  });
+  const rev = await tool(app, "revise_mock", {
+    project: "demo",
+    mock: "card",
+    parts: { title: '<h2 data-part="title">MCP</h2>' },
+  });
+  assert.equal(rev.post.version, 2);
+  assert.deepEqual(rev.applied, ["title"]);
+  const edit = await tool(app, "edit_surface", {
+    project: "demo",
+    mock: "card",
+    target: "0",
+    parts: { "row#a": '<li data-part="item" data-part-key="a">A2</li>' },
+  });
+  assert.equal(edit.post.version, 3);
+  assert.deepEqual(edit.applied, ["row#a"]);
+  // "row" still has instance b, so nothing vanished.
+  assert.equal(edit.partChanges, undefined);
+  assert.equal(
+    await currentHtml(app, out.mock.id),
+    CARD.replace('<h1 data-part="title">T</h1>', '<h2 data-part="title">MCP</h2>').replace(
+      '<li data-part="row" data-part-key="a">A</li>',
+      '<li data-part="item" data-part-key="a">A2</li>',
+    ),
+  );
+  const notHtml = await tool(app, "edit_surface", {
+    project: "demo",
+    mock: "card",
+    target: "1",
+    parts: { title: "<h1/>" },
+  });
+  assert.match(notHtml.error, /parts works on html surfaces; surface 1 is markdown/);
+  const both = await tool(app, "edit_surface", {
+    project: "demo",
+    mock: "card",
+    target: "0",
+    content: "<p/>",
+    parts: { title: "<h1/>" },
+  });
+  assert.match(both.error, /"parts" or "surface"\/"content", not both/);
+  const missing = await tool(app, "revise_mock", {
+    project: "demo",
+    mock: "card",
+    parts: { nope: "<p/>" },
+  });
+  assert.match(missing.error, /no part "nope"; parts present: title, item, row, body/);
+});
+
 // --- knobs -------------------------------------------------------------------
 
 test("knob configs are validated and merged onto the mock by path", async () => {

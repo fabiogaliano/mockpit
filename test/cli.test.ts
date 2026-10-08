@@ -540,6 +540,68 @@ test("revise flags parts that vanished or were renamed", async () => {
   }
 });
 
+test("revise --part splices one part per flag, one of them from stdin", async () => {
+  const server = await serveSession();
+  try {
+    const id = await seedWriter(server);
+    const title = tmpFile("title.html", '<h1 data-part="title">New title</h1>');
+    const { code, stdout, stderr } = await runWith(
+      {
+        cwd: tmpRepo(),
+        env: {
+          MOCKPIT_URL: server.url,
+          MOCKPIT_SESSION: server.session.id,
+          MOCKPIT_PROJECT: "acme/site",
+        },
+        stdin: '<section data-part="copy">from stdin</section>',
+      },
+      "revise",
+      "--mock",
+      "writer",
+      "--state",
+      "Writing",
+      "--variant",
+      "quiet",
+      "--part",
+      `title=${title}`,
+      "--part",
+      "body=-",
+    );
+    assert.equal(code, 0, stderr);
+    assert.match(stdout, /^writer\/Writing\/quiet v2 · /m);
+    assert.match(stdout, /^applied: title, body$/m);
+    assert.match(stdout, /^vanished: body$/m);
+    const mock = await getJson(`${server.url}/api/mocks/${id}?body=1`);
+    const quiet = mock.variants.find((v: any) => v.state === "Writing" && v.variant === "quiet");
+    assert.equal(
+      quiet.surfaces[0].html,
+      '<h1 data-part="title">New title</h1><section data-part="copy">from stdin</section>',
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test("revise --part errors: bad flag, unknown part, publish", async () => {
+  const server = await serveSession();
+  try {
+    await seedWriter(server);
+    const file = tmpFile("p.html", "<nav data-part='nav'>N</nav>");
+    const target = ["--mock", "writer", "--state", "Writing", "--variant", "quiet"];
+    const malformed = await cli(server, {}, "revise", ...target, "--part", "nav");
+    assert.equal(malformed.code, 2);
+    assert.match(malformed.stderr, /--part needs name=file \(got "nav"\)/);
+    const unknown = await cli(server, {}, "revise", ...target, "--part", `nav=${file}`);
+    assert.equal(unknown.code, 2);
+    assert.match(unknown.stderr, /no part "nav"; parts present: title, body/);
+    const publish = await cli(server, {}, "publish", ...target, "--part", `nav=${file}`);
+    assert.equal(publish.code, 2);
+    assert.match(publish.stderr, /--part edits a published version; use it with revise/);
+  } finally {
+    await server.close();
+  }
+});
+
 test("revise refuses to create a mock, and ambiguity names the choices", async () => {
   const server = await serveSession();
   try {

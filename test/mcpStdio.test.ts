@@ -270,6 +270,23 @@ test(
     );
     assert.equal(exported.states[0].html, '<p data-part="body">dark v2</p>');
 
+    // Part values travel as paths too, like html.
+    const bodyFile = join(dir, "body.html");
+    writeFileSync(bodyFile, '<p data-part="body" class="v3">dark v3</p>');
+    const spliced = await callJson<WriteResult & { applied?: string[] }>(
+      mcp.client,
+      "revise_mock",
+      { mock: "writer", state: "Writing", variant: "dark", parts: { body: bodyFile } },
+    );
+    assert.equal(spliced.post.version, 3);
+    assert.deepEqual(spliced.applied, ["body"]);
+    const afterSplice = await callJson<{ states: Array<{ html: string }> }>(
+      mcp.client,
+      "export_mock",
+      { mock: "writer", variant: "dark" },
+    );
+    assert.equal(afterSplice.states[0].html, '<p data-part="body" class="v3">dark v3</p>');
+
     const reply = await callJson<{ text: string; author: string; mockId: string }>(
       mcp.client,
       "reply_to_user",

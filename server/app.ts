@@ -19,7 +19,7 @@ import {
 } from "./icons.ts";
 import { kitSummaries } from "./kits.ts";
 import { checkKnobs, checkKnobValues, discreteChoices } from "./knobs.ts";
-import { diffParts, type PartChanges, partsInSurfaces } from "./parts.ts";
+import { diffParts, type PartChanges, partsInSurfaces, spliceParts } from "./parts.ts";
 import { postToMarkdown } from "./postMarkdown.ts";
 import {
   addHook,
@@ -792,7 +792,7 @@ export function createApp({
     mock: Mock,
     post: Post,
     ctx: FlowContext,
-    extra: { previous?: Surface[]; nudges?: string[]; status?: number } = {},
+    extra: { previous?: Surface[]; applied?: string[]; nudges?: string[]; status?: number } = {},
   ): Promise<FlowResult> {
     const posts = await store.listPosts({ mockId: mock.id });
     const detail = mockDetailView(mock, posts);
@@ -823,6 +823,7 @@ export function createApp({
         sessionId: post.sessionId,
         url: mockUrl(ctx.base, mock, post),
         parts: detail.parts,
+        ...(extra.applied ? { applied: extra.applied } : {}),
         ...(partChanges && (partChanges.vanished.length || partChanges.renamed.length)
           ? { partChanges }
           : {}),
@@ -852,11 +853,18 @@ export function createApp({
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
     const slugIn = str(body.mock, MAX_TITLE);
     if (!slugIn) return fail(400, 'provide "mock": the mock slug, e.g. "writer"');
-    const surfaces = await parseSurfaceInput(body, ctx);
-    if (isResult(surfaces)) return surfaces;
-    if (!surfaces) return fail(400, 'provide "surfaces" (or "html")');
-    const bad = checkSurfaces(surfaces);
-    if (bad) return bad;
+    const partEdits = revise ? partEditsArg(body) : undefined;
+    if (isResult(partEdits)) return partEdits;
+    // With `parts` the surfaces are the base version's, spliced once the variant is known.
+    let surfaces: Surface[] = [];
+    if (!partEdits) {
+      const parsed = await parseSurfaceInput(body, ctx);
+      if (isResult(parsed)) return parsed;
+      if (!parsed) return fail(400, 'provide "surfaces" (or "html")');
+      const bad = checkSurfaces(parsed);
+      if (bad) return bad;
+      surfaces = parsed;
+    }
     const knobs = checkKnobs(body.knobs);
     if (!knobs.ok) return fail(400, knobs.error);
     const variantKnobs = checkKnobs(body.variantKnobs);
@@ -893,11 +901,25 @@ export function createApp({
     let posts = mock ? await store.listPosts({ mockId: mock.id }) : [];
     let target: Post | null = null;
     let state: string | null;
+    let applied: string[] | undefined;
     if (revise && mock) {
       const chosen = chooseVariant(mock, posts, stateIn, variantIn);
       if (isResult(chosen)) return chosen;
       target = chosen;
       state = chosen.state;
+      if (partEdits) {
+        const base =
+          from === undefined || from === chosen.version
+            ? chosen.surfaces
+            : chosen.history.find((h) => h.version === from)?.surfaces;
+        if (!base) return fail(404, `${slug} has no version ${from}`);
+        const result = spliceParts(base, partEdits);
+        if (!result.ok) return fail(400, result.error);
+        const bad = checkSurfaces(result.surfaces);
+        if (bad) return bad;
+        surfaces = result.surfaces;
+        applied = result.applied;
+      }
     } else {
       if (stateIn === undefined || stateIn === null) {
         if (mock && mock.states.length > 0) {
@@ -1004,8 +1026,28 @@ export function createApp({
     posts = [];
     return writeResult(mock, updated, ctx, {
       previous,
+      applied,
       nudges: knobNudges({ ...knobs.value, ...variantKnobs.value }),
     });
+  }
+
+  // `parts`: new outer html per part ("name" or "name#key"), spliced into the
+  // variant's html so a tweak costs the tweak rather than the whole document.
+  function partEditsArg(body: any): Record<string, string> | FlowResult | undefined {
+    if (body?.parts === undefined) return undefined;
+    const parts = body.parts;
+    if (!parts || typeof parts !== "object" || Array.isArray(parts)) {
+      return fail(400, '"parts" must be an object: { "<part name>": "<html for that part>" }');
+    }
+    const entries = Object.entries(parts);
+    if (entries.length === 0) return fail(400, '"parts" is empty; name at least one part');
+    if (entries.some(([, html]) => typeof html !== "string")) {
+      return fail(400, 'each "parts" value must be the html string for that part');
+    }
+    if (body.html !== undefined || body.surfaces !== undefined) {
+      return fail(400, 'pass "parts" or "html"/"surfaces", not both');
+    }
+    return parts as Record<string, string>;
   }
 
   // A write may add a state, retitle the mock, declare knobs, and makes its
@@ -1661,7 +1703,9 @@ export function createApp({
     return { ...surface, [field]: value } as Surface;
   }
 
-  type SurfaceEdit = (surfaces: Surface[]) => Promise<Surface[] | FlowResult>;
+  type SurfaceEdit = (
+    surfaces: Surface[],
+  ) => Promise<Surface[] | { surfaces: Surface[]; applied: string[] } | FlowResult>;
 
   async function editSurfaces(
     ref: unknown,
@@ -1679,8 +1723,11 @@ export function createApp({
       str(body?.variant, MAX_LABEL),
     );
     if (isResult(post)) return post;
-    const next = await edit(post.surfaces);
-    if (isResult(next)) return next;
+    const edited = await edit(post.surfaces);
+    if (isResult(edited)) return edited;
+    const [next, applied] = Array.isArray(edited)
+      ? [edited, undefined]
+      : [edited.surfaces, edited.applied];
     const bad = checkSurfaces(next);
     if (bad) return bad;
     const updated = await store.updatePost(post.id, { surfaces: next });
@@ -1692,7 +1739,7 @@ export function createApp({
       session,
     });
     announcePost(mock, updated, false);
-    return writeResult(mock, updated, ctx, { previous: post.surfaces });
+    return writeResult(mock, updated, ctx, { previous: post.surfaces, applied });
   }
 
   async function oneSurface(raw: unknown, ctx: FlowContext): Promise<Surface | FlowResult> {
@@ -1729,6 +1776,24 @@ export function createApp({
     editSurfaces(ref, body, ctx, async (surfaces) => {
       const idx = findSurfaceIndex(surfaces, target);
       if (idx < 0) return fail(404, `surface "${target}" not found`);
+      const partEdits = partEditsArg(body ?? {});
+      if (isResult(partEdits)) return partEdits;
+      if (partEdits) {
+        if (body.surface !== undefined || body.content !== undefined) {
+          return fail(400, 'pass "parts" or "surface"/"content", not both');
+        }
+        if (surfaces[idx].kind !== "html") {
+          return fail(
+            400,
+            `parts works on html surfaces; surface ${target} is ${surfaces[idx].kind}`,
+          );
+        }
+        const result = spliceParts([surfaces[idx]], partEdits);
+        if (!result.ok) return fail(400, result.error);
+        const next = [...surfaces];
+        next[idx] = result.surfaces[0];
+        return { surfaces: next, applied: result.applied };
+      }
       let updated: Surface;
       if (body?.surface !== undefined) {
         const surface = await oneSurface(body.surface, ctx);
