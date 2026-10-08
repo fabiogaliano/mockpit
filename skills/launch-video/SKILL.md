@@ -11,7 +11,7 @@ Maintainer-only: requires a mockpit source checkout (the pipeline lives in
 Generates product videos where every app frame is the real mockpit viewer
 talking to a real server — no screen recording, no mockups. Unlike hunk's
 keyframe-compositing pipeline (`skills/launch-video` in the hunk repo),
-mockpit's product IS live motion — cards streaming in over SSE, sandboxed
+mockpit's product IS live motion — mocks arriving over SSE, sandboxed
 iframes resizing, the comment loop — so this pipeline records **one real-time
 pass** instead of compositing stills:
 
@@ -68,7 +68,7 @@ ffmpeg -y -i "$RAW" -vf "fps=30,format=yuv420p" \
   delete it after.
 - **Custom:** any scene set works — tutorials, comparisons, announcements.
   Whatever runs in the viewer can be driven: publish over the API mid-recording
-  and the cards stream in on camera; that's the money shot, use it.
+  and the mock updates on camera; that's the money shot, use it.
 
 ## Storyboard model (record.mjs + stage.html)
 
@@ -82,16 +82,16 @@ ffmpeg -y -i "$RAW" -vf "fps=30,format=yuv420p" \
 - Card vocabulary: `badge`, `h1` (+ `span.ver` for the amber version),
   `sub`, `cmds`/`cmd` (+ `span.p` for the prompt `$`), `foot`.
 - Interact with the viewer through `page.frameLocator("#app")`. Useful
-  selectors: `aside .sess-title` (session rows), `.sidebar-toggle`
-  (collapse/expand rail), `.card:not(#whatsNew)` (post cards — the update-notes
-  card is also a `.card`), `button.act.comment` (the icon-only trigger that
-  unfolds the composer; it has no text, so `getByText` won't find it), then
-  `.composer input`.
-- Publish content via the HTTP API while recording: `POST /api/sessions`,
-  `POST /api/mocks` (`{session, mock, state, variant, surfaces: [{kind, …}]}`),
+  selectors (the same ones `e2e/decide-flow.spec.ts` drives):
+  `.home-row[data-mock="<slug>"]` (Home rows), `.frame.on` (the frame on
+  stage), `.strip [role="tab"]` (states), `.opt[data-option="<id>"]` (question
+  options), `button.send`, `.themebtn` (dark/light).
+- Publish content via the HTTP API while recording: `POST /api/mocks`
+  (`{project, mock, state, variant, html | surfaces, knobs}`; pass the returned
+  `sessionId` as `session` afterwards), `POST /api/mocks/:id/asks`,
   `POST /api/mocks/:id/revise` to revise (bumps the version live), and
-  `POST /api/comments` (`{mock, text}`) for agent replies.
-  Seed background sessions _before_ opening the page; save the live publishes
+  `POST /api/comments` (`{session, mock, text}`) for agent replies.
+  Seed background mocks _before_ opening the page; save the live publishes
   for on-camera.
 - Target pacing: money shots hold 2.5–4s after content settles, transitions
   ~1s, typing at `pressSequentially(..., { delay: 34 })`. Intro card ~3s,
@@ -109,14 +109,12 @@ ffmpeg -y -i "$RAW" -vf "fps=30,format=yuv420p" \
   hit-target check runs in the top frame; an overlay that intercepts clicks
   aimed into the app iframe times every action out — even actions "behind" an
   intro card.
-- **Wait for iframes after a session switch.** Opening a session re-renders
-  each sandboxed surface from `/s/:id`; cut away too early and the last shot
-  shows empty card shells. `waitFor` a `.card iframe` and hold ~2–3s before
-  the outro (this is also why "publish on camera" shots need their settle
-  time).
-- **Park the mouse after sidebar clicks** (`page.mouse.move(...)` toward the
-  content) or the hovered session row shows its delete "×" in every following
-  frame.
+- **Wait for iframes after opening a mock.** Every frame renders from
+  `/s/:id`; cut away too early and the last shot shows an empty stage.
+  `waitFor` a `.frame.on iframe` and hold ~2–3s before the outro (this is also
+  why "publish on camera" shots need their settle time).
+- **Park the mouse after clicks** (`page.mouse.move(...)` away from the stage)
+  or a hovered part stays highlighted in every following frame.
 - **Sandbox Chromium/driver mismatch.** In the Anthropic sandbox the pinned
   `@playwright/test` may expect a newer browser build than `/opt/pw-browsers`
   provides; `record.mjs` falls back to `/opt/pw-browsers/chromium`
@@ -130,9 +128,6 @@ ffmpeg -y -i "$RAW" -vf "fps=30,format=yuv420p" \
   `git checkout package.json package-lock.json` if that happens).
 - The recorder spawns `server/index.ts` with `PORT=0` and `MOCKPIT_DB` in the
   work dir — every run is a fresh workspace, nothing touches `~/.mockpit`.
-  The version being recorded matches `latest` on npm, so the `#whatsNew`
-  update card stays away on its own; scope card selectors with
-  `:not(#whatsNew)` anyway.
 - A failed run can orphan the spawned server; kill it before rerunning
   (`pkill -f "[s]erver/index.ts"`).
 
@@ -145,7 +140,7 @@ ffmpeg -y -i "$RAW" -vf "fps=30,format=yuv420p" \
   ("up to 95% lighter" for the 0.13.0 hydrate change, not "95% faster").
 - The window chrome's URL pill shows the real server host:port — decorative
   but it must not lie; `record.mjs` fills it from the actual base URL.
-- Demo content is `bin/demoData.js` (the `mockpit demo` sessions) — label
+- Demo content is `bin/demoData.js` (the Writer mock `mockpit demo` seeds) — label
   anything invented beyond it honestly, and keep agent names real
   (`claude-code`, `pi`).
 - The video is silent — never imply audio in the video or announcement copy.

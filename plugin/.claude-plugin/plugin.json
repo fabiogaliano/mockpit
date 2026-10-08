@@ -3,7 +3,7 @@
   "name": "mockpit",
   "displayName": "mockpit",
   "version": "0.1.0",
-  "description": "Publish design items and variants to mockpit over MCP, and stream the user's browser comments and decisions back to Claude Code as notifications.",
+  "description": "Publish design mocks (states, variants, asks, knobs) to mockpit over MCP, and stream the user's batched replies back to Claude Code as notifications.",
   "author": { "name": "Fábio Galiano" },
   "homepage": "https://github.com/fabiogaliano/mockpit",
   "repository": "https://github.com/fabiogaliano/mockpit",

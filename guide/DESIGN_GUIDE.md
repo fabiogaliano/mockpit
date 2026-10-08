@@ -48,7 +48,7 @@ Pick by what the thing IS:
 - **`image`** — a screenshot or generated picture.
 
 A version can combine surfaces: `[html, diff]` is a design with its code review
-in one card; `[markdown, diff]` is a rationale above its changeset.
+in one version; `[markdown, diff]` is a rationale above its changeset.
 
 **Trust rule:** html is sandboxed because you author the markup. Everything else
 is rendered by the trusted viewer from data — so for those kinds, send data,
@@ -81,9 +81,9 @@ follows is the short list of hard constraints; everything inside them is yours.
 
 - **Body fragment only.** No `<!doctype>`, `<html>`, `<head>`, or `<body>` — the
   server wraps your fragment in a themed, sandboxed document.
-- **Sizing.** The rendered column is roughly 720–800px wide by default; the
-  operator can also view it at the 390 / 820 / 1280 viewport presets, so make it
-  responsive. Height is measured from your content.
+- **Sizing.** The stage renders your fragment in an 820px-wide frame, scaled
+  to fit the user's window; question pictures and Home thumbnails are the same
+  document shrunk. Height is measured from your content.
 - **Keep content in normal flow.** The frame measures the document box, so
   anything out of flow is invisible to the sizer and can leave the surface
   clipped or frozen at the wrong height.
@@ -108,16 +108,13 @@ A CSP allows loading ONLY from these origins (anything else silently fails):
 `fonts.googleapis.com`, `fonts.gstatic.com`. Images may load from any https URL,
 a `data:` URI, or an asset you uploaded (`<img src="/a/<id>">`).
 
-### Host bridge
+### Parts and knobs
 
-Two globals are injected into every html surface:
-
-- `sendPrompt(text)` — posts `text` to the mock's thread as a _surface_ message.
-  The operator sees it; it does NOT reach you on its own and can never
-  impersonate them. Use it for "explore X" affordances they can relay
-  deliberately.
-- `openLink(url)` — asks the operator to confirm opening an external link. Plain
-  `<a href>` clicks are routed through this automatically.
+Mark the components you want feedback on with `data-part="name"` (optional
+`data-part-label`, `data-part-key`); the viewer measures their boxes, so never
+hard-code geometry for it. Knob values arrive as unitless `--k-<path>` custom
+properties and `data-k-<path>` attributes on `<html>`. `mockpit agent-howto`
+has the full contract.
 
 ### Finish
 
@@ -137,8 +134,8 @@ not the idea:
 
 ### Theme tokens
 
-Available in every html surface, and re-resolved whenever the operator switches
-theme or color scheme:
+Available in every html surface, and re-resolved whenever the user switches
+between dark and light:
 
 - Backgrounds: `--color-background-primary|secondary|tertiary`, plus semantic
   `--color-background-info|success|warning|danger`
@@ -200,7 +197,7 @@ freeform. Discover them with `mockpit kits` (or `GET /api/kits`).
 - **`issues`** — `.card` · nesting `.tree` rail · `.badge`
   (`.ok`/`.info`/`.warn`/`.danger`) · `.dot` · mono `.chip` · `.bar > i` rollup.
   Composes an issue/PR/CI tree — nest a `.tree` inside a `.tree` to indent — or a
-  status board.
+  status overview.
 - **`slides`** — author a `.deck` with `.slide` children; the kit cross-fades one
   at a time (grid-stacked, so the frame sizes to the tallest slide) and injects
   prev/dots/counter/next controls. Arrow keys and PageUp/Down navigate.
@@ -209,11 +206,11 @@ Any kit also ships layout (`.row`/`.stack`/`.between`/`.grow`) and text
 (`.title`/`.dim`/`.faint`/`.mono`/`.num`/`.kbd`/`.hr`) helpers.
 
 ```sh
-mockpit publish --mock ci-board --html board.html --kit issues   # repeatable: --kit a --kit b
+mockpit publish --mock ci-status --html status.html --kit issues   # repeatable: --kit a --kit b
 ```
 
 ```js
-publish_mock({ mock: "ci-board", surfaces: [{ kind: "html", html, kits: ["issues"] }] });
+publish_mock({ mock: "ci-status", surfaces: [{ kind: "html", html, kits: ["issues"] }] });
 ```
 
 A kit only adds vocabulary — hand-roll custom markup right beside kit classes in

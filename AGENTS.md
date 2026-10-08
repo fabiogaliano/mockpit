@@ -6,18 +6,20 @@ _use_ a running mockpit lives in `guide/AGENT_SETUP.md`, served at `/setup`.)
 
 ## What this is and why
 
-A live visual surface for terminal coding agents: agents publish items
-(multi-surface renders — html, markdown, diff, terminal, image, mermaid, json, code)
-over CLI/MCP/HTTP; the user watches them render in a browser and comments back.
-The two-way loop — publish → live render → comment/decide → revise/reply — is the
+A design-decision loop for terminal coding agents: an agent publishes a **mock**
+(html, or any surface kind: markdown, diff, terminal, image, mermaid, json, code)
+over CLI/MCP/HTTP, asks structured questions on it and exposes knobs; the user
+answers in place in a browser, tunes, comments on parts, and presses Send once.
+The loop — publish → ask → answer/tune/comment → one reply → revise — is the
 product. When in doubt, optimize for the loop.
 
-Navigation is **project › item › variant › version**: a project is a repo (derived
-from the agent's cwd/git remote), an item is a component or a page addressed by a
-stable slug, variants are sibling posts under an item shown as tabs, versions are
-the item's history. The agent's verbs are `init`, `publish`, `ask`, `wait`,
-`revise`, `page`, `status`, `show`, `export`; the user's are Revise / Accept /
-Drop, which release the comments they batched up as drafts.
+The model is **project › mock › state › variant › version**: a project is a repo
+(from the agent's cwd/git remote), a mock is a page or component by stable slug
+owning ordered **states**, **asks** and global **knobs**; a variant (a `Post`) is
+a parallel design of one state; versions are its history. A **part** is a
+`data-part` element in a render. The agent's verbs are `init`, `publish`, `ask`,
+`wait`, `revise`, `comment`, `status`, `show`, `export`; the user's is Send (or
+Accept / Revise / Drop on a mock without asks), which releases one **reply**.
 
 Current product stances (deliberate choices, not accidents — revisit
 consciously, not as a side effect):
@@ -30,80 +32,81 @@ consciously, not as a side effect):
   (stdio and streamable HTTP at `/mcp`), raw HTTP. Features should work on
   all three — the CLI and curl tiers are why agents with only a shell can
   use this.
-- Feedback is never silently lost: a user comment renders in the viewer (the
-  card's thread) and reaches the agent (`userFeedback` piggybacked on writes, a
-  blocking wait, or a background watch). Guard this hardest — both halves have
-  regressed before.
-- Trace exists in the codebase as an experimental path. Keep it out of the
-  product-facing surface taxonomy and agent guidance unless the task is
-  explicitly about deciding or finishing traces.
+- Feedback is never silently lost: a Send renders in the viewer (the Thread)
+  and reaches the agent (`userFeedback` piggybacked on writes, a blocking wait,
+  or a background watch). Guard this hardest — both halves have regressed
+  before.
+- Tiers, no modes: each thing the agent adds lights up its part of the viewer
+  (variants → switcher, asks → Questions, `data-part` → Tune parts and part
+  comments, `knobs` → Tune knobs, states → strip). A plain publish of any kind
+  still gets stage + Thread + Accept / Revise / Drop.
+- Self-hosted only; the embeddable viewer engine was dropped. Keep the
+  `root()`/`host()` habit in `viewer/src` anyway.
 
 ## Map
 
-- `server/app.ts` — runtime-agnostic Hono app: all routes, SSE `/api/events`,
-  long-poll `/api/comments`, renderer `/s/:id`, asset upload/serve
-  (`/api/assets`, `/a/:id`), and the shared flow functions both REST and MCP call.
-- `server/types.ts` — data model + `Store` interface; no runtime imports. A
-  post is an ordered list of surfaces (`html` | `markdown` | `diff` | `terminal`
-  | `image` | `mermaid` | `json` | `code`); a snippet is sugar for a single html surface.
-  `htmlSurface` bridges the legacy snippet shape. Assets (uploaded blobs)
-  are a separate entity, referenced by `image` surfaces and the experimental
-  trace path; `selectEvictions` is the reference-aware LRU policy.
-- `server/public.ts` — the `mockpit/server` package export (`createApp`,
-  `SqlStore`, `createSqliteStorage`, `JsonFileStore`, types) for embedding the app.
-- `server/sqlStore.ts` — `SqlStore`, the SQLite-backed `Store`. It takes a
-  `SqlStorage` (the narrow SQL surface declared in `types.ts`, not the ambient
-  Cloudflare global), so the SAME store runs on the Durable Object
-  (`ctx.storage.sql`) and on Node via `server/sqliteStorage.ts`'s `node:sqlite`
-  adapter — the local default, so dev mirrors the deploy. `server/storage.ts` —
-  `JsonFileStore`, the legacy single-file store, still selectable with
-  `MOCKPIT_STORE=json`. All must pass `test/storeContract.ts`, and all migrate
-  legacy `snippets`/`snippetId` data to surfaces on load. On first SQLite boot
-  `migrateJsonToSqlite` copies an existing JSON workspace in once (identity, history,
-  and comment `seq` preserved via `JsonFileStore.exportBoard` →
-  `SqlStore.importBoard`); it's idempotent and never imports into a non-empty db.
-- `server/kits.ts` — opt-in style/behavior bundles for html surfaces (`issues`,
-  `slides`). An html surface lists kit ids in `kits`; `renderHtmlPage` injects each
-  kit's CSS/JS into the sandbox after the base. Runtime-agnostic; allowlisted in
-  `server/postSurfaces.ts` and listed at `/api/kits`. Adding a kit is a registry entry +
-  a guide bullet — no new surface kind, no native renderer.
-- `server/richRender.ts` — server-side renderers for the rich kinds
-  (`renderMarkdown`/`renderCode`/`renderDiff`/`renderTerminal` → `{body, css}`),
-  runtime-agnostic so they run on the Worker DO too (shiki on the JS regex
-  engine, @pierre/diffs SSR via `shiki-js`, markdown-it, ansi_up — no WASM/DOM).
-  `/s/:id` calls these and wraps the result in `renderSandboxedPart`.
-- `server/surfacePage.ts` — sandboxed documents for surface markup. `renderHtmlPage`
-  wraps an html surface (CDN-allowlist CSP + the postMessage bridge: resize,
-  sendPrompt, openLink) and injects any opted-in kits (`kits.ts`).
-  `renderSandboxedPart` wraps a server-rendered rich body (markdown/code/diff/
-  terminal — see `richRender.ts`) under a tighter CSP (no `connect-src`, no CDN).
-  `renderMermaidPage` is the one exception: mermaid needs a DOM, so it can't be
-  server-rendered — instead it emits a self-rendering doc that loads mermaid from
-  the CDN allowlist (so it uses the html-surface CSP, which permits the CDN). Image
-  and json surfaces stay native because they have no HTML sink; the experimental
-  trace path follows the same data-only rule. Comments render as escaped Solid
-  text nodes. No agent markup is ever set as `innerHTML` in the trusted viewer
-  origin.
-- `server/themes.ts` — theme registry (github/gruvbox/one), runtime-agnostic so
-  both server and viewer import it. One `Palette` per light/dark per theme; the
-  viewer-chrome vars and the html-surface `--color-*` tokens are both _derived_
-  from it, so they can't drift. Persisted per workspace (`Store.getSetting`),
-  switched at `/api/theme`.
-- `server/mcpHttp.ts` — stateless MCP at `/mcp`. `mcp/server.ts` — stdio MCP,
-  a thin client over the HTTP API (passes response fields through untouched).
-- `viewer/` — the viewer: Solid + TypeScript in `viewer/src/`, built by Vite
-  (`vite.config.ts`) into a single self-contained `viewer/dist/index.html`
-  (vite-plugin-singlefile) that the server still serves as one in-memory
-  document — there are no static-asset routes.
-- `bin/mockpit.js` — CLI, Node built-ins only; `bin/demoData.js` — seed
-  content for `mockpit demo`.
+- `server/app.ts` — runtime-agnostic Hono app: all routes (`/api/mocks…`,
+  `/api/comments` long-poll, SSE `/api/events`, renderer `/s/:id`, assets
+  `/api/assets` + `/a/:id`), and the flow functions REST and MCP share
+  (publish, revise, asks, draft, reply, export).
+- `server/types.ts` — data model + `Store` interface; no runtime imports.
+  `Mock` (states, asks, knobs, draft), `Post` (one variant of one state: an
+  ordered list of surfaces — `html` | `markdown` | `diff` | `terminal` | `image`
+  | `mermaid` | `json` | `code` — plus history and per-part knob overrides),
+  `Ask`/`AskOption`, the knob shapes (tunekit's `usePane` config as data),
+  `Draft`, `Reply`. Assets are a separate entity; `selectEvictions` is the
+  reference-aware LRU policy.
+- `server/knobs.ts` — knob schema and value validation (Q3): every declared knob
+  and every value (`?k=`, drafts, replies, ask `set`s) is checked here;
+  `discreteChoices` drives the ask-not-knob nudge.
+- `server/parts.ts` — reads part identity (`data-part`, `-label`, `-key`) from
+  html strings with a regex, and diffs versions into vanished/renamed. Never
+  geometry: boxes are the bridge's job.
+- `server/apiViews.ts` / `server/feedbackBatch.ts` — the response shapes every
+  tier returns (mock views; one feedback batch per mock).
+- `server/public.ts` — the `mockpit/server` export (`createApp`, `SqlStore`,
+  `createSqliteStorage`, types).
+- `server/sqlStore.ts` — `SqlStore`, the only `Store`. It takes a `SqlStorage`
+  (the narrow SQL surface in `types.ts`), so the SAME store runs on the Durable
+  Object (`ctx.storage.sql`) and on Node via `server/sqliteStorage.ts`'s
+  `node:sqlite` adapter. Its constructor migrates any older workspace in place
+  (items → single-state mocks, draft comments → mock drafts, traces dropped).
+- `server/kits.ts` — opt-in style/behavior bundles for html surfaces; listed at
+  `/api/kits`, allowlisted in `server/postSurfaces.ts`. Adding a kit is a
+  registry entry + a guide bullet.
+- `server/richRender.ts` — server-side renderers for markdown/code/diff/terminal
+  (`{body, css}`), runtime-agnostic (shiki JS regex engine, @pierre/diffs SSR,
+  markdown-it, ansi_up — no WASM/DOM).
+- `server/surfacePage.ts` — sandboxed documents: `renderHtmlPage` (html surface,
+  CDN-allowlist CSP, kits, the stage bridge), `renderSandboxedPart` (rich kinds,
+  no `connect-src`, no CDN), `renderMermaidPage` (self-rendering CDN doc). The
+  bridge protocol is documented at the top of its "Stage bridge" section:
+  `parts` reports, `hit`/`highlight`/`clear`/`scroll`/`knobs` commands, and the
+  `?k=` knob preamble (`--k-<path>` vars, `data-k-<path>` attrs,
+  `[data-k-bind]`, `mockpit:knobs`).
+- `server/themes.ts` — the one dialkit palette, dark and light; viewer-chrome
+  vars and html-surface `--color-*` tokens are both derived from it. Mode is
+  persisted per workspace (`/api/theme`).
+- `server/mcpSpec.ts` — the MCP tool catalog, one definition generating both
+  transports' schemas. `server/mcpHttp.ts` — stateless MCP at `/mcp`;
+  `mcp/server.ts` — stdio MCP, a thin client over the HTTP API.
+- `viewer/` — Solid + TypeScript in `viewer/src/`, Vite-built into one
+  self-contained `viewer/dist/index.html`. `Home` (mock list), `MockScreen`
+  (`TopBar`, `Stage` + `Strip`, `Panel`), `Stage` (frames, part overlay, pins,
+  hit-testing through the bridge), `Panel` (`Questions` · `Tune` · `Thread`),
+  `Versions`, `Thumb` (shrunk sandboxed frames for Home and option pictures);
+  `state.ts` (the mock screen's state and actions), `logic.ts` (pure rules,
+  unit-tested), `tune.ts` (tunekit mounted via `initPane({ host })`),
+  `presets.ts` (Tune presets in localStorage), `theme.ts`, `host.ts`.
+- `bin/mockpit.js` — CLI, Node built-ins only; `bin/demoData.js` — the Writer
+  mock `mockpit demo` seeds.
 - `workers/index.ts` — Cloudflare entry; one Durable Object runs the whole app.
-- `skills/mockpit/` + `guide/` — teach agents to use a running mockpit.
+- `skills/mockpit/`, `plugin/` + `guide/` — teach agents to use a running mockpit.
 - `scripts/record-demo.mjs` — regenerates the README gif.
 
 ## Architecture invariants
 
-- `server/{app,events,mcpHttp,surfacePage,types}.ts` stay runtime-agnostic
+- `server/{app,events,knobs,mcpHttp,parts,surfacePage,types}.ts` stay runtime-agnostic
   (and any other server file imported by Workers: no `node:` imports);
   `tsconfig.workers.json` typechecks them. Node wiring belongs in `server/index.ts` / `server/storage.ts`.
 - Server/CLI TypeScript runs directly on Node ≥22.18 via type stripping:
@@ -123,7 +126,7 @@ consciously, not as a side effect):
   server-rendered rich kinds (markdown/code/diff/terminal), and
   `renderMermaidPage` for the mermaid CDN doc; or (b) **keep it as data and
   render with Solid text nodes / element attributes**, which escape by
-  construction (image, json, comments, and experimental trace data). String-building
+  construction (image, json, comments, and part/knob data). String-building
   on the server is fine — a string is not a DOM sink; danger only starts when it
   reaches the DOM, which must happen at an opaque origin. When you add a surface
   kind, pick (a) or (b); never a third way. The iframes are sandboxed without
@@ -138,13 +141,23 @@ consciously, not as a side effect):
   impersonate the user, exfiltrate, or exhaust the server; add any new channel
   the same way.
 - Every surface that becomes HTML (html + the rich kinds) is rendered server-side
-  and served from `/s/:id?part=N` by real URL under a `sandbox` CSP header —
+  and served from `/s/:id?surface=N` by real URL under a `sandbox` CSP header —
   opaque origin, not srcdoc/blob (which a Chrome 149 field trial fails to lay
   out). There is no viewer→server render round-trip and no transient frame store;
   don't reintroduce one, and don't render rich markup inline in the trusted
-  viewer. Versioned+themed `/s/:id` responses are immutable, so they carry a
-  long-lived `Cache-Control` and a per-`(id,part,version,theme,mode)` in-memory
-  render cache (single-instance DO; swap for KV/Cache API if multi-instance).
+  viewer. Version-pinned `/s/:id` responses are immutable, so they carry a
+  long-lived `Cache-Control` and a per-`(id,surface,version,mode,knobs)`
+  in-memory render cache (single-instance DO; swap for KV/Cache API if
+  multi-instance). `?k=` values are re-validated against the knobs declared
+  now on every request, so a `?k=` request never takes the early cache hit.
+- Parts bridge: identity is declared (`data-part`), geometry is measured inside
+  the frame and reported as data (`parts` reports in document px, tagged with
+  the document's version — the host drops reports for any other version, since
+  a reloading frame keeps its `contentWindow`). The host only ever sends
+  `hit`/`highlight`/`clear`/`scroll`/`knobs`; what is under the pointer is the
+  frame's `elementFromPoint` answer, never overlay order. The trusted overlay is
+  built from reported numbers and names only. Never let an agent declare boxes
+  (`docs/tmp/experiments/parts-declared/RESULTS.md`: it forces brittle layout).
 - WebKit quirk in sandboxed iframes: ResizeObserver's initial callback may not
   fire and `documentElement.scrollHeight` ratchets to viewport height — the
   bridge reports `body.scrollHeight` on `load` plus staggered timers. Don't
@@ -158,33 +171,29 @@ consciously, not as a side effect):
   resume from it — clients keep no cursor of their own, so CLI, MCP, and
   piggyback share one stream. The viewer's unfiltered reads never touch it.
   Delivery is exactly-once by design, across channels.
+- Drafts (Q13): the user's picks, tuned values, mix and part comments are a
+  server-side draft per mock — they survive reload, stay bound to the version
+  they were made on, are never delivered before Send, and are cleared by it.
+  The reply is one `kind: "reply"` comment through the same cursor; a
+  variant-bound answer flips accepted/archived in the same transaction.
+- Mix offers a part from another look only when that look's frame reports it
+  differently (count, labels, rounded sizes, visibility); a pure restyle at
+  equal size is not offered.
+- tunekit is a second renderer (Preact) in a Solid page: it stays in its own
+  shadow root, the viewer talks to it only through `PaneStore`, and the one
+  other contact is a single stylesheet injected into that shadow root to map
+  its tokens onto the viewer theme (`viewer/src/tune.ts`).
 - `SqlStore` schema changes need in-place migration — deployed Durable
   Objects can't be reset. Follow the `pragma_table_info` probe pattern in its
   constructor.
-- A theme switch must re-theme every layer or it looks broken — the chrome, the
-  server-rendered html surfaces (reloaded), and each sandboxed-iframe surface (whose
-  colors are baked into its string, so it must re-render, not just restyle). The
-  terminal is intentionally theme-independent. Add presets to the registry, not
-  per-component.
+- A dark/light switch must re-theme every layer or it looks broken — the chrome,
+  tunekit's controls, and each sandboxed-iframe surface (whose colors are baked
+  into its string, so it must re-render via `?mode=`, not just restyle). The
+  terminal is intentionally theme-independent.
 - The server reads `viewer/dist/index.html` and `guide/` files at boot —
   rebuild (`npm run build:viewer`) and restart to see viewer changes.
   `npm run dev` runs a Vite watch build alongside the server; the e2e suite
   builds the viewer itself (Playwright global setup).
-- The viewer is also an **embeddable engine**. `mountViewer(el, host)`
-  (`viewer/src/embed.tsx`) renders it into a shadow root with its own runtime,
-  reading base path / route / theme from an injected host (`viewer/src/host.ts`)
-  instead of `window`/`location`. `main.tsx` is the default self-hosted host and
-  renders into `document.body` unchanged — **self-hosted behaviour must stay
-  identical** (the e2e suite is the parity oracle). So in `viewer/src`, don't
-  reach for `document`/`location`/`history`/`:root` directly; go through
-  `root()`/`host()` so both the self-hosted document and the embedded shadow
-  root work (`:root` matches nothing in a shadow root, and there is no
-  `<html>`/`<body>` — `:host` plays `<body>`'s role; see `embed.tsx`). Build the
-  bundle with `npm run build:embed` (→ `viewer/dist-embed/engine.js`, the
-  `mockpit/viewer-embed` export); it is folded into `npm run build`.
-  Embed-host contract changes (`liveTransport`, `homeView`, `hideBrand`, slots,
-  `onReady`, theme mirroring, etc.) need `viewer/embed.d.ts` and focused embed
-  e2e coverage; self-hosted behavior must stay identical.
 
 ## Validation
 
@@ -196,8 +205,8 @@ npm run typecheck    # three tsc programs: node + workers + viewer
 npm run lint         # oxlint, warnings are errors
 npm run format:check # oxfmt
 npm run security:audit
-npm run test:e2e     # Playwright, chromium + webkit (separate CI job);
-                     # builds the viewer first via e2e/globalSetup.ts
+npm run test:e2e     # Playwright, chromium + webkit (separate CI job): bridge,
+                     # mock-screen, decide-flow; builds the viewer first
 npm run bench        # performance suite (separate CI job); bench:check gates it
 ```
 
@@ -236,33 +245,19 @@ Testing notes:
   local server uses on disk — so the contract covers the real Node SQLite path.
   `SqlStorage`/`SqlStorageValue`/`SqlStorageCursor` are plain interfaces in
   `server/types.ts`; a real DO `SqlStorage` is structurally assignable, so no
-  ambient Cloudflare globals are needed in the node program. `test/migration.
-test.ts` covers the JSON→SQLite import.
-- `JsonFileStore` returns live objects that later mutate — capture fields
-  before update calls when asserting against them.
-- The update-notes card is also a `.card`: scope post-card e2e selectors
-  with `.card:not(#whatsNew)`.
+  ambient Cloudflare globals are needed in the node program.
+  `test/migrateToMocks.test.ts` covers the in-place lift of an older workspace.
+- e2e seeds through the agent's HTTP tier (`e2e/decideSeed.ts`, the Writer);
+  `e2e/bridge/` is a plain host page for driving the bridge without the viewer.
 
 ## Conventions
 
-- **Naming (rename in progress).** The user-facing model is **project › item ›
-  variant › version**; a **variant** is stored as a `Post`, and its versions are
-  that post's history. A published artifact is a **post** (an ordered list of
-  **surfaces**); a surface is one block (html/markdown/diff/image/…). In new code
-  use these names — never `part`, never `surface` for the artifact, and never
-  `stream`/`snippet` for what the viewer shows. The
-  data layer (`server/types.ts`, the stores), the wire (canonical `/api/posts`),
-  MCP tools (canonical `publish_item`/`revise_item`/`list_items`/`get_item`/
-  `ask_user`/`export_item`, with `publish_post`/`update_post`/`list_posts` still
-  canonical for the post-level API), the viewer
-  engine, the CLI help, and `guide/*.md` all use them now. Retired spellings stay
-  as back-compat ONLY at the boundary: the legacy HTTP routes (`/api/surfaces`,
-  `/api/snippets`), the `parts` request-body key, the `?part=` query key, the
-  `/s/:id` route alias, and the deprecated MCP tool
-  aliases (`publish_surface`, etc.) — keep these byte-identical. Deprecated MCP
-  aliases are hidden from `tools/list` unless `MOCKPIT_MCP_LEGACY=1`; hiding is
-  allowed, changing them is not. The tenant DB is
-  a **workspace** (`board` is being retired).
+- **Naming.** project › mock › state › variant › version; part, ask, knob,
+  reply, draft. A variant is stored as a `Post` (an ordered list of
+  **surfaces**); the tenant DB is a **workspace**. Retired words — item, group,
+  snippet, board, stream, `part` for a surface, trace — appear nowhere in new
+  code, routes, tools or docs. There is no back-compat beyond `SqlStore`'s
+  in-place migration: no legacy routes, aliases or query keys.
 - Conventional Commits: `type(scope): description`.
 - Changesets drive release notes. For user-visible changes run
   `npm run changeset` and select `patch`/`minor`/`major`; for maintenance-only

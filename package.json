@@ -1,12 +1,13 @@
 {
   "name": "mockpit",
   "version": "0.14.0",
-  "description": "A design-review loop for terminal coding agents — agents publish items, you comment, then revise, accept or drop.",
+  "description": "A design-decision loop for terminal coding agents — agents publish mocks with states and variants, ask questions and expose knobs; you answer, tune and comment, then send one reply.",
   "keywords": [
     "agent-tools",
     "ai-agents",
     "claude-code",
     "coding-agents",
+    "design-review",
     "html-preview",
     "mcp",
     "pi-package",

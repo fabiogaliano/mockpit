@@ -1,8 +1,8 @@
 # Connecting agents
 
 mockpit meets an agent wherever it is. Pick whichever tier the agent supports —
-each one covers the full loop: publish a post, render it live, read the user's
-comments, reply or revise.
+each one covers the full loop: publish a mock, ask the user, read their one
+batched reply, revise.
 
 The fastest path for any agent with a shell is to paste the setup block into its
 instructions:
@@ -18,22 +18,23 @@ the underlying tiers those live instructions build on.
 
 ## Shell (CLI)
 
-The `mockpit` CLI has no dependencies and groups a conversation's posts into
-one session for you:
+The `mockpit` CLI has no dependencies and keeps one session per agent
+conversation for you:
 
 ```sh
-mockpit publish sketch.html --title "Cache layout"
-mockpit diff change.patch --title "Refactor"   # or markdown / image / terminal
-mockpit wait                                   # block until the user comments
-mockpit agent-howto                     # print current agent how-to
+mockpit publish --mock cache --state "Cold" --variant grid --html grid.html   # or --md / --diff …
+mockpit publish --mock cache --state "Cold" --variant list --html list.html
+mockpit ask --mock cache "Which layout?" --option Grid=grid --option List=list
+mockpit wait                                   # block until the user sends their reply
+mockpit agent-howto                            # print the current agent how-to
 mockpit guide                                  # print the design contract
 ```
 
 ## Pi extension
 
 Pi users can install the package directly. It adds native `mockpit_*` tools for
-publishing/updating posts, uploading assets, waiting for feedback, and replying
-in browser threads:
+publishing and revising mocks, asking, uploading assets, waiting for the reply,
+and replying in a mock's thread:
 
 ```sh
 pi install npm:mockpit
@@ -75,8 +76,8 @@ cp -r skills/mockpit ~/.claude/skills/
 ```
 
 **Plugin.** A plugin bundles all three integrations at once — the MCP server, the
-skill, and a **background monitor** that streams your browser comments to the
-agent as notifications, so feedback arrives without pasting or re-arming a
+skill, and a **background monitor** that streams your replies from the browser to the
+agent as notifications, so each reply arrives without pasting or re-arming a
 watcher:
 
 ```text
@@ -86,14 +87,13 @@ watcher:
 
 On install it asks for your **Mockpit URL** (default `http://localhost:8228`, or
 your deployed instance) and an optional token. The monitor runs `mockpit watch`
-against your workspace; comments are delivered to the agent exactly once. Requires
-Claude Code ≥ 2.1.105. The viewer's "connect agent" link (sidebar footer) shows
-generic MCP client setup; the Claude Code plugin lives in [`../plugin/`](../plugin/).
+against your workspace; each reply is delivered to the agent exactly once.
+Requires Claude Code ≥ 2.1.105. The plugin lives in [`../plugin/`](../plugin/).
 
 ## The design contract
 
 `/agent-howto` is the current operational playbook for agents: publishing,
-feedback, CLI/MCP/curl choices, and gotchas. The contract at `/guide` is the
+parts, asks, knobs, reading a reply, and CLI/MCP/curl side by side. The contract at `/guide` is the
 lower-level design reference: fragment-only HTML, theme CSS variables, dark mode
 rules, and when to reach for each surface kind. Agents should fetch the instructions
 first, then fetch the guide once before their first publish (`mockpit guide`,
