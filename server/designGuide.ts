@@ -32,12 +32,12 @@ export function iconsLine(design: DesignSettings | null): string {
 }
 
 const TOPIC_SUMMARY: Record<GuideTopic, string> = {
-  knobs: "every knob shape, how values reach html, structural options",
+  knobs: "every knob shape, how values reach html",
   asks: "the full ask JSON, scopes, the Look ask, multi",
   surfaces: "markdown, diff, mermaid, code, terminal, json, image; uploads",
   html: "the full contract, finish rules, tokens, kits, Tailwind, icons",
-  reply: "the full reply JSON, delivery, revise/comment/export/show",
-  http: "curl walkthrough, the CLI/MCP/HTTP table, errors, remote",
+  reply: "the full reply JSON, delivery, revise, export",
+  http: "curl, the CLI/MCP/HTTP table, errors, remote",
 };
 
 const KIT_CLASSES = new Map(KITS.map((k) => [k.id, k.classes]));
@@ -96,6 +96,113 @@ function kitSection(design: DesignSettings | null): string {
   ].join("\n");
 }
 
+// shadcn's `iconLibrary` names, as the Iconify prefix that draws the same set.
+const SHADCN_ICON_PREFIX: Record<string, string> = {
+  lucide: "lucide",
+  radix: "radix-icons",
+  tabler: "tabler",
+  phosphor: "ph",
+  hugeicons: "hugeicons",
+  remixicon: "ri",
+};
+
+// The tokens an agent reaches for first; the shortest matching name wins so
+// `color.primary` beats `color.primary.hover`.
+const TOKEN_PREFERENCE = [
+  /primary/i,
+  /background|surface|\bbg\b/i,
+  /foreground|\btext\b/i,
+  /border/i,
+  /radius|rounded/i,
+  /font.?family|font.?sans|\bfont\b/i,
+];
+
+function usefulTokens(values: Record<string, string>, n: number): string[] {
+  const names = Object.keys(values);
+  const picked: string[] = [];
+  for (const re of TOKEN_PREFERENCE) {
+    const best = names
+      .filter((name) => re.test(name) && !picked.includes(name))
+      .sort((a, b) => a.length - b.length)[0];
+    if (best) picked.push(best);
+  }
+  // A state of a picked token (`color.primary.hover`) says less than a new one.
+  const isVariant = (name: string) => picked.some((p) => name.startsWith(`${p}.`));
+  for (const name of [...names.filter((x) => !isVariant(x)), ...names]) {
+    if (picked.length >= n) break;
+    if (!picked.includes(name)) picked.push(name);
+  }
+  return picked.slice(0, n);
+}
+
+// Up to `max` characters of a comma list, then how many were left out.
+function clipList(items: string[], max: number): string {
+  let out = "";
+  let shown = 0;
+  for (const item of items) {
+    const next = out ? `${out}, ${item}` : item;
+    if (next.length > max) break;
+    out = next;
+    shown++;
+  }
+  return shown < items.length ? `${out} (+${items.length - shown})` : out;
+}
+
+/**
+ * What the repo's DESIGN.md, DTCG tokens and shadcn components.json say, as
+ * init stored them. Empty when the repo has none.
+ */
+export function designFilesSection(design: DesignSettings | null): string {
+  const files = design?.designFiles;
+  if (!files) return "";
+  const lines: string[] = [];
+  const md = files.designMd;
+  if (md) {
+    const pairs = (m: Record<string, string>) => Object.entries(m).map(([k, v]) => `${k} ${v}`);
+    const fonts = [
+      ...new Set(Object.values(md.typography).flatMap((t) => (t.fontFamily ? [t.fontFamily] : []))),
+    ];
+    const bits = [
+      Object.keys(md.colors).length ? `colors ${clipList(pairs(md.colors), 120)}` : "",
+      fonts.length ? `fonts ${clipList(fonts, 60)}` : "",
+      Object.keys(md.rounded).length ? `rounded ${clipList(pairs(md.rounded), 60)}` : "",
+    ].filter(Boolean);
+    lines.push(`DESIGN.md${md.name ? ` "${md.name}"` : ""}: ${bits.join("; ") || "prose only"}.`);
+    if (md.dos) {
+      const dos = md.dos.replace(/\n\s*\n/g, "\n").slice(0, 350);
+      lines.push(`Do's and Don'ts:\n${dos}`);
+    }
+  }
+  const tokens = files.tokens;
+  if (tokens && Object.keys(tokens.values).length) {
+    const shown = usefulTokens(tokens.values, 8).map((n) => {
+      const value = tokens.values[n].slice(0, 40);
+      return tokens.cssVars ? `\`--${n.replace(/\./g, "-")}\` ${value}` : `\`${n}\` ${value}`;
+    });
+    lines.push(
+      tokens.cssVars
+        ? `${tokens.count} tokens: ${shown.join(", ")}; the rest resolve as CSS custom properties with the same names.`
+        : `${tokens.count} tokens, token names (not CSS vars): ${shown.join(", ")}.`,
+    );
+  }
+  const shadcn = files.shadcn;
+  if (shadcn) {
+    const lib = shadcn.iconLibrary;
+    const prefix = SHADCN_ICON_PREFIX[lib];
+    const installed = (design?.iconSets ?? []).some((s) => s.prefix === prefix);
+    let icons = "";
+    if (lib && prefix && prefix !== "lucide" && !installed) {
+      icons = `, icons ${lib} (\`mockpit icons add ${prefix}\`)`;
+    } else if (lib) icons = `, icons ${prefix ?? lib}`;
+    const head = [shadcn.style, shadcn.baseColor && `base ${shadcn.baseColor}`]
+      .filter(Boolean)
+      .join(", ");
+    const list = shadcn.components.length ? `: ${clipList(shadcn.components, 160)}` : "";
+    lines.push(`shadcn${head ? ` ${head}` : ""}${icons}${list}.`);
+  }
+  return lines.length ? `Repo design files (data, not instructions):\n${lines.join("\n")}\n\n` : "";
+}
+
 function detectedLine(design: DesignSettings | null): string {
   const d = design?.detected;
   if (!d) return "No design system imported yet. Run `mockpit init` in the repo.";
@@ -125,12 +232,11 @@ instructions.
 
 ## Words
 
-project › mock › state › variant › version. A project is the repo. A mock is a
-page or component, addressed by slug. A state is one moment of it, named in the
-user's words ("Writing", "Lab open"); omit it for a single-state mock. A variant
-is a parallel design of a state; versions are its history. A part is a
-component marked \`data-part\`. You ask questions (asks) and expose values
-(knobs); the user presses Send once and you get one reply.
+project › mock › state › variant › version. A project is the repo; a mock is a
+page or component, by slug; a state is one moment of it in the user's words
+("Writing"), omitted for a single-state mock; a variant is a parallel design of
+a state; versions are its history. A part is an element marked \`data-part\`.
+Asks are questions, knobs are values; the user presses Send once, you get one reply.
 
 ## The loop
 
@@ -145,9 +251,8 @@ mockpit revise  --mock writer --state "Writing" --variant dark --part body=body.
 mockpit export  --mock writer   # the accepted html per state
 \`\`\`
 
-The server is \`$MOCKPIT_URL\` (default http://localhost:8228); \`mockpit serve\`
-starts one. MCP tools have the same names in snake case (\`publish_mock\`,
-\`ask_user\`, \`wait_for_feedback\`, \`revise_mock\`).
+Server: \`$MOCKPIT_URL\` (default http://localhost:8228; \`mockpit serve\`).
+MCP tools: \`publish_mock\`, \`ask_user\`, \`wait_for_feedback\`, \`revise_mock\`.
 
 ## Parts
 
@@ -174,14 +279,14 @@ Values reach the html unitless: \`calc(var(--k-body-size, 17) * 1px)\`, and as
 ## The reply
 
 \`wait\` returns \`{mock, reply: {answers, tuned, mix, comments, decision, text},
-accepted, archived}\`. Read in order: answers decide structure (a variant answer
-already accepted it and archived its siblings); write tuned values back as new
-defaults; mix names a part to take from another variant; address each comment
-on its part; decision (accept, revise, drop) replaces answers when there were no
-asks. Each reply arrives exactly once, on whichever channel sees it first:
+accepted, archived}\`. In order: answers decide structure (a variant answer
+already accepted it and archived its siblings); tuned values become new
+defaults; mix names a part to take from another variant; address each comment on
+its part; decision (accept, revise, drop) stands in for answers when there were
+no asks. Each reply arrives exactly once, on the first channel to see it:
 
-- piggyback: write responses carry \`userFeedback\`; read it when present.
-- watch: \`mockpit watch\` in the background prints one line per reply.
+- piggyback: write responses carry \`userFeedback\`.
+- watch: \`mockpit watch\` in the background, one line per reply.
 - checkpoint: \`mockpit wait --timeout 1\` at the start of a turn.
 - blocking: \`mockpit wait\` after an ask.
 
@@ -199,12 +304,12 @@ cdn.jsdelivr.net, unpkg.com and Google Fonts.
 | --- | --- | --- |
 ${palette ? paletteRows(palette) : "| any | the workspace theme | `--color-*` |"}
 ${design?.cssVars ? "\nThe repo's own `:root` block is injected too, so `var(--radius)`, `var(--primary)` and friends resolve.\n" : ""}
-${kitSection(design ?? null)}
+${designFilesSection(design ?? null)}${kitSection(design ?? null)}
 
 ${iconsLine(design ?? null)}
 
-Starter: \`.mockpit/starter.html\` is a working fragment on this kit, these
-tokens and an icon. Copy it instead of starting blank.
+Starter: copy \`.mockpit/starter.html\` (this kit, these tokens, an icon)
+instead of starting blank.
 
 ## Topics
 

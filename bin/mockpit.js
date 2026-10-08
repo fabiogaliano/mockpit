@@ -1147,6 +1147,20 @@ const commands = {
       });
     }
     say("kit:", kit);
+    const files = design.designFiles;
+    if (files) {
+      const sh = files.shadcn;
+      say(
+        "files:",
+        [
+          files.designMd && "DESIGN.md",
+          files.tokens && `${files.tokens.count} tokens`,
+          sh && `shadcn${sh.style ? ` ${sh.style}` : ""} (${sh.components.length} components)`,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      );
+    }
 
     let stored = await api(`${projectPath(project)}/design`, {
       method: "PUT",
@@ -1157,6 +1171,7 @@ const commands = {
         tailwindCss: design.tailwindCss ?? "",
         strippedImports: design.strippedImports ?? [],
         kit,
+        designFiles: design.designFiles ?? null,
       }),
     });
 

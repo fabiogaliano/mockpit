@@ -72,9 +72,10 @@ function readJson(path) {
   }
 }
 
-// Walk a root for .css files, bounded by MAX_FILES across the whole scan so a
-// monorepo can't turn `mockpit init` into a full-disk crawl.
-function findCssFiles(cwd, budget) {
+// Walk a root for .css files (or what `match` accepts), bounded by MAX_FILES
+// across the whole scan so a monorepo can't turn `mockpit init` into a
+// full-disk crawl.
+function findCssFiles(cwd, budget, match = (name) => name.endsWith(".css")) {
   const found = [];
   const walk = (dir, depth) => {
     if (found.length >= budget.left || depth > MAX_DEPTH) return;
@@ -91,7 +92,7 @@ function findCssFiles(cwd, budget) {
       if (e.isDirectory()) {
         if (SKIP_DIRS.has(e.name)) continue;
         walk(full, depth + 1);
-      } else if (e.isFile() && e.name.endsWith(".css")) {
+      } else if (e.isFile() && match(e.name)) {
         budget.left--;
         found.push(full);
       }
@@ -317,7 +318,310 @@ export async function detectDesign(cwd) {
     tailwindCss: tw ? tw.css : "",
     strippedImports: tw ? tw.strippedImports : [],
     tailwindSource: tailwindFile ? rel(tailwindFile) : null,
+    designFiles: readDesignFiles(cwd, `${cssVars}\n${tw ? tw.css : ""}`),
   };
+}
+
+// --- design files ---------------------------------------------------------
+// What a repo already says about its design, read as data for the brief:
+// Google Labs' DESIGN.md, DTCG token files, and shadcn's components.json.
+// Every reader here parses files we did not write and returns null, never
+// throws, on anything it does not understand.
+
+const DOS_MAX = 1_500;
+const TOKENS_MAX = 400;
+const COMPONENTS_MAX = 80;
+const VALUE_MAX = 120;
+// The design PUT refuses a larger designFiles blob; init sheds tokens first.
+export const DESIGN_FILES_MAX = 32_000;
+
+function readText(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+function scalar(raw) {
+  let v = raw.trim();
+  if (v.startsWith('"') || v.startsWith("'")) {
+    const end = v.indexOf(v[0], 1);
+    return end === -1 ? v.slice(1) : v.slice(1, end);
+  }
+  // `primary: #fff` is a comment to YAML, but a color is what the author meant.
+  const comment = v.search(/\s#/);
+  if (comment !== -1) v = v.slice(0, comment).trim();
+  return v;
+}
+
+// Block-style YAML maps only: `key: value` and `key:` over an indented block,
+// any depth. Lists, anchors and flow collections are skipped, which is all a
+// DESIGN.md front matter needs for its token maps.
+function readYamlMap(text) {
+  const root = {};
+  const stack = [{ indent: -1, node: root }];
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("-")) continue;
+    const m = line.match(/^(\s*)("[^"]*"|'[^']*'|[^:#\s][^:]*?)\s*:(?:\s+(.*))?$/);
+    if (!m) continue;
+    const indent = m[1].length;
+    while (stack.length > 1 && indent <= stack[stack.length - 1].indent) stack.pop();
+    const parent = stack[stack.length - 1].node;
+    const key = scalar(m[2]);
+    const value = m[3] === undefined ? "" : scalar(m[3]);
+    if (value === "" || value === "|" || value === ">") {
+      parent[key] = {};
+      stack.push({ indent, node: parent[key] });
+    } else {
+      parent[key] = value;
+    }
+  }
+  return root;
+}
+
+const isMap = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+
+function pathGet(root, path) {
+  let node = root;
+  for (const k of path.split(".")) {
+    if (!isMap(node) || !Object.hasOwn(node, k)) return undefined;
+    node = node[k];
+  }
+  return node;
+}
+
+// `{colors.primary}` becomes the value it names, following a short chain.
+function resolveRefs(root, value) {
+  let v = value;
+  for (let hop = 0; hop < 4; hop++) {
+    const m = v.match(/^\{([\w.-]+)\}$/);
+    const target = m ? pathGet(root, m[1]) : undefined;
+    if (typeof target !== "string") break;
+    v = target;
+  }
+  return v;
+}
+
+function flatMap(root, node, depth) {
+  const out = {};
+  if (!isMap(node)) return out;
+  for (const [k, v] of Object.entries(node)) {
+    if (typeof v === "string") out[k] = resolveRefs(root, v).slice(0, VALUE_MAX);
+    else if (depth > 0 && isMap(v)) out[k] = flatMap(root, v, depth - 1);
+  }
+  return out;
+}
+
+/** A DESIGN.md's token maps, section headings and Do's and Don'ts text. */
+export function readDesignMd(text) {
+  try {
+    const fm = text.match(/^﻿?---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/);
+    const yaml = fm ? readYamlMap(fm[1]) : {};
+    const body = fm ? text.slice(fm[0].length) : text;
+    const headings = [...body.matchAll(/^##[ \t]+(.+?)[ \t#]*$/gm)].map((m) => m[1]).slice(0, 20);
+    let dos = "";
+    const start = body.search(/^##[ \t]+Do[’']?s[ \t]+(?:and|&)[ \t]+Don[’']?ts\b/im);
+    if (start !== -1) {
+      const rest = body.slice(start).replace(/^.*(?:\r?\n|$)/, "");
+      const next = rest.search(/^##\s/m);
+      dos = (next === -1 ? rest : rest.slice(0, next)).trim().slice(0, DOS_MAX);
+    }
+    return {
+      name: typeof yaml.name === "string" ? yaml.name.slice(0, VALUE_MAX) : "",
+      colors: flatMap(yaml, yaml.colors, 0),
+      typography: flatMap(yaml, yaml.typography, 1),
+      rounded: flatMap(yaml, yaml.rounded, 0),
+      spacing: flatMap(yaml, yaml.spacing, 0),
+      components: flatMap(yaml, yaml.components, 1),
+      headings,
+      dos,
+    };
+  } catch {
+    return null;
+  }
+}
+
+const TOKEN_TYPES = new Set(["color", "dimension", "fontFamily", "fontWeight", "number"]);
+const isTokenFile = (name) =>
+  name === "tokens.json" || name === "design-tokens.json" || name.endsWith(".tokens.json");
+
+// DTCG 2025.10 values may be structured; the brief wants one CSS-like string.
+function tokenText(v) {
+  if (typeof v === "string" || typeof v === "number") return String(v);
+  if (Array.isArray(v)) return v.map(tokenText).join(", ");
+  if (isMap(v)) {
+    if (typeof v.hex === "string") return v.hex;
+    if (v.value !== undefined && typeof v.unit === "string") return `${v.value}${v.unit}`;
+    if (typeof v.colorSpace === "string" && Array.isArray(v.components)) {
+      return `color(${v.colorSpace} ${v.components.join(" ")})`;
+    }
+  }
+  return null;
+}
+
+function collectTokens(node, path, inherited, out) {
+  if (!isMap(node)) return;
+  const type = typeof node.$type === "string" ? node.$type : inherited;
+  if (Object.hasOwn(node, "$value")) {
+    out.set(path.join("."), { type, value: node.$value });
+    return;
+  }
+  for (const [k, v] of Object.entries(node)) {
+    if (!k.startsWith("$")) collectTokens(v, [...path, k], type, out);
+  }
+}
+
+// `{a.b}` or `{"$ref": "#/a/b/$value"}` gives `a.b`; a plain value gives null.
+function aliasTarget(value) {
+  if (typeof value === "string") return value.match(/^\{([^{}]+)\}$/)?.[1] ?? null;
+  if (isMap(value) && typeof value.$ref === "string") {
+    return value.$ref
+      .replace(/^#\//, "")
+      .replace(/\/\$value$/, "")
+      .split("/")
+      .join(".");
+  }
+  return null;
+}
+
+/** DTCG token files flattened to `name -> value`, `{count, values}` or null. */
+export function readTokenFiles(files) {
+  const all = new Map();
+  for (const file of files) {
+    const json = readJson(file);
+    if (isMap(json)) collectTokens(json, [], undefined, all);
+  }
+  const values = {};
+  let count = 0;
+  for (const [name, token] of all) {
+    let { type, value } = token;
+    // One level deep: an alias to an alias stays a reference.
+    const target = aliasTarget(value);
+    if (target && all.has(target)) {
+      type ??= all.get(target).type;
+      value = all.get(target).value;
+    }
+    if (!TOKEN_TYPES.has(type)) continue;
+    const ref = aliasTarget(value);
+    const text = ref ? `{${ref}}` : tokenText(value);
+    if (text === null) continue;
+    count++;
+    if (count <= TOKENS_MAX) values[name] = text.slice(0, VALUE_MAX);
+  }
+  return count ? { count, values } : null;
+}
+
+// tsconfig is JSONC: comments and trailing commas, outside strings.
+function readJsonc(path) {
+  const text = readText(path);
+  if (text === null) return null;
+  let out = "";
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
+      out += text.slice(i, j + 1);
+      i = j;
+    } else if (ch === "/" && text[i + 1] === "/") {
+      while (i < text.length && text[i] !== "\n") i++;
+      out += "\n";
+    } else if (ch === "/" && text[i + 1] === "*") {
+      const end = text.indexOf("*/", i + 2);
+      i = end === -1 ? text.length : end + 1;
+    } else out += ch;
+  }
+  try {
+    return JSON.parse(out.replace(/,(\s*[}\]])/g, "$1"));
+  } catch {
+    return null;
+  }
+}
+
+// Where shadcn put its components: the `ui` alias mapped through tsconfig
+// `paths`, then the two layouts the shadcn CLI writes by default.
+function uiDirs(cwd, alias) {
+  const dirs = [];
+  if (alias) {
+    const compiler = readJsonc(join(cwd, "tsconfig.json"))?.compilerOptions ?? {};
+    const base = join(cwd, typeof compiler.baseUrl === "string" ? compiler.baseUrl : ".");
+    for (const [pattern, targets] of Object.entries(isMap(compiler.paths) ? compiler.paths : {})) {
+      const prefix = pattern.replace(/\*$/, "");
+      if (!pattern.endsWith("*") || !alias.startsWith(prefix) || !Array.isArray(targets)) continue;
+      for (const t of targets) {
+        if (typeof t !== "string") continue;
+        dirs.push(join(base, t.replace(/\*$/, ""), alias.slice(prefix.length)));
+      }
+    }
+    if (!/^[@~#]/.test(alias)) dirs.push(join(cwd, alias));
+  }
+  dirs.push(join(cwd, "src", "components", "ui"), join(cwd, "components", "ui"));
+  return dirs;
+}
+
+function readShadcn(cwd) {
+  const config = readJson(join(cwd, "components.json"));
+  if (!isMap(config)) return null;
+  const aliases = isMap(config.aliases) ? config.aliases : {};
+  let alias = "";
+  if (typeof aliases.ui === "string") alias = aliases.ui;
+  else if (typeof aliases.components === "string") alias = `${aliases.components}/ui`;
+  let components = [];
+  for (const dir of uiDirs(cwd, alias)) {
+    try {
+      components = readdirSync(dir, { withFileTypes: true })
+        .filter((e) => e.isDirectory() || /\.(tsx|ts|jsx|js|vue|svelte)$/.test(e.name))
+        .map((e) => e.name.replace(/\.[^.]+$/, ""))
+        .filter((n) => !n.startsWith(".") && n !== "index");
+      break;
+    } catch {
+      // not this layout
+    }
+  }
+  const str = (v) => (typeof v === "string" ? v.slice(0, 60) : "");
+  return {
+    style: str(config.style),
+    baseColor: str(isMap(config.tailwind) ? config.tailwind.baseColor : ""),
+    iconLibrary: str(config.iconLibrary),
+    components: [...new Set(components)].sort().slice(0, COMPONENTS_MAX),
+  };
+}
+
+/**
+ * The repo's own design descriptions: DESIGN.md at the root, DTCG token
+ * files, and shadcn's components.json. `css` is the stylesheet text the frame
+ * gets, to tell whether token names also exist as CSS custom properties.
+ * Null when the repo has none of them.
+ */
+export function readDesignFiles(cwd, css = "") {
+  const files = {};
+  const md = readText(join(cwd, "DESIGN.md"));
+  const designMd = md === null ? null : readDesignMd(md);
+  if (designMd) files.designMd = designMd;
+  const tokenFiles = findCssFiles(cwd, { left: MAX_FILES }, isTokenFile);
+  const tokens = tokenFiles.length ? readTokenFiles(tokenFiles) : null;
+  if (tokens) {
+    const names = Object.keys(tokens.values);
+    // A DTCG file emits no CSS by itself: `var(--name)` works only for a
+    // token whose dashed name the frame's stylesheet declares.
+    const declared = new Set(customProps(css).map(([name]) => name));
+    files.tokens = {
+      files: tokenFiles.map((f) => relative(cwd, f)).slice(0, 20),
+      count: tokens.count,
+      cssVars:
+        tokens.count === names.length && names.every((n) => declared.has(n.replace(/\./g, "-"))),
+      values: tokens.values,
+    };
+    // Tokens are the one unbounded part; shed them until the blob fits.
+    while (JSON.stringify(files).length > DESIGN_FILES_MAX && names.length) {
+      for (const n of names.splice(Math.floor(names.length / 2))) delete files.tokens.values[n];
+    }
+  }
+  const shadcn = readShadcn(cwd);
+  if (shadcn) files.shadcn = shadcn;
+  return Object.keys(files).length ? files : null;
 }
 
 // --- icon sets ------------------------------------------------------------

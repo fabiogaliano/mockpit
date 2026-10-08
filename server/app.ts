@@ -63,6 +63,7 @@ import {
   type CommentAnchor,
   DEFAULT_PROJECT,
   DEFAULT_VARIANT,
+  type DesignFiles,
   type DesignSettings,
   type DiffSurface,
   type Draft,
@@ -559,6 +560,7 @@ export function createApp({
         strippedImports: Array.isArray(design.strippedImports) ? design.strippedImports : [],
         iconSets: Array.isArray(design.iconSets) ? design.iconSets : [],
         projectKits: Array.isArray(design.projectKits) ? design.projectKits : [],
+        designFiles: design.designFiles ?? null,
       };
     } catch {
       return null;
@@ -2734,6 +2736,8 @@ export function createApp({
     const kit = body.kit === undefined || body.kit === null ? "none" : body.kit;
     if (typeof kit !== "string" || !kitIds.includes(kit))
       return c.json({ error: `unknown kit "${String(kit)}" — known: ${kitIds.join(", ")}` }, 400);
+    const designFiles = checkDesignFiles(body.designFiles);
+    if (typeof designFiles === "string") return c.json({ error: designFiles }, 400);
     const design: DesignSettings = {
       detected:
         body.detected && typeof body.detected === "object"
@@ -2766,6 +2770,7 @@ export function createApp({
         : [],
       iconSets,
       projectKits,
+      designFiles,
       updatedAt: new Date().toISOString(),
     };
     return c.json(await saveDesign(project, design));
@@ -2850,6 +2855,76 @@ export function createApp({
       sets: sets.map((s) => ({ prefix: s.prefix, count: iconCount(s.set), source: s.source })),
     });
   });
+
+  // The repo's design files as init read them: every map and list is cut to
+  // the reader's own caps, then the whole is refused past 32k so one project
+  // cannot bloat every brief and every settings read.
+  const DESIGN_FILES_MAX = 32_000;
+  const isRecord = (v: unknown): v is Record<string, unknown> =>
+    v !== null && typeof v === "object" && !Array.isArray(v);
+  function checkDesignFiles(raw: unknown): DesignFiles | null | string {
+    if (raw === undefined || raw === null) return null;
+    if (!isRecord(raw)) return "designFiles must be an object";
+    const str = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : "");
+    const strs = (v: unknown, n: number, max: number) =>
+      Array.isArray(v)
+        ? v
+            .filter((s): s is string => typeof s === "string")
+            .map((s) => s.slice(0, max))
+            .slice(0, n)
+        : [];
+    const flat = (v: unknown, n: number): Record<string, string> =>
+      Object.fromEntries(
+        Object.entries(isRecord(v) ? v : {})
+          .filter((e): e is [string, string] => typeof e[1] === "string")
+          .slice(0, n)
+          .map(([k, x]) => [k.slice(0, 80), x.slice(0, 120)]),
+      );
+    const nested = (v: unknown, n: number): Record<string, Record<string, string>> =>
+      Object.fromEntries(
+        Object.entries(isRecord(v) ? v : {})
+          .filter(([, x]) => isRecord(x))
+          .slice(0, n)
+          .map(([k, x]) => [k.slice(0, 80), flat(x, 12)]),
+      );
+    const out: DesignFiles = {};
+    const md = raw.designMd;
+    if (isRecord(md)) {
+      out.designMd = {
+        name: str(md.name, 120),
+        colors: flat(md.colors, 100),
+        typography: nested(md.typography, 40),
+        rounded: flat(md.rounded, 30),
+        spacing: flat(md.spacing, 30),
+        components: nested(md.components, 60),
+        headings: strs(md.headings, 20, 120),
+        dos: str(md.dos, 1_500),
+      };
+    }
+    const tokens = raw.tokens;
+    if (isRecord(tokens)) {
+      out.tokens = {
+        files: strs(tokens.files, 20, 200),
+        count: Math.max(0, Math.floor(Number(tokens.count) || 0)),
+        cssVars: tokens.cssVars === true,
+        values: flat(tokens.values, 400),
+      };
+    }
+    const shadcn = raw.shadcn;
+    if (isRecord(shadcn)) {
+      out.shadcn = {
+        style: str(shadcn.style, 60),
+        baseColor: str(shadcn.baseColor, 60),
+        iconLibrary: str(shadcn.iconLibrary, 60),
+        components: strs(shadcn.components, 80, 60),
+      };
+    }
+    const size = JSON.stringify(out).length;
+    if (size > DESIGN_FILES_MAX) {
+      return `designFiles is ${size} characters serialized; at most ${DESIGN_FILES_MAX}`;
+    }
+    return Object.keys(out).length ? out : null;
+  }
 
   // The installed sets a design PUT names: each must be an uploaded Iconify
   // JSON set whose prefix matches, so a typo fails here rather than as blank

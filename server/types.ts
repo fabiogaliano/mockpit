@@ -472,6 +472,9 @@ export interface DesignSettings {
   // Kits this project defined (`mockpit kit add`). Older settings predate it;
   // read as [].
   projectKits: ProjectKit[];
+  // What the repo's DESIGN.md, DTCG token files and shadcn components.json
+  // say, read by init for the brief. Older settings predate it; read as null.
+  designFiles?: DesignFiles | null;
   updatedAt: string;
 }
 
@@ -483,6 +486,29 @@ export interface ProjectKit {
   href: string;
   script?: string;
   doc: string;
+}
+
+// Each part is present only when the repo has that file.
+export interface DesignFiles {
+  designMd?: {
+    name: string;
+    colors: Record<string, string>;
+    typography: Record<string, Record<string, string>>;
+    rounded: Record<string, string>;
+    spacing: Record<string, string>;
+    components: Record<string, Record<string, string>>;
+    headings: string[];
+    dos: string;
+  };
+  tokens?: {
+    files: string[];
+    // Before the cap; `values` holds at most 400.
+    count: number;
+    // Every token name, dots as dashes, is declared in the frame's stylesheet.
+    cssVars: boolean;
+    values: Record<string, string>;
+  };
+  shadcn?: { style: string; baseColor: string; iconLibrary: string; components: string[] };
 }
 
 // One installed Iconify JSON set: the uploaded asset holding it and how many
