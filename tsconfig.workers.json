@@ -7,6 +7,7 @@
     "workers",
     "server/app.ts",
     "server/events.ts",
+    "server/icons.ts",
     "server/mcpHttp.ts",
     "server/richRender.ts",
     "server/sqlStore.ts",

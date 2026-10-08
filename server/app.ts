@@ -6,6 +6,17 @@ import { decodeBase64 } from "./base64.ts";
 import { mockDetailView, mockSummaryView, sessionRowView, surfaceRef } from "./apiViews.ts";
 import { EventBus, type FeedEvent } from "./events.ts";
 import { buildFeedbackBatches, type FeedbackBatch } from "./feedbackBatch.ts";
+import {
+  bundledIconSets,
+  expandIcons,
+  type IconifyJSON,
+  type IconResolver,
+  iconCount,
+  isIconName,
+  mayHaveIcons,
+  parseIconSet,
+  resolverFor,
+} from "./icons.ts";
 import { kitSummaries } from "./kits.ts";
 import { checkKnobs, checkKnobValues, discreteChoices } from "./knobs.ts";
 import { diffParts, type PartChanges, partsInSurfaces } from "./parts.ts";
@@ -49,6 +60,7 @@ import {
   type DiffSurface,
   type Draft,
   htmlSurface,
+  type IconSetRef,
   isSandboxedSurfaceKind,
   type Knobs,
   type KnobValue,
@@ -528,10 +540,64 @@ export function createApp({
     const raw = await store.getSetting(`design:${project}`);
     if (!raw) return null;
     try {
-      return JSON.parse(raw) as DesignSettings;
+      const design = JSON.parse(raw) as DesignSettings;
+      return { ...design, iconSets: Array.isArray(design.iconSets) ? design.iconSets : [] };
     } catch {
       return null;
     }
+  }
+
+  // Parsed installed icon sets by asset id. Asset bytes are immutable (the id
+  // is their hash), so an entry never goes stale; the bound only caps memory.
+  const iconSetCache = new Map<string, IconifyJSON | null>();
+  const ICON_SET_CACHE_MAX = 16;
+  async function installedIconSet(assetId: string): Promise<IconifyJSON | null> {
+    if (iconSetCache.has(assetId)) return iconSetCache.get(assetId)!;
+    const asset = await store.getAsset(assetId);
+    // A missing asset is not cached: it may be uploaded a moment later.
+    if (!asset) return null;
+    const set = parseIconSet(new TextDecoder().decode(asset.data));
+    if (iconSetCache.size >= ICON_SET_CACHE_MAX) {
+      iconSetCache.delete(iconSetCache.keys().next().value!);
+    }
+    iconSetCache.set(assetId, set);
+    return set;
+  }
+
+  // The project's installed sets first, so installing a set under a bundled
+  // prefix (a newer lucide) overrides the bundled copy.
+  async function iconSetsFor(
+    design: DesignSettings | null,
+  ): Promise<{ prefix: string; set: IconifyJSON; source: "installed" | "bundled" }[]> {
+    const out: { prefix: string; set: IconifyJSON; source: "installed" | "bundled" }[] = [];
+    for (const ref of design?.iconSets ?? []) {
+      const set = await installedIconSet(ref.assetId);
+      if (set) out.push({ prefix: ref.prefix, set, source: "installed" });
+    }
+    for (const [prefix, set] of await bundledIconSets()) {
+      if (!out.some((s) => s.prefix === prefix)) out.push({ prefix, set, source: "bundled" });
+    }
+    return out;
+  }
+
+  async function iconResolverFor(
+    design: DesignSettings | null,
+  ): Promise<{ resolve: IconResolver; prefixes: string[] }> {
+    const sets = await iconSetsFor(design);
+    return { resolve: resolverFor(sets.map((s) => s.set)), prefixes: sets.map((s) => s.prefix) };
+  }
+
+  // Unknown icon names in a write's html surfaces, said at write time so the
+  // agent learns without rendering.
+  async function iconWarnings(project: string, surfaces: Surface[]): Promise<string[]> {
+    const html = surfaces.flatMap((s) =>
+      s.kind === "html" && mayHaveIcons(s.html) ? [s.html] : [],
+    );
+    if (html.length === 0) return [];
+    const { resolve, prefixes } = await iconResolverFor(await designFor(project));
+    const unknown = new Set<string>();
+    for (const h of html) for (const u of expandIcons(h, resolve).unknown) unknown.add(u);
+    return [...unknown].map((u) => `unknown icon ${u} (sets: ${prefixes.join(", ")})`);
   }
 
   // Push + webhooks. Detached on purpose: a dead push endpoint must never fail
@@ -734,6 +800,7 @@ export function createApp({
     if (extra.previous) {
       partChanges = diffParts(partsInSurfaces(extra.previous), partsInSurfaces(post.surfaces));
     }
+    const warnings = await iconWarnings(mock.project, post.surfaces);
     const userFeedback = await collectFeedback(post.sessionId);
     return ok(
       {
@@ -760,6 +827,7 @@ export function createApp({
           ? { partChanges }
           : {}),
         ...(extra.nudges?.length ? { nudges: extra.nudges } : {}),
+        ...(warnings.length ? { warnings } : {}),
         ...(userFeedback ? { userFeedback } : {}),
       },
       extra.status ?? 200,
@@ -2542,6 +2610,15 @@ export function createApp({
   app.put("/api/projects/:name/design", async (c) => {
     const body = await c.req.json().catch(() => null);
     if (!body || typeof body !== "object") return c.json({ error: "invalid JSON body" }, 400);
+    const project = c.req.param("name");
+    // `mockpit init` re-detects the repo and PUTs without iconSets; that must
+    // not uninstall what `mockpit icons add` installed.
+    let iconSets = (await designFor(project))?.iconSets ?? [];
+    if (body.iconSets !== undefined) {
+      const checked = await checkIconSets(body.iconSets);
+      if (typeof checked === "string") return c.json({ error: checked }, 400);
+      iconSets = checked;
+    }
     const kit = body.kit === "tailwind" || body.kit === "builtin" ? body.kit : "none";
     const design: DesignSettings = {
       detected:
@@ -2561,16 +2638,48 @@ export function createApp({
           : null,
       kit,
       cssVars: typeof body.cssVars === "string" ? body.cssVars.slice(0, 64_000) : "",
-      iconsAssetId: typeof body.iconsAssetId === "string" ? body.iconsAssetId : null,
+      iconSets,
       updatedAt: new Date().toISOString(),
     };
-    await store.setSetting(`design:${c.req.param("name")}`, JSON.stringify(design));
+    await store.setSetting(`design:${project}`, JSON.stringify(design));
     // Every rendered surface bakes the design into its document string, so a
     // design change invalidates them all.
     clearRenderCache();
     bus.broadcast({ type: "theme-changed", mode: await workspaceMode() });
     return c.json(design);
   });
+
+  // Every set an html surface of this project can name, installed first.
+  app.get("/api/projects/:name/icons", async (c) => {
+    const sets = await iconSetsFor(await designFor(c.req.param("name")));
+    return c.json({
+      sets: sets.map((s) => ({ prefix: s.prefix, count: iconCount(s.set), source: s.source })),
+    });
+  });
+
+  // The installed sets a design PUT names: each must be an uploaded Iconify
+  // JSON set whose prefix matches, so a typo fails here rather than as blank
+  // icons on every render. The count is read off the set, not trusted.
+  const MAX_ICON_SETS = 32;
+  async function checkIconSets(raw: unknown): Promise<IconSetRef[] | string> {
+    if (!Array.isArray(raw)) return "iconSets must be an array of {prefix, assetId}";
+    if (raw.length > MAX_ICON_SETS) return `at most ${MAX_ICON_SETS} icon sets`;
+    const byPrefix = new Map<string, IconSetRef>();
+    for (const entry of raw) {
+      const prefix = entry?.prefix;
+      const assetId = entry?.assetId;
+      if (!isIconName(prefix) || typeof assetId !== "string" || !assetId) {
+        return "each icon set needs a prefix (lowercase, e.g. lucide) and an assetId";
+      }
+      const set = await installedIconSet(assetId);
+      if (!set) return `icon set ${prefix}: asset ${assetId} is not an Iconify JSON set`;
+      if (set.prefix !== prefix) {
+        return `icon set ${prefix}: asset ${assetId} holds the ${set.prefix} set`;
+      }
+      byPrefix.set(prefix, { prefix, assetId, count: iconCount(set) });
+    }
+    return [...byPrefix.values()];
+  }
 
   // --- push and webhooks ---
 
@@ -2653,15 +2762,16 @@ export function createApp({
     const theme = themeById(DEFAULT_THEME_ID);
     const themeId = theme.id;
     if (surface.kind === "html") {
+      // A page mock composes published components by reference; the tags
+      // are expanded here, server-side, so the whole page is still ONE
+      // sandboxed document rather than nested frames.
+      const html =
+        args.mock?.kind === "page"
+          ? await expandPageHtml(args.mock.project, args.post, surface.html)
+          : surface.html;
       return renderHtmlPage({
         title: args.title,
-        // A page mock composes published components by reference; the tags
-        // are expanded here, server-side, so the whole page is still ONE
-        // sandboxed document rather than nested frames.
-        html:
-          args.mock?.kind === "page"
-            ? await expandPageHtml(args.mock.project, args.post, surface.html)
-            : surface.html,
+        html,
         origin,
         theme,
         mode,
@@ -2669,6 +2779,7 @@ export function createApp({
         design: args.design,
         version: args.version,
         knobs: args.knobs,
+        resolveIcon: mayHaveIcons(html) ? (await iconResolverFor(args.design)).resolve : undefined,
       });
     }
     if (surface.kind === "mermaid") {
@@ -2916,11 +3027,6 @@ export function createApp({
     c.header("Content-Type", contentType);
     c.header("Content-Disposition", disposition);
     c.header("X-Content-Type-Options", "nosniff");
-    // html surfaces render at an opaque origin, so the icon-sprite loader's
-    // fetch of /a/:id is cross-origin. It sends no credentials, and assets are
-    // already readable by anyone who can reach the workspace, so allowing the
-    // read adds no exposure — without it the sprite silently fails to load.
-    c.header("Access-Control-Allow-Origin", "*");
     // Short revalidating cache (not immutable) so touch-on-serve keeps firing
     // and the LRU clock reflects real views; asset ids are unique anyway.
     c.header("Cache-Control", "private, max-age=60");

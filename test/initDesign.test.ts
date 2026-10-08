@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 // @ts-expect-error — the CLI side is plain JS with JSDoc types
-import { buildIconSprite, detectDesign, renderStarter } from "../bin/initDesign.js";
+import { detectDesign, detectIconSets, renderStarter } from "../bin/initDesign.js";
 
 // `mockpit init`'s detection half: deterministic, no model in the loop, and it
 // parses files we did not write — so it must never throw, whatever the repo
@@ -87,33 +87,49 @@ test("detectDesign picks the file with the most tokens and ignores junk", async 
   assert.equal(design.detected.tailwind, false, "an unreadable package.json is not a crash");
 });
 
-test("buildIconSprite builds symbols from the bundled mage set", () => {
-  const all = buildIconSprite();
-  assert.ok(all.count > 0);
-  assert.match(all.svg, /^<svg\b/);
-  assert.match(all.svg, /<symbol id="mage-[a-z0-9-]+" viewBox="[^"]+">/);
-
-  const subset = buildIconSprite({ names: ["check"] });
-  assert.equal(subset.count, 1);
-  assert.match(subset.svg, /id="mage-check"/);
-  assert.equal(buildIconSprite({ names: ["not-an-icon"] }).count, 0);
+test("detectIconSets maps the repo's icon packages to Iconify prefixes", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "mockpit-icons-"));
+  writeFileSync(
+    join(cwd, "package.json"),
+    JSON.stringify({
+      dependencies: { "lucide-react": "1", "react-icons": "5" },
+      devDependencies: { "@iconify-json/carbon": "1" },
+    }),
+  );
+  for (const dir of ["@tabler/icons-react", "@phosphor-icons/react", "@heroicons/react"]) {
+    mkdirSync(join(cwd, "node_modules", dir), { recursive: true });
+  }
+  const found = detectIconSets(cwd);
+  assert.deepEqual(found.map((f: { prefix: string }) => f.prefix).sort(), [
+    "carbon",
+    "heroicons",
+    "lucide",
+    "ph",
+    "tabler",
+  ]);
+  assert.equal(
+    found.find((f: { prefix: string }) => f.prefix === "lucide").from,
+    "lucide-react",
+    "react-icons maps to no set",
+  );
+  assert.deepEqual(detectIconSets(join(cwd, "missing")), [], "an empty dir is not a crash");
 });
 
 test("renderStarter is a body fragment on the project's own kit and tokens", () => {
   const builtin = renderStarter(
     { kit: "builtin", cssVars: ":root{--radius:0.5rem;--primary:#0af}" },
-    ["check"],
+    ["tabler", "lucide", "mage"],
   );
   // the html contract: a fragment, never a document
   assert.ok(!builtin.includes("<!doctype"));
   assert.ok(!/<html|<body/i.test(builtin));
-  assert.match(builtin, /kit: builtin · icons: mage/);
-  assert.match(builtin, /<use href="#mage-check"\/>/);
+  assert.match(builtin, /kit: builtin · icons: tabler, lucide, mage/);
+  assert.match(builtin, /<button class="btn btn-primary"><i icon="lucide:check"><\/i> Action/);
   assert.match(builtin, /var\(--primary\) = #0af/);
   assert.match(builtin, /never a hardcoded/);
 
-  const tailwind = renderStarter({ kit: "tailwind", cssVars: "" }, []);
-  assert.match(tailwind, /kit: tailwind/);
-  assert.ok(!tailwind.includes("<use href="), "no sprite, no icon markup");
+  const tailwind = renderStarter({ kit: "tailwind", cssVars: "" });
+  assert.match(tailwind, /kit: tailwind · icons: lucide, mage/);
+  assert.ok(!tailwind.includes("<use href="), "the sprite form is gone");
   assert.ok(!tailwind.includes("tokens imported from this repo"));
 });

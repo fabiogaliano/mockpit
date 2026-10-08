@@ -457,8 +457,18 @@ export interface DesignSettings {
   kit: "tailwind" | "builtin" | "none";
   // Raw `:root{...}` block imported from the repo, injected into the frame.
   cssVars: string;
-  iconsAssetId: string | null;
+  // Iconify sets installed for this project (`mockpit icons add`), on top of
+  // the ones bundled with the server. Older settings predate it; read as [].
+  iconSets: IconSetRef[];
   updatedAt: string;
+}
+
+// One installed Iconify JSON set: the uploaded asset holding it and how many
+// visible icons it has.
+export interface IconSetRef {
+  prefix: string;
+  assetId: string;
+  count: number;
 }
 
 export type CommentAnchor =

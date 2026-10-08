@@ -559,7 +559,7 @@ test("resize bridge late timers catch height growth after the 1500ms warm-up", (
 // A project's imported design system reaches the frame through the surface
 // document itself — this is the only place `mockpit init`'s output is applied,
 // so the ordering rule (the repo's tokens land after mockpit's) is load-bearing.
-test("a project's design injects its tokens, kit and icon sprite into the frame", () => {
+test("a project's design injects its tokens and kit into the frame", () => {
   const page = renderHtmlPage({
     title: "t",
     html: "<p>x</p>",
@@ -570,16 +570,15 @@ test("a project's design injects its tokens, kit and icon sprite into the frame"
       kit: "tailwind",
       // a bare declaration list, the other spelling init can store
       cssVars: "--radius: 0.5rem; --brand: #0af;",
-      iconsAssetId: "asset1",
+      iconSets: [],
       updatedAt: "2026-09-15T00:00:00.000Z",
     },
   });
   assert.match(page, /<style>:root\{--radius: 0\.5rem; --brand: #0af;\}/, "wrapped in :root");
   assert.match(page, /<script src="https:\/\/cdn\./, "the tailwind kit loads its CDN build");
-  assert.ok(page.includes("asset1"), "the sprite loader names the uploaded asset");
-  // the sprite is fetched, so this doc is the one html-surface CSP that needs
-  // connect-src back to the workspace origin
-  assert.ok(cspDirectives(page)["connect-src"].includes(`${ORIGIN}/a/`));
+  // icons are inlined at render, so no html surface ever reads back from the
+  // workspace origin
+  assert.equal(cspDirectives(page)["connect-src"].includes(ORIGIN), false);
 
   const builtin = renderHtmlPage({
     title: "t",
@@ -590,7 +589,7 @@ test("a project's design injects its tokens, kit and icon sprite into the frame"
       palette: null,
       kit: "builtin",
       cssVars: ":root{--radius:2px}",
-      iconsAssetId: null,
+      iconSets: [],
       updatedAt: "2026-09-15T00:00:00.000Z",
     },
   });

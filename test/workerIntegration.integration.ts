@@ -121,7 +121,7 @@ test(
           project: "worker",
           mock: "card",
           title: "Worker post",
-          surfaces: [{ kind: "html", html: marker }],
+          surfaces: [{ kind: "html", html: `${marker}<i icon="lucide:check"></i>` }],
         }),
       ),
       201,
@@ -181,7 +181,11 @@ test(
       headers: AUTH,
     });
     assert.equal(rendered.status, 200);
-    assert.match(await rendered.text(), /worker-marker/);
+    const renderedHtml = await rendered.text();
+    assert.match(renderedHtml, /worker-marker/);
+    // The bundled icon sets are JSON imported on first use, which only a real
+    // workerd bundle proves.
+    assert.match(renderedHtml, /<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path /);
     assert.equal(rendered.headers.get("content-security-policy"), "sandbox allow-scripts");
     assert.equal(rendered.headers.get("referrer-policy"), "no-referrer");
     assert.equal(rendered.headers.get("x-content-type-options"), "nosniff");

@@ -1,6 +1,6 @@
-// Design-system detection for `mockpit init`. Node built-ins only (plus the
-// bundled @iconify-json/mage data), so the CLI keeps its zero-runtime-dependency
-// promise and can run straight from a checkout or from the packed npm tarball.
+// Design-system detection for `mockpit init`. Node built-ins only, so the CLI
+// keeps its zero-runtime-dependency promise and can run straight from a
+// checkout or from the packed npm tarball.
 //
 // The point of this file is that the agent never assembles a design set by
 // hand: init reads what the repo already declares (Tailwind, shadcn, a `:root`
@@ -8,11 +8,11 @@
 // starter file the agent copies from. Everything here is deterministic — no
 // model in the loop.
 
+import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { readdirSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, join, relative } from "node:path";
-
-const require = createRequire(import.meta.url);
 
 // The palette mapper lives in server/themes.ts so the server and the CLI can
 // never disagree about what a repo's tokens mean. Node type-strips the .ts in a
@@ -258,48 +258,140 @@ export async function detectDesign(cwd) {
   };
 }
 
-// --- icon sprite ----------------------------------------------------------
+// --- icon sets ------------------------------------------------------------
 
-// A bundled subset kept next to this file so `init` still produces icons when
-// the optional @iconify-json/mage install is unavailable (offline CI, a
-// --omit=optional install, a vendored tree).
-const SUBSET_PATH = "./mageSubset.json";
+// Icon packages a repo may already use, mapped to the Iconify prefix that
+// draws the same icons. react-icons bundles many sets under one name, so it
+// maps to none.
+const ICON_PACKAGES = [
+  [/^@iconify-json\/([a-z0-9][a-z0-9-]*)$/, (m) => m[1]],
+  [/^lucide(-[a-z-]+)?$/, () => "lucide"],
+  [/^@tabler\/icons/, () => "tabler"],
+  [/^@phosphor-icons\//, () => "ph"],
+  [/^@heroicons\//, () => "heroicons"],
+];
 
-function loadMageSet() {
+function dirNames(dir) {
   try {
-    return require("@iconify-json/mage/icons.json");
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() || e.isSymbolicLink())
+      .map((e) => e.name);
   } catch {
-    try {
-      return require(SUBSET_PATH);
-    } catch {
-      return null;
-    }
+    return [];
   }
 }
 
-const escapeAttr = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+/**
+ * The Iconify prefixes this repo's own icon packages correspond to, read from
+ * package.json and the top level of node_modules. `[{prefix, from}]`, one per
+ * prefix.
+ */
+export function detectIconSets(cwd) {
+  const pkg = readJson(join(cwd, "package.json"));
+  const names = new Set(Object.keys({ ...pkg?.dependencies, ...pkg?.devDependencies }));
+  const modules = join(cwd, "node_modules");
+  for (const name of dirNames(modules)) {
+    if (!name.startsWith("@")) names.add(name);
+    else for (const sub of dirNames(join(modules, name))) names.add(`${name}/${sub}`);
+  }
+  const found = new Map();
+  for (const name of [...names].sort()) {
+    for (const [re, toPrefix] of ICON_PACKAGES) {
+      const m = name.match(re);
+      if (!m) continue;
+      const prefix = toPrefix(m);
+      if (!found.has(prefix)) found.set(prefix, { prefix, from: name });
+    }
+  }
+  return [...found.values()];
+}
+
+// Only what draws an icon; info, categories and search hints are dropped so a
+// large set stays under the asset size limit.
+function slimIconSet(set) {
+  const out = { prefix: set.prefix, icons: set.icons };
+  for (const k of ["aliases", "width", "height", "left", "top"]) {
+    if (set[k] !== undefined) out[k] = set[k];
+  }
+  return out;
+}
+
+function readIconSet(path, prefix) {
+  const set = readJson(path);
+  return set && set.prefix === prefix && set.icons && typeof set.icons === "object" ? set : null;
+}
+
+const versionParts = (v) => v.split(/[.@-]/).map((n) => Number(n) || 0);
+const newestFirst = (a, b) => {
+  const [x, y] = [versionParts(a), versionParts(b)];
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    if ((x[i] ?? 0) !== (y[i] ?? 0)) return (y[i] ?? 0) - (x[i] ?? 0);
+  }
+  return 0;
+};
+
+// Installed copies that cost a directory listing at most: the project (and
+// its parents, as Node resolves), the global npm root, and bun's cache. The
+// pnpm store is content-addressed, so it is not searched.
+function localIconSetPaths(prefix, cwd) {
+  const paths = [];
+  const file = `@iconify-json/${prefix}/icons.json`;
+  try {
+    paths.push(createRequire(join(cwd, "noop.js")).resolve(file));
+  } catch {
+    // not installed in the project
+  }
+  try {
+    const root = execFileSync("npm", ["root", "-g"], {
+      encoding: "utf8",
+      timeout: 3000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (root) paths.push(join(root, file));
+  } catch {
+    // no npm on PATH
+  }
+  const bunCache = join(homedir(), ".bun", "install", "cache", "@iconify-json");
+  const cached = dirNames(bunCache)
+    .filter((d) => d.startsWith(`${prefix}@`))
+    .map((d) => d.slice(prefix.length + 1))
+    .sort(newestFirst);
+  for (const version of cached) paths.push(join(bunCache, `${prefix}@${version}`, "icons.json"));
+  return paths;
+}
+
+export const ICONIFY_CDN = "https://cdn.jsdelivr.net/npm";
 
 /**
- * Build one `<svg>` sprite of `<symbol id="mage-<name>">` from the mage set
- * (Apache-2.0). Uploaded once as a project asset; the html-surface wrapper
- * fetches it so `<svg class="icon"><use href="#mage-home"/></svg>` resolves.
- * Pass `names` to build a smaller sprite.
+ * Find the Iconify JSON set for `prefix`: an installed copy if one is cheap to
+ * reach, else jsDelivr. Resolves `{ set, source }`; rejects with a one-line
+ * message when the set does not exist or cannot be fetched.
  */
-export function buildIconSprite(options = {}) {
-  const set = loadMageSet();
-  if (!set || !set.icons) return { svg: "", count: 0 };
-  const w = set.width || 24;
-  const h = set.height || 24;
-  const wanted = options.names ? new Set(options.names) : null;
-  const symbols = [];
-  for (const [name, icon] of Object.entries(set.icons)) {
-    if (wanted && !wanted.has(name)) continue;
-    if (icon.hidden) continue;
-    const box = `0 0 ${icon.width || w} ${icon.height || h}`;
-    symbols.push(`<symbol id="mage-${escapeAttr(name)}" viewBox="${box}">${icon.body}</symbol>`);
+export async function findIconSet(prefix, cwd) {
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(prefix)) {
+    throw new Error(`"${prefix}" is not an Iconify prefix (lowercase, e.g. lucide)`);
   }
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute" aria-hidden="true"><defs>${symbols.join("")}</defs></svg>`;
-  return { svg, count: symbols.length };
+  for (const path of localIconSetPaths(prefix, cwd)) {
+    const set = readIconSet(path, prefix);
+    if (set) return { set: slimIconSet(set), source: path };
+  }
+  const url = `${ICONIFY_CDN}/@iconify-json/${prefix}/icons.json`;
+  let res;
+  try {
+    res = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+  } catch (err) {
+    const why = err?.cause?.code ?? err?.name ?? "network error";
+    throw new Error(`could not fetch ${prefix} from jsDelivr (${why})`);
+  }
+  if (res.status === 404) {
+    throw new Error(`no icon set "${prefix}" on jsDelivr (@iconify-json/${prefix})`);
+  }
+  if (!res.ok) throw new Error(`could not fetch ${prefix} from jsDelivr (${res.status})`);
+  const set = await res.json().catch(() => null);
+  if (!set || set.prefix !== prefix || !set.icons) {
+    throw new Error(`@iconify-json/${prefix} on jsDelivr is not an Iconify set`);
+  }
+  return { set: slimIconSet(set), source: url };
 }
 
 // --- starter file ---------------------------------------------------------
@@ -346,15 +438,14 @@ const STARTER_TOKENS = [
 /**
  * The text of `.mockpit/starter.html` — a body fragment (never a full
  * document; that is the html contract) showing the project's kit classes, its
- * tokens, and one icon in use.
+ * tokens, and one icon in use. `iconSets` are the prefixes the server resolves
+ * for this project.
  */
-export function renderStarter(design, iconNames = []) {
+export function renderStarter(design, iconSets = ["lucide", "mage"]) {
   const kit = design?.kit ?? "builtin";
-  const icon = iconNames.includes("check") ? "check" : (iconNames[0] ?? null);
-  const iconMarkup = icon ? `<svg class="icon"><use href="#mage-${icon}"/></svg>` : "";
   const body = (kit === "tailwind" ? TAILWIND_BODY : BUILTIN_BODY).replace(
-    "ICON_SLOT ",
-    iconMarkup ? `${iconMarkup} ` : "",
+    "ICON_SLOT",
+    '<i icon="lucide:check"></i>',
   );
   // Show the tokens an agent reaches for first. A repo's block is usually led
   // by sizing/easing tokens, so surface the semantic colors ahead of them.
@@ -371,7 +462,7 @@ export function renderStarter(design, iconNames = []) {
     .join("\n");
   return `<!-- .mockpit/starter.html — copy this, don't publish it as-is.
      Send the BODY FRAGMENT only; mockpit wraps it in a themed sandbox.
-     kit: ${kit}${icon ? " · icons: mage" : ""}
+     kit: ${kit} · icons: ${iconSets.join(", ")}, as <i icon="prefix:name"></i>
 ${tokens ? `     tokens imported from this repo:\n${tokens}\n` : ""}     Colors come from these vars or from mockpit's --color-* tokens
      (--color-text-primary, --color-background-primary, …), never a hardcoded
      hex — every surface has to read in both light and dark. -->

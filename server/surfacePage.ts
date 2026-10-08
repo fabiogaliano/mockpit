@@ -1,4 +1,5 @@
 import { CORE_CSS, type Kit, KITS, kitAssets } from "./kits.ts";
+import { expandIcons, type IconResolver } from "./icons.ts";
 import type { DesignSettings } from "./types.ts";
 import {
   type Mode,
@@ -55,21 +56,12 @@ const cdns = CDN_ALLOWLIST.join(" ");
 // (served at <origin>/a/:id) embed by URL. It is needed because the iframe runs
 // at an opaque origin (sandbox without allow-same-origin), so `'self'` matches
 // nothing, and a local http origin isn't covered by the `https:` source.
-// `extraConnect` widens connect-src for the ONE case that needs it: an html
-// surface whose project has an icon sprite, which the injected loader fetches
-// from `<origin>/a/<id>`. It is passed as a path-scoped source (`<origin>/a/`),
-// so the sandbox gains read access to uploaded assets only — never to the
-// workspace API (`/api/*`), which is what the empty connect-src was protecting.
-// Assets are already world-readable by id (`img-src` has allowed the same URLs
-// all along) and the fetch is credential-less from an opaque origin, so this
-// grants no capability the frame did not already have via <img>. Rich surfaces
-// never pass it and keep no connect-src at all.
 // `${origin}/asset/` is the fixed, content-hashed path the bridge script and the
 // static stylesheets are served from (see registerAsset). It is deliberately a
 // single directory of server-authored, workspace-data-free files: nothing an
 // agent or a user can write is ever reachable under it, so widening script-src
 // to it grants the sandbox no capability beyond running our own bridge.
-function buildCsp(origin: string, extraConnect?: string): string {
+function buildCsp(origin: string): string {
   const assets = `${origin}${STATIC_ASSET_PREFIX}`;
   return [
     `default-src 'none'`,
@@ -77,7 +69,7 @@ function buildCsp(origin: string, extraConnect?: string): string {
     `style-src 'unsafe-inline' ${assets} ${cdns}`,
     `font-src ${cdns} data:`,
     `img-src https: data: blob: ${origin}`,
-    `connect-src ${cdns}${extraConnect ? ` ${extraConnect}` : ""}`,
+    `connect-src ${cdns}`,
     `media-src https: data: blob: ${origin}`,
   ].join("; ");
 }
@@ -751,10 +743,10 @@ const PART_HIGHLIGHT_CSS = `.mockpit-part-hl{outline:2px solid #8b7bff !importan
 // repo — so the agent writes the same classes it writes in the codebase.
 const TAILWIND_CDN = "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4";
 
-// Sizing for `<svg class="icon"><use href="#mage-…"/></svg>` — shipped with
-// the sprite loader so the markup in `.mockpit/starter.html` works whichever
-// kit a project ended up on.
-const ICON_CSS = `.icon{width:1em;height:1em;flex:none;vertical-align:-0.125em;fill:none;stroke:currentColor}`;
+// Sizing for the `<svg class="icon">` that icons.ts inlines for every
+// `icon="prefix:name"`. Fill and stroke are left to the icon body, which
+// declares them per set and draws in currentColor.
+const ICON_CSS = `.icon{width:1em;height:1em;flex:none;vertical-align:-0.125em}`;
 
 // ---------------------------------------------------------------------------
 // Content-hashed static assets for surface documents
@@ -812,10 +804,13 @@ const HIT_TEST_PATH = registerAsset("hit-test", "js", HIT_TEST_JS);
 const PARTS_PATH = registerAsset("parts", "js", PARTS_JS);
 const KNOBS_PATH = registerAsset("knobs", "js", KNOBS_JS);
 // The base html-surface stylesheet: static design tokens + the surface kit.
-const BASE_CSS_PATH = registerAsset("base", "css", `${TOKENS_CSS}${KIT_CSS}${PART_HIGHLIGHT_CSS}`);
+const BASE_CSS_PATH = registerAsset(
+  "base",
+  "css",
+  `${TOKENS_CSS}${KIT_CSS}${PART_HIGHLIGHT_CSS}${ICON_CSS}`,
+);
 const KIT_CORE_PATH = registerAsset("kit-core", "css", CORE_CSS);
 const KIT_PATHS = new Map(KITS.map((k) => [k.id, registerAsset(`kit-${k.id}`, "css", k.css)]));
-const ICON_CSS_PATH = registerAsset("icon", "css", ICON_CSS);
 
 const scriptTag = (origin: string, path: string) => `<script src="${origin}${path}"></script>`;
 const styleTag = (origin: string, path: string) =>
@@ -837,56 +832,24 @@ function resolveKits(ids: readonly string[] | undefined): Kit[] {
   return chosen;
 }
 
-// Fetch the project's uploaded icon sprite and append it, so `<use>` resolves.
-// A cross-document `<use href="/a/<id>#mage-home">` is blocked by the SVG
-// same-origin rule (and doubly so from an opaque origin), so the symbols have
-// to live in THIS document — hence fetch + append rather than a plain
-// reference. `credentials: 'omit'` keeps the request anonymous; a failure is
-// swallowed because a missing icon must never take the whole surface down.
-const spriteLoaderJs = (origin: string, assetId: string) => `
-(function () {
-  fetch(${JSON.stringify(`${origin}/a/${assetId}`)}, { credentials: 'omit' })
-    .then(function (r) { return r.ok ? r.text() : null; })
-    .then(function (svg) {
-      if (!svg) return;
-      var host = document.createElement('div');
-      host.setAttribute('aria-hidden', 'true');
-      host.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden';
-      host.innerHTML = svg;
-      document.body.appendChild(host);
-    })
-    .catch(function () {});
-})();
-`;
-
 // Everything a project's DesignSettings contributes to one html-surface doc.
 // Kept in one place so the ordering rule is visible: the project's own tokens
 // land AFTER mockpit's, because a repo that declares `--radius` or a brand
 // color should win inside its own project's surfaces.
-function designAssets(
-  design: DesignSettings | null | undefined,
-  origin: string,
-): {
+function designAssets(design: DesignSettings | null | undefined): {
   css: string;
   kits: string[];
   headScripts: string;
-  bodyScripts: string;
-  connect?: string;
-  icons: boolean;
 } {
-  if (!design) return { css: "", kits: [], headScripts: "", bodyScripts: "", icons: false };
+  if (!design) return { css: "", kits: [], headScripts: "" };
   const raw = design.cssVars?.trim() ?? "";
   // `cssVars` is stored as the repo's raw block; accept either the full
   // `:root{…}` text or a bare declaration list.
   const vars = raw ? (raw.includes("{") ? raw : `:root{${raw}}`) : "";
-  const iconId = design.iconsAssetId;
   return {
     css: vars,
-    icons: !!iconId,
     kits: design.kit === "builtin" ? ["builtin"] : [],
     headScripts: design.kit === "tailwind" ? `<script src="${TAILWIND_CDN}"></script>` : "",
-    bodyScripts: iconId ? `<script>${spriteLoaderJs(origin, iconId)}</script>` : "",
-    connect: iconId ? `${origin}/a/` : undefined,
   };
 }
 
@@ -1166,10 +1129,13 @@ export function renderHtmlPage(doc: {
   version?: number;
   // Validated `?k=` values (the route checks them against the declared knobs).
   knobs?: Record<string, unknown>;
+  // Resolves `icon="prefix:name"` against the bundled and project-installed
+  // sets. Absent → icons render as empty boxes.
+  resolveIcon?: IconResolver;
 }): string {
   const theme =
     typeof doc.theme === "string" || doc.theme == null ? themeById(doc.theme) : doc.theme;
-  const design = designAssets(doc.design, doc.origin);
+  const design = designAssets(doc.design);
   const preamble = knobPreamble(doc.version, doc.knobs);
   // The project kit is appended, so with both present its components win over
   // a surface-requested kit's same-named classes.
@@ -1185,7 +1151,6 @@ export function renderHtmlPage(doc: {
     `<style>${kitAccentCss(doc.mode)}</style>`,
     ...(kits.length > 0 ? [styleTag(doc.origin, KIT_CORE_PATH)] : []),
     ...kits.map((k) => styleTag(doc.origin, KIT_PATHS.get(k.id)!)),
-    ...(design.icons ? [styleTag(doc.origin, ICON_CSS_PATH)] : []),
     `<style>${design.css}${colorSchemeCss(doc.mode)}</style>`,
   ].join("\n");
   return `<!doctype html>
@@ -1193,7 +1158,7 @@ ${preamble.htmlTag}
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="${buildCsp(doc.origin, design.connect)}">
+<meta http-equiv="Content-Security-Policy" content="${buildCsp(doc.origin)}">
 <title>${escapeHtml(doc.title)}</title>
 ${preamble.headScript}
 ${styles}
@@ -1201,13 +1166,12 @@ ${design.headScripts}
 </head>
 <body>
 ${SVG_DEFS}
-${doc.html}
+${expandIcons(doc.html, doc.resolveIcon ?? (() => null)).html}
 ${scriptTag(doc.origin, BRIDGE_PATH)}
 ${scriptTag(doc.origin, HIT_TEST_PATH)}
 ${scriptTag(doc.origin, KNOBS_PATH)}
 ${scriptTag(doc.origin, PARTS_PATH)}
 ${kit.js ? `<script>${kit.js}</script>` : ""}
-${design.bodyScripts}
 </body>
 </html>`;
 }

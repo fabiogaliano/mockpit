@@ -1077,7 +1077,7 @@ test("init imports the repo's design system and writes the starter", async () =>
     assert.match(stdout, /^project: +acme\/site \(from MOCKPIT_PROJECT\)$/m);
     assert.match(stdout, /^design: +tailwind · 4 css vars from src\/globals\.css$/m);
     assert.match(stdout, /^kit: +tailwind$/m);
-    assert.match(stdout, /^icons: +mage \(\d+ icons\) → /m);
+    assert.match(stdout, /^icons: +lucide, mage available/m);
     assert.match(stdout, /^wrote: +\.mockpit\/starter\.html$/m);
 
     const starter = readFileSync(join(cwd, ".mockpit", "starter.html"), "utf8");
@@ -1088,11 +1088,59 @@ test("init imports the repo's design system and writes the starter", async () =>
       `${server.url}/api/projects/${encodeURIComponent("acme/site")}/design`,
     );
     assert.equal(design.kit, "tailwind");
-    assert.ok(design.iconsAssetId);
+    assert.deepEqual(design.iconSets, []);
 
     const brief = await cli(server, { cwd }, "guide", "--brief");
     assert.match(brief.stdout, /Kit: tailwind/);
     assert.match(brief.stdout, /mockpit publish --mock/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("init adds the repo's icon sets; icons lists, adds and removes them", async () => {
+  const server = await serveSession();
+  const cwd = tmpRepo();
+  try {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ dependencies: { "@iconify-json/zz": "1", "lucide-react": "1" } }),
+    );
+    const pkg = join(cwd, "node_modules", "@iconify-json", "zz");
+    mkdirSync(pkg, { recursive: true });
+    writeFileSync(
+      join(pkg, "icons.json"),
+      JSON.stringify({
+        prefix: "zz",
+        info: { name: "dropped on upload" },
+        icons: { dot: { body: "<circle r='4'/>" }, ring: { body: "<circle/>" } },
+      }),
+    );
+
+    const init = await cli(server, { cwd }, "init");
+    assert.equal(init.code, 0, init.stderr);
+    assert.match(init.stdout, /^icons: +lucide \(bundled, from lucide-react\)$/m);
+    assert.match(init.stdout, /^icons: +zz \(2 icons, from @iconify-json\/zz\)$/m);
+    assert.match(init.stdout, /^icons: +zz, lucide, mage available/m);
+
+    const list = await cli(server, { cwd }, "icons");
+    assert.match(list.stdout, /^zz +2 +installed$/m);
+    assert.match(list.stdout, /^lucide +\d+ +bundled$/m);
+
+    const add = await cli(server, { cwd }, "icons", "add", "zz");
+    assert.equal(add.code, 0, add.stderr);
+    assert.match(add.stdout, /^added zz \(2 icons\)$/m);
+
+    const bundled = await cli(server, { cwd }, "icons", "remove", "lucide");
+    assert.notEqual(bundled.code, 0);
+    assert.match(bundled.stderr, /lucide is bundled/);
+
+    const removed = await cli(server, { cwd }, "icons", "remove", "zz");
+    assert.equal(removed.code, 0, removed.stderr);
+    const design = await getJson(
+      `${server.url}/api/projects/${encodeURIComponent("acme/site")}/design`,
+    );
+    assert.deepEqual(design.iconSets, []);
   } finally {
     await server.close();
   }

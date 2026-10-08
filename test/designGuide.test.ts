@@ -15,7 +15,7 @@ const design = (over: Partial<DesignSettings> = {}): DesignSettings => ({
   palette: null,
   kit: "none",
   cssVars: "",
-  iconsAssetId: null,
+  iconSets: [],
   updatedAt: "2026-09-15T00:00:00.000Z",
   ...over,
 });
@@ -25,7 +25,8 @@ test("a project that never ran init gets the generic brief", () => {
   assert.match(brief, /No design system imported yet — run `mockpit init`/);
   assert.match(brief, /using the workspace theme/);
   assert.match(brief, /Kit: none/);
-  assert.match(brief, /Icons: none configured/);
+  assert.match(brief, /<i icon="lucide:check"><\/i>/);
+  assert.match(brief, /Sets: lucide, mage\./, "the bundled sets are always named");
   // the workflow is always present: it is what the brief exists to teach
   assert.match(brief, /mockpit publish --mock writer/);
   assert.match(brief, /mockpit wait/);
@@ -66,10 +67,14 @@ test("each kit mode documents the vocabulary that mode actually injects", () => 
   assert.match(none, /kits: \[\.\.\.\]/, "the opt-in kits are named instead");
 });
 
-test("injected css vars and an uploaded sprite are announced", () => {
+test("injected css vars and installed icon sets are announced", () => {
   const brief = renderBriefGuide(
-    design({ cssVars: ":root{--radius:0.5rem}", iconsAssetId: "asset1" }),
+    design({
+      cssVars: ":root{--radius:0.5rem}",
+      iconSets: [{ prefix: "tabler", assetId: "asset1", count: 5000 }],
+    }),
   );
   assert.match(brief, /injected verbatim/);
-  assert.match(brief, /mage sprite is loaded in every frame/);
+  assert.match(brief, /Sets: tabler, lucide, mage\./);
+  assert.match(brief, /mockpit icons add <prefix>/);
 });

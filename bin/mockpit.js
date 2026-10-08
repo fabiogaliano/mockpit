@@ -22,7 +22,10 @@ Mark the parts you want feedback on with data-part="name" in the html.
 
 design loop:
   mockpit init [--project name]          detect the repo's design system, store
-                                          palette/kit/icons, write .mockpit/starter.html
+                                          palette/kit/icon sets, write .mockpit/starter.html
+  mockpit icons [add|remove <set>...]    list the icon sets html surfaces can name
+                                          (icon="prefix:name"); add or remove an
+                                          Iconify set for this project
   mockpit publish --mock <slug> --html <file> [options]
                                           publish (or re-version) one variant of
                                           one state
@@ -104,8 +107,15 @@ environment:
 // the whole manual. Commands without an entry fall back to HELP.
 const COMMAND_HELP = {
   init: `mockpit init [--project <name>]
-  Detect the repo's design system, store palette + kit + icon sprite for the
-  project, and write .mockpit/starter.html (gitignored).`,
+  Detect the repo's design system, store palette + kit for the project, add the
+  Iconify sets matching its icon packages, and write .mockpit/starter.html
+  (gitignored).`,
+  icons: `mockpit icons [--project <name>]
+mockpit icons add <set> [<set>...]
+mockpit icons remove <set> [<set>...]
+  html surfaces write <i icon="lucide:check"></i>; the server inlines the svg.
+  lucide and mage are bundled. add finds @iconify-json/<set> in node_modules,
+  the global npm root or bun's cache, else fetches it from jsDelivr.`,
   publish: `mockpit publish --mock <slug> --html <file> [options]
   --state <label>    state in the user's words (omit for a single-state mock)
   --variant <name>   variant label (default "default")
@@ -493,6 +503,43 @@ async function uploadFile(file, { session, kind } = {}) {
   });
 }
 
+// Served by every mockpit server without an install (server/icons.ts).
+const BUNDLED_ICON_SETS = ["lucide", "mage"];
+
+// Find each Iconify set, upload it as a file asset, and record them all on the
+// project's design in one PUT. A set that cannot be found is reported in
+// `errors` and does not stop the others.
+async function installIconSets(project, prefixes) {
+  const { findIconSet } = await import("./initDesign.js");
+  const added = [];
+  const errors = [];
+  for (const prefix of new Set(prefixes)) {
+    try {
+      const { set } = await findIconSet(prefix, process.cwd());
+      const asset = await uploadBytes(new TextEncoder().encode(JSON.stringify(set)), {
+        filename: `icons-${prefix}.json`,
+        contentType: "application/json",
+        kind: "file",
+      });
+      added.push({ prefix, assetId: asset.id });
+    } catch (err) {
+      errors.push({ prefix, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  if (added.length === 0) return { added: [], errors, design: null };
+  const stored = (await api(`${projectPath(project)}/design`)) ?? {};
+  const keep = (stored.iconSets ?? []).filter((s) => !added.some((a) => a.prefix === s.prefix));
+  const design = await api(`${projectPath(project)}/design`, {
+    method: "PUT",
+    body: JSON.stringify({ ...stored, iconSets: [...keep, ...added] }),
+  });
+  return {
+    added: design.iconSets.filter((s) => added.some((a) => a.prefix === s.prefix)),
+    errors,
+    design,
+  };
+}
+
 // Normalize repeated/comma-joined --kit flags into a deduped id list (or
 // undefined). The server allowlists the ids; an unknown one is a clean 400.
 function normalizeKits(flag) {
@@ -673,6 +720,7 @@ function printPublished(result, flags) {
   }
   if (changes?.vanished?.length) console.log(`vanished: ${changes.vanished.join(", ")}`);
   for (const nudge of result.nudges ?? []) console.log(`nudge: ${nudge}`);
+  for (const warning of result.warnings ?? []) console.log(`warning: ${warning}`);
   // Only speak when there IS feedback: an empty line per publish is pure token
   // cost, and the cursor guarantees anything pending arrives on some write.
   if (result.userFeedback?.length)
@@ -978,7 +1026,7 @@ const commands = {
     const say = (label, text) => {
       if (!flags.quiet && !flags.json) console.log(`${label.padEnd(8)} ${text}`);
     };
-    const { detectDesign, buildIconSprite, renderStarter } = await import("./initDesign.js");
+    const { detectDesign, detectIconSets, renderStarter } = await import("./initDesign.js");
     say("project:", `${project} (from ${source})`);
 
     const design = await detectDesign(process.cwd());
@@ -1007,28 +1055,39 @@ const commands = {
       }),
     });
 
-    const sprite = await buildIconSprite();
-    const asset = await uploadBytes(new TextEncoder().encode(sprite.svg), {
-      filename: "icons-mage.svg",
-      contentType: "image/svg+xml",
-      kind: "file",
-    });
-    stored = await api(`${projectPath(project)}/design`, {
-      method: "PUT",
-      body: JSON.stringify({ ...stored, iconsAssetId: asset.id }),
-    });
-    say("icons:", `mage (${sprite.count} icons) → ${BASE}/a/${asset.id}`);
+    // Sets the repo already uses are added the same way `icons add` does; one
+    // that cannot be fetched (offline) is reported, never fatal to init.
+    const usedSets = detectIconSets(process.cwd());
+    const wanted = usedSets.filter((f) => !BUNDLED_ICON_SETS.includes(f.prefix));
+    for (const f of usedSets) {
+      if (BUNDLED_ICON_SETS.includes(f.prefix))
+        say("icons:", `${f.prefix} (bundled, from ${f.from})`);
+    }
+    if (wanted.length) {
+      const result = await installIconSets(
+        project,
+        wanted.map((f) => f.prefix),
+      );
+      for (const f of wanted) {
+        const added = result.added.find((a) => a.prefix === f.prefix);
+        const error = result.errors.find((e) => e.prefix === f.prefix);
+        if (added) say("icons:", `${f.prefix} (${added.count} icons, from ${f.from})`);
+        else say("icons:", `${f.prefix} not added: ${error?.message ?? "unknown error"}`);
+      }
+      if (result.design) stored = result.design;
+    }
+    const iconSets = [
+      ...new Set([...(stored?.iconSets ?? []).map((s) => s.prefix), ...BUNDLED_ICON_SETS]),
+    ];
+    say("icons:", `${iconSets.join(", ")} available, as <i icon="prefix:name"></i>`);
 
     const starter = join(process.cwd(), ".mockpit", "starter.html");
     mkdirSync(dirname(starter), { recursive: true });
-    // The starter only names an icon it can prove is in the sprite it just
-    // uploaded, so the <use href> in it always resolves.
-    const iconNames = sprite.svg.includes('id="mage-check"') ? ["check"] : [];
-    writeFileSync(starter, renderStarter(design, iconNames));
+    writeFileSync(starter, renderStarter(design, iconSets));
     say("wrote:", ".mockpit/starter.html");
     if (ignoreMockpitDir()) say("wrote:", ".gitignore (+ .mockpit/)");
     say("next:", "mockpit guide --brief");
-    if (flags.json) out({ project, design: stored, iconsAssetId: asset.id, starter });
+    if (flags.json) out({ project, design: stored, starter });
   },
 
   async publish() {
@@ -1489,6 +1548,56 @@ const commands = {
 
   // List the opt-in html kits this workspace offers (id, label, summary, classes).
   // Pair with `publish --kit <id>` to inject a kit's CSS/JS into an html surface.
+  async icons() {
+    const { values: flags, positionals } = parse({
+      allowPositionals: true,
+      options: { project: { type: "string" } },
+    });
+    const [sub = "list", ...sets] = positionals;
+    const { name: project } = resolveProject(flags);
+    if (sub === "list") {
+      const { sets: rows } = await api(`${projectPath(project)}/icons`);
+      if (flags.json) return out(rows);
+      if (flags.quiet) return;
+      for (const r of rows)
+        console.log(`${r.prefix.padEnd(16)} ${String(r.count).padStart(6)}  ${r.source}`);
+      return;
+    }
+    if (sets.length === 0) fail(`usage: mockpit icons ${sub} <set> [<set>...]`);
+    if (sub === "add") {
+      const result = await installIconSets(project, sets);
+      if (result.errors.length) fail(result.errors.map((e) => e.message).join("; "));
+      if (flags.json) return out(result.design);
+      for (const a of result.added) {
+        if (!flags.quiet) console.log(`added ${a.prefix} (${a.count} icons)`);
+      }
+      return;
+    }
+    if (sub === "remove") {
+      const stored = await api(`${projectPath(project)}/design`);
+      const installed = stored?.iconSets ?? [];
+      for (const set of sets) {
+        if (installed.some((s) => s.prefix === set)) continue;
+        fail(
+          BUNDLED_ICON_SETS.includes(set)
+            ? `${set} is bundled with the server and cannot be removed`
+            : `${set} is not installed for ${project}`,
+        );
+      }
+      const design = await api(`${projectPath(project)}/design`, {
+        method: "PUT",
+        body: JSON.stringify({
+          ...stored,
+          iconSets: installed.filter((s) => !sets.includes(s.prefix)),
+        }),
+      });
+      if (flags.json) return out(design);
+      if (!flags.quiet) console.log(`removed ${sets.join(", ")}`);
+      return;
+    }
+    fail(`unknown icons command "${sub}" — run "mockpit icons --help"`);
+  },
+
   async kits() {
     parse();
     out(await api("/api/kits"));

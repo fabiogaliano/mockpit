@@ -701,6 +701,7 @@ export class SqlStore implements Store {
   }
 
   async setSetting(key: string, value: string) {
+    if (key.startsWith("design:")) this.invalidateAssetRefs();
     this.sql.exec(
       "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
       stripNul(key),
@@ -1147,6 +1148,19 @@ export class SqlStore implements Store {
     }
     for (const r of this.sql.exec("SELECT surfaces FROM post_versions").toArray()) {
       collectAssetIds(parseJson<Surface[]>(r.surfaces, []), out);
+    }
+    // An installed icon set is referenced by its project's design, not by a
+    // surface; evicting it would blank that project's icons.
+    for (const r of this.sql
+      .exec("SELECT value FROM settings WHERE key LIKE 'design:%'")
+      .toArray()) {
+      const sets = parseJson<{ iconSets?: { assetId?: unknown }[] } | null>(
+        r.value,
+        null,
+      )?.iconSets;
+      for (const ref of Array.isArray(sets) ? sets : []) {
+        if (typeof ref?.assetId === "string") out.add(ref.assetId);
+      }
     }
     this.assetRefCache = out;
     return out;

@@ -8,6 +8,7 @@
 //
 // Runtime-agnostic (no node imports): served from app.ts on the Worker too.
 
+import { BUNDLED_ICON_PREFIXES } from "./icons.ts";
 import { KITS } from "./kits.ts";
 import type { Palette } from "./themes.ts";
 import type { DesignSettings } from "./types.ts";
@@ -71,9 +72,10 @@ function detectedLine(design: DesignSettings | null): string {
  */
 export function renderBriefGuide(design: DesignSettings | null): string {
   const palette = design?.palette?.light ?? null;
-  const icons = design?.iconsAssetId
-    ? 'Icons: mage sprite is loaded in every frame — `<svg class="icon"><use href="#mage-check"/></svg>` (`mage-home`, `mage-search`, `mage-settings`, `mage-user`, `mage-chevron-right`, …).'
-    : "Icons: none configured. `mockpit init` uploads the mage sprite; until then inline your own `<svg>`.";
+  const iconSets = [
+    ...new Set([...(design?.iconSets ?? []).map((s) => s.prefix), ...BUNDLED_ICON_PREFIXES]),
+  ];
+  const icons = `Icons: \`<i icon="lucide:check"></i>\` becomes an inline svg, 1em, in currentColor; its other attributes are kept. Sets: ${iconSets.join(", ")}. Add any Iconify set with \`mockpit icons add <prefix>\` (tabler, ph, heroicons, …).`;
 
   return `# mockpit — design brief
 
