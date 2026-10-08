@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  type CreatePostInput,
+  type Draft,
   HISTORY_LIMIT,
   htmlSurface,
   type Post,
+  type Reply,
   type Store,
   type Surface,
 } from "../server/types.ts";
@@ -15,6 +18,25 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // Strip the server-assigned id from each surface for deepEqual comparisons
 // against test-constructed surfaces that don't carry ids.
 const stripIds = (surfaces: Surface[]) => surfaces.map(({ id: _, ...rest }) => rest);
+
+// Every variant belongs to a mock. Tests that only care about the post get a
+// fresh single-state mock per post unless they pass one.
+let mockSeq = 0;
+async function post(
+  store: Store,
+  input: Omit<CreatePostInput, "mock" | "state"> & { mock?: string; state?: string | null },
+): Promise<Post | null> {
+  const mock =
+    input.mock ??
+    (
+      await store.createMock({
+        project: "contract",
+        slug: `m${++mockSeq}`,
+        sessionId: input.sessionId,
+      })
+    ).id;
+  return store.createPost({ ...input, mock, state: input.state ?? null });
+}
 
 // Reusable contract suite: every Store implementation must pass it.
 // makeStore must return a fresh, empty store on each call.
@@ -46,10 +68,10 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     assert.equal(await store.getSession("missing"), null);
   });
 
-  // SQLite truncates TEXT at an embedded NUL while a JSON file preserves it, so
-  // both stores strip NUL from stored text to stay in lockstep. Parts ride a
-  // JSON column (NUL encoded as an escape, no raw byte) so they're unaffected.
-  contract("strips embedded NUL from stored text so the stores agree", async (store) => {
+  // SQLite truncates TEXT at an embedded NUL, so the store strips NUL from
+  // stored text rather than silently cutting it. Surfaces ride a JSON column
+  // (NUL encoded as an escape, no raw byte) so they're unaffected.
+  contract("strips embedded NUL from stored text", async (store) => {
     const s = await store.createSession({
       agent: `a${NUL}b`,
       title: `keep${NUL}drop`,
@@ -60,7 +82,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     assert.equal(got.title, "keepdrop");
     assert.equal(got.cwd, "/pq");
 
-    const surf = (await store.createPost({
+    const surf = (await post(store, {
       sessionId: s.id,
       title: `t${NUL}t`,
       surfaces: [htmlSurface(`<p>x</p>`)],
@@ -71,11 +93,6 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     const c = (await store.listComments({ sessionId: s.id }))[0];
     assert.equal(c.text, "xy");
     assert.equal(c.author, "ur");
-
-    await store.setTrace(s.id, [{ label: `l${NUL}l`, detail: `d${NUL}d` }]);
-    const tr = (await store.listTrace(s.id))[0];
-    assert.equal(tr.label, "ll");
-    assert.equal(tr.detail, "dd");
 
     await store.setSetting("k", `v${NUL}v`);
     assert.equal(await store.getSetting("k"), "vv");
@@ -119,7 +136,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
 
     // publishing into the older session bumps it to the front
     await sleep(10);
-    await store.createPost({ sessionId: a.id, surfaces: [htmlSurface("<p>x</p>")] });
+    await post(store, { sessionId: a.id, surfaces: [htmlSurface("<p>x</p>")] });
     assert.deepEqual(
       (await store.listSessions()).map((s) => s.id),
       [a.id, b.id],
@@ -144,7 +161,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     assert.equal((await store.getSession(session.id))?.agent, "pi");
 
     const surfaces = [htmlSurface("<p>v1</p>")];
-    const surface = await store.createPost({ sessionId: session.id, title: "Card", surfaces });
+    const surface = await post(store, { sessionId: session.id, title: "Card", surfaces });
     assert.ok(surface);
     surfaces[0].html = "<p>mutated input</p>";
     surface.title = "mutated return";
@@ -213,12 +230,12 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
 
   contract("creates surfaces with defaults; unknown session is null", async (store) => {
     assert.equal(
-      await store.createPost({ sessionId: "missing", surfaces: [htmlSurface("<p>x</p>")] }),
+      await post(store, { sessionId: "missing", surfaces: [htmlSurface("<p>x</p>")] }),
       null,
     );
 
     const session = await store.createSession({ agent: "pi" });
-    const surface = await store.createPost({
+    const surface = await post(store, {
       sessionId: session.id,
       surfaces: [htmlSurface("<p>x</p>")],
     });
@@ -229,7 +246,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     assert.deepEqual(surface.history, []);
     assert.equal(surface.updatedAt, surface.createdAt);
 
-    const titled = await store.createPost({
+    const titled = await post(store, {
       sessionId: session.id,
       title: "  Sketch  ",
       surfaces: [htmlSurface("<p>y</p>")],
@@ -240,61 +257,17 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     assert.equal(await store.getPost("missing"), null);
   });
 
-  contract("counts posts by session without materializing post details", async (store) => {
-    assert.ok(store.countPostsBySession, "built-in stores expose the narrow count capability");
-    const countPostsBySession = store.countPostsBySession.bind(store);
-    const a = await store.createSession({ agent: "a" });
-    const b = await store.createSession({ agent: "b" });
-    const empty = await store.createSession({ agent: "empty" });
-
-    assert.equal((await countPostsBySession()).size, 0);
-    const a1 = await store.createPost({
-      sessionId: a.id,
-      surfaces: [htmlSurface("<p>a1</p>")],
-    });
-    const a2 = await store.createPost({
-      sessionId: a.id,
-      surfaces: [htmlSurface("<p>a2</p>")],
-    });
-    await store.createPost({ sessionId: b.id, surfaces: [htmlSurface("<p>b</p>")] });
-    assert.ok(a1 && a2);
-
-    let counts = await countPostsBySession();
-    assert.equal(counts.size, 2);
-    assert.equal(counts.get(a.id), 2);
-    assert.equal(counts.get(b.id), 1);
-    assert.equal(counts.has(empty.id), false, "empty sessions are absent from the aggregate");
-
-    await store.removePost(a1.id);
-    counts = await countPostsBySession();
-    assert.equal(counts.get(a.id), 1);
-    assert.equal(counts.get(b.id), 1);
-
-    await store.removeSession(b.id);
-    counts = await countPostsBySession();
-    assert.equal(counts.size, 1);
-    assert.equal(counts.get(a.id), 1);
-    assert.equal(counts.has(b.id), false);
-  });
-
-  contract("supports multi-part surfaces (html + diff + terminal + trace)", async (store) => {
+  contract("supports multi-surface variants (html + diff + terminal + json)", async (store) => {
     const session = await store.createSession({ agent: "pi" });
-    const surface = await store.createPost({
+    const surface = await post(store, {
       sessionId: session.id,
       surfaces: [
         htmlSurface("<div class=tree></div>", ["issues"]),
         { kind: "diff", patch: "@@ -1 +1 @@", layout: "split" },
         { kind: "terminal", text: "$ ls\n\x1b[34mbin\x1b[0m", cols: 80, title: "shell" },
-        // a trace carries a nested array-of-objects shape; both stores serialize
-        // parts to JSON, so this deep round-trip is exactly what the contract guards.
-        {
-          kind: "trace",
-          title: "Run",
-          steps: [
-            { label: "read", kind: "tool", detail: "open file", ts: "2026-06-19T00:00:00Z" },
-            { label: "edit", kind: "tool", detail: "apply patch" },
-          ],
-        },
+        // a nested object/array shape: surfaces ride a JSON column, so this deep
+        // round-trip is exactly what the contract guards.
+        { kind: "json", data: { steps: [{ label: "read", ts: null }, { label: "edit" }] } },
       ],
     });
     assert.ok(surface);
@@ -304,7 +277,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
 
   contract("assigns stable ids to surfaces on create and update", async (store) => {
     const session = await store.createSession({ agent: "pi" });
-    const surface = await store.createPost({
+    const surface = await post(store, {
       sessionId: session.id,
       surfaces: [htmlSurface("<p>a</p>"), { kind: "markdown", markdown: "# b" }],
     });
@@ -333,108 +306,31 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
   contract("lists surfaces oldest first, optionally filtered by session", async (store) => {
     const one = await store.createSession({ agent: "a" });
     const two = await store.createSession({ agent: "b" });
-    const s1 = await store.createPost({ sessionId: one.id, surfaces: [htmlSurface("<p>1</p>")] });
+    const s1 = await post(store, { sessionId: one.id, surfaces: [htmlSurface("<p>1</p>")] });
     await sleep(10);
-    const s2 = await store.createPost({ sessionId: two.id, surfaces: [htmlSurface("<p>2</p>")] });
+    const s2 = await post(store, { sessionId: two.id, surfaces: [htmlSurface("<p>2</p>")] });
     await sleep(10);
-    const s3 = await store.createPost({ sessionId: one.id, surfaces: [htmlSurface("<p>3</p>")] });
+    const s3 = await post(store, { sessionId: one.id, surfaces: [htmlSurface("<p>3</p>")] });
 
     assert.deepEqual(
       (await store.listPosts()).map((s) => s.id),
       [s1?.id, s2?.id, s3?.id],
     );
     assert.deepEqual(
-      (await store.listPosts(one.id)).map((s) => s.id),
+      (await store.listPosts({ sessionId: one.id })).map((s) => s.id),
       [s1?.id, s3?.id],
     );
-    assert.deepEqual(await store.listPosts("missing"), []);
+    assert.deepEqual(await store.listPosts({ sessionId: "missing" }), []);
   });
-
-  contract(
-    "listRecentPosts returns newest-updated first across sessions, clamped to limit",
-    async (store) => {
-      const one = await store.createSession({ agent: "a" });
-      const two = await store.createSession({ agent: "b" });
-      const s1 = await store.createPost({ sessionId: one.id, surfaces: [htmlSurface("<p>1</p>")] });
-      await sleep(10);
-      const s2 = await store.createPost({ sessionId: two.id, surfaces: [htmlSurface("<p>2</p>")] });
-      await sleep(10);
-      const s3 = await store.createPost({ sessionId: one.id, surfaces: [htmlSurface("<p>3</p>")] });
-
-      // Newest updatedAt first — the reverse of listPosts' oldest-first order.
-      assert.deepEqual(
-        (await store.listRecentPosts(10)).map((s) => s.id),
-        [s3?.id, s2?.id, s1?.id],
-      );
-      // limit slices to the N most recent.
-      assert.deepEqual(
-        (await store.listRecentPosts(2)).map((s) => s.id),
-        [s3?.id, s2?.id],
-      );
-
-      // Updating an older post bumps it to the front (updatedAt, not createdAt).
-      await sleep(10);
-      await store.updatePost(s1!.id, { surfaces: [htmlSurface("<p>1b</p>")] });
-      assert.deepEqual(
-        (await store.listRecentPosts(10)).map((s) => s.id),
-        [s1?.id, s3?.id, s2?.id],
-      );
-    },
-  );
-
-  contract(
-    "listRecentPosts deterministically limits posts with tied millisecond timestamps",
-    async (store) => {
-      const session = await store.createSession({ agent: "pi" });
-      const OriginalDate = globalThis.Date;
-      const fixedMillis = OriginalDate.parse("2026-01-01T00:00:00.000Z");
-      const FixedDate = class extends OriginalDate {
-        constructor() {
-          super(fixedMillis);
-        }
-
-        static override now() {
-          return fixedMillis;
-        }
-      };
-      const posts: Post[] = [];
-
-      try {
-        globalThis.Date = FixedDate as DateConstructor;
-        for (let i = 0; i < 25; i++) {
-          const post = await store.createPost({
-            sessionId: session.id,
-            title: `tied ${i}`,
-            surfaces: [htmlSurface(`<p>${"x".repeat(i)}</p>`)],
-          });
-          assert.ok(post);
-          posts.push(post);
-        }
-      } finally {
-        globalThis.Date = OriginalDate;
-      }
-
-      assert.equal(new Set(posts.map((post) => post.updatedAt)).size, 1);
-      assert.deepEqual(
-        (await store.listRecentPosts(20)).map((post) => post.id),
-        posts
-          .slice(-20)
-          .reverse()
-          .map((post) => post.id),
-      );
-    },
-  );
 
   contract("updates bump the version and archive the previous one", async (store) => {
     const session = await store.createSession({ agent: "pi" });
-    const surface = await store.createPost({
+    const surface = await post(store, {
       sessionId: session.id,
       title: "T",
       surfaces: [htmlSurface("<p>v1</p>")],
     });
     assert.ok(surface);
-    // JsonFileStore mutates the object it returned from createSurface, so
-    // capture the pre-update timestamp now
     const v1UpdatedAt = surface.updatedAt;
 
     const updated = await store.updatePost(surface.id, { surfaces: [htmlSurface("<p>v2</p>")] });
@@ -474,7 +370,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
 
   contract(`caps history at ${HISTORY_LIMIT} versions`, async (store) => {
     const session = await store.createSession({ agent: "pi" });
-    const surface = await store.createPost({
+    const surface = await post(store, {
       sessionId: session.id,
       surfaces: [htmlSurface("<p>v1</p>")],
     });
@@ -496,7 +392,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
 
   contract("concurrent updates do not lose revisions or duplicate history", async (store) => {
     const session = await store.createSession({ agent: "pi" });
-    const surface = await store.createPost({
+    const surface = await post(store, {
       sessionId: session.id,
       surfaces: [htmlSurface("<p>v1</p>")],
     });
@@ -524,11 +420,11 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
   contract("removing a session cascades to its surfaces and comments", async (store) => {
     const doomed = await store.createSession({ agent: "a" });
     const kept = await store.createSession({ agent: "b" });
-    const doomedSurface = await store.createPost({
+    const doomedSurface = await post(store, {
       sessionId: doomed.id,
       surfaces: [htmlSurface("<p>x</p>")],
     });
-    const keptSurface = await store.createPost({
+    const keptSurface = await post(store, {
       sessionId: kept.id,
       surfaces: [htmlSurface("<p>y</p>")],
     });
@@ -554,11 +450,11 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
 
   contract("removing a surface cascades to its comments only", async (store) => {
     const session = await store.createSession({ agent: "pi" });
-    const doomed = await store.createPost({
+    const doomed = await post(store, {
       sessionId: session.id,
       surfaces: [htmlSurface("<p>x</p>")],
     });
-    const kept = await store.createPost({
+    const kept = await post(store, {
       sessionId: session.id,
       surfaces: [htmlSurface("<p>y</p>")],
     });
@@ -592,7 +488,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     );
 
     const session = await store.createSession({ agent: "pi" });
-    const surface = await store.createPost({
+    const surface = await post(store, {
       sessionId: session.id,
       title: "Sketch",
       surfaces: [htmlSurface("<p>x</p>")],
@@ -605,7 +501,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     });
     assert.equal(onSurface?.author, "user");
     assert.equal(onSurface?.postId, surface?.id);
-    assert.equal(onSurface?.postTitle, "Sketch");
+    assert.equal(onSurface?.mockId, surface?.mock, "a post comment is a comment on its mock");
 
     const anchored = await store.createComment({
       sessionId: session.id,
@@ -634,7 +530,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
       text: "general",
     });
     assert.equal(onSession?.postId, null);
-    assert.equal(onSession?.postTitle, null);
+    assert.equal(onSession?.mockId, null);
     assert.equal(onSession?.author, "user");
     const ghost = await store.createComment({
       sessionId: session.id,
@@ -681,7 +577,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
   contract("filters comments by session, surface, and afterSeq", async (store) => {
     const one = await store.createSession({ agent: "a" });
     const two = await store.createSession({ agent: "b" });
-    const surface = await store.createPost({
+    const surface = await post(store, {
       sessionId: one.id,
       surfaces: [htmlSurface("<p>x</p>")],
     });
@@ -724,48 +620,6 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
       ["b"],
     );
     assert.deepEqual(await store.listComments({ sessionId: "missing" }), []);
-  });
-
-  // --- trace ---
-
-  contract("stores, replaces, and reads back a session trace", async (store) => {
-    const session = await store.createSession({ agent: "pi" });
-    assert.deepEqual(await store.listTrace(session.id), []);
-
-    const steps = [
-      { kind: "prompt", label: "do the thing", ts: "2026-06-17T10:00:00Z" },
-      { kind: "read", label: "Read app.ts", detail: "...", ts: "2026-06-17T10:00:01Z" },
-      { label: "bare label only" }, // kind/detail/ts absent — must round-trip absent
-    ];
-    await store.setTrace(session.id, steps);
-    assert.deepEqual(await store.listTrace(session.id), steps);
-
-    // setTrace replaces (it never appends)
-    await store.setTrace(session.id, [{ kind: "run", label: "npm test" }]);
-    assert.deepEqual(await store.listTrace(session.id), [{ kind: "run", label: "npm test" }]);
-
-    // empty clears it
-    await store.setTrace(session.id, []);
-    assert.deepEqual(await store.listTrace(session.id), []);
-
-    // unknown session reads as empty
-    assert.deepEqual(await store.listTrace("missing"), []);
-  });
-
-  contract("trace is detached and per-session; removeSession cascades it", async (store) => {
-    const a = await store.createSession({ agent: "a" });
-    const b = await store.createSession({ agent: "b" });
-    const input = [{ kind: "prompt", label: "a-step" }];
-    await store.setTrace(a.id, input);
-    await store.setTrace(b.id, [{ kind: "prompt", label: "b-step" }]);
-
-    // mutating the input array must not affect stored state
-    input.push({ kind: "run", label: "sneaky" });
-    assert.deepEqual(await store.listTrace(a.id), [{ kind: "prompt", label: "a-step" }]);
-
-    await store.removeSession(a.id);
-    assert.deepEqual(await store.listTrace(a.id), []);
-    assert.deepEqual(await store.listTrace(b.id), [{ kind: "prompt", label: "b-step" }]);
   });
 
   // --- assets ---
@@ -876,7 +730,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     assert.ok(asset);
     // a surface in a DIFFERENT session references the asset by id
     const other = await store.createSession({ agent: "publisher" });
-    await store.createPost({
+    await post(store, {
       sessionId: other.id,
       surfaces: [{ kind: "image", assetId: asset.id }],
     });
@@ -903,14 +757,14 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
       data: bytes(1, 2, 3),
     });
     assert.ok(asset);
-    const post = await store.createPost({
+    const created = await post(store, {
       sessionId: session.id,
       surfaces: [{ kind: "image", assetId: asset.id }],
     });
-    assert.ok(post);
+    assert.ok(created);
     // Warm the cache (the /a/:id path reads this before any mutation).
     assert.equal(await store.isAssetReferenced(asset.id), true);
-    await store.removePost(post.id);
+    await store.removePost(created.id);
     assert.equal(await store.isAssetReferenced(asset.id), false);
   });
 
@@ -929,14 +783,14 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
       data: bytes(2),
     });
     assert.ok(oldAsset && newAsset);
-    const post = await store.createPost({
+    const created = await post(store, {
       sessionId: session.id,
       surfaces: [{ kind: "image", assetId: oldAsset.id }],
     });
-    assert.ok(post);
+    assert.ok(created);
     // Warm the cache, then update the surface to point at a different asset.
     assert.equal(await store.isAssetReferenced(oldAsset.id), true);
-    const updated = await store.updatePost(post.id, {
+    const updated = await store.updatePost(created.id, {
       surfaces: [{ kind: "image", assetId: newAsset.id }],
     });
     assert.ok(updated);
@@ -946,128 +800,15 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     assert.equal(await store.isAssetReferenced(newAsset.id), true);
   });
 
-  // --- project > item > variant ---
-
-  contract("createPost defaults the item fields and findVariant addresses them", async (store) => {
-    const session = await store.createSession({ agent: "pi", project: "acme/site" });
-    const post = await store.createPost({
-      sessionId: session.id,
-      surfaces: [htmlSurface("<p>a</p>")],
-      title: "Pricing card",
-    });
-    assert.ok(post);
-    assert.equal(post!.project, "acme/site");
-    assert.equal(post!.slug, "pricing-card");
-    assert.equal(post!.kind, "component");
-    assert.equal(post!.variant, "default");
-    assert.equal(post!.status, "open");
-    assert.equal(post!.ask, null);
-    assert.deepEqual(post!.slots, []);
-
-    const found = await store.findVariant("acme/site", "pricing-card", "default");
-    assert.equal(found?.id, post!.id);
-    assert.equal(await store.findVariant("acme/site", "pricing-card", "other"), null);
-    assert.equal(await store.findVariant("other/repo", "pricing-card", "default"), null);
-  });
-
-  contract("a session without a project falls back to its cwd basename", async (store) => {
-    const session = await store.createSession({ agent: "pi", cwd: "/work/widgets" });
-    const post = await store.createPost({
-      sessionId: session.id,
-      surfaces: [htmlSurface("<p>a</p>")],
-    });
-    assert.equal(post!.project, "widgets");
-  });
-
-  contract("listProjects/listItems/getItem aggregate variants and waiting", async (store) => {
-    const session = await store.createSession({ agent: "pi", project: "acme/site" });
-    const make = (slug: string, variant: string, kind?: "component" | "page") =>
-      store.createPost({
-        sessionId: session.id,
-        surfaces: [htmlSurface(`<p>${slug}/${variant}</p>`)],
-        title: slug,
-        project: "acme/site",
-        slug,
-        variant,
-        kind,
-      });
-    const plain = await make("pricing-card", "default");
-    const loud = await make("pricing-card", "highlighted");
-    await make("landing", "default", "page");
-    // a second project, so listProjects has something to separate
-    const other = await store.createSession({ agent: "pi", project: "acme/docs" });
-    await store.createPost({
-      sessionId: other.id,
-      surfaces: [htmlSurface("<p>x</p>")],
-      project: "acme/docs",
-      slug: "nav",
-    });
-
-    const projects = await store.listProjects();
-    const site = projects.find((p) => p.name === "acme/site")!;
-    assert.equal(site.items, 2, "variants of one item count once");
-    assert.equal(site.sessions, 1);
-    assert.equal(site.waiting, 0);
-    assert.ok(projects.some((p) => p.name === "acme/docs"));
-
-    const items = await store.listItems("acme/site");
-    assert.deepEqual(items.map((i) => i.slug).sort(), ["landing", "pricing-card"]);
-    const card = items.find((i) => i.slug === "pricing-card")!;
-    assert.equal(card.kind, "component");
-    assert.equal(card.waiting, false);
-    assert.deepEqual(card.variants.map((v) => v.variant).sort(), ["default", "highlighted"]);
-
-    // an ask marks the item — and its project — as waiting on the operator
-    const asked = await store.setPostAsk(loud!.id, {
-      text: "which one?",
-      at: "2026-01-01T00:00:00.000Z",
-    });
-    assert.equal(asked?.ask?.text, "which one?");
-    assert.equal(
-      (await store.listItems("acme/site")).find((i) => i.slug === "pricing-card")!.waiting,
-      true,
-    );
-    assert.equal((await store.listProjects()).find((p) => p.name === "acme/site")!.waiting, 1);
-    assert.equal((await store.setPostAsk(loud!.id, null))?.ask, null);
-
-    const detail = await store.getItem("acme/site", "pricing-card");
-    assert.equal(detail?.slug, "pricing-card");
-    assert.equal(detail!.variants.length, 2);
-    const current = detail!.variants.find((v) => v.postId === plain!.id)!;
-    assert.deepEqual(stripIds(current.surfaces), [htmlSurface("<p>pricing-card/default</p>")]);
-    // history metadata carries no surface bodies
-    assert.deepEqual(
-      current.history.map((h) => h.version),
-      [1],
-    );
-    assert.equal((current.history[0] as { surfaces?: unknown }).surfaces, undefined);
-    assert.equal(await store.getItem("acme/site", "missing"), null);
-  });
-
-  contract("setPostStatus flips a variant and getItem reports it", async (store) => {
-    const session = await store.createSession({ agent: "pi", project: "acme/site" });
-    const post = await store.createPost({
-      sessionId: session.id,
-      surfaces: [htmlSurface("<p>a</p>")],
-      project: "acme/site",
-      slug: "card",
-    });
-    assert.equal((await store.setPostStatus(post!.id, "accepted"))?.status, "accepted");
-    assert.equal((await store.getItem("acme/site", "card"))!.variants[0].status, "accepted");
-    assert.equal((await store.setPostStatus(post!.id, "archived"))?.status, "archived");
-    assert.equal(await store.setPostStatus("missing", "open"), null);
-    assert.equal(await store.setPostAsk("missing", null), null);
-  });
-
   contract("a version records what it branched from and what prompted it", async (store) => {
     const session = await store.createSession({ agent: "pi" });
-    const post = await store.createPost({
+    const created = await post(store, {
       sessionId: session.id,
       surfaces: [htmlSurface("<p>v1</p>")],
       prompt: "first cut",
       author: "pi",
     });
-    const v2 = await store.updatePost(post!.id, {
+    const v2 = await store.updatePost(created!.id, {
       surfaces: [htmlSurface("<p>v2</p>")],
       from: 1,
       prompt: "tighter spacing",
@@ -1080,103 +821,293 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     assert.equal(v2!.history[0].author, "pi");
   });
 
-  // --- drafts ---
+  // --- mocks ---
 
-  contract("drafts are withheld from agent reads until released", async (store) => {
+  contract(
+    "creates mocks with defaults, finds them by (project, slug), and lists them",
+    async (store) => {
+      const session = await store.createSession({ agent: "pi" });
+      const mock = await store.createMock({
+        project: "demo",
+        slug: "writer",
+        sessionId: session.id,
+      });
+      assert.equal(mock.kind, "component");
+      assert.deepEqual(mock.states, []);
+      assert.deepEqual(mock.asks, []);
+      assert.deepEqual(mock.knobs, {});
+      assert.equal(mock.draft, null);
+      assert.equal(mock.sessionId, session.id);
+      assert.deepEqual(await store.getMock(mock.id), mock);
+      assert.deepEqual(await store.findMock("demo", "writer"), mock);
+      assert.equal(await store.findMock("other", "writer"), null);
+      assert.equal(await store.getMock("missing"), null);
+
+      const other = await store.createMock({
+        project: "site",
+        slug: "card",
+        title: "Card",
+        kind: "page",
+        states: ["Rest", "Hover"],
+        knobs: { size: [16, 8, 48, 1] },
+      });
+      assert.equal(other.title, "Card");
+      assert.equal(other.kind, "page");
+      assert.deepEqual(other.states, ["Rest", "Hover"]);
+      assert.deepEqual(other.knobs, { size: [16, 8, 48, 1] });
+
+      assert.deepEqual(
+        (await store.listMocks("demo")).map((m) => m.slug),
+        ["writer"],
+      );
+      assert.equal((await store.listMocks()).length, 2);
+    },
+  );
+
+  contract("updates a mock's states, asks, knobs and session", async (store) => {
     const session = await store.createSession({ agent: "pi" });
-    const post = await store.createPost({
-      sessionId: session.id,
-      surfaces: [htmlSurface("<p>a</p>")],
-    });
-    const draft = await store.createComment({
-      sessionId: session.id,
-      postId: post!.id,
-      author: "user",
-      text: "make it wider",
-      draft: true,
-      kind: "comment",
-      anchors: [
+    const mock = await store.createMock({ project: "demo", slug: "writer" });
+    const updated = await store.updateMock(mock.id, {
+      title: "Writer",
+      states: ["Writing", "Lab open"],
+      asks: [
         {
-          ref: "@1",
-          shape: "pin",
-          box: [0.5, 0.25],
-          surfaceIndex: 0,
-          postVersion: 1,
-          path: "div > button",
-          text: "Go",
+          id: "look",
+          text: "Which look?",
+          scope: "mock",
+          options: [{ id: "quiet", label: "Quiet", variant: "quiet" }],
+          at: "2026-10-01T00:00:00.000Z",
         },
       ],
-      postVersion: 1,
-      viewport: 390,
-    });
-    assert.equal(draft!.draft, true);
-    assert.equal(draft!.anchors[0].ref, "@1");
-    assert.equal(draft!.viewport, 390);
-    assert.equal(draft!.postVersion, 1);
-
-    const sent = await store.createComment({
+      knobs: { "body.size": [17, 14, 22, 1] },
       sessionId: session.id,
-      postId: post!.id,
-      author: "user",
-      text: "sent right away",
     });
-    assert.equal(sent!.draft, false);
-    assert.equal(sent!.kind, "comment");
-    assert.deepEqual(sent!.anchors, []);
-
-    // agent-facing reads (the default) never see the draft
-    const agentRead = await store.listComments({ postId: post!.id });
-    assert.deepEqual(
-      agentRead.map((c) => c.text),
-      ["sent right away"],
-    );
-    // the viewer opts in
-    const viewerRead = await store.listComments({ postId: post!.id, includeDrafts: true });
-    assert.deepEqual(
-      viewerRead.map((c) => c.text),
-      ["make it wider", "sent right away"],
-    );
-    assert.deepEqual(
-      (await store.listDrafts(post!.id)).map((c) => c.text),
-      ["make it wider"],
-    );
-
-    // releasing re-seqs the draft so it lands AFTER everything already delivered
-    const released = await store.releaseDrafts(post!.id);
-    assert.deepEqual(
-      released.map((c) => c.text),
-      ["make it wider"],
-    );
-    assert.equal(released[0].draft, false);
-    assert.ok(released[0].seq > sent!.seq, "a released draft gets a fresh seq");
-    assert.deepEqual(
-      (await store.listComments({ postId: post!.id })).map((c) => c.text),
-      ["sent right away", "make it wider"],
-    );
-    assert.deepEqual(await store.listDrafts(post!.id), []);
-    assert.deepEqual(await store.releaseDrafts(post!.id), []);
+    assert.ok(updated);
+    assert.equal(updated.title, "Writer");
+    assert.deepEqual(updated.states, ["Writing", "Lab open"]);
+    assert.equal(updated.asks[0].options[0].variant, "quiet");
+    assert.equal(updated.sessionId, session.id);
+    assert.deepEqual(await store.getMock(mock.id), updated);
+    assert.equal(await store.updateMock("missing", { title: "x" }), null);
   });
 
-  contract("a decision comment carries its kind", async (store) => {
+  contract("variants are addressed by (mock, state, variant)", async (store) => {
     const session = await store.createSession({ agent: "pi" });
-    const post = await store.createPost({
+    const mock = await store.createMock({ project: "demo", slug: "writer", states: ["Writing"] });
+    const quiet = await store.createPost({
       sessionId: session.id,
-      surfaces: [htmlSurface("<p>a</p>")],
+      mock: mock.id,
+      state: "Writing",
+      variant: "quiet",
+      surfaces: [htmlSurface("<p>q</p>")],
     });
-    for (const kind of ["revise", "accept", "drop", "ask", "reply"] as const) {
-      const comment = await store.createComment({
-        sessionId: session.id,
-        postId: post!.id,
-        author: "user",
-        text: kind,
-        kind,
-      });
-      assert.equal(comment!.kind, kind);
-    }
+    const plain = await store.createPost({
+      sessionId: session.id,
+      mock: mock.id,
+      state: null,
+      surfaces: [htmlSurface("<p>d</p>")],
+    });
+    assert.ok(quiet && plain);
+    assert.equal(quiet.status, "open");
+    assert.equal(plain.variant, "default");
+    assert.equal((await store.findPost(mock.id, "Writing", "quiet"))?.id, quiet.id);
+    assert.equal((await store.findPost(mock.id, null, "default"))?.id, plain.id);
+    assert.equal(await store.findPost(mock.id, "Writing", "dark"), null);
+    assert.equal(await store.findPost(mock.id, null, "quiet"), null, "null state is its own state");
     assert.deepEqual(
-      (await store.listComments({ postId: post!.id })).map((c) => c.kind),
-      ["revise", "accept", "drop", "ask", "reply"],
+      (await store.listPosts({ mockId: mock.id }))
+        .filter((p) => p.state === "Writing")
+        .map((p) => p.id),
+      [quiet.id],
     );
+    assert.equal(
+      await store.createPost({
+        sessionId: session.id,
+        mock: "missing",
+        state: null,
+        surfaces: [htmlSurface("<p>x</p>")],
+      }),
+      null,
+    );
+  });
+
+  contract("setPostStatus flips one variant", async (store) => {
+    const session = await store.createSession({ agent: "pi" });
+    const p = await post(store, { sessionId: session.id, surfaces: [htmlSurface("<p>x</p>")] });
+    assert.ok(p);
+    assert.equal((await store.setPostStatus(p.id, "archived"))?.status, "archived");
+    assert.equal((await store.getPost(p.id))?.status, "archived");
+    assert.equal(await store.setPostStatus("missing", "open"), null);
+  });
+
+  contract("a draft round-trips and clears", async (store) => {
+    const mock = await store.createMock({ project: "demo", slug: "writer" });
+    const draft: Draft = {
+      version: 2,
+      answers: { look: "dark", parts: ["a", "b"] },
+      mix: { versions: "editorial" },
+      tuned: { "body.size": 19, "toast.show": false, pad: { x: 0.2, y: 0.4 } },
+      comments: [
+        { part: "title", state: "Writing", text: "bigger", anchor: { offset: [0.1, 0.2] } },
+        { part: null, state: null, text: "anywhere" },
+      ],
+      updatedAt: "2026-10-01T00:00:00.000Z",
+    };
+    assert.deepEqual((await store.putDraft(mock.id, draft))?.draft, draft);
+    assert.deepEqual((await store.getMock(mock.id))?.draft, draft);
+    await store.putDraft(mock.id, null);
+    assert.equal((await store.getMock(mock.id))?.draft, null);
+    assert.equal(await store.putDraft("missing", draft), null);
+  });
+
+  contract("a comment on a mock carries its kind, payload and part anchor", async (store) => {
+    const session = await store.createSession({ agent: "pi" });
+    const mock = await store.createMock({ project: "demo", slug: "writer" });
+    const c = await store.createComment({
+      sessionId: session.id,
+      mockId: mock.id,
+      author: "user",
+      text: "the title",
+      anchor: { kind: "part", part: "title", state: null, quote: "The Pier" },
+    });
+    assert.ok(c);
+    assert.equal(c.kind, "comment");
+    assert.equal(c.mockId, mock.id);
+    assert.deepEqual(c.anchor, { kind: "part", part: "title", state: null, quote: "The Pier" });
+    assert.deepEqual(
+      (await store.listComments({ mockId: mock.id })).map((x) => x.id),
+      [c.id],
+    );
+    assert.deepEqual(await store.listComments({ mockId: "other" }), []);
+  });
+
+  contract(
+    "commitReply writes the reply, answers the asks, clears the draft and flips statuses",
+    async (store) => {
+      const session = await store.createSession({ agent: "pi" });
+      const mock = await store.createMock({
+        project: "demo",
+        slug: "writer",
+        sessionId: session.id,
+      });
+      const quiet = await post(store, {
+        sessionId: session.id,
+        mock: mock.id,
+        variant: "quiet",
+        surfaces: [htmlSurface("<p>q</p>")],
+      });
+      const dark = await post(store, {
+        sessionId: session.id,
+        mock: mock.id,
+        variant: "dark",
+        surfaces: [htmlSurface("<p>d</p>")],
+      });
+      assert.ok(quiet && dark);
+      await store.putDraft(mock.id, {
+        version: 1,
+        answers: { look: "dark" },
+        mix: {},
+        tuned: {},
+        comments: [],
+        updatedAt: "t",
+      });
+      const payload: Reply = {
+        mockId: mock.id,
+        version: 1,
+        answers: { look: "dark" },
+        mix: {},
+        tuned: { size: 3 },
+        comments: [{ part: "title", state: null, text: "bigger" }],
+        text: "go dark",
+      };
+      const asks = [
+        {
+          id: "look",
+          text: "Which look?",
+          scope: "mock" as const,
+          options: [{ id: "dark", label: "Dark", variant: "dark" }],
+          answer: "dark",
+          at: "t",
+        },
+      ];
+      const reply = await store.commitReply({
+        mockId: mock.id,
+        sessionId: session.id,
+        text: "go dark",
+        payload,
+        asks,
+        accept: [dark.id],
+        archive: [quiet.id],
+      });
+      assert.ok(reply);
+      assert.equal(reply.kind, "reply");
+      assert.equal(reply.author, "user");
+      assert.deepEqual(reply.payload, payload);
+      const after = await store.getMock(mock.id);
+      assert.equal(after?.draft, null);
+      assert.equal(after?.asks[0].answer, "dark");
+      assert.equal((await store.getPost(dark.id))?.status, "accepted");
+      assert.equal((await store.getPost(quiet.id))?.status, "archived");
+      const listed = await store.listComments({ sessionId: session.id });
+      assert.deepEqual(listed.at(-1)?.payload, payload, "the payload survives a read");
+      assert.equal(
+        await store.commitReply({
+          mockId: "missing",
+          sessionId: session.id,
+          text: "",
+          payload,
+          asks,
+          accept: [],
+          archive: [],
+        }),
+        null,
+      );
+    },
+  );
+
+  contract("removing a mock cascades to its variants and comments", async (store) => {
+    const session = await store.createSession({ agent: "pi" });
+    const mock = await store.createMock({ project: "demo", slug: "writer" });
+    const p = await post(store, {
+      sessionId: session.id,
+      mock: mock.id,
+      surfaces: [htmlSurface("<p>x</p>")],
+    });
+    await store.createComment({
+      sessionId: session.id,
+      mockId: mock.id,
+      author: "user",
+      text: "x",
+    });
+    await store.createComment({ sessionId: session.id, author: "user", text: "kept" });
+    assert.equal(await store.removeMock(mock.id), true);
+    assert.equal(await store.getMock(mock.id), null);
+    assert.equal(await store.getPost(p!.id), null);
+    assert.deepEqual(
+      (await store.listComments({})).map((c) => c.text),
+      ["kept"],
+    );
+    assert.equal(await store.removeMock(mock.id), false);
+  });
+
+  contract("listProjects summarizes mocks, open asks and sessions per project", async (store) => {
+    const session = await store.createSession({ agent: "pi", project: "demo" });
+    const mock = await store.createMock({ project: "demo", slug: "writer", sessionId: session.id });
+    await post(store, {
+      sessionId: session.id,
+      mock: mock.id,
+      surfaces: [htmlSurface("<p>x</p>")],
+    });
+    await store.updateMock(mock.id, {
+      asks: [{ id: "a", text: "?", scope: "mock", options: [{ id: "x", label: "X" }], at: "t" }],
+    });
+    await store.createMock({ project: "site", slug: "card" });
+    const projects = await store.listProjects();
+    const demo = projects.find((p) => p.name === "demo");
+    assert.ok(demo);
+    assert.equal(demo.mocks, 1);
+    assert.equal(demo.open, 1);
+    assert.ok(projects.some((p) => p.name === "site"));
   });
 
   contract("an unreferenced asset is reported unreferenced from a cold cache", async (store) => {

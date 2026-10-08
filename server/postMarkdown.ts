@@ -1,8 +1,7 @@
-// Flatten a post to portable markdown — what the viewer's "copy as markdown"
-// share action puts on the clipboard, and what GET /api/posts/:id/markdown
-// serves so the CLI/HTTP tiers can have it too.
+// Flatten a post to portable markdown — what a mock export carries per variant,
+// so an implementing agent can read non-html surfaces without the viewer.
 //
-// Runtime-agnostic (no `node:` imports, no DOM): the Worker DO serves this route
+// Runtime-agnostic (no `node:` imports, no DOM): the Worker DO serves exports
 // as well. It reads a stored post, so it sees full surface bodies — the viewer's
 // hydrated posts deliberately omit sandboxed surface content (see apiViews.ts),
 // which is exactly why this lives on the server rather than in the viewer.
@@ -24,8 +23,8 @@ import type {
 } from "./types.ts";
 
 export interface PostMarkdownOptions {
-  // Absolute permalink to the post (`…/p/:id`). Surface links append `?part=N`
-  // (the legacy wire key the route still takes). Omit for a link-free document.
+  // Absolute URL of the post's surface documents (`…/s/:id`). Surface links
+  // append `?surface=N`. Omit for a link-free document.
   postUrl?: string;
   // Absolute base an asset path hangs off (`…/a/:id`), i.e. origin + base path.
   // Relative `/a/:id` links are useless once pasted elsewhere, so an image
@@ -67,17 +66,14 @@ function stamp(iso: string): string | null {
 
 function surfaceUrl(opts: PostMarkdownOptions, index: number): string | null {
   if (!opts.postUrl) return null;
-  // `?part=` is the legacy wire query key for a surface index — kept byte-identical.
-  return `${opts.postUrl}?part=${index}`;
+  return `${opts.postUrl}?surface=${index}`;
 }
 
 const KIND_LABELS: Record<string, string> = {
   html: "Html surface",
-  trace: "Trace surface",
 };
 
-// Kinds with no markdown form (html) and by-reference kinds (trace) point back
-// at the surface instead. Also the forward-compat path: a kind this build
+// Kinds with no markdown form (html) point back at the surface instead. Also the forward-compat path: a kind this build
 // doesn't know still produces a working link rather than nothing.
 function linkFallback(surface: Surface, index: number, opts: PostMarkdownOptions): string {
   const label = KIND_LABELS[surface.kind] ?? `${surface.kind} surface`;

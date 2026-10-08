@@ -11,7 +11,7 @@ import {
 
 const GENERATION = "1.2.3";
 const cardUrl = (version = "7", extra = "") =>
-  `https://board.test/p/post_1.png?card=1&theme=github&mode=dark&v=${version}&g=${GENERATION}${extra}`;
+  `https://board.test/s/post_1.png?card=1&theme=github&mode=dark&v=${version}&g=${GENERATION}${extra}`;
 
 function plan(href: string) {
   const url = new URL(href);
@@ -54,7 +54,7 @@ test("social-card key pins version, theme, mode, and renderer generation", () =>
   const key = postScreenshotCacheKey("GET", url, "post_1", screenshot, GENERATION);
   assert.equal(
     key?.url,
-    "https://board.test/__cache/post-screenshot/post_1.png?part=0&v=7&theme=github&mode=dark&g=1.2.3",
+    "https://board.test/__cache/post-screenshot/post_1.png?surface=0&v=7&theme=github&mode=dark&g=1.2.3",
   );
   assert.equal(screenshot.checkUrl.searchParams.get("ver"), "7");
   assert.equal(screenshot.checkUrl.searchParams.get("theme"), "github");

@@ -12,17 +12,16 @@ export interface Session {
   // Highest comment seq already delivered to the agent — lets responses to
   // agent writes piggyback comments the agent has not seen yet.
   agentSeq: number;
-  // The repo this session's agent is working in (project › item › variant ›
-  // version). Resolved once at session create; null only for legacy rows.
+  // The repo this session's agent is working in. Resolved once at session
+  // create; null when neither a project nor a cwd was given.
   project: string | null;
 }
 
 // A post is an ordered list of surfaces. Each surface declares its own kind;
 // the post itself is kind-agnostic. An `html` surface is arbitrary agent
 // markup rendered in an opaque-origin iframe. Rich text/code kinds are structured
-// data rendered into sandboxed documents; image/trace/json stay as data rendered
-// natively by the trusted viewer. A snippet is just a post with one html surface;
-// a diagram-with-its-diff is `[html, diff]`.
+// data rendered into sandboxed documents; image/json stay as data rendered
+// natively by the trusted viewer. A diagram-with-its-diff is `[html, diff]`.
 // The canonical, ordered list of every surface kind — the single source of
 // truth. `SurfaceKind` derives from it, and the MCP tool schemas (mcpSpec.ts)
 // build their `kind` enums from it, so a kind can't be added to the model
@@ -35,7 +34,6 @@ export const SURFACE_KINDS = [
   "html",
   "diff",
   "image",
-  "trace",
   "markdown",
   "terminal",
   "mermaid",
@@ -57,7 +55,7 @@ export interface SurfaceKindMetadata {
   // Primary inline content slot used by content-only edits and feed previews.
   // Kinds without one are either by-reference assets or structured timelines.
   contentField?: SurfaceContentField;
-  // Kinds served as opaque-origin HTML documents from /s/:id?part=N.
+  // Kinds served as opaque-origin HTML documents from /s/:id?surface=N.
   sandboxed: boolean;
   // Stable iframe selector hook for sandboxed kinds that need kind-specific CSS.
   frameClass?: string;
@@ -67,7 +65,6 @@ export const SURFACE_KIND_METADATA = {
   html: { contentField: "html", sandboxed: true },
   diff: { contentField: "patch", sandboxed: true, frameClass: "diffframe" },
   image: { sandboxed: false },
-  trace: { sandboxed: false },
   markdown: { contentField: "markdown", sandboxed: true, frameClass: "mdframe" },
   terminal: { contentField: "text", sandboxed: true, frameClass: "termframe" },
   mermaid: { contentField: "mermaid", sandboxed: true, frameClass: "mermaidframe" },
@@ -158,26 +155,6 @@ export interface ImageSurface {
   caption?: string;
 }
 
-// One step in an agent trace. `label` is the one-line summary; `detail` is the
-// expandable body (tool output, args, reasoning). Everything else is optional.
-export interface TraceStep {
-  label: string;
-  kind?: string;
-  detail?: string;
-  ts?: string;
-}
-
-// A trace surface renders a step timeline the viewer shows beside the post.
-// `steps` travel inline (small, structured); `assetId` points at a larger
-// uploaded trace file (JSON/JSONL), offered for download and rendered when it
-// parses. At least one of the two is present.
-export interface TraceSurface {
-  kind: "trace";
-  steps?: TraceStep[];
-  assetId?: string;
-  title?: string;
-}
-
 // A terminal surface renders monospace terminal output the viewer styles as a
 // terminal window. `text` travels inline (like html) — raw output that may
 // carry ANSI SGR escapes (colors/bold/italic); the viewer converts those to
@@ -194,7 +171,7 @@ export interface TerminalSurface {
 
 // A json surface is a pre-parsed JSON value the trusted viewer renders as a
 // collapsible tree (objects/arrays expand and collapse; primitives show inline).
-// Like image/trace it is DATA, not markup: the viewer renders it with Solid
+// Like image it is DATA, not markup: the viewer renders it with Solid
 // text nodes, which escape by construction — so agent-authored JSON can never
 // execute in the trusted viewer origin, and no sandboxed iframe is needed.
 // `data` is `unknown` (any JSON value, including null); the wire body already
@@ -230,32 +207,199 @@ export type Surface =
   | (HtmlSurface & { id?: string })
   | (DiffSurface & { id?: string })
   | (ImageSurface & { id?: string })
-  | (TraceSurface & { id?: string })
   | (MarkdownSurface & { id?: string })
   | (TerminalSurface & { id?: string })
   | (MermaidSurface & { id?: string })
   | (JsonSurface & { id?: string })
   | (CodeSurface & { id?: string });
 
-// An item is a component or a whole page. A page composes components by
-// reference (<mockpit-slot>), expanded server-side at render time.
-export type ItemKind = "component" | "page";
-// A variant's review state. `accepted` is the operator's pick; accepting one
-// archives its siblings. Archived variants are hidden but restorable.
+// --- knobs ---
+// Mirrors tunekit's `usePane` config shape as plain data, so the viewer can hand
+// a mock's knobs to tunekit unchanged while the server never imports tunekit.
+// Only value-carrying controls are knobs: tunekit's action/slot/folder have no
+// value a reply could carry, and folders are flattened into dotted paths.
+
+export interface SliderKnob {
+  type: "slider";
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+}
+export interface ToggleKnob {
+  type: "toggle";
+  value: boolean;
+}
+export type KnobOption = string | { value: string; label: string };
+export interface SelectKnob {
+  type: "select";
+  value?: string;
+  options: KnobOption[];
+}
+export interface ColorKnob {
+  type: "color";
+  value?: string;
+  gradient?: boolean;
+  contrast?: string;
+}
+export interface TextKnob {
+  type: "text";
+  value?: string;
+  placeholder?: string;
+}
+export interface SpringKnob {
+  type: "spring";
+  stiffness?: number;
+  damping?: number;
+  mass?: number;
+  visualDuration?: number;
+  bounce?: number;
+}
+export interface EasingKnob {
+  type: "easing";
+  duration: number;
+  ease: [number, number, number, number];
+}
+export interface ImageKnob {
+  type: "image";
+  value?: string;
+  options?: KnobOption[];
+}
+// [default, min, max, step?] — tunekit's slider-tuple notation.
+export type KnobAxis = [number, number, number] | [number, number, number, number];
+export interface PadKnob {
+  type: "pad";
+  x?: KnobAxis;
+  y?: KnobAxis;
+  labels?: { x?: string; y?: string };
+}
+export type ExplicitKnob =
+  | SliderKnob
+  | ToggleKnob
+  | SelectKnob
+  | ColorKnob
+  | TextKnob
+  | SpringKnob
+  | EasingKnob
+  | ImageKnob
+  | PadKnob;
+// tunekit's shorthands: a number or tuple is a slider, a boolean a toggle, a
+// string a color or text.
+export type KnobConfig = ExplicitKnob | KnobAxis | number | boolean | string;
+// Keyed by path: "size" is global, "body.size" belongs to the `body` part.
+export type Knobs = Record<string, KnobConfig>;
+export interface PadValue {
+  x: number;
+  y: number;
+}
+export type KnobValue = number | boolean | string | PadValue | SpringKnob | EasingKnob;
+
+// --- project › mock › state › variant › version ---
+
+export type MockKind = "page" | "component";
+// A variant's review state. A variant-bound answer accepts the chosen variant
+// and archives its siblings in that state; archived variants are restorable.
 export type PostStatus = "open" | "accepted" | "archived";
 
+export interface AskOption {
+  id: string;
+  label: string;
+  // Picking this option means "this look": the variant it names is accepted.
+  variant?: string;
+  // Picking this option means "these knob values".
+  set?: Record<string, KnobValue>;
+}
+
+export type AskAnswer = string | string[];
+
+// A structured question from the agent. `scope` says what it decides: the whole
+// mock, one state, or one part.
+export interface Ask {
+  id: string;
+  text: string;
+  scope: "mock" | "state" | "part";
+  state?: string;
+  part?: string;
+  options: AskOption[];
+  multi?: boolean;
+  // Set when a reply answered it; an ask without one is still open.
+  answer?: AskAnswer;
+  at: string;
+}
+
+// A comment the user left on a part (or, with part null, anywhere on the render
+// via the Mark tool). Rides inside the reply rather than as its own comment.
+export interface PartCommentAnchor {
+  offset?: [number, number];
+  quote?: string;
+  selector?: string;
+  box?: number[];
+}
+export interface PartComment {
+  part: string | null;
+  state: string | null;
+  text: string;
+  anchor?: PartCommentAnchor;
+}
+
+// What a reply decides about one variant outside the ask flow (the plain
+// Accept / Revise / Drop of a mock without asks).
+export interface ReplyDecision {
+  kind: "accept" | "revise" | "drop";
+  state: string | null;
+  variant: string;
+}
+
+// The user's unsent picks, tuned values and comments for one mock. Lives
+// server-side so it survives a reload; never delivered until Send.
+export interface Draft {
+  // The variant version on stage when the draft was made; a newer version
+  // arriving mid-answer leaves the draft bound to this one.
+  version: number;
+  answers: Record<string, AskAnswer>;
+  mix: Record<string, string>;
+  tuned: Record<string, KnobValue>;
+  comments: PartComment[];
+  updatedAt: string;
+}
+
+// The user's one batched answer — the payload of a kind:"reply" comment.
+export interface Reply {
+  mockId: string;
+  version: number;
+  answers: Record<string, AskAnswer>;
+  mix: Record<string, string>;
+  tuned: Record<string, KnobValue>;
+  comments: PartComment[];
+  text?: string;
+  decision?: ReplyDecision;
+}
+
+export interface Mock {
+  id: string;
+  project: string;
+  slug: string;
+  title: string;
+  kind: MockKind;
+  // Ordered state labels; [] means a single-state mock whose posts carry state null.
+  states: string[];
+  asks: Ask[];
+  knobs: Knobs;
+  draft: Draft | null;
+  // The agent conversation currently driving this mock (its latest writer), so a
+  // reply lands on the cursor of the session that is waiting for it.
+  sessionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // One component included in a page, pinned to an exact version (snapshot
-// semantics: pulling a newer version is an explicit new page version).
+// semantics: pulling a newer version is an explicit new page version). `slug`
+// names a mock in the same project.
 export interface Slot {
   slug: string;
   variant: string;
   version: number;
-}
-
-// The agent is blocked on the operator for this variant.
-export interface PostAsk {
-  text: string;
-  at: string;
 }
 
 export interface PostVersion {
@@ -266,79 +410,42 @@ export interface PostVersion {
   // The version this one was based on — usually the previous one, but an agent
   // may branch from any earlier version.
   from?: number;
-  // What prompted this version (the operator's revise text, or the agent's own
-  // note). Empty for the initial version and for legacy history entries.
+  // What prompted this version. Empty for the initial version.
   prompt?: string;
   author?: string;
 }
 
+// A variant of one state of a mock.
 export interface Post {
   id: string;
   sessionId: string;
+  mock: string;
+  state: string | null;
+  variant: string;
+  status: PostStatus;
   title: string;
   surfaces: Surface[];
   createdAt: string;
   updatedAt: string;
   version: number;
   history: PostVersion[];
-  project: string;
-  // Stable across sessions so an agent can revise an item by name. Unique
-  // with `variant` inside a project.
-  slug: string;
-  kind: ItemKind;
-  variant: string;
-  status: PostStatus;
-  ask: PostAsk | null;
+  // Per-part knob overrides for this variant.
+  knobs?: Knobs;
   slots: Slot[];
   // Provenance of the CURRENT version — the same three fields a PostVersion
-  // carries. Kept here because history only holds past versions; on the next
-  // update these move into the history entry this version becomes.
+  // carries; on the next update they move into the history entry.
   from?: number;
   prompt?: string;
   author?: string;
 }
 
-// A per-project summary for the projects list.
 export interface ProjectSummary {
   name: string;
-  items: number;
-  waiting: number;
+  mocks: number;
+  // Open asks across the project's mocks.
+  open: number;
   lastActiveAt: string;
   sessions: number;
-}
-
-export interface VariantSummary {
-  postId: string;
-  variant: string;
-  version: number;
-  status: PostStatus;
-  ask: PostAsk | null;
-  updatedAt: string;
-}
-
-export interface ItemSummary {
-  project: string;
-  slug: string;
-  kind: ItemKind;
-  title: string;
-  variants: VariantSummary[];
-  waiting: boolean;
-  updatedAt: string;
-}
-
-// A variant with its current surfaces and history METADATA — history entries
-// carry no surface bodies, so an item screen costs one bounded response.
-export interface VariantDetail extends VariantSummary {
-  title: string;
-  surfaces: Surface[];
-  slots: Slot[];
-  createdAt: string;
-  sessionId: string;
-  history: { version: number; title: string; at: string; from?: number; prompt?: string }[];
-}
-
-export interface ItemDetail extends Omit<ItemSummary, "variants"> {
-  variants: VariantDetail[];
 }
 
 // Per-project design system state, imported from the repo by `mockpit init`
@@ -384,14 +491,15 @@ export type CommentAnchor =
       startLine: number;
       endLine: number;
       file?: string;
-    };
+    }
+  | ({ kind: "part"; part: string; state: string | null } & PartCommentAnchor);
 
-// A decision is a comment with a kind, so delivery reuses the one cursor.
-export type CommentKind = "comment" | "revise" | "accept" | "drop" | "ask" | "reply";
+// A reply is a comment with a kind, so delivery reuses the one cursor.
+export type CommentKind = "comment" | "ask" | "reply";
 
-// One point-and-comment marker drawn over a rendered surface. Everything here
-// is DATA: the overlay lives in the trusted viewer origin and renders it as
-// text nodes / positioned elements, never as HTML.
+// One point-and-comment marker drawn over a rendered surface (the Mark tool).
+// Everything here is DATA: the overlay lives in the trusted viewer origin and
+// renders it as text nodes / positioned elements, never as HTML.
 export interface Anchor {
   // The `@n` token that ties this marker to its mention in the comment text.
   ref: string;
@@ -411,29 +519,26 @@ export interface Comment {
   id: string;
   seq: number;
   sessionId: string;
+  mockId: string | null;
   postId: string | null;
-  postTitle: string | null;
   author: string;
   text: string;
   createdAt: string;
-  // Optional host-authored anchor for comments on a specific rendered surface
-  // area/line. It is data only: render with text/positioned elements in the
-  // trusted viewer, never as HTML.
+  // Optional anchor on a rendered area, line or part. Data only: render with
+  // text/positioned elements in the trusted viewer, never as HTML.
   anchor?: CommentAnchor;
   kind: CommentKind;
   anchors: Anchor[];
-  // Drafts accumulate in the viewer and are NEVER delivered to the agent until
-  // Revise releases them (with fresh seqs, so the one cursor picks them up).
-  draft: boolean;
   postVersion: number | null;
   viewport: number | null;
+  // Set on kind "reply": the user's batched answer.
+  payload?: Reply;
 }
 
-// An uploaded blob (image, trace file, arbitrary file) the agent pushes once and
-// references by id. Stored apart from surfaces so binary never bloats the surfaces
-// JSON or the 2 MB post limit. `data` is raw bytes — base64 is an edge-only
-// encoding (HTTP/MCP request bodies, JsonFileStore's on-disk JSON).
-export type AssetKind = "image" | "trace" | "file";
+// An uploaded blob (image, arbitrary file) the agent pushes once and references
+// by id. Stored apart from surfaces so binary never bloats the surfaces JSON or
+// the 2 MB post limit. `data` is raw bytes — base64 is an edge-only encoding.
+export type AssetKind = "image" | "file";
 
 export interface Asset {
   id: string;
@@ -463,52 +568,91 @@ export interface CreateSessionInput {
   project?: string;
 }
 
+export interface CreateMockInput {
+  project: string;
+  slug: string;
+  title?: string;
+  kind?: MockKind;
+  states?: string[];
+  knobs?: Knobs;
+  sessionId?: string | null;
+}
+
+export interface UpdateMockInput {
+  title?: string;
+  kind?: MockKind;
+  states?: string[];
+  asks?: Ask[];
+  knobs?: Knobs;
+  sessionId?: string | null;
+}
+
 export interface CreatePostInput {
   sessionId: string;
+  mock: string;
+  state: string | null;
+  variant?: string;
   title?: string;
   surfaces: Surface[];
-  project?: string;
-  slug?: string;
-  kind?: ItemKind;
-  variant?: string;
+  knobs?: Knobs;
+  slots?: Slot[];
   from?: number;
   prompt?: string;
-  slots?: Slot[];
   author?: string;
 }
 
 export interface UpdatePostInput {
   title?: string;
   surfaces?: Surface[];
+  // undefined keeps, null clears.
+  knobs?: Knobs | null;
+  slots?: Slot[];
   from?: number;
   prompt?: string;
   author?: string;
-  slots?: Slot[];
+  // Re-files the variant under another state (a single-state mock adopting its
+  // first named state).
+  state?: string | null;
 }
 
 export interface CreateCommentInput {
   sessionId: string;
-  postId?: string;
+  mockId?: string | null;
+  postId?: string | null;
   author: string;
   text: string;
   anchor?: CommentAnchor;
   kind?: CommentKind;
   anchors?: Anchor[];
-  draft?: boolean;
   postVersion?: number | null;
   viewport?: number | null;
+  payload?: Reply;
 }
 
 export interface CommentQuery {
   sessionId?: string;
+  mockId?: string;
   postId?: string;
   afterSeq?: number;
-  // Agent-facing reads never include drafts; viewer reads pass true.
-  includeDrafts?: boolean;
 }
 
-// Storage interface — implementations: JsonFileStore (local Node),
-// SqlStore (Cloudflare Durable Object SQLite).
+// Everything one Send writes. The store applies it atomically: the reply
+// comment, the answers recorded on the asks, the status flips, the cleared draft.
+export interface CommitReplyInput {
+  mockId: string;
+  sessionId: string;
+  text: string;
+  payload: Reply;
+  asks: Ask[];
+  accept: string[];
+  archive: string[];
+}
+
+export interface PostQuery {
+  mockId?: string;
+  sessionId?: string;
+}
+
 export interface Store {
   listSessions(): Promise<Session[]>;
   getSession(id: string): Promise<Session | null>;
@@ -523,45 +667,30 @@ export interface Store {
   getSetting(key: string): Promise<string | null>;
   setSetting(key: string, value: string): Promise<void>;
 
-  listPosts(sessionId?: string): Promise<Post[]>;
-  /**
-   * Optional narrow aggregate used by the session-list view. Custom stores may
-   * omit it; the app falls back to listPosts() for source compatibility.
-   */
-  countPostsBySession?(): Promise<Map<string, number>>;
-  /**
-   * The N most-recently-updated posts across all sessions (newest first).
-   * Equal millisecond timestamps are ordered by newest insertion first.
-   */
-  listRecentPosts(limit: number): Promise<Post[]>;
+  listProjects(): Promise<ProjectSummary[]>;
+  // Newest first; every project when `project` is omitted.
+  listMocks(project?: string): Promise<Mock[]>;
+  getMock(id: string): Promise<Mock | null>;
+  findMock(project: string, slug: string): Promise<Mock | null>;
+  createMock(input: CreateMockInput): Promise<Mock>;
+  updateMock(id: string, patch: UpdateMockInput): Promise<Mock | null>;
+  // Cascades the mock's posts and comments.
+  removeMock(id: string): Promise<boolean>;
+  putDraft(mockId: string, draft: Draft | null): Promise<Mock | null>;
+
+  // Oldest first.
+  listPosts(query?: PostQuery): Promise<Post[]>;
   getPost(id: string): Promise<Post | null>;
+  findPost(mockId: string, state: string | null, variant: string): Promise<Post | null>;
   createPost(input: CreatePostInput): Promise<Post | null>;
   updatePost(id: string, patch: UpdatePostInput): Promise<Post | null>;
   removePost(id: string): Promise<boolean>;
-
-  // --- project › item › variant navigation ---
-  listProjects(): Promise<ProjectSummary[]>;
-  listItems(project: string): Promise<ItemSummary[]>;
-  getItem(project: string, slug: string): Promise<ItemDetail | null>;
-  findVariant(project: string, slug: string, variant: string): Promise<Post | null>;
   setPostStatus(id: string, status: PostStatus): Promise<Post | null>;
-  setPostAsk(id: string, ask: PostAsk | null): Promise<Post | null>;
-  // Release the operator's accumulated drafts as real feedback. Drafts are
-  // DELETED and reinserted so each gets a FRESH seq above the session's
-  // agentSeq — otherwise the one cursor would have already stepped past them
-  // and the feedback would be silently lost. Returned in new seq order.
-  releaseDrafts(postId: string): Promise<Comment[]>;
-  listDrafts(postId: string): Promise<Comment[]>;
 
   listComments(query: CommentQuery): Promise<Comment[]>;
   createComment(input: CreateCommentInput): Promise<Comment | null>;
   removeComment(id: string): Promise<Comment | null>;
-
-  // Session-scoped agent trace: the steps that produced a session's surfaces,
-  // synced from the transcript. setTrace replaces the whole list (windowed
-  // syncs re-send the full slice); removeSession cascades it.
-  listTrace(sessionId: string): Promise<TraceStep[]>;
-  setTrace(sessionId: string, steps: TraceStep[]): Promise<void>;
+  commitReply(input: CommitReplyInput): Promise<Comment | null>;
 
   // Assets. putAsset evicts to stay under MAX_WORKSPACE_ASSET_BYTES (see
   // selectEvictions) and returns null only if the session is missing.
@@ -589,53 +718,27 @@ export interface SqlStorageCursor {
 }
 export interface SqlStorage {
   exec(query: string, ...bindings: SqlStorageValue[]): SqlStorageCursor;
-}
-
-// A whole workspace's contents, used to migrate one backend's data into another
-// (JSON file → SQLite). Carries every field verbatim — ids, versions, history,
-// comment `seq`, `agentSeq`, asset bytes — so identity and the feedback cursor
-// survive the copy.
-export interface WorkspaceSnapshot {
-  sessions: Session[];
-  posts?: Post[];
-  /** @deprecated Use `posts`; kept so external migration helpers that still read/write snapshots as `surfaces` do not break. */
-  surfaces?: Post[];
-  comments: Comment[];
-  traces: { sessionId: string; steps: TraceStep[] }[];
-  assets: Asset[];
-  settings: { key: string; value: string }[];
+  // Runs fn atomically. Optional: a Durable Object already commits the
+  // synchronous writes of one event as a unit, so its SqlStorage omits it.
+  transactionSync?<T>(fn: () => T): T;
 }
 
 export const HISTORY_LIMIT = 20;
 
 // "user" is the reserved trust label for genuine human comments. A session
 // agent with that name could otherwise have its programmatic comments delivered
-// as user feedback, so both stores normalize it when creating sessions.
+// as user feedback, so the store normalizes it when creating sessions.
 export function reservedAgent(name: string): string {
   return name === "user" ? "agent" : name;
 }
 
-// SQLite terminates a TEXT value at the first embedded NUL byte, while the JSON
-// store preserves it — so the two stores would diverge on a NUL. A NUL has no
-// place in a title/comment/label anyway, so both stores strip it from stored
-// text (removing the byte, not truncating), keeping them in lockstep. Returns
-// the input untouched when there's nothing to strip, so the common path is free.
+// SQLite terminates a TEXT value at the first embedded NUL byte. A NUL has no
+// place in a title/comment/label anyway, so stored text is stripped of it
+// (removing the byte, not truncating). Returns the input untouched when there's
+// nothing to strip, so the common path is free.
 const NUL_CHAR = String.fromCharCode(0);
 export function stripNul<T extends string | null | undefined>(s: T): T {
-  // replaceAll with a string (not a RegExp literal) keeps the control char out
-  // of the source; the includes guard keeps the common no-NUL path free.
   return (typeof s === "string" && s.includes(NUL_CHAR) ? s.replaceAll(NUL_CHAR, "") : s) as T;
-}
-
-// stripNul applied to a trace step, rebuilding it so absent optional keys stay
-// absent (a `{kind: undefined}` key would itself diverge: the JSON store keeps
-// it, SqlStore drops it).
-export function stripNulStep(s: TraceStep): TraceStep {
-  const out: TraceStep = { label: stripNul(s.label) };
-  if (s.kind !== undefined) out.kind = stripNul(s.kind);
-  if (s.detail !== undefined) out.detail = stripNul(s.detail);
-  if (s.ts !== undefined) out.ts = s.ts;
-  return out;
 }
 
 // Per-asset upload cap (enforced at the HTTP/MCP edge → 413) and the workspace-wide
@@ -644,24 +747,19 @@ export function stripNulStep(s: TraceStep): TraceStep {
 export const MAX_ASSET_BYTES = 5 * 1024 * 1024;
 export const MAX_WORKSPACE_ASSET_BYTES = 2 * 1024 * 1024 * 1024;
 
-// Short, unguessable id: 8 random bytes (64 bits) as 11 url-safe base64 chars —
-// YouTube-video-id sized. These double as bearer capabilities: in publicRead
-// mode `/s/:id` and `/api/{sessions,surfaces}/:id` are reachable without the
-// workspace token, so the id IS the share secret and must resist enumeration. 64
-// bits (~1.8e19) is far past sweepable; the old `randomUUID().split("-")[0]`
-// kept only the first 32-bit segment (~4e9), brute-forceable in about an hour.
-// (Assets use a separate content-hash id, not this.) btoa is a global in both
-// Node and Workers, same as the atob the asset path already relies on.
+// Short, unguessable id: 8 random bytes (64 bits) as 11 url-safe base64 chars.
+// These double as bearer capabilities: in publicRead mode `/s/:id` and
+// `/api/mocks/:id` are reachable without the workspace token, so the id IS the
+// share secret and must resist enumeration. btoa is a global in both Node and
+// Workers.
 export const newId = () => {
   let id = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(8))))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
   // Ids are used as CLI positional args and path segments. A leading "-" or
-  // "_" makes node:util parseArgs treat them as options ("Unknown option '-6'"
-  // for an id like "-6K4AJsKD4M"), so swap a leading separator for an
-  // alphanumeric. Collision risk is negligible (the remaining ~10 chars hold
-  // ~8e17 possibilities).
+  // "_" makes node:util parseArgs treat them as options, so swap a leading
+  // separator for an alphanumeric.
   if (id[0] === "-" || id[0] === "_") id = "0" + id.slice(1);
   return id;
 };
@@ -670,7 +768,6 @@ export const newId = () => {
 // it depends only on the content, an agent can derive `/a/:id` from the bytes
 // alone — no upload round-trip — and write the URL into a surface before (or
 // while) the upload lands. Identical uploads collapse to one stored blob.
-// Uses Web Crypto (a global on Node ≥20 and Workers) to stay runtime-agnostic.
 export async function hashAssetId(data: Uint8Array): Promise<string> {
   // Copy into a fresh ArrayBuffer-backed view: digest wants a definite
   // ArrayBuffer, and this also avoids the SharedArrayBuffer-backed lib type.
@@ -679,78 +776,56 @@ export async function hashAssetId(data: Uint8Array): Promise<string> {
 }
 
 // Assign a stable id to every surface that lacks one, preserving existing ids.
-// Called by the stores on create/update so all persisted surfaces are
-// addressable. Per-surface flow functions call this after mutating a single
-// surface so untouched surfaces keep their ids.
 export function normalizeSurfaceIds(surfaces: Surface[]): Surface[] {
   return surfaces.map((s) => (s.id ? s : { ...s, id: newId() }));
 }
 
-// Fallback project for posts whose session never declared one (legacy rows,
-// bare `curl` publishes).
+// Fallback project for sessions that never declared one (bare `curl` publishes).
 export const DEFAULT_PROJECT = "workspace";
 export const DEFAULT_VARIANT = "default";
 
-// Stable, url-safe item id derived from a title. Empty input yields "item" so a
+// Stable, url-safe slug derived from a title. Empty input yields "mock" so a
 // slug is never the empty string.
 export function slugify(input: string): string {
   const slug = input
     .toLowerCase()
     .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60)
     .replace(/-+$/g, "");
-  return slug || "item";
+  return slug || "mock";
 }
 
-// --- project › item › variant aggregation ---
-// Pure, store-independent: both backends hand their rows to these so the two
-// can't drift on what "waiting" or "items" means.
+// Last path segment of a working directory, for sessions that never declared a
+// project. Handles both separators so a Windows cwd resolves the same way.
+export function projectFromCwd(cwd: string | null | undefined): string | null {
+  if (!cwd) return null;
+  const parts = cwd.split(/[/\\]+/).filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : null;
+}
 
-const variantSummary = (p: Post): VariantSummary => ({
-  postId: p.id,
-  variant: p.variant,
-  version: p.version,
-  status: p.status,
-  ask: p.ask,
-  updatedAt: p.updatedAt,
+export const htmlSurface = (html: string, kits?: unknown): HtmlSurface => ({
+  kind: "html",
+  html,
+  ...(Array.isArray(kits) && kits.length > 0
+    ? { kits: kits.filter((k) => typeof k === "string") }
+    : {}),
 });
 
-// Pages first, then most recently updated — the order the items column uses.
-const itemOrder = (a: ItemSummary, b: ItemSummary): number =>
-  a.kind === b.kind ? b.updatedAt.localeCompare(a.updatedAt) : a.kind === "page" ? -1 : 1;
+// An open ask is one no reply has answered yet.
+export const openAsks = (mock: Pick<Mock, "asks">): Ask[] =>
+  mock.asks.filter((a) => a.answer === undefined);
 
-export function summarizeItems(posts: Post[]): ItemSummary[] {
-  const bySlug = new Map<string, Post[]>();
-  for (const p of posts) {
-    const list = bySlug.get(p.slug);
-    if (list) list.push(p);
-    else bySlug.set(p.slug, [p]);
-  }
-  const items: ItemSummary[] = [];
-  for (const [slug, group] of bySlug) {
-    const sorted = [...group].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    items.push({
-      project: sorted[0].project,
-      slug,
-      kind: sorted.some((p) => p.kind === "page") ? "page" : "component",
-      title: sorted[0].title,
-      variants: sorted.map(variantSummary),
-      waiting: sorted.some((p) => p.ask !== null && p.status !== "archived"),
-      updatedAt: sorted.reduce((max, p) => (p.updatedAt > max ? p.updatedAt : max), ""),
-    });
-  }
-  return items.sort(itemOrder);
-}
-
-export function summarizeProjects(posts: Post[], sessions: Session[]): ProjectSummary[] {
-  const byProject = new Map<string, Post[]>();
-  for (const p of posts) {
-    const list = byProject.get(p.project);
-    if (list) list.push(p);
-    else byProject.set(p.project, [p]);
+// Per-project rollup for the projects list. Pure, so every store agrees on
+// what "open" and "lastActiveAt" mean.
+export function summarizeProjects(mocks: Mock[], sessions: Session[]): ProjectSummary[] {
+  const byProject = new Map<string, Mock[]>();
+  for (const m of mocks) {
+    const list = byProject.get(m.project);
+    if (list) list.push(m);
+    else byProject.set(m.project, [m]);
   }
   const sessionCounts = new Map<string, number>();
   const sessionActive = new Map<string, string>();
@@ -763,127 +838,22 @@ export function summarizeProjects(posts: Post[], sessions: Session[]): ProjectSu
   const names = new Set([...byProject.keys(), ...sessionCounts.keys()]);
   return [...names]
     .map((name) => {
-      const items = summarizeItems(byProject.get(name) ?? []);
-      const lastPost = items.reduce((max, i) => (i.updatedAt > max ? i.updatedAt : max), "");
+      const list = byProject.get(name) ?? [];
+      const lastMock = list.reduce((max, m) => (m.updatedAt > max ? m.updatedAt : max), "");
       return {
         name,
-        items: items.length,
-        waiting: items.filter((i) => i.waiting).length,
-        lastActiveAt: [lastPost, sessionActive.get(name) ?? ""].sort().pop() ?? "",
+        mocks: list.length,
+        open: list.reduce((n, m) => n + openAsks(m).length, 0),
+        lastActiveAt: [lastMock, sessionActive.get(name) ?? ""].sort().pop() ?? "",
         sessions: sessionCounts.get(name) ?? 0,
       };
     })
     .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt));
 }
 
-// History metadata only — no surface bodies, so an item screen is one bounded
-// response. The current version leads the list (newest first).
-export function variantDetail(p: Post): VariantDetail {
-  return {
-    ...variantSummary(p),
-    title: p.title,
-    surfaces: p.surfaces,
-    slots: p.slots,
-    createdAt: p.createdAt,
-    sessionId: p.sessionId,
-    history: [
-      {
-        version: p.version,
-        title: p.title,
-        at: p.updatedAt,
-        ...(p.from === undefined ? {} : { from: p.from }),
-        ...(p.prompt === undefined ? {} : { prompt: p.prompt }),
-      },
-      ...[...p.history]
-        .sort((a, b) => b.version - a.version)
-        .map((h) => ({
-          version: h.version,
-          title: h.title,
-          at: h.at,
-          ...(h.from === undefined ? {} : { from: h.from }),
-          ...(h.prompt === undefined ? {} : { prompt: h.prompt }),
-        })),
-    ],
-  };
-}
-
-export function detailForItem(posts: Post[]): ItemDetail | null {
-  const [summary] = summarizeItems(posts);
-  if (!summary) return null;
-  const order = new Map(summary.variants.map((v, i) => [v.postId, i]));
-  return {
-    ...summary,
-    variants: [...posts]
-      .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
-      .map(variantDetail),
-  };
-}
-
-// Migration slug for a legacy post: kebab-case title plus a short suffix from
-// the post id, so two posts with the same title stay distinct items.
-export function uniqueSlug(title: string, id: string, taken: Set<string>): string {
-  const base = slugify(title);
-  const suffix = id
-    .slice(0, 4)
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "0");
-  let slug = `${base}-${suffix}`;
-  let n = 2;
-  while (taken.has(slug)) slug = `${base}-${suffix}-${n++}`;
-  return slug;
-}
-
-// Last path segment of a working directory, for sessions that never declared a
-// project. Handles both separators so a Windows cwd resolves the same way.
-export function projectFromCwd(cwd: string | null | undefined): string | null {
-  if (!cwd) return null;
-  const parts = cwd.split(/[/\\]+/).filter(Boolean);
-  return parts.length > 0 ? parts[parts.length - 1] : null;
-}
-
-// Legacy single `anchor` → the Anchor list markers use. Line-range anchors have
-// no box, so they don't convert.
-export function anchorFromLegacy(anchor: CommentAnchor | undefined): Anchor[] {
-  if (!anchor) return [];
-  if (anchor.kind === "point") {
-    return [
-      {
-        ref: "@1",
-        shape: "pin",
-        box: [anchor.x, anchor.y],
-        surfaceIndex: anchor.surfaceIndex,
-        postVersion: anchor.postVersion,
-      },
-    ];
-  }
-  if (anchor.kind === "rect") {
-    return [
-      {
-        ref: "@1",
-        shape: "rect",
-        box: [anchor.x, anchor.y, anchor.w, anchor.h],
-        surfaceIndex: anchor.surfaceIndex,
-        postVersion: anchor.postVersion,
-      },
-    ];
-  }
-  return [];
-}
-
-// A snippet is sugar for a single html surface; this bridges the legacy
-// `{ html }` shape (CLI `publish`, `POST /api/snippets`) to the surfaces model.
-// An optional `kits` list opts the surface into style/behavior bundles (kits.ts).
-export const htmlSurface = (html: string, kits?: unknown): HtmlSurface => ({
-  kind: "html",
-  html,
-  ...(Array.isArray(kits) && kits.length > 0
-    ? { kits: kits.filter((k) => typeof k === "string") }
-    : {}),
-});
-
-// The combined byte weight of a post's surfaces, for size limits. image/trace
-// surfaces are tiny (refs + inline steps) — the asset bytes they point at are
-// bounded separately by MAX_ASSET_BYTES, not this post cap.
+// The combined byte weight of a post's surfaces, for size limits. image
+// surfaces are tiny refs — the asset bytes they point at are bounded separately
+// by MAX_ASSET_BYTES, not this post cap.
 export function surfacesByteLength(surfaces: Surface[]): number {
   let n = 0;
   for (const p of surfaces) {
@@ -901,27 +871,21 @@ export function surfacesByteLength(surfaces: Surface[]): number {
       n += p.mermaid.length;
     } else if (p.kind === "json") {
       n += JSON.stringify(p.data).length;
-    } else if (p.kind === "code") {
+    } else {
       n +=
         p.code.length + (p.language?.length ?? 0) + (p.title?.length ?? 0) + (p.lineStart ? 4 : 0);
-    } else {
-      n += (p.assetId?.length ?? 0) + (p.title?.length ?? 0);
-      for (const s of p.steps ?? []) {
-        n += s.label.length + (s.kind?.length ?? 0) + (s.detail?.length ?? 0);
-      }
     }
   }
   return n;
 }
 
-// Collect the asset ids an ordered surfaces list references (image/trace surfaces).
-// Used to keep referenced assets out of eviction's first wave. Note: assets
-// embedded by raw URL inside html markup are invisible here — touch-on-serve
-// keeps those warm instead.
+// Collect the asset ids an ordered surfaces list references (image surfaces).
+// Used to keep referenced assets out of eviction's first wave. Assets embedded
+// by raw URL inside html markup are invisible here — touch-on-serve keeps those
+// warm instead.
 export function collectAssetIds(surfaces: Surface[], out: Set<string>): void {
   for (const p of surfaces) {
     if (p.kind === "image") out.add(p.assetId);
-    else if (p.kind === "trace" && p.assetId) out.add(p.assetId);
   }
 }
 

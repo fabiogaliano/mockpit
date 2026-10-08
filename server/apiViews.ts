@@ -1,15 +1,17 @@
-import { isSandboxedSurfaceKind, SURFACE_CONTENT_FIELDS } from "./types.ts";
-import type { Comment, CommentAnchor, Post, PostVersion, Session, Surface } from "./types.ts";
+// Response shapes shared by every tier (REST, both MCP transports, the CLI), so
+// one mock reads the same however an agent asks for it.
 
-export interface Feedback {
-  postId: string | null;
-  postTitle: string | null;
-  surfaceId: string | null;
-  surfaceTitle: string | null;
-  text: string;
-  at: string;
-  anchor?: CommentAnchor;
-}
+import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
+import {
+  isSandboxedSurfaceKind,
+  type Mock,
+  openAsks,
+  type Post,
+  type PostVersion,
+  type Session,
+  SURFACE_CONTENT_FIELDS,
+  type Surface,
+} from "./types.ts";
 
 export const surfaceRef = (surface: Pick<Surface, "id" | "kind">, index: number) => ({
   id: surface.id,
@@ -19,305 +21,150 @@ export const surfaceRef = (surface: Pick<Surface, "id" | "kind">, index: number)
 
 export const fullSurfaceView = (surface: Surface, index: number) => ({ ...surface, index });
 
-// Session REST lists keep non-html structured payloads for the viewer list, but
-// omit arbitrary html bodies. Legacy `parts` aliases the same array at the row.
-export const sessionListSurfaceView = (surface: Surface, index: number) =>
-  surface.kind === "html" ? surfaceRef(surface, index) : fullSurfaceView(surface, index);
-
 // A sandboxed surface renders as an opaque-origin iframe pointed at
-// /s/:id?part=N, which fetches the body itself — so the viewer builds the frame
-// from the ref alone and never reads the content field. Shipping the body in the
-// session hydrate too made every stream load carry a second, unread copy of every
-// surface, the larger half of the response. Drop just that field; the rest of the
-// surface (id, kits, …) is small and stays. Native kinds (image/trace/json) DO
-// render from inline data, so they keep everything.
+// /s/:id?surface=N, which fetches the body itself — so a read that is not asking
+// for bodies drops just the content field. Native kinds (image/json) render from
+// inline data, so they keep everything.
 export const hydratedSurfaceView = (surface: Surface, index: number) => {
   const field = isSandboxedSurfaceKind(surface.kind)
     ? SURFACE_CONTENT_FIELDS[surface.kind]
     : undefined;
   if (!field) return fullSurfaceView(surface, index);
   // Surface is a union of interfaces, so the content key can't be dropped through
-  // the union type (no implicit index signature). Widen to a bag, delete the one
-  // key, and let the result type stay the bag — the shape is kind-dependent and
-  // this value only ever gets serialized.
+  // the union type. Widen to a bag, delete the one key; the value is only serialized.
   const view = { ...surface, index } as unknown as Record<string, unknown>;
   delete view[field];
   return view;
 };
 
-export const postWriteView = (post: Post) => ({
-  id: post.id,
-  sessionId: post.sessionId,
-  title: post.title,
-  createdAt: post.createdAt,
-  updatedAt: post.updatedAt,
-  version: post.version,
-  surfaces: post.surfaces.map(surfaceRef),
-});
-
-// One past version, without its bodies: enough to list the history rail or pick
-// a version to fetch, at a bounded cost. A 20-version post used to ship every
-// surface of every version — ~27k tokens for a 5 KB post — on a read agents are
-// told to make after every compaction.
-const historyMetaView = (version: PostVersion) => ({
+// One past version without its bodies: enough to list versions or pick one to
+// fetch, at a bounded cost.
+export const historyMetaView = (version: PostVersion) => ({
   version: version.version,
   title: version.title,
   at: version.at,
   ...(version.from === undefined ? {} : { from: version.from }),
-  ...(version.prompt === undefined ? {} : { prompt: version.prompt }),
+  ...(version.prompt ? { prompt: version.prompt } : {}),
   ...(version.author === undefined ? {} : { author: version.author }),
-  surfaceCount: version.surfaces.length,
   surfaceKinds: version.surfaces.map((s) => s.kind),
 });
 
-export type HistoryMode = "meta" | "full";
-
-// `history: "full"` restores the old shape byte-for-byte — the legacy detail
-// routes (/api/surfaces/:id, /api/snippets/:id) pass it and must never change.
-export const postDetailView = (post: Post, opts: { history?: HistoryMode } = {}) => ({
-  ...post,
-  surfaces: post.surfaces.map(fullSurfaceView),
-  history:
-    opts.history === "full"
-      ? post.history.map((version) => ({
-          ...version,
-          surfaces: version.surfaces.map(fullSurfaceView),
-        }))
-      : post.history.map(historyMetaView),
-});
-
-// The current surface metadata/data the viewer renders. Sandboxed kinds omit
-// their body (the iframe fetches it from /s/:id); native kinds keep their inline
-// data. Extra kind-specific fields are intentionally open-ended so a newer
-// server can send metadata an older viewer safely ignores.
-export interface ViewerSurface {
-  id?: string;
-  kind: Surface["kind"];
-  index: number;
-  [key: string]: unknown;
+export interface VariantViewOptions {
+  // Full surface bodies instead of refs (agent reads opt in; the viewer frames them).
+  body?: boolean;
+  // Version rows, newest first, current version included.
+  history?: boolean;
 }
 
-// Compact post representation used only by the live viewer. versionCount is the
-// number of retained/renderable versions INCLUDING current; it can be lower than
-// `version` after HISTORY_LIMIT rolls old revisions out of the store.
-export interface ViewerPost {
-  id: string;
-  sessionId: string;
-  title: string;
-  surfaces: ViewerSurface[];
-  createdAt: string;
-  updatedAt: string;
-  version: number;
-  versionCount: number;
-}
-
-export const viewerPostView = (post: Post): ViewerPost => ({
-  id: post.id,
-  sessionId: post.sessionId,
+export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
+  postId: post.id,
+  state: post.state,
+  variant: post.variant,
+  status: post.status,
+  version: post.version,
   title: post.title,
-  surfaces: post.surfaces.map(hydratedSurfaceView) as ViewerSurface[],
+  sessionId: post.sessionId,
   createdAt: post.createdAt,
   updatedAt: post.updatedAt,
-  version: post.version,
-  versionCount: post.history.length + 1,
+  ...(post.from === undefined ? {} : { from: post.from }),
+  ...(post.prompt ? { prompt: post.prompt } : {}),
+  ...(post.author === undefined ? {} : { author: post.author }),
+  ...(post.knobs ? { knobs: post.knobs } : {}),
+  ...(post.slots.length ? { slots: post.slots } : {}),
+  surfaces: post.surfaces.map(opts.body ? fullSurfaceView : hydratedSurfaceView),
+  ...(opts.history
+    ? {
+        history: [
+          historyMetaView({
+            version: post.version,
+            title: post.title,
+            surfaces: post.surfaces,
+            at: post.updatedAt,
+            ...(post.from === undefined ? {} : { from: post.from }),
+            ...(post.prompt === undefined ? {} : { prompt: post.prompt }),
+            ...(post.author === undefined ? {} : { author: post.author }),
+          }),
+          ...[...post.history].sort((a, b) => b.version - a.version).map(historyMetaView),
+        ],
+      }
+    : {}),
 });
 
-// One session's whole stream, hydrated in a single response (`?hydrate=1`). It
-// uses the same compact wire contract as the per-post live-update route.
-export const sessionPostHydratedView = viewerPostView;
+const stateOrder = (mock: Mock) => (mock.states.length ? mock.states : [null]);
 
-// `legacy` keeps the duplicate `parts` alias for /api/sessions/:id/{surfaces,
-// snippets}, which must stay byte-identical. The canonical route drops it: the
-// array is the single largest field in the response and it was being sent twice.
-export const sessionPostListRowView = (post: Post, legacy = false) => {
-  const surfaces = post.surfaces.map(sessionListSurfaceView);
-  return {
-    id: post.id,
-    sessionId: post.sessionId,
-    title: post.title,
-    createdAt: post.createdAt,
-    updatedAt: post.updatedAt,
-    version: post.version,
-    surfaces,
-    ...(legacy ? { parts: surfaces } : {}),
-  };
-};
+export interface StateParts {
+  state: string | null;
+  parts: PartInfo[];
+}
 
-export const mcpPostListRowView = (
-  post: Pick<Post, "id" | "sessionId" | "title" | "version" | "updatedAt"> & {
-    surfaces: Pick<Surface, "id" | "kind">[];
-  },
+// The parts the agent marked, per state, across the variants still in play.
+export function partsByState(mock: Mock, posts: Post[]): StateParts[] {
+  return stateOrder(mock).map((state) => ({
+    state,
+    parts: mergeParts(
+      posts
+        .filter((p) => p.state === state && p.status !== "archived")
+        .map((p) => partsInSurfaces(p.surfaces)),
+    ),
+  }));
+}
+
+// What Home shows for a mock: the first state's chosen (else first) variant.
+function thumbnail(mock: Mock, posts: Post[]) {
+  const first = stateOrder(mock)[0];
+  const inState = posts.filter((p) => p.state === first);
+  const pick =
+    inState.find((p) => p.status === "accepted") ??
+    inState.find((p) => p.status === "open") ??
+    inState[0] ??
+    posts[0];
+  if (!pick) return null;
+  const surface = pick.surfaces.findIndex((s) => isSandboxedSurfaceKind(s.kind));
+  return { postId: pick.id, surface: Math.max(surface, 0), version: pick.version };
+}
+
+export const mockSummaryView = (mock: Mock, posts: Post[]) => ({
+  id: mock.id,
+  project: mock.project,
+  slug: mock.slug,
+  title: mock.title,
+  kind: mock.kind,
+  states: mock.states,
+  stateCount: Math.max(mock.states.length, 1),
+  variants: posts.length,
+  open: openAsks(mock).length,
+  sessionId: mock.sessionId,
+  createdAt: mock.createdAt,
+  updatedAt: mock.updatedAt,
+  thumbnail: thumbnail(mock, posts),
+});
+
+// One mock as anyone outside the viewer's own draft sees it: the draft is the
+// user's unsent work and never leaves through this view.
+export const mockDetailView = (
+  mock: Mock,
+  posts: Post[],
+  opts: VariantViewOptions & { tuned?: Record<string, unknown> } = {},
 ) => ({
-  id: post.id,
-  sessionId: post.sessionId,
-  title: post.title,
-  version: post.version,
-  updatedAt: post.updatedAt,
-  surfaces: post.surfaces.map(surfaceRef),
-});
-
-const PART_TEXT_CAP = 8_000;
-const TRACE_STEP_PREVIEW_LIMIT = 25;
-type CappedSurface = Surface & { truncated?: true };
-
-function capText(text: string): { value: string; truncated: boolean } {
-  return text.length > PART_TEXT_CAP
-    ? { value: text.slice(0, PART_TEXT_CAP), truncated: true }
-    : { value: text, truncated: false };
-}
-
-function capSurface(surface: Surface): CappedSurface {
-  switch (surface.kind) {
-    case "html": {
-      const { value, truncated } = capText(surface.html);
-      return truncated ? { ...surface, html: value, truncated: true } : surface;
-    }
-    case "markdown": {
-      const { value, truncated } = capText(surface.markdown);
-      return truncated ? { ...surface, markdown: value, truncated: true } : surface;
-    }
-    case "mermaid": {
-      const { value, truncated } = capText(surface.mermaid);
-      return truncated ? { ...surface, mermaid: value, truncated: true } : surface;
-    }
-    case "code": {
-      const { value, truncated } = capText(surface.code);
-      return truncated ? { ...surface, code: value, truncated: true } : surface;
-    }
-    case "terminal": {
-      const { value, truncated } = capText(surface.text);
-      return truncated ? { ...surface, text: value, truncated: true } : surface;
-    }
-    case "diff": {
-      let truncated = false;
-      const next: CappedSurface = { ...surface };
-      if (surface.patch !== undefined) {
-        const capped = capText(surface.patch);
-        next.patch = capped.value;
-        truncated ||= capped.truncated;
-      }
-      if (surface.files !== undefined) {
-        next.files = surface.files.map((file) => {
-          const before = capText(file.before);
-          const after = capText(file.after);
-          const filename = capText(file.filename);
-          const language = file.language ? capText(file.language) : undefined;
-          truncated ||= before.truncated || after.truncated || filename.truncated;
-          if (language) truncated ||= language.truncated;
-          return {
-            ...file,
-            filename: filename.value,
-            before: before.value,
-            after: after.value,
-            ...(language && { language: language.value }),
-          };
-        });
-      }
-      return truncated ? { ...next, truncated: true } : surface;
-    }
-    case "image": {
-      const alt = surface.alt ? capText(surface.alt) : undefined;
-      const caption = surface.caption ? capText(surface.caption) : undefined;
-      const truncated = !!alt?.truncated || !!caption?.truncated;
-      return truncated
-        ? {
-            ...surface,
-            ...(alt && { alt: alt.value }),
-            ...(caption && { caption: caption.value }),
-            truncated: true,
-          }
-        : surface;
-    }
-    case "trace": {
-      let truncated = false;
-      const title = surface.title ? capText(surface.title) : undefined;
-      if (title?.truncated) truncated = true;
-      const steps = surface.steps?.slice(0, TRACE_STEP_PREVIEW_LIMIT).map((step) => {
-        const label = capText(step.label);
-        const kind = step.kind ? capText(step.kind) : undefined;
-        const detail = step.detail ? capText(step.detail) : undefined;
-        const ts = step.ts ? capText(step.ts) : undefined;
-        truncated ||=
-          label.truncated || !!kind?.truncated || !!detail?.truncated || !!ts?.truncated;
-        return {
-          label: label.value,
-          ...(kind && { kind: kind.value }),
-          ...(detail && { detail: detail.value }),
-          ...(ts && { ts: ts.value }),
-        };
-      });
-      if ((surface.steps?.length ?? 0) > TRACE_STEP_PREVIEW_LIMIT) truncated = true;
-      return truncated
-        ? {
-            ...surface,
-            ...(title && { title: title.value }),
-            ...(steps && { steps }),
-            truncated: true,
-          }
-        : surface;
-    }
-    case "json": {
-      const serialized = JSON.stringify(surface.data);
-      const { value, truncated } = capText(serialized);
-      return truncated ? { ...surface, data: value, truncated: true } : surface;
-    }
-    default:
-      return surface;
-  }
-}
-
-export const recentSurfacePreviewView = (surface: Surface, index: number) => ({
-  ...capSurface(surface),
-  index,
-});
-
-// The self-hosted Home uses one preview per post. Rich surfaces render from their
-// immutable /s document and trace only needs a kind label, so only image/json
-// retain inline data. This bounds Home's response without weakening the
-// full recent-feed contract used by embedders.
-export const recentHomeSurfaceView = (surface: Surface, index: number) =>
-  surface.kind === "image" || surface.kind === "json"
-    ? recentSurfacePreviewView(surface, index)
-    : surfaceRef(surface, index);
-
-// Same rule as sessionPostListRowView: `parts`/`partKinds` are legacy aliases of
-// `surfaces`, kept only on /api/surfaces/recent.
-export const recentPostRowView = (
-  post: Post,
-  session: Session | null | undefined,
-  opts?: { homePreview?: boolean; legacy?: boolean },
-) => {
-  const surfaces = opts?.homePreview
-    ? post.surfaces.slice(0, 1).map(recentHomeSurfaceView)
-    : post.surfaces.map(recentSurfacePreviewView);
-  return {
-    id: post.id,
-    sessionId: post.sessionId,
-    sessionTitle: session?.title ?? null,
-    agent: session?.agent ?? null,
-    title: post.title,
-    createdAt: post.createdAt,
-    updatedAt: post.updatedAt,
-    version: post.version,
-    surfaces,
-    ...(opts?.legacy
-      ? { parts: surfaces, partKinds: post.surfaces.map((surface) => surface.kind) }
-      : {}),
-  };
-};
-
-export const feedbackView = (comment: Comment): Feedback => ({
-  postId: comment.postId,
-  postTitle: comment.postTitle,
-  surfaceId: comment.postId,
-  surfaceTitle: comment.postTitle,
-  text: comment.text,
-  at: comment.createdAt,
-  ...(comment.anchor && { anchor: comment.anchor }),
+  id: mock.id,
+  project: mock.project,
+  slug: mock.slug,
+  title: mock.title,
+  kind: mock.kind,
+  states: mock.states,
+  asks: mock.asks,
+  open: openAsks(mock).length,
+  knobs: mock.knobs,
+  sessionId: mock.sessionId,
+  createdAt: mock.createdAt,
+  updatedAt: mock.updatedAt,
+  variants: posts.map((p) => variantView(p, opts)),
+  parts: partsByState(mock, posts),
+  // The knob values of the latest reply — what the user last sent, not drafts.
+  tuned: opts.tuned ?? {},
 });
 
 export const sessionRowView = (session: Session, postCount: number) => ({
   ...session,
   postCount,
-  surfaceCount: postCount,
 });

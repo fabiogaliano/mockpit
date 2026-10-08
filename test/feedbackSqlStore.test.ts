@@ -5,11 +5,9 @@ import { createSqliteStorage } from "../server/sqliteStorage.ts";
 import { SqlStore } from "../server/sqlStore.ts";
 
 // The comment→agent feedback cursor (agentSeq, exactly-once delivery,
-// author=user filtering, piggyback) is the product's crown jewel and is covered
-// extensively against JsonFileStore in api.test.ts. SqlStore is now the default
-// local store, so re-run the core of that flow against it to prove the cursor
-// behaves identically on the SQLite path (markAgentSeen + the createComment
-// touch() interaction, in particular).
+// author=user filtering, piggyback) is the product's crown jewel. These run the
+// core of that flow through the app on the SQLite store (markAgentSeen + the
+// createComment touch() interaction, in particular).
 function makeSqlApp() {
   const store = new SqlStore(createSqliteStorage());
   return createApp({
@@ -29,8 +27,10 @@ const json = (body: unknown) => ({
 
 test("SqlStore: author=user feedback delivers exactly once; the viewer read is unaffected", async () => {
   const app = makeSqlApp();
-  const s = (await (await app.request("/api/snippets", json({ html: "<p>x</p>" }))).json()) as any;
-  await app.request("/api/comments", json({ snippet: s.id, text: "first", author: "user" }));
+  const s = (await (
+    await app.request("/api/mocks", json({ mock: "card", html: "<p>x</p>" }))
+  ).json()) as any;
+  await app.request("/api/comments", json({ mock: s.mock.id, text: "first", author: "user" }));
 
   // cursor-less read delivers it once...
   const first = (await (
@@ -52,16 +52,21 @@ test("SqlStore: author=user feedback delivers exactly once; the viewer read is u
 
 test("SqlStore: piggybacked feedback on a write advances the cursor; only author=user is delivered", async () => {
   const app = makeSqlApp();
-  const s = (await (await app.request("/api/snippets", json({ html: "<p>x</p>" }))).json()) as any;
-  await app.request("/api/comments", json({ snippet: s.id, text: "tweak it", author: "user" }));
+  const s = (await (
+    await app.request("/api/mocks", json({ mock: "card", html: "<p>x</p>" }))
+  ).json()) as any;
+  await app.request(
+    "/api/comments",
+    json({ mock: s.mock.id, variant: "default", text: "tweak it", author: "user" }),
+  );
 
   // the agent's write piggybacks the pending feedback...
   const updated = (await (
-    await app.request(`/api/snippets/${s.id}`, { ...json({ html: "<p>v2</p>" }), method: "PUT" })
+    await app.request(`/api/mocks/${s.mock.id}/revise`, json({ html: "<p>v2</p>" }))
   ).json()) as any;
-  // `userFeedback` is the batch shape now: one entry per post, comments inside.
+  // `userFeedback` is the batch shape: one entry per mock, comments inside.
   assert.equal(updated.userFeedback.length, 1);
-  assert.equal(updated.userFeedback[0].postId, s.id);
+  assert.equal(updated.userFeedback[0].mockId, s.mock.id);
   assert.deepEqual(
     updated.userFeedback[0].comments.map((c: any) => c.text),
     ["tweak it"],
@@ -74,10 +79,7 @@ test("SqlStore: piggybacked feedback on a write advances the cursor; only author
   assert.equal(wait.comments.length, 0);
 
   // a surface-authored comment is never delivered as user feedback
-  await app.request(
-    "/api/comments",
-    json({ session: s.sessionId, text: "auto", author: "surface" }),
-  );
+  await app.request("/api/comments", json({ mock: s.mock.id, text: "auto", author: "surface" }));
   const afterSurface = (await (
     await app.request(`/api/comments?session=${s.sessionId}&author=user`)
   ).json()) as any;

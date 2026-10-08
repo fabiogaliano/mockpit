@@ -1,7 +1,5 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { JsonFileStore } from "./storage.ts";
-import { SqlStore } from "./sqlStore.ts";
 import type { SqlStorage, SqlStorageCursor, SqlStorageValue } from "./types.ts";
 
 // node:sqlite emits a one-time ExperimentalWarning when the builtin loads. It's
@@ -44,8 +42,7 @@ function makeCursor(rows: Record<string, SqlStorageValue>[]): SqlStorageCursor {
 export function createSqliteStorage(path = ":memory:"): SqlStorage {
   if (path !== ":memory:") {
     // node:sqlite won't create missing parent directories — it just fails with
-    // "unable to open database file". The default db path lives under the
-    // package dir (no `data/` shipped), so the first run would always crash.
+    // "unable to open database file", so a first run would always crash.
     mkdirSync(dirname(path), { recursive: true });
   }
   const db = new DatabaseSync(path);
@@ -81,44 +78,18 @@ export function createSqliteStorage(path = ":memory:"): SqlStorage {
       const rows = db.prepare(query).all(...params) as Record<string, SqlStorageValue>[];
       return makeCursor(rows);
     },
+    transactionSync<T>(fn: () => T): T {
+      // Already inside one (a store method composing another): join it.
+      if (db.isTransaction) return fn();
+      db.exec("BEGIN");
+      try {
+        const result = fn();
+        db.exec("COMMIT");
+        return result;
+      } catch (err) {
+        db.exec("ROLLBACK");
+        throw err;
+      }
+    },
   };
-}
-
-// One-time migration: if `sqlite` is empty and a legacy JSON store exists at
-// `jsonPath`, copy the whole workspace in. Idempotent — a sentinel setting records
-// that we've run, and we never import into a non-empty db — so it's safe to
-// call on every boot. The JSON file is read-only here and left in place as a
-// backup.
-export async function migrateJsonToSqlite(sqlite: SqlStore, jsonPath: string): Promise<void> {
-  if ((await sqlite.getSetting("importedFrom")) != null) return;
-  if ((await sqlite.listSessions()).length > 0) {
-    await sqlite.setSetting("importedFrom", "(skipped: db already had data)");
-    return;
-  }
-  if (!existsSync(jsonPath)) return;
-  // A corrupt/truncated JSON file (e.g. a crash mid-write) must not crash the
-  // server on boot. Warn, leave the file untouched, and don't set the sentinel
-  // — so a later fixed file still migrates — and boot with an empty SQLite db
-  // rather than failing to start at all.
-  let snapshot;
-  try {
-    snapshot = await new JsonFileStore(jsonPath).exportBoard();
-  } catch (e) {
-    console.error(
-      `[mockpit] could not read ${jsonPath} to migrate it into SQLite ` +
-        `(${e instanceof Error ? e.message : e}); leaving it untouched and ` +
-        `starting with an empty SQLite store. Fix or remove the file to retry.`,
-    );
-    return;
-  }
-  sqlite.importBoard(snapshot);
-  await sqlite.setSetting("importedFrom", jsonPath);
-  const posts = snapshot.posts ?? snapshot.surfaces ?? [];
-  if (snapshot.sessions.length || posts.length) {
-    console.error(
-      `[mockpit] migrated ${snapshot.sessions.length} session(s), ` +
-        `${posts.length} post(s), ${snapshot.comments.length} comment(s), ` +
-        `${snapshot.assets.length} asset(s) from ${jsonPath} into SQLite`,
-    );
-  }
 }

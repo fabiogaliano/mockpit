@@ -8,14 +8,23 @@ import { unstable_dev, type Unstable_DevWorker } from "wrangler";
 const TOKEN = "worker-integration-token";
 const AUTH = { authorization: `Bearer ${TOKEN}` };
 
-type PostResult = {
-  id: string;
+type WriteResult = {
+  mock: { id: string; slug: string };
+  post: {
+    id: string;
+    title: string;
+    version: number;
+    surfaces: Array<{ id: string; kind: string }>;
+  };
   sessionId: string;
+  // One batch per mock — a reply plus the comments released with it.
+  userFeedback?: Array<{ mock: string | null; comments: Array<{ text: string }> }>;
+};
+
+type MockDetail = {
+  id: string;
   title: string;
-  version: number;
-  surfaces: Array<{ id: string; kind: string }>;
-  // One batch per item — a decision plus the comments released with it.
-  userFeedback?: Array<{ postId: string | null; comments: Array<{ text: string }> }>;
+  variants: Array<{ version: number; title: string; surfaces: Array<{ html?: string }> }>;
 };
 
 type AssetResult = {
@@ -103,26 +112,30 @@ test(
     assert.equal((await worker.fetch("/api/sessions")).status, 401);
 
     const marker = '<p id="worker-marker">real workerd render</p>';
-    const post = await expectJson<PostResult>(
+    const published = await expectJson<WriteResult>(
       await worker.fetch(
-        "/api/posts",
+        "/api/mocks",
         json({
           agent: "worker-integration",
           sessionTitle: "Durable workspace",
+          project: "worker",
+          mock: "card",
           title: "Worker post",
           surfaces: [{ kind: "html", html: marker }],
         }),
       ),
       201,
     );
+    const { post, sessionId } = published;
+    const mockId = published.mock.id;
     assert.ok(post.id);
-    assert.ok(post.sessionId);
+    assert.ok(sessionId);
     assert.equal(post.version, 1);
     assert.equal(post.surfaces[0].kind, "html");
 
-    assert.equal((await worker.fetch(`/api/posts/${post.id}`)).status, 401);
+    assert.equal((await worker.fetch(`/api/mocks/${mockId}`)).status, 401);
 
-    const eventStream = await worker.fetch(`/api/events?session=${post.sessionId}`, {
+    const eventStream = await worker.fetch(`/api/events?session=${sessionId}`, {
       headers: AUTH,
     });
     assert.equal(eventStream.status, 200);
@@ -145,7 +158,7 @@ test(
       await expectJson(
         await worker.fetch(
           "/api/comments",
-          json({ surface: post.id, text: "event stream probe", author: "worker-agent" }),
+          json({ mock: mockId, text: "event stream probe", author: "worker-agent" }),
         ),
         201,
       );
@@ -164,7 +177,7 @@ test(
       await eventReader.cancel();
     }
 
-    const rendered = await worker.fetch(`/p/${post.id}?surface=0&ver=1&theme=gruvbox&mode=dark`, {
+    const rendered = await worker.fetch(`/s/${post.id}?surface=0&ver=1&theme=gruvbox&mode=dark`, {
       headers: AUTH,
     });
     assert.equal(rendered.status, 200);
@@ -183,11 +196,13 @@ test(
     // Each assertion looks for markup only the real renderer emits (shiki's span
     // classes, ansi_up's inline colors, the diff web component), so a renderer that
     // loaded but silently produced a fallback still fails.
-    const richPost = await expectJson<PostResult>(
+    const richPost = await expectJson<WriteResult>(
       await worker.fetch(
-        "/api/posts",
+        "/api/mocks",
         json({
-          session: post.sessionId,
+          session: sessionId,
+          project: "worker",
+          mock: "rich",
           title: "Rich surfaces",
           surfaces: [
             { kind: "markdown", markdown: "# Heading\n\n```ts\nconst x: number = 1;\n```" },
@@ -217,16 +232,19 @@ test(
       ["diff", /diffs-container/],
     ];
     for (const [index, [kind, pattern]] of richExpectations.entries()) {
-      const page = await worker.fetch(`/p/${richPost.id}?surface=${index}&theme=github&mode=dark`, {
-        headers: AUTH,
-      });
+      const page = await worker.fetch(
+        `/s/${richPost.post.id}?surface=${index}&theme=github&mode=dark`,
+        {
+          headers: AUTH,
+        },
+      );
       const body = await page.text();
       assert.equal(page.status, 200, `${kind} surface failed to render: ${body.slice(0, 400)}`);
       assert.match(body, pattern, `${kind} surface rendered without the real renderer's markup`);
     }
 
-    assert.equal((await worker.fetch(`/p/${post.id}.png?card=1`, { method: "HEAD" })).status, 401);
-    const screenshot = await worker.fetch(`/p/${post.id}.png?card=1`, {
+    assert.equal((await worker.fetch(`/s/${post.id}.png?card=1`, { method: "HEAD" })).status, 401);
+    const screenshot = await worker.fetch(`/s/${post.id}.png?card=1`, {
       method: "HEAD",
       headers: AUTH,
     });
@@ -234,7 +252,7 @@ test(
     assert.equal(screenshot.headers.get("content-type"), "image/png");
     assert.equal((await screenshot.arrayBuffer()).byteLength, 0);
     assert.equal(
-      (await worker.fetch("/p/missing.png", { method: "HEAD", headers: AUTH })).status,
+      (await worker.fetch("/s/missing.png", { method: "HEAD", headers: AUTH })).status,
       404,
     );
 
@@ -243,7 +261,7 @@ test(
       await worker.fetch(
         "/api/assets",
         json({
-          session: post.sessionId,
+          session: sessionId,
           filename: "worker.bin",
           contentType: "application/octet-stream",
           data: Buffer.from(bytes).toString("base64"),
@@ -251,7 +269,7 @@ test(
       ),
       201,
     );
-    assert.equal(asset.sessionId, post.sessionId);
+    assert.equal(asset.sessionId, sessionId);
     assert.equal(asset.byteLength, bytes.byteLength);
 
     const servedAsset = await worker.fetch(`/a/${asset.id}`, { headers: AUTH });
@@ -262,17 +280,16 @@ test(
 
     await expectJson(await worker.fetch("/api/theme", json({ id: "gruvbox" }, "PUT")), 200);
 
-    const pendingFeedback = worker.fetch(
-      `/api/comments?session=${post.sessionId}&author=user&wait=2`,
-      { headers: AUTH },
-    );
+    const pendingFeedback = worker.fetch(`/api/comments?session=${sessionId}&author=user&wait=2`, {
+      headers: AUTH,
+    });
     // Give the held request time to register before the write, matching the
     // direct-app wakeup test and exercising the DO's in-memory event bus path.
     await new Promise((resolve) => setTimeout(resolve, 50));
     await expectJson(
       await worker.fetch(
         "/api/comments",
-        json({ surface: post.id, text: "wake the worker", author: "user" }),
+        json({ mock: mockId, text: "wake the worker", author: "user" }),
       ),
       201,
     );
@@ -297,16 +314,14 @@ test(
       ["wake the worker"],
     );
 
-    const afterWait = await expectJson<PostResult>(
+    const afterWait = await expectJson<WriteResult>(
       await worker.fetch(
-        `/api/posts/${post.id}`,
-        json(
-          {
-            title: "Worker post v2",
-            surfaces: [{ kind: "html", html: `${marker}<p>v2</p>` }],
-          },
-          "PUT",
-        ),
+        `/api/mocks/${mockId}/revise`,
+        json({
+          session: sessionId,
+          title: "Worker post v2",
+          surfaces: [{ kind: "html", html: `${marker}<p>v2</p>` }],
+        }),
       ),
       200,
     );
@@ -315,20 +330,18 @@ test(
     await expectJson(
       await worker.fetch(
         "/api/comments",
-        json({ surface: post.id, text: "persist this feedback", author: "user" }),
+        json({ mock: mockId, text: "persist this feedback", author: "user" }),
       ),
       201,
     );
-    const piggybacked = await expectJson<PostResult>(
+    const piggybacked = await expectJson<WriteResult>(
       await worker.fetch(
-        `/api/posts/${post.id}`,
-        json(
-          {
-            title: "Worker post v3",
-            surfaces: [{ kind: "html", html: `${marker}<p>v3</p>` }],
-          },
-          "PUT",
-        ),
+        `/api/mocks/${mockId}/revise`,
+        json({
+          session: sessionId,
+          title: "Worker post v3",
+          surfaces: [{ kind: "html", html: `${marker}<p>v3</p>` }],
+        }),
       ),
       200,
     );
@@ -343,20 +356,20 @@ test(
       MOCKPIT_PUBLIC_READ: "session",
     });
 
-    const publicPost = await expectJson<PostResult>(
-      await worker.fetch(`/api/posts/${post.id}`),
+    const publicMock = await expectJson<MockDetail>(
+      await worker.fetch(`/api/mocks/${mockId}`),
       200,
     );
-    assert.equal(publicPost.title, "Worker post v3");
+    assert.equal(publicMock.variants[0].title, "Worker post v3");
     assert.equal((await worker.fetch("/api/sessions")).status, 401);
 
-    const persistedPost = await expectJson<PostResult>(
-      await worker.fetch(`/api/posts/${post.id}`, { headers: AUTH }),
+    const persisted = await expectJson<MockDetail>(
+      await worker.fetch(`/api/mocks/${mockId}?body=1`, { headers: AUTH }),
       200,
     );
-    assert.equal(persistedPost.title, "Worker post v3");
-    assert.equal(persistedPost.version, 3);
-    assert.equal((persistedPost.surfaces[0] as { html?: string }).html, `${marker}<p>v3</p>`);
+    assert.equal(persisted.variants[0].title, "Worker post v3");
+    assert.equal(persisted.variants[0].version, 3);
+    assert.equal(persisted.variants[0].surfaces[0].html, `${marker}<p>v3</p>`);
 
     const persistedTheme = await expectJson<{ id: string }>(
       await worker.fetch("/api/theme", { headers: AUTH }),
@@ -371,20 +384,18 @@ test(
     await expectJson(
       await worker.fetch(
         "/api/comments",
-        json({ surface: post.id, text: "feedback after restart", author: "user" }),
+        json({ mock: mockId, text: "feedback after restart", author: "user" }),
       ),
       201,
     );
-    const afterRestart = await expectJson<PostResult>(
+    const afterRestart = await expectJson<WriteResult>(
       await worker.fetch(
-        `/api/posts/${post.id}`,
-        json(
-          {
-            title: "Worker post v4",
-            surfaces: [{ kind: "html", html: `${marker}<p>v4</p>` }],
-          },
-          "PUT",
-        ),
+        `/api/mocks/${mockId}/revise`,
+        json({
+          session: sessionId,
+          title: "Worker post v4",
+          surfaces: [{ kind: "html", html: `${marker}<p>v4</p>` }],
+        }),
       ),
       200,
     );
@@ -397,11 +408,11 @@ test(
       await worker.fetch("/api/sessions", { headers: AUTH }),
       200,
     );
-    // Two posts: the html one this test drives throughout, plus the rich-surface
-    // post published above to exercise the lazily-imported renderers.
+    // Two variants: the html card this test drives throughout, plus the rich-surface
+    // mock published above to exercise the lazily-imported renderers.
     assert.deepEqual(
       sessions.map(({ id, postCount }) => ({ id, postCount })),
-      [{ id: post.sessionId, postCount: 2 }],
+      [{ id: sessionId, postCount: 2 }],
     );
   },
 );

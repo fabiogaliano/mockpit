@@ -13,7 +13,7 @@ import { createApp } from "../../server/app.ts";
 import { EventBus } from "../../server/events.ts";
 import { SqlStore } from "../../server/sqlStore.ts";
 import { createSqliteStorage } from "../../server/sqliteStorage.ts";
-import { buildWorkspace, surfaceOfKind, TYPICAL } from "../fixtures.ts";
+import { createBenchPost, buildWorkspace, surfaceOfKind, TYPICAL } from "../fixtures.ts";
 import { count, memory, retainedHeap, type Suite, time } from "../harness.ts";
 
 function makeApp(store: SqlStore) {
@@ -84,7 +84,8 @@ export const eventsSuite: Suite = {
       for (let i = 0; i < subscribers; i++) bus.subscribe(() => seen++);
       await ctx.time(
         `bus.broadcast → ${subscribers} subscribers`,
-        () => bus.broadcast({ type: "post-updated", id: "p", sessionId: "s", version: 2 }),
+        () =>
+          bus.broadcast({ type: "post-updated", id: "p", mockId: "m", sessionId: "s", version: 2 }),
         { note: `${subscribers} listeners` },
       );
       void seen;
@@ -107,13 +108,13 @@ export const eventsSuite: Suite = {
       const surface = surfaceOfKind("markdown", "small");
       const publishOnce = async () => {
         const target = delivered + tabs;
-        const res = await app.request("/api/posts", {
+        const res = await app.request("/api/mocks", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             session: built.busiestSessionId,
-            title: "bench",
-            parts: [surface],
+            mock: "bench-fanout",
+            surfaces: [surface],
           }),
         });
         await res.text();
@@ -169,7 +170,7 @@ export const eventsSuite: Suite = {
       const store = new SqlStore(createSqliteStorage());
       const session = await store.createSession({ agent: "bench", title: "poll" });
       // Comments attach to a post, so the poll needs one to point at.
-      const post = await store.createPost({
+      const post = await createBenchPost(store, {
         sessionId: session.id,
         title: "poll target",
         surfaces: [surfaceOfKind("markdown", "small")] as never,

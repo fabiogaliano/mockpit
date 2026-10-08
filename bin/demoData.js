@@ -1,285 +1,132 @@
-// Seed content for `mockpit demo` — two example sessions that show what
-// agents draw on the surface. Keep this file dependency-free like the CLI.
+// Seed content for `mockpit demo`: the Writer mock — four states of one
+// writing app, each drawn in three looks, with its parts marked so the viewer
+// can show questions, tuning and part comments. Dependency-free like the CLI.
 
-const JWT_DIAGRAM = `
-<svg width="100%" viewBox="0 0 680 320">
-  <line class="leader" x1="110" y1="52" x2="110" y2="300"/>
-  <line class="leader" x1="340" y1="52" x2="340" y2="300"/>
-  <line class="leader" x1="570" y1="52" x2="570" y2="300"/>
+const LOOKS = {
+  quiet: {
+    paper: "#fbfaf7",
+    ink: "#1f1d1a",
+    muted: "#8a857c",
+    rule: "#e7e3dc",
+    panel: "#f3f0ea",
+    font: "Georgia, serif",
+  },
+  dark: {
+    paper: "#17181b",
+    ink: "#e9e7e2",
+    muted: "#8d8f96",
+    rule: "#2a2c31",
+    panel: "#202227",
+    font: "Georgia, serif",
+  },
+  editorial: {
+    paper: "#fffdf8",
+    ink: "#111",
+    muted: "#6f6a60",
+    rule: "#111",
+    panel: "#f4efe4",
+    font: "'Times New Roman', serif",
+  },
+};
 
-  <rect class="box" x="35" y="10" width="150" height="40"/>
-  <text class="th" x="110" y="35" text-anchor="middle">Client</text>
-  <g class="c-blue"><rect class="box" x="265" y="10" width="150" height="40"/><text class="th" x="340" y="35" text-anchor="middle">/api (guarded)</text></g>
-  <g class="c-amber"><rect class="box" x="495" y="10" width="150" height="40"/><text class="th" x="570" y="35" text-anchor="middle">/auth/refresh</text></g>
+const BODY = `<p>The fog came in before noon, the way it always did in late August, and by the time
+Mara reached the pier the boats were only outlines.</p>
+<p>She had promised herself she would finish the chapter before the light went. The light
+was going. The chapter was not finished.</p>`;
 
-  <text class="ts" x="225" y="84" text-anchor="middle">request + expired JWT</text>
-  <line class="arr" x1="110" y1="92" x2="334" y2="92" marker-end="url(#arrow)"/>
+const GHOST = " She sat on the bollard and wrote the last line anyway.";
 
-  <text class="ts c-red" x="225" y="120" text-anchor="middle">401 token_expired</text>
-  <line class="arr c-red" x1="340" y1="128" x2="116" y2="128" marker-end="url(#arrow)"/>
-
-  <text class="ts" x="340" y="172" text-anchor="middle">refresh token (httpOnly cookie)</text>
-  <line class="arr" x1="110" y1="180" x2="564" y2="180" marker-end="url(#arrow)"/>
-
-  <text class="ts c-green" x="340" y="208" text-anchor="middle">new JWT + rotated refresh token</text>
-  <line class="arr c-green" x1="570" y1="216" x2="116" y2="216" marker-end="url(#arrow)"/>
-
-  <text class="ts" x="225" y="260" text-anchor="middle">retry with new JWT</text>
-  <line class="arr" x1="110" y1="268" x2="334" y2="268" marker-end="url(#arrow)"/>
-</svg>`;
-
-const JWT_EXPLAINER = `
-<p style="font-family: var(--font-sans); color: var(--color-text-primary); line-height: 1.6; margin: 14px 6px 4px;">
-  The access token lives in memory only (a JS variable) — never localStorage, so XSS
-  can't exfiltrate a long-lived credential. The client never stores the refresh token
-  in JS — it lives in an httpOnly cookie and only travels to
-  <code style="font-family: var(--font-mono); font-size: 0.92em;">/auth/refresh</code>.
-  Rotation means a stolen refresh token dies on first reuse.
-</p>`;
-
-const BACKOFF = `
-<div id="bk" style="font-family: var(--font-sans); color: var(--color-text-primary);">
-  <div style="display: flex; align-items: center; gap: 12px;">
-    <span style="font-weight: 500;">Base delay</span>
-    <input type="range" id="base" min="50" max="1000" step="50" value="200" style="flex: 1;">
-    <span id="baseVal" style="width: 64px; text-align: right; font-weight: 500;">200 ms</span>
-  </div>
-  <label style="display: flex; align-items: center; gap: 8px; margin: 10px 0 14px; color: var(--color-text-secondary); cursor: pointer;">
-    <input type="checkbox" id="jitter">
-    Full jitter — each client waits a random time within the window
-  </label>
-  <div id="rows"></div>
-</div>
-<script>
-  var baseEl = document.getElementById("base");
-  var jitterEl = document.getElementById("jitter");
-  var ATTEMPTS = 5;
-
-  function fmt(ms) {
-    return ms < 1000 ? Math.round(ms) + " ms" : (Math.round(ms / 100) / 10) + " s";
-  }
-
-  function render() {
-    var base = Number(baseEl.value);
-    document.getElementById("baseVal").textContent = fmt(base);
-    var max = base * Math.pow(2, ATTEMPTS - 1);
-    var html = "";
-    for (var i = 0; i < ATTEMPTS; i++) {
-      var delay = base * Math.pow(2, i);
-      var actual = jitterEl.checked ? Math.random() * delay : delay;
-      html +=
-        '<div style="display: flex; align-items: center; gap: 10px; margin: 7px 0;">' +
-        '<span style="width: 72px; color: var(--color-text-secondary); font-size: 13px;">attempt ' + (i + 1) + "</span>" +
-        '<span style="flex: 1; height: 10px; border-radius: 5px; background: var(--color-background-secondary); position: relative; overflow: hidden;">' +
-        '<span style="position: absolute; inset: 0; width: ' + (delay / max) * 100 + '%; background: var(--color-background-info);"></span>' +
-        '<span style="position: absolute; inset: 0; width: ' + (actual / max) * 100 + '%; background: var(--color-text-info); border-radius: 5px;"></span>' +
-        "</span>" +
-        '<span style="width: 64px; text-align: right; font-size: 13px;">' + fmt(actual) + "</span>" +
-        "</div>";
+// Knob values reach the render as --k-<path> custom properties (dots become
+// dashes), so every knob below has a CSS fallback for the un-tuned render.
+function render(state, variant) {
+  const look = LOOKS[variant.name];
+  const lab = state.label === "Lab open";
+  const versions = state.label === "Versions open";
+  const ghost = state.label === "Ghost text";
+  const editorial = variant.name === "editorial";
+  return `<div class="writer" style="--paper:${look.paper};--ink:${look.ink};--muted:${look.muted};--rule:${look.rule};--panel:${look.panel};font-family:${look.font};background:var(--paper);color:var(--ink);display:flex;min-height:420px;border-radius:10px;overflow:hidden">
+  <main style="flex:1;padding:36px 44px;position:relative">
+    <div data-part="trim" data-part-label="Trim" style="display:flex;justify-content:space-between;font:12px/1 system-ui;color:var(--muted);padding-bottom:14px;border-bottom:1px solid var(--rule)">
+      <span>Chapter 7 · draft</span><span>1,284 words</span>
+    </div>
+    <h1 data-part="title" data-part-label="Title" style="font-size:${editorial ? "40px" : "28px"};font-weight:${editorial ? 700 : 500};letter-spacing:${editorial ? "-0.02em" : "0"};margin:26px 0 18px">The Pier</h1>
+    <article data-part="body" data-part-label="Body" style="font-size:var(--k-body-size, 17px);line-height:1.65;max-width:calc(var(--k-body-measure, 64) * 1ch)">
+      ${BODY}${ghost ? `<p><span data-part="ghost" data-part-label="Ghost text" style="color:var(--muted);font-style:italic">${GHOST}</span></p>` : ""}
+    </article>
+    ${
+      state.label === "Writing"
+        ? `<div data-part="toast" data-part-label="Toast" style="position:absolute;right:20px;bottom:18px;font:12px system-ui;background:var(--panel);border:1px solid var(--rule);padding:8px 12px;border-radius:8px">Saved · 2s ago</div>`
+        : ""
     }
-    document.getElementById("rows").innerHTML = html;
+  </main>
+  ${
+    lab
+      ? `<aside data-part="lab" data-part-label="Lab" style="width:220px;background:var(--panel);border-left:1px solid var(--rule);padding:22px;font:13px/1.5 system-ui">
+      <b>Lab</b><p style="color:var(--muted)">Try the paragraph three ways.</p>
+      <div style="border:1px solid var(--rule);border-radius:6px;padding:8px;margin:6px 0">Shorter</div>
+      <div style="border:1px solid var(--rule);border-radius:6px;padding:8px;margin:6px 0">Warmer</div>
+      <div style="border:1px solid var(--rule);border-radius:6px;padding:8px;margin:6px 0">Plainer</div>
+    </aside>`
+      : ""
   }
-
-  baseEl.oninput = render;
-  jitterEl.onchange = render;
-  render();
-</script>`;
-
-const QUEUE_METRICS = `
-<div style="font-family: var(--font-sans); color: var(--color-text-primary);">
-  <div style="display: flex; gap: 10px; margin-bottom: 16px;">
-    <div style="flex: 1; border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 12px 14px;">
-      <div style="font-size: 22px; font-weight: 500;">12 ms</div>
-      <div style="font-size: 12px; color: var(--color-text-secondary);">p50 wait</div>
-    </div>
-    <div style="flex: 1; border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 12px 14px;">
-      <div style="font-size: 22px; font-weight: 500;">86 ms</div>
-      <div style="font-size: 12px; color: var(--color-text-secondary);">p95 wait</div>
-    </div>
-    <div style="flex: 1; border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 12px 14px;">
-      <div style="font-size: 22px; font-weight: 500; color: var(--color-text-success);">−71%</div>
-      <div style="font-size: 12px; color: var(--color-text-secondary);">p95 vs yesterday</div>
-    </div>
-    <div style="flex: 1; border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 12px 14px;">
-      <div style="font-size: 22px; font-weight: 500;">1.4k</div>
-      <div style="font-size: 12px; color: var(--color-text-secondary);">jobs / min</div>
-    </div>
-  </div>
-  <svg width="100%" viewBox="0 0 680 150" font-family="var(--font-sans)" font-size="11">
-    <g id="bars"></g>
-    <line x1="430" y1="8" x2="430" y2="120" stroke="var(--color-border-secondary)" stroke-dasharray="3 4"/>
-    <text x="436" y="16" fill="var(--color-text-tertiary)">batched dequeue deployed</text>
-    <text x="20" y="140" fill="var(--color-text-tertiary)">p95 queue wait, last 24h</text>
-  </svg>
-</div>
-<script>
-  var p95 = [
-    270, 290, 310, 285, 300, 320, 295, 305, 330, 310, 290, 315,
-    300, 295, 310, 88, 84, 90, 82, 86, 84, 88, 85, 86
-  ];
-  var W = 660 / p95.length;
-  var g = document.getElementById("bars");
-  var ns = "http://www.w3.org/2000/svg";
-  for (var i = 0; i < p95.length; i++) {
-    var h = (p95[i] / 340) * 112;
-    var r = document.createElementNS(ns, "rect");
-    r.setAttribute("x", 20 + i * W + 2);
-    r.setAttribute("y", 120 - h);
-    r.setAttribute("width", W - 4);
-    r.setAttribute("height", h);
-    r.setAttribute("rx", 2);
-    r.setAttribute("fill", p95[i] < 150 ? "var(--color-text-success)" : "var(--color-text-info)");
-    g.appendChild(r);
+  ${
+    versions
+      ? `<aside data-part="versions" data-part-label="Versions" style="width:200px;background:var(--panel);border-left:1px solid var(--rule);padding:22px;font:13px/1.6 system-ui">
+      <b>Versions</b>
+      <div style="margin-top:10px">v3 · now</div><div style="color:var(--muted)">v2 · 1h ago</div><div style="color:var(--muted)">v1 · yesterday</div>
+    </aside>`
+      : ""
   }
-</script>`;
+</div>`;
+}
 
-// Seeded in order; the viewer sorts sessions by last activity, so the last
-// session here ends up on top.
-export const DEMO_SESSIONS = [
-  {
-    agent: "pi",
-    title: "Queue profiling",
-    snippets: [
-      {
-        title: "Queue latency after batched dequeue",
-        html: QUEUE_METRICS,
-      },
-    ],
-  },
-  {
-    agent: "claude-code",
-    title: "Auth refactor",
-    snippets: [
-      {
-        title: "JWT refresh flow",
-        html: JWT_DIAGRAM,
-        followups: [
-          { comment: { author: "user", text: "Where does the access token live client-side?" } },
-          { update: { html: JWT_DIAGRAM + JWT_EXPLAINER } },
-          {
-            comment: {
-              author: "claude-code",
-              text: "In memory only — never localStorage. Updated the diagram to show it.",
-            },
-          },
-        ],
-      },
-      {
-        title: "Exponential backoff, intuitively",
-        html: BACKOFF,
-      },
-    ],
-  },
-];
-
-// --- reshape demo: one project, items with variants, a composed page ---------
-// Seeded through the project › item › variant path so `mockpit demo` shows the
-// navigation model, not just a stream of cards.
-
-const CARD_SHELL = (accent, body) => `
-<section style="font-family: var(--font-sans); color: var(--color-text-primary); border: 1px solid ${accent}; border-radius: 14px; padding: 22px 20px; max-width: 320px;">
-  ${body}
-</section>`;
-
-const PRICE_ROWS = `
-  <ul style="list-style: none; padding: 0; margin: 16px 0 0; color: var(--color-text-secondary); font-size: 14px; line-height: 2;">
-    <li>Unlimited projects</li><li>Live preview</li><li>Priority support</li>
-  </ul>`;
-
-const PRICING_QUIET = CARD_SHELL(
-  "var(--color-border-tertiary)",
-  `<div style="font-size: 13px; color: var(--color-text-secondary);">Pro</div>
-   <div style="font-size: 34px; font-weight: 500; margin-top: 4px;">$24<span style="font-size: 14px; color: var(--color-text-tertiary);">/mo</span></div>
-   ${PRICE_ROWS}
-   <button style="margin-top: 18px; width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--color-border-secondary); background: transparent; color: inherit; font: inherit;">Choose Pro</button>`,
-);
-
-const PRICING_HIGHLIGHTED = CARD_SHELL(
-  "var(--color-text-info)",
-  `<div style="display: flex; justify-content: space-between; align-items: center;">
-     <span style="font-size: 13px; color: var(--color-text-secondary);">Pro</span>
-     <span style="font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--color-background-info); color: var(--color-text-info);">Most popular</span>
-   </div>
-   <div style="font-size: 40px; font-weight: 600; margin-top: 6px;">$24<span style="font-size: 14px; color: var(--color-text-tertiary);">/mo</span></div>
-   ${PRICE_ROWS}
-   <button style="margin-top: 18px; width: 100%; padding: 11px; border-radius: 8px; border: 0; background: var(--color-text-info); color: var(--color-background-primary); font: inherit; font-weight: 500;">Start free trial</button>`,
-);
-
-const PRICING_STACKED = CARD_SHELL(
-  "var(--color-border-tertiary)",
-  `<div style="display: flex; align-items: baseline; gap: 10px;">
-     <span style="font-size: 26px; font-weight: 500;">$24</span>
-     <span style="font-size: 13px; color: var(--color-text-secondary);">per month, billed annually</span>
-   </div>
-   ${PRICE_ROWS}
-   <button style="margin-top: 18px; width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--color-text-info); background: transparent; color: var(--color-text-info); font: inherit;">Choose Pro</button>`,
-);
-
-const HERO = `
-<section style="font-family: var(--font-sans); color: var(--color-text-primary); text-align: center; padding: 48px 24px;">
-  <h1 style="font-size: 38px; font-weight: 600; margin: 0;">Ship the design, not the description</h1>
-  <p style="color: var(--color-text-secondary); max-width: 460px; margin: 12px auto 0; line-height: 1.6;">
-    Your agent publishes what it built. You react in the browser. It revises.
-  </p>
-</section>`;
-
-const FAQ = `
-<section style="font-family: var(--font-sans); color: var(--color-text-primary); max-width: 560px;">
-  <h2 style="font-size: 20px; font-weight: 600;">Questions</h2>
-  <dl style="line-height: 1.7;">
-    <dt style="font-weight: 500; margin-top: 14px;">Can I switch plans?</dt>
-    <dd style="margin: 2px 0 0; color: var(--color-text-secondary);">Any time, prorated to the day.</dd>
-    <dt style="font-weight: 500; margin-top: 14px;">Is there a free tier?</dt>
-    <dd style="margin: 2px 0 0; color: var(--color-text-secondary);">One project, unlimited versions.</dd>
-  </dl>
-</section>`;
-
-const PRICING_PAGE = `
-<main style="font-family: var(--font-sans); display: grid; gap: 40px; justify-items: center; padding: 24px;">
-  <mockpit-slot slug="hero" variant="default" version="1"></mockpit-slot>
-  <mockpit-slot slug="pricing-card" variant="highlighted" version="2"></mockpit-slot>
-  <mockpit-slot slug="faq" variant="default" version="1"></mockpit-slot>
-</main>`;
-
-export const DEMO_PROJECT = {
-  project: "acme/site",
+export const DEMO = {
+  project: "demo/writer",
   agent: "designer",
-  sessionTitle: "Pricing page",
-  items: [
+  sessionTitle: "Writer redesign",
+  slug: "writer",
+  title: "Writer",
+  states: [
+    { label: "Writing" },
+    { label: "Lab open" },
+    { label: "Versions open" },
+    { label: "Ghost text" },
+  ],
+  variants: [{ name: "quiet" }, { name: "dark" }, { name: "editorial" }],
+  knobs: {
+    "body.size": [17, 14, 22, 1],
+    "body.measure": [64, 48, 80, 1],
+    "trim.position": { type: "select", options: ["top", "bottom"], value: "top" },
+    "toast.show": true,
+  },
+  asks: [
     {
-      slug: "hero",
-      kind: "component",
-      title: "Hero",
-      variants: [{ variant: "default", html: HERO }],
-    },
-    {
-      slug: "pricing-card",
-      kind: "component",
-      title: "Pricing card",
-      variants: [
-        { variant: "quiet", html: PRICING_QUIET },
-        {
-          variant: "highlighted",
-          html: PRICING_HIGHLIGHTED,
-          // A second version so the history rail and "from" have something real
-          // to show; the prompt is what the operator asked for.
-          versions: [{ html: PRICING_HIGHLIGHTED, from: 1, prompt: "make the price bigger" }],
-          ask: "pick one",
-        },
-        { variant: "stacked", html: PRICING_STACKED },
+      id: "look",
+      text: "Which look?",
+      scope: "mock",
+      options: [
+        { label: "Quiet", variant: "quiet" },
+        { label: "Dark", variant: "dark" },
+        { label: "Editorial", variant: "editorial" },
       ],
     },
     {
-      slug: "faq",
-      kind: "component",
-      title: "FAQ",
-      variants: [{ variant: "default", html: FAQ }],
+      id: "versions-layout",
+      text: "Where should versions live?",
+      scope: "state",
+      state: "Versions open",
+      options: [{ label: "Side drawer" }, { label: "In the margin" }],
     },
     {
-      slug: "pricing-page",
-      kind: "page",
-      title: "Pricing page",
-      variants: [{ variant: "default", html: PRICING_PAGE }],
+      id: "trim",
+      text: "Trim above or below the page?",
+      scope: "part",
+      part: "trim",
+      options: [
+        { label: "Above", set: { "trim.position": "top" } },
+        { label: "Below", set: { "trim.position": "bottom" } },
+      ],
     },
   ],
+  render,
 };

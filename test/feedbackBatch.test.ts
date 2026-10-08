@@ -3,27 +3,53 @@ import { test } from "node:test";
 import { buildFeedbackBatches, groupFeedback } from "../server/feedbackBatch.ts";
 import { createSqliteStorage } from "../server/sqliteStorage.ts";
 import { SqlStore } from "../server/sqlStore.ts";
-import type { Comment, Post, Store } from "../server/types.ts";
+import type { Comment, Mock, Post, Reply } from "../server/types.ts";
 
-// One batch per item is the agent-facing shape of feedback. The hard rule this
-// pins: nothing the user said is ever dropped — not a comment on a post that has
-// since been deleted, not a workspace-level comment with no post at all.
+// One batch per mock is the agent-facing shape of feedback. The hard rule this
+// pins: nothing the user said is ever dropped — not a comment on a mock that has
+// since been deleted, not a reply that arrives after another reply.
 
 let seq = 0;
 const comment = (over: Partial<Comment> = {}): Comment => ({
   id: `c${++seq}`,
   seq,
   sessionId: "s1",
-  postId: "p1",
-  postTitle: null,
+  mockId: "m1",
+  postId: null,
   author: "user",
   text: "tighter",
   createdAt: "2026-09-15T00:00:00.000Z",
   kind: "comment",
   anchors: [],
-  draft: false,
   postVersion: null,
   viewport: null,
+  ...over,
+});
+
+const mock = (over: Partial<Mock> = {}): Mock => ({
+  id: "m1",
+  project: "demo/writer",
+  slug: "writer",
+  title: "Writer",
+  kind: "component",
+  states: ["Writing"],
+  asks: [
+    {
+      id: "look",
+      text: "Which look?",
+      scope: "mock",
+      options: [
+        { id: "quiet", label: "Quiet", variant: "quiet" },
+        { id: "dark", label: "Dark", variant: "dark" },
+      ],
+      at: "2026-09-15T00:00:00.000Z",
+    },
+  ],
+  knobs: {},
+  draft: null,
+  sessionId: "s1",
+  createdAt: "2026-09-15T00:00:00.000Z",
+  updatedAt: "2026-09-15T00:00:00.000Z",
   ...over,
 });
 
@@ -31,122 +57,149 @@ const post = (over: Partial<Post> = {}): Post =>
   ({
     id: "p1",
     sessionId: "s1",
-    project: "acme/site",
-    slug: "pricing-card",
-    variant: "default",
-    title: "Pricing card",
+    mock: "m1",
+    state: "Writing",
+    variant: "quiet",
+    status: "open",
+    title: "Writer",
     version: 4,
     surfaces: [],
     history: [],
+    slots: [],
     ...over,
-  }) as unknown as Post;
+  }) as Post;
 
-test("a comment on a post the store no longer has still becomes a batch", () => {
+const reply = (over: Partial<Reply> = {}): Reply => ({
+  mockId: "m1",
+  version: 4,
+  answers: { look: "dark" },
+  mix: {},
+  tuned: { "body.size": 19 },
+  comments: [{ part: "title", state: "Writing", text: "bigger" }],
+  ...over,
+});
+
+test("a comment on a mock the store no longer has still becomes a batch", () => {
   const [gone, none] = groupFeedback(
     [
-      comment({ postId: "deleted", postTitle: "Old card" }),
-      comment({ postId: null, text: "the whole project feels cramped" }),
+      comment({ mockId: "deleted" }),
+      comment({ mockId: null, text: "the whole project feels cramped" }),
     ],
     new Map(),
+    new Map(),
   );
-  assert.deepEqual(gone, {
-    postId: "deleted",
-    project: null,
-    slug: null,
-    variant: null,
-    // the title the comment itself carried is the last trace of the item
-    title: "Old card",
-    version: null,
-    decision: null,
-    comments: [gone.comments[0]],
-    archived: [],
-  });
-  assert.equal(none.postId, null);
-  assert.equal(none.title, null);
+  assert.equal(gone.mockId, "deleted");
+  assert.equal(gone.mock, null);
+  assert.equal(gone.comments[0].text, "tighter");
+  assert.equal(none.mockId, null);
   assert.equal(none.comments[0].text, "the whole project feels cramped");
 });
 
-test("a comment's anchors, viewport and version default rather than go missing", () => {
-  const anchored = comment({ anchors: [{ kind: "point", x: 1, y: 2 } as any], viewport: 390 });
-  const bare = comment({ anchors: undefined as any, postVersion: 3 });
-  const [batch] = groupFeedback([anchored, bare], new Map([["p1", post()]]));
-
-  assert.equal(batch.project, "acme/site");
-  assert.equal(batch.slug, "pricing-card");
-  assert.equal(batch.variant, "default");
-  assert.equal(batch.version, 4, "the item's CURRENT version, not the commented-on one");
-  assert.deepEqual(batch.comments[0].anchors, [{ kind: "point", x: 1, y: 2 }]);
-  assert.equal(batch.comments[0].viewport, 390);
-  assert.equal(batch.comments[0].version, null);
-  assert.deepEqual(batch.comments[1].anchors, []);
-  assert.equal(batch.comments[1].viewport, null);
-  assert.equal(batch.comments[1].version, 3);
+test("a reply resolves its answers to the chosen options and lists the flipped variants", () => {
+  const [batch] = groupFeedback(
+    [comment({ kind: "reply", text: "go dark", payload: reply({ text: "go dark" }) })],
+    new Map([["m1", mock()]]),
+    new Map([
+      [
+        "m1",
+        [
+          post({ id: "p1", variant: "quiet", status: "archived" }),
+          post({ id: "p2", variant: "dark", status: "accepted" }),
+        ],
+      ],
+    ]),
+  );
+  assert.equal(batch.mock, "writer");
+  assert.equal(batch.project, "demo/writer");
+  assert.ok(batch.reply);
+  assert.deepEqual(batch.reply.asks, [
+    {
+      ask: "look",
+      text: "Which look?",
+      chosen: [{ id: "dark", label: "Dark", variant: "dark" }],
+    },
+  ]);
+  assert.deepEqual(batch.reply.tuned, { "body.size": 19 });
+  assert.equal(batch.reply.comments[0].part, "title");
+  assert.deepEqual(batch.accepted, [{ state: "Writing", variant: "dark" }]);
+  assert.deepEqual(batch.archived, [{ state: "Writing", variant: "quiet" }]);
+  assert.deepEqual(batch.comments, [], "the reply is not repeated as a comment");
 });
 
-test("a decision is the batch's verdict, not one of its comments", () => {
-  for (const kind of ["revise", "accept", "drop"] as const) {
-    const [batch] = groupFeedback(
-      [comment({ text: "released draft" }), comment({ kind, text: `${kind} it` })],
-      new Map([["p1", post()]]),
-    );
-    assert.deepEqual(batch.decision, { kind, text: `${kind} it` });
-    assert.equal(batch.comments.length, 1, "the decision never doubles as a comment");
-  }
-});
-
-test("batch order follows the first mention of each post, and later ones merge", () => {
-  const batches = groupFeedback(
-    [
-      comment({ postId: "a", text: "1" }),
-      comment({ postId: "b", text: "2" }),
-      comment({ postId: "a", text: "3" }),
-    ],
+test("an answer naming an option the mock no longer has is kept by id", () => {
+  const [batch] = groupFeedback(
+    [comment({ kind: "reply", payload: reply({ answers: { gone: "x" } }) })],
+    new Map([["m1", mock()]]),
     new Map(),
   );
-  assert.deepEqual(
-    batches.map((b) => [b.postId, b.comments.map((c) => c.text)]),
-    [
-      ["a", ["1", "3"]],
-      ["b", ["2"]],
-    ],
-  );
+  assert.deepEqual(batch.reply?.asks, [
+    { ask: "gone", text: "", chosen: [{ id: "x", label: "x" }] },
+  ]);
 });
 
-test("buildFeedbackBatches resolves its own context and lists accept-archived siblings", async () => {
-  const store = new SqlStore(createSqliteStorage()) as Store;
-  const session = await store.createSession({ title: "t", agent: "pi", project: "acme/site" });
-  const solid = (await store.createPost({
-    sessionId: session.id,
-    title: "Pricing card",
-    surfaces: [{ kind: "markdown", markdown: "a" }],
-    project: "acme/site",
-    slug: "pricing-card",
-    variant: "solid",
-  } as any))!;
-  const ghost = (await store.createPost({
-    sessionId: session.id,
-    title: "Pricing card",
-    surfaces: [{ kind: "markdown", markdown: "b" }],
-    project: "acme/site",
-    slug: "pricing-card",
-    variant: "ghost",
-  } as any))!;
-  await store.setPostStatus(ghost.id, "archived");
-
-  const batches = await buildFeedbackBatches(store, [
-    comment({ postId: solid.id, kind: "accept", text: "ship it" }),
-    // a comment whose post was never stored resolves to a context-free batch
-    comment({ postId: "missing", text: "and this one too" }),
-  ]);
-  assert.deepEqual(
-    batches.map((b) => [b.slug, b.variant, b.archived]),
+test("a second reply for the same mock starts a new batch rather than overwriting", () => {
+  const batches = groupFeedback(
     [
-      ["pricing-card", "solid", ["ghost"]],
-      [null, null, []],
+      comment({ kind: "reply", payload: reply({ text: "one" }) }),
+      comment({ text: "plain" }),
+      comment({ kind: "reply", payload: reply({ text: "two" }) }),
     ],
+    new Map([["m1", mock()]]),
+    new Map(),
   );
+  assert.equal(batches.length, 2);
+  assert.equal(batches[0].reply?.text, "one");
+  assert.deepEqual(
+    batches[0].comments.map((c) => c.text),
+    ["plain"],
+  );
+  assert.equal(batches[1].reply?.text, "two");
+});
 
-  // without an accept, no archive lookup happens at all
-  const plain = await buildFeedbackBatches(store, [comment({ postId: solid.id, text: "tighter" })]);
-  assert.deepEqual(plain[0].archived, []);
+test("a comment's anchors, viewport and variant ride along; empty ones are omitted", () => {
+  const anchored = comment({
+    postId: "p1",
+    anchors: [{ ref: "@1", shape: "pin", box: [0.1, 0.2], surfaceIndex: 0, postVersion: 3 }],
+    viewport: 390,
+    postVersion: 3,
+  });
+  const bare = comment({ postId: null });
+  const [batch] = groupFeedback(
+    [anchored, bare],
+    new Map([["m1", mock()]]),
+    new Map([["m1", [post()]]]),
+  );
+  assert.equal(batch.comments[0].variant, "quiet");
+  assert.equal(batch.comments[0].state, "Writing");
+  assert.equal(batch.comments[0].version, 3);
+  assert.equal(batch.comments[0].viewport, 390);
+  assert.equal(batch.comments[0].anchors?.length, 1);
+  assert.equal(batch.comments[1].variant, null);
+  assert.equal("anchors" in batch.comments[1], false);
+  assert.equal("viewport" in batch.comments[1], false);
+});
+
+test("buildFeedbackBatches resolves mocks and posts from the store", async () => {
+  const store = new SqlStore(createSqliteStorage());
+  const session = await store.createSession({ agent: "a" });
+  const m = await store.createMock({ project: "p", slug: "card", sessionId: session.id });
+  const p = await store.createPost({
+    sessionId: session.id,
+    mock: m.id,
+    state: null,
+    variant: "default",
+    surfaces: [{ kind: "html", html: "<p>x</p>" }],
+  });
+  assert.ok(p);
+  const c = await store.createComment({
+    sessionId: session.id,
+    mockId: m.id,
+    postId: p.id,
+    author: "user",
+    text: "hi",
+  });
+  assert.ok(c);
+  const [batch] = await buildFeedbackBatches(store, [c]);
+  assert.equal(batch.mock, "card");
+  assert.equal(batch.comments[0].variant, "default");
 });

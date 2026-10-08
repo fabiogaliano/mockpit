@@ -30,15 +30,15 @@ Cloudflare deploy all come from that work. Thank you.
 Upstream is a live visual surface where agents post renders and you comment.
 mockpit turns that into a design loop:
 
-|               | sideshow                                           | mockpit                                                                                                                                           |
-| ------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Structure     | A stream of posts per session                      | **project › item › variant › version**: a repo, a component or page by slug, parallel takes as tabs, version history                              |
-| Feedback      | Each comment reaches the agent as it's written     | Comments stay drafts until you **Revise**, **Accept** or **Drop**, then go out as one batch                                                       |
-| Comments      | Text on a post                                     | Markers drawn on the render (`@1`, `@2`) with the element's CSS path and viewport preset (390 / 820 / 1280)                                       |
-| Design system | Built-in viewer themes                             | `mockpit init` detects the repo's tokens, fonts and kit so the agent's markup matches your codebase                                               |
-| Agent verbs   | Post-level: `publish`, `update`, `wait`, `comment` | Item-level: `init`, `publish`, `revise`, `page`, `ask`, `wait`, `status`, `show`, `export` (with matching MCP tools; post-level verbs still work) |
-| Outcome       | —                                                  | Accept hands the agent the accepted html, its prompt history and a screenshot; `export` writes them to `.mockpit/accepted/`                       |
-| Notifications | Viewer only                                        | Also Web Push on `ask` and new versions, plus outbound webhooks                                                                                   |
+|               | sideshow                                           | mockpit                                                                                                                               |
+| ------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Structure     | A stream of posts per session                      | **project › mock › state › variant › version**: a repo, a page or component by slug, its UI states, parallel designs, version history |
+| Feedback      | Each comment reaches the agent as it's written     | Answers, tuned knob values, mix picks and part comments stay drafts until you **Send**, then go out as one reply                      |
+| Comments      | Text on a post                                     | Markers drawn on the render (`@1`, `@2`) with the element's CSS path and viewport preset (390 / 820 / 1280)                           |
+| Design system | Built-in viewer themes                             | `mockpit init` detects the repo's tokens, fonts and kit so the agent's markup matches your codebase                                   |
+| Agent verbs   | Post-level: `publish`, `update`, `wait`, `comment` | Mock-level: `init`, `publish`, `revise`, `ask`, `wait`, `status`, `show`, `export` (with matching MCP tools)                          |
+| Outcome       | —                                                  | Accept hands the agent the accepted html, its prompt history and a screenshot; `export` writes them to `.mockpit/accepted/`           |
+| Notifications | Viewer only                                        | Also Web Push on `ask` and new versions, plus outbound webhooks                                                                       |
 
 ## Quick start
 
@@ -58,12 +58,12 @@ curl -s http://localhost:8228/setup >> AGENTS.md
 ```
 
 Then run `mockpit init` once per repo and ask the agent to "mock this up on
-mockpit". No agent handy? `mockpit demo` seeds an example project.
+mockpit". No agent handy? `mockpit demo` seeds an example mock.
 
 MCP, the Pi extension and the Claude Code plugin are covered in
 **[docs/connecting-agents.md](docs/connecting-agents.md)**.
 
-## What an item can show
+## What a mock can show
 
 A version is an ordered list of **surfaces**, and one version can carry several.
 

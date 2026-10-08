@@ -23,6 +23,10 @@ import {
   type ViewerPost,
 } from "./api.ts";
 import { isSandboxedSurfaceKind, SURFACE_FRAME_CLASSES } from "../../server/types.ts";
+
+// The legacy model still knows a "trace" kind the server no longer has.
+const frameClassFor = (kind: string) =>
+  (SURFACE_FRAME_CLASSES as Partial<Record<string, string>>)[kind];
 import { CommentIcon, MaximizeIcon, PinIcon, TrashIcon } from "./icons.tsx";
 import { ShareMenu } from "./ShareMenu.tsx";
 import { root } from "./host.ts";
@@ -209,7 +213,7 @@ export function Card(props: { post: Post | ViewerPost; standalone?: boolean }) {
   let fullscreenOpener: HTMLButtonElement | undefined;
   const iframes = new Set<HTMLIFrameElement>();
   // Absolute surface index -> its sandboxed-surface iframe. Lets the version
-  // dropdown rebuild each `/s/:id?part=N` src across every surface with a frame.
+  // dropdown rebuild each `/s/:id?surface=N` src across every surface with a frame.
   const surfaceFrames = new Map<number, HTMLIFrameElement>();
   const [annotating, setAnnotating] = createSignal(false);
   const [anchorDraft, setAnchorDraft] = createSignal<CommentAnchor | null>(null);
@@ -224,7 +228,7 @@ export function Card(props: { post: Post | ViewerPost; standalone?: boolean }) {
 
   const surfaceSrc = (surfaceIndex: number) =>
     appPath(
-      `/s/${props.post.id}?part=${surfaceIndex}&ver=${props.post.version}&cb=${props.post.version}&theme=${activeTheme()}&mode=${resolvedMode()}`,
+      `/s/${props.post.id}?surface=${surfaceIndex}&ver=${props.post.version}&cb=${props.post.version}&theme=${activeTheme()}&mode=${resolvedMode()}`,
     );
 
   const anchoredComments = (surfaceIndex: number) =>
@@ -394,9 +398,8 @@ export function Card(props: { post: Post | ViewerPost; standalone?: boolean }) {
                     const ver = e.currentTarget.value;
                     const cb = Date.now();
                     for (const [surface, frame] of surfaceFrames) {
-                      // `?part=` is the legacy wire query key for a surface index.
                       frame.src = appPath(
-                        `/s/${props.post.id}?part=${surface}&ver=${ver}&cb=${cb}&theme=${activeTheme()}&mode=${resolvedMode()}`,
+                        `/s/${props.post.id}?surface=${surface}&ver=${ver}&cb=${cb}&theme=${activeTheme()}&mode=${resolvedMode()}`,
                       );
                     }
                   }}
@@ -457,7 +460,7 @@ export function Card(props: { post: Post | ViewerPost; standalone?: boolean }) {
                     }}
                     sandbox="allow-scripts"
                     loading="lazy"
-                    class={SURFACE_FRAME_CLASSES[surface.kind]}
+                    class={frameClassFor(surface.kind)}
                     title={surfaceTitle(i())}
                     src={surfaceSrc(i())}
                   ></iframe>
@@ -483,7 +486,7 @@ export function Card(props: { post: Post | ViewerPost; standalone?: boolean }) {
                     setFullscreenSurface({
                       src: surfaceFrames.get(i())?.src ?? surfaceSrc(i()),
                       title: surfaceTitle(i()),
-                      frameClass: SURFACE_FRAME_CLASSES[surface.kind],
+                      frameClass: frameClassFor(surface.kind),
                     });
                   }}
                 >

@@ -43,11 +43,11 @@ pi -e npm:mockpit
 
 ## MCP
 
-Tools: `publish_post`, `update_post`, `list_posts`, `get_post`,
-`wait_for_feedback`, `reply_to_user`, `upload_asset`, and `get_design_guide`.
-Deprecated aliases (`publish_surface`, `update_surface`, `list_surfaces`, and
-html-only snippet tools) still work. Connect over stdio or straight to the server
-at `/mcp`:
+Tools: `publish_mock`, `revise_mock`, `list_mocks`, `get_mock`, `ask_user`,
+`wait_for_feedback`, `reply_to_user`, `export_mock`, `upload_asset`,
+`get_design_guide`, and the surface edits `add_surface`, `edit_surface`,
+`remove_surface`, `reorder_surfaces`. Connect over stdio or straight to the
+server at `/mcp`:
 
 ```sh
 claude mcp add --scope user mockpit -- npx -y mockpit mcp
@@ -59,9 +59,10 @@ MCP agents get the usage instructions automatically.
 
 ## Plain HTTP
 
-`POST /api/posts`, `PUT /api/posts/:id`, `POST /api/assets` for blob uploads,
-and `GET /api/comments?wait=60` for long-polling. Legacy `/api/surfaces` and
-`/api/snippets` endpoints still work as aliases. Documented at `/guide`.
+`POST /api/mocks` to publish, `POST /api/mocks/:id/revise`,
+`POST /api/mocks/:id/asks`, `GET /api/mocks/:id/export`, `POST /api/assets` for
+blob uploads, and `GET /api/comments?session=…&author=user&wait=60` for
+long-polling the user's reply. Documented at `/guide`.
 
 ## Claude Code
 

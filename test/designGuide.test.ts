@@ -27,7 +27,7 @@ test("a project that never ran init gets the generic brief", () => {
   assert.match(brief, /Kit: none/);
   assert.match(brief, /Icons: none configured/);
   // the workflow is always present: it is what the brief exists to teach
-  assert.match(brief, /mockpit publish --item pricing-card/);
+  assert.match(brief, /mockpit publish --mock writer/);
   assert.match(brief, /mockpit wait/);
 });
 

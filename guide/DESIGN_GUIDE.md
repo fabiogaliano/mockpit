@@ -2,7 +2,7 @@
 
 Three sections, each readable on its own:
 
-1. **Surfaces** — what an item's body can be made of.
+1. **Surfaces** — what a variant's body can be made of.
 2. **HTML contract** — the hard rules for the markup you write.
 3. **Kits and tokens** — the vocabulary and colors available inside the frame.
 
@@ -13,7 +13,7 @@ project's actual palette, kit and icons see `mockpit guide --brief`.
 
 ## 1. Surfaces
 
-An item version is an ordered list of **surfaces**. Each has a `kind`:
+A variant version is an ordered list of **surfaces**. Each has a `kind`:
 
 ```
 { "kind": "html", "html": "<p>...</p>" }
@@ -31,7 +31,7 @@ An item version is an ordered list of **surfaces**. Each has a `kind`:
 Pick by what the thing IS:
 
 - **`html`** — you are drawing. UI, diagrams, data viz, anything interactive.
-  This is the kind design items use.
+  This is the kind design mocks use.
 - **`markdown`** — prose, plans, tradeoff write-ups. Fenced code is highlighted
   (tag the fence); `![caption](/a/<id>)` embeds an uploaded image. Raw HTML in
   the source is escaped, not rendered.
@@ -112,7 +112,7 @@ a `data:` URI, or an asset you uploaded (`<img src="/a/<id>">`).
 
 Two globals are injected into every html surface:
 
-- `sendPrompt(text)` — posts `text` to the item's thread as a _surface_ message.
+- `sendPrompt(text)` — posts `text` to the mock's thread as a _surface_ message.
   The operator sees it; it does NOT reach you on its own and can never
   impersonate them. Use it for "explore X" affordances they can relay
   deliberately.
@@ -121,14 +121,14 @@ Two globals are injected into every html surface:
 
 ### Finish
 
-Guardrails that keep items feeling native to the viewer. They shape the finish,
+Guardrails that keep mocks feeling native to the viewer. They shape the finish,
 not the idea:
 
 - Flat and clean: no gradients, drop shadows, or decorative effects.
 - Sentence case for headings and labels. No emoji.
 - Two font weights: 400 and 500.
 - For diagrams, `<svg width="100%" viewBox="0 0 680 H">` with the classes below.
-- One concept per item. Publish several small items with distinct slugs rather
+- One concept per mock. Publish several small mocks with distinct slugs rather
   than one giant page.
 
 ---
@@ -209,11 +209,11 @@ Any kit also ships layout (`.row`/`.stack`/`.between`/`.grow`) and text
 (`.title`/`.dim`/`.faint`/`.mono`/`.num`/`.kbd`/`.hr`) helpers.
 
 ```sh
-mockpit publish --item ci-board --html board.html --kit issues   # repeatable: --kit a --kit b
+mockpit publish --mock ci-board --html board.html --kit issues   # repeatable: --kit a --kit b
 ```
 
 ```js
-publish_item({ slug: "ci-board", surfaces: [{ kind: "html", html, kits: ["issues"] }] });
+publish_mock({ mock: "ci-board", surfaces: [{ kind: "html", html, kits: ["issues"] }] });
 ```
 
 A kit only adds vocabulary — hand-roll custom markup right beside kit classes in

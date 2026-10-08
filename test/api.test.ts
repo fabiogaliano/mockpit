@@ -1,15 +1,16 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { createApp } from "../server/app.ts";
-import { JsonFileStore } from "../server/storage.ts";
-import { HISTORY_LIMIT, type Store } from "../server/types.ts";
+import { SqlStore } from "../server/sqlStore.ts";
+import { createSqliteStorage } from "../server/sqliteStorage.ts";
+import type { Store } from "../server/types.ts";
+
+type App = ReturnType<typeof createApp>;
 
 function makeApp(
   authToken?: string,
-  opts?: {
+  opts: {
     publicRead?: "session" | "full";
     basePath?: string;
     viewerHtml?: string;
@@ -17,15 +18,15 @@ function makeApp(
     version?: string;
     maxHoldConnections?: number;
     onEvent?: Parameters<typeof createApp>[0]["onEvent"];
+    authenticate?: Parameters<typeof createApp>[0]["authenticate"];
     store?: Store;
-  },
+  } = {},
 ) {
-  const dir = mkdtempSync(join(tmpdir(), "mockpit-test-"));
   const {
     viewerHtml = "<html><head></head><body>viewer</body></html>",
-    store = new JsonFileStore(join(dir, "data.json")),
+    store = new SqlStore(createSqliteStorage()),
     ...rest
-  } = opts ?? {};
+  } = opts;
   return createApp({
     store,
     viewerHtml,
@@ -37,1289 +38,93 @@ function makeApp(
   });
 }
 
-// API tests that write user comments model the trusted viewer. Keep a separate
-// helper for the regression proving programmatic callers cannot mint that label.
-const json = (body: unknown) => ({
-  method: "POST",
-  headers: { "content-type": "application/json", "sec-fetch-site": "same-origin" },
+const CT = { "content-type": "application/json" };
+
+// An agent (CLI, MCP over stdio, curl) never sends Fetch Metadata.
+const agent = (body: unknown, method = "POST") => ({
+  method,
+  headers: CT,
   body: JSON.stringify(body),
 });
 
-const rawJson = (body: unknown) => ({
-  method: "POST",
-  headers: { "content-type": "application/json" },
+// The trusted viewer is same-origin, which is what lets it act as the user.
+const viewer = (body?: unknown, method = "POST") => ({
+  method,
+  headers: { ...CT, "sec-fetch-site": "same-origin" },
+  ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+});
+
+const authed = (body: unknown, method = "POST", token = "secret") => ({
+  method,
+  headers: { ...CT, authorization: `Bearer ${token}` },
   body: JSON.stringify(body),
 });
 
-const authedJson = (body: unknown, token = "secret") => ({
-  ...json(body),
-  headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-});
-
-test("publish without session auto-creates one", async () => {
-  const app = makeApp();
-  const res = await app.request(
-    "/api/snippets",
-    json({ html: "<p>hi</p>", agent: "pi", title: "First" }),
-  );
-  assert.equal(res.status, 201);
-  const snippet = (await res.json()) as any;
-  assert.ok(snippet.id);
-  assert.ok(snippet.sessionId);
-  assert.equal(snippet.title, "First");
-  assert.equal(snippet.version, 1);
-
-  const sessions = (await (await app.request("/api/sessions")).json()) as any;
-  assert.equal(sessions.length, 1);
-  assert.equal(sessions[0].agent, "pi");
-  assert.equal(sessions[0].postCount, 1);
-  assert.equal(sessions[0].surfaceCount, 1);
-});
-
-test("GET /api/sessions uses the narrow post-count capability", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "mockpit-count-test-"));
-  const store = new JsonFileStore(join(dir, "data.json"));
-  const app = makeApp(undefined, { store });
-  const first = (await (
-    await app.request("/api/snippets", json({ html: "<p>one</p>", agent: "pi" }))
-  ).json()) as any;
-  await app.request(
-    "/api/snippets",
-    json({ html: "<p>two</p>", agent: "pi", session: first.sessionId }),
-  );
-  await app.request("/api/sessions", json({ agent: "empty" }));
-
-  store.listPosts = async () => {
-    throw new Error("the optimized session list must not materialize posts");
-  };
-  const response = await app.request("/api/sessions");
-  assert.equal(response.status, 200);
-  const sessions = (await response.json()) as any[];
-  assert.equal(sessions.find((session) => session.id === first.sessionId).postCount, 2);
-  assert.equal(sessions.find((session) => session.agent === "empty").postCount, 0);
-});
-
-test("GET /api/sessions falls back to listPosts for custom stores", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "mockpit-count-fallback-test-"));
-  const store: Store = new JsonFileStore(join(dir, "data.json"));
-  const app = makeApp(undefined, { store });
-  await app.request("/api/snippets", json({ html: "<p>one</p>", agent: "custom" }));
-
-  let listPostsCalls = 0;
-  const listPosts = store.listPosts.bind(store);
-  store.listPosts = async (...args) => {
-    listPostsCalls++;
-    return listPosts(...args);
-  };
-  Object.defineProperty(store, "countPostsBySession", { value: undefined });
-
-  const response = await app.request("/api/sessions");
-  assert.equal(response.status, 200);
-  assert.equal(listPostsCalls, 1);
-  const [session] = (await response.json()) as any[];
-  assert.equal(session.postCount, 1);
-  assert.equal(session.surfaceCount, 1);
-});
-
-test("onEvent receives published feed events", async () => {
-  const events: unknown[] = [];
-  const app = makeApp(undefined, { onEvent: (event) => events.push(event) });
-
-  const res = await app.request(
-    "/api/snippets",
-    json({ html: "<p>hi</p>", agent: "pi", title: "First" }),
-  );
-  assert.equal(res.status, 201);
-  const post = (await res.json()) as { id: string; sessionId: string; version: number };
-
-  assert.deepEqual(events, [
-    { type: "session-created", id: post.sessionId },
-    { type: "post-created", id: post.id, sessionId: post.sessionId, version: post.version },
-  ]);
-});
-
-test("onEvent errors do not fail writes", async () => {
-  const warn = console.warn;
-  console.warn = () => {};
+async function call(app: App, path: string, init?: RequestInit) {
+  const res = await app.request(path, init);
+  const text = await res.text();
+  let body: any = text;
   try {
-    const app = makeApp(undefined, {
-      onEvent: () => {
-        throw new Error("fanout failed");
-      },
+    body = JSON.parse(text);
+  } catch {
+    // not JSON — keep the text
+  }
+  return { status: res.status, body, res };
+}
+
+async function publish(app: App, body: Record<string, unknown>, init = agent) {
+  const { status, body: out } = await call(app, "/api/mocks", init({ project: "demo", ...body }));
+  assert.ok(status === 200 || status === 201, `publish failed ${status}: ${JSON.stringify(out)}`);
+  return out;
+}
+
+const html = (inner: string) => ({ html: inner });
+
+// A two-state, two-variant mock: the shape most decision tests need.
+async function writer(app: App) {
+  const first = await publish(app, {
+    mock: "writer",
+    state: "Writing",
+    variant: "quiet",
+    knobs: { "body.size": [17, 14, 22, 1] },
+    ...html('<h1 data-part="title">T</h1>'),
+  });
+  const session = first.sessionId;
+  const pub = (state: string, variant: string) =>
+    publish(app, {
+      mock: "writer",
+      state,
+      variant,
+      session,
+      ...html(`<p>${state} ${variant}</p>`),
     });
-
-    const res = await app.request(
-      "/api/snippets",
-      json({ html: "<p>hi</p>", agent: "pi", title: "First" }),
-    );
-    assert.equal(res.status, 201);
-    const post = (await res.json()) as { sessionId: string };
-    const posts = (await (
-      await app.request(`/api/sessions/${post.sessionId}/posts`)
-    ).json()) as unknown[];
-    assert.equal(posts.length, 1);
-  } finally {
-    console.warn = warn;
-  }
-});
-
-test("publish into an existing session groups snippets", async () => {
-  const app = makeApp();
-  const first = (await (
-    await app.request("/api/snippets", json({ html: "<p>1</p>", agent: "amp" }))
-  ).json()) as any;
-  await app.request("/api/snippets", json({ html: "<p>2</p>", session: first.sessionId }));
-  const list = (await (
-    await app.request(`/api/sessions/${first.sessionId}/snippets`)
-  ).json()) as any;
-  assert.equal(list.length, 2);
-});
-
-test("publish with sessionTitle names the auto-created session", async () => {
-  const app = makeApp();
-  const res = await app.request(
-    "/api/snippets",
-    json({ html: "<p>x</p>", agent: "pi", sessionTitle: "Auth refactor" }),
-  );
-  assert.equal(res.status, 201);
-  const snippet = (await res.json()) as any;
-  const sessions = (await (await app.request("/api/sessions")).json()) as any;
-  assert.equal(sessions.length, 1);
-  assert.equal(sessions[0].id, snippet.sessionId);
-  assert.equal(sessions[0].title, "Auth refactor");
-});
-
-test("sessionTitle never retitles an existing session", async () => {
-  const app = makeApp();
-  const first = (await (
-    await app.request("/api/snippets", json({ html: "<p>1</p>", sessionTitle: "Original" }))
-  ).json()) as any;
-  // the user renames the session in the viewer...
-  await app.request(`/api/sessions/${first.sessionId}`, {
-    ...json({ title: "User's pick" }),
-    method: "PATCH",
-  });
-  // ...and a later publish carrying a sessionTitle must not clobber it
-  const res = await app.request(
-    "/api/snippets",
-    json({ html: "<p>2</p>", session: first.sessionId, sessionTitle: "Clobber attempt" }),
-  );
-  assert.equal(res.status, 201);
-  const sessions = (await (await app.request("/api/sessions")).json()) as any;
-  assert.equal(sessions.length, 1);
-  assert.equal(sessions[0].title, "User's pick");
-});
-
-test("publish into unknown session 404s instead of silently creating", async () => {
-  const app = makeApp();
-  const res = await app.request("/api/snippets", json({ html: "<p>x</p>", session: "nope" }));
-  assert.equal(res.status, 404);
-});
-
-test("publishes a combined html+diff surface; /s server-renders both surfaces opaque-sandboxed", async () => {
-  const app = makeApp();
-  const res = await app.request(
-    "/api/surfaces",
-    json({
-      title: "Review",
-      parts: [
-        { kind: "html", html: "<p>diagram</p>" },
-        { kind: "diff", patch: "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b", layout: "split" },
-      ],
-    }),
-  );
-  assert.equal(res.status, 201);
-  const surface = (await res.json()) as any;
-  // the write response is lean — surface ids + kinds + indexes, no part bodies echoed back
-  assert.equal(surface.kinds, undefined);
-  assert.equal(surface.parts, undefined);
-  assert.deepEqual(
-    surface.surfaces.map((p: any) => ({ id: typeof p.id, kind: p.kind, index: p.index })),
-    [
-      { id: "string", kind: "html", index: 0 },
-      { id: "string", kind: "diff", index: 1 },
-    ],
-  );
-  assert.ok(!("html" in surface.surfaces[0]), "html body is not echoed");
-  assert.ok(!("patch" in surface.surfaces[1]), "diff body is not echoed");
-
-  // the full record keeps the html and the diff patch
-  const full = (await (await app.request(`/api/surfaces/${surface.id}`)).json()) as any;
-  assert.equal(full.surfaces.length, 2);
-  assert.equal(full.surfaces[0].html, "<p>diagram</p>");
-  assert.equal(full.surfaces[1].patch, "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b");
-
-  const updated = (await (
-    await app.request(`/api/surfaces/${surface.id}`, {
-      ...json({
-        parts: [
-          { kind: "html", html: "<p>diagram</p>" },
-          { kind: "diff", patch: "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b", layout: "split" },
-        ],
-      }),
-      method: "PUT",
-    })
-  ).json()) as any;
-  assert.equal(updated.kinds, undefined);
-  assert.deepEqual(
-    updated.surfaces.map((p: any) => ({ id: typeof p.id, kind: p.kind, index: p.index })),
-    [
-      { id: "string", kind: "html", index: 0 },
-      { id: "string", kind: "diff", index: 1 },
-    ],
-  );
-  assert.ok(!("html" in updated.surfaces[0]), "updated html body is not echoed");
-  assert.ok(!("patch" in updated.surfaces[1]), "updated diff body is not echoed");
-
-  // /s renders the html surface...
-  const part0 = await app.request(`/s/${surface.id}?part=0`);
-  assert.ok((await part0.text()).includes("<p>diagram</p>"));
-  // ...and now also server-renders the diff surface (no viewer round-trip): the
-  // @pierre/diffs SSR output wraps each file in a <diffs-container>.
-  const part1 = await app.request(`/s/${surface.id}?part=1`);
-  assert.equal(part1.status, 200);
-  assert.ok((await part1.text()).includes("diffs-container"));
-
-  // Both carry the `sandbox` CSP response header, so a top-level load of the
-  // document (not just the embedded iframe) runs in an opaque origin — never the
-  // board origin. allow-scripts keeps the bridge working; allow-same-origin must
-  // never appear (it would defeat the sandbox).
-  for (const res of [part0, part1]) {
-    const csp = res.headers.get("content-security-policy") ?? "";
-    assert.match(csp, /\bsandbox\b/);
-    assert.match(csp, /\ballow-scripts\b/);
-    assert.doesNotMatch(csp, /allow-same-origin/);
-    // Surface docs are MEANT to be framed by the viewer, so they must never pick
-    // up the viewer shell's anti-clickjacking frame-ancestors (that would refuse
-    // the embedding iframe). The two CSPs are mutually exclusive by construction.
-    assert.doesNotMatch(csp, /frame-ancestors/);
-  }
-});
-
-test("the viewer render round-trip (POST /api/frames + GET /f/:id) is gone", async () => {
-  // Rich parts now render server-side at /s/:id, so the transient frame store and
-  // its write endpoint were removed; both must be unreachable (no public-read
-  // POST exception lingering, no in-memory doc host).
-  const app = makeApp();
-  assert.equal((await app.request("/api/frames", json({ html: "<p>x</p>" }))).status, 404);
-  assert.equal((await app.request("/f/anything")).status, 404);
-});
-
-test("GET /api/posts/:id/markdown flattens the post for the share menu", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({
-        title: "Retry backoff",
-        surfaces: [
-          { kind: "markdown", markdown: "the plan" },
-          { kind: "html", html: "<b>drawn</b>" },
-        ],
-      }),
-    )
-  ).json()) as any;
-
-  const res = await app.request(`https://board.test/api/posts/${created.id}/markdown`);
-  assert.equal(res.status, 200);
-  assert.match(res.headers.get("content-type") ?? "", /text\/markdown/);
-  const md = await res.text();
-  assert.match(md, /^## Retry backoff\n/);
-  assert.match(md, /the plan/);
-  // Links are absolute — the whole point is that the text survives a paste.
-  assert.match(md, new RegExp(`\\(https://board.test/p/${created.id}\\)`));
-  assert.match(md, new RegExp(`\\(https://board.test/p/${created.id}\\?part=1\\)`));
-  // An html surface links back rather than dumping agent markup.
-  assert.doesNotMatch(md, /<b>drawn<\/b>/);
-
-  assert.equal((await app.request("/api/posts/nope/markdown")).status, 404);
-});
-
-test("post markdown resolves links against a base path and reaches public readers", async () => {
-  const app = makeApp("secret", { publicRead: "session", basePath: "/alice" });
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      authedJson({ title: "T", surfaces: [{ kind: "image", assetId: "sha" }] }),
-    )
-  ).json()) as any;
-
-  // Copying a shared post is a read — a public-read visitor gets it unauthenticated.
-  const res = await app.request(`https://board.test/api/posts/${created.id}/markdown`);
-  assert.equal(res.status, 200);
-  const md = await res.text();
-  assert.match(md, new RegExp(`\\(https://board.test/alice/p/${created.id}\\)`));
-  assert.match(md, /!\[image\]\(https:\/\/board\.test\/alice\/a\/sha\)/);
-});
-
-test("GET /s/:id serves the viewer shell with link-preview metadata", async () => {
-  const app = makeApp();
-  const res = await app.request(
-    "/api/snippets",
-    json({ title: "Auth Flow", html: "<p>diagram</p>", sessionTitle: "Secret session" }),
-  );
-  const surface = (await res.json()) as any;
-
-  const page = await app.request(`https://board.test/s/${surface.id}`);
-  assert.equal(page.status, 200);
-  assert.ok(page.headers.get("content-type")?.includes("text/html"));
-  // The trusted viewer shell refuses cross-origin framing (anti-clickjacking);
-  // it carries frame-ancestors only, never the sandbox CSP the /s/:id?part=N
-  // surface documents use.
-  const shellCsp = page.headers.get("content-security-policy") ?? "";
-  assert.match(shellCsp, /frame-ancestors 'self'/);
-  assert.doesNotMatch(shellCsp, /\bsandbox\b/);
-  const body = await page.text();
-  assert.ok(body.includes("viewer"), "should serve the trusted viewer shell");
-  assert.doesNotMatch(body, /<p>diagram<\/p>/, "should not inline agent HTML");
-  assert.match(body, /<title>Auth Flow<\/title>/);
-  assert.match(body, /<meta property="og:title" content="Auth Flow">/);
-  assert.match(body, /<meta name="twitter:title" content="Auth Flow">/);
-  assert.match(body, /<meta property="og:description" content="A https:\/\/mockpit\.sh surface">/);
-  assert.match(body, /<meta name="twitter:description" content="A https:\/\/mockpit\.sh surface">/);
-  assert.doesNotMatch(body, /Secret session/);
-});
-
-test("GET /session/:id serves the viewer shell with the session title", async () => {
-  const app = makeApp();
-  const res = await app.request(
-    "/api/snippets",
-    json({ html: "<p>x</p>", title: "Post", sessionTitle: "Auth refactor" }),
-  );
-  const surface = (await res.json()) as any;
-
-  const page = await app.request(`/session/${surface.sessionId}`);
-  assert.equal(page.status, 200);
-  assert.ok(page.headers.get("content-type")?.includes("text/html"));
-  // Every viewer-HTML route (here, `/` and `/session/:id`) is anti-clickjacking
-  // framed, sharing the one chokepoint (configuredViewerHtml).
-  assert.match(page.headers.get("content-security-policy") ?? "", /frame-ancestors 'self'/);
-  const root = await app.request("/");
-  assert.match(root.headers.get("content-security-policy") ?? "", /frame-ancestors 'self'/);
-  // The nested post-permalink alias shares the same configuredViewerHtml chokepoint.
-  const aliased = await app.request(`/session/${surface.sessionId}/p/${surface.id}`);
-  assert.match(aliased.headers.get("content-security-policy") ?? "", /frame-ancestors 'self'/);
-  const body = await page.text();
-  assert.ok(body.includes("viewer"), "should serve the trusted viewer shell");
-  assert.match(body, /<title>Auth refactor · mockpit<\/title>/);
-});
-
-test("GET /s/:id emits fully pinned, absolute, token-free preview image URLs", async () => {
-  const app = makeApp("secret", { version: "1.2.3" });
-  const res = await app.request(
-    "https://board.test/api/snippets",
-    authedJson({ title: "Preview", html: "<p>x</p>" }),
-  );
-  const surface = (await res.json()) as any;
-
-  const body = await (await app.request(`https://board.test/s/${surface.id}?key=secret`)).text();
-  const canonical = `https://board.test/p/${surface.id}`;
-  const image = `https://board.test/p/${surface.id}.png?card=1&amp;theme=github&amp;mode=dark&amp;v=${surface.version}&amp;g=1.2.3`;
-  assert.match(body, new RegExp(`<link rel="canonical" href="${canonical}">`));
-  assert.match(body, new RegExp(`<meta property="og:url" content="${canonical}">`));
-  assert.match(
-    body,
-    new RegExp(`<meta property="og:image" content="${image.replace("?", "\\?")}">`),
-  );
-  assert.match(
-    body,
-    new RegExp(`<meta name="twitter:image" content="${image.replace("?", "\\?")}">`),
-  );
-  for (const line of body.split("\n").filter((l) => /canonical|og:|twitter:/.test(l))) {
-    assert.doesNotMatch(line, /key=secret|secret/);
-  }
-});
-
-test("GET /s/:id?part=0 still serves an opaque sandboxed surface document", async () => {
-  const app = makeApp();
-  const res = await app.request(
-    "/api/snippets",
-    json({ title: "Part", html: "<script>window.x=1</script><p>part</p>" }),
-  );
-  const surface = (await res.json()) as any;
-
-  const part = await app.request(`/s/${surface.id}?part=0`);
-  assert.equal(part.status, 200);
-  const csp = part.headers.get("content-security-policy") ?? "";
-  assert.match(csp, /\bsandbox\b/);
-  assert.match(csp, /\ballow-scripts\b/);
-  assert.doesNotMatch(csp, /allow-same-origin/);
-  assert.match(await part.text(), /<p>part<\/p>/);
-});
-
-test("GET /s/:id escapes surface metadata in preview tags", async () => {
-  const app = makeApp();
-  const title = `A "quoted" <tag> & more`;
-  const res = await app.request("/api/snippets", json({ title, html: "<p>x</p>" }));
-  const surface = (await res.json()) as any;
-
-  const body = await (await app.request(`/s/${surface.id}`)).text();
-  assert.match(
-    body,
-    /<meta property="og:title" content="A &quot;quoted&quot; &lt;tag&gt; &amp; more">/,
-  );
-  assert.match(body, /<title>A &quot;quoted&quot; &lt;tag&gt; &amp; more<\/title>/);
-  assert.doesNotMatch(body, /content="A "quoted" <tag> & more"/);
-});
-
-test("GET /s/:id preview metadata respects configured base path", async () => {
-  const app = makeApp(undefined, { basePath: "/u/alice" });
-  const res = await app.request("/api/snippets", json({ title: "Base", html: "<p>x</p>" }));
-  const surface = (await res.json()) as any;
-
-  const body = await (await app.request(`https://board.test/s/${surface.id}`)).text();
-  assert.match(
-    body,
-    new RegExp(`<link rel="canonical" href="https://board.test/u/alice/p/${surface.id}">`),
-  );
-  assert.match(
-    body,
-    new RegExp(
-      `<meta property="og:image" content="https://board.test/u/alice/p/${surface.id}\\.png\\?card=1&amp;theme=github&amp;mode=dark&amp;v=${surface.version}&amp;g=dev">`,
-    ),
-  );
-  assert.match(body, /window\.__MOCKPIT_BASE_PATH__="\/u\/alice"/);
-});
-
-test("post preview image URL changes with the workspace theme", async () => {
-  const app = makeApp(undefined, { version: "1.2.3" });
-  const res = await app.request("/api/snippets", json({ title: "Themed", html: "<p>x</p>" }));
-  const post = (await res.json()) as any;
-
-  const before = await (await app.request(`/p/${post.id}`)).text();
-  assert.match(before, /theme=github/);
-  const update = await app.request("/api/theme", { ...json({ id: "gruvbox" }), method: "PUT" });
-  assert.equal(update.status, 200);
-  const after = await (await app.request(`/p/${post.id}`)).text();
-  assert.match(after, /theme=gruvbox/);
-  assert.doesNotMatch(after, /theme=github/);
-});
-
-test("/s served versioned + themed is cacheable; an unpinned load is not", async () => {
-  const app = makeApp();
-  const res = await app.request(
-    "/api/surfaces",
-    json({ title: "C", parts: [{ kind: "code", code: "x", language: "text" }] }),
-  );
-  const { id, version } = (await res.json()) as any;
-  // What the viewer always sends (ver + theme pinned) is immutable → long-cache.
-  const pinned = await app.request(`/s/${id}?part=0&ver=${version}&theme=github&mode=light`);
-  assert.match(pinned.headers.get("cache-control") ?? "", /immutable/);
-  // A bare load resolves to "current", which can change → must not be cached.
-  const bare = await app.request(`/s/${id}?part=0`);
-  assert.match(bare.headers.get("cache-control") ?? "", /no-cache/);
-});
-
-// `userFeedback` (and agent-facing comment reads) return the batch shape: one
-// entry per post, its comments inside. Flatten it where a test only cares that
-// the right texts were delivered, in order.
-const feedbackTexts = (batches: any[]): string[] =>
-  batches.flatMap((b: any) => b.comments.map((c: any) => c.text));
-
-// Surface documents reference the bridge and the static stylesheets by
-// content-hashed URL instead of inlining them; fetch one back through the app
-// so these tests assert the bytes the browser actually gets.
-async function assetBody(app: any, doc: string, pattern: RegExp): Promise<string> {
-  const match = pattern.exec(doc);
-  assert.ok(match, `document must reference ${pattern}`);
-  const res = await app.request(match![0]);
-  assert.equal(res.status, 200);
-  return await res.text();
+  await pub("Writing", "dark");
+  await pub("Lab open", "quiet");
+  await pub("Lab open", "dark");
+  const mockId: string = first.mock.id;
+  return { mockId, session, first };
 }
 
-test("a snippet's kits ride the html surface and inject the kit CSS/JS at /s", async () => {
-  const app = makeApp();
-  const res = await app.request(
-    "/api/snippets",
-    json({ title: "Deck", html: "<div class=deck></div>", kits: ["slides"] }),
-  );
-  assert.equal(res.status, 201);
-  const surface = (await res.json()) as any;
-
-  // the kits persist on the stored html surface
-  const full = (await (await app.request(`/api/surfaces/${surface.id}`)).json()) as any;
-  assert.deepEqual(full.surfaces[0].kits, ["slides"]);
-
-  // /s links the kit's css from its content-hashed asset URL and inlines its
-  // behavior js
-  const doc = await (await app.request(`/s/${surface.id}?part=0`)).text();
-  const kitCss = await assetBody(app, doc, /\/asset\/kit-slides\.[a-z0-9]+\.css/);
-  assert.match(kitCss, /\.deck>\.slide/);
-  assert.match(doc, /querySelector\('\.deck'\)/);
-
-  // a plain snippet (no kits) gets neither
-  const plain = await app.request("/api/snippets", json({ title: "Plain", html: "<p>x</p>" }));
-  const plainSurface = (await plain.json()) as any;
-  const plainDoc = await (await app.request(`/s/${plainSurface.id}?part=0`)).text();
-  assert.doesNotMatch(plainDoc, /querySelector\('\.deck'\)/);
-});
-
-test("an unknown kit id is rejected before storage (400)", async () => {
-  const app = makeApp();
-  const bad = await app.request(
-    "/api/snippets",
-    json({ title: "x", html: "<p>x</p>", kits: ["bogus"] }),
-  );
-  assert.equal(bad.status, 400);
-  assert.match(((await bad.json()) as any).error, /unknown kit "bogus"/);
-
-  const badPart = await app.request(
-    "/api/surfaces",
-    json({ title: "x", parts: [{ kind: "html", html: "<p>x</p>", kits: ["bogus"] }] }),
-  );
-  assert.equal(badPart.status, 400);
-});
-
-test("GET /api/kits advertises the available kits without the css payload", async () => {
-  const app = makeApp();
-  const kits = (await (await app.request("/api/kits")).json()) as any[];
-  const ids = kits.map((k) => k.id);
-  assert.ok(ids.includes("issues") && ids.includes("slides"));
-  for (const k of kits) {
-    assert.ok(typeof k.summary === "string" && k.summary.length > 0);
-    assert.equal("css" in k, false);
-  }
-});
-
-test("REST surface routes reject malformed surfaces before storage", async () => {
-  const app = makeApp();
-
-  const badCreate = await app.request("/api/surfaces", json({ parts: [{ kind: "image" }] }));
-  assert.equal(badCreate.status, 400);
-  assert.match(((await badCreate.json()) as any).error, /assetId/);
-  assert.deepEqual(await (await app.request("/api/sessions")).json(), []);
-
-  const good = (await (
-    await app.request("/api/surfaces", json({ parts: [{ kind: "html", html: "<p>x</p>" }] }))
-  ).json()) as any;
-  const badUpdate = await app.request(`/api/surfaces/${good.id}`, {
-    ...json({ parts: [{ kind: "diff", files: [{ filename: "x", before: "a" }] }] }),
-    method: "PUT",
-  });
-  assert.equal(badUpdate.status, 400);
-  assert.match(((await badUpdate.json()) as any).error, /before.*after/);
-
-  const unchanged = (await (await app.request(`/api/surfaces/${good.id}`)).json()) as any;
-  assert.equal(unchanged.version, 1);
-  assert.equal(unchanged.surfaces.length, 1);
-  assert.equal(unchanged.surfaces[0].kind, "html");
-  assert.equal(unchanged.surfaces[0].html, "<p>x</p>");
-});
-
-test("POST /api/posts returns a typed actionable error for invalid mermaid", async () => {
-  const app = makeApp();
-  const response = await app.request(
-    "/api/posts",
-    json({
-      title: "Broken diagram",
-      surfaces: [{ kind: "mermaid", mermaid: 'pie title Pets\n  "Dogs" : broken !!@@' }],
-    }),
-  );
-
-  assert.equal(response.status, 400);
-  const body = (await response.json()) as any;
-  assert.equal(body.code, "surface_validation_failed");
-  assert.match(body.error, /surfaces\[0\]\.mermaid: failed to parse/);
-  assert.equal(body.issues.length, 1);
-  assert.equal(body.issues[0].code, "invalid_mermaid_syntax");
-  assert.equal(body.issues[0].requestPath, "surfaces[0].mermaid");
-  assert.equal(body.issues[0].diagramType, "pie");
-  assert.match(body.issues[0].parserMessage, /Parsing failed/);
-  assert.match(body.issues[0].nextSteps[0], /retry the request/);
-  assert.deepEqual(await (await app.request("/api/sessions")).json(), []);
-});
-
-test("publish_surface MCP tool round-trips a diff surface", async () => {
-  const app = makeApp();
-  const list = (await (await app.request("/mcp", mcpCall(1, "tools/list"))).json()) as any;
-  const names = list.result.tools.map((t: any) => t.name);
-  // Retired spellings are hidden from discovery but stay callable forever.
-  assert.ok(!names.includes("publish_surface"));
-  assert.ok(!names.includes("publish_snippet"));
-
-  const published = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(2, "tools/call", {
-        name: "publish_surface",
-        arguments: {
-          title: "Diff",
-          parts: [{ kind: "diff", patch: "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-x\n+y" }],
-        },
-      }),
-    )
-  ).json()) as any;
-  const payload = JSON.parse(published.result.content[0].text);
-  assert.ok(payload.id && payload.sessionId);
-  const full = (await (await app.request(`/api/surfaces/${payload.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].kind, "diff");
-  assert.equal(full.surfaces[0].patch, "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-x\n+y");
-});
-
-test("publishes a markdown surface; /s server-renders it to sandboxed html", async () => {
-  const app = makeApp();
-  const res = await app.request(
-    "/api/surfaces",
-    json({ title: "Plan", parts: [{ kind: "markdown", markdown: "## Plan\n\n- step one" }] }),
-  );
-  assert.equal(res.status, 201);
-  const surface = (await res.json()) as any;
-  assert.deepEqual(
-    surface.surfaces.map((s: any) => s.kind),
-    ["markdown"],
-  );
-
-  const full = (await (await app.request(`/api/surfaces/${surface.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].kind, "markdown");
-  assert.equal(full.surfaces[0].markdown, "## Plan\n\n- step one");
-  // markdown now renders server-side: the prose is in the document, and it is
-  // served opaque-sandboxed (the load-bearing CSP header).
-  const doc = await app.request(`/s/${surface.id}?part=0`);
-  assert.equal(doc.status, 200);
-  const body = await doc.text();
-  assert.ok(body.includes("<h2>Plan</h2>"));
-  assert.ok(body.includes("step one"));
-  assert.match(doc.headers.get("content-security-policy") ?? "", /\bsandbox\b/);
-});
-
-test("publish_surface MCP tool keeps markdown surfaces and drops empty ones", async () => {
-  const app = makeApp();
-  const published = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(2, "tools/call", {
-        name: "publish_surface",
-        arguments: {
-          title: "Notes",
-          parts: [
-            { kind: "markdown", markdown: "  " },
-            { kind: "markdown", markdown: "real prose" },
-          ],
-        },
-      }),
-    )
-  ).json()) as any;
-  const payload = JSON.parse(published.result.content[0].text);
-  const full = (await (await app.request(`/api/surfaces/${payload.id}`)).json()) as any;
-  assert.equal(full.surfaces.length, 1);
-  assert.equal(full.surfaces[0].kind, "markdown");
-  assert.equal(full.surfaces[0].markdown, "real prose");
-});
-
-test("publish_surface MCP tool round-trips a terminal surface", async () => {
-  const app = makeApp();
-  const published = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(2, "tools/call", {
-        name: "publish_surface",
-        arguments: {
-          title: "Terminal",
-          parts: [
-            { kind: "terminal", text: "$ echo hi\n\x1b[32mhi\x1b[0m", cols: 80, title: "sh" },
-          ],
-        },
-      }),
-    )
-  ).json()) as any;
-  const payload = JSON.parse(published.result.content[0].text);
-  assert.ok(payload.id && payload.sessionId);
-  const full = (await (await app.request(`/api/surfaces/${payload.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].kind, "terminal");
-  assert.equal(full.surfaces[0].text, "$ echo hi\n\x1b[32mhi\x1b[0m");
-  assert.equal(full.surfaces[0].cols, 80);
-  assert.equal(full.surfaces[0].title, "sh");
-  // terminal now renders server-side (ansi_up → styled window) at /s
-  const doc = await app.request(`/s/${payload.id}?part=0`);
-  assert.equal(doc.status, 200);
-  assert.ok((await doc.text()).includes("term-body"));
-});
-
-test("publishes a mermaid surface; /s emits a self-rendering CDN doc", async () => {
-  const app = makeApp();
-  const res = await app.request(
-    "/api/surfaces",
-    json({ title: "Flow", parts: [{ kind: "mermaid", mermaid: "graph TD; A-->B" }] }),
-  );
-  assert.equal(res.status, 201);
-  const surface = (await res.json()) as any;
-  assert.deepEqual(
-    surface.surfaces.map((s: any) => s.kind),
-    ["mermaid"],
-  );
-
-  const full = (await (await app.request(`/api/surfaces/${surface.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].kind, "mermaid");
-  assert.equal(full.surfaces[0].mermaid, "graph TD; A-->B");
-  // mermaid can't render without a DOM, so /s emits a sandboxed doc that loads
-  // mermaid from the CDN and renders the source in-frame. The doc carries the
-  // source and the CDN import, and is served opaque-sandboxed.
-  const doc = await app.request(`/s/${surface.id}?part=0`);
-  assert.equal(doc.status, 200);
-  const body = await doc.text();
-  assert.ok(body.includes("esm.sh/mermaid"));
-  assert.ok(body.includes("graph TD; A--\\u003eB") || body.includes("graph TD; A-->B"));
-  assert.match(doc.headers.get("content-security-policy") ?? "", /\bsandbox\b/);
-});
-
-test("publishes a json surface; round-trips data and 404s on /s", async () => {
-  const app = makeApp();
-  const data = {
-    name: "mockpit",
-    version: "1.2.3",
-    deps: ["a", "b"],
-    nested: { x: true, y: null },
-  };
-  const res = await app.request(
-    "/api/surfaces",
-    json({ title: "Config", parts: [{ kind: "json", data }] }),
-  );
-  assert.equal(res.status, 201);
-  const surface = (await res.json()) as any;
-  assert.deepEqual(
-    surface.surfaces.map((s: any) => s.kind),
-    ["json"],
-  );
-
-  const full = (await (await app.request(`/api/surfaces/${surface.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].kind, "json");
-  assert.deepEqual(full.surfaces[0].data, data);
-  // json is viewer-rendered data, not a sandboxed html doc
-  assert.equal((await app.request(`/s/${surface.id}?part=0`)).status, 404);
-});
-
-test("json surface with null data is valid (null is a JSON value)", async () => {
-  const app = makeApp();
-  const res = await app.request(
-    "/api/surfaces",
-    json({ title: "Null", parts: [{ kind: "json", data: null }] }),
-  );
-  assert.equal(res.status, 201);
-  const surface = (await res.json()) as any;
-  const full = (await (await app.request(`/api/surfaces/${surface.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].data, null);
-});
-
-test("json surface without data key is rejected", async () => {
-  const app = makeApp();
-  const res = await app.request("/api/surfaces", json({ title: "Bad", parts: [{ kind: "json" }] }));
-  assert.equal(res.status, 400);
-});
-
-test("publishes a code surface; round-trips code/lang/title and 404s on /s", async () => {
-  const app = makeApp();
-  const res = await app.request(
-    "/api/surfaces",
-    json({
-      title: "Entry",
-      parts: [{ kind: "code", code: "const x = 42;\n", language: "ts", title: "a.ts" }],
-    }),
-  );
-  assert.equal(res.status, 201);
-  const surface = (await res.json()) as any;
-  assert.deepEqual(
-    surface.surfaces.map((s: any) => s.kind),
-    ["code"],
-  );
-
-  const full = (await (await app.request(`/api/surfaces/${surface.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].kind, "code");
-  assert.equal(full.surfaces[0].code, "const x = 42;\n");
-  assert.equal(full.surfaces[0].language, "ts");
-  assert.equal(full.surfaces[0].title, "a.ts");
-  // code now renders server-side (shiki) at /s, with the filename and copy button
-  const doc = await app.request(`/s/${surface.id}?part=0`);
-  assert.equal(doc.status, 200);
-  const body = await doc.text();
-  assert.ok(body.includes("shiki"));
-  assert.ok(body.includes("a.ts"));
-});
-
-test("code surface without code is rejected", async () => {
-  const app = makeApp();
-  const res = await app.request(
-    "/api/surfaces",
-    json({ title: "Bad", parts: [{ kind: "code", language: "ts" }] }),
-  );
-  assert.equal(res.status, 400);
-});
-
-test("code surface with lineStart round-trips", async () => {
-  const app = makeApp();
-  const res = await app.request(
-    "/api/surfaces",
-    json({
-      title: "Excerpt",
-      parts: [
-        {
-          kind: "code",
-          code: "const x = 1;\nconst y = 2;\n",
-          language: "ts",
-          title: "a.ts",
-          lineStart: 80,
-        },
-      ],
-    }),
-  );
-  assert.equal(res.status, 201);
-  const surface = (await res.json()) as any;
-  const full = (await (await app.request(`/api/surfaces/${surface.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].lineStart, 80);
-});
-
-test("publish_surface MCP tool keeps mermaid surfaces and drops empty ones", async () => {
-  const app = makeApp();
-  const published = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(2, "tools/call", {
-        name: "publish_surface",
-        arguments: {
-          title: "Diagram",
-          parts: [
-            { kind: "mermaid", mermaid: "  " },
-            { kind: "mermaid", mermaid: "graph TD; A-->B" },
-          ],
-        },
-      }),
-    )
-  ).json()) as any;
-  const payload = JSON.parse(published.result.content[0].text);
-  const full = (await (await app.request(`/api/surfaces/${payload.id}`)).json()) as any;
-  assert.equal(full.surfaces.length, 1);
-  assert.equal(full.surfaces[0].kind, "mermaid");
-  assert.equal(full.surfaces[0].mermaid, "graph TD; A-->B");
-});
-
-test("update bumps version and keeps history; old version renderable", async () => {
-  const app = makeApp();
-  const s = (await (
-    await app.request("/api/snippets", json({ html: "<p>v1</p>", title: "T" }))
-  ).json()) as any;
-  const res = await app.request(`/api/snippets/${s.id}`, {
-    ...json({ html: "<p>v2</p>" }),
-    method: "PUT",
-  });
-  const updated = (await res.json()) as any;
-  assert.equal(updated.version, 2);
-
-  const full = (await (await app.request(`/api/snippets/${s.id}`)).json()) as any;
-  assert.equal(full.history.length, 1);
-  assert.equal(full.history[0].surfaces[0].html, "<p>v1</p>");
-
-  const current = await (await app.request(`/s/${s.id}?part=0`)).text();
-  assert.ok(current.includes("<p>v2</p>"));
-  const old = await (await app.request(`/s/${s.id}?part=0&ver=1`)).text();
-  assert.ok(old.includes("<p>v1</p>"));
-});
-
-test("snippet page is wrapped with CSP, bridge, and kit", async () => {
-  const app = makeApp();
-  const s = (await (await app.request("/api/snippets", json({ html: "<p>x</p>" }))).json()) as any;
-  const page = await (await app.request(`/s/${s.id}?part=0`)).text();
-  assert.ok(page.includes("Content-Security-Policy"));
-  // The bridge is served from its own immutable asset URL, not inlined.
-  const bridge = await assetBody(app, page, /\/asset\/bridge\.[a-z0-9]+\.js/);
-  assert.ok(bridge.includes("window.sendPrompt"));
-  assert.ok(bridge.includes("__mockpit"));
-  // Snippet kit: SVG utilities in the stylesheet and the shared arrow marker
-  // injected before the snippet body so url(#arrow) resolves.
-  const base = await assetBody(app, page, /\/asset\/base\.[a-z0-9]+\.css/);
-  assert.ok(base.includes(".c-blue"));
-  assert.ok(page.indexOf('<marker id="arrow"') < page.indexOf("<p>x</p>"));
-  assert.ok(page.includes('<marker id="arrow"'));
-});
-
-test('programmatic POST cannot forge author: "user"', async () => {
-  const app = makeApp();
-  const post = (await (
-    await app.request("/api/snippets", rawJson({ html: "<p>x</p>", agent: "my-agent" }))
-  ).json()) as any;
-
-  const forged = (await (
-    await app.request(
-      "/api/comments",
-      rawJson({ snippet: post.id, text: "fake user", author: "user" }),
-    )
-  ).json()) as any;
-  assert.equal(forged.author, "my-agent");
-
-  const viewer = (await (
-    await app.request(
-      "/api/comments",
-      json({ snippet: post.id, text: "real user", author: "user" }),
-    )
-  ).json()) as any;
-  assert.equal(viewer.author, "user");
-});
-
-test("comments attach to snippets and filter by author/after", async () => {
-  const app = makeApp();
-  const s = (await (
-    await app.request("/api/snippets", json({ html: "<p>x</p>", title: "Sketch" }))
-  ).json()) as any;
-  await app.request("/api/comments", json({ snippet: s.id, text: "love it", author: "user" }));
-  await app.request("/api/comments", json({ snippet: s.id, text: "thanks", author: "claude" }));
-
-  const all = (await (await app.request(`/api/comments?session=${s.sessionId}`)).json()) as any;
-  assert.equal(all.comments.length, 2);
-  assert.equal(all.comments[0].postTitle, "Sketch");
-
-  // explicit after=0: re-read from the start regardless of the agent cursor
-  const users = (await (
-    await app.request(`/api/comments?session=${s.sessionId}&author=user&after=0`)
-  ).json()) as any;
-  assert.equal(users.comments.length, 1);
-  assert.equal(users.comments[0].text, "love it");
-
-  const later = (await (
-    await app.request(`/api/comments?session=${s.sessionId}&after=${all.lastSeq}`)
-  ).json()) as any;
-  assert.equal(later.comments.length, 0);
-});
-
-test("comments can carry sanitized surface anchors", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({
-        title: "Anchors",
-        surfaces: [
-          { kind: "html", html: "<p>x</p>" },
-          { kind: "markdown", markdown: "# y" },
-        ],
-      }),
-    )
-  ).json()) as any;
-  const post = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-
-  await app.request(
-    "/api/comments",
-    json({
-      surface: post.id,
-      text: "look here",
-      author: "user",
-      anchor: { kind: "point", surfaceIndex: 1, x: 0.25, y: 0.75, postVersion: 999 },
-    }),
-  );
-
-  const all = (await (await app.request(`/api/comments?session=${post.sessionId}`)).json()) as any;
-  assert.deepEqual(all.comments[0].anchor, {
-    kind: "point",
-    surfaceIndex: 1,
-    surfaceId: post.surfaces[1].id,
-    surfaceKind: "markdown",
-    postVersion: 1,
-    x: 0.25,
-    y: 0.75,
-  });
-});
-
-test("comments can be deleted", async () => {
-  const app = makeApp();
-  const s = (await (await app.request("/api/snippets", json({ html: "<p>x</p>" }))).json()) as any;
-  const created = (await (
-    await app.request("/api/comments", json({ snippet: s.id, text: "remove me", author: "user" }))
-  ).json()) as any;
-
-  assert.equal(
-    (await app.request(`/api/comments/${created.id}`, { method: "DELETE" })).status,
-    200,
-  );
-  const all = (await (await app.request(`/api/comments?session=${s.sessionId}`)).json()) as any;
-  assert.equal(all.comments.length, 0);
-  assert.equal(
-    (await app.request(`/api/comments/${created.id}`, { method: "DELETE" })).status,
-    404,
-  );
-});
-
-test("a comment must target a surface", async () => {
-  const app = makeApp();
-  const s = (await (await app.request("/api/snippets", json({ html: "<p>x</p>" }))).json()) as any;
-
-  // no surface/snippet id — there is no session-level thread to land in
-  const res = await app.request("/api/comments", json({ session: s.sessionId, text: "general" }));
-  assert.equal(res.status, 400);
-
-  // a surface that doesn't exist is a 404, not a silent session-level comment
-  const ghost = await app.request("/api/comments", json({ snippet: "missing", text: "ghost" }));
-  assert.equal(ghost.status, 404);
-});
-
-test("author=user reads resume from the agent's server-side cursor", async () => {
-  const app = makeApp();
-  const s = (await (await app.request("/api/snippets", json({ html: "<p>x</p>" }))).json()) as any;
-  await app.request("/api/comments", json({ snippet: s.id, text: "first", author: "user" }));
-
-  // no cursor given: delivered once...
-  const first = (await (
-    await app.request(`/api/comments?session=${s.sessionId}&author=user`)
-  ).json()) as any;
-  assert.equal(first.comments.length, 1);
-  assert.equal(first.comments[0].text, "first");
-
-  // ...and not again on the next cursor-less read (e.g. a fresh CLI process)
-  const again = (await (
-    await app.request(`/api/comments?session=${s.sessionId}&author=user`)
-  ).json()) as any;
-  assert.equal(again.comments.length, 0);
-
-  // unfiltered reads (the viewer) never consume the cursor
-  const viewer = (await (await app.request(`/api/comments?session=${s.sessionId}`)).json()) as any;
-  assert.equal(viewer.comments.length, 1);
-});
-
-test("piggyback delivery advances the cursor seen by author=user waits", async () => {
-  const app = makeApp();
-  const s = (await (await app.request("/api/snippets", json({ html: "<p>x</p>" }))).json()) as any;
-  await app.request("/api/comments", json({ snippet: s.id, text: "tweak it", author: "user" }));
-
-  // an agent write piggybacks the pending feedback...
-  const updated = (await (
-    await app.request(`/api/snippets/${s.id}`, {
-      ...json({ html: "<p>v2</p>" }),
-      method: "PUT",
-    })
-  ).json()) as any;
-  assert.deepEqual(feedbackTexts(updated.userFeedback), ["tweak it"]);
-  assert.equal(updated.userFeedback[0].postId, s.id);
-
-  // ...so a cursor-less wait on another channel must not re-deliver it
-  const wait = (await (
-    await app.request(`/api/comments?session=${s.sessionId}&author=user`)
-  ).json()) as any;
-  assert.equal(wait.comments.length, 0);
-});
-
-test("author=user lastSeq reflects the last comment overall, not the last user comment", async () => {
-  // When an agent reply lands after the user comment, the cursor returned
-  // to the caller (lastSeq) must be the agent comment's seq — otherwise
-  // the next call re-reads the agent comment and wastes a round-trip.
-  const app = makeApp();
-  const s = (await (await app.request("/api/snippets", json({ html: "<p>x</p>" }))).json()) as any;
-  await app.request("/api/comments", json({ snippet: s.id, text: "first", author: "user" }));
-  await app.request("/api/comments", json({ snippet: s.id, text: "reply", author: "agent" }));
-
-  const res = (await (
-    await app.request(`/api/comments?session=${s.sessionId}&author=user&after=0`)
-  ).json()) as any;
-  assert.equal(res.comments.length, 1);
-  assert.equal(res.comments[0].text, "first");
-  // lastSeq is the agent comment's seq (2), not the user comment's (1)
-  assert.equal(res.lastSeq, 2);
-});
-
-function makeVersionApp(version?: string, latest?: { version: string; notes?: string } | Error) {
-  const dir = mkdtempSync(join(tmpdir(), "mockpit-test-"));
-  return createApp({
-    store: new JsonFileStore(join(dir, "data.json")),
-    viewerHtml: "<html>viewer</html>",
-    guideMarkdown: "# guide",
-    setupText: "# setup",
-    agentHowtoText: "# agent how-to",
-    version,
-    upgradeCommand: "npm install -g mockpit",
-    fetchLatestRelease: () =>
-      latest instanceof Error ? Promise.reject(latest) : Promise.resolve(latest ?? null),
-  });
+async function variants(app: App, mockId: string) {
+  const { body } = await call(app, `/api/mocks/${mockId}`);
+  return Object.fromEntries(
+    body.variants.map((v: any) => [`${v.state ?? ""}/${v.variant}`, v.status]),
+  ) as Record<string, string>;
 }
 
-test("version endpoint reports an available update with notes", async () => {
-  const app = makeVersionApp("0.3.0", { version: "0.4.0", notes: "### Added\n- things" });
-  const res = (await (await app.request("/api/version")).json()) as any;
-  assert.deepEqual(res, {
-    current: "0.3.0",
-    latest: "0.4.0",
-    updateAvailable: true,
-    upgradeCommand: "npm install -g mockpit",
-    notes: "### Added\n- things",
-  });
-});
+const mcpCall = (id: number, method: string, params?: unknown) =>
+  agent({ jsonrpc: "2.0", id, method, params });
 
-test("version endpoint is quiet when current, unconfigured, or offline", async () => {
-  // up to date — and a same-or-older registry version is never an "update"
-  const same = (await (
-    await makeVersionApp("0.4.0", { version: "0.4.0" }).request("/api/version")
-  ).json()) as any;
-  assert.equal(same.updateAvailable, false);
-  assert.equal(same.upgradeCommand, null);
-  const older = (await (
-    await makeVersionApp("0.4.1", { version: "0.4.0" }).request("/api/version")
-  ).json()) as any;
-  assert.equal(older.updateAvailable, false);
-
-  // no version configured: nothing to compare against
-  const none = (await (await makeVersionApp(undefined).request("/api/version")).json()) as any;
-  assert.deepEqual(none, { current: null, latest: null, updateAvailable: false });
-
-  // lookup failure is silent
-  const offline = (await (
-    await makeVersionApp("0.3.0", new Error("offline")).request("/api/version")
-  ).json()) as any;
-  assert.deepEqual(offline, {
-    current: "0.3.0",
-    latest: null,
-    updateAvailable: false,
-    upgradeCommand: null,
-    notes: null,
-  });
-});
-
-test("long-poll resolves when a comment arrives", async () => {
-  const app = makeApp();
-  const s = (await (await app.request("/api/snippets", json({ html: "<p>x</p>" }))).json()) as any;
-  const pending = app.request(`/api/comments?session=${s.sessionId}&wait=5`);
-  setTimeout(() => {
-    app.request("/api/comments", json({ snippet: s.id, text: "feedback!", author: "user" }));
-  }, 50);
-  const start = Date.now();
-  const result = (await (await pending).json()) as any;
-  assert.equal(result.comments.length, 1);
-  assert.equal(result.comments[0].text, "feedback!");
-  assert.ok(Date.now() - start < 4000, "should resolve well before the timeout");
-});
-
-// --- connection caps (SSE + long-poll share one per-instance bound) ---
-
-test("SSE connections are capped; a released slot lets a new one in", async () => {
-  const app = makeApp(undefined, { maxHoldConnections: 2 });
-  const controllers = [new AbortController(), new AbortController()];
-  // Two streams fill the cap. The slot is acquired before streamSSE opens, so
-  // merely having the Response back means it's held — no body read needed.
-  const streams = await Promise.all(
-    controllers.map((ac) => app.request("/api/events", { signal: ac.signal })),
-  );
-  assert.ok(streams.every((s) => s.status === 200));
-  // A third is rejected.
-  assert.equal((await app.request("/api/events")).status, 503);
-  // Releasing one frees a slot for a fresh stream.
-  controllers[0].abort();
-  await streams[0].body!.cancel().catch(() => undefined);
-  await new Promise((resolve) => setTimeout(resolve, 30));
-  const again = await app.request("/api/events", { signal: new AbortController().signal });
-  assert.equal(again.status, 200);
-  // cleanup
-  controllers[1].abort();
-  await streams[1].body!.cancel().catch(() => undefined);
-  await again.body!.cancel().catch(() => undefined);
-});
-
-test("long-poll waits count against the hold cap; instant reads do not", async () => {
-  const app = makeApp(undefined, { maxHoldConnections: 2 });
-  const s = (await (await app.request("/api/snippets", json({ html: "<p>x</p>" }))).json()) as any;
-  // Two held long-polls fill the cap; they resolve when a comment lands.
-  const pending = [
-    app.request(`/api/comments?session=${s.sessionId}&wait=5`),
-    app.request(`/api/comments?session=${s.sessionId}&wait=5`),
-  ];
-  await new Promise((resolve) => setTimeout(resolve, 30));
-  // A third held wait is rejected.
-  assert.equal((await app.request(`/api/comments?session=${s.sessionId}&wait=5`)).status, 503);
-  // An instant (?wait=0) read is not a held connection — still served at cap.
-  assert.equal((await app.request(`/api/comments?session=${s.sessionId}`)).status, 200);
-  // Post a comment so both held waits resolve and release their slots.
-  await app.request("/api/comments", json({ snippet: s.id, text: "release" }));
-  const resolved = await Promise.all(pending);
-  assert.ok(resolved.every((r) => r.status === 200));
-});
-
-test("SSE and long-poll share the same connection budget", async () => {
-  const app = makeApp(undefined, { maxHoldConnections: 2 });
-  const s = (await (await app.request("/api/snippets", json({ html: "<p>x</p>" }))).json()) as any;
-  // One SSE + one long-poll fills the shared cap.
-  const sse = await app.request("/api/events", { signal: new AbortController().signal });
-  assert.equal(sse.status, 200);
-  const poll = app.request(`/api/comments?session=${s.sessionId}&wait=5`);
-  await new Promise((resolve) => setTimeout(resolve, 30));
-  // Neither a second SSE nor a second long-poll fits.
-  assert.equal((await app.request("/api/events")).status, 503);
-  assert.equal((await app.request(`/api/comments?session=${s.sessionId}&wait=5`)).status, 503);
-  // Releasing the long-poll (comment lands) frees a slot for SSE again.
-  await app.request("/api/comments", json({ snippet: s.id, text: "release" }));
-  await poll;
-  const sseAgain = await app.request("/api/events", { signal: new AbortController().signal });
-  assert.equal(sseAgain.status, 200);
-  // cleanup
-  await sse.body!.cancel().catch(() => undefined);
-  await sseAgain.body!.cancel().catch(() => undefined);
-});
-
-test("deleting a session cascades to snippets and comments", async () => {
-  const app = makeApp();
-  const s = (await (await app.request("/api/snippets", json({ html: "<p>x</p>" }))).json()) as any;
-  await app.request("/api/comments", json({ snippet: s.id, text: "hi" }));
-  const res = await app.request(`/api/sessions/${s.sessionId}`, { method: "DELETE" });
-  assert.equal(res.status, 200);
-  assert.equal((await app.request(`/api/snippets/${s.id}`)).status, 404);
-  const sessions = (await (await app.request("/api/sessions")).json()) as any;
-  assert.equal(sessions.length, 0);
-});
-
-test("rename session", async () => {
-  const app = makeApp();
-  const s = (await (await app.request("/api/snippets", json({ html: "<p>x</p>" }))).json()) as any;
-  const res = await app.request(`/api/sessions/${s.sessionId}`, {
-    ...json({ title: "Auth refactor" }),
-    method: "PATCH",
-  });
-  assert.equal(((await res.json()) as any).title, "Auth refactor");
-});
-
-test("auth hook can guard an embedding host without authToken", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "mockpit-test-"));
-  const app = createApp({
-    store: new JsonFileStore(join(dir, "data.json")),
-    viewerHtml: "<html>viewer</html>",
-    guideMarkdown: "# guide",
-    setupText: "# setup",
-    authenticate: (request) => request.headers.get("x-mockpit-internal") === "ok",
-  });
-
-  assert.equal((await app.request("/guide")).status, 401);
-  assert.equal((await app.request("/api/sessions")).status, 401);
-  const allowed = await app.request("/api/sessions", { headers: { "x-mockpit-internal": "ok" } });
-  assert.equal(allowed.status, 200);
-});
-
-test("auth token guards mutating routes when configured", async () => {
-  const app = makeApp("secret");
-  const denied = await app.request("/api/snippets", json({ html: "<p>x</p>" }));
-  assert.equal(denied.status, 401);
-  const allowed = await app.request("/api/snippets", authedJson({ html: "<p>x</p>" }));
-  assert.equal(allowed.status, 201);
-  // full surface is guarded, including reads and the viewer
-  assert.equal((await app.request("/api/sessions")).status, 401);
-  assert.equal((await app.request("/")).status, 401);
-  // docs and bootstrap instructions stay open
-  assert.equal((await app.request("/guide")).status, 200);
-  assert.equal((await app.request("/setup")).status, 200);
-  assert.equal((await app.request("/agent-howto")).status, 200);
-  // ?key= grants access and sets a cookie for subsequent requests
-  const keyed = await app.request("/?key=secret");
-  assert.equal(keyed.status, 200);
-  const cookie = keyed.headers.get("set-cookie") ?? "";
-  assert.ok(cookie.includes("mockpit_key=secret"));
-  const viaCookie = await app.request("/api/sessions", {
-    headers: { cookie: "mockpit_key=secret" },
-  });
-  assert.equal(viaCookie.status, 200);
-});
-
-test("Referrer-Policy protects public, denied, and authenticated board responses", async () => {
-  const app = makeApp("secret");
-  const responses = await Promise.all([
-    app.request("/guide"),
-    app.request("/"),
-    app.request("/?key=secret"),
-    app.request("/api/sessions"),
-  ]);
-
-  for (const response of responses) {
-    assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+async function tool(app: App, name: string, args: Record<string, unknown>) {
+  const { body } = await call(app, "/mcp", mcpCall(1, "tools/call", { name, arguments: args }));
+  const text = body.result.content[0].text as string;
+  if (body.result.isError) return { error: text };
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
   }
-});
+}
 
 async function readSseUntil(res: Response, needle: string, abort?: () => void): Promise<string> {
   assert.ok(res.body);
@@ -1346,2373 +151,1664 @@ async function readSseUntil(res: Response, needle: string, abort?: () => void): 
   return text;
 }
 
-// --- public read auth modes ---
+// --- publish ---------------------------------------------------------------
 
-test("public read full mode allows unauthenticated GETs but not writes", async () => {
-  const app = makeApp("secret", { publicRead: "full" });
-
-  assert.equal((await app.request("/")).status, 200);
-  assert.equal((await app.request("/session/anything")).status, 200);
-  assert.equal((await app.request("/api/sessions")).status, 200);
-  assert.equal((await app.request("/api/theme")).status, 200);
-  assert.equal((await app.request("/api/version")).status, 200);
-
-  const created = (await (
-    await app.request("/api/snippets", authedJson({ html: "<p>x</p>" }))
-  ).json()) as any;
-  assert.equal((await app.request(`/s/${created.id}`)).status, 200);
-  assert.equal((await app.request(`/api/surfaces/${created.id}`)).status, 200);
-
-  assert.equal((await app.request("/api/snippets", json({ html: "<p>x</p>" }))).status, 401);
-  assert.equal((await app.request("/api/comments", json({ text: "hi" }))).status, 401);
-});
-
-test("public read session mode allows scoped reads and denies root/session list", async () => {
-  const app = makeApp("secret", { publicRead: "session" });
-
-  assert.equal((await app.request("/")).status, 401);
-  assert.equal((await app.request("/api/sessions")).status, 401);
-  assert.equal((await app.request("/api/theme")).status, 200);
-  assert.equal((await app.request("/api/version")).status, 200);
-
-  const created = (await (
-    await app.request("/api/snippets", authedJson({ html: "<p>x</p>" }))
-  ).json()) as any;
-  assert.equal((await app.request(`/session/${created.sessionId}`)).status, 200);
-  assert.equal((await app.request(`/session/${created.sessionId}/s/${created.id}`)).status, 200);
-  assert.equal((await app.request(`/s/${created.id}`)).status, 200);
-  assert.equal((await app.request(`/api/surfaces/${created.id}`)).status, 200);
-  assert.equal((await app.request(`/api/snippets/${created.id}`)).status, 200);
-  assert.equal((await app.request(`/api/sessions/${created.sessionId}/surfaces`)).status, 200);
-
-  assert.equal((await app.request("/api/snippets", json({ html: "<p>x</p>" }))).status, 401);
-});
-
-test("public read session mode validates unauthenticated session viewer URLs", async () => {
-  const app = makeApp("secret", { publicRead: "session" });
-  const created = (await (
-    await app.request("/api/snippets", authedJson({ html: "<p>x</p>" }))
-  ).json()) as any;
-
-  assert.equal((await app.request("/session/missing")).status, 404);
-  assert.equal((await app.request(`/session/${created.sessionId}/s/missing`)).status, 404);
-  assert.equal((await app.request(`/session/missing/s/${created.id}`)).status, 404);
-
-  const authed = await app.request("/session/missing", {
-    headers: { authorization: "Bearer secret" },
+test("publish creates session, mock and variant, and answers with parts per state", async () => {
+  const app = makeApp();
+  const out = await publish(app, {
+    mock: "Writer",
+    state: "Writing",
+    variant: "quiet",
+    agent: "pi",
+    ...html('<h1 data-part="title" data-part-label="Title">T</h1><p data-part="body">x</p>'),
   });
-  assert.equal(authed.status, 200);
+  assert.equal(out.mock.slug, "writer");
+  assert.equal(out.mock.title, "Writer");
+  assert.deepEqual(out.mock.states, ["Writing"]);
+  assert.equal(out.post.state, "Writing");
+  assert.equal(out.post.variant, "quiet");
+  assert.equal(out.post.version, 1);
+  assert.equal(out.post.status, "open");
+  // The write response is lean: surface refs, never the bodies.
+  assert.deepEqual(Object.keys(out.post.surfaces[0]).sort(), ["id", "index", "kind"]);
+  assert.match(out.url, /\/project\/demo\/writer\?state=Writing&variant=quiet$/);
+  assert.deepEqual(out.parts, [
+    {
+      state: "Writing",
+      parts: [{ name: "title", label: "Title" }, { name: "body" }],
+    },
+  ]);
+  assert.equal(out.partChanges, undefined);
+  assert.match(out.mock.id, /^[A-Za-z0-9_-]{11}$/);
+  assert.match(out.sessionId, /^[A-Za-z0-9_-]{11}$/);
+
+  const sessions = (await call(app, "/api/sessions")).body;
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].agent, "pi");
+  assert.equal(sessions[0].postCount, 1);
 });
 
-test("public read session mode protects unscoped comments reads", async () => {
-  const app = makeApp("secret", { publicRead: "session" });
-  const created = (await (
-    await app.request("/api/snippets", authedJson({ html: "<p>x</p>" }))
-  ).json()) as any;
-  await app.request("/api/comments", authedJson({ snippet: created.id, text: "hi" }));
-
-  assert.equal((await app.request("/api/comments")).status, 401);
-  assert.equal((await app.request("/api/comments?session=missing")).status, 404);
-  assert.equal((await app.request(`/api/comments?session=${created.sessionId}`)).status, 200);
-  assert.equal((await app.request(`/api/comments?surface=${created.id}`)).status, 200);
-
-  const owner = await app.request("/api/comments", {
-    headers: { authorization: "Bearer secret" },
+test("a second state and variant land on the same mock; parts are listed per state", async () => {
+  const app = makeApp();
+  const { mockId } = await writer(app);
+  const out = await publish(app, {
+    mock: "writer",
+    state: "Ghost text",
+    variant: "quiet",
+    ...html('<span data-part="ghost">g</span>'),
   });
-  assert.equal(owner.status, 200);
+  assert.equal(out.mock.id, mockId);
+  assert.deepEqual(out.mock.states, ["Writing", "Lab open", "Ghost text"]);
+  assert.deepEqual(
+    out.parts.map((s: any) => [s.state, s.parts.map((p: any) => p.name)]),
+    [
+      ["Writing", ["title"]],
+      ["Lab open", []],
+      ["Ghost text", ["ghost"]],
+    ],
+  );
 });
 
-test("public read session mode protects and scopes event streams", async () => {
-  const app = makeApp("secret", { publicRead: "session" });
-  const first = (await (
-    await app.request("/api/snippets", authedJson({ html: "<p>one</p>" }))
-  ).json()) as any;
-  const second = (await (
-    await app.request("/api/snippets", authedJson({ html: "<p>two</p>" }))
-  ).json()) as any;
+test("re-publishing the same (mock, state, variant) is a new version, not a new variant", async () => {
+  const app = makeApp();
+  const a = await publish(app, { mock: "card", ...html("<p>1</p>") });
+  const b = await publish(app, { mock: "card", ...html("<p>2</p>"), prompt: "bigger" });
+  assert.equal(b.post.id, a.post.id);
+  assert.equal(b.post.version, 2);
+  const detail = (await call(app, `/api/mocks/${a.mock.id}?history=1`)).body;
+  assert.equal(detail.variants.length, 1);
+  assert.equal(detail.variants[0].variant, "default");
+  assert.equal(detail.variants[0].state, null);
+  assert.deepEqual(
+    detail.variants[0].history.map((h: any) => h.version),
+    [2, 1],
+  );
+  assert.equal(detail.variants[0].prompt, "bigger");
+});
 
-  assert.equal((await app.request("/api/events")).status, 401);
-  assert.equal((await app.request("/api/events?session=missing")).status, 404);
+test("sessionTitle names a session only when the publish creates it", async () => {
+  const app = makeApp();
+  const a = await publish(app, { mock: "a", sessionTitle: "Cache design", ...html("<p/>") });
+  await publish(app, {
+    mock: "b",
+    session: a.sessionId,
+    sessionTitle: "Other",
+    ...html("<p/>"),
+  });
+  const sessions = (await call(app, "/api/sessions")).body;
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].title, "Cache design");
+});
 
+test("publish validates its input before anything is stored", async () => {
+  const app = makeApp();
+  assert.equal((await call(app, "/api/mocks", agent({ html: "<p/>" }))).status, 400);
+  assert.equal((await call(app, "/api/mocks", agent({ mock: "x" }))).status, 400);
+  assert.equal(
+    (await call(app, "/api/mocks", agent({ mock: "x", html: "x".repeat(2 * 1024 * 1024 + 1) })))
+      .status,
+    413,
+  );
+  assert.equal(
+    (await call(app, "/api/mocks", agent({ mock: "x", session: "nope", html: "<p/>" }))).status,
+    404,
+  );
+  const badKit = await call(
+    app,
+    "/api/mocks",
+    agent({ mock: "x", surfaces: [{ kind: "html", html: "<p/>", kits: ["nope"] }] }),
+  );
+  assert.equal(badKit.status, 400);
+  const badMermaid = await call(
+    app,
+    "/api/mocks",
+    agent({
+      mock: "x",
+      surfaces: [{ kind: "mermaid", mermaid: 'pie title Pets\n  "Dogs" : broken !!@@' }],
+    }),
+  );
+  assert.equal(badMermaid.status, 400);
+  assert.ok(badMermaid.body.code);
+  assert.equal((await call(app, "/api/mocks")).body.mocks.length, 0);
+});
+
+test("publish refuses a blank html body rather than storing an empty variant", async () => {
+  const app = makeApp();
+  for (const blank of ["", "   "]) {
+    const res = await call(app, "/api/mocks", agent({ mock: "x", html: blank }));
+    assert.equal(res.status, 400, JSON.stringify(blank));
+  }
+  assert.equal((await call(app, "/api/mocks")).body.mocks.length, 0);
+});
+
+test("titles and comment text are capped before they ride the feedback channel", async () => {
+  const app = makeApp();
+  const out = await publish(app, { mock: "t", title: "T".repeat(1000), ...html("<p/>") });
+  assert.equal(out.mock.title.length, 500);
+  await call(
+    app,
+    "/api/comments",
+    viewer({ mock: out.mock.id, text: "x".repeat(20000), author: "user" }),
+  );
+  const all = (await call(app, `/api/comments?session=${out.sessionId}`)).body;
+  assert.equal(all.comments[0].text.length, 8000);
+});
+
+// --- state and variant rules ------------------------------------------------
+
+test("a single-state mock with variants refuses a named state (409)", async () => {
+  const app = makeApp();
+  await publish(app, { mock: "card", ...html("<p/>") });
+  const res = await call(
+    app,
+    "/api/mocks",
+    agent({ project: "demo", mock: "card", state: "Open", html: "<p/>" }),
+  );
+  assert.equal(res.status, 409);
+  assert.match(res.body.error, /single-state/);
+});
+
+test("omitting the state on a multi-state mock is a 400 that lists the states", async () => {
+  const app = makeApp();
+  await writer(app);
+  const res = await call(
+    app,
+    "/api/mocks",
+    agent({ project: "demo", mock: "writer", html: "<p/>" }),
+  );
+  assert.equal(res.status, 400);
+  assert.deepEqual(res.body.states, ["Writing", "Lab open"]);
+});
+
+test("an ambiguous variant is a 400 that lists the choices", async () => {
+  const app = makeApp();
+  const { mockId } = await writer(app);
+  const pub = await call(
+    app,
+    "/api/mocks",
+    agent({ project: "demo", mock: "writer", state: "Writing", html: "<p/>" }),
+  );
+  assert.equal(pub.status, 400);
+  assert.deepEqual(pub.body.variants, ["Writing/quiet", "Writing/dark"]);
+  const rev = await call(
+    app,
+    `/api/mocks/${mockId}/revise`,
+    agent({ state: "Writing", html: "<p/>" }),
+  );
+  assert.equal(rev.status, 400);
+  assert.deepEqual(rev.body.variants, ["Writing/quiet", "Writing/dark"]);
+  const unknown = await call(
+    app,
+    `/api/mocks/${mockId}/revise`,
+    agent({ state: "Nope", variant: "quiet", html: "<p/>" }),
+  );
+  assert.equal(unknown.status, 404);
+});
+
+// --- revise ------------------------------------------------------------------
+
+test("revise flags parts that vanished or were renamed (matched by key)", async () => {
+  const app = makeApp();
+  const out = await publish(app, {
+    mock: "card",
+    ...html('<h1 data-part="title">T</h1><p data-part="body" data-part-key="b">x</p>'),
+  });
+  const rev = await call(
+    app,
+    `/api/mocks/${out.mock.id}/revise`,
+    agent({ html: '<p data-part="copy" data-part-key="b">y</p>' }),
+  );
+  assert.equal(rev.status, 200);
+  assert.equal(rev.body.post.version, 2);
+  assert.deepEqual(rev.body.partChanges, {
+    vanished: ["title"],
+    renamed: [{ from: "body", to: "copy" }],
+  });
+});
+
+test("revise addresses a mock by slug and refuses to create one", async () => {
+  const app = makeApp();
+  await publish(app, { mock: "card", ...html("<p>1</p>") });
+  const rev = await call(
+    app,
+    "/api/mocks/card/revise",
+    agent({ project: "demo", html: "<p>2</p>" }),
+  );
+  assert.equal(rev.status, 200);
+  assert.equal(rev.body.post.version, 2);
+  const missing = await call(
+    app,
+    "/api/mocks/nope/revise",
+    agent({ project: "demo", html: "<p/>" }),
+  );
+  assert.equal(missing.status, 404);
+});
+
+// --- knobs -------------------------------------------------------------------
+
+test("knob configs are validated and merged onto the mock by path", async () => {
+  const app = makeApp();
+  const bad = await call(
+    app,
+    "/api/mocks",
+    agent({ project: "demo", mock: "k", knobs: { "1bad": 3 }, html: "<p/>" }),
+  );
+  assert.equal(bad.status, 400);
+  const out = await publish(app, { mock: "k", knobs: { size: [16, 8, 48, 1] }, ...html("<p/>") });
+  assert.equal(out.nudges, undefined);
+  await publish(app, {
+    mock: "k",
+    knobs: { "body.weight": [400, 300, 700, 100] },
+    ...html("<p/>"),
+  });
+  const detail = (await call(app, `/api/mocks/${out.mock.id}`)).body;
+  assert.deepEqual(Object.keys(detail.knobs).sort(), ["body.weight", "size"]);
+});
+
+test("a knob with three or fewer discrete options earns a nudge toward asking", async () => {
+  const app = makeApp();
+  const out = await publish(app, {
+    mock: "k",
+    knobs: {
+      "trim.position": { type: "select", options: ["top", "bottom"] },
+      "toast.show": true,
+      size: [16, 8, 48, 1],
+    },
+    ...html("<p/>"),
+  });
+  assert.equal(out.nudges.length, 2);
+  assert.match(out.nudges[0], /trim\.position/);
+  assert.match(out.nudges[1], /toast\.show/);
+});
+
+// --- reads -------------------------------------------------------------------
+
+test("GET /api/mocks lists summaries with open counts; ?project scopes it", async () => {
+  const app = makeApp();
+  const { mockId } = await writer(app);
+  await publish(app, { project: "other", mock: "card", ...html("<p/>") });
+  await call(
+    app,
+    `/api/mocks/${mockId}/asks`,
+    agent({ asks: [{ text: "Which look?", options: ["Quiet", "Dark"] }] }),
+  );
+  const all = (await call(app, "/api/mocks")).body;
+  assert.equal(all.mocks.length, 2);
+  assert.equal(all.open, 1);
+  assert.equal(all.openMocks, 1);
+  const demo = (await call(app, "/api/mocks?project=demo")).body;
+  assert.equal(demo.project, "demo");
+  assert.equal(demo.mocks.length, 1);
+  const row = demo.mocks[0];
+  assert.equal(row.slug, "writer");
+  assert.equal(row.stateCount, 2);
+  assert.equal(row.variants, 4);
+  assert.equal(row.open, 1);
+  assert.ok(row.thumbnail.postId);
+});
+
+test("GET /api/mocks/:id resolves an id, a slug in a project, or a unique slug", async () => {
+  const app = makeApp();
+  const a = await publish(app, { project: "one", mock: "card", ...html("<p>1</p>") });
+  await publish(app, { project: "two", mock: "card", ...html("<p>2</p>") });
+  await publish(app, { project: "two", mock: "solo", ...html("<p>3</p>") });
+
+  assert.equal((await call(app, `/api/mocks/${a.mock.id}`)).body.project, "one");
+  assert.equal((await call(app, "/api/mocks/card?project=two")).body.project, "two");
+  assert.equal((await call(app, "/api/mocks/solo")).body.project, "two");
+  const ambiguous = await call(app, "/api/mocks/card");
+  assert.equal(ambiguous.status, 400);
+  assert.deepEqual(ambiguous.body.projects.sort(), ["one", "two"]);
+  assert.equal((await call(app, "/api/mocks/nope")).status, 404);
+  assert.equal((await call(app, "/api/mocks/nope?project=one")).status, 404);
+});
+
+test("mock detail keeps bodies opt-in and never exposes the draft", async () => {
+  const app = makeApp();
+  const out = await publish(app, { mock: "card", ...html("<p>body</p>") });
+  const lean = (await call(app, `/api/mocks/${out.mock.id}`)).body;
+  assert.equal(lean.variants[0].surfaces[0].html, undefined);
+  assert.equal(lean.draft, undefined);
+  assert.deepEqual(lean.tuned, {});
+  const full = (await call(app, `/api/mocks/${out.mock.id}?body=1`)).body;
+  assert.equal(full.variants[0].surfaces[0].html, "<p>body</p>");
+});
+
+test("GET /api/sessions/:id and /api/projects summarize the workspace", async () => {
+  const app = makeApp();
+  const { session } = await writer(app);
+  const row = (await call(app, `/api/sessions/${session}`)).body;
+  assert.equal(row.id, session);
+  assert.equal(row.postCount, 4);
+  assert.equal((await call(app, "/api/sessions/nope")).status, 404);
+  const projects = (await call(app, "/api/projects")).body;
+  const demo = projects.find((p: any) => p.name === "demo");
+  assert.equal(demo.mocks, 1);
+  assert.equal(demo.sessions, 1);
+});
+
+test("sessions: create resolves a project, rename, delete cascades", async () => {
+  const app = makeApp();
+  const created = await call(app, "/api/sessions", agent({ agent: "pi", cwd: "/work/acme" }));
+  assert.equal(created.status, 201);
+  assert.equal(created.body.project, "acme");
+  const renamed = await call(
+    app,
+    `/api/sessions/${created.body.id}`,
+    agent({ title: "Auth" }, "PATCH"),
+  );
+  assert.equal(renamed.body.title, "Auth");
+  assert.equal(
+    (await call(app, `/api/sessions/${created.body.id}`, agent({}, "PATCH"))).status,
+    400,
+  );
+
+  const out = await publish(app, { mock: "card", ...html("<p/>") });
+  await call(app, "/api/comments", agent({ mock: out.mock.id, text: "hi" }));
+  assert.equal(
+    (await call(app, `/api/sessions/${out.sessionId}`, { method: "DELETE" })).status,
+    200,
+  );
+  assert.equal((await call(app, `/api/mocks/${out.mock.id}`)).status, 404);
+  assert.equal((await app.request(`/s/${out.post.id}`)).status, 404);
+  assert.equal((await call(app, "/api/sessions/nope", { method: "DELETE" })).status, 404);
+});
+
+// --- asks --------------------------------------------------------------------
+
+test("asks are upserted by id and land in the thread", async () => {
+  const app = makeApp();
+  const { mockId, session } = await writer(app);
+  const first = await call(
+    app,
+    `/api/mocks/${mockId}/asks`,
+    agent({
+      asks: [
+        {
+          id: "look",
+          text: "Which look?",
+          options: [
+            { label: "Quiet", variant: "quiet" },
+            { label: "Dark", variant: "dark" },
+          ],
+        },
+      ],
+    }),
+  );
+  assert.equal(first.status, 200);
+  assert.equal(first.body.asks[0].scope, "mock");
+  assert.deepEqual(
+    first.body.asks[0].options.map((o: any) => o.id),
+    ["quiet", "dark"],
+  );
+  await call(
+    app,
+    `/api/mocks/${mockId}/asks`,
+    agent({ asks: [{ id: "look", text: "Pick a look", options: ["Quiet"] }] }),
+  );
+  const detail = (await call(app, `/api/mocks/${mockId}`)).body;
+  assert.equal(detail.asks.length, 1);
+  assert.equal(detail.asks[0].text, "Pick a look");
+  assert.equal(detail.open, 1);
+  const thread = (await call(app, `/api/comments?mock=${mockId}`)).body.comments;
+  assert.deepEqual(
+    thread.map((c: any) => [c.kind, c.text, c.sessionId]),
+    [
+      ["ask", "Which look?", session],
+      ["ask", "Pick a look", session],
+    ],
+  );
+});
+
+test("ask options must name real variants and valid knob values", async () => {
+  const app = makeApp();
+  const { mockId } = await writer(app);
+  const ask = (asks: unknown) => call(app, `/api/mocks/${mockId}/asks`, agent({ asks }));
+  assert.equal(
+    (await ask([{ text: "x", options: [{ label: "A", variant: "loud" }] }])).status,
+    400,
+  );
+  assert.equal(
+    (await ask([{ text: "x", options: [{ label: "A", set: { "body.size": 99 } }] }])).status,
+    400,
+  );
+  assert.equal(
+    (await ask([{ text: "x", options: [{ label: "A", set: { nope: 1 } }] }])).status,
+    400,
+  );
+  assert.equal((await ask([{ text: "x", options: [] }])).status, 400);
+  assert.equal(
+    (await ask([{ text: "x", scope: "state", state: "Nope", options: ["A"] }])).status,
+    400,
+  );
+  assert.equal((await ask([{ text: "x", scope: "part", options: ["A"] }])).status, 400);
+  assert.equal((await ask([])).status, 400);
+  const ok = await ask([{ text: "Size?", options: [{ label: "Big", set: { "body.size": 20 } }] }]);
+  assert.equal(ok.status, 200);
+  assert.deepEqual(ok.body.asks[0].options[0].set, { "body.size": 20 });
+});
+
+// --- drafts --------------------------------------------------------------------
+
+test("drafts are viewer-only, validated, and survive until cleared", async () => {
+  const app = makeApp();
+  const { mockId } = await writer(app);
+  await call(
+    app,
+    `/api/mocks/${mockId}/asks`,
+    agent({ asks: [{ id: "look", text: "Look?", options: [{ label: "Dark", variant: "dark" }] }] }),
+  );
+  const path = `/api/mocks/${mockId}/draft`;
+  assert.equal((await call(app, path)).status, 403);
+  assert.equal((await call(app, path, agent({ answers: {} }, "PUT"))).status, 403);
+  assert.equal((await call(app, path, { method: "DELETE" })).status, 403);
+
+  const put = (body: unknown) => call(app, path, viewer(body, "PUT"));
+  assert.equal((await put({ answers: { nope: "dark" } })).status, 400);
+  assert.equal((await put({ answers: { look: "loud" } })).status, 400);
+  assert.equal((await put({ mix: { body: "loud" } })).status, 400);
+  assert.equal((await put({ tuned: { "body.size": 99 } })).status, 400);
+  assert.equal((await put({ tuned: { nope: 1 } })).status, 400);
+  assert.equal((await put({ comments: [{ part: "title" }] })).status, 400);
+  assert.equal((await put({ comments: [{ text: "x", state: "Nope" }] })).status, 400);
+
+  const draft = {
+    answers: { look: "dark" },
+    mix: { title: "quiet" },
+    tuned: { "body.size": 19 },
+    comments: [{ part: "title", state: "Writing", text: "bigger", anchor: { quote: "T" } }],
+  };
+  const saved = await put(draft);
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.draft.version, 1);
+  const read = (await call(app, path, viewer(undefined, "GET"))).body.draft;
+  assert.deepEqual(
+    { answers: read.answers, mix: read.mix, tuned: read.tuned, comments: read.comments },
+    draft,
+  );
+  assert.equal((await call(app, path, viewer(undefined, "DELETE"))).body.draft, null);
+  assert.equal((await call(app, path, viewer(undefined, "GET"))).body.draft, null);
+});
+
+// --- reply ---------------------------------------------------------------------
+
+async function lookAsk(app: App, mockId: string, scope = "mock", extra: object = {}) {
+  await call(
+    app,
+    `/api/mocks/${mockId}/asks`,
+    agent({
+      asks: [
+        {
+          id: "look",
+          text: "Which look?",
+          scope,
+          ...extra,
+          options: [
+            { label: "Quiet", variant: "quiet" },
+            { label: "Dark", variant: "dark" },
+          ],
+        },
+      ],
+    }),
+  );
+}
+
+test("reply is viewer-only and refuses to send nothing", async () => {
+  const app = makeApp();
+  const { mockId } = await writer(app);
+  assert.equal((await call(app, `/api/mocks/${mockId}/reply`, agent({ text: "hi" }))).status, 403);
+  const empty = await call(app, `/api/mocks/${mockId}/reply`, viewer({}));
+  assert.equal(empty.status, 400);
+  assert.match(empty.body.error, /nothing to send/);
+});
+
+test("reply sends the draft as one reply comment, clears it, and flips statuses", async () => {
+  const app = makeApp();
+  const { mockId, session } = await writer(app);
+  await lookAsk(app, mockId);
+  await call(
+    app,
+    `/api/mocks/${mockId}/draft`,
+    viewer({ answers: { look: "dark" }, tuned: { "body.size": 19 } }, "PUT"),
+  );
+  const sent = await call(app, `/api/mocks/${mockId}/reply`, viewer({ text: "go dark" }));
+  assert.equal(sent.status, 201);
+  const reply = sent.body.reply;
+  assert.equal(reply.kind, "reply");
+  assert.equal(reply.author, "user");
+  assert.equal(reply.sessionId, session);
+  assert.equal(reply.seen, false);
+  assert.deepEqual(reply.payload.answers, { look: "dark" });
+  assert.deepEqual(reply.payload.tuned, { "body.size": 19 });
+  assert.equal(reply.payload.text, "go dark");
+  assert.deepEqual(sent.body.accepted, [
+    { state: "Writing", variant: "dark" },
+    { state: "Lab open", variant: "dark" },
+  ]);
+  assert.deepEqual(await variants(app, mockId), {
+    "Writing/quiet": "archived",
+    "Writing/dark": "accepted",
+    "Lab open/quiet": "archived",
+    "Lab open/dark": "accepted",
+  });
+  assert.equal(
+    (await call(app, `/api/mocks/${mockId}/draft`, viewer(undefined, "GET"))).body.draft,
+    null,
+  );
+  const detail = (await call(app, `/api/mocks/${mockId}`)).body;
+  assert.equal(detail.asks[0].answer, "dark");
+  assert.equal(detail.open, 0);
+  assert.deepEqual(detail.tuned, { "body.size": 19 });
+});
+
+test("a state-scoped answer flips only its state; a part-scoped one flips nothing", async () => {
+  const app = makeApp();
+  const { mockId } = await writer(app);
+  await lookAsk(app, mockId, "state", { state: "Lab open" });
+  await call(app, `/api/mocks/${mockId}/reply`, viewer({ answers: { look: "quiet" } }));
+  assert.deepEqual(await variants(app, mockId), {
+    "Writing/quiet": "open",
+    "Writing/dark": "open",
+    "Lab open/quiet": "accepted",
+    "Lab open/dark": "archived",
+  });
+
+  const other = makeApp();
+  const w = await writer(other);
+  await lookAsk(other, w.mockId, "part", { part: "title" });
+  const sent = await call(
+    other,
+    `/api/mocks/${w.mockId}/reply`,
+    viewer({ answers: { look: "dark" } }),
+  );
+  assert.deepEqual(sent.body.accepted, []);
+  assert.deepEqual(sent.body.archived, []);
+});
+
+test("a drop decision archives the variant; restore brings it back", async () => {
+  const app = makeApp();
+  const { mockId } = await writer(app);
+  const sent = await call(
+    app,
+    `/api/mocks/${mockId}/reply`,
+    viewer({ decision: { kind: "drop", state: "Writing", variant: "quiet" } }),
+  );
+  assert.equal(sent.status, 201);
+  assert.deepEqual(sent.body.archived, [{ state: "Writing", variant: "quiet" }]);
+  assert.equal((await variants(app, mockId))["Writing/quiet"], "archived");
+  const bad = await call(app, `/api/mocks/${mockId}/reply`, viewer({ decision: { kind: "nope" } }));
+  assert.equal(bad.status, 400);
+
+  const restored = await call(
+    app,
+    `/api/mocks/${mockId}/restore`,
+    agent({ state: "Writing", variant: "quiet" }),
+  );
+  assert.deepEqual(restored.body, { state: "Writing", variant: "quiet", status: "open" });
+  assert.equal((await variants(app, mockId))["Writing/quiet"], "open");
+});
+
+test("an accept decision accepts the variant and archives its siblings", async () => {
+  const app = makeApp();
+  const { mockId } = await writer(app);
+  await call(
+    app,
+    `/api/mocks/${mockId}/reply`,
+    viewer({ decision: { kind: "accept", state: "Lab open", variant: "dark" } }),
+  );
+  const v = await variants(app, mockId);
+  assert.equal(v["Lab open/dark"], "accepted");
+  assert.equal(v["Lab open/quiet"], "archived");
+  assert.equal(v["Writing/quiet"], "open");
+});
+
+// --- feedback delivery -------------------------------------------------------------
+
+test("a reply reaches the agent exactly once, with the asks resolved", async () => {
+  const app = makeApp();
+  const { mockId, session } = await writer(app);
+  await lookAsk(app, mockId);
+  await call(app, `/api/mocks/${mockId}/reply`, viewer({ answers: { look: "dark" } }));
+  const read = (await call(app, `/api/comments?session=${session}&author=user`)).body;
+  assert.deepEqual(Object.keys(read).sort(), ["comments", "feedback", "lastSeq"]);
+  assert.equal(read.feedback.length, 1);
+  const batch = read.feedback[0];
+  assert.equal(batch.mock, "writer");
+  assert.equal(batch.project, "demo");
+  assert.equal(batch.reply.asks[0].text, "Which look?");
+  assert.equal(batch.reply.asks[0].chosen[0].variant, "dark");
+  assert.equal(batch.accepted.length, 2);
+  const again = (await call(app, `/api/comments?session=${session}&author=user`)).body;
+  assert.deepEqual(again.feedback, []);
+  assert.equal(again.lastSeq, read.lastSeq);
+  // The viewer's unfiltered read never touches the cursor and reports delivery.
+  const thread = (await call(app, `/api/comments?mock=${mockId}`)).body.comments;
+  assert.equal(thread.find((c: any) => c.kind === "reply").seen, true);
+});
+
+test("user feedback piggybacks on the agent's next write, once", async () => {
+  const app = makeApp();
+  const out = await publish(app, { mock: "card", ...html("<p>1</p>") });
+  assert.equal(out.userFeedback, undefined);
+  await call(app, "/api/comments", viewer({ mock: out.mock.id, text: "wider", author: "user" }));
+  const next = await publish(app, { mock: "card", session: out.sessionId, ...html("<p>2</p>") });
+  assert.deepEqual(
+    next.userFeedback.flatMap((b: any) => b.comments.map((c: any) => c.text)),
+    ["wider"],
+  );
+  const third = await publish(app, { mock: "card", session: out.sessionId, ...html("<p>3</p>") });
+  assert.equal(third.userFeedback, undefined);
+  const wait = (await call(app, `/api/comments?session=${out.sessionId}&author=user`)).body;
+  assert.deepEqual(wait.feedback, []);
+});
+
+test("long-poll resolves when a comment arrives", async () => {
+  const app = makeApp();
+  const out = await publish(app, { mock: "card", ...html("<p/>") });
+  const pending = app.request(`/api/comments?session=${out.sessionId}&author=user&wait=5`);
+  setTimeout(() => {
+    void app.request(
+      "/api/comments",
+      viewer({ mock: out.mock.id, text: "feedback!", author: "user" }),
+    );
+  }, 50);
+  const start = Date.now();
+  const result = (await (await pending).json()) as any;
+  assert.equal(result.comments.length, 1);
+  assert.equal(result.feedback[0].comments[0].text, "feedback!");
+  assert.ok(Date.now() - start < 4000);
+});
+
+// --- comments ------------------------------------------------------------------------
+
+test("programmatic comments are authored by the session's agent, never the user", async () => {
+  const app = makeApp();
+  const out = await publish(app, { mock: "card", agent: "pi", ...html("<p/>") });
+  const forged = await call(
+    app,
+    "/api/comments",
+    agent({ mock: out.mock.id, text: "x", author: "user" }),
+  );
+  assert.equal(forged.status, 201);
+  assert.notEqual(forged.body.author, "user");
+  const user = await call(
+    app,
+    "/api/comments",
+    viewer({ mock: out.mock.id, text: "x", author: "user" }),
+  );
+  assert.equal(user.body.author, "user");
+});
+
+test("comments target a mock, a state/variant, or a post, and carry sanitized anchors", async () => {
+  const app = makeApp();
+  const { mockId } = await writer(app);
+  assert.equal((await call(app, "/api/comments", agent({ text: "x" }))).status, 400);
+  assert.equal((await call(app, "/api/comments", agent({ mock: mockId }))).status, 400);
+  assert.equal((await call(app, "/api/comments", agent({ post: "nope", text: "x" }))).status, 404);
+
+  const onPart = await call(
+    app,
+    "/api/comments",
+    viewer({
+      mock: mockId,
+      text: "bigger",
+      author: "user",
+      anchor: { kind: "part", part: "title", state: "Writing", quote: "T", junk: "<script>" },
+    }),
+  );
+  assert.equal(onPart.status, 201);
+  assert.deepEqual(onPart.body.anchor, {
+    kind: "part",
+    part: "title",
+    state: "Writing",
+    quote: "T",
+  });
+  assert.equal(onPart.body.mockId, mockId);
+  assert.equal(onPart.body.postId, null);
+
+  const onVariant = await call(
+    app,
+    "/api/comments",
+    viewer({
+      mock: mockId,
+      state: "Writing",
+      variant: "dark",
+      text: "here",
+      author: "user",
+      anchor: { kind: "rect", surfaceIndex: 0, x: 0.1, y: 0.2, w: 0.3, h: 0.4 },
+      viewport: 820,
+    }),
+  );
+  assert.ok(onVariant.body.postId);
+  assert.equal(onVariant.body.anchor.kind, "rect");
+  assert.equal(onVariant.body.viewport, 820);
+  // Out-of-range geometry is dropped, not stored.
+  const bad = await call(
+    app,
+    "/api/comments",
+    viewer({
+      mock: mockId,
+      state: "Writing",
+      variant: "dark",
+      text: "x",
+      anchor: { kind: "point", surfaceIndex: 0, x: 5, y: 0 },
+    }),
+  );
+  assert.equal(bad.body.anchor, undefined);
+
+  const del = await call(app, `/api/comments/${onPart.body.id}`, { method: "DELETE" });
+  assert.equal(del.status, 200);
+  assert.equal(
+    (await call(app, `/api/comments/${onPart.body.id}`, { method: "DELETE" })).status,
+    404,
+  );
+});
+
+// --- surface edits ---------------------------------------------------------------------
+
+test("surface ops append, replace, remove and reorder one variant's surfaces", async () => {
+  const app = makeApp();
+  const out = await publish(app, { mock: "card", ...html("<p>a</p>") });
+  const base = `/api/mocks/${out.mock.id}/surfaces`;
+
+  const added = await call(app, base, agent({ surface: { kind: "markdown", markdown: "# hi" } }));
+  assert.equal(added.status, 200);
+  assert.equal(added.body.post.version, 2);
+  assert.deepEqual(
+    added.body.post.surfaces.map((s: any) => s.kind),
+    ["html", "markdown"],
+  );
+  const before = await call(
+    app,
+    base,
+    agent({ surface: { kind: "code", code: "x", language: "ts" }, before: "0" }),
+  );
+  assert.deepEqual(
+    before.body.post.surfaces.map((s: any) => s.kind),
+    ["code", "html", "markdown"],
+  );
+
+  const edited = await call(app, `${base}/2`, agent({ content: "# changed" }, "PATCH"));
+  assert.equal(edited.status, 200);
+  const md = (await call(app, `/api/mocks/${out.mock.id}?body=1`)).body.variants[0].surfaces[2];
+  assert.equal(md.markdown, "# changed");
+  assert.equal(md.id, added.body.post.surfaces[1].id);
+
+  const ids = before.body.post.surfaces.map((s: any) => s.id);
+  const reordered = await call(app, base, agent({ order: [ids[2], ids[1], ids[0]] }, "PATCH"));
+  assert.deepEqual(
+    reordered.body.post.surfaces.map((s: any) => s.kind),
+    ["markdown", "html", "code"],
+  );
+  assert.equal((await call(app, base, agent({ order: [0] }, "PATCH"))).status, 400);
+
+  const removed = await call(app, `${base}/0`, { method: "DELETE" });
+  assert.deepEqual(
+    removed.body.post.surfaces.map((s: any) => s.kind),
+    ["html", "code"],
+  );
+  await call(app, `${base}/0`, { method: "DELETE" });
+  const last = await call(app, `${base}/0`, { method: "DELETE" });
+  assert.equal(last.status, 400);
+  assert.equal((await call(app, `${base}/9`, agent({ content: "x" }, "PATCH"))).status, 404);
+});
+
+test("surface ops on a multi-variant mock need state and variant", async () => {
+  const app = makeApp();
+  const { mockId } = await writer(app);
+  const base = `/api/mocks/${mockId}/surfaces`;
+  const surface = { kind: "markdown", markdown: "x" };
+  assert.equal((await call(app, base, agent({ surface }))).status, 400);
+  const ok = await call(app, base, agent({ surface, state: "Lab open", variant: "dark" }));
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.post.state, "Lab open");
+  const del = await call(app, `${base}/1?state=Lab%20open&variant=dark`, { method: "DELETE" });
+  assert.equal(del.status, 200);
+});
+
+// --- export and delete -----------------------------------------------------------------
+
+test("export returns the accepted variant per state, with history and the last reply", async () => {
+  const app = makeApp(undefined, { screenshots: true });
+  const { mockId } = await writer(app);
+  await lookAsk(app, mockId);
+  await call(
+    app,
+    `/api/mocks/${mockId}/reply`,
+    viewer({ answers: { look: "dark" }, tuned: { "body.size": 18 } }),
+  );
+  const out = (await call(app, `/api/mocks/${mockId}/export`)).body;
+  assert.equal(out.mock, "writer");
+  assert.deepEqual(
+    out.states.map((s: any) => [s.state, s.variant, s.status]),
+    [
+      ["Writing", "dark", "accepted"],
+      ["Lab open", "dark", "accepted"],
+    ],
+  );
+  assert.equal(out.states[0].html, "<p>Writing dark</p>");
+  assert.match(out.states[0].screenshotUrl, /\/s\/[^/]+\.png\?v=1$/);
+  assert.equal(out.states[0].history.length, 1);
+  assert.deepEqual(out.reply.tuned, { "body.size": 18 });
+
+  const one = (await call(app, `/api/mocks/${mockId}/export?state=Writing&variant=quiet`)).body;
+  assert.deepEqual(
+    one.states.map((s: any) => s.variant),
+    ["quiet"],
+  );
+  assert.equal((await call(app, `/api/mocks/${mockId}/export?state=Nope`)).status, 404);
+});
+
+test("DELETE /api/mocks/:id removes the mock, its variants and documents", async () => {
+  const events: any[] = [];
+  const app = makeApp(undefined, { onEvent: (e) => events.push(e) });
+  const out = await publish(app, { mock: "card", ...html("<p/>") });
+  assert.equal((await call(app, `/api/mocks/${out.mock.id}`, { method: "DELETE" })).status, 200);
+  assert.equal((await call(app, `/api/mocks/${out.mock.id}`)).status, 404);
+  assert.equal((await app.request(`/s/${out.post.id}`)).status, 404);
+  assert.deepEqual(events.at(-1), { type: "mock-deleted", id: out.mock.id, project: "demo" });
+});
+
+test("deleted routes are gone", async () => {
+  const app = makeApp();
+  const out = await publish(app, { mock: "card", ...html("<p/>") });
+  for (const [method, path] of [
+    ["POST", "/api/posts"],
+    ["POST", "/api/surfaces"],
+    ["POST", "/api/snippets"],
+    ["POST", "/api/test-post"],
+    ["GET", "/api/posts/recent"],
+    ["GET", `/api/posts/${out.post.id}`],
+    ["GET", `/p/${out.post.id}`],
+    ["GET", `/session/${out.sessionId}`],
+    ["GET", `/api/sessions/${out.sessionId}/posts`],
+    ["GET", `/api/sessions/${out.sessionId}/trace`],
+    ["GET", "/api/projects/demo/items"],
+    ["POST", "/api/demo/reshape"],
+  ]) {
+    const res = await app.request(path, method === "POST" ? agent({}) : undefined);
+    assert.equal(res.status, 404, `${method} ${path}`);
+  }
+});
+
+// --- events --------------------------------------------------------------------------
+
+test("onEvent receives feed events; a throwing listener never fails the write", async () => {
+  const events: any[] = [];
+  const app = makeApp(undefined, { onEvent: (e) => events.push(e) });
+  const out = await publish(app, { mock: "card", ...html("<p/>") });
+  const types = events.map((e) => e.type);
+  assert.deepEqual(types, ["session-created", "mock-created", "mock-updated", "post-created"]);
+  assert.deepEqual(events[3], {
+    type: "post-created",
+    id: out.post.id,
+    mockId: out.mock.id,
+    sessionId: out.sessionId,
+    version: 1,
+  });
+
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    const failing = makeApp(undefined, {
+      onEvent: () => {
+        throw new Error("fanout failed");
+      },
+    });
+    await publish(failing, { mock: "card", ...html("<p/>") });
+    assert.equal((await call(failing, "/api/mocks")).body.mocks.length, 1);
+  } finally {
+    console.warn = warn;
+  }
+});
+
+test("SSE ?mock= only streams that mock's events", async () => {
+  const app = makeApp();
+  const a = await publish(app, { mock: "a", ...html("<p/>") });
+  const b = await publish(app, { mock: "b", ...html("<p/>") });
   const ac = new AbortController();
-  const stream = await app.request(`/api/events?session=${first.sessionId}`, { signal: ac.signal });
+  const stream = await app.request(`/api/events?mock=${a.mock.id}`, { signal: ac.signal });
   assert.equal(stream.status, 200);
-  const other = (await (
-    await app.request(
-      "/api/snippets",
-      authedJson({ html: "<p>other</p>", session: second.sessionId }),
-    )
-  ).json()) as any;
-  const matching = (await (
-    await app.request(
-      "/api/snippets",
-      authedJson({ html: "<p>matching</p>", session: first.sessionId }),
-    )
-  ).json()) as any;
-
-  const text = await readSseUntil(stream, matching.id, () => ac.abort());
-  assert.ok(text.includes(matching.id));
-  assert.ok(!text.includes(other.id));
+  const other = await publish(app, { mock: "b", session: b.sessionId, ...html("<p>2</p>") });
+  const mine = await publish(app, { mock: "a", session: a.sessionId, ...html("<p>2</p>") });
+  const text = await readSseUntil(stream, `"version":2}`, () => ac.abort());
+  assert.ok(text.includes(mine.post.id));
+  assert.ok(!text.includes(other.post.id));
 });
 
-test("public read viewer config marks unauthenticated full-mode visitors readonly", async () => {
-  const app = makeApp("secret", { publicRead: "full" });
+// --- connection caps ---------------------------------------------------------------------
 
-  const html = await (await app.request("/")).text();
-  assert.ok(html.includes("__MOCKPIT_READONLY__=true"));
-  assert.ok(html.includes('__MOCKPIT_PUBLIC_READ__="full"'));
+test("SSE connections are capped; a released slot lets a new one in", async () => {
+  const app = makeApp(undefined, { maxHoldConnections: 2 });
+  const controllers = [new AbortController(), new AbortController()];
+  const streams = await Promise.all(
+    controllers.map((ac) => app.request("/api/events", { signal: ac.signal })),
+  );
+  assert.ok(streams.every((s) => s.status === 200));
+  assert.equal((await app.request("/api/events")).status, 503);
+  controllers[0].abort();
+  await streams[0].body!.cancel().catch(() => undefined);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const again = await app.request("/api/events", { signal: new AbortController().signal });
+  assert.equal(again.status, 200);
+  controllers[1].abort();
+  await streams[1].body!.cancel().catch(() => undefined);
+  await again.body!.cancel().catch(() => undefined);
 });
 
-test("public read viewer config keeps authenticated owners writable", async () => {
-  const app = makeApp("secret", { publicRead: "full" });
+test("long-poll waits share the hold cap with SSE; instant reads do not count", async () => {
+  const app = makeApp(undefined, { maxHoldConnections: 2 });
+  const out = await publish(app, { mock: "card", ...html("<p/>") });
+  const wait = `/api/comments?session=${out.sessionId}&wait=5`;
+  const sse = await app.request("/api/events", { signal: new AbortController().signal });
+  const poll = app.request(wait);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal((await app.request("/api/events")).status, 503);
+  assert.equal((await app.request(wait)).status, 503);
+  assert.equal((await app.request(`/api/comments?session=${out.sessionId}`)).status, 200);
+  await app.request("/api/comments", agent({ mock: out.mock.id, text: "release" }));
+  assert.equal((await poll).status, 200);
+  const sseAgain = await app.request("/api/events", { signal: new AbortController().signal });
+  assert.equal(sseAgain.status, 200);
+  await sse.body!.cancel().catch(() => undefined);
+  await sseAgain.body!.cancel().catch(() => undefined);
+});
 
-  const html = await (
-    await app.request("/", { headers: { authorization: "Bearer secret" } })
+// --- rendering ---------------------------------------------------------------------------
+
+test("/s/:id?surface=N serves each surface opaque-sandboxed; native kinds 404", async () => {
+  const app = makeApp();
+  const out = await publish(app, {
+    mock: "review",
+    surfaces: [
+      { kind: "html", html: "<script>window.x=1</script><p>diagram</p>" },
+      { kind: "diff", patch: "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b", layout: "split" },
+      { kind: "markdown", markdown: "## Plan\n\n- step one" },
+      { kind: "mermaid", mermaid: "graph TD; A-->B" },
+      { kind: "json", data: { ok: true } },
+    ],
+  });
+  const id = out.post.id;
+  const docs = await Promise.all([0, 1, 2, 3].map((n) => app.request(`/s/${id}?surface=${n}`)));
+  const [h, d, m, g] = await Promise.all(docs.map((r) => r.text()));
+  assert.match(h, /<p>diagram<\/p>/);
+  assert.match(d, /diffs-container/);
+  assert.match(m, /<h2>Plan<\/h2>/);
+  assert.match(g, /esm\.sh\/mermaid/);
+  for (const res of docs) {
+    assert.equal(res.status, 200);
+    const csp = res.headers.get("content-security-policy") ?? "";
+    assert.match(csp, /\bsandbox\b/);
+    assert.match(csp, /\ballow-scripts\b/);
+    assert.doesNotMatch(csp, /allow-same-origin/);
+    assert.doesNotMatch(csp, /frame-ancestors/);
+  }
+  // A bare load is surface 0.
+  assert.match(await (await app.request(`/s/${id}`)).text(), /<p>diagram<\/p>/);
+  assert.equal((await app.request(`/s/${id}?surface=4`)).status, 404);
+  assert.equal((await app.request(`/s/${id}?surface=9`)).status, 404);
+  assert.equal((await app.request("/s/nope")).status, 404);
+});
+
+test("/s pinned to version and theme is immutable; old versions stay renderable", async () => {
+  const app = makeApp();
+  const out = await publish(app, { mock: "card", ...html("<p>v1</p>") });
+  await publish(app, { mock: "card", ...html("<p>v2</p>") });
+  const id = out.post.id;
+  const pinned = await app.request(`/s/${id}?surface=0&ver=1&theme=github&mode=light`);
+  assert.match(pinned.headers.get("cache-control") ?? "", /immutable/);
+  assert.match(await pinned.text(), /<p>v1<\/p>/);
+  const bare = await app.request(`/s/${id}?surface=0`);
+  assert.match(bare.headers.get("cache-control") ?? "", /no-cache/);
+  assert.match(await bare.text(), /<p>v2<\/p>/);
+  assert.equal((await app.request(`/s/${id}?ver=7`)).status, 404);
+});
+
+test("kits ride the html surface into the document; the CSP allows the server origin", async () => {
+  const app = makeApp();
+  const out = await publish(app, {
+    mock: "deck",
+    surfaces: [{ kind: "html", html: "<div class=deck><img src=/a/x></div>", kits: ["slides"] }],
+  });
+  const doc = await (await app.request(`/s/${out.post.id}?surface=0`)).text();
+  assert.match(doc, /\/asset\/kit-slides\.[a-z0-9]+\.css/);
+  assert.match(doc, /querySelector\('\.deck'\)/);
+  assert.match(doc, /img-src https: data: blob: http:\/\/localhost/);
+  // The kit stylesheet is content-hashed, so it is served immutable.
+  const cssPath = doc.match(/\/asset\/kit-slides\.[a-z0-9]+\.css/)![0];
+  const css = await app.request(cssPath);
+  assert.equal(css.status, 200);
+  assert.match(css.headers.get("content-type") ?? "", /text\/css/);
+  assert.match(css.headers.get("cache-control") ?? "", /immutable/);
+  assert.equal((await app.request("/asset/kit-nope.0.css")).status, 404);
+  const kits = (await call(app, "/api/kits")).body;
+  assert.ok(kits.some((k: any) => k.id === "slides"));
+  assert.ok(kits.every((k: any) => k.css === undefined));
+});
+
+test("a page mock expands <mockpit-slot> with the component's first state", async () => {
+  const app = makeApp();
+  await publish(app, { mock: "button", state: "Rest", ...html("<button>Buy</button>") });
+  const page = await publish(app, {
+    mock: "checkout",
+    kind: "page",
+    ...html('<main><mockpit-slot slug="button"></mockpit-slot></main>'),
+  });
+  const doc = await (await app.request(`/s/${page.post.id}`)).text();
+  assert.match(doc, /<button>Buy<\/button>/);
+});
+
+// --- viewer pages ---------------------------------------------------------------------------
+
+test("viewer routes serve the trusted shell with frame-ancestors only", async () => {
+  const app = makeApp();
+  await publish(app, { mock: "card", title: "Auth Flow", ...html("<p>diagram</p>") });
+  for (const path of ["/", "/project/demo", "/project/demo/card", "/project/demo/missing"]) {
+    const res = await app.request(path);
+    assert.equal(res.status, 200, path);
+    const csp = res.headers.get("content-security-policy") ?? "";
+    assert.match(csp, /frame-ancestors 'self'/);
+    assert.doesNotMatch(csp, /\bsandbox\b/);
+    const body = await res.text();
+    assert.ok(body.includes("viewer"));
+    assert.doesNotMatch(body, /<p>diagram<\/p>/);
+  }
+  assert.match(await (await app.request("/project/demo")).text(), /<title>demo<\/title>/);
+});
+
+test("a mock page carries pinned, token-free link-preview metadata", async () => {
+  const app = makeApp("secret", { version: "1.2.3", basePath: "/u/alice" });
+  const res = await app.request(
+    "https://board.test/api/mocks",
+    authed({ project: "demo", mock: "card", title: `A "quoted" <tag>`, html: "<p/>" }),
+  );
+  const out = (await res.json()) as any;
+  const body = await (await app.request("https://board.test/project/demo/card?key=secret")).text();
+  const canonical = "https://board.test/u/alice/project/demo/card";
+  assert.ok(body.includes(`<link rel="canonical" href="${canonical}">`));
+  assert.ok(
+    body.includes(
+      `<meta property="og:image" content="https://board.test/u/alice/s/${out.post.id}.png?card=1&amp;theme=github&amp;mode=dark&amp;v=1&amp;g=1.2.3">`,
+    ),
+  );
+  assert.ok(body.includes('<meta property="og:title" content="A &quot;quoted&quot; &lt;tag&gt;">'));
+  assert.ok(body.includes("<title>A &quot;quoted&quot; &lt;tag&gt;</title>"));
+  assert.match(body, /window\.__MOCKPIT_BASE_PATH__="\/u\/alice"/);
+  for (const line of body.split("\n").filter((l) => /canonical|og:|twitter:/.test(l))) {
+    assert.doesNotMatch(line, /secret/);
+  }
+  await app.request("/api/theme", authed({ id: "gruvbox" }, "PUT"));
+  const after = await (await app.request("https://board.test/project/demo/card?key=secret")).text();
+  assert.match(after, /theme=gruvbox/);
+});
+
+test("viewer config: screenshots flag and readonly markers", async () => {
+  const shots = await (
+    await makeApp("secret", { screenshots: true }).request("/", {
+      headers: { authorization: "Bearer secret" },
+    })
   ).text();
-  assert.ok(!html.includes("__MOCKPIT_READONLY__"));
-  assert.ok(!html.includes("__MOCKPIT_PUBLIC_READ__"));
-});
-
-test("public read viewer config marks session-mode visitors readonly", async () => {
-  const app = makeApp("secret", { publicRead: "session" });
-  const created = (await (
-    await app.request("/api/snippets", authedJson({ html: "<p>x</p>" }))
-  ).json()) as any;
-
-  const html = await (await app.request(`/session/${created.sessionId}`)).text();
-  assert.ok(html.includes("__MOCKPIT_READONLY__=true"));
-  assert.ok(html.includes('__MOCKPIT_PUBLIC_READ__="session"'));
-});
-
-test("viewer config enables screenshots when the deployment supports them", async () => {
-  const app = makeApp("secret", { screenshots: true });
-
-  const html = await (
-    await app.request("/", { headers: { authorization: "Bearer secret" } })
+  assert.ok(shots.includes("__MOCKPIT_SCREENSHOTS__=true"));
+  const plain = await (
+    await makeApp("secret").request("/", { headers: { authorization: "Bearer secret" } })
   ).text();
-  assert.ok(html.includes("__MOCKPIT_SCREENSHOTS__=true"));
+  assert.ok(!plain.includes("__MOCKPIT_SCREENSHOTS__"));
+
+  const full = makeApp("secret", { publicRead: "full" });
+  const visitor = await (await full.request("/")).text();
+  assert.ok(visitor.includes("__MOCKPIT_READONLY__=true"));
+  assert.ok(visitor.includes('__MOCKPIT_PUBLIC_READ__="full"'));
+  const owner = await (
+    await full.request("/", { headers: { authorization: "Bearer secret" } })
+  ).text();
+  assert.ok(!owner.includes("__MOCKPIT_READONLY__"));
+  const keyed = await (await full.request("/?key=secret")).text();
+  assert.ok(!keyed.includes("__MOCKPIT_READONLY__"));
+
+  const session = makeApp("secret", { publicRead: "session" });
+  const page = await (await session.request("/project/demo/card")).text();
+  assert.ok(page.includes('__MOCKPIT_PUBLIC_READ__="session"'));
 });
 
-test("viewer config omits the screenshots flag by default (Node server)", async () => {
+// --- auth -----------------------------------------------------------------------------------
+
+test("auth token guards everything but the docs; ?key= sets a cookie", async () => {
   const app = makeApp("secret");
-
-  const html = await (
-    await app.request("/", { headers: { authorization: "Bearer secret" } })
-  ).text();
-  assert.ok(!html.includes("__MOCKPIT_SCREENSHOTS__"));
+  assert.equal((await app.request("/api/mocks", agent({ mock: "x", html: "<p/>" }))).status, 401);
+  assert.equal((await app.request("/api/mocks", authed({ mock: "x", html: "<p/>" }))).status, 201);
+  assert.equal((await app.request("/api/mocks")).status, 401);
+  assert.equal((await app.request("/")).status, 401);
+  assert.equal((await app.request("/a/anything")).status, 401);
+  for (const doc of ["/guide", "/setup", "/agent-howto"]) {
+    assert.equal((await app.request(doc)).status, 200);
+  }
+  const keyed = await app.request("/?key=secret");
+  assert.equal(keyed.status, 200);
+  assert.ok((keyed.headers.get("set-cookie") ?? "").includes("mockpit_key=secret"));
+  const viaCookie = await app.request("/api/mocks", { headers: { cookie: "mockpit_key=secret" } });
+  assert.equal(viaCookie.status, 200);
+  for (const res of [await app.request("/guide"), await app.request("/api/sessions")]) {
+    assert.equal(res.headers.get("referrer-policy"), "no-referrer");
+  }
 });
 
-test("public read viewer config treats query key as authenticated for that response", async () => {
-  const app = makeApp("secret", { publicRead: "full" });
-
-  const res = await app.request("/?key=secret");
-  assert.equal(res.status, 200);
-  const html = await res.text();
-  assert.ok(!html.includes("__MOCKPIT_READONLY__"));
-  assert.ok(!html.includes("__MOCKPIT_PUBLIC_READ__"));
-});
-
-test("public read does not bypass custom authenticate hooks", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "mockpit-test-"));
-  const app = createApp({
-    store: new JsonFileStore(join(dir, "data.json")),
-    viewerHtml: "<html>viewer</html>",
-    guideMarkdown: "# guide",
-    setupText: "# setup",
+test("an authenticate hook guards the app, and public read never bypasses it", async () => {
+  const app = makeApp(undefined, {
     authenticate: (request) => request.headers.get("x-mockpit-internal") === "ok",
     publicRead: "full",
   });
-
-  assert.equal((await app.request("/api/sessions")).status, 401);
+  assert.equal((await app.request("/guide")).status, 401);
+  assert.equal((await app.request("/api/mocks")).status, 401);
   assert.equal(
-    (await app.request("/api/sessions", { headers: { "x-mockpit-internal": "ok" } })).status,
+    (await app.request("/api/mocks", { headers: { "x-mockpit-internal": "ok" } })).status,
     200,
   );
 });
 
-const mcpCall = (id: number, method: string, params?: unknown) =>
-  json({ jsonrpc: "2.0", id, method, params });
-
-test("mcp endpoint: initialize, tools/list, publish round trip", async () => {
-  const app = makeApp();
-
-  const init = (await (
-    await app.request("/mcp", mcpCall(1, "initialize", { protocolVersion: "2025-03-26" }))
-  ).json()) as any;
-  assert.equal(init.result.serverInfo.name, "mockpit");
-  assert.ok(init.result.instructions.length > 0);
-
-  const list = (await (await app.request("/mcp", mcpCall(2, "tools/list"))).json()) as any;
-  const names = list.result.tools.map((t: any) => t.name);
-  assert.ok(!names.includes("publish_snippet"), "retired spellings are not advertised");
-  assert.ok(names.includes("wait_for_feedback"));
-
-  const published = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(3, "tools/call", {
-        name: "publish_snippet",
-        arguments: { title: "Via MCP", html: "<p>mcp</p>", agent: "test-agent" },
-      }),
-    )
-  ).json()) as any;
-  const payload = JSON.parse(published.result.content[0].text);
-  assert.ok(payload.id);
-  assert.ok(payload.sessionId);
-  assert.ok(payload.url.includes(`/p/${payload.id}`));
-
-  // session continuity: second publish into the returned session
-  const second = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(4, "tools/call", {
-        name: "publish_snippet",
-        arguments: { title: "Second", html: "<p>2</p>", session: payload.sessionId },
-      }),
-    )
-  ).json()) as any;
-  assert.equal(JSON.parse(second.result.content[0].text).sessionId, payload.sessionId);
-
-  // feedback loop through the mcp tool
-  await app.request("/api/comments", json({ snippet: payload.id, text: "nice", author: "user" }));
-  const feedback = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(5, "tools/call", {
-        name: "wait_for_feedback",
-        arguments: { session: payload.sessionId, timeoutSeconds: 0 },
-      }),
-    )
-  ).json()) as any;
-  // wait_for_feedback returns the batch: the post it belongs to once, its
-  // comments inside, so the agent doesn't re-derive the item per comment.
-  const fb = JSON.parse(feedback.result.content[0].text);
-  assert.equal(fb.postId, payload.id);
-  assert.equal(fb.title, "Via MCP");
-  assert.equal(fb.decision, null);
-  assert.deepEqual(
-    fb.comments.map((c: any) => c.text),
-    ["nice"],
-  );
-  assert.ok(fb.comments[0].seq > 0);
-});
-
-test("mcp publish_snippet honors sessionTitle on first publish only", async () => {
-  const app = makeApp();
-  const published = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(1, "tools/call", {
-        name: "publish_snippet",
-        arguments: { title: "One", html: "<p>1</p>", sessionTitle: "Cache design" },
-      }),
-    )
-  ).json()) as any;
-  const payload = JSON.parse(published.result.content[0].text);
-  const sessions = (await (await app.request("/api/sessions")).json()) as any;
-  assert.equal(sessions.length, 1);
-  assert.equal(sessions[0].title, "Cache design");
-
-  // publishing into the existing session with another sessionTitle is a no-op
-  await app.request(
-    "/mcp",
-    mcpCall(2, "tools/call", {
-      name: "publish_snippet",
-      arguments: {
-        title: "Two",
-        html: "<p>2</p>",
-        session: payload.sessionId,
-        sessionTitle: "Other",
-      },
-    }),
-  );
-  const after = (await (await app.request("/api/sessions")).json()) as any;
-  assert.equal(after[0].title, "Cache design");
-});
-
-test("mcp endpoint: unknown method and unknown tool", async () => {
-  const app = makeApp();
-  const bad = (await (await app.request("/mcp", mcpCall(1, "resources/list"))).json()) as any;
-  assert.equal(bad.error.code, -32601);
-  const badTool = (await (
-    await app.request("/mcp", mcpCall(2, "tools/call", { name: "nope", arguments: {} }))
-  ).json()) as any;
-  assert.equal(badTool.result.isError, true);
-});
-
-test("mcp endpoint requires bearer when token configured", async () => {
-  const app = makeApp("secret");
-  assert.equal((await app.request("/mcp", mcpCall(1, "tools/list"))).status, 401);
-  const ok = await app.request("/mcp", {
-    ...mcpCall(2, "tools/list"),
-    headers: { "content-type": "application/json", authorization: "Bearer secret" },
-  });
-  assert.equal(ok.status, 200);
-});
-
-test("mcp upload_asset stores base64 bytes and returns id + url + kind", async () => {
-  const app = makeApp();
-  const data = Buffer.from("\x89PNG\r\n\x1a\n pixels");
-  const res = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(1, "tools/call", {
-        name: "upload_asset",
-        arguments: {
-          data: data.toString("base64"),
-          contentType: "image/png",
-          filename: "shot.png",
-          kind: "image",
-        },
-      }),
-    )
-  ).json()) as any;
-  assert.equal(res.result.isError, undefined);
-  const asset = JSON.parse(res.result.content[0].text);
-  assert.ok(asset.id);
-  assert.equal(asset.kind, "image");
-  assert.equal(asset.contentType, "image/png");
-  assert.equal(asset.byteLength, data.length);
-  assert.ok(asset.url.includes(`/a/${asset.id}`));
-  // the blob is retrievable at the asset route, with matching bytes
-  const blob = await app.request(`/a/${asset.id}`);
-  assert.equal(blob.status, 200);
-  assert.equal((await blob.arrayBuffer()).byteLength, data.length);
-});
-
-test("mcp upload_asset without data fails with a clear error", async () => {
-  const app = makeApp();
-  const res = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(1, "tools/call", { name: "upload_asset", arguments: { contentType: "image/png" } }),
-    )
-  ).json()) as any;
-  assert.equal(res.result.isError, true);
-  assert.match(res.result.content[0].text, /upload_asset needs base64 `data`/);
-});
-
-test("mcp upload_asset with an explicit session attaches the asset to it", async () => {
-  const app = makeApp();
-  const session = (await (await app.request("/api/sessions", json({ agent: "m" }))).json()) as any;
-  const res = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(1, "tools/call", {
-        name: "upload_asset",
-        arguments: {
-          data: Buffer.from("hi").toString("base64"),
-          contentType: "text/plain",
-          session: session.id,
-        },
-      }),
-    )
-  ).json()) as any;
-  const asset = JSON.parse(res.result.content[0].text);
-  assert.equal(asset.sessionId, session.id);
-});
-
-test("mcp get_design_guide returns the project's design brief", async () => {
-  const app = makeApp();
-  const res = (await (
-    await app.request("/mcp", mcpCall(1, "tools/call", { name: "get_design_guide", arguments: {} }))
-  ).json()) as any;
-  assert.equal(res.result.isError, undefined);
-  // The brief is rendered from the project's STORED design, not the static
-  // workspace guide — the HTTP tier used to serve the latter while stdio served
-  // the brief, so the same tool answered differently per transport.
-  assert.match(res.result.content[0].text, /run `mockpit init`/);
-  assert.match(res.result.content[0].text, /Kit: none/);
-});
-
-test("mcp publish_post with no surfaces fails with a clear error", async () => {
-  const app = makeApp();
-  const res = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(1, "tools/call", { name: "publish_post", arguments: { surfaces: [] } }),
-    )
-  ).json()) as any;
-  assert.equal(res.result.isError, true);
-  assert.match(res.result.content[0].text, /a post needs at least one surface/);
-});
-
-test("mcp update_snippet revises via the legacy html argument", async () => {
-  const app = makeApp();
-  const pub = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(1, "tools/call", { name: "publish_snippet", arguments: { html: "<p>v1</p>" } }),
-    )
-  ).json()) as any;
-  const id = JSON.parse(pub.result.content[0].text).id;
-  const res = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(2, "tools/call", { name: "update_snippet", arguments: { id, html: "<p>v2</p>" } }),
-    )
-  ).json()) as any;
-  const out = JSON.parse(res.result.content[0].text);
-  assert.equal(out.id, id);
-  assert.equal(out.version, 2);
-});
-
-test("mcp endpoint: malformed JSON body is a -32700 parse error", async () => {
-  const app = makeApp();
-  const res = await app.request("/mcp", { method: "POST", body: "{not valid json" });
-  assert.equal(res.status, 400);
-  const body = (await res.json()) as any;
-  assert.equal(body.error.code, -32700);
-  assert.equal(body.id, null);
-});
-
-test("mcp endpoint: a JSON-RPC batch is rejected with -32600", async () => {
-  const app = makeApp();
-  const res = await app.request("/mcp", json([mcpCall(1, "tools/list").body]));
-  assert.equal(res.status, 400);
-  const body = (await res.json()) as any;
-  assert.equal(body.error.code, -32600);
-  assert.match(body.error.message, /batch/);
-});
-
-test("mcp endpoint: a notification (no id) is acknowledged 202 with no body", async () => {
-  const app = makeApp();
+test("public read full mode allows every GET but no write", async () => {
+  const app = makeApp("secret", { publicRead: "full" });
   const res = await app.request(
-    "/mcp",
-    json({ jsonrpc: "2.0", method: "notifications/initialized" }),
+    "/api/mocks",
+    authed({ project: "demo", mock: "card", html: "<p/>" }),
   );
-  assert.equal(res.status, 202);
-});
-
-test("mcp endpoint: ping responds with an empty result", async () => {
-  const app = makeApp();
-  const res = (await (await app.request("/mcp", mcpCall(1, "ping"))).json()) as any;
-  assert.deepEqual(res.result, {});
-});
-
-test("agent writes piggyback unseen user comments, delivered once", async () => {
-  const app = makeApp();
-  const s = (await (
-    await app.request("/api/snippets", json({ html: "<p>v1</p>", title: "Doc" }))
-  ).json()) as any;
-  assert.equal(s.userFeedback, undefined);
-
-  // the user comments while the agent works on something else
-  await app.request("/api/comments", json({ snippet: s.id, text: "wrong color", author: "user" }));
-  await app.request(
-    "/api/comments",
-    json({ snippet: s.id, text: "also add a key", author: "user" }),
-  );
-
-  // the agent's next write carries the feedback
-  const updated = (await (
-    await app.request(`/api/snippets/${s.id}`, { ...json({ html: "<p>v2</p>" }), method: "PUT" })
-  ).json()) as any;
-  // one batch for the post, both comments inside it, in seq order
-  assert.equal(updated.userFeedback.length, 1);
-  assert.deepEqual(feedbackTexts(updated.userFeedback), ["wrong color", "also add a key"]);
-  assert.equal(updated.userFeedback[0].postId, s.id);
-  assert.equal(updated.userFeedback[0].title, "Doc");
-  assert.equal(updated.userFeedback[0].version, 2);
-  assert.equal(updated.userFeedback[0].decision, null);
-
-  // delivered once — the next write is clean
-  const again = (await (
-    await app.request(`/api/snippets/${s.id}`, { ...json({ html: "<p>v3</p>" }), method: "PUT" })
-  ).json()) as any;
-  assert.equal(again.userFeedback, undefined);
-
-  // agent replies piggyback too; the user's own comments never do
-  await app.request("/api/comments", json({ snippet: s.id, text: "more", author: "user" }));
-  const userPost = (await (
-    await app.request("/api/comments", json({ snippet: s.id, text: "and more", author: "user" }))
-  ).json()) as any;
-  assert.equal(userPost.userFeedback, undefined);
-  const reply = (await (
-    await app.request("/api/comments", json({ snippet: s.id, text: "on it", author: "claude" }))
-  ).json()) as any;
-  assert.deepEqual(feedbackTexts(reply.userFeedback), ["more", "and more"]);
-});
-
-test("a consumed wait is not re-delivered as piggyback", async () => {
-  const app = makeApp();
-  const s = (await (await app.request("/api/snippets", json({ html: "<p>x</p>" }))).json()) as any;
-  await app.request(
-    "/api/comments",
-    json({ snippet: s.id, text: "seen via wait", author: "user" }),
-  );
-
-  // the agent receives it through the long-poll...
-  const waited = (await (
-    await app.request(`/api/comments?session=${s.sessionId}&author=user`)
-  ).json()) as any;
-  assert.equal(waited.comments.length, 1);
-
-  // ...so the next write carries nothing
-  const updated = (await (
-    await app.request(`/api/snippets/${s.id}`, { ...json({ html: "<p>v2</p>" }), method: "PUT" })
-  ).json()) as any;
-  assert.equal(updated.userFeedback, undefined);
-
-  // the viewer's unfiltered reads do NOT consume the cursor
-  await app.request("/api/comments", json({ snippet: s.id, text: "fresh", author: "user" }));
-  await app.request(`/api/comments?session=${s.sessionId}`); // viewer-style read
-  const next = (await (
-    await app.request(`/api/snippets/${s.id}`, { ...json({ html: "<p>v3</p>" }), method: "PUT" })
-  ).json()) as any;
-  assert.deepEqual(feedbackTexts(next.userFeedback), ["fresh"]);
-});
-
-// The agentSeq cursor is shared across every delivery channel, so a comment
-// delivered once on one channel must never reappear on another. The REST-to-REST
-// directions are covered above; these pin the MCP<->REST crossings, the pairing
-// most likely to drift since the two go through different code paths.
-
-test("feedback consumed via the MCP wait is not re-delivered through REST channels", async () => {
-  const app = makeApp();
-  const published = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(1, "tools/call", {
-        name: "publish_snippet",
-        arguments: { title: "Doc", html: "<p>v1</p>", agent: "mcp-agent" },
-      }),
-    )
-  ).json()) as any;
-  const p = JSON.parse(published.result.content[0].text);
-  await app.request("/api/comments", json({ snippet: p.id, text: "via mcp", author: "user" }));
-
-  // the agent drains it through the MCP tool...
-  const feedback = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(2, "tools/call", {
-        name: "wait_for_feedback",
-        arguments: { session: p.sessionId, timeoutSeconds: 0 },
-      }),
-    )
-  ).json()) as any;
-  assert.deepEqual(
-    JSON.parse(feedback.result.content[0].text).comments.map((c: any) => c.text),
-    ["via mcp"],
-  );
-
-  // ...so a REST write must not re-piggyback it, and a REST author=user read
-  // (CLI watch) sees nothing either — both honor the same advanced cursor
-  const updated = (await (
-    await app.request(`/api/snippets/${p.id}`, { ...json({ html: "<p>v2</p>" }), method: "PUT" })
-  ).json()) as any;
-  assert.equal(updated.userFeedback, undefined);
-  const restWait = (await (
-    await app.request(`/api/comments?session=${p.sessionId}&author=user`)
-  ).json()) as any;
-  assert.equal(restWait.comments.length, 0);
-});
-
-test("feedback consumed via a REST wait is not re-delivered through the MCP wait", async () => {
-  const app = makeApp();
-  const s = (await (await app.request("/api/snippets", json({ html: "<p>x</p>" }))).json()) as any;
-  await app.request("/api/comments", json({ snippet: s.id, text: "via rest", author: "user" }));
-
-  // the agent drains it through a REST author=user read...
-  const restWait = (await (
-    await app.request(`/api/comments?session=${s.sessionId}&author=user`)
-  ).json()) as any;
-  assert.deepEqual(
-    restWait.comments.map((c: any) => c.text),
-    ["via rest"],
-  );
-
-  // ...so the MCP tool, reading the same cursor, must not re-deliver it
-  const feedback = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(1, "tools/call", {
-        name: "wait_for_feedback",
-        arguments: { session: s.sessionId, timeoutSeconds: 0 },
-      }),
-    )
-  ).json()) as any;
-  const fb = JSON.parse(feedback.result.content[0].text);
-  assert.equal(fb.comments.length, 0);
-
-  // and a fresh comment still flows to the MCP channel — the cursor advanced,
-  // it didn't wedge
-  await app.request("/api/comments", json({ snippet: s.id, text: "later", author: "user" }));
-  const next = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(2, "tools/call", {
-        name: "wait_for_feedback",
-        arguments: { session: s.sessionId, timeoutSeconds: 0 },
-      }),
-    )
-  ).json()) as any;
-  assert.deepEqual(
-    JSON.parse(next.result.content[0].text).comments.map((c: any) => c.text),
-    ["later"],
-  );
-});
-
-test("mcp publish result carries userFeedback", async () => {
-  const app = makeApp();
-  const published = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(1, "tools/call", {
-        name: "publish_snippet",
-        arguments: { title: "One", html: "<p>1</p>", agent: "mcp-agent" },
-      }),
-    )
-  ).json()) as any;
-  const first = JSON.parse(published.result.content[0].text);
-  await app.request("/api/comments", json({ snippet: first.id, text: "neat", author: "user" }));
-
-  const second = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(2, "tools/call", {
-        name: "publish_snippet",
-        arguments: { title: "Two", html: "<p>2</p>", session: first.sessionId },
-      }),
-    )
-  ).json()) as any;
-  const payload = JSON.parse(second.result.content[0].text);
-  assert.deepEqual(feedbackTexts(payload.userFeedback), ["neat"]);
-});
-
-test("rejects empty and oversized html", async () => {
-  const app = makeApp();
-  assert.equal((await app.request("/api/snippets", json({ html: "" }))).status, 400);
+  const out = (await res.json()) as any;
+  for (const path of [
+    "/",
+    "/api/mocks",
+    "/api/sessions",
+    "/api/mocks/card?project=demo",
+    `/s/${out.post.id}`,
+  ]) {
+    assert.equal((await app.request(path)).status, 200, path);
+  }
+  assert.equal((await app.request("/api/mocks", agent({ mock: "x", html: "<p/>" }))).status, 401);
   assert.equal(
-    (await app.request("/api/snippets", json({ html: "x".repeat(2 * 1024 * 1024 + 1) }))).status,
-    413,
+    (await app.request("/api/comments", agent({ mock: "card", text: "hi" }))).status,
+    401,
   );
 });
 
-test("ids are unguessable: 11 url-safe chars (~64 bits), not a 32-bit segment", async () => {
-  const app = makeApp();
-  const s = (await (await app.request("/api/snippets", json({ html: "<p>hi</p>" }))).json()) as any;
-  assert.match(s.id, /^[A-Za-z0-9_-]{11}$/);
-  assert.match(s.sessionId, /^[A-Za-z0-9_-]{11}$/);
-});
-
-test("malformed base64 in an asset envelope is a 400, not a 500", async () => {
-  const app = makeApp();
+test("public read session mode only exposes reads addressed by an unguessable id", async () => {
+  const app = makeApp("secret", { publicRead: "session" });
   const res = await app.request(
-    "/api/assets",
-    json({ data: "not valid base64!!!", contentType: "image/png" }),
+    "/api/mocks",
+    authed({ project: "demo", mock: "card", html: "<p/>" }),
   );
-  assert.equal(res.status, 400);
-  assert.match(((await res.json()) as any).error, /base64/);
-});
+  const out = (await res.json()) as any;
+  const id = out.mock.id;
+  await app.request("/api/comments", authed({ mock: id, text: "hi" }));
 
-test("comment text and titles are capped before they ride the feedback channel", async () => {
-  const app = makeApp();
-  const s = (await (
-    await app.request("/api/snippets", json({ html: "<p>hi</p>", title: "T".repeat(1000) }))
-  ).json()) as any;
-  // title capped at the publish edge
-  assert.equal(s.title.length, 500);
-
-  await app.request(
+  for (const path of [
+    `/api/mocks/${id}`,
+    `/api/mocks/${id}/export`,
+    `/s/${out.post.id}`,
+    "/project/demo/card",
+    `/api/comments?mock=${id}`,
+    `/api/comments?session=${out.sessionId}`,
+    "/api/theme",
+    "/api/version",
+    "/api/kits",
+  ]) {
+    assert.equal((await app.request(path)).status, 200, path);
+  }
+  for (const path of [
+    "/",
+    "/api/mocks",
+    "/api/sessions",
+    "/api/projects",
+    `/api/mocks/${id}?project=demo`,
+    `/api/mocks/${id}/draft`,
     "/api/comments",
-    json({ snippet: s.id, text: "x".repeat(20000), author: "user" }),
-  );
-  const all = (await (await app.request(`/api/comments?session=${s.sessionId}`)).json()) as any;
-  assert.equal(all.comments[0].text.length, 8000);
-  // the capped title is what gets snapshotted onto the comment (feedback view)
-  assert.equal(all.comments[0].postTitle.length, 500);
+  ]) {
+    assert.equal((await app.request(path)).status, 401, path);
+  }
+  // A slug is a name, not an id: it must not resolve for an anonymous reader.
+  assert.equal((await app.request("/api/mocks/card")).status, 404);
+  assert.equal((await app.request("/api/comments?session=missing")).status, 404);
+  assert.equal((await app.request("/api/comments?mock=missing")).status, 404);
+  assert.equal((await app.request("/api/events")).status, 401);
+  assert.equal((await app.request("/api/events?mock=missing")).status, 404);
+  assert.equal((await app.request("/api/mocks", agent({ mock: "x", html: "<p/>" }))).status, 401);
 });
 
-// --- assets ---
+test("public read session mode scopes event streams to a mock", async () => {
+  const app = makeApp("secret", { publicRead: "session" });
+  const a = (await (
+    await app.request("/api/mocks", authed({ project: "demo", mock: "a", html: "<p/>" }))
+  ).json()) as any;
+  await app.request("/api/mocks", authed({ project: "demo", mock: "b", html: "<p/>" }));
+  const ac = new AbortController();
+  const stream = await app.request(`/api/events?mock=${a.mock.id}`, { signal: ac.signal });
+  assert.equal(stream.status, 200);
+  const other = (await (
+    await app.request("/api/mocks", authed({ project: "demo", mock: "b", html: "<p>2</p>" }))
+  ).json()) as any;
+  const mine = (await (
+    await app.request("/api/mocks", authed({ project: "demo", mock: "a", html: "<p>2</p>" }))
+  ).json()) as any;
+  const text = await readSseUntil(stream, mine.post.id, () => ac.abort());
+  assert.ok(!text.includes(other.post.id));
+});
+
+test("the global body cap rejects oversize JSON and MCP bodies", async () => {
+  const app = makeApp();
+  const oversize = {
+    "content-type": "application/json",
+    "content-length": String(17 * 1024 * 1024),
+  };
+  for (const path of ["/api/mocks", "/mcp"]) {
+    const res = await app.request(path, {
+      method: "POST",
+      headers: oversize,
+      body: new Uint8Array(0),
+    });
+    assert.equal(res.status, 413, path);
+  }
+});
+
+// --- docs, theme, version, push ------------------------------------------------------------
+
+test("docs routes serve the guide, setup and how-to; ?brief=1 renders the project brief", async () => {
+  const app = makeApp();
+  assert.equal(await (await app.request("/guide")).text(), "# guide");
+  assert.equal(await (await app.request("/setup")).text(), "# setup");
+  assert.equal(await (await app.request("/agent-howto")).text(), "# agent how-to");
+  const brief = await (await app.request("/agent-howto?brief=1&project=demo")).text();
+  assert.match(brief, /mockpit — design brief/);
+  assert.match(brief, /--mock writer/);
+});
+
+test("theme is a workspace setting; unknown ids are refused", async () => {
+  const events: any[] = [];
+  const app = makeApp(undefined, { onEvent: (e) => events.push(e) });
+  const initial = (await call(app, "/api/theme")).body;
+  assert.equal(initial.id, "github");
+  assert.ok(initial.themes.length >= 3);
+  assert.equal((await call(app, "/api/theme", agent({ id: "nope" }, "PUT"))).status, 400);
+  assert.equal((await call(app, "/api/theme", agent({ id: "gruvbox" }, "PUT"))).body.id, "gruvbox");
+  assert.equal((await call(app, "/api/theme")).body.id, "gruvbox");
+  assert.deepEqual(events.at(-1), { type: "theme-changed", id: "gruvbox" });
+});
+
+function makeVersionApp(version?: string, latest?: { version: string; notes?: string } | Error) {
+  return createApp({
+    store: new SqlStore(createSqliteStorage()),
+    viewerHtml: "<html>viewer</html>",
+    guideMarkdown: "# guide",
+    setupText: "# setup",
+    version,
+    upgradeCommand: "npm install -g mockpit",
+    fetchLatestRelease: () =>
+      latest instanceof Error ? Promise.reject(latest) : Promise.resolve(latest ?? null),
+  });
+}
+
+test("version endpoint reports an update, and stays quiet when current or offline", async () => {
+  const get = async (app: App) => (await call(app, "/api/version")).body;
+  assert.deepEqual(await get(makeVersionApp("0.3.0", { version: "0.4.0", notes: "n" })), {
+    current: "0.3.0",
+    latest: "0.4.0",
+    updateAvailable: true,
+    upgradeCommand: "npm install -g mockpit",
+    notes: "n",
+  });
+  assert.equal((await get(makeVersionApp("0.4.1", { version: "0.4.0" }))).updateAvailable, false);
+  assert.deepEqual(await get(makeVersionApp(undefined)), {
+    current: null,
+    latest: null,
+    updateAvailable: false,
+  });
+  assert.equal((await get(makeVersionApp("0.3.0", new Error("offline")))).latest, null);
+});
+
+test("push subscriptions and webhooks are validated and listed", async () => {
+  const app = makeApp();
+  assert.ok((await call(app, "/api/push/vapid")).body.publicKey);
+  assert.equal((await call(app, "/api/push/subscribe", agent({ nope: 1 }))).status, 400);
+  assert.equal(
+    (await call(app, "/api/hooks", agent({ url: "ftp://x", events: ["ask"] }))).status,
+    400,
+  );
+  assert.equal(
+    (await call(app, "/api/hooks", agent({ url: "https://x.test", events: [] }))).status,
+    400,
+  );
+  const hook = await call(
+    app,
+    "/api/hooks",
+    agent({ url: "https://x.test", events: ["ask", "bogus"] }),
+  );
+  assert.equal(hook.status, 201);
+  const hooks = (await call(app, "/api/hooks")).body;
+  assert.deepEqual(hooks[0].events, ["ask"]);
+  assert.equal((await call(app, `/api/hooks/${hook.body.id}`, { method: "DELETE" })).status, 200);
+  assert.equal((await call(app, `/api/hooks/${hook.body.id}`, { method: "DELETE" })).status, 404);
+});
+
+// --- assets ------------------------------------------------------------------------------------
 
 const b64 = (bytes: number[]) => Buffer.from(new Uint8Array(bytes)).toString("base64");
 
-test("uploads an asset via base64 JSON and serves the exact bytes", async () => {
-  const app = makeApp();
-  const res = await app.request(
-    "/api/assets",
-    json({ data: b64([137, 80, 78, 71, 0, 255]), contentType: "image/png", filename: "shot.png" }),
+test("uploads an asset via base64 JSON and serves the exact bytes inline", async () => {
+  const app = makeApp(undefined, { basePath: "/u/alice" });
+  const res = await call(
+    app,
+    "https://board.test/api/assets",
+    agent({ data: b64([137, 80, 78, 71, 0, 255]), contentType: "image/png", filename: "shot.png" }),
   );
   assert.equal(res.status, 201);
-  const asset = (await res.json()) as any;
-  assert.ok(asset.id);
-  assert.ok(asset.sessionId); // auto-created a session
-  assert.equal(asset.kind, "image"); // inferred from image/*
+  const asset = res.body;
+  assert.ok(asset.sessionId);
+  assert.equal(asset.kind, "image");
   assert.equal(asset.byteLength, 6);
-  assert.ok(String(asset.url).endsWith(`/a/${asset.id}`));
-
+  assert.equal(asset.url, `https://board.test/u/alice/a/${asset.id}`);
   const served = await app.request(`/a/${asset.id}`);
-  assert.equal(served.status, 200);
   assert.equal(served.headers.get("content-type"), "image/png");
   assert.equal(served.headers.get("content-disposition"), "inline");
   assert.equal(served.headers.get("x-content-type-options"), "nosniff");
   assert.deepEqual([...new Uint8Array(await served.arrayBuffer())], [137, 80, 78, 71, 0, 255]);
 });
 
-test("asset upload URL respects configured base path", async () => {
-  const app = makeApp(undefined, { basePath: "/u/alice" });
-  const res = await app.request(
-    "https://board.test/api/assets",
-    json({ data: b64([1, 2, 3]), contentType: "image/png" }),
-  );
-  assert.equal(res.status, 201);
-  const asset = (await res.json()) as any;
-  assert.equal(asset.url, `https://board.test/u/alice/a/${asset.id}`);
-});
-
-test("uploads raw bytes with metadata from the query string", async () => {
+test("raw uploads take metadata from the query; unsafe types are attachments", async () => {
   const app = makeApp();
-  const res = await app.request("/api/assets?filename=trace.json&kind=trace", {
-    method: "POST",
-    headers: { "content-type": "application/json-not" }, // non-json -> raw path
-    body: new Uint8Array([123, 125]),
-  });
-  // content-type header here is the asset's own type, not the request envelope
-  const raw = await app.request("/api/assets?kind=file", {
+  const raw = await call(app, "/api/assets?kind=file&filename=a.bin", {
     method: "POST",
     headers: { "content-type": "application/octet-stream" },
     body: new Uint8Array([1, 2, 3]),
   });
   assert.equal(raw.status, 201);
-  const asset = (await raw.json()) as any;
-  assert.equal(asset.kind, "file");
-  assert.equal(asset.byteLength, 3);
-  assert.ok(res.status === 201);
-});
-
-test("non-inline types are served as attachments and html is neutered", async () => {
-  const app = makeApp();
-  const svg = (await (
-    await app.request("/api/assets", json({ data: b64([60, 115]), contentType: "image/svg+xml" }))
-  ).json()) as any;
+  assert.equal(raw.body.kind, "file");
+  const svg = (
+    await call(app, "/api/assets", agent({ data: b64([60, 115]), contentType: "image/svg+xml" }))
+  ).body;
   const svgRes = await app.request(`/a/${svg.id}`);
   assert.equal(svgRes.headers.get("content-type"), "image/svg+xml");
   assert.match(svgRes.headers.get("content-disposition") ?? "", /^attachment/);
-
-  const html = (await (
-    await app.request("/api/assets", json({ data: b64([60, 104]), contentType: "text/html" }))
-  ).json()) as any;
-  const htmlRes = await app.request(`/a/${html.id}`);
-  assert.equal(htmlRes.headers.get("content-type"), "application/octet-stream");
-  assert.match(htmlRes.headers.get("content-disposition") ?? "", /^attachment/);
+  const page = (
+    await call(app, "/api/assets", agent({ data: b64([60, 104]), contentType: "text/html" }))
+  ).body;
+  const pageRes = await app.request(`/a/${page.id}`);
+  assert.equal(pageRes.headers.get("content-type"), "application/octet-stream");
 });
 
-test("rejects empty and oversized uploads", async () => {
+test("asset uploads reject empty, oversized, malformed and unknown-session bodies", async () => {
   const app = makeApp();
+  const post = (body: unknown) => app.request("/api/assets", agent(body));
+  assert.equal((await post({ data: "", contentType: "x" })).status, 400);
+  assert.equal((await post({ data: "not valid base64!!!", contentType: "image/png" })).status, 400);
   assert.equal(
-    (await app.request("/api/assets", json({ data: "", contentType: "x" }))).status,
-    400,
-  );
-  const big = b64(Array(5 * 1024 * 1024 + 1).fill(0));
-  assert.equal(
-    (await app.request("/api/assets", json({ data: big, contentType: "image/png" }))).status,
+    (await post({ data: b64(Array(5 * 1024 * 1024 + 1).fill(0)), contentType: "image/png" }))
+      .status,
     413,
   );
-});
-
-test("rejects an oversize Content-Length before buffering the body", async () => {
-  const app = makeApp();
-  // A raw-bytes POST whose declared Content-Length exceeds the cap must 413
-  // without reading the body — the handler checks the header first.
-  const res = await app.request("/api/assets?kind=file", {
+  assert.equal(
+    (await post({ data: b64([1]), contentType: "image/png", session: "nope" })).status,
+    404,
+  );
+  const declared = await app.request("/api/assets?kind=file", {
     method: "POST",
     headers: {
       "content-type": "application/octet-stream",
       "content-length": String(5 * 1024 * 1024 + 1),
     },
-    body: new Uint8Array(0), // no bytes actually sent — the check fires first
-  });
-  assert.equal(res.status, 413);
-  assert.match(((await res.json()) as any).error, /exceeds/);
-});
-
-test("caps a chunked upload with no Content-Length instead of buffering it", async () => {
-  const app = makeApp();
-  // A streamed body sends no Content-Length, so the header early-out can't fire.
-  // The handler must stop reading once the byte cap is exceeded rather than
-  // buffering the whole stream (an unauthenticated OOM). Prove it stopped by
-  // counting how many 1 MiB chunks the stream was actually asked for: if it read
-  // everything it would pull all 40; capped at 5 MiB it should stop near 6.
-  let pulled = 0;
-  const stream = new ReadableStream({
-    pull(controller) {
-      pulled++;
-      if (pulled > 40) {
-        controller.close();
-        return;
-      }
-      controller.enqueue(new Uint8Array(1024 * 1024));
-    },
-  });
-  const res = await app.request(
-    new Request("http://localhost/api/assets?kind=file", {
-      method: "POST",
-      headers: { "content-type": "application/octet-stream" },
-      body: stream,
-      duplex: "half",
-    } as RequestInit & { duplex: "half" }),
-  );
-  assert.equal(res.status, 413);
-  assert.match(((await res.json()) as any).error, /exceeds/);
-  assert.ok(pulled < 16, `read too much before capping: ${pulled} chunks`);
-});
-
-test("assembles a valid multi-chunk streamed upload and stores it intact", async () => {
-  const app = makeApp();
-  // A streamed body under the cap must be accepted and its chunks reassembled
-  // in order — every other upload test sends a single chunk, so this is the only
-  // cover for a multi-chunk body surviving the bodyLimit re-wrap. We read the
-  // asset back and compare bytes so a wrong offset/order would fail loudly.
-  const stream = new ReadableStream({
-    start(controller) {
-      controller.enqueue(new Uint8Array([1, 2, 3]));
-      controller.enqueue(new Uint8Array([4, 5, 6]));
-      controller.enqueue(new Uint8Array([7, 8, 9]));
-      controller.close();
-    },
-  });
-  const res = await app.request(
-    new Request("http://localhost/api/assets?kind=file", {
-      method: "POST",
-      headers: { "content-type": "application/octet-stream" },
-      body: stream,
-      duplex: "half",
-    } as RequestInit & { duplex: "half" }),
-  );
-  assert.equal(res.status, 201);
-  const asset = (await res.json()) as any;
-  assert.equal(asset.byteLength, 9);
-  const served = await app.request(`/a/${asset.id}`);
-  assert.deepEqual([...new Uint8Array(await served.arrayBuffer())], [1, 2, 3, 4, 5, 6, 7, 8, 9]);
-});
-
-test("the global body cap rejects oversize JSON and MCP bodies", async () => {
-  const app = makeApp();
-  // Every write endpoint reads its body with an unbounded c.req.json(); the
-  // global bodyLimit must refuse an oversize one with a 413 before it is read.
-  // An over-cap Content-Length is the cheap path (no body buffered) — assert it
-  // fires on a REST write endpoint and on /mcp, the two body-reading surfaces.
-  const oversize = {
-    "content-type": "application/json",
-    "content-length": String(17 * 1024 * 1024),
-  };
-  const surfaces = await app.request("/api/surfaces", {
-    method: "POST",
-    headers: oversize,
-    body: new Uint8Array(0), // no bytes sent — the Content-Length check fires first
-  });
-  assert.equal(surfaces.status, 413);
-  const mcp = await app.request("/mcp", {
-    method: "POST",
-    headers: oversize,
     body: new Uint8Array(0),
   });
-  assert.equal(mcp.status, 413);
-});
-
-test("uploading to an unknown session 404s; serving a missing asset 404s", async () => {
-  const app = makeApp();
-  const res = await app.request(
-    "/api/assets",
-    json({ data: b64([1]), contentType: "image/png", session: "nope" }),
-  );
-  assert.equal(res.status, 404);
+  assert.equal(declared.status, 413);
   assert.equal((await app.request("/a/missing")).status, 404);
 });
 
-test("the surface CSP allows the server origin so assets embed by url", async () => {
+test("a chunked upload is capped while streaming, and a valid one reassembles", async () => {
   const app = makeApp();
-  const snip = (await (
-    await app.request("/api/snippets", json({ html: "<img src=/a/x>" }))
-  ).json()) as any;
-  const page = await (await app.request(`/s/${snip.id}?part=0`)).text();
-  assert.match(page, /img-src https: data: blob: http:\/\/localhost/);
-});
-
-test("asset routes require auth when a token is set", async () => {
-  const app = makeApp("secret");
-  assert.equal(
-    (await app.request("/api/assets", json({ data: b64([1]), contentType: "x" }))).status,
-    401,
-  );
-  assert.equal((await app.request("/a/anything")).status, 401);
-});
-
-// --- URL routing: /session/:id and /session/:id/s/:surfaceId ---
-
-test("/session/:id serves the viewer HTML", async () => {
-  const app = makeApp();
-  // create a session with a surface so the id is valid
-  const s = (await (
-    await app.request("/api/snippets", json({ html: "<p>x</p>", agent: "pi" }))
-  ).json()) as any;
-  const res = await app.request(`/session/${s.sessionId}`);
-  assert.equal(res.status, 200);
-  assert.ok(res.headers.get("content-type")?.includes("text/html"));
-  const body = await res.text();
-  assert.ok(body.includes("viewer"), "should serve the viewer document");
-});
-
-test("/session/:id/s/:surfaceId serves the viewer HTML", async () => {
-  const app = makeApp();
-  const s = (await (
-    await app.request("/api/snippets", json({ html: "<p>x</p>", agent: "pi" }))
-  ).json()) as any;
-  const res = await app.request(`/session/${s.sessionId}/s/${s.id}`);
-  assert.equal(res.status, 200);
-  assert.ok(res.headers.get("content-type")?.includes("text/html"));
-  const body = await res.text();
-  assert.ok(body.includes("viewer"), "should serve the viewer document");
-});
-
-test("/session/:id serves viewer even for nonexistent session ids", async () => {
-  const app = makeApp();
-  // the SPA handles resolution; the server just serves the HTML
-  const res = await app.request("/session/deadbeef");
-  assert.equal(res.status, 200);
-  assert.ok(res.headers.get("content-type")?.includes("text/html"));
-});
-
-test("/session routes require auth when a token is set", async () => {
-  const app = makeApp("secret");
-  assert.equal((await app.request("/session/abc123")).status, 401);
-  assert.equal((await app.request("/session/abc123/s/def456")).status, 401);
-  // with auth they serve the viewer
-  const authed = await app.request("/session/abc123", {
-    headers: { authorization: "Bearer secret" },
-  });
-  assert.equal(authed.status, 200);
-  assert.ok((await authed.text()).includes("viewer"));
-});
-
-test("GET /api/comments?surface= filters to that surface, not the whole session", async () => {
-  const app = makeApp();
-  // Two surfaces in one session.
-  const a = (await (
-    await app.request("/api/snippets", json({ html: "<p>A</p>", sessionTitle: "S" }))
-  ).json()) as any;
-  const b = (await (
-    await app.request("/api/snippets", json({ html: "<p>B</p>", session: a.sessionId }))
-  ).json()) as any;
-
-  // A comment on each surface.
-  await app.request("/api/comments", json({ surface: a.id, text: "on A", author: "user" }));
-  await app.request("/api/comments", json({ surface: b.id, text: "on B", author: "user" }));
-
-  // Filtering by surface must return only that surface's comment. Regression
-  // guard for the app→store query mapping (q.surfaceId → CommentQuery.postId):
-  // a misnamed key silently drops the filter and returns the whole session.
-  const onA = (await (
-    await app.request(`/api/comments?session=${a.sessionId}&surface=${a.id}`)
-  ).json()) as any;
-  assert.equal(onA.comments.length, 1);
-  assert.equal(onA.comments[0].postId, a.id);
-  assert.equal(onA.comments[0].text, "on A");
-
-  // Sanity: the session as a whole still has both comments.
-  const allInSession = (await (
-    await app.request(`/api/comments?session=${a.sessionId}`)
-  ).json()) as any;
-  assert.equal(allInSession.comments.length, 2);
-});
-
-// --- post/surface wire vocabulary (additive, backward-compatible) ---
-
-test("POST /api/posts accepts a surfaces body and aliases /api/surfaces reads", async () => {
-  const app = makeApp();
-  const res = await app.request(
-    "/api/posts",
-    json({ title: "Via posts", surfaces: [{ kind: "html", html: "<p>post</p>" }] }),
-  );
-  assert.equal(res.status, 201);
-  const created = (await res.json()) as any;
-  assert.ok(created.id && created.sessionId);
-  assert.deepEqual(
-    created.surfaces.map((s: any) => s.kind),
-    ["html"],
-  );
-
-  // GET /api/posts/:id is identical to GET /api/surfaces/:id
-  const viaPosts = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  const viaSurfaces = (await (await app.request(`/api/surfaces/${created.id}`)).json()) as any;
-  assert.deepEqual(viaPosts, viaSurfaces);
-  assert.equal(viaPosts.surfaces[0].html, "<p>post</p>");
-});
-
-test("POST /api/surfaces still accepts a legacy parts body", async () => {
-  const app = makeApp();
-  const res = await app.request(
-    "/api/surfaces",
-    json({ title: "Legacy", parts: [{ kind: "html", html: "<p>legacy</p>" }] }),
-  );
-  assert.equal(res.status, 201);
-  const created = (await res.json()) as any;
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].html, "<p>legacy</p>");
-});
-
-test("POST /api/posts also accepts a legacy parts body (fallback)", async () => {
-  const app = makeApp();
-  const res = await app.request(
-    "/api/posts",
-    json({ title: "Fallback", parts: [{ kind: "html", html: "<p>fb</p>" }] }),
-  );
-  assert.equal(res.status, 201);
-  const created = (await res.json()) as any;
-  const full = (await (await app.request(`/api/surfaces/${created.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].html, "<p>fb</p>");
-});
-
-test("missing blocks 400 mentions surfaces", async () => {
-  const app = makeApp();
-  const res = await app.request("/api/posts", json({ title: "Empty" }));
-  assert.equal(res.status, 400);
-  const body = (await res.json()) as any;
-  assert.match(body.error, /surfaces/);
-});
-
-test("PUT /api/posts/:id revises with a surfaces body; DELETE /api/posts/:id removes", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "Rev", surfaces: [{ kind: "html", html: "<p>v1</p>" }] }),
-    )
-  ).json()) as any;
-
-  const put = await app.request(`/api/posts/${created.id}`, {
-    ...json({ surfaces: [{ kind: "html", html: "<p>v2</p>" }] }),
-    method: "PUT",
-  });
-  assert.equal(put.status, 200);
-  const revised = (await put.json()) as any;
-  assert.equal(revised.version, 2);
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].html, "<p>v2</p>");
-
-  const del = await app.request(`/api/posts/${created.id}`, { method: "DELETE" });
-  assert.equal(del.status, 200);
-  assert.equal((await app.request(`/api/posts/${created.id}`)).status, 404);
-});
-
-test("GET /p/:id and /p/:id?surface=N mirror /s/:id", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({
-        title: "Pages",
-        surfaces: [
-          { kind: "html", html: "<p>first</p>" },
-          { kind: "markdown", markdown: "## second" },
-        ],
-      }),
-    )
-  ).json()) as any;
-
-  // shell page
-  const shell = await app.request(`/p/${created.id}`);
-  assert.equal(shell.status, 200);
-  assert.match(shell.headers.get("content-type") ?? "", /text\/html/);
-
-  // ?surface=N selects a block (sandboxed document), same as ?part=N
-  const viaSurfaceQ = await app.request(`/p/${created.id}?surface=1`);
-  assert.equal(viaSurfaceQ.status, 200);
-  const bodyNew = await viaSurfaceQ.text();
-  assert.ok(bodyNew.includes("second"));
-
-  // legacy ?part still works on /s/:id
-  const viaPartQ = await app.request(`/s/${created.id}?part=1`);
-  assert.equal(viaPartQ.status, 200);
-  assert.ok((await viaPartQ.text()).includes("second"));
-
-  // cross matrix: new param on the old route, old param on the new route
-  const oldRouteNewParam = await app.request(`/s/${created.id}?surface=1`);
-  assert.equal(oldRouteNewParam.status, 200);
-  assert.ok((await oldRouteNewParam.text()).includes("second"));
-  const newRouteOldParam = await app.request(`/p/${created.id}?part=1`);
-  assert.equal(newRouteOldParam.status, 200);
-  assert.ok((await newRouteOldParam.text()).includes("second"));
-});
-
-test("PUT /api/posts/:id with surfaces:null is a 400, not a silent title-only update", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "Orig", surfaces: [{ kind: "html", html: "<p>keep</p>" }] }),
-    )
-  ).json()) as any;
-
-  // explicit null surfaces must be rejected (like POST), not ignored
-  const bad = await app.request(`/api/posts/${created.id}`, {
-    method: "PUT",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ surfaces: null, title: "New" }),
-  });
-  assert.equal(bad.status, 400);
-  // and the post is unchanged
-  const after = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(after.title, "Orig");
-
-  // a title-only update (no surfaces/parts field at all) still works
-  const ok = await app.request(`/api/posts/${created.id}`, {
-    method: "PUT",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ title: "Renamed" }),
-  });
-  assert.equal(ok.status, 200);
-  assert.equal(
-    ((await (await app.request(`/api/posts/${created.id}`)).json()) as any).title,
-    "Renamed",
-  );
-});
-
-test("GET /api/sessions/:id/posts mirrors /surfaces", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "Listed", surfaces: [{ kind: "html", html: "<p>x</p>" }] }),
-    )
-  ).json()) as any;
-  const viaPosts = (await (
-    await app.request(`/api/sessions/${created.sessionId}/posts`)
-  ).json()) as any;
-  const viaSurfaces = (await (
-    await app.request(`/api/sessions/${created.sessionId}/surfaces`)
-  ).json()) as any;
-  // Same rows; the canonical route drops the legacy `parts` duplicate.
-  assert.deepEqual(
-    viaSurfaces.map(({ parts: _parts, ...rest }: any) => rest),
-    viaPosts,
-  );
-  assert.equal(viaPosts.length, 1);
-  assert.deepEqual(viaSurfaces[0].parts, viaSurfaces[0].surfaces);
-});
-
-test("GET /api/sessions/:id/posts lists lean surfaces with ids and omitted html bodies", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({
-        title: "Listed",
-        surfaces: [
-          { kind: "html", html: "<p>heavy</p>" },
-          { kind: "markdown", markdown: "# shipped" },
-        ],
-      }),
-    )
-  ).json()) as any;
-
-  const list = (await (
-    await app.request(`/api/sessions/${created.sessionId}/posts`)
-  ).json()) as any[];
-  assert.equal(list.length, 1);
-  assert.ok(Array.isArray(list[0].surfaces), "canonical key is surfaces");
-  assert.deepEqual(
-    list[0].surfaces.map((p: any) => ({ id: typeof p.id, kind: p.kind })),
-    [
-      { id: "string", kind: "html" },
-      { id: "string", kind: "markdown" },
-    ],
-  );
-  assert.ok(!("html" in list[0].surfaces[0]), "elided html body key is absent");
-  assert.equal(list[0].surfaces[1].markdown, "# shipped");
-  assert.equal(list[0].parts, undefined, "canonical list drops the parts duplicate");
-  const legacy = (await (
-    await app.request(`/api/sessions/${created.sessionId}/surfaces`)
-  ).json()) as any[];
-  assert.deepEqual(legacy[0].parts, legacy[0].surfaces, "legacy parts aliases surfaces");
-});
-
-test("GET /api/posts/:id/viewer is compact while canonical and legacy details stay full", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({
-        title: "Viewer v1",
-        surfaces: [
-          { kind: "html", html: "<p>historical body</p>" },
-          { kind: "json", data: { old: true } },
-        ],
-      }),
-    )
-  ).json()) as any;
-  await app.request(`/api/posts/${created.id}`, {
-    ...json({
-      title: "Viewer v2",
-      surfaces: [
-        { kind: "markdown", markdown: "# current body" },
-        { kind: "json", data: { keep: true } },
-        { kind: "image", assetId: "asset-current", alt: "kept image metadata" },
-        { kind: "trace", steps: [{ label: "kept trace data" }] },
-      ],
-    }),
-    method: "PUT",
-  });
-
-  const compact = (await (await app.request(`/api/posts/${created.id}/viewer`)).json()) as any;
-  assert.equal(compact.id, created.id);
-  assert.equal(compact.title, "Viewer v2");
-  assert.equal(compact.version, 2);
-  assert.equal(compact.versionCount, 2);
-  assert.ok(!("history" in compact), "compact viewer response omits history entirely");
-  assert.ok(!("markdown" in compact.surfaces[0]), "sandboxed current body is omitted");
-  assert.deepEqual(compact.surfaces[1].data, { keep: true }, "JSON data is retained");
-  assert.equal(compact.surfaces[2].assetId, "asset-current", "image metadata is retained");
-  assert.equal(compact.surfaces[3].steps[0].label, "kept trace data", "trace data is retained");
-
-  const canonical = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  const legacySurface = (await (await app.request(`/api/surfaces/${created.id}`)).json()) as any;
-  const legacySnippet = (await (await app.request(`/api/snippets/${created.id}`)).json()) as any;
-  // The canonical detail ships history METADATA only; the legacy aliases keep
-  // the old full shape byte-for-byte, and `?history=full` restores it.
-  assert.deepEqual(canonical.history, [
-    {
-      version: 1,
-      title: "Viewer v1",
-      at: canonical.history[0].at,
-      surfaceCount: 2,
-      surfaceKinds: ["html", "json"],
+  let pulled = 0;
+  const flood = new ReadableStream({
+    pull(controller) {
+      pulled++;
+      if (pulled > 40) return controller.close();
+      controller.enqueue(new Uint8Array(1024 * 1024));
     },
-  ]);
-  assert.ok(!("surfaces" in canonical.history[0]), "history bodies are opt-in");
-  const full = (await (await app.request(`/api/posts/${created.id}?history=full`)).json()) as any;
-  assert.deepEqual(legacySurface, full);
-  assert.deepEqual(legacySnippet, full);
-  assert.equal((await app.request(`/api/surfaces/${created.id}/viewer`)).status, 404);
-  assert.equal((await app.request(`/api/snippets/${created.id}/viewer`)).status, 404);
-  assert.equal(full.history[0].surfaces[0].html, "<p>historical body</p>");
-  assert.equal(canonical.surfaces[0].markdown, "# current body");
-});
-
-test("viewer versionCount is capped to retained history plus current", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "Rolling", surfaces: [{ kind: "html", html: "<p>v1</p>" }] }),
-    )
-  ).json()) as any;
-  for (let version = 2; version <= HISTORY_LIMIT + 3; version++) {
-    const response = await app.request(`/api/posts/${created.id}`, {
-      ...json({ title: `Rolling v${version}` }),
-      method: "PUT",
-    });
-    assert.equal(response.status, 200);
-  }
-
-  const compact = (await (await app.request(`/api/posts/${created.id}/viewer`)).json()) as any;
-  assert.equal(compact.version, HISTORY_LIMIT + 3);
-  assert.equal(compact.versionCount, HISTORY_LIMIT + 1);
-  assert.ok(compact.versionCount < compact.version, "lifetime version can exceed retained count");
-});
-
-test("GET /api/sessions/:id/posts?hydrate=1 returns compact ViewerPosts", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "Hydrated", surfaces: [{ kind: "html", html: "<p>heavy</p>" }] }),
-    )
-  ).json()) as any;
-  await app.request(`/api/posts/${created.id}`, {
-    ...json({ title: "Hydrated v2", surfaces: [{ kind: "html", html: "<p>new</p>" }] }),
-    method: "PUT",
   });
+  const capped = await app.request(
+    new Request("http://localhost/api/assets?kind=file", {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream" },
+      body: flood,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" }),
+  );
+  assert.equal(capped.status, 413);
+  assert.ok(pulled < 16, `read too much before capping: ${pulled} chunks`);
 
-  const list = (await (
-    await app.request(`/api/sessions/${created.sessionId}/posts?hydrate=1`)
-  ).json()) as any[];
-  assert.equal(list.length, 1);
-  assert.equal(list[0].id, created.id);
-  assert.equal(list[0].title, "Hydrated v2");
-  assert.equal(list[0].version, 2);
-  assert.equal(list[0].versionCount, 2);
-  assert.ok(!("history" in list[0]), "hydrate omits history entirely");
-  // The frame ref survives — it's what /s/:id?part=N is built from.
-  assert.equal(list[0].surfaces[0].kind, "html");
-  assert.equal(list[0].surfaces[0].index, 0);
-  assert.ok(!("html" in list[0].surfaces[0]), "sandboxed current body is omitted");
+  const chunks = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new Uint8Array([1, 2, 3]));
+      controller.enqueue(new Uint8Array([4, 5, 6]));
+      controller.close();
+    },
+  });
+  const ok = await app.request(
+    new Request("http://localhost/api/assets?kind=file", {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream" },
+      body: chunks,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" }),
+  );
+  const asset = (await ok.json()) as any;
+  const served = await app.request(`/a/${asset.id}`);
+  assert.deepEqual([...new Uint8Array(await served.arrayBuffer())], [1, 2, 3, 4, 5, 6]);
 });
 
-test("hydrated posts omit sandboxed bodies the viewer never reads, and keep native ones", async () => {
+test("an asset referenced before its upload is served once the bytes land", async () => {
   const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({
-        title: "Mixed",
-        surfaces: [
-          { kind: "html", html: "<p>heavy</p>" },
-          { kind: "markdown", markdown: "# heavy" },
-          { kind: "terminal", text: "heavy" },
-          { kind: "json", data: { keep: true } },
-        ],
+  const bytes = new Uint8Array([137, 80, 78, 71, 1, 2, 3]);
+  const id = createHash("sha256").update(bytes).digest("hex");
+  const out = await publish(app, { mock: "shot", surfaces: [{ kind: "image", assetId: id }] });
+  const pending = app.request(`/a/${id}`);
+  setTimeout(() => {
+    void app.request(
+      "/api/assets",
+      agent({
+        data: Buffer.from(bytes).toString("base64"),
+        contentType: "image/png",
+        session: out.sessionId,
       }),
-    )
-  ).json()) as any;
-  await app.request(`/api/posts/${created.id}`, {
-    ...json({ title: "Mixed v2", surfaces: [{ kind: "diff", patch: "--- a\n+++ b\n" }] }),
-    method: "PUT",
-  });
-
-  const [post] = (await (
-    await app.request(`/api/sessions/${created.sessionId}/posts?hydrate=1`)
-  ).json()) as any[];
-
-  // Sandboxed kinds render in an iframe that fetches its own body from
-  // /s/:id?part=N — the content key is absent, not empty.
-  assert.ok(!("patch" in post.surfaces[0]), "diff patch body is absent");
-  assert.ok(!("history" in post), "history is represented only by versionCount");
-  assert.equal(post.versionCount, 2);
-
-  // A native surface in the CURRENT version keeps its payload — check via a post
-  // whose latest version holds one.
-  const native = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "Native", surfaces: [{ kind: "json", data: { keep: true } }] }),
-    )
-  ).json()) as any;
-  const rows = (await (
-    await app.request(`/api/sessions/${native.sessionId}/posts?hydrate=1`)
-  ).json()) as any[];
-  const nativeRow = rows.find((r) => r.id === native.id);
-  assert.deepEqual(nativeRow.surfaces[0].data, { keep: true });
+    );
+  }, 100);
+  const res = await pending;
+  assert.equal(res.status, 200);
+  assert.equal((await res.arrayBuffer()).byteLength, bytes.length);
 });
 
-test("read responses expose derived surface indexes and renumber after edits", async () => {
+// --- MCP over HTTP -----------------------------------------------------------------------------
+
+test("mcp: initialize and tools/list advertise exactly the mock tools", async () => {
   const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({
-        title: "Indexed",
-        surfaces: [
-          { kind: "html", html: "<p>first</p>" },
-          { kind: "markdown", markdown: "# second" },
-          { kind: "terminal", text: "third" },
-        ],
-      }),
-    )
-  ).json()) as any;
-  await app.request(`/api/posts/${created.id}`, {
-    ...json({ title: "Indexed v2" }),
-    method: "PUT",
-  });
-
-  const detail = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
+  const init = (
+    await call(app, "/mcp", mcpCall(1, "initialize", { protocolVersion: "2025-03-26" }))
+  ).body;
+  assert.equal(init.result.serverInfo.name, "mockpit");
+  assert.match(init.result.instructions, /publish_mock/);
+  const list = (await call(app, "/mcp", mcpCall(2, "tools/list"))).body;
   assert.deepEqual(
-    detail.surfaces.map((p: any) => ({ index: p.index, kind: p.kind })),
+    list.result.tools.map((t: any) => t.name),
     [
-      { index: 0, kind: "html" },
-      { index: 1, kind: "markdown" },
-      { index: 2, kind: "terminal" },
-    ],
-  );
-  // history bodies (and their indexes) are opt-in
-  const detailFull = (await (
-    await app.request(`/api/posts/${created.id}?history=full`)
-  ).json()) as any;
-  assert.deepEqual(detail.history[0].surfaceKinds, ["html", "markdown", "terminal"]);
-  assert.deepEqual(
-    detailFull.history[0].surfaces.map((p: any) => ({ index: p.index, kind: p.kind })),
-    [
-      { index: 0, kind: "html" },
-      { index: 1, kind: "markdown" },
-      { index: 2, kind: "terminal" },
-    ],
-  );
-
-  const list = (await (
-    await app.request(`/api/sessions/${created.sessionId}/posts`)
-  ).json()) as any[];
-  assert.deepEqual(
-    list[0].surfaces.map((p: any) => ({ index: p.index, kind: p.kind })),
-    [
-      { index: 0, kind: "html" },
-      { index: 1, kind: "markdown" },
-      { index: 2, kind: "terminal" },
-    ],
-  );
-
-  await app.request(`/api/posts/${created.id}/surfaces/0`, { method: "DELETE" });
-  const renumbered = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.deepEqual(
-    renumbered.surfaces.map((p: any) => ({ index: p.index, kind: p.kind })),
-    [
-      { index: 0, kind: "markdown" },
-      { index: 1, kind: "terminal" },
+      "publish_mock",
+      "revise_mock",
+      "list_mocks",
+      "get_mock",
+      "ask_user",
+      "wait_for_feedback",
+      "reply_to_user",
+      "export_mock",
+      "upload_asset",
+      "get_design_guide",
+      "add_surface",
+      "edit_surface",
+      "remove_surface",
+      "reorder_surfaces",
     ],
   );
 });
 
-test("GET /session/:id/p/:postId serves the viewer shell", async () => {
+test("mcp: the design loop round-trips through the shared flows", async () => {
   const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "Nested", surfaces: [{ kind: "html", html: "<p>x</p>" }] }),
-    )
-  ).json()) as any;
-  const page = await app.request(`/session/${created.sessionId}/p/${created.id}`);
-  assert.equal(page.status, 200);
-  assert.match(page.headers.get("content-type") ?? "", /text\/html/);
-});
-
-test("publish_post / update_post / list_posts MCP tools accept surfaces", async () => {
-  const app = makeApp();
-  const list = (await (await app.request("/mcp", mcpCall(1, "tools/list"))).json()) as any;
-  const names = list.result.tools.map((t: any) => t.name);
-  assert.ok(names.includes("publish_post"));
-  assert.ok(names.includes("update_post"));
-  assert.ok(names.includes("list_posts"));
-  // the old tools are callable but no longer advertised
-  assert.ok(!names.includes("publish_surface"));
-  assert.ok(!names.includes("list_surfaces"));
-
-  const published = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(2, "tools/call", {
-        name: "publish_post",
-        arguments: {
-          title: "Post",
-          surfaces: [{ kind: "diff", patch: "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-x\n+y" }],
-        },
-      }),
-    )
-  ).json()) as any;
-  const payload = JSON.parse(published.result.content[0].text);
-  assert.ok(payload.id && payload.sessionId);
-  assert.equal(payload.kinds, undefined);
-  assert.deepEqual(
-    payload.surfaces.map((s: any) => s.kind),
-    ["diff"],
-  );
-  // new tools emit the canonical /p/ path
-  assert.ok(payload.url.includes(`/p/${payload.id}`));
-  const full = (await (await app.request(`/api/posts/${payload.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].kind, "diff");
-
-  // update_post with surfaces
-  const updated = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(3, "tools/call", {
-        name: "update_post",
-        arguments: { id: payload.id, surfaces: [{ kind: "html", html: "<p>updated</p>" }] },
-      }),
-    )
-  ).json()) as any;
-  const upPayload = JSON.parse(updated.result.content[0].text);
-  assert.equal(upPayload.version, 2);
-  assert.equal(upPayload.kinds, undefined);
-  assert.deepEqual(
-    upPayload.surfaces.map((s: any) => s.kind),
-    ["html"],
-  );
-  assert.ok(upPayload.url.includes(`/p/${payload.id}`));
-
-  // list_posts scoped to the session
-  const listed = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(4, "tools/call", {
-        name: "list_posts",
-        arguments: { session: payload.sessionId },
-      }),
-    )
-  ).json()) as any;
-  const rows = JSON.parse(listed.result.content[0].text);
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].id, payload.id);
-  assert.equal(rows[0].kinds, undefined);
-  assert.equal(rows[0].parts, undefined);
-  assert.deepEqual(rows[0].surfaces, [{ id: upPayload.surfaces[0].id, kind: "html", index: 0 }]);
-  assert.deepEqual(Object.keys(rows[0].surfaces[0]).sort(), ["id", "index", "kind"]);
-});
-
-test("reply_to_user MCP tool accepts postId (and legacy surfaceId)", async () => {
-  const app = makeApp();
-  const published = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(1, "tools/call", {
-        name: "publish_post",
-        arguments: { title: "P", surfaces: [{ kind: "html", html: "<p>x</p>" }] },
-      }),
-    )
-  ).json()) as any;
-  const { id } = JSON.parse(published.result.content[0].text);
-
-  // canonical postId arg
-  const replied = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(2, "tools/call", {
-        name: "reply_to_user",
-        arguments: { postId: id, message: "ack", author: "test-agent" },
-      }),
-    )
-  ).json()) as any;
-  assert.ok(!replied.result.isError, replied.result.content?.[0]?.text);
-  const comment = JSON.parse(replied.result.content[0].text);
-  assert.equal(comment.text, "ack");
-  assert.equal(comment.postId, id); // postId routed the reply to the right post's thread
-
-  // legacy surfaceId arg still works
-  const legacy = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(3, "tools/call", {
-        name: "reply_to_user",
-        arguments: { surfaceId: id, message: "ack2" },
-      }),
-    )
-  ).json()) as any;
-  assert.ok(!legacy.result.isError, legacy.result.content?.[0]?.text);
-  assert.equal(JSON.parse(legacy.result.content[0].text).postId, id);
-
-  // neither postId nor surfaceId → a clean error, not a crash
-  const missing = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(4, "tools/call", {
-        name: "reply_to_user",
-        arguments: { message: "orphan" },
-      }),
-    )
-  ).json()) as any;
-  assert.ok(missing.result.isError);
-});
-
-test("publish_surface MCP tool still accepts legacy parts", async () => {
-  const app = makeApp();
-  const published = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(2, "tools/call", {
-        name: "publish_surface",
-        arguments: { title: "Legacy", parts: [{ kind: "html", html: "<p>old</p>" }] },
-      }),
-    )
-  ).json()) as any;
-  const payload = JSON.parse(published.result.content[0].text);
-  assert.ok(payload.url.includes(`/p/${payload.id}`));
-  const full = (await (await app.request(`/api/surfaces/${payload.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].html, "<p>old</p>");
-});
-
-// ---------------------------------------------------------------------------
-// PATCH /api/posts/:id — content-only update (preserves surface kind)
-// ---------------------------------------------------------------------------
-
-const patch = (body: unknown) => ({
-  method: "PATCH" as const,
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify(body),
-});
-
-test("PATCH /api/posts/:id updates markdown content preserving kind", async () => {
-  const app = makeApp();
-  // publish a markdown post
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "MD", surfaces: [{ kind: "markdown", markdown: "# v1" }] }),
-    )
-  ).json()) as any;
-
-  // patch with new content
-  const res = await app.request(`/api/posts/${created.id}`, patch({ content: "# v2" }));
-  assert.equal(res.status, 200);
-  const updated = (await res.json()) as any;
-  assert.equal(updated.version, 2);
-
-  // verify the surface kept its kind
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].kind, "markdown");
-  assert.equal(full.surfaces[0].markdown, "# v2");
-});
-
-test("PATCH /api/posts/:id updates html content", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "HTML", surfaces: [{ kind: "html", html: "<p>v1</p>" }] }),
-    )
-  ).json()) as any;
-
-  const res = await app.request(`/api/posts/${created.id}`, patch({ content: "<p>v2</p>" }));
-  assert.equal(res.status, 200);
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].kind, "html");
-  assert.equal(full.surfaces[0].html, "<p>v2</p>");
-});
-
-test("PATCH /api/posts/:id updates code content preserving language", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({
-        title: "Code",
-        surfaces: [{ kind: "code", code: "const x = 1;", language: "typescript" }],
-      }),
-    )
-  ).json()) as any;
-
-  const res = await app.request(`/api/posts/${created.id}`, patch({ content: "const y = 2;" }));
-  assert.equal(res.status, 200);
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].kind, "code");
-  assert.equal(full.surfaces[0].code, "const y = 2;");
-  assert.equal(full.surfaces[0].language, "typescript");
-});
-
-test("PATCH /api/posts/:id updates diff content preserving layout", async () => {
-  const app = makeApp();
-  const diffPatch = "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new";
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({
-        title: "Diff",
-        surfaces: [{ kind: "diff", patch: diffPatch, layout: "split" }],
-      }),
-    )
-  ).json()) as any;
-
-  const diffPatch2 = "--- a/y\n+++ b/y\n@@ -1 +1 @@\n-a\n+b";
-  const res = await app.request(`/api/posts/${created.id}`, patch({ content: diffPatch2 }));
-  assert.equal(res.status, 200);
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].kind, "diff");
-  assert.equal(full.surfaces[0].patch, diffPatch2);
-  assert.equal(full.surfaces[0].layout, "split");
-});
-
-test("PATCH /api/posts/:id updates terminal content preserving cols", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({
-        title: "Term",
-        surfaces: [{ kind: "terminal", text: "$ ls\nfoo", cols: 80 }],
-      }),
-    )
-  ).json()) as any;
-
-  const res = await app.request(`/api/posts/${created.id}`, patch({ content: "$ ls\nbar" }));
-  assert.equal(res.status, 200);
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].kind, "terminal");
-  assert.equal(full.surfaces[0].text, "$ ls\nbar");
-  assert.equal(full.surfaces[0].cols, 80);
-});
-
-test("PATCH /api/posts/:id updates mermaid content", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "Diagram", surfaces: [{ kind: "mermaid", mermaid: "graph LR; A-->B" }] }),
-    )
-  ).json()) as any;
-
-  const res = await app.request(`/api/posts/${created.id}`, patch({ content: "graph TD; X-->Y" }));
-  assert.equal(res.status, 200);
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].kind, "mermaid");
-  assert.equal(full.surfaces[0].mermaid, "graph TD; X-->Y");
-});
-
-test("PATCH /api/posts/:id updates json content (parses string)", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "Data", surfaces: [{ kind: "json", data: { a: 1 } }] }),
-    )
-  ).json()) as any;
-
-  const res = await app.request(`/api/posts/${created.id}`, patch({ content: '{"b":2}' }));
-  assert.equal(res.status, 200);
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].kind, "json");
-  assert.deepEqual(full.surfaces[0].data, { b: 2 });
-});
-
-test("PATCH /api/posts/:id with invalid JSON content for json surface returns 400", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "Data", surfaces: [{ kind: "json", data: { a: 1 } }] }),
-    )
-  ).json()) as any;
-
-  const res = await app.request(`/api/posts/${created.id}`, patch({ content: "not valid json" }));
-  assert.equal(res.status, 400);
-});
-
-test("PATCH /api/posts/:id updates title alongside content", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "Old", surfaces: [{ kind: "markdown", markdown: "# old" }] }),
-    )
-  ).json()) as any;
-
-  const res = await app.request(
-    `/api/posts/${created.id}`,
-    patch({ content: "# new", title: "New" }),
-  );
-  assert.equal(res.status, 200);
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(full.title, "New");
-  assert.equal(full.surfaces[0].markdown, "# new");
-});
-
-test("PATCH /api/posts/:id title-only update (no content)", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "Old", surfaces: [{ kind: "markdown", markdown: "# keep" }] }),
-    )
-  ).json()) as any;
-
-  const res = await app.request(`/api/posts/${created.id}`, patch({ title: "Renamed" }));
-  assert.equal(res.status, 200);
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(full.title, "Renamed");
-  assert.equal(full.surfaces[0].markdown, "# keep");
-});
-
-test("PATCH /api/posts/:id rejects multi-surface posts", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({
-        title: "Multi",
-        surfaces: [
-          { kind: "html", html: "<p>one</p>" },
-          { kind: "markdown", markdown: "two" },
-        ],
-      }),
-    )
-  ).json()) as any;
-
-  const res = await app.request(`/api/posts/${created.id}`, patch({ content: "new stuff" }));
-  assert.equal(res.status, 400);
-  const body = (await res.json()) as any;
-  assert.ok(body.error);
-});
-
-test("PATCH /api/posts/:id rejects unsupported surface kinds (image, trace)", async () => {
-  const app = makeApp();
-  // image surfaces can't be content-updated (they reference an asset)
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "Img", surfaces: [{ kind: "image", assetId: "abc123" }] }),
-    )
-  ).json()) as any;
-
-  const res = await app.request(`/api/posts/${created.id}`, patch({ content: "nope" }));
-  assert.equal(res.status, 400);
-});
-
-test("PATCH /api/posts/:id returns 404 for unknown id", async () => {
-  const app = makeApp();
-  const res = await app.request("/api/posts/nonexistent", patch({ content: "hi" }));
-  assert.equal(res.status, 404);
-});
-
-test("PATCH /api/posts/:id with no content and no title returns 400", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "X", surfaces: [{ kind: "html", html: "<p>x</p>" }] }),
-    )
-  ).json()) as any;
-
-  const res = await app.request(`/api/posts/${created.id}`, patch({}));
-  assert.equal(res.status, 400);
-});
-
-test("PATCH /api/posts/:id updates kits on html surface", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "Kit", surfaces: [{ kind: "html", html: "<p>x</p>", kits: ["issues"] }] }),
-    )
-  ).json()) as any;
-
-  const res = await app.request(
-    `/api/posts/${created.id}`,
-    patch({ content: "<p>y</p>", kits: ["slides"] }),
-  );
-  assert.equal(res.status, 200);
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].html, "<p>y</p>");
-  assert.deepEqual(full.surfaces[0].kits, ["slides"]);
-});
-
-test("PATCH /api/posts/:id returns userFeedback like PUT does", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "FB", surfaces: [{ kind: "html", html: "<p>x</p>" }] }),
-    )
-  ).json()) as any;
-  // leave a user comment so there's feedback to collect
-  await app.request("/api/comments", json({ surface: created.id, text: "nice", author: "user" }));
-
-  const res = await app.request(`/api/posts/${created.id}`, patch({ content: "<p>y</p>" }));
-  assert.equal(res.status, 200);
-  const body = (await res.json()) as any;
-  assert.ok(Array.isArray(body.userFeedback));
-});
-
-test("PATCH /api/posts/:id bumps version and keeps history", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "Hist", surfaces: [{ kind: "markdown", markdown: "# v1" }] }),
-    )
-  ).json()) as any;
-  assert.equal(created.version, 1);
-
-  await app.request(`/api/posts/${created.id}`, patch({ content: "# v2" }));
-
-  const meta = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(meta.version, 2);
-  assert.equal(meta.history.length, 1);
-  assert.deepEqual(meta.history[0].surfaceKinds, ["markdown"]);
-  const full = (await (await app.request(`/api/posts/${created.id}?history=full`)).json()) as any;
-  assert.equal(full.history[0].surfaces[0].markdown, "# v1");
-});
-
-// ---------------------------------------------------------------------------
-// Per-surface sub-resource routes (append / replace / remove / reorder)
-// ---------------------------------------------------------------------------
-
-test("POST /api/posts/:id/surfaces appends a surface", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "Multi", surfaces: [{ kind: "html", html: "<p>first</p>" }] }),
-    )
-  ).json()) as any;
-
-  const res = await app.request(
-    `/api/posts/${created.id}/surfaces`,
-    json({
-      surface: { kind: "markdown", markdown: "# appended" },
-    }),
-  );
-  assert.equal(res.status, 200);
-  const updated = (await res.json()) as any;
-  assert.deepEqual(
-    updated.surfaces.map((s: any) => s.kind),
-    ["html", "markdown"],
-  );
-
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(full.surfaces.length, 2);
-  assert.equal(full.surfaces[1].kind, "markdown");
-  assert.equal(full.surfaces[1].markdown, "# appended");
-  assert.ok(full.surfaces[1].id, "appended surface gets an id");
-});
-
-test("POST /api/posts/:id/surfaces inserts at a position via before/after", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({
-        title: "Pos",
-        surfaces: [
-          { kind: "html", html: "<p>a</p>" },
-          { kind: "html", html: "<p>b</p>" },
-        ],
-      }),
-    )
-  ).json()) as any;
-  const full0 = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  const firstId = full0.surfaces[0].id;
-
-  // Insert before the first surface (by id)
-  await app.request(
-    `/api/posts/${created.id}/surfaces`,
-    json({
-      surface: { kind: "markdown", markdown: "# inserted" },
-      before: firstId,
-    }),
-  );
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.deepEqual(
-    full.surfaces.map((s: any) => s.kind),
-    ["markdown", "html", "html"],
-  );
-});
-
-test("PATCH /api/posts/:id/surfaces/:target replaces a surface by id", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({
-        title: "Rep",
-        surfaces: [
-          { kind: "html", html: "<p>orig</p>" },
-          { kind: "markdown", markdown: "# keep" },
-        ],
-      }),
-    )
-  ).json()) as any;
-  const full0 = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  const targetId = full0.surfaces[0].id;
-
-  const res = await app.request(
-    `/api/posts/${created.id}/surfaces/${targetId}`,
-    patch({
-      surface: { kind: "code", code: "console.log('new')" },
-    }),
-  );
-  assert.equal(res.status, 200);
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].kind, "code");
-  assert.equal(full.surfaces[0].code, "console.log('new')");
-  assert.equal(full.surfaces[0].id, targetId, "replaced surface keeps its id");
-  assert.equal(full.surfaces[1].kind, "markdown", "other surface untouched");
-});
-
-test("PATCH /api/posts/:id/surfaces/:target full replacement applies kits to html surface", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({
-        title: "Kits",
-        surfaces: [
-          { kind: "html", html: "<p>orig</p>" },
-          { kind: "markdown", markdown: "# keep" },
-        ],
-      }),
-    )
-  ).json()) as any;
-  const full0 = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  const targetId = full0.surfaces[0].id;
-
-  const res = await app.request(
-    `/api/posts/${created.id}/surfaces/${targetId}`,
-    patch({
-      surface: { kind: "html", html: "<p>new</p>" },
-      kits: ["issues"],
-    }),
-  );
-  assert.equal(res.status, 200);
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(full.surfaces[0].kind, "html");
-  assert.equal(full.surfaces[0].html, "<p>new</p>");
-  assert.deepEqual(full.surfaces[0].kits, ["issues"], "kits applied to full html replacement");
-  assert.equal(full.surfaces[0].id, targetId, "replaced surface keeps its id");
-});
-
-test("PATCH /api/posts/:id/surfaces/:target content-only update by index", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({
-        title: "CI",
-        surfaces: [
-          { kind: "html", html: "<p>a</p>" },
-          { kind: "markdown", markdown: "# b" },
-        ],
-      }),
-    )
-  ).json()) as any;
-
-  const res = await app.request(
-    `/api/posts/${created.id}/surfaces/1`,
-    patch({
-      content: "# updated",
-    }),
-  );
-  assert.equal(res.status, 200);
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(full.surfaces[1].kind, "markdown", "kind preserved");
-  assert.equal(full.surfaces[1].markdown, "# updated");
-  assert.equal(full.surfaces[0].html, "<p>a</p>", "other surface untouched");
-});
-
-test("DELETE /api/posts/:id/surfaces/:target removes a surface", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({
-        title: "Del",
-        surfaces: [
-          { kind: "html", html: "<p>a</p>" },
-          { kind: "markdown", markdown: "# b" },
-        ],
-      }),
-    )
-  ).json()) as any;
-
-  const res = await app.request(`/api/posts/${created.id}/surfaces/1`, {
-    method: "DELETE",
+  const pub = await tool(app, "publish_mock", {
+    project: "demo",
+    mock: "writer",
+    state: "Writing",
+    variant: "quiet",
+    html: '<h1 data-part="title">T</h1>',
   });
-  assert.equal(res.status, 200);
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(full.surfaces.length, 1);
-  assert.equal(full.surfaces[0].kind, "html");
-});
-
-test("DELETE /api/posts/:id/surfaces/:target rejects removing the last surface", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({ title: "Last", surfaces: [{ kind: "html", html: "<p>only</p>" }] }),
-    )
-  ).json()) as any;
-
-  const res = await app.request(`/api/posts/${created.id}/surfaces/0`, {
-    method: "DELETE",
+  assert.equal(pub.post.variant, "quiet");
+  assert.deepEqual(pub.parts[0].parts, [{ name: "title" }]);
+  const session = pub.sessionId;
+  await tool(app, "publish_mock", {
+    project: "demo",
+    mock: "writer",
+    state: "Writing",
+    variant: "dark",
+    session,
+    html: "<p/>",
   });
-  assert.equal(res.status, 400);
-  assert.match(((await res.json()) as any).error, /at least one surface/);
-});
-
-test("PATCH /api/posts/:id/surfaces reorders surfaces by id", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({
-        title: "Ord",
-        surfaces: [
-          { kind: "html", html: "<p>a</p>" },
-          { kind: "markdown", markdown: "# b" },
-          { kind: "code", code: "x" },
-        ],
-      }),
-    )
-  ).json()) as any;
-  const full0 = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  const ids = full0.surfaces.map((s: any) => s.id);
-
-  const res = await app.request(
-    `/api/posts/${created.id}/surfaces`,
-    patch({
-      order: [ids[2], ids[0], ids[1]],
-    }),
-  );
-  assert.equal(res.status, 200);
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.deepEqual(
-    full.surfaces.map((s: any) => s.kind),
-    ["code", "html", "markdown"],
-  );
-  // ids are preserved on the surfaces
-  assert.equal(full.surfaces[0].id, ids[2]);
-  assert.equal(full.surfaces[1].id, ids[0]);
-  assert.equal(full.surfaces[2].id, ids[1]);
-});
-
-test("PATCH /api/posts/:id with surface param targets multi-surface post", async () => {
-  const app = makeApp();
-  const created = (await (
-    await app.request(
-      "/api/posts",
-      json({
-        title: "T",
-        surfaces: [
-          { kind: "html", html: "<p>a</p>" },
-          { kind: "markdown", markdown: "# b" },
-        ],
-      }),
-    )
-  ).json()) as any;
-  const full0 = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  const targetId = full0.surfaces[1].id;
-
-  // Content-only update targeting surface 1 by id
-  const res = await app.request(
-    `/api/posts/${created.id}`,
-    patch({
-      content: "# updated b",
-      surface: targetId,
-    }),
-  );
-  assert.equal(res.status, 200);
-  const full = (await (await app.request(`/api/posts/${created.id}`)).json()) as any;
-  assert.equal(full.surfaces[1].markdown, "# updated b");
-  assert.equal(full.surfaces[0].html, "<p>a</p>", "other surface untouched");
-});
-
-// ---------------------------------------------------------------------------
-// MCP per-surface tools (add_surface / edit_surface / remove_surface / reorder_surfaces)
-// ---------------------------------------------------------------------------
-
-test("mcp add_surface appends a surface via HTTP MCP", async () => {
-  const app = makeApp();
-  const pub = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(1, "tools/call", {
-        name: "publish_post",
-        arguments: { title: "MCP", surfaces: [{ kind: "html", html: "<p>a</p>" }] },
-      }),
-    )
-  ).json()) as any;
-  const postId = JSON.parse(pub.result.content[0].text).id;
-
-  const res = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(2, "tools/call", {
-        name: "add_surface",
-        arguments: { postId, surface: { kind: "markdown", markdown: "# appended" } },
-      }),
-    )
-  ).json()) as any;
-  assert.equal(res.result.isError, undefined);
-  const out = JSON.parse(res.result.content[0].text);
-  assert.equal(out.version, 2);
-  assert.ok(out.url.includes(`/p/${postId}`));
-
-  const full = (await (await app.request(`/api/posts/${postId}`)).json()) as any;
-  assert.deepEqual(
-    full.surfaces.map((s: any) => s.kind),
-    ["html", "markdown"],
-  );
-});
-
-test("mcp edit_surface content-only update via HTTP MCP", async () => {
-  const app = makeApp();
-  const pub = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(1, "tools/call", {
-        name: "publish_post",
-        arguments: {
-          title: "MCP",
-          surfaces: [
-            { kind: "html", html: "<p>a</p>" },
-            { kind: "markdown", markdown: "# b" },
-          ],
-        },
-      }),
-    )
-  ).json()) as any;
-  const postId = JSON.parse(pub.result.content[0].text).id;
-  const full0 = (await (await app.request(`/api/posts/${postId}`)).json()) as any;
-  const target = full0.surfaces[1].id;
-
-  const res = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(2, "tools/call", {
-        name: "edit_surface",
-        arguments: { postId, target, content: "# updated via mcp" },
-      }),
-    )
-  ).json()) as any;
-  assert.equal(res.result.isError, undefined);
-
-  const full = (await (await app.request(`/api/posts/${postId}`)).json()) as any;
-  assert.equal(full.surfaces[1].markdown, "# updated via mcp");
-  assert.equal(full.surfaces[1].id, target, "id preserved");
-  assert.equal(full.surfaces[0].html, "<p>a</p>", "other surface untouched");
-});
-
-test("mcp remove_surface via HTTP MCP", async () => {
-  const app = makeApp();
-  const pub = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(1, "tools/call", {
-        name: "publish_post",
-        arguments: {
-          title: "MCP",
-          surfaces: [
-            { kind: "html", html: "<p>keep</p>" },
-            { kind: "markdown", markdown: "# remove me" },
-          ],
-        },
-      }),
-    )
-  ).json()) as any;
-  const postId = JSON.parse(pub.result.content[0].text).id;
-
-  const res = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(2, "tools/call", {
-        name: "remove_surface",
-        arguments: { postId, target: "1" },
-      }),
-    )
-  ).json()) as any;
-  assert.equal(res.result.isError, undefined);
-
-  const full = (await (await app.request(`/api/posts/${postId}`)).json()) as any;
-  assert.equal(full.surfaces.length, 1);
-  assert.equal(full.surfaces[0].kind, "html");
-});
-
-test("mcp reorder_surfaces via HTTP MCP", async () => {
-  const app = makeApp();
-  const pub = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(1, "tools/call", {
-        name: "publish_post",
-        arguments: {
-          title: "MCP",
-          surfaces: [
-            { kind: "html", html: "<p>a</p>" },
-            { kind: "markdown", markdown: "# b" },
-            { kind: "code", code: "x" },
-          ],
-        },
-      }),
-    )
-  ).json()) as any;
-  const postId = JSON.parse(pub.result.content[0].text).id;
-  const full0 = (await (await app.request(`/api/posts/${postId}`)).json()) as any;
-  const ids = full0.surfaces.map((s: any) => s.id);
-
-  const res = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(2, "tools/call", {
-        name: "reorder_surfaces",
-        arguments: { postId, order: [ids[2], ids[0], ids[1]] },
-      }),
-    )
-  ).json()) as any;
-  assert.equal(res.result.isError, undefined);
-
-  const full = (await (await app.request(`/api/posts/${postId}`)).json()) as any;
-  assert.deepEqual(
-    full.surfaces.map((s: any) => s.kind),
-    ["code", "html", "markdown"],
-  );
-});
-
-test("mcp tools/list includes the new per-surface tools", async () => {
-  const app = makeApp();
-  const list = (await (await app.request("/mcp", mcpCall(1, "tools/list"))).json()) as any;
-  const names = list.result.tools.map((t: any) => t.name);
-  assert.ok(names.includes("add_surface"));
-  assert.ok(names.includes("edit_surface"));
-  assert.ok(names.includes("remove_surface"));
-  assert.ok(names.includes("reorder_surfaces"));
-});
-
-test("mcp get_post fetches full indexed post detail via HTTP MCP", async () => {
-  const app = makeApp();
-  const pub = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(1, "tools/call", {
-        name: "publish_post",
-        arguments: {
-          title: "GetPost",
-          surfaces: [
-            { kind: "html", html: "<p>a</p>" },
-            { kind: "markdown", markdown: "# b" },
-          ],
-        },
-      }),
-    )
-  ).json()) as any;
-  const postId = JSON.parse(pub.result.content[0].text).id;
-  await app.request(`/api/posts/${postId}`, {
-    ...json({
-      title: "GetPost v2",
-      surfaces: [
-        { kind: "html", html: "<p>a2</p>" },
-        { kind: "markdown", markdown: "# b2" },
-      ],
-    }),
-    method: "PUT",
+  const rev = await tool(app, "revise_mock", {
+    project: "demo",
+    mock: "writer",
+    state: "Writing",
+    variant: "dark",
+    html: "<p>2</p>",
   });
+  assert.equal(rev.post.version, 2);
+  assert.equal((await tool(app, "list_mocks", { project: "demo" })).mocks.length, 1);
+  const asked = await tool(app, "ask_user", {
+    mock: "writer",
+    project: "demo",
+    asks: [{ id: "look", text: "Look?", options: [{ label: "Dark", variant: "dark" }] }],
+  });
+  assert.equal(asked.open, 1);
 
-  const res = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(2, "tools/call", {
-        name: "get_post",
-        arguments: { id: postId },
-      }),
-    )
-  ).json()) as any;
-  assert.equal(res.result.isError, undefined);
-  const post = JSON.parse(res.result.content[0].text);
-  assert.equal(post.id, postId);
-  assert.equal(post.title, "GetPost v2");
-  assert.equal(post.surfaces.length, 2);
-  assert.equal(post.surfaces[0].kind, "html");
-  assert.equal(post.surfaces[0].index, 0);
-  assert.equal(post.surfaces[0].html, "<p>a2</p>");
-  assert.equal(post.surfaces[1].kind, "markdown");
-  assert.equal(post.surfaces[1].index, 1);
-  assert.equal(post.surfaces[1].markdown, "# b2");
-  assert.ok(post.surfaces[0].id, "surface ids are present");
-  assert.ok(post.surfaces[1].id);
-  // history is metadata by default...
-  assert.deepEqual(post.history[0].surfaceKinds, ["html", "markdown"]);
-  assert.equal(post.history[0].surfaces, undefined);
+  const empty = await tool(app, "wait_for_feedback", { session, timeoutSeconds: 0 });
+  assert.deepEqual(empty.feedback, []);
+  assert.match(empty.note, /no user feedback/);
 
-  // ...and `history: "full"` opts back into the bodies
-  const fullRes = (await (
-    await app.request(
-      "/mcp",
-      mcpCall(3, "tools/call", {
-        name: "get_post",
-        arguments: { id: postId, history: "full" },
-      }),
-    )
-  ).json()) as any;
-  const fullPost = JSON.parse(fullRes.result.content[0].text);
-  assert.deepEqual(
-    fullPost.history[0].surfaces.map((s: any) => ({ kind: s.kind, index: s.index })),
-    [
-      { kind: "html", index: 0 },
-      { kind: "markdown", index: 1 },
-    ],
-  );
-  assert.equal(fullPost.history[0].surfaces[0].html, "<p>a</p>");
+  await call(app, `/api/mocks/${pub.mock.id}/reply`, viewer({ answers: { look: "dark" } }));
+  const fb = await tool(app, "wait_for_feedback", { session, timeoutSeconds: 0 });
+  assert.equal(fb.feedback[0].reply.answers.look, "dark");
+  const reply = await tool(app, "reply_to_user", {
+    mock: "writer",
+    project: "demo",
+    message: "on it",
+  });
+  assert.equal(reply.text, "on it");
+  assert.notEqual(reply.author, "user");
+
+  const detail = await tool(app, "get_mock", { mock: "writer", project: "demo", body: true });
+  assert.equal(detail.variants.find((v: any) => v.variant === "dark").status, "accepted");
+  const exported = await tool(app, "export_mock", { mock: "writer", project: "demo" });
+  assert.equal(exported.states[0].variant, "dark");
 });
 
-test("mcp tools/list includes get_post", async () => {
+test("mcp: surface tools address a variant by mock + state/variant", async () => {
   const app = makeApp();
-  const list = (await (await app.request("/mcp", mcpCall(1, "tools/list"))).json()) as any;
-  const names = list.result.tools.map((t: any) => t.name);
-  assert.ok(names.includes("get_post"));
+  const pub = await tool(app, "publish_mock", { project: "demo", mock: "card", html: "<p/>" });
+  const added = await tool(app, "add_surface", {
+    mock: pub.mock.id,
+    surface: { kind: "markdown", markdown: "# hi" },
+  });
+  assert.equal(added.post.surfaces.length, 2);
+  const edited = await tool(app, "edit_surface", {
+    mock: pub.mock.id,
+    target: "1",
+    content: "# yo",
+  });
+  assert.equal(edited.post.version, 3);
+  const reordered = await tool(app, "reorder_surfaces", { mock: pub.mock.id, order: [1, 0] });
+  assert.equal(reordered.post.surfaces[0].kind, "markdown");
+  const removed = await tool(app, "remove_surface", { mock: pub.mock.id, target: "0" });
+  assert.equal(removed.post.surfaces.length, 1);
+});
+
+test("mcp: errors carry the REST hint; unknown tools and methods fail cleanly", async () => {
+  const app = makeApp();
+  await tool(app, "publish_mock", { project: "demo", mock: "w", state: "A", html: "<p/>" });
+  await tool(app, "publish_mock", { project: "demo", mock: "w", state: "B", html: "<p/>" });
+  const missingState = await tool(app, "publish_mock", {
+    project: "demo",
+    mock: "w",
+    html: "<p/>",
+  });
+  assert.match(missingState.error, /pass state.*"states":\["A","B"\]/);
+  assert.match((await tool(app, "publish_mock", { mock: "x" })).error, /surfaces/);
+  assert.match((await tool(app, "wait_for_feedback", {})).error, /session id/);
+  assert.match((await tool(app, "nope", {})).error, /unknown tool/);
+  // A deprecated alias is just an unknown tool now.
+  assert.match((await tool(app, "publish_post", {})).error, /unknown tool/);
+  const bad = (await call(app, "/mcp", mcpCall(1, "resources/list"))).body;
+  assert.equal(bad.error.code, -32601);
+});
+
+test("mcp: transport edge cases", async () => {
+  const app = makeApp();
+  const parse = await call(app, "/mcp", { method: "POST", body: "{not valid json" });
+  assert.equal(parse.status, 400);
+  assert.equal(parse.body.error.code, -32700);
+  const batch = await call(app, "/mcp", agent([{ jsonrpc: "2.0", id: 1, method: "ping" }]));
+  assert.equal(batch.status, 400);
+  assert.equal(batch.body.error.code, -32600);
+  const note = await app.request(
+    "/mcp",
+    agent({ jsonrpc: "2.0", method: "notifications/initialized" }),
+  );
+  assert.equal(note.status, 202);
+  assert.deepEqual((await call(app, "/mcp", mcpCall(1, "ping"))).body.result, {});
+  assert.equal((await app.request("/mcp")).status, 405);
+
+  const guarded = makeApp("secret");
+  assert.equal((await guarded.request("/mcp", mcpCall(1, "tools/list"))).status, 401);
+  assert.equal(
+    (await guarded.request("/mcp", authed({ jsonrpc: "2.0", id: 1, method: "tools/list" }))).status,
+    200,
+  );
+});
+
+test("mcp: upload_asset and get_design_guide", async () => {
+  const app = makeApp();
+  const session = (await call(app, "/api/sessions", agent({ agent: "m" }))).body;
+  const data = Buffer.from("\x89PNG\r\n\x1a\n pixels");
+  const asset = await tool(app, "upload_asset", {
+    data: data.toString("base64"),
+    contentType: "image/png",
+    kind: "image",
+    session: session.id,
+  });
+  assert.equal(asset.kind, "image");
+  assert.equal(asset.sessionId, session.id);
+  assert.equal(asset.byteLength, data.length);
+  assert.ok(asset.url.endsWith(`/a/${asset.id}`));
+  assert.match((await tool(app, "upload_asset", { contentType: "image/png" })).error, /base64/);
+  const guide = await tool(app, "get_design_guide", {});
+  assert.match(guide, /run `mockpit init`/);
+});
+
+test("feedback consumed by the MCP wait is not re-delivered over REST, and vice versa", async () => {
+  const app = makeApp();
+  const out = await publish(app, { mock: "card", ...html("<p/>") });
+  await call(app, "/api/comments", viewer({ mock: out.mock.id, text: "one", author: "user" }));
+  const viaMcp = await tool(app, "wait_for_feedback", {
+    session: out.sessionId,
+    timeoutSeconds: 0,
+  });
+  assert.equal(viaMcp.feedback[0].comments[0].text, "one");
+  const rest = (await call(app, `/api/comments?session=${out.sessionId}&author=user`)).body;
+  assert.deepEqual(rest.feedback, []);
+  const write = await publish(app, { mock: "card", session: out.sessionId, ...html("<p>2</p>") });
+  assert.equal(write.userFeedback, undefined);
+
+  await call(app, "/api/comments", viewer({ mock: out.mock.id, text: "two", author: "user" }));
+  const viaRest = (await call(app, `/api/comments?session=${out.sessionId}&author=user`)).body;
+  assert.equal(viaRest.feedback[0].comments[0].text, "two");
+  const mcpAgain = await tool(app, "wait_for_feedback", {
+    session: out.sessionId,
+    timeoutSeconds: 0,
+  });
+  assert.deepEqual(mcpAgain.feedback, []);
 });

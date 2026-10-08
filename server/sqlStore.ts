@@ -1,61 +1,66 @@
 import {
   type Anchor,
-  anchorFromLegacy,
+  type Ask,
   type Asset,
-  type WorkspaceSnapshot,
   collectAssetIds,
   type Comment,
-  type CommentAnchor,
   type CommentQuery,
-  DEFAULT_PROJECT,
-  DEFAULT_VARIANT,
-  type ItemDetail,
-  type ItemKind,
-  type ItemSummary,
-  type PostAsk,
-  type PostStatus,
-  type ProjectSummary,
-  projectFromCwd,
-  detailForItem,
-  type Slot,
-  slugify,
-  summarizeItems,
-  summarizeProjects,
-  uniqueSlug,
+  type CommitReplyInput,
   type CreateAssetInput,
   type CreateCommentInput,
-  type CreateSessionInput,
+  type CreateMockInput,
   type CreatePostInput,
+  type CreateSessionInput,
+  DEFAULT_PROJECT,
+  DEFAULT_VARIANT,
+  type Draft,
   hashAssetId,
   HISTORY_LIMIT,
   htmlSurface,
+  type Knobs,
   MAX_WORKSPACE_ASSET_BYTES,
+  type Mock,
+  type MockKind,
   newId,
   normalizeSurfaceIds,
+  type Post,
+  type PostQuery,
+  type PostStatus,
+  type PostVersion,
+  projectFromCwd,
+  type Reply,
   reservedAgent,
   selectEvictions,
   type Session,
+  type Slot,
+  slugify,
   type SqlStorage,
   type SqlStorageValue,
   stripNul,
-  stripNulStep,
   type Store,
-  type Post,
+  summarizeProjects,
   type Surface,
-  type PostVersion,
-  type TraceStep,
+  type UpdateMockInput,
   type UpdatePostInput,
 } from "./types.ts";
 
-function parseAnchors(raw: SqlStorageValue): Anchor[] {
-  if (typeof raw !== "string" || !raw) return [];
+type Row = Record<string, SqlStorageValue>;
+
+function parseJson<T>(raw: SqlStorageValue, fallback: T): T {
+  if (typeof raw !== "string" || !raw) return fallback;
   try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as Anchor[]) : [];
+    return JSON.parse(raw) as T;
   } catch {
-    return [];
+    return fallback;
   }
 }
+
+const POST_COLUMNS = `
+  id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, mockId TEXT NOT NULL, state TEXT,
+  variant TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', title TEXT NOT NULL,
+  surfaces TEXT NOT NULL, knobs TEXT, slots TEXT NOT NULL DEFAULT '[]',
+  createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, version INTEGER NOT NULL,
+  curFrom INTEGER, curPrompt TEXT, curAuthor TEXT`;
 
 // Store implementation on SQLite — a Durable Object's `ctx.storage.sql` in the
 // Worker, or node:sqlite via an adapter on Node (see server/sqliteStorage.ts).
@@ -64,32 +69,67 @@ export class SqlStore implements Store {
   private sql: SqlStorage;
   // Cached set of asset ids referenced by any live surface (current or a
   // historical version of any post). Built lazily and maintained incrementally
-  // — createPost/updatePost add to it, removes invalidate it — so isAssetReferenced
-  // (hit on every /a/:id miss) and putAsset's eviction scan no longer re-parse
-  // every post's surfaces+history JSON on each call. Stays correct because post
-  // history is append-only: a surface only ever moves INTO history, so an asset
-  // id once referenced stays referenced until the whole post (and its history)
-  // is deleted — at which point we invalidate and recompute from scratch.
+  // — post writes add to it, removes invalidate it — so isAssetReferenced (hit
+  // on every /a/:id miss) and putAsset's eviction scan don't re-parse every
+  // post's surfaces on each call. Stays correct because history is append-only:
+  // an asset id once referenced stays referenced until its post is deleted.
   private assetRefCache: Set<string> | undefined;
 
   constructor(sql: SqlStorage) {
     this.sql = sql;
+    this.atomic(() => this.migrate());
+  }
+
+  // On a Durable Object the synchronous writes of one event already commit as a
+  // unit, so its SqlStorage has no transactionSync; node:sqlite provides one.
+  private atomic<T>(fn: () => T): T {
+    return this.sql.transactionSync ? this.sql.transactionSync(fn) : fn();
+  }
+
+  private tables(): Set<string> {
+    return new Set(
+      this.sql
+        .exec("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .toArray()
+        .map((t) => t.name as string),
+    );
+  }
+
+  private columns(table: string): Set<string> {
+    return new Set(
+      this.sql
+        .exec(`SELECT name FROM pragma_table_info('${table}')`)
+        .toArray()
+        .map((c) => c.name as string),
+    );
+  }
+
+  // SQLite has no ADD COLUMN IF NOT EXISTS, so probe and patch.
+  private addMissing(table: string, columns: Record<string, string>) {
+    const have = this.columns(table);
+    for (const [name, decl] of Object.entries(columns)) {
+      if (!have.has(name)) this.sql.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${decl}`);
+    }
+  }
+
+  private migrate() {
+    const before = this.tables();
+    // Deployed Durable Objects can never be reset, so a workspace written by a
+    // build from before mocks existed is lifted in place (see migrateLegacy).
+    const legacy = before.has("posts") && !before.has("mocks");
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY, agent TEXT NOT NULL, title TEXT, cwd TEXT,
         createdAt TEXT NOT NULL, lastActiveAt TEXT NOT NULL,
         agentSeq INTEGER NOT NULL DEFAULT 0, project TEXT
       );
-      CREATE TABLE IF NOT EXISTS posts (
-        id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, title TEXT NOT NULL,
-        surfaces TEXT NOT NULL, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL,
-        version INTEGER NOT NULL, history TEXT NOT NULL,
-        project TEXT NOT NULL DEFAULT 'workspace', slug TEXT NOT NULL DEFAULT '',
-        kind TEXT NOT NULL DEFAULT 'component', variant TEXT NOT NULL DEFAULT 'default',
-        status TEXT NOT NULL DEFAULT 'open', ask TEXT,
-        slots TEXT NOT NULL DEFAULT '[]',
-        curFrom INTEGER, curPrompt TEXT, curAuthor TEXT
+      CREATE TABLE IF NOT EXISTS mocks (
+        id TEXT PRIMARY KEY, project TEXT NOT NULL, slug TEXT NOT NULL, title TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'component', states TEXT NOT NULL DEFAULT '[]',
+        asks TEXT NOT NULL DEFAULT '[]', knobs TEXT NOT NULL DEFAULT '{}', draft TEXT,
+        sessionId TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS posts (${POST_COLUMNS});
       CREATE TABLE IF NOT EXISTS post_versions (
         postId TEXT NOT NULL, version INTEGER NOT NULL, title TEXT NOT NULL,
         surfaces TEXT NOT NULL, at TEXT NOT NULL,
@@ -98,10 +138,10 @@ export class SqlStore implements Store {
       );
       CREATE TABLE IF NOT EXISTS comments (
         seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL,
-        sessionId TEXT NOT NULL, postId TEXT, postTitle TEXT,
+        sessionId TEXT NOT NULL, mockId TEXT, postId TEXT,
         author TEXT NOT NULL, text TEXT NOT NULL, createdAt TEXT NOT NULL,
-        kind TEXT NOT NULL DEFAULT 'comment', anchors TEXT NOT NULL DEFAULT '[]',
-        draft INTEGER NOT NULL DEFAULT 0, postVersion INTEGER, viewport INTEGER
+        kind TEXT NOT NULL DEFAULT 'comment', anchor TEXT, anchors TEXT NOT NULL DEFAULT '[]',
+        postVersion INTEGER, viewport INTEGER, payload TEXT
       );
       CREATE TABLE IF NOT EXISTS assets (
         id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, kind TEXT NOT NULL,
@@ -111,238 +151,52 @@ export class SqlStore implements Store {
       CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY, value TEXT NOT NULL
       );
-      CREATE TABLE IF NOT EXISTS trace_steps (
-        sessionId TEXT NOT NULL, seq INTEGER NOT NULL, kind TEXT,
-        label TEXT NOT NULL, detail TEXT, ts TEXT,
-        PRIMARY KEY (sessionId, seq)
-      );
     `);
-    // Workspaces created before agentSeq existed need the column added; SQLite
-    // has no ADD COLUMN IF NOT EXISTS, so probe and patch.
-    const sessionCols = this.sql.exec("SELECT name FROM pragma_table_info('sessions')").toArray();
-    if (!sessionCols.some((c) => c.name === "agentSeq")) {
-      this.sql.exec("ALTER TABLE sessions ADD COLUMN agentSeq INTEGER NOT NULL DEFAULT 0");
-    }
-    const commentCols = this.sql.exec("SELECT name FROM pragma_table_info('comments')").toArray();
-    if (!commentCols.some((c) => c.name === "anchor")) {
-      this.sql.exec("ALTER TABLE comments ADD COLUMN anchor TEXT");
-    }
-    this.migrateToSurfaces();
-    this.migrateToPosts();
-    this.migrateSurfaceIds();
-    this.migrateToItems();
-    this.migrateToVersions();
+    this.addMissing("sessions", {
+      agentSeq: "INTEGER NOT NULL DEFAULT 0",
+      project: "TEXT",
+    });
+    if (legacy) this.migrateLegacy();
     this.createIndexes();
   }
 
-  // Every past version used to live in a `history` JSON blob on the post row, so
-  // reading a post — which `/s/:id` did on every iframe load — parsed up to
-  // HISTORY_LIMIT copies of its surfaces, and each revision rewrote the whole
-  // blob. Versions now live in `post_versions`, one row each.
-  //
-  // In place, behind a sentinel, because deployed Durable Objects can never be
-  // reset: copy every history entry out, then blank the column. The column
-  // itself STAYS (NOT NULL, written as '[]'), so an older build rolled back onto
-  // this database still reads and writes a valid — if empty — history.
-  private migrateToVersions() {
-    const done = this.sql
-      .exec("SELECT value FROM settings WHERE key = 'versionsMigrated'")
-      .toArray();
-    if (done.length > 0 && done[0]?.value === "1") return;
-    for (const r of this.sql.exec("SELECT id, history FROM posts").toArray()) {
-      let history: PostVersion[] = [];
-      try {
-        history = JSON.parse((r.history as string) || "[]") as PostVersion[];
-      } catch {
-        history = [];
-      }
-      if (!Array.isArray(history) || history.length === 0) continue;
-      for (const h of history) this.insertVersion(r.id as string, h);
-      this.sql.exec("UPDATE posts SET history = '[]' WHERE id = ?", r.id as string);
-    }
-    this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('versionsMigrated', '1')");
+  private createIndexes() {
+    this.sql.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS mockpit_mocks_slug_idx ON mocks (project, slug);
+      CREATE INDEX IF NOT EXISTS mockpit_mocks_updated_at_idx ON mocks (updatedAt DESC);
+      CREATE INDEX IF NOT EXISTS mockpit_posts_mock_idx ON posts (mockId, state, variant);
+      CREATE INDEX IF NOT EXISTS mockpit_posts_session_created_at_idx ON posts (sessionId, createdAt);
+      CREATE INDEX IF NOT EXISTS mockpit_comments_session_seq_idx ON comments (sessionId, seq);
+      CREATE INDEX IF NOT EXISTS mockpit_comments_mock_seq_idx ON comments (mockId, seq);
+      CREATE INDEX IF NOT EXISTS mockpit_comments_post_seq_idx ON comments (postId, seq);
+      CREATE INDEX IF NOT EXISTS mockpit_comments_id_idx ON comments (id);
+      CREATE INDEX IF NOT EXISTS mockpit_assets_session_idx ON assets (sessionId);
+    `);
   }
 
-  private insertVersion(postId: string, v: PostVersion) {
-    this.sql.exec(
-      "INSERT OR REPLACE INTO post_versions (postId, version, title, surfaces, at, fromVersion, prompt, author) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      postId,
-      v.version,
-      v.title,
-      JSON.stringify(v.surfaces ?? []),
-      v.at,
-      v.from ?? null,
-      v.prompt ?? null,
-      v.author ?? null,
-    );
-  }
+  // --- in-place migration of a pre-mock workspace ---
 
-  private rowToVersion(r: Record<string, SqlStorageValue>): PostVersion {
-    return {
-      version: r.version as number,
-      title: r.title as string,
-      surfaces: JSON.parse(r.surfaces as string) as Surface[],
-      at: r.at as string,
-      // Absent stays absent: an entry archived before these fields existed must
-      // not grow `from: null` keys (the store contract compares entries whole).
-      ...(r.fromVersion == null ? {} : { from: r.fromVersion as number }),
-      ...(r.prompt == null ? {} : { prompt: r.prompt as string }),
-      ...(r.author == null ? {} : { author: r.author as string }),
-    };
-  }
-
-  private historyFor(postId: string): PostVersion[] {
-    return this.sql
-      .exec("SELECT * FROM post_versions WHERE postId = ? ORDER BY version ASC", postId)
-      .toArray()
-      .map((r) => this.rowToVersion(r));
-  }
-
-  // One query for a whole page of posts instead of one per row. `ids === null`
-  // reads every version in the workspace (the whole-workspace listPosts path,
-  // which used to parse every history blob anyway).
-  private historiesFor(ids: string[] | null): Map<string, PostVersion[]> {
-    const out = new Map<string, PostVersion[]>();
-    if (ids && ids.length === 0) return out;
-    const rows = ids
-      ? this.sql
-          .exec(
-            `SELECT * FROM post_versions WHERE postId IN (${ids.map(() => "?").join(",")}) ORDER BY version ASC`,
-            ...ids,
-          )
-          .toArray()
-      : this.sql.exec("SELECT * FROM post_versions ORDER BY version ASC").toArray();
-    for (const r of rows) {
-      const id = r.postId as string;
-      let list = out.get(id);
-      if (!list) out.set(id, (list = []));
-      list.push(this.rowToVersion(r));
-    }
-    return out;
-  }
-
-  // rowToPost needs each post's versions; this is the shared "read rows, attach
-  // their histories" step every multi-row query goes through.
-  private rowsToPosts(rows: Record<string, SqlStorageValue>[], all = false): Post[] {
-    const histories = this.historiesFor(all ? null : rows.map((r) => r.id as string));
-    return rows.map((r) => this.rowToPost(r, histories.get(r.id as string) ?? []));
-  }
-
-  // Deployed Durable Objects can never be reset, so the project › item ›
-  // variant columns are added in place (probe + ALTER) and existing rows are
-  // backfilled once, behind a settings sentinel.
-  private migrateToItems() {
-    const addMissing = (table: string, columns: Record<string, string>) => {
-      const have = new Set(
-        this.sql
-          .exec(`SELECT name FROM pragma_table_info('${table}')`)
-          .toArray()
-          .map((c) => c.name as string),
-      );
-      for (const [name, decl] of Object.entries(columns)) {
-        if (!have.has(name)) this.sql.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${decl}`);
-      }
-    };
-    addMissing("sessions", { project: "TEXT" });
-    addMissing("posts", {
-      project: "TEXT NOT NULL DEFAULT 'workspace'",
-      slug: "TEXT NOT NULL DEFAULT ''",
-      kind: "TEXT NOT NULL DEFAULT 'component'",
-      variant: "TEXT NOT NULL DEFAULT 'default'",
-      status: "TEXT NOT NULL DEFAULT 'open'",
-      ask: "TEXT",
-      slots: "TEXT NOT NULL DEFAULT '[]'",
-      curFrom: "INTEGER",
-      curPrompt: "TEXT",
-      curAuthor: "TEXT",
-    });
-    addMissing("comments", {
+  private migrateLegacy() {
+    this.addMissing("comments", {
+      anchor: "TEXT",
       kind: "TEXT NOT NULL DEFAULT 'comment'",
       anchors: "TEXT NOT NULL DEFAULT '[]'",
       draft: "INTEGER NOT NULL DEFAULT 0",
       postVersion: "INTEGER",
       viewport: "INTEGER",
+      mockId: "TEXT",
+      payload: "TEXT",
     });
-
-    const done = this.sql.exec("SELECT value FROM settings WHERE key = 'itemsMigrated'").toArray();
-    if (done.length > 0 && done[0]?.value === "1") return;
-
-    const sessions = new Map<string, { project: string | null; cwd: string | null }>();
-    for (const r of this.sql.exec("SELECT id, project, cwd FROM sessions").toArray()) {
-      sessions.set(r.id as string, {
-        project: (r.project as string) ?? null,
-        cwd: (r.cwd as string) ?? null,
-      });
-    }
-    const taken = new Map<string, Set<string>>();
-    for (const r of this.sql
-      .exec("SELECT id, sessionId, title, slug, history FROM posts ORDER BY createdAt ASC")
-      .toArray()) {
-      if (((r.slug as string) ?? "") !== "") continue;
-      const session = sessions.get(r.sessionId as string);
-      const project = session?.project || projectFromCwd(session?.cwd ?? null) || DEFAULT_PROJECT;
-      let used = taken.get(project);
-      if (!used) taken.set(project, (used = new Set<string>()));
-      const slug = uniqueSlug(r.title as string, r.id as string, used);
-      used.add(slug);
-      const history = (JSON.parse(r.history as string) as PostVersion[]).map((h, i, all) => ({
-        ...h,
-        from: h.from ?? (i > 0 ? all[i - 1].version : undefined),
-        prompt: h.prompt ?? "",
-      }));
-      this.sql.exec(
-        "UPDATE posts SET project = ?, slug = ?, kind = 'component', variant = ?, status = 'open', ask = NULL, slots = '[]', history = ? WHERE id = ?",
-        project,
-        slug,
-        DEFAULT_VARIANT,
-        JSON.stringify(history),
-        r.id as string,
-      );
-    }
-    for (const r of this.sql.exec("SELECT seq, anchor FROM comments").toArray()) {
-      const raw = r.anchor;
-      if (typeof raw !== "string" || !raw) continue;
-      let anchors: Anchor[] = [];
-      try {
-        anchors = anchorFromLegacy(JSON.parse(raw) as CommentAnchor);
-      } catch {
-        anchors = [];
-      }
-      this.sql.exec(
-        "UPDATE comments SET anchors = ? WHERE seq = ?",
-        JSON.stringify(anchors),
-        r.seq as number,
-      );
-    }
-    this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('itemsMigrated', '1')");
-  }
-
-  // Add indexes after the column/table migrations above: older workspaces may
-  // still call comments' post columns snippetId/surfaceId when the base schema
-  // is first opened. IF NOT EXISTS makes this an in-place, idempotent migration
-  // for deployed Durable Objects as well as local SQLite databases.
-  private createIndexes() {
+    this.migrateToSurfaces();
+    this.migrateToPosts();
+    this.migrateSurfaceIds();
+    this.migrateToItems();
+    this.migrateToVersions();
+    this.migrateToMocks();
     this.sql.exec(`
-      CREATE INDEX IF NOT EXISTS mockpit_posts_session_created_at_idx
-        ON posts (sessionId, createdAt);
-      CREATE INDEX IF NOT EXISTS mockpit_posts_updated_at_idx
-        ON posts (updatedAt DESC);
-      CREATE INDEX IF NOT EXISTS mockpit_comments_session_seq_idx
-        ON comments (sessionId, seq);
-      CREATE INDEX IF NOT EXISTS mockpit_comments_post_seq_idx
-        ON comments (postId, seq);
-      CREATE INDEX IF NOT EXISTS mockpit_comments_id_idx
-        ON comments (id);
-      CREATE INDEX IF NOT EXISTS mockpit_assets_session_idx
-        ON assets (sessionId);
-      CREATE INDEX IF NOT EXISTS mockpit_posts_variant_idx
-        ON posts (project, slug, variant);
-      CREATE INDEX IF NOT EXISTS mockpit_comments_post_draft_idx
-        ON comments (postId, draft);
-    `);
-    // SQLite has no RENAME INDEX, so databases created before the rename would
-    // otherwise keep a duplicate sideshow_* copy of every index above.
-    this.sql.exec(`
+      DROP TABLE IF EXISTS trace_steps;
+      DROP INDEX IF EXISTS mockpit_comments_post_draft_idx;
+      DROP INDEX IF EXISTS mockpit_posts_updated_at_idx;
       DROP INDEX IF EXISTS sideshow_posts_session_created_at_idx;
       DROP INDEX IF EXISTS sideshow_posts_updated_at_idx;
       DROP INDEX IF EXISTS sideshow_comments_session_seq_idx;
@@ -354,32 +208,20 @@ export class SqlStore implements Store {
     `);
   }
 
-  // Pre-0.5.0 workspaces stored a `snippets` table and `comments.snippetId`. Lift
-  // them into the posts model in place — deployed DOs can never be reset.
+  // Pre-0.5.0 workspaces stored a `snippets` table and `comments.snippetId`.
   private migrateToSurfaces() {
-    const commentCols = this.sql
-      .exec("SELECT name FROM pragma_table_info('comments')")
-      .toArray()
-      .map((c) => c.name as string);
-    if (commentCols.includes("snippetId") && !commentCols.includes("surfaceId")) {
+    const commentCols = this.columns("comments");
+    if (commentCols.has("snippetId") && !commentCols.has("surfaceId")) {
       this.sql.exec("ALTER TABLE comments RENAME COLUMN snippetId TO surfaceId");
     }
-    if (commentCols.includes("snippetTitle") && !commentCols.includes("surfaceTitle")) {
+    if (commentCols.has("snippetTitle") && !commentCols.has("surfaceTitle")) {
       this.sql.exec("ALTER TABLE comments RENAME COLUMN snippetTitle TO surfaceTitle");
     }
-
-    const tables = this.sql
-      .exec("SELECT name FROM sqlite_master WHERE type = 'table'")
-      .toArray()
-      .map((t) => t.name as string);
-    if (!tables.includes("snippets")) return;
+    if (!this.tables().has("snippets")) return;
     for (const r of this.sql.exec("SELECT * FROM snippets").toArray()) {
-      const legacyHistory = JSON.parse((r.history as string) ?? "[]") as Array<{
-        version: number;
-        title: string;
-        html: string;
-        at: string;
-      }>;
+      const legacyHistory = parseJson<
+        Array<{ version: number; title: string; html: string; at: string }>
+      >(r.history, []);
       const history: PostVersion[] = legacyHistory.map((h) => ({
         version: h.version,
         title: h.title,
@@ -402,33 +244,20 @@ export class SqlStore implements Store {
   }
 
   // 0.5.x workspaces stored a `surfaces` table with a `parts` column and
-  // `comments.surfaceId/surfaceTitle`. Lift them into the posts model in place.
+  // `comments.surfaceId/surfaceTitle`.
   private migrateToPosts() {
-    const commentCols = this.sql
-      .exec("SELECT name FROM pragma_table_info('comments')")
-      .toArray()
-      .map((c) => c.name as string);
-    if (commentCols.includes("surfaceId") && !commentCols.includes("postId")) {
+    const commentCols = this.columns("comments");
+    if (commentCols.has("surfaceId") && !commentCols.has("postId")) {
       this.sql.exec("ALTER TABLE comments RENAME COLUMN surfaceId TO postId");
     }
-    if (commentCols.includes("surfaceTitle") && !commentCols.includes("postTitle")) {
+    if (commentCols.has("surfaceTitle") && !commentCols.has("postTitle")) {
       this.sql.exec("ALTER TABLE comments RENAME COLUMN surfaceTitle TO postTitle");
     }
-
-    const tables = this.sql
-      .exec("SELECT name FROM sqlite_master WHERE type = 'table'")
-      .toArray()
-      .map((t) => t.name as string);
-    if (!tables.includes("surfaces")) return;
+    if (!this.tables().has("surfaces")) return;
     for (const r of this.sql.exec("SELECT * FROM surfaces").toArray()) {
-      // Re-key the history blob: 0.5.x stored each version's blocks under
-      // `parts`, but the posts model reads them as `surfaces`. Copying the blob
-      // verbatim would leave inner `parts` keys that readers (older-version
-      // views, asset GC) see as `undefined`. Mirror storage.ts liftPost so the
-      // SQLite and JSON backends stay in lockstep.
-      const history = (
-        JSON.parse((r.history as string) ?? "[]") as Array<Record<string, unknown>>
-      ).map(({ parts, ...rest }) => ({ ...rest, surfaces: parts ?? [] }));
+      const history = parseJson<Array<Record<string, unknown>>>(r.history, []).map(
+        ({ parts, ...rest }) => ({ ...rest, surfaces: parts ?? [] }),
+      );
       this.sql.exec(
         "INSERT OR IGNORE INTO posts (id, sessionId, title, surfaces, createdAt, updatedAt, version, history) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         r.id as string,
@@ -444,33 +273,243 @@ export class SqlStore implements Store {
     this.sql.exec("DROP TABLE surfaces");
   }
 
-  // One-time migration: assign stable ids to surfaces in existing posts that
-  // were written before surface ids existed. Gated on a settings sentinel so
-  // it only runs once per workspace; idempotent and safe to retry.
+  // Assign stable ids to surfaces written before surface ids existed.
   private migrateSurfaceIds() {
-    const rows = this.sql
-      .exec("SELECT value FROM settings WHERE key = 'surfaceIdsMigrated'")
-      .toArray();
-    if (rows.length > 0 && rows[0]?.value === "1") return;
+    if (this.settingSync("surfaceIdsMigrated") === "1") return;
     for (const r of this.sql.exec("SELECT id, surfaces, history FROM posts").toArray()) {
-      const surfaces = normalizeSurfaceIds(JSON.parse(r.surfaces as string) as Surface[]);
-      const history = (JSON.parse(r.history as string) as PostVersion[]).map((h) => ({
+      const surfaces = normalizeSurfaceIds(parseJson<Surface[]>(r.surfaces, []));
+      const history = parseJson<PostVersion[]>(r.history, []).map((h) => ({
         ...h,
-        surfaces: normalizeSurfaceIds(h.surfaces),
+        surfaces: normalizeSurfaceIds(h.surfaces ?? []),
       }));
       this.sql.exec(
         "UPDATE posts SET surfaces = ?, history = ? WHERE id = ?",
         JSON.stringify(surfaces),
         JSON.stringify(history),
-        r.id,
+        r.id as string,
       );
     }
+  }
+
+  // Before items, posts had no project/slug/variant; derive them per post.
+  private migrateToItems() {
+    this.addMissing("posts", {
+      project: "TEXT NOT NULL DEFAULT 'workspace'",
+      slug: "TEXT NOT NULL DEFAULT ''",
+      kind: "TEXT NOT NULL DEFAULT 'component'",
+      variant: "TEXT NOT NULL DEFAULT 'default'",
+      status: "TEXT NOT NULL DEFAULT 'open'",
+      slots: "TEXT NOT NULL DEFAULT '[]'",
+      curFrom: "INTEGER",
+      curPrompt: "TEXT",
+      curAuthor: "TEXT",
+    });
+    if (this.settingSync("itemsMigrated") === "1") return;
+    const sessions = new Map<string, { project: string | null; cwd: string | null }>();
+    for (const r of this.sql.exec("SELECT id, project, cwd FROM sessions").toArray()) {
+      sessions.set(r.id as string, {
+        project: (r.project as string) ?? null,
+        cwd: (r.cwd as string) ?? null,
+      });
+    }
+    const taken = new Map<string, Set<string>>();
+    for (const r of this.sql
+      .exec("SELECT id, sessionId, title, slug FROM posts ORDER BY createdAt ASC")
+      .toArray()) {
+      if (((r.slug as string) ?? "") !== "") continue;
+      const session = sessions.get(r.sessionId as string);
+      const project = session?.project || projectFromCwd(session?.cwd ?? null) || DEFAULT_PROJECT;
+      let used = taken.get(project);
+      if (!used) taken.set(project, (used = new Set<string>()));
+      const base = slugify(r.title as string);
+      const suffix = (r.id as string)
+        .slice(0, 4)
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "0");
+      let slug = `${base}-${suffix}`;
+      for (let n = 2; used.has(slug); n++) slug = `${base}-${suffix}-${n}`;
+      used.add(slug);
+      this.sql.exec(
+        "UPDATE posts SET project = ?, slug = ? WHERE id = ?",
+        project,
+        slug,
+        r.id as string,
+      );
+    }
+  }
+
+  // History used to live in a `history` JSON blob on the post row.
+  private migrateToVersions() {
+    if (this.settingSync("versionsMigrated") === "1") return;
+    for (const r of this.sql.exec("SELECT id, history FROM posts").toArray()) {
+      for (const h of parseJson<PostVersion[]>(r.history, [])) {
+        this.insertVersion(r.id as string, {
+          ...h,
+          surfaces: normalizeSurfaceIds(h.surfaces ?? []),
+        });
+      }
+    }
+  }
+
+  // Every (project, item slug) becomes one single-state mock; its posts become
+  // the mock's variants with state null. Unsent operator drafts become the
+  // mock's draft so they are still there to send; decisions become plain
+  // comments (they were already delivered).
+  private migrateToMocks() {
+    const rows = this.sql.exec("SELECT * FROM posts ORDER BY createdAt ASC, rowid ASC").toArray();
+    const groups = new Map<string, Row[]>();
+    for (const r of rows) {
+      const key = `${r.project as string}\u0000${r.slug as string}`;
+      const list = groups.get(key);
+      if (list) list.push(r);
+      else groups.set(key, [r]);
+    }
+    const mockOf = new Map<string, string>();
+    const variantOf = new Map<string, string>();
+    for (const group of groups.values()) {
+      const first = group[0];
+      const latest = group.reduce((a, b) =>
+        (b.updatedAt as string) > (a.updatedAt as string) ? b : a,
+      );
+      const id = newId();
+      this.sql.exec(
+        "INSERT INTO mocks (id, project, slug, title, kind, states, asks, knobs, draft, sessionId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, '[]', '[]', '{}', NULL, ?, ?, ?)",
+        id,
+        (first.project as string) || DEFAULT_PROJECT,
+        (first.slug as string) || slugify(first.title as string),
+        first.title as string,
+        group.some((r) => r.kind === "page") ? "page" : "component",
+        latest.sessionId as string,
+        first.createdAt as string,
+        latest.updatedAt as string,
+      );
+      const used = new Set<string>();
+      for (const r of group) {
+        const base = (r.variant as string) || DEFAULT_VARIANT;
+        let variant = base;
+        for (let n = 2; used.has(variant); n++) variant = `${base}-${n}`;
+        used.add(variant);
+        mockOf.set(r.id as string, id);
+        variantOf.set(r.id as string, variant);
+      }
+    }
+
+    this.sql.exec(`CREATE TABLE posts_next (${POST_COLUMNS})`);
+    for (const r of rows) {
+      const id = r.id as string;
+      this.sql.exec(
+        "INSERT INTO posts_next (id, sessionId, mockId, state, variant, status, title, surfaces, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)",
+        id,
+        r.sessionId as string,
+        mockOf.get(id)!,
+        variantOf.get(id)!,
+        (r.status as string) || "open",
+        r.title as string,
+        r.surfaces as string,
+        (r.slots as string) || "[]",
+        r.createdAt as string,
+        r.updatedAt as string,
+        r.version as number,
+        r.curFrom ?? null,
+        r.curPrompt ?? null,
+        r.curAuthor ?? null,
+      );
+    }
+    this.sql.exec("DROP TABLE posts");
+    this.sql.exec("ALTER TABLE posts_next RENAME TO posts");
+
     this.sql.exec(
-      "INSERT OR REPLACE INTO settings (key, value) VALUES ('surfaceIdsMigrated', '1')",
+      "UPDATE comments SET mockId = (SELECT mockId FROM posts WHERE posts.id = comments.postId) WHERE mockId IS NULL",
+    );
+    this.sql.exec(
+      "UPDATE comments SET text = (CASE kind WHEN 'accept' THEN 'Accepted' WHEN 'revise' THEN 'Revise' ELSE 'Dropped' END) || (CASE WHEN text = '' THEN '' ELSE ': ' || text END), kind = 'comment' WHERE kind IN ('accept', 'revise', 'drop')",
+    );
+
+    const drafts = new Map<string, Draft>();
+    for (const c of this.sql
+      .exec("SELECT * FROM comments WHERE draft = 1 AND mockId IS NOT NULL ORDER BY seq ASC")
+      .toArray()) {
+      const mockId = c.mockId as string;
+      let draft = drafts.get(mockId);
+      if (!draft) {
+        draft = {
+          version: 1,
+          answers: {},
+          mix: {},
+          tuned: {},
+          comments: [],
+          updatedAt: c.createdAt as string,
+        };
+        drafts.set(mockId, draft);
+      }
+      draft.version = Math.max(draft.version, (c.postVersion as number) ?? 1);
+      draft.comments.push({ part: null, state: null, text: c.text as string });
+      draft.updatedAt = c.createdAt as string;
+    }
+    for (const [mockId, draft] of drafts) {
+      this.sql.exec("UPDATE mocks SET draft = ? WHERE id = ?", JSON.stringify(draft), mockId);
+    }
+    this.sql.exec("DELETE FROM comments WHERE draft = 1");
+  }
+
+  private settingSync(key: string): string | null {
+    const rows = this.sql.exec("SELECT value FROM settings WHERE key = ?", key).toArray();
+    return rows.length ? (rows[0].value as string) : null;
+  }
+
+  // --- rows ---
+
+  private insertVersion(postId: string, v: PostVersion) {
+    this.sql.exec(
+      "INSERT OR REPLACE INTO post_versions (postId, version, title, surfaces, at, fromVersion, prompt, author) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      postId,
+      v.version,
+      v.title,
+      JSON.stringify(v.surfaces ?? []),
+      v.at,
+      v.from ?? null,
+      v.prompt ?? null,
+      v.author ?? null,
     );
   }
 
-  private rowToSession(r: Record<string, SqlStorageValue>): Session {
+  private rowToVersion(r: Row): PostVersion {
+    return {
+      version: r.version as number,
+      title: r.title as string,
+      surfaces: parseJson<Surface[]>(r.surfaces, []),
+      at: r.at as string,
+      // Absent stays absent: the store contract compares entries whole.
+      ...(r.fromVersion == null ? {} : { from: r.fromVersion as number }),
+      ...(r.prompt == null ? {} : { prompt: r.prompt as string }),
+      ...(r.author == null ? {} : { author: r.author as string }),
+    };
+  }
+
+  private historiesFor(ids: string[]): Map<string, PostVersion[]> {
+    const out = new Map<string, PostVersion[]>();
+    if (ids.length === 0) return out;
+    const rows = this.sql
+      .exec(
+        `SELECT * FROM post_versions WHERE postId IN (${ids.map(() => "?").join(",")}) ORDER BY version ASC`,
+        ...ids,
+      )
+      .toArray();
+    for (const r of rows) {
+      const id = r.postId as string;
+      let list = out.get(id);
+      if (!list) out.set(id, (list = []));
+      list.push(this.rowToVersion(r));
+    }
+    return out;
+  }
+
+  private rowsToPosts(rows: Row[]): Post[] {
+    const histories = this.historiesFor(rows.map((r) => r.id as string));
+    return rows.map((r) => this.rowToPost(r, histories.get(r.id as string) ?? []));
+  }
+
+  private rowToSession(r: Row): Session {
     return {
       id: r.id as string,
       agent: r.agent as string,
@@ -483,31 +522,40 @@ export class SqlStore implements Store {
     };
   }
 
-  private rowToPost(r: Record<string, SqlStorageValue>, history: PostVersion[]): Post {
-    let ask: PostAsk | null = null;
-    if (typeof r.ask === "string" && r.ask) {
-      try {
-        ask = JSON.parse(r.ask) as PostAsk;
-      } catch {
-        ask = null;
-      }
-    }
+  private rowToMock(r: Row): Mock {
+    return {
+      id: r.id as string,
+      project: r.project as string,
+      slug: r.slug as string,
+      title: r.title as string,
+      kind: ((r.kind as string) === "page" ? "page" : "component") as MockKind,
+      states: parseJson<string[]>(r.states, []),
+      asks: parseJson<Ask[]>(r.asks, []),
+      knobs: parseJson<Knobs>(r.knobs, {}),
+      draft: parseJson<Draft | null>(r.draft, null),
+      sessionId: (r.sessionId as string) ?? null,
+      createdAt: r.createdAt as string,
+      updatedAt: r.updatedAt as string,
+    };
+  }
+
+  private rowToPost(r: Row, history: PostVersion[]): Post {
+    const knobs = parseJson<Knobs | null>(r.knobs, null);
     return {
       id: r.id as string,
       sessionId: r.sessionId as string,
+      mock: r.mockId as string,
+      state: (r.state as string) ?? null,
+      variant: r.variant as string,
+      status: ((r.status as string) || "open") as PostStatus,
       title: r.title as string,
-      surfaces: JSON.parse(r.surfaces as string) as Surface[],
+      surfaces: parseJson<Surface[]>(r.surfaces, []),
       createdAt: r.createdAt as string,
       updatedAt: r.updatedAt as string,
       version: r.version as number,
       history,
-      project: (r.project as string) || DEFAULT_PROJECT,
-      slug: (r.slug as string) || slugify(r.title as string),
-      kind: ((r.kind as string) || "component") as ItemKind,
-      variant: (r.variant as string) || DEFAULT_VARIANT,
-      status: ((r.status as string) || "open") as PostStatus,
-      ask,
-      slots: JSON.parse((r.slots as string) || "[]") as Slot[],
+      ...(knobs ? { knobs } : {}),
+      slots: parseJson<Slot[]>(r.slots, []),
       ...(r.curFrom == null ? {} : { from: r.curFrom as number }),
       ...(r.curPrompt == null ? {} : { prompt: r.curPrompt as string }),
       ...(r.curAuthor == null ? {} : { author: r.curAuthor as string }),
@@ -516,12 +564,12 @@ export class SqlStore implements Store {
 
   // The BLOB comes back as an ArrayBuffer (real DO) or a Uint8Array
   // (node:sqlite); `new Uint8Array(raw)` copies from either into a fresh array.
-  private rowToAsset(r: Record<string, SqlStorageValue>): Asset {
+  private rowToAsset(r: Row): Asset {
     const raw = r.data as ArrayBuffer | Uint8Array;
     return {
       id: r.id as string,
       sessionId: r.sessionId as string,
-      kind: r.kind as Asset["kind"],
+      kind: r.kind === "image" ? "image" : "file",
       contentType: r.contentType as string,
       byteLength: r.byteLength as number,
       filename: (r.filename as string) ?? null,
@@ -531,30 +579,24 @@ export class SqlStore implements Store {
     };
   }
 
-  private rowToComment(r: Record<string, SqlStorageValue>): Comment {
-    let anchor: Comment["anchor"] | undefined;
-    if (typeof r.anchor === "string" && r.anchor) {
-      try {
-        anchor = JSON.parse(r.anchor) as Comment["anchor"];
-      } catch {
-        anchor = undefined;
-      }
-    }
+  private rowToComment(r: Row): Comment {
+    const anchor = parseJson<Comment["anchor"] | null>(r.anchor, null);
+    const payload = parseJson<Reply | null>(r.payload, null);
     return {
       id: r.id as string,
       seq: r.seq as number,
       sessionId: r.sessionId as string,
+      mockId: (r.mockId as string) ?? null,
       postId: (r.postId as string) ?? null,
-      postTitle: (r.postTitle as string) ?? null,
       author: r.author as string,
       text: r.text as string,
       createdAt: r.createdAt as string,
-      ...(anchor && { anchor }),
+      ...(anchor ? { anchor } : {}),
       kind: ((r.kind as string) || "comment") as Comment["kind"],
-      anchors: parseAnchors(r.anchors),
-      draft: (r.draft as number) === 1,
+      anchors: parseJson<Anchor[]>(r.anchors, []),
       postVersion: r.postVersion == null ? null : (r.postVersion as number),
       viewport: r.viewport == null ? null : (r.viewport as number),
+      ...(payload ? { payload } : {}),
     };
   }
 
@@ -608,23 +650,30 @@ export class SqlStore implements Store {
 
   async removeSession(id: string) {
     if (!(await this.getSession(id))) return false;
-    this.sql.exec("DELETE FROM comments WHERE sessionId = ?", id);
-    this.sql.exec(
-      "DELETE FROM post_versions WHERE postId IN (SELECT id FROM posts WHERE sessionId = ?)",
-      id,
-    );
-    this.sql.exec("DELETE FROM posts WHERE sessionId = ?", id);
-    this.sql.exec("DELETE FROM trace_steps WHERE sessionId = ?", id);
-    // Posts are gone, so referencedAssetIds now reflects survivors only:
-    // drop this session's own assets except any a surviving surface still
-    // points at (assets are content-addressed and may be shared across sessions).
-    this.invalidateAssetRefs();
-    const referenced = this.referencedAssetIds();
-    for (const r of this.sql.exec("SELECT id FROM assets WHERE sessionId = ?", id).toArray()) {
-      const aid = r.id as string;
-      if (!referenced.has(aid)) this.sql.exec("DELETE FROM assets WHERE id = ?", aid);
-    }
-    this.sql.exec("DELETE FROM sessions WHERE id = ?", id);
+    this.atomic(() => {
+      this.sql.exec("DELETE FROM comments WHERE sessionId = ?", id);
+      this.sql.exec(
+        "DELETE FROM post_versions WHERE postId IN (SELECT id FROM posts WHERE sessionId = ?)",
+        id,
+      );
+      this.sql.exec("DELETE FROM posts WHERE sessionId = ?", id);
+      // A mock left with no variants has nothing to show.
+      this.sql.exec(
+        "DELETE FROM comments WHERE mockId IN (SELECT id FROM mocks WHERE id NOT IN (SELECT mockId FROM posts))",
+      );
+      this.sql.exec("DELETE FROM mocks WHERE id NOT IN (SELECT mockId FROM posts)");
+      this.sql.exec("UPDATE mocks SET sessionId = NULL WHERE sessionId = ?", id);
+      // Posts are gone, so the referenced set reflects survivors only: drop this
+      // session's own assets except any a surviving surface still points at
+      // (assets are content-addressed and may be shared across sessions).
+      this.invalidateAssetRefs();
+      const referenced = this.referencedAssetIds();
+      for (const r of this.sql.exec("SELECT id FROM assets WHERE sessionId = ?", id).toArray()) {
+        const aid = r.id as string;
+        if (!referenced.has(aid)) this.sql.exec("DELETE FROM assets WHERE id = ?", aid);
+      }
+      this.sql.exec("DELETE FROM sessions WHERE id = ?", id);
+    });
     return true;
   }
 
@@ -648,8 +697,7 @@ export class SqlStore implements Store {
   // --- settings ---
 
   async getSetting(key: string) {
-    const rows = this.sql.exec("SELECT value FROM settings WHERE key = ?", key).toArray();
-    return rows.length ? (rows[0].value as string) : null;
+    return this.settingSync(key);
   }
 
   async setSetting(key: string, value: string) {
@@ -660,106 +708,215 @@ export class SqlStore implements Store {
     );
   }
 
-  // --- surfaces ---
+  // --- projects / mocks ---
 
-  async listPosts(sessionId?: string) {
+  async listProjects() {
+    return summarizeProjects(await this.listMocks(), await this.listSessions());
+  }
+
+  async listMocks(project?: string) {
     const rows =
-      sessionId === undefined
-        ? this.sql.exec("SELECT * FROM posts ORDER BY createdAt ASC").toArray()
+      project === undefined
+        ? this.sql.exec("SELECT * FROM mocks ORDER BY updatedAt DESC, rowid DESC").toArray()
         : this.sql
-            .exec("SELECT * FROM posts WHERE sessionId = ? ORDER BY createdAt ASC", sessionId)
+            .exec(
+              "SELECT * FROM mocks WHERE project = ? ORDER BY updatedAt DESC, rowid DESC",
+              project,
+            )
             .toArray();
-    return this.rowsToPosts(rows, sessionId === undefined);
+    return rows.map((r) => this.rowToMock(r));
   }
 
-  async countPostsBySession() {
-    const counts = new Map<string, number>();
-    for (const row of this.sql
-      .exec("SELECT sessionId, COUNT(*) AS count FROM posts GROUP BY sessionId")
-      .toArray()) {
-      counts.set(row.sessionId as string, row.count as number);
-    }
-    return counts;
+  async getMock(id: string) {
+    const rows = this.sql.exec("SELECT * FROM mocks WHERE id = ?", id).toArray();
+    return rows.length > 0 ? this.rowToMock(rows[0]) : null;
   }
 
-  async listRecentPosts(limit: number) {
-    // ISO timestamps only have millisecond precision, so bulk writes frequently
-    // tie. Make LIMIT membership deterministic across SQLite versions and match
-    // JsonFileStore: among equal timestamps, the later insertion wins.
+  async findMock(project: string, slug: string) {
     const rows = this.sql
-      .exec("SELECT * FROM posts ORDER BY updatedAt DESC, rowid DESC LIMIT ?", limit)
+      .exec("SELECT * FROM mocks WHERE project = ? AND slug = ?", project, slug)
+      .toArray();
+    return rows.length > 0 ? this.rowToMock(rows[0]) : null;
+  }
+
+  async createMock(input: CreateMockInput) {
+    const now = new Date().toISOString();
+    const mock: Mock = {
+      id: newId(),
+      project: stripNul(input.project).trim() || DEFAULT_PROJECT,
+      slug: slugify(stripNul(input.slug)),
+      title: stripNul(input.title)?.trim() || input.slug,
+      kind: input.kind === "page" ? "page" : "component",
+      states: (input.states ?? []).map((s) => stripNul(s)),
+      asks: [],
+      knobs: input.knobs ?? {},
+      draft: null,
+      sessionId: input.sessionId ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.sql.exec(
+      "INSERT INTO mocks (id, project, slug, title, kind, states, asks, knobs, draft, sessionId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, '[]', ?, NULL, ?, ?, ?)",
+      mock.id,
+      mock.project,
+      mock.slug,
+      mock.title,
+      mock.kind,
+      JSON.stringify(mock.states),
+      JSON.stringify(mock.knobs),
+      mock.sessionId,
+      mock.createdAt,
+      mock.updatedAt,
+    );
+    return mock;
+  }
+
+  async updateMock(id: string, patch: UpdateMockInput) {
+    const mock = await this.getMock(id);
+    if (!mock) return null;
+    const next: Mock = {
+      ...mock,
+      ...(patch.title !== undefined && { title: stripNul(patch.title).trim() || mock.title }),
+      ...(patch.kind !== undefined && { kind: patch.kind }),
+      ...(patch.states !== undefined && { states: patch.states.map((s) => stripNul(s)) }),
+      ...(patch.asks !== undefined && { asks: patch.asks }),
+      ...(patch.knobs !== undefined && { knobs: patch.knobs }),
+      ...(patch.sessionId !== undefined && { sessionId: patch.sessionId }),
+      updatedAt: new Date().toISOString(),
+    };
+    this.sql.exec(
+      "UPDATE mocks SET title = ?, kind = ?, states = ?, asks = ?, knobs = ?, sessionId = ?, updatedAt = ? WHERE id = ?",
+      next.title,
+      next.kind,
+      JSON.stringify(next.states),
+      JSON.stringify(next.asks),
+      JSON.stringify(next.knobs),
+      next.sessionId,
+      next.updatedAt,
+      id,
+    );
+    return next;
+  }
+
+  async removeMock(id: string) {
+    if (!(await this.getMock(id))) return false;
+    this.atomic(() => {
+      this.sql.exec("DELETE FROM comments WHERE mockId = ?", id);
+      this.sql.exec(
+        "DELETE FROM post_versions WHERE postId IN (SELECT id FROM posts WHERE mockId = ?)",
+        id,
+      );
+      this.sql.exec("DELETE FROM posts WHERE mockId = ?", id);
+      this.sql.exec("DELETE FROM mocks WHERE id = ?", id);
+    });
+    this.invalidateAssetRefs();
+    return true;
+  }
+
+  async putDraft(mockId: string, draft: Draft | null) {
+    const mock = await this.getMock(mockId);
+    if (!mock) return null;
+    this.sql.exec(
+      "UPDATE mocks SET draft = ? WHERE id = ?",
+      draft ? JSON.stringify(draft) : null,
+      mockId,
+    );
+    return { ...mock, draft };
+  }
+
+  private touchMock(mockId: string, at: string) {
+    this.sql.exec("UPDATE mocks SET updatedAt = ? WHERE id = ?", at, mockId);
+  }
+
+  // --- posts ---
+
+  async listPosts(query: PostQuery = {}) {
+    const clauses: string[] = [];
+    const params: SqlStorageValue[] = [];
+    if (query.mockId !== undefined) {
+      clauses.push("mockId = ?");
+      params.push(query.mockId);
+    }
+    if (query.sessionId !== undefined) {
+      clauses.push("sessionId = ?");
+      params.push(query.sessionId);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.sql
+      .exec(`SELECT * FROM posts ${where} ORDER BY createdAt ASC, rowid ASC`, ...params)
       .toArray();
     return this.rowsToPosts(rows);
   }
 
   async getPost(id: string) {
     const rows = this.sql.exec("SELECT * FROM posts WHERE id = ?", id).toArray();
-    return rows.length > 0 ? this.rowToPost(rows[0], this.historyFor(id)) : null;
+    return rows.length > 0 ? this.rowsToPosts(rows)[0] : null;
+  }
+
+  async findPost(mockId: string, state: string | null, variant: string) {
+    const rows = this.sql
+      .exec(
+        "SELECT * FROM posts WHERE mockId = ? AND state IS ? AND variant = ? ORDER BY createdAt ASC LIMIT 1",
+        mockId,
+        state,
+        variant,
+      )
+      .toArray();
+    return rows.length > 0 ? this.rowsToPosts(rows)[0] : null;
   }
 
   async createPost(input: CreatePostInput) {
-    const session = await this.getSession(input.sessionId);
-    if (!session) return null;
+    if (!(await this.getSession(input.sessionId))) return null;
+    if (!(await this.getMock(input.mock))) return null;
     const now = new Date().toISOString();
-    const title = stripNul(input.title)?.trim() || "Untitled";
     const post: Post = {
       id: newId(),
       sessionId: input.sessionId,
-      title,
+      mock: input.mock,
+      state: input.state === null ? null : stripNul(input.state),
+      variant: stripNul(input.variant)?.trim() || DEFAULT_VARIANT,
+      status: "open",
+      title: stripNul(input.title)?.trim() || "Untitled",
       surfaces: normalizeSurfaceIds(input.surfaces),
       createdAt: now,
       updatedAt: now,
       version: 1,
       history: [],
-      project:
-        stripNul(input.project)?.trim() ||
-        session.project ||
-        projectFromCwd(session.cwd) ||
-        DEFAULT_PROJECT,
-      slug: slugify(stripNul(input.slug)?.trim() || title),
-      kind: input.kind === "page" ? "page" : "component",
-      variant: stripNul(input.variant)?.trim() || DEFAULT_VARIANT,
-      status: "open",
-      ask: null,
+      ...(input.knobs ? { knobs: input.knobs } : {}),
       slots: input.slots ?? [],
       ...(input.from === undefined ? {} : { from: input.from }),
-      ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
+      ...(input.prompt === undefined ? {} : { prompt: stripNul(input.prompt) }),
       ...(input.author === undefined ? {} : { author: stripNul(input.author) }),
     };
     this.sql.exec(
-      "INSERT INTO posts (id, sessionId, title, surfaces, createdAt, updatedAt, version, history, project, slug, kind, variant, status, ask, slots, curFrom, curPrompt, curAuthor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)",
+      "INSERT INTO posts (id, sessionId, mockId, state, variant, status, title, surfaces, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)",
       post.id,
       post.sessionId,
+      post.mock,
+      post.state,
+      post.variant,
       post.title,
       JSON.stringify(post.surfaces),
+      post.knobs ? JSON.stringify(post.knobs) : null,
+      JSON.stringify(post.slots),
       post.createdAt,
       post.updatedAt,
-      post.version,
-      "[]",
-      post.project,
-      post.slug,
-      post.kind,
-      post.variant,
-      post.status,
-      JSON.stringify(post.slots),
       post.from ?? null,
       post.prompt ?? null,
       post.author ?? null,
     );
     this.touch(input.sessionId);
-    this.addAssetRefs(input.surfaces);
+    this.touchMock(post.mock, now);
+    this.addAssetRefs(post.surfaces);
     return post;
   }
 
   async updatePost(id: string, patch: UpdatePostInput) {
-    // Compare-and-set: the expected-version guard makes two concurrent
-    // updates serializable without a read-then-write gap. Only one UPDATE
-    // can match the WHERE clause; the loser sees 0 rows affected and retries
-    // with the now-current version.
+    // Compare-and-set on the version: two concurrent updates serialize without
+    // a read-then-write gap. The loser sees 0 rows changed and retries.
     for (let attempt = 0; attempt < 4; attempt++) {
       const post = await this.getPost(id);
       if (!post) return null;
-      const expectedVersion = post.version;
       const archived: PostVersion = {
         version: post.version,
         title: post.title,
@@ -775,162 +932,77 @@ export class SqlStore implements Store {
         patch.title !== undefined ? stripNul(patch.title).trim() || post.title : post.title;
       const surfaces =
         patch.surfaces !== undefined ? normalizeSurfaceIds(patch.surfaces) : post.surfaces;
+      const knobs = patch.knobs === undefined ? post.knobs : (patch.knobs ?? undefined);
+      const slots = patch.slots ?? post.slots;
+      const state = patch.state === undefined ? post.state : patch.state;
       const version = post.version + 1;
       const updatedAt = new Date().toISOString();
-      // A revision may branch from any earlier version; default to the one it
-      // replaces.
+      // A revision may branch from any earlier version; default to the one it replaces.
       const from = patch.from ?? post.version;
-      const prompt = patch.prompt ?? "";
+      const prompt = stripNul(patch.prompt ?? "");
       const author = patch.author === undefined ? null : stripNul(patch.author);
-      const slots = patch.slots !== undefined ? patch.slots : post.slots;
-      // The post row no longer carries history; the archived version is written
-      // to post_versions only after the compare-and-set below actually lands, so
-      // a lost race leaves no orphan version row.
       this.sql.exec(
-        "UPDATE posts SET title = ?, surfaces = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, slots = ? WHERE id = ? AND version = ?",
+        "UPDATE posts SET title = ?, surfaces = ?, knobs = ?, slots = ?, state = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ? WHERE id = ? AND version = ?",
         title,
         JSON.stringify(surfaces),
+        knobs ? JSON.stringify(knobs) : null,
+        JSON.stringify(slots),
+        state,
         updatedAt,
         version,
         from,
         prompt,
         author,
-        JSON.stringify(slots),
         id,
-        expectedVersion,
+        post.version,
       );
       const affected = this.sql.exec("SELECT changes() AS n").one().n as number;
       if (affected > 0) {
         this.insertVersion(id, archived);
-        // Roll the retained window: one row per revision, so the trim is a
-        // delete rather than a rewrite of the whole blob.
         this.sql.exec(
           "DELETE FROM post_versions WHERE postId = ? AND version <= ?",
           id,
           version - 1 - HISTORY_LIMIT,
         );
         this.touch(post.sessionId);
-        if (patch.surfaces !== undefined) this.addAssetRefs(patch.surfaces);
+        this.touchMock(post.mock, updatedAt);
+        if (patch.surfaces !== undefined) this.addAssetRefs(surfaces);
+        const { knobs: _knobs, author: _author, ...rest } = post;
         return {
-          ...post,
+          ...rest,
           title,
           surfaces,
+          ...(knobs ? { knobs } : {}),
+          slots,
+          state,
           version,
           updatedAt,
           history,
           from,
           prompt,
-          slots,
           ...(author === null ? {} : { author }),
         };
       }
-      // Lost the race — retry with the now-current version.
     }
     return null;
   }
 
   async removePost(id: string) {
     if (!(await this.getPost(id))) return false;
-    this.sql.exec("DELETE FROM comments WHERE postId = ?", id);
-    this.sql.exec("DELETE FROM post_versions WHERE postId = ?", id);
-    this.sql.exec("DELETE FROM posts WHERE id = ?", id);
+    this.atomic(() => {
+      this.sql.exec("DELETE FROM comments WHERE postId = ?", id);
+      this.sql.exec("DELETE FROM post_versions WHERE postId = ?", id);
+      this.sql.exec("DELETE FROM posts WHERE id = ?", id);
+    });
     this.invalidateAssetRefs();
     return true;
   }
 
-  // --- projects / items / variants ---
-
-  async listProjects(): Promise<ProjectSummary[]> {
-    const posts = await this.listPosts();
-    const sessions = await this.listSessions();
-    return summarizeProjects(posts, sessions);
-  }
-
-  private postsInProject(project: string): Post[] {
-    const rows = this.sql
-      .exec("SELECT * FROM posts WHERE project = ? ORDER BY createdAt ASC", project)
-      .toArray();
-    return this.rowsToPosts(rows);
-  }
-
-  async listItems(project: string): Promise<ItemSummary[]> {
-    return summarizeItems(this.postsInProject(project));
-  }
-
-  async getItem(project: string, slug: string): Promise<ItemDetail | null> {
-    const posts = this.sql
-      .exec(
-        "SELECT * FROM posts WHERE project = ? AND slug = ? ORDER BY createdAt ASC",
-        project,
-        slug,
-      )
-      .toArray();
-    return detailForItem(this.rowsToPosts(posts));
-  }
-
-  async findVariant(project: string, slug: string, variant: string): Promise<Post | null> {
-    const rows = this.sql
-      .exec(
-        "SELECT * FROM posts WHERE project = ? AND slug = ? AND variant = ? ORDER BY createdAt ASC LIMIT 1",
-        project,
-        slug,
-        variant,
-      )
-      .toArray();
-    return rows.length > 0 ? this.rowToPost(rows[0], this.historyFor(rows[0].id as string)) : null;
-  }
-
-  async setPostStatus(id: string, status: PostStatus): Promise<Post | null> {
+  async setPostStatus(id: string, status: PostStatus) {
     const post = await this.getPost(id);
     if (!post) return null;
     this.sql.exec("UPDATE posts SET status = ? WHERE id = ?", status, id);
     return { ...post, status };
-  }
-
-  async setPostAsk(id: string, ask: PostAsk | null): Promise<Post | null> {
-    const post = await this.getPost(id);
-    if (!post) return null;
-    this.sql.exec("UPDATE posts SET ask = ? WHERE id = ?", ask ? JSON.stringify(ask) : null, id);
-    return { ...post, ask };
-  }
-
-  async listDrafts(postId: string): Promise<Comment[]> {
-    return this.sql
-      .exec("SELECT * FROM comments WHERE postId = ? AND draft = 1 ORDER BY seq ASC", postId)
-      .toArray()
-      .map((r) => this.rowToComment(r));
-  }
-
-  async releaseDrafts(postId: string): Promise<Comment[]> {
-    const drafts = await this.listDrafts(postId);
-    if (drafts.length === 0) return [];
-    // Fresh seqs, not an in-place flag flip: the session's agentSeq has already
-    // stepped past the seqs the drafts were written with (the viewer's own reads
-    // never advance it, but the agent's writes do), so reusing them would drop
-    // the feedback on the floor. Delete + reinsert puts every released draft
-    // above the cursor, where the one delivery stream picks it up exactly once.
-    const released: Comment[] = [];
-    for (const d of drafts) {
-      this.sql.exec("DELETE FROM comments WHERE id = ?", d.id);
-      this.sql.exec(
-        "INSERT INTO comments (id, sessionId, postId, postTitle, author, text, createdAt, anchor, kind, anchors, draft, postVersion, viewport) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
-        d.id,
-        d.sessionId,
-        d.postId,
-        d.postTitle,
-        d.author,
-        d.text,
-        d.createdAt,
-        d.anchor ? JSON.stringify(d.anchor) : null,
-        d.kind,
-        JSON.stringify(d.anchors),
-        d.postVersion,
-        d.viewport,
-      );
-      const seq = this.sql.exec("SELECT last_insert_rowid() AS seq").one().seq as number;
-      released.push({ ...d, seq, draft: false });
-    }
-    return released;
   }
 
   // --- comments ---
@@ -942,6 +1014,10 @@ export class SqlStore implements Store {
       clauses.push("sessionId = ?");
       params.push(query.sessionId);
     }
+    if (query.mockId !== undefined) {
+      clauses.push("mockId = ?");
+      params.push(query.mockId);
+    }
     if (query.postId !== undefined) {
       clauses.push("postId = ?");
       params.push(query.postId);
@@ -950,9 +1026,6 @@ export class SqlStore implements Store {
       clauses.push("seq > ?");
       params.push(query.afterSeq);
     }
-    // Drafts are the operator's unsent notes: agent-facing reads (the default)
-    // must never see them.
-    if (!query.includeDrafts) clauses.push("draft = 0");
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     return this.sql
       .exec(`SELECT * FROM comments ${where} ORDER BY seq ASC`, ...params)
@@ -960,52 +1033,53 @@ export class SqlStore implements Store {
       .map((r) => this.rowToComment(r));
   }
 
-  async createComment(input: CreateCommentInput) {
-    if (!(await this.getSession(input.sessionId))) return null;
-    const post = input.postId ? await this.getPost(input.postId) : null;
-    const id = newId();
+  private insertComment(input: CreateCommentInput): Comment {
     const createdAt = new Date().toISOString();
-    const author = stripNul(input.author).trim() || "user";
-    const text = stripNul(input.text);
-    const kind = input.kind ?? "comment";
-    const anchors = input.anchors ?? [];
-    const draft = input.draft === true;
-    const postVersion = input.postVersion ?? post?.version ?? null;
-    const viewport = input.viewport ?? null;
-    this.sql.exec(
-      "INSERT INTO comments (id, sessionId, postId, postTitle, author, text, createdAt, anchor, kind, anchors, draft, postVersion, viewport) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      id,
-      input.sessionId,
-      post?.id ?? null,
-      post?.title ?? null,
-      author,
-      text,
+    const comment: Omit<Comment, "seq"> = {
+      id: newId(),
+      sessionId: input.sessionId,
+      mockId: input.mockId ?? null,
+      postId: input.postId ?? null,
+      author: stripNul(input.author).trim() || "user",
+      text: stripNul(input.text),
       createdAt,
-      input.anchor ? JSON.stringify(input.anchor) : null,
-      kind,
-      JSON.stringify(anchors),
-      draft ? 1 : 0,
-      postVersion,
-      viewport,
+      ...(input.anchor ? { anchor: input.anchor } : {}),
+      kind: input.kind ?? "comment",
+      anchors: input.anchors ?? [],
+      postVersion: input.postVersion ?? null,
+      viewport: input.viewport ?? null,
+      ...(input.payload ? { payload: input.payload } : {}),
+    };
+    this.sql.exec(
+      "INSERT INTO comments (id, sessionId, mockId, postId, author, text, createdAt, kind, anchor, anchors, postVersion, viewport, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      comment.id,
+      comment.sessionId,
+      comment.mockId,
+      comment.postId,
+      comment.author,
+      comment.text,
+      comment.createdAt,
+      comment.kind,
+      comment.anchor ? JSON.stringify(comment.anchor) : null,
+      JSON.stringify(comment.anchors),
+      comment.postVersion,
+      comment.viewport,
+      comment.payload ? JSON.stringify(comment.payload) : null,
     );
     const seq = this.sql.exec("SELECT last_insert_rowid() AS seq").one().seq as number;
     this.touch(input.sessionId);
-    return {
-      id,
-      seq,
-      sessionId: input.sessionId,
+    return { ...comment, seq };
+  }
+
+  async createComment(input: CreateCommentInput) {
+    if (!(await this.getSession(input.sessionId))) return null;
+    const post = input.postId ? await this.getPost(input.postId) : null;
+    return this.insertComment({
+      ...input,
       postId: post?.id ?? null,
-      postTitle: post?.title ?? null,
-      author,
-      text,
-      createdAt,
-      ...(input.anchor && { anchor: input.anchor }),
-      kind,
-      anchors,
-      draft,
-      postVersion,
-      viewport,
-    };
+      mockId: input.mockId ?? post?.mock ?? null,
+      postVersion: input.postVersion ?? post?.version ?? null,
+    });
   }
 
   async removeComment(id: string) {
@@ -1017,41 +1091,40 @@ export class SqlStore implements Store {
     return comment;
   }
 
-  // --- trace ---
-
-  private rowToTraceStep(r: Record<string, SqlStorageValue>): TraceStep {
-    const step: TraceStep = { label: r.label as string };
-    if (r.kind != null) step.kind = r.kind as string;
-    if (r.detail != null) step.detail = r.detail as string;
-    if (r.ts != null) step.ts = r.ts as string;
-    return step;
-  }
-
-  async listTrace(sessionId: string) {
-    return this.sql
-      .exec(
-        "SELECT kind, label, detail, ts FROM trace_steps WHERE sessionId = ? ORDER BY seq ASC",
-        sessionId,
-      )
-      .toArray()
-      .map((r) => this.rowToTraceStep(r));
-  }
-
-  async setTrace(sessionId: string, steps: TraceStep[]) {
-    this.sql.exec("DELETE FROM trace_steps WHERE sessionId = ?", sessionId);
-    let seq = 0;
-    for (const raw of steps) {
-      const s = stripNulStep(raw);
+  async commitReply(input: CommitReplyInput) {
+    if (!(await this.getSession(input.sessionId))) return null;
+    if (!(await this.getMock(input.mockId))) return null;
+    return this.atomic(() => {
+      const comment = this.insertComment({
+        sessionId: input.sessionId,
+        mockId: input.mockId,
+        author: "user",
+        text: input.text,
+        kind: "reply",
+        postVersion: input.payload.version,
+        payload: input.payload,
+      });
       this.sql.exec(
-        "INSERT INTO trace_steps (sessionId, seq, kind, label, detail, ts) VALUES (?, ?, ?, ?, ?, ?)",
-        sessionId,
-        seq++,
-        s.kind ?? null,
-        s.label,
-        s.detail ?? null,
-        s.ts ?? null,
+        "UPDATE mocks SET asks = ?, draft = NULL WHERE id = ?",
+        JSON.stringify(input.asks),
+        input.mockId,
       );
-    }
+      for (const id of input.accept) {
+        this.sql.exec(
+          "UPDATE posts SET status = 'accepted' WHERE id = ? AND mockId = ?",
+          id,
+          input.mockId,
+        );
+      }
+      for (const id of input.archive) {
+        this.sql.exec(
+          "UPDATE posts SET status = 'archived' WHERE id = ? AND mockId = ?",
+          id,
+          input.mockId,
+        );
+      }
+      return comment;
+    });
   }
 
   // --- assets ---
@@ -1060,18 +1133,15 @@ export class SqlStore implements Store {
     if (this.assetRefCache) return this.assetRefCache;
     const out = new Set<string>();
     for (const r of this.sql.exec("SELECT surfaces FROM posts").toArray()) {
-      collectAssetIds(JSON.parse(r.surfaces as string) as Surface[], out);
+      collectAssetIds(parseJson<Surface[]>(r.surfaces, []), out);
     }
     for (const r of this.sql.exec("SELECT surfaces FROM post_versions").toArray()) {
-      collectAssetIds(JSON.parse(r.surfaces as string) as Surface[], out);
+      collectAssetIds(parseJson<Surface[]>(r.surfaces, []), out);
     }
     this.assetRefCache = out;
     return out;
   }
 
-  // Fold a freshly-written surfaces list into the cache. If the cache hasn't
-  // been built yet, skip — the next referencedAssetIds() reads the post from
-  // disk and picks it up. Only mutates a populated cache.
   private addAssetRefs(surfaces: Surface[]): void {
     if (this.assetRefCache) collectAssetIds(surfaces, this.assetRefCache);
   }
@@ -1100,12 +1170,12 @@ export class SqlStore implements Store {
         lastAccessedAt: r.lastAccessedAt as string,
         referenced: referenced.has(r.id as string),
       }));
-    for (const id of selectEvictions(
+    for (const evict of selectEvictions(
       candidates,
       input.data.byteLength,
       MAX_WORKSPACE_ASSET_BYTES,
     )) {
-      this.sql.exec("DELETE FROM assets WHERE id = ?", id);
+      this.sql.exec("DELETE FROM assets WHERE id = ?", evict);
     }
     const now = new Date().toISOString();
     const asset: Asset = {
@@ -1119,8 +1189,8 @@ export class SqlStore implements Store {
       createdAt: now,
       lastAccessedAt: now,
     };
-    // Bind the blob as an ArrayBuffer (the SqlStorageValue type); the shim
-    // adapts it to a Uint8Array for node:sqlite.
+    // Bind the blob as an ArrayBuffer (the SqlStorageValue type); the node
+    // adapter turns it back into a Uint8Array for node:sqlite.
     const buf = asset.data.buffer.slice(
       asset.data.byteOffset,
       asset.data.byteOffset + asset.data.byteLength,
@@ -1169,145 +1239,5 @@ export class SqlStore implements Store {
 
   async isAssetReferenced(id: string) {
     return this.referencedAssetIds().has(id);
-  }
-
-  // One-time bulk import to migrate another backend's data into this database
-  // (see server/sqliteStorage.ts → migrateJsonToSqlite). The method name predates
-  // the workspace terminology; keep it as public API. Every field is written
-  // verbatim — ids, versions, history, the comment `seq` and `agentSeq` the
-  // feedback cursor keys on, asset bytes — so identity survives the copy.
-  // Wrapped in a transaction so a crash mid-copy rolls back to an empty db
-  // rather than a half-migrated workspace. Intended for an empty database; the
-  // caller gates on that. Only ever runs through the node:sqlite adapter.
-  importBoard(snapshot: WorkspaceSnapshot): void {
-    this.sql.exec("BEGIN");
-    try {
-      for (const s of snapshot.sessions) {
-        this.sql.exec(
-          "INSERT INTO sessions (id, agent, title, cwd, createdAt, lastActiveAt, agentSeq, project) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-          s.id,
-          s.agent,
-          s.title,
-          s.cwd,
-          s.createdAt,
-          s.lastActiveAt,
-          s.agentSeq,
-          s.project ?? null,
-        );
-      }
-      // A snapshot from a pre-item workspace has no project/slug; derive them
-      // the same way the in-place migration does (the sentinel it keys on is
-      // already set on this fresh database, so it will not run over these rows).
-      const sessionsById = new Map(snapshot.sessions.map((s) => [s.id, s]));
-      const takenSlugs = new Map<string, Set<string>>();
-      // `surfaces` is the retired spelling of `posts` on a snapshot; read it
-      // through a structural cast so the back-compat fallback doesn't depend on
-      // the deprecated field being kept on the type.
-      const snapshotPosts = snapshot.posts ?? (snapshot as { surfaces?: Post[] }).surfaces ?? [];
-      for (const post of snapshotPosts) {
-        const session = sessionsById.get(post.sessionId);
-        const project =
-          post.project ||
-          session?.project ||
-          projectFromCwd(session?.cwd ?? null) ||
-          DEFAULT_PROJECT;
-        let slug = post.slug;
-        if (!slug) {
-          let used = takenSlugs.get(project);
-          if (!used) takenSlugs.set(project, (used = new Set<string>()));
-          slug = uniqueSlug(post.title, post.id, used);
-          used.add(slug);
-        }
-        this.sql.exec(
-          "INSERT INTO posts (id, sessionId, title, surfaces, createdAt, updatedAt, version, history, project, slug, kind, variant, status, ask, slots, curFrom, curPrompt, curAuthor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          post.id,
-          post.sessionId,
-          post.title,
-          JSON.stringify(normalizeSurfaceIds(post.surfaces)),
-          post.createdAt,
-          post.updatedAt,
-          post.version,
-          // History lives in post_versions (see migrateToVersions); the column
-          // stays, empty, for rollback safety.
-          "[]",
-          project,
-          slug,
-          post.kind ?? "component",
-          post.variant ?? DEFAULT_VARIANT,
-          post.status ?? "open",
-          post.ask ? JSON.stringify(post.ask) : null,
-          JSON.stringify(post.slots ?? []),
-          post.from ?? null,
-          post.prompt ?? null,
-          post.author ?? null,
-        );
-        for (const h of post.history ?? []) {
-          this.insertVersion(post.id, { ...h, surfaces: normalizeSurfaceIds(h.surfaces) });
-        }
-      }
-      for (const c of snapshot.comments) {
-        this.sql.exec(
-          "INSERT INTO comments (seq, id, sessionId, postId, postTitle, author, text, createdAt, anchor, kind, anchors, draft, postVersion, viewport) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          c.seq,
-          c.id,
-          c.sessionId,
-          c.postId ?? null,
-          c.postTitle ?? null,
-          c.author,
-          c.text,
-          c.createdAt,
-          c.anchor ? JSON.stringify(c.anchor) : null,
-          c.kind ?? "comment",
-          JSON.stringify(c.anchors ?? anchorFromLegacy(c.anchor)),
-          c.draft ? 1 : 0,
-          c.postVersion ?? null,
-          c.viewport ?? null,
-        );
-      }
-      for (const t of snapshot.traces) {
-        let seq = 0;
-        for (const step of t.steps) {
-          this.sql.exec(
-            "INSERT INTO trace_steps (sessionId, seq, kind, label, detail, ts) VALUES (?, ?, ?, ?, ?, ?)",
-            t.sessionId,
-            seq++,
-            step.kind ?? null,
-            step.label,
-            step.detail ?? null,
-            step.ts ?? null,
-          );
-        }
-      }
-      for (const a of snapshot.assets) {
-        const buf = a.data.buffer.slice(
-          a.data.byteOffset,
-          a.data.byteOffset + a.data.byteLength,
-        ) as ArrayBuffer;
-        this.sql.exec(
-          "INSERT INTO assets (id, sessionId, kind, contentType, byteLength, filename, data, createdAt, lastAccessedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          a.id,
-          a.sessionId,
-          a.kind,
-          a.contentType,
-          a.byteLength,
-          a.filename,
-          buf,
-          a.createdAt,
-          a.lastAccessedAt,
-        );
-      }
-      for (const { key, value } of snapshot.settings) {
-        this.sql.exec(
-          "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-          key,
-          value,
-        );
-      }
-      this.sql.exec("COMMIT");
-      this.invalidateAssetRefs();
-    } catch (e) {
-      this.sql.exec("ROLLBACK");
-      throw e;
-    }
   }
 }

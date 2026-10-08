@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { test } from "node:test";
-import { toJsonSchemaCompat } from "@modelcontextprotocol/sdk/server/zod-json-schema-compat.js";
 import { z } from "zod";
 import {
   HTTP_MCP_TOOLS,
   MCP_INSTRUCTIONS,
-  STDIO_MCP_INPUT_SCHEMAS,
-  toFeedbackBatches,
+  MCP_TOOL_DEFS,
+  MCP_TOOL_NAMES,
+  STDIO_MCP_TOOLS,
 } from "../server/mcpSpec.ts";
 import { validateSurfaces } from "../server/postSurfaces.ts";
 import {
@@ -22,31 +22,51 @@ import {
   type Surface,
 } from "../server/types.ts";
 
-// This suite is the guard against the regression where `json` and `code`
-// surfaces shipped to CLI/REST but were never added to the MCP tool schemas —
-// leaving them publishable on two tiers and invisible on a third. It pins all
-// three surfaces to the one canonical list (SURFACE_KINDS): the HTTP JSON-Schema
-// enum, the stdio zod enum, and the runtime validator. Add a kind to types.ts
-// without teaching MCP about it (or the validator) and one of these fails.
+// This suite guards the regression where a surface kind shipped to CLI/REST
+// but never reached the MCP schemas — publishable on two tiers and invisible on
+// the third. It pins the HTTP JSON-Schema enum, the stdio zod enum and the
+// runtime validator to the one canonical list (SURFACE_KINDS).
 
-// The exact surface JSON Schema a client receives for the canonical publish
-// tool from the HTTP `tools/list` response.
-const httpSurfaceSchema = (() => {
-  const tool = HTTP_MCP_TOOLS.find((t) => t.name === "publish_post");
-  assert.ok(tool, "publish_post tool must exist");
-  return (tool as any).inputSchema.properties.surfaces.items;
-})();
+const EXPECTED_TOOLS = [
+  "publish_mock",
+  "revise_mock",
+  "list_mocks",
+  "get_mock",
+  "ask_user",
+  "wait_for_feedback",
+  "reply_to_user",
+  "export_mock",
+  "upload_asset",
+  "get_design_guide",
+  "add_surface",
+  "edit_surface",
+  "remove_surface",
+  "reorder_surfaces",
+];
 
-const httpKindEnum = (() => {
-  // inputSchema.properties.surfaces.items.properties.kind.enum — the wire path.
-  const enumValues = httpSurfaceSchema.properties.kind.enum;
-  assert.ok(Array.isArray(enumValues), "surfaces.items.kind.enum must be an array");
-  return enumValues as string[];
-})();
+// Measured at 18.1 KB (HTTP) and 19.7 KB (stdio) for the 14-tool catalog; the
+// surface schema is inlined in four tools, which dominates. Growth past these
+// is bloat, not scope.
+const BUDGET_HTTP = 18_500;
+const BUDGET_STDIO = 20_000;
 
-// A representative valid example per kind, used to prove the schema +
-// validator accept each advertised payload field. Include optional fields too so
-// a field going missing from the MCP schema surfaces here.
+const httpTool = (name: string) => {
+  const tool = HTTP_MCP_TOOLS.find((t) => t.name === name);
+  assert.ok(tool, `${name} must exist`);
+  return tool as any;
+};
+const stdioTool = (name: string) => {
+  const tool = STDIO_MCP_TOOLS.find((t) => t.name === name);
+  assert.ok(tool, `${name} must exist`);
+  return tool;
+};
+
+// The surface JSON Schema a client receives for the publish tool.
+const httpSurfaceSchema = httpTool("publish_mock").inputSchema.properties.surfaces.items;
+const httpKindEnum = httpSurfaceSchema.properties.kind.enum as string[];
+
+// A representative valid example per kind, including optional fields, so a
+// field missing from the MCP schema surfaces here.
 const EXAMPLES: Record<(typeof SURFACE_KINDS)[number], Surface> = {
   html: { kind: "html", html: "<p>hi</p>", kits: ["issues"] },
   diff: {
@@ -56,12 +76,6 @@ const EXAMPLES: Record<(typeof SURFACE_KINDS)[number], Surface> = {
     layout: "split",
   },
   image: { kind: "image", assetId: "asset123", alt: "screenshot", caption: "after" },
-  trace: {
-    kind: "trace",
-    assetId: "trace123",
-    title: "Run trace",
-    steps: [{ label: "step one", kind: "tool", detail: "ok", ts: "2026-07-02T00:00:00Z" }],
-  },
   markdown: { kind: "markdown", markdown: "# heading" },
   terminal: { kind: "terminal", text: "$ ls\nfile.txt", cols: 80, title: "shell" },
   mermaid: { kind: "mermaid", mermaid: "flowchart TD\nA-->B" },
@@ -69,96 +83,167 @@ const EXAMPLES: Record<(typeof SURFACE_KINDS)[number], Surface> = {
   code: { kind: "code", code: "const x = 1;", language: "ts", title: "x.ts", lineStart: 10 },
 };
 
-test("HTTP publish_post advertises exactly the canonical kind set", () => {
-  assert.deepEqual([...httpKindEnum].sort(), [...SURFACE_KINDS].sort());
+test("both transports advertise exactly the mock tool set", () => {
+  assert.deepEqual(MCP_TOOL_NAMES, EXPECTED_TOOLS);
+  assert.deepEqual(
+    HTTP_MCP_TOOLS.map((t) => t.name),
+    EXPECTED_TOOLS,
+  );
+  assert.deepEqual(
+    STDIO_MCP_TOOLS.map((t) => t.name),
+    EXPECTED_TOOLS,
+  );
 });
 
-test("HTTP publish_post advertises every field used by canonical examples", () => {
+test("HTTP and stdio params agree except the documented transport-specific ones", () => {
+  for (const def of MCP_TOOL_DEFS) {
+    const httpOnly = new Set(def.httpOnly ?? []);
+    const stdioExtra = new Set(Object.keys(def.stdioExtra ?? {}));
+    const http = Object.keys(httpTool(def.name).inputSchema.properties);
+    const stdio = Object.keys(stdioTool(def.name).inputSchema);
+    assert.deepEqual(
+      http.filter((k) => !httpOnly.has(k)).sort(),
+      stdio.filter((k) => !stdioExtra.has(k)).sort(),
+      `${def.name} params drifted between transports`,
+    );
+    for (const key of httpOnly) assert.ok(!stdio.includes(key), `${def.name}.${key} is http-only`);
+    for (const key of stdioExtra) {
+      assert.ok(!http.includes(key), `${def.name}.${key} is stdio-only`);
+    }
+  }
+});
+
+test("the mock is required on every mock-addressed tool; wait needs a session on HTTP", () => {
+  for (const name of [
+    "publish_mock",
+    "revise_mock",
+    "get_mock",
+    "ask_user",
+    "reply_to_user",
+    "export_mock",
+    "add_surface",
+    "edit_surface",
+    "remove_surface",
+    "reorder_surfaces",
+  ]) {
+    assert.ok(httpTool(name).inputSchema.required?.includes("mock"), `${name} requires mock`);
+  }
+  assert.deepEqual(httpTool("wait_for_feedback").inputSchema.required, ["session"]);
+  // Over stdio the server owns the conversation's session.
+  assert.equal(stdioTool("wait_for_feedback").inputSchema.session, undefined);
+  assert.ok(z.object(stdioTool("wait_for_feedback").inputSchema).safeParse({}).success);
+});
+
+test("ask_user advertises options bound to variants or knob values", () => {
+  const asks = httpTool("ask_user").inputSchema.properties.asks;
+  const option = asks.items.properties.options.items;
+  assert.ok(option.properties.variant, "options bind to a variant");
+  assert.ok(option.properties.set, "options bind to knob values");
+  assert.deepEqual(asks.items.required, ["text", "options"]);
+  const schema = z.object(stdioTool("ask_user").inputSchema);
+  assert.ok(
+    schema.safeParse({
+      mock: "writer",
+      asks: [{ text: "Which look?", options: [{ label: "Dark", variant: "dark" }] }],
+    }).success,
+  );
+  assert.equal(schema.safeParse({ mock: "writer", asks: [{ text: "no options" }] }).success, false);
+});
+
+test("HTTP publish_mock advertises exactly the canonical kind set", () => {
+  assert.deepEqual([...httpKindEnum].sort(), [...SURFACE_KINDS].sort());
+  assert.ok(!httpKindEnum.includes("trace"));
+});
+
+test("HTTP publish_mock advertises every field used by canonical examples", () => {
   const assertFieldsAdvertised = (schema: any, value: object, path: string) => {
     assert.ok(schema?.properties, `${path} must advertise object properties`);
     for (const [key, nested] of Object.entries(value)) {
       assert.ok(Object.hasOwn(schema.properties, key), `${path} must advertise ${key}`);
-      if (
-        Array.isArray(nested) &&
-        nested.length > 0 &&
-        typeof nested[0] === "object" &&
-        nested[0] !== null
-      ) {
-        assertFieldsAdvertised(
-          schema.properties[key].items,
-          nested[0] as object,
-          `${path}.${key}[]`,
-        );
+      if (Array.isArray(nested) && typeof nested[0] === "object" && nested[0] !== null) {
+        assertFieldsAdvertised(schema.properties[key].items, nested[0], `${path}.${key}[]`);
       }
     }
   };
-
   for (const kind of SURFACE_KINDS) {
     assertFieldsAdvertised(httpSurfaceSchema, EXAMPLES[kind], `surface ${kind}`);
   }
+  assert.equal(httpSurfaceSchema.properties.steps, undefined, "trace fields are gone");
 });
 
-test("compact MCP schemas retain critical surface and cursor semantics", () => {
+test("compact MCP schemas retain critical surface semantics", () => {
   assert.match(httpSurfaceSchema.properties.html.description, /body fragment/);
   assert.match(httpSurfaceSchema.properties.markdown.description, /raw HTML is escaped/);
   assert.match(httpSurfaceSchema.properties.mermaid.description, /do not set colors/);
   assert.match(httpSurfaceSchema.properties.assetId.description, /upload_asset/);
   assert.match(httpSurfaceSchema.properties.lineStart.description, /1-based/);
-
-  const update = HTTP_MCP_TOOLS.find((tool) => tool.name === "update_post") as any;
-  assert.equal(update.inputSchema.properties.surfaces.items.description, undefined);
-  assert.match(update.description, /publish_post shape/);
-  const wait = HTTP_MCP_TOOLS.find((tool) => tool.name === "wait_for_feedback") as any;
-  assert.match(wait.inputSchema.properties.afterSeq.description, /usually omit/);
+  assert.match(httpTool("publish_mock").inputSchema.properties.knobs.description, /tunekit/);
 });
 
-test("every canonical kind has a worked example (no kind left untested)", () => {
+test("the stdio publish schema accepts every kind and rejects an unknown one", () => {
+  const publish = z.object(stdioTool("publish_mock").inputSchema);
   for (const kind of SURFACE_KINDS) {
-    assert.ok(EXAMPLES[kind], `missing test example for kind "${kind}"`);
-  }
-});
-
-test("the stdio publish schema accepts a representative example of every kind", () => {
-  // The stdio schema object is z.object(STDIO_MCP_INPUT_SCHEMAS.publishPost);
-  // its `surfaces` field is the array schema the MCP SDK enforces.
-  const publishSchema = z.object(STDIO_MCP_INPUT_SCHEMAS.publishPost);
-  for (const kind of SURFACE_KINDS) {
-    const result = publishSchema.safeParse({ title: "t", surfaces: [EXAMPLES[kind]] });
+    const result = publish.safeParse({ mock: "m", surfaces: [EXAMPLES[kind]] });
     assert.ok(
       result.success,
-      `stdio schema rejected kind "${kind}": ${result.success ? "" : result.error}`,
+      `stdio schema rejected "${kind}": ${result.success ? "" : result.error}`,
     );
+  }
+  assert.equal(
+    publish.safeParse({ mock: "m", surfaces: [{ kind: "bogus", html: "x" }] }).success,
+    false,
+  );
+  assert.equal(
+    publish.safeParse({ mock: "m", surfaces: [{ kind: "trace", steps: [] }] }).success,
+    false,
+  );
+});
+
+test("the runtime validator accepts a representative example of every kind", async () => {
+  for (const kind of SURFACE_KINDS) {
+    const result = await validateSurfaces([EXAMPLES[kind]]);
+    assert.ok(result.ok, `validator rejected kind "${kind}": ${result.ok ? "" : result.error}`);
   }
 });
 
-test("the stdio publish schema rejects an unknown kind", () => {
-  const publishSchema = z.object(STDIO_MCP_INPUT_SCHEMAS.publishPost);
-  const result = publishSchema.safeParse({ title: "t", surfaces: [{ kind: "bogus", html: "x" }] });
-  assert.equal(result.success, false);
+test("instructions speak the mock vocabulary and nothing retired remains", () => {
+  assert.match(MCP_INSTRUCTIONS, /mock/);
+  assert.match(MCP_INSTRUCTIONS, /state/);
+  assert.match(MCP_INSTRUCTIONS, /variant/);
+  assert.doesNotMatch(MCP_INSTRUCTIONS, /\bitems?\b/);
+  const catalog = JSON.stringify(HTTP_MCP_TOOLS) + MCP_INSTRUCTIONS;
+  for (const retired of [
+    "publish_item",
+    "revise_item",
+    "list_items",
+    "get_item",
+    "export_item",
+    "publish_post",
+    "update_post",
+    "list_posts",
+    "get_post",
+    "publish_surface",
+    "update_surface",
+    "publish_snippet",
+    "update_snippet",
+    "list_surfaces",
+    "send_test_post",
+    "init_project",
+    "MOCKPIT_MCP_LEGACY",
+  ]) {
+    assert.ok(!catalog.includes(retired), `${retired} must not be advertised`);
+  }
 });
 
 test("MCP instructions and tool schemas stay within their context budgets", () => {
-  const stdioSchemas = Object.values(STDIO_MCP_INPUT_SCHEMAS).map((schema) =>
-    toJsonSchemaCompat(z.object(schema), { strictUnions: true }),
-  );
-
-  assert.ok(Buffer.byteLength(MCP_INSTRUCTIONS) <= 400, "MCP instructions exceeded 400 bytes");
-  // 16 KB, reviewed: the designer reshape added six item tools (publish_item,
-  // revise_item, ask_user, list_items, get_item, export_item) to the advertised
-  // catalog, and the retired spellings moved OUT of it (they are only listed
-  // under MOCKPIT_MCP_LEGACY=1), so what an agent actually pays for grew by
-  // one tool's worth. Anything past this is bloat, not scope.
+  assert.ok(Buffer.byteLength(MCP_INSTRUCTIONS) <= 500, "MCP instructions exceeded 500 bytes");
   assert.ok(
-    Buffer.byteLength(JSON.stringify(HTTP_MCP_TOOLS)) <= 16_000,
-    "HTTP MCP tools exceeded 16 KB",
-  );
-  assert.ok(
-    Buffer.byteLength(JSON.stringify(stdioSchemas)) <= 12_500,
-    "stdio MCP input schemas exceeded 12.5 KB",
+    Buffer.byteLength(JSON.stringify(HTTP_MCP_TOOLS)) <= BUDGET_HTTP,
+    `HTTP MCP tools exceeded ${BUDGET_HTTP} bytes`,
   );
 });
 
-test("the serialized stdio MCP catalog stays under 17 KB", () => {
+test("the serialized stdio MCP catalog stays within budget and lists only mock tools", () => {
   const input = [
     {
       jsonrpc: "2.0",
@@ -179,6 +264,7 @@ test("the serialized stdio MCP catalog stays under 17 KB", () => {
     input: `${input}\n`,
     encoding: "utf8",
     timeout: 5_000,
+    env: { ...process.env, MOCKPIT_MCP_LEGACY: "1" },
   });
 
   assert.equal(result.status, 0, result.stderr);
@@ -188,17 +274,15 @@ test("the serialized stdio MCP catalog stays under 17 KB", () => {
     .map((line) => JSON.parse(line));
   const list = responses.find((response) => response.id === 2);
   assert.ok(list, "stdio MCP server omitted the tools/list response");
-  assert.ok(
-    Buffer.byteLength(JSON.stringify(list.result.tools)) <= 17_000,
-    "stdio MCP tools exceeded 17 KB",
+  // The legacy switch is gone: setting it must not resurrect retired tools.
+  assert.deepEqual(
+    list.result.tools.map((t: { name: string }) => t.name),
+    EXPECTED_TOOLS,
   );
-});
-
-test("the runtime validator accepts a representative example of every kind", async () => {
-  for (const kind of SURFACE_KINDS) {
-    const result = await validateSurfaces([EXAMPLES[kind]]);
-    assert.ok(result.ok, `validator rejected kind "${kind}": ${result.ok ? "" : result.error}`);
-  }
+  assert.ok(
+    Buffer.byteLength(JSON.stringify(list.result.tools)) <= BUDGET_STDIO,
+    `stdio MCP tools exceeded ${BUDGET_STDIO} bytes`,
+  );
 });
 
 test("surface-kind metadata covers every kind and drives derived helpers", () => {
@@ -206,11 +290,9 @@ test("surface-kind metadata covers every kind and drives derived helpers", () =>
   for (const kind of SURFACE_KINDS) {
     assert.equal(isSurfaceKind(kind), true);
     assert.equal(isSandboxedSurfaceKind(kind), SANDBOXED_SURFACE_KINDS.includes(kind));
-    if (SURFACE_KIND_METADATA[kind].sandboxed) {
-      assert.ok(isSandboxedSurfaceKind(kind));
-    }
   }
   assert.equal(isSurfaceKind("bogus"), false);
+  assert.equal(isSurfaceKind("trace"), false);
   assert.equal(isSurfaceKind("toString"), false);
   assert.equal(isSandboxedSurfaceKind("bogus"), false);
   assert.equal(SURFACE_CONTENT_FIELDS.html, "html");
@@ -218,41 +300,4 @@ test("surface-kind metadata covers every kind and drives derived helpers", () =>
   assert.equal(SURFACE_CONTENT_FIELDS.json, "data");
   assert.equal(SURFACE_FRAME_CLASSES.markdown, "mdframe");
   assert.equal(SURFACE_FRAME_CLASSES.html, undefined);
-});
-
-// The stdio client re-groups a flat comment list only when talking to a server
-// old enough not to send the batch itself; keep that fallback honest.
-test("toFeedbackBatches groups a flat comment list per post", () => {
-  const batches = toFeedbackBatches([
-    {
-      postId: "p1",
-      project: "acme/site",
-      slug: "card",
-      variant: "quiet",
-      seq: 1,
-      text: "wider",
-      postVersion: 2,
-      viewport: 390,
-      anchors: [{ ref: "@1" }],
-    },
-    { postId: "p1", seq: 2, text: "one more pass", kind: "revise" },
-    { postId: "p2", slug: "hero", seq: 3, text: "ship it", kind: "accept" },
-    { seq: 4, text: "no post at all" },
-  ]);
-  assert.equal(batches.length, 3, "one batch per post, plus the orphan");
-  assert.equal(batches[0].slug, "card");
-  assert.deepEqual(batches[0].decision, { kind: "revise", text: "one more pass" });
-  assert.deepEqual(batches[0].comments, [
-    { seq: 1, text: "wider", anchors: [{ ref: "@1" }], viewport: 390, version: 2 },
-  ]);
-  // a decision is the batch's verdict, never one of its comments
-  assert.deepEqual(batches[1].comments, []);
-  assert.deepEqual(batches[1].decision, { kind: "accept", text: "ship it" });
-  // feedback is never dropped for want of context
-  assert.equal(batches[2].slug, null);
-  assert.deepEqual(
-    batches[2].comments.map((c) => c.text),
-    ["no post at all"],
-  );
-  assert.deepEqual(toFeedbackBatches([]), []);
 });

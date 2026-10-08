@@ -15,8 +15,8 @@ import type {
   TerminalSurface,
   TraceSurface,
   TraceStep,
-} from "../../server/types.ts";
-import type { ViewerPost } from "../../server/apiViews.ts";
+  ViewerPost,
+} from "./legacyModel.ts";
 import { host } from "./host.ts";
 
 export type {
@@ -108,7 +108,7 @@ export function postLink(id: string): string {
 // The PNG screenshot of a post (the same /p/:id page, captured server-side).
 // Only reachable where `canScreenshot()` is true — see that helper.
 export function postImageLink(id: string): string {
-  return `${location.origin}${appPath(`/p/${encodeURIComponent(id)}.png`)}`;
+  return `${location.origin}${appPath(`/s/${encodeURIComponent(id)}.png`)}`;
 }
 
 // The post flattened to markdown (GET /api/posts/:id/markdown). Served rather

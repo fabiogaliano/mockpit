@@ -2,7 +2,7 @@
 // marker overlay above them.
 //
 // Every surface that becomes HTML renders exactly the way the rest of the viewer
-// renders it — a sandboxed iframe pointed at `/s/:id?part=N` (see Card.tsx). The
+// renders it — a sandboxed iframe pointed at `/s/:id?surface=N` (see Card.tsx). The
 // overlay lives in the trusted viewer origin ABOVE that frame and never reads
 // into it: it asks the in-frame bridge for a hit-test and renders the reply as
 // text only.
@@ -133,7 +133,7 @@ export function Stage(props: {
 
   const src = (index: number) =>
     appPath(
-      `/s/${props.postId}?part=${index}&ver=${props.version}&cb=${props.version}&theme=${activeTheme()}&mode=${resolvedMode()}`,
+      `/s/${props.postId}?surface=${index}&ver=${props.version}&cb=${props.version}&theme=${activeTheme()}&mode=${resolvedMode()}`,
     );
 
   // The frame is laid out at the preset width and scaled down to fit the stage,

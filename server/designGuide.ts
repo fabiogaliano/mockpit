@@ -81,21 +81,30 @@ ${detectedLine(design)}
 
 ## Workflow
 
-An **item** is a component or a page; it has **variants**, each with numbered
-**versions**. You address items by slug, across sessions.
+A **mock** is a component or a page. It has **states** (moments of it, named in
+the user's words: "Writing", "Lab open"), each state has **variants** (parallel
+designs), and each variant has numbered **versions**. Address mocks by slug.
 
 \`\`\`sh
-mockpit publish --item pricing-card --variant highlighted --html card.html
-mockpit ask     --item pricing-card "pick one"        # tells the operator you're waiting
-mockpit wait                                          # blocks; returns one batched decision + comments
-mockpit revise  --item pricing-card --variant highlighted --from 1 --html v2.html
-mockpit export  --item pricing-card --variant highlighted
+mockpit publish --mock writer --state "Writing" --variant quiet --html writing.html
+mockpit publish --mock writer --state "Writing" --variant dark  --html writing-dark.html
+mockpit ask     --mock writer "Which look?" --option Quiet=quiet --option Dark=dark
+mockpit wait                                          # blocks; returns the user's one batched reply
+mockpit revise  --mock writer --state "Writing" --variant dark --html v2.html
+mockpit export  --mock writer
 \`\`\`
 
-\`wait\` returns \`{item, variant, version, decision, comments, archived}\`. A
-comment may carry \`anchors\` — \`@1\`, \`@2\` tokens the operator drew on the render,
-each with the \`path\` and \`text\` of the element they landed on. Answer those
-directly; never re-publish a near-duplicate, always \`revise\`.
+Mark the parts you want feedback on: \`data-part="body"\` (optional
+\`data-part-label\`, and \`data-part-key\` to keep identity across a rename). The
+same name in two states is the same part. Two renders needed to show a choice →
+publish variants and \`ask\`; one render plus a control → declare a knob
+(\`--knobs '{"body.size":[17,14,22,1]}'\`, tunekit's shape), read in CSS as
+\`var(--k-body-size)\`.
+
+\`wait\` returns \`{mock, reply: {answers, mix, tuned, comments, text}, comments,
+accepted, archived}\`: answers pick structure, \`tuned\` are knob values to write
+back into source, \`mix\` takes a part from another variant, \`comments\` are
+anchored on parts. Never re-publish a near-duplicate, always \`revise\`.
 
 ## HTML contract
 

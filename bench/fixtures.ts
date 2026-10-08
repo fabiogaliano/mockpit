@@ -7,9 +7,32 @@
 // notices ("why is my fan on?"). Both are measured, because a regression that
 // only shows up at scale is exactly the one that reaches users.
 
-import type { Store } from "../server/types.ts";
+import type { Store, Surface } from "../server/types.ts";
 
 export type Size = "small" | "large";
+
+let benchMockSeq = 0;
+
+// Every variant belongs to a mock; benches that only care about the post get a
+// fresh single-state mock per post.
+export async function createBenchPost(
+  store: Store,
+  input: { sessionId: string; title: string; surfaces: unknown[] },
+) {
+  const mock = await store.createMock({
+    project: "bench",
+    slug: `bench-${++benchMockSeq}`,
+    title: input.title,
+    sessionId: input.sessionId,
+  });
+  return store.createPost({
+    sessionId: input.sessionId,
+    mock: mock.id,
+    state: null,
+    title: input.title,
+    surfaces: input.surfaces as Surface[],
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Seeded PRNG — mulberry32, same generator the storage stress test uses, so a
@@ -279,7 +302,7 @@ export async function buildWorkspace(
       const surfaces = Array.from({ length: shape.surfacesPerPost }, (_, i) =>
         surfaceFor(KIND_MIX[(p + i) % KIND_MIX.length], (p + i) % 4),
       );
-      const post = await store.createPost({
+      const post = await createBenchPost(store, {
         sessionId: session.id,
         title: `Post ${p}: ${words(r, 3)}`,
         surfaces: surfaces as never,

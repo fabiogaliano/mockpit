@@ -1,21 +1,10 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { feedbackView, mcpPostListRowView } from "../server/apiViews.ts";
-import {
-  DEPRECATED_MCP_TOOL_NAMES,
-  DEPRECATED_STDIO_MCP_INPUT_SCHEMAS,
-  includeLegacyMcpTools,
-  MCP_INSTRUCTIONS,
-  MCP_SERVER_INFO,
-  MCP_TOOL_DESCRIPTIONS,
-  STDIO_MCP_INPUT_SCHEMAS,
-  toFeedbackBatches,
-} from "../server/mcpSpec.ts";
+import { feedbackResult } from "../server/mcpHttp.ts";
+import { MCP_INSTRUCTIONS, MCP_SERVER_INFO, STDIO_MCP_TOOLS } from "../server/mcpSpec.ts";
 
 // Point at a deployed instance later by setting MOCKPIT_URL.
 const API = process.env.MOCKPIT_URL ?? "http://localhost:8228";
@@ -94,7 +83,18 @@ const ASSET_CONTENT_TYPES: Record<string, string> = {
 const contentTypeForPath = (file: string) =>
   ASSET_CONTENT_TYPES[file.split(".").pop()?.toLowerCase() ?? ""] ?? "application/octet-stream";
 
-const projectPath = (project: string) => `/api/projects/${encodeURIComponent(project)}`;
+const enc = encodeURIComponent;
+const json = async (path: string, init?: RequestInit) => JSON.parse(await api(path, init));
+const post = (path: string, body: unknown, method = "POST") =>
+  json(path, { method, body: JSON.stringify(body) });
+const query = (params: Record<string, unknown>) => {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== false) q.set(k, v === true ? "1" : String(v));
+  }
+  const s = q.toString();
+  return s ? `?${s}` : "";
+};
 
 // One MCP server process lives as long as one agent conversation, so a
 // lazily-created session shared across tool calls maps cleanly onto it.
@@ -119,505 +119,127 @@ async function ensureSession(title?: string): Promise<string> {
   return sessionId;
 }
 
-const server = new McpServer(MCP_SERVER_INFO, { instructions: MCP_INSTRUCTIONS });
-
-server.registerTool(
-  "publish_post",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.publishPostStdio,
-    inputSchema: STDIO_MCP_INPUT_SCHEMAS.publishPost,
-  },
-  async ({ title, surfaces, sessionTitle }) => {
-    const session = await ensureSession(sessionTitle);
-    const created = JSON.parse(
-      await api("/api/posts", {
-        method: "POST",
-        body: JSON.stringify({ title, surfaces, session }),
-      }),
-    );
-    return text({ ...created, url: `${API}/p/${created.id}` });
-  },
-);
-
-server.registerTool(
-  "update_post",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.updatePost,
-    inputSchema: STDIO_MCP_INPUT_SCHEMAS.updatePost,
-  },
-  async ({ id, surfaces, title }) => {
-    const updated = JSON.parse(
-      await api(`/api/posts/${id}`, { method: "PUT", body: JSON.stringify({ surfaces, title }) }),
-    );
-    return text({ ...updated, url: `${API}/p/${updated.id}` });
-  },
-);
-
-server.registerTool(
-  "list_posts",
-  { description: MCP_TOOL_DESCRIPTIONS.listPostsStdio, inputSchema: {} },
-  async () => {
-    if (!sessionId) return text([]);
-    const rows = JSON.parse(await api(`/api/sessions/${sessionId}/posts`));
-    return text(rows.map(mcpPostListRowView));
-  },
-);
-
-server.registerTool(
-  "get_post",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.getPost,
-    inputSchema: STDIO_MCP_INPUT_SCHEMAS.getPost,
-  },
-  async ({ id, history }) => {
-    const query = history === "full" ? "?history=full" : "";
-    return text(JSON.parse(await api(`/api/posts/${id}${query}`)));
-  },
-);
-
-// --- project › item › variant › version -------------------------------------
-
-async function publishItem(args: any, kind?: string) {
-  const session = await ensureSession(args.sessionTitle);
-  const project = resolveProject(args.project);
-  const surfaces =
-    typeof args.html === "string"
-      ? [{ kind: "html", html: readMaybeFile(args.html) }]
-      : (args.surfaces ?? []);
-  if (surfaces.length === 0) throw new Error("an item needs html or surfaces");
-  const post = JSON.parse(
-    await api("/api/posts", {
-      method: "POST",
-      body: JSON.stringify({
-        session,
-        project,
-        slug: args.slug,
-        variant: args.variant,
-        kind: kind ?? args.kind ?? "component",
-        title: args.title,
-        from: args.from,
-        prompt: args.prompt,
-        surfaces,
-      }),
-    }),
-  );
-  return text({
-    project,
-    slug: post.slug ?? args.slug,
-    variant: post.variant ?? args.variant ?? "default",
-    version: post.version,
-    url: `${API}/project/${encodeURIComponent(project)}/${post.slug ?? args.slug}`,
-    ...(post.userFeedback && { userFeedback: post.userFeedback }),
-  });
-}
-
-async function fetchItem(project: string, slug: string) {
-  const item = JSON.parse(await api(`${projectPath(project)}/items/${encodeURIComponent(slug)}`));
-  if (!item) throw new Error(`${project} has no item "${slug}"`);
-  return item;
-}
-
-function chooseVariant(item: any, wanted?: string) {
-  const variants = item.variants ?? [];
-  if (wanted) {
-    const found = variants.find((v: any) => v.variant === wanted);
-    if (!found) throw new Error(`${item.slug} has no variant "${wanted}"`);
-    return found;
-  }
-  if (variants.length === 1) return variants[0];
-  throw new Error(
-    `${item.slug} has ${variants.length} variants; pass variant: ${variants
-      .map((v: any) => v.variant)
-      .join("|")}`,
-  );
-}
-
-// Bodies are the expensive part of an item, so history rows carry metadata only.
-const historyMeta = (history: any[] | undefined) =>
-  (history ?? []).map((h) => ({
-    version: h.version,
-    ...(h.from !== undefined && { from: h.from }),
-    ...(h.prompt && { prompt: h.prompt }),
-  }));
-
-server.registerTool(
-  "publish_item",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.publishItem,
-    inputSchema: STDIO_MCP_INPUT_SCHEMAS.publishItem,
-  },
-  (args) => publishItem(args),
-);
-
-server.registerTool(
-  "revise_item",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.reviseItem,
-    inputSchema: STDIO_MCP_INPUT_SCHEMAS.reviseItem,
-  },
-  (args) => publishItem(args),
-);
-
-server.registerTool(
-  "ask_user",
-  { description: MCP_TOOL_DESCRIPTIONS.askUser, inputSchema: STDIO_MCP_INPUT_SCHEMAS.askUser },
-  async ({ slug, project, variant, text: question }) => {
-    const name = resolveProject(project);
-    const item = await fetchItem(name, slug);
-    const chosen = chooseVariant(item, variant);
-    const post = JSON.parse(
-      await api(`/api/posts/${chosen.postId}/ask`, {
-        method: "POST",
-        body: JSON.stringify({ text: question }),
-      }),
-    );
-    return text({
-      project: name,
-      slug: item.slug,
-      variant: chosen.variant,
-      version: post.version ?? chosen.version,
-      ask: question,
+// Every tool is a pass-through to the REST route the CLI uses: same request,
+// same response, so the three tiers cannot drift. Only the session (one per
+// conversation), the project (this repo) and file paths are filled in here.
+const handlers: Record<string, (args: any) => Promise<unknown>> = {
+  async publish_mock(args) {
+    const session = await ensureSession(args.sessionTitle);
+    const html = typeof args.html === "string" ? readMaybeFile(args.html) : undefined;
+    return post("/api/mocks", {
+      ...args,
+      html,
+      session,
+      agent: AGENT,
+      project: resolveProject(args.project),
     });
   },
-);
-
-server.registerTool(
-  "list_items",
-  { description: MCP_TOOL_DESCRIPTIONS.listItems, inputSchema: STDIO_MCP_INPUT_SCHEMAS.listItems },
-  async ({ project }) => {
-    const name = resolveProject(project);
-    return text({ project: name, items: JSON.parse(await api(`${projectPath(name)}/items`)) });
-  },
-);
-
-server.registerTool(
-  "get_item",
-  { description: MCP_TOOL_DESCRIPTIONS.getItem, inputSchema: STDIO_MCP_INPUT_SCHEMAS.getItem },
-  async ({ slug, project, variant, body, history }) => {
-    const name = resolveProject(project);
-    const item = await fetchItem(name, slug);
-    const variants = (item.variants ?? [])
-      .filter((v: any) => !variant || v.variant === variant)
-      .map((v: any) => ({
-        variant: v.variant,
-        version: v.version,
-        status: v.status,
-        ask: v.ask,
-        ...(history && { history: historyMeta(v.history) }),
-        ...(body && {
-          html: (v.surfaces ?? []).find((s: any) => s.kind === "html")?.html ?? "",
-        }),
-      }));
-    return text({ project: name, slug: item.slug, kind: item.kind, variants });
-  },
-);
-
-server.registerTool(
-  "export_item",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.exportItem,
-    inputSchema: STDIO_MCP_INPUT_SCHEMAS.exportItem,
-  },
-  async ({ slug, project, variant }) => {
-    const name = resolveProject(project);
-    const item = await fetchItem(name, slug);
-    const chosen = chooseVariant(item, variant);
-    const params = new URLSearchParams({ variant: chosen.variant });
-    return text(
-      JSON.parse(
-        await api(`${projectPath(name)}/items/${encodeURIComponent(item.slug)}/export?${params}`),
-      ),
-    );
-  },
-);
-
-// Stdio only: init touches this repo's files, so it runs where the agent runs.
-// It shells out to the CLI rather than duplicating the steps.
-server.registerTool(
-  "init_project",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.initProject,
-    inputSchema: STDIO_MCP_INPUT_SCHEMAS.initProject,
-  },
-  async ({ project }) => {
-    const cli = fileURLToPath(new URL("../bin/mockpit.js", import.meta.url));
-    const args = ["init", "--json", ...(project ? ["--project", project] : [])];
-    const stdout = execFileSync(process.execPath, [cli, ...args], {
-      encoding: "utf8",
-      env: process.env,
-    });
-    try {
-      return text(JSON.parse(stdout));
-    } catch {
-      return text(stdout.trim());
-    }
-  },
-);
-
-server.registerTool(
-  "publish_surface",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.publishSurfaceStdio,
-    inputSchema: DEPRECATED_STDIO_MCP_INPUT_SCHEMAS.publishSurface,
-  },
-  async ({ title, parts, sessionTitle }) => {
-    const session = await ensureSession(sessionTitle);
-    const created = JSON.parse(
-      await api("/api/posts", {
-        method: "POST",
-        body: JSON.stringify({ title, surfaces: parts, session }),
-      }),
-    );
-    return text({ ...created, url: `${API}/p/${created.id}` });
-  },
-);
-
-server.registerTool(
-  "update_surface",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.updateSurface,
-    inputSchema: DEPRECATED_STDIO_MCP_INPUT_SCHEMAS.updateSurface,
-  },
-  async ({ id, parts, title }) => {
-    const updated = JSON.parse(
-      await api(`/api/posts/${id}`, {
-        method: "PUT",
-        body: JSON.stringify({ surfaces: parts, title }),
-      }),
-    );
-    return text({ ...updated, url: `${API}/p/${updated.id}` });
-  },
-);
-
-server.registerTool(
-  "publish_snippet",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.publishSnippet,
-    inputSchema: DEPRECATED_STDIO_MCP_INPUT_SCHEMAS.publishSnippet,
-  },
-  async ({ title, html, kits, sessionTitle }) => {
-    const session = await ensureSession(sessionTitle);
-    const created = JSON.parse(
-      await api("/api/posts", {
-        method: "POST",
-        body: JSON.stringify({ title, surfaces: [{ kind: "html", html, kits }], session }),
-      }),
-    );
-    return text({ ...created, url: `${API}/p/${created.id}` });
-  },
-);
-
-server.registerTool(
-  "update_snippet",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.updateSnippet,
-    inputSchema: DEPRECATED_STDIO_MCP_INPUT_SCHEMAS.updateSnippet,
-  },
-  async ({ id, html, title, kits }) => {
-    const surfaces = html === undefined ? undefined : [{ kind: "html", html, kits }];
-    const updated = JSON.parse(
-      await api(`/api/posts/${id}`, { method: "PUT", body: JSON.stringify({ surfaces, title }) }),
-    );
-    return text({ ...updated, url: `${API}/p/${updated.id}` });
-  },
-);
-
-server.registerTool(
-  "wait_for_feedback",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.waitForFeedback,
-    inputSchema: STDIO_MCP_INPUT_SCHEMAS.waitForFeedback,
-  },
-  async ({ timeoutSeconds }) => {
+  async revise_mock(args) {
     const session = await ensureSession();
-    const wait = timeoutSeconds ?? 120;
+    const html = typeof args.html === "string" ? readMaybeFile(args.html) : undefined;
+    return post(`/api/mocks/${enc(args.mock)}/revise`, {
+      ...args,
+      html,
+      session,
+      project: resolveProject(args.project),
+    });
+  },
+  list_mocks: (args) => json(`/api/mocks${query({ project: resolveProject(args.project) })}`),
+  get_mock: (args) =>
+    json(
+      `/api/mocks/${enc(args.mock)}${query({
+        project: resolveProject(args.project),
+        body: args.body,
+        history: args.history,
+      })}`,
+    ),
+  async ask_user(args) {
+    const session = await ensureSession();
+    return post(`/api/mocks/${enc(args.mock)}/asks`, {
+      ...args,
+      session,
+      project: resolveProject(args.project),
+    });
+  },
+  async wait_for_feedback(args) {
+    const session = await ensureSession();
     // No client-side cursor: the server resumes author=user reads from the
     // session's agent cursor, shared with piggyback delivery.
-    const result = JSON.parse(
-      await api(`/api/comments?session=${session}&author=user&wait=${wait}`),
-    );
-    // The server already returns the batch shape for agent reads (as `feedback`,
-    // alongside the legacy comment list); pass it through rather than re-grouping.
-    if (Array.isArray(result.feedback)) {
-      if (result.feedback.length === 0) {
-        return text({ comments: [], note: "no user feedback yet — continue, or wait again later" });
-      }
-      return text(result.feedback.length === 1 ? result.feedback[0] : result.feedback);
-    }
-    if (!Array.isArray(result.comments)) return text(result);
-    if (result.comments.length === 0) {
-      return text({ comments: [], note: "no user feedback yet — continue, or wait again later" });
-    }
-    // One batch per item: the decision, the comments batched with it, and the
-    // sibling variants it archived.
-    const batches = toFeedbackBatches(result.comments.map(feedbackView));
-    return text(batches.length === 1 ? batches[0] : batches);
+    const wait = args.timeoutSeconds ?? 120;
+    return feedbackResult(await json(`/api/comments${query({ session, author: "user", wait })}`));
   },
-);
-
-server.registerTool(
-  "reply_to_user",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.replyToUser,
-    inputSchema: STDIO_MCP_INPUT_SCHEMAS.replyToUser,
+  async reply_to_user(args) {
+    const session = await ensureSession();
+    return post("/api/comments", {
+      mock: args.mock,
+      state: args.state,
+      variant: args.variant,
+      project: resolveProject(args.project),
+      session,
+      text: args.message,
+    });
   },
-  async ({ postId, surfaceId, message }) => {
-    const created = JSON.parse(
-      await api("/api/comments", {
-        method: "POST",
-        body: JSON.stringify({ surface: postId ?? surfaceId, text: message }),
-      }),
-    );
-    return text(created);
-  },
-);
-
-server.registerTool(
-  "list_surfaces",
-  { description: MCP_TOOL_DESCRIPTIONS.listSurfacesStdio, inputSchema: {} },
-  async () => {
-    if (!sessionId) return text([]);
-    const rows = JSON.parse(await api(`/api/sessions/${sessionId}/surfaces`));
-    return text(rows.map(mcpPostListRowView));
-  },
-);
-
-server.registerTool(
-  "upload_asset",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.uploadAssetStdio,
-    inputSchema: STDIO_MCP_INPUT_SCHEMAS.uploadAsset,
-  },
-  async ({ path, data, contentType, filename, kind }) => {
+  export_mock: (args) =>
+    json(
+      `/api/mocks/${enc(args.mock)}/export${query({
+        project: resolveProject(args.project),
+        state: args.state,
+        variant: args.variant,
+      })}`,
+    ),
+  async upload_asset({ path, data, contentType, filename, kind }) {
     const session = await ensureSession();
     // Stdio shares the agent's filesystem, so a path beats base64 in context.
     const bytes = path ? readFileSync(path) : null;
-    const created = JSON.parse(
-      await api("/api/assets", {
-        method: "POST",
-        body: JSON.stringify({
-          data: bytes ? bytes.toString("base64") : data,
-          contentType:
-            contentType ?? (path ? contentTypeForPath(path) : "application/octet-stream"),
-          filename: filename ?? (path ? path.split(/[\\/]/).pop() : undefined),
-          kind,
-          session,
-        }),
-      }),
-    );
-    return text(created);
+    return post("/api/assets", {
+      data: bytes ? bytes.toString("base64") : data,
+      contentType: contentType ?? (path ? contentTypeForPath(path) : "application/octet-stream"),
+      filename: filename ?? (path ? path.split(/[\\/]/).pop() : undefined),
+      kind,
+      session,
+    });
   },
-);
+  // The brief guide renders this project's real palette, kit, and icons, so
+  // the agent never restates them.
+  get_design_guide: (args) =>
+    api(`/agent-howto${query({ brief: true, project: resolveProject(args.project) })}`),
+  add_surface: (args) =>
+    post(`/api/mocks/${enc(args.mock)}/surfaces`, {
+      ...args,
+      project: resolveProject(args.project),
+    }),
+  edit_surface: (args) =>
+    post(
+      `/api/mocks/${enc(args.mock)}/surfaces/${enc(args.target)}`,
+      { ...args, project: resolveProject(args.project) },
+      "PATCH",
+    ),
+  remove_surface: (args) =>
+    json(
+      `/api/mocks/${enc(args.mock)}/surfaces/${enc(args.target)}${query({
+        state: args.state,
+        variant: args.variant,
+        project: resolveProject(args.project),
+      })}`,
+      { method: "DELETE" },
+    ),
+  reorder_surfaces: (args) =>
+    post(
+      `/api/mocks/${enc(args.mock)}/surfaces`,
+      { ...args, project: resolveProject(args.project) },
+      "PATCH",
+    ),
+};
 
-server.registerTool(
-  "get_design_guide",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.getDesignGuide,
-    inputSchema: STDIO_MCP_INPUT_SCHEMAS.getDesignGuide,
-  },
-  async ({ project }) => {
-    // The brief guide renders this project's real palette, kit, and icons, so
-    // the agent never restates them.
-    const params = new URLSearchParams({ brief: "1", project: resolveProject(project) });
-    return text(await api(`/agent-howto?${params}`));
-  },
-);
+const server = new McpServer(MCP_SERVER_INFO, { instructions: MCP_INSTRUCTIONS });
 
-server.registerTool(
-  "send_test_post",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.sendTestPost,
-    inputSchema: {},
-  },
-  async () => {
-    // The server owns the fixed content and the already-sent check; this tool
-    // is just the trigger. The welcome card lives in its own "Getting started"
-    // session, so the conversation's lazy session is deliberately not used.
-    const created = JSON.parse(
-      await api("/api/test-post", { method: "POST", body: JSON.stringify({ agent: AGENT }) }),
-    );
-    return text({ ...created, url: `${API}/p/${created.id}` });
-  },
-);
-
-server.registerTool(
-  "add_surface",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.addSurface,
-    inputSchema: STDIO_MCP_INPUT_SCHEMAS.addSurface,
-  },
-  async ({ postId, surface, before, after }) => {
-    const updated = JSON.parse(
-      await api(`/api/posts/${postId}/surfaces`, {
-        method: "POST",
-        body: JSON.stringify({ surface, before, after }),
-      }),
-    );
-    return text({ ...updated, url: `${API}/p/${updated.id}` });
-  },
-);
-
-server.registerTool(
-  "edit_surface",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.editSurface,
-    inputSchema: STDIO_MCP_INPUT_SCHEMAS.editSurface,
-  },
-  async ({ postId, target, surface, content, kits }) => {
-    const updated = JSON.parse(
-      await api(`/api/posts/${postId}/surfaces/${target}`, {
-        method: "PATCH",
-        body: JSON.stringify({ surface, content, kits }),
-      }),
-    );
-    return text({ ...updated, url: `${API}/p/${updated.id}` });
-  },
-);
-
-server.registerTool(
-  "remove_surface",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.removeSurface,
-    inputSchema: STDIO_MCP_INPUT_SCHEMAS.removeSurface,
-  },
-  async ({ postId, target }) => {
-    const updated = JSON.parse(
-      await api(`/api/posts/${postId}/surfaces/${target}`, { method: "DELETE" }),
-    );
-    return text({ ...updated, url: `${API}/p/${updated.id}` });
-  },
-);
-
-server.registerTool(
-  "reorder_surfaces",
-  {
-    description: MCP_TOOL_DESCRIPTIONS.reorderSurfaces,
-    inputSchema: STDIO_MCP_INPUT_SCHEMAS.reorderSurfaces,
-  },
-  async ({ postId, order }) => {
-    const updated = JSON.parse(
-      await api(`/api/posts/${postId}/surfaces`, {
-        method: "PATCH",
-        body: JSON.stringify({ order }),
-      }),
-    );
-    return text({ ...updated, url: `${API}/p/${updated.id}` });
-  },
-);
-
-// Hidden, not removed: the retired spellings stay callable forever (that is the
-// compatibility promise), they just don't appear in tools/list, so a fresh
-// conversation doesn't pay context for them. Disabling them would break the
-// promise, so the listing is filtered instead.
-if (!includeLegacyMcpTools()) {
-  const inner = (server.server as any)._requestHandlers.get("tools/list");
-  server.server.setRequestHandler(ListToolsRequestSchema, async (request: any, extra: any) => {
-    const result = await inner(request, extra);
-    return {
-      ...result,
-      tools: result.tools.filter((tool: any) => !DEPRECATED_MCP_TOOL_NAMES.has(tool.name)),
-    };
-  });
+for (const tool of STDIO_MCP_TOOLS) {
+  const handler = handlers[tool.name];
+  server.registerTool(
+    tool.name,
+    { description: tool.description, inputSchema: tool.inputSchema },
+    async (args: any) => text(await handler(args)),
+  );
 }
 
 await server.connect(new StdioServerTransport());

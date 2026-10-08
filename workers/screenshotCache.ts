@@ -1,8 +1,8 @@
 // Short-lived edge cache for the versioned social-card screenshot advertised by
-// post permalink metadata.
+// mock page metadata.
 //
 // Authorization and pixel-identity validation happen before cache lookup: the
-// board DO must approve `/p/:id?part=0&ver=N&theme=T&mode=M`. A forged or
+// workspace DO must approve `/s/:id?surface=0&ver=N&theme=T&mode=M`. A forged or
 // unavailable version therefore gets a 404 before it can read or populate cache;
 // a deleted post and changed auth policy are likewise enforced on every edge
 // request. A hit avoids only the expensive Browser Rendering call.
@@ -75,7 +75,7 @@ export function postScreenshotCacheKey(
   }
 
   const params = new URLSearchParams({
-    part: plan.checkUrl.searchParams.get("part") ?? "0",
+    surface: plan.checkUrl.searchParams.get("surface") ?? "0",
     v: version,
     theme,
     mode,

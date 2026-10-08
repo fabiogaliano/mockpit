@@ -3,10 +3,9 @@ import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createSqliteStorage, migrateJsonToSqlite } from "../server/sqliteStorage.ts";
+import { createSqliteStorage } from "../server/sqliteStorage.ts";
 import { SqlStore } from "../server/sqlStore.ts";
-import { JsonFileStore } from "../server/storage.ts";
-import type { Store } from "../server/types.ts";
+import type { CreatePostInput, Post, Store } from "../server/types.ts";
 
 // ---- deterministic PRNG so a failing seed reproduces exactly ----
 function mulberry32(seed: number) {
@@ -23,8 +22,8 @@ const pick = <T>(r: () => number, a: T[]): T => a[int(r, a.length)];
 const range = (n: number) => Array.from({ length: n }, (_, i) => i);
 const NUL = String.fromCharCode(0);
 
-// A pool of nasty strings, including an embedded NUL — both stores strip NUL,
-// so the fuzzer's byte-faithful check also exercises NUL-in-text parity.
+// A pool of nasty strings, including an embedded NUL — the store strips NUL,
+// so the fuzzer's reopen check also exercises NUL-in-text persistence.
 const NASTY = [
   "hello",
   "café ☕",
@@ -42,6 +41,19 @@ const NASTY = [
 ];
 const text = (r: () => number) => (r() < 0.8 ? pick(r, NASTY) : `rand-${int(r, 1e9)}`);
 const maybe = <T>(r: () => number, fn: () => T): T | undefined => (r() < 0.5 ? fn() : undefined);
+
+let mockSeq = 0;
+async function createPost(
+  store: Store,
+  input: Omit<CreatePostInput, "mock" | "state">,
+): Promise<Post | null> {
+  const mock = await store.createMock({
+    project: "stress",
+    slug: `m${++mockSeq}`,
+    sessionId: input.sessionId,
+  });
+  return store.createPost({ ...input, mock: mock.id, state: null });
+}
 
 function randomParts(r: () => number): unknown[] {
   return range(1 + int(r, 3)).map(() => {
@@ -71,7 +83,7 @@ async function buildRandomBoard(store: Store, r: () => number) {
     });
     sessionIds.push(sess.id);
     for (let j = 0; j < int(r, 4); j++) {
-      const surf = await store.createPost({
+      const surf = await createPost(store, {
         sessionId: sess.id,
         title: text(r),
         surfaces: randomParts(r) as never,
@@ -85,16 +97,6 @@ async function buildRandomBoard(store: Store, r: () => number) {
           surfaces: maybe(r, () => randomParts(r) as never),
         });
       }
-    }
-    if (r() < 0.5) {
-      await store.setTrace(
-        sess.id,
-        range(int(r, 6)).map(() => ({
-          label: text(r),
-          kind: maybe(r, () => "run"),
-          detail: maybe(r, () => text(r)),
-        })),
-      );
     }
   }
   for (let i = 0; i < int(r, 30); i++) {
@@ -112,82 +114,71 @@ async function buildRandomBoard(store: Store, r: () => number) {
   for (let i = 0; i < int(r, 5); i++) {
     await store.putAsset({
       sessionId: pick(r, sessionIds),
-      kind: pick(r, ["image", "file", "trace"]),
+      kind: pick(r, ["image", "file"]),
       contentType: pick(r, ["image/png", "application/octet-stream", "text/plain"]),
       data: new Uint8Array(range(1 + int(r, 64)).map(() => int(r, 256))),
       filename: maybe(r, () => `f-${int(r, 999)}.bin`),
     });
   }
-  // vary agentSeq (the feedback cursor) so migration must carry it
+  // vary agentSeq (the feedback cursor) so a reopen must carry it
   for (const sid of sessionIds) if (r() < 0.5) await store.markAgentSeen(sid, int(r, 10));
   for (const k of ["theme", "layout", "custom"]) if (r() < 0.6) await store.setSetting(k, text(r));
 }
 
-// Full readable snapshot of a store's data. Migration preserves ids/timestamps/
-// seq verbatim, so json-source and migrated-sqlite snapshots must be deep-equal.
+// Full readable snapshot of a store's data. A reopen of the same db must read
+// back ids/timestamps/seq verbatim, so before/after snapshots must be deep-equal.
 // Sorted by stable keys so we compare DATA, not millisecond-tie list ordering.
 async function snapshot(store: Store) {
   const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   const sessions = (await store.listSessions()).slice().sort(byId);
   const surfaces = (await store.listPosts()).slice().sort(byId);
+  const mocks = (await store.listMocks()).slice().sort(byId);
   const comments = (await store.listComments({})).slice().sort((a, b) => a.seq - b.seq);
-  const trace: Record<string, unknown> = {};
   const assetIds = new Set<string>();
   for (const s of sessions) {
-    trace[s.id] = await store.listTrace(s.id);
     for (const a of await store.listAssets(s.id)) assetIds.add(a.id);
   }
   const assets = [];
   for (const id of [...assetIds].sort()) assets.push(await store.getAsset(id));
   const settings: Record<string, string | null> = {};
   for (const k of ["theme", "layout", "custom"]) settings[k] = await store.getSetting(k);
-  return { sessions, surfaces, comments, trace, assets, settings };
+  return { sessions, mocks, surfaces, comments, assets, settings };
 }
 
 const tmpFile = (name: string) => join(mkdtempSync(join(tmpdir(), "mockpit-stress-")), name);
-const filePathOf = (s: JsonFileStore) => (s as unknown as { filePath: string }).filePath;
 
-test("migration is byte-faithful across 25 randomized workspaces", async () => {
+test("a reopened db reads back byte-identical across 25 randomized workspaces", async () => {
   for (let seed = 1; seed <= 25; seed++) {
-    const json = new JsonFileStore(tmpFile(`workspace-${seed}.json`));
-    await buildRandomBoard(json, mulberry32(seed));
-    // Snapshot a FRESH reload — that's the on-disk JSON migration actually reads
-    // (and it's been through JSON.stringify, which drops `undefined` keys), so
-    // the comparison is apples-to-apples rather than against the in-memory build.
-    const before = await snapshot(new JsonFileStore(filePathOf(json)));
-
-    const sqlite = new SqlStore(createSqliteStorage());
-    await migrateJsonToSqlite(sqlite, filePathOf(json));
-    const after = await snapshot(sqlite);
-
-    assert.deepEqual(after, before, `seed ${seed}: migrated snapshot diverged from source`);
+    const dbPath = tmpFile(`workspace-${seed}.db`);
+    const store = new SqlStore(createSqliteStorage(dbPath));
+    await buildRandomBoard(store, mulberry32(seed));
+    const before = await snapshot(store);
+    const after = await snapshot(new SqlStore(createSqliteStorage(dbPath)));
+    assert.deepEqual(after, before, `seed ${seed}: reopened snapshot diverged`);
   }
 });
 
 test("history is capped at HISTORY_LIMIT and the version keeps climbing past it", async () => {
-  const json = new JsonFileStore(tmpFile("hist.json"));
-  const s = await json.createSession({ agent: "pi" });
-  const surf = (await json.createPost({
+  const store = new SqlStore(createSqliteStorage());
+  const s = await store.createSession({ agent: "pi" });
+  const surf = (await createPost(store, {
     sessionId: s.id,
     title: "S",
     surfaces: [{ kind: "html", html: "v0" }] as never,
   }))!;
   for (let i = 1; i <= 30; i++) {
-    await json.updatePost(surf.id, { surfaces: [{ kind: "html", html: `v${i}` }] as never });
+    await store.updatePost(surf.id, { surfaces: [{ kind: "html", html: `v${i}` }] as never });
   }
+  const updated = (await store.getPost(surf.id))!;
 
-  const sqlite = new SqlStore(createSqliteStorage());
-  await migrateJsonToSqlite(sqlite, filePathOf(json));
-  const migrated = (await sqlite.getPost(surf.id))!;
-
-  assert.equal(migrated.version, 31, "version counts every update");
-  assert.equal(migrated.history.length, 20, "history capped at HISTORY_LIMIT");
+  assert.equal(updated.version, 31, "version counts every update");
+  assert.equal(updated.history.length, 20, "history capped at HISTORY_LIMIT");
   // the cap keeps the most-recent versions: history holds versions 11..30
   assert.deepEqual(
-    migrated.history.map((h) => h.version),
+    updated.history.map((h) => h.version),
     range(20).map((i) => i + 11),
   );
-  assert.equal((migrated.surfaces[0] as { html: string }).html, "v30");
+  assert.equal((updated.surfaces[0] as { html: string }).html, "v30");
 });
 
 test("SqlStore round-trips adversarial text and full-byte binary", async () => {
@@ -202,7 +193,7 @@ test("SqlStore round-trips adversarial text and full-byte binary", async () => {
   assert.equal(back.title, "café ☕ 日本語 العربية 🎉👨‍👩‍👧\ttab");
   assert.equal(back.cwd, "/work/项目");
 
-  const surf = (await store.createPost({
+  const surf = (await createPost(store, {
     sessionId: sess.id,
     title: "🧵".repeat(50),
     surfaces: [{ kind: "html", html: "<p>日本語 & <b>bold</b> 🎉</p>" }] as never,
@@ -236,22 +227,18 @@ test("SqlStore round-trips adversarial text and full-byte binary", async () => {
   assert.equal(all.at(-1)!.text.length, 8000);
 });
 
-// SQLite would terminate a TEXT value at the first embedded NUL while the JSON
-// store preserves it — so both stores strip NUL (removing the byte, not
-// truncating) to stay in lockstep. This pins that they agree, rather than one
-// truncating ("keep") and the other preserving ("keep\0dropped").
-test("both stores strip an embedded NUL identically — no truncation, no divergence", async () => {
-  const json = new JsonFileStore(tmpFile("nul.json"));
-  for (const store of [new SqlStore(createSqliteStorage()), json] as const) {
-    const s = await store.createSession({
-      agent: "pi",
-      title: `keep${NUL}dropped`,
-      cwd: `/a${NUL}b`,
-    });
-    const got = (await store.getSession(s.id))!;
-    assert.equal(got.title, "keepdropped");
-    assert.equal(got.cwd, "/ab");
-  }
+// SQLite can terminate a TEXT value at the first embedded NUL, so the store
+// strips NUL (removing the byte) rather than silently truncating what follows.
+test("an embedded NUL is stripped, never truncating the rest", async () => {
+  const store = new SqlStore(createSqliteStorage());
+  const s = await store.createSession({
+    agent: "pi",
+    title: `keep${NUL}dropped`,
+    cwd: `/a${NUL}b`,
+  });
+  const got = (await store.getSession(s.id))!;
+  assert.equal(got.title, "keepdropped");
+  assert.equal(got.cwd, "/ab");
 });
 
 test("concurrent comments get unique, gap-free, increasing seqs", async () => {
@@ -273,7 +260,7 @@ test("concurrent comments get unique, gap-free, increasing seqs", async () => {
 test("concurrent updates to one surface stay version-consistent (compare-and-set)", async () => {
   const store = new SqlStore(createSqliteStorage());
   const s = await store.createSession({ agent: "pi" });
-  const surf = (await store.createPost({
+  const surf = (await createPost(store, {
     sessionId: s.id,
     title: "S",
     surfaces: [{ kind: "html", html: "v0" }] as never,
@@ -298,7 +285,7 @@ test("file-backed SqlStore persists across a reopen of the same db", async () =>
   const dbPath = tmpFile("persist.db");
   let store = new SqlStore(createSqliteStorage(dbPath));
   const s = await store.createSession({ agent: "pi", title: "Persist" });
-  const surf = (await store.createPost({
+  const surf = (await createPost(store, {
     sessionId: s.id,
     title: "S",
     surfaces: [{ kind: "html", html: "hi" }] as never,

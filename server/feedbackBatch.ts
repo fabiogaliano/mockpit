@@ -1,111 +1,137 @@
-// The agent-facing shape of feedback: one batch per post, in delivery order.
+// The agent-facing shape of feedback: one batch per mock, in delivery order.
 // Waits, `author=user` reads and the `userFeedback` piggyback all return this,
-// so an agent reads one grouped object instead of re-deriving which item a
-// flat comment list belongs to. Runtime-agnostic (no node imports).
+// so an agent reads one grouped object instead of re-deriving which mock a flat
+// comment list belongs to. Runtime-agnostic (no node imports).
 
-import type { Comment, Post, Store } from "./types.ts";
+import type { AskOption, Comment, CommentAnchor, Mock, Post, Reply, Store } from "./types.ts";
 
-export interface FeedbackDecision {
-  kind: "revise" | "accept" | "drop";
-  text: string;
+export interface VariantRef {
+  state: string | null;
+  variant: string;
 }
 
 export interface FeedbackComment {
   seq: number;
   text: string;
-  anchors: Comment["anchors"];
-  viewport: number | null;
+  state: string | null;
+  variant: string | null;
   version: number | null;
+  anchor?: CommentAnchor;
+  anchors?: Comment["anchors"];
+  viewport?: number;
+}
+
+// An answered ask, resolved to the options the user chose, so the agent reads
+// "Look → dark" without cross-referencing ids.
+export interface AnsweredAsk {
+  ask: string;
+  text: string;
+  chosen: AskOption[];
+}
+
+export interface FeedbackReply extends Reply {
+  seq: number;
+  at: string;
+  asks: AnsweredAsk[];
 }
 
 export interface FeedbackBatch {
-  postId: string | null;
+  mockId: string | null;
   project: string | null;
-  slug: string | null;
-  variant: string | null;
-  // The item's human title — what the operator sees on the card, so the agent
-  // can name the thing it is being asked to change without a second read.
+  mock: string | null;
   title: string | null;
-  version: number | null;
-  decision: FeedbackDecision | null;
+  reply: FeedbackReply | null;
   comments: FeedbackComment[];
-  // Sibling variants archived by an `accept` decision, by variant label.
-  archived: string[];
+  // The variants the reply left accepted / archived (restorable).
+  accepted: VariantRef[];
+  archived: VariantRef[];
 }
 
-const DECISION_KINDS = new Set(["revise", "accept", "drop"]);
+const ref = (p: Post): VariantRef => ({ state: p.state, variant: p.variant });
 
-const commentView = (c: Comment): FeedbackComment => ({
-  seq: c.seq,
-  text: c.text,
-  anchors: c.anchors ?? [],
-  viewport: c.viewport ?? null,
-  version: c.postVersion ?? null,
-});
+function answered(reply: Reply, mock: Mock | undefined): AnsweredAsk[] {
+  const out: AnsweredAsk[] = [];
+  for (const [askId, answer] of Object.entries(reply.answers)) {
+    const ask = mock?.asks.find((a) => a.id === askId);
+    const ids = Array.isArray(answer) ? answer : [answer];
+    out.push({
+      ask: askId,
+      text: ask?.text ?? "",
+      chosen: ids.map((id) => ask?.options.find((o) => o.id === id) ?? { id, label: id }),
+    });
+  }
+  return out;
+}
 
-// Comments arrive in seq order; keep that order both between batches (first
-// mention of a post decides its place) and inside one. A comment whose post is
-// unknown still gets a batch — feedback is never dropped for want of context.
+// Comments arrive in seq order; keep that order both between batches and inside
+// one. A mock gets a fresh batch whenever a second reply arrives for it, so a
+// batch carries at most one reply and nothing is merged away. A comment whose
+// mock is unknown still gets a batch — feedback is never dropped for want of
+// context.
 export function groupFeedback(
   comments: Comment[],
-  posts: Map<string, Post>,
-  archivedByPost?: Map<string, string[]>,
+  mocks: Map<string, Mock>,
+  posts: Map<string, Post[]>,
 ): FeedbackBatch[] {
   const batches: FeedbackBatch[] = [];
-  const byPost = new Map<string, FeedbackBatch>();
+  const open = new Map<string, FeedbackBatch>();
   for (const c of comments) {
-    const key = c.postId ?? "";
-    let batch = byPost.get(key);
-    if (!batch) {
-      const post = c.postId ? posts.get(c.postId) : undefined;
+    const key = c.mockId ?? "";
+    const mock = c.mockId ? mocks.get(c.mockId) : undefined;
+    const mockPosts = (c.mockId && posts.get(c.mockId)) || [];
+    let batch = open.get(key);
+    if (!batch || (c.kind === "reply" && batch.reply)) {
       batch = {
-        postId: c.postId,
-        project: post?.project ?? null,
-        slug: post?.slug ?? null,
-        variant: post?.variant ?? null,
-        title: post?.title ?? c.postTitle ?? null,
-        version: post?.version ?? null,
-        decision: null,
+        mockId: c.mockId,
+        project: mock?.project ?? null,
+        mock: mock?.slug ?? null,
+        title: mock?.title ?? null,
+        reply: null,
         comments: [],
-        archived: (c.postId && archivedByPost?.get(c.postId)) || [],
+        accepted: [],
+        archived: [],
       };
-      byPost.set(key, batch);
+      open.set(key, batch);
       batches.push(batch);
     }
-    if (DECISION_KINDS.has(c.kind)) {
-      // A decision is the batch's verdict, not one of its comments — the
-      // released drafts ride in `comments` beside it.
-      batch.decision = { kind: c.kind as FeedbackDecision["kind"], text: c.text };
+    if (c.kind === "reply" && c.payload) {
+      batch.reply = {
+        ...c.payload,
+        seq: c.seq,
+        at: c.createdAt,
+        asks: answered(c.payload, mock),
+      };
+      batch.accepted = mockPosts.filter((p) => p.status === "accepted").map(ref);
+      batch.archived = mockPosts.filter((p) => p.status === "archived").map(ref);
       continue;
     }
-    batch.comments.push(commentView(c));
+    const post = c.postId ? mockPosts.find((p) => p.id === c.postId) : undefined;
+    batch.comments.push({
+      seq: c.seq,
+      text: c.text,
+      state: post?.state ?? null,
+      variant: post?.variant ?? null,
+      version: c.postVersion,
+      ...(c.anchor ? { anchor: c.anchor } : {}),
+      ...(c.anchors.length ? { anchors: c.anchors } : {}),
+      ...(c.viewport != null ? { viewport: c.viewport } : {}),
+    });
   }
   return batches;
 }
 
-// The same grouping, resolving its own context from the store — for callers
-// that hold a Store but not the app's internals (the MCP tier).
 export async function buildFeedbackBatches(
   store: Store,
   comments: Comment[],
 ): Promise<FeedbackBatch[]> {
-  const posts = new Map<string, Post>();
+  const mocks = new Map<string, Mock>();
+  const posts = new Map<string, Post[]>();
   for (const c of comments) {
-    if (c.postId && !posts.has(c.postId)) {
-      const post = await store.getPost(c.postId);
-      if (post) posts.set(c.postId, post);
-    }
+    if (!c.mockId || mocks.has(c.mockId)) continue;
+    const mock = await store.getMock(c.mockId);
+    if (!mock) continue;
+    mocks.set(c.mockId, mock);
+    posts.set(c.mockId, await store.listPosts({ mockId: c.mockId }));
   }
-  const archived = new Map<string, string[]>();
-  for (const [id, post] of posts) {
-    if (!comments.some((c) => c.postId === id && c.kind === "accept")) continue;
-    const item = await store.getItem(post.project, post.slug);
-    archived.set(
-      id,
-      (item?.variants ?? [])
-        .filter((v) => v.postId !== id && v.status === "archived")
-        .map((v) => v.variant),
-    );
-  }
-  return groupFeedback(comments, posts, archived);
+  return groupFeedback(comments, mocks, posts);
 }

@@ -3,18 +3,13 @@ import { bodyLimit } from "hono/body-limit";
 import { getCookie, setCookie } from "hono/cookie";
 import { streamSSE } from "hono/streaming";
 import { decodeBase64 } from "./base64.ts";
-import {
-  postDetailView,
-  postWriteView,
-  recentPostRowView,
-  sessionPostHydratedView,
-  sessionPostListRowView,
-  sessionRowView,
-  viewerPostView,
-} from "./apiViews.ts";
+import { mockDetailView, mockSummaryView, sessionRowView, surfaceRef } from "./apiViews.ts";
 import { EventBus, type FeedEvent } from "./events.ts";
 import { buildFeedbackBatches, type FeedbackBatch } from "./feedbackBatch.ts";
 import { kitSummaries } from "./kits.ts";
+import { checkKnobs, checkKnobValues, discreteChoices } from "./knobs.ts";
+import { diffParts, type PartChanges, partsInSurfaces } from "./parts.ts";
+import { postToMarkdown } from "./postMarkdown.ts";
 import {
   addHook,
   addSubscription,
@@ -29,7 +24,6 @@ import {
 } from "./push.ts";
 import { expandSlots, parseSlotTags } from "./slots.ts";
 import { registerMcp } from "./mcpHttp.ts";
-import { postToMarkdown } from "./postMarkdown.ts";
 import {
   escapeHtml,
   renderHtmlPage,
@@ -41,48 +35,47 @@ import {
 import { DEFAULT_THEME_ID, type Mode, themeById, themeOptions } from "./themes.ts";
 import {
   type Anchor,
+  type Ask,
+  type AskAnswer,
+  type AskOption,
   type Asset,
   type AssetKind,
   type CodeSurface,
   type Comment,
   type CommentAnchor,
-  type CommentKind,
   DEFAULT_PROJECT,
   DEFAULT_VARIANT,
   type DesignSettings,
   type DiffSurface,
+  type Draft,
   htmlSurface,
   isSandboxedSurfaceKind,
-  type ItemKind,
-  newId,
-  projectFromCwd,
-  reservedAgent,
+  type Knobs,
   type MarkdownSurface,
   MAX_ASSET_BYTES,
+  type Mock,
+  type MockKind,
+  newId,
+  openAsks,
+  type PartComment,
+  type Post,
+  projectFromCwd,
+  type Reply,
+  type ReplyDecision,
+  reservedAgent,
+  type Session,
   type Slot,
   slugify,
-  surfacesByteLength,
-  type Session,
   type Store,
-  type Post,
   type Surface,
   SURFACE_CONTENT_FIELDS,
+  surfacesByteLength,
   type TerminalSurface,
-  type TraceStep,
 } from "./types.ts";
-import { type SurfaceValidationFailure, validateSurfaces } from "./postSurfaces.ts";
-import {
-  findWelcomePost,
-  WELCOME_POST_TITLE,
-  WELCOME_SESSION_TITLE,
-  welcomeSurfaces,
-} from "./welcomePost.ts";
+import { coerceSurfaces, type SurfaceValidationFailure, validateSurfaces } from "./postSurfaces.ts";
 
 export type { FeedEvent } from "./events.ts";
-// `Feedback` is the agent-facing feedback unit; it is now the per-post batch
-// (feedbackBatch.ts). The export name is unchanged so embedders and the MCP
-// tier keep compiling against one name.
-export type { FeedbackBatch as Feedback } from "./feedbackBatch.ts";
+export type { FeedbackBatch } from "./feedbackBatch.ts";
 
 const MAX_SURFACE_BYTES = 2 * 1024 * 1024;
 const MAX_WAIT_SECONDS = 300;
@@ -94,22 +87,12 @@ const MAX_WAIT_SECONDS = 300;
 // uploaded over MCP, ~4/3 of the 5 MiB asset cap — while still bounding a flood.
 // The /api/assets route's own 5 MiB streaming cap is stricter and still applies.
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
-// Bound the session trace: each step's detail is truncated and the per-session
-// list rolls, so memory stays flat no matter how long the agent runs.
-const MAX_TRACE_STEPS = 2000;
-const MAX_STEP_DETAIL = 4000;
-const MAX_STEP_LABEL = 500;
 // A comment's text and a surface's title both ride the feedback channel back to
-// the agent (feedbackView below), re-sent on every poll — so cap them at the
+// the agent in feedback batches, re-sent on every poll — so cap them at the
 // edge to keep one oversize value from bloating the agent's context forever.
 const MAX_COMMENT_TEXT = 8000;
 const MAX_TITLE = 500;
 
-const surfaceValidationErrorBody = (failure: SurfaceValidationFailure) => ({
-  error: failure.error,
-  code: failure.code,
-  issues: failure.issues,
-});
 // Ceiling on concurrently-held SSE + long-poll connections. Both are GETs that
 // pin a connection open (the event stream indefinitely, /api/comments?wait up
 // to MAX_WAIT_SECONDS); on a publicRead workspace they're reachable unauthenticated,
@@ -128,8 +111,8 @@ const DEFAULT_MAX_HOLD_CONNECTIONS = 32;
 // Asset serving policy: only raster images are served inline; everything else
 // (incl. svg, json, text, the octet-stream catch-all) is an attachment, so a
 // top-level open of /a/:id can never execute an uploaded document as a live
-// same-origin script. <img>/fetch ignore Content-Disposition, so embedding and
-// inline trace rendering keep working regardless.
+// same-origin script. <img>/fetch ignore Content-Disposition, so embedding
+// keeps working regardless.
 const INLINE_IMAGE_TYPES = new Set([
   "image/png",
   "image/jpeg",
@@ -161,9 +144,8 @@ function inferAssetKind(contentType: string): AssetKind {
   return contentType.startsWith("image/") ? "image" : "file";
 }
 
-const isAssetKind = (v: unknown): v is AssetKind => v === "image" || v === "trace" || v === "file";
+const isAssetKind = (v: unknown): v is AssetKind => v === "image" || v === "file";
 
-// base64 -> bytes, runtime-agnostic (atob is a global in Node and Workers).
 // Docs and onboarding snippets are written against the local default; serve
 // them with the real origin so a deployed instance shows copy-pasteable URLs.
 const LOCAL_ORIGIN = "http://localhost:8228";
@@ -189,16 +171,16 @@ export interface AppOptions {
   authenticate?: AuthenticateHook;
   // When set (self-hosted Worker deployments), every route except /guide,
   // /setup, and /agent-howto requires it: Authorization bearer, ?key= query,
-  // or the cookie it sets. Preserved for backwards compatibility.
+  // or the cookie it sets.
   authToken?: string;
   // Public path prefix for deployments mounted below an origin root, e.g.
   // /u/:account in a hosted multi-tenant wrapper. The core still receives
-  // stripped routes like /api/sessions and /s/:id?part=0; this prefix is only
+  // stripped routes like /api/sessions and /s/:id?surface=0; this prefix is only
   // used when the server/viewer generate browser-visible URLs.
   basePath?: BasePathHook;
   // When set, unauthenticated GET routes can be read without bypassing the
-  // write token. "session" exposes only session-scoped reads; "full" exposes
-  // every GET route.
+  // write token. "session" exposes only reads addressed by an unguessable id
+  // (a mock, a post's documents, a session's feed); "full" exposes every GET.
   publicRead?: PublicReadMode;
   // Whether this deployment can render a post's first surface as a PNG (the
   // /s/:id.png route). That route lives in the Cloudflare Worker entry and needs
@@ -267,33 +249,18 @@ async function fetchLatestFromRegistry(): Promise<LatestRelease | null> {
 
 const UPDATE_CHECK_TTL_MS = 6 * 60 * 60 * 1000;
 
-function parseRecentLimit(raw: string | undefined): number {
-  const parsed = Number(raw ?? "20");
-  const limit = Number.isFinite(parsed) && parsed !== 0 ? Math.trunc(parsed) : 20;
-  return Math.min(Math.max(limit, 1), 100);
-}
-
-function isPublicReadAllowed(path: string, mode: PublicReadMode): boolean {
+// In "session" mode only reads addressed by an unguessable id are public: a
+// mock id, a post id (its documents), an asset id, a session's comments/feed.
+// Anything addressed by NAME (projects, mock slugs, the mock list) would let a
+// single shared link enumerate the whole workspace, so it stays private.
+function isPublicReadAllowed(path: string, mode: PublicReadMode, query: URLSearchParams): boolean {
   if (mode === "full") return true;
-  if (path.startsWith("/session/")) return true;
+  if (path.startsWith("/project/")) return true;
   if (path.startsWith("/s/")) return true;
-  if (path.startsWith("/p/")) return true;
   if (path.startsWith("/a/")) return true;
-  if (path.startsWith("/api/sessions/")) return true;
-  // /api/surfaces/recent is the cross-session feed source — gate it like
-  // /api/sessions (NOT public on a session-scoped workspace), not like the
-  // per-surface /api/surfaces/:id reads below.
-  if (path === "/api/surfaces/recent") return false;
-  if (path === "/api/posts/recent") return false;
-  // Project/item reads are addressed by NAME, not by an unguessable id, so they
-  // are not capabilities the way /api/posts/:id is: exposing them on a
-  // session-scoped public workspace would let anyone enumerate the whole
-  // workspace from a single shared session link. Same call as the recent feed
-  // above. `publicRead: "full"` already returned true before reaching here.
-  if (path.startsWith("/api/projects")) return false;
-  if (path.startsWith("/api/surfaces/")) return true;
-  if (path.startsWith("/api/posts/")) return true;
-  if (path.startsWith("/api/snippets/")) return true;
+  if (/^\/api\/mocks\/[^/]+(\/export)?$/.test(path)) {
+    return !path.startsWith("/api/mocks/recent") && !query.has("project");
+  }
   if (path === "/api/comments") return true;
   if (path === "/api/events") return true;
   if (path === "/api/theme") return true;
@@ -304,14 +271,48 @@ function isPublicReadAllowed(path: string, mode: PublicReadMode): boolean {
 
 export interface CommentWait {
   sessionId?: string;
-  surfaceId?: string;
+  mockId?: string;
+  postId?: string;
   author?: string;
   afterSeq?: number;
   waitSeconds: number;
-  // Viewer reads only: the operator's own unsent drafts belong in the card's
-  // thread. Agent-facing reads leave this off and never see them.
-  includeDrafts?: boolean;
 }
+
+// What every mock flow returns: a status and a JSON body. REST hands it to
+// c.json; the MCP tier turns an error status into a tool error. One shape for
+// every tier by construction.
+export interface FlowResult {
+  status: number;
+  body: any;
+}
+
+export interface FlowContext {
+  // origin + base path, for the URLs a response carries.
+  base: string;
+  // The trusted viewer (same-origin Fetch Metadata). Only it may act as the user.
+  viewer: boolean;
+  // REST validates surfaces strictly; MCP drops what it can't use.
+  strict: boolean;
+  request?: Request;
+  signal?: AbortSignal;
+}
+
+const ok = (body: unknown, status = 200): FlowResult => ({ status, body });
+const fail = (status: number, error: string, extra: Record<string, unknown> = {}): FlowResult => ({
+  status,
+  body: { error, ...extra },
+});
+
+const str = (v: unknown, max: number): string | undefined =>
+  typeof v === "string" && v.trim() ? v.trim().slice(0, max) : undefined;
+
+const MAX_LABEL = 120;
+const MAX_ASKS = 20;
+const MAX_OPTIONS = 20;
+const MAX_DRAFT_COMMENTS = 50;
+
+const titleFromSlug = (slug: string) =>
+  slug.replace(/-/g, " ").replace(/^./, (ch) => ch.toUpperCase());
 
 export function createApp({
   store,
@@ -331,7 +332,7 @@ export function createApp({
   maxHoldConnections = DEFAULT_MAX_HOLD_CONNECTIONS,
 }: AppOptions) {
   const app = new Hono();
-  // `?key=` bootstraps cookie auth, so never let a board URL disclose that
+  // `?key=` bootstraps cookie auth, so never let a workspace URL disclose that
   // credential to another origin through an outbound Referer header. Set this
   // before auth so denied and public routes carry the same policy.
   // The origin of the most recent request. A surface document bakes its origin
@@ -493,12 +494,8 @@ export function createApp({
     if (fresh.length === 0) return undefined;
     await store.markAgentSeen(sessionId, fresh[fresh.length - 1].seq);
     const feedback = fresh.filter((cm) => cm.author === "user");
-    return feedback.length > 0 ? await batchFeedback(feedback) : undefined;
+    return feedback.length > 0 ? await buildFeedbackBatches(store, feedback) : undefined;
   }
-
-  // The per-post grouping every agent-facing channel returns (resolves each
-  // batch's post and, for an accept, the sibling variants it archived).
-  const batchFeedback = (comments: Comment[]) => buildFeedbackBatches(store, comments);
 
   // Per-comment delivery state for the viewer: `seen` once the session's
   // agentSeq has passed the comment. Computed, never stored.
@@ -509,26 +506,8 @@ export function createApp({
         cursors.set(c.sessionId, (await store.getSession(c.sessionId))?.agentSeq ?? 0);
       }
     }
-    // A draft was never delivered, whatever its seq — it is written below the
-    // cursor and only crosses it when Revise releases it with a fresh one.
-    return comments.map((c) => ({
-      ...c,
-      seen: !c.draft && c.seq <= (cursors.get(c.sessionId) ?? 0),
-    }));
+    return comments.map((c) => ({ ...c, seen: c.seq <= (cursors.get(c.sessionId) ?? 0) }));
   }
-
-  // The item fields every post response carries alongside the legacy shape.
-  const itemFields = (post: Post) => ({
-    project: post.project,
-    slug: post.slug,
-    kind: post.kind,
-    variant: post.variant,
-    status: post.status,
-    ask: post.ask,
-    slots: post.slots,
-    ...(post.from === undefined ? {} : { from: post.from }),
-    ...(post.prompt === undefined ? {} : { prompt: post.prompt }),
-  });
 
   // A project's imported design system (settings key `design:<project>`), or
   // null when `mockpit init` has never run for it.
@@ -548,12 +527,988 @@ export function createApp({
     void notify(store, payload).catch((err) => console.warn("[mockpit] notify failed", err));
   }
 
-  const postUrl = (request: Request, post: Post) =>
-    `${new URL(request.url).origin}${requestBasePath(request)}/project/${encodeURIComponent(
-      post.project,
-    )}/${encodeURIComponent(post.slug)}?variant=${encodeURIComponent(post.variant)}`;
+  const mockUrl = (base: string, mock: Mock, post?: Post | null) => {
+    const url = `${base}/project/${encodeURIComponent(mock.project)}/${encodeURIComponent(mock.slug)}`;
+    if (!post) return url;
+    const q = new URLSearchParams();
+    if (post.state !== null) q.set("state", post.state);
+    q.set("variant", post.variant);
+    return `${url}?${q}`;
+  };
 
-  // Find a surface's index by id (first match) or 0-based numeric index.
+  // Project resolution for a session: explicit wins, then the cwd's basename,
+  // then the single-workspace fallback.
+  const resolveProject = (project?: string, cwd?: string | null): string =>
+    project?.trim() || projectFromCwd(cwd) || DEFAULT_PROJECT;
+
+  // A mock reference is its id, or its slug within a project. Without a
+  // project, a slug that names exactly one mock in the workspace still resolves —
+  // an agent rarely has more than one repo with the same mock name.
+  async function resolveMock(
+    ref: unknown,
+    project?: unknown,
+    sessionId?: unknown,
+  ): Promise<Mock | FlowResult> {
+    const name = typeof ref === "string" ? ref.trim() : "";
+    if (!name) return fail(400, 'provide a "mock"');
+    const byId = await store.getMock(name);
+    if (byId) return byId;
+    const slug = slugify(name);
+    let proj = typeof project === "string" && project.trim() ? project.trim() : undefined;
+    if (!proj && typeof sessionId === "string") {
+      const session = await store.getSession(sessionId);
+      proj = session?.project ?? undefined;
+    }
+    if (proj) {
+      const mock = await store.findMock(proj, slug);
+      return mock ?? fail(404, `${proj} has no mock "${slug}"`);
+    }
+    const matches = (await store.listMocks()).filter((m) => m.slug === slug);
+    if (matches.length === 1) return matches[0];
+    if (matches.length === 0) return fail(404, `no mock "${slug}"`);
+    return fail(400, `"${slug}" exists in several projects; pass project`, {
+      projects: matches.map((m) => m.project),
+    });
+  }
+
+  const isResult = (v: unknown): v is FlowResult =>
+    !!v && typeof v === "object" && "status" in v && "body" in v;
+
+  // A state argument: undefined = not given, null = the single unnamed state.
+  const stateArg = (v: unknown): string | null | undefined =>
+    v === undefined ? undefined : v === null || v === "" ? null : str(v, MAX_LABEL);
+
+  const variantLabel = (p: Post) => (p.state === null ? p.variant : `${p.state}/${p.variant}`);
+
+  // Which variant a call means. Explicit wins; one candidate is unambiguous;
+  // several is an error that names them rather than guessing.
+  function chooseVariant(
+    mock: Mock,
+    posts: Post[],
+    stateIn: string | null | undefined,
+    variant: string | undefined,
+  ): Post | FlowResult {
+    let candidates = posts;
+    if (stateIn !== undefined) {
+      if (stateIn !== null && !mock.states.includes(stateIn)) {
+        return fail(404, `${mock.slug} has no state "${stateIn}"`, { states: mock.states });
+      }
+      candidates = candidates.filter((p) => p.state === stateIn);
+    }
+    if (variant) candidates = candidates.filter((p) => p.variant === variant);
+    if (candidates.length === 1) return candidates[0];
+    if (candidates.length === 0) {
+      return fail(404, `${mock.slug} has no variant ${variant ? `"${variant}"` : ""}`.trim(), {
+        variants: posts.map(variantLabel),
+      });
+    }
+    const live = candidates.filter((p) => p.status !== "archived");
+    if (live.length === 1 && !variant) return live[0];
+    return fail(400, `${mock.slug} has several variants; pass ${variant ? "state" : "variant"}`, {
+      variants: candidates.map(variantLabel),
+    });
+  }
+
+  async function parseSurfaceInput(
+    body: any,
+    ctx: FlowContext,
+  ): Promise<Surface[] | FlowResult | undefined> {
+    if (typeof body.html === "string") {
+      if (!body.html.trim()) return fail(400, 'body must include non-empty "html" string');
+      const raw = [htmlSurface(body.html, body.kits)];
+      if (!ctx.strict) return coerceSurfaces(raw);
+      const parsed = await validateSurfaces(raw);
+      return parsed.ok ? parsed.surfaces : fail(400, parsed.error, surfaceIssues(parsed));
+    }
+    if (body.surfaces === undefined) return undefined;
+    if (!Array.isArray(body.surfaces)) return fail(400, '"surfaces" must be an array');
+    if (!ctx.strict) return coerceSurfaces(body.surfaces);
+    const parsed = await validateSurfaces(body.surfaces);
+    return parsed.ok ? parsed.surfaces : fail(400, parsed.error, surfaceIssues(parsed));
+  }
+
+  const surfaceIssues = (failure: SurfaceValidationFailure) => ({
+    code: failure.code,
+    issues: failure.issues,
+  });
+
+  function checkSurfaces(surfaces: Surface[]): FlowResult | null {
+    if (surfaces.length === 0) return fail(400, "a variant needs at least one surface");
+    if (surfacesByteLength(surfaces) > MAX_SURFACE_BYTES) {
+      return fail(413, `surface exceeds ${MAX_SURFACE_BYTES} bytes`);
+    }
+    return null;
+  }
+
+  // A page's slot list, with each missing version pinned to the referenced
+  // component's current one (snapshot semantics).
+  async function pageSlots(project: string, surfaces: Surface[]): Promise<Slot[]> {
+    const html = surfaces.find((s) => s.kind === "html");
+    if (!html || html.kind !== "html") return [];
+    const slots: Slot[] = [];
+    for (const tag of parseSlotTags(html.html)) {
+      let version = tag.version;
+      if (version == null)
+        version = (await slotTarget(project, tag.slug, tag.variant))?.version ?? null;
+      if (version != null) slots.push({ slug: tag.slug, variant: tag.variant, version });
+    }
+    return slots;
+  }
+
+  // A slot names a component mock by slug; it renders that mock's first state.
+  async function slotTarget(project: string, slug: string, variant: string) {
+    const mock = await store.findMock(project, slug);
+    if (!mock) return null;
+    return store.findPost(mock.id, mock.states[0] ?? null, variant);
+  }
+
+  // Inline each `<mockpit-slot>` with the referenced variant version's first
+  // html surface body. The stored `slots` list (resolved at publish) wins over
+  // a bare tag, so a page keeps rendering the versions it was composed from.
+  async function expandPageHtml(project: string, post: Post, html: string): Promise<string> {
+    const pinned = new Map(post.slots.map((s) => [`${s.slug}::${s.variant}`, s.version]));
+    const bodies = new Map<string, string | null>();
+    for (const tag of parseSlotTags(html)) {
+      const key = `${tag.slug}::${tag.variant}`;
+      const version = tag.version ?? pinned.get(key) ?? null;
+      const cacheKey = `${key}::${version}`;
+      if (bodies.has(cacheKey)) continue;
+      const target = await slotTarget(project, tag.slug, tag.variant);
+      if (!target) {
+        bodies.set(cacheKey, null);
+        continue;
+      }
+      const surfaces =
+        version == null || version === target.version
+          ? target.surfaces
+          : (target.history.find((h) => h.version === version)?.surfaces ?? null);
+      const body = surfaces?.find((s) => s.kind === "html");
+      bodies.set(cacheKey, body && body.kind === "html" ? body.html : null);
+    }
+    return expandSlots(html, ({ slug, variant, version }) => {
+      const key = `${slug}::${variant}`;
+      const pinnedVersion = version ?? pinned.get(key) ?? null;
+      return bodies.get(`${key}::${pinnedVersion}`) ?? null;
+    });
+  }
+
+  // Knobs with a handful of discrete choices are usually decisions dressed as
+  // controls: the user can't compare options they only see one at a time.
+  function knobNudges(knobs: Knobs): string[] {
+    const out: string[] = [];
+    for (const [path, config] of Object.entries(knobs)) {
+      const n = discreteChoices(config);
+      if (n !== null && n <= 3) {
+        out.push(
+          `knob "${path}" has ${n} discrete options: if each option needs its own render, ask instead (ask_user with options bound to variants); keep a knob when one render plus a control shows it`,
+        );
+      }
+    }
+    return out;
+  }
+
+  // The answer to every write: what was published, the parts found per state,
+  // what moved since the previous version, and any feedback waiting.
+  async function writeResult(
+    mock: Mock,
+    post: Post,
+    ctx: FlowContext,
+    extra: { previous?: Surface[]; nudges?: string[]; status?: number } = {},
+  ): Promise<FlowResult> {
+    const posts = await store.listPosts({ mockId: mock.id });
+    const detail = mockDetailView(mock, posts);
+    let partChanges: PartChanges | undefined;
+    if (extra.previous) {
+      partChanges = diffParts(partsInSurfaces(extra.previous), partsInSurfaces(post.surfaces));
+    }
+    const userFeedback = await collectFeedback(post.sessionId);
+    return ok(
+      {
+        mock: {
+          id: mock.id,
+          project: mock.project,
+          slug: mock.slug,
+          title: mock.title,
+          kind: mock.kind,
+          states: mock.states,
+        },
+        post: {
+          id: post.id,
+          state: post.state,
+          variant: post.variant,
+          version: post.version,
+          status: post.status,
+          surfaces: post.surfaces.map(surfaceRef),
+        },
+        sessionId: post.sessionId,
+        url: mockUrl(ctx.base, mock, post),
+        parts: detail.parts,
+        ...(partChanges && (partChanges.vanished.length || partChanges.renamed.length)
+          ? { partChanges }
+          : {}),
+        ...(extra.nudges?.length ? { nudges: extra.nudges } : {}),
+        ...(userFeedback ? { userFeedback } : {}),
+      },
+      extra.status ?? 200,
+    );
+  }
+
+  function announcePost(mock: Mock, post: Post, created: boolean) {
+    bus.broadcast({
+      type: created ? "post-created" : "post-updated",
+      id: post.id,
+      mockId: mock.id,
+      sessionId: post.sessionId,
+      version: post.version,
+    });
+    warmPost(post, mock);
+  }
+
+  // Publish one variant of one state of a mock. An existing (mock, state,
+  // variant) becomes a new version; anything else is created. `revise` refuses
+  // to create.
+  async function publishFlow(body: any, ctx: FlowContext, revise = false): Promise<FlowResult> {
+    if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
+    const slugIn = str(body.mock, MAX_TITLE);
+    if (!slugIn) return fail(400, 'provide "mock": the mock slug, e.g. "writer"');
+    const surfaces = await parseSurfaceInput(body, ctx);
+    if (isResult(surfaces)) return surfaces;
+    if (!surfaces) return fail(400, 'provide "surfaces" (or "html")');
+    const bad = checkSurfaces(surfaces);
+    if (bad) return bad;
+    const knobs = checkKnobs(body.knobs);
+    if (!knobs.ok) return fail(400, knobs.error);
+    const variantKnobs = checkKnobs(body.variantKnobs);
+    if (!variantKnobs.ok) return fail(400, variantKnobs.error);
+    const stateIn = stateArg(body.state);
+    const variantIn = str(body.variant, MAX_LABEL);
+    const kind: MockKind | undefined =
+      body.kind === "page" || body.kind === "component" ? body.kind : undefined;
+    const title = str(body.title, MAX_TITLE);
+    const fromN = Number(body.from);
+    const from = Number.isInteger(fromN) && fromN > 0 ? fromN : undefined;
+    const prompt = str(body.prompt, MAX_COMMENT_TEXT);
+    const author = str(body.author, MAX_TITLE);
+
+    // An existing mock is addressable before a session exists (revise by id).
+    let mock: Mock | null = null;
+    if (typeof body.mock === "string") mock = await store.getMock(body.mock);
+
+    let session: Session | null = null;
+    if (typeof body.session === "string" && body.session) {
+      session = await store.getSession(body.session);
+      if (!session) return fail(404, `session "${body.session}" not found`);
+    }
+    const project =
+      mock?.project ??
+      (str(body.project, MAX_TITLE) ||
+        session?.project ||
+        projectFromCwd(session?.cwd) ||
+        resolveProject(undefined, str(body.cwd, 4096)));
+    const slug = mock?.slug ?? slugify(slugIn);
+    mock ??= await store.findMock(project, slug);
+    if (revise && !mock) return fail(404, `${project} has no mock "${slug}"`);
+
+    let posts = mock ? await store.listPosts({ mockId: mock.id }) : [];
+    let target: Post | null = null;
+    let state: string | null;
+    if (revise && mock) {
+      const chosen = chooseVariant(mock, posts, stateIn, variantIn);
+      if (isResult(chosen)) return chosen;
+      target = chosen;
+      state = chosen.state;
+    } else {
+      if (stateIn === undefined || stateIn === null) {
+        if (mock && mock.states.length > 0) {
+          return fail(400, `${slug} has states; pass state`, { states: mock.states });
+        }
+        state = null;
+      } else {
+        if (mock && mock.states.length === 0 && posts.length > 0) {
+          return fail(
+            409,
+            `${slug} is a single-state mock; its variants have no state name. Publish a multi-state design as a new mock and name every state`,
+          );
+        }
+        state = stateIn;
+      }
+      const inState = posts.filter((p) => p.state === state);
+      let variant = variantIn;
+      if (!variant) {
+        const live = inState.filter((p) => p.status !== "archived");
+        if (inState.length === 0) variant = DEFAULT_VARIANT;
+        else if (inState.length === 1) variant = inState[0].variant;
+        else if (live.length === 1) variant = live[0].variant;
+        else {
+          return fail(400, `${slug} has several variants; pass variant`, {
+            variants: inState.map(variantLabel),
+          });
+        }
+      }
+      target = inState.find((p) => p.variant === variant) ?? null;
+      if (!target) {
+        // A new variant: carried by the session the agent is writing from.
+        if (!session) {
+          session = await store.createSession({
+            agent: str(body.agent, MAX_TITLE) ?? "agent",
+            title: str(body.sessionTitle, MAX_TITLE),
+            cwd: str(body.cwd, 4096),
+            project,
+          });
+          bus.broadcast({ type: "session-created", id: session.id });
+        }
+        if (!mock) {
+          mock = await store.createMock({
+            project,
+            slug,
+            title: title ?? titleFromSlug(slug),
+            kind: kind ?? "component",
+            states: state === null ? [] : [state],
+            knobs: knobs.value,
+            sessionId: session.id,
+          });
+          bus.broadcast({ type: "mock-created", id: mock.id, project });
+        }
+        const slots =
+          mock.kind === "page" || kind === "page" ? await pageSlots(project, surfaces) : [];
+        const created = await store.createPost({
+          sessionId: session.id,
+          mock: mock.id,
+          state,
+          variant,
+          title: title ?? mock.title,
+          surfaces,
+          ...(Object.keys(variantKnobs.value).length ? { knobs: variantKnobs.value } : {}),
+          slots,
+          from,
+          prompt,
+          author,
+        });
+        if (!created) return fail(404, "session not found");
+        mock = await updateMockAfterWrite(mock, {
+          state,
+          kind,
+          title,
+          knobs: knobs.value,
+          session,
+        });
+        announcePost(mock, created, true);
+        if (prompt && ctx.request) notifyPublish(mock, created, prompt, ctx);
+        return writeResult(mock, created, ctx, {
+          nudges: knobNudges({ ...knobs.value, ...variantKnobs.value }),
+          status: 201,
+        });
+      }
+    }
+
+    if (!mock || !target) return fail(404, `${project} has no mock "${slug}"`);
+    // A revision is written by whoever revises it; without an explicit session
+    // the variant's own session carries it.
+    session ??= await store.getSession(target.sessionId);
+    const previous = target.surfaces;
+    const slots = mock.kind === "page" ? await pageSlots(project, surfaces) : undefined;
+    const updated = await store.updatePost(target.id, {
+      surfaces,
+      title,
+      ...(body.variantKnobs !== undefined ? { knobs: variantKnobs.value } : {}),
+      slots,
+      from,
+      prompt,
+      author,
+    });
+    if (!updated) return fail(404, "variant not found");
+    mock = await updateMockAfterWrite(mock, { state, kind, knobs: knobs.value, session });
+    announcePost(mock, updated, false);
+    if (prompt && ctx.request) notifyPublish(mock, updated, prompt, ctx);
+    posts = [];
+    return writeResult(mock, updated, ctx, {
+      previous,
+      nudges: knobNudges({ ...knobs.value, ...variantKnobs.value }),
+    });
+  }
+
+  // A write may add a state, retitle the mock, declare knobs, and makes its
+  // session the one a reply is delivered to.
+  async function updateMockAfterWrite(
+    mock: Mock,
+    w: {
+      state: string | null;
+      kind?: MockKind;
+      title?: string;
+      knobs: Knobs;
+      session: Session | null;
+    },
+  ): Promise<Mock> {
+    const states =
+      w.state !== null && !mock.states.includes(w.state) ? [...mock.states, w.state] : undefined;
+    const knobs = Object.keys(w.knobs).length ? { ...mock.knobs, ...w.knobs } : undefined;
+    const updated = await store.updateMock(mock.id, {
+      ...(states ? { states } : {}),
+      ...(w.kind ? { kind: w.kind } : {}),
+      ...(w.title ? { title: w.title } : {}),
+      ...(knobs ? { knobs } : {}),
+      ...(w.session ? { sessionId: w.session.id } : {}),
+    });
+    if (!updated) return mock;
+    bus.broadcast({ type: "mock-updated", id: updated.id, project: updated.project });
+    return updated;
+  }
+
+  function notifyPublish(mock: Mock, post: Post, text: string, ctx: FlowContext) {
+    fireNotify({
+      event: "publish",
+      project: mock.project,
+      slug: mock.slug,
+      variant: post.variant,
+      version: post.version,
+      text,
+      url: mockUrl(ctx.base, mock, post),
+    });
+  }
+
+  async function listMocksFlow(query: { project?: string }): Promise<FlowResult> {
+    const project = str(query.project, MAX_TITLE);
+    const mocks = await store.listMocks(project);
+    const rows = [];
+    for (const m of mocks) rows.push(mockSummaryView(m, await store.listPosts({ mockId: m.id })));
+    const open = rows.reduce((n, r) => n + r.open, 0);
+    return ok({
+      ...(project ? { project } : {}),
+      mocks: rows,
+      open,
+      openMocks: rows.filter((r) => r.open > 0).length,
+    });
+  }
+
+  // The tuned values of the mock's latest reply: what the user last sent.
+  async function lastTuned(mockId: string): Promise<Record<string, unknown>> {
+    const replies = (await store.listComments({ mockId })).filter((c) => c.kind === "reply");
+    return replies[replies.length - 1]?.payload?.tuned ?? {};
+  }
+
+  async function getMockFlow(
+    ref: unknown,
+    query: { project?: unknown; session?: unknown; body?: boolean; history?: boolean },
+  ): Promise<FlowResult> {
+    const mock = await resolveMock(ref, query.project, query.session);
+    if (isResult(mock)) return mock;
+    const posts = await store.listPosts({ mockId: mock.id });
+    return ok(
+      mockDetailView(mock, posts, {
+        body: query.body,
+        history: query.history,
+        tuned: await lastTuned(mock.id),
+      }),
+    );
+  }
+
+  async function exportFlow(
+    ref: unknown,
+    query: { project?: unknown; state?: unknown; variant?: unknown },
+    ctx: FlowContext,
+  ): Promise<FlowResult> {
+    const mock = await resolveMock(ref, query.project);
+    if (isResult(mock)) return mock;
+    const posts = await store.listPosts({ mockId: mock.id });
+    const wantedState = stateArg(query.state);
+    const wantedVariant = str(query.variant, MAX_LABEL);
+    const states = (mock.states.length ? mock.states : [null]).filter(
+      (s) => wantedState === undefined || s === wantedState,
+    );
+    if (states.length === 0) return fail(404, `${mock.slug} has no state "${wantedState}"`);
+    const entries = [];
+    for (const state of states) {
+      const inState = posts.filter((p) => p.state === state);
+      const post =
+        (wantedVariant && inState.find((p) => p.variant === wantedVariant)) ||
+        inState.find((p) => p.status === "accepted") ||
+        inState.find((p) => p.status === "open") ||
+        inState[0];
+      if (!post) continue;
+      if (wantedVariant && post.variant !== wantedVariant) continue;
+      const html = post.surfaces.find((s) => s.kind === "html");
+      entries.push({
+        state,
+        variant: post.variant,
+        postId: post.id,
+        version: post.version,
+        status: post.status,
+        html: html && html.kind === "html" ? html.html : "",
+        markdown: postToMarkdown(post, {
+          postUrl: `${ctx.base}/s/${post.id}`,
+          assetBase: ctx.base,
+        }),
+        history: [
+          ...[...post.history]
+            .sort((a, b) => a.version - b.version)
+            .map((h) => ({
+              version: h.version,
+              at: h.at,
+              from: h.from ?? null,
+              prompt: h.prompt ?? "",
+            })),
+          {
+            version: post.version,
+            at: post.updatedAt,
+            from: post.from ?? null,
+            prompt: post.prompt ?? "",
+          },
+        ],
+        screenshotUrl: screenshots ? `${ctx.base}/s/${post.id}.png?v=${post.version}` : null,
+      });
+    }
+    if (entries.length === 0) {
+      return fail(404, `${mock.slug} has no variant "${wantedVariant}"`, {
+        variants: posts.map(variantLabel),
+      });
+    }
+    const replies = (await store.listComments({ mockId: mock.id })).filter(
+      (c) => c.kind === "reply",
+    );
+    return ok({
+      project: mock.project,
+      mock: mock.slug,
+      title: mock.title,
+      kind: mock.kind,
+      states: entries,
+      knobs: mock.knobs,
+      reply: replies[replies.length - 1]?.payload ?? null,
+    });
+  }
+
+  // --- asks ---
+
+  function sanitizeAsk(raw: any, mock: Mock, posts: Post[], taken: Set<string>): Ask | string {
+    if (!raw || typeof raw !== "object") return "each ask must be an object";
+    const text = str(raw.text, MAX_COMMENT_TEXT);
+    if (!text) return 'each ask needs "text"';
+    const scope = raw.scope === "state" || raw.scope === "part" ? raw.scope : "mock";
+    const state = str(raw.state, MAX_LABEL);
+    if (scope === "state") {
+      if (!state) return `ask "${text}" has scope "state" but no state`;
+      if (!mock.states.includes(state)) return `${mock.slug} has no state "${state}"`;
+    } else if (state && !mock.states.includes(state)) {
+      return `${mock.slug} has no state "${state}"`;
+    }
+    const part = str(raw.part, 200);
+    if (scope === "part" && !part) return `ask "${text}" has scope "part" but no part`;
+    if (!Array.isArray(raw.options) || raw.options.length === 0) {
+      return `ask "${text}" needs options`;
+    }
+    if (raw.options.length > MAX_OPTIONS)
+      return `ask "${text}" has more than ${MAX_OPTIONS} options`;
+    const variants = new Set(posts.map((p) => p.variant));
+    const options: AskOption[] = [];
+    const optionIds = new Set<string>();
+    for (const o of raw.options) {
+      const opt = typeof o === "string" ? { label: o } : o;
+      const label = str(opt?.label, 200);
+      if (!label) return `every option of "${text}" needs a label`;
+      let id = slugify(str(opt.id, 64) ?? label);
+      for (let n = 2; optionIds.has(id); n++) id = `${slugify(str(opt.id, 64) ?? label)}-${n}`;
+      optionIds.add(id);
+      const variant = str(opt.variant, MAX_LABEL);
+      if (variant && !variants.has(variant)) {
+        return `option "${label}" names variant "${variant}", which ${mock.slug} does not have`;
+      }
+      let set: AskOption["set"];
+      if (opt.set !== undefined) {
+        const checked = checkKnobValues(opt.set, mock, posts, `option "${label}"`);
+        if (!checked.ok) return checked.error;
+        set = checked.value;
+      }
+      options.push({ id, label, ...(variant ? { variant } : {}), ...(set ? { set } : {}) });
+    }
+    let id = slugify(str(raw.id, 64) ?? text).slice(0, 40);
+    if (!str(raw.id, 64))
+      for (let n = 2; taken.has(id); n++) id = `${slugify(text).slice(0, 36)}-${n}`;
+    return {
+      id,
+      text,
+      scope,
+      ...(state ? { state } : {}),
+      ...(part ? { part } : {}),
+      options,
+      ...(raw.multi === true ? { multi: true } : {}),
+      at: new Date().toISOString(),
+    };
+  }
+
+  // Ask the user structured questions. An ask whose id matches an existing one
+  // replaces it (and reopens it); anything else is appended.
+  async function askFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
+    const resolved = await resolveMock(ref, body.project, body.session);
+    if (isResult(resolved)) return resolved;
+    let mock = resolved;
+    const raw = Array.isArray(body.asks) ? body.asks : body.text ? [body] : null;
+    if (!raw || raw.length === 0) return fail(400, 'provide "asks": [{text, options}]');
+    if (raw.length > MAX_ASKS) return fail(400, `at most ${MAX_ASKS} asks per call`);
+    const posts = await store.listPosts({ mockId: mock.id });
+    const asks = [...mock.asks];
+    const taken = new Set(asks.map((a) => a.id));
+    const added: Ask[] = [];
+    for (const entry of raw) {
+      const ask = sanitizeAsk(entry, mock, posts, taken);
+      if (typeof ask === "string") return fail(400, ask);
+      const at = asks.findIndex((a) => a.id === ask.id);
+      if (at >= 0) asks[at] = ask;
+      else asks.push(ask);
+      taken.add(ask.id);
+      added.push(ask);
+    }
+    let sessionId = mock.sessionId;
+    if (typeof body.session === "string" && (await store.getSession(body.session))) {
+      sessionId = body.session;
+    }
+    const updated = await store.updateMock(mock.id, { asks, sessionId });
+    if (!updated) return fail(404, "mock not found");
+    mock = updated;
+    bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
+    // The questions also land in the thread, so the user reads them where they answer.
+    const session = sessionId ? await store.getSession(sessionId) : null;
+    if (session) {
+      const comment = await store.createComment({
+        sessionId: session.id,
+        mockId: mock.id,
+        author: reservedAgent(session.agent),
+        text: added.map((a) => a.text).join("\n"),
+        kind: "ask",
+      });
+      if (comment) announceComment(comment);
+    }
+    fireNotify({
+      event: "ask",
+      project: mock.project,
+      slug: mock.slug,
+      variant: "",
+      version: Math.max(1, ...posts.map((p) => p.version)),
+      text: added.map((a) => a.text).join(" · "),
+      url: mockUrl(ctx.base, mock),
+    });
+    const userFeedback = session ? await collectFeedback(session.id) : undefined;
+    return ok({
+      mock: mock.slug,
+      mockId: mock.id,
+      project: mock.project,
+      asks: added,
+      open: openAsks(mock).length,
+      url: mockUrl(ctx.base, mock),
+      ...(userFeedback ? { userFeedback } : {}),
+    });
+  }
+
+  // --- drafts and replies (the user's side; viewer origin only) ---
+
+  function sanitizePartComments(raw: unknown, mock: Mock): PartComment[] | string {
+    if (raw === undefined || raw === null) return [];
+    if (!Array.isArray(raw)) return '"comments" must be an array';
+    if (raw.length > MAX_DRAFT_COMMENTS) return `at most ${MAX_DRAFT_COMMENTS} comments`;
+    const out: PartComment[] = [];
+    for (const c of raw) {
+      const text = str(c?.text, MAX_COMMENT_TEXT);
+      if (!text) return "every comment needs text";
+      const state = stateArg(c.state) ?? null;
+      if (state !== null && !mock.states.includes(state))
+        return `${mock.slug} has no state "${state}"`;
+      const part = str(c.part, 200) ?? null;
+      const a = c.anchor && typeof c.anchor === "object" ? c.anchor : null;
+      const anchor = a ? sanitizePartAnchor(a) : undefined;
+      out.push({ part, state, text, ...(anchor ? { anchor } : {}) });
+    }
+    return out;
+  }
+
+  function sanitizePartAnchor(a: Record<string, unknown>) {
+    const offset =
+      Array.isArray(a.offset) && a.offset.length === 2 && a.offset.every((n) => Number.isFinite(n))
+        ? ([Number(a.offset[0]), Number(a.offset[1])] as [number, number])
+        : undefined;
+    const box =
+      Array.isArray(a.box) && a.box.length === 4 && a.box.every((n) => Number.isFinite(n))
+        ? (a.box.map(Number) as number[])
+        : undefined;
+    const quote = str(a.quote, 200);
+    const selector = str(a.selector, 500);
+    if (!offset && !box && !quote && !selector) return undefined;
+    return {
+      ...(offset ? { offset } : {}),
+      ...(quote ? { quote } : {}),
+      ...(selector ? { selector } : {}),
+      ...(box ? { box } : {}),
+    };
+  }
+
+  function sanitizeAnswers(raw: unknown, mock: Mock): Record<string, AskAnswer> | string {
+    if (raw === undefined || raw === null) return {};
+    if (typeof raw !== "object" || Array.isArray(raw)) return '"answers" must be an object';
+    const out: Record<string, AskAnswer> = {};
+    for (const [askId, value] of Object.entries(raw as Record<string, unknown>)) {
+      const ask = mock.asks.find((a) => a.id === askId);
+      if (!ask) return `${mock.slug} has no ask "${askId}"`;
+      const ids = Array.isArray(value) ? value : [value];
+      if (ids.length === 0) continue;
+      if (!ask.multi && ids.length > 1) return `ask "${askId}" takes one answer`;
+      for (const id of ids) {
+        if (typeof id !== "string" || !ask.options.some((o) => o.id === id)) {
+          return `ask "${askId}" has no option "${String(id)}"`;
+        }
+      }
+      out[askId] = ask.multi ? (ids as string[]) : (ids[0] as string);
+    }
+    return out;
+  }
+
+  function sanitizeMix(raw: unknown, posts: Post[]): Record<string, string> | string {
+    if (raw === undefined || raw === null) return {};
+    if (typeof raw !== "object" || Array.isArray(raw)) return '"mix" must be an object';
+    const variants = new Set(posts.map((p) => p.variant));
+    const out: Record<string, string> = {};
+    for (const [part, variant] of Object.entries(raw as Record<string, unknown>)) {
+      if (!part || part.length > 200) return "mix keys are part names";
+      if (typeof variant !== "string" || !variants.has(variant)) {
+        return `mix "${part}" names a variant that does not exist`;
+      }
+      out[part] = variant;
+    }
+    return out;
+  }
+
+  // A draft, validated against the mock as it is now: unknown asks, options,
+  // variants, knob paths or out-of-range values are refused, never stored.
+  function sanitizeDraft(raw: any, mock: Mock, posts: Post[], base: Draft | null): Draft | string {
+    const pick = (key: keyof Draft) => (raw?.[key] !== undefined ? raw[key] : base?.[key]);
+    const answers = sanitizeAnswers(pick("answers"), mock);
+    if (typeof answers === "string") return answers;
+    const mix = sanitizeMix(pick("mix"), posts);
+    if (typeof mix === "string") return mix;
+    const tuned = checkKnobValues(pick("tuned"), mock, posts, "tuned");
+    if (!tuned.ok) return tuned.error;
+    const comments = sanitizePartComments(pick("comments"), mock);
+    if (typeof comments === "string") return comments;
+    const versionN = Number(pick("version"));
+    const version =
+      Number.isInteger(versionN) && versionN > 0
+        ? versionN
+        : Math.max(1, ...posts.map((p) => p.version));
+    return {
+      version,
+      answers,
+      mix,
+      tuned: tuned.value,
+      comments,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  const viewerOnly = () => fail(403, "only the viewer can do this");
+
+  async function getDraftFlow(ref: unknown, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const mock = await resolveMock(ref);
+    if (isResult(mock)) return mock;
+    return ok({ draft: mock.draft });
+  }
+
+  async function putDraftFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
+    const mock = await resolveMock(ref);
+    if (isResult(mock)) return mock;
+    const posts = await store.listPosts({ mockId: mock.id });
+    const draft = sanitizeDraft(body, mock, posts, null);
+    if (typeof draft === "string") return fail(400, draft);
+    await store.putDraft(mock.id, draft);
+    bus.broadcast({ type: "draft-updated", mockId: mock.id });
+    return ok({ draft });
+  }
+
+  async function deleteDraftFlow(ref: unknown, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const mock = await resolveMock(ref);
+    if (isResult(mock)) return mock;
+    await store.putDraft(mock.id, null);
+    bus.broadcast({ type: "draft-updated", mockId: mock.id });
+    return ok({ draft: null });
+  }
+
+  function sanitizeDecision(
+    raw: any,
+    mock: Mock,
+    posts: Post[],
+  ): ReplyDecision | string | undefined {
+    if (raw === undefined || raw === null) return undefined;
+    const kind = raw.kind;
+    if (kind !== "accept" && kind !== "revise" && kind !== "drop") {
+      return 'decision.kind must be "accept", "revise" or "drop"';
+    }
+    const chosen = chooseVariant(mock, posts, stateArg(raw.state), str(raw.variant, MAX_LABEL));
+    if (isResult(chosen)) return chosen.body.error as string;
+    return { kind, state: chosen.state, variant: chosen.variant };
+  }
+
+  // Which variants a reply accepts and archives. A variant-bound answer accepts
+  // the chosen variant(s) in every state the ask covers and archives their
+  // siblings there; a part-scoped pick is a mix, not a verdict.
+  function replyFlips(
+    mock: Mock,
+    posts: Post[],
+    answers: Record<string, AskAnswer>,
+    decision: ReplyDecision | undefined,
+  ): { accept: Set<string>; archive: Set<string> } {
+    const accept = new Set<string>();
+    const archive = new Set<string>();
+    const settle = (inState: Post[], chosen: Set<string>) => {
+      if (!inState.some((p) => chosen.has(p.variant))) return;
+      for (const p of inState) {
+        if (chosen.has(p.variant)) accept.add(p.id);
+        else if (p.status !== "archived") archive.add(p.id);
+      }
+    };
+    for (const ask of mock.asks) {
+      const answer = answers[ask.id];
+      if (answer === undefined || ask.scope === "part") continue;
+      const ids = Array.isArray(answer) ? answer : [answer];
+      const chosen = new Set(
+        ask.options.filter((o) => ids.includes(o.id) && o.variant).map((o) => o.variant!),
+      );
+      if (chosen.size === 0) continue;
+      const states =
+        ask.scope === "state" ? [ask.state ?? null] : mock.states.length ? mock.states : [null];
+      for (const state of states)
+        settle(
+          posts.filter((p) => p.state === state),
+          chosen,
+        );
+    }
+    if (decision?.kind === "accept") {
+      settle(
+        posts.filter((p) => p.state === decision.state),
+        new Set([decision.variant]),
+      );
+    } else if (decision?.kind === "drop") {
+      const post = posts.find((p) => p.state === decision.state && p.variant === decision.variant);
+      if (post) archive.add(post.id);
+    }
+    for (const id of accept) archive.delete(id);
+    return { accept, archive };
+  }
+
+  // Send: the user's one batched answer becomes one kind:"reply" comment on the
+  // mock's session, delivered through the same cursor as everything else. The
+  // draft is cleared and statuses flip in the same store transaction.
+  async function replyFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const mock = await resolveMock(ref);
+    if (isResult(mock)) return mock;
+    const posts = await store.listPosts({ mockId: mock.id });
+    const draft = sanitizeDraft(body ?? {}, mock, posts, mock.draft);
+    if (typeof draft === "string") return fail(400, draft);
+    const text = str(body?.text, MAX_COMMENT_TEXT);
+    const decision = sanitizeDecision(body?.decision, mock, posts);
+    if (typeof decision === "string") return fail(400, decision);
+    const empty =
+      !text &&
+      !decision &&
+      !Object.keys(draft.answers).length &&
+      !Object.keys(draft.mix).length &&
+      !Object.keys(draft.tuned).length &&
+      !draft.comments.length;
+    if (empty) return fail(400, "nothing to send");
+    const latest = [...posts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+    const sessionId = mock.sessionId ?? latest?.sessionId;
+    if (!sessionId) return fail(409, `${mock.slug} has no agent session to reply to`);
+    const payload: Reply = {
+      mockId: mock.id,
+      version: draft.version,
+      answers: draft.answers,
+      mix: draft.mix,
+      tuned: draft.tuned,
+      comments: draft.comments,
+      ...(text ? { text } : {}),
+      ...(decision ? { decision } : {}),
+    };
+    const asks = mock.asks.map((a) =>
+      draft.answers[a.id] === undefined ? a : { ...a, answer: draft.answers[a.id] },
+    );
+    const flips = replyFlips(mock, posts, draft.answers, decision);
+    const comment = await store.commitReply({
+      mockId: mock.id,
+      sessionId,
+      text: text ?? "",
+      payload,
+      asks,
+      accept: [...flips.accept],
+      archive: [...flips.archive],
+    });
+    if (!comment) return fail(409, `${mock.slug} has no agent session to reply to`);
+    announceComment(comment);
+    bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
+    bus.broadcast({ type: "draft-updated", mockId: mock.id });
+    const after = await store.listPosts({ mockId: mock.id });
+    for (const p of after) {
+      if (flips.accept.has(p.id) || flips.archive.has(p.id)) {
+        bus.broadcast({
+          type: "post-updated",
+          id: p.id,
+          mockId: mock.id,
+          sessionId: p.sessionId,
+          version: p.version,
+        });
+      }
+    }
+    fireNotify({
+      event: "decision",
+      project: mock.project,
+      slug: mock.slug,
+      variant: decision?.variant ?? "",
+      version: draft.version,
+      text: text || decision?.kind || "reply",
+      url: mockUrl(ctx.base, mock),
+    });
+    const [seen] = await withSeen([comment]);
+    return ok(
+      {
+        reply: seen,
+        accepted: after
+          .filter((p) => flips.accept.has(p.id))
+          .map((p) => ({ state: p.state, variant: p.variant })),
+        archived: after
+          .filter((p) => flips.archive.has(p.id))
+          .map((p) => ({ state: p.state, variant: p.variant })),
+      },
+      201,
+    );
+  }
+
+  async function restoreFlow(ref: unknown, body: any): Promise<FlowResult> {
+    const mock = await resolveMock(ref, body?.project);
+    if (isResult(mock)) return mock;
+    const posts = await store.listPosts({ mockId: mock.id });
+    const chosen = chooseVariant(mock, posts, stateArg(body?.state), str(body?.variant, MAX_LABEL));
+    if (isResult(chosen)) return chosen;
+    const updated = await store.setPostStatus(chosen.id, "open");
+    if (!updated) return fail(404, "variant not found");
+    bus.broadcast({
+      type: "post-updated",
+      id: updated.id,
+      mockId: mock.id,
+      sessionId: updated.sessionId,
+      version: updated.version,
+    });
+    return ok({ state: updated.state, variant: updated.variant, status: updated.status });
+  }
+
+  async function removeMockFlow(ref: unknown, query: { project?: unknown }): Promise<FlowResult> {
+    const mock = await resolveMock(ref, query.project);
+    if (isResult(mock)) return mock;
+    await store.removeMock(mock.id);
+    bus.broadcast({ type: "mock-deleted", id: mock.id, project: mock.project });
+    return ok({ ok: true });
+  }
+
+  // --- per-surface edits of one variant ---
+
   function findSurfaceIndex(surfaces: Surface[], target: string): number {
     const byId = surfaces.findIndex((s) => s.id === target);
     if (byId >= 0) return byId;
@@ -563,8 +1518,7 @@ export function createApp({
   }
 
   // Slot a content string into a surface's content field, preserving kind and
-  // extra fields. Returns null if the kind has no content field or JSON parse
-  // fails. The caller handles error reporting.
+  // extra fields. Null when the kind has no content field or JSON parse fails.
   function applyContent(surface: Surface, content: string, kits?: unknown): Surface | null {
     const field = SURFACE_CONTENT_FIELDS[surface.kind];
     if (!field) return null;
@@ -586,346 +1540,148 @@ export function createApp({
     return { ...surface, [field]: value } as Surface;
   }
 
-  async function publishPostFlow(input: {
-    surfaces: Surface[];
-    title?: string;
-    session?: string;
-    sessionTitle?: string;
-    agent?: string;
-    cwd?: string;
-    project?: string;
-    slug?: string;
-    kind?: ItemKind;
-    variant?: string;
-    from?: number;
-    prompt?: string;
-    slots?: Slot[];
-    author?: string;
-    request?: Request;
-  }): Promise<
-    { post: Post; userFeedback?: FeedbackBatch[] } | { error: string; status: 400 | 404 | 413 }
-  > {
-    if (input.surfaces.length === 0) {
-      return { error: "a post needs at least one surface", status: 400 };
-    }
-    if (surfacesByteLength(input.surfaces) > MAX_SURFACE_BYTES) {
-      return { error: `surface exceeds ${MAX_SURFACE_BYTES} bytes`, status: 413 };
-    }
-    let sessionId = input.session;
-    let session = sessionId ? await store.getSession(sessionId) : null;
-    if (sessionId && !session) {
-      return { error: `session "${sessionId}" not found`, status: 404 };
-    }
-    if (!sessionId) {
-      // sessionTitle applies only here — an existing session keeps its title,
-      // which the user may have set by renaming it in the viewer.
-      session = await store.createSession({
-        agent: input.agent ?? "agent",
-        title: input.sessionTitle?.slice(0, MAX_TITLE),
-        cwd: input.cwd,
-        project: resolveProject(input.project, input.cwd),
-      });
-      bus.broadcast({ type: "session-created", id: session.id });
+  type SurfaceEdit = (surfaces: Surface[]) => Promise<Surface[] | FlowResult>;
 
-      sessionId = session.id;
-    }
-    const project =
-      input.project?.trim() || session?.project || projectFromCwd(session?.cwd) || DEFAULT_PROJECT;
-    const variant = input.variant?.trim() || DEFAULT_VARIANT;
-    const title = input.title?.slice(0, MAX_TITLE);
-    // Publishing the same (project, slug, variant) twice is a new VERSION of
-    // that variant, not a second item — the agent addresses items by name
-    // across sessions, so it must not have to remember post ids. Only an
-    // EXPLICIT slug addresses an item that way: a publish that names no item
-    // (the legacy snippet flow) always creates a new one, so two untitled
-    // cards can never collapse into one item's history.
-    const addressed = input.slug?.trim();
-    const slug = addressed
-      ? slugify(addressed)
-      : await freeSlug(project, slugify(title || "Untitled"), variant);
-    const existing = addressed ? await store.findVariant(project, slug, variant) : null;
-    const slots = input.kind === "page" ? await pageSlots(project, input.surfaces) : input.slots;
-    if (existing) {
-      const revised = await revisePost(existing.id, {
-        surfaces: input.surfaces,
-        title,
-        from: input.from,
-        prompt: input.prompt,
-        author: input.author,
-        slots,
-      });
-      if ("error" in revised) return revised;
-      if (input.prompt && input.request) {
-        fireNotify({
-          event: "publish",
-          project: revised.post.project,
-          slug: revised.post.slug,
-          variant: revised.post.variant,
-          version: revised.post.version,
-          text: input.prompt,
-          url: postUrl(input.request, revised.post),
-        });
-      }
-      return revised;
-    }
-    const post = await store.createPost({
-      sessionId,
-      surfaces: input.surfaces,
-      title,
-      project,
-      slug,
-      kind: input.kind,
-      variant,
-      from: input.from,
-      prompt: input.prompt,
-      slots,
-      author: input.author,
+  async function editSurfaces(
+    ref: unknown,
+    body: any,
+    ctx: FlowContext,
+    edit: SurfaceEdit,
+  ): Promise<FlowResult> {
+    const resolved = await resolveMock(ref, body?.project, body?.session);
+    if (isResult(resolved)) return resolved;
+    const posts = await store.listPosts({ mockId: resolved.id });
+    const post = chooseVariant(
+      resolved,
+      posts,
+      stateArg(body?.state),
+      str(body?.variant, MAX_LABEL),
+    );
+    if (isResult(post)) return post;
+    const next = await edit(post.surfaces);
+    if (isResult(next)) return next;
+    const bad = checkSurfaces(next);
+    if (bad) return bad;
+    const updated = await store.updatePost(post.id, { surfaces: next });
+    if (!updated) return fail(404, "variant not found");
+    const session = await store.getSession(updated.sessionId);
+    const mock = await updateMockAfterWrite(resolved, {
+      state: updated.state,
+      knobs: {},
+      session,
     });
-    if (!post) return { error: "session not found", status: 404 };
-    bus.broadcast({ type: "post-created", id: post.id, sessionId, version: 1 });
-    warmPost(post);
-    return { post, userFeedback: await collectFeedback(sessionId) };
+    announcePost(mock, updated, false);
+    return writeResult(mock, updated, ctx, { previous: post.surfaces });
   }
 
-  // A slug for an item nobody named. The title's kebab-case is used as-is when
-  // it is free; otherwise a short random suffix keeps item identity unique
-  // inside the project without scanning every post.
-  async function freeSlug(project: string, base: string, variant: string): Promise<string> {
-    if (!(await store.findVariant(project, base, variant))) return base;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const slug = `${base}-${newId()
-        .slice(0, 4)
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, "0")}`;
-      if (!(await store.findVariant(project, slug, variant))) return slug;
+  async function oneSurface(raw: unknown, ctx: FlowContext): Promise<Surface | FlowResult> {
+    if (!ctx.strict) {
+      const [surface] = await coerceSurfaces([raw]);
+      return surface ?? fail(400, "invalid surface");
     }
-    return `${base}-${Date.now().toString(36)}`;
+    const parsed = await validateSurfaces([raw]);
+    return parsed.ok ? parsed.surfaces[0] : fail(400, parsed.error, surfaceIssues(parsed));
   }
 
-  // Project resolution for a session: explicit wins, then the cwd's basename,
-  // then the single-workspace fallback.
-  const resolveProject = (project?: string, cwd?: string | null): string =>
-    project?.trim() || projectFromCwd(cwd) || DEFAULT_PROJECT;
-
-  // A page's slot list, with each missing version pinned to the referenced
-  // component's current one (snapshot semantics).
-  async function pageSlots(project: string, surfaces: Surface[]): Promise<Slot[]> {
-    const html = surfaces.find((s) => s.kind === "html");
-    if (!html || html.kind !== "html") return [];
-    const slots: Slot[] = [];
-    for (const tag of parseSlotTags(html.html)) {
-      let version = tag.version;
-      if (version == null) {
-        version = (await store.findVariant(project, tag.slug, tag.variant))?.version ?? null;
+  const appendSurfaceFlow = (ref: unknown, body: any, ctx: FlowContext) =>
+    editSurfaces(ref, body, ctx, async (surfaces) => {
+      if (!body?.surface) return fail(400, 'provide a "surface" object');
+      const surface = await oneSurface(body.surface, ctx);
+      if (isResult(surface)) return surface;
+      let at = surfaces.length;
+      for (const [key, shift] of [
+        ["before", 0],
+        ["after", 1],
+      ] as const) {
+        if (body[key] === undefined) continue;
+        const i = findSurfaceIndex(surfaces, String(body[key]));
+        if (i < 0) return fail(404, `surface "${body[key]}" not found`);
+        at = i + shift;
+        break;
       }
-      if (version != null) slots.push({ slug: tag.slug, variant: tag.variant, version });
-    }
-    return slots;
-  }
-
-  // Store an uploaded blob. Like publishPostFlow, an explicit session is
-  // validated and a missing one is auto-created so an upload can precede the
-  // first publish. The asset's data is dropped from the result (it's bytes).
-  async function uploadAsset(input: {
-    data: Uint8Array;
-    contentType: string;
-    filename?: string;
-    kind?: AssetKind;
-    session?: string;
-    agent?: string;
-  }): Promise<{ asset: Omit<Asset, "data"> } | { error: string; status: 400 | 404 | 413 }> {
-    if (input.data.byteLength === 0) return { error: "empty upload", status: 400 };
-    if (input.data.byteLength > MAX_ASSET_BYTES) {
-      return { error: `asset exceeds ${MAX_ASSET_BYTES} bytes`, status: 413 };
-    }
-    let sessionId = input.session;
-    if (sessionId && !(await store.getSession(sessionId))) {
-      return { error: `session "${sessionId}" not found`, status: 404 };
-    }
-    if (!sessionId) {
-      const session = await store.createSession({ agent: input.agent ?? "agent" });
-      bus.broadcast({ type: "session-created", id: session.id });
-      sessionId = session.id;
-    }
-    const asset = await store.putAsset({
-      sessionId,
-      kind: input.kind ?? inferAssetKind(input.contentType),
-      contentType: input.contentType || "application/octet-stream",
-      filename: input.filename,
-      data: input.data,
+      const next = [...surfaces];
+      next.splice(at, 0, surface);
+      return next;
     });
-    if (!asset) return { error: "session not found", status: 404 };
-    const { data: _data, ...meta } = asset;
-    return { asset: meta };
-  }
 
-  async function revisePost(
-    id: string,
-    patch: {
-      surfaces?: Surface[];
-      title?: string;
-      from?: number;
-      prompt?: string;
-      author?: string;
-      slots?: Slot[];
-    },
-  ): Promise<
-    { post: Post; userFeedback?: FeedbackBatch[] } | { error: string; status: 400 | 404 | 413 }
-  > {
-    if (patch.surfaces) {
-      if (patch.surfaces.length === 0) {
-        return { error: "a post needs at least one surface", status: 400 };
+  const replaceSurfaceFlow = (ref: unknown, target: string, body: any, ctx: FlowContext) =>
+    editSurfaces(ref, body, ctx, async (surfaces) => {
+      const idx = findSurfaceIndex(surfaces, target);
+      if (idx < 0) return fail(404, `surface "${target}" not found`);
+      let updated: Surface;
+      if (body?.surface !== undefined) {
+        const surface = await oneSurface(body.surface, ctx);
+        if (isResult(surface)) return surface;
+        updated = surface;
+        if (body.kits !== undefined && updated.kind === "html") {
+          updated = { ...updated, kits: Array.isArray(body.kits) ? body.kits : undefined };
+        }
+      } else if (typeof body?.content === "string") {
+        const applied = applyContent(surfaces[idx], body.content, body.kits);
+        if (!applied) {
+          return fail(400, `content update not supported for ${surfaces[idx].kind} surfaces`);
+        }
+        const parsed = await validateSurfaces([applied]);
+        if (!parsed.ok) return fail(400, parsed.error, surfaceIssues(parsed));
+        updated = parsed.surfaces[0];
+      } else {
+        return fail(400, 'provide "surface" or "content"');
       }
-      if (surfacesByteLength(patch.surfaces) > MAX_SURFACE_BYTES) {
-        return { error: `surface exceeds ${MAX_SURFACE_BYTES} bytes`, status: 413 };
-      }
-    }
-    if (patch.title !== undefined) patch.title = patch.title.slice(0, MAX_TITLE);
-    const post = await store.updatePost(id, {
-      surfaces: patch.surfaces,
-      title: patch.title,
-      from: patch.from,
-      prompt: patch.prompt,
-      author: patch.author,
-      slots: patch.slots,
+      const next = [...surfaces];
+      // Validation drops ids; the edited surface keeps its identity.
+      next[idx] = { ...updated, id: surfaces[idx].id };
+      return next;
     });
-    if (!post) return { error: "post not found", status: 404 };
-    bus.broadcast({
-      type: "post-updated",
-      id: post.id,
-      sessionId: post.sessionId,
-      version: post.version,
+
+  const removeSurfaceFlow = (ref: unknown, target: string, body: any, ctx: FlowContext) =>
+    editSurfaces(ref, body, ctx, async (surfaces) => {
+      const idx = findSurfaceIndex(surfaces, target);
+      if (idx < 0) return fail(404, `surface "${target}" not found`);
+      if (surfaces.length === 1) return fail(400, "a variant needs at least one surface");
+      return surfaces.filter((_, i) => i !== idx);
     });
-    warmPost(post);
-    return { post, userFeedback: await collectFeedback(post.sessionId) };
-  }
 
-  // --- per-surface flow functions (append / replace / remove / reorder) ---
-  // Each reads the existing post, mutates the surfaces array, and writes it
-  // back via revisePost so version/history/SSE stay consistent. Untouched
-  // surfaces keep their ids (normalizeSurfaceIds preserves existing ids).
-
-  async function appendPostSurface(
-    id: string,
-    surface: Surface,
-    pos?: { before?: string; after?: string },
-  ): Promise<
-    { post: Post; userFeedback?: FeedbackBatch[] } | { error: string; status: 400 | 404 | 413 }
-  > {
-    const existing = await store.getPost(id);
-    if (!existing) return { error: "post not found", status: 404 };
-    let insertAt = existing.surfaces.length;
-    if (pos?.before !== undefined) {
-      const i = findSurfaceIndex(existing.surfaces, pos.before);
-      if (i < 0) return { error: `surface "${pos.before}" not found`, status: 404 };
-      insertAt = i;
-    } else if (pos?.after !== undefined) {
-      const i = findSurfaceIndex(existing.surfaces, pos.after);
-      if (i < 0) return { error: `surface "${pos.after}" not found`, status: 404 };
-      insertAt = i + 1;
-    }
-    const surfaces = [...existing.surfaces];
-    surfaces.splice(insertAt, 0, surface);
-    return revisePost(id, { surfaces });
-  }
-
-  async function replacePostSurface(
-    id: string,
-    target: string,
-    replacement: { surface?: Surface; content?: string; kits?: unknown },
-  ): Promise<
-    { post: Post; userFeedback?: FeedbackBatch[] } | { error: string; status: 400 | 404 | 413 }
-  > {
-    const existing = await store.getPost(id);
-    if (!existing) return { error: "post not found", status: 404 };
-    const idx = findSurfaceIndex(existing.surfaces, target);
-    if (idx < 0) return { error: `surface "${target}" not found`, status: 404 };
-    let updated: Surface;
-    if (replacement.surface !== undefined) {
-      // Full replacement — preserve the old surface's id so the viewer can
-      // key by stable identity across edits. If kits were supplied and the
-      // replacement is an html surface, apply them (matches content-only).
-      updated = { ...replacement.surface, id: existing.surfaces[idx].id };
-      if (replacement.kits !== undefined && updated.kind === "html") {
-        updated = {
-          ...updated,
-          kits: Array.isArray(replacement.kits) ? replacement.kits : undefined,
-        };
+  const reorderSurfacesFlow = (ref: unknown, body: any, ctx: FlowContext) =>
+    editSurfaces(ref, body, ctx, async (surfaces) => {
+      const order = body?.order;
+      if (!Array.isArray(order)) return fail(400, 'provide an "order" array');
+      if (order.length !== surfaces.length) {
+        return fail(400, "order array length must match surface count");
       }
-    } else if (replacement.content !== undefined) {
-      // Content-only — slot the string into the existing surface's field.
-      const result = applyContent(existing.surfaces[idx], replacement.content, replacement.kits);
-      if (!result) {
-        return {
-          error: `content update not supported for ${existing.surfaces[idx].kind} surfaces`,
-          status: 400,
-        };
+      const used = new Set<number>();
+      const next: Surface[] = [];
+      for (const entry of order) {
+        const idx = findSurfaceIndex(surfaces, String(entry));
+        if (idx < 0) return fail(404, `surface "${entry}" not found`);
+        if (used.has(idx)) return fail(400, `surface "${entry}" appears twice in order`);
+        used.add(idx);
+        next.push(surfaces[idx]);
       }
-      updated = result;
-    } else {
-      return { error: "provide surface or content", status: 400 };
-    }
-    const parsed = await validateSurfaces([updated]);
-    if (!parsed.ok) return { error: parsed.error, status: 400 };
-    // The validator strips the id field (zod schemas don't declare it), so
-    // re-apply the target's id after validation to preserve surface identity.
-    const surfaces = [...existing.surfaces];
-    surfaces[idx] = { ...parsed.surfaces[0], id: existing.surfaces[idx].id };
-    return revisePost(id, { surfaces });
-  }
+      return next;
+    });
 
-  async function removePostSurface(
-    id: string,
-    target: string,
-  ): Promise<
-    { post: Post; userFeedback?: FeedbackBatch[] } | { error: string; status: 400 | 404 | 413 }
-  > {
-    const existing = await store.getPost(id);
-    if (!existing) return { error: "post not found", status: 404 };
-    const idx = findSurfaceIndex(existing.surfaces, target);
-    if (idx < 0) return { error: `surface "${target}" not found`, status: 404 };
-    if (existing.surfaces.length === 1) {
-      return { error: "a post needs at least one surface", status: 400 };
-    }
-    const surfaces = existing.surfaces.filter((_, i) => i !== idx);
-    return revisePost(id, { surfaces });
-  }
-
-  async function reorderPostSurfaces(
-    id: string,
-    order: (string | number)[],
-  ): Promise<
-    { post: Post; userFeedback?: FeedbackBatch[] } | { error: string; status: 400 | 404 | 413 }
-  > {
-    const existing = await store.getPost(id);
-    if (!existing) return { error: "post not found", status: 404 };
-    if (order.length !== existing.surfaces.length) {
-      return { error: "order array length must match surface count", status: 400 };
-    }
-    // Build the reordered array. Each entry is a surface id or 0-based index.
-    const reordered: Surface[] = Array.from({ length: order.length });
-    const used = new Set<number>();
-    for (const entry of order) {
-      const idx = findSurfaceIndex(existing.surfaces, String(entry));
-      if (idx < 0) return { error: `surface "${entry}" not found`, status: 404 };
-      if (used.has(idx)) return { error: `surface "${entry}" appears twice in order`, status: 400 };
-      used.add(idx);
-    }
-    for (let i = 0; i < order.length; i++) {
-      const idx = findSurfaceIndex(existing.surfaces, String(order[i]));
-      reordered[i] = existing.surfaces[idx];
-    }
-    return revisePost(id, { surfaces: reordered });
-  }
+  // --- comments ---
 
   function numberInRange(value: unknown, min: number, max: number): number | null {
     const n = Number(value);
     return Number.isFinite(n) && n >= min && n <= max ? n : null;
   }
 
-  function sanitizeCommentAnchor(raw: unknown, post: Post): CommentAnchor | undefined {
+  function sanitizeCommentAnchor(
+    raw: unknown,
+    mock: Mock,
+    post: Post | null,
+  ): CommentAnchor | undefined {
     if (!raw || typeof raw !== "object") return undefined;
     const input = raw as Record<string, unknown>;
+    if (input.kind === "part") {
+      const part = str(input.part, 200);
+      if (!part) return undefined;
+      const state = stateArg(input.state) ?? post?.state ?? null;
+      if (state !== null && !mock.states.includes(state)) return undefined;
+      return { kind: "part", part, state, ...sanitizePartAnchor(input) };
+    }
+    if (!post) return undefined;
     const kind = input.kind === "rect" || input.kind === "lineRange" ? input.kind : "point";
     let surfaceIndex = Number(input.surfaceIndex);
     if (
@@ -990,8 +1746,8 @@ export function createApp({
   // receives a bounded shape it can render as text.
   const MAX_ANCHORS = 20;
   const MAX_ANCHOR_TEXT = 200;
-  function sanitizeAnchors(raw: unknown, post: Post, viewport: number | null): Anchor[] {
-    if (!Array.isArray(raw)) return [];
+  function sanitizeAnchors(raw: unknown, post: Post | null, viewport: number | null): Anchor[] {
+    if (!post || !Array.isArray(raw)) return [];
     const out: Anchor[] = [];
     for (const entry of raw.slice(0, MAX_ANCHORS)) {
       if (!entry || typeof entry !== "object") continue;
@@ -1024,55 +1780,84 @@ export function createApp({
     return out;
   }
 
-  async function createComment(input: {
-    text: string;
-    surface?: string;
-    // Viewer-originated comments may set "user" or "surface". All agent
-    // channels omit this and derive their author from the owning session.
-    author?: "user" | "surface";
-    anchor?: unknown;
-    kind?: CommentKind;
-    anchors?: unknown;
-    // Only the trusted viewer may hold a comment back as a draft (same
-    // origin rule as `author`); agent channels can never write one.
-    draft?: boolean;
-    viewport?: unknown;
-    postVersion?: unknown;
-  }): Promise<
-    { comment: Comment; userFeedback?: FeedbackBatch[] } | { error: string; status: 400 | 404 }
-  > {
-    // Comments always attach to a post — a comment with nothing to point at
-    // is just a message to the agent, which is what the agent's own prompt is for.
-    if (!input.surface) return { error: 'provide a "surface" id', status: 400 };
-    const post = await store.getPost(input.surface);
-    if (!post) return { error: "post not found", status: 404 };
-    const session = await store.getSession(post.sessionId);
-    if (!session) return { error: "session not found", status: 404 };
-    const author = input.author ?? reservedAgent(session.agent);
-    const comment = await store.createComment({
-      sessionId: post.sessionId,
-      postId: post.id,
-      author,
-      text: input.text.trim().slice(0, MAX_COMMENT_TEXT),
-      anchor: sanitizeCommentAnchor(input.anchor, post),
-      kind: input.kind ?? "comment",
-      anchors: sanitizeAnchors(input.anchors, post, sanitizeViewport(input.viewport)),
-      draft: input.draft === true,
-      postVersion: sanitizePostVersion(input.postVersion, post),
-      viewport: sanitizeViewport(input.viewport),
-    });
-    if (!comment) return { error: "session not found", status: 404 };
+  function announceComment(comment: Comment) {
     bus.broadcast({
       type: "comment-created",
       id: comment.id,
       sessionId: comment.sessionId,
-      surfaceId: comment.postId,
+      mockId: comment.mockId,
+      postId: comment.postId,
       seq: comment.seq,
     });
-    // agent replies are writes too — piggyback pending feedback on them, but
-    // never on the user's own comments
+  }
+
+  // A comment on a mock (optionally one variant). The viewer may author it as
+  // the user; every agent channel writes as its session's agent.
+  async function commentFlow(body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
+    const text = str(body.text, MAX_COMMENT_TEXT);
+    if (!text) return fail(400, 'provide non-empty "text"');
+    let post: Post | null = null;
+    let mock: Mock | null = null;
+    if (typeof body.post === "string" && body.post) {
+      post = await store.getPost(body.post);
+      if (!post) return fail(404, "post not found");
+      mock = await store.getMock(post.mock);
+    } else if (body.mock !== undefined) {
+      const resolved = await resolveMock(body.mock, body.project, body.session);
+      if (isResult(resolved)) return resolved;
+      mock = resolved;
+      if (body.variant !== undefined || body.state !== undefined) {
+        const posts = await store.listPosts({ mockId: mock.id });
+        const chosen = chooseVariant(
+          mock,
+          posts,
+          stateArg(body.state),
+          str(body.variant, MAX_LABEL),
+        );
+        if (isResult(chosen)) return chosen;
+        post = chosen;
+      }
+    } else {
+      return fail(400, 'provide "mock" (or "post")');
+    }
+    if (!mock) return fail(404, "mock not found");
+    let session: Session | null = null;
+    if (typeof body.session === "string" && body.session) {
+      session = await store.getSession(body.session);
+      if (!session) return fail(404, `session "${body.session}" not found`);
+    }
+    if (!session) {
+      const sid = mock.sessionId ?? post?.sessionId;
+      session = sid ? await store.getSession(sid) : null;
+    }
+    if (!session) return fail(409, `${mock.slug} has no agent session`);
+    // Only the trusted viewer may declare the two non-agent labels. Sandboxed
+    // surfaces have opaque origins, so their bridge is stamped "surface" by the
+    // viewer rather than by contained code.
+    const author =
+      ctx.viewer && (body.author === "user" || body.author === "surface")
+        ? body.author
+        : reservedAgent(session.agent);
+    const viewport = sanitizeViewport(body.viewport);
+    const comment = await store.createComment({
+      sessionId: session.id,
+      mockId: mock.id,
+      postId: post?.id ?? null,
+      author,
+      text,
+      anchor: sanitizeCommentAnchor(body.anchor, mock, post),
+      kind: "comment",
+      anchors: sanitizeAnchors(body.anchors, post, viewport),
+      postVersion: post ? sanitizePostVersion(body.postVersion, post) : null,
+      viewport,
+    });
+    if (!comment) return fail(404, "session not found");
+    announceComment(comment);
+    // Agent replies are writes too — piggyback pending feedback on them, but
+    // never on the user's own comments.
     const userFeedback = author === "user" ? undefined : await collectFeedback(comment.sessionId);
-    return { comment, userFeedback };
+    return ok({ ...comment, ...(userFeedback ? { userFeedback } : {}) }, 201);
   }
 
   // Long-poll: resolves as soon as a matching comment lands, or at timeout.
@@ -1087,12 +1872,7 @@ export function createApp({
     if (afterSeq === undefined && q.author === "user" && q.sessionId) {
       afterSeq = (await store.getSession(q.sessionId))?.agentSeq;
     }
-    const query = {
-      sessionId: q.sessionId,
-      postId: q.surfaceId,
-      afterSeq,
-      includeDrafts: q.includeDrafts === true,
-    };
+    const query = { sessionId: q.sessionId, mockId: q.mockId, postId: q.postId, afterSeq };
     const matches = (list: Comment[]) =>
       q.author ? list.filter((cm) => cm.author === q.author) : list;
     const wait = Math.min(Math.max(q.waitSeconds, 0), MAX_WAIT_SECONDS);
@@ -1105,7 +1885,8 @@ export function createApp({
         const unsubscribe = bus.subscribe((event) => {
           if (event.type !== "comment-created") return;
           if (q.sessionId && event.sessionId !== q.sessionId) return;
-          if (q.surfaceId && event.surfaceId !== q.surfaceId) return;
+          if (q.mockId && event.mockId !== q.mockId) return;
+          if (q.postId && event.postId !== q.postId) return;
           done();
         });
         const onAbort = () => done();
@@ -1125,15 +1906,57 @@ export function createApp({
       comments = matches(all);
     }
     // The cursor advances past every comment in the window — not just the
-    // filtered ones — so the next call doesn't re-read the agent's own
-    // comments. collectFeedback already does this; mirror it here.
+    // filtered ones — so the next call doesn't re-read the agent's own comments.
     const lastSeq = all.length > 0 ? all[all.length - 1].seq : (afterSeq ?? 0);
     // An author=user query is the agent listening (the viewer never filters by
-    // author) — what it receives here should not be re-delivered as piggyback.
+    // author) — what it receives here must not be re-delivered as piggyback.
     if (q.author === "user" && q.sessionId && all.length > 0) {
       await store.markAgentSeen(q.sessionId, lastSeq);
     }
     return { comments, lastSeq };
+  }
+
+  // The agent's read: comments plus the batched feedback built from them.
+  async function feedbackFlow(q: CommentWait, signal?: AbortSignal): Promise<FlowResult> {
+    const result = await waitForComments(q, signal);
+    const feedback = await buildFeedbackBatches(store, result.comments);
+    return ok({ ...result, feedback });
+  }
+
+  // Store an uploaded blob. An explicit session is validated and a missing one
+  // is auto-created so an upload can precede the first publish. The asset's
+  // data is dropped from the result (it's bytes).
+  async function uploadAsset(input: {
+    data: Uint8Array;
+    contentType: string;
+    filename?: string;
+    kind?: AssetKind;
+    session?: string;
+    agent?: string;
+  }): Promise<{ asset: Omit<Asset, "data"> } | { error: string; status: 400 | 404 | 413 }> {
+    if (input.data.byteLength === 0) return { error: "empty upload", status: 400 };
+    if (input.data.byteLength > MAX_ASSET_BYTES) {
+      return { error: `asset exceeds ${MAX_ASSET_BYTES} bytes`, status: 413 };
+    }
+    let sessionId = input.session;
+    if (sessionId && !(await store.getSession(sessionId))) {
+      return { error: `session "${sessionId}" not found`, status: 404 };
+    }
+    if (!sessionId) {
+      const session = await store.createSession({ agent: input.agent ?? "agent" });
+      bus.broadcast({ type: "session-created", id: session.id });
+      sessionId = session.id;
+    }
+    const asset = await store.putAsset({
+      sessionId,
+      kind: input.kind ?? inferAssetKind(input.contentType),
+      contentType: input.contentType || "application/octet-stream",
+      filename: input.filename,
+      data: input.data,
+    });
+    if (!asset) return { error: "session not found", status: 404 };
+    const { data: _data, ...meta } = asset;
+    return { asset: meta };
   }
 
   // --- auth ---
@@ -1183,7 +2006,11 @@ export function createApp({
       });
       return next();
     }
-    if (publicRead && c.req.method === "GET" && isPublicReadAllowed(path, publicRead)) {
+    if (
+      publicRead &&
+      c.req.method === "GET" &&
+      isPublicReadAllowed(path, publicRead, new URL(c.req.url).searchParams)
+    ) {
       return next();
     }
     if (isAuthenticated(c)) return next();
@@ -1213,8 +2040,6 @@ export function createApp({
     onError: (c) => c.json({ error: `asset exceeds ${MAX_ASSET_BYTES} bytes` }, 413),
   });
 
-  // --- pages and docs ---
-
   const withOrigin = (text: string, c: { req: { url: string } }) =>
     text.replaceAll(LOCAL_ORIGIN, new URL(c.req.url).origin);
 
@@ -1236,12 +2061,6 @@ export function createApp({
     return `${text.slice(0, titleStart)}${titleTag}${text.slice(titleEnd + "</title>".length)}`;
   };
 
-  const sessionDocumentTitle = (session: Session | null | undefined) => {
-    if (!session) return null;
-    const label = session.title || (session.agent ? `${session.agent} session` : null);
-    return label ? `${label} · mockpit` : null;
-  };
-
   const withViewerConfig = (
     text: string,
     request: Request,
@@ -1260,7 +2079,13 @@ export function createApp({
     return injectHead(text, `<script>${config}</script>`);
   };
 
-  const postPreviewHead = (
+  // --- viewer pages ---
+
+  // Link previews for a mock page: the first open variant's first surface,
+  // with every pixel-affecting input pinned in the image URL so the Worker can
+  // cache it at the edge.
+  const mockPreviewHead = (
+    mock: Mock,
     post: Post,
     request: Request,
     themeId: string,
@@ -1268,19 +2093,16 @@ export function createApp({
   ) => {
     const origin = new URL(request.url).origin;
     const publicBasePath = requestBasePath(request);
-    const canonical = `${origin}${publicBasePath}/p/${post.id}`;
-    // Pin every pixel-affecting input in the advertised URL: post revision,
-    // workspace theme, deterministic color mode, and app/renderer generation.
-    // The Worker validates these before admitting the image to edge cache.
-    const imageUrl = new URL(`${origin}${publicBasePath}/p/${post.id}.png`);
+    const canonical = `${origin}${publicBasePath}/project/${encodeURIComponent(mock.project)}/${encodeURIComponent(mock.slug)}`;
+    const imageUrl = new URL(`${origin}${publicBasePath}/s/${post.id}.png`);
     imageUrl.searchParams.set("card", "1");
     imageUrl.searchParams.set("theme", themeId);
     imageUrl.searchParams.set("mode", "dark");
     imageUrl.searchParams.set("v", String(post.version));
     imageUrl.searchParams.set("g", rendererGeneration);
     const image = imageUrl.toString();
-    const title = escapeHtml(post.title);
-    const description = "A https://mockpit.sh surface";
+    const title = escapeHtml(mock.title);
+    const description = "A https://mockpit.sh mock";
     return [
       `<link rel="canonical" href="${escapeHtml(canonical)}">`,
       `<meta property="og:type" content="website">`,
@@ -1299,60 +2121,307 @@ export function createApp({
 
   const configuredViewerHtml = async (
     c: Context,
-    opts: { post?: Post; title?: string | null } = {},
+    opts: { title?: string | null; preview?: { mock: Mock; post: Post } } = {},
   ) => {
     // The viewer HTML is the trusted app origin — it shares that origin with the
     // authenticated API and the comment→agent channel, so a cross-origin page
     // that frames it could clickjack actions or the prompt-injection channel.
-    // Refuse cross-origin framing (same-origin embedding still allowed). This is
-    // the trusted shell only; the sandboxed surface documents at /s/:id?part=N
-    // are *meant* to be framed and carry their own `sandbox` CSP header instead,
-    // so they never pass through here and are unaffected.
+    // Refuse cross-origin framing (same-origin embedding still allowed). The
+    // sandboxed surface documents at /s/:id are *meant* to be framed and carry
+    // their own `sandbox` CSP header instead, so they never pass through here.
     c.header("Content-Security-Policy", "frame-ancestors 'self'");
-    const pageTitle = opts.post?.title ?? opts.title;
     const html = withDocumentTitle(
       withViewerConfig(
         withOrigin(viewerHtml, { req: { url: c.req.url } }),
         c.req.raw,
         !!publicRead && !isAuthenticated(c),
-        pageTitle,
+        opts.title,
       ),
-      pageTitle,
+      opts.title,
     );
-    if (!opts.post) return html;
+    if (!opts.preview) return html;
     const themeId = (await store.getSetting("theme")) ?? DEFAULT_THEME_ID;
-    return injectHead(html, postPreviewHead(opts.post, c.req.raw, themeId, version ?? "dev"));
+    const { mock, post } = opts.preview;
+    return injectHead(html, mockPreviewHead(mock, post, c.req.raw, themeId, version ?? "dev"));
   };
   app.get("/", async (c) => c.html(await configuredViewerHtml(c)));
-  app.get("/connect", async (c) =>
-    c.html(await configuredViewerHtml(c, { title: "Connect an agent" })),
+  // The engine reads the project/mock out of the URL itself; these render the
+  // same shell as "/".
+  app.get("/project/:name", async (c) =>
+    c.html(await configuredViewerHtml(c, { title: c.req.param("name") })),
   );
-  // The reshaped viewer routes. They render the same shell as "/" — the engine
-  // reads the project/item out of the URL itself.
-  const projectPage = async (c: Context) =>
-    c.html(await configuredViewerHtml(c, { title: decodeURIComponent(c.req.param("name") ?? "") }));
-  app.get("/project/:name", projectPage);
-  app.get("/project/:name/:slug", projectPage);
-  app.get("/session/:id", async (c) => {
-    const session = await store.getSession(c.req.param("id"));
-    if (isUnauthenticatedSessionRead(c) && !session) {
-      return c.text("Session not found", 404);
-    }
-    return c.html(await configuredViewerHtml(c, { title: sessionDocumentTitle(session) }));
+  app.get("/project/:name/:slug", async (c) => {
+    const mock = await store.findMock(c.req.param("name"), c.req.param("slug"));
+    if (!mock) return c.html(await configuredViewerHtml(c, { title: c.req.param("name") }));
+    const posts = await store.listPosts({ mockId: mock.id });
+    const post = posts.find((p) => p.status !== "archived") ?? posts[0];
+    return c.html(
+      await configuredViewerHtml(c, {
+        title: mock.title,
+        ...(post ? { preview: { mock, post } } : {}),
+      }),
+    );
   });
-  const sessionPostPage = async (c: any) => {
-    const session = await store.getSession(c.req.param("id"));
-    if (isUnauthenticatedSessionRead(c)) {
-      const postId = c.req.param("surfaceId") ?? c.req.param("postId");
-      const post = await store.getPost(postId ?? "");
-      if (!session || !post || post.sessionId !== session.id) {
-        return c.text("Session or post not found", 404);
-      }
+
+  // --- REST plumbing for the shared flows ---
+
+  const flowCtx = (c: Context, strict = true): FlowContext => ({
+    base: `${new URL(c.req.url).origin}${requestBasePath(c.req.raw)}`,
+    // The browser sets Fetch Metadata on same-origin requests; only the trusted
+    // viewer may act as the user (drafts, replies, user-authored comments).
+    viewer: c.req.header("sec-fetch-site") === "same-origin",
+    strict,
+    request: c.req.raw,
+    signal: c.req.raw.signal,
+  });
+  const send = (c: Context, result: FlowResult) => c.json(result.body, result.status as 200);
+  const jsonBody = (c: Context) => c.req.json().catch(() => null);
+  const flag = (c: Context, key: string) => c.req.query(key) === "1";
+
+  // --- sessions ---
+
+  async function postCounts(): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    for (const post of await store.listPosts()) {
+      counts.set(post.sessionId, (counts.get(post.sessionId) ?? 0) + 1);
     }
-    return c.html(await configuredViewerHtml(c, { title: sessionDocumentTitle(session) }));
+    return counts;
+  }
+
+  app.get("/api/sessions", async (c) => {
+    const [sessions, counts] = await Promise.all([store.listSessions(), postCounts()]);
+    return c.json(sessions.map((s) => sessionRowView(s, counts.get(s.id) ?? 0)));
+  });
+
+  app.get("/api/sessions/:id", async (c) => {
+    const session = await store.getSession(c.req.param("id"));
+    if (!session) return c.json({ error: "session not found" }, 404);
+    const posts = await store.listPosts({ sessionId: session.id });
+    return c.json(sessionRowView(session, posts.length));
+  });
+
+  app.post("/api/sessions", async (c) => {
+    const body = (await jsonBody(c)) ?? {};
+    const cwd = str(body.cwd, 4096);
+    const session = await store.createSession({
+      agent: str(body.agent, MAX_TITLE) ?? "agent",
+      title: str(body.title, MAX_TITLE),
+      cwd,
+      // Resolved once here so every mock this session publishes lands in the
+      // same project.
+      project: resolveProject(str(body.project, MAX_TITLE), cwd),
+    });
+    bus.broadcast({ type: "session-created", id: session.id });
+    return c.json(session, 201);
+  });
+
+  app.patch("/api/sessions/:id", async (c) => {
+    const body = await jsonBody(c);
+    if (!body || typeof body.title !== "string") {
+      return c.json({ error: 'body must include "title" string' }, 400);
+    }
+    const session = await store.renameSession(c.req.param("id"), body.title.slice(0, MAX_TITLE));
+    if (!session) return c.json({ error: "session not found" }, 404);
+    bus.broadcast({ type: "session-updated", id: session.id });
+    return c.json(session);
+  });
+
+  app.delete("/api/sessions/:id", async (c) => {
+    const id = c.req.param("id");
+    if (!(await store.removeSession(id))) return c.json({ error: "session not found" }, 404);
+    bus.broadcast({ type: "session-deleted", id });
+    return c.json({ ok: true });
+  });
+
+  // --- projects and mocks ---
+
+  app.get("/api/projects", async (c) => c.json(await store.listProjects()));
+
+  app.get("/api/mocks", async (c) =>
+    send(c, await listMocksFlow({ project: c.req.query("project") })),
+  );
+
+  app.post("/api/mocks", async (c) => send(c, await publishFlow(await jsonBody(c), flowCtx(c))));
+
+  // A session-scoped public read may only address a mock by its unguessable id.
+  const guardPublicMock = async (c: Context): Promise<Response | null> => {
+    if (!isUnauthenticatedSessionRead(c)) return null;
+    return (await store.getMock(c.req.param("id") ?? ""))
+      ? null
+      : c.json({ error: "mock not found" }, 404);
   };
-  app.get("/session/:id/s/:surfaceId", sessionPostPage); // legacy alias
-  app.get("/session/:id/p/:postId", sessionPostPage);
+
+  app.get("/api/mocks/:id", async (c) => {
+    const denied = await guardPublicMock(c);
+    if (denied) return denied;
+    return send(
+      c,
+      await getMockFlow(c.req.param("id"), {
+        project: c.req.query("project"),
+        body: flag(c, "body"),
+        history: flag(c, "history"),
+      }),
+    );
+  });
+
+  app.get("/api/mocks/:id/export", async (c) => {
+    const denied = await guardPublicMock(c);
+    if (denied) return denied;
+    return send(
+      c,
+      await exportFlow(
+        c.req.param("id"),
+        {
+          project: c.req.query("project"),
+          state: c.req.query("state"),
+          variant: c.req.query("variant"),
+        },
+        flowCtx(c),
+      ),
+    );
+  });
+
+  app.post("/api/mocks/:id/revise", async (c) => {
+    const body = (await jsonBody(c)) ?? {};
+    const mock = await resolveMock(c.req.param("id"), body.project, body.session);
+    if (isResult(mock)) return send(c, mock);
+    return send(c, await publishFlow({ ...body, mock: mock.id }, flowCtx(c), true));
+  });
+
+  app.delete("/api/mocks/:id", async (c) =>
+    send(c, await removeMockFlow(c.req.param("id"), { project: c.req.query("project") })),
+  );
+
+  app.post("/api/mocks/:id/asks", async (c) =>
+    send(c, await askFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+
+  app.get("/api/mocks/:id/draft", async (c) =>
+    send(c, await getDraftFlow(c.req.param("id"), flowCtx(c))),
+  );
+  app.put("/api/mocks/:id/draft", async (c) =>
+    send(c, await putDraftFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+  app.delete("/api/mocks/:id/draft", async (c) =>
+    send(c, await deleteDraftFlow(c.req.param("id"), flowCtx(c))),
+  );
+
+  app.post("/api/mocks/:id/reply", async (c) =>
+    send(c, await replyFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+
+  app.post("/api/mocks/:id/restore", async (c) =>
+    send(c, await restoreFlow(c.req.param("id"), await jsonBody(c))),
+  );
+
+  app.post("/api/mocks/:id/surfaces", async (c) =>
+    send(c, await appendSurfaceFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+  app.patch("/api/mocks/:id/surfaces", async (c) =>
+    send(c, await reorderSurfacesFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+  app.patch("/api/mocks/:id/surfaces/:target", async (c) =>
+    send(
+      c,
+      await replaceSurfaceFlow(
+        c.req.param("id"),
+        c.req.param("target"),
+        await jsonBody(c),
+        flowCtx(c),
+      ),
+    ),
+  );
+  app.delete("/api/mocks/:id/surfaces/:target", async (c) =>
+    send(
+      c,
+      await removeSurfaceFlow(
+        c.req.param("id"),
+        c.req.param("target"),
+        {
+          state: c.req.query("state"),
+          variant: c.req.query("variant"),
+          project: c.req.query("project"),
+          session: c.req.query("session"),
+        },
+        flowCtx(c),
+      ),
+    ),
+  );
+
+  // --- comments ---
+
+  app.post("/api/comments", async (c) => send(c, await commentFlow(await jsonBody(c), flowCtx(c))));
+
+  app.delete("/api/comments/:id", async (c) => {
+    const comment = await store.removeComment(c.req.param("id"));
+    if (!comment) return c.json({ error: "comment not found" }, 404);
+    bus.broadcast({ type: "comment-deleted", id: comment.id, sessionId: comment.sessionId });
+    return c.json({ ok: true });
+  });
+
+  // The viewer's update notice: running version vs latest published release.
+  app.get("/api/version", async (c) => {
+    if (!version) return c.json({ current: null, latest: null, updateAvailable: false });
+    const latest = await latestRelease();
+    const updateAvailable = latest !== null && versionGt(latest.version, version);
+    return c.json({
+      current: version,
+      latest: latest?.version ?? null,
+      updateAvailable,
+      upgradeCommand: updateAvailable ? (upgradeCommand ?? null) : null,
+      notes: updateAvailable ? (latest?.notes ?? null) : null,
+    });
+  });
+
+  // Long-poll friendly: ?wait=N holds the request open up to N seconds until
+  // a matching comment arrives. This is how terminal agents block on feedback.
+  // A wait counts against the connection cap (it pins a socket just like SSE);
+  // an instant ?wait=0 read does not.
+  app.get("/api/comments", async (c) => {
+    const sessionId = c.req.query("session");
+    const mockId = c.req.query("mock");
+    const postId = c.req.query("post");
+    if (isUnauthenticatedSessionRead(c)) {
+      if (!sessionId && !mockId && !postId) {
+        return c.json({ error: "session, mock or post required" }, 401);
+      }
+      if (sessionId && !(await store.getSession(sessionId))) {
+        return c.json({ error: "session not found" }, 404);
+      }
+      if (mockId && !(await store.getMock(mockId))) return c.json({ error: "mock not found" }, 404);
+      if (postId && !(await store.getPost(postId))) return c.json({ error: "post not found" }, 404);
+    }
+    const waitSeconds = Number(c.req.query("wait") ?? 0) || 0;
+    const author = c.req.query("author");
+    const after = c.req.query("after");
+    const query: CommentWait = {
+      sessionId,
+      mockId,
+      postId,
+      author,
+      afterSeq: after ? Number(after) : undefined,
+      waitSeconds,
+    };
+    // An `author=user` read (or any wait) is the agent listening; anything else
+    // is the viewer reading a thread, which gets per-comment delivery state.
+    const isAgentRead = author === "user" || waitSeconds > 0;
+    const respond = async (signal?: AbortSignal) => {
+      if (isAgentRead) return send(c, await feedbackFlow(query, signal));
+      const result = await waitForComments(query, signal);
+      return c.json({ ...result, comments: await withSeen(result.comments) });
+    };
+    if (waitSeconds <= 0) return respond();
+    if (!acquireHold()) return c.json({ error: "too many concurrent connections" }, 503);
+    const release = makeRelease();
+    // If the client disconnects mid-wait, release the slot promptly.
+    c.req.raw.signal.addEventListener("abort", release, { once: true });
+    try {
+      return await respond(c.req.raw.signal);
+    } finally {
+      release();
+    }
+  });
+
   // Content-hashed bridge/token assets the surface documents reference, so
   // every surface doesn't re-inline the same ~11 KB. Without this route the
   // in-frame bridge never loads and iframes never report their height.
@@ -1404,946 +2473,6 @@ export function createApp({
     return c.json({ id });
   });
 
-  // --- sessions ---
-
-  app.get("/api/sessions", async (c) => {
-    const countsPromise = store.countPostsBySession
-      ? store.countPostsBySession()
-      : store.listPosts().then((posts) => {
-          const counts = new Map<string, number>();
-          for (const post of posts) {
-            counts.set(post.sessionId, (counts.get(post.sessionId) ?? 0) + 1);
-          }
-          return counts;
-        });
-    const [sessions, counts] = await Promise.all([store.listSessions(), countsPromise]);
-    return c.json(sessions.map((s) => sessionRowView(s, counts.get(s.id) ?? 0)));
-  });
-
-  // --- recent posts (post-grained feed source) ---
-  //
-  // The N most-recently-updated posts across ALL sessions, newest first — one
-  // row per post (post-grained), distinct from the session-grained GET
-  // /api/sessions. This is the source a cross-session "latest posts" feed needs
-  // (Org Home, a per-workspace Home): each item carries its session id/title +
-  // agent for the feed card, canonical surfaces, legacy partKinds, and capped
-  // previews.
-  //
-  // Full previews are bounded by recentPostRowView (large inline text clipped
-  // with truncated:true); `?preview=home` returns only one compact preview per
-  // post for the self-hosted Home. Same auth as /api/sessions — see
-  // isPublicReadAllowed, which intentionally does NOT expose this path on a
-  // session-scoped publicRead workspace.
-  // `legacy` is set only by the /api/surfaces/recent registration below, which
-  // must stay byte-identical; the canonical route drops the duplicate
-  // `parts`/`partKinds` aliases of `surfaces`.
-  const listRecentPosts =
-    (legacy = false) =>
-    async (c: any) => {
-      const limit = parseRecentLimit(c.req.query("limit"));
-      const homePreview = c.req.query("preview") === "home";
-      const posts = await store.listRecentPosts(limit);
-      // Resolve each post's session once (agent + session title for the feed card).
-      const sessions = new Map<string, Session | null>();
-      for (const p of posts) {
-        if (!sessions.has(p.sessionId))
-          sessions.set(p.sessionId, await store.getSession(p.sessionId));
-      }
-      return c.json(
-        posts.map((p) => recentPostRowView(p, sessions.get(p.sessionId), { homePreview, legacy })),
-      );
-    };
-  app.get("/api/surfaces/recent", listRecentPosts(true)); // legacy alias
-  app.get("/api/posts/recent", listRecentPosts());
-
-  app.post("/api/sessions", async (c) => {
-    const body = await c.req.json().catch(() => ({}));
-    const cwd = typeof body.cwd === "string" ? body.cwd : undefined;
-    const session = await store.createSession({
-      agent: typeof body.agent === "string" ? body.agent : "agent",
-      title: typeof body.title === "string" ? body.title.slice(0, MAX_TITLE) : undefined,
-      cwd,
-      // Explicit project, else the cwd's basename, else the single-workspace
-      // fallback — resolved once here so every post this session publishes
-      // lands in the same project.
-      project: resolveProject(
-        typeof body.project === "string" ? body.project.slice(0, MAX_TITLE) : undefined,
-        cwd,
-      ),
-    });
-    bus.broadcast({ type: "session-created", id: session.id });
-    return c.json(session, 201);
-  });
-
-  app.patch("/api/sessions/:id", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    if (!body || typeof body.title !== "string") {
-      return c.json({ error: 'body must include "title" string' }, 400);
-    }
-    const session = await store.renameSession(c.req.param("id"), body.title.slice(0, MAX_TITLE));
-    if (!session) return c.json({ error: "session not found" }, 404);
-    bus.broadcast({ type: "session-updated", id: session.id });
-    return c.json(session);
-  });
-
-  app.delete("/api/sessions/:id", async (c) => {
-    const id = c.req.param("id");
-    if (!(await store.removeSession(id))) return c.json({ error: "session not found" }, 404);
-    bus.broadcast({ type: "session-deleted", id });
-    return c.json({ ok: true });
-  });
-
-  // `legacy` keeps the duplicate `parts` alias on the two retired spellings,
-  // which stay byte-identical; the canonical route drops it.
-  const listSessionPosts =
-    (legacy = false) =>
-    async (c: any) => {
-      const session = await store.getSession(c.req.param("id"));
-      if (!session) return c.json({ error: "session not found" }, 404);
-      const posts = await store.listPosts(session.id);
-      return c.json(
-        c.req.query("hydrate") === "1"
-          ? posts.map(sessionPostHydratedView)
-          : posts.map((p) => sessionPostListRowView(p, legacy)),
-      );
-    };
-  app.get("/api/sessions/:id/surfaces", listSessionPosts(true)); // legacy alias
-  app.get("/api/sessions/:id/posts", listSessionPosts());
-  app.get("/api/sessions/:id/snippets", listSessionPosts(true)); // legacy alias
-
-  // --- session trace ---
-
-  app.get("/api/sessions/:id/trace", async (c) => {
-    const session = await store.getSession(c.req.param("id"));
-    if (!session) return c.json({ error: "session not found" }, 404);
-    return c.json({ steps: await store.listTrace(session.id) });
-  });
-
-  // Ingest a batch of trace steps (the sync sends a windowed slice, or the tail
-  // since a cursor). `reset: true` replaces the list, for a full re-sync. Steps
-  // are sanitized and the per-session list is capped.
-  app.post("/api/sessions/:id/trace", async (c) => {
-    const session = await store.getSession(c.req.param("id"));
-    if (!session) return c.json({ error: "session not found" }, 404);
-    const body = await c.req.json().catch(() => null);
-    if (!body || !Array.isArray(body.steps)) {
-      return c.json({ error: 'body must include "steps" array' }, 400);
-    }
-    const clean: TraceStep[] = [];
-    for (const s of body.steps) {
-      if (!s || typeof s.label !== "string") continue;
-      clean.push({
-        label: s.label.slice(0, MAX_STEP_LABEL),
-        ...(typeof s.kind === "string" && { kind: s.kind.slice(0, 40) }),
-        ...(typeof s.detail === "string" && { detail: s.detail.slice(0, MAX_STEP_DETAIL) }),
-        ...(typeof s.ts === "string" && { ts: s.ts }),
-      });
-    }
-    const prior = body.reset === true ? [] : await store.listTrace(session.id);
-    const merged = prior.concat(clean);
-    // roll the list so a long session keeps only its most recent steps
-    const bounded = merged.length > MAX_TRACE_STEPS ? merged.slice(-MAX_TRACE_STEPS) : merged;
-    await store.setTrace(session.id, bounded);
-    bus.broadcast({ type: "trace-updated", sessionId: session.id, count: bounded.length });
-    return c.json({ ok: true, added: clean.length, count: bounded.length });
-  });
-
-  // --- posts ---
-
-  // History METADATA only by default (version, title, at, from, prompt, author,
-  // surface kinds/count — no bodies): the full shape was ~27k tokens for a
-  // 20-version post, on the read agents make most often. `?history=full` opts
-  // back in, and the legacy aliases below pass it unconditionally so their
-  // responses stay byte-identical.
-  const getPost =
-    (legacy = false) =>
-    async (c: any) => {
-      const post = await store.getPost(c.req.param("id"));
-      if (!post) return c.json({ error: "post not found" }, 404);
-      const history = legacy || c.req.query("history") === "full" ? "full" : "meta";
-      return c.json(postDetailView(post, { history }));
-    };
-  // Viewer-only projection for live create/update refetches. Keep this a
-  // canonical post subresource: the legacy detail aliases remain byte-for-byte
-  // on the full postDetailView contract above.
-  app.get("/api/posts/:id/viewer", async (c) => {
-    const post = await store.getPost(c.req.param("id"));
-    if (!post) return c.json({ error: "post not found" }, 404);
-    return c.json({ ...viewerPostView(post), ...itemFields(post) });
-  });
-  // The post flattened to portable markdown — what the viewer's share menu
-  // copies, and the same text on the CLI/HTTP tiers. Another canonical post
-  // subresource, like /viewer above. It has to be served rather than derived in
-  // the viewer: the hydrated post the viewer holds omits sandboxed surface
-  // bodies (see apiViews.ts), so only the server can see the whole post.
-  app.get("/api/posts/:id/markdown", async (c) => {
-    const post = await store.getPost(c.req.param("id"));
-    if (!post) return c.json({ error: "post not found" }, 404);
-    const origin = new URL(c.req.url).origin;
-    const base = `${origin}${requestBasePath(c.req.raw)}`;
-    const markdown = postToMarkdown(post, { postUrl: `${base}/p/${post.id}`, assetBase: base });
-    return c.text(markdown, 200, { "content-type": "text/markdown; charset=utf-8" });
-  });
-  app.get("/api/surfaces/:id", getPost(true)); // legacy alias
-  app.get("/api/posts/:id", getPost());
-  app.get("/api/snippets/:id", getPost(true)); // legacy alias
-
-  // Accepts either an existing session id, or agent/cwd fields to
-  // auto-create a session — so a bare `curl` one-liner works with no ceremony.
-  // New clients send `surfaces`; legacy clients send `parts`. Either works.
-  const publishPost = async (c: any) => {
-    const body = await c.req.json().catch(() => null);
-    const blocks = body?.surfaces ?? body?.parts;
-    if (!body || !Array.isArray(blocks)) {
-      return c.json({ error: 'body must include a "surfaces" (or legacy "parts") array' }, 400);
-    }
-    const parsed = await validateSurfaces(blocks);
-    if (!parsed.ok) return c.json(surfaceValidationErrorBody(parsed), 400);
-    return publish(c, body, parsed.surfaces);
-  };
-  app.post("/api/posts", publishPost); // canonical
-  app.post("/api/surfaces", publishPost);
-
-  // Legacy html-only entry — sugar for a single html surface. An optional `kits`
-  // array opts the surface into style/behavior bundles; it's validated (strict)
-  // like any html surface so an unknown kit id is a clean 400.
-  app.post("/api/snippets", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    if (!body || typeof body.html !== "string" || !body.html.trim()) {
-      return c.json({ error: 'body must include non-empty "html" string' }, 400);
-    }
-    const parsed = await validateSurfaces([htmlSurface(body.html, body.kits)]);
-    if (!parsed.ok) return c.json(surfaceValidationErrorBody(parsed), 400);
-    return publish(c, body, parsed.surfaces);
-  });
-
-  // The built-in welcome/test post (server/welcomePost.ts): the same fixed card
-  // the MCP send_test_post tool publishes, reachable from the CLI and raw-HTTP
-  // tiers (`mockpit test-post`, `curl -X POST .../api/test-post`). The body is
-  // optional (`{agent?}` labels a newly created session). Idempotent — if the
-  // card is already on the board it is returned (200 + alreadySent) rather than
-  // duplicated; a fresh publish is a 201 like any other post.
-  app.post("/api/test-post", async (c) => {
-    const existing = await findWelcomePost(store);
-    if (existing) {
-      return c.json({ ...postWriteView(existing), alreadySent: true });
-    }
-    const body = await c.req.json().catch(() => null);
-    const result = await publishPostFlow({
-      surfaces: welcomeSurfaces(),
-      title: WELCOME_POST_TITLE,
-      sessionTitle: WELCOME_SESSION_TITLE,
-      agent: typeof body?.agent === "string" ? body.agent : undefined,
-    });
-    if ("error" in result) return c.json({ error: result.error }, result.status);
-    return c.json(
-      {
-        ...postWriteView(result.post),
-        ...itemFields(result.post),
-        ...(result.userFeedback && { userFeedback: result.userFeedback }),
-      },
-      201,
-    );
-  });
-
-  async function publish(c: any, body: any, surfaces: Surface[]) {
-    const version = Number(body.from);
-    const result = await publishPostFlow({
-      surfaces,
-      title: typeof body.title === "string" ? body.title : undefined,
-      session: typeof body.session === "string" ? body.session : undefined,
-      sessionTitle: typeof body.sessionTitle === "string" ? body.sessionTitle : undefined,
-      agent: typeof body.agent === "string" ? body.agent : undefined,
-      cwd: typeof body.cwd === "string" ? body.cwd : undefined,
-      project: typeof body.project === "string" ? body.project.slice(0, MAX_TITLE) : undefined,
-      slug: typeof body.slug === "string" ? body.slug.slice(0, MAX_TITLE) : undefined,
-      kind: body.kind === "page" ? "page" : body.kind === "component" ? "component" : undefined,
-      variant: typeof body.variant === "string" ? body.variant.slice(0, MAX_TITLE) : undefined,
-      from: Number.isInteger(version) && version > 0 ? version : undefined,
-      prompt: typeof body.prompt === "string" ? body.prompt.slice(0, MAX_COMMENT_TEXT) : undefined,
-      slots: sanitizeSlots(body.slots),
-      author: typeof body.author === "string" ? body.author.slice(0, MAX_TITLE) : undefined,
-      request: c.req.raw,
-    });
-    if ("error" in result) return c.json({ error: result.error }, result.status);
-    return c.json(
-      {
-        ...postWriteView(result.post),
-        ...itemFields(result.post),
-        ...(result.userFeedback && { userFeedback: result.userFeedback }),
-      },
-      201,
-    );
-  }
-
-  function sanitizeSlots(raw: unknown): Slot[] | undefined {
-    if (!Array.isArray(raw)) return undefined;
-    const slots: Slot[] = [];
-    for (const entry of raw.slice(0, 50)) {
-      if (!entry || typeof entry !== "object") continue;
-      const s = entry as Record<string, unknown>;
-      if (typeof s.slug !== "string" || !s.slug) continue;
-      const version = Number(s.version);
-      slots.push({
-        slug: slugify(s.slug),
-        variant: typeof s.variant === "string" && s.variant ? s.variant : DEFAULT_VARIANT,
-        version: Number.isInteger(version) && version > 0 ? version : 1,
-      });
-    }
-    return slots;
-  }
-
-  const revise = async (c: any) => {
-    const body = await c.req.json().catch(() => null);
-    if (!body) return c.json({ error: "invalid JSON body" }, 400);
-    // posts: a `surfaces` array (legacy `parts`); snippets: an `html` string.
-    // Presence — not nullishness — gates validation, so an explicit
-    // `surfaces: null` is a 400 (like POST) rather than a silent title-only update.
-    const hasBlocks = body.surfaces !== undefined || body.parts !== undefined;
-    const blocks = body.surfaces ?? body.parts;
-    let surfaces: Surface[] | undefined;
-    if (hasBlocks) {
-      if (!Array.isArray(blocks)) {
-        return c.json({ error: '"surfaces" (or legacy "parts") must be an array' }, 400);
-      }
-      const parsed = await validateSurfaces(blocks);
-      if (!parsed.ok) return c.json(surfaceValidationErrorBody(parsed), 400);
-      surfaces = parsed.surfaces;
-    } else if (typeof body.html === "string") {
-      const parsed = await validateSurfaces([htmlSurface(body.html, body.kits)]);
-      if (!parsed.ok) return c.json(surfaceValidationErrorBody(parsed), 400);
-      surfaces = parsed.surfaces;
-    }
-    const from = Number(body.from);
-    const result = await revisePost(c.req.param("id"), {
-      surfaces,
-      title: typeof body.title === "string" ? body.title : undefined,
-      from: Number.isInteger(from) && from > 0 ? from : undefined,
-      prompt: typeof body.prompt === "string" ? body.prompt.slice(0, MAX_COMMENT_TEXT) : undefined,
-      author: typeof body.author === "string" ? body.author.slice(0, MAX_TITLE) : undefined,
-      slots: sanitizeSlots(body.slots),
-    });
-    if ("error" in result) return c.json({ error: result.error }, result.status);
-    return c.json({
-      ...postWriteView(result.post),
-      ...itemFields(result.post),
-      ...(result.userFeedback && { userFeedback: result.userFeedback }),
-    });
-  };
-  app.put("/api/surfaces/:id", revise);
-  app.put("/api/posts/:id", revise); // canonical alias
-  app.put("/api/snippets/:id", revise); // legacy alias
-
-  // Content-only update: accepts raw content and slots it into the existing
-  // surface's kind, preserving extra fields (language, cols, layout, etc.).
-  // The optional `surface` field (surface id or 0-based index) targets a
-  // specific surface in a multi-surface post; without it, the post must have
-  // a single surface (back-compat with the original behavior).
-  app.patch("/api/posts/:id", async (c: any) => {
-    const body = await c.req.json().catch(() => null);
-    if (!body) return c.json({ error: "invalid JSON body" }, 400);
-    const { content, title, kits, surface } = body;
-    if (content === undefined && title === undefined) {
-      return c.json({ error: "provide content and/or title" }, 400);
-    }
-    const existing = await store.getPost(c.req.param("id"));
-    if (!existing) return c.json({ error: "post not found" }, 404);
-    let surfaces: Surface[] | undefined;
-    if (content !== undefined) {
-      if (typeof content !== "string") {
-        return c.json({ error: '"content" must be a string' }, 400);
-      }
-      const targetIdx =
-        surface !== undefined
-          ? findSurfaceIndex(existing.surfaces, String(surface))
-          : existing.surfaces.length === 1
-            ? 0
-            : -1;
-      if (targetIdx < 0) {
-        if (surface !== undefined) {
-          return c.json({ error: `surface "${surface}" not found` }, 404);
-        }
-        return c.json(
-          {
-            error:
-              'content update requires a "surface" target (id or index) for multi-surface posts',
-          },
-          400,
-        );
-      }
-      const updated = applyContent(existing.surfaces[targetIdx], content, kits);
-      if (!updated) {
-        return c.json(
-          {
-            error: `content update not supported for ${existing.surfaces[targetIdx].kind} surfaces`,
-          },
-          400,
-        );
-      }
-      const parsed = await validateSurfaces([updated]);
-      if (!parsed.ok) return c.json(surfaceValidationErrorBody(parsed), 400);
-      surfaces = [...existing.surfaces];
-      surfaces[targetIdx] = { ...parsed.surfaces[0], id: existing.surfaces[targetIdx].id };
-    }
-    const result = await revisePost(c.req.param("id"), {
-      surfaces,
-      title: typeof title === "string" ? title : undefined,
-    });
-    if ("error" in result) return c.json({ error: result.error }, result.status);
-    return c.json({
-      ...postWriteView(result.post),
-      ...itemFields(result.post),
-      ...(result.userFeedback && { userFeedback: result.userFeedback }),
-    });
-  });
-
-  // --- per-surface sub-resource routes ---
-
-  // Append a surface to an existing post. Optional `before`/`after` (surface
-  // id or index) controls insert position; default is append at the end.
-  app.post("/api/posts/:id/surfaces", async (c: any) => {
-    const body = await c.req.json().catch(() => null);
-    if (!body || !body.surface) {
-      return c.json({ error: 'body must include a "surface" object' }, 400);
-    }
-    const parsed = await validateSurfaces([body.surface]);
-    if (!parsed.ok) return c.json(surfaceValidationErrorBody(parsed), 400);
-    const result = await appendPostSurface(c.req.param("id"), parsed.surfaces[0], {
-      before: body.before,
-      after: body.after,
-    });
-    if ("error" in result) return c.json({ error: result.error }, result.status);
-    return c.json({
-      ...postWriteView(result.post),
-      ...itemFields(result.post),
-      ...(result.userFeedback && { userFeedback: result.userFeedback }),
-    });
-  });
-
-  // Replace or content-edit a single surface. `:target` is a surface id or
-  // 0-based index. Body: `{surface}` for full replacement, or `{content}` for
-  // content-only (preserves kind + extra fields).
-  app.patch("/api/posts/:id/surfaces/:target", async (c: any) => {
-    const body = await c.req.json().catch(() => null);
-    if (!body || (body.surface === undefined && body.content === undefined)) {
-      return c.json({ error: 'body must include "surface" or "content"' }, 400);
-    }
-    let surface: Surface | undefined;
-    if (body.surface !== undefined) {
-      const parsed = await validateSurfaces([body.surface]);
-      if (!parsed.ok) return c.json(surfaceValidationErrorBody(parsed), 400);
-      surface = parsed.surfaces[0];
-    }
-    const result = await replacePostSurface(c.req.param("id"), c.req.param("target"), {
-      surface,
-      content: body.content,
-      kits: body.kits,
-    });
-    if ("error" in result) return c.json({ error: result.error }, result.status);
-    return c.json({
-      ...postWriteView(result.post),
-      ...itemFields(result.post),
-      ...(result.userFeedback && { userFeedback: result.userFeedback }),
-    });
-  });
-
-  // Remove a single surface. `:target` is a surface id or 0-based index.
-  // Rejects with 400 if it's the last surface (posts need ≥1).
-  app.delete("/api/posts/:id/surfaces/:target", async (c: any) => {
-    const result = await removePostSurface(c.req.param("id"), c.req.param("target"));
-    if ("error" in result) return c.json({ error: result.error }, result.status);
-    return c.json({
-      ...postWriteView(result.post),
-      ...itemFields(result.post),
-      ...(result.userFeedback && { userFeedback: result.userFeedback }),
-    });
-  });
-
-  // Reorder surfaces. Body: `{order: [id, ...]}` or `{order: [0, 2, 1]}`.
-  app.patch("/api/posts/:id/surfaces", async (c: any) => {
-    const body = await c.req.json().catch(() => null);
-    if (!body || !Array.isArray(body.order)) {
-      return c.json({ error: 'body must include an "order" array' }, 400);
-    }
-    const result = await reorderPostSurfaces(c.req.param("id"), body.order);
-    if ("error" in result) return c.json({ error: result.error }, result.status);
-    return c.json({
-      ...postWriteView(result.post),
-      ...itemFields(result.post),
-      ...(result.userFeedback && { userFeedback: result.userFeedback }),
-    });
-  });
-
-  const remove = async (c: any) => {
-    const post = await store.getPost(c.req.param("id"));
-    if (!post) return c.json({ error: "post not found" }, 404);
-    await store.removePost(post.id);
-    bus.broadcast({ type: "post-deleted", id: post.id, sessionId: post.sessionId });
-    return c.json({ ok: true });
-  };
-  app.delete("/api/surfaces/:id", remove);
-  app.delete("/api/posts/:id", remove); // canonical alias
-  app.delete("/api/snippets/:id", remove); // legacy alias
-
-  // --- comments ---
-
-  app.post("/api/comments", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    if (!body || typeof body.text !== "string" || !body.text.trim()) {
-      return c.json({ error: 'body must include non-empty "text" string' }, 400);
-    }
-    const surface = typeof body.surface === "string" ? body.surface : body.snippet;
-    // The browser sets Fetch Metadata on same-origin requests. Only the trusted
-    // viewer may declare the two non-agent labels; CLI, MCP, and raw HTTP calls
-    // instead derive their author from the session and cannot mint "user".
-    // Sandboxed surfaces have opaque origins, so their postMessage bridge is
-    // stamped "surface" by the trusted viewer rather than by contained code.
-    const isViewerOrigin = c.req.header("sec-fetch-site") === "same-origin";
-    const author =
-      isViewerOrigin && (body.author === "user" || body.author === "surface")
-        ? body.author
-        : undefined;
-    const kind: CommentKind | undefined =
-      typeof body.kind === "string" &&
-      ["comment", "revise", "accept", "drop", "ask", "reply"].includes(body.kind)
-        ? (body.kind as CommentKind)
-        : undefined;
-    const result = await createComment({
-      text: body.text,
-      surface: typeof surface === "string" ? surface : undefined,
-      author,
-      anchor: body.anchor,
-      kind,
-      anchors: body.anchors,
-      // Same trust rule as `author`: only the viewer origin may hold a comment
-      // back as a draft, so no agent channel can hide feedback from itself.
-      draft: isViewerOrigin && body.draft === true,
-      postVersion: body.postVersion,
-      viewport: body.viewport,
-    });
-    if ("error" in result) return c.json({ error: result.error }, result.status);
-    return c.json(
-      { ...result.comment, ...(result.userFeedback && { userFeedback: result.userFeedback }) },
-      201,
-    );
-  });
-
-  app.delete("/api/comments/:id", async (c) => {
-    const comment = await store.removeComment(c.req.param("id"));
-    if (!comment) return c.json({ error: "comment not found" }, 404);
-    bus.broadcast({ type: "comment-deleted", id: comment.id, sessionId: comment.sessionId });
-    return c.json({ ok: true });
-  });
-
-  // The viewer's update notice: running version vs latest published release.
-  app.get("/api/version", async (c) => {
-    if (!version) return c.json({ current: null, latest: null, updateAvailable: false });
-    const latest = await latestRelease();
-    const updateAvailable = latest !== null && versionGt(latest.version, version);
-    return c.json({
-      current: version,
-      latest: latest?.version ?? null,
-      updateAvailable,
-      upgradeCommand: updateAvailable ? (upgradeCommand ?? null) : null,
-      notes: updateAvailable ? (latest?.notes ?? null) : null,
-    });
-  });
-
-  // Long-poll friendly: ?wait=N holds the request open up to N seconds until
-  // a matching comment arrives. This is how terminal agents block on feedback.
-  // A wait counts against the connection cap (it pins a socket just like SSE);
-  // an instant ?wait=0 read does not.
-  app.get("/api/comments", async (c) => {
-    const sessionId = c.req.query("session");
-    const surfaceId = c.req.query("surface") ?? c.req.query("snippet");
-    if (isUnauthenticatedSessionRead(c)) {
-      if (!sessionId && !surfaceId) return c.json({ error: "session or surface required" }, 401);
-      if (sessionId && !(await store.getSession(sessionId))) {
-        return c.json({ error: "session not found" }, 404);
-      }
-      if (surfaceId) {
-        const post = await store.getPost(surfaceId);
-        if (!post || (sessionId && post.sessionId !== sessionId)) {
-          return c.json({ error: "post not found" }, 404);
-        }
-      }
-    }
-    const waitSeconds = Number(c.req.query("wait") ?? 0) || 0;
-    const author = c.req.query("author");
-    // An `author=user` read (or any wait) is the agent listening. Everything
-    // else is the viewer reading a card's thread: it gets the drafts and the
-    // per-comment delivery state, and it is NOT batched.
-    const isAgentRead = author === "user" || waitSeconds > 0;
-    const query = {
-      sessionId,
-      surfaceId,
-      author,
-      afterSeq: c.req.query("after") ? Number(c.req.query("after")) : undefined,
-      waitSeconds,
-      includeDrafts: !isAgentRead,
-    };
-    const respond = async (result: { comments: Comment[]; lastSeq: number }) => {
-      if (isAgentRead) {
-        const feedback = await batchFeedback(result.comments);
-        // Legacy fields stay byte-identical; the batch rides alongside under
-        // both the wait-side and write-side names.
-        return c.json({ ...result, feedback, userFeedback: feedback });
-      }
-      return c.json({ ...result, comments: await withSeen(result.comments) });
-    };
-    if (waitSeconds > 0) {
-      if (!acquireHold()) return c.json({ error: "too many concurrent connections" }, 503);
-      const release = makeRelease();
-      // If the client disconnects mid-wait, release the slot promptly.
-      c.req.raw.signal.addEventListener("abort", release, { once: true });
-      try {
-        return await respond(await waitForComments(query, c.req.raw.signal));
-      } finally {
-        release();
-      }
-    }
-    return respond(await waitForComments(query));
-  });
-
-  // Inline each `<mockpit-slot>` with the referenced variant version's first
-  // html surface body. The stored `slots` list (resolved at publish) wins over
-  // a bare tag, so a page keeps rendering the versions it was composed from.
-  async function expandPageHtml(post: Post, html: string): Promise<string> {
-    const pinned = new Map(post.slots.map((s) => [`${s.slug}::${s.variant}`, s.version]));
-    const bodies = new Map<string, string | null>();
-    for (const tag of parseSlotTags(html)) {
-      const key = `${tag.slug}::${tag.variant}`;
-      const version = tag.version ?? pinned.get(key) ?? null;
-      const cacheKey = `${key}::${version}`;
-      if (bodies.has(cacheKey)) continue;
-      const variant = await store.findVariant(post.project, tag.slug, tag.variant);
-      if (!variant) {
-        bodies.set(cacheKey, null);
-        continue;
-      }
-      const surfaces =
-        version == null || version === variant.version
-          ? variant.surfaces
-          : (variant.history.find((h) => h.version === version)?.surfaces ?? null);
-      const body = surfaces?.find((s) => s.kind === "html");
-      bodies.set(cacheKey, body && body.kind === "html" ? body.html : null);
-    }
-    return expandSlots(html, ({ slug, variant, version }) => {
-      const key = `${slug}::${variant}`;
-      const pinnedVersion = version ?? pinned.get(key) ?? null;
-      return bodies.get(`${key}::${pinnedVersion}`) ?? null;
-    });
-  }
-
-  // --- demo workspace (reshape) ---
-  //
-  // Seeds one realistic project so the item screen, variant tabs, version rail,
-  // slots, drafts and the waiting state all have something to render. Idempotent:
-  // a second call returns the existing project rather than duplicating it.
-
-  const DEMO_PROJECT = "acme/site";
-
-  const demoCard = (name: string, price: string, sub: string, hi: boolean, feats: string[]) =>
-    `<div class="tier${hi ? " hi" : ""}"><h4>${name}</h4><div class="price">${price}<span class="per">/mo</span></div><p class="sub">${sub}</p><ul>${feats
-      .map((f) => `<li>${f}</li>`)
-      .join("")}</ul><button class="btn${hi ? " primary" : ""}">Choose ${name}</button></div>`;
-
-  const DEMO_CSS = `<style>
-    :root{color-scheme:light dark}
-    body{margin:0;padding:24px;font:14px/1.55 ui-sans-serif,system-ui,sans-serif;color:var(--color-text,#111);background:var(--color-surface,#fff)}
-    h1,h4{margin:0}
-    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-    .tier{border:1px solid var(--color-border,#e4e4e7);border-radius:12px;padding:16px;display:flex;flex-direction:column}
-    .tier.hi{border-color:var(--color-info-border,#2563eb);box-shadow:0 0 0 1px var(--color-info-border,#2563eb)}
-    .price{font-size:26px;font-weight:650;margin:8px 0 2px}
-    .per{font-size:12px;font-weight:400;color:var(--color-muted,#71717a)}
-    .sub{color:var(--color-muted,#71717a);font-size:12px;margin:0 0 10px}
-    ul{margin:0 0 14px;padding-left:16px;color:var(--color-muted,#71717a);font-size:12px;line-height:1.7}
-    .btn{margin-top:auto;padding:8px 12px;border-radius:8px;border:1px solid var(--color-border,#e4e4e7);background:transparent;color:inherit;font:inherit;cursor:pointer}
-    .btn.primary{background:var(--color-info-bg,#2563eb);border-color:transparent;color:var(--color-info-text,#fff)}
-    .toggle{display:inline-flex;gap:6px;align-items:center;margin-bottom:12px;color:var(--color-muted,#71717a);font-size:12px}
-    .row{display:flex;align-items:center;gap:14px;border:1px solid var(--color-border,#e4e4e7);border-radius:10px;padding:12px 14px;margin-bottom:8px}
-    .row b{display:block}
-    .eyebrow{font-size:11px;color:var(--color-info-text,#2563eb);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px}
-    details{border-bottom:1px solid var(--color-border,#e4e4e7);padding:10px 0}
-    summary{cursor:pointer;font-weight:600}
-  </style>`;
-
-  const demoToggle = `<label class="toggle"><input type="checkbox"> Annual (&minus;20%)</label>`;
-
-  const demoGrid = (toggle: boolean) =>
-    `${DEMO_CSS}${toggle ? demoToggle : ""}<div class="grid">${demoCard("Starter", "$0", "For trying things out", false, ["Unlimited posts", "5 agents", "Email support"])}${demoCard("Pro", "$12", "For daily use", true, ["Unlimited posts", "Unlimited agents", "Email support"])}${demoCard("Team", "$40", "For groups", false, ["Unlimited posts", "Unlimited agents", "SSO + priority support"])}</div>`;
-
-  const demoQuiet = `${DEMO_CSS}<div class="grid">${[
-    ["Starter", "$0", "Try it"],
-    ["Pro", "$12", "Daily use"],
-    ["Team", "$40", "Groups"],
-  ]
-    .map(
-      ([n, p, sub]) =>
-        `<div class="tier"><h4 style="font-weight:500">${n}</h4><div class="price" style="font-weight:500">${p}</div><p class="sub">${sub}</p><a href="#" style="color:inherit;font-size:12px">Choose &rarr;</a></div>`,
-    )
-    .join("")}</div>`;
-
-  const demoStacked = (toggle: boolean) =>
-    `${DEMO_CSS}${toggle ? demoToggle : ""}${[
-      ["Starter", "$0", "Try it, 5 agents"],
-      ["Pro", "$12", "Daily use, unlimited agents"],
-      ["Team", "$40", "SSO, priority support"],
-    ]
-      .map(
-        ([n, p, sub]) =>
-          `<div class="row"><div style="flex:1"><b>${n}</b><span class="sub">${sub}</span></div><div style="font-size:18px;font-weight:600">${p}</div><button class="btn${n === "Pro" ? " primary" : ""}">Choose</button></div>`,
-      )
-      .join("")}`;
-
-  const demoHero = (long: boolean) =>
-    `${DEMO_CSS}<div style="max-width:560px"><div class="eyebrow">New &middot; Teams</div><h1 style="font-size:30px;line-height:1.15;margin:0 0 12px">Ship the design, not the handoff.</h1><p class="sub" style="font-size:14px">Agents publish what they built. You react from your phone.${
-      long
-        ? " Every post keeps its history, every comment reaches the agent, and nothing gets lost between the chat and the code, ever."
-        : " Nothing gets lost between the chat and the code."
-    }</p><div style="display:flex;gap:8px"><button class="btn primary">Start free</button><button class="btn">See pricing</button></div></div>`;
-
-  const demoFaq = `${DEMO_CSS}<div>${[
-    [
-      "Can I cancel any time?",
-      "Yes. Cancelling stops the next charge; the workspace stays readable.",
-    ],
-    ["Does Team include SSO?", "SAML SSO is included on Team."],
-    ["What counts as a seat?", "Anyone who can comment. Agents are free."],
-  ]
-    .map(
-      ([q, a], i) =>
-        `<details ${i ? "" : "open"}><summary>${q}</summary><p class="sub" style="margin:6px 0 0">${a}</p></details>`,
-    )
-    .join("")}</div>`;
-
-  const demoCta = (solid: boolean) =>
-    `${DEMO_CSS}<div style="display:flex;gap:10px;align-items:center"><button class="btn${solid ? " primary" : ""}">Start free</button><span class="sub">${solid ? "solid" : "ghost"} — 14px/8px, 8px radius</span></div>`;
-
-  const demoPage = `${DEMO_CSS}<main style="display:flex;flex-direction:column;gap:32px">
-    <mockpit-slot slug="hero" variant="default"></mockpit-slot>
-    <mockpit-slot slug="pricing-card" variant="highlighted"></mockpit-slot>
-    <mockpit-slot slug="faq" variant="default"></mockpit-slot>
-  </main>`;
-
-  app.post("/api/demo/reshape", async (c) => {
-    const existing = await store.listItems(DEMO_PROJECT);
-    if (existing.length > 0) {
-      return c.json({ project: DEMO_PROJECT, items: existing, alreadySent: true });
-    }
-    // Two more projects: one with a single item, one a connected session that
-    // has published nothing yet (the "waiting for the first publish" state).
-    const appSession = await store.createSession({
-      agent: "designer",
-      title: "Designer — acme/app",
-      cwd: "/Users/demo/code/app",
-      project: "acme/app",
-    });
-    const appResult = await publishPostFlow({
-      session: appSession.id,
-      project: "acme/app",
-      surfaces: [htmlSurface(demoHero(false))],
-      title: "App hero",
-      slug: "app-hero",
-      author: "designer",
-      prompt: "initial",
-    });
-    if ("error" in appResult) throw new Error(appResult.error);
-    await store.createSession({
-      agent: "designer",
-      title: "Designer — loom",
-      cwd: "/Users/demo/code/loom",
-      project: "loom",
-    });
-
-    const session = await store.createSession({
-      agent: "designer",
-      title: "Designer — acme/site",
-      cwd: "/Users/demo/code/site",
-      project: DEMO_PROJECT,
-    });
-    bus.broadcast({ type: "session-created", id: session.id });
-
-    const publish = async (input: {
-      slug: string;
-      title: string;
-      variant?: string;
-      kind?: ItemKind;
-      html: string;
-      prompt?: string;
-      from?: number;
-    }) => {
-      const result = await publishPostFlow({
-        session: session.id,
-        project: DEMO_PROJECT,
-        surfaces: [htmlSurface(input.html)],
-        title: input.title,
-        slug: input.slug,
-        variant: input.variant,
-        kind: input.kind,
-        prompt: input.prompt,
-        from: input.from,
-        author: "designer",
-      });
-      if ("error" in result) throw new Error(result.error);
-      return result.post;
-    };
-
-    await publish({
-      slug: "pricing-card",
-      title: "Pricing card",
-      variant: "quiet",
-      html: demoQuiet,
-      prompt: "initial exploration",
-    });
-    await publish({
-      slug: "pricing-card",
-      title: "Pricing card",
-      variant: "stacked",
-      html: demoStacked(false),
-      prompt: "initial exploration",
-    });
-    // The highlighted variant carries the real history: v2 added the toggle,
-    // v3 branched back from v1 keeping it.
-    await publish({
-      slug: "pricing-card",
-      title: "Pricing card",
-      variant: "highlighted",
-      html: demoGrid(false),
-      prompt: "initial exploration",
-    });
-    await publish({
-      slug: "pricing-card",
-      title: "Pricing card",
-      variant: "highlighted",
-      html: demoStacked(true),
-      prompt: "you: add an annual toggle",
-      from: 1,
-    });
-    const pricing = await publish({
-      slug: "pricing-card",
-      title: "Pricing card",
-      variant: "highlighted",
-      html: demoGrid(true),
-      prompt: "you: prefer the highlighted middle from v1, keep the toggle",
-      from: 1,
-    });
-
-    await publish({ slug: "hero", title: "Hero", html: demoHero(true), prompt: "initial" });
-    await publish({
-      slug: "hero",
-      title: "Hero",
-      html: demoHero(false),
-      prompt: "you: too much copy",
-      from: 1,
-    });
-    await publish({ slug: "faq", title: "FAQ accordion", html: demoFaq, prompt: "initial" });
-    const page = await publish({
-      slug: "pricing-page",
-      title: "Pricing page",
-      kind: "page",
-      html: demoPage,
-      prompt: "composed from the picked components",
-    });
-
-    // A decided item: one accepted variant, one archived sibling — so the tabs,
-    // the ✓ and the "archived (n)" line all have something to render.
-    const solid = await publish({
-      slug: "cta-button",
-      title: "CTA button",
-      variant: "solid",
-      html: demoCta(true),
-      prompt: "initial",
-    });
-    const ghost = await publish({
-      slug: "cta-button",
-      title: "CTA button",
-      variant: "ghost",
-      html: demoCta(false),
-      prompt: "initial",
-    });
-    await store.setPostStatus(solid.id, "accepted");
-    await store.setPostStatus(ghost.id, "archived");
-
-    // A comment the agent already picked up, so the thread shows `seen`.
-    const delivered = await store.createComment({
-      sessionId: session.id,
-      postId: pricing.id,
-      author: "user",
-      text: "Prefer the highlighted middle from v1, keep the annual toggle.",
-      kind: "comment",
-      postVersion: pricing.version,
-      viewport: 1280,
-    });
-    if (delivered) await store.markAgentSeen(session.id, delivered.seq);
-
-    // One unsent draft with a marker, so the overlay and the "not sent yet"
-    // state have something to show.
-    const draft = await store.createComment({
-      sessionId: session.id,
-      postId: pricing.id,
-      author: "user",
-      text: "Make @1 wider — the middle tier gets cramped at 820.",
-      kind: "comment",
-      draft: true,
-      postVersion: pricing.version,
-      viewport: 820,
-      anchors: [
-        {
-          ref: "@1",
-          shape: "rect",
-          box: [0.34, 0.12, 0.32, 0.7],
-          surfaceIndex: 0,
-          postVersion: pricing.version,
-          path: "div.grid > div.tier.hi",
-          text: "Pro",
-          viewport: 820,
-        },
-      ],
-    });
-    // ...and an ask, so the item shows as waiting on the operator.
-    const askText = "Branched v3 from v1 with the toggle. Accept or revise?";
-    await store.setPostAsk(pricing.id, { text: askText, at: new Date().toISOString() });
-    await createComment({ text: askText, surface: pricing.id, kind: "ask" });
-    bus.broadcast({
-      type: "post-updated",
-      id: pricing.id,
-      sessionId: session.id,
-      version: pricing.version,
-    });
-
-    return c.json(
-      {
-        project: DEMO_PROJECT,
-        sessionId: session.id,
-        items: await store.listItems(DEMO_PROJECT),
-        pageId: page.id,
-        pricingId: pricing.id,
-        draftId: draft?.id ?? null,
-      },
-      201,
-    );
-  });
-
-  // --- projects, items, variants ---
-  //
-  // Navigation is project > item > variant > version. These are reads over the
-  // same posts the legacy session routes serve; nothing here changes the old
-  // shapes.
-
-  app.get("/api/projects", async (c) => c.json(await store.listProjects()));
-
-  app.get("/api/projects/:name/items", async (c) =>
-    c.json(await store.listItems(c.req.param("name"))),
-  );
-
-  app.get("/api/projects/:name/items/:slug", async (c) => {
-    const item = await store.getItem(c.req.param("name"), c.req.param("slug"));
-    if (!item) return c.json({ error: "item not found" }, 404);
-    return c.json(item);
-  });
-
   // The project's design system, imported by `mockpit init` and injected into
   // every html surface of the project (see renderHtmlPage).
   app.get("/api/projects/:name/design", async (c) => c.json(await designFor(c.req.param("name"))));
@@ -2383,156 +2512,6 @@ export function createApp({
     });
     return c.json(design);
   });
-
-  // The accepted html an implementing agent compares its own work against.
-  app.get("/api/projects/:name/items/:slug/export", async (c) => {
-    const item = await store.getItem(c.req.param("name"), c.req.param("slug"));
-    if (!item) return c.json({ error: "item not found" }, 404);
-    const wanted = c.req.query("variant");
-    const variant =
-      (wanted && item.variants.find((v) => v.variant === wanted)) ||
-      item.variants.find((v) => v.status === "accepted") ||
-      item.variants[0];
-    if (!variant) return c.json({ error: "variant not found" }, 404);
-    const html = variant.surfaces.find((s) => s.kind === "html");
-    const origin = new URL(c.req.url).origin;
-    const base = `${origin}${requestBasePath(c.req.raw)}`;
-    return c.json({
-      project: item.project,
-      slug: item.slug,
-      variant: variant.variant,
-      version: variant.version,
-      status: variant.status,
-      html: html && html.kind === "html" ? html.html : "",
-      prompts: variant.history.map((h) => ({
-        version: h.version,
-        at: h.at,
-        from: h.from ?? null,
-        prompt: h.prompt ?? "",
-      })),
-      screenshotUrl: screenshots ? `${base}/p/${variant.postId}.png?v=${variant.version}` : null,
-    });
-  });
-
-  // --- ask / decisions ---
-
-  // The agent blocks on the operator: marks the variant waiting and files an
-  // agent-authored `ask` comment so the request shows in the card's thread.
-  app.post("/api/posts/:id/ask", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const text = typeof body?.text === "string" ? body.text.trim() : "";
-    if (!text) return c.json({ error: 'body must include non-empty "text" string' }, 400);
-    const post = await store.getPost(c.req.param("id"));
-    if (!post) return c.json({ error: "post not found" }, 404);
-    const ask = { text: text.slice(0, MAX_COMMENT_TEXT), at: new Date().toISOString() };
-    const updated = await store.setPostAsk(post.id, ask);
-    if (!updated) return c.json({ error: "post not found" }, 404);
-    await createComment({ text: ask.text, surface: post.id, kind: "ask" });
-    bus.broadcast({
-      type: "post-updated",
-      id: updated.id,
-      sessionId: updated.sessionId,
-      version: updated.version,
-    });
-    fireNotify({
-      event: "ask",
-      project: updated.project,
-      slug: updated.slug,
-      variant: updated.variant,
-      version: updated.version,
-      text: ask.text,
-      url: postUrl(c.req.raw, updated),
-    });
-    return c.json({ ...postWriteView(updated), ...itemFields(updated) });
-  });
-
-  // Accept / revise / drop. Each is a comment with a kind, so delivery rides
-  // the one cursor unchanged — the agent hears the verdict through the same
-  // channel as any other feedback.
-  app.post("/api/posts/:id/decision", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const kind = body?.kind;
-    if (kind !== "accept" && kind !== "revise" && kind !== "drop") {
-      return c.json({ error: 'kind must be "accept", "revise" or "drop"' }, 400);
-    }
-    const post = await store.getPost(c.req.param("id"));
-    if (!post) return c.json({ error: "post not found" }, 404);
-    const text = typeof body.text === "string" ? body.text.trim().slice(0, MAX_COMMENT_TEXT) : "";
-    if (kind === "accept") {
-      await store.setPostStatus(post.id, "accepted");
-      const item = await store.getItem(post.project, post.slug);
-      for (const sibling of item?.variants ?? []) {
-        if (sibling.postId !== post.id) await store.setPostStatus(sibling.postId, "archived");
-      }
-    } else if (kind === "drop") {
-      await store.setPostStatus(post.id, "archived");
-    }
-    // EVERY decision releases the operator's accumulated drafts, not just
-    // Revise. Notes written before an Accept or a Drop are still feedback the
-    // agent must hear (why this variant won, what to fix next time) — leaving
-    // them as drafts silently loses them, since nothing else ever releases a
-    // draft on a decided variant. They get fresh seqs, so the one cursor
-    // delivers them exactly once alongside the decision.
-    const released: Comment[] = await store.releaseDrafts(post.id);
-    await store.setPostAsk(post.id, null);
-    const decision = await store.createComment({
-      sessionId: post.sessionId,
-      postId: post.id,
-      author: "user",
-      text,
-      kind,
-      draft: false,
-      postVersion: post.version,
-    });
-    for (const comment of [...released, ...(decision ? [decision] : [])]) {
-      bus.broadcast({
-        type: "comment-created",
-        id: comment.id,
-        sessionId: comment.sessionId,
-        surfaceId: comment.postId,
-        seq: comment.seq,
-      });
-    }
-    const updated = (await store.getPost(post.id)) ?? post;
-    bus.broadcast({
-      type: "post-updated",
-      id: updated.id,
-      sessionId: updated.sessionId,
-      version: updated.version,
-    });
-    fireNotify({
-      event: "decision",
-      project: updated.project,
-      slug: updated.slug,
-      variant: updated.variant,
-      version: updated.version,
-      text: text || kind,
-      url: postUrl(c.req.raw, updated),
-    });
-    return c.json({
-      ...postWriteView(updated),
-      ...itemFields(updated),
-      released: released.length,
-    });
-  });
-
-  // Un-archive a variant hidden behind the "archived (n)" line.
-  app.post("/api/posts/:id/restore", async (c) => {
-    const updated = await store.setPostStatus(c.req.param("id"), "open");
-    if (!updated) return c.json({ error: "post not found" }, 404);
-    bus.broadcast({
-      type: "post-updated",
-      id: updated.id,
-      sessionId: updated.sessionId,
-      version: updated.version,
-    });
-    return c.json({ ...postWriteView(updated), ...itemFields(updated) });
-  });
-
-  // The operator's unsent notes on a variant (viewer read only).
-  app.get("/api/posts/:id/drafts", async (c) =>
-    c.json(await withSeen(await store.listDrafts(c.req.param("id")))),
-  );
 
   // --- push and webhooks ---
 
@@ -2580,7 +2559,7 @@ export function createApp({
   // Serves one surface of a post as a themed, sandboxed document. The viewer
   // points an iframe here for every surface kind that becomes HTML — html surfaces
   // (author markup) and the rich kinds (markdown/code/diff/terminal rendered
-  // server-side; mermaid as a self-rendering CDN doc). Image/trace/json surfaces
+  // server-side; mermaid as a self-rendering CDN doc). Image/json surfaces
   // are data the viewer renders natively (text nodes / <img> / JSX), so they
   // never reach here.
   // Everything a rendered document depends on. The resolved version makes a
@@ -2600,6 +2579,7 @@ export function createApp({
   // so both produce byte-identical output for one key.
   async function buildSurfaceDoc(args: {
     post: Post;
+    mock: Mock | null;
     surface: Surface;
     title: string;
     themeId: string;
@@ -2612,11 +2592,13 @@ export function createApp({
     if (surface.kind === "html") {
       return renderHtmlPage({
         title: args.title,
-        // A page item composes published components by reference; the tags
+        // A page mock composes published components by reference; the tags
         // are expanded here, server-side, so the whole page is still ONE
         // sandboxed document rather than nested frames.
         html:
-          args.post.kind === "page" ? await expandPageHtml(args.post, surface.html) : surface.html,
+          args.mock?.kind === "page"
+            ? await expandPageHtml(args.mock.project, args.post, surface.html)
+            : surface.html,
         origin,
         theme,
         mode,
@@ -2665,12 +2647,12 @@ export function createApp({
   // purpose: a render failure must never fail — or delay — the write. (The DO
   // stays alive for the duration; there is no ExecutionContext to hand this to.)
   const PREWARM_SURFACE_LIMIT = 4;
-  function warmPost(post: Post): void {
+  function warmPost(post: Post, mock: Mock): void {
     const origin = lastOrigin;
     if (!origin) return;
     void (async () => {
       const themeId = (await store.getSetting("theme")) ?? DEFAULT_THEME_ID;
-      const design = await designFor(post.project);
+      const design = await designFor(mock.project);
       let warmed = 0;
       for (const [idx, surface] of post.surfaces.entries()) {
         if (warmed >= PREWARM_SURFACE_LIMIT) break;
@@ -2689,6 +2671,7 @@ export function createApp({
           await cachedRender(key, () =>
             buildSurfaceDoc({
               post,
+              mock,
               surface,
               title: post.title,
               themeId,
@@ -2703,8 +2686,7 @@ export function createApp({
   }
 
   const renderPostPage = async (c: any) => {
-    // `part` is the legacy query key; `surface` is canonical.
-    const surfaceParam = c.req.query("surface") ?? c.req.query("part");
+    const surfaceParam = c.req.query("surface") ?? "0";
     const ver = c.req.query("ver");
     const themeQuery = c.req.query("theme");
     const modeParam = c.req.query("mode");
@@ -2717,7 +2699,7 @@ export function createApp({
     // version-pinned request can take this path: without `ver` the current
     // version — and so the key — is unknown until the row is read.
     const pinned = Number(ver);
-    if (surfaceParam != null && Number.isInteger(pinned) && pinned > 0) {
+    if (Number.isInteger(pinned) && pinned > 0) {
       const themeId = themeQuery ?? (await store.getSetting("theme")) ?? DEFAULT_THEME_ID;
       const hit = renderCacheHit(
         renderKey({
@@ -2739,7 +2721,7 @@ export function createApp({
 
     const post = await store.getPost(c.req.param("id"));
     if (!post) return c.text("Post not found", 404);
-    if (surfaceParam == null) return c.html(await configuredViewerHtml(c, { post }));
+    const mock = await store.getMock(post.mock);
 
     let title = post.title;
     let surfaces = post.surfaces;
@@ -2753,7 +2735,7 @@ export function createApp({
     }
     const idx = Number(surfaceParam ?? 0);
     const surface = surfaces[idx];
-    // Only the kinds that become HTML are served here. Image/trace/json render
+    // Only the kinds that become HTML are served here. Image/json render
     // natively in the viewer and must not be reachable as a document.
     if (!surface || !isSandboxedSurfaceKind(surface.kind)) {
       return c.text("No renderable surface at that index", 404);
@@ -2768,16 +2750,15 @@ export function createApp({
     // A page's slots are pinned at publish, so they are a function of
     // (id, version) too and need no separate key component.
     const cacheKey = renderKey({ postId: post.id, idx, version, themeId, mode, origin });
-    const design = await designFor(post.project);
+    const design = mock ? await designFor(mock.project) : null;
     const doc = await cachedRender(cacheKey, async () =>
-      buildSurfaceDoc({ post, surface, title, themeId, mode, origin, design }),
+      buildSurfaceDoc({ post, mock, surface, title, themeId, mode, origin, design }),
     );
     return c.html(doc);
   };
-  app.get("/s/:id", renderPostPage); // legacy alias
-  app.get("/p/:id", renderPostPage);
+  app.get("/s/:id", renderPostPage);
 
-  // --- assets (agent-uploaded images, traces, files) ---
+  // --- assets (agent-uploaded images and files) ---
 
   // Accepts raw bytes (the asset's own Content-Type, metadata via query) or a
   // JSON envelope { data: base64, contentType, ... } — so curl --data-binary
@@ -2868,9 +2849,15 @@ export function createApp({
 
   app.get("/api/events", async (c) => {
     const sessionId = c.req.query("session");
+    const mockId = c.req.query("mock");
     if (isUnauthenticatedSessionRead(c)) {
-      if (!sessionId) return c.json({ error: "session required" }, 401);
-      if (!(await store.getSession(sessionId))) return c.json({ error: "session not found" }, 404);
+      if (!sessionId && !mockId) return c.json({ error: "session or mock required" }, 401);
+      if (sessionId && !(await store.getSession(sessionId))) {
+        return c.json({ error: "session not found" }, 404);
+      }
+      if (mockId && !(await store.getMock(mockId))) {
+        return c.json({ error: "mock not found" }, 404);
+      }
     }
     if (!acquireHold()) return c.json({ error: "too many concurrent connections" }, 503);
     const release = makeRelease();
@@ -2878,16 +2865,34 @@ export function createApp({
     // the request abort still releases the slot. close() below is guarded so a
     // later abort firing release again is a no-op.
     c.req.raw.signal.addEventListener("abort", release, { once: true });
-    const eventSessionId = (event: Parameters<Parameters<EventBus["subscribe"]>[0]>[0]) => {
+    const eventSessionId = (event: FeedEvent) => {
       if ("sessionId" in event) return event.sessionId;
-      if (event.type.startsWith("session-")) return event.id;
+      if (
+        event.type === "session-created" ||
+        event.type === "session-updated" ||
+        event.type === "session-deleted"
+      ) {
+        return event.id;
+      }
+      return undefined;
+    };
+    const eventMockId = (event: FeedEvent) => {
+      if ("mockId" in event) return event.mockId;
+      if (
+        event.type === "mock-created" ||
+        event.type === "mock-updated" ||
+        event.type === "mock-deleted"
+      ) {
+        return event.id;
+      }
       return undefined;
     };
     return streamSSE(c, async (stream) => {
-      const queue: Parameters<Parameters<EventBus["subscribe"]>[0]>[0][] = [];
+      const queue: FeedEvent[] = [];
       let wake: (() => void) | null = null;
       const unsubscribe = bus.subscribe((event) => {
         if (sessionId && eventSessionId(event) !== sessionId) return;
+        if (mockId && eventMockId(event) !== mockId) return;
         queue.push(event);
         wake?.();
       });
@@ -2935,14 +2940,24 @@ export function createApp({
   registerMcp(app, {
     store,
     basePath: requestBasePath,
-    publishPost: publishPostFlow,
-    revisePost,
-    appendPostSurface,
-    replacePostSurface,
-    removePostSurface,
-    reorderPostSurfaces,
-    createComment,
-    waitForComments,
+    flows: {
+      publish: (body, ctx) => publishFlow(body, ctx),
+      revise: async (body, ctx) => {
+        const mock = await resolveMock(body?.mock, body?.project, body?.session);
+        if (isResult(mock)) return mock;
+        return publishFlow({ ...body, mock: mock.id }, ctx, true);
+      },
+      list: (query) => listMocksFlow(query),
+      get: (ref, query) => getMockFlow(ref, query),
+      ask: (ref, body, ctx) => askFlow(ref, body, ctx),
+      exportMock: (ref, query, ctx) => exportFlow(ref, query, ctx),
+      comment: (body, ctx) => commentFlow(body, ctx),
+      feedback: (query, signal) => feedbackFlow(query, signal),
+      appendSurface: appendSurfaceFlow,
+      replaceSurface: replaceSurfaceFlow,
+      removeSurface: removeSurfaceFlow,
+      reorderSurfaces: reorderSurfacesFlow,
+    },
     uploadAsset,
     // The same project-aware brief the CLI gets from /agent-howto?brief=1 —
     // every feature works on every tier, and a remote MCP agent needs the

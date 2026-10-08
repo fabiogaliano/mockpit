@@ -4,11 +4,8 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApp } from "./app.ts";
-import { migrateLegacyDataDir } from "./migrateDataDir.ts";
 import { SqlStore } from "./sqlStore.ts";
-import { createSqliteStorage, migrateJsonToSqlite } from "./sqliteStorage.ts";
-import { JsonFileStore } from "./storage.ts";
-import type { Store } from "./types.ts";
+import { createSqliteStorage } from "./sqliteStorage.ts";
 
 // Source layout puts this file at server/index.ts; the published package runs
 // the compiled copy at dist/server/index.js. viewer/ and guide/ live at the
@@ -30,41 +27,13 @@ const [viewerHtml, guideMarkdown, setupText, agentHowtoText, pkgJson] = await Pr
 const pr = process.env.MOCKPIT_PUBLIC_READ;
 const publicRead = pr === "session" || pr === "full" ? pr : undefined;
 
-// Storage backend. SQLite (via node:sqlite) is the default so the local server
-// mirrors the Cloudflare Durable Object deploy — both run the same SqlStore.
-// MOCKPIT_STORE=json selects the legacy single-file JSON store instead.
-// MOCKPIT_DATA names the JSON file (and the one-time migration source);
-// MOCKPIT_DB names the SQLite file. Both default to ~/.mockpit/ — a
-// user-owned dir that survives reinstalls and is writable regardless of how
-// the package was installed (a package-relative default is read-only under
-// `sudo npm i -g` and wiped on upgrade).
-const dataDir = join(homedir(), ".mockpit");
-const jsonPath = process.env.MOCKPIT_DATA ?? join(dataDir, "mockpit.json");
-// The SQLite file defaults next to the JSON one (same dir, `.db` suffix) so a
-// deploy that only sets MOCKPIT_DATA still gets an isolated, co-located db —
-// and the migration source sits right beside it.
-const dbPath = process.env.MOCKPIT_DB ?? `${jsonPath.replace(/\.json$/, "")}.db`;
-// Migrate from the legacy package-relative `<root>/data/` location to the
-// user-owned home dir, but only when using default paths — a user who set
-// MOCKPIT_DATA or MOCKPIT_DB is managing their own location.
-if (!process.env.MOCKPIT_DATA && !process.env.MOCKPIT_DB) {
-  if (migrateLegacyDataDir(join(root, "data"), dataDir)) {
-    console.log(`[mockpit] migrated existing data from ${join(root, "data")} to ${dataDir}`);
-  }
-}
-let store: Store;
-if (process.env.MOCKPIT_STORE === "json") {
-  store = new JsonFileStore(jsonPath);
-  console.log(`mockpit store: JSON file at ${jsonPath}`);
-} else {
-  const sqlite = new SqlStore(createSqliteStorage(dbPath));
-  // First SQLite boot with a legacy JSON file present copies it in once.
-  await migrateJsonToSqlite(sqlite, jsonPath);
-  store = sqlite;
-  // Announce the backend so an existing MOCKPIT_DATA deploy isn't surprised by
-  // the silent switch to SQLite (set MOCKPIT_STORE=json to keep the old store).
-  console.log(`mockpit store: SQLite at ${dbPath} (MOCKPIT_STORE=json for the legacy JSON store)`);
-}
+// Storage: SQLite via node:sqlite, the same SqlStore the Cloudflare Durable
+// Object runs, so local mirrors the deploy. MOCKPIT_DB names the file; the
+// default lives in ~/.mockpit/, a user-owned dir that survives reinstalls and
+// is writable however the package was installed.
+const dbPath = process.env.MOCKPIT_DB ?? join(homedir(), ".mockpit", "mockpit.db");
+const store = new SqlStore(createSqliteStorage(dbPath));
+console.log(`mockpit store: SQLite at ${dbPath}`);
 
 const app = createApp({
   store,

@@ -88,9 +88,9 @@ ffmpeg -y -i "$RAW" -vf "fps=30,format=yuv420p" \
   unfolds the composer; it has no text, so `getByText` won't find it), then
   `.composer input`.
 - Publish content via the HTTP API while recording: `POST /api/sessions`,
-  `POST /api/posts` (`{session, title, surfaces: [{kind, …}]}`),
-  `PUT /api/posts/:id` to revise (bumps the version pill live), and
-  `POST /api/comments` (`{surface: postId, author, text}`) for agent replies.
+  `POST /api/mocks` (`{session, mock, state, variant, surfaces: [{kind, …}]}`),
+  `POST /api/mocks/:id/revise` to revise (bumps the version live), and
+  `POST /api/comments` (`{mock, text}`) for agent replies.
   Seed background sessions _before_ opening the page; save the live publishes
   for on-camera.
 - Target pacing: money shots hold 2.5–4s after content settles, transitions

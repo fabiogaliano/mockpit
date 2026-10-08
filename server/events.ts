@@ -1,20 +1,29 @@
 export type FeedEvent =
   | { type: "session-created" | "session-updated" | "session-deleted"; id: string }
-  | { type: "post-created" | "post-updated"; id: string; sessionId: string; version: number }
-  | { type: "post-deleted"; id: string; sessionId: string }
+  // A mock's own fields changed (title, states, asks, knobs) or it was created.
+  | { type: "mock-created" | "mock-updated"; id: string; project: string }
+  | { type: "mock-deleted"; id: string; project: string }
+  // The user's draft changed, so other open tabs on the mock refresh it.
+  | { type: "draft-updated"; mockId: string }
+  | {
+      type: "post-created" | "post-updated";
+      id: string;
+      mockId: string;
+      sessionId: string;
+      version: number;
+    }
+  | { type: "post-deleted"; id: string; mockId: string; sessionId: string }
   | {
       type: "comment-created";
       id: string;
       sessionId: string;
-      surfaceId: string | null;
+      mockId: string | null;
+      postId: string | null;
       seq: number;
     }
   | { type: "comment-deleted"; id: string; sessionId: string }
   // Workspace theme changed; `id` is the new theme id. Other open tabs re-theme.
-  | { type: "theme-changed"; id: string }
-  // Session-scoped agent trace gained steps (synced in a batch). Carries only
-  // the new total so the viewer refetches once per batch, not once per step.
-  | { type: "trace-updated"; sessionId: string; count: number };
+  | { type: "theme-changed"; id: string };
 
 type Listener = (event: FeedEvent) => void;
 

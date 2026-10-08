@@ -1,5 +1,4 @@
-import type { ViewerPost } from "../../server/apiViews.ts";
-import type { Post } from "../../server/types.ts";
+import type { Post, ViewerPost } from "./legacyModel.ts";
 
 function isViewerPost(value: unknown): value is ViewerPost {
   if (!value || typeof value !== "object") return false;

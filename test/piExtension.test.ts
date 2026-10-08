@@ -7,7 +7,8 @@ import { serve } from "@hono/node-server";
 // @ts-expect-error The distributed Pi extension is intentionally standalone JavaScript.
 import mockpitExtension from "../extensions/mockpit.js";
 import { createApp } from "../server/app.ts";
-import { JsonFileStore } from "../server/storage.ts";
+import { SqlStore } from "../server/sqlStore.ts";
+import { createSqliteStorage } from "../server/sqliteStorage.ts";
 
 type ToolResult = {
   content: Array<{ type: string; text: string }>;
@@ -108,8 +109,8 @@ async function invoke(
   return harness.tool(name).execute("call-1", params, undefined, undefined, ctx);
 }
 
-function startServer(dir: string) {
-  const store = new JsonFileStore(join(dir, "data.json"));
+function startServer() {
+  const store = new SqlStore(createSqliteStorage());
   const app = createApp({
     store,
     viewerHtml: "<html>viewer</html>",
@@ -155,568 +156,268 @@ async function postJson(url: string, body: unknown) {
   return response.json() as Promise<any>;
 }
 
-function traceBranch(now: number) {
-  const long = "x".repeat(2200);
-  return [
-    { type: "message", message: { role: "user", content: `Build it\n${long}`, timestamp: now } },
-    {
-      type: "message",
-      timestamp: new Date(now + 1).toISOString(),
-      message: {
-        role: "assistant",
-        content: [
-          { type: "thinking", thinking: "Consider options\nprivately" },
-          { type: "text", text: "I will inspect and update." },
-          { type: "toolCall", id: "read-1", name: "read", arguments: { path: "/tmp/a.ts" } },
-          { type: "toolCall", name: "edit", arguments: { path: "src/b.ts" } },
-          { type: "toolCall", name: "write", arguments: { path: "src/c.ts" } },
-          { type: "toolCall", name: "bash", arguments: { command: "npm test" } },
-          { type: "toolCall", name: "web_fetch", arguments: { url: "https://example.com" } },
-          { type: "toolCall", name: "web_search", arguments: { query: "mockpit" } },
-          { type: "toolCall", name: "subagent", arguments: { action: "list" } },
-          { type: "toolCall", name: "mockpit_list_surfaces", arguments: {} },
-          { type: "toolCall", name: "Custom_TOOL_WITH_LONG_NAME", arguments: null },
-          { type: "toolCall", name: "", arguments: {} },
-        ],
-      },
-    },
-    {
-      type: "message",
-      message: {
-        role: "toolResult",
-        toolCallId: "read-1",
-        content: [{ type: "text", text: `file contents ${long}` }],
-        timestamp: now + 2,
-      },
-    },
-    {
-      type: "message",
-      message: {
-        role: "toolResult",
-        toolCallId: "unknown",
-        content: "ignored",
-        timestamp: now + 3,
-      },
-    },
-    {
-      type: "message",
-      message: {
-        role: "bashExecution",
-        command: "git status",
-        output: "clean",
-        timestamp: now + 4,
-      },
-    },
-    {
-      type: "message",
-      message: { role: "user", content: [{ type: "image" }], timestamp: now + 5 },
-    },
-    { type: "other" },
-  ];
+async function getJson(url: string) {
+  const response = await fetch(url, authInit());
+  assert.equal(response.ok, true);
+  return response.json() as Promise<any>;
 }
 
-// Keep the main flow sequential: the extension's remembered session and the
-// server's exactly-once feedback cursor are the cross-call contract under test.
-test(
-  "the Pi extension contract works through a fake host and real server",
-  { timeout: 10_000 },
-  async (t) => {
-    const dir = mkdtempSync(join(tmpdir(), "mockpit-pi-extension-"));
-    const originalEnv = {
-      url: process.env.MOCKPIT_URL,
-      token: process.env.MOCKPIT_TOKEN,
-      agent: process.env.MOCKPIT_AGENT,
-      session: process.env.MOCKPIT_SESSION,
-    };
-    const server = await startServer(dir);
-    let serverClosed = false;
-
-    process.env.MOCKPIT_URL = `${server.url}/`;
-    process.env.MOCKPIT_TOKEN = "test-token";
-    process.env.MOCKPIT_AGENT = "contract-pi";
-    delete process.env.MOCKPIT_SESSION;
-
-    t.after(async () => {
-      try {
-        if (!serverClosed) await server.close();
-      } finally {
-        try {
-          rmSync(dir, { recursive: true, force: true });
-        } finally {
-          for (const [key, value] of Object.entries(originalEnv)) {
-            const envName = `MOCKPIT_${key.toUpperCase()}`;
-            if (value === undefined) delete process.env[envName];
-            else process.env[envName] = value;
-          }
-        }
-      }
-    });
-
-    const harness = createPiHarness();
-    assert.deepEqual(
-      [...harness.tools.keys()],
-      [
-        "mockpit_get_design_guide",
-        "mockpit_publish_item",
-        "mockpit_revise_item",
-        "mockpit_ask_user",
-        "mockpit_list_items",
-        "mockpit_publish_surface",
-        "mockpit_update_surface",
-        "mockpit_wait_for_feedback",
-        "mockpit_reply_to_user",
-        "mockpit_list_surfaces",
-        "mockpit_upload_asset",
-      ],
-    );
-    assert.deepEqual([...harness.commands.keys()], ["mockpit"]);
-    assert.deepEqual(harness.eventNames, ["session_start", "turn_end"]);
-    assert.deepEqual(harness.tool("mockpit_publish_surface").parameters.required, [
-      "title",
-      "parts",
-    ]);
-    assert.deepEqual(harness.tool("mockpit_update_surface").parameters.required, ["id"]);
-    const replySchema = harness.tool("mockpit_reply_to_user").parameters;
-    assert.deepEqual(replySchema.required, ["surfaceId", "message"]);
-    assert.equal("session" in replySchema.properties!, false);
-    const advertisedKinds =
-      harness.tool("mockpit_publish_surface").parameters.properties?.parts.items.properties.kind
-        .enum;
-    for (const kind of [
-      "html",
-      "markdown",
-      "mermaid",
-      "diff",
-      "image",
-      "terminal",
-      "json",
-      "code",
-    ]) {
-      assert.ok(advertisedKinds.includes(kind), `publish schema includes ${kind}`);
-    }
-    assert.equal(advertisedKinds.includes("trace"), false);
-    const advertisedFields =
-      harness.tool("mockpit_publish_surface").parameters.properties?.parts.items.properties;
-    for (const field of ["data", "code", "language", "lineStart"]) {
-      assert.ok(field in advertisedFields, `publish schema includes ${field}`);
-    }
-    for (const tool of harness.tools.values()) {
-      assert.ok(tool.promptSnippet);
-      if (tool.name !== "mockpit_get_design_guide" && tool.name !== "mockpit_list_surfaces") {
-        assert.ok(tool.promptGuidelines?.length);
-      }
-    }
-
-    const ctx = createContext(dir, traceBranch(Date.now() - 1000));
-    await harness.emit("session_start", ctx);
-    assert.deepEqual(ctx.statuses.at(-1), {
-      key: "mockpit",
-      value: `mockpit localhost:${new URL(server.url).port}`,
-    });
-
-    const guide = await invoke(harness, "mockpit_get_design_guide", {}, ctx);
-    assert.match(text(guide), /Mockpit design contract/);
-    assert.equal(guide.details?.baseUrl, server.url);
-
-    const published = await invoke(
-      harness,
-      "mockpit_publish_surface",
-      {
-        title: "Contract card",
-        sessionTitle: "Extension contract",
-        parts: [
-          { kind: "markdown", markdown: "# Hello" },
-          { kind: "mermaid", mermaid: "flowchart LR; A-->B" },
-          { kind: "terminal", text: "\u001b[32mok\u001b[0m" },
-        ],
-      },
-      ctx,
-    );
-    const surface = published.details!;
-    assert.equal(surface.title, "Contract card");
-    assert.match(text(published), new RegExp(`/p/${surface.id}`));
-    assert.match(text(published), new RegExp(`sessionId: ${surface.sessionId}`));
-    assert.equal(surface.baseUrl, server.url);
-
-    await postJson(`${server.url}/api/comments`, {
-      surface: surface.id,
-      text: "Make the heading shorter",
-      author: "user",
-    });
-    const updated = await invoke(
-      harness,
-      "mockpit_update_surface",
-      { id: surface.id, title: "Short card", parts: [{ kind: "markdown", markdown: "# Hi" }] },
-      ctx,
-    );
-    assert.match(text(updated), /version 2/);
-    assert.match(text(updated), /User feedback delivered/);
-    // Feedback now arrives as one batch per item, identified by slug/variant
-    // rather than by the post's title.
-    assert.match(text(updated), /contract-card\/default: Make the heading shorter/);
-
-    const emptyWait = await invoke(
-      harness,
-      "mockpit_wait_for_feedback",
-      { timeoutSeconds: -10 },
-      ctx,
-    );
-    assert.equal(text(emptyWait), "No new mockpit feedback.");
-
-    await postJson(`${server.url}/api/comments`, {
-      surface: surface.id,
-      text: "Looks good",
-      author: "user",
-    });
-    const waited = await invoke(
-      harness,
-      "mockpit_wait_for_feedback",
-      { session: surface.sessionId, timeoutSeconds: 0 },
-      ctx,
-    );
-    assert.match(text(waited), /Received 1 mockpit feedback batch/);
-    assert.match(text(waited), /Looks good/);
-    assert.equal(waited.details?.sessionId, surface.sessionId);
-
-    await postJson(`${server.url}/api/comments`, {
-      surface: surface.id,
-      text: "One more thought",
-      author: "user",
-    });
-    const surfaceReply = await invoke(
-      harness,
-      "mockpit_reply_to_user",
-      { surfaceId: surface.id, message: "Acknowledged" },
-      ctx,
-    );
-    assert.match(text(surfaceReply), new RegExp(`on surface ${surface.id}`));
-    assert.match(text(surfaceReply), /One more thought/);
-    assert.equal(surfaceReply.details?.postId, surface.id);
-    assert.equal(surfaceReply.details?.author, "contract-pi");
-
-    const second = await invoke(
-      harness,
-      "mockpit_publish_surface",
-      {
-        title: "Second card",
-        session: surface.sessionId,
-        agent: "override-agent",
-        parts: [
-          { kind: "html", html: "<strong>two</strong>" },
-          { kind: "json", data: { status: "ok" } },
-          { kind: "code", code: "const ok = true;", language: "ts", lineStart: 10 },
-        ],
-      },
-      ctx,
-    );
-    assert.equal(second.details?.sessionId, surface.sessionId);
-
-    const listed = await invoke(
-      harness,
-      "mockpit_list_surfaces",
-      { session: surface.sessionId, limit: 1.9 },
-      ctx,
-    );
-    assert.equal(listed.details?.surfaces.length, 2);
-    assert.equal(text(listed).split("\n").length, 1);
-    assert.match(text(listed), /\/p\//);
-
-    const listedAll = await invoke(harness, "mockpit_list_surfaces", { all: true, limit: 10 }, ctx);
-    assert.match(text(listedAll), new RegExp(String.raw`\[${surface.sessionId}\]`));
-    assert.ok(Array.isArray(listedAll.details?.sessions));
-    const publishedGroup = listedAll.details!.sessions.find(
-      (group: any) => group.session.id === surface.sessionId,
-    );
-    assert.equal(publishedGroup.session.agent, "contract-pi");
-    assert.equal(publishedGroup.session.cwd, dir);
-
-    const imagePath = join(dir, "preview.PNG");
-    writeFileSync(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
-    const uploadedFile = await invoke(
-      harness,
-      "mockpit_upload_asset",
-      { path: "@preview.PNG", kind: "image" },
-      ctx,
-    );
-    assert.equal(uploadedFile.details?.asset.contentType, "image/png");
-    assert.equal(uploadedFile.details?.asset.byteLength, 4);
-    assert.equal(uploadedFile.details?.sessionId, surface.sessionId);
-
-    const uploadedData = await invoke(
-      harness,
-      "mockpit_upload_asset",
-      {
-        data: Buffer.from("trace data").toString("base64"),
-        kind: "file",
-        newSession: true,
-        sessionTitle: "Trace-only session",
-      },
-      ctx,
-    );
-    const traceSession = uploadedData.details?.sessionId;
-    assert.notEqual(traceSession, surface.sessionId);
-    assert.equal(uploadedData.details?.asset.contentType, "application/octet-stream");
-    assert.match(text(uploadedData), /10 bytes/);
-
-    await harness.emit("turn_end", ctx);
-    const traceResponse = (await fetch(
-      `${server.url}/api/sessions/${traceSession}/trace`,
-      authInit(),
-    ).then((response) => response.json())) as { steps: any[] };
-    const trace = traceResponse.steps;
-    assert.ok(trace.length >= 10);
-    assert.ok(trace.some((step) => step.kind === "prompt"));
-    assert.ok(trace.some((step) => step.kind === "think"));
-    assert.ok(
-      trace.some((step) => step.kind === "read" && step.detail.includes("→ file contents")),
-    );
-    assert.ok(trace.some((step) => step.kind === "edit"));
-    assert.ok(trace.some((step) => step.kind === "run"));
-    assert.ok(trace.some((step) => step.kind === "web"));
-    assert.ok(trace.some((step) => step.kind === "agent"));
-    assert.ok(trace.some((step) => step.kind === "mockpit"));
-    assert.ok(trace.every((step) => !step.detail || step.detail.length <= 1801));
-
-    const command = harness.command("mockpit");
-    await command.handler("", ctx);
-    assert.match(ctx.notifications.at(-1)!.message, new RegExp(`session ${traceSession}`));
-    await command.handler("reset", ctx);
-    assert.equal(ctx.notifications.at(-1)!.message, "Reset remembered mockpit session");
-
-    const scoped = createPiHarness();
-    const scopedCtx = createContext(dir, [
-      ...traceBranch(Date.now() - 1000),
-      {
-        type: "message",
-        message: {
-          role: "toolResult",
-          toolName: "mockpit_publish_surface",
-          details: { sessionId: surface.sessionId },
-        },
-      },
-    ]);
-    await scoped.emit("session_start", scopedCtx);
-    await scoped.emit("turn_end", scopedCtx);
-    const scopedTrace = (await fetch(
-      `${server.url}/api/sessions/${surface.sessionId}/trace`,
-      authInit(),
-    ).then((response) => response.json())) as { steps: any[] };
-    assert.ok(scopedTrace.steps.some((step) => step.kind === "prompt"));
-
-    const reconstructed = createPiHarness();
-    const reconstructedCtx = createContext(dir, [
-      {
-        type: "message",
-        message: { role: "toolResult", toolName: "read", details: { sessionId: "ignored" } },
-      },
-      {
-        type: "message",
-        message: {
-          role: "toolResult",
-          toolName: "mockpit_publish_surface",
-          details: { surface: { sessionId: surface.sessionId } },
-        },
-      },
-      {
-        type: "message",
-        message: {
-          role: "toolResult",
-          toolName: "mockpit_upload_asset",
-          details: { asset: { sessionId: traceSession } },
-        },
-      },
-    ]);
-    await reconstructed.emit("session_start", reconstructedCtx);
-    assert.equal(reconstructedCtx.statuses.at(-1)?.value, `mockpit ${traceSession}`);
-    const currentEmpty = await invoke(reconstructed, "mockpit_list_surfaces", {}, reconstructedCtx);
-    assert.equal(text(currentEmpty), "No mockpit surfaces in this session.");
-
-    process.env.MOCKPIT_SESSION = surface.sessionId;
-    const configured = createPiHarness();
-    const configuredCtx = createContext(dir);
-    await configured.emit("session_start", configuredCtx);
-    assert.equal(configuredCtx.statuses.at(-1)?.value, `mockpit ${surface.sessionId}`);
-    await configured.command("mockpit").handler("reset", configuredCtx);
-    await configured.command("mockpit").handler("", configuredCtx);
-    assert.match(configuredCtx.notifications.at(-1)!.message, new RegExp(surface.sessionId));
-    delete process.env.MOCKPIT_SESSION;
-
-    const noSession = createPiHarness();
-    const noSessionCtx = createContext(dir);
-    await noSession.emit("turn_end", noSessionCtx);
-    await assert.rejects(
-      invoke(noSession, "mockpit_wait_for_feedback", {}, noSessionCtx),
-      /No mockpit session yet/,
-    );
-    await assert.rejects(
-      invoke(noSession, "mockpit_list_surfaces", {}, noSessionCtx),
-      /Publish first, pass session, or set all=true/,
-    );
-    await assert.rejects(
-      invoke(noSession, "mockpit_upload_asset", {}, noSessionCtx),
-      /Provide either path or base64 data/,
-    );
-    const forcedSession = await invoke(
-      noSession,
-      "mockpit_publish_surface",
-      {
-        title: "Forced new session",
-        session: surface.sessionId,
-        newSession: true,
-        parts: [{ kind: "json", data: [1, 2, 3] }],
-      },
-      noSessionCtx,
-    );
-    assert.notEqual(forcedSession.details?.sessionId, surface.sessionId);
-
-    // The design loop: publish a variant, revise it, ask, list. The surface
-    // tools below are the back-compat half of the same extension.
-    const item = await invoke(
-      harness,
-      "mockpit_publish_item",
-      {
-        slug: "pricing-card",
-        project: "acme/site",
-        variant: "highlighted",
-        title: "Pricing card",
-        html: "<p>v1</p>",
-      },
-      ctx,
-    );
-    assert.match(text(item), /^pricing-card\/highlighted v1 · /);
-    assert.equal(item.details?.project, "acme/site");
-    assert.equal(item.details?.status, "open");
-
-    // an html file on disk instead of an inline string
-    writeFileSync(join(dir, "card.html"), "<p>v2</p>");
-    const revised = await invoke(
-      harness,
-      "mockpit_revise_item",
-      {
-        slug: "pricing-card",
-        project: "acme/site",
-        variant: "highlighted",
-        path: "card.html",
-        from: 1,
-        prompt: "tighter",
-      },
-      ctx,
-    );
-    assert.match(text(revised), /^pricing-card\/highlighted v2 · /);
-    assert.equal(revised.details?.version, 2);
-    await assert.rejects(
-      invoke(harness, "mockpit_publish_item", { slug: "no-body", project: "acme/site" }, ctx),
-      /Provide html or path/,
-    );
-
-    const asked = await invoke(
-      harness,
-      "mockpit_ask_user",
-      { slug: "pricing-card", project: "acme/site", variant: "highlighted", text: "pick one" },
-      ctx,
-    );
-    assert.equal(text(asked), "Asked on pricing-card/highlighted: pick one");
-
-    // a second variant makes the item ambiguous, so ask must be told which one
-    await invoke(
-      harness,
-      "mockpit_publish_item",
-      { slug: "pricing-card", project: "acme/site", variant: "quiet", html: "<p>quiet</p>" },
-      ctx,
-    );
-    await assert.rejects(
-      invoke(
-        harness,
-        "mockpit_ask_user",
-        { slug: "pricing-card", project: "acme/site", text: "?" },
-        ctx,
-      ),
-      /pricing-card has 2 variants; pass variant: /,
-    );
-
-    const listedItems = await invoke(harness, "mockpit_list_items", { project: "acme/site" }, ctx);
-    assert.match(text(listedItems), /pricing-card · component · /);
-    assert.match(text(listedItems), /highlighted\(v2\)/);
-    assert.equal(
-      text(await invoke(harness, "mockpit_list_items", { project: "empty/repo" }, ctx)),
-      "No items in empty/repo.",
-    );
-
-    process.env.MOCKPIT_TOKEN = "wrong-token";
-    await assert.rejects(
-      invoke(harness, "mockpit_list_surfaces", { session: surface.sessionId }, ctx),
-      /unauthorized/,
-    );
-    process.env.MOCKPIT_TOKEN = "test-token";
-
-    const realFetch = globalThis.fetch;
-    const waits: string[] = [];
-    globalThis.fetch = async (input, init) => {
-      const url = new URL(String(input));
-      if (url.pathname === "/api/comments" && init?.method === "POST") {
-        const body = JSON.parse(String(init.body));
-        assert.equal(body.surface, "requested-surface");
-        return new Response(
-          JSON.stringify({
-            surfaceId: "legacy-surface",
-            sessionId: "legacy-session",
-            author: "contract-pi",
-          }),
-          { headers: { "content-type": "application/json" } },
-        );
-      }
-      if (url.pathname === "/api/comments") {
-        waits.push(url.searchParams.get("wait")!);
-        assert.equal(url.searchParams.get("author"), "user");
-        if (url.searchParams.has("after")) assert.equal(url.searchParams.get("after"), "7");
-        return new Response(JSON.stringify({ comments: [] }), {
-          headers: { "content-type": "application/json" },
-        });
-      }
-      return new Response("plain failure", { status: 418, statusText: "Teapot" });
-    };
+// Each test gets a real server and its own env, restored afterwards, because
+// the extension reads its configuration from process.env on every call.
+async function setup(t: { after: (fn: () => Promise<void>) => void }, session?: string) {
+  const dir = mkdtempSync(join(tmpdir(), "mockpit-pi-extension-"));
+  const saved = {
+    MOCKPIT_URL: process.env.MOCKPIT_URL,
+    MOCKPIT_TOKEN: process.env.MOCKPIT_TOKEN,
+    MOCKPIT_AGENT: process.env.MOCKPIT_AGENT,
+    MOCKPIT_SESSION: process.env.MOCKPIT_SESSION,
+    MOCKPIT_PROJECT: process.env.MOCKPIT_PROJECT,
+  };
+  const server = await startServer();
+  process.env.MOCKPIT_URL = `${server.url}/`;
+  process.env.MOCKPIT_TOKEN = "test-token";
+  process.env.MOCKPIT_AGENT = "contract-pi";
+  process.env.MOCKPIT_PROJECT = "acme/site";
+  if (session) process.env.MOCKPIT_SESSION = session;
+  else delete process.env.MOCKPIT_SESSION;
+  t.after(async () => {
     try {
-      const clamped = await invoke(
-        harness,
-        "mockpit_wait_for_feedback",
-        { session: surface.sessionId, timeoutSeconds: 9999, afterSeq: 7 },
-        ctx,
-      );
-      assert.equal(text(clamped), "No new mockpit feedback.");
-      await invoke(
-        harness,
-        "mockpit_wait_for_feedback",
-        { session: surface.sessionId, timeoutSeconds: Infinity },
-        ctx,
-      );
-      assert.deepEqual(waits, ["300", "60"]);
-      const legacyReply = await invoke(
-        harness,
-        "mockpit_reply_to_user",
-        { surfaceId: "requested-surface", message: "Legacy response" },
-        ctx,
-      );
-      assert.match(text(legacyReply), /on surface legacy-surface/);
-      await assert.rejects(
-        invoke(harness, "mockpit_list_surfaces", { session: surface.sessionId }, ctx),
-        /418 Teapot/,
-      );
-      await assert.rejects(invoke(harness, "mockpit_get_design_guide", {}, ctx), /418 Teapot/);
+      await server.close();
     } finally {
-      globalThis.fetch = realFetch;
+      rmSync(dir, { recursive: true, force: true });
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
     }
+  });
+  return { dir, server, ctx: createContext(dir) };
+}
 
-    await server.close();
-    serverClosed = true;
-    await assert.rejects(
-      invoke(harness, "mockpit_get_design_guide", {}, ctx),
-      /server not reachable.*start it with "mockpit serve"/,
-    );
-    await assert.rejects(
-      invoke(harness, "mockpit_list_surfaces", { session: surface.sessionId }, ctx),
-      /server not reachable.*start it with "mockpit serve"/,
-    );
+test("the extension registers the mock tool set and no trace sync", async () => {
+  const harness = createPiHarness();
+  assert.deepEqual(
+    [...harness.tools.keys()],
+    [
+      "mockpit_get_design_guide",
+      "mockpit_publish_mock",
+      "mockpit_revise_mock",
+      "mockpit_ask_user",
+      "mockpit_list_mocks",
+      "mockpit_get_mock",
+      "mockpit_export_mock",
+      "mockpit_wait_for_feedback",
+      "mockpit_reply_to_user",
+      "mockpit_upload_asset",
+    ],
+  );
+  assert.deepEqual([...harness.commands.keys()], ["mockpit"]);
+  assert.deepEqual(harness.eventNames, ["session_start"]);
+  assert.deepEqual(harness.tool("mockpit_publish_mock").parameters.required, ["mock"]);
+  assert.deepEqual(harness.tool("mockpit_ask_user").parameters.required, ["mock", "asks"]);
+  assert.deepEqual(harness.tool("mockpit_reply_to_user").parameters.required, ["mock", "message"]);
+  const kinds =
+    harness.tool("mockpit_publish_mock").parameters.properties?.surfaces.items.properties.kind.enum;
+  for (const kind of ["html", "markdown", "mermaid", "diff", "image", "terminal", "json", "code"]) {
+    assert.ok(kinds.includes(kind), `publish schema includes ${kind}`);
+  }
+  assert.equal(kinds.includes("trace"), false);
+  const guidelines = harness.tool("mockpit_publish_mock").promptGuidelines!.join("\n");
+  assert.match(guidelines, /Two renders needed to show a choice/);
+});
 
-    await reconstructed.emit("turn_end", reconstructedCtx);
-  },
-);
+test("publish, revise, ask, list, get, wait, reply and export round-trip through a real server", async (t) => {
+  const { dir, server, ctx } = await setup(t);
+  const harness = createPiHarness();
+
+  writeFileSync(join(dir, "dark.html"), '<h1 data-part="title">T</h1><p data-part="body">dark</p>');
+  const quiet = await invoke(
+    harness,
+    "mockpit_publish_mock",
+    {
+      mock: "writer",
+      state: "Writing",
+      variant: "quiet",
+      html: '<h1 data-part="title">T</h1><p data-part="body">b</p>',
+      knobs: { "body.size": [17, 14, 22, 1], trim: { type: "select", options: ["top", "bottom"] } },
+    },
+    ctx,
+  );
+  assert.match(text(quiet), /^writer\/Writing\/quiet v1 · .*\/project\/acme%2Fsite\/writer/);
+  assert.match(text(quiet), /parts \(Writing\): title, body/);
+  assert.match(text(quiet), /nudge: knob "trim" has 2 discrete options/);
+  const sessionId = quiet.details!.sessionId;
+  assert.ok(sessionId);
+  const session = await getJson(`${server.url}/api/sessions/${sessionId}`);
+  assert.equal(session.agent, "contract-pi", "a publish that creates the session names the agent");
+
+  // The remembered session carries the second publish; `path` reads from the cwd.
+  const dark = await invoke(
+    harness,
+    "mockpit_publish_mock",
+    { mock: "writer", state: "Writing", variant: "dark", path: "dark.html" },
+    ctx,
+  );
+  assert.equal(dark.details!.sessionId, sessionId);
+
+  const revised = await invoke(
+    harness,
+    "mockpit_revise_mock",
+    { mock: "writer", state: "Writing", variant: "dark", html: '<h1 data-part="title">T2</h1>' },
+    ctx,
+  );
+  assert.match(text(revised), /^writer\/Writing\/dark v2 · /);
+  assert.match(text(revised), /part body vanished/);
+
+  const asked = await invoke(
+    harness,
+    "mockpit_ask_user",
+    {
+      mock: "writer",
+      asks: [
+        {
+          id: "look",
+          text: "Which look?",
+          options: [
+            { label: "Quiet", variant: "quiet" },
+            { label: "Dark", variant: "dark" },
+          ],
+        },
+      ],
+    },
+    ctx,
+  );
+  assert.match(text(asked), /^Asked on writer: Which look\? \[Quiet \| Dark\]/);
+
+  const listed = await invoke(harness, "mockpit_list_mocks", {}, ctx);
+  assert.match(text(listed), /^writer · component · Writing · 2 variants · 1 open$/);
+
+  const got = await invoke(harness, "mockpit_get_mock", { mock: "writer", body: true }, ctx);
+  assert.equal(got.details!.variants.length, 2);
+  assert.match(got.details!.variants[0].surfaces[0].html, /data-part/);
+
+  const empty = await invoke(harness, "mockpit_wait_for_feedback", { timeoutSeconds: 0 }, ctx);
+  assert.equal(text(empty), "No new mockpit feedback.");
+
+  const mockId = got.details!.id;
+  await postJson(`${server.url}/api/mocks/${mockId}/reply`, {
+    answers: { look: "dark" },
+    tuned: { "body.size": 19 },
+    comments: [{ part: "title", state: "Writing", text: "bigger" }],
+    text: "go dark",
+  });
+  const waited = await invoke(harness, "mockpit_wait_for_feedback", { timeoutSeconds: 5 }, ctx);
+  const lines = text(waited);
+  assert.match(lines, /- writer: Which look\? → Dark/);
+  assert.match(lines, /- writer: tuned body\.size = 19/);
+  assert.match(lines, /- writer: \[title · Writing\] bigger/);
+  assert.match(lines, /- writer: go dark/);
+  assert.equal(waited.details!.feedback[0].reply.answers.look, "dark");
+  const again = await invoke(harness, "mockpit_wait_for_feedback", { timeoutSeconds: 0 }, ctx);
+  assert.equal(text(again), "No new mockpit feedback.", "a reply is delivered once");
+
+  // A user comment left while the agent works rides back on its next write.
+  await postJson(`${server.url}/api/comments`, { mock: mockId, text: "one more", author: "user" });
+  const replied = await invoke(
+    harness,
+    "mockpit_reply_to_user",
+    { mock: "writer", message: "on it" },
+    ctx,
+  );
+  assert.match(text(replied), /^Posted mockpit reply on writer\./);
+  assert.match(text(replied), /User feedback delivered with this result:\n- writer: one more/);
+  assert.equal(replied.details!.author, "contract-pi");
+
+  const exported = await invoke(harness, "mockpit_export_mock", { mock: "writer" }, ctx);
+  assert.equal(exported.details!.states[0].variant, "dark");
+  assert.equal(exported.details!.states[0].status, "accepted");
+  assert.deepEqual(exported.details!.reply.tuned, { "body.size": 19 });
+});
+
+test("the design guide is the project-aware brief", async (t) => {
+  const { ctx } = await setup(t);
+  const harness = createPiHarness();
+  const guide = await invoke(harness, "mockpit_get_design_guide", {}, ctx);
+  assert.match(text(guide), /mockpit — design brief/);
+  assert.match(text(guide), /mockpit publish --mock/);
+});
+
+test("upload_asset reads a path, creates a session when asked, and remembers it", async (t) => {
+  const { dir, ctx } = await setup(t);
+  const harness = createPiHarness();
+  writeFileSync(join(dir, "shot.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  const uploaded = await invoke(
+    harness,
+    "mockpit_upload_asset",
+    { path: "@shot.png", sessionTitle: "Screens" },
+    ctx,
+  );
+  const asset = uploaded.details!.asset;
+  assert.equal(asset.contentType, "image/png");
+  assert.equal(asset.filename, "shot.png");
+  assert.match(text(uploaded), /^Uploaded mockpit asset /);
+
+  // The next publish lands in the session the upload created.
+  const published = await invoke(harness, "mockpit_publish_mock", { mock: "x", html: "<p/>" }, ctx);
+  assert.equal(published.details!.sessionId, uploaded.details!.sessionId);
+
+  await assert.rejects(
+    invoke(harness, "mockpit_upload_asset", {}, ctx),
+    /Provide either path or base64 data/,
+  );
+});
+
+test("session_start restores the session from earlier mockpit tool results; /mockpit reset forgets it", async (t) => {
+  const { dir } = await setup(t);
+  const harness = createPiHarness();
+  const branch = [
+    {
+      type: "message",
+      message: { role: "toolResult", toolName: "bash", details: { sessionId: "nope" } },
+    },
+    {
+      type: "message",
+      message: {
+        role: "toolResult",
+        toolName: "mockpit_publish_mock",
+        details: { sessionId: "s-1" },
+      },
+    },
+    {
+      type: "message",
+      message: {
+        role: "toolResult",
+        toolName: "mockpit_upload_asset",
+        details: { asset: { sessionId: "s-2" } },
+      },
+    },
+  ];
+  const ctx = createContext(dir, branch);
+  await harness.emit("session_start", ctx);
+  assert.deepEqual(ctx.statuses.at(-1), { key: "mockpit", value: "mockpit s-2" });
+
+  await harness.command("mockpit").handler("", ctx);
+  assert.match(ctx.notifications.at(-1)!.message, /\(session s-2\)/);
+  await harness.command("mockpit").handler("reset", ctx);
+  assert.match(ctx.statuses.at(-1)!.value, /^mockpit localhost:\d+$/);
+  await harness.command("mockpit").handler("", ctx);
+  assert.match(ctx.notifications.at(-1)!.message, /\(no session yet\)/);
+});
+
+test("wait without a session explains how to get one", async (t) => {
+  const { ctx } = await setup(t);
+  const harness = createPiHarness();
+  await assert.rejects(
+    invoke(harness, "mockpit_wait_for_feedback", {}, ctx),
+    /No mockpit session yet/,
+  );
+});
+
+test("server errors surface as the server's message", async (t) => {
+  const { ctx } = await setup(t);
+  const harness = createPiHarness();
+  await assert.rejects(
+    invoke(harness, "mockpit_revise_mock", { mock: "nope", html: "<p/>" }, ctx),
+    /mockpit \/api\/mocks\/nope\/revise failed: acme\/site has no mock "nope"/,
+  );
+});

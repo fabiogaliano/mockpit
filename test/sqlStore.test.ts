@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createSqliteStorage } from "../server/sqliteStorage.ts";
 import { SqlStore } from "../server/sqlStore.ts";
-import { htmlSurface, type SqlStorage } from "../server/types.ts";
 import { runStoreContract } from "./storeContract.ts";
 
 // Runs the shared store contract against SqlStore on node:sqlite (:memory:) —
@@ -13,12 +12,13 @@ runStoreContract("SqlStore", () => new SqlStore(createSqliteStorage()));
 const hotPathIndexes = {
   mockpit_assets_session_idx: ["sessionId"],
   mockpit_comments_id_idx: ["id"],
-  mockpit_comments_post_draft_idx: ["postId", "draft"],
+  mockpit_comments_mock_seq_idx: ["mockId", "seq"],
   mockpit_comments_post_seq_idx: ["postId", "seq"],
   mockpit_comments_session_seq_idx: ["sessionId", "seq"],
+  mockpit_mocks_slug_idx: ["project", "slug"],
+  mockpit_mocks_updated_at_idx: ["updatedAt"],
+  mockpit_posts_mock_idx: ["mockId", "state", "variant"],
   mockpit_posts_session_created_at_idx: ["sessionId", "createdAt"],
-  mockpit_posts_updated_at_idx: ["updatedAt"],
-  mockpit_posts_variant_idx: ["project", "slug", "variant"],
 } as const;
 
 test("SqlStore adds hot-path indexes to existing workspaces idempotently", () => {
@@ -49,35 +49,6 @@ test("SqlStore adds hot-path indexes to existing workspaces idempotently", () =>
   }
 });
 
-test("SqlStore replaces sideshow-era indexes with their mockpit names", () => {
-  const storage = createSqliteStorage();
-  new SqlStore(storage);
-
-  // Model a database created before the rename: same indexes, old prefix.
-  for (const name of Object.keys(hotPathIndexes)) {
-    const [{ sql }] = storage
-      .exec("SELECT sql FROM sqlite_master WHERE name = ?", name)
-      .toArray() as { sql: string }[];
-    storage.exec(`DROP INDEX ${name}`);
-    storage.exec(sql.replace(name, name.replace(/^mockpit_/, "sideshow_")));
-  }
-
-  new SqlStore(storage);
-
-  const names = storage
-    .exec("SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name")
-    .toArray()
-    .map((row) => row.name);
-  assert.deepEqual(
-    names.filter((name) => String(name).startsWith("sideshow_")),
-    [],
-  );
-  assert.deepEqual(
-    names.filter((name) => String(name).startsWith("mockpit_")),
-    Object.keys(hotPathIndexes),
-  );
-});
-
 test("SqlStore hot queries use their covering or ordering indexes", () => {
   const storage = createSqliteStorage();
   new SqlStore(storage);
@@ -97,13 +68,23 @@ test("SqlStore hot queries use their covering or ordering indexes", () => {
     "session",
   );
   assertUsesIndex(
-    "SELECT sessionId, COUNT(*) AS count FROM posts GROUP BY sessionId",
-    "mockpit_posts_session_created_at_idx",
+    "SELECT * FROM posts WHERE mockId = ? AND state IS ? AND variant = ? ORDER BY createdAt ASC LIMIT 1",
+    "mockpit_posts_mock_idx",
+    "mock",
+    "Writing",
+    "default",
   );
   assertUsesIndex(
-    "SELECT * FROM posts ORDER BY updatedAt DESC, rowid DESC LIMIT ?",
-    "mockpit_posts_updated_at_idx",
-    20,
+    "SELECT * FROM mocks WHERE project = ? AND slug = ?",
+    "mockpit_mocks_slug_idx",
+    "demo",
+    "writer",
+  );
+  assertUsesIndex(
+    "SELECT * FROM comments WHERE mockId = ? AND seq > ? ORDER BY seq ASC",
+    "mockpit_comments_mock_seq_idx",
+    "mock",
+    10,
   );
   assertUsesIndex(
     "SELECT * FROM comments WHERE sessionId = ? AND seq > ? ORDER BY seq ASC",
@@ -123,24 +104,4 @@ test("SqlStore hot queries use their covering or ordering indexes", () => {
     "mockpit_assets_session_idx",
     "session",
   );
-});
-
-test("SqlStore counts posts with one aggregate query and never selects body columns", async () => {
-  const storage = createSqliteStorage();
-  const queries: string[] = [];
-  const tracked: SqlStorage = {
-    exec(query, ...bindings) {
-      queries.push(query.replace(/\s+/g, " ").trim());
-      return storage.exec(query, ...bindings);
-    },
-  };
-  const store = new SqlStore(tracked);
-  const session = await store.createSession({ agent: "pi" });
-  await store.createPost({ sessionId: session.id, surfaces: [htmlSurface("<p>large</p>")] });
-
-  queries.length = 0;
-  const counts = await store.countPostsBySession();
-
-  assert.equal(counts.get(session.id), 1);
-  assert.deepEqual(queries, ["SELECT sessionId, COUNT(*) AS count FROM posts GROUP BY sessionId"]);
 });

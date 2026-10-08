@@ -5,10 +5,11 @@ description: Show design and visual work on the user's mockpit surface — UI co
 
 # mockpit
 
-The user may have a mockpit surface open in their browser. You publish **items**
-(a component or a page, addressed by a stable slug) with **variants** and
-numbered **versions**; they react on the render and you pick the reaction up from
-the terminal. The loop is `publish → ask → wait → revise`.
+The user may have a mockpit surface open in their browser. You publish **mocks**
+(a component or a page, addressed by a stable slug) with **states**, **variants**
+and numbered **versions**; they answer your questions, tune knobs and comment on
+parts, then send one reply you pick up from the terminal. The loop is
+`publish → ask → wait → revise`.
 
 This skill is only a bootstrap. Fetch the current instructions from the running
 server before using it — they ship with the deployed version and stay in sync:
@@ -20,9 +21,9 @@ mockpit guide --brief      # the html contract with THIS project's palette, kit 
 
 Run `mockpit init` once per repo first: it detects the repo's design system and
 stores its palette, kit and icons on the server, so your markup matches the
-codebase. Other verbs: `status`, `show`, `page`, `export`. MCP twins exist for
-each (`publish_item`, `revise_item`, `ask_user`, `wait_for_feedback`,
-`list_items`, `get_item`, `export_item`, `get_design_guide`); raw HTTP mirrors
+codebase. Other verbs: `status`, `show`, `export`. MCP twins exist for each
+(`publish_mock`, `revise_mock`, `ask_user`, `wait_for_feedback`, `reply_to_user`,
+`list_mocks`, `get_mock`, `export_mock`, `get_design_guide`); raw HTTP mirrors
 both.
 
 Default server is `http://localhost:8228` when `MOCKPIT_URL` is unset; without

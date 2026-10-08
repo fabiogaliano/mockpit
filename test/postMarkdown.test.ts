@@ -8,7 +8,7 @@ import { postToMarkdown, stripAnsi, unifiedDiff } from "../server/postMarkdown.t
 import type { MarkdownablePost } from "../server/postMarkdown.ts";
 import type { Surface } from "../server/types.ts";
 
-const OPTS = { postUrl: "https://ex.test/p/abc", assetBase: "https://ex.test" };
+const OPTS = { postUrl: "https://ex.test/s/abc", assetBase: "https://ex.test" };
 
 function post(surfaces: Surface[], extra: Partial<MarkdownablePost> = {}): MarkdownablePost {
   return { title: "Retry backoff", surfaces, ...extra };
@@ -42,7 +42,7 @@ test("heads the document with the title, permalink, version and an absolute stam
   );
   assert.equal(
     md,
-    "## Retry backoff\n\n[View in mockpit](https://ex.test/p/abc) · v3 · 2026-08-17 21:20 UTC\n\nprose\n",
+    "## Retry backoff\n\n[View in mockpit](https://ex.test/s/abc) · v3 · 2026-08-17 21:20 UTC\n\nprose\n",
   );
 });
 
@@ -68,7 +68,7 @@ test("flattens each surface kind to its honest markdown form", () => {
     md,
     [
       "## Retry backoff",
-      "[View in mockpit](https://ex.test/p/abc)",
+      "[View in mockpit](https://ex.test/s/abc)",
       "prose",
       "**`x.ts`**\n\n```ts\nconst x = 1;\n```",
       "```diff\n--- a/x.ts\n+++ b/x.ts\n@@ -1 +1 @@\n-a\n+b\n```",
@@ -82,14 +82,17 @@ test("flattens each surface kind to its honest markdown form", () => {
 
 test("html has no markdown form, so it links back to the surface", () => {
   const md = postToMarkdown(post([{ kind: "html", html: "<b onclick='x()'>hi</b>" }]), OPTS);
-  assert.match(md, /\[Html surface — open in mockpit\]\(https:\/\/ex\.test\/p\/abc\?part=0\)/);
+  assert.match(md, /\[Html surface — open in mockpit\]\(https:\/\/ex\.test\/s\/abc\?surface=0\)/);
   // Never dump markup into a document meant for pasting elsewhere.
   assert.doesNotMatch(md, /onclick/);
 });
 
 test("a kind this build doesn't know still links rather than vanishing", () => {
   const md = postToMarkdown(post([{ kind: "hologram" } as unknown as Surface]), OPTS);
-  assert.match(md, /\[hologram surface — open in mockpit\]\(https:\/\/ex\.test\/p\/abc\?part=0\)/);
+  assert.match(
+    md,
+    /\[hologram surface — open in mockpit\]\(https:\/\/ex\.test\/s\/abc\?surface=0\)/,
+  );
 });
 
 test("an excerpt keeps the line numbers the viewer shows", () => {
@@ -214,7 +217,7 @@ test("a post rendered without a URL or asset base still reads as markdown", () =
     post(
       [
         { kind: "html", html: "<p>hi</p>" },
-        { kind: "trace", steps: [{ label: "ran" }] },
+        { kind: "mermaid", mermaid: "flowchart TD\nA-->B" },
         { kind: "image", assetId: "a1", caption: "the shot" },
         { kind: "diff", files: [] },
         { kind: "terminal", text: "ok" },
@@ -224,7 +227,7 @@ test("a post rendered without a URL or asset base still reads as markdown", () =
     ),
   );
   assert.match(md, /_Html surface 1_/);
-  assert.match(md, /_Trace surface 2_/);
+  assert.match(md, /_Mermaid surface 2_|```mermaid/);
   assert.match(md, /_the shot_/, "no asset base: the caption stands in for the image");
   assert.ok(!md.includes("]("), "nothing links anywhere");
   // an unparseable timestamp is omitted rather than rendered as Invalid Date
@@ -236,7 +239,10 @@ test("a post rendered without a URL or asset base still reads as markdown", () =
 
 test("a surface kind this build does not know still links back to the surface", () => {
   const md = postToMarkdown(post([{ kind: "hologram" } as unknown as Surface]), OPTS);
-  assert.match(md, /\[hologram surface — open in mockpit\]\(https:\/\/ex\.test\/p\/abc\?part=0\)/);
+  assert.match(
+    md,
+    /\[hologram surface — open in mockpit\]\(https:\/\/ex\.test\/s\/abc\?surface=0\)/,
+  );
 });
 
 test("an empty diff and a bodiless code surface fall back rather than emit an empty fence", () => {

@@ -1,48 +1,41 @@
-// Store benchmarks: the read/write paths every request sits on top of.
-//
-// Both backends are measured because they have genuinely different cost curves,
-// and the app can run either (`MOCKPIT_STORE=json`). Where a JSON-store number
-// is dramatically worse, that IS the finding — the numbers exist to make that
-// visible rather than to be quietly excused.
+// Store benchmarks: the read/write paths every request sits on top of, on the
+// SQLite store in memory and on disk.
 //
 // Two methodology notes worth knowing before reading the numbers:
 //
 //   - Steady state, not first insert. Every backend is benchmarked against a
 //     pre-built workspace, so the numbers describe a store people have actually
 //     been using, not an empty table.
-//   - Writes use a FIXED iteration count. A write grows the store, and on the
-//     JSON store the next write then costs more (it rewrites the whole file), so
-//     an auto-scaled loop would run a different workload on every machine. A
-//     fixed count keeps the accumulated growth identical everywhere.
+//   - Writes use a FIXED iteration count, so the accumulated growth is
+//     identical on every machine.
 //
-// The scaling probe at the end exists because that JSON write cost is the single
-// steepest curve in the codebase: it's O(workspace) per write, so it is invisible
-// on a small workspace and pathological on a large one. Measuring create cost at
-// three sizes shows the slope directly, instead of asking anyone to infer it from
-// one number.
+// The scaling probe at the end measures create cost at three workspace sizes,
+// so a write that pays for every existing post shows up as a slope.
 
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqlStore } from "../../server/sqlStore.ts";
 import { createSqliteStorage } from "../../server/sqliteStorage.ts";
-import { JsonFileStore } from "../../server/storage.ts";
 import type { Store } from "../../server/types.ts";
-import { buildWorkspace, surfaceOfKind, TYPICAL, type WorkspaceShape } from "../fixtures.ts";
+import {
+  createBenchPost,
+  buildWorkspace,
+  surfaceOfKind,
+  TYPICAL,
+  type WorkspaceShape,
+} from "../fixtures.ts";
 import { memory, retainedHeap, type Suite, type SuiteContext, time } from "../harness.ts";
 
 const tmpPath = (name: string) => join(mkdtempSync(join(tmpdir(), "mockpit-bench-")), name);
 
-/** Ops per write benchmark. Enough samples for a stable median, few enough that
- *  the JSON store's quadratic growth doesn't dominate the suite's wall time. */
+/** Ops per write benchmark: enough samples for a stable median. */
 const WRITE_ITERATIONS = 40;
 
 /**
  * Shape used for the memory comparison. Deliberately smaller than the API
- * suite's HEAVY: it has to be affordable on the JSON store (every write rewrites
- * the file, so building 900 posts × 5 revisions there means gigabytes of I/O and
- * minutes of wall time). Same shape for every backend, so the heap numbers are
- * comparable to each other.
+ * suite's HEAVY, to keep the suite's wall time down. Same shape for every
+ * backend, so the heap numbers are comparable to each other.
  */
 const MEMORY_SHAPE: WorkspaceShape = {
   sessions: 12,
@@ -53,7 +46,7 @@ const MEMORY_SHAPE: WorkspaceShape = {
   size: "small",
 };
 
-type BackendId = "sqlite-memory" | "sqlite-file" | "json-file";
+type BackendId = "sqlite-memory" | "sqlite-file";
 
 interface Backend {
   id: BackendId;
@@ -81,17 +74,6 @@ const BACKENDS: Backend[] = [
     reopen: (store) =>
       new SqlStore(createSqliteStorage((store as SqlStore & { __path: string }).__path)),
   },
-  {
-    id: "json-file",
-    label: "JsonFileStore",
-    create: () => {
-      const path = tmpPath("bench.json");
-      const store = new JsonFileStore(path) as JsonFileStore & { __path: string };
-      store.__path = path;
-      return store;
-    },
-    reopen: (store) => new JsonFileStore((store as JsonFileStore & { __path: string }).__path),
-  },
 ];
 
 async function benchBackend(ctx: SuiteContext, backend: Backend) {
@@ -105,7 +87,7 @@ async function benchBackend(ctx: SuiteContext, backend: Backend) {
 
   await ctx.time(
     `${backend.id}/listPosts(session)`,
-    () => store.listPosts(built.busiestSessionId),
+    () => store.listPosts({ sessionId: built.busiestSessionId }),
     {
       note: `${label}, ${TYPICAL.postsPerSession} posts in session`,
     },
@@ -115,9 +97,7 @@ async function benchBackend(ctx: SuiteContext, backend: Backend) {
   // history here, so this is the one most likely to dominate a large workspace.
   await ctx.time(`${backend.id}/listPosts(all)`, () => store.listPosts(), { note: scale });
 
-  await ctx.time(`${backend.id}/listRecentPosts(20)`, () => store.listRecentPosts(20), {
-    note: scale,
-  });
+  await ctx.time(`${backend.id}/listMocks`, () => store.listMocks(), { note: scale });
 
   await ctx.time(
     `${backend.id}/listComments(session)`,
@@ -128,11 +108,6 @@ async function benchBackend(ctx: SuiteContext, backend: Backend) {
   await ctx.time(`${backend.id}/listSessions`, () => store.listSessions(), {
     note: `${label}, ${TYPICAL.sessions} sessions`,
   });
-
-  if (store.countPostsBySession) {
-    const countPosts = store.countPostsBySession.bind(store);
-    await ctx.time(`${backend.id}/countPostsBySession`, () => countPosts(), { note: scale });
-  }
 
   // isAssetReferenced scans every post's surfaces + history looking for the id.
   // It runs on the asset-serving path, so its cost is proportional to workspace
@@ -148,7 +123,7 @@ async function benchBackend(ctx: SuiteContext, backend: Backend) {
   await ctx.time(
     `${backend.id}/createPost`,
     () =>
-      store.createPost({
+      createBenchPost(store, {
         sessionId: built.busiestSessionId,
         title: "bench post",
         surfaces: [surface] as never,
@@ -176,16 +151,15 @@ async function benchBackend(ctx: SuiteContext, backend: Backend) {
   );
 
   // --- cold open ---------------------------------------------------------
-  // What a server restart pays before serving its first request. The JSON store
-  // parses the entire workspace file here; SQLite opens a handle and runs its
-  // migration probes.
+  // What a server restart pays before serving its first request: SQLite opens a
+  // handle and runs its migration probes.
   if (backend.reopen) {
     const reopen = backend.reopen;
     await ctx.time(
       `${backend.id}/cold open + first read`,
       async () => {
         const fresh = reopen(store);
-        await fresh.listRecentPosts(20);
+        await fresh.listMocks();
       },
       { note: scale, minSamples: 7, minMs: 300 },
     );
@@ -205,7 +179,7 @@ async function benchWriteScaling(ctx: SuiteContext, backend: Backend) {
     const session = await store.createSession({ agent: "bench", title: "scaling" });
     const surface = surfaceOfKind("markdown", "small");
     for (let i = 0; i < existing; i++) {
-      await store.createPost({
+      await createBenchPost(store, {
         sessionId: session.id,
         title: `seed ${i}`,
         surfaces: [surface] as never,
@@ -216,7 +190,7 @@ async function benchWriteScaling(ctx: SuiteContext, backend: Backend) {
         "store",
         name,
         () =>
-          store.createPost({
+          createBenchPost(store, {
             sessionId: session.id,
             title: "probe",
             surfaces: [surface] as never,
@@ -236,8 +210,8 @@ export const storeSuite: Suite = {
 
     // --- memory ------------------------------------------------------------
     // How much heap a loaded workspace costs. This is the direct answer to "why
-    // does the mockpit server hold so much memory?" — the JSON store keeps the
-    // entire workspace resident by design; SQLite should not.
+    // does the mockpit server hold so much memory?" — SQLite should not keep the
+    // workspace resident.
     for (const backend of BACKENDS) {
       const loadedName = `${backend.id}/heap for loaded workspace`;
       const listName = `${backend.id}/heap for listPosts(all) result`;

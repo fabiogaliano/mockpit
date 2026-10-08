@@ -90,19 +90,6 @@ const looseDiffFile = z
     ...(language && { language }),
   }));
 
-const strictTraceStep = z.object({
-  label: requiredString("label"),
-  kind: z.string().optional(),
-  detail: z.string().optional(),
-  ts: z.string().optional(),
-});
-const looseTraceStep = z.object({
-  label: z.string(),
-  kind: optionalLooseString,
-  detail: optionalLooseString,
-  ts: optionalLooseString,
-});
-
 const filteredArray = <T>(schema: z.ZodType<T, z.ZodTypeDef, any>) =>
   z.preprocess((raw) => {
     if (!Array.isArray(raw)) return raw;
@@ -192,27 +179,6 @@ const looseImageSurface = z.object({
   caption: optionalLooseString,
 });
 
-const strictTraceSurface = z
-  .object({
-    kind: z.literal("trace"),
-    steps: z.array(strictTraceStep).optional(),
-    assetId: z.string().optional(),
-    title: z.string().optional(),
-  })
-  .refine((p) => !!p.assetId || (p.steps?.length ?? 0) > 0, {
-    message: 'trace surface requires "assetId" or non-empty "steps"',
-  });
-const looseTraceSurface = z
-  .object({
-    kind: z.literal("trace"),
-    steps: filteredArray(looseTraceStep).optional(),
-    assetId: optionalLooseString,
-    title: optionalLooseString,
-  })
-  .refine((p) => !!p.assetId || (p.steps?.length ?? 0) > 0, {
-    message: 'trace surface requires "assetId" or non-empty "steps"',
-  });
-
 const strictTerminalSurface = z.object({
   kind: z.literal("terminal"),
   text: requiredString("text"),
@@ -271,7 +237,6 @@ const looseSurfaceSchema = z.union([
   looseMermaidSurface,
   looseDiffSurface,
   looseImageSurface,
-  looseTraceSurface,
   looseTerminalSurface,
   looseJsonSurface,
   looseCodeSurface,
@@ -283,7 +248,6 @@ const strictSurfaceSchemas = {
   mermaid: strictMermaidSurface,
   diff: strictDiffSurface,
   image: strictImageSurface,
-  trace: strictTraceSurface,
   terminal: strictTerminalSurface,
   json: strictJsonSurface,
   code: strictCodeSurface,

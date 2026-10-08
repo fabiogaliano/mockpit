@@ -13,7 +13,7 @@ import { createApp } from "../../server/app.ts";
 import { SqlStore } from "../../server/sqlStore.ts";
 import { createSqliteStorage } from "../../server/sqliteStorage.ts";
 import type { Store } from "../../server/types.ts";
-import { buildWorkspace, HEAVY, surfaceOfKind, TYPICAL } from "../fixtures.ts";
+import { createBenchPost, buildWorkspace, HEAVY, surfaceOfKind, TYPICAL } from "../fixtures.ts";
 import { bytes, count, memory, retainedHeap, type Suite, type SuiteContext } from "../harness.ts";
 
 const VIEWER_HTML = "<html><head></head><body>viewer</body></html>";
@@ -50,14 +50,17 @@ const hit = async (app: App, path: string) => {
   await (await app.request(path)).text();
 };
 
-async function benchReads(ctx: SuiteContext, app: App, sessionId: string, scale: string) {
+async function benchReads(
+  ctx: SuiteContext,
+  app: App,
+  sessionId: string,
+  mockId: string,
+  scale: string,
+) {
   const reads: [string, string][] = [
     ["GET /api/sessions", "/api/sessions"],
-    ["GET /api/posts/recent?limit=20", "/api/posts/recent?limit=20"],
-    ["GET /api/sessions/:id/posts", `/api/sessions/${sessionId}/posts`],
-    // The hydrate flavor is what a viewer tab loads on open — one response
-    // carrying the session's whole stream.
-    ["GET /api/sessions/:id/posts?hydrate=1", `/api/sessions/${sessionId}/posts?hydrate=1`],
+    ["GET /api/mocks", "/api/mocks"],
+    ["GET /api/mocks/:id", `/api/mocks/${mockId}`],
     ["GET /api/comments?session", `/api/comments?session=${sessionId}`],
   ];
   for (const [name, path] of reads) {
@@ -89,6 +92,7 @@ export const apiSuite: Suite = {
         },
         app,
         built.busiestSessionId,
+        (await store.listMocks())[0]?.id ?? "",
         `${built.totalPosts} posts / ${built.totalComments} comments`,
       );
     }
@@ -102,26 +106,29 @@ export const apiSuite: Suite = {
 
       const publishBody = {
         session: built.busiestSessionId,
-        title: "bench",
-        parts: [surfaceOfKind("markdown", "small")],
+        mock: "bench-publish",
+        surfaces: [surfaceOfKind("markdown", "small")],
       };
       await ctx.time(
-        "POST /api/posts (publish)",
+        "POST /api/mocks (publish)",
         async () => {
-          await (await app.request("/api/posts", jsonPost(publishBody))).text();
+          await (await app.request("/api/mocks", jsonPost(publishBody))).text();
         },
         { note: scale },
       );
 
-      const target = built.postIds[0];
+      const target = (await store.listMocks())[0].id;
       let rev = 0;
       await ctx.time(
-        "PUT /api/posts/:id (revise)",
+        "POST /api/mocks/:id/revise",
         async () => {
-          const res = await app.request(`/api/posts/${target}`, {
-            method: "PUT",
+          const res = await app.request(`/api/mocks/${target}/revise`, {
+            method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ title: `rev ${rev++}` }),
+            body: JSON.stringify({
+              title: `rev ${rev++}`,
+              surfaces: [surfaceOfKind("markdown", "small")],
+            }),
           });
           await res.text();
         },
@@ -151,7 +158,7 @@ export const apiSuite: Suite = {
       const session = await store.createSession({ agent: "bench", title: "surfaces" });
       const perKind: Record<string, string> = {};
       for (const kind of ["html", "markdown", "code", "diff", "terminal"]) {
-        const post = await store.createPost({
+        const post = await createBenchPost(store, {
           sessionId: session.id,
           title: kind,
           surfaces: [surfaceOfKind(kind, "small")] as never,
@@ -164,7 +171,7 @@ export const apiSuite: Suite = {
       // and the server renders differently when the mode is pinned — so a bench
       // that omits them measures a URL shape no viewer ever sends, and would score
       // a change to the pinned path as no change at all. Match the real client.
-      const viewerQuery = "part=0&ver=1&theme=github&mode=dark";
+      const viewerQuery = "surface=0&ver=1&theme=github&mode=dark";
       for (const [kind, id] of Object.entries(perKind)) {
         const path = `/s/${id}?${viewerQuery}`;
         // Warm: every request after the first hits the memoized document.
@@ -184,7 +191,7 @@ export const apiSuite: Suite = {
         let n = 0;
         await ctx.time(
           `GET /s/:id ${kind} (cache miss)`,
-          () => hit(app, `/s/${id}?part=0&mode=dark&theme=bench-${n++}`),
+          () => hit(app, `/s/${id}?surface=0&mode=dark&theme=bench-${n++}`),
           { note: "forced re-render", minSamples: 7, minMs: 300 },
         );
       }
@@ -210,7 +217,7 @@ export const apiSuite: Suite = {
       const ids: string[] = [];
       for (let i = 0; i < 64; i++) {
         const kind = ["markdown", "code", "diff", "terminal", "html"][i % 5];
-        const post = await store.createPost({
+        const post = await createBenchPost(store, {
           sessionId: session.id,
           title: `p${i}`,
           surfaces: [surfaceOfKind(kind, "small", i)] as never,
@@ -219,10 +226,10 @@ export const apiSuite: Suite = {
       }
       const app = makeApp(store);
       // Warm the shared highlighter first so its one-time heap isn't billed here.
-      await hit(app, `/s/${ids[0]}?part=0`);
+      await hit(app, `/s/${ids[0]}?surface=0`);
       const { retained } = await retainedHeap(async () => {
         const fresh = makeApp(store);
-        for (const id of ids) await hit(fresh, `/s/${id}?part=0`);
+        for (const id of ids) await hit(fresh, `/s/${id}?surface=0`);
         return fresh;
       });
       ctx.add(

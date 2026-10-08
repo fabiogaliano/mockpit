@@ -80,17 +80,18 @@ function bootServer(): Promise<Server> {
 }
 
 async function publish(url: string, sessionId: string | undefined, index: number) {
-  const res = await fetch(`${url}/api/posts`, {
+  const res = await fetch(`${url}/api/mocks`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       ...(sessionId ? { session: sessionId } : { agent: "bench", sessionTitle: "Viewer bench" }),
-      title: `Post ${index}`,
-      parts: [surfaceOfKind(KIND_MIX[index % KIND_MIX.length], "small", index % 4)],
+      mock: `post-${index}`,
+      surfaces: [surfaceOfKind(KIND_MIX[index % KIND_MIX.length], "small", index % 4)],
     }),
   });
   if (!res.ok) throw new Error(`publish failed: ${res.status}`);
-  return (await res.json()) as { id: string; sessionId: string };
+  const body = (await res.json()) as { post: { id: string }; sessionId: string };
+  return { id: body.post.id, sessionId: body.sessionId };
 }
 
 type Metrics = Record<string, number>;

@@ -1,6 +1,5 @@
 import { expect, test } from "vitest";
-import type { ViewerPost } from "../../server/apiViews.ts";
-import type { Post } from "../../server/types.ts";
+import type { Post, ViewerPost } from "../src/legacyModel.ts";
 import { compactViewerPost } from "../src/viewerPost.ts";
 
 const compact: ViewerPost = {

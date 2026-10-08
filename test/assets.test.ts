@@ -52,25 +52,24 @@ test("selectEvictions falls back to referenced assets only as a last resort", ()
 
 // --- collectAssetIds ---
 
-test("collectAssetIds gathers image and trace asset ids, ignoring html/diff", () => {
+test("collectAssetIds gathers image asset ids, ignoring html/diff", () => {
   const surfaces: Surface[] = [
     { kind: "html", html: "<img src=/a/raw>" }, // raw-url embeds are invisible here
     { kind: "diff", patch: "x" },
     { kind: "image", assetId: "img1" },
-    { kind: "trace", assetId: "tr1", steps: [{ label: "s" }] },
-    { kind: "trace", steps: [{ label: "inline only" }] }, // no assetId -> nothing
+    { kind: "image", assetId: "img2" },
   ];
   const out = new Set<string>();
   collectAssetIds(surfaces, out);
-  assert.deepEqual([...out].sort(), ["img1", "tr1"]);
+  assert.deepEqual([...out].sort(), ["img1", "img2"]);
 });
 
 // --- surfacesByteLength ---
 
-test("surfacesByteLength counts image/trace surfaces without throwing", () => {
+test("surfacesByteLength counts image and json surfaces without throwing", () => {
   const n = surfacesByteLength([
     { kind: "image", assetId: "abc", caption: "hi" },
-    { kind: "trace", steps: [{ label: "step", detail: "body" }] },
+    { kind: "json", data: { a: 1 } },
   ]);
   assert.ok(n > 0);
 });
@@ -85,8 +84,6 @@ test("validateSurfaces accepts all supported surface kinds", async () => {
     { kind: "diff", files: [{ filename: "a.ts", before: "a", after: "b" }] },
     { kind: "mermaid", mermaid: 'pie title Pets\n  "Dogs" : 386' },
     { kind: "image", assetId: "img", alt: "shot", caption: "cap" },
-    { kind: "trace", steps: [{ label: "read", kind: "tool" }], title: "Trace" },
-    { kind: "trace", assetId: "trace-file" },
     { kind: "json", data: { a: 1, b: [true, null, "hi"] } },
     { kind: "json", data: null },
     { kind: "json", data: 42 },
@@ -105,8 +102,6 @@ test("validateSurfaces accepts all supported surface kinds", async () => {
         "diff",
         "mermaid",
         "image",
-        "trace",
-        "trace",
         "json",
         "json",
         "json",
@@ -125,7 +120,7 @@ test("validateSurfaces rejects malformed surfaces", async () => {
     [{ kind: "diff", files: [{ filename: "x", before: "a" }] }],
     [{ kind: "diff", patch: "x", layout: "sideways" }],
     [{ kind: "image" }],
-    [{ kind: "trace", steps: [{ detail: "missing label" }] }],
+    [{ kind: "trace", steps: [{ label: "trace is not a surface kind" }] }],
     [{ kind: "json" }], // missing data
     [{ kind: "code" }], // missing code
     [{ kind: "unknown" }],
@@ -254,14 +249,10 @@ test("coerceSurfaces keeps valid image surfaces and drops ones without an assetI
   assert.deepEqual(surfaces, [{ kind: "image", assetId: "x", alt: "a", caption: "c" }]);
 });
 
-test("coerceSurfaces accepts trace by steps, by assetId, or both; drops empty/malformed", async () => {
+test("coerceSurfaces drops the retired trace kind", async () => {
   const surfaces = await coerceSurfaces([
-    { kind: "trace", steps: [{ label: "ok" }, { detail: "no label" }], title: "T" },
-    { kind: "trace", assetId: "file1" },
-    { kind: "trace" }, // neither steps nor assetId -> dropped
+    { kind: "trace", steps: [{ label: "ok" }] },
+    { kind: "markdown", markdown: "kept" },
   ]);
-  assert.deepEqual(surfaces, [
-    { kind: "trace", steps: [{ label: "ok" }], title: "T" },
-    { kind: "trace", assetId: "file1" },
-  ]);
+  assert.deepEqual(surfaces, [{ kind: "markdown", markdown: "kept" }]);
 });

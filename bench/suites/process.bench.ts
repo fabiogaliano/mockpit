@@ -248,17 +248,17 @@ export const processSuite: Suite = {
       // The first rich surface loads shiki's themes and grammars into the server
       // process; that step is invisible in an idle reading but permanent
       // afterwards. Measuring both makes the jump attributable.
-      const publish = await fetch(`${server.url}/api/posts`, {
+      const publish = await fetch(`${server.url}/api/mocks`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          title: "bench",
+          mock: "bench",
           agent: "bench",
-          parts: [{ kind: "code", code: "const x = 1;\n", language: "typescript" }],
+          surfaces: [{ kind: "code", code: "const x = 1;\n", language: "typescript" }],
         }),
       });
-      const post = (await publish.json()) as { id: string };
-      await (await fetch(`${server.url}/s/${postId(post.id)}?part=0`)).text();
+      const { post } = (await publish.json()) as { post: { id: string } };
+      await (await fetch(`${server.url}/s/${postId(post.id)}?surface=0`)).text();
       await sleep(750);
       ctx.add(
         memory(

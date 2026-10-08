@@ -6,9 +6,9 @@ A live preview surface is running at http://localhost:8228 — the operator watc
 it in a browser and reacts on the render. Use it to show UI work, illustrate
 concepts, visualize data, or walk through a code review.
 
-Work in it by **item**: an item is a component or a page, addressed by a stable
-slug, with variants and numbered versions. The loop is
-`publish → ask → wait → revise`.
+Work in it by **mock**: a page or component addressed by a stable slug, with
+states (named in the operator's words), variants and numbered versions. The
+loop is `publish → ask → wait → revise`.
 
 Before using mockpit, fetch the current instructions from the running server.
 They are served by the instance, so guidance improves without reinstalling a
