@@ -1084,8 +1084,12 @@ const commands = {
     const d = design.detected;
     // `detected` is always an object, so emptiness has to be read off the
     // fields — otherwise a repo with no design system printed a blank line.
+    const stripped = design.strippedImports?.length
+      ? ` (stripped: ${design.strippedImports.join(", ")})`
+      : "";
     const found = [
-      d?.tailwind && "tailwind",
+      d?.tailwind &&
+        (design.tailwindSource ? `tailwind: ${design.tailwindSource}${stripped}` : "tailwind"),
       d?.shadcn && "shadcn",
       d?.cssVars ? `${d.cssVars} css vars${design.source ? ` from ${design.source}` : ""}` : null,
       d?.fonts?.length ? `fonts ${d.fonts.join(", ")}` : null,
@@ -1102,6 +1106,8 @@ const commands = {
         detected: design.detected ?? null,
         palette: design.palette ?? null,
         cssVars: design.cssVars ?? "",
+        tailwindCss: design.tailwindCss ?? "",
+        strippedImports: design.strippedImports ?? [],
         kit: design.kit ?? "builtin",
       }),
     });

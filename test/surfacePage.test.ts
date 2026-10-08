@@ -570,6 +570,8 @@ test("a project's design injects its tokens and kit into the frame", () => {
       kit: "tailwind",
       // a bare declaration list, the other spelling init can store
       cssVars: "--radius: 0.5rem; --brand: #0af;",
+      tailwindCss: "",
+      strippedImports: [],
       iconSets: [],
       updatedAt: "2026-09-15T00:00:00.000Z",
     },
@@ -589,6 +591,8 @@ test("a project's design injects its tokens and kit into the frame", () => {
       palette: null,
       kit: "builtin",
       cssVars: ":root{--radius:2px}",
+      tailwindCss: "",
+      strippedImports: [],
       iconSets: [],
       updatedAt: "2026-09-15T00:00:00.000Z",
     },
@@ -601,6 +605,53 @@ test("a project's design injects its tokens and kit into the frame", () => {
   assert.ok(!builtin.includes('<script src="https://cdn.'), "no CDN for the CSS-only kit");
   // the builtin kit is a kit like any other, so it arrives as a linked asset
   assert.match(builtin, /href="[^"]*\/asset\/kit-builtin\.[a-z0-9]+\.css"/);
+});
+
+// The browser build compiles the style tags present when its script runs, and
+// a shadcn repo themes dark through a `.dark` ancestor.
+test("a Tailwind project's stylesheet reaches the browser build, before it, with .dark", () => {
+  const design = {
+    detected: null,
+    palette: null,
+    kit: "tailwind" as const,
+    cssVars: ":root{--card:#fff}\n.dark{--card:#111}",
+    tailwindCss: '@import "tailwindcss";\n:root{--card:#fff}\n.dark{--card:#111}\n</style><b>',
+    strippedImports: ["tw-animate-css"],
+    iconSets: [],
+    updatedAt: "2026-10-08T00:00:00.000Z",
+  };
+  const dark = renderHtmlPage({
+    title: "t",
+    html: "<p>x</p>",
+    origin: ORIGIN,
+    design,
+    mode: "dark",
+  });
+  const style = dark.indexOf('<style type="text/tailwindcss">@import "tailwindcss";');
+  const script = dark.indexOf('<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4">');
+  assert.ok(style > 0 && script > style, "the stylesheet precedes the browser build");
+  assert.ok(!dark.includes("<style>:root{--card:#fff}"), "cssVars is not injected beside it");
+  assert.ok(!dark.includes("</style><b>"), "the stylesheet cannot close its own tag");
+  assert.match(dark, /<html class="dark" lang="en"/);
+  assert.match(dark, /--color-background-primary/, "mockpit's tokens still load");
+
+  const light = renderHtmlPage({
+    title: "t",
+    html: "<p>x</p>",
+    origin: ORIGIN,
+    design,
+    mode: "light",
+  });
+  assert.match(light, /<html lang="en"/);
+
+  const v3 = renderHtmlPage({
+    title: "t",
+    html: "<p>x</p>",
+    origin: ORIGIN,
+    design: { ...design, tailwindCss: "" },
+  });
+  assert.ok(!v3.includes("text/tailwindcss"));
+  assert.match(v3, /<style>:root\{--card:#fff\}/, "without a stylesheet the tokens still load");
 });
 
 test("a surface with no project design injects nothing at all", () => {

@@ -16,6 +16,8 @@ const design = (over: Partial<DesignSettings> = {}): DesignSettings => ({
   palette: null,
   kit: "none",
   cssVars: "",
+  tailwindCss: "",
+  strippedImports: [],
   iconSets: [],
   updatedAt: "2026-09-15T00:00:00.000Z",
   ...over,
@@ -56,9 +58,21 @@ test("the palette table carries the project's real values", () => {
 });
 
 test("each kit mode documents the vocabulary that mode actually injects", () => {
-  const tailwind = renderBriefGuide(design({ kit: "tailwind" }));
+  const tailwind = renderBriefGuide(
+    design({
+      kit: "tailwind",
+      tailwindCss: '@import "tailwindcss";',
+      strippedImports: ["tw-animate-css"],
+    }),
+  );
   assert.match(tailwind, /Kit: tailwind/);
-  assert.match(tailwind, /bg-\[var\(--card\)\]/, "tokens are reached through arbitrary values");
+  assert.match(tailwind, /`bg-card`/, "the repo's theme classes are written as in the repo");
+  assert.match(tailwind, /not available: `tw-animate-css`/);
+  assert.ok(!/bg-\[var/.test(tailwind), "no arbitrary-value detour");
+
+  const noTheme = renderBriefGuide(design({ kit: "tailwind" }));
+  assert.match(noTheme, /theme did not import/);
+  assert.ok(!noTheme.includes("`bg-card`"), "theme classes are not promised without a theme");
 
   const builtin = renderBriefGuide(design({ kit: "builtin" }));
   assert.match(builtin, /Kit: builtin/);
@@ -90,6 +104,8 @@ test("the brief fits in 6,000 characters for every kit, with a palette", () => {
         palette: { light: theme.light, dark: theme.dark },
         detected: { tailwind: true, shadcn: true, cssVars: 24, fonts: ["Inter", "Mono"] },
         cssVars: ":root{--radius:0.5rem}",
+        tailwindCss: '@import "tailwindcss";',
+        strippedImports: ["tw-animate-css", "shadcn/tailwind.css"],
         iconSets: [{ prefix: "tabler", assetId: "asset1", count: 5000 }],
       }),
     );

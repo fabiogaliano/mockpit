@@ -197,6 +197,51 @@ function extractFonts(css) {
   return [...fonts].slice(0, 8);
 }
 
+// The only ids the Tailwind v4 browser build resolves for `@import`; any other
+// import, and every `@plugin` or `@config`, makes its compile throw, which
+// would leave the frame with no utilities at all.
+const TAILWIND_CORE_IMPORTS = new Set([
+  "tailwindcss",
+  ...["preflight", "theme", "utilities"].flatMap((f) => [
+    `tailwindcss/${f}`,
+    `tailwindcss/${f}.css`,
+  ]),
+]);
+const TAILWIND_ENTRY = /@import\s+(?:url\(\s*)?["']tailwindcss["']/;
+const TAILWIND_V3 = /@tailwind\s+(base|components|utilities)/;
+const IMPORT_RULE =
+  /@(import|plugin|config)\s+(url\(\s*(?:"[^"]*"|'[^']*'|[^)]*?)\s*\)|"[^"]*"|'[^']*')[^;]*;?/g;
+const TAILWIND_CSS_MAX = 128_000;
+
+const unquote = (s) =>
+  s
+    .replace(/^url\(\s*|\s*\)$/g, "")
+    .trim()
+    .replace(/^["']|["']$/g, "");
+
+/**
+ * The repo's Tailwind entry stylesheet reduced to what the browser build can
+ * compile, so the frame gets the repo's own theme and `bg-card` works.
+ * `{css, strippedImports}`, or null when the result would not compile or fit.
+ */
+export function tailwindSource(css) {
+  // A v3 entry's theme lives in tailwind.config, which the browser build
+  // cannot load; its `@apply border-border` would then throw.
+  if (TAILWIND_V3.test(css)) return null;
+  const stripped = [];
+  let text = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  text = text.replace(IMPORT_RULE, (rule, kind, target) => {
+    const id = unquote(target);
+    if (kind === "import" && TAILWIND_CORE_IMPORTS.has(id)) return rule;
+    stripped.push(id);
+    return "";
+  });
+  text = text.replace(/\n\s*\n(\s*\n)+/g, "\n\n").trim();
+  if (!/@import\b/.test(text)) text = `@import "tailwindcss";\n${text}`;
+  if (text.length > TAILWIND_CSS_MAX) return null;
+  return { css: text, strippedImports: [...new Set(stripped)] };
+}
+
 function hasTailwind(cwd) {
   if (
     ["js", "cjs", "mjs", "ts", "cts", "mts"].some((ext) =>
@@ -221,7 +266,7 @@ export async function detectDesign(cwd) {
   const cssFiles = findCssFiles(cwd, budget);
 
   let best = null;
-  let tailwindInCss = false;
+  let entry = null;
   const fonts = new Set();
   for (const file of cssFiles) {
     let css;
@@ -230,7 +275,10 @@ export async function detectDesign(cwd) {
     } catch {
       continue;
     }
-    if (/@import\s+["']tailwindcss|@tailwind\s+(base|utilities)/.test(css)) tailwindInCss = true;
+    if (TAILWIND_ENTRY.test(css) || TAILWIND_V3.test(css)) {
+      const count = customProps(css).length;
+      if (!entry || count > entry.count) entry = { file, css, count };
+    }
     if (!/@theme\b|:root\s*\{|\.dark\s*\{/.test(css)) continue;
     const tokens = extractTokens(css);
     for (const f of extractFonts(css)) fonts.add(f);
@@ -239,9 +287,20 @@ export async function detectDesign(cwd) {
     }
   }
 
-  const tailwind = hasTailwind(cwd) || tailwindInCss;
+  const tailwind = hasTailwind(cwd) || entry !== null;
   const shadcn = Boolean(readJson(join(cwd, "components.json"))?.aliases);
   const cssVars = best ? best.text : "";
+  let tailwindFile = tailwind ? (entry?.file ?? best?.file ?? null) : null;
+  let tw = null;
+  if (tailwindFile) {
+    try {
+      tw = tailwindSource(entry ? entry.css : readFileSync(tailwindFile, "utf8"));
+    } catch {
+      tw = null;
+    }
+    if (!tw) tailwindFile = null;
+  }
+  const rel = (file) => relative(cwd, file) || basename(file);
   return {
     detected: {
       tailwind,
@@ -253,8 +312,11 @@ export async function detectDesign(cwd) {
     cssVars,
     // Where the tokens came from, relative to the repo — `init` prints it so
     // the operator can see which file was imported.
-    source: best ? relative(cwd, best.file) || basename(best.file) : null,
+    source: best ? rel(best.file) : null,
     kit: tailwind ? "tailwind" : "builtin",
+    tailwindCss: tw ? tw.css : "",
+    strippedImports: tw ? tw.strippedImports : [],
+    tailwindSource: tailwindFile ? rel(tailwindFile) : null,
   };
 }
 
@@ -400,16 +462,14 @@ export async function findIconSet(prefix, cwd) {
 // already speaks the project's kit, tokens and icons, so the first publish is a
 // copy-and-edit rather than a guess. Two bodies, because the class vocabulary
 // differs: Tailwind's utilities vs the builtin kit's components.
-// Utilities only, with the repo's own custom properties reached through
-// arbitrary values: the sandbox loads Tailwind's browser build and the repo's
-// `:root` tokens, but NOT the repo's compiled theme — so `bg-background` would
-// resolve to nothing while `bg-[var(--background)]` is exact.
-const TAILWIND_BODY = `<section class="flex flex-col gap-3 rounded-xl border p-6 bg-[var(--card,var(--color-background-primary))] border-[var(--border,var(--color-border-secondary))]">
+// The theme classes resolve because the frame compiles the repo's own Tailwind
+// entry stylesheet (`tailwindCss`).
+const TAILWIND_BODY = `<section class="flex flex-col gap-3 rounded-xl border border-border bg-card p-6 text-card-foreground">
   <h2 class="text-lg font-semibold">Title</h2>
-  <p class="text-sm text-[var(--muted-foreground,var(--color-text-secondary))]">Body copy.</p>
+  <p class="text-sm text-muted-foreground">Body copy.</p>
   <div class="flex gap-2">
-    <button class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium bg-[var(--primary,var(--color-text-info))] text-[var(--primary-foreground,var(--color-background-primary))]">ICON_SLOT Action</button>
-    <button class="inline-flex items-center rounded-lg border px-4 py-2 text-sm font-medium border-[var(--border,var(--color-border-secondary))]">Cancel</button>
+    <button class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">ICON_SLOT Action</button>
+    <button class="inline-flex items-center rounded-lg border border-border px-4 py-2 text-sm font-medium">Cancel</button>
   </div>
 </section>`;
 

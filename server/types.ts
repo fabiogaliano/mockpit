@@ -457,6 +457,13 @@ export interface DesignSettings {
   kit: "tailwind" | "builtin" | "none";
   // Raw `:root{...}` block imported from the repo, injected into the frame.
   cssVars: string;
+  // The repo's Tailwind entry stylesheet, reduced to what the browser build
+  // compiles, so the repo's theme classes work in the frame. Empty when the
+  // project is not on Tailwind v4. Older settings predate it; read as "".
+  tailwindCss: string;
+  // What init removed from it (non-core imports, plugins, configs): the
+  // utilities those provide are missing in the frame.
+  strippedImports: string[];
   // Iconify sets installed for this project (`mockpit icons add`), on top of
   // the ones bundled with the server. Older settings predate it; read as [].
   iconSets: IconSetRef[];

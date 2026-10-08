@@ -56,11 +56,24 @@ const paletteRows = (p: Palette): string =>
 
 function kitSection(design: DesignSettings | null): string {
   if (design?.kit === "tailwind") {
+    if (!design.tailwindCss) {
+      return [
+        "Kit: tailwind. The sandbox loads the Tailwind browser build with its default",
+        "theme; the repo's theme did not import (no v4 entry stylesheet), so color",
+        "from the tokens below.",
+      ].join("\n");
+    }
+    const missing = design.strippedImports ?? [];
     return [
-      "Kit: tailwind. The sandbox loads the Tailwind browser build; write utility",
-      "classes as in the repo. Only the repo's custom properties load, not its",
-      "compiled theme, so use arbitrary values: `bg-[var(--card)]`, not `bg-card`.",
-    ].join("\n");
+      "Kit: tailwind. The sandbox compiles the repo's Tailwind stylesheet, so write the",
+      "same utility classes you write in the repo, including theme classes",
+      "(`bg-card`, `text-muted-foreground`).",
+      missing.length
+        ? `Plugin utilities are not available: ${missing.map((m) => `\`${m}\``).join(", ")}.`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
   }
   if (design?.kit === "builtin") {
     return [
