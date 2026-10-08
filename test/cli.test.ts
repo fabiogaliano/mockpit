@@ -53,9 +53,8 @@ function serveApp() {
   const app = createApp({
     store,
     viewerHtml: "<html>viewer</html>",
-    guideMarkdown: "# guide",
+    topics: { html: "# guide" },
     setupText: "# setup",
-    agentHowtoText: "# agent how-to",
   });
   return new Promise<{ url: string; close: () => Promise<void> }>((resolve) => {
     const server = serve({ fetch: app.fetch, port: 0 }, (info) => {
@@ -1156,16 +1155,32 @@ test("kits lists the workspace's available kits", async () => {
   }
 });
 
-test("guide commands fall back to bundled markdown when no server is reachable", async () => {
-  for (const cmd of ["guide", "setup", "agent-howto"]) {
-    const { code, stdout, stderr } = await runWith(
-      { env: { MOCKPIT_URL: "http://127.0.0.1:1" } },
-      cmd,
-    );
+test("topics and setup fall back to bundled markdown when no server is reachable", async () => {
+  const offline = { env: { MOCKPIT_URL: "http://127.0.0.1:1" } };
+  for (const args of [["guide"], ["setup"], ["agent-howto", "--topic", "knobs"]]) {
+    const { code, stdout, stderr } = await runWith(offline, ...args);
     assert.equal(code, 0);
     assert.match(stdout, /#/);
     assert.equal(stderr, "");
   }
+  assert.match((await runWith(offline, "guide")).stdout, /# mockpit topic: html/);
+});
+
+test("the brief needs a server; an unknown topic lists the real ones", async () => {
+  const offline = { cwd: tmpRepo(), env: { MOCKPIT_URL: "http://127.0.0.1:1" } };
+  const brief = await runWith(offline, "agent-howto");
+  assert.equal(brief.code, 2);
+  assert.match(
+    brief.stderr,
+    /^error cannot reach mockpit at http:\/\/127\.0\.0\.1:1\n {2}fix: mockpit serve\n$/,
+  );
+
+  const unknown = await runWith(offline, "agent-howto", "--topic", "colours");
+  assert.equal(unknown.code, 2);
+  assert.match(
+    unknown.stderr,
+    /unknown topic "colours"; topics: asks, html, http, knobs, reply, surfaces/,
+  );
 });
 
 test("an unreachable server fails with a one-line error, not a stack trace", async () => {

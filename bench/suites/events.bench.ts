@@ -20,9 +20,8 @@ function makeApp(store: SqlStore) {
   return createApp({
     store,
     viewerHtml: "<html><head></head><body>viewer</body></html>",
-    guideMarkdown: "# guide",
+    topics: { html: "# guide" },
     setupText: "# setup",
-    agentHowtoText: "# agent how-to",
     version: "",
   });
 }

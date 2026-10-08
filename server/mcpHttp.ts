@@ -1,6 +1,7 @@
 import type { Hono } from "hono";
 import type { CommentWait, FlowContext, FlowResult } from "./app.ts";
 import { decodeBase64 } from "./base64.ts";
+import { type GuideTopic, isGuideTopic, unknownTopicMessage } from "./designGuide.ts";
 import { HTTP_MCP_TOOLS, MCP_INSTRUCTIONS, MCP_SERVER_INFO } from "./mcpSpec.ts";
 import type { Asset, AssetKind, Store } from "./types.ts";
 
@@ -43,8 +44,8 @@ export interface McpDeps {
     kind?: AssetKind;
     session?: string;
   }): Promise<{ asset: Omit<Asset, "data"> } | { error: string; status: number }>;
-  // A static guide, or one rendered for a project (palette, kit, icons).
-  guide: string | ((project: string) => string | Promise<string>);
+  // The brief rendered for a project (palette, kit, icons), or one topic.
+  guide(project: string, topic?: GuideTopic): string | Promise<string>;
 }
 
 // A flow's error status becomes a tool error carrying the same JSON body the
@@ -152,8 +153,9 @@ export function registerMcp(app: Hono, deps: McpDeps) {
         };
       }
       case "get_design_guide": {
-        const guide = deps.guide;
-        return typeof guide === "function" ? await guide(await projectOf(args)) : guide;
+        if (args.topic === undefined) return await deps.guide(await projectOf(args));
+        if (!isGuideTopic(args.topic)) throw new Error(unknownTopicMessage(String(args.topic)));
+        return await deps.guide("", args.topic);
       }
       default:
         throw new Error(`unknown tool: ${name}`);

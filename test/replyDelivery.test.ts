@@ -34,9 +34,8 @@ function serveApp() {
   const app = createApp({
     store: new SqlStore(createSqliteStorage()),
     viewerHtml: "<html>viewer</html>",
-    guideMarkdown: "# guide",
+    topics: { html: "# guide" },
     setupText: "# setup",
-    agentHowtoText: "# agent how-to",
   });
   return new Promise<{ url: string; close: () => Promise<void> }>((resolve) => {
     const server = serve({ fetch: app.fetch, port: 0 }, (info) => {

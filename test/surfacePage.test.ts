@@ -784,9 +784,8 @@ async function knobApp() {
   const app = createApp({
     store: new SqlStore(createSqliteStorage()),
     viewerHtml: "<html><head></head><body>viewer</body></html>",
-    guideMarkdown: "# guide",
+    topics: { html: "# guide" },
     setupText: "# setup",
-    agentHowtoText: "# agent how-to",
   });
   const publish = async (body: Record<string, unknown>) => {
     const res = await app.request("/api/mocks", {

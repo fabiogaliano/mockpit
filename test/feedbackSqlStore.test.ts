@@ -13,9 +13,8 @@ function makeSqlApp() {
   return createApp({
     store,
     viewerHtml: "<html>v</html>",
-    guideMarkdown: "#",
+    topics: { html: "#" },
     setupText: "#",
-    agentHowtoText: "#",
   });
 }
 

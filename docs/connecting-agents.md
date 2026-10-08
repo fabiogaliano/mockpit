@@ -26,8 +26,8 @@ mockpit publish --mock cache --state "Cold" --variant grid --html grid.html   # 
 mockpit publish --mock cache --state "Cold" --variant list --html list.html
 mockpit ask --mock cache "Which layout?" --option Grid=grid --option List=list
 mockpit wait                                   # block until the user sends their reply
-mockpit agent-howto                            # print the current agent how-to
-mockpit guide                                  # print the design contract
+mockpit agent-howto                            # print the brief
+mockpit agent-howto --topic html               # print one reference topic
 ```
 
 ## Pi extension
@@ -92,9 +92,9 @@ Requires Claude Code ≥ 2.1.105. The plugin lives in [`../plugin/`](../plugin/)
 
 ## The design contract
 
-`/agent-howto` is the current operational playbook for agents: publishing,
-parts, asks, knobs, reading a reply, and CLI/MCP/curl side by side. The contract at `/guide` is the
-lower-level design reference: fragment-only HTML, theme CSS variables, dark mode
-rules, and when to reach for each surface kind. Agents should fetch the instructions
-first, then fetch the guide once before their first publish (`mockpit guide`,
-`get_design_guide`, or `curl -s …/guide`).
+`/agent-howto` is the brief agents read before their first publish: the loop,
+parts, asks and knobs, the reply, the html rules, and the project's own palette,
+kit and icons, in about 1.2k tokens. Everything deeper is a topic, fetched only
+when needed: `knobs`, `asks`, `surfaces`, `html`, `reply`, `http`
+(`mockpit agent-howto --topic <id>`, `get_design_guide({ topic })`, or
+`curl -s …/agent-howto?topic=<id>`). `/guide` serves the `html` topic.

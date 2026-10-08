@@ -1,0 +1,80 @@
+<section
+  class="max-w-2xl rounded-xl border bg-card text-card-foreground"
+  data-part="team"
+  data-part-label="Team"
+>
+  <header class="px-6 pt-5">
+    <h2 class="text-base font-medium">Team members</h2>
+    <p class="mt-1 text-sm text-muted-foreground">Invite people and choose what they can do.</p>
+  </header>
+  <div class="flex flex-col gap-4 px-6 py-4">
+    <form class="flex items-end gap-3" data-part="invite" data-part-label="Invite">
+      <label class="flex flex-1 flex-col gap-1.5">
+        <span class="text-[13px] font-medium">Email</span>
+        <input
+          class="h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:ring-2 focus-visible:ring-ring"
+          type="email"
+          placeholder="name@company.com"
+        />
+      </label>
+      <label class="flex flex-1 flex-col gap-1.5">
+        <span class="text-[13px] font-medium">Role</span>
+        <select
+          class="h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <option>Viewer</option>
+          <option>Editor</option>
+          <option>Admin</option>
+        </select>
+      </label>
+      <button
+        class="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        type="submit"
+      >
+        Send invite
+      </button>
+    </form>
+    <table class="w-full text-sm" data-part="members" data-part-label="Members">
+      <thead>
+        <tr class="border-b text-left text-muted-foreground">
+          <th class="px-3 py-2 font-medium">Name</th>
+          <th class="px-3 py-2 font-medium">Role</th>
+          <th class="px-3 py-2 font-medium">Status</th>
+        </tr>
+      </thead>
+      <tbody class="[&_td]:px-3 [&_td]:py-2.5 [&_tr]:border-b [&_tr:last-child]:border-0">
+        <tr>
+          <td>Ana Lima</td>
+          <td>Admin</td>
+          <td>
+            <span class="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium">Active</span>
+          </td>
+        </tr>
+        <tr>
+          <td>Ben Okafor</td>
+          <td>Editor</td>
+          <td>
+            <span class="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium">Active</span>
+          </td>
+        </tr>
+        <tr>
+          <td>Chloe Park</td>
+          <td>Viewer</td>
+          <td>
+            <span class="rounded-full border px-2 py-0.5 text-xs font-medium text-muted-foreground"
+              >Pending</span
+            >
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <footer class="flex justify-end gap-2 px-6 pb-5">
+    <button
+      class="h-8 rounded-md px-3 text-[13px] hover:bg-accent hover:text-accent-foreground"
+      type="button"
+    >
+      Export list
+    </button>
+  </footer>
+</section>

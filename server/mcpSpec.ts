@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { GUIDE_TOPICS } from "./designGuide.ts";
 import { KIT_IDS } from "./kits.ts";
 import { SURFACE_KINDS, type SurfaceKind } from "./types.ts";
 
@@ -349,8 +350,13 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "get_design_guide",
     description:
-      "Fetch HTML fragment, sizing, theme, kit, CDN, parts and knobs guidance. Not needed for non-HTML kinds.",
-    params: { project: P.project },
+      "Fetch the brief: the loop, parts, asks and knobs, the reply, the html contract, and this " +
+      "project's palette, kit and icons. Read it before the first publish. Pass topic for one " +
+      `reference section (${GUIDE_TOPICS.join(", ")}).`,
+    params: {
+      project: P.project,
+      topic: { t: "enum", values: GUIDE_TOPICS, d: "One reference section instead of the brief" },
+    },
   },
   {
     name: "add_surface",
