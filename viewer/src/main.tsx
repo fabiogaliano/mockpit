@@ -1,5 +1,8 @@
 import { render } from "solid-js/web";
-import App from "./App.tsx";
+import { App } from "./App.tsx";
+import { root } from "./host.ts";
+import { syncTheme } from "./theme.ts";
 import "./styles.css";
 
-render(() => <App />, document.body);
+void syncTheme();
+render(() => <App />, root().body);

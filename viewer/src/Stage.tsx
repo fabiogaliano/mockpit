@@ -1,453 +1,614 @@
-// The stage: one variant's surfaces rendered at a viewport preset, with the
-// marker overlay above them.
+// D1: one stage per mock, never replaced. Every (state, variant) of the version
+// on stage is its own sandboxed frame, all loaded at once; only the active one
+// is visible, the rest stay laid out (visibility, not display) so they report
+// their parts up front and switching is instant.
 //
-// Every surface that becomes HTML renders exactly the way the rest of the viewer
-// renders it — a sandboxed iframe pointed at `/s/:id?surface=N` (see Card.tsx). The
-// overlay lives in the trusted viewer origin ABOVE that frame and never reads
-// into it: it asks the in-frame bridge for a hit-test and renders the reply as
-// text only.
+// The overlay above the active frame is ours (trusted origin) and is built only
+// from what the frames report as data: boxes, names, numbers. Hover and click
+// ask the frame itself what is under the pointer (`hit`), because only the page
+// knows its own stacking.
+
 import {
   createEffect,
+  createMemo,
   createSignal,
   For,
   type JSX,
-  Match,
   on,
   onCleanup,
   onMount,
   Show,
-  Switch,
 } from "solid-js";
+import { createStore } from "solid-js/store";
+import { isSandboxedSurfaceKind, type Surface } from "../../server/types.ts";
+import { assetUrl, surfaceUrl, type VariantView } from "./api.ts";
+import { host } from "./host.ts";
+import { JsonTree } from "./JsonTree.tsx";
 import {
-  appPath,
-  type ImageSurface as ImageSurfaceData,
-  type JsonSurface as JsonSurfaceData,
-} from "./api.ts";
-import { isSandboxedSurfaceKind, SURFACE_FRAME_CLASSES } from "../../server/types.ts";
-import { registerCard } from "./Card.tsx";
-import { ImageSurface } from "./ImageSurface.tsx";
-import { JsonSurface } from "./JsonSurface.tsx";
-import { markerLabel, nextRef, type Marker, type MarkerShape } from "./markers.ts";
-import type { ViewerSurfaceRef } from "./projects.ts";
-import { activeTheme, resolvedMode } from "./theme.ts";
+  createHitRefs,
+  draftKnobValues,
+  frameKey,
+  historyRow,
+  type PartBox,
+  type PartsReport,
+  reportIsCurrent,
+} from "./logic.ts";
+import type { MockScreenState } from "./state.ts";
+import { theme } from "./theme.ts";
+import { FRAME_W } from "./Thumb.tsx";
+import { Versions } from "./Versions.tsx";
 
-export const VIEWPORTS = [390, 820, 1280] as const;
-export type Viewport = (typeof VIEWPORTS)[number];
-export const VIEWPORT_LABELS: Record<number, string> = {
-  390: "phone",
-  820: "tablet",
-  1280: "desktop",
-};
+const num = (v: unknown, d = 0) => (typeof v === "number" && Number.isFinite(v) ? v : d);
+const MAX_TEXT = 200;
+const text = (v: unknown) => String(v ?? "").slice(0, MAX_TEXT);
 
-interface HitResult {
-  path?: string;
-  text?: string;
-  rect?: number[];
-}
-
-// One listener for every stage: the sandbox answers a hit-test on the window,
-// and the reply is matched back to its request by `ref`.
-const pendingHits = new Map<string, (hit: HitResult) => void>();
-let hitListening = false;
-function listenForHits() {
-  if (hitListening) return;
-  hitListening = true;
-  window.addEventListener("message", (ev: MessageEvent) => {
-    const d = ev.data as {
-      __mockpit?: boolean;
-      type?: string;
-      ref?: string;
-      path?: unknown;
-      text?: unknown;
-      rect?: unknown;
-    } | null;
-    if (!d || !d.__mockpit || d.type !== "hit-test-result") return;
-    const resolve = pendingHits.get(String(d.ref));
-    if (!resolve) return;
-    pendingHits.delete(String(d.ref));
-    resolve({
-      path: typeof d.path === "string" ? d.path.slice(0, 200) : undefined,
-      text: typeof d.text === "string" ? d.text.slice(0, 80) : undefined,
-      rect: Array.isArray(d.rect) ? (d.rect as number[]).map(Number) : undefined,
-    });
-  });
-}
-
-let hitSeq = 0;
-// Ask a surface frame what is at a point. `x`/`y` are normalized 0..1 of the
-// frame; `xPx`/`yPx` carry the same point in the frame's own CSS pixels so the
-// sandbox script can use whichever it prefers. Resolves to an empty hit if the
-// frame doesn't answer.
-function hitTest(
-  frame: HTMLIFrameElement,
-  x: number,
-  y: number,
-  xPx: number,
-  yPx: number,
-): Promise<HitResult> {
-  listenForHits();
-  const ref = `h${++hitSeq}`;
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      pendingHits.delete(ref);
-      resolve({});
-    }, 600);
-    pendingHits.set(ref, (hit) => {
-      clearTimeout(timer);
-      resolve(hit);
-    });
-    frame.contentWindow?.postMessage(
-      { __mockpit: true, type: "hit-test", x, y, xPx, yPx, ref },
-      "*",
-    );
-  });
-}
-
-export function Stage(props: {
-  postId: string;
-  version: number;
-  surfaces: ViewerSurfaceRef[];
-  viewport: number;
-  marking: boolean;
-  markers: Marker[];
-  // Markers already sent with a comment: kept visible but dimmed until a newer
-  // version renders, so the user can see what they pointed at.
-  sentMarkers: Marker[];
-  highlight: number | null;
-  onAdd: (marker: Marker) => void;
-  onChange: (ref: number, patch: Partial<Marker>) => void;
-  onRemove: (ref: number) => void;
-  badge?: () => JSX.Element;
-}) {
-  let wrap!: HTMLDivElement;
-  let frame!: HTMLDivElement;
-  let overlay!: HTMLDivElement;
-  const iframes = new Set<HTMLIFrameElement>();
-  const surfaceFrames = new Map<number, HTMLIFrameElement>();
-  const [scale, setScale] = createSignal(1);
-  const [draft, setDraft] = createSignal<{ x: number; y: number; w: number; h: number } | null>(
-    null,
-  );
-  const [popFor, setPopFor] = createSignal<number | null>(null);
-  const [popAt, setPopAt] = createSignal<{ left: number; top: number }>({ left: 0, top: 0 });
-
-  const src = (index: number) =>
-    appPath(
-      `/s/${props.postId}?surface=${index}&ver=${props.version}&cb=${props.version}&theme=${activeTheme()}&mode=${resolvedMode()}`,
-    );
-
-  // The frame is laid out at the preset width and scaled down to fit the stage,
-  // so a 1280px design stays truthful on a narrow screen.
-  const fit = () => {
-    if (!wrap || !frame) return;
-    const available = wrap.clientWidth;
-    const width = frame.offsetWidth || props.viewport;
-    const s = Math.min(1, available / width);
-    setScale(s);
-    wrap.style.height = `${Math.max(120, frame.offsetHeight * s)}px`;
-  };
-
-  onMount(() => {
-    // Register with the shared card registry so the postMessage resize bridge
-    // sizes these iframes exactly like a card's.
-    onCleanup(registerCard(props.postId, wrap, iframes));
-    const ro = new ResizeObserver(() => fit());
-    ro.observe(frame);
-    ro.observe(wrap);
-    onCleanup(() => ro.disconnect());
-    window.addEventListener("resize", fit);
-    onCleanup(() => window.removeEventListener("resize", fit));
-    fit();
-  });
-
-  // Re-fit when the preset or the rendered version changes: both re-lay the
-  // frame out, and the scale is derived from its size. (Reading the props IS
-  // the subscription; `on` names them instead of leaving bare expressions.)
-  createEffect(
-    on(
-      () => [props.viewport, props.version],
-      () => queueMicrotask(fit),
-    ),
-  );
-
-  const norm = (clientX: number, clientY: number) => {
-    const r = frame.getBoundingClientRect();
-    return [(clientX - r.left) / r.width, (clientY - r.top) / r.height] as const;
-  };
-
-  // Which surface frame is under a viewport point, and where inside it.
-  const frameUnder = (clientX: number, clientY: number) => {
-    for (const [index, el] of surfaceFrames) {
-      const r = el.getBoundingClientRect();
-      if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
-        return {
-          index,
-          el,
-          x: (clientX - r.left) / r.width,
-          y: (clientY - r.top) / r.height,
-          xPx: (clientX - r.left) / scale(),
-          yPx: (clientY - r.top) / scale(),
-          rect: r,
-        };
-      }
-    }
-    return null;
-  };
-
-  // Convert a rect the sandbox reported (normalized to its own document) into
-  // frame-normalized coordinates, so markers stay put when the stage rescales.
-  const toFrameBox = (target: HTMLIFrameElement, rect: number[]) => {
-    const fr = frame.getBoundingClientRect();
-    const ir = target.getBoundingClientRect();
-    const scaleToFrame = (v: number, size: number, offset: number, frameSize: number) =>
-      (v * size + offset) / frameSize;
-    const normalized = rect.every((v) => v >= 0 && v <= 1);
-    const [rx, ry, rw, rh] = rect;
-    if (!normalized) {
-      // px in the frame's own coordinate space
-      const s = scale() || 1;
+// Everything a frame says is untrusted: copy out plain strings and numbers only.
+function readReport(d: Record<string, unknown>): PartsReport | null {
+  if (!Array.isArray(d.parts)) return null;
+  const scroll = (d.scroll ?? {}) as Record<string, unknown>;
+  return {
+    version: num(d.version),
+    height: num(d.height),
+    scroll: { x: num(scroll.x), y: num(scroll.y) },
+    parts: d.parts.slice(0, 200).flatMap((p: Record<string, unknown>) => {
+      if (!p || typeof p !== "object") return [];
+      const b = (p.box ?? {}) as Record<string, unknown>;
+      const name = text(p.name);
+      if (!name) return [];
       return [
-        (ir.left - fr.left + rx * s) / fr.width,
-        (ir.top - fr.top + ry * s) / fr.height,
-        (rw * s) / fr.width,
-        (rh * s) / fr.height,
+        {
+          name,
+          label: text(p.label) || name,
+          box: { x: num(b.x), y: num(b.y), w: num(b.w), h: num(b.h) },
+          visible: p.visible === true,
+          depth: num(p.depth),
+          order: num(p.order),
+        },
       ];
-    }
-    return [
-      scaleToFrame(rx, ir.width, ir.left - fr.left, fr.width),
-      scaleToFrame(ry, ir.height, ir.top - fr.top, fr.height),
-      (rw * ir.width) / fr.width,
-      (rh * ir.height) / fr.height,
-    ];
+    }),
   };
+}
 
-  let drag: { x0: number; y0: number; cx: number; cy: number; x: number; y: number } | null = null;
+// The window's size, for fitting the stage beside the panel.
+const [win, setWin] = createSignal({ w: host().window.innerWidth, h: host().window.innerHeight });
+host().window.addEventListener("resize", () =>
+  setWin({ w: host().window.innerWidth, h: host().window.innerHeight }),
+);
+export { win };
 
-  const onPointerDown = (e: PointerEvent) => {
-    if (!props.marking) return;
-    if ((e.target as HTMLElement).closest(".ss-mk")) return;
-    e.preventDefault();
-    setPopFor(null);
-    overlay.setPointerCapture(e.pointerId);
-    const [x, y] = norm(e.clientX, e.clientY);
-    drag = { x0: x, y0: y, x, y, cx: e.clientX, cy: e.clientY };
-    setDraft({ x, y, w: 0, h: 0 });
-  };
+export const PANEL_W = 380;
+const TOPBAR = 52;
+const HEAD = 44;
 
-  const onPointerMove = (e: PointerEvent) => {
-    if (!drag) return;
-    const [x, y] = norm(e.clientX, e.clientY);
-    drag.x = x;
-    drag.y = y;
-    setDraft({
-      x: Math.min(drag.x0, x),
-      y: Math.min(drag.y0, y),
-      w: Math.abs(x - drag.x0),
-      h: Math.abs(y - drag.y0),
-    });
-  };
+export function Stage(props: { s: MockScreenState }) {
+  const s = props.s;
+  const { reports, setReports } = s;
+  const [heights, setHeights] = createStore<Record<string, number>>({});
+  const [contentH, setContentH] = createStore<Record<string, number>>({});
+  const frames = new Map<
+    HTMLIFrameElement,
+    { key: string; index: number; primary: boolean; version: number }
+  >();
+  const refs = createHitRefs();
+  const [vbtn, setVbtn] = createSignal<HTMLElement>();
 
-  const onPointerUp = async (e: PointerEvent) => {
-    if (!drag) return;
-    const d = drag;
-    drag = null;
-    setDraft(null);
-    const w = Math.abs(d.x - d.x0);
-    const h = Math.abs(d.y - d.y0);
-    // A tap is a drag that went nowhere: the gesture decides the shape, so
-    // there's no tool to arm first.
-    const isPin = w < 0.01 || h < 0.01;
-    const centerX = isPin ? d.cx : (d.cx + e.clientX) / 2;
-    const centerY = isPin ? d.cy : (d.cy + e.clientY) / 2;
-    const target = frameUnder(centerX, centerY);
-    const ref = nextRef([...props.markers, ...props.sentMarkers]);
-    const marker: Marker = {
-      ref,
-      shape: isPin ? "pin" : "rect",
-      x: isPin ? d.x0 : Math.min(d.x0, d.x),
-      y: isPin ? d.y0 : Math.min(d.y0, d.y),
-      w: isPin ? 0 : w,
-      h: isPin ? 0 : h,
-      surfaceIndex: target?.index ?? 0,
-    };
-    props.onAdd(marker);
-    if (!target) return;
-    const hit = await hitTest(target.el, target.x, target.y, target.xPx, target.yPx);
-    if (!hit.path && !hit.text) return;
-    props.onChange(ref, {
-      path: hit.path,
-      text: hit.text,
-      ...(hit.rect && hit.rect.length === 4 ? { rect: toFrameBox(target.el, hit.rect) } : {}),
-    });
-  };
-
-  const reshape = (shape: MarkerShape | "del") => {
-    const ref = popFor();
-    setPopFor(null);
-    if (ref === null) return;
-    if (shape === "del") {
-      props.onRemove(ref);
-      return;
-    }
-    const m = props.markers.find((x) => x.ref === ref);
-    if (!m) return;
-    if (m.shape === "pin") {
-      // Snap a pin to the element the sandbox named; fall back to a small box
-      // around the point when it couldn't name one.
-      const box = m.rect;
-      props.onChange(ref, {
-        shape,
-        x: box ? box[0] : Math.max(0, m.x - 0.06),
-        y: box ? box[1] : Math.max(0, m.y - 0.06),
-        w: box ? box[2] : 0.12,
-        h: box ? box[3] : 0.12,
-      });
-    } else {
-      props.onChange(ref, { shape });
-    }
-  };
-
-  const openPop = (ref: number, el: HTMLElement) => {
-    const r = el.getBoundingClientRect();
-    const w = wrap.getBoundingClientRect();
-    setPopAt({
-      left: Math.max(4, Math.min(r.left - w.left + wrap.scrollLeft, wrap.clientWidth - 150)),
-      top: r.top - w.top + wrap.scrollTop + r.height + 10,
-    });
-    setPopFor(ref);
-  };
-
-  const markerStyle = (m: Marker) => ({
-    left: `${m.x * 100}%`,
-    top: `${m.y * 100}%`,
-    ...(m.shape === "pin" ? {} : { width: `${m.w * 100}%`, height: `${m.h * 100}%` }),
+  const multiState = () => s.states().length > 1;
+  const banner = () => s.viewVersion() !== null || s.boundVersion() !== null;
+  const scale = createMemo(() => {
+    const avail = win().w - 48 - PANEL_W - 12;
+    return Math.max(0.3, Math.min(1, avail / FRAME_W));
   });
+  const availH = createMemo(
+    () => win().h - TOPBAR - 48 - (multiState() ? 56 : 0) - HEAD - (banner() ? 32 : 0) - 2,
+  );
+
+  const shown = createMemo(() =>
+    s.variants().filter((v) => v.status !== "archived" || v === s.variantFor(v.state)),
+  );
+  const activeKey = createMemo(() => {
+    const v = s.activeVariant();
+    return v ? frameKey(v.state, v.variant) : "";
+  });
+
+  function primaryOf(key: string): HTMLIFrameElement | null {
+    for (const [el, info] of frames) if (info.key === key && info.primary) return el;
+    return null;
+  }
+  function post(key: string, msg: Record<string, unknown>) {
+    primaryOf(key)?.contentWindow?.postMessage({ ...msg, __mockpit: true }, "*");
+  }
+
+  const onMessage = (e: MessageEvent) => {
+    const d = e.data as Record<string, unknown> | null;
+    if (!d || typeof d !== "object" || d.__mockpit !== true) return;
+    let info: { key: string; index: number; primary: boolean; version: number } | undefined;
+    for (const [el, i] of frames) if (el.contentWindow === e.source) info = i;
+    if (!info) return;
+    if (d.type === "resize") {
+      setHeights(`${info.key}#${info.index}`, Math.max(1, Math.min(num(d.height), 20000)));
+    } else if (d.type === "parts" && info.primary) {
+      if (!reportIsCurrent(info.version, d.version)) return;
+      const r = readReport(d);
+      if (r) setReports(info.key, r);
+    } else if (d.type === "hit" && info.primary && info.key === activeKey()) {
+      const kind = refs.resolve(d.ref);
+      const part = d.part == null ? null : text(d.part);
+      if (kind === "hover") s.setHoverPart(part);
+      else if (kind === "click") s.selectPart(part);
+    }
+  };
+  host().window.addEventListener("message", onMessage);
+  onCleanup(() => host().window.removeEventListener("message", onMessage));
+
+  // The frame keeps the in-page highlight in step with the hovered part.
+  createEffect(
+    on([() => s.hoverPart(), activeKey], ([part, key]) => {
+      post(key, part ? { type: "highlight", parts: [part] } : { type: "clear" });
+    }),
+  );
+  // Switching what is on stage drops the old frame's hover.
+  createEffect(
+    on(activeKey, (_k, prev) => {
+      if (prev) post(prev, { type: "clear" });
+      s.setHoverPart(null);
+      refs.leave();
+    }),
+  );
+
+  const activeH = () => contentH[activeKey()] ?? 640;
+  const layersH = () => Math.min(activeH() * scale(), Math.max(200, availH()));
 
   return (
-    <div class="ss-stagewrap" classList={{ marking: props.marking }} ref={(el) => (wrap = el)}>
-      {props.badge?.()}
-      <Show when={popFor() !== null}>
-        <div class="ss-pop" style={{ left: `${popAt().left}px`, top: `${popAt().top}px` }}>
-          <button type="button" onClick={() => reshape("circle")}>
-            ◯ circle
-          </button>
-          <button type="button" onClick={() => reshape("rect")}>
-            ▭ box
-          </button>
-          <button type="button" class="d" onClick={() => reshape("del")}>
-            ✕ delete
-          </button>
-        </div>
-      </Show>
-      <div
-        class="ss-frame"
-        ref={(el) => (frame = el)}
-        style={{ width: `${props.viewport}px`, transform: `scale(${scale()})` }}
-      >
-        <For each={props.surfaces}>
-          {(surface, i) => (
-            <Switch
-              fallback={
-                <div class="surface-unsupported">
-                  Can&rsquo;t show this surface — refresh mockpit to update the viewer.
-                </div>
-              }
-            >
-              <Match when={isSandboxedSurfaceKind(surface.kind as never)}>
-                <iframe
-                  ref={(el) => {
-                    surfaceFrames.set(i(), el);
-                    iframes.add(el);
-                    onCleanup(() => {
-                      surfaceFrames.delete(i());
-                      iframes.delete(el);
-                    });
-                  }}
-                  sandbox="allow-scripts"
-                  loading="lazy"
-                  class={SURFACE_FRAME_CLASSES[surface.kind as keyof typeof SURFACE_FRAME_CLASSES]}
-                  title={`surface ${i() + 1}`}
-                  src={src(i())}
-                ></iframe>
-              </Match>
-              <Match when={surface.kind === "image"}>
-                <ImageSurface surface={surface as unknown as ImageSurfaceData} />
-              </Match>
-              <Match when={surface.kind === "json"}>
-                <JsonSurface surface={surface as unknown as JsonSurfaceData} />
-              </Match>
-            </Switch>
-          )}
-        </For>
-        <div
-          class="ss-overlay"
-          classList={{ off: !props.marking }}
-          ref={(el) => (overlay = el)}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={(e) => void onPointerUp(e)}
-        >
-          <For each={props.sentMarkers}>
-            {(m) => (
-              <div
-                class={`ss-mk ${m.shape} sent`}
-                classList={{ hover: props.highlight === m.ref }}
-                style={markerStyle(m)}
-              >
-                <span class="n">{m.ref}</span>
-              </div>
+    <div class="stagewrap" style={{ width: `${FRAME_W * scale()}px` }}>
+      <div class="stage" classList={{ old: s.viewVersion() !== null }}>
+        <StageHead s={s} anchor={setVbtn} />
+        <Show when={s.viewVersion() !== null}>
+          <div class="banner">
+            <b>{`Viewing v${s.viewVersion()}`}</b>
+            <span class="sep">·</span>
+            <button type="button" onClick={() => s.backToLatest()}>
+              {`↶ back to v${s.latest()}`}
+            </button>
+            <span class="sep">·</span>
+            <button type="button" onClick={() => void s.restoreViewed()}>
+              {`restore as v${s.latest() + 1}`}
+            </button>
+          </div>
+        </Show>
+        <Show when={s.viewVersion() === null && s.boundVersion() !== null}>
+          <div class="banner">
+            <b>{`v${s.latest()} arrived`}</b>
+            <span class="sep">·</span>
+            <button type="button" onClick={() => s.viewNewVersion()}>
+              view
+            </button>
+            <span class="banner-note">{`your answers stay on v${s.boundVersion()} until you do`}</span>
+          </div>
+        </Show>
+        <div class="layers" style={{ height: `${layersH()}px` }}>
+          <div class="layers-sizer" style={{ height: `${activeH() * scale()}px` }} />
+          <For each={shown()}>
+            {(variant) => (
+              <VariantFrame
+                s={s}
+                variant={variant}
+                active={frameKey(variant.state, variant.variant) === activeKey()}
+                scale={scale()}
+                capH={availH() / scale()}
+                report={reports[frameKey(variant.state, variant.variant)]}
+                heights={heights}
+                frames={frames}
+                refs={refs}
+                post={(msg) => post(frameKey(variant.state, variant.variant), msg)}
+                onContent={(h) => setContentH(frameKey(variant.state, variant.variant), h)}
+                onReload={() => setReports(frameKey(variant.state, variant.variant), undefined)}
+                height={contentH[frameKey(variant.state, variant.variant)] ?? 640}
+              />
             )}
           </For>
-          <For each={props.markers}>
-            {(m) => (
-              <div
-                class={`ss-mk ${m.shape}`}
-                classList={{ hover: props.highlight === m.ref }}
-                style={markerStyle(m)}
-                title={markerLabel(m)}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openPop(m.ref, e.currentTarget);
-                }}
-              >
-                <span class="n">{m.ref}</span>
-              </div>
-            )}
-          </For>
-          <Show when={draft()} keyed>
-            {(d) => (
-              <div
-                class="ss-draft"
-                style={{
-                  left: `${d.x * 100}%`,
-                  top: `${d.y * 100}%`,
-                  width: `${d.w * 100}%`,
-                  height: `${d.h * 100}%`,
-                }}
-              ></div>
-            )}
-          </Show>
         </div>
       </div>
+      <CornerPins s={s} />
+      <Show when={s.versionsOpen()}>
+        <Versions s={s} anchor={vbtn()} />
+      </Show>
     </div>
   );
 }
 
-export function ViewportTabs(props: { value: number; onPick: (v: number) => void }) {
+function StageHead(props: { s: MockScreenState; anchor: (el: HTMLElement) => void }) {
+  const s = props.s;
+  const v = () => s.activeVariant();
+  const siblings = () => s.variants().filter((x) => x.state === s.activeState());
   return (
-    <div class="ss-tabs ss-vp" role="group" aria-label="Viewport">
-      <For each={VIEWPORTS}>
-        {(w) => (
+    <div class="stage-head">
+      <b class="stage-title">{s.mock()?.title}</b>
+      <Show when={s.activeState() !== null}>
+        <span class="stage-state">{s.activeState()}</span>
+      </Show>
+      <Show when={v()}>
+        {(variant) => (
           <button
             type="button"
-            classList={{ on: props.value === w }}
-            aria-pressed={props.value === w}
-            onClick={() => props.onPick(w)}
+            class="vbtn"
+            ref={props.anchor}
+            aria-haspopup="menu"
+            aria-expanded={s.versionsOpen()}
+            onClick={(e) => {
+              e.stopPropagation();
+              s.setVersionsOpen(!s.versionsOpen());
+            }}
           >
-            {VIEWPORT_LABELS[w]}
+            {`v${s.frameVersionOf(variant())} ▾`}
           </button>
         )}
+      </Show>
+      <span class="grow" />
+      {/* Q9: variants without a Look ask get a plain switcher. */}
+      <Show when={!s.look() && siblings().length > 1}>
+        <div class="variant-switch" role="tablist" aria-label="Variant">
+          <For each={siblings()}>
+            {(x) => (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={x.variant === v()?.variant}
+                classList={{ on: x.variant === v()?.variant }}
+                onClick={() => s.chooseVariant(x.variant)}
+              >
+                {x.variant}
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
+    </div>
+  );
+}
+
+// Mock- and state-wide questions pin to the stage's corner; part questions pin
+// to their part (drawn in the frame overlay).
+function CornerPins(props: { s: MockScreenState }) {
+  const s = props.s;
+  const corner = createMemo(() =>
+    s.questions().flatMap((q, i) => {
+      if (q.kind !== "ask") return [];
+      const a = q.ask;
+      if (a.scope === "mock" || (a.scope === "state" && a.state === s.activeState())) return [i];
+      return [];
+    }),
+  );
+  return (
+    <div class="pins">
+      <For each={corner()}>
+        {(i, k) => <Pin s={s} index={i} style={{ left: `${-10 + k() * 28}px`, top: "-10px" }} />}
       </For>
+    </div>
+  );
+}
+
+export function Pin(props: { s: MockScreenState; index: number; style: JSX.CSSProperties }) {
+  const s = props.s;
+  const q = () => s.questions()[props.index];
+  const ask = () => {
+    const x = q();
+    return x?.kind === "ask" ? x.ask : null;
+  };
+  const answered = () => {
+    const a = ask();
+    return a ? s.answerOf(a) !== undefined : false;
+  };
+  const over = () => {
+    const a = ask();
+    return a ? s.overridden()[a.id] : undefined;
+  };
+  const cur = () => s.mode() === "questions" && s.cur() === props.index;
+  return (
+    <button
+      type="button"
+      class="pin"
+      classList={{ ok: answered() && !over(), ovr: answered() && !!over(), cur: cur() }}
+      style={props.style}
+      title={`Question ${props.index + 1}${over() ? " · overridden by Mix" : ""}`}
+      data-question={props.index + 1}
+      onClick={(e) => {
+        e.stopPropagation();
+        s.goQuestion(props.index);
+      }}
+    >
+      {answered() ? "✓" : String(props.index + 1)}
+    </button>
+  );
+}
+
+function VariantFrame(props: {
+  s: MockScreenState;
+  variant: VariantView;
+  active: boolean;
+  scale: number;
+  capH: number;
+  report: PartsReport | undefined;
+  heights: Record<string, number>;
+  frames: Map<HTMLIFrameElement, { key: string; index: number; primary: boolean; version: number }>;
+  refs: ReturnType<typeof createHitRefs>;
+  post: (msg: Record<string, unknown>) => void;
+  onContent: (h: number) => void;
+  onReload: () => void;
+  height: number;
+}) {
+  const s = props.s;
+  const key = () => frameKey(props.variant.state, props.variant.variant);
+  const version = () => s.frameVersionOf(props.variant);
+  const current = () => version() === props.variant.version;
+  const kinds = () =>
+    historyRow(props.variant, version())?.surfaceKinds ?? props.variant.surfaces.map((x) => x.kind);
+  const primary = () => kinds().indexOf("html");
+  let column!: HTMLDivElement;
+  let primaryWrap: HTMLDivElement | undefined;
+  const [primaryTop, setPrimaryTop] = createSignal(0);
+
+  onMount(() => {
+    const measure = () => {
+      props.onContent(column.offsetHeight);
+      if (primaryWrap) setPrimaryTop(primaryWrap.offsetTop);
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(column);
+    measure();
+    onCleanup(() => ro.disconnect());
+  });
+  createEffect(on(version, () => props.onReload(), { defer: true }));
+
+  // Knob values follow the draft (defaults, picked knob-set options, tuning);
+  // a hovered knob-set option overlays the frame on stage. Re-sent whenever a
+  // fresh document reports in, since a reload starts from the baked values.
+  let lastKnobs = "";
+  createEffect(() => {
+    const m = s.mock();
+    const reported = props.report?.version;
+    if (!m || reported === undefined) return;
+    const values = {
+      ...draftKnobValues(m, props.variant.knobs, s.draft()),
+      ...(props.active ? (s.preview()?.knobs ?? {}) : {}),
+    };
+    const k = `${reported}|${JSON.stringify(values)}`;
+    if (k === lastKnobs || !Object.keys(values).length) return;
+    lastKnobs = k;
+    props.post({ type: "knobs", values });
+  });
+
+  const register = (el: HTMLIFrameElement, index: number) => {
+    props.frames.set(el, { key: key(), index, primary: index === primary(), version: version() });
+    onCleanup(() => props.frames.delete(el));
+  };
+  // The registry is read by the message handler, outside any tracking scope.
+  createEffect(() => {
+    const v = version();
+    const p = primary();
+    for (const info of props.frames.values()) {
+      if (info.key !== key()) continue;
+      info.version = v;
+      info.primary = info.index === p;
+    }
+  });
+
+  const surfaceH = (i: number) => {
+    const h = props.heights[`${key()}#${i}`];
+    if (i === primary()) return Math.min(h ?? 640, Math.max(160, props.capH));
+    return h ?? 160;
+  };
+
+  return (
+    <div
+      class="frame"
+      classList={{ on: props.active }}
+      style={{ height: `${props.height * props.scale}px` }}
+      data-state={props.variant.state ?? ""}
+      data-variant={props.variant.variant}
+      aria-hidden={!props.active}
+    >
+      <div
+        class="frame-scale"
+        ref={(el) => (column = el)}
+        style={{ transform: `scale(${props.scale})` }}
+      >
+        <For each={kinds()}>
+          {(kind, i) => {
+            const surface = () => props.variant.surfaces[i()];
+            if (isSandboxedSurfaceKind(kind)) {
+              const isPrimary = i() === primary();
+              const src = () =>
+                surfaceUrl(props.variant.postId, i(), { version: version(), mode: theme() });
+              // A new document gets a new element: navigating an existing frame
+              // would add a joint-history entry, and Back would walk the frames.
+              return (
+                <div class="surface" ref={(el) => isPrimary && (primaryWrap = el)}>
+                  <Show when={src()} keyed>
+                    {(url) => (
+                      <iframe
+                        ref={(el) => register(el, i())}
+                        src={url}
+                        sandbox="allow-scripts"
+                        title={`${props.variant.variant} ${kind}`}
+                        width={FRAME_W}
+                        height={surfaceH(i())}
+                        tabIndex={props.active ? 0 : -1}
+                      />
+                    )}
+                  </Show>
+                </div>
+              );
+            }
+            // Native kinds arrive whole (only sandboxed kinds drop their body).
+            const sf = surface() as Surface | undefined;
+            if (kind === "image" && current() && sf?.kind === "image") {
+              return (
+                <figure class="surface surface-image">
+                  <img src={assetUrl(sf.assetId)} alt={sf.alt ?? ""} />
+                  <Show when={sf.caption}>
+                    <figcaption>{sf.caption}</figcaption>
+                  </Show>
+                </figure>
+              );
+            }
+            if (kind === "json" && current() && sf?.kind === "json") {
+              return (
+                <div class="surface surface-json">
+                  <JsonTree data={sf.data} />
+                </div>
+              );
+            }
+            return <div class="surface surface-gone">{`${kind} (v${version()})`}</div>;
+          }}
+        </For>
+      </div>
+      <Show when={props.active && primary() >= 0}>
+        <Overlay
+          s={s}
+          report={props.report}
+          scale={props.scale}
+          top={primaryTop() * props.scale}
+          height={surfaceH(primary()) * props.scale}
+          refs={props.refs}
+          post={props.post}
+        />
+      </Show>
+    </div>
+  );
+}
+
+function Overlay(props: {
+  s: MockScreenState;
+  report: PartsReport | undefined;
+  scale: number;
+  top: number;
+  height: number;
+  refs: ReturnType<typeof createHitRefs>;
+  post: (msg: Record<string, unknown>) => void;
+}) {
+  const s = props.s;
+  let layer!: HTMLDivElement;
+  const at = (p: PartBox) => {
+    const r = props.report!;
+    const k = props.scale;
+    return {
+      x: (p.box.x - r.scroll.x) * k,
+      y: (p.box.y - r.scroll.y) * k,
+      w: p.box.w * k,
+      h: p.box.h * k,
+    };
+  };
+  // The deepest visible box for a name: what the page draws on top.
+  const find = (name: string | null) =>
+    name
+      ? props.report?.parts
+          .filter((p) => p.name === name && p.visible)
+          .sort((a, b) => b.depth - a.depth || a.order - b.order)[0]
+      : undefined;
+
+  const hit = (e: MouseEvent, ref: number) => {
+    const r = props.report;
+    if (!r) return;
+    const b = layer.getBoundingClientRect();
+    props.post({
+      type: "hit",
+      ref,
+      x: (e.clientX - b.left) / props.scale + r.scroll.x,
+      y: (e.clientY - b.top) / props.scale + r.scroll.y,
+    });
+  };
+  const onWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    props.post({ type: "scroll", dx: e.deltaX / props.scale, dy: e.deltaY / props.scale });
+  };
+  onMount(() => {
+    // Overlays sit above the frame and would swallow scrolling; forward it.
+    layer.addEventListener("wheel", onWheel, { passive: false });
+    onCleanup(() => layer.removeEventListener("wheel", onWheel));
+  });
+
+  const focusPart = () => {
+    if (s.mode() !== "questions") return null;
+    const q = s.questions()[s.cur()];
+    return q?.kind === "ask" && q.ask.scope === "part" ? (q.ask.part ?? null) : null;
+  };
+  const partPins = createMemo(() =>
+    s.questions().flatMap((q, i) => {
+      if (q.kind !== "ask" || q.ask.scope !== "part" || !q.ask.part) return [];
+      const p = find(q.ask.part);
+      return p ? [{ i, p }] : [];
+    }),
+  );
+  const box = (name: string | null) => {
+    const p = find(name);
+    return p ? { p, r: at(p) } : null;
+  };
+
+  return (
+    <div
+      class="overlay"
+      ref={(el) => (layer = el)}
+      style={{ top: `${props.top}px`, height: `${props.height}px` }}
+      onPointerMove={(e) => hit(e, props.refs.hover())}
+      onPointerLeave={() => {
+        props.refs.leave();
+        s.setHoverPart(null);
+      }}
+      onClick={(e) => hit(e, props.refs.click())}
+    >
+      <Show when={props.report}>
+        <Show when={box(focusPart())}>
+          {(b) => (
+            <div
+              class="spot"
+              style={{
+                left: `${b().r.x - 6}px`,
+                top: `${b().r.y - 6}px`,
+                width: `${b().r.w + 12}px`,
+                height: `${b().r.h + 12}px`,
+              }}
+            />
+          )}
+        </Show>
+        <Show when={s.hoverPart() !== s.selectedPart() && box(s.hoverPart())}>
+          {(b) => <PartBoxView b={b()} cls="hov" />}
+        </Show>
+        <Show when={box(s.selectedPart())}>{(b) => <PartBoxView b={b()} cls="sel" />}</Show>
+        <For each={partPins()}>
+          {(x) => {
+            const r = () => at(x.p);
+            return (
+              <Pin
+                s={s}
+                index={x.i}
+                style={{ left: `${r().x + r().w - 12}px`, top: `${Math.max(2, r().y - 10)}px` }}
+              />
+            );
+          }}
+        </For>
+      </Show>
+    </div>
+  );
+}
+
+function PartBoxView(props: {
+  b: { p: PartBox; r: { x: number; y: number; w: number; h: number } };
+  cls: string;
+}) {
+  const edge = () => props.b.r.y < 22;
+  return (
+    <div
+      class={`box ${props.cls}`}
+      classList={{ edge: edge() }}
+      data-part={props.b.p.name}
+      style={{
+        left: `${props.b.r.x - 2}px`,
+        top: `${props.b.r.y - 2}px`,
+        width: `${props.b.r.w + 4}px`,
+        height: `${props.b.r.h + 4}px`,
+      }}
+    >
+      <span class="lbl">{props.b.p.label}</span>
     </div>
   );
 }

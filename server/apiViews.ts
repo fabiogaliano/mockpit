@@ -71,6 +71,9 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
   ...(post.author === undefined ? {} : { author: post.author }),
   ...(post.knobs ? { knobs: post.knobs } : {}),
   ...(post.slots.length ? { slots: post.slots } : {}),
+  // The part names this variant's own markup marks, so the viewer can tell
+  // which looks render a part (Mix) without the html bodies.
+  parts: partsInSurfaces(post.surfaces).map((p) => p.name),
   surfaces: post.surfaces.map(opts.body ? fullSurfaceView : hydratedSurfaceView),
   ...(opts.history
     ? {

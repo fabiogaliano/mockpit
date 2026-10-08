@@ -1,155 +1,120 @@
-// Thin client over the REST API, typed against the server's data model.
-import type {
-  Comment,
-  CommentAnchor,
-  CodeSurface,
-  DiffSurface,
-  HtmlSurface,
-  ImageSurface,
-  JsonSurface,
-  MarkdownSurface,
-  MermaidSurface,
-  Session,
-  Post,
-  Surface,
-  TerminalSurface,
-  TraceSurface,
-  TraceStep,
-  ViewerPost,
-} from "./legacyModel.ts";
-import { host } from "./host.ts";
+// Typed client for the routes the viewer reads and writes. Response types come
+// straight from the server's view functions, so a contract change breaks the
+// viewer's typecheck instead of its runtime.
 
-export type {
+import type { mockDetailView, mockSummaryView, variantView } from "../../server/apiViews.ts";
+import type { FeedEvent } from "../../server/events.ts";
+import type {
+  AskAnswer,
   Comment,
-  CommentAnchor,
-  CodeSurface,
-  DiffSurface,
-  HtmlSurface,
-  ImageSurface,
-  JsonSurface,
-  MarkdownSurface,
-  MermaidSurface,
-  Session,
-  Post,
-  Surface,
-  TerminalSurface,
-  TraceSurface,
-  TraceStep,
-  ViewerPost,
+  Draft,
+  KnobValue,
+  PartComment,
+  ProjectSummary,
+  ReplyDecision,
+} from "../../server/types.ts";
+import { basePath, host } from "./host.ts";
+
+export type MockSummary = ReturnType<typeof mockSummaryView>;
+export type MockDetail = ReturnType<typeof mockDetailView>;
+export type VariantView = ReturnType<typeof variantView>;
+export type HistoryRow = NonNullable<VariantView["history"]>[number];
+export type CommentRow = Comment & { seen: boolean };
+export type { FeedEvent, ProjectSummary };
+
+// What the viewer edits: a Draft minus the server's timestamp.
+export interface DraftInput {
+  version: number;
+  answers: Record<string, AskAnswer>;
+  mix: Record<string, string>;
+  tuned: Record<string, KnobValue>;
+  comments: PartComment[];
+}
+
+export interface MockList {
+  project?: string;
+  mocks: MockSummary[];
+  open: number;
+  openMocks: number;
+}
+
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+const url = (path: string) => `${basePath()}${path}`;
+
+async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url(path), {
+    ...init,
+    headers: init?.body ? { "content-type": "application/json" } : undefined,
+  });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new ApiError(res.status, body?.error ?? res.statusText);
+  return body as T;
+}
+
+const json = (method: string, body: unknown): RequestInit => ({
+  method,
+  body: JSON.stringify(body),
+});
+
+export const api = {
+  projects: () => call<ProjectSummary[]>("/api/projects"),
+  mocks: (project: string) => call<MockList>(`/api/mocks?project=${encodeURIComponent(project)}`),
+  mock: (id: string) => call<MockDetail>(`/api/mocks/${encodeURIComponent(id)}?history=1`),
+  draft: (id: string) =>
+    call<{ draft: Draft | null }>(`/api/mocks/${encodeURIComponent(id)}/draft`),
+  putDraft: (id: string, draft: DraftInput) =>
+    call<{ draft: Draft }>(`/api/mocks/${encodeURIComponent(id)}/draft`, json("PUT", draft)),
+  reply: (id: string, body: DraftInput & { text?: string; decision?: ReplyDecision }) =>
+    call<{ reply: CommentRow }>(`/api/mocks/${encodeURIComponent(id)}/reply`, json("POST", body)),
+  restore: (id: string, body: { state: string | null; variant: string }) =>
+    call<{ state: string | null; variant: string; status: string }>(
+      `/api/mocks/${encodeURIComponent(id)}/restore`,
+      json("POST", body),
+    ),
+  comments: (mockId: string) =>
+    call<{ comments: CommentRow[]; lastSeq: number }>(
+      `/api/comments?mock=${encodeURIComponent(mockId)}`,
+    ),
+  theme: () => call<{ mode: "dark" | "light" }>("/api/theme"),
+  putTheme: (mode: "dark" | "light") => call<{ mode: string }>("/api/theme", json("PUT", { mode })),
 };
 
-export type PublicReadMode = "session" | "full";
-
-// GET /api/sessions decorates each session with its post count. The wire field
-// name `surfaceCount` is kept (server-provided).
-export interface SessionRow extends Session {
-  surfaceCount: number;
+// A surface document for a frame or a thumbnail. Every input that changes the
+// pixels is in the URL, so a version-pinned document is cacheable.
+export function surfaceUrl(
+  postId: string,
+  surface: number,
+  opts: { version?: number; mode?: string; knobs?: Record<string, KnobValue> } = {},
+): string {
+  const q = new URLSearchParams({ surface: String(surface) });
+  if (opts.version) q.set("ver", String(opts.version));
+  if (opts.mode) q.set("mode", opts.mode);
+  if (opts.knobs && Object.keys(opts.knobs).length) q.set("k", JSON.stringify(opts.knobs));
+  return url(`/s/${encodeURIComponent(postId)}?${q}`);
 }
 
-// GET /api/version — upgradeCommand and notes are set only when an update
-// is actually available.
-export interface VersionInfo {
-  current: string | null;
-  latest: string | null;
-  updateAvailable: boolean;
-  upgradeCommand?: string | null;
-  notes?: string | null;
-}
+export const assetUrl = (id: string) => url(`/a/${encodeURIComponent(id)}`);
 
-declare global {
-  interface Window {
-    // __MOCKPIT_BASE_PATH__ lives in host.ts (the default host reads it).
-    __MOCKPIT_READONLY__?: boolean;
-    __MOCKPIT_PUBLIC_READ__?: PublicReadMode;
-    __MOCKPIT_SCREENSHOTS__?: boolean;
-    __MOCKPIT_PAGE_TITLE__?: string;
-  }
-}
-
-// The base path comes from the injected host (the default host derives it from
-// the hosted-wrapper global / URL prefix, matching the pre-engine viewer).
-export function appBasePath(): string {
-  return host().basePath;
-}
-
-export function appPath(path: string): string {
-  return `${appBasePath()}${path}`;
-}
-
-export function isReadonly(): boolean {
-  // Host-first (cloud embed), falling back to the self-hosted global so the
-  // self-hosted public-read page is byte-for-byte unchanged.
-  return host().readonly ?? !!window.__MOCKPIT_READONLY__;
-}
-
-export function publicReadMode(): PublicReadMode | undefined {
-  return window.__MOCKPIT_PUBLIC_READ__;
-}
-
-export function initialPageTitle(): string | undefined {
-  return window.__MOCKPIT_PAGE_TITLE__;
-}
-
-// The engine's layout. "full" is the whole navigation (projects sidebar, items
-// column, item screen); "stream" — the deprecated spelling kept for embedders —
-// is the item screen alone, resolved from the route's session/post rather than
-// the project reads. An embedder requests it through the host; the self-hosted
-// public-read "session" link maps to it, because such a workspace does not
-// expose /api/projects.
-export function layoutMode(): "full" | "stream" {
-  return host().layout ?? (publicReadMode() === "session" ? "stream" : "full");
-}
-
-// `/p/:id` is a post's canonical permalink (`/s/:id` is the legacy alias).
-export function postLink(id: string): string {
-  return `${location.origin}${appPath(`/p/${encodeURIComponent(id)}`)}`;
-}
-
-// The PNG screenshot of a post (the same /p/:id page, captured server-side).
-// Only reachable where `canScreenshot()` is true — see that helper.
-export function postImageLink(id: string): string {
-  return `${location.origin}${appPath(`/s/${encodeURIComponent(id)}.png`)}`;
-}
-
-// The post flattened to markdown (GET /api/posts/:id/markdown). Served rather
-// than derived here: a hydrated post omits sandboxed surface bodies, so only the
-// server can see the whole post (see apiViews.ts).
-export function postMarkdownPath(id: string): string {
-  return `/api/posts/${encodeURIComponent(id)}/markdown`;
-}
-
-// Whether the deployment can render post screenshots (the /p/:id.png route).
-// Host-first (cloud embed), falling back to the self-hosted global, mirroring
-// isReadonly(). False on a plain Node server, which has no Browser Rendering.
-export function canScreenshot(): boolean {
-  return host().screenshots ?? !!window.__MOCKPIT_SCREENSHOTS__;
-}
-
-export async function api<T = unknown>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(
-    appPath(path),
-    init ? { headers: { "content-type": "application/json" }, ...init } : undefined,
-  );
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error || String(res.status));
-  }
-  return res.json() as Promise<T>;
-}
-
-// Same fetch as api(), for the routes that answer with text rather than JSON.
-export async function apiText(path: string): Promise<string> {
-  const res = await fetch(appPath(path));
-  if (!res.ok) throw new Error(String(res.status));
-  return res.text();
-}
-
-export const sessionLabel = (s: Session) => s.title || s.agent + " session";
-
-export function relTime(iso: string): string {
-  const s = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (s < 60) return "just now";
-  if (s < 3600) return Math.floor(s / 60) + "m ago";
-  if (s < 86400) return Math.floor(s / 3600) + "h ago";
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+// The live feed. EventSource reconnects on its own; `onOpen` lets callers
+// refetch after a gap so nothing broadcast while disconnected is missed.
+export function subscribe(onEvent: (e: FeedEvent) => void, onOpen?: () => void): () => void {
+  const Source = (host().window as Window & typeof globalThis).EventSource;
+  if (!Source) return () => {};
+  const es = new Source(url("/api/events"));
+  es.onmessage = (m: MessageEvent<string>) => {
+    try {
+      onEvent(JSON.parse(m.data) as FeedEvent);
+    } catch {
+      // A malformed frame is dropped; the next event or reconnect refetches.
+    }
+  };
+  if (onOpen) es.addEventListener("hello", onOpen);
+  return () => es.close();
 }

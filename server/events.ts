@@ -24,6 +24,8 @@ export type FeedEvent =
       seq: number;
     }
   | { type: "comment-deleted"; id: string; sessionId: string }
+  // The session's agent cursor (agentSeq) moved: comments up to `seq` are seen.
+  | { type: "comment-seen"; sessionId: string; seq: number }
   // Workspace light/dark mode changed. Other open tabs re-theme.
   | { type: "theme-changed"; mode: Mode };
 

@@ -32,8 +32,6 @@
     "bin/",
     "dist/",
     "viewer/dist/",
-    "viewer/dist-embed/",
-    "viewer/embed.d.ts",
     "guide/",
     "skills/",
     "extensions/"
@@ -53,10 +51,6 @@
       "import": "./dist/workers/public.js"
     },
     "./viewer": "./viewer/dist/index.html",
-    "./viewer-embed": {
-      "types": "./viewer/embed.d.ts",
-      "import": "./viewer/dist-embed/engine.js"
-    },
     "./theme-tokens": {
       "types": "./dist/server/theme-tokens.d.ts",
       "import": "./dist/server/theme-tokens.js"
@@ -72,7 +66,6 @@
     "dev:sandbox": "node scripts/dev-sandbox.ts",
     "start": "npm run build:viewer && node server/index.ts",
     "build:viewer": "vite build",
-    "build:embed": "vite build -c viewer/vite.embed.config.ts",
     "mcp": "node mcp/server.ts",
     "test": "npm run test:node && npm run test:viewer",
     "test:node": "node --test 'test/**/*.test.ts'",
@@ -95,7 +88,7 @@
     "release:version": "changeset version",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.workers.json --noEmit && tsc -p tsconfig.viewer.json --noEmit",
     "clean:dist": "node scripts/clean-dist.ts",
-    "build": "npm run clean:dist && tsc -p tsconfig.build.json && npm run build:viewer && npm run build:embed",
+    "build": "npm run clean:dist && tsc -p tsconfig.build.json && npm run build:viewer",
     "deploy": "npm run build:viewer && wrangler deploy",
     "dev:cloud": "npm run build:viewer && wrangler dev",
     "prepack": "npm run build",

@@ -192,9 +192,17 @@ export const viewerSuite: Suite = {
       });
 
       // --- initial load -------------------------------------------------------
-      const cardSelector = ".card:not(#whatsNew)";
+      // Home lists one row per mock, each with a sandboxed thumbnail frame.
+      const cardSelector = ".home-row";
+      const projects = (await (await fetch(`${server.url}/api/projects`)).json()) as {
+        name: string;
+      }[];
+      const project = projects[0]?.name;
+      if (!project) throw new Error("publish did not create a project");
       const startedAt = Date.now();
-      await page.goto(`${server.url}/session/${sessionId}`, { waitUntil: "load" });
+      await page.goto(`${server.url}/project/${encodeURIComponent(project)}`, {
+        waitUntil: "load",
+      });
       await page.waitForFunction(cardsPresent(cardSelector, POSTS), undefined, {
         timeout: 30_000,
       });
@@ -208,11 +216,11 @@ export const viewerSuite: Suite = {
       const afterLoad = await readMetrics(cdp);
       ctx.add({
         suite: "viewer",
-        name: `load ${POSTS}-post session to all cards`,
+        name: `load ${POSTS}-mock home to all rows`,
         kind: "time",
         unit: "ms/op",
         value: loadMs,
-        note: "navigation → every card in the DOM",
+        note: "navigation → every row in the DOM",
         // A single unrepeatable navigation: noisier than a sampled benchmark.
         tolerance: 1.8,
       });
@@ -264,12 +272,7 @@ export const viewerSuite: Suite = {
 
       const iframes = await page.locator(`${cardSelector} iframe`).count();
       ctx.add(
-        count(
-          "viewer",
-          "surface iframes",
-          iframes,
-          "one opaque-origin frame per sandboxed surface",
-        ),
+        count("viewer", "surface iframes", iframes, "one opaque-origin thumbnail frame per mock"),
       );
 
       const transferred = (await Promise.all(responseSizes)).reduce((a, b) => a + b, 0);

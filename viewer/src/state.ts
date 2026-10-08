@@ -1,281 +1,560 @@
-// Workspace-wide state that isn't project/item shaped: the live feed, toasts,
-// the update notice, and the standalone post page. Project › item state lives in
-// projects.ts, which subscribes to the feed through onFeedEvent below.
-import { createSignal } from "solid-js";
-import { createStore, reconcile } from "solid-js/store";
-import {
-  api,
-  appPath,
-  isReadonly,
-  publicReadMode,
-  type Comment,
-  type SessionRow,
-  type Post,
-  type VersionInfo,
-} from "./api.ts";
+// The mock screen's state: the mock as the server last sent it, the user's
+// draft, and the view (state on stage, question, mode, selection, preview,
+// version). Components read signals from here and call its actions; nothing
+// else talks to the API for this screen.
+
+import { batch, createMemo, createSignal, onCleanup } from "solid-js";
+import { createStore } from "solid-js/store";
+import type { Ask, KnobValue, ReplyDecision } from "../../server/types.ts";
+import { api, type CommentRow, type DraftInput, type MockDetail, subscribe } from "./api.ts";
 import { host } from "./host.ts";
-import { DEFAULT_THEME_ID } from "../../server/themes.ts";
-import { applyTheme } from "./theme.ts";
+import {
+  answerIds,
+  askState,
+  carryOver,
+  draftIsEmpty,
+  emptyDraft,
+  frameVersion,
+  lookAsk,
+  mixOptions,
+  mockVersion,
+  overriddenAsks,
+  type PartsReport,
+  unanswered,
+} from "./logic.ts";
+import { setTheme } from "./theme.ts";
 
-// A comment as the viewer renders it: server comments plus the optimistic
-// local echo (pending until the POST confirms).
-export type ViewComment = Comment & { pending?: boolean };
+export type Mode = "questions" | "tune" | "thread";
+export type Question = { kind: "ask"; ask: Ask } | { kind: "mix" };
 
-const [sessionsStore, setSessionsInternal] = createStore<SessionRow[]>([]);
-export const sessions = sessionsStore;
-
-// Standalone (direct-link) mode: a bare /p/:id route with no session shows that
-// one post full-page. It is also what the server screenshots for /p/:id.png.
-const [standaloneState, setStandaloneInternal] = createSignal<Post | null>(null);
-export const standalonePost = standaloneState;
-
-const [commentsState, setCommentsInternal] = createSignal<ViewComment[]>([]);
-export const comments = commentsState;
-
-// False until the initial route has resolved, so neither the empty-workspace
-// copy nor an embedding host's overlay flips to real content too early.
-const [initialLoadedState, setInitialLoadedInternal] = createSignal(false);
-export const initialLoaded = initialLoadedState;
-export const setInitialLoaded = setInitialLoadedInternal;
-const [liveState, setLiveInternal] = createSignal(false);
-export const live = liveState;
-export const [navOpen, setNavOpen] = createSignal(false);
-// Post id the next mounted card should scroll to (standalone never sets it; the
-// Card reads it unconditionally).
-export const [scrollTarget, setScrollTarget] = createSignal<string | null>(null);
-
-const [toastTextState, setToastTextInternal] = createSignal("");
-export const toastText = toastTextState;
-const [toastShowState, setToastShowInternal] = createSignal(false);
-export const toastShow = toastShowState;
-let toastTimer: ReturnType<typeof setTimeout> | undefined;
-
-export function toast(text: string) {
-  setToastTextInternal(text);
-  setToastShowInternal(true);
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => setToastShowInternal(false), 4000);
+// What the stage shows while the pointer rests on an option: another variant,
+// or knob values sent live to the frame on stage.
+export interface Preview {
+  key: string;
+  variant?: string;
+  state?: string | null;
+  knobs?: Record<string, KnobValue>;
 }
 
-// Update notice: shown when the server reports a newer release the user has
-// not dismissed. Dismissal stores the version, not a flag, so dismissing
-// 0.4.0 keeps it gone until 0.5.0 actually ships.
-const DISMISSED_UPDATE_KEY = "mockpit-dismissed-update";
-const [versionInfo, setVersionInfo] = createSignal<VersionInfo | null>(null);
-const [dismissedUpdate, setDismissedUpdate] = createSignal(
-  localStorage.getItem(DISMISSED_UPDATE_KEY),
-);
+const SAVE_MS = 300;
 
-export async function checkVersion() {
-  setVersionInfo(await api<VersionInfo>("/api/version").catch(() => null));
-}
+export function createMockScreen(project: string, slug: string) {
+  const [mock, setMock] = createSignal<MockDetail | null>(null);
+  const [missing, setMissing] = createSignal(false);
+  const [comments, setComments] = createSignal<CommentRow[]>([]);
+  const [draft, setDraftSignal] = createSignal<DraftInput | null>(null);
+  const [activeState, setActiveState] = createSignal<string | null>(null);
+  const [chosenVariant, setChosenVariant] = createSignal<Record<string, string>>({});
+  const [preview, setPreview] = createSignal<Preview | null>(null);
+  const [mode, setModeSignal] = createSignal<Mode>("questions");
+  const [cur, setCur] = createSignal(0);
+  // The part picked on the stage. Tune (phase 4b) reads it to show that part's knobs.
+  const [selectedPart, setSelectedPart] = createSignal<string | null>(null);
+  const [hoverPart, setHoverPart] = createSignal<string | null>(null);
+  const [viewVersion, setViewVersion] = createSignal<number | null>(null);
+  const [versionsOpen, setVersionsOpen] = createSignal(false);
+  const [sent, setSent] = createSignal(false);
+  const [sending, setSending] = createSignal(false);
+  const [flagged, setFlagged] = createSignal<string[]>([]);
+  // "No, all <look>" is an answer even though it borrows nothing.
+  const [mixTouched, setMixTouched] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+  // Where Tune's knob controls mount (phase 4b hands this element to tunekit).
+  const [tuneHost, setTuneHost] = createSignal<HTMLElement | null>(null);
+  // The stage frames' latest parts reports, keyed by frameKey(state, variant).
+  const [reports, setReports] = createStore<Record<string, PartsReport | undefined>>({});
 
-export function dismissUpdate(version: string) {
-  localStorage.setItem(DISMISSED_UPDATE_KEY, version);
-  setDismissedUpdate(version);
-}
+  const variants = createMemo(() => mock()?.variants ?? []);
+  const states = createMemo<(string | null)[]>(() => {
+    const m = mock();
+    return m && m.states.length ? m.states : [null];
+  });
+  const latest = createMemo(() => mockVersion(variants()));
+  // Q6: a draft made on an older version keeps the stage on that version until
+  // the user chooses to view the new one.
+  const boundVersion = createMemo(() => {
+    const d = draft();
+    return d && !draftIsEmpty(d) && d.version < latest() ? d.version : null;
+  });
+  const stageVersion = createMemo(() => viewVersion() ?? boundVersion() ?? latest());
+  const look = createMemo(() => (mock() ? lookAsk(mock()!) : undefined));
 
-export function updateNotice(): VersionInfo | null {
-  const v = versionInfo();
-  return v?.updateAvailable && v.latest && v.latest !== dismissedUpdate() ? v : null;
-}
+  const answerOf = (ask: Ask) => draft()?.answers[ask.id] ?? ask.answer;
 
-export async function refreshSessionsQuiet() {
-  if (isReadonly() && publicReadMode() === "session") return;
-  const next = await api<SessionRow[]>("/api/sessions").catch(() => null);
-  if (next) setSessionsInternal(reconcile(next, { key: "id" }));
-}
+  // The variant the Look question settled on, drafted or sent.
+  const lookPick = createMemo(() => {
+    const ask = look();
+    if (!ask) return null;
+    const id = answerIds(answerOf(ask))[0];
+    return ask.options.find((o) => o.id === id)?.variant ?? null;
+  });
 
-// Entry point on load for the standalone permalink: a bare post route (/p/:id,
-// no session) opens the full-page view. Returns true when it took over.
-export async function enterStandalone(id: string): Promise<boolean> {
-  if (standalonePost()?.id === id) return true;
-  const post = await api<Post>(`/api/posts/${encodeURIComponent(id)}`).catch(() => null);
-  if (post) setStandaloneInternal(post);
-  return !!post;
-}
+  const inState = (state: string | null) => variants().filter((v) => v.state === state);
 
-export function leaveStandalone() {
-  if (standalonePost()) setStandaloneInternal(null);
-}
-
-export function isConnectRoute(): boolean {
-  return location.pathname === appPath("/connect");
-}
-
-// Kept for the Card's deep-link scroll contract; standalone has no session
-// route to reflect, so this is a no-op there.
-export function focusPost(_postId: string) {}
-
-export async function deleteComment(id: string): Promise<string | null> {
-  const prior = commentsState();
-  setCommentsInternal((prev) => prev.filter((c) => c.id !== id));
-  try {
-    await api(`/api/comments/${encodeURIComponent(id)}`, { method: "DELETE" });
-    return null;
-  } catch (err) {
-    setCommentsInternal(prior);
-    return err instanceof Error && err.message ? err.message : "network error";
+  // The variant on stage for a state: a hovered option, the drafted look, the
+  // switcher's choice, the accepted one, else the first still open.
+  function variantFor(state: string | null, withPreview = true) {
+    const list = inState(state);
+    const named = (name: string | null | undefined) =>
+      name ? list.find((v) => v.variant === name) : undefined;
+    const p = withPreview ? preview() : null;
+    return (
+      (p && (p.state === undefined || p.state === state) ? named(p.variant) : undefined) ??
+      named(lookPick()) ??
+      named(chosenVariant()[String(state)]) ??
+      list.find((v) => v.status === "accepted") ??
+      list.find((v) => v.status === "open") ??
+      list[0]
+    );
   }
-}
+  const activeVariant = createMemo(() => variantFor(activeState()));
 
-let localSeq = 0;
+  const mixOpts = createMemo(() => {
+    const m = mock();
+    return m ? mixOptions(m, variants(), lookPick()) : [];
+  });
+  const questions = createMemo<Question[]>(() => {
+    const m = mock();
+    if (!m) return [];
+    const list: Question[] = m.asks.map((ask) => ({ kind: "ask", ask }));
+    // Mix only exists once a look is picked and another look renders a part.
+    if (look() && lookPick() && mixOpts().length) list.push({ kind: "mix" });
+    return list;
+  });
+  const owed = createMemo(() => {
+    const m = mock();
+    return m ? unanswered(m, draft()) : [];
+  });
+  const overridden = createMemo(() => {
+    const m = mock();
+    const d = draft();
+    return m && d ? overriddenAsks(m.asks, d.answers, d.mix) : {};
+  });
 
-// Echo the comment immediately (pending until the POST confirms), and on
-// failure report the error so the composer can put the text back — a user
-// message must never be silently lost. Returns the error message, or null.
-export async function sendComment(
-  body: Record<string, unknown>,
-  postId: string | null,
-  text: string,
-): Promise<string | null> {
-  const anchor = body.anchor as Comment["anchor"] | undefined;
-  const local: ViewComment = {
-    id: `local-${++localSeq}`,
-    seq: 0,
-    sessionId: "",
-    postId,
-    postTitle: null,
-    author: "user",
-    text,
-    createdAt: new Date().toISOString(),
-    kind: "comment",
-    anchors: [],
-    draft: false,
-    postVersion: null,
-    viewport: null,
-    ...(anchor && { anchor }),
-    pending: true,
-  };
-  setCommentsInternal((prev) => [...prev, local]);
-  try {
-    const created = await api<Comment>("/api/comments", {
-      method: "POST",
-      body: JSON.stringify(body),
+  // --- draft writes: local at once, server after a short pause ---
+
+  let saveTimer = 0;
+  let lastLocalWrite = 0;
+  let pending: DraftInput | null = null;
+  async function flush() {
+    const m = mock();
+    const d = pending;
+    pending = null;
+    host().window.clearTimeout(saveTimer);
+    if (!m || !d) return;
+    try {
+      await api.putDraft(m.id, d);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+  function writeDraft(fn: (d: DraftInput) => DraftInput) {
+    const base = draft() ?? emptyDraft(boundVersion() ?? latest());
+    const next = fn({
+      ...base,
+      answers: { ...base.answers },
+      mix: { ...base.mix },
+      tuned: { ...base.tuned },
+      comments: [...base.comments],
     });
-    setCommentsInternal((prev) => {
-      if (prev.some((c) => c.id === created.id)) return prev.filter((c) => c.id !== local.id);
-      return prev.map((c) => (c.id === local.id ? created : c));
+    batch(() => {
+      setDraftSignal(next);
+      setSent(false);
+      setError(null);
     });
-    return null;
-  } catch (err) {
-    setCommentsInternal((prev) => prev.filter((c) => c.id !== local.id));
-    return err instanceof Error && err.message ? err.message : "network error";
+    pending = next;
+    lastLocalWrite = Date.now();
+    host().window.clearTimeout(saveTimer);
+    saveTimer = host().window.setTimeout(flush, SAVE_MS);
   }
-}
 
-export interface FeedEvent {
-  type: string;
-  id: string;
-  sessionId?: string;
-  surfaceId?: string | null;
-}
+  // --- loading and the live feed ---
 
-// Feed fan-out. The live connection is owned here; every view that wants to
-// refetch on activity subscribes instead of re-opening its own stream.
-type FeedListener = (event: FeedEvent) => void;
-const feedListeners = new Set<FeedListener>();
-export function onFeedEvent(listener: FeedListener): () => void {
-  feedListeners.add(listener);
-  return () => feedListeners.delete(listener);
-}
-
-const WS_HEARTBEAT_MS = 30_000;
-const WS_RECONNECT_MS = 1000;
-
-function handleFeedData(data: string) {
-  if (data === "pong") return;
-  let event: FeedEvent;
-  try {
-    event = JSON.parse(data) as FeedEvent;
-  } catch {
-    return;
+  let mockId: string | null = null;
+  async function resolveId(): Promise<string | null> {
+    if (mockId) return mockId;
+    const list = await api.mocks(project);
+    mockId = list.mocks.find((m) => m.slug === slug)?.id ?? null;
+    return mockId;
   }
-  // A theme switch must re-theme the chrome AND every rendered frame, so it is
-  // applied centrally rather than by a subscriber.
-  if (event.type === "theme-changed") applyTheme(DEFAULT_THEME_ID);
-  for (const listener of feedListeners) listener(event);
-}
+  async function loadMock() {
+    const id = await resolveId();
+    if (!id) {
+      setMissing(true);
+      return;
+    }
+    const m = await api.mock(id);
+    batch(() => {
+      setMock(m);
+      setMissing(false);
+      if (!states().includes(activeState())) setActiveState(states()[0]);
+    });
+  }
+  async function loadDraft() {
+    const id = await resolveId();
+    if (!id) return;
+    const { draft: d } = await api.draft(id).catch(() => ({ draft: null }));
+    if (Date.now() - lastLocalWrite < 1500 || pending) return;
+    setDraftSignal(
+      d
+        ? {
+            version: d.version,
+            answers: d.answers,
+            mix: d.mix,
+            tuned: d.tuned,
+            comments: d.comments,
+          }
+        : null,
+    );
+  }
+  async function loadComments() {
+    const id = await resolveId();
+    if (!id) return;
+    const { comments: list } = await api.comments(id);
+    setComments(list);
+  }
 
-function eventsPath(): string {
-  const route = host().router.get();
-  const sessionId = route.sessionId ?? standalonePost()?.sessionId;
-  return isReadonly() && publicReadMode() === "session" && sessionId
-    ? `/api/events?session=${encodeURIComponent(sessionId)}`
-    : "/api/events";
-}
+  async function start() {
+    await loadMock();
+    await Promise.all([loadDraft(), loadComments()]);
+    const m = mock();
+    if (!m) return;
+    // Open on the first question still owed, on the state it is about.
+    const first = owed()[0];
+    const idx = first ? questions().findIndex((q) => q.kind === "ask" && q.ask.id === first.id) : 0;
+    goQuestion(Math.max(0, idx), { history: false });
+  }
 
-function wsAppUrl(path: string): string {
-  const url = new URL(appPath(path), window.location.href);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  return url.href;
-}
+  const refetch = coalesce({ mock: loadMock, draft: loadDraft, comments: loadComments });
+  const stop = subscribe(
+    (e) => {
+      const id = mockId;
+      switch (e.type) {
+        case "mock-created":
+        case "mock-updated":
+          if (e.id === id) refetch("mock");
+          break;
+        case "mock-deleted":
+          if (e.id === id) setMissing(true);
+          break;
+        case "post-created":
+        case "post-updated":
+        case "post-deleted":
+          if (e.mockId === id) refetch("mock");
+          break;
+        case "draft-updated":
+          if (e.mockId === id) refetch("draft");
+          break;
+        case "comment-created":
+          if (e.mockId === id) refetch("comments");
+          break;
+        case "comment-deleted":
+        case "comment-seen":
+          if (
+            e.sessionId === mock()?.sessionId ||
+            comments().some((c) => c.sessionId === e.sessionId)
+          )
+            refetch("comments");
+          break;
+        case "theme-changed":
+          setTheme(e.mode === "light" ? "light" : "dark");
+          break;
+      }
+    },
+    () => {
+      if (mockId) {
+        refetch("mock");
+        refetch("draft");
+        refetch("comments");
+      }
+    },
+  );
+  onCleanup(() => {
+    stop();
+    if (pending) void flush();
+  });
 
-export function connect(): () => void {
-  if (host().liveTransport === "ws") return connectWebSocket();
-  return connectSse();
-}
+  // --- navigation inside the screen ---
 
-function connectSse(): () => void {
-  const es = new EventSource(appPath(eventsPath()));
-  let everConnected = false;
-  es.onopen = () => {
-    setLiveInternal(true);
-    // Events that fired during a gap are gone for good — tell subscribers to
-    // resync so the workspace can't silently go stale while still looking live.
-    if (everConnected) handleFeedData(JSON.stringify({ type: "resync", id: "" }));
-    everConnected = true;
+  // Each question, mode and viewed version is a history step, so Back walks
+  // them; values (picks, tuning) are not.
+  type Snap = {
+    mockpit: "mock";
+    state: string | null;
+    mode: Mode;
+    cur: number;
+    view: number | null;
   };
-  es.onerror = () => setLiveInternal(false);
-  es.onmessage = (ev) => handleFeedData(ev.data);
-  return () => {
-    es.close();
-    setLiveInternal(false);
+  const snap = (): Snap => ({
+    mockpit: "mock",
+    state: activeState(),
+    mode: mode(),
+    cur: cur(),
+    view: viewVersion(),
+  });
+  function record(replace: boolean) {
+    const h = host().history;
+    if (replace) h.replaceState(snap(), "");
+    else h.pushState(snap(), "");
+  }
+  function restoreSnap(s: unknown) {
+    if (!s || typeof s !== "object" || (s as Snap).mockpit !== "mock") return false;
+    const v = s as Snap;
+    batch(() => {
+      setActiveState(v.state);
+      setModeSignal(v.mode);
+      setCur(v.cur);
+      setViewVersion(v.view);
+      setPreview(null);
+      setVersionsOpen(false);
+    });
+    return true;
+  }
+
+  function goQuestion(i: number, opts: { history?: boolean } = {}) {
+    const q = questions()[i];
+    const m = mock();
+    batch(() => {
+      setCur(i);
+      setModeSignal("questions");
+      setPreview(null);
+      if (q && m) {
+        if (q.kind === "ask") setActiveState(askState(q.ask, m, activeState()));
+        if (q.kind === "ask" && q.ask.scope === "part" && q.ask.part) setSelectedPart(q.ask.part);
+      }
+    });
+    if (opts.history !== false) record(false);
+    else record(true);
+  }
+  function setMode(next: Mode) {
+    if (next === "questions") return goQuestion(cur());
+    batch(() => {
+      setModeSignal(next);
+      setPreview(null);
+    });
+    record(false);
+  }
+  function showState(state: string | null) {
+    batch(() => {
+      setActiveState(state);
+      setPreview(null);
+    });
+    record(true);
+  }
+  function chooseVariant(variant: string) {
+    setChosenVariant({ ...chosenVariant(), [String(activeState())]: variant });
+  }
+  function selectPart(part: string | null) {
+    setSelectedPart(part);
+    if (part && mode() !== "tune") setMode("tune");
+  }
+
+  // The next question still owed after i, else the last one (where Send lives).
+  function nextStop(i: number): number | null {
+    const qs = questions();
+    for (let k = 1; k <= qs.length; k++) {
+      const j = (i + k) % qs.length;
+      const q = qs[j];
+      if (q.kind === "ask" && owed().some((a) => a.id === q.ask.id)) return j;
+    }
+    return qs.length - 1 !== i ? qs.length - 1 : null;
+  }
+
+  // --- answers ---
+
+  function pick(ask: Ask, optionId: string) {
+    writeDraft((d) => {
+      if (ask.multi) {
+        const have = answerIds(d.answers[ask.id]);
+        const next = have.includes(optionId)
+          ? have.filter((x) => x !== optionId)
+          : [...have, optionId];
+        if (next.length) d.answers[ask.id] = next;
+        else delete d.answers[ask.id];
+      } else {
+        d.answers[ask.id] = optionId;
+      }
+      if (look()?.id === ask.id) {
+        // A borrow from the look just picked is no longer a borrow.
+        const chosen = ask.options.find((o) => o.id === optionId)?.variant;
+        for (const p of Object.keys(d.mix)) if (d.mix[p] === chosen) delete d.mix[p];
+      }
+      return d;
+    });
+    setFlagged(flagged().filter((x) => x !== ask.id));
+  }
+  // `null` is "No, all <look>": clears every borrow.
+  function toggleMix(opt: { part: string; variant: string } | null) {
+    writeDraft((d) => {
+      if (!opt) d.mix = {};
+      else if (d.mix[opt.part] === opt.variant) delete d.mix[opt.part];
+      else d.mix[opt.part] = opt.variant;
+      return d;
+    });
+    setMixTouched(true);
+  }
+  const mixAnswered = () => mixTouched() || Object.keys(draft()?.mix ?? {}).length > 0;
+  function undoMix(part: string) {
+    writeDraft((d) => {
+      delete d.mix[part];
+      return d;
+    });
+  }
+  function addComment(part: string | null, state: string | null, text: string) {
+    writeDraft((d) => {
+      d.comments.push({ part, state, text });
+      return d;
+    });
+  }
+  // Tune's writer (phase 4b): one tuned knob value into the draft.
+  function setTuned(path: string, value: KnobValue | undefined) {
+    writeDraft((d) => {
+      if (value === undefined) delete d.tuned[path];
+      else d.tuned[path] = value;
+      return d;
+    });
+  }
+
+  async function send(extra: { decision?: ReplyDecision; text?: string } = {}) {
+    const m = mock();
+    if (!m || sending()) return;
+    await flush();
+    const d = draft() ?? emptyDraft(stageVersion());
+    setSending(true);
+    try {
+      await api.reply(m.id, { ...d, ...extra });
+      batch(() => {
+        setDraftSignal(null);
+        setSent(true);
+        setModeSignal("thread");
+        setPreview(null);
+      });
+      setMixTouched(false);
+      record(true);
+      await Promise.all([loadMock(), loadComments()]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  // --- versions ---
+
+  function viewOld(version: number) {
+    setVersionsOpen(false);
+    const next = version >= latest() ? null : version;
+    if (next === viewVersion()) return;
+    setViewVersion(next);
+    record(false);
+  }
+  function backToLatest() {
+    setViewVersion(null);
+    record(false);
+  }
+  async function restoreViewed() {
+    const m = mock();
+    const v = activeVariant();
+    if (!m || !v) return;
+    try {
+      await api.restore(m.id, { state: v.state, variant: v.variant });
+      backToLatest();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+  // The newer version a draft-bound stage is holding back.
+  function viewNewVersion() {
+    const m = mock();
+    const d = draft();
+    if (!m || !d) return;
+    const moved = carryOver(d, m, variants(), latest());
+    writeDraft(() => moved.draft);
+    setFlagged(moved.flagged);
+  }
+
+  const onPop = (e: PopStateEvent) => restoreSnap(e.state);
+  host().window.addEventListener("popstate", onPop);
+  onCleanup(() => host().window.removeEventListener("popstate", onPop));
+
+  void start();
+
+  return {
+    project,
+    slug,
+    mock,
+    missing,
+    comments,
+    draft,
+    variants,
+    states,
+    latest,
+    boundVersion,
+    stageVersion,
+    look,
+    lookPick,
+    answerOf,
+    variantFor,
+    activeVariant,
+    activeState,
+    showState,
+    chooseVariant,
+    preview,
+    setPreview,
+    mode,
+    setMode,
+    cur,
+    goQuestion,
+    nextStop,
+    questions,
+    owed,
+    overridden,
+    mixOpts,
+    mixAnswered,
+    selectedPart,
+    selectPart,
+    hoverPart,
+    setHoverPart,
+    viewVersion,
+    viewOld,
+    backToLatest,
+    restoreViewed,
+    viewNewVersion,
+    versionsOpen,
+    setVersionsOpen,
+    sent,
+    sending,
+    flagged,
+    error,
+    setError,
+    pick,
+    toggleMix,
+    undoMix,
+    addComment,
+    setTuned,
+    send,
+    tuneHost,
+    setTuneHost,
+    reports,
+    setReports,
+    frameVersionOf: (v: Parameters<typeof frameVersion>[0]) => frameVersion(v, stageVersion()),
   };
 }
 
-function connectWebSocket(): () => void {
-  const url = wsAppUrl(eventsPath());
-  let everConnected = false;
-  let closed = false;
-  let ws: WebSocket | undefined;
-  let heartbeat: ReturnType<typeof setInterval> | undefined;
-  let reconnect: ReturnType<typeof setTimeout> | undefined;
+export type MockScreenState = ReturnType<typeof createMockScreen>;
 
-  const clearHeartbeat = () => {
-    clearInterval(heartbeat);
-    heartbeat = undefined;
-  };
-
-  const open = () => {
-    if (closed) return;
-    ws = new WebSocket(url);
-    ws.onopen = () => {
-      setLiveInternal(true);
-      clearHeartbeat();
-      heartbeat = setInterval(() => {
-        if (ws?.readyState === WebSocket.OPEN) ws.send("ping");
-      }, WS_HEARTBEAT_MS);
-      if (everConnected) handleFeedData(JSON.stringify({ type: "resync", id: "" }));
-      everConnected = true;
-    };
-    ws.onmessage = (ev) => {
-      if (typeof ev.data === "string") handleFeedData(ev.data);
-    };
-    ws.onerror = () => setLiveInternal(false);
-    ws.onclose = () => {
-      setLiveInternal(false);
-      clearHeartbeat();
-      if (!closed) reconnect = setTimeout(open, WS_RECONNECT_MS);
-    };
-  };
-
-  open();
-  return () => {
-    closed = true;
-    clearTimeout(reconnect);
-    clearHeartbeat();
-    ws?.close();
-    setLiveInternal(false);
+// Several events in one burst (a reply flips statuses on every variant) cost
+// one refetch per kind, not one per event.
+function coalesce<K extends string>(loaders: Record<K, () => Promise<void>>) {
+  const timers = new Map<K, number>();
+  return (kind: K) => {
+    if (timers.has(kind)) return;
+    timers.set(
+      kind,
+      host().window.setTimeout(() => {
+        timers.delete(kind);
+        loaders[kind]().catch(() => {});
+      }, 60),
+    );
   };
 }

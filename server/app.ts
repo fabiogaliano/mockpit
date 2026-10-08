@@ -494,6 +494,7 @@ export function createApp({
     const fresh = await store.listComments({ sessionId, afterSeq: session.agentSeq });
     if (fresh.length === 0) return undefined;
     await store.markAgentSeen(sessionId, fresh[fresh.length - 1].seq);
+    bus.broadcast({ type: "comment-seen", sessionId, seq: fresh[fresh.length - 1].seq });
     const feedback = fresh.filter((cm) => cm.author === "user");
     return feedback.length > 0 ? await buildFeedbackBatches(store, feedback) : undefined;
   }
@@ -1920,6 +1921,7 @@ export function createApp({
     // author) — what it receives here must not be re-delivered as piggyback.
     if (q.author === "user" && q.sessionId && all.length > 0) {
       await store.markAgentSeen(q.sessionId, lastSeq);
+      bus.broadcast({ type: "comment-seen", sessionId: q.sessionId, seq: lastSeq });
     }
     return { comments, lastSeq };
   }
