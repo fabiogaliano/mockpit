@@ -291,7 +291,7 @@ export default function mockpitExtension(pi) {
     ],
     parameters: { type: "object", properties: {} },
     async execute(_id, _params, _signal, _onUpdate, ctx) {
-      const query = new URLSearchParams({ brief: "1", project: resolveProjectName(ctx.cwd) });
+      const query = new URLSearchParams({ project: resolveProjectName(ctx.cwd) });
       const guide = await requestText(`/agent-howto?${query}`);
       return { content: [{ type: "text", text: guide }], details: { baseUrl: baseUrl() } };
     },

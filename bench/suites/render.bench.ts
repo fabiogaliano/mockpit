@@ -18,6 +18,7 @@
 // both a memory and a bandwidth number — and unlike timings, it's deterministic
 // enough to gate hard.
 
+import { readFileSync } from "node:fs";
 import { renderCode, renderDiff, renderMarkdown, renderTerminal } from "../../server/richRender.ts";
 import {
   renderHtmlPage,
@@ -50,6 +51,18 @@ export const renderSuite: Suite = {
   name: "render",
   description: "Server-side surface rendering (shiki, markdown-it, diff SSR) and output size",
   async run(ctx) {
+    // --- agent vocabulary ----------------------------------------------------
+    // What an agent types for one card + form + table brief, authored three
+    // ways (bench/fixtures/vocabulary). The html is re-sent on every publish
+    // and revise, so a vocabulary that shrinks it saves tokens per iteration.
+    for (const way of ["raw-css", "builtin-kit", "tailwind"]) {
+      const source = readFileSync(
+        new URL(`../fixtures/vocabulary/${way}.html`, import.meta.url),
+        "utf8",
+      );
+      ctx.add(bytes("render", `vocabulary/${way} fragment`, utf8(source)));
+    }
+
     // --- cold highlighter init ---------------------------------------------
     // Measured in a fresh module instance so the singleton highlighter is
     // genuinely cold. This is startup cost paid on the first rich surface a

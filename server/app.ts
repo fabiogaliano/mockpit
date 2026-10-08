@@ -5,6 +5,13 @@ import { streamSSE } from "hono/streaming";
 import { decodeBase64 } from "./base64.ts";
 import { mockDetailView, mockSummaryView, sessionRowView, surfaceRef } from "./apiViews.ts";
 import { EventBus, type FeedEvent } from "./events.ts";
+import {
+  GUIDE_TOPICS,
+  type GuideTopic,
+  isGuideTopic,
+  renderBriefGuide,
+  unknownTopicMessage,
+} from "./designGuide.ts";
 import { buildFeedbackBatches, type FeedbackBatch } from "./feedbackBatch.ts";
 import {
   bundledIconSets,
@@ -173,9 +180,9 @@ export type PublicReadMode = "session" | "full";
 export interface AppOptions {
   store: Store;
   viewerHtml: string;
-  guideMarkdown: string;
   setupText: string;
-  agentHowtoText?: string;
+  // The guide/topics/<id>.md bodies, read at boot like the viewer.
+  topics?: Partial<Record<GuideTopic, string>>;
   // When set (cloud deployments), this hook authorizes requests before any
   // app route runs. Return true to allow, false to use the default 401, or a
   // Response for custom denials. This is intentionally lower-level than
@@ -334,9 +341,8 @@ const titleFromSlug = (slug: string) =>
 export function createApp({
   store,
   viewerHtml,
-  guideMarkdown,
   setupText,
-  agentHowtoText = setupText,
+  topics = {},
   authenticate,
   authToken,
   basePath,
@@ -598,6 +604,18 @@ export function createApp({
     const unknown = new Set<string>();
     for (const h of html) for (const u of expandIcons(h, resolve).unknown) unknown.add(u);
     return [...unknown].map((u) => `unknown icon ${u} (sets: ${prefixes.join(", ")})`);
+  }
+
+  // An agent asking for instructions must never get an error page, so a store
+  // failure degrades to the brief without project settings.
+  async function briefFor(project: string | undefined): Promise<string> {
+    try {
+      const name = project ?? (await store.listProjects())[0]?.name ?? DEFAULT_PROJECT;
+      return renderBriefGuide(await designFor(name));
+    } catch (err) {
+      console.warn("[mockpit] project design unavailable for the brief", err);
+      return renderBriefGuide(null);
+    }
   }
 
   // Push + webhooks. Detached on purpose: a dead push endpoint must never fail
@@ -2632,23 +2650,16 @@ export function createApp({
     c.header("Cache-Control", "public, max-age=31536000, immutable");
     return c.body(asset.body);
   });
-  app.get("/guide", (c) => c.text(withOrigin(guideMarkdown, c)));
+  app.get("/guide", (c) => c.text(withOrigin(topics.html ?? "", c)));
   app.get("/setup", (c) => c.text(withOrigin(setupText, c)));
-  // `?brief=1` renders the project-aware short guide (its real palette, kit and
-  // icon set) instead of the generic text. The renderer lives in designGuide.ts;
-  // if it is unavailable or throws, the full guide is still served — an agent
-  // asking for instructions must never get an error page.
+  // The brief without `?topic=`, one reference topic with it. Unknown topics
+  // are a 400 that names the real ones, so an agent can correct itself.
   app.get("/agent-howto", async (c) => {
-    if (c.req.query("brief") !== "1") return c.text(withOrigin(agentHowtoText, c));
-    try {
-      const { renderBriefGuide } = await import("./designGuide.ts");
-      const project =
-        c.req.query("project") ?? (await store.listProjects())[0]?.name ?? DEFAULT_PROJECT;
-      return c.text(withOrigin(renderBriefGuide(await designFor(project)), c));
-    } catch (err) {
-      console.warn("[mockpit] brief guide unavailable", err);
-      return c.text(withOrigin(agentHowtoText, c));
-    }
+    const topic = c.req.query("topic");
+    if (topic === undefined) return c.text(withOrigin(await briefFor(c.req.query("project")), c));
+    if (!isGuideTopic(topic))
+      return c.json({ error: unknownTopicMessage(topic), topics: GUIDE_TOPICS }, 400);
+    return c.text(withOrigin(topics[topic] ?? "", c));
   });
 
   // Opt-in html kits available on this workspace (id, label, summary, classes) —
@@ -3212,18 +3223,9 @@ export function createApp({
       reorderSurfaces: reorderSurfacesFlow,
     },
     uploadAsset,
-    // The same project-aware brief the CLI gets from /agent-howto?brief=1 —
-    // every feature works on every tier, and a remote MCP agent needs the
-    // project's real palette and kit as much as a shell one does.
-    guide: async (project: string) => {
-      try {
-        const { renderBriefGuide } = await import("./designGuide.ts");
-        return renderBriefGuide(await designFor(project));
-      } catch (err) {
-        console.warn("[mockpit] brief guide unavailable", err);
-        return guideMarkdown;
-      }
-    },
+    // Every feature works on every tier: a remote MCP agent needs the project's
+    // real palette and kit, and the topics, as much as a shell one does.
+    guide: (project, topic) => (topic ? (topics[topic] ?? "") : briefFor(project)),
   });
 
   return app;

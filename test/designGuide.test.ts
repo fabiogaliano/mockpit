@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderBriefGuide } from "../server/designGuide.ts";
+import { readFileSync } from "node:fs";
+import { GUIDE_TOPICS, iconsLine, renderBriefGuide } from "../server/designGuide.ts";
 import { themeById } from "../server/themes.ts";
 import type { DesignSettings } from "../server/types.ts";
 
@@ -22,8 +23,8 @@ const design = (over: Partial<DesignSettings> = {}): DesignSettings => ({
 
 test("a project that never ran init gets the generic brief", () => {
   const brief = renderBriefGuide(null);
-  assert.match(brief, /No design system imported yet — run `mockpit init`/);
-  assert.match(brief, /using the workspace theme/);
+  assert.match(brief, /No design system imported yet\. Run `mockpit init`/);
+  assert.match(brief, /the workspace theme/);
   assert.match(brief, /Kit: none/);
   assert.match(brief, /<i icon="lucide:check"><\/i>/);
   assert.match(brief, /Sets: lucide, mage\./, "the bundled sets are always named");
@@ -74,7 +75,58 @@ test("injected css vars and installed icon sets are announced", () => {
       iconSets: [{ prefix: "tabler", assetId: "asset1", count: 5000 }],
     }),
   );
-  assert.match(brief, /injected verbatim/);
+  assert.match(brief, /own `:root` block is injected/);
   assert.match(brief, /Sets: tabler, lucide, mage\./);
   assert.match(brief, /mockpit icons add <prefix>/);
+});
+
+// The brief is the one document an agent reads before its first publish; the
+// point of it is that it stays small. ~1.5k tokens is the ceiling.
+test("the brief fits in 6,000 characters for every kit, with a palette", () => {
+  for (const kit of ["builtin", "tailwind", "none"] as const) {
+    const brief = renderBriefGuide(
+      design({
+        kit,
+        palette: { light: theme.light, dark: theme.dark },
+        detected: { tailwind: true, shadcn: true, cssVars: 24, fonts: ["Inter", "Mono"] },
+        cssVars: ":root{--radius:0.5rem}",
+        iconSets: [{ prefix: "tabler", assetId: "asset1", count: 5000 }],
+      }),
+    );
+    assert.ok(brief.length <= 6000, `${kit} brief is ${brief.length} characters`);
+  }
+});
+
+test("the brief covers the loop, the reply and the trust rule", () => {
+  const brief = renderBriefGuide(null);
+  for (const needle of [
+    "data-part",
+    "Two renders needed to show a choice",
+    "userFeedback",
+    "mockpit watch",
+    "mockpit wait --timeout 1",
+    "exactly once",
+    "decision",
+    "body fragment",
+    "Never hardcode a color",
+    "cdnjs.cloudflare.com",
+    ".mockpit/starter.html",
+    "never override system",
+  ]) {
+    assert.ok(brief.includes(needle), needle);
+  }
+});
+
+test("the brief lists every topic, and each topic ships as guide/topics/<id>.md", () => {
+  const brief = renderBriefGuide(null);
+  for (const id of GUIDE_TOPICS) {
+    assert.match(brief, new RegExp(`^- ${id}: `, "m"));
+    const body = readFileSync(new URL(`../guide/topics/${id}.md`, import.meta.url), "utf8");
+    assert.match(body, new RegExp(`^# mockpit topic: ${id}\n`));
+  }
+});
+
+test("the icons line names the syntax and the bundled sets even before init", () => {
+  assert.match(iconsLine(design()), /^Icons: `<i icon="lucide:check"><\/i>`/);
+  assert.match(iconsLine(null), /Sets: lucide, mage\./);
 });

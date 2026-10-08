@@ -114,7 +114,7 @@ function startServer() {
   const app = createApp({
     store,
     viewerHtml: "<html>viewer</html>",
-    guideMarkdown: "# Mockpit design contract",
+    topics: { html: "# Mockpit design contract" },
     setupText: "# setup",
     authToken: "test-token",
   });
@@ -338,7 +338,7 @@ test("the design guide is the project-aware brief", async (t) => {
   const { ctx } = await setup(t);
   const harness = createPiHarness();
   const guide = await invoke(harness, "mockpit_get_design_guide", {}, ctx);
-  assert.match(text(guide), /mockpit — design brief/);
+  assert.match(text(guide), /# mockpit brief/);
   assert.match(text(guide), /mockpit publish --mock/);
 });
 

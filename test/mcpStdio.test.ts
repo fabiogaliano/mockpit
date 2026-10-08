@@ -53,9 +53,8 @@ async function serveApp(authToken?: string) {
   const app = createApp({
     store: new SqlStore(createSqliteStorage()),
     viewerHtml: "<html>viewer</html>",
-    guideMarkdown: "# stdio design guide",
+    topics: { html: "# stdio design guide" },
     setupText: "# setup",
-    agentHowtoText: "# agent how-to",
     authToken,
   });
 
@@ -339,7 +338,9 @@ test(
     );
 
     const guide = await callText(mcp.client, "get_design_guide");
-    assert.match(guide, /design brief/);
+    assert.match(guide, /# mockpit brief/);
+    const html = await callText(mcp.client, "get_design_guide", { topic: "html" });
+    assert.equal(html, "# stdio design guide");
 
     // The user's Send goes through the viewer; the agent hears it exactly once.
     await fetchJson(

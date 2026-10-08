@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApp } from "./app.ts";
+import { GUIDE_TOPICS } from "./designGuide.ts";
 import { SqlStore } from "./sqlStore.ts";
 import { createSqliteStorage } from "./sqliteStorage.ts";
 
@@ -13,16 +14,18 @@ import { createSqliteStorage } from "./sqliteStorage.ts";
 let root = join(dirname(fileURLToPath(import.meta.url)), "..");
 if (basename(root) === "dist") root = join(root, "..");
 
-const [viewerHtml, guideMarkdown, setupText, agentHowtoText, pkgJson] = await Promise.all([
+const [viewerHtml, setupText, topicTexts, pkgJson] = await Promise.all([
   readFile(join(root, "viewer", "dist", "index.html"), "utf8").catch(() => {
     console.error("viewer build missing — run `npm run build:viewer` first");
     return process.exit(1);
   }),
-  readFile(join(root, "guide", "DESIGN_GUIDE.md"), "utf8"),
   readFile(join(root, "guide", "AGENT_SETUP.md"), "utf8"),
-  readFile(join(root, "guide", "AGENT_HOWTO.md"), "utf8"),
+  Promise.all(
+    GUIDE_TOPICS.map((id) => readFile(join(root, "guide", "topics", `${id}.md`), "utf8")),
+  ),
   readFile(join(root, "package.json"), "utf8"),
 ]);
+const topics = Object.fromEntries(GUIDE_TOPICS.map((id, i) => [id, topicTexts[i]]));
 
 const pr = process.env.MOCKPIT_PUBLIC_READ;
 const publicRead = pr === "session" || pr === "full" ? pr : undefined;
@@ -38,9 +41,8 @@ console.log(`mockpit store: SQLite at ${dbPath}`);
 const app = createApp({
   store,
   viewerHtml,
-  guideMarkdown,
   setupText,
-  agentHowtoText,
+  topics,
   authToken: process.env.MOCKPIT_TOKEN,
   publicRead,
   // MOCKPIT_VERSION fakes the running version (manual testing of the

@@ -148,9 +148,7 @@ function makeApp() {
   return createApp({
     store: new SqlStore(createSqliteStorage()),
     viewerHtml: "<html><head></head><body>viewer</body></html>",
-    guideMarkdown: "# guide",
     setupText: "# setup",
-    agentHowtoText: "# agent how-to",
   });
 }
 type App = ReturnType<typeof makeApp>;

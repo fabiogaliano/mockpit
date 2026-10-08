@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, writeSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+  writeSync,
+} from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -84,9 +91,10 @@ other commands:
                                           upload an asset, print its id and URL
   mockpit asset-url <file>               print the URL a file will have (no upload)
   mockpit kits                           list the opt-in html kits
-  mockpit guide                          print the design contract
+  mockpit agent-howto [--topic <id>]     print the brief to read before publishing,
+                                          or one reference topic
+  mockpit guide [--brief|--topic <id>]   print the html topic (or the brief, or a topic)
   mockpit setup                          print the AGENTS.md integration block
-  mockpit agent-howto                    print the agent how-to
   mockpit version                        show version and check for updates
   mockpit mcp                            run the stdio MCP server (for agent configs)
 
@@ -153,8 +161,13 @@ mockpit icons remove <set> [<set>...]
 mockpit surface remove --mock <slug> [--state s] [--variant v] <N|id>
 mockpit surface edit --mock <slug> [--state s] [--variant v] <N|id> <file|->
 mockpit surface move --mock <slug> [--state s] [--variant v] <N|id> --to <M>`,
-  guide: `mockpit guide [--brief]
-  --brief prints the short, project-aware agent guide.`,
+  "agent-howto": `mockpit agent-howto [--topic <id>] [--project <name>]
+  No flag prints the brief: the loop, parts, asks and knobs, the reply, and
+  this project's palette, kit and icons. --topic prints one reference topic
+  (knobs, asks, surfaces, html, reply, http).`,
+  guide: `mockpit guide [--brief] [--topic <id>]
+  No flag prints the html topic. --brief prints the project-aware brief
+  (same as mockpit agent-howto). --topic prints one reference topic.`,
 };
 
 // `console.log(...)` on a pipe is asynchronous, so exiting on the next line
@@ -1635,19 +1648,15 @@ const commands = {
 
   async guide() {
     const { values: flags } = parse({
-      options: { brief: { type: "boolean" }, project: { type: "string" } },
+      options: {
+        brief: { type: "boolean" },
+        topic: { type: "string" },
+        project: { type: "string" },
+      },
     });
-    if (flags.brief) {
-      const params = new URLSearchParams({ brief: "1", project: resolveProject(flags).name });
-      console.log(
-        await fetchTextWithFallback(
-          `/agent-howto?${params}`,
-          join(ROOT, "guide", "AGENT_HOWTO.md"),
-        ),
-      );
-      return;
-    }
-    console.log(await fetchTextWithFallback("/guide", join(ROOT, "guide", "DESIGN_GUIDE.md")));
+    if (flags.topic !== undefined) return printTopic(flags.topic);
+    if (flags.brief) return printBrief(flags);
+    return printTopic("html");
   },
 
   async setup() {
@@ -1656,8 +1665,11 @@ const commands = {
   },
 
   async "agent-howto"() {
-    parse();
-    console.log(await fetchTextWithFallback("/agent-howto", join(ROOT, "guide", "AGENT_HOWTO.md")));
+    const { values: flags } = parse({
+      options: { topic: { type: "string" }, project: { type: "string" } },
+    });
+    if (flags.topic !== undefined) return printTopic(flags.topic);
+    return printBrief(flags);
   },
 
   // Print the running version and check for updates (non-blocking, best-effort).
@@ -1695,6 +1707,39 @@ const commands = {
     }
   },
 };
+
+// Topics ship with the CLI, so a typo is caught, and a known topic read, with
+// no server running.
+const TOPICS_DIR = join(ROOT, "guide", "topics");
+
+async function printTopic(topic) {
+  const topics = readdirSync(TOPICS_DIR)
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => f.slice(0, -3))
+    .sort();
+  if (!topics.includes(topic)) {
+    die(
+      `unknown topic "${topic}"; topics: ${topics.join(", ")}`,
+      `mockpit agent-howto --topic ${topics[0]}`,
+    );
+  }
+  const path = `/agent-howto?${new URLSearchParams({ topic })}`;
+  console.log(await fetchTextWithFallback(path, join(TOPICS_DIR, `${topic}.md`)));
+}
+
+// The brief is rendered from the project's stored design settings, so unlike
+// a topic it has no bundled copy to fall back on.
+async function printBrief(flags) {
+  const params = new URLSearchParams({ project: resolveProject(flags).name });
+  let res;
+  try {
+    res = await fetch(`${BASE}/agent-howto?${params}`);
+  } catch {
+    die(`cannot reach mockpit at ${BASE}`, "mockpit serve");
+  }
+  if (!res.ok) die(`mockpit at ${BASE} answered ${res.status}`, "mockpit serve");
+  console.log(await res.text());
+}
 
 async function fetchTextWithFallback(path, localFile) {
   try {

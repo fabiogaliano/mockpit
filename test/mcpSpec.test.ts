@@ -47,13 +47,13 @@ const EXPECTED_TOOLS = [
 ];
 
 // What a model reads per catalog (name, description, inputSchema, _meta),
-// measured at 15.5 KB (HTTP) and 15.0 KB (stdio) once the surface schema became
+// measured at 15.7 KB (HTTP) and 15.3 KB (stdio) once the surface schema became
 // one trimmed $defs entry per tool (from 18.1 / 19.7 KB inlined) and revise and
-// edit_surface gained their `parts` param. Output schemas
+// edit_surface gained their `parts` param and get_design_guide its topics. Output schemas
 // are budgeted apart: only typed/codemode harnesses read them (5.7 KB). Growth
 // past these is bloat, not scope.
-const BUDGET_HTTP = 15_700;
-const BUDGET_STDIO = 15_300;
+const BUDGET_HTTP = 16_000;
+const BUDGET_STDIO = 15_500;
 const BUDGET_OUTPUT = 6_000;
 const ALWAYS_LOADED = ["publish_mock", "ask_user", "wait_for_feedback", "get_design_guide"];
 

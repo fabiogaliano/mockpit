@@ -1,9 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
-import agentHowtoText from "../guide/AGENT_HOWTO.md";
 import setupText from "../guide/AGENT_SETUP.md";
-import guideMarkdown from "../guide/DESIGN_GUIDE.md";
+import asks from "../guide/topics/asks.md";
+import html from "../guide/topics/html.md";
+import http from "../guide/topics/http.md";
+import knobs from "../guide/topics/knobs.md";
+import reply from "../guide/topics/reply.md";
+import surfaces from "../guide/topics/surfaces.md";
 import pkg from "../package.json" with { type: "json" };
 import { createApp } from "../server/app.ts";
+import type { GuideTopic } from "../server/designGuide.ts";
 import { SqlStore } from "../server/sqlStore.ts";
 import viewerHtml from "../viewer/dist/index.html";
 import { matchPostScreenshot, planPostScreenshot } from "./screenshot.ts";
@@ -29,9 +34,8 @@ export class MockpitBoard extends DurableObject<Env> {
     this.app = createApp({
       store: new SqlStore(ctx.storage.sql),
       viewerHtml,
-      guideMarkdown,
       setupText,
-      agentHowtoText,
+      topics: { knobs, asks, surfaces, html, reply, http } satisfies Record<GuideTopic, string>,
       authToken: env.MOCKPIT_TOKEN,
       publicRead,
       // This Worker deploys with the Browser Rendering binding (wrangler.jsonc),

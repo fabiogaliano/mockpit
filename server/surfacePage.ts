@@ -101,7 +101,7 @@ body {
 
 // Surface kit: element defaults and SVG utility classes baked into every
 // html-surface doc so agents publish compact markup instead of hand-writing inline
-// CSS. Documented as a reference table in guide/DESIGN_GUIDE.md — keep the
+// CSS. Documented as a reference table in guide/topics/html.md — keep the
 // two in sync. Note: CSS rules override SVG presentation attributes, so bare
 // element selectors here must never set properties surfaces commonly set via
 // attributes (fill/font-size on text, etc.) — that's why text styling is

@@ -15,8 +15,8 @@ This skill is a bootstrap. The real instructions live on the running server, so
 they stay in sync with the deployed version:
 
 ```sh
-mockpit agent-howto        # the loop: publish, parts, asks, knobs, reading a reply
-mockpit guide --brief      # the html contract with THIS project's palette, kit and icons
+mockpit agent-howto                 # the brief: the loop, the reply, this project's palette, kit and icons
+mockpit agent-howto --topic knobs   # one reference topic: knobs, asks, surfaces, html, reply, http
 ```
 
 Once per repo run `mockpit init`: it detects the repo's design system, stores
@@ -61,7 +61,7 @@ Rules of thumb:
 - Two renders needed to show a choice → publish variants and ask. One render
   plus a control → declare a knob.
 - Ask when a decision is genuinely the user's, not after every publish.
-- Use the kit, tokens and icons from `mockpit guide --brief` before writing CSS.
+- Use the kit, tokens and icons from `mockpit agent-howto` before writing CSS.
 - After a context loss: `mockpit status`, then `mockpit show --mock <slug>`.
 
 ## Configuration

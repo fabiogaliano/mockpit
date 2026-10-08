@@ -206,10 +206,16 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
       session,
     });
   },
-  // The brief guide renders this project's real palette, kit, and icons, so
-  // the agent never restates them.
+  // The brief renders this project's real palette, kit, and icons, so the
+  // agent never restates them; a topic is the same text on every tier.
   get_design_guide: (args) =>
-    api(`/agent-howto${query({ brief: true, project: resolveProject(args.project) })}`),
+    api(
+      `/agent-howto${query(
+        args.topic === undefined
+          ? { project: resolveProject(args.project) }
+          : { topic: args.topic },
+      )}`,
+    ),
   add_surface: (args) =>
     post(`/api/mocks/${enc(args.mock)}/surfaces`, {
       ...args,

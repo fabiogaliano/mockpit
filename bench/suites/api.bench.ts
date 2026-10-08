@@ -22,9 +22,8 @@ function makeApp(store: Store) {
   return createApp({
     store,
     viewerHtml: VIEWER_HTML,
-    guideMarkdown: "# guide",
+    topics: { html: "# guide" },
     setupText: "# setup",
-    agentHowtoText: "# agent how-to",
     // Empty version disables the npm-registry update check, keeping the bench
     // off the network (and off a variable that has nothing to do with our code).
     version: "",

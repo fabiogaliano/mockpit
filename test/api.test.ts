@@ -32,9 +32,8 @@ function makeApp(
   return createApp({
     store,
     viewerHtml,
-    guideMarkdown: "# guide",
+    topics: { html: "# guide" },
     setupText: "# setup",
-    agentHowtoText: "# agent how-to",
     authToken,
     ...rest,
   });
@@ -1666,14 +1665,19 @@ test("the global body cap rejects oversize JSON and MCP bodies", async () => {
 
 // --- docs, theme, version, push ------------------------------------------------------------
 
-test("docs routes serve the guide, setup and how-to; ?brief=1 renders the project brief", async () => {
+test("/agent-howto is the project brief, ?topic= one topic, and /guide the html topic", async () => {
   const app = makeApp();
   assert.equal(await (await app.request("/guide")).text(), "# guide");
   assert.equal(await (await app.request("/setup")).text(), "# setup");
-  assert.equal(await (await app.request("/agent-howto")).text(), "# agent how-to");
-  const brief = await (await app.request("/agent-howto?brief=1&project=demo")).text();
-  assert.match(brief, /mockpit — design brief/);
+  const brief = await (await app.request("/agent-howto?project=demo")).text();
+  assert.match(brief, /# mockpit brief/);
   assert.match(brief, /--mock writer/);
+  assert.equal(await (await app.request("/agent-howto?topic=html")).text(), "# guide");
+  const unknown = await app.request("/agent-howto?topic=colours");
+  assert.equal(unknown.status, 400);
+  const body = (await unknown.json()) as { error: string; topics: string[] };
+  assert.match(body.error, /unknown topic "colours"/);
+  assert.deepEqual(body.topics, ["knobs", "asks", "surfaces", "html", "reply", "http"]);
 });
 
 test("the theme setting is the workspace's mode: dark by default, light or dark only", async () => {
@@ -1694,7 +1698,7 @@ function makeVersionApp(version?: string, latest?: { version: string; notes?: st
   return createApp({
     store: new SqlStore(createSqliteStorage()),
     viewerHtml: "<html>viewer</html>",
-    guideMarkdown: "# guide",
+    topics: { html: "# guide" },
     setupText: "# setup",
     version,
     upgradeCommand: "npm install -g mockpit",
@@ -2133,7 +2137,13 @@ test("mcp: upload_asset and get_design_guide", async () => {
   assert.ok(asset.url.endsWith(`/a/${asset.id}`));
   assert.match((await tool(app, "upload_asset", { contentType: "image/png" })).error, /base64/);
   const guide = await tool(app, "get_design_guide", {});
-  assert.match(guide, /run `mockpit init`/);
+  assert.match(guide, /Run `mockpit init`/);
+  assert.equal(await tool(app, "get_design_guide", { topic: "html" }), "# guide");
+  const unknown = await tool(app, "get_design_guide", { topic: "colours" });
+  assert.match(
+    unknown.error,
+    /unknown topic "colours"; topics: knobs, asks, surfaces, html, reply, http/,
+  );
 });
 
 test("feedback consumed by the MCP wait is not re-delivered over REST, and vice versa", async () => {

@@ -143,8 +143,10 @@ HTTP.
 | `mockpit export`  | `export_mock`       | `GET /api/mocks/:id/export`                      |
 | `mockpit upload`  | `upload_asset`      | `POST /api/assets`                               |
 
-The running server serves the agent how-to at `/agent-howto` and the html
-contract at `/guide`.
+The running server serves the brief at `/agent-howto`: one short, project-aware
+document an agent reads before its first publish. Reference topics (`knobs`,
+`asks`, `surfaces`, `html`, `reply`, `http`) are at `/agent-howto?topic=<id>`;
+`/guide` is the `html` topic.
 
 ## Run it anywhere
 

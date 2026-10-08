@@ -1,0 +1,180 @@
+<style>
+  .team {
+    max-width: 640px;
+    border: 1px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-lg);
+    background: var(--color-background-primary);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+  }
+  .team-header {
+    padding: 20px 24px 0;
+  }
+  .team-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 500;
+  }
+  .team-desc {
+    margin: 4px 0 0;
+    font-size: 14px;
+    color: var(--color-text-secondary);
+  }
+  .team-content {
+    padding: 16px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .invite {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+  }
+  .invite-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+  }
+  .invite-label {
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .invite-input,
+  .invite-select {
+    height: 36px;
+    padding: 0 12px;
+    border: 1px solid var(--color-border-secondary);
+    border-radius: var(--border-radius-md);
+    background: var(--color-background-primary);
+    color: var(--color-text-primary);
+    font: inherit;
+    font-size: 14px;
+  }
+  .invite-input:focus,
+  .invite-select:focus {
+    outline: 2px solid var(--color-border-info);
+    outline-offset: 1px;
+  }
+  .invite-button {
+    height: 36px;
+    padding: 0 16px;
+    border: 0;
+    border-radius: var(--border-radius-md);
+    background: var(--color-text-primary);
+    color: var(--color-background-primary);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .invite-button:hover {
+    opacity: 0.9;
+  }
+  .members {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .members th {
+    text-align: left;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--color-border-tertiary);
+  }
+  .members td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--color-border-tertiary);
+  }
+  .members tr:last-child td {
+    border-bottom: 0;
+  }
+  .status {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    background: var(--color-background-success);
+    color: var(--color-text-success);
+  }
+  .status-pending {
+    background: var(--color-background-secondary);
+    color: var(--color-text-secondary);
+  }
+  .team-footer {
+    padding: 0 24px 20px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .ghost-button {
+    height: 32px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: var(--border-radius-md);
+    background: transparent;
+    color: var(--color-text-primary);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .ghost-button:hover {
+    background: var(--color-background-secondary);
+  }
+</style>
+<section class="team" data-part="team" data-part-label="Team">
+  <header class="team-header">
+    <h2 class="team-title">Team members</h2>
+    <p class="team-desc">Invite people and choose what they can do.</p>
+  </header>
+  <div class="team-content">
+    <form class="invite" data-part="invite" data-part-label="Invite">
+      <label class="invite-field">
+        <span class="invite-label">Email</span>
+        <input class="invite-input" type="email" placeholder="name@company.com" />
+      </label>
+      <label class="invite-field">
+        <span class="invite-label">Role</span>
+        <select class="invite-select">
+          <option>Viewer</option>
+          <option>Editor</option>
+          <option>Admin</option>
+        </select>
+      </label>
+      <button class="invite-button" type="submit">Send invite</button>
+    </form>
+    <table class="members" data-part="members" data-part-label="Members">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Role</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Ana Lima</td>
+          <td>Admin</td>
+          <td><span class="status">Active</span></td>
+        </tr>
+        <tr>
+          <td>Ben Okafor</td>
+          <td>Editor</td>
+          <td><span class="status">Active</span></td>
+        </tr>
+        <tr>
+          <td>Chloe Park</td>
+          <td>Viewer</td>
+          <td><span class="status status-pending">Pending</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <footer class="team-footer">
+    <button class="ghost-button" type="button">Export list</button>
+  </footer>
+</section>
