@@ -3,8 +3,15 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { feedbackResult } from "../server/mcpHttp.ts";
-import { MCP_INSTRUCTIONS, MCP_SERVER_INFO, STDIO_MCP_TOOLS } from "../server/mcpSpec.ts";
+import {
+  MCP_INSTRUCTIONS,
+  MCP_SERVER_INFO,
+  STDIO_MCP_CATALOG,
+  STDIO_MCP_TOOLS,
+  toolResult,
+} from "../server/mcpSpec.ts";
 
 // Point at a deployed instance later by setting MOCKPIT_URL.
 const API = process.env.MOCKPIT_URL ?? "http://localhost:8228";
@@ -26,15 +33,6 @@ async function api(path: string, init: RequestInit = {}) {
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${text}`);
   return text;
 }
-
-const text = (value: unknown) => ({
-  content: [
-    {
-      type: "text" as const,
-      text: typeof value === "string" ? value : JSON.stringify(value, null, 2),
-    },
-  ],
-});
 
 // Stdio runs on the agent's machine, so a value may name a file: markup and
 // asset bytes never have to travel through the model's context.
@@ -234,11 +232,11 @@ const server = new McpServer(MCP_SERVER_INFO, { instructions: MCP_INSTRUCTIONS }
 
 for (const tool of STDIO_MCP_TOOLS) {
   const handler = handlers[tool.name];
-  server.registerTool(
-    tool.name,
-    { description: tool.description, inputSchema: tool.inputSchema },
-    async (args: any) => text(await handler(args)),
-  );
+  const { name, ...config } = tool;
+  server.registerTool(name, config, async (args: any) => toolResult(name, await handler(args)));
 }
+// Replaces the SDK's own listing (registered above), so stdio advertises the
+// same compact 2020-12 schemas as HTTP; calls still validate against zod.
+server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: STDIO_MCP_CATALOG }));
 
 await server.connect(new StdioServerTransport());

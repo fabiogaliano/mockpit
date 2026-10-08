@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { test } from "node:test";
-import { z } from "zod";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
+import { z } from "zod/v4";
 import {
   HTTP_MCP_TOOLS,
   MCP_INSTRUCTIONS,
   MCP_TOOL_DEFS,
   MCP_TOOL_NAMES,
+  STDIO_MCP_CATALOG,
   STDIO_MCP_TOOLS,
 } from "../server/mcpSpec.ts";
 import { validateSurfaces } from "../server/postSurfaces.ts";
@@ -44,11 +46,20 @@ const EXPECTED_TOOLS = [
   "reorder_surfaces",
 ];
 
-// Measured at 18.1 KB (HTTP) and 19.7 KB (stdio) for the 14-tool catalog; the
-// surface schema is inlined in four tools, which dominates. Growth past these
-// is bloat, not scope.
-const BUDGET_HTTP = 18_500;
-const BUDGET_STDIO = 20_000;
+// What a model reads per catalog (name, description, inputSchema, _meta),
+// measured at 15.2 KB (HTTP) and 14.8 KB (stdio) once the surface schema became
+// one trimmed $defs entry per tool (from 18.1 / 19.7 KB inlined). Output schemas
+// are budgeted apart: only typed/codemode harnesses read them (5.7 KB). Growth
+// past these is bloat, not scope.
+const BUDGET_HTTP = 15_500;
+const BUDGET_STDIO = 15_000;
+const BUDGET_OUTPUT = 6_000;
+const ALWAYS_LOADED = ["publish_mock", "ask_user", "wait_for_feedback", "get_design_guide"];
+
+const modelBytes = (tools: object[]) =>
+  Buffer.byteLength(JSON.stringify(tools.map(({ outputSchema: _, ...rest }: any) => rest)));
+const outputBytes = (tools: object[]) =>
+  Buffer.byteLength(JSON.stringify(tools.map((t: any) => t.outputSchema ?? null)));
 
 const httpTool = (name: string) => {
   const tool = HTTP_MCP_TOOLS.find((t) => t.name === name);
@@ -62,7 +73,7 @@ const stdioTool = (name: string) => {
 };
 
 // The surface JSON Schema a client receives for the publish tool.
-const httpSurfaceSchema = httpTool("publish_mock").inputSchema.properties.surfaces.items;
+const httpSurfaceSchema = httpTool("publish_mock").inputSchema.$defs.Surface;
 const httpKindEnum = httpSurfaceSchema.properties.kind.enum as string[];
 
 // A representative valid example per kind, including optional fields, so a
@@ -237,9 +248,51 @@ test("instructions speak the mock vocabulary and nothing retired remains", () =>
 
 test("MCP instructions and tool schemas stay within their context budgets", () => {
   assert.ok(Buffer.byteLength(MCP_INSTRUCTIONS) <= 500, "MCP instructions exceeded 500 bytes");
+  assert.ok(modelBytes(HTTP_MCP_TOOLS) <= BUDGET_HTTP, `HTTP MCP tools exceeded ${BUDGET_HTTP}`);
   assert.ok(
-    Buffer.byteLength(JSON.stringify(HTTP_MCP_TOOLS)) <= BUDGET_HTTP,
-    `HTTP MCP tools exceeded ${BUDGET_HTTP} bytes`,
+    outputBytes(HTTP_MCP_TOOLS) <= BUDGET_OUTPUT,
+    `outputSchemas exceeded ${BUDGET_OUTPUT}`,
+  );
+});
+
+test("each tool carries the surface schema once, by reference", () => {
+  for (const [name, path] of [
+    ["publish_mock", ["surfaces", "items"]],
+    ["revise_mock", ["surfaces", "items"]],
+    ["add_surface", ["surface"]],
+    ["edit_surface", ["surface"]],
+  ] as const) {
+    const schema = httpTool(name).inputSchema;
+    let node = schema.properties;
+    for (const key of path) node = node[key];
+    assert.deepEqual(node, { $ref: "#/$defs/Surface" }, `${name} references Surface`);
+    assert.deepEqual(schema.$defs.Surface, httpSurfaceSchema, `${name} carries the same Surface`);
+    assert.equal(
+      JSON.stringify(schema).split('"lineStart"').length - 1,
+      1,
+      `${name} inlines no copy`,
+    );
+  }
+});
+
+test("both catalogs mark the core loop alwaysLoad and compile under the SDK's validator", () => {
+  const ajv = new AjvJsonSchemaValidator();
+  for (const tools of [HTTP_MCP_TOOLS, STDIO_MCP_CATALOG] as any[][]) {
+    assert.deepEqual(
+      tools.filter((t) => t._meta?.["anthropic/alwaysLoad"] === true).map((t) => t.name),
+      ALWAYS_LOADED,
+    );
+    for (const t of tools) {
+      // What an Ajv-based client does before it trusts structuredContent.
+      ajv.getValidator(t.inputSchema);
+      if (t.outputSchema) ajv.getValidator(t.outputSchema);
+      assert.ok(!JSON.stringify(t).includes('"$schema"'), `${t.name} carries no $schema`);
+    }
+  }
+  assert.deepEqual(
+    STDIO_MCP_TOOLS.filter((t) => t._meta).map((t) => t.name),
+    ALWAYS_LOADED,
+    "stdio registers the same _meta it lists",
   );
 });
 
@@ -279,9 +332,11 @@ test("the serialized stdio MCP catalog stays within budget and lists only mock t
     list.result.tools.map((t: { name: string }) => t.name),
     EXPECTED_TOOLS,
   );
+  // stdio lists the shared compact catalog, not the SDK's own zod serialization.
+  assert.deepEqual(list.result.tools, STDIO_MCP_CATALOG);
   assert.ok(
-    Buffer.byteLength(JSON.stringify(list.result.tools)) <= BUDGET_STDIO,
-    `stdio MCP tools exceeded ${BUDGET_STDIO} bytes`,
+    modelBytes(list.result.tools) <= BUDGET_STDIO,
+    `stdio MCP tools exceeded ${BUDGET_STDIO}`,
   );
 });
 

@@ -1,7 +1,7 @@
 import type { Hono } from "hono";
 import type { CommentWait, FlowContext, FlowResult } from "./app.ts";
 import { decodeBase64 } from "./base64.ts";
-import { HTTP_MCP_TOOLS, MCP_INSTRUCTIONS, MCP_SERVER_INFO } from "./mcpSpec.ts";
+import { HTTP_MCP_TOOLS, MCP_INSTRUCTIONS, MCP_SERVER_INFO, toolResult } from "./mcpSpec.ts";
 import type { Asset, AssetKind, Store } from "./types.ts";
 
 // Stateless MCP over streamable HTTP: every request is self-contained, which
@@ -200,9 +200,11 @@ export function registerMcp(app: Hono, deps: McpDeps) {
         signal: c.req.raw.signal,
       };
       try {
-        const value = await callTool(msg.params?.name, msg.params?.arguments ?? {}, ctx);
-        const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
-        return rpc(msg.id, { content: [{ type: "text", text }] });
+        const name = msg.params?.name;
+        return rpc(
+          msg.id,
+          toolResult(name, await callTool(name, msg.params?.arguments ?? {}, ctx)),
+        );
       } catch (err) {
         return rpc(msg.id, {
           content: [{ type: "text", text: `error: ${err instanceof Error ? err.message : err}` }],

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
 import { createApp } from "../server/app.ts";
+import { STDIO_MCP_CATALOG, STDIO_MCP_TOOLS } from "../server/mcpSpec.ts";
 import { SqlStore } from "../server/sqlStore.ts";
 import { createSqliteStorage } from "../server/sqliteStorage.ts";
 import type { Store } from "../server/types.ts";
@@ -1799,6 +1801,93 @@ test("mcp: the design loop round-trips through the shared flows", async () => {
   assert.equal(detail.variants.find((v: any) => v.variant === "dark").status, "accepted");
   const exported = await tool(app, "export_mock", { mock: "writer", project: "demo" });
   assert.equal(exported.states[0].variant, "dark");
+});
+
+test("mcp: structuredContent matches each tool's outputSchema on both transports", async () => {
+  const app = makeApp();
+  const list = (await call(app, "/mcp", mcpCall(1, "tools/list"))).body.result.tools as any[];
+  const ajv = new AjvJsonSchemaValidator();
+  const checked = new Set<string>();
+  const run = async (name: string, args: Record<string, unknown>) => {
+    const { body } = await call(app, "/mcp", mcpCall(1, "tools/call", { name, arguments: args }));
+    const result = body.result;
+    assert.ok(!result.isError, `${name} failed: ${result.content[0].text}`);
+    const value = result.structuredContent;
+    assert.deepEqual(value, JSON.parse(result.content[0].text), `${name} text and structure agree`);
+    const http = list.find((t) => t.name === name).outputSchema;
+    const verdict = ajv.getValidator(http)(value);
+    assert.ok(verdict.valid, `${name} HTTP outputSchema: ${verdict.errorMessage}`);
+    // stdio lists its own catalog and the SDK re-checks each result with zod
+    // server-side, so a mismatch there would turn a good call into an error.
+    const stdio = STDIO_MCP_CATALOG.find((t) => t.name === name)!.outputSchema!;
+    const stdioVerdict = ajv.getValidator(stdio)(value);
+    assert.ok(stdioVerdict.valid, `${name} stdio outputSchema: ${stdioVerdict.errorMessage}`);
+    const zod = STDIO_MCP_TOOLS.find((t) => t.name === name)!.outputSchema!;
+    assert.ok(zod.safeParse(value).success, `${name} stdio zod outputSchema`);
+    checked.add(name);
+    return value;
+  };
+
+  const pub = await run("publish_mock", {
+    project: "demo",
+    mock: "writer",
+    state: "Writing",
+    variant: "quiet",
+    knobs: { size: [16, 12, 20, 1] },
+    html: '<h1 data-part="title">T</h1><p data-part="body">b</p>',
+  });
+  const session = pub.sessionId;
+  await run("publish_mock", {
+    project: "demo",
+    mock: "writer",
+    state: "Writing",
+    variant: "dark",
+    session,
+    html: '<h1 data-part="title">T</h1>',
+  });
+  await run("ask_user", {
+    project: "demo",
+    mock: "writer",
+    session,
+    asks: [{ id: "look", text: "Look?", options: [{ label: "Dark", variant: "dark" }] }],
+  });
+  assert.deepEqual((await run("wait_for_feedback", { session, timeoutSeconds: 0 })).feedback, []);
+  await call(app, "/api/comments", viewer({ mock: pub.mock.id, text: "tighter", author: "user" }));
+  await call(
+    app,
+    `/api/mocks/${pub.mock.id}/reply`,
+    viewer({
+      answers: { look: "dark" },
+      tuned: { size: 18 },
+      comments: [{ part: "title", state: "Writing", text: "bigger" }],
+    }),
+  );
+  const fb = await run("wait_for_feedback", { session, timeoutSeconds: 0 });
+  assert.equal(fb.feedback.at(-1).reply.asks[0].chosen[0].label, "Dark");
+  // A revise that drops a part carries partChanges, and an undelivered
+  // comment rides along as userFeedback.
+  await call(app, "/api/comments", viewer({ mock: pub.mock.id, text: "one more", author: "user" }));
+  const rev = await run("revise_mock", {
+    project: "demo",
+    mock: "writer",
+    state: "Writing",
+    variant: "quiet",
+    session,
+    html: '<h1 data-part="title">T2</h1>',
+  });
+  assert.deepEqual(rev.partChanges.vanished, ["body"]);
+  assert.ok(rev.userFeedback?.length, "the pending comment rides along");
+  await run("get_mock", { project: "demo", mock: "writer", history: true });
+  await run("list_mocks", { project: "demo" });
+  await run("export_mock", { project: "demo", mock: "writer" });
+  assert.deepEqual(
+    [...checked].sort(),
+    list
+      .filter((t) => t.outputSchema)
+      .map((t) => t.name)
+      .sort(),
+    "every tool with an outputSchema was exercised",
+  );
 });
 
 test("mcp: surface tools address a variant by mock + state/variant", async () => {
