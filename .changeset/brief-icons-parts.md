@@ -25,6 +25,18 @@ Icons by name, part-scoped revisions, a shorter brief, and typed MCP results.
   definition, which shrinks the catalog.
 - **tunekit from the registry.** The viewer bundles `tunekit@^1.5.0` from npm
   instead of a pinned git commit.
+- **Tailwind projects keep their classes.** `mockpit init` stores the repo's
+  Tailwind entry stylesheet (non-core imports, plugins and config stripped) and
+  the frame loads it as Tailwind source, so `bg-card` and
+  `text-muted-foreground` resolve like in the codebase. No more
+  `bg-[var(--card)]`.
+- **Kits by reference.** A kit can be a hosted stylesheet. `basecoat` ships as
+  the shadcn-shaped vocabulary for projects with no design system, and a project
+  can register its own stylesheet with `mockpit kit add <id> --url … --doc …`
+  (or `init --kit-url`). Any bundled or project kit can be the project's default.
+- **The brief reads the repo's design files.** `DESIGN.md`, DTCG `tokens.json`
+  and shadcn `components.json` feed the brief when present: the team's rules,
+  the main tokens and the installed component list.
 - **Waits agree.** `mockpit wait`, `wait_for_feedback` (stdio and HTTP) and the
   Pi extension all default to 120 seconds and cap at 300.
 - `mockpit ask "<question>" --asks <file>` is now an error instead of dropping
