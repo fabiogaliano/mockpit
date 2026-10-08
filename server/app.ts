@@ -1508,6 +1508,46 @@ export function createApp({
     return ok({ state: updated.state, variant: updated.variant, status: updated.status });
   }
 
+  // D8 "restore as vN": the user brings an older version back as the newest
+  // one. Distinct from restoreFlow, which un-archives a variant. Viewer-only
+  // because the version is authored by the user; an agent restoring is a revise.
+  async function restoreVersionFlow(
+    ref: unknown,
+    postId: string,
+    body: any,
+    ctx: FlowContext,
+  ): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const mock = await resolveMock(ref);
+    if (isResult(mock)) return mock;
+    const post = await store.getPost(postId);
+    if (!post || post.mock !== mock.id) return fail(404, `${mock.slug} has no variant "${postId}"`);
+    const version = Number(body?.version);
+    if (!Number.isInteger(version) || version < 1) {
+      return fail(400, '"version" must be a positive integer');
+    }
+    if (version === post.version) return fail(409, `v${version} is already the current version`);
+    const old = post.history.find((h) => h.version === version);
+    if (!old) return fail(404, `v${version} is not available`);
+    const updated = await store.updatePost(post.id, {
+      surfaces: old.surfaces,
+      title: old.title,
+      from: version,
+      prompt: `restored v${version}`,
+      author: "user",
+    });
+    if (!updated) return fail(404, "variant not found");
+    const touched = (await store.updateMock(mock.id, {})) ?? mock;
+    bus.broadcast({ type: "mock-updated", id: touched.id, project: touched.project });
+    announcePost(touched, updated, false);
+    return ok({
+      state: updated.state,
+      variant: updated.variant,
+      version: updated.version,
+      from: version,
+    });
+  }
+
   async function removeMockFlow(ref: unknown, query: { project?: unknown }): Promise<FlowResult> {
     const mock = await resolveMock(ref, query.project);
     if (isResult(mock)) return mock;
@@ -2192,16 +2232,11 @@ export function createApp({
 
   // --- sessions ---
 
-  async function postCounts(): Promise<Map<string, number>> {
-    const counts = new Map<string, number>();
-    for (const post of await store.listPosts()) {
-      counts.set(post.sessionId, (counts.get(post.sessionId) ?? 0) + 1);
-    }
-    return counts;
-  }
-
   app.get("/api/sessions", async (c) => {
-    const [sessions, counts] = await Promise.all([store.listSessions(), postCounts()]);
+    const [sessions, counts] = await Promise.all([
+      store.listSessions(),
+      store.countPostsBySession(),
+    ]);
     return c.json(sessions.map((s) => sessionRowView(s, counts.get(s.id) ?? 0)));
   });
 
@@ -2324,6 +2359,18 @@ export function createApp({
 
   app.post("/api/mocks/:id/restore", async (c) =>
     send(c, await restoreFlow(c.req.param("id"), await jsonBody(c))),
+  );
+
+  app.post("/api/mocks/:id/variants/:postId/restore", async (c) =>
+    send(
+      c,
+      await restoreVersionFlow(
+        c.req.param("id"),
+        c.req.param("postId"),
+        await jsonBody(c),
+        flowCtx(c),
+      ),
+    ),
   );
 
   app.post("/api/mocks/:id/surfaces", async (c) =>

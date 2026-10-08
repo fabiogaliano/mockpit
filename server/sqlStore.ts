@@ -848,6 +848,16 @@ export class SqlStore implements Store {
     return this.rowsToPosts(rows);
   }
 
+  async countPostsBySession() {
+    const counts = new Map<string, number>();
+    for (const row of this.sql
+      .exec("SELECT sessionId, COUNT(*) AS n FROM posts GROUP BY sessionId")
+      .toArray()) {
+      counts.set(row.sessionId as string, row.n as number);
+    }
+    return counts;
+  }
+
   async getPost(id: string) {
     const rows = this.sql.exec("SELECT * FROM posts WHERE id = ?", id).toArray();
     return rows.length > 0 ? this.rowsToPosts(rows)[0] : null;

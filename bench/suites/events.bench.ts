@@ -169,7 +169,7 @@ export const eventsSuite: Suite = {
     if (ctx.matches("comment long-poll wakeup latency")) {
       const store = new SqlStore(createSqliteStorage());
       const session = await store.createSession({ agent: "bench", title: "poll" });
-      // Comments attach to a post, so the poll needs one to point at.
+      // Comments attach to a variant, so the poll needs one to point at.
       const post = await createBenchPost(store, {
         sessionId: session.id,
         title: "poll target",
@@ -192,8 +192,9 @@ export const eventsSuite: Suite = {
             await new Promise((r) => setImmediate(r));
             const posted = await app.request("/api/comments", {
               method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ surface: post!.id, text: `c${n++}`, author: "user" }),
+              // Only the same-origin viewer may author as the user.
+              headers: { "content-type": "application/json", "sec-fetch-site": "same-origin" },
+              body: JSON.stringify({ post: post!.id, text: `c${n++}`, author: "user" }),
             });
             await posted.text();
             await waiting;

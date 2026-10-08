@@ -128,6 +128,59 @@ try {
   await page.locator(".vbtn").click();
   await page.locator(".vpop").waitFor();
   await shot(page, "versions-popover");
+  await page.keyboard.press("Escape");
+
+  // Tune with the body part selected, in both themes, with one knob moved so
+  // the panel shows a tuned value.
+  for (const theme of ["dark", "light"] as const) {
+    await call(url, "/api/theme", "PUT", { mode: theme });
+    await page.evaluate((t) => localStorage.setItem("mockpit-theme", t), theme);
+    await page.goto(screen);
+    await page.locator(".opt").first().waitFor();
+    await page.locator('.up-mode[data-mode="tune"]').click();
+    await page.locator(".up-comp-trigger").click();
+    await page.locator('.up-select-option[data-part="body"]').click();
+    // tunekit's controls live in its open shadow root; Playwright's CSS
+    // locators pierce it, so the size slider is driven like a user would.
+    const size = page.locator('.tune-pane [role="slider"]').first();
+    await size.focus();
+    await size.press("ArrowRight");
+    await size.press("ArrowRight");
+    await page.locator(".tcount.on").waitFor();
+    await page.mouse.move(0, 0);
+    await shot(page, theme === "dark" ? "tune-body" : "tune-light");
+    // Back to the default: the value leaves the draft and the count drops.
+    await size.press("ArrowLeft");
+    await size.press("ArrowLeft");
+    await page.locator(".tcount:not(.on)").waitFor();
+  }
+
+  // A phone: the panel is a bottom sheet over the stage; tap a mode to open it.
+  await call(url, "/api/theme", "PUT", { mode: "dark" });
+  const phone = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+  });
+  const mobile = await phone.newPage();
+  mobile.on("pageerror", (e) => console.error("pageerror:", e.message));
+  await mobile.goto(screen);
+  await mobile.evaluate(() => localStorage.setItem("mockpit-theme", "dark"));
+  await mobile.goto(screen);
+  await mobile.locator('.up-mode[data-mode="questions"]').tap();
+  await mobile.locator(".up-shell.sheet.open .opt").first().waitFor();
+  // Touch: the first tap previews on the stage, the second confirms.
+  const second = mobile.locator(".opt").nth(1);
+  await second.tap();
+  await mobile.locator(".opt.previewing").waitFor();
+  if ((await second.getAttribute("aria-pressed")) === "true") {
+    throw new Error("touch: the first tap picked instead of previewing");
+  }
+  await second.tap();
+  await mobile.locator('.opt[aria-pressed="true"]').waitFor();
+  await mobile.locator(".opt").first().tap();
+  await shot(mobile, "mobile-questions");
   await browser.close();
 } finally {
   proc.kill();

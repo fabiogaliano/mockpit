@@ -25,6 +25,11 @@ const PATH_RE = /^[A-Za-z_][\w-]{0,63}(\.[A-Za-z_][\w-]{0,63}){0,3}$/;
 // Color values end up inside CSS custom properties, so only the characters a
 // CSS color or gradient needs are allowed.
 const COLOR_RE = /^[#\w\s(),.%/+-]{1,300}$/;
+// The character class above still admits `url(//host/x)` and `image(...)`, which
+// would turn a colour var into a network fetch inside the sandbox; a colour never
+// needs either function.
+const COLOR_FETCH_RE = /\b(url|image|image-set|src)\s*\(/i;
+const isCssColor = (v: string): boolean => COLOR_RE.test(v) && !COLOR_FETCH_RE.test(v);
 const COLOR_HINT =
   /^(#|rgba?\(|hsla?\(|hwb\(|lab\(|lch\(|oklab\(|oklch\(|color\(|(linear|radial|conic)-gradient\()/i;
 
@@ -127,7 +132,7 @@ export function checkKnobConfig(path: string, raw: unknown): Checked<KnobConfig>
       };
     }
     case "color": {
-      if (k.value !== undefined && !(typeof k.value === "string" && COLOR_RE.test(k.value))) {
+      if (k.value !== undefined && !(typeof k.value === "string" && isCssColor(k.value))) {
         return { ok: false, error: `${name} color value is not a CSS color` };
       }
       return {
@@ -136,7 +141,7 @@ export function checkKnobConfig(path: string, raw: unknown): Checked<KnobConfig>
           type: "color",
           ...(k.value === undefined ? {} : { value: k.value }),
           ...(k.gradient === true ? { gradient: true } : {}),
-          ...(isStr(k.contrast) && COLOR_RE.test(k.contrast) ? { contrast: k.contrast } : {}),
+          ...(isStr(k.contrast) && isCssColor(k.contrast) ? { contrast: k.contrast } : {}),
         },
       };
     }
@@ -263,7 +268,7 @@ export function checkKnobValue(
         ? { ok: true, value }
         : bad(`must be one of ${optionValues(knob.options).join(", ")}`);
     case "color":
-      return typeof value === "string" && COLOR_RE.test(value)
+      return typeof value === "string" && isCssColor(value)
         ? { ok: true, value }
         : bad("must be a CSS color");
     case "text":

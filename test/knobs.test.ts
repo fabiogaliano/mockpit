@@ -100,6 +100,9 @@ test("values are checked against the declared knob", () => {
     /one of top/,
   );
   assert.match(err(checkKnobValue("c", "#fff", "url(javascript:x);")), /CSS color/);
+  assert.match(err(checkKnobValue("c", "#fff", "url(//evil.example/x)")), /CSS color/);
+  assert.match(err(checkKnobValue("c", "#fff", "image(//evil.example/x)")), /CSS color/);
+  assert.match(err(checkKnobConfig("c", { type: "color", value: "url(//h/x)" })), /CSS color/);
   assert.deepEqual(ok(checkKnobValue("pad", { type: "pad", x: [0, 0, 10] }, { x: 5, y: 0.5 })), {
     x: 5,
     y: 0.5,

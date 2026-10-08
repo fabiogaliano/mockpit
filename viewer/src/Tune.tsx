@@ -1,22 +1,12 @@
-// D4: Tune — a component selector (‹ ›) over the parts on stage, that part's
-// knobs, and a comment field. Clicking a part on the stage selects it here.
-// The knob controls themselves are phase 4b (tunekit mounts into `tuneHost`).
+// D4: Tune — a component selector (‹ ›) over "Look" and the parts with knobs or
+// an ask, that component's knobs (tunekit, see tune.ts), where else the part
+// appears, and its comments. Clicking a part on the stage selects it here.
 
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { root } from "./host.ts";
+import type { TuneComponent } from "./logic.ts";
 import type { MockScreenState } from "./state.ts";
-
-function useParts(s: MockScreenState) {
-  const parts = createMemo(() => {
-    const m = s.mock();
-    return m?.parts.find((p) => p.state === s.activeState())?.parts ?? [];
-  });
-  const current = createMemo(() => {
-    const sel = s.selectedPart();
-    return parts().find((p) => p.name === sel) ?? parts()[0] ?? null;
-  });
-  return { parts, current };
-}
+import type { TuneState } from "./tune.ts";
 
 const Chevron = (props: { open?: boolean }) => (
   <svg
@@ -34,21 +24,38 @@ const Chevron = (props: { open?: boolean }) => (
 );
 export { Chevron };
 
-export function PartSelector(props: { s: MockScreenState }) {
+// The states whose renders mark a part, in strip order.
+function statesWith(s: MockScreenState, part: string): (string | null)[] {
+  return (s.mock()?.parts ?? [])
+    .filter((p) => p.parts.some((x) => x.name === part))
+    .map((p) => p.state);
+}
+
+// Selecting a part the state on stage does not show moves to one that does.
+function choose(s: MockScreenState, c: TuneComponent) {
+  s.selectPart(c.part);
+  if (c.part === null) return;
+  const where = statesWith(s, c.part);
+  if (where.length && !where.includes(s.activeState())) s.showState(where[0]);
+}
+
+export function PartSelector(props: { s: MockScreenState; t: TuneState }) {
   const s = props.s;
-  const { parts, current } = useParts(s);
+  const t = props.t;
   const [open, setOpen] = createSignal(false);
   let trigger!: HTMLButtonElement;
   let list: HTMLDivElement | undefined;
-  const index = () => parts().findIndex((p) => p.name === current()?.name);
+  const index = () => t.components().findIndex((c) => c.part === t.current()?.part);
   const step = (d: number) => {
-    const p = parts()[index() + d];
-    if (p) s.selectPart(p.name);
+    const list = t.components();
+    // An untunable part shown from a stage click sits outside the list; ‹ › start over.
+    const c = list[index() < 0 ? (d > 0 ? 0 : list.length - 1) : index() + d];
+    if (c) choose(s, c);
   };
   onMount(() => {
     const onDown = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (open() && !trigger.contains(t) && !list?.contains(t)) setOpen(false);
+      const target = e.target as Node;
+      if (open() && !trigger.contains(target) && !list?.contains(target)) setOpen(false);
     };
     root().addEventListener("pointerdown", onDown, true);
     onCleanup(() => root().removeEventListener("pointerdown", onDown, true));
@@ -63,7 +70,7 @@ export function PartSelector(props: { s: MockScreenState }) {
           classList={{ "up-select-trigger-open": open() }}
           aria-haspopup="listbox"
           aria-expanded={open()}
-          disabled={!parts().length}
+          disabled={!t.components().length}
           onClick={() => setOpen(!open())}
           onKeyDown={(e) => {
             if (e.key === "ArrowDown" || e.key === "ArrowRight") step(1);
@@ -74,32 +81,33 @@ export function PartSelector(props: { s: MockScreenState }) {
         >
           <span class="up-select-label">Component</span>
           <span class="up-select-right">
-            <span class="up-select-value">{current()?.name ?? "none marked"}</span>
+            <span class="up-select-value">{t.current()?.label ?? "none"}</span>
             <Chevron open={open()} />
           </span>
         </button>
         <Show when={open()}>
           <div class="up-select-dropdown" role="listbox" ref={(el) => (list = el)}>
-            <For each={parts()}>
-              {(p) => (
+            <For each={t.components()}>
+              {(c) => (
                 <button
                   type="button"
                   role="option"
-                  aria-selected={p.name === current()?.name}
+                  aria-selected={c.part === t.current()?.part}
                   class="up-select-option"
-                  classList={{ "up-select-option-selected": p.name === current()?.name }}
+                  classList={{ "up-select-option-selected": c.part === t.current()?.part }}
+                  data-part={c.part ?? ""}
                   onClick={() => {
                     setOpen(false);
-                    s.selectPart(p.name);
+                    choose(s, c);
                   }}
                 >
                   <span class="up-comp-opt">
-                    {p.name}
-                    <Show when={p.label && p.label !== p.name}>
-                      <span class="up-comp-sub">{p.label}</span>
+                    {c.label}
+                    <Show when={t.tunedIn(c)}>
+                      <i class="dot" aria-label="tuned" />
                     </Show>
                   </span>
-                  <Show when={p.name === current()?.name}>
+                  <Show when={c.part === t.current()?.part}>
                     <i class="up-select-check" />
                   </Show>
                 </button>
@@ -112,7 +120,7 @@ export function PartSelector(props: { s: MockScreenState }) {
         type="button"
         class="nav"
         title="Previous component"
-        disabled={index() <= 0}
+        disabled={index() === 0}
         onClick={() => step(-1)}
       >
         ‹
@@ -121,7 +129,7 @@ export function PartSelector(props: { s: MockScreenState }) {
         type="button"
         class="nav"
         title="Next component"
-        disabled={index() < 0 || index() >= parts().length - 1}
+        disabled={index() >= t.components().length - 1}
         onClick={() => step(1)}
       >
         ›
@@ -130,30 +138,27 @@ export function PartSelector(props: { s: MockScreenState }) {
   );
 }
 
-export function Tune(props: { s: MockScreenState }) {
+export function Tune(props: { s: MockScreenState; t: TuneState }) {
   const s = props.s;
-  const { current } = useParts(s);
+  const t = props.t;
   const [shut, setShut] = createSignal(false);
   const [text, setText] = createSignal("");
+  const part = () => t.current()?.part ?? null;
   // D2: a part exists once; where else it appears is a sentence with links.
   const usedIn = createMemo(() => {
-    const name = current()?.name;
-    const m = s.mock();
-    if (!name || !m) return [];
-    return m.parts.filter((p) => p.parts.some((x) => x.name === name)).map((p) => p.state);
+    const p = part();
+    return p ? statesWith(s, p) : [];
   });
-  const mine = createMemo(() =>
-    (s.draft()?.comments ?? []).filter((c) => c.part === (current()?.name ?? null)),
-  );
+  const mine = createMemo(() => (s.draft()?.comments ?? []).filter((c) => c.part === part()));
   const submit = () => {
-    const t = text().trim();
-    if (!t) return;
-    s.addComment(current()?.name ?? null, s.activeState(), t);
+    const body = text().trim();
+    if (!body) return;
+    s.addComment(part(), s.activeState(), body);
     setText("");
   };
   return (
     <>
-      <Show when={current() && s.states().length > 1}>
+      <Show when={part() !== null && usedIn().length && s.states().length > 1}>
         <div class="usage">
           <Show
             when={usedIn().length === s.states().length}
@@ -190,6 +195,11 @@ export function Tune(props: { s: MockScreenState }) {
         </div>
       </Show>
       <div class="tune-knobs" ref={(el) => s.setTuneHost(el)} />
+      <Show when={!t.current()?.paths.length}>
+        <div class="up-note">
+          {part() === null ? "No page-wide knobs." : `No knobs on ${part()}.`}
+        </div>
+      </Show>
       <hr class="up-rule" />
       <section class="up-group">
         <button
@@ -203,21 +213,21 @@ export function Tune(props: { s: MockScreenState }) {
           <Chevron />
         </button>
         <Show when={!shut()}>
-          <label class="up-text-row">
-            <span class="up-text-label">Comment</span>
-            <input
-              class="up-text-input"
-              placeholder={`on ${current()?.name ?? "the page"}…`}
-              value={text()}
-              onInput={(e) => setText(e.currentTarget.value)}
-              onKeyDown={(e) => e.key === "Enter" && submit()}
-            />
-          </label>
           <Show when={mine().length}>
             <div class="clines">
               <For each={mine()}>{(c) => <div class="cline">{c.text}</div>}</For>
             </div>
           </Show>
+          <label class="up-text-row">
+            <span class="up-text-label">Comment</span>
+            <input
+              class="up-text-input"
+              placeholder={`on ${part() ?? "the page"}…`}
+              value={text()}
+              onInput={(e) => setText(e.currentTarget.value)}
+              onKeyDown={(e) => e.key === "Enter" && submit()}
+            />
+          </label>
         </Show>
       </section>
     </>

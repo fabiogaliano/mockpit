@@ -748,6 +748,75 @@ test("a drop decision archives the variant; restore brings it back", async () =>
   assert.equal((await variants(app, mockId))["Writing/quiet"], "open");
 });
 
+test("restore as vN writes an older version back as a new user-authored version", async () => {
+  const events: any[] = [];
+  const app = makeApp(undefined, { onEvent: (e) => events.push(e) });
+  const first = await publish(app, { mock: "card", title: "One", ...html("<p>one</p>") });
+  const mockId: string = first.mock.id;
+  const postId: string = first.post.id;
+  await call(
+    app,
+    `/api/mocks/${mockId}/revise`,
+    agent({ title: "Two", prompt: "tighter", ...html("<p>two</p>") }),
+  );
+  const path = `/api/mocks/${mockId}/variants/${postId}/restore`;
+  assert.equal((await call(app, path, agent({ version: 1 }))).status, 403);
+  assert.equal((await call(app, path, viewer({ version: 0 }))).status, 400);
+  assert.equal((await call(app, path, viewer({ version: 9 }))).status, 404);
+  assert.equal((await call(app, path, viewer({ version: 2 }))).status, 409);
+  assert.equal(
+    (await call(app, `/api/mocks/${mockId}/variants/nope/restore`, viewer({ version: 1 }))).status,
+    404,
+  );
+
+  events.length = 0;
+  const restored = await call(app, path, viewer({ version: 1 }));
+  assert.equal(restored.status, 200);
+  assert.deepEqual(restored.body, { state: null, variant: "default", version: 3, from: 1 });
+  assert.deepEqual(
+    events.map((e) => e.type),
+    ["mock-updated", "post-updated"],
+  );
+  assert.equal(events[1].version, 3);
+
+  const detail = (await call(app, `/api/mocks/${mockId}?history=1&body=1`)).body;
+  const v = detail.variants[0];
+  assert.equal(v.version, 3);
+  assert.equal(v.title, "One");
+  assert.equal(v.surfaces[0].html, "<p>one</p>");
+  assert.deepEqual(
+    v.history.map((h: any) => [h.version, h.from ?? null, h.prompt ?? "", h.author ?? null]),
+    [
+      [3, 1, "restored v1", "user"],
+      [2, 1, "tighter", null],
+      [1, null, "", null],
+    ],
+  );
+  const doc = await call(app, `/s/${postId}?surface=0&ver=3`);
+  assert.match(doc.body, /<p>one<\/p>/);
+});
+
+test("a reply drafted on an older version is accepted and keeps that version", async () => {
+  const app = makeApp();
+  const { mockId, session } = await writer(app);
+  await lookAsk(app, mockId);
+  await call(
+    app,
+    `/api/mocks/${mockId}/draft`,
+    viewer({ version: 1, answers: { look: "dark" } }, "PUT"),
+  );
+  await call(
+    app,
+    `/api/mocks/${mockId}/revise`,
+    agent({ state: "Writing", variant: "dark", ...html("<p>Writing dark v2</p>") }),
+  );
+  const sent = await call(app, `/api/mocks/${mockId}/reply`, viewer({}));
+  assert.equal(sent.status, 201);
+  assert.equal(sent.body.reply.payload.version, 1);
+  const read = (await call(app, `/api/comments?session=${session}&author=user`)).body;
+  assert.equal(read.feedback[0].reply.version, 1);
+});
+
 test("an accept decision accepts the variant and archives its siblings", async () => {
   const app = makeApp();
   const { mockId } = await writer(app);

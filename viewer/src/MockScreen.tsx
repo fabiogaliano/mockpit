@@ -6,10 +6,12 @@ import { Panel } from "./Panel.tsx";
 import { Stage } from "./Stage.tsx";
 import { createMockScreen } from "./state.ts";
 import { Strip } from "./Strip.tsx";
+import { createTune } from "./tune.ts";
 import { TopBar } from "./TopBar.tsx";
 
 export function MockScreen(props: { project: string; slug: string }) {
   const s = createMockScreen(props.project, props.slug);
+  const t = createTune(s);
   const home = () => projectPath(props.project);
   return (
     <div class="screen mock-screen">
@@ -69,7 +71,7 @@ export function MockScreen(props: { project: string; slug: string }) {
           </div>
         </main>
         <Show when={s.mock()}>
-          <Panel s={s} />
+          <Panel s={s} t={t} />
         </Show>
       </Show>
     </div>

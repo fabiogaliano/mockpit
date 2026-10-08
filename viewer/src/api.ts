@@ -73,10 +73,11 @@ export const api = {
     call<{ draft: Draft }>(`/api/mocks/${encodeURIComponent(id)}/draft`, json("PUT", draft)),
   reply: (id: string, body: DraftInput & { text?: string; decision?: ReplyDecision }) =>
     call<{ reply: CommentRow }>(`/api/mocks/${encodeURIComponent(id)}/reply`, json("POST", body)),
-  restore: (id: string, body: { state: string | null; variant: string }) =>
-    call<{ state: string | null; variant: string; status: string }>(
-      `/api/mocks/${encodeURIComponent(id)}/restore`,
-      json("POST", body),
+  // A new version of the variant made from an older one ("restore as vN").
+  restoreVersion: (id: string, postId: string, version: number) =>
+    call<unknown>(
+      `/api/mocks/${encodeURIComponent(id)}/variants/${encodeURIComponent(postId)}/restore`,
+      json("POST", { version }),
     ),
   comments: (mockId: string) =>
     call<{ comments: CommentRow[]; lastSeq: number }>(

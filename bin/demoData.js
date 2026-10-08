@@ -50,7 +50,7 @@ function render(state, variant) {
       <span>Chapter 7 · draft</span><span>1,284 words</span>
     </div>
     <h1 data-part="title" data-part-label="Title" style="font-size:${editorial ? "40px" : "28px"};font-weight:${editorial ? 700 : 500};letter-spacing:${editorial ? "-0.02em" : "0"};margin:26px 0 18px">The Pier</h1>
-    <article data-part="body" data-part-label="Body" style="font-size:var(--k-body-size, 17px);line-height:1.65;max-width:calc(var(--k-body-measure, 64) * 1ch)">
+    <article data-part="body" data-part-label="Body" style="font-size:calc(var(--k-body-size, 17) * 1px);line-height:1.65;max-width:calc(var(--k-body-measure, 64) * 1ch)">
       ${BODY}${ghost ? `<p><span data-part="ghost" data-part-label="Ghost text" style="color:var(--muted);font-style:italic">${GHOST}</span></p>` : ""}
     </article>
     ${

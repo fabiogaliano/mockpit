@@ -1580,8 +1580,107 @@ a {
   right: 0;
   top: calc(100% + 4px);
 }
-.tune-knobs:empty {
+.tune-pane {
+  display: block;
+}
+.up-preset-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+.up-preset-wrap .up-preset-trigger {
+  flex: 1;
+  min-width: 0;
+}
+.up-preset-wrap .up-select-dropdown {
+  z-index: 5;
+}
+.up-comp-opt .dot {
+  margin-left: 2px;
+}
+.sheet-handle {
   display: none;
+}
+
+/* ---------- narrow screens (§5): stage on top, the panel a bottom sheet ---------- */
+@media (max-width: 899px) {
+  .main {
+    padding: 12px 12px 108px;
+  }
+  .col {
+    max-width: 100%;
+  }
+  .stripwrap {
+    max-width: calc(100vw - 24px);
+  }
+  .stripwrap .cap {
+    display: none;
+  }
+  .strip {
+    display: flex;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+  }
+  .strip::-webkit-scrollbar {
+    display: none;
+  }
+  .strip > button {
+    flex: none;
+    white-space: nowrap;
+  }
+  .up-shell.sheet {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 62vh;
+    border-radius: 16px 16px 0 0;
+    border-bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .up-shell.sheet .up-header,
+  .up-shell.sheet .up-preset-bar {
+    display: none;
+  }
+  .up-shell.sheet:not(.open) .up-content {
+    display: none;
+  }
+  .up-shell.sheet:not(.open) .up-tabs-wrap {
+    border-bottom: 0;
+  }
+  .sheet-handle {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    height: 22px;
+    flex: none;
+    touch-action: none;
+  }
+  .sheet-handle i {
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--fill);
+  }
+  .opts {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .opts::-webkit-scrollbar {
+    display: none;
+  }
+  .opt:not(.pill) {
+    flex: 0 0 min(46%, 200px);
+    scroll-snap-align: start;
+  }
 }
 @keyframes up-dropdown-in {
   from {

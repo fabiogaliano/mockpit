@@ -680,6 +680,8 @@ export interface Store {
 
   // Oldest first.
   listPosts(query?: PostQuery): Promise<Post[]>;
+  // Variants per session, without loading bodies or history.
+  countPostsBySession(): Promise<Map<string, number>>;
   getPost(id: string): Promise<Post | null>;
   findPost(mockId: string, state: string | null, variant: string): Promise<Post | null>;
   createPost(input: CreatePostInput): Promise<Post | null>;

@@ -196,7 +196,6 @@ Notes for the refactor:
 ## File/wiring reference (avoid re-reading)
 
 - **Build:** `vite.config.ts` uses `viteSingleFile` → 12.7 MB inlined `viewer/dist/index.html`.
-  Embed build (`viewer/vite.embed.config.ts`, `build:embed`) does NOT inline → already chunked.
 - **Serving the viewer:**
   - Node: `server/index.ts:14-22` `readFile(viewer/dist/index.html)` at boot → `viewerHtml`.
   - Workers: `workers/index.ts:7` `import viewerHtml from "../viewer/dist/index.html"` (wrangler.jsonc

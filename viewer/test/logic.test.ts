@@ -6,12 +6,23 @@ import {
   createHitRefs,
   draftKnobValues,
   frameVersion,
+  type KnobContext,
+  knobAsk,
+  layoutPins,
   mixOptions,
   overriddenAsks,
+  type PartBox,
+  type PartsReport,
   reportIsCurrent,
+  resolveKnobs,
+  safeColor,
   sendCount,
   summarizeReply,
   threadRows,
+  tuneComponents,
+  tunedLines,
+  tuneWrite,
+  untunedValue,
 } from "../src/logic.ts";
 
 const look: Ask = {
@@ -118,27 +129,63 @@ describe("mixOptions", () => {
     variant("Lab open", "quiet", ["lab"]),
     variant("Lab open", "dark", ["lab"]),
   ];
+  const box = (name: string, w: number, h: number, label = name): PartBox => ({
+    name,
+    label,
+    box: { x: 0, y: 0, w, h },
+    visible: true,
+    depth: 0,
+    order: 0,
+  });
+  const report = (...parts: PartBox[]): PartsReport => ({
+    version: 1,
+    parts,
+    height: 600,
+    scroll: { x: 0, y: 0 },
+  });
+  // quiet and dark draw title and body alike (only colors change); editorial's
+  // title is larger and its toast is relabelled; dark's lab panel is wider.
+  const reports: Record<string, PartsReport> = {
+    "Writing/quiet": report(box("title", 600, 34), box("body", 600, 120), box("toast", 120, 30)),
+    "Writing/dark": report(box("title", 600, 34), box("body", 600.4, 120)),
+    "Writing/editorial": report(
+      box("title", 600, 48),
+      box("toast", 120, 30, "Saved"),
+      box("margin", 80, 400),
+    ),
+    "Lab open/quiet": report(box("lab", 220, 400)),
+    "Lab open/dark": report(box("lab", 260, 400)),
+  };
+  const reportOf = (state: string | null, v: string) => reports[`${state}/${v}`];
 
-  it("offers each other look for parts more than one look renders", () => {
-    expect(mixOptions(mock, variants, "quiet")).toEqual([
-      { part: "title", variant: "dark" },
+  it("offers another look's part only where it is drawn differently", () => {
+    expect(mixOptions(mock, variants, "quiet", reportOf)).toEqual([
       { part: "title", variant: "editorial" },
-      { part: "body", variant: "dark" },
       { part: "toast", variant: "editorial" },
       { part: "lab", variant: "dark" },
     ]);
   });
 
+  it("offers nothing for a frame that has not reported yet", () => {
+    const partial = (state: string | null, v: string) =>
+      v === "editorial" ? undefined : reportOf(state, v);
+    expect(mixOptions(mock, variants, "quiet", partial)).toEqual([
+      { part: "lab", variant: "dark" },
+    ]);
+  });
+
   it("is empty before a look is picked, or without a Look ask", () => {
-    expect(mixOptions(mock, variants, null)).toEqual([]);
-    expect(mixOptions({ ...mock, asks: [trim] }, variants, "quiet")).toEqual([]);
+    expect(mixOptions(mock, variants, null, reportOf)).toEqual([]);
+    expect(mixOptions({ ...mock, asks: [trim] }, variants, "quiet", reportOf)).toEqual([]);
   });
 
   it("ignores archived variants", () => {
     const archived = variants.map((v) =>
       v.variant === "editorial" ? ({ ...v, status: "archived" } as VariantView) : v,
     );
-    expect(mixOptions(mock, archived, "quiet").some((o) => o.variant === "editorial")).toBe(false);
+    expect(
+      mixOptions(mock, archived, "quiet", reportOf).some((o) => o.variant === "editorial"),
+    ).toBe(false);
   });
 });
 
@@ -309,5 +356,139 @@ describe("threadRows", () => {
       ["you", "Sent · look dark", undefined, true],
       ["agent", "published v2 · replied:", "Done.", undefined],
     ]);
+  });
+});
+
+describe("tune", () => {
+  const knobs = {
+    size: [17, 14, 22, 0.5],
+    "body.size": [17, 14, 22, 0.5],
+    "body.measure": 64,
+    "trim.position": { type: "select", options: ["top", "bottom"], value: "top" },
+    "title.weight": { type: "slider", value: 500, min: 300, max: 700 },
+  } as KnobContext["knobs"];
+  const ctx = (over: Partial<KnobContext> = {}): KnobContext => ({
+    knobs,
+    asks: [look, trim, panel],
+    answers: {},
+    tuned: {},
+    ...over,
+  });
+
+  it("starts each knob at its declared default", () => {
+    expect(resolveKnobs(ctx())).toEqual({
+      size: 17,
+      "body.size": 17,
+      "body.measure": 64,
+      "trim.position": "top",
+      "title.weight": 500,
+    });
+  });
+
+  it("lets a part knob follow the global it refines until it is tuned itself", () => {
+    const followed = resolveKnobs(ctx({ tuned: { size: 19 } }));
+    expect(followed["body.size"]).toBe(19);
+    expect(untunedValue("body.size", ctx({ tuned: { size: 19, "body.size": 16 } }))).toBe(19);
+    const own = resolveKnobs(ctx({ tuned: { size: 19, "body.size": 16 } }));
+    expect(own["body.size"]).toBe(16);
+    expect(own.size).toBe(19);
+  });
+
+  it("takes an answered knob-set option over the default, and a tuned value over both", () => {
+    expect(resolveKnobs(ctx({ answers: { trim: "below" } }))["trim.position"]).toBe("bottom");
+    const v = resolveKnobs(ctx({ answers: { trim: "below" }, tuned: { "trim.position": "top" } }));
+    expect(v["trim.position"]).toBe("top");
+  });
+
+  it("drops a tuned value that is back at its untuned value", () => {
+    expect(tuneWrite("title.weight", 600, ctx())).toEqual({
+      kind: "tuned",
+      path: "title.weight",
+      value: 600,
+    });
+    expect(tuneWrite("title.weight", 500, ctx({ tuned: { "title.weight": 600 } }))).toEqual({
+      kind: "tuned",
+      path: "title.weight",
+      value: undefined,
+    });
+    // Back at the inherited global counts as untuned too.
+    expect(tuneWrite("body.size", 19, ctx({ tuned: { size: 19, "body.size": 16 } }))).toEqual({
+      kind: "tuned",
+      path: "body.size",
+      value: undefined,
+    });
+  });
+
+  it("answers the ask a discrete knob is bound to instead of tuning it", () => {
+    expect(knobAsk("trim.position", knobs, [look, trim])).toBe(trim);
+    expect(knobAsk("title.weight", knobs, [look, trim])).toBeUndefined();
+    expect(tuneWrite("trim.position", "bottom", ctx())).toEqual({
+      kind: "answer",
+      ask: trim,
+      option: "below",
+    });
+    // A value no option sets is a tuned value.
+    const wider = {
+      ...knobs,
+      "trim.position": { type: "select", options: ["top", "bottom", "side"] },
+    };
+    expect(
+      tuneWrite("trim.position", "side", ctx({ knobs: wider as KnobContext["knobs"] })),
+    ).toEqual({ kind: "tuned", path: "trim.position", value: "side" });
+  });
+
+  it("lists Look, then the parts with knobs or an ask", () => {
+    const m = {
+      asks: [look, trim],
+      parts: [
+        { state: "Writing", parts: [{ name: "trim" }, { name: "title" }, { name: "menu" }] },
+        { state: "Lab open", parts: [{ name: "body" }, { name: "lab" }] },
+      ],
+    } as unknown as MockDetail;
+    expect(tuneComponents(m, knobs).map((c) => [c.part, c.paths])).toEqual([
+      [null, ["size"]],
+      ["trim", ["trim.position"]],
+      ["title", ["title.weight"]],
+      ["body", ["body.size", "body.measure"]],
+    ]);
+  });
+
+  it("copies tuned values as path: value lines and keeps image colors out", () => {
+    expect(tunedLines({ "body.size": 18, "toast.show": false })).toBe(
+      "body.size: 18\ntoast.show: false",
+    );
+    expect(safeColor("#fff")).toBe(true);
+    expect(safeColor("linear-gradient(#000, #fff)")).toBe(true);
+    expect(safeColor("url(//example.com/x.png)")).toBe(false);
+    expect(safeColor("image-set(x 1x)")).toBe(false);
+  });
+});
+
+describe("layoutPins", () => {
+  it("lines pins that want the same corner up in a row", () => {
+    const pins = layoutPins([
+      { index: 0, x: -10, y: -10 },
+      { index: 1, x: -10, y: -10 },
+      { index: 2, x: -10, y: -10 },
+    ]);
+    expect(pins.map((p) => [p.x, p.y])).toEqual([
+      [-10, -10],
+      [18, -10],
+      [46, -10],
+    ]);
+  });
+
+  it("leaves pins apart alone and steps around every placed pin", () => {
+    const pins = layoutPins([
+      { index: 0, x: 100, y: 40 },
+      { index: 1, x: 300, y: 40 },
+      { index: 2, x: 100, y: 200 },
+      { index: 3, x: 105, y: 45 },
+      { index: 4, x: 100, y: 40 },
+    ]);
+    expect(pins.map((p) => p.x)).toEqual([100, 300, 100, 133, 184]);
+    for (const a of pins)
+      for (const b of pins)
+        if (a !== b) expect(Math.abs(a.x - b.x) >= 22 || Math.abs(a.y - b.y) >= 22).toBe(true);
   });
 });

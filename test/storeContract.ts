@@ -321,6 +321,13 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
       [s1?.id, s3?.id],
     );
     assert.deepEqual(await store.listPosts({ sessionId: "missing" }), []);
+    assert.deepEqual(
+      await store.countPostsBySession(),
+      new Map([
+        [one.id, 2],
+        [two.id, 1],
+      ]),
+    );
   });
 
   contract("updates bump the version and archive the previous one", async (store) => {

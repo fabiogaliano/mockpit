@@ -3,7 +3,7 @@
 // version). Components read signals from here and call its actions; nothing
 // else talks to the API for this screen.
 
-import { batch, createMemo, createSignal, onCleanup } from "solid-js";
+import { batch, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { createStore } from "solid-js/store";
 import type { Ask, KnobValue, ReplyDecision } from "../../server/types.ts";
 import { api, type CommentRow, type DraftInput, type MockDetail, subscribe } from "./api.ts";
@@ -14,7 +14,9 @@ import {
   carryOver,
   draftIsEmpty,
   emptyDraft,
+  frameKey,
   frameVersion,
+  type KnobContext,
   lookAsk,
   mixOptions,
   mockVersion,
@@ -23,6 +25,7 @@ import {
   unanswered,
 } from "./logic.ts";
 import { setTheme } from "./theme.ts";
+import { narrow } from "./viewport.ts";
 
 export type Mode = "questions" | "tune" | "thread";
 export type Question = { kind: "ask"; ask: Ask } | { kind: "mix" };
@@ -48,7 +51,7 @@ export function createMockScreen(project: string, slug: string) {
   const [preview, setPreview] = createSignal<Preview | null>(null);
   const [mode, setModeSignal] = createSignal<Mode>("questions");
   const [cur, setCur] = createSignal(0);
-  // The part picked on the stage. Tune (phase 4b) reads it to show that part's knobs.
+  // The part picked on the stage, shown in Tune; null is the page ("Look").
   const [selectedPart, setSelectedPart] = createSignal<string | null>(null);
   const [hoverPart, setHoverPart] = createSignal<string | null>(null);
   const [viewVersion, setViewVersion] = createSignal<number | null>(null);
@@ -59,7 +62,7 @@ export function createMockScreen(project: string, slug: string) {
   // "No, all <look>" is an answer even though it borrows nothing.
   const [mixTouched, setMixTouched] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-  // Where Tune's knob controls mount (phase 4b hands this element to tunekit).
+  // Where Tune's knob controls mount: tunekit's pane is moved into it while Tune is open.
   const [tuneHost, setTuneHost] = createSignal<HTMLElement | null>(null);
   // The stage frames' latest parts reports, keyed by frameKey(state, variant).
   const [reports, setReports] = createStore<Record<string, PartsReport | undefined>>({});
@@ -111,7 +114,9 @@ export function createMockScreen(project: string, slug: string) {
 
   const mixOpts = createMemo(() => {
     const m = mock();
-    return m ? mixOptions(m, variants(), lookPick()) : [];
+    return m
+      ? mixOptions(m, variants(), lookPick(), (state, variant) => reports[frameKey(state, variant)])
+      : [];
   });
   const questions = createMemo<Question[]>(() => {
     const m = mock();
@@ -124,6 +129,20 @@ export function createMockScreen(project: string, slug: string) {
   const owed = createMemo(() => {
     const m = mock();
     return m ? unanswered(m, draft()) : [];
+  });
+  // What Tune reads and writes: the knobs of the variant on stage, every answer
+  // so far (sent, then drafted), and the tuned values.
+  const knobContext = createMemo<KnobContext>(() => {
+    const m = mock();
+    const answers: KnobContext["answers"] = {};
+    for (const a of m?.asks ?? []) if (a.answer !== undefined) answers[a.id] = a.answer;
+    Object.assign(answers, draft()?.answers ?? {});
+    return {
+      knobs: { ...m?.knobs, ...activeVariant()?.knobs },
+      asks: m?.asks ?? [],
+      answers,
+      tuned: draft()?.tuned ?? {},
+    };
   });
   const overridden = createMemo(() => {
     const m = mock();
@@ -344,10 +363,14 @@ export function createMockScreen(project: string, slug: string) {
   function chooseVariant(variant: string) {
     setChosenVariant({ ...chosenVariant(), [String(activeState())]: variant });
   }
+  // Narrow screens have no Tune, so a tap on the stage only marks the part.
   function selectPart(part: string | null) {
     setSelectedPart(part);
-    if (part && mode() !== "tune") setMode("tune");
+    if (part && mode() !== "tune" && !narrow()) setMode("tune");
   }
+  createEffect(() => {
+    if (narrow() && mode() === "tune") setModeSignal("questions");
+  });
 
   // The next question still owed after i, else the last one (where Send lives).
   function nextStop(i: number): number | null {
@@ -415,6 +438,14 @@ export function createMockScreen(project: string, slug: string) {
     });
   }
 
+  // A preset restores a whole set of tuned values at once.
+  function replaceTuned(values: Record<string, KnobValue>) {
+    writeDraft((d) => {
+      d.tuned = { ...values };
+      return d;
+    });
+  }
+
   async function send(extra: { decision?: ReplyDecision; text?: string } = {}) {
     const m = mock();
     if (!m || sending()) return;
@@ -457,8 +488,9 @@ export function createMockScreen(project: string, slug: string) {
     const v = activeVariant();
     if (!m || !v) return;
     try {
-      await api.restore(m.id, { state: v.state, variant: v.variant });
+      await api.restoreVersion(m.id, v.postId, frameVersion(v, stageVersion()));
       backToLatest();
+      await loadMock();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -532,6 +564,8 @@ export function createMockScreen(project: string, slug: string) {
     undoMix,
     addComment,
     setTuned,
+    replaceTuned,
+    knobContext,
     send,
     tuneHost,
     setTuneHost,

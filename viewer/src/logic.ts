@@ -98,13 +98,19 @@ export interface MixOption {
   variant: string;
 }
 
-// Mix (D6): borrow a part from another look. A part qualifies when more than one
-// look's variant renders it in some state; each other look rendering it is one
-// option. Nothing to mix until a look is picked.
+// Mix (D6): borrow a part from another look. A part qualifies when another
+// look renders it differently from the picked one in the same state; each such
+// look is one option. Nothing to mix until a look is picked.
+//
+// "Differently" is judged from what the frames report (the viewer never holds
+// the html of a sandboxed surface): the part's instances, labels and sizes. A
+// restyle that keeps every box the same size is not seen as a difference, and
+// a frame that has not reported yet offers nothing until it does.
 export function mixOptions(
   mock: Pick<MockDetail, "asks" | "states">,
   variants: Pick<VariantView, "state" | "variant" | "status" | "parts">[],
   look: string | null,
+  reportOf: (state: string | null, variant: string) => PartsReport | undefined,
 ): MixOption[] {
   const ask = lookAsk(mock);
   if (!ask || !look) return [];
@@ -115,20 +121,34 @@ export function mixOptions(
     const inState = variants.filter(
       (v) => v.state === state && v.status !== "archived" && looks.includes(v.variant),
     );
-    const names: string[] = [];
-    for (const v of inState) for (const p of v.parts) if (!names.includes(p)) names.push(p);
-    for (const part of names) {
-      const having = inState.filter((v) => v.parts.includes(part));
-      if (having.length < 2) continue;
-      for (const v of having) {
+    const picked = inState.find((v) => v.variant === look);
+    if (!picked) continue;
+    const mine = reportOf(state, look);
+    for (const part of picked.parts) {
+      const base = partShape(mine, part);
+      if (base === undefined) continue;
+      for (const v of inState) {
         const key = `${part}\u0000${v.variant}`;
-        if (v.variant === look || seen.has(key)) continue;
+        if (v === picked || seen.has(key) || !v.parts.includes(part)) continue;
+        const other = partShape(reportOf(state, v.variant), part);
+        if (other === undefined || other === base) continue;
         seen.add(key);
         out.push({ part, variant: v.variant });
       }
     }
   }
   return out;
+}
+
+// A part as a frame draws it, reduced to what can be compared across looks:
+// how many instances, their labels, and their sizes to the pixel.
+function partShape(report: PartsReport | undefined, name: string): string | undefined {
+  if (!report) return undefined;
+  return report.parts
+    .filter((p) => p.name === name)
+    .map((p) => `${p.label}:${Math.round(p.box.w)}x${Math.round(p.box.h)}:${p.visible ? 1 : 0}`)
+    .sort()
+    .join("|");
 }
 
 // A Mix borrow that replaces what an answered part ask decided: askId → the
@@ -293,25 +313,20 @@ export function knobDefault(cfg: KnobConfig): KnobValue | undefined {
   return undefined;
 }
 
-// The knob values a frame should show for the draft: declared defaults, then
-// answered knob-set options, then tuned values.
+// The knob values a frame should show for the draft: declared defaults (a part
+// knob inheriting the global it refines), then answered knob-set options, then
+// tuned values.
 export function draftKnobValues(
   mock: Pick<MockDetail, "asks" | "knobs">,
   variantKnobs: Knobs | undefined,
   draft: DraftInput | null,
 ): Record<string, KnobValue> {
-  const out: Record<string, KnobValue> = {};
-  for (const [k, cfg] of Object.entries({ ...mock.knobs, ...variantKnobs })) {
-    const v = knobDefault(cfg);
-    if (v !== undefined) out[k] = v;
-  }
-  if (!draft) return out;
-  for (const ask of mock.asks) {
-    for (const id of answerIds(draft.answers[ask.id])) {
-      Object.assign(out, ask.options.find((o) => o.id === id)?.set ?? {});
-    }
-  }
-  return Object.assign(out, draft.tuned);
+  return resolveKnobs({
+    knobs: { ...mock.knobs, ...variantKnobs },
+    asks: mock.asks,
+    answers: draft?.answers ?? {},
+    tuned: draft?.tuned ?? {},
+  });
 }
 
 export interface ThreadRow {
@@ -407,4 +422,176 @@ export function partBox(report: PartsReport | undefined, name: string | null | u
   return report.parts
     .filter((p) => p.name === name && p.visible)
     .sort((a, b) => b.depth - a.depth || a.order - b.order)[0]?.box;
+}
+
+// --- Tune (D4): which knob value is in force, and where a change lands ---
+
+// What a knob's value depends on: the knobs declared for the variant on stage,
+// the asks (an answered knob-set option sets values), the answers so far, and
+// the user's tuned values.
+export interface KnobContext {
+  knobs: Knobs;
+  asks: Ask[];
+  answers: Record<string, AskAnswer>;
+  tuned: Record<string, KnobValue>;
+}
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+// "body.size" → "body"; a global knob ("size") belongs to no part.
+export const knobPart = (path: string): string | null => {
+  const dot = path.indexOf(".");
+  return dot < 0 ? null : path.slice(0, dot);
+};
+
+// A part knob that refines a global one ("body.size" ↔ "size") follows it until
+// tuned itself, so tuning the look's size moves every part that did not opt out.
+export function inheritsFrom(path: string, knobs: Knobs): string | undefined {
+  const part = knobPart(path);
+  if (part === null) return undefined;
+  const name = path.slice(part.length + 1);
+  return !name.includes(".") && name in knobs ? name : undefined;
+}
+
+const discrete = (cfg: KnobConfig): boolean =>
+  typeof cfg === "boolean" ||
+  (typeof cfg === "object" &&
+    !Array.isArray(cfg) &&
+    (cfg.type === "select" || cfg.type === "toggle"));
+
+// A discrete knob an ask already decides (every option sets exactly this knob):
+// moving it answers the ask instead of adding a second, competing value.
+export function knobAsk(path: string, knobs: Knobs, asks: Ask[]): Ask | undefined {
+  const cfg = knobs[path];
+  if (cfg === undefined || !discrete(cfg)) return undefined;
+  return asks.find(
+    (a) =>
+      !a.multi &&
+      a.options.length > 0 &&
+      a.options.every((o) => o.set && Object.keys(o.set).length === 1 && path in o.set),
+  );
+}
+
+// Values set by the answered knob-set options, later asks winning.
+function answerSets(asks: Ask[], answers: Record<string, AskAnswer>): Record<string, KnobValue> {
+  const out: Record<string, KnobValue> = {};
+  for (const ask of asks) {
+    for (const id of answerIds(answers[ask.id])) {
+      Object.assign(out, ask.options.find((o) => o.id === id)?.set ?? {});
+    }
+  }
+  return out;
+}
+
+// Every knob's value in force: tuned, else set by an answer, else inherited
+// from the global it refines, else its declared default. Paths a tuned value or
+// an answer names without a declaration still pass through.
+export function resolveKnobs(ctx: KnobContext): Record<string, KnobValue> {
+  const sets = answerSets(ctx.asks, ctx.answers);
+  const out: Record<string, KnobValue> = { ...sets, ...ctx.tuned };
+  const visit = (path: string): KnobValue | undefined => {
+    if (path in ctx.tuned) return ctx.tuned[path];
+    if (path in sets) return sets[path];
+    const from = inheritsFrom(path, ctx.knobs);
+    if (from !== undefined) return visit(from);
+    const cfg = ctx.knobs[path];
+    return cfg === undefined ? undefined : knobDefault(cfg);
+  };
+  for (const path of Object.keys(ctx.knobs)) {
+    const v = visit(path);
+    if (v !== undefined) out[path] = v;
+  }
+  return out;
+}
+
+// The value a knob shows when the user has not tuned it: what an answer set,
+// or the global it inherits, or its declared default.
+export function untunedValue(path: string, ctx: KnobContext): KnobValue | undefined {
+  const tuned = { ...ctx.tuned };
+  delete tuned[path];
+  return resolveKnobs({ ...ctx, tuned })[path];
+}
+
+export type TuneWrite =
+  | { kind: "answer"; ask: Ask; option: string }
+  | { kind: "tuned"; path: string; value: KnobValue | undefined };
+
+// Where moving a knob lands. A value back at its untuned value removes it, so
+// the "N tuned" count and the Tune dot only ever count real changes.
+export function tuneWrite(path: string, value: KnobValue, ctx: KnobContext): TuneWrite {
+  const ask = knobAsk(path, ctx.knobs, ctx.asks);
+  const option = ask?.options.find((o) => same(o.set?.[path], value));
+  if (ask && option) return { kind: "answer", ask, option: option.id };
+  return {
+    kind: "tuned",
+    path,
+    value: same(value, untunedValue(path, ctx)) ? undefined : value,
+  };
+}
+
+// The components Tune can select: "Look" (the page and its global knobs), then
+// each part that has knobs or an ask, in the order the states first show them.
+// A part with neither has nothing to tune or answer.
+export interface TuneComponent {
+  part: string | null;
+  label: string;
+  paths: string[];
+}
+export function tuneComponents(
+  mock: Pick<MockDetail, "asks" | "parts">,
+  knobs: Knobs,
+): TuneComponent[] {
+  const paths = Object.keys(knobs);
+  const out: TuneComponent[] = [
+    { part: null, label: "Look", paths: paths.filter((p) => knobPart(p) === null) },
+  ];
+  const names: string[] = [];
+  for (const s of mock.parts)
+    for (const p of s.parts) if (!names.includes(p.name)) names.push(p.name);
+  for (const p of paths) {
+    const part = knobPart(p);
+    if (part !== null && !names.includes(part)) names.push(part);
+  }
+  for (const name of names) {
+    const own = paths.filter((p) => knobPart(p) === name);
+    const asked = mock.asks.some((a) => a.scope === "part" && a.part === name);
+    if (own.length || asked) out.push({ part: name, label: name, paths: own });
+  }
+  return out;
+}
+
+// Copy hands the agent what was tuned, one `path: value` per line.
+export const tunedLines = (tuned: Record<string, KnobValue>): string =>
+  Object.entries(tuned)
+    .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`)
+    .join("\n");
+
+// Color knobs are drawn by tunekit in this (trusted) document as swatch
+// backgrounds; a "color" that is really an image reference would make the
+// viewer fetch an agent-chosen URL, so such a value is shown as text instead.
+export const safeColor = (v: unknown): boolean =>
+  typeof v === "string" && !/(url|image|image-set|element|cross-fade|paint)\s*\(/i.test(v);
+
+// --- pins ---
+
+export interface PinSpot {
+  index: number;
+  x: number;
+  y: number;
+}
+
+// Pins that want the same spot (every mock- and state-wide question wants the
+// frame's top-left corner; two asks can share a part) step right along the
+// row until they no longer touch.
+export function layoutPins(pins: PinSpot[], size = 22, gap = 6): PinSpot[] {
+  const placed: PinSpot[] = [];
+  const step = size + gap;
+  for (const pin of pins) {
+    let x = pin.x;
+    const clash = () =>
+      placed.some((p) => Math.abs(p.x - x) < step && Math.abs(p.y - pin.y) < size);
+    while (clash()) x += step;
+    placed.push({ index: pin.index, x, y: pin.y });
+  }
+  return placed;
 }

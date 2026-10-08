@@ -13,6 +13,7 @@ import {
   createMemo,
   createSignal,
   For,
+  Index,
   type JSX,
   on,
   onCleanup,
@@ -29,6 +30,7 @@ import {
   draftKnobValues,
   frameKey,
   historyRow,
+  layoutPins,
   type PartBox,
   type PartsReport,
   reportIsCurrent,
@@ -37,6 +39,7 @@ import type { MockScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
 import { FRAME_W } from "./Thumb.tsx";
 import { Versions } from "./Versions.tsx";
+import { narrow, win } from "./viewport.ts";
 
 const num = (v: unknown, d = 0) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const MAX_TEXT = 200;
@@ -69,16 +72,11 @@ function readReport(d: Record<string, unknown>): PartsReport | null {
   };
 }
 
-// The window's size, for fitting the stage beside the panel.
-const [win, setWin] = createSignal({ w: host().window.innerWidth, h: host().window.innerHeight });
-host().window.addEventListener("resize", () =>
-  setWin({ w: host().window.innerWidth, h: host().window.innerHeight }),
-);
-export { win };
-
 export const PANEL_W = 380;
 const TOPBAR = 52;
 const HEAD = 44;
+// The collapsed bottom sheet: grip plus mode row.
+const SHEET = 96;
 
 export function Stage(props: { s: MockScreenState }) {
   const s = props.s;
@@ -95,11 +93,18 @@ export function Stage(props: { s: MockScreenState }) {
   const multiState = () => s.states().length > 1;
   const banner = () => s.viewVersion() !== null || s.boundVersion() !== null;
   const scale = createMemo(() => {
-    const avail = win().w - 48 - PANEL_W - 12;
-    return Math.max(0.3, Math.min(1, avail / FRAME_W));
+    const avail = narrow() ? win().w - 24 : win().w - 48 - PANEL_W - 12;
+    return Math.max(narrow() ? 0.1 : 0.3, Math.min(1, avail / FRAME_W));
   });
   const availH = createMemo(
-    () => win().h - TOPBAR - 48 - (multiState() ? 56 : 0) - HEAD - (banner() ? 32 : 0) - 2,
+    () =>
+      win().h -
+      TOPBAR -
+      (narrow() ? 24 + SHEET : 48) -
+      (multiState() ? 56 : 0) -
+      HEAD -
+      (banner() ? 32 : 0) -
+      2,
   );
 
   const shown = createMemo(() =>
@@ -266,23 +271,27 @@ function StageHead(props: { s: MockScreenState; anchor: (el: HTMLElement) => voi
   );
 }
 
-// Mock- and state-wide questions pin to the stage's corner; part questions pin
-// to their part (drawn in the frame overlay).
+// Mock- and state-wide questions pin to the stage's top-left corner, in a row
+// along its top edge; part questions pin to their part (in the frame overlay).
 function CornerPins(props: { s: MockScreenState }) {
   const s = props.s;
   const corner = createMemo(() =>
-    s.questions().flatMap((q, i) => {
-      if (q.kind !== "ask") return [];
-      const a = q.ask;
-      if (a.scope === "mock" || (a.scope === "state" && a.state === s.activeState())) return [i];
-      return [];
-    }),
+    layoutPins(
+      s.questions().flatMap((q, i) => {
+        if (q.kind !== "ask") return [];
+        const a = q.ask;
+        if (a.scope === "mock" || (a.scope === "state" && a.state === s.activeState())) {
+          return [{ index: i, x: -10, y: -10 }];
+        }
+        return [];
+      }),
+    ),
   );
   return (
     <div class="pins">
-      <For each={corner()}>
-        {(i, k) => <Pin s={s} index={i} style={{ left: `${-10 + k() * 28}px`, top: "-10px" }} />}
-      </For>
+      <Index each={corner()}>
+        {(p) => <Pin s={s} index={p().index} style={{ left: `${p().x}px`, top: `${p().y}px` }} />}
+      </Index>
     </div>
   );
 }
@@ -338,7 +347,10 @@ function VariantFrame(props: {
 }) {
   const s = props.s;
   const key = () => frameKey(props.variant.state, props.variant.variant);
-  const version = () => s.frameVersionOf(props.variant);
+  // A memo, not a getter: the reload below must fire only when this frame's own
+  // version changes, not whenever the stage's version moves. A frame whose
+  // document stays put would lose its parts report and never send another.
+  const version = createMemo(() => s.frameVersionOf(props.variant));
   const current = () => version() === props.variant.version;
   const kinds = () =>
     historyRow(props.variant, version())?.surfaceKinds ?? props.variant.surfaces.map((x) => x.kind);
@@ -532,12 +544,19 @@ function Overlay(props: {
     const q = s.questions()[s.cur()];
     return q?.kind === "ask" && q.ask.scope === "part" ? (q.ask.part ?? null) : null;
   };
+  // Two asks on one part would share a spot; layoutPins steps the later one aside.
   const partPins = createMemo(() =>
-    s.questions().flatMap((q, i) => {
-      if (q.kind !== "ask" || q.ask.scope !== "part" || !q.ask.part) return [];
-      const p = find(q.ask.part);
-      return p ? [{ i, p }] : [];
-    }),
+    props.report
+      ? layoutPins(
+          s.questions().flatMap((q, i) => {
+            if (q.kind !== "ask" || q.ask.scope !== "part" || !q.ask.part) return [];
+            const p = find(q.ask.part);
+            if (!p) return [];
+            const r = at(p);
+            return [{ index: i, x: r.x + r.w - 12, y: Math.max(2, r.y - 10) }];
+          }),
+        )
+      : [],
   );
   const box = (name: string | null) => {
     const p = find(name);
@@ -574,18 +593,9 @@ function Overlay(props: {
           {(b) => <PartBoxView b={b()} cls="hov" />}
         </Show>
         <Show when={box(s.selectedPart())}>{(b) => <PartBoxView b={b()} cls="sel" />}</Show>
-        <For each={partPins()}>
-          {(x) => {
-            const r = () => at(x.p);
-            return (
-              <Pin
-                s={s}
-                index={x.i}
-                style={{ left: `${r().x + r().w - 12}px`, top: `${Math.max(2, r().y - 10)}px` }}
-              />
-            );
-          }}
-        </For>
+        <Index each={partPins()}>
+          {(p) => <Pin s={s} index={p().index} style={{ left: `${p().x}px`, top: `${p().y}px` }} />}
+        </Index>
       </Show>
     </div>
   );
