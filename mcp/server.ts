@@ -190,9 +190,8 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
   async upload_asset({ path, data, contentType, filename, kind }) {
     const session = await ensureSession();
     // Stdio shares the agent's filesystem, so a path beats base64 in context.
-    const bytes = path ? readFileSync(path) : null;
     return post("/api/assets", {
-      data: bytes ? bytes.toString("base64") : data,
+      data: path ? readFileSync(path, "base64") : data,
       contentType: contentType ?? (path ? contentTypeForPath(path) : "application/octet-stream"),
       filename: filename ?? (path ? path.split(/[\\/]/).pop() : undefined),
       kind,
