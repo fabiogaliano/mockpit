@@ -64,7 +64,7 @@ design loop:
   mockpit wait [--mock <slug>] [--timeout s]
                                           block until the user sends their reply;
                                           prints the feedback batch as JSON
-      --timeout <sec>   max seconds to wait (default 120)
+      --timeout <sec>   seconds to wait (default 120, max 300)
       --session <id>    session to watch (default: auto)
       --after <seq>     re-read after this cursor (default: where the agent left
                         off, tracked server-side across CLI/MCP)
@@ -113,6 +113,11 @@ environment:
   MOCKPIT_AGENT    agent name used when creating sessions
 `;
 
+// Same default and ceiling on every tier (CLI, stdio MCP, HTTP MCP, Pi); the
+// server clamps each long-poll at 300 s too.
+const DEFAULT_WAIT_SECONDS = 120;
+const MAX_WAIT_SECONDS = 300;
+
 // Per-command help, so `mockpit publish --help` costs a few lines instead of
 // the whole manual. Commands without an entry fall back to HELP.
 const COMMAND_HELP = {
@@ -147,8 +152,11 @@ mockpit icons remove <set> [<set>...]
   mockpit ask --mock <slug> --asks <json|file>
   Ask the user. Two renders needed to show a choice: bind options to variants.`,
   wait: `mockpit wait [--mock <slug>] [--timeout <seconds>] [--session <id>]
-  Block until the user sends, then print the feedback batch:
+  Block until the user sends (default 120 s, max 300), then print the feedback batch:
   {mock, reply: {answers, mix, tuned, comments, text}, comments, accepted, archived}.`,
+  watch: `mockpit watch [--session <id>] [--after <seq>]
+  Stream user feedback forever, one line per piece, for a background monitor.
+  Delivery is shared with wait and piggyback: each piece arrives once.`,
   status: `mockpit status [--project <name>]
   One line per mock: slug, kind, states, variants, open asks.`,
   show: `mockpit show --mock <slug> [--body] [--history]
@@ -1160,6 +1168,12 @@ const commands = {
     const slug = requireMock(flags, 'mockpit ask --mock writer "Which look?" --option Quiet=quiet');
     let asks;
     if (flags.asks !== undefined) {
+      if (positionals.length > 0) {
+        die(
+          "use the question or --asks, not both",
+          `mockpit ask --mock ${slug} --asks <json|file>`,
+        );
+      }
       asks = readJsonFlag("asks", flags.asks);
       if (!Array.isArray(asks)) asks = [asks];
     } else {
@@ -1318,7 +1332,10 @@ const commands = {
     if (flags.after !== undefined && !/^\d+$/.test(flags.after)) {
       fail(`--after must be a number (got "${flags.after}")`);
     }
-    const timeout = Math.max(1, Number(flags.timeout ?? 120));
+    const timeout = Math.min(
+      MAX_WAIT_SECONDS,
+      Math.max(1, Number(flags.timeout ?? DEFAULT_WAIT_SECONDS)),
+    );
     const deadline = Date.now() + timeout * 1000;
     // No client-side cursor: without --after, the server resumes from the
     // session's agent cursor, shared with piggyback and MCP delivery.

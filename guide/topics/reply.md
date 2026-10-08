@@ -66,7 +66,7 @@ your session's cursor.
    final answer.
 4. Blocking: `mockpit wait` after an ask, when you can't continue without the
    answer. Over MCP: `wait_for_feedback`. Over HTTP:
-   `GET /api/comments?session=…&author=user&wait=60`.
+   `GET /api/comments?session=…&author=user&wait=120`.
 
 ## Acting on it
 

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
 const DEFAULT_BASE_URL = "http://localhost:8228";
+const DEFAULT_WAIT_SECONDS = 120;
 const MAX_WAIT_SECONDS = 300;
 
 const CONTENT_TYPES = {
@@ -512,13 +513,13 @@ export default function mockpitExtension(pi) {
       type: "object",
       properties: {
         session: { type: "string", description: "Session id; defaults to remembered session" },
-        timeoutSeconds: { type: "number", description: "Seconds to wait, 0-300; default 60" },
+        timeoutSeconds: { type: "number", description: "Seconds to wait, 0-300; default 120" },
       },
     },
     async execute(_toolCallId, params) {
       const session = params.session ?? state.sessionId;
       if (!session) throw new Error("No mockpit session yet. Publish first or pass session.");
-      const wait = clampWait(params.timeoutSeconds, 60);
+      const wait = clampWait(params.timeoutSeconds, DEFAULT_WAIT_SECONDS);
       const query = new URLSearchParams({ session, author: "user", wait: String(wait) });
       const result = await requestJson(`/api/comments?${query}`);
       const batches = result.feedback ?? [];

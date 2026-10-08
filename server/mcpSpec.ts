@@ -218,7 +218,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "wait_for_feedback",
     description:
-      "Wait up to 300 seconds for the user's feedback: one batch per mock with the reply (answers, mix, tuned knob values, part comments), plain comments, and the variants accepted/archived. 0 is a non-blocking check.",
+      "Wait for the user's feedback (default 120 seconds, max 300): one batch per mock with the reply (answers, mix, tuned knob values, part comments), plain comments, and the variants accepted/archived. 0 is a non-blocking check.",
     params: {
       session: { t: "string", d: "Session id returned by publish_mock", req: true },
       timeoutSeconds: { t: "number", d: "Seconds to wait; 0 checks only" },

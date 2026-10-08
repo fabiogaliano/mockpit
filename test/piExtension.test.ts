@@ -334,6 +334,35 @@ test("publish, revise, ask, list, get, wait, reply and export round-trip through
   assert.deepEqual(exported.details!.reply.tuned, { "body.size": 19 });
 });
 
+test("wait_for_feedback defaults to 120 seconds and caps at 300", async (t) => {
+  const { server, ctx } = await setup(t);
+  const harness = createPiHarness();
+  const published = await invoke(
+    harness,
+    "mockpit_publish_mock",
+    { mock: "writer", html: "<h1>T</h1>" },
+    ctx,
+  );
+  const waits: Array<string | null> = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.pathname === "/api/comments" && url.searchParams.has("author"))
+      waits.push(url.searchParams.get("wait"));
+    return realFetch(input, init);
+  }) as typeof fetch;
+  t.after(() => {
+    globalThis.fetch = realFetch;
+  });
+  // Pending feedback makes each long-poll return at once, so only the query is observed.
+  const mock = published.details!.mock.id;
+  await postJson(`${server.url}/api/comments`, { mock, text: "one", author: "user" });
+  await invoke(harness, "mockpit_wait_for_feedback", {}, ctx);
+  await postJson(`${server.url}/api/comments`, { mock, text: "two", author: "user" });
+  await invoke(harness, "mockpit_wait_for_feedback", { timeoutSeconds: 900 }, ctx);
+  assert.deepEqual(waits, ["120", "300"]);
+});
+
 test("the design guide is the project-aware brief", async (t) => {
   const { ctx } = await setup(t);
   const harness = createPiHarness();

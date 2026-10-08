@@ -205,6 +205,36 @@ for (const cmd of [
   });
 }
 
+test("watch --help prints its own help, not the catalog", async () => {
+  const { code, stdout } = await run("watch", "--help");
+  assert.equal(code, 0);
+  assert.match(stdout, /^mockpit watch \[--session <id>\]/);
+  assert.ok(!stdout.includes("a live visual surface"));
+});
+
+test("wait --help states the shared default and ceiling", async () => {
+  const { stdout } = await run("wait", "--help");
+  assert.match(stdout, /default 120 s, max 300/);
+});
+
+test("ask rejects a positional question alongside --asks", async () => {
+  const { code, stdout, stderr } = await runWith(
+    { env: { MOCKPIT_URL: "http://127.0.0.1:1" } },
+    "ask",
+    "--mock",
+    "writer",
+    "Which look?",
+    "--asks",
+    "[]",
+  );
+  assert.equal(code, 2);
+  assert.equal(stdout, "");
+  assert.match(
+    stderr,
+    /^error use the question or --asks, not both\n {2}fix: mockpit ask --mock writer --asks/,
+  );
+});
+
 test("-h is a short alias for --help", async () => {
   const { code, stdout } = await run("publish", "-h");
   assert.equal(code, 0);

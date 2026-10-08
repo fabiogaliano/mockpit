@@ -114,7 +114,7 @@ export function registerMcp(app: Hono, deps: McpDeps) {
             {
               sessionId: args.session,
               author: "user",
-              waitSeconds: typeof args.timeoutSeconds === "number" ? args.timeoutSeconds : 60,
+              waitSeconds: typeof args.timeoutSeconds === "number" ? args.timeoutSeconds : 120,
             },
             ctx.signal,
           ),

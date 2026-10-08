@@ -48,7 +48,7 @@ function cleanEnv(overrides: Record<string, string> = {}) {
   return { ...env, MOCKPIT_PROJECT: PROJECT, ...overrides };
 }
 
-async function serveApp(authToken?: string) {
+async function serveApp(authToken?: string, onRequest?: (url: URL) => void) {
   const dir = mkdtempSync(join(tmpdir(), "mockpit-mcp-stdio-"));
   const app = createApp({
     store: new SqlStore(createSqliteStorage()),
@@ -59,7 +59,11 @@ async function serveApp(authToken?: string) {
   });
 
   return new Promise<{ url: string; close: () => Promise<void> }>((resolve) => {
-    const server = serve({ fetch: app.fetch, port: 0 }, (info) => {
+    const fetch: typeof app.fetch = (req, ...rest) => {
+      onRequest?.(new URL(req.url));
+      return app.fetch(req, ...rest);
+    };
+    const server = serve({ fetch, port: 0 }, (info) => {
       resolve({
         url: `http://127.0.0.1:${info.port}`,
         close: () =>
@@ -387,6 +391,43 @@ test(
       [],
       "every advertised tool must be invoked, not merely listed",
     );
+  },
+);
+
+test(
+  "stdio wait_for_feedback defaults to 120 seconds and caps at 300",
+  { timeout: 15_000 },
+  async (t) => {
+    const waits: Array<string | null> = [];
+    const app = await serveApp(undefined, (url) => {
+      if (url.pathname === "/api/comments" && url.searchParams.has("author"))
+        waits.push(url.searchParams.get("wait"));
+    });
+    const dir = mkdtempSync(join(tmpdir(), "mockpit-mcp-wait-"));
+    const mcp = await connectMcp(app.url);
+    t.after(async () => {
+      await mcp.close();
+      await app.close();
+      rmSync(dir, { recursive: true, force: true });
+    });
+    const file = join(dir, "w.html");
+    writeFileSync(file, "<h1>T</h1>");
+    const published = await callJson<WriteResult>(mcp.client, "publish_mock", {
+      mock: "writer",
+      html: file,
+    });
+    // Pending feedback makes each long-poll return at once, so only the query is observed.
+    const comment = (text: string) =>
+      fetchJson(
+        app.url,
+        "/api/comments",
+        viewerJson({ mock: published.mock.id, text, author: "user" }),
+      );
+    await comment("one");
+    await callText(mcp.client, "wait_for_feedback");
+    await comment("two");
+    await callText(mcp.client, "wait_for_feedback", { timeoutSeconds: 900 });
+    assert.deepEqual(waits, ["120", "300"]);
   },
 );
 

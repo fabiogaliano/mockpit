@@ -45,6 +45,15 @@ A version can combine surfaces. `[html, diff]` is a design with its code review;
 html is sandboxed because you author the markup. Every other kind is rendered
 from data, so send data, never markup.
 
+## Page slots
+
+A page mock (`--kind page`, MCP `kind: "page"`) can embed a component mock in its
+html with `<mockpit-slot slug="button" variant="dark" version="3"></mockpit-slot>`.
+The server inlines that version's html body in place, inside the page's frame.
+`variant` defaults to `default`; a missing `version` pins to the current one at
+publish, so the page keeps showing what it was composed from until you revise
+it. An unknown slug renders as an empty placeholder, not silently dropped.
+
 ## Editing one surface
 
 `mockpit surface add|edit|remove|move --mock <slug>` (MCP `add_surface`,
