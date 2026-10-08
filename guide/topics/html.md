@@ -137,10 +137,15 @@ A kit only adds vocabulary. Write custom markup right beside kit classes.
 
 ## Tailwind projects
 
-When `mockpit init` found Tailwind, the sandbox loads the Tailwind browser
-build, so write the utility classes you write in the repo. The repo's compiled
-theme is not loaded, only its custom properties, so reach its tokens through
-arbitrary values: `bg-[var(--card)]`, not `bg-card`.
+When `mockpit init` found Tailwind v4, the sandbox compiles the repo's own
+Tailwind stylesheet with the browser build, so write the same utility classes
+you write in the repo, including theme classes (`bg-card`,
+`text-muted-foreground`). The browser build cannot load plugins or non-core
+imports, so init strips them; their utilities (`tw-animate-css`, typography)
+are not available, and the brief lists what was stripped. In dark mode the
+frame's `<html>` carries `class="dark"`, so the repo's `.dark` theme applies.
+A Tailwind v3 repo keeps its theme in `tailwind.config`, which the browser
+build cannot load: core utilities work, theme classes do not.
 
 ## Icons
 

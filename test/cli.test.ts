@@ -1136,7 +1136,10 @@ test("init imports the repo's design system and writes the starter", async () =>
     const { code, stdout } = await cli(server, { cwd }, "init");
     assert.equal(code, 0);
     assert.match(stdout, /^project: +acme\/site \(from MOCKPIT_PROJECT\)$/m);
-    assert.match(stdout, /^design: +tailwind · 4 css vars from src\/globals\.css$/m);
+    assert.match(
+      stdout,
+      /^design: +tailwind: src\/globals\.css · 4 css vars from src\/globals\.css$/m,
+    );
     assert.match(stdout, /^kit: +tailwind$/m);
     assert.match(stdout, /^icons: +lucide, mage available/m);
     assert.match(stdout, /^wrote: +\.mockpit\/starter\.html$/m);
@@ -1154,6 +1157,58 @@ test("init imports the repo's design system and writes the starter", async () =>
     const brief = await cli(server, { cwd }, "guide", "--brief");
     assert.match(brief.stdout, /Kit: tailwind/);
     assert.match(brief.stdout, /mockpit publish --mock/);
+  } finally {
+    await server.close();
+  }
+});
+
+// End to end up to the browser: the utility itself compiles in the frame from
+// jsDelivr, so this stops at the document the frame loads.
+test("init on a shadcn repo: the frame gets the repo's Tailwind stylesheet", async () => {
+  const server = await serveSession();
+  const cwd = tmpRepo();
+  try {
+    writeFileSync(
+      join(cwd, "package.json"),
+      JSON.stringify({ dependencies: { tailwindcss: "^4", "tw-animate-css": "^1" } }),
+    );
+    mkdirSync(join(cwd, "src", "app"), { recursive: true });
+    writeFileSync(
+      join(cwd, "src", "app", "globals.css"),
+      [
+        '@import "tailwindcss";',
+        '@import "tw-animate-css";',
+        "@custom-variant dark (&:is(.dark *));",
+        "@theme inline { --color-card: var(--card); --color-card-foreground: var(--card-foreground); }",
+        ":root { --card: oklch(1 0 0); --card-foreground: oklch(0.15 0 0); }",
+        ".dark { --card: oklch(0.2 0 0); --card-foreground: oklch(0.98 0 0); }",
+      ].join("\n"),
+    );
+    const init = await cli(server, { cwd }, "init");
+    assert.equal(init.code, 0, init.stderr);
+    assert.match(
+      init.stdout,
+      /^design: +tailwind: src\/app\/globals\.css \(stripped: tw-animate-css\)/m,
+    );
+
+    const brief = await cli(server, { cwd }, "guide", "--brief");
+    assert.match(brief.stdout, /`bg-card`/);
+    assert.match(brief.stdout, /not available: `tw-animate-css`/);
+
+    const file = tmpFile("card.html", '<div class="bg-card text-card-foreground">Card</div>');
+    const pub = await cli(server, { cwd }, "publish", "--mock", "card", "--html", file, "--json");
+    assert.equal(pub.code, 0, pub.stderr);
+    const mock = await getJson(`${server.url}/api/mocks/${JSON.parse(pub.stdout).mock.id}`);
+    const doc = await fetch(`${server.url}/s/${mock.variants[0].postId}?surface=0&mode=dark`).then(
+      (r) => r.text(),
+    );
+    const style = doc.match(/<style type="text\/tailwindcss">([\s\S]*?)<\/style>/);
+    assert.ok(style, "the repo's stylesheet is in the frame");
+    assert.match(style[1], /--card: oklch\(1 0 0\)/);
+    assert.ok(!style[1].includes("tw-animate-css"));
+    assert.ok(doc.indexOf(style[0]) < doc.indexOf("@tailwindcss/browser@4"));
+    assert.match(doc, /<html class="dark"/);
+    assert.match(doc, /<div class="bg-card text-card-foreground">Card<\/div>/);
   } finally {
     await server.close();
   }

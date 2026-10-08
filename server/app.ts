@@ -547,7 +547,12 @@ export function createApp({
     if (!raw) return null;
     try {
       const design = JSON.parse(raw) as DesignSettings;
-      return { ...design, iconSets: Array.isArray(design.iconSets) ? design.iconSets : [] };
+      return {
+        ...design,
+        tailwindCss: typeof design.tailwindCss === "string" ? design.tailwindCss : "",
+        strippedImports: Array.isArray(design.strippedImports) ? design.strippedImports : [],
+        iconSets: Array.isArray(design.iconSets) ? design.iconSets : [],
+      };
     } catch {
       return null;
     }
@@ -2714,6 +2719,18 @@ export function createApp({
           : null,
       kit,
       cssVars: typeof body.cssVars === "string" ? body.cssVars.slice(0, 64_000) : "",
+      // A cut stylesheet would not compile, so an oversized one is dropped
+      // whole and the frame falls back to `cssVars`.
+      tailwindCss:
+        typeof body.tailwindCss === "string" && body.tailwindCss.length <= 128_000
+          ? body.tailwindCss
+          : "",
+      strippedImports: Array.isArray(body.strippedImports)
+        ? body.strippedImports
+            .filter((s: unknown) => typeof s === "string")
+            .map((s: string) => s.slice(0, 200))
+            .slice(0, 50)
+        : [],
       iconSets,
       updatedAt: new Date().toISOString(),
     };

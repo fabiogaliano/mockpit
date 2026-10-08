@@ -836,20 +836,35 @@ function resolveKits(ids: readonly string[] | undefined): Kit[] {
 // Kept in one place so the ordering rule is visible: the project's own tokens
 // land AFTER mockpit's, because a repo that declares `--radius` or a brand
 // color should win inside its own project's surfaces.
-function designAssets(design: DesignSettings | null | undefined): {
+function designAssets(
+  design: DesignSettings | null | undefined,
+  mode: Mode | undefined,
+): {
   css: string;
   kits: string[];
   headScripts: string;
+  dark: boolean;
 } {
-  if (!design) return { css: "", kits: [], headScripts: "" };
-  const raw = design.cssVars?.trim() ?? "";
+  if (!design) return { css: "", kits: [], headScripts: "", dark: false };
+  const tailwindCss = design.kit === "tailwind" ? (design.tailwindCss?.trim() ?? "") : "";
+  const raw = tailwindCss ? "" : (design.cssVars?.trim() ?? "");
   // `cssVars` is stored as the repo's raw block; accept either the full
   // `:root{…}` text or a bare declaration list.
   const vars = raw ? (raw.includes("{") ? raw : `:root{${raw}}`) : "";
+  // The browser build reads its input from the style tags present when its
+  // script runs, so the stylesheet goes first. Its compiled output already
+  // carries the repo's `:root` block, hence no `cssVars` beside it.
+  const tailwind =
+    design.kit !== "tailwind"
+      ? ""
+      : `${tailwindCss ? `<style type="text/tailwindcss">${tailwindCss.replace(/<\/style/gi, "<\\/style")}</style>\n` : ""}<script src="${TAILWIND_CDN}"></script>`;
   return {
     css: vars,
     kits: design.kit === "builtin" ? ["builtin"] : [],
-    headScripts: design.kit === "tailwind" ? `<script src="${TAILWIND_CDN}"></script>` : "",
+    headScripts: tailwind,
+    // Repos theme dark through a `.dark` ancestor (shadcn's `.dark {…}` block,
+    // `@custom-variant dark (&:is(.dark *))`), so the frame wears the class.
+    dark: mode === "dark" && /\.dark\b/.test(tailwindCss || raw),
   };
 }
 
@@ -1135,8 +1150,11 @@ export function renderHtmlPage(doc: {
 }): string {
   const theme =
     typeof doc.theme === "string" || doc.theme == null ? themeById(doc.theme) : doc.theme;
-  const design = designAssets(doc.design);
+  const design = designAssets(doc.design, doc.mode);
   const preamble = knobPreamble(doc.version, doc.knobs);
+  const htmlTag = design.dark
+    ? preamble.htmlTag.replace("<html ", '<html class="dark" ')
+    : preamble.htmlTag;
   // The project kit is appended, so with both present its components win over
   // a surface-requested kit's same-named classes.
   const kitIds = [...(doc.kits ?? []), ...design.kits];
@@ -1154,7 +1172,7 @@ export function renderHtmlPage(doc: {
     `<style>${design.css}${colorSchemeCss(doc.mode)}</style>`,
   ].join("\n");
   return `<!doctype html>
-${preamble.htmlTag}
+${htmlTag}
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
