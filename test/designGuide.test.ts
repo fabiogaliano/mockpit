@@ -19,6 +19,7 @@ const design = (over: Partial<DesignSettings> = {}): DesignSettings => ({
   tailwindCss: "",
   strippedImports: [],
   iconSets: [],
+  projectKits: [],
   updatedAt: "2026-09-15T00:00:00.000Z",
   ...over,
 });

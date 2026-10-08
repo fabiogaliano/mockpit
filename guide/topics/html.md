@@ -121,9 +121,21 @@ of the base. A surface with no `kits` is untouched. `mockpit kits` (or
 - `slides`: a `.deck` of `.slide` children. The kit shows one at a time
   (grid-stacked, so the frame sizes to the tallest) and adds prev, dots, counter
   and next controls. Arrow keys and PageUp/PageDown navigate.
+- `basecoat`: Basecoat UI from jsDelivr, shadcn's look as plain classes:
+  `.btn`, `.card` (`header`, `section`, `footer` inside), `.input`, `.label`,
+  `.badge`, `.alert`, `.table`, `.tabs`, `.dialog`, `.kbd`. Variants are
+  `data-variant="secondary|outline|ghost|destructive"`, sizes `data-size="sm|lg"`.
+  Themes from the project's shadcn vars, else from the `--color-*` tokens.
 
-Every kit also ships layout helpers (`.row`, `.stack`, `.between`, `.grow`) and
-text helpers (`.title`, `.dim`, `.faint`, `.mono`, `.num`, `.kbd`, `.hr`).
+A project kit is your team's own CSS on the CDN allowlist:
+`mockpit kit add acme --url <https css> --doc cheatsheet.md [--script <js>]`,
+`mockpit kit remove acme`. Name it in `kits` like any other.
+`mockpit init --kit <id>` makes a bundled or project kit the default for every
+surface, and the brief prints its classes or doc.
+
+The builtin, issues and slides kits also ship layout helpers (`.row`, `.stack`,
+`.between`, `.grow`) and text helpers (`.title`, `.dim`, `.faint`, `.mono`,
+`.num`, `.kbd`, `.hr`).
 
 ```sh
 mockpit publish --mock ci-status --html status.html --kit issues   # repeat --kit for more

@@ -28,7 +28,8 @@ open"); a variant is a parallel design of a state; a version is its history.
 Mark the parts you want feedback on with data-part="name" in the html.
 
 design loop:
-  mockpit init [--project name]          detect the repo's design system, store
+  mockpit init [--project name] [--kit <id>] [--kit-url <url> --kit-doc <file|text>]
+                                          detect the repo's design system, store
                                           palette/kit/icon sets, write .mockpit/starter.html
   mockpit icons [add|remove <set>...]    list the icon sets html surfaces can name
                                           (icon="prefix:name"); add or remove an
@@ -90,7 +91,10 @@ other commands:
   mockpit upload <file> [--kind image|file]
                                           upload an asset, print its id and URL
   mockpit asset-url <file>               print the URL a file will have (no upload)
-  mockpit kits                           list the opt-in html kits
+  mockpit kits                           list the opt-in html kits (bundled + project)
+  mockpit kit add <id> --url <css> --doc <file|text> [--script <js>]
+                                          define a project kit from a CDN stylesheet
+  mockpit kit remove <id>                remove a project kit
   mockpit agent-howto [--topic <id>]     print the brief to read before publishing,
                                           or one reference topic
   mockpit guide [--brief|--topic <id>]   print the html topic (or the brief, or a topic)
@@ -121,10 +125,18 @@ const MAX_WAIT_SECONDS = 300;
 // Per-command help, so `mockpit publish --help` costs a few lines instead of
 // the whole manual. Commands without an entry fall back to HELP.
 const COMMAND_HELP = {
-  init: `mockpit init [--project <name>]
+  init: `mockpit init [--project <name>] [--kit <id>]
+  [--kit-url <https url> [--kit-script <url>] --kit-doc <file.md|text>]
   Detect the repo's design system, store palette + kit for the project, add the
   Iconify sets matching its icon packages, and write .mockpit/starter.html
-  (gitignored).`,
+  (gitignored). --kit makes a bundled or project kit the default for every html
+  surface. --kit-url defines the project's own kit (id from --kit, else
+  "project") and makes it the default; the doc is the cheat sheet the brief prints.`,
+  kit: `mockpit kit add <id> --url <https url> --doc <file.md|text> [--script <url>]
+mockpit kit remove <id>
+  A project kit is a stylesheet (and optional script) on the CDN allowlist plus a
+  class cheat sheet of at most 1,200 chars. Surfaces name it in kits like a
+  bundled kit.`,
   icons: `mockpit icons [--project <name>]
 mockpit icons add <set> [<set>...]
 mockpit icons remove <set> [<set>...]
@@ -563,6 +575,24 @@ async function installIconSets(project, prefixes) {
     errors,
     design,
   };
+}
+
+// `--doc` is a file when one exists at that path, else the cheat sheet itself.
+function readKitDoc(doc) {
+  if (doc === undefined) return undefined;
+  try {
+    if (existsSync(doc)) return readFileSync(doc, "utf8");
+  } catch {}
+  return doc;
+}
+
+// The server checks the URLs against the CDN allowlist and the doc's length;
+// its one-line error is the message.
+function putProjectKit(project, id, { url, script, doc }) {
+  return api(`${projectPath(project)}/kits/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify({ href: url, script, doc: readKitDoc(doc) }),
+  });
 }
 
 // Normalize repeated/comma-joined --kit flags into a deduped id list (or
@@ -1072,7 +1102,15 @@ const commands = {
   // starter file behind — so every later publish is markup only, with no CSS or
   // icon paths pasted into the agent's context.
   async init() {
-    const { values: flags } = parse({ options: { project: { type: "string" } } });
+    const { values: flags } = parse({
+      options: {
+        project: { type: "string" },
+        kit: { type: "string" },
+        "kit-url": { type: "string" },
+        "kit-script": { type: "string" },
+        "kit-doc": { type: "string" },
+      },
+    });
     const { name: project, source } = resolveProject(flags);
     const say = (label, text) => {
       if (!flags.quiet && !flags.json) console.log(`${label.padEnd(8)} ${text}`);
@@ -1098,7 +1136,17 @@ const commands = {
       "design:",
       found.length ? found.join(" · ") : "nothing detected — using the built-in palette",
     );
-    say("kit:", design.kit);
+    let kit = flags.kit ?? design.kit ?? "builtin";
+    // The project kit is stored first so the design PUT can name it as default.
+    if (flags["kit-url"] !== undefined) {
+      kit = flags.kit ?? "project";
+      await putProjectKit(project, kit, {
+        url: flags["kit-url"],
+        script: flags["kit-script"],
+        doc: flags["kit-doc"],
+      });
+    }
+    say("kit:", kit);
 
     let stored = await api(`${projectPath(project)}/design`, {
       method: "PUT",
@@ -1108,7 +1156,7 @@ const commands = {
         cssVars: design.cssVars ?? "",
         tailwindCss: design.tailwindCss ?? "",
         strippedImports: design.strippedImports ?? [],
-        kit: design.kit ?? "builtin",
+        kit,
       }),
     });
 
@@ -1140,7 +1188,7 @@ const commands = {
 
     const starter = join(process.cwd(), ".mockpit", "starter.html");
     mkdirSync(dirname(starter), { recursive: true });
-    writeFileSync(starter, renderStarter(design, iconSets));
+    writeFileSync(starter, renderStarter({ ...design, kit }, iconSets));
     say("wrote:", ".mockpit/starter.html");
     if (ignoreMockpitDir()) say("wrote:", ".gitignore (+ .mockpit/)");
     say("next:", "mockpit guide --brief");
@@ -1665,8 +1713,33 @@ const commands = {
   },
 
   async kits() {
-    parse();
-    out(await api("/api/kits"));
+    const { values: flags } = parse({ options: { project: { type: "string" } } });
+    const { name: project } = resolveProject(flags);
+    out(await api(`/api/kits?${new URLSearchParams({ project })}`));
+  },
+
+  async kit() {
+    const { values: flags, positionals } = parse({
+      allowPositionals: true,
+      options: {
+        project: { type: "string" },
+        url: { type: "string" },
+        script: { type: "string" },
+        doc: { type: "string" },
+      },
+    });
+    const [sub, id] = positionals;
+    const { name: project } = resolveProject(flags);
+    if ((sub !== "add" && sub !== "remove") || !id)
+      fail("usage: mockpit kit add <id> --url <url> --doc <file|text> | mockpit kit remove <id>");
+    const design =
+      sub === "add"
+        ? await putProjectKit(project, id, flags)
+        : await api(`${projectPath(project)}/kits/${encodeURIComponent(id)}`, {
+            method: "DELETE",
+          });
+    if (flags.json) return out(design);
+    if (!flags.quiet) console.log(`${sub === "add" ? "added" : "removed"} kit ${id} (${project})`);
   },
 
   async guide() {

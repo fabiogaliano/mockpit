@@ -573,6 +573,7 @@ test("a project's design injects its tokens and kit into the frame", () => {
       tailwindCss: "",
       strippedImports: [],
       iconSets: [],
+      projectKits: [],
       updatedAt: "2026-09-15T00:00:00.000Z",
     },
   });
@@ -594,6 +595,7 @@ test("a project's design injects its tokens and kit into the frame", () => {
       tailwindCss: "",
       strippedImports: [],
       iconSets: [],
+      projectKits: [],
       updatedAt: "2026-09-15T00:00:00.000Z",
     },
   });
@@ -618,6 +620,7 @@ test("a Tailwind project's stylesheet reaches the browser build, before it, with
     tailwindCss: '@import "tailwindcss";\n:root{--card:#fff}\n.dark{--card:#111}\n</style><b>',
     strippedImports: ["tw-animate-css"],
     iconSets: [],
+    projectKits: [],
     updatedAt: "2026-10-08T00:00:00.000Z",
   };
   const dark = renderHtmlPage({

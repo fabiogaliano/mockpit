@@ -99,29 +99,58 @@ const filteredArray = <T>(schema: z.ZodType<T, z.ZodTypeDef, any>) =>
     });
   }, z.array(schema));
 
-// `kits` opts an html surface into style/behavior bundles (kits.ts). Strict mode
-// rejects an unknown id with the valid set, so a CLI/REST typo is a clean 400;
-// loose mode filters unknown ids out rather than dropping the whole surface.
-const strictKitId = z.string().refine(isKnownKit, (id) => ({
-  message: `unknown kit "${id}" — known: ${KIT_IDS.join(", ")}`,
-}));
+// `kits` opts an html surface into style/behavior bundles (kits.ts) or the
+// project's own kits. The ids are checked after the parse (checkKits), since
+// which ids exist depends on the project being written to.
 const strictHtmlSurface = z.object({
   kind: z.literal("html"),
   html: requiredString("html"),
-  kits: z.array(strictKitId).optional(),
+  kits: z.array(z.string()).optional(),
 });
-// Loose mode keeps only known kit ids and omits the field entirely when none
-// remain — so a junk `kits` never lingers as an empty or undefined key.
 const looseHtmlSurface = z
   .object({
     kind: z.literal("html"),
     html: requiredString("html"),
     kits: z.unknown().optional(),
   })
-  .transform((p) => {
-    const kits = Array.isArray(p.kits) ? p.kits.filter(isKnownKit) : [];
-    return { kind: "html" as const, html: p.html, ...(kits.length > 0 ? { kits } : {}) };
-  });
+  .transform((p) => ({
+    kind: "html" as const,
+    html: p.html,
+    ...(Array.isArray(p.kits) ? { kits: p.kits.filter((k) => typeof k === "string") } : {}),
+  }));
+
+/** The project kit ids a write may name on top of the bundled ones. */
+export interface SurfaceKitScope {
+  projectKits?: readonly string[];
+}
+
+// Strict mode rejects an unknown id with the valid set, so a CLI/REST typo is a
+// clean 400; loose mode filters unknown ids out rather than dropping the whole
+// surface, and omits the field when none remain so a junk `kits` never lingers
+// as an empty key.
+function checkKits(
+  surface: Surface,
+  path: string,
+  scope: SurfaceKitScope,
+): { surface: Surface; errors: SurfaceValidationIssue[] } {
+  if (surface.kind !== "html" || surface.kits === undefined) return { surface, errors: [] };
+  const own = scope.projectKits ?? [];
+  const known = (id: string) => isKnownKit(id) || own.includes(id);
+  const errors: SurfaceValidationIssue[] = surface.kits.flatMap((id, i) =>
+    known(id)
+      ? []
+      : [
+          {
+            code: "invalid_surface" as const,
+            requestPath: `${path}.kits.${i}`,
+            message: `unknown kit "${id}" — known: ${[...KIT_IDS, ...own].join(", ")}`,
+          },
+        ],
+  );
+  const kits = surface.kits.filter(known);
+  const { kits: _drop, ...rest } = surface;
+  return { surface: kits.length > 0 ? { ...rest, kits } : rest, errors };
+}
 
 const strictMarkdownSurface = z.object({
   kind: z.literal("markdown"),
@@ -259,7 +288,7 @@ const strictSurfaceSchemas = {
 // Async because mermaid validation awaits the parser (@mermaid-js/parser).
 async function parseSurfaceList(
   raw: unknown,
-  opts: { strict?: boolean } = {},
+  opts: { strict?: boolean } & SurfaceKitScope = {},
 ): Promise<SurfaceParseResult> {
   if (!Array.isArray(raw)) {
     return surfaceResult(
@@ -269,7 +298,9 @@ async function parseSurfaceList(
   }
 
   if (opts.strict === true) {
-    const results = await Promise.all(raw.map((surface, i) => parseStrictSurface(surface, i)));
+    const results = await Promise.all(
+      raw.map((surface, i) => parseStrictSurface(surface, i, opts)),
+    );
     return surfaceResult(
       results.flatMap((r) => (r.surface ? [r.surface] : [])),
       results.flatMap((r) => r.errors),
@@ -280,8 +311,8 @@ async function parseSurfaceList(
   for (const [index, surface] of raw.entries()) {
     const parsed = looseSurfaceSchema.safeParse(surface);
     if (!parsed.success) continue;
-    if ((await validateSemantics(parsed.data as Surface, `surfaces[${index}]`)).length === 0)
-      surfaces.push(parsed.data as Surface);
+    const { surface: kept } = checkKits(parsed.data as Surface, `surfaces[${index}]`, opts);
+    if ((await validateSemantics(kept, `surfaces[${index}]`)).length === 0) surfaces.push(kept);
   }
   return surfaceResult(surfaces, []);
 }
@@ -290,12 +321,15 @@ function surfaceResult(surfaces: Surface[], errors: SurfaceValidationIssue[]): S
   return { surfaces, parts: surfaces, errors };
 }
 
-export const coerceSurfaces = (raw: unknown): Promise<Surface[]> =>
-  parseSurfaceList(raw).then((r) => r.surfaces);
+export const coerceSurfaces = (raw: unknown, scope: SurfaceKitScope = {}): Promise<Surface[]> =>
+  parseSurfaceList(raw, scope).then((r) => r.surfaces);
 
 /** Strictly validates surfaces before a native API write reaches persistence. */
-export async function validateSurfaces(raw: unknown): Promise<SurfaceValidationResult> {
-  const result = await parseSurfaceList(raw, { strict: true });
+export async function validateSurfaces(
+  raw: unknown,
+  scope: SurfaceKitScope = {},
+): Promise<SurfaceValidationResult> {
+  const result = await parseSurfaceList(raw, { ...scope, strict: true });
   return result.errors.length > 0
     ? {
         ok: false,
@@ -424,6 +458,7 @@ async function validateSemantics(
 async function parseStrictSurface(
   raw: unknown,
   index: number,
+  scope: SurfaceKitScope,
 ): Promise<{ surface: Surface | null; errors: SurfaceValidationIssue[] }> {
   const surfaceRequestPath = `surfaces[${index}]`;
   if (!raw || typeof raw !== "object")
@@ -453,10 +488,12 @@ async function parseStrictSurface(
   if (!parsed.success) {
     return { surface: null, errors: formatZodErrors(parsed.error, surfaceRequestPath) };
   }
-  const semantic = await validateSemantics(parsed.data, surfaceRequestPath);
+  const kits = checkKits(parsed.data, surfaceRequestPath, scope);
+  if (kits.errors.length > 0) return { surface: null, errors: kits.errors };
+  const semantic = await validateSemantics(kits.surface, surfaceRequestPath);
   return semantic.length > 0
     ? { surface: null, errors: semantic }
-    : { surface: parsed.data, errors: [] };
+    : { surface: kits.surface, errors: [] };
 }
 
 function schemaForKind(kind: unknown): z.ZodType<Surface, z.ZodTypeDef, any> | null {

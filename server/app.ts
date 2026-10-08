@@ -24,7 +24,7 @@ import {
   parseIconSet,
   resolverFor,
 } from "./icons.ts";
-import { kitSummaries } from "./kits.ts";
+import { checkProjectKit, KIT_IDS, kitSummaries } from "./kits.ts";
 import { checkKnobs, checkKnobValues, discreteChoices } from "./knobs.ts";
 import { diffParts, type PartChanges, partsInSurfaces, spliceParts } from "./parts.ts";
 import { postToMarkdown } from "./postMarkdown.ts";
@@ -92,7 +92,12 @@ import {
   surfacesByteLength,
   type TerminalSurface,
 } from "./types.ts";
-import { coerceSurfaces, type SurfaceValidationFailure, validateSurfaces } from "./postSurfaces.ts";
+import {
+  coerceSurfaces,
+  type SurfaceKitScope,
+  type SurfaceValidationFailure,
+  validateSurfaces,
+} from "./postSurfaces.ts";
 
 export type { FeedEvent } from "./events.ts";
 export type { FeedbackBatch } from "./feedbackBatch.ts";
@@ -285,7 +290,8 @@ function isPublicReadAllowed(path: string, mode: PublicReadMode, query: URLSearc
   if (path === "/api/events") return true;
   if (path === "/api/theme") return true;
   if (path === "/api/version") return true;
-  if (path === "/api/kits") return true;
+  // A project's kits are named by project, so only the bundled list is public.
+  if (path === "/api/kits") return !query.has("project");
   return false;
 }
 
@@ -552,6 +558,7 @@ export function createApp({
         tailwindCss: typeof design.tailwindCss === "string" ? design.tailwindCss : "",
         strippedImports: Array.isArray(design.strippedImports) ? design.strippedImports : [],
         iconSets: Array.isArray(design.iconSets) ? design.iconSets : [],
+        projectKits: Array.isArray(design.projectKits) ? design.projectKits : [],
       };
     } catch {
       return null;
@@ -711,21 +718,27 @@ export function createApp({
     });
   }
 
+  // The kit ids a surface of this project may name beyond the bundled ones.
+  const kitScope = async (project: string): Promise<SurfaceKitScope> => ({
+    projectKits: ((await designFor(project))?.projectKits ?? []).map((k) => k.id),
+  });
+
   async function parseSurfaceInput(
     body: any,
     ctx: FlowContext,
+    scope: SurfaceKitScope,
   ): Promise<Surface[] | FlowResult | undefined> {
     if (typeof body.html === "string") {
       if (!body.html.trim()) return fail(400, 'body must include non-empty "html" string');
       const raw = [htmlSurface(body.html, body.kits)];
-      if (!ctx.strict) return coerceSurfaces(raw);
-      const parsed = await validateSurfaces(raw);
+      if (!ctx.strict) return coerceSurfaces(raw, scope);
+      const parsed = await validateSurfaces(raw, scope);
       return parsed.ok ? parsed.surfaces : fail(400, parsed.error, surfaceIssues(parsed));
     }
     if (body.surfaces === undefined) return undefined;
     if (!Array.isArray(body.surfaces)) return fail(400, '"surfaces" must be an array');
-    if (!ctx.strict) return coerceSurfaces(body.surfaces);
-    const parsed = await validateSurfaces(body.surfaces);
+    if (!ctx.strict) return coerceSurfaces(body.surfaces, scope);
+    const parsed = await validateSurfaces(body.surfaces, scope);
     return parsed.ok ? parsed.surfaces : fail(400, parsed.error, surfaceIssues(parsed));
   }
 
@@ -878,16 +891,6 @@ export function createApp({
     if (!slugIn) return fail(400, 'provide "mock": the mock slug, e.g. "writer"');
     const partEdits = revise ? partEditsArg(body) : undefined;
     if (isResult(partEdits)) return partEdits;
-    // With `parts` the surfaces are the base version's, spliced once the variant is known.
-    let surfaces: Surface[] = [];
-    if (!partEdits) {
-      const parsed = await parseSurfaceInput(body, ctx);
-      if (isResult(parsed)) return parsed;
-      if (!parsed) return fail(400, 'provide "surfaces" (or "html")');
-      const bad = checkSurfaces(parsed);
-      if (bad) return bad;
-      surfaces = parsed;
-    }
     const knobs = checkKnobs(body.knobs);
     if (!knobs.ok) return fail(400, knobs.error);
     const variantKnobs = checkKnobs(body.variantKnobs);
@@ -917,6 +920,16 @@ export function createApp({
         session?.project ||
         projectFromCwd(session?.cwd) ||
         resolveProject(undefined, str(body.cwd, 4096)));
+    // With `parts` the surfaces are the base version's, spliced once the variant is known.
+    let surfaces: Surface[] = [];
+    if (!partEdits) {
+      const parsed = await parseSurfaceInput(body, ctx, await kitScope(project));
+      if (isResult(parsed)) return parsed;
+      if (!parsed) return fail(400, 'provide "surfaces" (or "html")');
+      const bad = checkSurfaces(parsed);
+      if (bad) return bad;
+      surfaces = parsed;
+    }
     const slug = mock?.slug ?? slugify(slugIn);
     mock ??= await store.findMock(project, slug);
     if (revise && !mock) return fail(404, `${project} has no mock "${slug}"`);
@@ -1728,6 +1741,7 @@ export function createApp({
 
   type SurfaceEdit = (
     surfaces: Surface[],
+    scope: SurfaceKitScope,
   ) => Promise<Surface[] | { surfaces: Surface[]; applied: string[] } | FlowResult>;
 
   async function editSurfaces(
@@ -1746,7 +1760,7 @@ export function createApp({
       str(body?.variant, MAX_LABEL),
     );
     if (isResult(post)) return post;
-    const edited = await edit(post.surfaces);
+    const edited = await edit(post.surfaces, await kitScope(resolved.project));
     if (isResult(edited)) return edited;
     const [next, applied] = Array.isArray(edited)
       ? [edited, undefined]
@@ -1765,19 +1779,23 @@ export function createApp({
     return writeResult(mock, updated, ctx, { previous: post.surfaces, applied });
   }
 
-  async function oneSurface(raw: unknown, ctx: FlowContext): Promise<Surface | FlowResult> {
+  async function oneSurface(
+    raw: unknown,
+    ctx: FlowContext,
+    scope: SurfaceKitScope,
+  ): Promise<Surface | FlowResult> {
     if (!ctx.strict) {
-      const [surface] = await coerceSurfaces([raw]);
+      const [surface] = await coerceSurfaces([raw], scope);
       return surface ?? fail(400, "invalid surface");
     }
-    const parsed = await validateSurfaces([raw]);
+    const parsed = await validateSurfaces([raw], scope);
     return parsed.ok ? parsed.surfaces[0] : fail(400, parsed.error, surfaceIssues(parsed));
   }
 
   const appendSurfaceFlow = (ref: unknown, body: any, ctx: FlowContext) =>
-    editSurfaces(ref, body, ctx, async (surfaces) => {
+    editSurfaces(ref, body, ctx, async (surfaces, scope) => {
       if (!body?.surface) return fail(400, 'provide a "surface" object');
-      const surface = await oneSurface(body.surface, ctx);
+      const surface = await oneSurface(body.surface, ctx, scope);
       if (isResult(surface)) return surface;
       let at = surfaces.length;
       for (const [key, shift] of [
@@ -1796,7 +1814,7 @@ export function createApp({
     });
 
   const replaceSurfaceFlow = (ref: unknown, target: string, body: any, ctx: FlowContext) =>
-    editSurfaces(ref, body, ctx, async (surfaces) => {
+    editSurfaces(ref, body, ctx, async (surfaces, scope) => {
       const idx = findSurfaceIndex(surfaces, target);
       if (idx < 0) return fail(404, `surface "${target}" not found`);
       const partEdits = partEditsArg(body ?? {});
@@ -1819,7 +1837,7 @@ export function createApp({
       }
       let updated: Surface;
       if (body?.surface !== undefined) {
-        const surface = await oneSurface(body.surface, ctx);
+        const surface = await oneSurface(body.surface, ctx, scope);
         if (isResult(surface)) return surface;
         updated = surface;
         if (body.kits !== undefined && updated.kind === "html") {
@@ -1830,7 +1848,7 @@ export function createApp({
         if (!applied) {
           return fail(400, `content update not supported for ${surfaces[idx].kind} surfaces`);
         }
-        const parsed = await validateSurfaces([applied]);
+        const parsed = await validateSurfaces([applied], scope);
         if (!parsed.ok) return fail(400, parsed.error, surfaceIssues(parsed));
         updated = parsed.surfaces[0];
       } else {
@@ -2668,8 +2686,12 @@ export function createApp({
   });
 
   // Opt-in html kits available on this workspace (id, label, summary, classes) —
-  // for discovery (`mockpit kits`); the CSS/JS payloads are server-only.
-  app.get("/api/kits", (c) => c.json(kitSummaries()));
+  // for discovery (`mockpit kits`); the CSS/JS payloads are server-only. With
+  // `?project=`, that project's own kits follow the bundled ones.
+  app.get("/api/kits", async (c) => {
+    const project = c.req.query("project");
+    return c.json(kitSummaries(project ? ((await designFor(project))?.projectKits ?? []) : []));
+  });
 
   // --- theme: one palette, so the workspace setting is just its mode ---
 
@@ -2694,13 +2716,24 @@ export function createApp({
     const project = c.req.param("name");
     // `mockpit init` re-detects the repo and PUTs without iconSets; that must
     // not uninstall what `mockpit icons add` installed.
-    let iconSets = (await designFor(project))?.iconSets ?? [];
+    const previous = await designFor(project);
+    let iconSets = previous?.iconSets ?? [];
     if (body.iconSets !== undefined) {
       const checked = await checkIconSets(body.iconSets);
       if (typeof checked === "string") return c.json({ error: checked }, 400);
       iconSets = checked;
     }
-    const kit = body.kit === "tailwind" || body.kit === "builtin" ? body.kit : "none";
+    // Same rule as iconSets: a PUT that omits projectKits keeps them.
+    let projectKits = previous?.projectKits ?? [];
+    if (body.projectKits !== undefined) {
+      const checked = checkProjectKits(body.projectKits);
+      if (typeof checked === "string") return c.json({ error: checked }, 400);
+      projectKits = checked;
+    }
+    const kitIds = ["tailwind", "none", ...KIT_IDS, ...projectKits.map((k) => k.id)];
+    const kit = body.kit === undefined || body.kit === null ? "none" : body.kit;
+    if (typeof kit !== "string" || !kitIds.includes(kit))
+      return c.json({ error: `unknown kit "${String(kit)}" — known: ${kitIds.join(", ")}` }, 400);
     const design: DesignSettings = {
       detected:
         body.detected && typeof body.detected === "object"
@@ -2732,14 +2765,82 @@ export function createApp({
             .slice(0, 50)
         : [],
       iconSets,
+      projectKits,
       updatedAt: new Date().toISOString(),
     };
+    return c.json(await saveDesign(project, design));
+  });
+
+  async function saveDesign(project: string, design: DesignSettings): Promise<DesignSettings> {
     await store.setSetting(`design:${project}`, JSON.stringify(design));
     // Every rendered surface bakes the design into its document string, so a
     // design change invalidates them all.
     clearRenderCache();
     bus.broadcast({ type: "theme-changed", mode: await workspaceMode() });
-    return c.json(design);
+    return design;
+  }
+
+  const MAX_PROJECT_KITS = 16;
+  function checkProjectKits(raw: unknown): DesignSettings["projectKits"] | string {
+    if (!Array.isArray(raw)) return "projectKits must be an array";
+    if (raw.length > MAX_PROJECT_KITS) return `at most ${MAX_PROJECT_KITS} project kits`;
+    const kits: DesignSettings["projectKits"] = [];
+    for (const item of raw) {
+      const kit = checkProjectKit(item);
+      if (typeof kit === "string") return kit;
+      if (kits.some((k) => k.id === kit.id)) return `kit "${kit.id}" is listed twice`;
+      kits.push(kit);
+    }
+    return kits;
+  }
+
+  const emptyDesign = (): DesignSettings => ({
+    detected: null,
+    palette: null,
+    kit: "none",
+    cssVars: "",
+    tailwindCss: "",
+    strippedImports: [],
+    iconSets: [],
+    projectKits: [],
+    updatedAt: new Date().toISOString(),
+  });
+
+  // Add or replace one project kit (`mockpit kit add`). A project that never ran
+  // init gets a design holding just the kit.
+  app.put("/api/projects/:name/kits/:id", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body !== "object") return c.json({ error: "invalid JSON body" }, 400);
+    const project = c.req.param("name");
+    const kit = checkProjectKit({ ...body, id: c.req.param("id") });
+    if (typeof kit === "string") return c.json({ error: kit }, 400);
+    const design = (await designFor(project)) ?? emptyDesign();
+    const others = design.projectKits.filter((k) => k.id !== kit.id);
+    if (others.length >= MAX_PROJECT_KITS)
+      return c.json({ error: `at most ${MAX_PROJECT_KITS} project kits` }, 400);
+    const saved = await saveDesign(project, {
+      ...design,
+      projectKits: [...others, kit],
+      updatedAt: new Date().toISOString(),
+    });
+    return c.json(saved);
+  });
+
+  // Removing the project's default kit falls back to no kit rather than leaving
+  // design.kit naming something that no longer resolves.
+  app.delete("/api/projects/:name/kits/:id", async (c) => {
+    const project = c.req.param("name");
+    const id = c.req.param("id");
+    const design = await designFor(project);
+    if (!design?.projectKits.some((k) => k.id === id))
+      return c.json({ error: `${project} has no kit "${id}"` }, 404);
+    const saved = await saveDesign(project, {
+      ...design,
+      kit: design.kit === id ? "none" : design.kit,
+      projectKits: design.projectKits.filter((k) => k.id !== id),
+      updatedAt: new Date().toISOString(),
+    });
+    return c.json(saved);
   });
 
   // Every set an html surface of this project can name, installed first.

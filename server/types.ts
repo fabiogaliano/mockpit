@@ -454,7 +454,9 @@ export interface ProjectSummary {
 export interface DesignSettings {
   detected: { tailwind: boolean; shadcn: boolean; cssVars: number; fonts: string[] } | null;
   palette: { light: Palette; dark: Palette } | null;
-  kit: "tailwind" | "builtin" | "none";
+  // "tailwind" (the repo's own utilities), "none", or a bundled or project kit
+  // id injected into every html surface of the project.
+  kit: string;
   // Raw `:root{...}` block imported from the repo, injected into the frame.
   cssVars: string;
   // The repo's Tailwind entry stylesheet, reduced to what the browser build
@@ -467,7 +469,20 @@ export interface DesignSettings {
   // Iconify sets installed for this project (`mockpit icons add`), on top of
   // the ones bundled with the server. Older settings predate it; read as [].
   iconSets: IconSetRef[];
+  // Kits this project defined (`mockpit kit add`). Older settings predate it;
+  // read as [].
+  projectKits: ProjectKit[];
   updatedAt: string;
+}
+
+// A team's own component CSS on the CDN allowlist: addressable in
+// `surfaces[].kits` like a bundled kit. `doc` is the class cheat sheet the brief
+// prints when this kit is the project's default.
+export interface ProjectKit {
+  id: string;
+  href: string;
+  script?: string;
+  doc: string;
 }
 
 // One installed Iconify JSON set: the uploaded asset holding it and how many

@@ -83,7 +83,7 @@ test("kitSummaries advertises each kit without leaking the css/js payload", () =
   const sums = kitSummaries();
   assert.deepEqual(sums.map((k) => k.id).sort(), [...KIT_IDS].sort());
   for (const k of sums) {
-    assert.ok(k.summary.length > 0 && k.classes.length > 0);
+    assert.ok(k.source === "bundled" && k.summary.length > 0 && k.classes.length > 0);
     assert.equal("css" in k, false);
     assert.equal("js" in k, false);
   }

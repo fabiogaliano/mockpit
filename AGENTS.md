@@ -73,7 +73,9 @@ consciously, not as a side effect):
   (items → single-state mocks, draft comments → mock drafts, traces dropped).
 - `server/kits.ts` — opt-in style/behavior bundles for html surfaces; listed at
   `/api/kits`, allowlisted in `server/postSurfaces.ts`. Adding a kit is a
-  registry entry + a guide bullet.
+  registry entry + a guide bullet. A reference kit (`href`/`script`, e.g.
+  basecoat) loads from the CDN allowlist in `server/cdn.ts`; project kits live
+  on `DesignSettings.projectKits` and pass the same URL check.
 - `server/richRender.ts` — server-side renderers for markdown/code/diff/terminal
   (`{body, css}`), runtime-agnostic (shiki JS regex engine, @pierre/diffs SSR,
   markdown-it, ansi_up — no WASM/DOM).
