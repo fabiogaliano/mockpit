@@ -788,6 +788,19 @@ const BUILTIN_BODY = `<section class="card">
   </div>
 </section>`;
 
+// Basecoat 1.x: a card is header/section/footer children and variants are
+// `data-variant`, not the builtin's `.btn-primary` classes.
+const BASECOAT_BODY = `<div class="card">
+  <header>
+    <h2>Title</h2>
+    <p>Body copy.</p>
+  </header>
+  <footer>
+    <button class="btn">ICON_SLOT Action</button>
+    <button class="btn" data-variant="ghost">Cancel</button>
+  </footer>
+</div>`;
+
 const STARTER_TOKENS = [
   "background",
   "foreground",
@@ -807,10 +820,8 @@ const STARTER_TOKENS = [
  */
 export function renderStarter(design, iconSets = ["lucide", "mage"]) {
   const kit = design?.kit ?? "builtin";
-  const body = (kit === "tailwind" ? TAILWIND_BODY : BUILTIN_BODY).replace(
-    "ICON_SLOT",
-    '<i icon="lucide:check"></i>',
-  );
+  const bodies = { tailwind: TAILWIND_BODY, basecoat: BASECOAT_BODY };
+  const body = (bodies[kit] ?? BUILTIN_BODY).replace("ICON_SLOT", '<i icon="lucide:check"></i>');
   // Show the tokens an agent reaches for first. A repo's block is usually led
   // by sizing/easing tokens, so surface the semantic colors ahead of them.
   const props = customProps(design?.cssVars ?? "");

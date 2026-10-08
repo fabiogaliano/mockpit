@@ -64,7 +64,7 @@ Removed: the item/post/snippet model and its routes (`/api/projects/:name/items`
 (`publish_item`, `publish_post`, `publish_surface`, …), the CLI's `page`,
 `list`, `sessions`, `update`, per-kind shortcuts, `test-post` and `trace*`
 commands, the trace path, the github/gruvbox/one themes, the embeddable viewer
-engine (`mockpit/viewer-embed`), and the JSON file store (`MOCKPIT_STORE=json`)
+engine (`mockpit/viewer-embed`) with its `mockpit/theme-tokens` contract, and the JSON file store (`MOCKPIT_STORE=json`)
 with its JSON→SQLite import.
 
 Migration: SQLite workspaces (local and Durable Object) migrate in place on

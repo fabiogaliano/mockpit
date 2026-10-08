@@ -52,10 +52,6 @@
       "import": "./dist/workers/public.js"
     },
     "./viewer": "./viewer/dist/index.html",
-    "./theme-tokens": {
-      "types": "./dist/server/theme-tokens.d.ts",
-      "import": "./dist/server/theme-tokens.js"
-    },
     "./guide/*": "./guide/*",
     "./*": "./*"
   },

@@ -214,6 +214,10 @@ test("renderStarter is a body fragment on the project's own kit and tokens", () 
   assert.match(tailwind, /bg-primary .*text-primary-foreground/);
   assert.ok(!tailwind.includes("[var("), "no arbitrary values");
   assert.ok(!tailwind.includes("tokens imported from this repo"));
+
+  const basecoat = renderStarter({ kit: "basecoat", cssVars: "" });
+  assert.match(basecoat, /<button class="btn" data-variant="ghost">Cancel/);
+  assert.ok(!basecoat.includes("btn-primary"), "1.x has no variant classes");
 });
 
 const DESIGN_MD = `---
