@@ -40,6 +40,8 @@ design loop:
                         --data is a JSON tree)
   mockpit revise --mock <slug> --html <file> [--state s] [--variant v] [--from N]
                                           publish the next version of a variant
+      --part <name=file|->  instead of --html: replace just that data-part's
+                        element (repeatable; name#key targets one instance)
   mockpit ask --mock <slug> "<question>" --option <label[=variant]> ...
                                           ask the user; bind options to variants
       --option <l[=v]>  an option (repeatable); "=variant" binds it to a variant
@@ -119,7 +121,9 @@ const COMMAND_HELP = {
   --json / --quiet
   Prints the parts found per state and flags parts that vanished or were renamed.`,
   revise: `mockpit revise --mock <slug> --html <file> [--state s] [--variant v] [--from <N>]
-  Publish the next version of an existing variant.`,
+  mockpit revise --mock <slug> --part <name=file|-> ... [--state s] [--variant v]
+  Publish the next version of an existing variant. --part replaces only the element
+  carrying data-part="name" (name#key for one instance); the rest is kept.`,
   ask: `mockpit ask --mock <slug> "<question>" --option <label[=variant]> ... [--scope mock|state|part]
   [--state s] [--part p] [--multi] [--id id]
   mockpit ask --mock <slug> --asks <json|file>
@@ -667,6 +671,7 @@ function printPublished(result, flags) {
     if (parts.length === 0) continue;
     console.log(`parts${state ? ` (${state})` : ""}: ${parts.map((p) => p.name).join(", ")}`);
   }
+  if (result.applied?.length) console.log(`applied: ${result.applied.join(", ")}`);
   const changes = result.partChanges;
   if (changes?.renamed?.length) {
     console.log(`renamed: ${changes.renamed.map((r) => `${r.from} → ${r.to}`).join(", ")}`);
@@ -689,6 +694,7 @@ function parsePublishFlags() {
       title: { type: "string" },
       kind: { type: "string" },
       html: { type: "string" },
+      part: { type: "string", multiple: true },
       knobs: { type: "string" },
       from: { type: "string" },
       prompt: { type: "string" },
@@ -708,6 +714,28 @@ function parsePublishFlags() {
   });
 }
 
+// `--part name=file` (repeatable; `name#key` targets one instance): the new
+// outer html of one part, spliced server-side into the current version.
+function readPartFlags(values, slug, revise) {
+  if (!values?.length) return undefined;
+  const example = `mockpit revise --mock ${slug} --part body=body.html`;
+  if (!revise) die("--part edits a published version; use it with revise", example);
+  const parts = {};
+  let stdin = false;
+  for (const raw of values) {
+    const at = raw.indexOf("=");
+    if (at <= 0 || at === raw.length - 1) die(`--part needs name=file (got "${raw}")`, example);
+    const name = raw.slice(0, at);
+    const file = raw.slice(at + 1);
+    if (file === "-") {
+      if (stdin) die("only one --part can read stdin", example);
+      stdin = true;
+    } else if (!existsSync(file)) die(`cannot read ${file}`, `ls ${file}`);
+    parts[name] = readContent(file);
+  }
+  return parts;
+}
+
 async function publishMock({ revise = false } = {}) {
   const { values: flags, positionals, tokens } = parsePublishFlags();
   const verb = revise ? "revise" : "publish";
@@ -723,6 +751,7 @@ async function publishMock({ revise = false } = {}) {
   const file = flags.html ?? positionals[0];
   // Checked before the session exists so a typo'd path leaves nothing behind on the server.
   if (file && file !== "-" && !existsSync(file)) die(`cannot read ${file}`, `ls ${file}`);
+  const parts = readPartFlags(flags.part, slug, revise);
   const session = await resolveSession(flags, { create: true });
   const surfaces = [];
   if (file) {
@@ -732,7 +761,7 @@ async function publishMock({ revise = false } = {}) {
     surfaces.push(html);
   }
   surfaces.push(...(await surfacesFromFlags(flags, tokens, { session, layout: flags.layout })));
-  if (surfaces.length === 0)
+  if (surfaces.length === 0 && !parts)
     die(`no html for ${slug}`, `mockpit ${verb} --mock ${slug} --html <file>`);
   const body = {
     session,
@@ -745,7 +774,8 @@ async function publishMock({ revise = false } = {}) {
     ...(flags.knobs !== undefined && { knobs: readJsonFlag("knobs", flags.knobs) }),
     ...(from !== undefined && { from }),
     prompt: flags.prompt,
-    surfaces,
+    ...(surfaces.length && { surfaces }),
+    ...(parts && { parts }),
   };
   const result = await api(
     revise ? `${mockPath(slug)}/revise` : "/api/mocks",

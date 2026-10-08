@@ -48,6 +48,15 @@ function readMaybeFile(value: string): string {
   return value;
 }
 
+// Part values may be file paths too, like html; anything not a string map
+// goes through untouched so the server reports what is wrong with it.
+function readPartFiles(parts: unknown): unknown {
+  if (!parts || typeof parts !== "object" || Array.isArray(parts)) return parts;
+  return Object.fromEntries(
+    Object.entries(parts).map(([k, v]) => [k, typeof v === "string" ? readMaybeFile(v) : v]),
+  );
+}
+
 // The project this repo is: explicit, environment, git remote, then directory
 // name. Same order as the CLI, so both tiers land in the same project.
 function resolveProject(explicit?: string): string {
@@ -140,6 +149,7 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
     return post(`/api/mocks/${enc(args.mock)}/revise`, {
       ...args,
       html,
+      parts: readPartFiles(args.parts),
       session,
       project: resolveProject(args.project),
     });
@@ -210,7 +220,7 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
   edit_surface: (args) =>
     post(
       `/api/mocks/${enc(args.mock)}/surfaces/${enc(args.target)}`,
-      { ...args, project: resolveProject(args.project) },
+      { ...args, parts: readPartFiles(args.parts), project: resolveProject(args.project) },
       "PATCH",
     ),
   remove_surface: (args) =>
