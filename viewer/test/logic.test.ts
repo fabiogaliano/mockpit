@@ -5,6 +5,7 @@ import {
   carryOver,
   createHitRefs,
   draftKnobValues,
+  fitThumb,
   frameVersion,
   type KnobContext,
   knobAsk,
@@ -14,6 +15,7 @@ import {
   mixOptions,
   nextMark,
   overriddenAsks,
+  partPinSpot,
   type PartBox,
   type PartsReport,
   reportIsCurrent,
@@ -553,6 +555,47 @@ describe("tune", () => {
     expect(safeColor("linear-gradient(#000, #fff)")).toBe(true);
     expect(safeColor("url(//example.com/x.png)")).toBe(false);
     expect(safeColor("image-set(x 1x)")).toBe(false);
+  });
+});
+
+describe("partPinSpot", () => {
+  const box = { x: 40, y: 30, w: 600, h: 20 };
+  it("sits past the top-right corner, centred on the top edge, clear of the box", () => {
+    const p = partPinSpot(box, 800);
+    expect(p).toEqual({ x: 642, y: 19 });
+    expect(p.x).toBeGreaterThanOrEqual(box.x + box.w);
+  });
+  it("moves above the corner when there is no room on the right", () => {
+    const p = partPinSpot({ ...box, w: 750 }, 800);
+    expect(p).toEqual({ x: 779, y: 6 });
+    expect(p.y + 22).toBeLessThanOrEqual(box.y);
+  });
+  it("stays inside the overlay at its top edge", () => {
+    expect(partPinSpot({ x: 0, y: 0, w: 100, h: 20 }, 800)).toEqual({ x: 102, y: 2 });
+  });
+});
+
+describe("fitThumb", () => {
+  it("fills the width and is as tall as a short page, no band below", () => {
+    const f = fitThumb(164, 123, 452, null, 820);
+    expect(f.s).toBeCloseTo(0.2);
+    expect(f.h).toBe(90);
+    expect(f.h).toBeLessThanOrEqual(452 * f.s);
+    expect(f.frameH).toBe(452);
+  });
+  it("caps a tall page at the picture height", () => {
+    expect(fitThumb(164, 123, 2000, null, 820).h).toBe(123);
+  });
+  it("uses the cap until the page reports its height", () => {
+    expect(fitThumb(164, 123, null, null, 820).h).toBe(123);
+  });
+  it("never leaves a band beside or under a focused part", () => {
+    const f = fitThumb(164, 123, 452, { x: 40, y: 400, w: 200, h: 30 }, 820);
+    expect(f.s).toBeGreaterThanOrEqual(164 / 820);
+    expect(f.x).toBeLessThanOrEqual(0);
+    expect(f.x + 820 * f.s).toBeGreaterThanOrEqual(164 - 1e-9);
+    expect(f.y).toBeLessThanOrEqual(0);
+    expect(f.y + 452 * f.s).toBeGreaterThanOrEqual(f.h - 1e-9);
   });
 });
 

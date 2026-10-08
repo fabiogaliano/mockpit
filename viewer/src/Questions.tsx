@@ -259,7 +259,7 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
             };
             const card = () => (
               <OptionCard
-                picture={pic() ? <Thumb class="crop" src={pic()!.src} focus={focus()} /> : null}
+                picture={pic() ? <Thumb class="crop" fit src={pic()!.src} focus={focus()} /> : null}
                 label={o.label}
                 on={picked(o)}
                 previewing={s.preview()?.key === keyOf(o)}
@@ -333,7 +333,7 @@ function MixBlock(props: { s: MockScreenState; index: number }) {
         <OptionCard
           picture={
             pictureOf(look(), s.activeState()) ? (
-              <Thumb class="crop" src={pictureOf(look(), s.activeState())!} />
+              <Thumb class="crop" fit src={pictureOf(look(), s.activeState())!} />
             ) : null
           }
           label={`No, all ${look()}`}
@@ -359,7 +359,7 @@ function MixBlock(props: { s: MockScreenState; index: number }) {
             const focus = () => partBox(s.reports[frameKey(state(), o.variant)], o.part) ?? null;
             return (
               <OptionCard
-                picture={src() ? <Thumb class="crop" src={src()!} focus={focus()} /> : null}
+                picture={src() ? <Thumb class="crop" fit src={src()!} focus={focus()} /> : null}
                 label={`${o.part} · ${o.variant}'s`}
                 on={s.draft()?.mix[o.part] === o.variant}
                 previewing={s.preview()?.key === key}

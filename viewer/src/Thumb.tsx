@@ -3,6 +3,8 @@
 // in this document; pointer-events are off so it is only ever a picture.
 
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { host } from "./host.ts";
+import { fitThumb } from "./logic.ts";
 
 export const FRAME_W = 820;
 
@@ -18,52 +20,66 @@ export function Thumb(props: {
   class?: string;
   focus?: Focus | null;
   title?: string;
+  // Size the box to the page (up to 4:3 of its width) instead of the box's own
+  // CSS height, so no empty band shows under a short page.
+  fit?: boolean;
 }) {
   let box!: HTMLDivElement;
+  let frameEl: HTMLIFrameElement | undefined;
   const [size, setSize] = createSignal({ w: 0, h: 0 });
+  // The page's own height, from the bridge's resize message: a number, clamped.
+  const [docH, setDocH] = createSignal<number | null>(null);
   onMount(() => {
     const measure = () => setSize({ w: box.clientWidth, h: box.clientHeight });
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(box);
-    onCleanup(() => ro.disconnect());
+    const onMessage = (e: MessageEvent) => {
+      if (!frameEl || e.source !== frameEl.contentWindow) return;
+      const d = e.data as Record<string, unknown> | null;
+      if (!d || d.__mockpit !== true || d.type !== "resize") return;
+      const h = typeof d.height === "number" && Number.isFinite(d.height) ? d.height : 0;
+      if (h > 0) setDocH(Math.min(h, 20000));
+    };
+    host().window.addEventListener("message", onMessage);
+    onCleanup(() => {
+      ro.disconnect();
+      host().window.removeEventListener("message", onMessage);
+    });
   });
-  // Without a focus the page fills the width from its top; with one, the part
-  // (plus a margin) is scaled to fit and centred.
   const frame = () => {
     const { w, h } = size();
-    if (!w || !h) return { s: w / FRAME_W || 0.1, x: 0, y: 0, height: 640 };
-    const f = props.focus;
-    if (!f) return { s: w / FRAME_W, x: 0, y: 0, height: h / (w / FRAME_W) };
-    const pad = 36;
-    const fx = Math.max(0, f.x - pad);
-    const fy = Math.max(0, f.y - pad);
-    const fw = Math.min(FRAME_W - fx, f.w + pad * 2);
-    const fh = f.h + pad * 2;
-    const s = Math.min(w / fw, h / fh, 1);
-    const x = -fx * s + (w - fw * s) / 2;
-    const y = -fy * s + (h - fh * s) / 2;
-    return {
-      s,
-      x: Math.min(0, Math.max(x, w - FRAME_W * s)),
-      y: Math.min(0, y),
-      height: fy + h / s,
-    };
+    return fitThumb(
+      w,
+      props.fit ? Math.round((w * 3) / 4) : h,
+      docH(),
+      props.focus ?? null,
+      FRAME_W,
+    );
   };
   return (
-    <div class={`thumb ${props.class ?? ""}`} ref={(el) => (box = el)} aria-hidden="true">
+    <div
+      class={`thumb ${props.class ?? ""}`}
+      ref={(el) => (box = el)}
+      style={props.fit && size().w ? { height: `${frame().h}px` } : undefined}
+      aria-hidden="true"
+    >
       {/* Keyed by src: a new document is a new element, never a frame navigation
           (which would add a joint-history entry under the user's Back button). */}
       <Show when={props.src} keyed>
         {(src) => (
           <iframe
+            ref={(el) => {
+              frameEl = el;
+              setDocH(null);
+            }}
             src={src}
             sandbox="allow-scripts"
             loading="lazy"
             tabIndex={-1}
             title={props.title ?? ""}
             width={FRAME_W}
-            height={Math.ceil(frame().height)}
+            height={Math.ceil(frame().frameH)}
             style={{
               transform: `translate(${frame().x}px, ${frame().y}px) scale(${frame().s})`,
             }}

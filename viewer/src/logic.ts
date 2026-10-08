@@ -605,6 +605,61 @@ export const safeColor = (v: unknown): boolean =>
 
 // --- pins ---
 
+// A part's question pin sits just past the part box's top-right corner, its
+// middle on the box's top edge, so it never covers what the part draws there
+// (a right-aligned label runs to that corner). Without room on the right it
+// sits above the corner instead.
+export function partPinSpot(
+  box: { x: number; y: number; w: number; h: number },
+  width: number,
+  size = 22,
+): { x: number; y: number } {
+  const right = box.x + box.w;
+  if (right + 2 + size <= width - 2) {
+    return { x: right + 2, y: Math.max(2, box.y - size / 2) };
+  }
+  return { x: Math.max(2, right - size / 2), y: Math.max(2, box.y - size - 2) };
+}
+
+// A picture of a page shrunk into an option card: the page fills the card's
+// width (never a band at the side), the picture is as tall as the page at that
+// scale up to `cap` (never a band underneath), and a focused part is centred.
+export interface ThumbFit {
+  s: number;
+  x: number;
+  y: number;
+  // The picture box, in viewer px.
+  h: number;
+  // The frame element, in document px.
+  frameH: number;
+}
+export function fitThumb(
+  w: number,
+  cap: number,
+  docH: number | null,
+  focus: { x: number; y: number; w: number; h: number } | null,
+  frameW: number,
+): ThumbFit {
+  if (!w || !cap) return { s: w / frameW || 0.1, x: 0, y: 0, h: cap, frameH: 640 };
+  const doc = docH && docH > 0 ? docH : null;
+  const fill = w / frameW;
+  if (!focus) {
+    const h = doc ? Math.min(cap, Math.floor(doc * fill)) : cap;
+    return { s: fill, x: 0, y: 0, h, frameH: doc ?? h / fill };
+  }
+  const pad = 36;
+  const fx = Math.max(0, focus.x - pad);
+  const fy = Math.max(0, focus.y - pad);
+  const fw = Math.min(frameW - fx, focus.w + pad * 2);
+  const fh = focus.h + pad * 2;
+  const s = Math.max(fill, Math.min(w / fw, cap / fh, 1));
+  const tall = doc ? doc * s : Number.POSITIVE_INFINITY;
+  const h = Math.min(cap, Math.floor(tall));
+  const x = Math.min(0, Math.max(-fx * s + (w - fw * s) / 2, w - frameW * s));
+  const y = Math.min(0, Math.max(-fy * s + (h - fh * s) / 2, h - tall));
+  return { s, x, y, h, frameH: doc ?? fy + h / s };
+}
+
 export interface PinSpot {
   index: number;
   x: number;

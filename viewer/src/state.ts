@@ -54,6 +54,9 @@ export function createMockScreen(project: string, slug: string) {
   // The part picked on the stage, shown in Tune; null is the page ("Look").
   const [selectedPart, setSelectedPart] = createSignal<string | null>(null);
   const [hoverPart, setHoverPart] = createSignal<string | null>(null);
+  // A part tapped on a narrow stage (no Tune there); lit until the question or
+  // mode moves on.
+  const [tapped, setTapped] = createSignal<string | null>(null);
   const [viewVersion, setViewVersion] = createSignal<number | null>(null);
   const [versionsOpen, setVersionsOpen] = createSignal(false);
   const [sent, setSent] = createSignal(false);
@@ -148,6 +151,17 @@ export function createMockScreen(project: string, slug: string) {
       tuned: draft()?.tuned ?? {},
     };
   });
+  // The part the current question is about, while Questions is open.
+  const focusPart = createMemo(() => {
+    if (mode() !== "questions") return null;
+    const q = questions()[cur()];
+    return q?.kind === "ask" && q.ask.scope === "part" ? (q.ask.part ?? null) : null;
+  });
+  // The part outlined on the stage. selectedPart outlives the question that set
+  // it (Tune opens on it), so outside Tune the outline follows the question.
+  const stagePart = createMemo(() =>
+    mode() === "tune" ? selectedPart() : (tapped() ?? focusPart()),
+  );
   const overridden = createMemo(() => {
     const m = mock();
     const d = draft();
@@ -340,6 +354,7 @@ export function createMockScreen(project: string, slug: string) {
     batch(() => {
       setCur(i);
       setModeSignal("questions");
+      setTapped(null);
       setPreview(null);
       if (q && m) {
         if (q.kind === "ask") setActiveState(askState(q.ask, m, activeState()));
@@ -354,6 +369,7 @@ export function createMockScreen(project: string, slug: string) {
     batch(() => {
       setModeSignal(next);
       setPreview(null);
+      setTapped(null);
     });
     record(false);
   }
@@ -370,7 +386,8 @@ export function createMockScreen(project: string, slug: string) {
   // Narrow screens have no Tune, so a tap on the stage only marks the part.
   function selectPart(part: string | null) {
     setSelectedPart(part);
-    if (part && mode() !== "tune" && !narrow()) setMode("tune");
+    if (narrow()) setTapped(part);
+    else if (part && mode() !== "tune") setMode("tune");
   }
   createEffect(() => {
     if (narrow() && mode() === "tune") setModeSignal("questions");
@@ -494,15 +511,23 @@ export function createMockScreen(project: string, slug: string) {
     setSending(true);
     try {
       await api.reply(m.id, { ...d, ...extra });
+      // The draft holds the picks until the mock carrying them as sent answers
+      // arrives: dropping it first would put the stage on another variant for
+      // one fetch (a flash of a different frame fading in, then back).
+      const [next] = await Promise.all([
+        api.mock(m.id).catch(() => null),
+        loadComments().catch(() => {}),
+      ]);
       batch(() => {
+        if (next) setMock(next);
         setDraftSignal(null);
         setSent(true);
         setModeSignal("thread");
         setPreview(null);
+        setTapped(null);
       });
       setMixTouched(false);
       record(true);
-      await Promise.all([loadMock(), loadComments()]);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -585,6 +610,8 @@ export function createMockScreen(project: string, slug: string) {
     mixAnswered,
     selectedPart,
     selectPart,
+    focusPart,
+    stagePart,
     hoverPart,
     setHoverPart,
     viewVersion,

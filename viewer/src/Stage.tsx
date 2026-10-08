@@ -35,6 +35,7 @@ import {
   nextMark,
   type PartBox,
   partBox,
+  partPinSpot,
   type PartsReport,
   reportIsCurrent,
 } from "./logic.ts";
@@ -140,6 +141,13 @@ export function Stage(props: { s: MockScreenState }) {
   const shown = createMemo(() =>
     s.variants().filter((v) => v.status !== "archived" || v === s.variantFor(v.state)),
   );
+  // Frames are keyed by (state, variant), not by object: every refetch brings
+  // new variant objects, and keying by them would remount every frame (a fresh
+  // load and fade-in) even though the version on stage did not change.
+  const shownKeys = createMemo(() => shown().map((v) => frameKey(v.state, v.variant)), [], {
+    equals: (a, b) => a.length === b.length && a.every((k, i) => k === b[i]),
+  });
+  const byKey = (key: string) => shown().find((v) => frameKey(v.state, v.variant) === key);
   const activeKey = createMemo(() => {
     const v = s.activeVariant();
     return v ? frameKey(v.state, v.variant) : "";
@@ -260,25 +268,29 @@ export function Stage(props: { s: MockScreenState }) {
         </Show>
         <div class="layers" style={{ height: `${layersH()}px` }}>
           <div class="layers-sizer" style={{ height: `${activeH() * scale()}px` }} />
-          <For each={shown()}>
-            {(variant) => (
-              <VariantFrame
-                s={s}
-                variant={variant}
-                active={frameKey(variant.state, variant.variant) === activeKey()}
-                scale={scale()}
-                capH={availH() / scale()}
-                report={reports[frameKey(variant.state, variant.variant)]}
-                heights={heights}
-                frames={frames}
-                refs={refs}
-                post={(msg) => post(frameKey(variant.state, variant.variant), msg)}
-                pending={pending()}
-                setPending={setPending}
-                onContent={(h) => setContentH(frameKey(variant.state, variant.variant), h)}
-                onReload={() => setReports(frameKey(variant.state, variant.variant), undefined)}
-                height={contentH[frameKey(variant.state, variant.variant)] ?? 640}
-              />
+          <For each={shownKeys()}>
+            {(key) => (
+              <Show when={byKey(key)}>
+                {(variant) => (
+                  <VariantFrame
+                    s={s}
+                    variant={variant()}
+                    active={key === activeKey()}
+                    scale={scale()}
+                    capH={availH() / scale()}
+                    report={reports[key]}
+                    heights={heights}
+                    frames={frames}
+                    refs={refs}
+                    post={(msg) => post(key, msg)}
+                    pending={pending()}
+                    setPending={setPending}
+                    onContent={(h) => setContentH(key, h)}
+                    onReload={() => setReports(key, undefined)}
+                    height={contentH[key] ?? 640}
+                  />
+                )}
+              </Show>
             )}
           </For>
         </div>
@@ -700,11 +712,6 @@ function Overlay(props: {
     onCleanup(() => layer.removeEventListener("wheel", onWheel));
   });
 
-  const focusPart = () => {
-    if (s.mode() !== "questions") return null;
-    const q = s.questions()[s.cur()];
-    return q?.kind === "ask" && q.ask.scope === "part" ? (q.ask.part ?? null) : null;
-  };
   // Two asks on one part would share a spot; layoutPins steps the later one aside.
   const partPins = createMemo(() =>
     props.report
@@ -713,8 +720,7 @@ function Overlay(props: {
             if (q.kind !== "ask" || q.ask.scope !== "part" || !q.ask.part) return [];
             const p = find(q.ask.part);
             if (!p) return [];
-            const r = at(p);
-            return [{ index: i, x: r.x + r.w - 12, y: Math.max(2, r.y - 10) }];
+            return [{ index: i, ...partPinSpot(at(p), FRAME_W * props.scale) }];
           }),
         )
       : [],
@@ -738,7 +744,7 @@ function Overlay(props: {
       onClick={(e) => (s.marking() ? mark(e) : hit(e, props.refs.click()))}
     >
       <Show when={props.report}>
-        <Show when={box(focusPart())}>
+        <Show when={box(s.focusPart())}>
           {(b) => (
             <div
               class="spot"
@@ -751,10 +757,10 @@ function Overlay(props: {
             />
           )}
         </Show>
-        <Show when={s.hoverPart() !== s.selectedPart() && box(s.hoverPart())}>
+        <Show when={s.hoverPart() !== s.stagePart() && box(s.hoverPart())}>
           {(b) => <PartBoxView b={b()} cls="hov" />}
         </Show>
-        <Show when={box(s.selectedPart())}>{(b) => <PartBoxView b={b()} cls="sel" />}</Show>
+        <Show when={box(s.stagePart())}>{(b) => <PartBoxView b={b()} cls="sel" />}</Show>
         <Index each={partPins()}>
           {(p) => <Pin s={s} index={p().index} style={{ left: `${p().x}px`, top: `${p().y}px` }} />}
         </Index>
