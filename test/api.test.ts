@@ -1996,7 +1996,15 @@ test("/agent-howto is the project brief, ?topic= one topic, and /guide the html 
   assert.equal(unknown.status, 400);
   const body = (await unknown.json()) as { error: string; topics: string[] };
   assert.match(body.error, /unknown topic "colours"/);
-  assert.deepEqual(body.topics, ["knobs", "asks", "surfaces", "html", "reply", "http", "scripts"]);
+  assert.deepEqual(body.topics, [
+    "knobs",
+    "asks",
+    "surfaces",
+    "html",
+    "feedback",
+    "http",
+    "scripts",
+  ]);
 });
 
 test("the theme setting is the workspace's mode: dark by default, light or dark only", async () => {
@@ -2450,7 +2458,7 @@ test("mcp: upload and guide", async () => {
   const unknown = await tool(app, "guide", { topic: "colours" });
   assert.match(
     unknown.error,
-    /unknown topic "colours"; topics: knobs, asks, surfaces, html, reply, http/,
+    /unknown topic "colours"; topics: knobs, asks, surfaces, html, feedback, http/,
   );
 });
 

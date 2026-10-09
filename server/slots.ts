@@ -34,7 +34,7 @@ export function parseSlotTags(html: string): SlotTag[] {
   let m: RegExpExecArray | null;
   while ((m = SLOT_TAG.exec(html))) {
     const attrs = attributes(m[1] ?? "");
-    const slug = attrs.slug ?? attrs.item ?? "";
+    const slug = attrs.slug ?? "";
     if (!slug) continue;
     const version = Number(attrs.version);
     tags.push({
@@ -74,7 +74,7 @@ export function expandSlots(
   SLOT_TAG.lastIndex = 0;
   return html.replace(SLOT_TAG, (raw, attrRaw: string) => {
     const attrs = attributes(attrRaw ?? "");
-    const slug = attrs.slug ?? attrs.item ?? "";
+    const slug = attrs.slug ?? "";
     if (!slug) return raw;
     const variant = attrs.variant || "default";
     const parsed = Number(attrs.version);

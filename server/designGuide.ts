@@ -17,7 +17,7 @@ export const GUIDE_TOPICS = [
   "asks",
   "surfaces",
   "html",
-  "reply",
+  "feedback",
   "http",
   "scripts",
 ] as const;
@@ -43,7 +43,7 @@ const TOPIC_SUMMARY: Record<GuideTopic, string> = {
   asks: "the ask JSON, scopes, Look, Which one?, multi",
   surfaces: "markdown, diff, mermaid, code, terminal, json, image; uploads",
   html: "the contract, finish rules, tokens, kits, Tailwind, icons",
-  reply: "the feedback JSON, pending, delivery, export",
+  feedback: "the feedback JSON, pending, delivery, export",
   http: "curl, the tier table, errors, remote",
   scripts: "publish and ask in one run",
 };
@@ -286,7 +286,7 @@ first. One render plus a control: declare a knob with \`--knobs '{...}'\`.
 Values reach the html unitless: \`calc(var(--k-body-size, 17) * 1px)\`, and as
 \`data-k-trim-position\` on \`<html>\`. Topics \`knobs\` and \`asks\` have the rest.
 
-## The reply
+## Feedback
 
 \`feedback\` returns \`{feedback, pending}\`. A batch is \`{mock, reply: {asks, tuned,
 mix, comments, decision, text}, accepted, archived}\`. In order: answers decide

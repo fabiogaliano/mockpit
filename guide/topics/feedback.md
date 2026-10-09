@@ -1,4 +1,4 @@
-# mockpit topic: reply
+# mockpit topic: feedback
 
 The user's picks, tuned values, mix and comments stay drafts in the browser
 until they press Send. Nothing you call waits for that: ask, tell the user in

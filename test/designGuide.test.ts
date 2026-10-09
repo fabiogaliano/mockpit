@@ -118,7 +118,7 @@ test("the brief fits in 6,000 characters for every kit, with a palette", () => {
   }
 });
 
-test("the brief covers the loop, the reply and the trust rule", () => {
+test("the brief covers the loop, feedback and the trust rule", () => {
   const brief = renderBriefGuide(null);
   for (const needle of [
     "data-part",

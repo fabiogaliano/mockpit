@@ -235,7 +235,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "guide",
     description:
-      "Fetch the brief: the loop, parts, asks and knobs, the reply, the html contract, and this " +
+      "Fetch the brief: the loop, parts, asks and knobs, feedback, the html contract, and this " +
       "project's palette, kit and icons. Read it before the first publish. Pass topic for one " +
       `reference section (${GUIDE_TOPICS.join(", ")}).`,
     params: {

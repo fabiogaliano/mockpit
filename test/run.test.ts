@@ -449,7 +449,7 @@ test("every host function reaches its flow", async () => {
     variants: 1,
     brief: true,
     topic: true,
-    bad: 'unknown topic "nope"; topics: knobs, asks, surfaces, html, reply, http, scripts',
+    bad: 'unknown topic "nope"; topics: knobs, asks, surfaces, html, feedback, http, scripts',
   });
   assert.deepEqual(
     r.calls.map((c) => c.fn),

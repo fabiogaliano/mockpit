@@ -38,7 +38,7 @@ type Feedback = {
 };
 type Pending = { mock: string; viewerOpen: boolean; draft: null | { answered: number; of: number; comments: number; touchedAt: string } };
 declare const mockpit: {
-  guide(topic?: "knobs" | "asks" | "surfaces" | "html" | "reply" | "http" | "scripts"): Promise<string>;
+  guide(topic?: "knobs" | "asks" | "surfaces" | "html" | "feedback" | "http" | "scripts"): Promise<string>;
   /** No mock: every mock plus pending. With one: its states, variants, asks, parts, knobs. */
   read(mock?: string, opts?: { body?: boolean; history?: boolean }): Promise<unknown>;
   /** Creates or versions (mock, state, variant). One of: html; surfaces, the full ordered list

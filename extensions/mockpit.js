@@ -640,7 +640,7 @@ export default function mockpitExtension(pi) {
     name: "mockpit_guide",
     label: "Mockpit Guide",
     description:
-      "Fetch the brief: the loop, parts, asks and knobs, the reply, the html contract, and this project's palette, kit and icons. Read it before the first mockpit_publish. Pass topic for one reference section.",
+      "Fetch the brief: the loop, parts, asks and knobs, feedback, the html contract, and this project's palette, kit and icons. Read it before the first mockpit_publish. Pass topic for one reference section.",
     promptSnippet: "Fetch mockpit's brief before authoring mocks.",
     promptGuidelines: [
       "Use mockpit_guide before your first mockpit_publish call unless you already know the current brief.",
@@ -651,7 +651,7 @@ export default function mockpitExtension(pi) {
         project: mockProps.project,
         topic: {
           type: "string",
-          enum: ["knobs", "asks", "surfaces", "html", "reply", "http", "scripts"],
+          enum: ["knobs", "asks", "surfaces", "html", "feedback", "http", "scripts"],
           description: "One reference section instead of the brief",
         },
       },

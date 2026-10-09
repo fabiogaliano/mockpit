@@ -4,7 +4,7 @@ import asks from "../guide/topics/asks.md";
 import html from "../guide/topics/html.md";
 import http from "../guide/topics/http.md";
 import knobs from "../guide/topics/knobs.md";
-import reply from "../guide/topics/reply.md";
+import feedback from "../guide/topics/feedback.md";
 import scripts from "../guide/topics/scripts.md";
 import surfaces from "../guide/topics/surfaces.md";
 import pkg from "../package.json" with { type: "json" };
@@ -36,7 +36,7 @@ export class MockpitBoard extends DurableObject<Env> {
       store: new SqlStore(ctx.storage.sql),
       viewerHtml,
       setupText,
-      topics: { knobs, asks, surfaces, html, reply, http, scripts } satisfies Record<
+      topics: { knobs, asks, surfaces, html, feedback, http, scripts } satisfies Record<
         GuideTopic,
         string
       >,

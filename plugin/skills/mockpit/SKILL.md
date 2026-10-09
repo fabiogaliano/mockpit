@@ -15,8 +15,8 @@ This skill is a bootstrap. The real instructions live on the running server, so
 they stay in sync with the deployed version:
 
 ```sh
-mockpit guide                 # the brief: the loop, the reply, this project's palette, kit and icons
-mockpit guide --topic knobs   # one reference topic: knobs, asks, surfaces, html, reply, http, scripts
+mockpit guide                 # the brief: the loop, feedback, this project's palette, kit and icons
+mockpit guide --topic knobs   # one reference topic: knobs, asks, surfaces, html, feedback, http, scripts
 ```
 
 Once per repo run `mockpit init`: it detects the repo's design system, stores

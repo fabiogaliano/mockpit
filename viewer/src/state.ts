@@ -331,7 +331,7 @@ export function createMockScreen(project: string, slug: string) {
           if (e.mockId === id) refetch("comments");
           break;
         case "comment-deleted":
-        case "comment-seen":
+        case "comment-delivered":
           if (
             e.sessionId === mock()?.sessionId ||
             comments().some((c) => c.sessionId === e.sessionId)

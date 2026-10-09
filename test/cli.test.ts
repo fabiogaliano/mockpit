@@ -1493,7 +1493,7 @@ test("the brief prints the generic version with no server; an unknown topic list
   assert.equal(unknown.code, 2);
   assert.match(
     unknown.stderr,
-    /unknown topic "colours"; topics: asks, html, http, knobs, reply, scripts, surfaces/,
+    /unknown topic "colours"; topics: asks, feedback, html, http, knobs, scripts, surfaces/,
   );
 });
 

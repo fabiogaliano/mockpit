@@ -197,9 +197,9 @@ mockpit publish --mock <slug> --parts <name=file|-> ... [options]
   upload: `mockpit upload <file> [--kind image|file] [--session <id>]
   Upload an asset; prints its id and URL. Use the id as an image surface's assetId.`,
   guide: `mockpit guide [--topic <id>] [--project <name>]
-  No flag prints the brief: the loop, parts, asks and knobs, the reply, and
+  No flag prints the brief: the loop, parts, asks and knobs, feedback, and
   this project's palette, kit and icons. --topic prints one reference topic
-  (knobs, asks, surfaces, html, reply, http, scripts).`,
+  (knobs, asks, surfaces, html, feedback, http, scripts).`,
 };
 
 // `console.log(...)` on a pipe is asynchronous, so exiting on the next line

@@ -43,4 +43,6 @@ MCP tools `publish_mock`, `revise_mock`, `ask_user`, `wait_for_feedback`,
 `get_design_guide`, `add_surface`, `edit_surface`, `remove_surface` and
 `reorder_surfaces`; `POST /api/mocks/:id/revise`, the `/api/mocks/:id/surfaces`
 routes and agent `POST /api/comments`; `timeoutSeconds`; and the `userFeedback`
-field. Refresh pasted setup blocks from `/setup`.
+field; the guide topic `reply` is now `feedback`, the SSE event `comment-seen`
+is `comment-delivered`, and the page-slot `item=` attribute alias is gone (use
+`slug=`). Refresh pasted setup blocks from `/setup`.

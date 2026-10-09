@@ -5,12 +5,11 @@ import { expandSlots, parseSlotTags, resolveSlots } from "../server/slots.ts";
 // `<mockpit-slot>` is how a page item includes a component by reference. The
 // parser reads markup we did not write, so it must be tolerant and never throw.
 
-test("parseSlotTags reads slug, variant and version in every tag spelling", () => {
+test("parseSlotTags reads slug, variant and version in every quoting style", () => {
   const tags = parseSlotTags(`
     <mockpit-slot slug="pricing-card"></mockpit-slot>
     <mockpit-slot slug='hero' variant='quiet' version='2'/>
     <mockpit-slot slug=faq variant=default>
-    <mockpit-slot item="legacy-name">
   `);
   assert.deepEqual(
     tags.map(({ slug, variant, version }) => ({ slug, variant, version })),
@@ -18,7 +17,6 @@ test("parseSlotTags reads slug, variant and version in every tag spelling", () =
       { slug: "pricing-card", variant: "default", version: null },
       { slug: "hero", variant: "quiet", version: 2 },
       { slug: "faq", variant: "default", version: null },
-      { slug: "legacy-name", variant: "default", version: null },
     ],
   );
 });
