@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -31,7 +33,9 @@ const CLIENT = `mcp-stdio/${packageVersion()}`;
 function packageVersion(): string {
   for (const rel of ["../package.json", "../../package.json"]) {
     try {
-      const pkg = JSON.parse(readFileSync(new URL(rel, import.meta.url), "utf8"));
+      const pkg = JSON.parse(
+        readFileSync(join(dirname(fileURLToPath(import.meta.url)), rel), "utf8"),
+      );
       if (pkg.name === "mockpit") return String(pkg.version);
     } catch {
       // Not at this depth.
