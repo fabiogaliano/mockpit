@@ -8,10 +8,19 @@ questions beside it: pick a look from pictures, tune the knobs it exposed, leave
 comments on the parts it marked, then press **Send**, at your own pace. Nothing
 the agent calls waits for you: it gets the whole batch once and revises.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/mockpit-dark.png">
-  <img width="100%" alt="The Writer mock on its first question, Look: the Writing state on the stage with a numbered question pin, the strip of four UI states below it, and the panel offering three looks (Quiet, Dark, Editorial) as picture options" src="docs/mockpit-light.png">
-</picture>
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/mockpit-dark.png">
+        <img width="100%" alt="The Writer mock on its first question, Look: the Writing state on the stage with a numbered question pin, the strip of four UI states below it, and the panel offering three looks (Quiet, Dark, Editorial) as picture options" src="docs/mockpit-light.png">
+      </picture>
+    </td>
+    <td width="50%" valign="top">
+      <img width="100%" alt="Animated demo: the agent publishes the Writer mock; the user previews the three looks on the stage, picks Quiet, answers where the trim goes, keeps a part from another look and presses Send; the top bar reads Sent, Not seen yet, then Delivered once the agent reads the feedback; the agent replies and publishes v2" src="docs/mockpit-demo.gif">
+    </td>
+  </tr>
+</table>
 
 ## Fork of sideshow
 
