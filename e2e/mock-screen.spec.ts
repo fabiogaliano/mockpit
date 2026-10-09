@@ -120,3 +120,23 @@ test("answer a mock's questions and send one reply", async ({ page, server }) =>
   await expect(row.locator(".home-done")).toHaveText("✓");
   await expect(page.locator(".home-lead")).toContainText("0 open");
 });
+
+test("the agent's pending.viewerOpen follows the mock on screen", async ({ page, server }) => {
+  const mockId = await seed(server.url);
+  const viewerOpen = async () =>
+    (await (await fetch(`${server.url}/api/mocks/${mockId}`)).json()).pending.viewerOpen;
+
+  await page.goto(`${server.url}/project/e2e`);
+  const row = page.locator(".home-row", { hasText: "Card" });
+  await expect(row).toBeVisible();
+  expect(await viewerOpen()).toBe(false);
+
+  await row.click();
+  await expect(page.locator(".strip > button")).toHaveCount(2);
+  await expect.poll(viewerOpen).toBe(true);
+
+  // Back to Home in the same tab: the feed stays up, but no longer names the mock.
+  await page.goBack();
+  await expect(row).toBeVisible();
+  await expect.poll(viewerOpen).toBe(false);
+});

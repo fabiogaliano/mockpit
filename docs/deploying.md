@@ -40,6 +40,10 @@ and invalid values are ignored.
   those need the token. Use `session` to hand out API and surface links by id.
   Use `full` when someone without the token should see the viewer.
 
+The event log (one JSON line per agent call, viewer write and live-feed
+connection) goes to Workers Logs: `npx wrangler tail` or the dashboard. Set
+`MOCKPIT_LOG=off` on the deployment to turn it off.
+
 Mock pages (`/project/:project/:mock`) include Open Graph/Twitter metadata for
 inline previews. Crawlers only get a useful preview when the page is publicly
 readable under the settings above; tokened or private workspaces never put

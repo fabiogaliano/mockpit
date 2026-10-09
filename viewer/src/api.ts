@@ -117,41 +117,63 @@ export const assetUrl = (id: string) => url(`/a/${encodeURIComponent(id)}`);
 // browsers hold at most six HTTP/1.1 connections per origin across all tabs.
 // EventSource reconnects on its own; `onOpen` runs on each (re)connect so
 // callers refetch after a gap and nothing broadcast while disconnected is missed.
-interface Feed {
-  close: () => void;
-  listeners: Set<{ onEvent: (e: FeedEvent) => void; onOpen?: () => void }>;
+type Listener = { onEvent: (e: FeedEvent) => void; onOpen?: () => void };
+const listeners = new Set<Listener>();
+let feed: { close: () => void } | null = null;
+// The mock this tab has on screen, sent as `?viewing=` so the agent's
+// pending.viewerOpen is per mock.
+let viewingId: string | null = null;
+
+function connect(): { close: () => void } | null {
+  const Source = (host().window as Window & typeof globalThis).EventSource;
+  if (!Source) return null;
+  const path = viewingId ? `/api/events?viewing=${encodeURIComponent(viewingId)}` : "/api/events";
+  const es = new Source(url(path));
+  es.onmessage = (m: MessageEvent<string>) => {
+    let event: FeedEvent;
+    try {
+      event = JSON.parse(m.data) as FeedEvent;
+    } catch {
+      // A malformed frame is dropped; the next event or reconnect refetches.
+      return;
+    }
+    for (const l of listeners) l.onEvent(event);
+  };
+  es.addEventListener("hello", () => {
+    for (const l of listeners) l.onOpen?.();
+  });
+  return { close: () => es.close() };
 }
-let feed: Feed | null = null;
 
 export function subscribe(onEvent: (e: FeedEvent) => void, onOpen?: () => void): () => void {
-  if (!feed) {
-    const Source = (host().window as Window & typeof globalThis).EventSource;
-    if (!Source) return () => {};
-    const es = new Source(url("/api/events"));
-    const opened: Feed = { close: () => es.close(), listeners: new Set() };
-    es.onmessage = (m: MessageEvent<string>) => {
-      let event: FeedEvent;
-      try {
-        event = JSON.parse(m.data) as FeedEvent;
-      } catch {
-        // A malformed frame is dropped; the next event or reconnect refetches.
-        return;
-      }
-      for (const l of opened.listeners) l.onEvent(event);
-    };
-    es.addEventListener("hello", () => {
-      for (const l of opened.listeners) l.onOpen?.();
-    });
-    feed = opened;
-  }
-  const current = feed;
   const entry = { onEvent, onOpen };
-  current.listeners.add(entry);
+  listeners.add(entry);
+  feed ??= connect();
   return () => {
-    current.listeners.delete(entry);
-    if (current.listeners.size === 0 && feed === current) {
-      current.close();
+    listeners.delete(entry);
+    if (listeners.size === 0) {
+      feed?.close();
       feed = null;
     }
   };
+}
+
+// Marks `mockId` as on screen until the returned release runs. Changing it
+// reconnects the feed, whose hello refetches like any other gap. The release
+// only clears its own id, so a screen torn down after the next one mounted
+// can't unmark the new one.
+export function watchMock(mockId: string): () => void {
+  setViewing(mockId);
+  return () => {
+    if (viewingId === mockId) setViewing(null);
+  };
+}
+
+function setViewing(id: string | null) {
+  if (viewingId === id) return;
+  viewingId = id;
+  if (feed) {
+    feed.close();
+    feed = connect();
+  }
 }

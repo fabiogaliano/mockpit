@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createApp } from "./app.ts";
 import { createNodeExecutor } from "./codeRunner.ts";
 import { GUIDE_TOPICS } from "./designGuide.ts";
+import { createFileLog } from "./logFile.ts";
 import { SqlStore } from "./sqlStore.ts";
 import { createSqliteStorage } from "./sqliteStorage.ts";
 
@@ -39,6 +40,17 @@ const dbPath = process.env.MOCKPIT_DB ?? join(homedir(), ".mockpit", "mockpit.db
 const store = new SqlStore(createSqliteStorage(dbPath));
 console.log(`mockpit store: SQLite at ${dbPath}`);
 
+// The event log is on by default, next to the database, so a session can be
+// diagnosed after the fact without having planned to (`scripts/inspect.ts`).
+// MOCKPIT_LOG names another file; "off" disables it. An in-memory database
+// gets none unless asked: it is a throwaway run.
+const logSetting = process.env.MOCKPIT_LOG;
+const logPath =
+  logSetting === "off"
+    ? undefined
+    : logSetting || (dbPath === ":memory:" ? undefined : join(dirname(dbPath), "events.jsonl"));
+if (logPath) console.log(`mockpit event log: ${logPath}`);
+
 const app = createApp({
   store,
   viewerHtml,
@@ -52,6 +64,7 @@ const app = createApp({
   upgradeCommand: "npm install -g mockpit",
   // `run` scripts execute in QuickJS inside a worker thread per run.
   executor: createNodeExecutor(),
+  log: logPath ? createFileLog(logPath) : undefined,
 });
 
 const port = Number(process.env.PORT ?? 8228);

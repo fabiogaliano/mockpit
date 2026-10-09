@@ -23,8 +23,28 @@ const AGENT = process.env.MOCKPIT_AGENT ?? "claude-code";
 // "code" serves the codemode catalog: one `run` tool instead of the mock tools.
 const CODE_MODE = process.env.MOCKPIT_MCP_MODE === "code";
 
+// Names this client in the server's event log; the version is how a stdio
+// server left running across an upgrade shows up there.
+const CLIENT = `mcp-stdio/${packageVersion()}`;
+
+// Source runs as mcp/server.ts, the published copy as dist/mcp/server.js.
+function packageVersion(): string {
+  for (const rel of ["../package.json", "../../package.json"]) {
+    try {
+      const pkg = JSON.parse(readFileSync(new URL(rel, import.meta.url), "utf8"));
+      if (pkg.name === "mockpit") return String(pkg.version);
+    } catch {
+      // Not at this depth.
+    }
+  }
+  return "unknown";
+}
+
 async function api(path: string, init: RequestInit = {}) {
-  const headers: Record<string, string> = { "content-type": "application/json" };
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "x-mockpit-client": CLIENT,
+  };
   if (TOKEN) headers.authorization = `Bearer ${TOKEN}`;
   let res: Response;
   try {

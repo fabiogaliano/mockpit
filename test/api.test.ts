@@ -1154,7 +1154,7 @@ test("GET /api/feedback never blocks, needs a session, and reads share its curso
   assert.deepEqual((await call(app, `/api/feedback?session=${session}`)).body.feedback, []);
 });
 
-test("pending reports draft progress and whether a viewer is attached", async () => {
+test("pending reports draft progress and whether a viewer has that mock on screen", async () => {
   const app = makeApp();
   const { mockId, session } = await writer(app);
   await lookAsk(app, mockId);
@@ -1174,8 +1174,14 @@ test("pending reports draft progress and whether a viewer is attached", async ()
       "PUT",
     ),
   );
+  // A tab on Home (no `viewing`) or on another mock isn't looking at this one.
+  const home = new AbortController();
+  const homeSse = await app.request("/api/events", { signal: home.signal });
+  const other = new AbortController();
+  const otherSse = await app.request("/api/events?viewing=elsewhere", { signal: other.signal });
+  assert.equal((await pending())[0].viewerOpen, false);
   const ac = new AbortController();
-  const sse = await app.request("/api/events", { signal: ac.signal });
+  const sse = await app.request(`/api/events?viewing=${mockId}`, { signal: ac.signal });
   const [entry] = await pending();
   assert.equal(entry.viewerOpen, true);
   assert.deepEqual(
@@ -1188,8 +1194,14 @@ test("pending reports draft progress and whether a viewer is attached", async ()
   assert.equal(detail.pending.mock, "writer");
   assert.equal(detail.pending.draft.of, 2);
 
-  ac.abort();
-  await sse.body!.cancel().catch(() => undefined);
+  for (const [c, r] of [
+    [ac, sse],
+    [home, homeSse],
+    [other, otherSse],
+  ] as const) {
+    c.abort();
+    await r.body!.cancel().catch(() => undefined);
+  }
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal((await pending())[0].viewerOpen, false);
   await call(app, `/api/mocks/${mockId}/reply`, viewer({}));

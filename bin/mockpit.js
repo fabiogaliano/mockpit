@@ -19,6 +19,12 @@ const BASE = (process.env.MOCKPIT_URL ?? "http://localhost:8228").replace(/\/$/,
 const TOKEN = process.env.MOCKPIT_TOKEN;
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PKG_VERSION = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
+// Every request names this client and its version, so the server's event log
+// can tell the CLI from MCP and spot one older than the server.
+const HEADERS = {
+  "x-mockpit-client": `cli/${PKG_VERSION}`,
+  ...(TOKEN ? { authorization: `Bearer ${TOKEN}` } : {}),
+};
 
 const HELP = `mockpit — a live visual surface for terminal coding agents
 
@@ -118,6 +124,7 @@ environment:
   MOCKPIT_URL      server base URL (default http://localhost:8228)
   MOCKPIT_TOKEN    bearer token for a deployed instance
   MOCKPIT_HOST     address serve binds to (default: every interface)
+  MOCKPIT_LOG      serve's event log file, or "off" (default ~/.mockpit/events.jsonl)
   MOCKPIT_SESSION  fixed session id (overrides auto-detection)
   MOCKPIT_AGENT    agent name used when creating sessions
 `;
@@ -241,7 +248,7 @@ async function api(path, init = {}, { report, fix } = {}) {
       ...init,
       headers: {
         "content-type": "application/json",
-        ...(TOKEN ? { authorization: `Bearer ${TOKEN}` } : {}),
+        ...HEADERS,
         ...init.headers,
       },
     });
@@ -364,7 +371,7 @@ async function resolveSession(flags, { create = false } = {}) {
   const state = readState();
   if (state.session && !flags["new-session"]) {
     const ok = await fetch(`${BASE}/api/sessions/${state.session}`, {
-      headers: TOKEN ? { authorization: `Bearer ${TOKEN}` } : {},
+      headers: HEADERS,
     }).then(
       (r) => r.ok,
       () => false,
@@ -394,7 +401,7 @@ async function resolveSession(flags, { create = false } = {}) {
 async function resolveSessionByCwd(cwd = process.cwd()) {
   try {
     const res = await fetch(`${BASE}/api/sessions`, {
-      headers: TOKEN ? { authorization: `Bearer ${TOKEN}` } : {},
+      headers: HEADERS,
     });
     if (!res.ok) return null;
     const sessions = await res.json();
@@ -533,7 +540,7 @@ async function uploadBytes(bytes, { filename, contentType, session, kind } = {})
       method: "POST",
       headers: {
         "content-type": contentType ?? "application/octet-stream",
-        ...(TOKEN ? { authorization: `Bearer ${TOKEN}` } : {}),
+        ...HEADERS,
       },
       body: bytes,
     });
@@ -818,19 +825,17 @@ function printFeedback(feedback) {
   if (feedback?.length) console.log(`feedback: ${JSON.stringify(feedback)}`);
 }
 
-// What the user is doing right now. viewerOpen is workspace-wide, so it is
-// said once rather than per mock.
+// What the user is doing right now, per mock.
 function pendingLines(pending) {
-  const rows = pending ?? [];
-  const lines = rows
-    .filter((p) => p.draft)
-    .map(
-      (p) =>
-        `pending: ${p.mock} — the user is answering (${p.draft.answered} of ${p.draft.of} answered, ${p.draft.comments} comment${p.draft.comments === 1 ? "" : "s"})`,
-    );
-  if (lines.length === 0 && rows.some((p) => p.viewerOpen))
-    lines.push("pending: the viewer is open");
-  return lines;
+  return (pending ?? []).flatMap((p) =>
+    p.draft
+      ? [
+          `pending: ${p.mock} — the user is answering (${p.draft.answered} of ${p.draft.of} answered, ${p.draft.comments} comment${p.draft.comments === 1 ? "" : "s"})`,
+        ]
+      : p.viewerOpen
+        ? [`pending: ${p.mock} — open in the viewer`]
+        : [],
+  );
 }
 
 function parsePublishFlags() {
@@ -1020,7 +1025,7 @@ async function apiSoft(path) {
   let res;
   try {
     res = await fetch(`${BASE}${path}`, {
-      headers: TOKEN ? { authorization: `Bearer ${TOKEN}` } : {},
+      headers: HEADERS,
     });
   } catch {
     die(`cannot reach mockpit at ${BASE}`, "mockpit serve");
@@ -1543,7 +1548,7 @@ const commands = {
       try {
         const res = await fetch(
           `${BASE}/api/comments${query({ session, author: "user", after: firstAfter, wait: 60 })}`,
-          { headers: TOKEN ? { authorization: `Bearer ${TOKEN}` } : {} },
+          { headers: HEADERS },
         );
         if (!res.ok) {
           await sleep(2000);

@@ -6,6 +6,7 @@
   "include": [
     "workers",
     "server/app.ts",
+    "server/eventLog.ts",
     "server/events.ts",
     "server/icons.ts",
     "server/mcpHttp.ts",

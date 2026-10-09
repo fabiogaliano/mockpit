@@ -69,6 +69,10 @@ consciously, not as a side effect):
   geometry: boxes are the bridge's job.
 - `server/apiViews.ts` / `server/feedbackBatch.ts` — the response shapes every
   tier returns (mock views; one feedback batch per mock).
+- `server/eventLog.ts` — the event log: a middleware that writes one entry per
+  agent call, viewer write and live-feed connection (ids, statuses, delivered
+  seqs, pending; never content) to a host-supplied sink. `server/logFile.ts` is
+  the Node sink (JSONL, rolled at 10 MB); the Worker logs to Workers Logs.
 - `server/public.ts` — the `mockpit/server` export (`createApp`, `SqlStore`,
   `createSqliteStorage`, types).
 - `server/sqlStore.ts` — `SqlStore`, the only `Store`. It takes a `SqlStorage`
@@ -110,6 +114,8 @@ consciously, not as a side effect):
 - `workers/index.ts` — Cloudflare entry; one Durable Object runs the whole app.
 - `skills/mockpit/`, `plugin/` + `guide/` — teach agents to use a running mockpit.
 - `scripts/record-demo.mjs` — regenerates the README gif.
+- `scripts/inspect.ts` — read-only diagnosis of real agent sessions (see
+  Diagnosing agent sessions below).
 
 ## Architecture invariants
 
@@ -256,6 +262,48 @@ Testing notes:
   `test/migrateToMocks.test.ts` covers the in-place lift of an older workspace.
 - e2e seeds through the agent's HTTP tier (`e2e/decideSeed.ts`, the Writer);
   `e2e/bridge/` is a plain host page for driving the bridge without the viewer.
+
+## Diagnosing agent sessions
+
+When asked how agents used mockpit, or why a reply or a call went wrong, read
+the evidence before theorizing. There are three sources, joined by ids:
+
+- **The workspace DB** (`~/.mockpit/mockpit.db`, or `$MOCKPIT_DB`): sessions
+  with their `agentSeq` cursor and `key`, and `comments`, where asks and
+  replies (`kind`), with their `seq`, are the loop's ground truth.
+- **The event log** (`events.jsonl` next to the DB, plus `events.jsonl.1`): what
+  each client called, from which tier and version (`client`: `cli/1.0.0`,
+  `mcp-stdio/…`, `pi/…`, `mcp-http`, `viewer`, `http`), the status, which reply
+  seqs a response `delivered`, and the `pending` the agent was told. It only
+  exists for servers since the log shipped.
+- **The agent's transcript.** A Claude Code session's `key` is
+  `claude-code:<uuid>`, and its transcript is
+  `~/.claude/projects/<cwd with / and . as ->/<uuid>.jsonl`. Sessions with no
+  key (other agents, older servers) are matched by `cwd` and time.
+
+`node scripts/inspect.ts` does the joins:
+
+```sh
+node scripts/inspect.ts find --since 2026-10-09   # transcripts that called mockpit
+node scripts/inspect.ts sessions --since …        # sessions: asks, replies, cursor, transcript
+node scripts/inspect.ts undelivered               # Sends past their session's cursor (lost replies)
+node scripts/inspect.ts log --session <id>        # the event log, filterable by mock/client/since
+node scripts/inspect.ts transcript <session id>   # mockpit calls, results, and what the agent then said
+```
+
+What to look for:
+
+- A reply in `undelivered` with a newer session in the same cwd: the agent
+  restarted into a new session and never heard it.
+- `feedback` calls with no `delivered` while `pending` names a draft: the user
+  hadn't pressed Send.
+- A client version older than the server's: a stdio MCP server or CLI left
+  running across an upgrade. `/clear` doesn't restart MCP servers.
+- What the agent said (`SAID`) right after a result: misreadings of `pending`,
+  nudges or replies show up there first.
+
+Write findings to `docs/tmp/`. Transcripts hold user data, so quote only what
+the finding needs.
 
 ## Conventions
 
