@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApp } from "./app.ts";
+import { createNodeExecutor } from "./codeRunner.ts";
 import { GUIDE_TOPICS } from "./designGuide.ts";
 import { SqlStore } from "./sqlStore.ts";
 import { createSqliteStorage } from "./sqliteStorage.ts";
@@ -49,6 +50,8 @@ const app = createApp({
   // notice); set it to the empty string to disable the update check
   version: process.env.MOCKPIT_VERSION ?? (JSON.parse(pkgJson) as { version: string }).version,
   upgradeCommand: "npm install -g mockpit",
+  // `run` scripts execute in QuickJS inside a worker thread per run.
+  executor: createNodeExecutor(),
 });
 
 const port = Number(process.env.PORT ?? 8228);

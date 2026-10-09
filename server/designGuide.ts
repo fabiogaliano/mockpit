@@ -13,7 +13,15 @@ import { KITS } from "./kits.ts";
 import type { Palette } from "./themes.ts";
 import type { DesignSettings } from "./types.ts";
 
-export const GUIDE_TOPICS = ["knobs", "asks", "surfaces", "html", "reply", "http"] as const;
+export const GUIDE_TOPICS = [
+  "knobs",
+  "asks",
+  "surfaces",
+  "html",
+  "reply",
+  "http",
+  "scripts",
+] as const;
 export type GuideTopic = (typeof GUIDE_TOPICS)[number];
 
 export const isGuideTopic = (id: unknown): id is GuideTopic =>
@@ -33,11 +41,12 @@ export function iconsLine(design: DesignSettings | null): string {
 
 const TOPIC_SUMMARY: Record<GuideTopic, string> = {
   knobs: "every knob shape, how values reach html",
-  asks: "the full ask JSON, scopes, the Look ask, multi",
+  asks: "the ask JSON, scopes, the Look ask, multi",
   surfaces: "markdown, diff, mermaid, code, terminal, json, image; uploads",
-  html: "the full contract, finish rules, tokens, kits, Tailwind, icons",
-  reply: "the full reply JSON, delivery, revise, export",
-  http: "curl, the CLI/MCP/HTTP table, errors, remote",
+  html: "the contract, finish rules, tokens, kits, Tailwind, icons",
+  reply: "the reply JSON, delivery, revise, export",
+  http: "curl, the tier table, errors, remote",
+  scripts: "publish, ask and wait in one run",
 };
 
 const KIT_CLASSES = new Map(KITS.map((k) => [k.id, k.classes]));
@@ -308,8 +317,7 @@ ${designFilesSection(design ?? null)}${kitSection(design ?? null)}
 
 ${iconsLine(design ?? null)}
 
-Starter: copy \`.mockpit/starter.html\` (this kit, these tokens, an icon)
-instead of starting blank.
+Starter: begin from \`.mockpit/starter.html\` (this kit, these tokens, an icon).
 
 ## Topics
 

@@ -1,6 +1,7 @@
 import * as z from "zod/v4";
 import { GUIDE_TOPICS } from "./designGuide.ts";
 import { KIT_IDS } from "./kits.ts";
+import { RUN_DESCRIPTION } from "./runApi.ts";
 import { SURFACE_KINDS, type SurfaceKind } from "./types.ts";
 
 export const MCP_SERVER_INFO = { name: "mockpit", version: "0.2.0" };
@@ -306,6 +307,24 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   },
 ];
 
+// The codemode catalog (`/mcp?mode=code`, MOCKPIT_MCP_MODE=code): one tool whose
+// description carries the whole script API.
+export const RUN_TOOL_DEF: ToolDef = {
+  name: "run",
+  description: RUN_DESCRIPTION,
+  params: {
+    code: { t: "string", d: "JavaScript: the body of an async function", req: true },
+    session: { t: "string", d: "Session id from an earlier run" },
+    project: P.project,
+    agent: { t: "string", d: field.agent },
+  },
+  httpOnly: ["session", "agent"],
+  stdioExtra: {
+    code: { t: "string", d: "JavaScript: the body of an async function" },
+    path: { t: "string", d: "Local .js file to run instead of code" },
+  },
+};
+
 // Output shapes (MCP 2025-06-18 outputSchema) of what the shared flows return
 // (apiViews.ts, feedbackBatch.ts, app.ts). Loose objects: they name the fields
 // an agent's code reads, not every field, and must never reject the rest.
@@ -350,6 +369,22 @@ const writeOutput = {
 };
 
 const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
+  run: {
+    ok: z.boolean(),
+    value: z.unknown().optional(),
+    prints: strs,
+    calls: z
+      .array(o({ fn: str, ok: z.boolean(), summary: str }))
+      .describe("Every host call, in order"),
+    error: o({
+      kind: z.enum(["script", "timeout", "limit", "aborted"]),
+      message: str,
+      line: num.optional(),
+      column: num.optional(),
+    }).optional(),
+    feedback: z.array(feedbackSchema).describe("Every reply the run received, also on failure"),
+    session: nullStr,
+  },
   publish_mock: writeOutput,
   revise_mock: writeOutput,
   ask_user: { asks: z.array(o({ id: str, text: str })), open: num, url: str, userFeedback },
@@ -431,8 +466,8 @@ function compact(value: unknown): unknown {
 const toJson = (schema: z.ZodType, io: "input" | "output") =>
   compact(z.toJSONSchema(schema, { target: "draft-2020-12", io })) as Json;
 
-const catalog = (transport: "http" | "stdio") =>
-  MCP_TOOL_DEFS.map((tool) => {
+const catalog = (transport: "http" | "stdio", defs = MCP_TOOL_DEFS) =>
+  defs.map((tool) => {
     const output = OUTPUT_SCHEMAS[tool.name];
     return {
       name: tool.name,
@@ -450,13 +485,22 @@ export const HTTP_MCP_TOOLS = catalog("http");
 // lists this and keeps the zod shapes below for call validation only.
 export const STDIO_MCP_CATALOG = catalog("stdio");
 
-export const STDIO_MCP_TOOLS = MCP_TOOL_DEFS.map((tool) => ({
-  name: tool.name,
-  description: tool.description,
-  inputSchema: shapeFor(tool, "stdio"),
-  ...(OUTPUT_SCHEMAS[tool.name] ? { outputSchema: z.looseObject(OUTPUT_SCHEMAS[tool.name]) } : {}),
-  ...toolMeta(tool.name),
-}));
+export const HTTP_RUN_TOOLS = catalog("http", [RUN_TOOL_DEF]);
+export const STDIO_RUN_CATALOG = catalog("stdio", [RUN_TOOL_DEF]);
+
+const stdioTools = (defs: ToolDef[]) =>
+  defs.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    inputSchema: shapeFor(tool, "stdio"),
+    ...(OUTPUT_SCHEMAS[tool.name]
+      ? { outputSchema: z.looseObject(OUTPUT_SCHEMAS[tool.name]) }
+      : {}),
+    ...toolMeta(tool.name),
+  }));
+
+export const STDIO_MCP_TOOLS = stdioTools(MCP_TOOL_DEFS);
+export const STDIO_RUN_TOOLS = stdioTools([RUN_TOOL_DEF]);
 
 export const MCP_TOOL_NAMES = MCP_TOOL_DEFS.map((t) => t.name);
 
@@ -470,4 +514,11 @@ export function toolResult(name: string, value: unknown) {
     content: [{ type: "text" as const, text }],
     ...(structured ? { structuredContent: value as Record<string, unknown> } : {}),
   };
+}
+
+// A run that failed is still a full envelope (calls, feedback); isError tells
+// the client the script did not finish.
+export function runToolResult(envelope: unknown) {
+  const ok = (envelope as { ok?: unknown } | null)?.ok === true;
+  return { ...toolResult("run", envelope), ...(ok ? {} : { isError: true }) };
 }

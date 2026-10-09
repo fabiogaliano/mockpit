@@ -41,7 +41,9 @@ import {
   vapidKeys,
 } from "./push.ts";
 import { expandSlots, parseSlotTags } from "./slots.ts";
-import { registerMcp } from "./mcpHttp.ts";
+import { type McpFlows, registerMcp } from "./mcpHttp.ts";
+import { createRunFlow, DEFAULT_RUN_LIMITS, type Executor, type RunLimits } from "./run.ts";
+import { RUN_API } from "./runApi.ts";
 import {
   escapeHtml,
   renderHtmlPage,
@@ -232,6 +234,11 @@ export interface AppOptions {
   // connections before new ones are rejected with 503. Bounds a connection flood
   // on publicRead workspaces; defaults to DEFAULT_MAX_HOLD_CONNECTIONS.
   maxHoldConnections?: number;
+  // The script sandbox behind POST /api/run and the MCP `run` tool. Absent (the
+  // Worker), both answer that run is unavailable here.
+  executor?: Executor;
+  // Overrides for the run limits; tests shrink the deadline and budgets.
+  runLimits?: Partial<RunLimits>;
 }
 
 export interface LatestRelease {
@@ -362,8 +369,16 @@ export function createApp({
   fetchLatestRelease,
   onEvent,
   maxHoldConnections = DEFAULT_MAX_HOLD_CONNECTIONS,
+  executor,
+  runLimits,
 }: AppOptions) {
   const app = new Hono();
+  // The scripts topic carries the run API from runApi.ts, its one source.
+  if (topics.scripts)
+    topics = {
+      ...topics,
+      scripts: topics.scripts.replace("<!-- run-api -->", `\`\`\`ts\n${RUN_API}\n\`\`\``),
+    };
   // `?key=` bootstraps cookie auth, so never let a workspace URL disclose that
   // credential to another origin through an outbound Referer header. Set this
   // before auth so denied and public routes carry the same policy.
@@ -3402,31 +3417,53 @@ export function createApp({
 
   // --- MCP over streamable HTTP (works locally and deployed) ---
 
+  const mcpFlows: McpFlows = {
+    publish: (body, ctx) => publishFlow(body, ctx),
+    revise: async (body, ctx) => {
+      const mock = await resolveMock(body?.mock, body?.project, body?.session);
+      if (isResult(mock)) return mock;
+      return publishFlow({ ...body, mock: mock.id }, ctx, true);
+    },
+    list: (query) => listMocksFlow(query),
+    get: (ref, query) => getMockFlow(ref, query),
+    ask: (ref, body, ctx) => askFlow(ref, body, ctx),
+    exportMock: (ref, query, ctx) => exportFlow(ref, query, ctx),
+    comment: (body, ctx) => commentFlow(body, ctx),
+    feedback: (query, signal) => feedbackFlow(query, signal),
+    appendSurface: appendSurfaceFlow,
+    replaceSurface: replaceSurfaceFlow,
+    removeSurface: removeSurfaceFlow,
+    reorderSurfaces: reorderSurfacesFlow,
+  };
+  const guide = (project: string, topic?: GuideTopic) =>
+    topic ? (topics[topic] ?? "") : briefFor(project);
+
+  // --- run: an agent script over the same flows (server/run.ts) ---
+
+  const runFlow = createRunFlow({
+    store,
+    executor,
+    limits: { ...DEFAULT_RUN_LIMITS, ...runLimits },
+    flows: mcpFlows,
+    guide,
+    async createSession({ agent, project }) {
+      const session = await store.createSession({ agent, project: resolveProject(project) });
+      bus.broadcast({ type: "session-created", id: session.id });
+      return session.id;
+    },
+  });
+  // Never the viewer's verb: a script acts as the agent whatever origin sent it.
+  app.post("/api/run", async (c) => send(c, await runFlow(await jsonBody(c), flowCtx(c, false))));
+
   registerMcp(app, {
     store,
     basePath: requestBasePath,
-    flows: {
-      publish: (body, ctx) => publishFlow(body, ctx),
-      revise: async (body, ctx) => {
-        const mock = await resolveMock(body?.mock, body?.project, body?.session);
-        if (isResult(mock)) return mock;
-        return publishFlow({ ...body, mock: mock.id }, ctx, true);
-      },
-      list: (query) => listMocksFlow(query),
-      get: (ref, query) => getMockFlow(ref, query),
-      ask: (ref, body, ctx) => askFlow(ref, body, ctx),
-      exportMock: (ref, query, ctx) => exportFlow(ref, query, ctx),
-      comment: (body, ctx) => commentFlow(body, ctx),
-      feedback: (query, signal) => feedbackFlow(query, signal),
-      appendSurface: appendSurfaceFlow,
-      replaceSurface: replaceSurfaceFlow,
-      removeSurface: removeSurfaceFlow,
-      reorderSurfaces: reorderSurfacesFlow,
-    },
+    flows: mcpFlows,
+    run: runFlow,
     uploadAsset,
     // Every feature works on every tier: a remote MCP agent needs the project's
     // real palette and kit, and the topics, as much as a shell one does.
-    guide: (project, topic) => (topic ? (topics[topic] ?? "") : briefFor(project)),
+    guide,
   });
 
   return app;

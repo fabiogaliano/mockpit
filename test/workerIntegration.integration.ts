@@ -135,6 +135,37 @@ test(
 
     assert.equal((await worker.fetch(`/api/mocks/${mockId}`)).status, 401);
 
+    // The Worker has no script sandbox: run answers that, on REST and MCP alike.
+    const run = await worker.fetch("/api/run", json({ code: "return 1" }));
+    assert.equal(run.status, 501);
+    assert.match(await run.text(), /not available on this deployment/);
+    const codeTools = await expectJson<{ result: { tools: Array<{ name: string }> } }>(
+      await worker.fetch("/mcp?mode=code", json({ jsonrpc: "2.0", id: 1, method: "tools/list" })),
+      200,
+    );
+    assert.deepEqual(
+      codeTools.result.tools.map((t) => t.name),
+      ["run"],
+    );
+    const mcpRun = await expectJson<{
+      result: { isError: boolean; content: Array<{ text: string }> };
+    }>(
+      await worker.fetch(
+        "/mcp?mode=code",
+        json({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: { name: "run", arguments: { code: "return 1" } },
+        }),
+      ),
+      200,
+    );
+    assert.equal(mcpRun.result.isError, true);
+    assert.match(mcpRun.result.content[0].text, /not available on this deployment/);
+    const scripts = await worker.fetch("/agent-howto?topic=scripts");
+    assert.match(await scripts.text(), /declare const mockpit/);
+
     const eventStream = await worker.fetch(`/api/events?session=${sessionId}`, {
       headers: AUTH,
     });

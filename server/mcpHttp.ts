@@ -2,7 +2,15 @@ import type { Hono } from "hono";
 import type { CommentWait, FlowContext, FlowResult } from "./app.ts";
 import { decodeBase64 } from "./base64.ts";
 import { type GuideTopic, isGuideTopic, unknownTopicMessage } from "./designGuide.ts";
-import { HTTP_MCP_TOOLS, MCP_INSTRUCTIONS, MCP_SERVER_INFO, toolResult } from "./mcpSpec.ts";
+import {
+  HTTP_MCP_TOOLS,
+  HTTP_RUN_TOOLS,
+  MCP_INSTRUCTIONS,
+  MCP_SERVER_INFO,
+  runToolResult,
+  toolResult,
+} from "./mcpSpec.ts";
+import { RUN_INSTRUCTIONS } from "./runApi.ts";
 import type { Asset, AssetKind, Store } from "./types.ts";
 
 // Stateless MCP over streamable HTTP: every request is self-contained, which
@@ -37,6 +45,8 @@ export interface McpDeps {
   store: Store;
   basePath?: (request: Request) => string;
   flows: McpFlows;
+  // POST /api/run's flow; `?mode=code` lists it as the only tool.
+  run: Flow<[body: any, ctx: FlowContext]>;
   uploadAsset(input: {
     data: Uint8Array;
     contentType: string;
@@ -50,7 +60,7 @@ export interface McpDeps {
 
 // A flow's error status becomes a tool error carrying the same JSON body the
 // REST tier returns, so the agent sees the hint (states, variants) either way.
-function unwrap(result: FlowResult): unknown {
+export function unwrap(result: FlowResult): unknown {
   if (result.status >= 400) {
     const { error, ...extra } = result.body ?? {};
     throw new Error(
@@ -164,6 +174,9 @@ export function registerMcp(app: Hono, deps: McpDeps) {
 
   app.post("/mcp", async (c) => {
     const rpc = (id: unknown, result: unknown) => c.json({ jsonrpc: "2.0", id, result });
+    // `?mode=code` is the opt-in codemode catalog for clients without a
+    // harness of their own: one `run` tool instead of the mock tools.
+    const code = c.req.query("mode") === "code";
     const rpcError = (id: unknown, code: number, message: string, status = 200) =>
       c.json({ jsonrpc: "2.0", id, error: { code, message } }, status as 200);
 
@@ -185,12 +198,14 @@ export function registerMcp(app: Hono, deps: McpDeps) {
             : "2025-03-26",
         capabilities: { tools: { listChanged: false } },
         serverInfo: MCP_SERVER_INFO,
-        instructions: MCP_INSTRUCTIONS,
+        instructions: code ? RUN_INSTRUCTIONS : MCP_INSTRUCTIONS,
       });
     }
     if (msg.id === undefined) return c.body(null, 202); // notifications
     if (msg.method === "ping") return rpc(msg.id, {});
-    if (msg.method === "tools/list") return rpc(msg.id, { tools: HTTP_MCP_TOOLS });
+    if (msg.method === "tools/list") {
+      return rpc(msg.id, { tools: code ? HTTP_RUN_TOOLS : HTTP_MCP_TOOLS });
+    }
     if (msg.method === "tools/call") {
       const url = new URL(c.req.url);
       const ctx: FlowContext = {
@@ -203,6 +218,10 @@ export function registerMcp(app: Hono, deps: McpDeps) {
       };
       try {
         const name = msg.params?.name;
+        if (name === "run") {
+          const args = msg.params?.arguments ?? {};
+          return rpc(msg.id, runToolResult(unwrap(await deps.run(args, ctx))));
+        }
         return rpc(
           msg.id,
           toolResult(name, await callTool(name, msg.params?.arguments ?? {}, ctx)),

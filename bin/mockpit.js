@@ -69,6 +69,9 @@ design loop:
       --session <id>    session to watch (default: auto)
       --after <seq>     re-read after this cursor (default: where the agent left
                         off, tracked server-side across CLI/MCP)
+  mockpit run <file|->                   run a script against the mockpit API on the
+                                          server: publish, ask and wait in one go
+                                          (mockpit guide --topic scripts)
   mockpit status [--project <name>]      one line per mock: states, variants, open asks
   mockpit show --mock <slug> [--body] [--history]
                                           mock metadata, asks, parts, knobs;
@@ -166,6 +169,12 @@ mockpit icons remove <set> [<set>...]
   wait: `mockpit wait [--mock <slug>] [--timeout <seconds>] [--session <id>]
   Block until the user sends (default 55 s, max 230), then print the feedback batch:
   {mock, reply: {answers, mix, tuned, comments, text}, comments, accepted, archived}.`,
+  run: `mockpit run <file|-> [--session <id>] [--project <name>] [--json]
+  Run a script (the body of an async function, plain JavaScript) in the server's
+  sandbox against the mockpit API; see mockpit guide --topic scripts. Prints each
+  host call in order, the script's prints, its value or error, and any user
+  feedback the run received. --json prints the whole result. Exits 2 when the
+  script failed. 200 s per run.`,
   watch: `mockpit watch [--session <id>] [--after <seq>]
   Stream user feedback forever, one line per piece, for a background monitor.
   Delivery is shared with wait and piggyback: each piece arrives once.`,
@@ -184,7 +193,7 @@ mockpit surface move --mock <slug> [--state s] [--variant v] <N|id> --to <M>`,
   "agent-howto": `mockpit agent-howto [--topic <id>] [--project <name>]
   No flag prints the brief: the loop, parts, asks and knobs, the reply, and
   this project's palette, kit and icons. --topic prints one reference topic
-  (knobs, asks, surfaces, html, reply, http).`,
+  (knobs, asks, surfaces, html, reply, http, scripts).`,
   guide: `mockpit guide [--brief] [--topic <id>]
   No flag prints the html topic. --brief prints the project-aware brief
   (same as mockpit agent-howto). --topic prints one reference topic.`,
@@ -893,6 +902,23 @@ function parseOption(raw) {
 }
 
 // One feedback batch, one line — for a background monitor's notifications.
+// The run envelope for a reader: what landed, what the script said, how it
+// ended, and the feedback it took (which no later wait will return).
+function printRun(r) {
+  for (const c of r.calls ?? []) console.log(`${c.ok ? "ok  " : "fail"} ${c.fn} ${c.summary}`);
+  for (const line of r.prints ?? []) console.log(`> ${line}`);
+  if (r.error) {
+    const at = r.error.line
+      ? ` at ${r.error.line}${r.error.column ? `:${r.error.column}` : ""}`
+      : "";
+    console.log(`error ${r.error.kind}${at}: ${r.error.message}`);
+  } else if (r.value !== undefined) {
+    console.log(typeof r.value === "string" ? r.value : JSON.stringify(r.value, null, 2));
+  }
+  if (r.feedback?.length) console.log(`feedback\n${JSON.stringify(r.feedback, null, 2)}`);
+  if (r.truncated) console.log("(output truncated)");
+}
+
 function watchLines(batch) {
   const lines = [];
   const name = batch.mock ?? "a mock";
@@ -1385,6 +1411,37 @@ const commands = {
         );
       }
     }
+  },
+
+  async run() {
+    const { values: flags, positionals } = parse({
+      allowPositionals: true,
+      options: {
+        session: { type: "string" },
+        project: { type: "string" },
+        agent: { type: "string" },
+      },
+    });
+    if (positionals.length !== 1)
+      die("run needs one script", "mockpit run loop.js (- reads stdin)");
+    const code = readContent(positionals[0]);
+    const session = await resolveSession(flags, { create: true });
+    const result = await api(
+      "/api/run",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          code,
+          session,
+          project: resolveProject(flags).name,
+          agent: agentName(flags),
+        }),
+      },
+      { report: "die" },
+    );
+    if (flags.json) out(result);
+    else if (!flags.quiet) printRun(result);
+    if (!result.ok) process.exit(2);
   },
 
   async wait() {

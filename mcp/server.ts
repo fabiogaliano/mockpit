@@ -8,15 +8,21 @@ import { feedbackResult } from "../server/mcpHttp.ts";
 import {
   MCP_INSTRUCTIONS,
   MCP_SERVER_INFO,
+  runToolResult,
   STDIO_MCP_CATALOG,
   STDIO_MCP_TOOLS,
+  STDIO_RUN_CATALOG,
+  STDIO_RUN_TOOLS,
   toolResult,
 } from "../server/mcpSpec.ts";
+import { RUN_INSTRUCTIONS } from "../server/runApi.ts";
 
 // Point at a deployed instance later by setting MOCKPIT_URL.
 const API = process.env.MOCKPIT_URL ?? "http://localhost:8228";
 const TOKEN = process.env.MOCKPIT_TOKEN;
 const AGENT = process.env.MOCKPIT_AGENT ?? "claude-code";
+// "code" serves the codemode catalog: one `run` tool instead of the mock tools.
+const CODE_MODE = process.env.MOCKPIT_MCP_MODE === "code";
 
 async function api(path: string, init: RequestInit = {}) {
   const headers: Record<string, string> = { "content-type": "application/json" };
@@ -249,17 +255,46 @@ const handlers: Record<string, (args: any, signal?: AbortSignal) => Promise<unkn
     ),
 };
 
-const server = new McpServer(MCP_SERVER_INFO, { instructions: MCP_INSTRUCTIONS });
+// The script travels as a file path when it can, so it is never JSON-escaped
+// into the model's tool call. The client's cancel aborts the run server-side.
+async function run(args: any, signal?: AbortSignal) {
+  const code =
+    typeof args.path === "string" && args.path
+      ? readFileSync(args.path, "utf8")
+      : typeof args.code === "string"
+        ? readMaybeFile(args.code)
+        : "";
+  if (!code.trim()) throw new Error("run needs code, or path to a .js file");
+  const session = await ensureSession();
+  return json("/api/run", {
+    method: "POST",
+    body: JSON.stringify({ code, session, project: resolveProject(args.project), agent: AGENT }),
+    signal,
+  });
+}
 
-for (const tool of STDIO_MCP_TOOLS) {
-  const handler = handlers[tool.name];
-  const { name, ...config } = tool;
+const server = new McpServer(MCP_SERVER_INFO, {
+  instructions: CODE_MODE ? RUN_INSTRUCTIONS : MCP_INSTRUCTIONS,
+});
+
+if (CODE_MODE) {
+  const [{ name, ...config }] = STDIO_RUN_TOOLS;
   server.registerTool(name, config, async (args: any, extra) =>
-    toolResult(name, await handler(args, extra.signal)),
+    runToolResult(await run(args, extra.signal)),
   );
+} else {
+  for (const tool of STDIO_MCP_TOOLS) {
+    const handler = handlers[tool.name];
+    const { name, ...config } = tool;
+    server.registerTool(name, config, async (args: any, extra) =>
+      toolResult(name, await handler(args, extra.signal)),
+    );
+  }
 }
 // Replaces the SDK's own listing (registered above), so stdio advertises the
 // same compact 2020-12 schemas as HTTP; calls still validate against zod.
-server.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: STDIO_MCP_CATALOG }));
+server.server.setRequestHandler(ListToolsRequestSchema, () => ({
+  tools: CODE_MODE ? STDIO_RUN_CATALOG : STDIO_MCP_CATALOG,
+}));
 
 await server.connect(new StdioServerTransport());

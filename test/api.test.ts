@@ -1679,7 +1679,7 @@ test("/agent-howto is the project brief, ?topic= one topic, and /guide the html 
   assert.equal(unknown.status, 400);
   const body = (await unknown.json()) as { error: string; topics: string[] };
   assert.match(body.error, /unknown topic "colours"/);
-  assert.deepEqual(body.topics, ["knobs", "asks", "surfaces", "html", "reply", "http"]);
+  assert.deepEqual(body.topics, ["knobs", "asks", "surfaces", "html", "reply", "http", "scripts"]);
 });
 
 test("the theme setting is the workspace's mode: dark by default, light or dark only", async () => {

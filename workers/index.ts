@@ -5,6 +5,7 @@ import html from "../guide/topics/html.md";
 import http from "../guide/topics/http.md";
 import knobs from "../guide/topics/knobs.md";
 import reply from "../guide/topics/reply.md";
+import scripts from "../guide/topics/scripts.md";
 import surfaces from "../guide/topics/surfaces.md";
 import pkg from "../package.json" with { type: "json" };
 import { createApp } from "../server/app.ts";
@@ -35,7 +36,10 @@ export class MockpitBoard extends DurableObject<Env> {
       store: new SqlStore(ctx.storage.sql),
       viewerHtml,
       setupText,
-      topics: { knobs, asks, surfaces, html, reply, http } satisfies Record<GuideTopic, string>,
+      topics: { knobs, asks, surfaces, html, reply, http, scripts } satisfies Record<
+        GuideTopic,
+        string
+      >,
       authToken: env.MOCKPIT_TOKEN,
       publicRead,
       // This Worker deploys with the Browser Rendering binding (wrangler.jsonc),
@@ -43,6 +47,8 @@ export class MockpitBoard extends DurableObject<Env> {
       screenshots: true,
       version: pkg.version,
       upgradeCommand: "git pull && npm run deploy",
+      // No executor: the Worker has no script sandbox, so /api/run and the
+      // MCP run tool answer that run is unavailable here.
     });
   }
 

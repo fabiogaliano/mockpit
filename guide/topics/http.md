@@ -17,6 +17,7 @@ Every verb works the same on the CLI, MCP and raw HTTP, with the same fields.
 | `mockpit agent-howto`    | `get_design_guide`                                                  | `GET /agent-howto?project=…`                     |
 | `… --topic <id>`         | `get_design_guide({ topic })`                                       | `GET /agent-howto?topic=<id>`                    |
 | `mockpit surface …`      | `add_surface`, `edit_surface`, `remove_surface`, `reorder_surfaces` | `/api/mocks/:id/surfaces`                        |
+| `mockpit run <file>`     | `run` on `/mcp?mode=code` (topic `scripts`)                         | `POST /api/run`                                  |
 
 `:id` is the mock id or its slug (add `project` for a slug). Over HTTP the first
 publish creates a session. Pass its `sessionId` as `session` on every later

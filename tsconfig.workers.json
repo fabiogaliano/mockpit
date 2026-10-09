@@ -10,6 +10,8 @@
     "server/icons.ts",
     "server/mcpHttp.ts",
     "server/richRender.ts",
+    "server/run.ts",
+    "server/runApi.ts",
     "server/sqlStore.ts",
     "server/surfacePage.ts",
     "server/types.ts"
