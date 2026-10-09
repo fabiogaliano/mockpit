@@ -28,6 +28,7 @@ mockpit ask --mock cache "Which layout?" --option Grid=grid --option List=list
 mockpit wait                                   # block until the user sends their reply
 mockpit agent-howto                            # print the brief
 mockpit agent-howto --topic html               # print one reference topic
+mockpit run loop.js                            # publish, ask and wait in one script
 ```
 
 ## Pi extension
@@ -58,12 +59,26 @@ claude mcp add --scope user --transport http mockpit http://localhost:8228/mcp
 
 MCP agents get the usage instructions automatically.
 
+**Code mode.** Clients that load every tool into each conversation and have no
+codemode of their own (claude.ai, Desktop and ChatGPT connectors) can connect to
+`/mcp?mode=code` instead. It serves one tool, `run`, whose description is the
+typed script API: the agent writes one JavaScript script that publishes, asks
+and waits, and the server runs it in a QuickJS sandbox. Over stdio, set
+`MOCKPIT_MCP_MODE=code`; `run` then also takes a `path` to a local script. Skip
+it in harnesses that already turn MCP tools into code (pi, Cloudflare Agents),
+and on the Cloudflare Worker, which has no sandbox. See the `scripts` topic.
+
+```sh
+claude mcp add --scope user --transport http mockpit-code "http://localhost:8228/mcp?mode=code"
+```
+
 ## Plain HTTP
 
 `POST /api/mocks` to publish, `POST /api/mocks/:id/revise`,
 `POST /api/mocks/:id/asks`, `GET /api/mocks/:id/export`, `POST /api/assets` for
 blob uploads, and `GET /api/comments?session=…&author=user&wait=60` for
-long-polling the user's reply. Documented at `/guide`.
+long-polling the user's reply. `POST /api/run {code}` runs a script against
+the same API. Documented at `/guide`.
 
 ## Claude Code
 
@@ -95,6 +110,6 @@ Requires Claude Code ≥ 2.1.105. The plugin lives in [`../plugin/`](../plugin/)
 `/agent-howto` is the brief agents read before their first publish: the loop,
 parts, asks and knobs, the reply, the html rules, and the project's own palette,
 kit and icons, in about 1.2k tokens. Everything deeper is a topic, fetched only
-when needed: `knobs`, `asks`, `surfaces`, `html`, `reply`, `http`
+when needed: `knobs`, `asks`, `surfaces`, `html`, `reply`, `http`, `scripts`
 (`mockpit agent-howto --topic <id>`, `get_design_guide({ topic })`, or
 `curl -s …/agent-howto?topic=<id>`). `/guide` serves the `html` topic.

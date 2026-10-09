@@ -16,7 +16,7 @@ they stay in sync with the deployed version:
 
 ```sh
 mockpit agent-howto                 # the brief: the loop, the reply, this project's palette, kit and icons
-mockpit agent-howto --topic knobs   # one reference topic: knobs, asks, surfaces, html, reply, http
+mockpit agent-howto --topic knobs   # one reference topic: knobs, asks, surfaces, html, reply, http, scripts
 ```
 
 Once per repo run `mockpit init`: it detects the repo's design system, stores

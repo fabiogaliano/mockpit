@@ -130,23 +130,27 @@ The same verbs on every tier, with the same fields: a zero-dependency CLI for
 agents with only a shell, MCP over stdio or streamable HTTP at `/mcp`, and plain
 HTTP.
 
-| CLI               | MCP                 | HTTP                                             |
-| ----------------- | ------------------- | ------------------------------------------------ |
-| `mockpit init`    | —                   | —                                                |
-| `mockpit publish` | `publish_mock`      | `POST /api/mocks`                                |
-| `mockpit revise`  | `revise_mock`       | `POST /api/mocks/:id/revise`                     |
-| `mockpit ask`     | `ask_user`          | `POST /api/mocks/:id/asks`                       |
-| `mockpit wait`    | `wait_for_feedback` | `GET /api/comments?session=…&author=user&wait=N` |
-| `mockpit comment` | `reply_to_user`     | `POST /api/comments`                             |
-| `mockpit status`  | `list_mocks`        | `GET /api/mocks`                                 |
-| `mockpit show`    | `get_mock`          | `GET /api/mocks/:id`                             |
-| `mockpit export`  | `export_mock`       | `GET /api/mocks/:id/export`                      |
-| `mockpit upload`  | `upload_asset`      | `POST /api/assets`                               |
+| CLI               | MCP                  | HTTP                                             |
+| ----------------- | -------------------- | ------------------------------------------------ |
+| `mockpit init`    | —                    | —                                                |
+| `mockpit publish` | `publish_mock`       | `POST /api/mocks`                                |
+| `mockpit revise`  | `revise_mock`        | `POST /api/mocks/:id/revise`                     |
+| `mockpit ask`     | `ask_user`           | `POST /api/mocks/:id/asks`                       |
+| `mockpit wait`    | `wait_for_feedback`  | `GET /api/comments?session=…&author=user&wait=N` |
+| `mockpit comment` | `reply_to_user`      | `POST /api/comments`                             |
+| `mockpit status`  | `list_mocks`         | `GET /api/mocks`                                 |
+| `mockpit show`    | `get_mock`           | `GET /api/mocks/:id`                             |
+| `mockpit export`  | `export_mock`        | `GET /api/mocks/:id/export`                      |
+| `mockpit upload`  | `upload_asset`       | `POST /api/assets`                               |
+| `mockpit run`     | `run` (`?mode=code`) | `POST /api/run`                                  |
 
 The running server serves the brief at `/agent-howto`: one short, project-aware
 document an agent reads before its first publish. Reference topics (`knobs`,
-`asks`, `surfaces`, `html`, `reply`, `http`) are at `/agent-howto?topic=<id>`;
-`/guide` is the `html` topic.
+`asks`, `surfaces`, `html`, `reply`, `http`, `scripts`) are at
+`/agent-howto?topic=<id>`; `/guide` is the `html` topic. `run` executes one
+script against the same verbs on the server, so publish, ask and wait take one
+call; `/mcp?mode=code` serves it as the only tool, for connectors without a
+codemode of their own.
 
 ## Run it anywhere
 
