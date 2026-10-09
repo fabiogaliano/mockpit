@@ -1339,6 +1339,22 @@
       "note": "one entry per (post, surface, version, theme, mode)"
     },
     {
+      "suite": "api",
+      "name": "MCP catalog chars (default)",
+      "kind": "count",
+      "unit": "count",
+      "value": 15820,
+      "note": "14 tools"
+    },
+    {
+      "suite": "api",
+      "name": "MCP catalog chars (mode=code)",
+      "kind": "count",
+      "unit": "count",
+      "value": 4927,
+      "note": "1 tools"
+    },
+    {
       "suite": "events",
       "name": "bus.broadcast → 1 subscribers",
       "kind": "time",

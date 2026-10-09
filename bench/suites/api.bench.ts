@@ -246,6 +246,33 @@ export const apiSuite: Suite = {
         ),
       );
     }
+
+    // --- MCP catalogs -------------------------------------------------------
+    // What a client loads into the model's context before any call: name,
+    // description and input schema per tool, as tools/list serves them. The
+    // output schemas are left out, as the catalog budget test does: only
+    // typed/codemode harnesses read them.
+    {
+      const app = makeApp(new SqlStore(createSqliteStorage()));
+      for (const [label, path] of [
+        ["default", "/mcp"],
+        ["mode=code", "/mcp?mode=code"],
+      ] as const) {
+        const res = await app.request(path, {
+          ...jsonPost({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+        });
+        const { result } = (await res.json()) as { result: { tools: object[] } };
+        const visible = result.tools.map(({ outputSchema: _, ...tool }: any) => tool);
+        ctx.add(
+          count(
+            "api",
+            `MCP catalog chars (${label})`,
+            JSON.stringify(visible).length,
+            `${visible.length} tools`,
+          ),
+        );
+      }
+    }
   },
 };
 
