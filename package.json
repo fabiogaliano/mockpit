@@ -1,6 +1,6 @@
 {
   "name": "mockpit",
-  "version": "0.14.0",
+  "version": "1.0.0",
   "description": "A design-decision loop for terminal coding agents — agents publish mocks with states and variants, ask questions and expose knobs; you answer, tune and comment, then send one reply.",
   "keywords": [
     "agent-tools",

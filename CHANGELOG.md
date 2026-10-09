@@ -1,5 +1,242 @@
 # Changelog
 
+## 1.0.0
+
+### Major Changes
+
+- 7c1dda3: The decide rebuild: mockpit is now a design-decision loop. The model is
+  **project › mock › state › variant › version**. A mock is a page or component
+  by slug, with ordered **states** named in the user's words, **variants** as
+  parallel designs of a state, and **versions** as a variant's history. The agent
+  marks **parts** with `data-part`, asks structured questions, declares **knobs**,
+  and the user answers everything with one batched **reply**.
+  - **Mock screen.** One stage per mock with a state strip under it, and a panel
+    with Questions · Tune · Thread. Questions are answered in place: options
+    bound to a variant or to knob values render as pictures, hover previews them
+    on the stage, click picks. The Look question (a mock-wide ask over the
+    variants) unlocks **Mix**, borrowing a part from another look. Variants
+    without a Look ask get a switcher in the frame header.
+  - **Tune.** Knobs in tunekit's `usePane` shape (sliders, toggles, selects,
+    colours, text, springs, easings, pads, images), global or per part, run live
+    on the stage through tunekit's controls. Presets save tuned values per mock in
+    the browser. Clicking a part on the stage selects it in Tune, with its
+    comments.
+  - **One Send.** Picks, tuned values, mix and part comments are a server-side
+    draft (they survive a reload) until Send; the reply lands in the Thread with
+    ✓ sent / ✓✓ seen. A variant-bound answer accepts that variant and archives
+    its siblings. A mock without asks keeps Accept / Revise / Drop.
+  - **Versions** in the frame header (`v3 ▾`); an older version opens under a
+    banner with "restore as vN". A new version arriving mid-answer keeps the
+    draft bound to the version it was made on.
+  - **Home** lists the project's mocks: thumbnail, states, open questions, age,
+    and "Answer next ›".
+  - **Theme.** One dialkit palette, dark and light, toggled from the top bar and
+    persisted per workspace.
+  - **Parts bridge.** Html frames report each part's box, measured in the frame
+    and tagged with the document version; the host sends
+    `hit`/`highlight`/`clear`/`scroll`/`knobs`. Knob values reach the html as
+    unitless `--k-<path>` vars, `data-k-<path>` attributes, `[data-k-bind]` text
+    and a `mockpit:knobs` event, baked into `/s/:id?k=…` for first paint and
+    validated against the declared knobs.
+
+  New agent surface, the same on all three tiers:
+  - **MCP:** `publish_mock`, `revise_mock`, `ask_user`, `wait_for_feedback`,
+    `reply_to_user`, `list_mocks`, `get_mock`, `export_mock`, `upload_asset`,
+    `get_design_guide`, and `add_surface` / `edit_surface` / `remove_surface` /
+    `reorder_surfaces`.
+  - **CLI:** `mockpit publish --mock <slug> [--state s] [--variant v] [--knobs …]`,
+    `revise`, `ask` (`--option Label=variant`, or `--asks` with scope
+    mock/state/part, options bound to a `variant` or a knob `set`, `multi`),
+    `wait`, `watch`, `comment`, `status`, `show`, `export`, `surface`.
+  - **HTTP:** `/api/mocks` (publish), `/api/mocks/:id/revise`, `/asks`,
+    `/export`, `/surfaces`, and `GET /api/comments?session=…&author=user&wait=N`.
+  - Publish and revise responses list the parts found per state, flag parts that
+    vanished or were renamed, and nudge when a knob has three or fewer discrete
+    options (a decision dressed as a control: ask instead).
+  - `wait_for_feedback` returns one batch per mock: the reply's answers (with the
+    chosen options), mix, tuned values, part comments, note and decision, plus
+    the variants accepted and archived. Delivery stays exactly-once across
+    waits, `watch` and the `userFeedback` piggyback.
+
+  Removed: the item/post/snippet model and its routes (`/api/projects/:name/items`,
+  `/api/posts`, `/api/surfaces`, `/api/snippets`, `/session/:id`, `/p/:id`),
+  `?part=`, the item/post MCP tools and every deprecated alias
+  (`publish_item`, `publish_post`, `publish_surface`, …), the CLI's `page`,
+  `list`, `sessions`, `update`, per-kind shortcuts, `test-post` and `trace*`
+  commands, the trace path, the github/gruvbox/one themes, the embeddable viewer
+  engine (`mockpit/viewer-embed`) with its `mockpit/theme-tokens` contract, and the JSON file store (`MOCKPIT_STORE=json`)
+  with its JSON→SQLite import.
+
+  Migration: SQLite workspaces (local and Durable Object) migrate in place on
+  first boot — each item becomes a single-state mock with its variants and
+  history; comments keep their ids and sequence numbers; unsent draft comments
+  become the mock's draft. If you run `MOCKPIT_STORE=json`, start your current
+  version once without it before upgrading (`env -u MOCKPIT_STORE mockpit serve`)
+  so it copies `~/.mockpit/mockpit.json` into the still-empty
+  `~/.mockpit/mockpit.db`.
+
+  The viewer now bundles [tunekit](https://github.com/fabiogaliano/tunekit) for
+  Tune's controls.
+
+- 8945355: The agent contract never blocks. Design decisions take as long as they take,
+  so nothing an agent calls waits for the user: it publishes, asks, tells the
+  user in one line where to look, and ends its turn. The user answers in the
+  browser at their own pace.
+  - **Nine verbs, the same on every tier.** `publish`, `ask`, `read`,
+    `feedback`, `say`, `export`, `upload`, `guide` and `run` (code mode). The MCP
+    tools carry those names (the server name is the namespace), the Pi extension
+    has `mockpit_<verb>`, and the CLI adds `init` and `watch`.
+  - **`publish` is the one write.** It creates a mock, state or variant, or the
+    next version of an existing one. Send `html`, the full ordered `surfaces`
+    list (an entry that is only `{id}` keeps that surface, a missing id removes
+    it, the order is the list order), or `parts` to splice marked elements into
+    the latest version.
+  - **`feedback` returns at once** (`GET /api/feedback`) with every batch the
+    user sent since the agent last heard, plus `pending` per mock: `viewerOpen`
+    and the draft's progress (`answered`, `of`, `comments`, `touchedAt`). `read`
+    returns `pending` too. Every write still returns `feedback`, now under that
+    name, and each Send is delivered exactly once across writes, `feedback` and
+    `mockpit watch`. In Claude Code, `mockpit watch` under Monitor turns a Send
+    into a wake-up.
+  - **`say`** (`POST /api/mocks/:id/say`) posts the agent's plain-text message in
+    a mock's thread.
+  - **Ask discipline.** A publish that leaves several variants with no ask
+    binding them returns a nudge and a ready `suggestedAsk`. Until an ask binds
+    them, the viewer shows a built-in "Which one?" with a picture per variant;
+    its answer arrives like any ask under the reserved id `variant` (per state:
+    `variant:<state>`) and accepts and archives per state. Home, `read` and
+    `pending` count it as open.
+  - **Delivered / Not seen yet.** Each Send in the Thread says whether an agent
+    has received it, and the Send confirmation suggests telling your agent
+    you've answered when none has.
+  - **`run`** scripts publish and ask in one call; `mockpit.feedback()` replaces
+    `mockpit.wait()` and the wall limit is 10 s.
+
+  Removed: the CLI's `wait`, `revise`, `comment`, `status`, `show`, `surface`
+  and `agent-howto` (use `feedback`, `publish`, `say`, `read` and `guide`); the
+  MCP tools `publish_mock`, `revise_mock`, `ask_user`, `wait_for_feedback`,
+  `reply_to_user`, `list_mocks`, `get_mock`, `export_mock`, `upload_asset`,
+  `get_design_guide`, `add_surface`, `edit_surface`, `remove_surface` and
+  `reorder_surfaces`; `POST /api/mocks/:id/revise`, the `/api/mocks/:id/surfaces`
+  routes and agent `POST /api/comments`; `timeoutSeconds`; and the `userFeedback`
+  field; the guide topic `reply` is now `feedback`, the SSE event `comment-seen`
+  is `comment-delivered`, and the page-slot `item=` attribute alias is gone (use
+  `slug=`). Refresh pasted setup blocks from `/setup`.
+
+### Minor Changes
+
+- fe09bd2: Icons by name, part-scoped revisions, a shorter brief, and typed MCP results.
+  - **Icons by name.** html surfaces write `<i icon="lucide:check"></i>` and the
+    server inlines the svg, so frames need no fetch. lucide and mage are bundled;
+    `mockpit icons add <set>` installs any other Iconify set for the project
+    (`mockpit icons remove` drops it). Publish and revise warn about unknown icon
+    names. This replaces the per-project mage sprite upload.
+  - **Part-scoped revise.** `revise_mock`, `edit_surface` and the HTTP revise body
+    take `parts: { "name" | "name#key": "<outer html>" }`; the CLI takes
+    `mockpit revise --part name=file`. The server splices each part into the
+    current version's html and reports `applied` next to `partChanges`.
+  - **One brief, then topics.** `mockpit agent-howto`, `mockpit guide --brief` and
+    `get_design_guide` return one project-aware brief (the loop, parts, asks,
+    knobs, the reply, and the project's palette, kit and icons). Reference
+    topics (knobs, asks, surfaces, html, reply, http) come on demand with
+    `agent-howto --topic <id>` or `get_design_guide({ topic })`. With no server
+    running, `agent-howto` prints the generic brief.
+  - **MCP output schemas.** Publish, revise, ask, wait, list, get and export
+    declare an `outputSchema` and return `structuredContent` on both transports,
+    so codemode harnesses can type results. Surfaces share one `Surface`
+    definition, which shrinks the catalog.
+  - **tunekit from the registry.** The viewer bundles `tunekit@^1.5.0` from npm
+    instead of a pinned git commit.
+  - **Tailwind projects keep their classes.** `mockpit init` stores the repo's
+    Tailwind entry stylesheet (non-core imports, plugins and config stripped) and
+    the frame loads it as Tailwind source, so `bg-card` and
+    `text-muted-foreground` resolve like in the codebase. No more
+    `bg-[var(--card)]`.
+  - **Kits by reference.** A kit can be a hosted stylesheet. `basecoat` ships as
+    the shadcn-shaped vocabulary for projects with no design system, and a project
+    can register its own stylesheet with `mockpit kit add <id> --url … --doc …`
+    (or `init --kit-url`). Any bundled or project kit can be the project's default.
+  - **The brief reads the repo's design files.** `DESIGN.md`, DTCG `tokens.json`
+    and shadcn `components.json` feed the brief when present: the team's rules,
+    the main tokens and the installed component list.
+  - **Waits agree.** `mockpit wait`, `wait_for_feedback` (stdio and HTTP) and the
+    Pi extension all default to 55 seconds and cap at 230: under the 60 s tool
+    timeout Codex and the MCP SDK use by default, and under claude.ai's 240 s
+    limit. A wait the client cancels no longer consumes the feedback; the next
+    wait gets it.
+  - `mockpit ask "<question>" --asks <file>` is now an error instead of dropping
+    the question, and `mockpit watch --help` prints its own help.
+
+- 4b756d2: Designer reshape: mockpit is now organised as **project › item › variant ›
+  version** instead of a stream of posts. A project is a repo, an item is a
+  component or a page addressed by a stable slug, variants are parallel takes shown
+  as tabs, and versions are the item's history with the basis version and the
+  prompt that produced it.
+  - **Review loop.** Comments accumulate as drafts on a version and are released as
+    one batch by the user's decision: **Revise** sends them, **Accept** approves a
+    version and archives its sibling variants, **Drop** archives a variant
+    (restorable). Agents wake once with the whole batch.
+  - **Markers.** Comments can carry several anchors drawn on the render, referenced
+    as `@1`, `@2` in the text, each with the element's CSS path and visible text,
+    plus the viewport preset (390 / 820 / 1280) that was being reviewed.
+  - **`mockpit init`.** Detects the repo's design system (Tailwind/shadcn, CSS
+    custom properties, fonts), imports its palette, picks a kit, uploads a Mage icon
+    sprite, and writes `.mockpit/starter.html` — so agent markup speaks the repo's
+    vocabulary. `mockpit guide --brief` and `get_design_guide` render the project's
+    real tokens, kit and icons.
+  - **New CLI verbs:** `init`, `publish --item/--variant`, `revise --from`, `page`,
+    `ask`, `wait` (batched), `status`, `show`, `export`, plus `--json`/`--quiet`.
+  - **New MCP tools:** `publish_item`, `revise_item`, `ask_user`, `list_items`,
+    `get_item`, `export_item`, `init_project` (stdio), with `wait_for_feedback`
+    returning the batch shape.
+  - **Leaner reads.** `get_item` / `mockpit show` return history metadata only;
+    bodies are opt-in behind `--body` / `--history`.
+  - **Push and webhooks.** Web Push on `ask` and on new versions, plus outbound
+    `POST /api/hooks` webhooks.
+  - **Export.** Accept hands the agent the accepted html, its prompt history and a
+    screenshot; `mockpit export` writes them to `.mockpit/accepted/`.
+
+  The item screen no longer renders the post card, so the share menu,
+  per-comment copy and delete-post controls are reachable only on the standalone
+  `/p/:id` page. Project routes (`/api/projects*`) are not exposed under
+  session-scoped public read.
+
+  Back-compat: legacy HTTP routes, the `parts` body key, `?part=`, the `/s/:id`
+  alias and the deprecated MCP tool aliases are unchanged. The deprecated aliases
+  are now hidden from `tools/list` unless `MOCKPIT_MCP_LEGACY=1` is set.
+
+- 429574f: Renamed the fork from sideshow to mockpit: the CLI binary, package, MCP server,
+  `MOCKPIT_*` environment variables, the `~/.mockpit` data directory and the viewer
+  brand all use the new name.
+- d3b2a93: Scripts. `run` executes a JavaScript script on the server against a typed
+  `mockpit` API, so an agent can publish variants, ask and wait for the reply in
+  one call. It is `POST /api/run`, `mockpit run <file>`, and the one tool of a new
+  codemode MCP catalog at `/mcp?mode=code` (stdio: `MOCKPIT_MCP_MODE=code`, with a
+  `path` param for local scripts). The default `/mcp` catalog is unchanged.
+  Scripts run in QuickJS inside a worker thread with no network, timers, imports
+  or `process`, under a 200 s wall limit, a CPU budget, 32 MiB of memory and caps
+  on calls and output. The result lists every host call in order and carries
+  every reply the run received, even when the script then fails. The Cloudflare
+  Worker has no sandbox and answers that `run` is unavailable. New guide topic:
+  `scripts`.
+
+### Patch Changes
+
+- 67cf8dc: Every question in the viewer now has an "Other…" write-in and an opt-in note.
+  Other is the answer when no option fits. It arrives in the reply's `asks[]` as
+  a `chosen` entry `{ id: "other", label, other: true }`, flips no variant and
+  sets no knob, and `other` is now a reserved option id. A note qualifies the
+  answer ("Table on desktop, Cards on mobile") and arrives as `note` on that
+  `asks[]` entry. Either one alone answers the question. Both stay in the draft
+  until Send. The Tune tab now shows only when there is something to tune: knobs,
+  marked parts or a part ask.
+- 4099f20: A resumed Claude Code conversation (`--resume`, `--continue`, a restart or an MCP reconnect) now reclaims its mockpit session instead of starting a new one, so the reply sent while the agent was away reaches it on its next `feedback`. The stdio MCP server and the CLI key the session on `CLAUDE_CODE_SESSION_ID`; `POST /api/sessions` accepts a `key` and returns the existing session for it.
+- 8f89777: The viewer can notify you. Turn on the bell in the top bar and, while a mockpit
+  tab is open but not in front, a new question, a new version or an agent comment
+  raises a browser notification for that mock. A burst of writes to one mock is
+  one notification, and clicking it opens the mock. `post-created` and
+  `post-updated` feed events now carry `by: "agent" | "user"`.
+
 ## 0.14.0
 
 ### Minor Changes
