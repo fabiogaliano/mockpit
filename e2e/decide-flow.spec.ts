@@ -165,6 +165,79 @@ test("a pick survives a reload", async ({ page, server }) => {
   await expect(option(page, "dark")).toHaveAttribute("aria-pressed", "true");
 });
 
+test("a note and an Other… write-in survive a reload and reach the agent in the reply", async ({
+  page,
+  server,
+}) => {
+  const { mockId, session } = await seedWriter(server.url);
+  await page.goto(`${server.url}${mockPath}`);
+  const saved = () =>
+    page.waitForResponse(
+      (r) => r.url().endsWith(`/api/mocks/${mockId}/draft`) && r.request().method() === "PUT",
+    );
+
+  // Q1: the note is opt-in, collapsed until asked for.
+  await expect(header(page)).toContainText("Question 1 of 3");
+  await expect(page.locator(".ask-note")).toHaveCount(0);
+  await page.getByRole("button", { name: "Add a note" }).click();
+  let write = saved();
+  await page.locator(".ask-note textarea").fill("Dark on desktop, quiet on mobile");
+  expect((await write).ok()).toBe(true);
+  await pickAndWait(page, mockId, "dark");
+  // Hover devices move on to the next open question by themselves.
+  if (!(await page.evaluate(() => matchMedia("(hover: hover)").matches))) {
+    await page.getByRole("button", { name: "Next question" }).click();
+  }
+
+  // Q2: Other… is one more option; picking it opens the write-in in place.
+  await expect(header(page)).toContainText("Question 2 of");
+  await expect(page.locator(".other-text")).toHaveCount(0);
+  await option(page, "other").click();
+  await expect(option(page, "other")).toHaveAttribute("aria-pressed", "true");
+  write = saved();
+  await page.locator(".other-text textarea").fill("a tab in the sidebar");
+  expect((await write).ok()).toBe(true);
+
+  await page.reload();
+  await cornerPin(page, 1).click();
+  await expect(page.locator(".ask-note textarea")).toHaveValue("Dark on desktop, quiet on mobile");
+  await page.getByRole("button", { name: "Next question" }).click();
+  await expect(header(page)).toContainText("picked: “a tab in the sidebar”");
+  await expect(option(page, "other")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".other-text textarea")).toHaveValue("a tab in the sidebar");
+
+  // Q3: a note alone answers it, so Send opens up on the last question.
+  await page.getByRole("button", { name: "Next question" }).click();
+  await page.getByRole("button", { name: "Add a note" }).click();
+  write = saved();
+  await page.locator(".ask-note textarea").fill("neither, keep it hidden");
+  expect((await write).ok()).toBe(true);
+  const last = page.getByRole("button", { name: "Next question" });
+  while (await last.isEnabled()) await last.click();
+  const reply = page.waitForResponse(
+    (r) => r.url().endsWith(`/api/mocks/${mockId}/reply`) && r.request().method() === "POST",
+  );
+  await page.locator("button.send").click();
+  expect((await reply).status()).toBe(201);
+  await expect(page.locator(".trow.you .tnote")).toHaveCount(2);
+  await expect(page.locator(".trow.you")).toContainText("note: neither, keep it hidden");
+
+  const read = await agentCall(server.url, `/api/comments?session=${session}&author=user&wait=5`);
+  const asks = read.feedback[0].reply.asks;
+  expect(asks.find((a: any) => a.ask === "look")).toMatchObject({
+    chosen: [{ id: "dark" }],
+    note: "Dark on desktop, quiet on mobile",
+  });
+  expect(asks.find((a: any) => a.ask === "versions").chosen).toEqual([
+    { id: "other", label: "a tab in the sidebar", other: true },
+  ]);
+  expect(asks.find((a: any) => a.ask === "trim")).toMatchObject({
+    chosen: [],
+    note: "neither, keep it hidden",
+  });
+  expect(await viewerGet(page, `/api/mocks/${mockId}/draft`)).toEqual({ draft: null });
+});
+
 test("versions: popover, viewing an older one, back, restore as a new version", async ({
   page,
   server,

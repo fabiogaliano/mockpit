@@ -208,7 +208,9 @@ function feedbackLines(feedback) {
     const reply = batch.reply;
     if (reply) {
       for (const a of reply.asks ?? []) {
-        lines.push(`- ${prefix}${a.text || a.ask} → ${a.chosen.map((o) => o.label).join(", ")}`);
+        const chosen = a.chosen.map((o) => (o.other ? `“${o.label}”` : o.label)).join(", ");
+        lines.push(`- ${prefix}${a.text || a.ask} → ${chosen || "(no pick)"}`);
+        if (a.note) lines.push(`  note: ${a.note}`);
       }
       for (const [part, variant] of Object.entries(reply.mix ?? {})) {
         lines.push(`- ${prefix}use ${variant}'s ${part}`);

@@ -3,7 +3,16 @@
 // so an agent reads one grouped object instead of re-deriving which mock a flat
 // comment list belongs to. Runtime-agnostic (no node imports).
 
-import type { AskOption, Comment, CommentAnchor, Mock, Post, Reply, Store } from "./types.ts";
+import {
+  type AskOption,
+  type Comment,
+  type CommentAnchor,
+  type Mock,
+  OTHER_ID,
+  type Post,
+  type Reply,
+  type Store,
+} from "./types.ts";
 
 export interface VariantRef {
   state: string | null;
@@ -21,15 +30,25 @@ export interface FeedbackComment {
   viewport?: number;
 }
 
+// The user's write-in under "Other…", delivered as one more choice so an agent
+// reads it like any option; `other` says it is free text, not one of yours.
+export interface OtherChoice {
+  id: typeof OTHER_ID;
+  label: string;
+  other: true;
+}
+
 // An answered ask, resolved to the options the user chose, so the agent reads
-// "Look → dark" without cross-referencing ids.
+// "Look → dark" without cross-referencing ids. `note` qualifies the answer.
 export interface AnsweredAsk {
   ask: string;
   text: string;
-  chosen: AskOption[];
+  chosen: (AskOption | OtherChoice)[];
+  note?: string;
 }
 
-export interface FeedbackReply extends Reply {
+// The write-ins and notes ride in `asks`, not again as id maps.
+export interface FeedbackReply extends Omit<Reply, "others" | "notes"> {
   seq: number;
   at: string;
   asks: AnsweredAsk[];
@@ -50,14 +69,28 @@ export interface FeedbackBatch {
 const ref = (p: Post): VariantRef => ({ state: p.state, variant: p.variant });
 
 function answered(reply: Reply, mock: Mock | undefined): AnsweredAsk[] {
+  const others = reply.others ?? {};
+  const notes = reply.notes ?? {};
+  const askIds = new Set([
+    ...Object.keys(reply.answers),
+    ...Object.keys(others),
+    ...Object.keys(notes),
+  ]);
   const out: AnsweredAsk[] = [];
-  for (const [askId, answer] of Object.entries(reply.answers)) {
+  for (const askId of askIds) {
     const ask = mock?.asks.find((a) => a.id === askId);
-    const ids = Array.isArray(answer) ? answer : [answer];
+    const answer = reply.answers[askId];
+    const ids = answer === undefined ? [] : Array.isArray(answer) ? answer : [answer];
+    const chosen: AnsweredAsk["chosen"] = ids.map(
+      (id) => ask?.options.find((o) => o.id === id) ?? { id, label: id },
+    );
+    if (others[askId] !== undefined)
+      chosen.push({ id: OTHER_ID, label: others[askId], other: true });
     out.push({
       ask: askId,
       text: ask?.text ?? "",
-      chosen: ids.map((id) => ask?.options.find((o) => o.id === id) ?? { id, label: id }),
+      chosen,
+      ...(notes[askId] !== undefined ? { note: notes[askId] } : {}),
     });
   }
   return out;
@@ -95,8 +128,9 @@ export function groupFeedback(
       batches.push(batch);
     }
     if (c.kind === "reply" && c.payload) {
+      const { others: _others, notes: _notes, ...payload } = c.payload;
       batch.reply = {
-        ...c.payload,
+        ...payload,
         seq: c.seq,
         at: c.createdAt,
         asks: answered(c.payload, mock),

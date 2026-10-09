@@ -340,7 +340,13 @@ const partsByState = z.array(o({ state: nullStr, parts: z.array(o({ name: str })
 const feedbackSchema = o({
   mock: nullStr,
   reply: o({
-    asks: z.array(o({ ask: str, chosen: z.array(o({ label: str })) })),
+    asks: z.array(
+      o({
+        ask: str,
+        chosen: z.array(o({ label: str, other: z.literal(true).optional() })),
+        note: str.optional(),
+      }),
+    ),
     mix: bag,
     tuned: bag,
     comments: z.array(o({ part: nullStr, text: str })),

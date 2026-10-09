@@ -29,6 +29,8 @@ export interface DraftInput {
   mix: Record<string, string>;
   tuned: Record<string, KnobValue>;
   comments: PartComment[];
+  others: Record<string, string>;
+  notes: Record<string, string>;
 }
 
 export interface MockList {

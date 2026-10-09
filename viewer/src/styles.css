@@ -1651,7 +1651,8 @@ a {
   border-radius: var(--r);
   background: var(--frame);
 }
-.opts:has(.opt.pill) {
+/* The write-in is always a pill; it must not turn a grid of pictures into pills. */
+.opts:has(.opt.pill:not(.other)) {
   display: flex;
   flex-wrap: wrap;
 }
@@ -1660,6 +1661,10 @@ a {
   align-items: center;
   padding: 10px 14px;
   border-radius: 999px;
+}
+.opts > .opt.other {
+  grid-column: 1 / -1;
+  justify-self: start;
 }
 .opt.pill .lbl {
   padding: 0;
@@ -1828,4 +1833,51 @@ html.theming *:not(iframe) {
   html.theming * {
     transition: none !important;
   }
+}
+
+.asktext {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: var(--row);
+  border-radius: var(--r);
+  cursor: text;
+}
+.asktext .up-text-label {
+  font-size: 13px;
+}
+.asktext textarea {
+  width: 100%;
+  min-height: 40px;
+  resize: vertical;
+  font-size: 15px;
+  color: var(--t2);
+  background: transparent;
+  border: none;
+  padding: 0;
+  outline: none;
+}
+.asktext textarea::placeholder {
+  color: var(--t5);
+}
+.addnote {
+  align-self: flex-start;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--t4);
+}
+.tnotes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 0 0;
+}
+.tnote {
+  color: var(--t3);
+  font-size: 14px;
+}
+.tnote .cwhere {
+  display: block;
 }

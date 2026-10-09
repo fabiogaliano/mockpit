@@ -322,10 +322,19 @@ export interface Ask {
   part?: string;
   options: AskOption[];
   multi?: boolean;
-  // Set when a reply answered it; an ask without one is still open.
+  // Set when a reply answered it; an ask with none of answer, other or note is
+  // still open.
   answer?: AskAnswer;
+  // The user's write-in under the viewer's "Other…" option.
+  other?: string;
+  // The user's note qualifying the answer ("Table on desktop, Cards on mobile").
+  note?: string;
   at: string;
 }
+
+// The viewer's write-in option on every ask. Reserved, so a delivered
+// `{id: "other", other: true}` choice never shadows an option the agent declared.
+export const OTHER_ID = "other";
 
 // A comment the user left on a part (or, with part null, anywhere on the render
 // via the Mark tool). Rides inside the reply rather than as its own comment.
@@ -360,6 +369,10 @@ export interface Draft {
   mix: Record<string, string>;
   tuned: Record<string, KnobValue>;
   comments: PartComment[];
+  // askId → the write-in under "Other…" / the note on that question. Optional
+  // because drafts stored before they existed lack them.
+  others?: Record<string, string>;
+  notes?: Record<string, string>;
   updatedAt: string;
 }
 
@@ -371,6 +384,8 @@ export interface Reply {
   mix: Record<string, string>;
   tuned: Record<string, KnobValue>;
   comments: PartComment[];
+  others?: Record<string, string>;
+  notes?: Record<string, string>;
   text?: string;
   decision?: ReplyDecision;
 }
@@ -874,9 +889,12 @@ export const htmlSurface = (html: string, kits?: unknown): HtmlSurface => ({
     : {}),
 });
 
-// An open ask is one no reply has answered yet.
+// An open ask is one no reply has answered yet: a write-in or a note alone
+// answers it too ("Neither, because…").
+export const askAnswered = (a: Pick<Ask, "answer" | "other" | "note">): boolean =>
+  a.answer !== undefined || a.other !== undefined || a.note !== undefined;
 export const openAsks = (mock: Pick<Mock, "asks">): Ask[] =>
-  mock.asks.filter((a) => a.answer === undefined);
+  mock.asks.filter((a) => !askAnswered(a));
 
 // Per-project rollup for the projects list. Pure, so every store agrees on
 // what "open" and "lastActiveAt" mean.

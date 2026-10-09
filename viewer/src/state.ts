@@ -22,6 +22,7 @@ import {
   mockVersion,
   overriddenAsks,
   type PartsReport,
+  pickInDraft,
   unanswered,
 } from "./logic.ts";
 import { setTheme } from "./theme.ts";
@@ -62,6 +63,9 @@ export function createMockScreen(project: string, slug: string) {
   const [sent, setSent] = createSignal(false);
   const [sending, setSending] = createSignal(false);
   const [flagged, setFlagged] = createSignal<string[]>([]);
+  // askId → "Other…" ticked; a write-in counts once it has text, so until then
+  // the tick lives only here.
+  const [otherOpen, setOtherOpen] = createSignal<Record<string, boolean>>({});
   // "No, all <look>" is an answer even though it borrows nothing.
   const [mixTouched, setMixTouched] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
@@ -89,7 +93,19 @@ export function createMockScreen(project: string, slug: string) {
   const stageVersion = createMemo(() => viewVersion() ?? boundVersion() ?? latest());
   const look = createMemo(() => (mock() ? lookAsk(mock()!) : undefined));
 
-  const answerOf = (ask: Ask) => draft()?.answers[ask.id] ?? ask.answer;
+  // The draft speaks for an ask once it picked an option or ticked "Other…" there;
+  // until then the ask reads as sent.
+  const drafted = (ask: Ask) => {
+    const d = draft();
+    return (
+      !!otherOpen()[ask.id] ||
+      (!!d && (d.answers[ask.id] !== undefined || d.others[ask.id] !== undefined))
+    );
+  };
+  const answerOf = (ask: Ask) => (drafted(ask) ? draft()?.answers[ask.id] : ask.answer);
+  const otherOf = (ask: Ask) => (drafted(ask) ? draft()?.others[ask.id] : ask.other);
+  const otherTicked = (ask: Ask) => !!otherOpen()[ask.id] || otherOf(ask) !== undefined;
+  const noteOf = (ask: Ask) => draft()?.notes[ask.id] ?? ask.note;
 
   // The variant the Look question settled on, drafted or sent.
   const lookPick = createMemo(() => {
@@ -193,6 +209,8 @@ export function createMockScreen(project: string, slug: string) {
       mix: { ...base.mix },
       tuned: { ...base.tuned },
       comments: [...base.comments],
+      others: { ...base.others },
+      notes: { ...base.notes },
     });
     batch(() => {
       setDraftSignal(next);
@@ -240,6 +258,8 @@ export function createMockScreen(project: string, slug: string) {
             mix: d.mix,
             tuned: d.tuned,
             comments: d.comments,
+            others: d.others ?? {},
+            notes: d.notes ?? {},
           }
         : null,
     );
@@ -406,26 +426,40 @@ export function createMockScreen(project: string, slug: string) {
 
   // --- answers ---
 
-  function pick(ask: Ask, optionId: string) {
-    writeDraft((d) => {
-      if (ask.multi) {
-        const have = answerIds(d.answers[ask.id]);
-        const next = have.includes(optionId)
-          ? have.filter((x) => x !== optionId)
-          : [...have, optionId];
-        if (next.length) d.answers[ask.id] = next;
-        else delete d.answers[ask.id];
-      } else {
-        d.answers[ask.id] = optionId;
-      }
-      if (look()?.id === ask.id) {
+  // `null` is "Other…".
+  function pick(ask: Ask, optionId: string | null) {
+    let open = false;
+    writeDraft((base) => {
+      const r = pickInDraft(base, ask, optionId, !!otherOpen()[ask.id]);
+      open = r.otherOpen;
+      const d = r.draft;
+      if (optionId !== null && look()?.id === ask.id) {
         // A borrow from the look just picked is no longer a borrow.
         const chosen = ask.options.find((o) => o.id === optionId)?.variant;
         for (const p of Object.keys(d.mix)) if (d.mix[p] === chosen) delete d.mix[p];
       }
       return d;
     });
+    setOtherOpen({ ...otherOpen(), [ask.id]: open });
     setFlagged(flagged().filter((x) => x !== ask.id));
+  }
+  // The write-in under "Other…", and the note on a question. Blank is none.
+  function setOther(ask: Ask, text: string) {
+    writeDraft((d) => {
+      if (text.trim()) {
+        d.others[ask.id] = text;
+        if (!ask.multi) delete d.answers[ask.id];
+      } else delete d.others[ask.id];
+      return d;
+    });
+    setOtherOpen({ ...otherOpen(), [ask.id]: true });
+  }
+  function setNote(ask: Ask, text: string) {
+    writeDraft((d) => {
+      if (text.trim()) d.notes[ask.id] = text;
+      else delete d.notes[ask.id];
+      return d;
+    });
   }
   // `null` is "No, all <look>": clears every borrow.
   function toggleMix(opt: { part: string; variant: string } | null) {
@@ -527,6 +561,7 @@ export function createMockScreen(project: string, slug: string) {
         setTapped(null);
       });
       setMixTouched(false);
+      setOtherOpen({});
       record(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -591,6 +626,11 @@ export function createMockScreen(project: string, slug: string) {
     look,
     lookPick,
     answerOf,
+    otherOf,
+    otherTicked,
+    noteOf,
+    setOther,
+    setNote,
     variantFor,
     activeVariant,
     activeState,

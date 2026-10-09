@@ -72,8 +72,9 @@ test("answer a mock's questions and send one reply", async ({ page, server }) =>
 
   await expect(page.locator(".strip > button")).toHaveCount(2);
   await expect(page.locator(".qhd")).toContainText("Question 1 of");
-  const looks = page.locator(".opt");
+  const looks = page.locator('.opt:not([data-option="other"])');
   await expect(looks).toHaveCount(2);
+  await expect(page.locator('.opt[data-option="other"]')).toHaveText("Other…");
   await expect(page.locator(".opt .thumb iframe")).toHaveCount(2);
   await expect(page.locator(".opt .thumb iframe").first()).toHaveAttribute(
     "sandbox",

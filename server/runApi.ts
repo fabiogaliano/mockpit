@@ -31,7 +31,7 @@ type Written = {
 };
 type Feedback = {
   mock: string | null;
-  reply: null | { asks: { ask: string; chosen: { id: string; label: string }[] }[]; mix: Knobs; tuned: Knobs; comments: { part: string | null; text: string }[] };
+  reply: null | { asks: { ask: string; chosen: { id: string; label: string; other?: true }[]; note?: string }[]; mix: Knobs; tuned: Knobs; comments: { part: string | null; text: string }[] };
   comments: { text: string; state: string | null; variant: string | null }[];
   accepted: { state: string | null; variant: string }[]; archived: { state: string | null; variant: string }[];
 };

@@ -80,6 +80,7 @@ import {
   type MockKind,
   newId,
   openAsks,
+  OTHER_ID,
   type PartComment,
   type Post,
   projectFromCwd,
@@ -1278,11 +1279,15 @@ export function createApp({
       return `ask "${text}" has more than ${MAX_OPTIONS} options`;
     const variants = new Set(posts.map((p) => p.variant));
     const options: AskOption[] = [];
-    const optionIds = new Set<string>();
+    // Seeded with the viewer's write-in, so a label "Other" slugs to "other-2".
+    const optionIds = new Set<string>([OTHER_ID]);
     for (const o of raw.options) {
       const opt = typeof o === "string" ? { label: o } : o;
       const label = str(opt?.label, 200);
       if (!label) return `every option of "${text}" needs a label`;
+      if (str(opt.id, 64) && slugify(str(opt.id, 64)!) === OTHER_ID) {
+        return `option id "${OTHER_ID}" is reserved: the viewer adds its own "Other…" write-in to every ask`;
+      }
       let id = slugify(str(opt.id, 64) ?? label);
       for (let n = 2; optionIds.has(id); n++) id = `${slugify(str(opt.id, 64) ?? label)}-${n}`;
       optionIds.add(id);
@@ -1438,6 +1443,27 @@ export function createApp({
     return out;
   }
 
+  // askId → text, for the write-ins and the notes: known asks only, text capped
+  // like a comment, blanks dropped.
+  function sanitizeAskTexts(
+    raw: unknown,
+    mock: Mock,
+    key: "others" | "notes",
+  ): Record<string, string> | string {
+    if (raw === undefined || raw === null) return {};
+    if (typeof raw !== "object" || Array.isArray(raw)) return `"${key}" must be an object`;
+    const out: Record<string, string> = {};
+    for (const [askId, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (!mock.asks.some((a) => a.id === askId)) return `${mock.slug} has no ask "${askId}"`;
+      if (value !== undefined && value !== null && typeof value !== "string") {
+        return `${key} "${askId}" must be text`;
+      }
+      const text = str(value, MAX_COMMENT_TEXT);
+      if (text) out[askId] = text;
+    }
+    return out;
+  }
+
   function sanitizeMix(raw: unknown, posts: Post[]): Record<string, string> | string {
     if (raw === undefined || raw === null) return {};
     if (typeof raw !== "object" || Array.isArray(raw)) return '"mix" must be an object';
@@ -1465,6 +1491,14 @@ export function createApp({
     if (!tuned.ok) return tuned.error;
     const comments = sanitizePartComments(pick("comments"), mock);
     if (typeof comments === "string") return comments;
+    const others = sanitizeAskTexts(pick("others"), mock, "others");
+    if (typeof others === "string") return others;
+    const notes = sanitizeAskTexts(pick("notes"), mock, "notes");
+    if (typeof notes === "string") return notes;
+    for (const askId of Object.keys(others)) {
+      const ask = mock.asks.find((a) => a.id === askId);
+      if (!ask?.multi && answers[askId] !== undefined) return `ask "${askId}" takes one answer`;
+    }
     const versionN = Number(pick("version"));
     const version =
       Number.isInteger(versionN) && versionN > 0
@@ -1476,6 +1510,8 @@ export function createApp({
       mix,
       tuned: tuned.value,
       comments,
+      others,
+      notes,
       updatedAt: new Date().toISOString(),
     };
   }
@@ -1573,6 +1609,24 @@ export function createApp({
     return { accept, archive };
   }
 
+  // An ask as a reply leaves it. A pick or a write-in replaces whatever was
+  // answered before; a note alone keeps that answer and adds to it.
+  function sentAsk(a: Ask, draft: Draft): Ask {
+    const answer = draft.answers[a.id];
+    const other = draft.others?.[a.id];
+    const note = draft.notes?.[a.id];
+    if (answer === undefined && other === undefined && note === undefined) return a;
+    const next: Ask = { ...a };
+    if (answer !== undefined || other !== undefined) {
+      delete next.answer;
+      delete next.other;
+      if (answer !== undefined) next.answer = answer;
+      if (other !== undefined) next.other = other;
+    }
+    if (note !== undefined) next.note = note;
+    return next;
+  }
+
   // Send: the user's one batched answer becomes one kind:"reply" comment on the
   // mock's session, delivered through the same cursor as everything else. The
   // draft is cleared and statuses flip in the same store transaction.
@@ -1592,7 +1646,9 @@ export function createApp({
       !Object.keys(draft.answers).length &&
       !Object.keys(draft.mix).length &&
       !Object.keys(draft.tuned).length &&
-      !draft.comments.length;
+      !draft.comments.length &&
+      !Object.keys(draft.others ?? {}).length &&
+      !Object.keys(draft.notes ?? {}).length;
     if (empty) return fail(400, "nothing to send");
     const latest = [...posts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
     const sessionId = mock.sessionId ?? latest?.sessionId;
@@ -1604,12 +1660,12 @@ export function createApp({
       mix: draft.mix,
       tuned: draft.tuned,
       comments: draft.comments,
+      ...(Object.keys(draft.others ?? {}).length ? { others: draft.others } : {}),
+      ...(Object.keys(draft.notes ?? {}).length ? { notes: draft.notes } : {}),
       ...(text ? { text } : {}),
       ...(decision ? { decision } : {}),
     };
-    const asks = mock.asks.map((a) =>
-      draft.answers[a.id] === undefined ? a : { ...a, answer: draft.answers[a.id] },
-    );
+    const asks = mock.asks.map((a) => sentAsk(a, draft));
     const flips = replyFlips(mock, posts, draft.answers, decision);
     const comment = await store.commitReply({
       mockId: mock.id,

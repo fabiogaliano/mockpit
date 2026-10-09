@@ -927,7 +927,10 @@ function watchLines(batch) {
     const bits = [
       r.asks?.length
         ? r.asks
-            .map((a) => `${a.text || a.ask}: ${a.chosen.map((o) => o.label).join("+")}`)
+            .map(
+              (a) =>
+                `${a.text || a.ask}: ${a.chosen.map((o) => (o.other ? `“${o.label}”` : o.label)).join("+")}${a.note ? ` (“${a.note}”)` : ""}`,
+            )
             .join("; ")
         : "",
       Object.keys(r.tuned ?? {}).length ? `${Object.keys(r.tuned).length} tuned` : "",

@@ -1021,6 +1021,93 @@ test("a reply reaches the agent exactly once, with the asks resolved", async () 
   assert.equal(thread.find((c: any) => c.kind === "reply").seen, true);
 });
 
+test("notes and write-ins draft, validate, reach the agent in one reply, and clear", async () => {
+  const app = makeApp();
+  const { mockId, session } = await writer(app);
+  await call(
+    app,
+    `/api/mocks/${mockId}/asks`,
+    agent({
+      asks: [
+        {
+          id: "look",
+          text: "Which look?",
+          options: [
+            { label: "Quiet", variant: "quiet" },
+            { label: "Dark", variant: "dark" },
+          ],
+        },
+        { id: "lang", text: "Which language?", options: ["English", "Portuguese"] },
+        { id: "list", text: "Which list?", multi: true, options: ["Table", "Cards"] },
+      ],
+    }),
+  );
+  const path = `/api/mocks/${mockId}/draft`;
+  const put = (body: unknown) => call(app, path, viewer(body, "PUT"));
+  assert.equal((await put({ notes: { nope: "x" } })).status, 400);
+  assert.equal((await put({ others: { lang: 3 } })).status, 400);
+  assert.equal((await put({ others: [] })).status, 400);
+  const both = await put({ answers: { lang: "english" }, others: { lang: "Both" } });
+  assert.equal(both.status, 400, "a single ask takes an option or a write-in, not both");
+  assert.match(both.body.error, /takes one answer/);
+  assert.equal(
+    (await put({ answers: { list: ["table"] }, others: { list: "a map" } })).status,
+    200,
+    "a multi ask takes both",
+  );
+
+  const long = "x".repeat(9000);
+  const saved = await put({
+    others: { lang: " Both, side by side ", list: "  " },
+    notes: { list: "Table on desktop, Cards on mobile", look: long },
+  });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.body.draft.others, { lang: "Both, side by side" });
+  assert.equal(saved.body.draft.notes.look.length, 8000);
+  const read = (await call(app, path, viewer(undefined, "GET"))).body.draft;
+  assert.equal(read.notes.list, "Table on desktop, Cards on mobile");
+  // Never delivered before Send.
+  const early = (await call(app, `/api/comments?session=${session}&author=user`)).body;
+  assert.deepEqual(early.feedback, []);
+
+  await put({ others: { lang: "Both, side by side" }, notes: { list: "Table on desktop" } });
+  const sent = await call(app, `/api/mocks/${mockId}/reply`, viewer({}));
+  assert.equal(sent.status, 201);
+  assert.deepEqual(sent.body.accepted, [], "a write-in flips no variant");
+  assert.equal((await call(app, path, viewer(undefined, "GET"))).body.draft, null);
+  const batch = (await call(app, `/api/comments?session=${session}&author=user`)).body.feedback[0];
+  assert.deepEqual(batch.reply.asks, [
+    {
+      ask: "lang",
+      text: "Which language?",
+      chosen: [{ id: "other", label: "Both, side by side", other: true }],
+    },
+    { ask: "list", text: "Which list?", chosen: [], note: "Table on desktop" },
+  ]);
+  assert.equal(batch.reply.others, undefined);
+  const detail = (await call(app, `/api/mocks/${mockId}`)).body;
+  const byId = Object.fromEntries(detail.asks.map((a: any) => [a.id, a]));
+  assert.equal(byId.lang.other, "Both, side by side");
+  assert.equal(byId.list.note, "Table on desktop");
+  assert.equal(detail.open, 1, "a write-in or a note answers its ask; look stays open");
+});
+
+test("the option id `other` is reserved for the viewer's write-in", async () => {
+  const app = makeApp();
+  const { mockId } = await writer(app);
+  const ask = (options: unknown[]) =>
+    call(app, `/api/mocks/${mockId}/asks`, agent({ asks: [{ text: "Lang?", options }] }));
+  const bad = await ask([{ id: "other", label: "Something else" }]);
+  assert.equal(bad.status, 400);
+  assert.match(bad.body.error, /"other" is reserved/);
+  const ok = await ask(["English", "Other"]);
+  assert.equal(ok.status, 200);
+  assert.deepEqual(
+    ok.body.asks[0].options.map((o: any) => o.id),
+    ["english", "other-2"],
+  );
+});
+
 test("user feedback piggybacks on the agent's next write, once", async () => {
   const app = makeApp();
   const out = await publish(app, { mock: "card", ...html("<p>1</p>") });

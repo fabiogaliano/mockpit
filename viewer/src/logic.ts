@@ -1,14 +1,15 @@
 // Pure rules behind the mock screen — no DOM, no signals — so each one is
 // unit-tested on its own (viewer/test/logic.test.ts).
 
-import type {
-  Ask,
-  AskAnswer,
-  KnobConfig,
-  KnobValue,
-  Knobs,
-  PartComment,
-  Reply,
+import {
+  type Ask,
+  type AskAnswer,
+  askAnswered,
+  type KnobConfig,
+  type KnobValue,
+  type Knobs,
+  type PartComment,
+  type Reply,
 } from "../../server/types.ts";
 import type { CommentRow, DraftInput, HistoryRow, MockDetail, VariantView } from "./api.ts";
 
@@ -20,24 +21,76 @@ export const emptyDraft = (version: number): DraftInput => ({
   mix: {},
   tuned: {},
   comments: [],
+  others: {},
+  notes: {},
 });
 
-export const draftIsEmpty = (d: DraftInput | null): boolean =>
-  !d ||
-  (!Object.keys(d.answers).length &&
-    !Object.keys(d.mix).length &&
-    !Object.keys(d.tuned).length &&
-    !d.comments.length);
+// The asks a draft says something about: a pick, a write-in or a note.
+const draftAsks = (d: DraftInput): Set<string> =>
+  new Set([...Object.keys(d.answers), ...Object.keys(d.others), ...Object.keys(d.notes)]);
 
-// Everything one Send carries, as the count on the button.
+export const draftIsEmpty = (d: DraftInput | null): boolean => !d || sendCount(d) === 0;
+
+// Everything one Send carries, as the count on the button. A question counts
+// once however it was answered (pick, write-in, note, or a pick with a note).
 export const sendCount = (d: DraftInput): number =>
-  Object.keys(d.answers).length +
-  Object.keys(d.mix).length +
-  Object.keys(d.tuned).length +
-  d.comments.length;
+  draftAsks(d).size + Object.keys(d.mix).length + Object.keys(d.tuned).length + d.comments.length;
 
 export const answerIds = (a: AskAnswer | undefined): string[] =>
   a === undefined ? [] : Array.isArray(a) ? a : [a];
+
+// What an ask reads as now: the draft's pick and write-in when the draft
+// touched either, else what was sent. A note stands apart from both: a draft
+// note shows over the sent one.
+export interface AskPick {
+  ids: string[];
+  other: string | undefined;
+  note: string | undefined;
+}
+export function askPick(
+  ask: Pick<Ask, "id" | "answer" | "other" | "note">,
+  d: DraftInput | null,
+): AskPick {
+  const drafted = d && (d.answers[ask.id] !== undefined || d.others[ask.id] !== undefined);
+  return {
+    ids: answerIds(drafted ? d.answers[ask.id] : ask.answer),
+    other: drafted ? d.others[ask.id] : ask.other,
+    note: d?.notes[ask.id] ?? ask.note,
+  };
+}
+
+// Picking an option or "Other…" (option null) in a draft: single asks keep one
+// of them, multi asks toggle. A write-in starts empty and only counts once it
+// has text, so `otherOpen` is the viewer's "Other is ticked" before that.
+export function pickInDraft(
+  d: DraftInput,
+  ask: Pick<Ask, "id" | "multi">,
+  option: string | null,
+  otherOpen: boolean,
+): { draft: DraftInput; otherOpen: boolean } {
+  const answers = { ...d.answers };
+  const others = { ...d.others };
+  const ids = answerIds(answers[ask.id]);
+  let open = otherOpen || others[ask.id] !== undefined;
+  if (option === null) {
+    if (open && ask.multi) {
+      delete others[ask.id];
+      open = false;
+    } else if (!open) {
+      if (!ask.multi) delete answers[ask.id];
+      open = true;
+    }
+  } else if (ask.multi) {
+    const next = ids.includes(option) ? ids.filter((x) => x !== option) : [...ids, option];
+    if (next.length) answers[ask.id] = next;
+    else delete answers[ask.id];
+  } else {
+    answers[ask.id] = option;
+    delete others[ask.id];
+    open = false;
+  }
+  return { draft: { ...d, answers, others }, otherOpen: open };
+}
 
 // The Look ask (Q9): mock-wide, its options bound to variants.
 export const isLookAsk = (ask: Ask): boolean =>
@@ -188,13 +241,22 @@ function fmtValue(v: KnobValue): string {
 
 // One Send as a line in the thread: "Sent · look quiet · trim below · mix body · dark's".
 export function summarizeReply(
-  reply: Pick<Reply, "answers" | "mix" | "tuned" | "comments" | "text" | "decision">,
+  reply: Pick<
+    Reply,
+    "answers" | "mix" | "tuned" | "comments" | "text" | "decision" | "others" | "notes"
+  >,
   mock: Pick<MockDetail, "asks">,
 ): string {
   const parts: string[] = [];
   for (const ask of mock.asks) {
     const answer = reply.answers[ask.id];
-    if (answer !== undefined) parts.push(`${askTopic(ask)} ${optionLabels(ask, answer)}`);
+    const other = reply.others?.[ask.id];
+    const said = [
+      answer !== undefined ? optionLabels(ask, answer) : "",
+      other !== undefined ? `“${other}”` : "",
+    ].filter(Boolean);
+    if (said.length) parts.push(`${askTopic(ask)} ${said.join(" + ")}`);
+    else if (reply.notes?.[ask.id] !== undefined) parts.push(`${askTopic(ask)} noted`);
   }
   for (const [id, answer] of Object.entries(reply.answers)) {
     if (!mock.asks.some((a) => a.id === id)) parts.push(`${id} ${answerIds(answer).join(" + ")}`);
@@ -221,6 +283,8 @@ export function carryOver(
   const names = new Set(variants.map((v) => v.variant));
   const answers: Record<string, AskAnswer> = {};
   const flagged: string[] = [];
+  const known = (texts: Record<string, string>) =>
+    Object.fromEntries(Object.entries(texts).filter(([id]) => mock.asks.some((a) => a.id === id)));
   for (const [id, answer] of Object.entries(draft.answers)) {
     const ask = mock.asks.find((a) => a.id === id);
     const ok =
@@ -244,7 +308,18 @@ export function carryOver(
   for (const [k, v] of Object.entries(draft.tuned)) if (paths.has(k)) tuned[k] = v;
   const allParts = new Set(variants.flatMap((v) => v.parts));
   const comments = draft.comments.filter((c) => c.part === null || allParts.has(c.part));
-  return { draft: { version: toVersion, answers, mix, tuned, comments }, flagged };
+  return {
+    draft: {
+      version: toVersion,
+      answers,
+      mix,
+      tuned,
+      comments,
+      others: known(draft.others),
+      notes: known(draft.notes),
+    },
+    flagged,
+  };
 }
 
 // Hover and click both ask the frame "what part is here?" and the replies come
@@ -357,6 +432,8 @@ export interface ThreadRow {
   id: string;
   // A reply's comments, each with where it was left ("title · At rest").
   comments?: { where: string; text: string }[];
+  // A reply's notes, each under the question it qualifies.
+  notes?: { ask: string; text: string }[];
 }
 
 export const commentWhere = (c: Pick<PartComment, "part" | "state">): string =>
@@ -406,6 +483,13 @@ export function threadRows(
       if (reply?.comments.length) {
         row.comments = reply.comments.map((x) => ({ where: commentWhere(x), text: x.text }));
       }
+      const notes = Object.entries(reply?.notes ?? {});
+      if (notes.length) {
+        row.notes = notes.map(([id, text]) => ({
+          ask: mock.asks.find((a) => a.id === id)?.text ?? id,
+          text,
+        }));
+      }
       rows.push(row);
       lastPublish = null;
       continue;
@@ -438,11 +522,17 @@ export function timeAgo(iso: string, now = Date.now()): string {
 }
 
 export const openAsks = (mock: Pick<MockDetail, "asks">): Ask[] =>
-  mock.asks.filter((a) => a.answer === undefined);
+  mock.asks.filter((a) => !askAnswered(a));
 
-// A question the user still owes: open on the server and not picked in the draft.
+// A question the user still owes: open on the server and not answered in the
+// draft. A write-in with text or a note alone answers it.
 export const unanswered = (mock: MockLike, draft: DraftInput | null): Ask[] =>
-  openAsks(mock).filter((a) => !answerIds(draft?.answers[a.id]).length);
+  openAsks(mock).filter(
+    (a) =>
+      !answerIds(draft?.answers[a.id]).length &&
+      draft?.others[a.id] === undefined &&
+      draft?.notes[a.id] === undefined,
+  );
 
 // The box a part occupies in a frame's document: its deepest visible instance.
 export function partBox(

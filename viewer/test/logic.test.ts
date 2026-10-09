@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Ask } from "../../server/types.ts";
-import type { CommentRow, MockDetail, VariantView } from "../src/api.ts";
+import type { CommentRow, DraftInput, MockDetail, VariantView } from "../src/api.ts";
 import {
+  askPick,
   carryOver,
+  draftIsEmpty,
+  emptyDraft,
+  pickInDraft,
+  unanswered,
   createHitRefs,
   draftKnobValues,
   fitThumb,
@@ -223,6 +228,8 @@ describe("carryOver", () => {
         { part: "vanished", state: "Writing", text: "drop" },
         { part: null, state: "Writing", text: "page-wide" },
       ],
+      others: { panel: "a tab", gone: "x" },
+      notes: { look: "on mobile", gone: "y" },
     };
     const { draft: next, flagged } = carryOver(draft, mock, variants, 4);
     expect(next.version).toBe(4);
@@ -231,6 +238,8 @@ describe("carryOver", () => {
     expect(next.mix).toEqual({ body: "dark" });
     expect(next.tuned).toEqual({ "body.size": 19 });
     expect(next.comments.map((c) => c.text)).toEqual(["keep", "page-wide"]);
+    expect(next.others).toEqual({ panel: "a tab" });
+    expect(next.notes).toEqual({ look: "on mobile" });
   });
 });
 
@@ -280,6 +289,8 @@ describe("versions and knobs", () => {
         mix: {},
         tuned: { "body.size": 19 },
         comments: [],
+        others: { panel: "a tab" },
+        notes: {},
       },
     );
     expect(values).toEqual({ "trim.position": "bottom", "body.size": 19 });
@@ -297,8 +308,23 @@ describe("versions and knobs", () => {
         mix: { p: "v" },
         tuned: { k: 1 },
         comments: [{ part: null, state: null, text: "c" }],
+        others: {},
+        notes: {},
       }),
     ).toBe(5);
+  });
+
+  it("counts a question once, however it was answered", () => {
+    const d = {
+      ...emptyDraft(1),
+      answers: { a: "x" },
+      others: { b: "mine" },
+      notes: { a: "n", c: "n" },
+    };
+    expect(sendCount(d)).toBe(3);
+    expect(draftIsEmpty(d)).toBe(false);
+    expect(draftIsEmpty({ ...emptyDraft(1), notes: { c: "only a note" } })).toBe(false);
+    expect(draftIsEmpty(emptyDraft(1))).toBe(true);
   });
 });
 
@@ -377,6 +403,95 @@ describe("marks", () => {
     expect(markPins(comments, "At rest", undefined)).toEqual([]);
     expect(nextMark(comments)).toBe(4);
     expect(nextMark([])).toBe(1);
+  });
+});
+
+describe("notes and Other…", () => {
+  const multi: Ask = { ...panel, id: "m", multi: true };
+
+  it("keeps Other or one option on a single ask, and toggles it on a multi ask", () => {
+    let r = pickInDraft({ ...emptyDraft(1), answers: { panel: "drawer" } }, panel, null, false);
+    expect(r.otherOpen).toBe(true);
+    expect(r.draft.answers).toEqual({});
+    r = pickInDraft({ ...r.draft, others: { panel: "a tab" } }, panel, "margin", r.otherOpen);
+    expect(r).toMatchObject({
+      otherOpen: false,
+      draft: { answers: { panel: "margin" }, others: {} },
+    });
+
+    r = pickInDraft({ ...emptyDraft(1), answers: { m: ["drawer"] } }, multi, null, false);
+    expect(r.otherOpen).toBe(true);
+    expect(r.draft.answers).toEqual({ m: ["drawer"] });
+    r = pickInDraft({ ...r.draft, others: { m: "tab" } }, multi, "margin", true);
+    expect(r.draft.answers).toEqual({ m: ["drawer", "margin"] });
+    expect(r.draft.others).toEqual({ m: "tab" });
+    r = pickInDraft(r.draft, multi, null, true);
+    expect(r).toMatchObject({ otherOpen: false, draft: { others: {} } });
+  });
+
+  it("reads the draft over what was sent; a note on its own", () => {
+    const sent = { ...panel, answer: "drawer", note: "old" };
+    expect(askPick(sent, null)).toEqual({ ids: ["drawer"], other: undefined, note: "old" });
+    expect(askPick(sent, { ...emptyDraft(1), others: { panel: "tab" } })).toEqual({
+      ids: [],
+      other: "tab",
+      note: "old",
+    });
+    expect(askPick(sent, { ...emptyDraft(1), notes: { panel: "new" } }).ids).toEqual(["drawer"]);
+  });
+
+  it("counts a write-in or a note alone as answering; a sent one closes the ask", () => {
+    const m = { ...mock, asks: [look, trim, panel] } as MockDetail;
+    const owed = (d: Partial<DraftInput>) =>
+      unanswered(m, { ...emptyDraft(1), ...d }).map((a) => a.id);
+    expect(owed({})).toEqual(["look", "trim", "panel"]);
+    expect(owed({ others: { look: "both" }, notes: { trim: "neither, because…" } })).toEqual([
+      "panel",
+    ]);
+    const sent = { ...m, asks: [{ ...look, other: "both" }, { ...trim, note: "n" }, panel] };
+    expect(unanswered(sent as MockDetail, null).map((a) => a.id)).toEqual(["panel"]);
+  });
+
+  it("summarizes a write-in and a note-only answer, and lists notes under their question", () => {
+    const payload = {
+      mockId: "m",
+      version: 1,
+      answers: { look: "dark" },
+      mix: {},
+      tuned: {},
+      comments: [],
+      others: { panel: "a tab" },
+      notes: { look: "on desktop", trim: "neither fits" },
+    };
+    expect(summarizeReply(payload, mock)).toBe(
+      "Sent · look dark · trim noted · versions open “a tab”",
+    );
+    const rows = threadRows(
+      [
+        {
+          id: "r",
+          seq: 1,
+          sessionId: "s",
+          mockId: "m",
+          postId: null,
+          author: "user",
+          text: "",
+          createdAt: "2026-01-01T00:00:02Z",
+          kind: "reply",
+          anchors: [],
+          postVersion: null,
+          viewport: null,
+          seen: false,
+          payload,
+        } as CommentRow,
+      ],
+      [],
+      mock,
+    );
+    expect(rows[0].notes).toEqual([
+      { ask: "Which look?", text: "on desktop" },
+      { ask: "Trim above or below?", text: "neither fits" },
+    ]);
   });
 });
 

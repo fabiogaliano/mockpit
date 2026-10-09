@@ -958,6 +958,8 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
         { part: "title", state: "Writing", text: "bigger", anchor: { offset: [0.1, 0.2] } },
         { part: null, state: null, text: "anywhere" },
       ],
+      others: { lang: "Both" },
+      notes: { look: "dark on desktop" },
       updatedAt: "2026-10-01T00:00:00.000Z",
     };
     assert.deepEqual((await store.putDraft(mock.id, draft))?.draft, draft);
@@ -1025,6 +1027,8 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
         mix: {},
         tuned: { size: 3 },
         comments: [{ part: "title", state: null, text: "bigger" }],
+        others: { lang: "Both" },
+        notes: { look: "on desktop" },
         text: "go dark",
       };
       const asks = [

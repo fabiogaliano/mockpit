@@ -137,6 +137,61 @@ test("an answer naming an option the mock no longer has is kept by id", () => {
   ]);
 });
 
+test("a write-in rides as an `other` choice and a note on its ask, not again as maps", () => {
+  const withLang = mock({
+    asks: [
+      ...mock().asks,
+      {
+        id: "lang",
+        text: "Which language?",
+        scope: "mock",
+        options: [{ id: "en", label: "English" }],
+        at: "t",
+      },
+    ],
+  });
+  const [batch] = groupFeedback(
+    [
+      comment({
+        kind: "reply",
+        payload: reply({
+          others: { lang: "Both, side by side" },
+          notes: { look: "dark on desktop only", lang: "admin first" },
+        }),
+      }),
+    ],
+    new Map([["m1", withLang]]),
+    new Map(),
+  );
+  assert.deepEqual(batch.reply?.asks, [
+    {
+      ask: "look",
+      text: "Which look?",
+      chosen: [{ id: "dark", label: "Dark", variant: "dark" }],
+      note: "dark on desktop only",
+    },
+    {
+      ask: "lang",
+      text: "Which language?",
+      chosen: [{ id: "other", label: "Both, side by side", other: true }],
+      note: "admin first",
+    },
+  ]);
+  assert.equal("others" in (batch.reply ?? {}), false);
+  assert.equal("notes" in (batch.reply ?? {}), false);
+});
+
+test("a note alone answers its ask with nothing chosen", () => {
+  const [batch] = groupFeedback(
+    [comment({ kind: "reply", payload: reply({ answers: {}, notes: { look: "neither" } }) })],
+    new Map([["m1", mock()]]),
+    new Map(),
+  );
+  assert.deepEqual(batch.reply?.asks, [
+    { ask: "look", text: "Which look?", chosen: [], note: "neither" },
+  ]);
+});
+
 test("a second reply for the same mock starts a new batch rather than overwriting", () => {
   const batches = groupFeedback(
     [

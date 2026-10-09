@@ -18,7 +18,13 @@ until they press Send. Then you get one batch per mock:
       {
         "ask": "trim",
         "text": "Trim above or below?",
-        "chosen": [{ "id": "below", "label": "Below", "set": { "trim.position": "bottom" } }]
+        "chosen": [{ "id": "below", "label": "Below", "set": { "trim.position": "bottom" } }],
+        "note": "below on mobile only"
+      },
+      {
+        "ask": "lang",
+        "text": "Which language?",
+        "chosen": [{ "id": "other", "label": "Both, side by side", "other": true }]
       }
     ],
     "mix": { "body": "quiet" },
@@ -36,7 +42,10 @@ until they press Send. Then you get one batch per mock:
 
 1. `answers` and `asks` decide structure. A variant-bound answer has already
    accepted that variant and archived its siblings (`accepted`, `archived`).
-   Stop iterating on the archived ones.
+   Stop iterating on the archived ones. A `chosen` entry with `other: true` is
+   the user's own answer (its `label`), not one of your options; it flips no
+   variant and sets no knob. `note` qualifies the answer and may come with
+   nothing chosen.
 2. `tuned` holds knob values. Write them back into the source as the new
    defaults. tunekit's skill (`skills/tunekit` in the tunekit package) covers
    applying copied values.

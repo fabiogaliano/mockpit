@@ -41,6 +41,18 @@ export function Thread(props: { s: MockScreenState; scroller: () => HTMLElement 
                   </For>
                 </div>
               </Show>
+              <Show when={r.notes?.length}>
+                <div class="tnotes">
+                  <For each={r.notes}>
+                    {(n) => (
+                      <div class="tnote" data-note>
+                        <span class="cwhere">{n.ask}</span>
+                        {`note: ${n.text}`}
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </Show>
               <Show when={r.quote}>
                 <div class="tquote">{r.quote}</div>
               </Show>

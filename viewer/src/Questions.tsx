@@ -12,6 +12,7 @@ import {
   answerIds,
   askName,
   askState,
+  emptyDraft,
   frameKey,
   isLookAsk,
   type MixOption,
@@ -42,11 +43,15 @@ function QuestionView(props: { s: MockScreenState }) {
   const i = () => Math.min(s.cur(), total() - 1);
   const q = () => s.questions()[i()];
   const isLast = () => i() === total() - 1;
-  const n = () =>
-    sendCount(s.draft() ?? { version: 0, answers: {}, mix: {}, tuned: {}, comments: [] });
+  const n = () => sendCount(s.draft() ?? emptyDraft(0));
   const answered = () => {
     const x = q();
-    return x.kind === "mix" ? s.mixAnswered() : s.answerOf(x.ask) !== undefined;
+    if (x.kind === "mix") return s.mixAnswered();
+    return (
+      s.answerOf(x.ask) !== undefined ||
+      s.otherOf(x.ask) !== undefined ||
+      s.noteOf(x.ask) !== undefined
+    );
   };
 
   return (
@@ -127,9 +132,13 @@ function Header(props: { s: MockScreenState; index: number; total: number }) {
       const mix = Object.entries(s.draft()?.mix ?? {}).map(([p, v]) => `${p} · ${v}'s`);
       return s.mixAnswered() ? mix.join(", ") || "none" : null;
     }
-    const ids = answerIds(s.answerOf(a));
-    if (!ids.length) return null;
-    return ids.map((id) => a.options.find((o) => o.id === id)?.label ?? id).join(", ");
+    const said = answerIds(s.answerOf(a)).map(
+      (id) => a.options.find((o) => o.id === id)?.label ?? id,
+    );
+    const other = s.otherOf(a);
+    if (other !== undefined) said.push(`“${other}”`);
+    if (said.length) return said.join(", ");
+    return s.noteOf(a) !== undefined ? "a note" : null;
   });
   const flagged = () => {
     const a = ask();
@@ -296,8 +305,83 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
             );
           }}
         </For>
+        <OptionCard
+          picture={null}
+          label="Other…"
+          other
+          on={s.otherTicked(props.ask)}
+          previewing={false}
+          data="other"
+          onEnter={() => s.setPreview(null)}
+          onLeave={() => {}}
+          onChoose={() => !readonly() && s.pick(props.ask, null)}
+        />
       </div>
+      <Show when={s.otherTicked(props.ask)}>
+        <AskText
+          class="other-text"
+          label="Your answer"
+          value={s.otherOf(props.ask) ?? ""}
+          placeholder="none of these fit? say what would"
+          focus={s.otherOf(props.ask) === undefined}
+          onInput={(v) => s.setOther(props.ask, v)}
+        />
+      </Show>
+      <AskNote s={s} ask={props.ask} />
     </div>
+  );
+}
+
+// A quiet "Add a note" under each question: opt-in, and open on its own once
+// a note exists, so an unused one costs nothing.
+function AskNote(props: { s: MockScreenState; ask: Ask }) {
+  const s = props.s;
+  const [open, setOpen] = createSignal(false);
+  const shown = () => open() || s.noteOf(props.ask) !== undefined;
+  return (
+    <Show
+      when={shown()}
+      fallback={
+        <Show when={!readonly()}>
+          <button type="button" class="lnk addnote" onClick={() => setOpen(true)}>
+            Add a note
+          </button>
+        </Show>
+      }
+    >
+      <AskText
+        class="ask-note"
+        label="Note"
+        value={s.noteOf(props.ask) ?? ""}
+        placeholder="e.g. Table on desktop, Cards on mobile"
+        focus={open() && s.noteOf(props.ask) === undefined}
+        onInput={(v) => s.setNote(props.ask, v)}
+      />
+    </Show>
+  );
+}
+
+function AskText(props: {
+  class: string;
+  label: string;
+  value: string;
+  placeholder: string;
+  focus: boolean;
+  onInput: (v: string) => void;
+}) {
+  return (
+    <label class={`asktext ${props.class}`}>
+      <span class="up-text-label">{props.label}</span>
+      <textarea
+        rows={2}
+        maxLength={8000}
+        placeholder={props.placeholder}
+        value={props.value}
+        readOnly={readonly()}
+        ref={(el) => props.focus && queueMicrotask(() => el.focus())}
+        onInput={(e) => props.onInput(e.currentTarget.value)}
+      />
+    </label>
   );
 }
 
@@ -378,6 +462,7 @@ function MixBlock(props: { s: MockScreenState; index: number }) {
 
 function OptionCard(props: {
   picture: JSX.Element | null;
+  other?: boolean;
   label: string;
   on: boolean;
   previewing: boolean;
@@ -390,7 +475,12 @@ function OptionCard(props: {
     <button
       type="button"
       class="opt"
-      classList={{ on: props.on, pill: !props.picture, previewing: props.previewing }}
+      classList={{
+        on: props.on,
+        pill: !props.picture,
+        other: !!props.other,
+        previewing: props.previewing,
+      }}
       aria-pressed={props.on}
       data-option={props.data}
       onPointerEnter={(e) => e.pointerType === "mouse" && props.onEnter()}
