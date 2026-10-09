@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.0
+
+### Minor Changes
+
+- 06b8df0: The server keeps an event log for diagnosing agent sessions after the fact: one JSON line per agent call, viewer write and live-feed connection. Each line records the client and its version, the status, the session, the mock, the reply seqs delivered and what was pending, but never content. On Node it is on by default at `~/.mockpit/events.jsonl` (next to the database, rolled over at 10 MB); `MOCKPIT_LOG` sets another path, or `off` disables it. On Workers it goes to Workers Logs. The CLI, the stdio MCP server and the Pi extension now send an `x-mockpit-client: <tier>/<version>` header, so a client left running across an upgrade shows up in the log. `createApp` accepts a `log` sink.
+
+### Patch Changes
+
+- 06b8df0: `pending.viewerOpen` in `feedback`, `read` and the mock list now means "a browser has this mock on screen", not "any browser has the workspace open". Before, every mock in the project read `viewerOpen: true` while a single tab was open, so agents told users a mock was open when it wasn't. The viewer names the mock it shows with `/api/events?viewing=<mockId>`, and the CLI and Pi `pending` lines now print per mock.
+
 ## 1.0.0
 
 ### Major Changes
