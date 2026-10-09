@@ -36,7 +36,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-          cache: npm
+          package-manager-cache: false
       - run: npm install -g npm@11.17.0
       - run: npm ci --ignore-scripts
       - uses: changesets/action/select-mode@v2.1.1
@@ -57,7 +57,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-          cache: npm
+          package-manager-cache: false
       - run: npm install -g npm@11.17.0
       - run: npm ci --ignore-scripts
       - uses: changesets/action/version@v2.1.1
@@ -82,7 +82,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-          cache: npm
+          package-manager-cache: false
           registry-url: https://registry.npmjs.org
       # 11.5+ is what speaks npm trusted publishing (OIDC).
       - run: npm install -g npm@11.17.0
