@@ -943,6 +943,7 @@ test("restore as vN writes an older version back as a new user-authored version"
     ["mock-updated", "post-updated"],
   );
   assert.equal(events[1].version, 3);
+  assert.equal(events[1].by, "user");
 
   const detail = (await call(app, `/api/mocks/${mockId}?history=1&body=1`)).body;
   const v = detail.variants[0];
@@ -1279,6 +1280,7 @@ test("onEvent receives feed events; a throwing listener never fails the write", 
     mockId: out.mock.id,
     sessionId: out.sessionId,
     version: 1,
+    by: "agent",
   });
 
   const warn = console.warn;
@@ -1305,7 +1307,7 @@ test("SSE ?mock= only streams that mock's events", async () => {
   assert.equal(stream.status, 200);
   const other = await publish(app, { mock: "b", session: b.sessionId, ...html("<p>2</p>") });
   const mine = await publish(app, { mock: "a", session: a.sessionId, ...html("<p>2</p>") });
-  const text = await readSseUntil(stream, `"version":2}`, () => ac.abort());
+  const text = await readSseUntil(stream, `"version":2,"by":"agent"}`, () => ac.abort());
   assert.ok(text.includes(mine.post.id));
   assert.ok(!text.includes(other.post.id));
 });

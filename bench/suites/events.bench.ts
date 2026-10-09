@@ -84,7 +84,14 @@ export const eventsSuite: Suite = {
       await ctx.time(
         `bus.broadcast → ${subscribers} subscribers`,
         () =>
-          bus.broadcast({ type: "post-updated", id: "p", mockId: "m", sessionId: "s", version: 2 }),
+          bus.broadcast({
+            type: "post-updated",
+            id: "p",
+            mockId: "m",
+            sessionId: "s",
+            version: 2,
+            by: "agent",
+          }),
         { note: `${subscribers} listeners` },
       );
       void seen;

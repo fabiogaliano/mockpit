@@ -187,7 +187,8 @@ a {
 .dot.ok {
   background: var(--ok);
 }
-.themebtn {
+.themebtn,
+.bellbtn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -199,14 +200,26 @@ a {
     background var(--ease),
     color var(--ease);
 }
-.themebtn:hover {
+.themebtn:hover,
+.bellbtn:hover {
   background: var(--row);
   color: var(--t1);
 }
-.themebtn svg {
+.themebtn svg,
+.bellbtn svg {
   width: 18px;
   height: 18px;
   stroke-width: 1.7;
+}
+/* The bell sits flush against the theme button: one group of chrome icons. */
+.bellbtn {
+  margin-right: -10px;
+}
+.bellbtn[data-bell="on"] {
+  color: var(--t1);
+}
+.bellbtn[data-bell="blocked"] {
+  color: var(--t5);
 }
 
 /* ---------- home (D10) ---------- */

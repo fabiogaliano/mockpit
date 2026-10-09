@@ -67,6 +67,8 @@ export const api = {
   projects: () => call<ProjectSummary[]>("/api/projects"),
   mocks: (project: string) => call<MockList>(`/api/mocks?project=${encodeURIComponent(project)}`),
   mock: (id: string) => call<MockDetail>(`/api/mocks/${encodeURIComponent(id)}?history=1`),
+  // The same view without version rows: enough to name a mock and its variants.
+  mockHead: (id: string) => call<MockDetail>(`/api/mocks/${encodeURIComponent(id)}`),
   draft: (id: string) =>
     call<{ draft: Draft | null }>(`/api/mocks/${encodeURIComponent(id)}/draft`),
   putDraft: (id: string, draft: DraftInput) =>
@@ -85,9 +87,9 @@ export const api = {
   // A plain comment from the user, outside a reply.
   comment: (mockId: string, text: string) =>
     call<CommentRow>("/api/comments", json("POST", { mock: mockId, text, author: "user" })),
-  comments: (mockId: string) =>
+  comments: (mockId: string, after?: number) =>
     call<{ comments: CommentRow[]; lastSeq: number }>(
-      `/api/comments?mock=${encodeURIComponent(mockId)}`,
+      `/api/comments?mock=${encodeURIComponent(mockId)}${after === undefined ? "" : `&after=${after}`}`,
     ),
   theme: () => call<{ mode: "dark" | "light" }>("/api/theme"),
   putTheme: (mode: "dark" | "light") => call<{ mode: string }>("/api/theme", json("PUT", { mode })),
@@ -109,19 +111,45 @@ export function surfaceUrl(
 
 export const assetUrl = (id: string) => url(`/a/${encodeURIComponent(id)}`);
 
-// The live feed. EventSource reconnects on its own; `onOpen` lets callers
-// refetch after a gap so nothing broadcast while disconnected is missed.
+// The live feed: one EventSource per tab, shared by every subscriber, since
+// browsers hold at most six HTTP/1.1 connections per origin across all tabs.
+// EventSource reconnects on its own; `onOpen` runs on each (re)connect so
+// callers refetch after a gap and nothing broadcast while disconnected is missed.
+interface Feed {
+  close: () => void;
+  listeners: Set<{ onEvent: (e: FeedEvent) => void; onOpen?: () => void }>;
+}
+let feed: Feed | null = null;
+
 export function subscribe(onEvent: (e: FeedEvent) => void, onOpen?: () => void): () => void {
-  const Source = (host().window as Window & typeof globalThis).EventSource;
-  if (!Source) return () => {};
-  const es = new Source(url("/api/events"));
-  es.onmessage = (m: MessageEvent<string>) => {
-    try {
-      onEvent(JSON.parse(m.data) as FeedEvent);
-    } catch {
-      // A malformed frame is dropped; the next event or reconnect refetches.
+  if (!feed) {
+    const Source = (host().window as Window & typeof globalThis).EventSource;
+    if (!Source) return () => {};
+    const es = new Source(url("/api/events"));
+    const opened: Feed = { close: () => es.close(), listeners: new Set() };
+    es.onmessage = (m: MessageEvent<string>) => {
+      let event: FeedEvent;
+      try {
+        event = JSON.parse(m.data) as FeedEvent;
+      } catch {
+        // A malformed frame is dropped; the next event or reconnect refetches.
+        return;
+      }
+      for (const l of opened.listeners) l.onEvent(event);
+    };
+    es.addEventListener("hello", () => {
+      for (const l of opened.listeners) l.onOpen?.();
+    });
+    feed = opened;
+  }
+  const current = feed;
+  const entry = { onEvent, onOpen };
+  current.listeners.add(entry);
+  return () => {
+    current.listeners.delete(entry);
+    if (current.listeners.size === 0 && feed === current) {
+      current.close();
+      feed = null;
     }
   };
-  if (onOpen) es.addEventListener("hello", onOpen);
-  return () => es.close();
 }

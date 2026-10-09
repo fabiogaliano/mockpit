@@ -875,13 +875,14 @@ export function createApp({
     );
   }
 
-  function announcePost(mock: Mock, post: Post, created: boolean) {
+  function announcePost(mock: Mock, post: Post, created: boolean, by: "agent" | "user" = "agent") {
     bus.broadcast({
       type: created ? "post-created" : "post-updated",
       id: post.id,
       mockId: mock.id,
       sessionId: post.sessionId,
       version: post.version,
+      by,
     });
     warmPost(post, mock);
   }
@@ -1617,6 +1618,7 @@ export function createApp({
           mockId: mock.id,
           sessionId: p.sessionId,
           version: p.version,
+          by: "user",
         });
       }
     }
@@ -1658,6 +1660,7 @@ export function createApp({
       mockId: mock.id,
       sessionId: updated.sessionId,
       version: updated.version,
+      by: "user",
     });
     return ok({ state: updated.state, variant: updated.variant, status: updated.status });
   }
@@ -1693,7 +1696,7 @@ export function createApp({
     if (!updated) return fail(404, "variant not found");
     const touched = (await store.updateMock(mock.id, {})) ?? mock;
     bus.broadcast({ type: "mock-updated", id: touched.id, project: touched.project });
-    announcePost(touched, updated, false);
+    announcePost(touched, updated, false, "user");
     return ok({
       state: updated.state,
       variant: updated.variant,

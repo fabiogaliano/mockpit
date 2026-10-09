@@ -13,6 +13,9 @@ export type FeedEvent =
       mockId: string;
       sessionId: string;
       version: number;
+      // Who caused it: the viewer's own restores and Send's accept/archive
+      // flips are "user", so a listener can tell them from the agent's work.
+      by: "agent" | "user";
     }
   | { type: "post-deleted"; id: string; mockId: string; sessionId: string }
   | {

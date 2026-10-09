@@ -1,9 +1,11 @@
 import { Match, Switch } from "solid-js";
 import { Home } from "./Home.tsx";
 import { MockScreen } from "./MockScreen.tsx";
+import { startNotifier } from "./notify.ts";
 import { route } from "./route.ts";
 
 export function App() {
+  startNotifier();
   return (
     <Switch>
       <Match when={route().screen === "mock" && route()} keyed>
