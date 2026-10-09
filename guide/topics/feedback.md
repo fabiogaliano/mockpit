@@ -53,8 +53,8 @@ It returns at once:
 ```
 
 `feedback` holds one batch per mock, in delivery order. `pending` is what the
-user is doing right now, per mock: `viewerOpen` says a browser has the
-workspace open, `draft` is their unsent progress (`null` when there is none).
+user is doing right now, per mock: `viewerOpen` says a browser has that
+mock on screen, `draft` is their unsent progress (`null` when there is none).
 An empty `feedback` with a draft means "still answering": tell the user to take
 their time, don't ask again. `mockpit read` returns `pending` too, without
 taking any feedback.

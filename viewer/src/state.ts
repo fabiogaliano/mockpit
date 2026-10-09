@@ -6,7 +6,14 @@
 import { batch, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { createStore } from "solid-js/store";
 import type { Ask, KnobValue, PartCommentAnchor, ReplyDecision } from "../../server/types.ts";
-import { api, type CommentRow, type DraftInput, type MockDetail, subscribe } from "./api.ts";
+import {
+  api,
+  type CommentRow,
+  type DraftInput,
+  type MockDetail,
+  subscribe,
+  watchMock,
+} from "./api.ts";
 import { host } from "./host.ts";
 import {
   answerIds,
@@ -251,10 +258,13 @@ export function createMockScreen(project: string, slug: string) {
   // --- loading and the live feed ---
 
   let mockId: string | null = null;
+  let disposed = false;
+  let unwatch = () => {};
   async function resolveId(): Promise<string | null> {
     if (mockId) return mockId;
     const list = await api.mocks(project);
     mockId = list.mocks.find((m) => m.slug === slug)?.id ?? null;
+    if (mockId && !disposed) unwatch = watchMock(mockId);
     return mockId;
   }
   async function loadMock() {
@@ -352,7 +362,9 @@ export function createMockScreen(project: string, slug: string) {
     },
   );
   onCleanup(() => {
+    disposed = true;
     stop();
+    unwatch();
     if (pending) void flush();
   });
 

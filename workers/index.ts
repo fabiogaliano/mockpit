@@ -20,6 +20,7 @@ interface Env {
   BROWSER: BrowserRun;
   MOCKPIT_TOKEN?: string;
   MOCKPIT_PUBLIC_READ?: string;
+  MOCKPIT_LOG?: string;
 }
 
 // The whole app lives inside one Durable Object: a single instance per workspace
@@ -49,6 +50,9 @@ export class MockpitBoard extends DurableObject<Env> {
       upgradeCommand: "git pull && npm run deploy",
       // No executor: the Worker has no script sandbox, so /api/run and the
       // MCP run tool answer that run is unavailable here.
+      // The event log goes to Workers Logs (observability is on in
+      // wrangler.jsonc): read it with `wrangler tail` or the dashboard.
+      log: env.MOCKPIT_LOG === "off" ? undefined : (entry) => console.log(JSON.stringify(entry)),
     });
   }
 

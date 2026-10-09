@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
@@ -127,8 +128,19 @@ function resolveProjectName(cwd) {
   );
 }
 
+// Names this client in the server's event log, with the version that would
+// show it running behind the server.
+const CLIENT = `pi/${(() => {
+  try {
+    return JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
+  } catch {
+    return "unknown";
+  }
+})()}`;
+
 function authHeaders(extra = {}) {
   return {
+    "x-mockpit-client": CLIENT,
     ...(process.env.MOCKPIT_TOKEN ? { authorization: `Bearer ${process.env.MOCKPIT_TOKEN}` } : {}),
     ...extra,
   };
@@ -234,17 +246,19 @@ function feedbackLines(feedback) {
   return lines;
 }
 
-// What the user is doing right now, so the agent can say "take your time".
-// viewerOpen is workspace-wide, so it is said once rather than per mock.
+// What the user is doing right now, per mock, so the agent can say "take your time".
 function pendingLines(pending) {
-  const rows = [pending ?? []].flat();
-  const lines = rows
-    .filter((p) => p.draft)
-    .map(
-      (p) =>
-        `- ${p.mock}: the user is answering (${p.draft.answered} of ${p.draft.of} answered, ${p.draft.comments} comments)`,
+  const lines = [pending ?? []]
+    .flat()
+    .flatMap((p) =>
+      p.draft
+        ? [
+            `- ${p.mock}: the user is answering (${p.draft.answered} of ${p.draft.of} answered, ${p.draft.comments} comments)`,
+          ]
+        : p.viewerOpen
+          ? [`- ${p.mock}: open in the viewer`]
+          : [],
     );
-  if (lines.length === 0 && rows.some((p) => p.viewerOpen)) lines.push("- the viewer is open");
   return lines.length ? ["Pending:", ...lines] : [];
 }
 

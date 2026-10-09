@@ -43,6 +43,7 @@ import {
 import { expandSlots, parseSlotTags } from "./slots.ts";
 import { type McpFlows, registerMcp } from "./mcpHttp.ts";
 import { createRunFlow, DEFAULT_RUN_LIMITS, type Executor, type RunLimits } from "./run.ts";
+import { type LogSink, logMiddleware, writeLog } from "./eventLog.ts";
 import { RUN_API } from "./runApi.ts";
 import {
   escapeHtml,
@@ -241,6 +242,10 @@ export interface AppOptions {
   executor?: Executor;
   // Overrides for the run limits; tests shrink the deadline and budgets.
   runLimits?: Partial<RunLimits>;
+  // The event log (server/eventLog.ts): one entry per agent call, viewer write
+  // and live-feed connection. The host decides where entries go (a JSONL file
+  // on Node, Workers Logs on Cloudflare); absent, nothing is computed.
+  log?: LogSink;
 }
 
 export interface LatestRelease {
@@ -373,6 +378,7 @@ export function createApp({
   maxHoldConnections = DEFAULT_MAX_HOLD_CONNECTIONS,
   executor,
   runLimits,
+  log,
 }: AppOptions) {
   const app = new Hono();
   // The scripts topic carries the run API from runApi.ts, its one source.
@@ -395,6 +401,7 @@ export function createApp({
     c.header("Referrer-Policy", "no-referrer");
     return next();
   });
+  if (log) app.use("*", logMiddleware(log));
   const bus = new EventBus();
   if (onEvent) {
     bus.subscribe((event) => {
@@ -410,9 +417,10 @@ export function createApp({
   // Each holder increments on entry and releases exactly once via a guarded
   // release() wired to every exit (stream abort, request abort, normal return).
   let holdConnections = 0;
-  // Only the viewer holds /api/events (watch long-polls), so an attached SSE
-  // client means someone has the workspace open.
-  let viewerClients = 0;
+  // Only the viewer holds /api/events (watch long-polls). Each tab names the
+  // mock it has on screen (`?viewing=`), so pending.viewerOpen is per mock: a
+  // tab on Home or on another mock doesn't read as "looking at this one".
+  const viewing = new Map<string, number>();
   const acquireHold = (): boolean => {
     if (holdConnections >= maxHoldConnections) return false;
     holdConnections++;
@@ -2201,7 +2209,7 @@ export function createApp({
   // tells the agent something ("2 of 3 answered", or nobody is looking).
   const pendingOf = (mock: Mock, posts: Post[]) => ({
     mock: mock.slug,
-    viewerOpen: viewerClients > 0,
+    viewerOpen: viewing.has(mock.id),
     draft: mock.draft
       ? {
           answered: Object.keys(mock.draft.answers).length,
@@ -3379,11 +3387,27 @@ export function createApp({
       }
     }
     if (!acquireHold()) return c.json({ error: "too many concurrent connections" }, 503);
-    viewerClients++;
+    const openedAt = Date.now();
+    const viewingId = str(c.req.query("viewing"), MAX_TITLE);
+    if (viewingId) viewing.set(viewingId, (viewing.get(viewingId) ?? 0) + 1);
     let attached = true;
     const releaseHold = makeRelease();
     const release = () => {
-      if (attached) viewerClients--;
+      if (attached) {
+        if (viewingId) {
+          const left = (viewing.get(viewingId) ?? 1) - 1;
+          if (left > 0) viewing.set(viewingId, left);
+          else viewing.delete(viewingId);
+        }
+        writeLog(log, {
+          t: new Date().toISOString(),
+          op: "sse close",
+          client: "viewer",
+          status: 200,
+          ms: Date.now() - openedAt,
+          ...(viewingId ? { viewing: viewingId } : {}),
+        });
+      }
       attached = false;
       releaseHold();
     };

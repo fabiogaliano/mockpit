@@ -155,7 +155,7 @@ and `mockpit watch` (one line per Send, for a background monitor).
   list (an entry that is only `{id}` keeps that surface), or `parts` to replace
   just the marked elements.
 - **`feedback` returns at once** with what the user sent since the agent last
-  heard, plus `pending`: whether the viewer is open and how far the user's
+  heard, plus `pending`: whether each mock is open in the viewer and how far the user's
   draft has got (`2 of 3 answered`). Every write returns `feedback` too, and
   each Send is delivered exactly once across all of them.
 - **Asks are nudged.** A publish that leaves several variants with no ask
@@ -184,6 +184,13 @@ without a codemode of their own.
 It runs locally as a small Node server (SQLite at `~/.mockpit/mockpit.db`), or on
 Cloudflare Workers when your agent and browser are on different machines. See
 **[docs/deploying.md](docs/deploying.md)**.
+
+The server keeps an event log, one JSON line per agent call, viewer write and
+live-feed connection (ids and shapes, never content), at
+`~/.mockpit/events.jsonl` next to the database. It rolls over at 10 MB. Set
+`MOCKPIT_LOG` to another path, or to `off` to disable it; on Workers it goes to
+Workers Logs. `node scripts/inspect.ts` in a checkout reads it alongside the
+database and Claude Code transcripts.
 
 The server app is importable from `mockpit/server` (`createApp`, `SqlStore`,
 `createSqliteStorage`). The embeddable viewer engine (`mockpit/viewer-embed`,
