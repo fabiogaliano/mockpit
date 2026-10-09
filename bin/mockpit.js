@@ -65,7 +65,7 @@ design loop:
   mockpit wait [--mock <slug>] [--timeout s]
                                           block until the user sends their reply;
                                           prints the feedback batch as JSON
-      --timeout <sec>   seconds to wait (default 120, max 230)
+      --timeout <sec>   seconds to wait (default 55, max 230)
       --session <id>    session to watch (default: auto)
       --after <seq>     re-read after this cursor (default: where the agent left
                         off, tracked server-side across CLI/MCP)
@@ -119,7 +119,7 @@ environment:
 
 // Same default and ceiling on every tier (CLI, stdio MCP, HTTP MCP, Pi); the
 // server clamps each long-poll at 230 s too.
-const DEFAULT_WAIT_SECONDS = 120;
+const DEFAULT_WAIT_SECONDS = 55;
 const MAX_WAIT_SECONDS = 230;
 
 // Per-command help, so `mockpit publish --help` costs a few lines instead of
@@ -164,7 +164,7 @@ mockpit icons remove <set> [<set>...]
   mockpit ask --mock <slug> --asks <json|file>
   Ask the user. Two renders needed to show a choice: bind options to variants.`,
   wait: `mockpit wait [--mock <slug>] [--timeout <seconds>] [--session <id>]
-  Block until the user sends (default 120 s, max 230), then print the feedback batch:
+  Block until the user sends (default 55 s, max 230), then print the feedback batch:
   {mock, reply: {answers, mix, tuned, comments, text}, comments, accepted, archived}.`,
   watch: `mockpit watch [--session <id>] [--after <seq>]
   Stream user feedback forever, one line per piece, for a background monitor.

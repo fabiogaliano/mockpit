@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
 const DEFAULT_BASE_URL = "http://localhost:8228";
-const DEFAULT_WAIT_SECONDS = 120;
+const DEFAULT_WAIT_SECONDS = 55;
 const MAX_WAIT_SECONDS = 230;
 
 const CONTENT_TYPES = {
@@ -152,6 +152,7 @@ async function requestJson(path, init = {}) {
       }),
     });
   } catch (error) {
+    if (init.signal?.aborted) throw error;
     throw new Error(
       `mockpit server not reachable at ${baseUrl()} — start it with "mockpit serve" (${error.message})`,
     );
@@ -513,15 +514,17 @@ export default function mockpitExtension(pi) {
       type: "object",
       properties: {
         session: { type: "string", description: "Session id; defaults to remembered session" },
-        timeoutSeconds: { type: "number", description: "Seconds to wait, 0-300; default 120" },
+        timeoutSeconds: { type: "number", description: "Seconds to wait, 0-230; default 55" },
       },
     },
-    async execute(_toolCallId, params) {
+    async execute(_toolCallId, params, signal) {
       const session = params.session ?? state.sessionId;
       if (!session) throw new Error("No mockpit session yet. Publish first or pass session.");
       const wait = clampWait(params.timeoutSeconds, DEFAULT_WAIT_SECONDS);
       const query = new URLSearchParams({ session, author: "user", wait: String(wait) });
-      const result = await requestJson(`/api/comments?${query}`);
+      // Aborting the long-poll on cancel keeps the server from delivering a
+      // batch to a call nobody is waiting on.
+      const result = await requestJson(`/api/comments?${query}`, { signal });
       const batches = result.feedback ?? [];
       return {
         content: [

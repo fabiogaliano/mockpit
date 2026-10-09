@@ -24,7 +24,8 @@ async function api(path: string, init: RequestInit = {}) {
   let res: Response;
   try {
     res = await fetch(`${API}${path}`, { ...init, headers });
-  } catch {
+  } catch (err) {
+    if (init.signal?.aborted) throw err;
     throw new Error(
       `mockpit server not reachable at ${API} — ask the user to start it with "mockpit serve" or "npm run dev"`,
     );
@@ -129,7 +130,7 @@ async function ensureSession(title?: string): Promise<string> {
 // Every tool is a pass-through to the REST route the CLI uses: same request,
 // same response, so the three tiers cannot drift. Only the session (one per
 // conversation), the project (this repo) and file paths are filled in here.
-const handlers: Record<string, (args: any) => Promise<unknown>> = {
+const handlers: Record<string, (args: any, signal?: AbortSignal) => Promise<unknown>> = {
   async publish_mock(args) {
     const session = await ensureSession(args.sessionTitle);
     const html = typeof args.html === "string" ? readMaybeFile(args.html) : undefined;
@@ -169,12 +170,16 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
       project: resolveProject(args.project),
     });
   },
-  async wait_for_feedback(args) {
+  async wait_for_feedback(args, signal) {
     const session = await ensureSession();
     // No client-side cursor: the server resumes author=user reads from the
-    // session's agent cursor, shared with piggyback delivery.
-    const wait = Math.min(230, Math.max(0, args.timeoutSeconds ?? 120));
-    return feedbackResult(await json(`/api/comments${query({ session, author: "user", wait })}`));
+    // session's agent cursor, shared with piggyback delivery. The client's
+    // cancel (its own tool timeout) aborts the long-poll, so the server never
+    // hands this request a batch the agent will not see.
+    const wait = Math.min(230, Math.max(0, args.timeoutSeconds ?? 55));
+    return feedbackResult(
+      await json(`/api/comments${query({ session, author: "user", wait })}`, { signal }),
+    );
   },
   async reply_to_user(args) {
     const session = await ensureSession();
@@ -249,7 +254,9 @@ const server = new McpServer(MCP_SERVER_INFO, { instructions: MCP_INSTRUCTIONS }
 for (const tool of STDIO_MCP_TOOLS) {
   const handler = handlers[tool.name];
   const { name, ...config } = tool;
-  server.registerTool(name, config, async (args: any) => toolResult(name, await handler(args)));
+  server.registerTool(name, config, async (args: any, extra) =>
+    toolResult(name, await handler(args, extra.signal)),
+  );
 }
 // Replaces the SDK's own listing (registered above), so stdio advertises the
 // same compact 2020-12 schemas as HTTP; calls still validate against zod.

@@ -214,7 +214,7 @@ test("watch --help prints its own help, not the catalog", async () => {
 
 test("wait --help states the shared default and ceiling", async () => {
   const { stdout } = await run("wait", "--help");
-  assert.match(stdout, /default 120 s, max 230/);
+  assert.match(stdout, /default 55 s, max 230/);
 });
 
 test("ask rejects a positional question alongside --asks", async () => {

@@ -395,7 +395,7 @@ test(
 );
 
 test(
-  "stdio wait_for_feedback defaults to 120 seconds and caps at 230",
+  "stdio wait_for_feedback defaults to 55 seconds and caps at 230",
   { timeout: 15_000 },
   async (t) => {
     const waits: Array<string | null> = [];
@@ -427,7 +427,43 @@ test(
     await callText(mcp.client, "wait_for_feedback");
     await comment("two");
     await callText(mcp.client, "wait_for_feedback", { timeoutSeconds: 900 });
-    assert.deepEqual(waits, ["120", "230"]);
+    assert.deepEqual(waits, ["55", "230"]);
+  },
+);
+
+test(
+  "a cancelled stdio wait leaves the next Send for the next wait",
+  { timeout: 20_000 },
+  async (t) => {
+    const app = await serveApp();
+    const mcp = await connectMcp(app.url);
+    t.after(async () => {
+      await mcp.close();
+      await app.close();
+    });
+    const published = await callJson<WriteResult>(mcp.client, "publish_mock", {
+      mock: "writer",
+      html: "<h1>T</h1>",
+    });
+    // The client's own tool timeout: it cancels and stops listening.
+    const abort = new AbortController();
+    const pending = mcp.client.callTool(
+      { name: "wait_for_feedback", arguments: { timeoutSeconds: 30 } },
+      undefined,
+      { signal: abort.signal },
+    );
+    await new Promise((r) => setTimeout(r, 300));
+    abort.abort();
+    await assert.rejects(pending);
+    await new Promise((r) => setTimeout(r, 300));
+
+    await fetchJson(
+      app.url,
+      "/api/comments",
+      viewerJson({ mock: published.mock.id, text: "after the cancel", author: "user" }),
+    );
+    const text = await callText(mcp.client, "wait_for_feedback", { timeoutSeconds: 0 });
+    assert.match(text, /after the cancel/);
   },
 );
 

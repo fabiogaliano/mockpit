@@ -2136,6 +2136,9 @@ export function createApp({
           resolve();
         }
       });
+      // A caller that gave up can't receive this batch, so delivering it would
+      // advance the cursor past feedback no agent ever saw.
+      if (signal?.aborted) return { comments: [], lastSeq: afterSeq ?? 0 };
       all = await store.listComments(query);
       comments = matches(all);
     }

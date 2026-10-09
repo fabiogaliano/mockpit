@@ -334,7 +334,7 @@ test("publish, revise, ask, list, get, wait, reply and export round-trip through
   assert.deepEqual(exported.details!.reply.tuned, { "body.size": 19 });
 });
 
-test("wait_for_feedback defaults to 120 seconds and caps at 230", async (t) => {
+test("wait_for_feedback defaults to 55 seconds and caps at 230", async (t) => {
   const { server, ctx } = await setup(t);
   const harness = createPiHarness();
   const published = await invoke(
@@ -360,7 +360,7 @@ test("wait_for_feedback defaults to 120 seconds and caps at 230", async (t) => {
   await invoke(harness, "mockpit_wait_for_feedback", {}, ctx);
   await postJson(`${server.url}/api/comments`, { mock, text: "two", author: "user" });
   await invoke(harness, "mockpit_wait_for_feedback", { timeoutSeconds: 900 }, ctx);
-  assert.deepEqual(waits, ["120", "230"]);
+  assert.deepEqual(waits, ["55", "230"]);
 });
 
 test("the design guide is the project-aware brief", async (t) => {
