@@ -681,6 +681,21 @@ export function tuneComponents(
   return out;
 }
 
+// Tiers, no modes: the Tune tab exists only when the agent gave it something.
+// Knobs count where the stage would show them (the mock's, or any variant's in
+// the state on stage, so hovering an option never blinks the tab); a marked
+// part (or a part ask) counts in any state, as Tune's selector walks parts
+// across states and each takes comments.
+export function tuneVisible(
+  mock: Pick<MockDetail, "knobs" | "parts" | "asks">,
+  stateVariants: Pick<VariantView, "knobs">[],
+): boolean {
+  if (Object.keys(mock.knobs).length) return true;
+  if (stateVariants.some((v) => Object.keys(v.knobs ?? {}).length)) return true;
+  if (mock.asks.some((a) => a.scope === "part")) return true;
+  return mock.parts.some((p) => p.parts.length > 0);
+}
+
 // Copy hands the agent what was tuned, one `path: value` per line.
 export const tunedLines = (tuned: Record<string, KnobValue>): string =>
   Object.entries(tuned)

@@ -7,6 +7,7 @@ import {
   draftIsEmpty,
   emptyDraft,
   pickInDraft,
+  tuneVisible,
   unanswered,
   createHitRefs,
   draftKnobValues,
@@ -492,6 +493,30 @@ describe("notes and Other…", () => {
       { ask: "Which look?", text: "on desktop" },
       { ask: "Trim above or below?", text: "neither fits" },
     ]);
+  });
+});
+
+describe("tuneVisible", () => {
+  const bare = { knobs: {}, parts: [], asks: [] } as unknown as MockDetail;
+  it("hides Tune when nothing is tunable or markable", () => {
+    expect(tuneVisible(bare, [])).toBe(false);
+    expect(tuneVisible(bare, [{ knobs: {} } as VariantView])).toBe(false);
+    expect(tuneVisible({ ...bare, parts: [{ state: null, parts: [] }] } as MockDetail, [])).toBe(
+      false,
+    );
+  });
+  it("shows it for page knobs, a variant's knobs, a marked part, or a part ask", () => {
+    expect(tuneVisible({ ...bare, knobs: { size: 16 } } as MockDetail, [])).toBe(true);
+    expect(tuneVisible(bare, [{ knobs: { "body.size": 16 } } as unknown as VariantView])).toBe(
+      true,
+    );
+    expect(
+      tuneVisible(
+        { ...bare, parts: [{ state: "B", parts: [{ name: "title" }] }] } as unknown as MockDetail,
+        [],
+      ),
+    ).toBe(true);
+    expect(tuneVisible({ ...bare, asks: [trim] } as unknown as MockDetail, [])).toBe(true);
   });
 });
 

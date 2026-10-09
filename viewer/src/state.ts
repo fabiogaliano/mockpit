@@ -23,6 +23,7 @@ import {
   overriddenAsks,
   type PartsReport,
   pickInDraft,
+  tuneVisible,
   unanswered,
 } from "./logic.ts";
 import { setTheme } from "./theme.ts";
@@ -152,6 +153,11 @@ export function createMockScreen(project: string, slug: string) {
   const owed = createMemo(() => {
     const m = mock();
     return m ? unanswered(m, draft()) : [];
+  });
+  // Tune is shown only with something to tune (tiers, no modes).
+  const tuneShown = createMemo(() => {
+    const m = mock();
+    return !!m && tuneVisible(m, inState(activeState()));
   });
   // What Tune reads and writes: the knobs of the variant on stage, every answer
   // so far (sent, then drafted), and the tuned values.
@@ -409,8 +415,10 @@ export function createMockScreen(project: string, slug: string) {
     if (narrow()) setTapped(part);
     else if (part && mode() !== "tune") setMode("tune");
   }
+  // No Tune tab (narrow screen, or nothing to tune): a Tune mode restored from
+  // history or set by a stray click lands on Questions instead.
   createEffect(() => {
-    if (narrow() && mode() === "tune") setModeSignal("questions");
+    if (mode() === "tune" && (narrow() || (mock() && !tuneShown()))) setModeSignal("questions");
   });
 
   // The next question still owed after i, else the last one (where Send lives).
@@ -631,6 +639,7 @@ export function createMockScreen(project: string, slug: string) {
     noteOf,
     setOther,
     setNote,
+    tuneShown,
     variantFor,
     activeVariant,
     activeState,

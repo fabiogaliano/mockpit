@@ -366,6 +366,9 @@ test("a plain mock offers Accept / Revise / Drop; Revise reaches the agent", asy
   for (const name of ["Accept", "Revise", "Drop"]) {
     await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
   }
+  // Nothing to tune: no knobs, no marked parts, so no Tune tab at all.
+  await expect(page.locator('[data-mode="thread"]')).toBeVisible();
+  await expect(page.locator('[data-mode="tune"]')).toHaveCount(0);
   await page.getByPlaceholder("optional, for the agent").fill("tighten the copy");
   const reply = page.waitForResponse(
     (r) => r.url().endsWith(`/api/mocks/${out.mock.id}/reply`) && r.request().method() === "POST",

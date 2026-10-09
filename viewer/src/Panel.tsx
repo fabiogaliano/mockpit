@@ -113,7 +113,7 @@ export function Panel(props: { s: MockScreenState; t: TuneState }) {
         <div class="up-tabs">
           <div class="up-modes" role="tablist">
             {modeButton("questions", "Questions")}
-            <Show when={!narrow()}>{modeButton("tune", "Tune")}</Show>
+            <Show when={!narrow() && s.tuneShown()}>{modeButton("tune", "Tune")}</Show>
             {modeButton("thread", "Thread")}
           </div>
           <Show when={s.mode() === "tune"}>
