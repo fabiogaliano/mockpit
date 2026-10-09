@@ -176,6 +176,11 @@ a {
   background: var(--row-hover);
   color: var(--t1);
 }
+.sent-hint {
+  font-size: 13px;
+  color: var(--t4);
+  white-space: nowrap;
+}
 .dot {
   width: 7px;
   height: 7px;
@@ -1612,7 +1617,7 @@ a {
   border-left: 2px solid var(--fill);
   padding-left: 10px;
 }
-.tseen {
+.tdelivered {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1620,7 +1625,7 @@ a {
   color: var(--t5);
   align-self: flex-end;
 }
-.tseen .tick {
+.tdelivered .tick {
   letter-spacing: -0.2em;
   margin-right: 2px;
   color: var(--ok);
@@ -1630,10 +1635,10 @@ a {
   color: var(--ok);
   font-size: 13px;
 }
-.tseen.ok .tick {
+.tdelivered.ok .tick {
   color: var(--ok);
 }
-.tseen:not(.ok) .tick {
+.tdelivered:not(.ok) .tick {
   color: var(--t5);
 }
 .tempty {

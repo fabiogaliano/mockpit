@@ -9,14 +9,15 @@
 // that is counted, bounded and logged.
 
 import type { FlowContext, FlowResult } from "./app.ts";
+import { decodeBase64 } from "./base64.ts";
 import type { FeedbackBatch } from "./feedbackBatch.ts";
 import { type GuideTopic, isGuideTopic, unknownTopicMessage } from "./designGuide.ts";
 import { type McpFlows, unwrap } from "./mcpHttp.ts";
 import { RUN_FUNCTIONS, type RunFunction } from "./runApi.ts";
-import type { Store } from "./types.ts";
+import type { Asset, AssetKind, Store } from "./types.ts";
 
 export interface RunLimits {
-  // Wall time for the whole run, waits included.
+  // Wall time for the whole run.
   deadlineMs: number;
   // Script compute time, summed over its synchronous bursts.
   cpuMs: number;
@@ -31,12 +32,12 @@ export interface RunLimits {
   maxRuns: number;
 }
 
-// 200 s keeps a whole run under claude.ai's 240 s per-tool-call limit. 32 MiB and
-// a 256 KiB stack are what the spike showed safe (512 KiB overflows the host
+// A script never waits for the user, so the wall clock is only a sandbox guard:
+// 10 s clears a run of publishes with room to spare. 32 MiB and a 256 KiB stack are what the spike showed safe (512 KiB overflows the host
 // stack on workerd). The code cap clears a few full-page html variants written
 // as template literals.
 export const DEFAULT_RUN_LIMITS: RunLimits = {
-  deadlineMs: 200_000,
+  deadlineMs: 10_000,
   cpuMs: 10_000,
   memoryBytes: 32 * 1024 * 1024,
   stackBytes: 256 * 1024,
@@ -87,7 +88,7 @@ export interface RunEnvelope {
   prints: string[];
   calls: RunCall[];
   error?: RunError;
-  // Every batch the run received — waits and piggyback alike — whatever the
+  // Every batch the run received — feedback() and piggyback alike — whatever the
   // script did afterwards. The cursor already moved past these.
   feedback: FeedbackBatch[];
   session: string | null;
@@ -101,10 +102,14 @@ export interface RunDeps {
   flows: McpFlows;
   guide(project: string, topic?: GuideTopic): string | Promise<string>;
   createSession(input: { agent: string; project?: string }): Promise<string>;
+  uploadAsset(input: {
+    data: Uint8Array;
+    contentType: string;
+    filename?: string;
+    kind?: AssetKind;
+    session?: string;
+  }): Promise<{ asset: Omit<Asset, "data"> } | { error: string; status: number }>;
 }
-
-const DEFAULT_WAIT_SECONDS = 55;
-const MAX_WAIT_SECONDS = 230;
 
 export const RUN_UNAVAILABLE =
   "run is not available on this deployment: it has no script sandbox. Use the mock tools (or REST) instead";
@@ -203,7 +208,6 @@ export function createRunFlow(deps: RunDeps) {
     }
     active++;
 
-    const startedAt = Date.now();
     const run = new AbortController();
     const onAbort = () => run.abort();
     ctx.signal?.addEventListener("abort", onAbort, { once: true });
@@ -222,7 +226,7 @@ export function createRunFlow(deps: RunDeps) {
     });
     const take = async (result: Promise<FlowResult>): Promise<any> => {
       const value = unwrap(await result) as any;
-      if (Array.isArray(value?.userFeedback)) feedback.push(...value.userFeedback);
+      if (Array.isArray(value?.feedback)) feedback.push(...value.feedback);
       return value;
     };
     const projectOf = async (): Promise<string> => {
@@ -239,11 +243,11 @@ export function createRunFlow(deps: RunDeps) {
         if (!isGuideTopic(topic)) throw new Error(unknownTopicMessage(String(topic)));
         return [await deps.guide("", topic), String(topic)];
       },
-      async list() {
-        const value = await take(flows.list({ project: await projectOf() }));
-        return [value.mocks, `${value.mocks.length} mocks`];
-      },
-      async get([mock, opts]) {
+      async read([mock, opts]) {
+        if (mock === undefined || mock === null) {
+          const value = await take(flows.list({ project: await projectOf() }));
+          return [value, `${value.mocks.length} mocks`];
+        }
         const o = plain(opts);
         const value = await take(
           flows.get(mock, { project, body: o.body === true, history: o.history === true }),
@@ -254,69 +258,33 @@ export function createRunFlow(deps: RunDeps) {
         const value = await take(flows.publish({ ...(await mine(plain(v))), agent }, flowCtx));
         return [value, writeSummary(value)];
       },
-      async revise([v]) {
-        const value = await take(flows.revise(await mine(plain(v)), flowCtx));
-        return [value, writeSummary(value)];
-      },
       async ask([mock, asks]) {
         const value = await take(flows.ask(mock, await mine({ asks }), flowCtx));
         return [value, `${value.mock} ${value.asks.length} ask(s)`];
       },
-      async wait([seconds]) {
-        if (!sessionId) {
-          throw new Error(
-            "wait needs a session: publish or ask in this run first, or run with session",
-          );
-        }
-        // Return before the deadline so the batch reaches the envelope through
-        // the script, not just through a cut-off run.
-        const margin = Math.min(5000, limits.deadlineMs / 10);
-        const left = (startedAt + limits.deadlineMs - margin - Date.now()) / 1000;
-        const asked = typeof seconds === "number" && seconds >= 0 ? seconds : DEFAULT_WAIT_SECONDS;
-        const waitSeconds = Math.max(0, Math.min(asked, MAX_WAIT_SECONDS, left));
-        const value = await take(
-          flows.feedback({ sessionId, author: "user", waitSeconds }, run.signal),
-        );
-        const batches = (value.feedback ?? []) as FeedbackBatch[];
-        feedback.push(...batches);
-        return [batches, batches.length ? `${batches.length} batch(es)` : "no feedback"];
+      async feedback() {
+        const value = await take(flows.feedback(await mine({})));
+        const n = value.feedback.length;
+        return [value, n ? `${n} batch(es)` : "no feedback"];
       },
-      async reply([v, message]) {
-        await take(flows.comment({ ...(await mine(plain(v))), text: message }, flowCtx));
-        return [null, String(plain(v).mock ?? "?")];
-      },
-      async "surfaces.add"([v, surface, at]) {
+      async say([v, message]) {
         const r = plain(v);
-        const value = await take(
-          flows.appendSurface(r.mock, { ...(await mine(r)), surface, ...plain(at) }, flowCtx),
-        );
-        return [value, writeSummary(value)];
+        await take(flows.say(r.mock, { ...(await mine(r)), message }));
+        return [null, String(r.mock ?? "?")];
       },
-      async "surfaces.edit"([v, target, change]) {
-        const r = plain(v);
-        const value = await take(
-          flows.replaceSurface(
-            r.mock,
-            String(target ?? ""),
-            { ...(await mine(r)), ...plain(change) },
-            flowCtx,
-          ),
-        );
-        return [value, writeSummary(value)];
-      },
-      async "surfaces.remove"([v, target]) {
-        const r = plain(v);
-        const value = await take(
-          flows.removeSurface(r.mock, String(target ?? ""), await mine(r), flowCtx),
-        );
-        return [value, writeSummary(value)];
-      },
-      async "surfaces.reorder"([v, order]) {
-        const r = plain(v);
-        const value = await take(
-          flows.reorderSurfaces(r.mock, { ...(await mine(r)), order }, flowCtx),
-        );
-        return [value, writeSummary(value)];
+      async upload([data, opts]) {
+        if (typeof data !== "string" || !data) throw new Error("upload needs base64 data");
+        const o = plain(opts);
+        const result = await deps.uploadAsset({
+          data: decodeBase64(data),
+          contentType: typeof o.contentType === "string" ? o.contentType : "",
+          filename: typeof o.filename === "string" ? o.filename : undefined,
+          kind: o.kind === "image" || o.kind === "file" ? o.kind : undefined,
+          session: await session(),
+        });
+        if ("error" in result) throw new Error(result.error);
+        const { id, contentType, byteLength } = result.asset;
+        return [{ id, url: `${ctx.base}/a/${id}`, contentType, byteLength }, id];
       },
       async export([v]) {
         const r = plain(v);
@@ -387,8 +355,7 @@ export function createRunFlow(deps: RunDeps) {
           },
         };
       }
-      // Writes already sent finish and land in `calls`; an aborted wait returns
-      // without moving the cursor.
+      // Writes already sent finish and land in `calls`.
       run.abort();
       await Promise.allSettled(inflight);
       if (ctx.signal?.aborted && (result.ok || result.error.kind !== "aborted")) {

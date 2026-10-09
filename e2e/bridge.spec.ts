@@ -58,7 +58,8 @@ async function publishWriter(server: string): Promise<Published> {
 
 async function reviseWriter(server: string, mockId: string) {
   for (const state of STATES) {
-    const out = await api(server, `/api/mocks/${mockId}/revise`, {
+    const out = await api(server, "/api/mocks", {
+      mock: mockId,
       state,
       html: writerHtml(state, true),
     });

@@ -11,6 +11,7 @@ import { host } from "./host.ts";
 import {
   answerIds,
   askState,
+  builtinAsks,
   carryOver,
   draftIsEmpty,
   emptyDraft,
@@ -42,6 +43,8 @@ export interface Preview {
 }
 
 const SAVE_MS = 300;
+// Long enough for an agent that is watching to pick a reply up.
+const BEAT_MS = 4000;
 
 export function createMockScreen(project: string, slug: string) {
   const [mock, setMock] = createSignal<MockDetail | null>(null);
@@ -62,6 +65,10 @@ export function createMockScreen(project: string, slug: string) {
   const [viewVersion, setViewVersion] = createSignal<number | null>(null);
   const [versionsOpen, setVersionsOpen] = createSignal(false);
   const [sent, setSent] = createSignal(false);
+  // The reply the last Send stored, and whether a beat has passed since: an
+  // undelivered reply after that beat earns the "tell your agent" hint.
+  const [sentId, setSentId] = createSignal<string | null>(null);
+  const [beat, setBeat] = createSignal(false);
   const [sending, setSending] = createSignal(false);
   const [flagged, setFlagged] = createSignal<string[]>([]);
   // askId → "Other…" ticked; a write-in counts once it has text, so until then
@@ -92,7 +99,14 @@ export function createMockScreen(project: string, slug: string) {
     return d && !draftIsEmpty(d) && d.version < latest() ? d.version : null;
   });
   const stageVersion = createMemo(() => viewVersion() ?? boundVersion() ?? latest());
-  const look = createMemo(() => (mock() ? lookAsk(mock()!) : undefined));
+  // The agent's asks plus the built-in "Which one?" where the agent left a
+  // choice between variants unasked; everything below reads asks from here.
+  const asks = createMemo<Ask[]>(() => {
+    const m = mock();
+    return m ? [...m.asks, ...builtinAsks(m, variants())] : [];
+  });
+  const withAsks = (m: MockDetail) => ({ ...m, asks: asks() });
+  const look = createMemo(() => lookAsk({ asks: asks() }));
 
   // The draft speaks for an ask once it picked an option or ticked "Other…" there;
   // until then the ask reads as sent.
@@ -139,20 +153,25 @@ export function createMockScreen(project: string, slug: string) {
   const mixOpts = createMemo(() => {
     const m = mock();
     return m
-      ? mixOptions(m, variants(), lookPick(), (state, variant) => reports[frameKey(state, variant)])
+      ? mixOptions(
+          withAsks(m),
+          variants(),
+          lookPick(),
+          (state, variant) => reports[frameKey(state, variant)],
+        )
       : [];
   });
   const questions = createMemo<Question[]>(() => {
     const m = mock();
     if (!m) return [];
-    const list: Question[] = m.asks.map((ask) => ({ kind: "ask", ask }));
+    const list: Question[] = asks().map((ask) => ({ kind: "ask", ask }));
     // Mix only exists once a look is picked and another look renders a part.
     if (look() && lookPick() && mixOpts().length) list.push({ kind: "mix" });
     return list;
   });
   const owed = createMemo(() => {
     const m = mock();
-    return m ? unanswered(m, draft()) : [];
+    return m ? unanswered(withAsks(m), draft()) : [];
   });
   // Tune is shown only with something to tune (tiers, no modes).
   const tuneShown = createMemo(() => {
@@ -187,7 +206,7 @@ export function createMockScreen(project: string, slug: string) {
   const overridden = createMemo(() => {
     const m = mock();
     const d = draft();
-    return m && d ? overriddenAsks(m.asks, d.answers, d.mix) : {};
+    return m && d ? overriddenAsks(asks(), d.answers, d.mix) : {};
   });
 
   // --- draft writes: local at once, server after a short pause ---
@@ -545,6 +564,16 @@ export function createMockScreen(project: string, slug: string) {
     });
   }
 
+  // Whether an agent has the last Send yet; null when nothing was sent here.
+  const sentDelivered = createMemo(() => {
+    const id = sentId();
+    if (!sent() || !id) return null;
+    return comments().find((c) => c.id === id)?.delivered ?? false;
+  });
+  const nudgeAgent = () => beat() && sentDelivered() === false;
+  let beatTimer = 0;
+  onCleanup(() => host().window.clearTimeout(beatTimer));
+
   async function send(extra: { decision?: ReplyDecision; text?: string } = {}) {
     const m = mock();
     if (!m || sending()) return;
@@ -552,7 +581,7 @@ export function createMockScreen(project: string, slug: string) {
     const d = draft() ?? emptyDraft(stageVersion());
     setSending(true);
     try {
-      await api.reply(m.id, { ...d, ...extra });
+      const { reply } = await api.reply(m.id, { ...d, ...extra });
       // The draft holds the picks until the mock carrying them as sent answers
       // arrives: dropping it first would put the stage on another variant for
       // one fetch (a flash of a different frame fading in, then back).
@@ -564,6 +593,8 @@ export function createMockScreen(project: string, slug: string) {
         if (next) setMock(next);
         setDraftSignal(null);
         setSent(true);
+        setSentId(reply.id);
+        setBeat(false);
         setModeSignal("thread");
         setPreview(null);
         setTapped(null);
@@ -571,6 +602,8 @@ export function createMockScreen(project: string, slug: string) {
       setMixTouched(false);
       setOtherOpen({});
       record(true);
+      host().window.clearTimeout(beatTimer);
+      beatTimer = host().window.setTimeout(() => setBeat(true), BEAT_MS);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -608,7 +641,7 @@ export function createMockScreen(project: string, slug: string) {
     const m = mock();
     const d = draft();
     if (!m || !d) return;
-    const moved = carryOver(d, m, variants(), latest());
+    const moved = carryOver(d, withAsks(m), variants(), latest());
     writeDraft(() => moved.draft);
     setFlagged(moved.flagged);
   }
@@ -671,6 +704,8 @@ export function createMockScreen(project: string, slug: string) {
     versionsOpen,
     setVersionsOpen,
     sent,
+    sentDelivered,
+    nudgeAgent,
     sending,
     flagged,
     error,

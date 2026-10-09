@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import type { CommentWait, FlowContext, FlowResult } from "./app.ts";
+import type { FlowContext, FlowResult } from "./app.ts";
 import { decodeBase64 } from "./base64.ts";
 import { type GuideTopic, isGuideTopic, unknownTopicMessage } from "./designGuide.ts";
 import {
@@ -15,14 +15,13 @@ import type { Asset, AssetKind, Store } from "./types.ts";
 
 // Stateless MCP over streamable HTTP: every request is self-contained, which
 // is what a serverless deployment needs. Session continuity is explicit —
-// publish_mock returns a sessionId the agent passes back on later calls.
+// publish returns a sessionId the agent passes back on later calls.
 
 type Flow<A extends unknown[]> = (...args: A) => Promise<FlowResult>;
 
 // The same flows the REST routes call, so every tier returns the same shapes.
 export interface McpFlows {
   publish: Flow<[body: any, ctx: FlowContext]>;
-  revise: Flow<[body: any, ctx: FlowContext]>;
   list: Flow<[query: { project?: string }]>;
   get: Flow<[ref: unknown, query: { project?: unknown; body?: boolean; history?: boolean }]>;
   ask: Flow<[ref: unknown, body: any, ctx: FlowContext]>;
@@ -33,12 +32,8 @@ export interface McpFlows {
       ctx: FlowContext,
     ]
   >;
-  comment: Flow<[body: any, ctx: FlowContext]>;
-  feedback: Flow<[query: CommentWait, signal?: AbortSignal]>;
-  appendSurface: Flow<[ref: unknown, body: any, ctx: FlowContext]>;
-  replaceSurface: Flow<[ref: unknown, target: string, body: any, ctx: FlowContext]>;
-  removeSurface: Flow<[ref: unknown, target: string, body: any, ctx: FlowContext]>;
-  reorderSurfaces: Flow<[ref: unknown, body: any, ctx: FlowContext]>;
+  say: Flow<[ref: unknown, body: any]>;
+  feedback: Flow<[query: { session?: unknown; project?: unknown }]>;
 }
 
 export interface McpDeps {
@@ -70,18 +65,6 @@ export function unwrap(result: FlowResult): unknown {
   return result.body;
 }
 
-// What a wait returns on every tier: the batches plus the cursor.
-export function feedbackResult(body: { feedback?: unknown[]; lastSeq?: number }) {
-  const feedback = body.feedback ?? [];
-  return feedback.length === 0
-    ? {
-        feedback,
-        lastSeq: body.lastSeq,
-        note: "no user feedback yet — continue, or wait again later",
-      }
-    : { feedback, lastSeq: body.lastSeq };
-}
-
 export function registerMcp(app: Hono, deps: McpDeps) {
   const { flows, store } = deps;
 
@@ -97,13 +80,12 @@ export function registerMcp(app: Hono, deps: McpDeps) {
 
   async function callTool(name: string, args: any, ctx: FlowContext): Promise<unknown> {
     switch (name) {
-      case "publish_mock":
+      case "publish":
         return unwrap(await flows.publish(args, ctx));
-      case "revise_mock":
-        return unwrap(await flows.revise(args, ctx));
-      case "list_mocks":
-        return unwrap(await flows.list({ project: args.project }));
-      case "get_mock":
+      case "ask":
+        return unwrap(await flows.ask(args.mock, args, ctx));
+      case "read":
+        if (args.mock === undefined) return unwrap(await flows.list({ project: args.project }));
         return unwrap(
           await flows.get(args.mock, {
             project: args.project,
@@ -111,39 +93,15 @@ export function registerMcp(app: Hono, deps: McpDeps) {
             history: args.history === true,
           }),
         );
-      case "ask_user":
-        return unwrap(await flows.ask(args.mock, args, ctx));
-      case "export_mock":
+      case "feedback":
+        return unwrap(await flows.feedback({ session: args.session, project: args.project }));
+      case "say":
+        return unwrap(await flows.say(args.mock, args));
+      case "export":
         return unwrap(await flows.exportMock(args.mock, args, ctx));
-      case "wait_for_feedback": {
-        if (typeof args.session !== "string" || !args.session) {
-          throw new Error("wait_for_feedback needs the session id returned by publish_mock");
-        }
-        const body = unwrap(
-          await flows.feedback(
-            {
-              sessionId: args.session,
-              author: "user",
-              waitSeconds: typeof args.timeoutSeconds === "number" ? args.timeoutSeconds : 55,
-            },
-            ctx.signal,
-          ),
-        ) as { feedback: unknown[]; lastSeq: number };
-        return feedbackResult(body);
-      }
-      case "reply_to_user":
-        return unwrap(await flows.comment({ ...args, text: args.message }, ctx));
-      case "add_surface":
-        return unwrap(await flows.appendSurface(args.mock, args, ctx));
-      case "edit_surface":
-        return unwrap(await flows.replaceSurface(args.mock, String(args.target ?? ""), args, ctx));
-      case "remove_surface":
-        return unwrap(await flows.removeSurface(args.mock, String(args.target ?? ""), args, ctx));
-      case "reorder_surfaces":
-        return unwrap(await flows.reorderSurfaces(args.mock, args, ctx));
-      case "upload_asset": {
+      case "upload": {
         if (typeof args.data !== "string" || args.data.length === 0) {
-          throw new Error("upload_asset needs base64 `data`");
+          throw new Error("upload needs base64 `data`");
         }
         const result = await deps.uploadAsset({
           data: decodeBase64(args.data),
@@ -162,7 +120,7 @@ export function registerMcp(app: Hono, deps: McpDeps) {
           kind: result.asset.kind,
         };
       }
-      case "get_design_guide": {
+      case "guide": {
         if (args.topic === undefined) return await deps.guide(await projectOf(args));
         if (!isGuideTopic(args.topic)) throw new Error(unknownTopicMessage(String(args.topic)));
         return await deps.guide("", args.topic);

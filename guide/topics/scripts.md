@@ -1,15 +1,15 @@
 # mockpit topic: scripts
 
 `run` executes a JavaScript script on the server against the mockpit API. One
-run can publish two variants, ask which one, and wait for the reply. That is
-four tool calls in one.
+run can publish two variants and ask which one: three tool calls in one. A
+script never waits for the user. End the turn after the run that asks; when
+the user says they answered, a later run reads `mockpit.feedback()`.
 
 ## When to use it
 
 - Your client loads every MCP tool into each conversation and has no codemode
   of its own (claude.ai, Desktop and ChatGPT connectors). Connect to
-  `/mcp?mode=code` instead of `/mcp`: one `run` tool, about a third of the
-  catalog.
+  `/mcp?mode=code` instead of `/mcp`: one `run` tool.
 - You work from a shell and want the whole loop in one file:
   `mockpit run loop.js`.
 - Skip it when your harness already turns MCP tools into code (pi, Cloudflare
@@ -22,7 +22,7 @@ four tool calls in one.
 | `mockpit run <file>` (`-` is stdin) | `run` on `/mcp?mode=code`, or stdio with `MOCKPIT_MCP_MODE=code` (`path`) | `POST /api/run {code, session?, project?, agent?}` |
 
 The session, project and agent are fixed for a run. The result carries the
-`session`; pass it to the next run so its waits hear the reply. The CLI and the
+`session`; pass it to the next run so its `feedback()` hears the reply. The CLI and the
 stdio server keep one session for you.
 
 ## The API
@@ -32,7 +32,7 @@ template literals; a backtick or `${` inside the markup needs a backslash.
 
 <!-- run-api -->
 
-## Publish A/B, ask, wait
+## Publish A/B, ask
 
 ```js
 const card = (tone) => `
@@ -52,9 +52,15 @@ const { url } = await mockpit.ask("writer", [
     ],
   },
 ]);
-print("review at", url);
-const [reply] = await mockpit.wait(150);
-return reply ?? "no reply yet";
+return url;
+```
+
+Tell the user in one line where to look, then end your turn. Once they say
+they answered:
+
+```js
+const { feedback, pending } = await mockpit.feedback();
+return feedback.length ? feedback : pending;
 ```
 
 ## The result
@@ -62,27 +68,24 @@ return reply ?? "no reply yet";
 ```json
 {
   "ok": true,
-  "value": {
-    "mock": "writer",
-    "reply": { "asks": [{ "ask": "look", "chosen": [{ "label": "Bold" }] }] }
-  },
-  "prints": ["review at http://localhost:8228/project/demo/writer"],
+  "value": "http://localhost:8228/project/demo/writer",
+  "prints": [],
   "calls": [
     { "fn": "publish", "ok": true, "summary": "writer/calm v1" },
     { "fn": "publish", "ok": true, "summary": "writer/bold v1" },
-    { "fn": "ask", "ok": true, "summary": "writer 1 ask(s)" },
-    { "fn": "wait", "ok": true, "summary": "1 batch(es)" }
+    { "fn": "ask", "ok": true, "summary": "writer 1 ask(s)" }
   ],
-  "feedback": [{ "mock": "writer", "reply": { "…": "…" } }],
+  "feedback": [],
   "session": "S"
 }
 ```
 
 - `calls` lists every host call in order. After a failure it tells you which
   writes landed. A rerun publishes new versions, so check it first.
-- `feedback` holds every batch the run received, from `wait()` and from the
-  feedback that rides on writes. It is there even when the script threw or ran
-  out of time. Feedback is delivered once: read it here, not from a later wait.
+- `feedback` holds every batch the run received, from `feedback()` and from
+  the feedback that rides on writes. It is there even when the script threw or
+  ran out of time. Feedback is delivered once: read it here, not from a later
+  call.
 - `error.kind` is `script` (a throw or a syntax error, with `line` and
   `column`), `timeout`, `limit` (CPU, memory, code size, call count) or
   `aborted` (the caller went away).
@@ -94,13 +97,13 @@ A host call that fails rejects with the message REST would give, so
 
 ```js
 try {
-  await mockpit.revise({
+  await mockpit.publish({
     mock: "writer",
     variant: "calm",
     parts: { hero: '<section data-part="hero">…</section>' },
   });
 } catch (e) {
-  print("revise failed:", e.message);
+  print("part splice failed:", e.message);
   await mockpit.publish({
     mock: "writer",
     variant: "calm",
@@ -113,7 +116,7 @@ try {
 
 | What       | Limit                                                        |
 | ---------- | ------------------------------------------------------------ |
-| Wall time  | 200 s per run; `wait()` returns a few seconds before that    |
+| Wall time  | 10 s per run                                                 |
 | CPU        | 10 s of script compute                                       |
 | Memory     | 32 MiB heap, 256 KiB stack                                   |
 | Code       | 1 MiB                                                        |

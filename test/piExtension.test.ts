@@ -194,46 +194,80 @@ async function setup(t: { after: (fn: () => Promise<void>) => void }, session?: 
   return { dir, server, ctx: createContext(dir) };
 }
 
-test("the extension registers the mock tool set and no trace sync", async () => {
+test("the extension registers the verb set and no trace sync or wait", async () => {
   const harness = createPiHarness();
   assert.deepEqual(
     [...harness.tools.keys()],
     [
-      "mockpit_get_design_guide",
-      "mockpit_publish_mock",
-      "mockpit_revise_mock",
-      "mockpit_ask_user",
-      "mockpit_list_mocks",
-      "mockpit_get_mock",
-      "mockpit_export_mock",
-      "mockpit_wait_for_feedback",
-      "mockpit_reply_to_user",
-      "mockpit_upload_asset",
+      "mockpit_publish",
+      "mockpit_ask",
+      "mockpit_read",
+      "mockpit_feedback",
+      "mockpit_say",
+      "mockpit_export",
+      "mockpit_upload",
+      "mockpit_guide",
+      "mockpit_run",
     ],
   );
   assert.deepEqual([...harness.commands.keys()], ["mockpit"]);
   assert.deepEqual(harness.eventNames, ["session_start"]);
-  assert.deepEqual(harness.tool("mockpit_publish_mock").parameters.required, ["mock"]);
-  assert.deepEqual(harness.tool("mockpit_ask_user").parameters.required, ["mock", "asks"]);
-  assert.deepEqual(harness.tool("mockpit_reply_to_user").parameters.required, ["mock", "message"]);
-  const kinds =
-    harness.tool("mockpit_publish_mock").parameters.properties?.surfaces.items.properties.kind.enum;
+  assert.deepEqual(harness.tool("mockpit_publish").parameters.required, ["mock"]);
+  assert.deepEqual(harness.tool("mockpit_ask").parameters.required, ["mock", "asks"]);
+  assert.deepEqual(harness.tool("mockpit_say").parameters.required, ["mock", "message"]);
+  assert.equal(harness.tool("mockpit_feedback").parameters.properties?.timeoutSeconds, undefined);
+  const surface = harness.tool("mockpit_publish").parameters.properties?.surfaces.items;
+  const kinds = surface.properties.kind.enum;
   for (const kind of ["html", "markdown", "mermaid", "diff", "image", "terminal", "json", "code"]) {
     assert.ok(kinds.includes(kind), `publish schema includes ${kind}`);
   }
   assert.equal(kinds.includes("trace"), false);
-  const guidelines = harness.tool("mockpit_publish_mock").promptGuidelines!.join("\n");
-  assert.match(guidelines, /Two renders needed to show a choice/);
+  assert.ok(surface.properties.id, "a surface may be only {id}");
+  assert.ok(harness.tool("mockpit_publish").parameters.properties?.parts);
+  const guidelines = harness.tool("mockpit_publish").promptGuidelines!.join("\n");
+  assert.match(guidelines, /A choice is several variants plus one ask that binds them/);
+  assert.match(guidelines, /then end your turn/);
+  assert.match(guidelines, /call mockpit_feedback/);
+  const everything = [...harness.tools.values()]
+    .flatMap((tool) => [tool.promptSnippet ?? "", ...(tool.promptGuidelines ?? [])])
+    .join("\n");
+  assert.doesNotMatch(everything, /Two renders|wait|\b55\b|\b230\b/i);
 });
 
-test("publish, revise, ask, list, get, wait, reply and export round-trip through a real server", async (t) => {
+test("publish, ask, read, feedback, say and export round-trip through a real server", async (t) => {
   const { dir, server, ctx } = await setup(t);
   const harness = createPiHarness();
+  // Only the extension's own requests count, not the test's setup and checks.
+  const seen: string[] = [];
+  const realFetch = globalThis.fetch;
+  const extension = harness.tools;
+  let recording = false;
+  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (recording) seen.push(`${init?.method ?? "GET"} ${url.pathname}`);
+    return realFetch(input, init);
+  }) as typeof fetch;
+  t.after(() => {
+    globalThis.fetch = realFetch;
+  });
+  const invoke = async (
+    _h: typeof harness,
+    name: string,
+    params: Record<string, any>,
+    c: typeof ctx,
+  ) => {
+    recording = true;
+    try {
+      return await extension.get(name)!.execute("call-1", params, undefined, undefined, c);
+    } finally {
+      recording = false;
+    }
+  };
 
   writeFileSync(join(dir, "dark.html"), '<h1 data-part="title">T</h1><p data-part="body">dark</p>');
   const quiet = await invoke(
     harness,
-    "mockpit_publish_mock",
+    "mockpit_publish",
     {
       mock: "writer",
       state: "Writing",
@@ -254,24 +288,40 @@ test("publish, revise, ask, list, get, wait, reply and export round-trip through
   // The remembered session carries the second publish; `path` reads from the cwd.
   const dark = await invoke(
     harness,
-    "mockpit_publish_mock",
+    "mockpit_publish",
     { mock: "writer", state: "Writing", variant: "dark", path: "dark.html" },
     ctx,
   );
   assert.equal(dark.details!.sessionId, sessionId);
+  assert.match(text(dark), /nudge: .*no ask binds them/);
+  assert.match(text(dark), /suggestedAsk \(send with mockpit_ask\): \{"id":"variant"/);
 
   const revised = await invoke(
     harness,
-    "mockpit_revise_mock",
+    "mockpit_publish",
     { mock: "writer", state: "Writing", variant: "dark", html: '<h1 data-part="title">T2</h1>' },
     ctx,
   );
   assert.match(text(revised), /^writer\/Writing\/dark v2 · /);
   assert.match(text(revised), /part body vanished/);
 
+  const spliced = await invoke(
+    harness,
+    "mockpit_publish",
+    {
+      mock: "writer",
+      state: "Writing",
+      variant: "dark",
+      parts: { title: '<h1 data-part="title">T3</h1>' },
+    },
+    ctx,
+  );
+  assert.match(text(spliced), /^writer\/Writing\/dark v3 · /);
+  assert.match(text(spliced), /applied: title/);
+
   const asked = await invoke(
     harness,
-    "mockpit_ask_user",
+    "mockpit_ask",
     {
       mock: "writer",
       asks: [
@@ -289,95 +339,126 @@ test("publish, revise, ask, list, get, wait, reply and export round-trip through
   );
   assert.match(text(asked), /^Asked on writer: Which look\? \[Quiet \| Dark\]/);
 
-  const listed = await invoke(harness, "mockpit_list_mocks", {}, ctx);
-  assert.match(text(listed), /^writer · component · Writing · 2 variants · 1 open$/);
+  const listed = await invoke(harness, "mockpit_read", {}, ctx);
+  assert.match(text(listed), /^writer · component · Writing · 2 variants · 1 open$/m);
+  assert.equal(listed.details!.pending[0].mock, "writer");
 
-  const got = await invoke(harness, "mockpit_get_mock", { mock: "writer", body: true }, ctx);
+  const got = await invoke(harness, "mockpit_read", { mock: "writer", body: true }, ctx);
   assert.equal(got.details!.variants.length, 2);
   assert.match(got.details!.variants[0].surfaces[0].html, /data-part/);
+  assert.equal(got.details!.pending.mock, "writer");
 
-  const empty = await invoke(harness, "mockpit_wait_for_feedback", { timeoutSeconds: 0 }, ctx);
+  const empty = await invoke(harness, "mockpit_feedback", {}, ctx);
   assert.equal(text(empty), "No new mockpit feedback.");
+  assert.deepEqual(empty.details!.pending, [{ mock: "writer", viewerOpen: false, draft: null }]);
 
   const mockId = got.details!.id;
+  await fetch(
+    `${server.url}/api/mocks/${mockId}/draft`,
+    authInit({ method: "PUT", body: JSON.stringify({ answers: { look: "dark" } }) }),
+  );
+  const drafting = await invoke(harness, "mockpit_feedback", {}, ctx);
+  assert.match(
+    text(drafting),
+    /No new mockpit feedback\.\nPending:\n- writer: the user is answering \(1 of 1 answered, 0 comments\)/,
+  );
+
   await postJson(`${server.url}/api/mocks/${mockId}/reply`, {
     answers: { look: "dark" },
     tuned: { "body.size": 19 },
     comments: [{ part: "title", state: "Writing", text: "bigger" }],
     text: "go dark",
   });
-  const waited = await invoke(harness, "mockpit_wait_for_feedback", { timeoutSeconds: 5 }, ctx);
-  const lines = text(waited);
+  const heard = await invoke(harness, "mockpit_feedback", {}, ctx);
+  const lines = text(heard);
   assert.match(lines, /- writer: Which look\? → Dark/);
   assert.match(lines, /- writer: tuned body\.size = 19/);
   assert.match(lines, /- writer: \[title · Writing\] bigger/);
   assert.match(lines, /- writer: go dark/);
-  assert.equal(waited.details!.feedback[0].reply.answers.look, "dark");
-  const again = await invoke(harness, "mockpit_wait_for_feedback", { timeoutSeconds: 0 }, ctx);
+  assert.equal(heard.details!.feedback[0].reply.answers.look, "dark");
+  const again = await invoke(harness, "mockpit_feedback", {}, ctx);
   assert.equal(text(again), "No new mockpit feedback.", "a reply is delivered once");
 
   // A user comment left while the agent works rides back on its next write.
   await postJson(`${server.url}/api/comments`, { mock: mockId, text: "one more", author: "user" });
-  const replied = await invoke(
-    harness,
-    "mockpit_reply_to_user",
-    { mock: "writer", message: "on it" },
-    ctx,
-  );
-  assert.match(text(replied), /^Posted mockpit reply on writer\./);
-  assert.match(text(replied), /User feedback delivered with this result:\n- writer: one more/);
-  assert.equal(replied.details!.author, "contract-pi");
+  const said = await invoke(harness, "mockpit_say", { mock: "writer", message: "on it" }, ctx);
+  assert.match(text(said), /^Said on writer\./);
+  assert.match(text(said), /User feedback delivered with this result:\n- writer: one more/);
+  const thread = await getJson(`${server.url}/api/comments?mock=${mockId}`);
+  const agentLine = thread.comments.find((c: any) => c.text === "on it");
+  assert.equal(agentLine.author, "contract-pi");
 
-  const exported = await invoke(harness, "mockpit_export_mock", { mock: "writer" }, ctx);
+  const exported = await invoke(harness, "mockpit_export", { mock: "writer" }, ctx);
   assert.equal(exported.details!.states[0].variant, "dark");
   assert.equal(exported.details!.states[0].status, "accepted");
   assert.deepEqual(exported.details!.reply.tuned, { "body.size": 19 });
+
+  assert.deepEqual([...new Set(seen)].sort(), [
+    "GET /api/feedback",
+    "GET /api/mocks",
+    "GET /api/mocks/writer",
+    "GET /api/mocks/writer/export",
+    "POST /api/mocks",
+    "POST /api/mocks/writer/asks",
+    "POST /api/mocks/writer/say",
+  ]);
 });
 
-test("wait_for_feedback defaults to 55 seconds and caps at 230", async (t) => {
-  const { server, ctx } = await setup(t);
-  const harness = createPiHarness();
-  const published = await invoke(
-    harness,
-    "mockpit_publish_mock",
-    { mock: "writer", html: "<h1>T</h1>" },
-    ctx,
-  );
-  const waits: Array<string | null> = [];
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
-    const url = new URL(input instanceof Request ? input.url : String(input));
-    if (url.pathname === "/api/comments" && url.searchParams.has("author"))
-      waits.push(url.searchParams.get("wait"));
-    return realFetch(input, init);
-  }) as typeof fetch;
-  t.after(() => {
-    globalThis.fetch = realFetch;
-  });
-  // Pending feedback makes each long-poll return at once, so only the query is observed.
-  const mock = published.details!.mock.id;
-  await postJson(`${server.url}/api/comments`, { mock, text: "one", author: "user" });
-  await invoke(harness, "mockpit_wait_for_feedback", {}, ctx);
-  await postJson(`${server.url}/api/comments`, { mock, text: "two", author: "user" });
-  await invoke(harness, "mockpit_wait_for_feedback", { timeoutSeconds: 900 }, ctx);
-  assert.deepEqual(waits, ["55", "230"]);
-});
-
-test("the design guide is the project-aware brief", async (t) => {
+test("publish takes the full ordered surface list", async (t) => {
   const { ctx } = await setup(t);
   const harness = createPiHarness();
-  const guide = await invoke(harness, "mockpit_get_design_guide", {}, ctx);
-  assert.match(text(guide), /# mockpit brief/);
-  assert.match(text(guide), /mockpit publish --mock/);
+  const first = await invoke(
+    harness,
+    "mockpit_publish",
+    {
+      mock: "notes",
+      surfaces: [
+        { kind: "html", html: "<p>n</p>" },
+        { kind: "markdown", markdown: "# a" },
+      ],
+    },
+    ctx,
+  );
+  const [htmlId, mdId] = first.details!.post.surfaces.map((s: any) => s.id);
+  const moved = await invoke(
+    harness,
+    "mockpit_publish",
+    { mock: "notes", surfaces: [{ id: mdId }, { id: htmlId }] },
+    ctx,
+  );
+  assert.deepEqual(
+    moved.details!.post.surfaces.map((s: any) => s.kind),
+    ["markdown", "html"],
+  );
+  const removed = await invoke(
+    harness,
+    "mockpit_publish",
+    { mock: "notes", surfaces: [{ id: htmlId }] },
+    ctx,
+  );
+  assert.deepEqual(
+    removed.details!.post.surfaces.map((s: any) => s.kind),
+    ["html"],
+  );
 });
 
-test("upload_asset reads a path, creates a session when asked, and remembers it", async (t) => {
+test("the guide is the project-aware brief, or one topic", async (t) => {
+  const { ctx } = await setup(t);
+  const harness = createPiHarness();
+  const guide = await invoke(harness, "mockpit_guide", {}, ctx);
+  assert.match(text(guide), /# mockpit brief/);
+  assert.match(text(guide), /mockpit publish --mock/);
+  const topic = await invoke(harness, "mockpit_guide", { topic: "html" }, ctx);
+  assert.equal(text(topic), "# Mockpit design contract");
+});
+
+test("upload reads a path, creates a session, and remembers it", async (t) => {
   const { dir, ctx } = await setup(t);
   const harness = createPiHarness();
   writeFileSync(join(dir, "shot.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
   const uploaded = await invoke(
     harness,
-    "mockpit_upload_asset",
+    "mockpit_upload",
     { path: "@shot.png", sessionTitle: "Screens" },
     ctx,
   );
@@ -387,11 +468,11 @@ test("upload_asset reads a path, creates a session when asked, and remembers it"
   assert.match(text(uploaded), /^Uploaded mockpit asset /);
 
   // The next publish lands in the session the upload created.
-  const published = await invoke(harness, "mockpit_publish_mock", { mock: "x", html: "<p/>" }, ctx);
+  const published = await invoke(harness, "mockpit_publish", { mock: "x", html: "<p/>" }, ctx);
   assert.equal(published.details!.sessionId, uploaded.details!.sessionId);
 
   await assert.rejects(
-    invoke(harness, "mockpit_upload_asset", {}, ctx),
+    invoke(harness, "mockpit_upload", {}, ctx),
     /Provide either path or base64 data/,
   );
 });
@@ -408,7 +489,7 @@ test("session_start restores the session from earlier mockpit tool results; /moc
       type: "message",
       message: {
         role: "toolResult",
-        toolName: "mockpit_publish_mock",
+        toolName: "mockpit_publish",
         details: { sessionId: "s-1" },
       },
     },
@@ -416,7 +497,7 @@ test("session_start restores the session from earlier mockpit tool results; /moc
       type: "message",
       message: {
         role: "toolResult",
-        toolName: "mockpit_upload_asset",
+        toolName: "mockpit_upload",
         details: { asset: { sessionId: "s-2" } },
       },
     },
@@ -433,20 +514,31 @@ test("session_start restores the session from earlier mockpit tool results; /moc
   assert.match(ctx.notifications.at(-1)!.message, /\(no session yet\)/);
 });
 
-test("wait without a session explains how to get one", async (t) => {
+test("feedback before any write starts a session the next publish reuses", async (t) => {
   const { ctx } = await setup(t);
   const harness = createPiHarness();
-  await assert.rejects(
-    invoke(harness, "mockpit_wait_for_feedback", {}, ctx),
-    /No mockpit session yet/,
-  );
+  const first = await invoke(harness, "mockpit_feedback", {}, ctx);
+  assert.equal(text(first), "No new mockpit feedback.");
+  const published = await invoke(harness, "mockpit_publish", { mock: "x", html: "<p/>" }, ctx);
+  assert.equal(published.details!.sessionId, first.details!.sessionId);
 });
 
 test("server errors surface as the server's message", async (t) => {
   const { ctx } = await setup(t);
   const harness = createPiHarness();
   await assert.rejects(
-    invoke(harness, "mockpit_revise_mock", { mock: "nope", html: "<p/>" }, ctx),
-    /mockpit \/api\/mocks\/nope\/revise failed: acme\/site has no mock "nope"/,
+    invoke(harness, "mockpit_publish", { mock: "nope", parts: { a: "<p/>" } }, ctx),
+    /mockpit \/api\/mocks failed: nope has no variant "default"/,
+  );
+});
+
+test("run posts the script to /api/run; empty code is refused locally", async (t) => {
+  const { ctx } = await setup(t);
+  const harness = createPiHarness();
+  await assert.rejects(invoke(harness, "mockpit_run", {}, ctx), /Provide code, or path/);
+  // This server has no sandbox, so reaching it proves the route.
+  await assert.rejects(
+    invoke(harness, "mockpit_run", { code: "return 1;" }, ctx),
+    /mockpit \/api\/run failed: run is not available on this deployment/,
   );
 });

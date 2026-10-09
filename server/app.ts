@@ -60,6 +60,8 @@ import {
   type AskOption,
   type Asset,
   type AssetKind,
+  BUILTIN_ASK_ID,
+  builtinAsk,
   type CodeSurface,
   type Comment,
   type CommentAnchor,
@@ -92,7 +94,6 @@ import {
   slugify,
   type Store,
   type Surface,
-  SURFACE_CONTENT_FIELDS,
   surfacesByteLength,
   type TerminalSurface,
 } from "./types.ts";
@@ -107,8 +108,8 @@ export type { FeedEvent } from "./events.ts";
 export type { FeedbackBatch } from "./feedbackBatch.ts";
 
 const MAX_SURFACE_BYTES = 2 * 1024 * 1024;
-// Under claude.ai's 240 s per-tool-call limit, so a remote connector's wait
-// returns before the client gives up on it.
+// A held long-poll (watch, the viewer) re-arms rather than pinning a socket
+// for good; proxies and serverless hosts drop longer requests anyway.
 const MAX_WAIT_SECONDS = 230;
 // Hard ceiling on any request body, applied globally. Every write endpoint
 // reads its body with an unbounded `c.req.json()` (and /mcp likewise), so
@@ -409,6 +410,9 @@ export function createApp({
   // Each holder increments on entry and releases exactly once via a guarded
   // release() wired to every exit (stream abort, request abort, normal return).
   let holdConnections = 0;
+  // Only the viewer holds /api/events (watch long-polls), so an attached SSE
+  // client means someone has the workspace open.
+  let viewerClients = 0;
   const acquireHold = (): boolean => {
     if (holdConnections >= maxHoldConnections) return false;
     holdConnections++;
@@ -535,27 +539,27 @@ export function createApp({
   // User comments the agent has not seen yet ride along on its next write, so
   // agents hear feedback without blocking on the long-poll. The cursor also
   // advances past the agent's own comments to keep reads cheap.
-  async function collectFeedback(sessionId: string): Promise<FeedbackBatch[] | undefined> {
+  async function collectFeedback(sessionId: string): Promise<FeedbackBatch[]> {
     const session = await store.getSession(sessionId);
-    if (!session) return undefined;
+    if (!session) return [];
     const fresh = await store.listComments({ sessionId, afterSeq: session.agentSeq });
-    if (fresh.length === 0) return undefined;
+    if (fresh.length === 0) return [];
     await store.markAgentSeen(sessionId, fresh[fresh.length - 1].seq);
     bus.broadcast({ type: "comment-seen", sessionId, seq: fresh[fresh.length - 1].seq });
     const feedback = fresh.filter((cm) => cm.author === "user");
-    return feedback.length > 0 ? await buildFeedbackBatches(store, feedback) : undefined;
+    return feedback.length > 0 ? await buildFeedbackBatches(store, feedback) : [];
   }
 
-  // Per-comment delivery state for the viewer: `seen` once the session's
+  // Per-comment delivery state for the viewer: `delivered` once the session's
   // agentSeq has passed the comment. Computed, never stored.
-  async function withSeen(comments: Comment[]): Promise<(Comment & { seen: boolean })[]> {
+  async function withDelivered(comments: Comment[]): Promise<(Comment & { delivered: boolean })[]> {
     const cursors = new Map<string, number>();
     for (const c of comments) {
       if (!cursors.has(c.sessionId)) {
         cursors.set(c.sessionId, (await store.getSession(c.sessionId))?.agentSeq ?? 0);
       }
     }
-    return comments.map((c) => ({ ...c, seen: c.seq <= (cursors.get(c.sessionId) ?? 0) }));
+    return comments.map((c) => ({ ...c, delivered: c.seq <= (cursors.get(c.sessionId) ?? 0) }));
   }
 
   // The workspace's light/dark choice. Older workspaces stored a theme id under
@@ -747,19 +751,80 @@ export function createApp({
     body: any,
     ctx: FlowContext,
     scope: SurfaceKitScope,
-  ): Promise<Surface[] | FlowResult | undefined> {
-    if (typeof body.html === "string") {
-      if (!body.html.trim()) return fail(400, 'body must include non-empty "html" string');
+    base: () => Surface[] | FlowResult,
+  ): Promise<Surface[] | FlowResult> {
+    if (body.html !== undefined) {
+      if (typeof body.html !== "string" || !body.html.trim()) {
+        return fail(400, 'body must include non-empty "html" string');
+      }
       const raw = [htmlSurface(body.html, body.kits)];
       if (!ctx.strict) return coerceSurfaces(raw, scope);
       const parsed = await validateSurfaces(raw, scope);
       return parsed.ok ? parsed.surfaces : fail(400, parsed.error, surfaceIssues(parsed));
     }
-    if (body.surfaces === undefined) return undefined;
     if (!Array.isArray(body.surfaces)) return fail(400, '"surfaces" must be an array');
-    if (!ctx.strict) return coerceSurfaces(body.surfaces, scope);
-    const parsed = await validateSurfaces(body.surfaces, scope);
-    return parsed.ok ? parsed.surfaces : fail(400, parsed.error, surfaceIssues(parsed));
+    return surfaceList(body.surfaces, ctx, scope, base);
+  }
+
+  // The full ordered list replaces the variant's surfaces, so one shape covers
+  // add, edit, remove and reorder: an entry that is only `{id}` keeps that
+  // surface, an id with content replaces it in place, an entry without an id is
+  // new, and an id left out is removed.
+  async function surfaceList(
+    raw: unknown[],
+    ctx: FlowContext,
+    scope: SurfaceKitScope,
+    base: () => Surface[] | FlowResult,
+  ): Promise<Surface[] | FlowResult> {
+    const out: Surface[] = [];
+    const used = new Set<string>();
+    const issues: SurfaceValidationFailure["issues"] = [];
+    for (const [i, entry] of raw.entries()) {
+      const record =
+        entry && typeof entry === "object" && !Array.isArray(entry)
+          ? (entry as Record<string, unknown>)
+          : null;
+      const id = typeof record?.id === "string" ? record.id : undefined;
+      if (id !== undefined) {
+        if (used.has(id)) return fail(400, `surface "${id}" appears twice in "surfaces"`);
+        used.add(id);
+        const current = base();
+        if (isResult(current)) return current;
+        const kept = current.find((s) => s.id === id);
+        if (!kept) {
+          return fail(404, `surface "${id}" not found`, { surfaces: current.map(surfaceRef) });
+        }
+        if (record?.kind === undefined) {
+          out.push(kept);
+          continue;
+        }
+      }
+      const { id: _id, ...content } = record ?? {};
+      const one = record ? [content] : [entry];
+      if (!ctx.strict) {
+        const [surface] = await coerceSurfaces(one, scope);
+        if (surface) out.push(id ? { ...surface, id } : surface);
+        continue;
+      }
+      const parsed = await validateSurfaces(one, scope);
+      if (!parsed.ok) {
+        for (const issue of parsed.issues) {
+          issues.push({
+            ...issue,
+            requestPath: issue.requestPath.replace(/^surfaces\[0\]/, `surfaces[${i}]`),
+          });
+        }
+        continue;
+      }
+      out.push(id ? { ...parsed.surfaces[0], id } : parsed.surfaces[0]);
+    }
+    if (issues.length) {
+      return fail(400, issues.map((x) => `${x.requestPath}: ${x.message}`).join("; "), {
+        code: "surface_validation_failed",
+        issues,
+      });
+    }
+    return out;
   }
 
   const surfaceIssues = (failure: SurfaceValidationFailure) => ({
@@ -835,11 +900,50 @@ export function createApp({
       const n = discreteChoices(config);
       if (n !== null && n <= 3) {
         out.push(
-          `knob "${path}" has ${n} discrete options: if each option needs its own render, ask instead (ask_user with options bound to variants); keep a knob when one render plus a control shows it`,
+          `knob "${path}" has ${n} discrete options: if each option needs its own render, ask instead (ask with options bound to variants); keep a knob when one render plus a control shows it`,
         );
       }
     }
     return out;
+  }
+
+  // Ask discipline: two live variants of a state with no ask binding them all
+  // leave the user nothing to answer in one Send, and the agent tends to ask in
+  // chat instead. The nudge carries a ready ask: mock-wide when every state has
+  // the same variant names, else for this state.
+  function unboundVariants(
+    mock: Mock,
+    posts: Post[],
+    state: string | null,
+  ): { nudge: string; ask: Record<string, unknown> } | null {
+    const live = (s: string | null) =>
+      posts.filter((p) => p.state === s && p.status !== "archived").map((p) => p.variant);
+    const names = live(state);
+    if (names.length < 2) return null;
+    const bound = mock.asks.some((a) => {
+      if (a.scope === "part" || (a.scope === "state" && a.state !== state)) return false;
+      const variants = new Set(a.options.map((o) => o.variant));
+      return names.every((n) => variants.has(n));
+    });
+    if (bound) return null;
+    const key = (list: string[]) => [...list].sort().join("\n");
+    const states = mock.states.length ? mock.states : [null];
+    const wide = states.every((s) => key(live(s)) === key(names));
+    const options = names.map((v) => ({ label: v, variant: v }));
+    const ask = wide
+      ? { id: BUILTIN_ASK_ID, text: "Which one?", scope: "mock", options }
+      : {
+          id: `${BUILTIN_ASK_ID}-${slugify(state ?? "")}`,
+          text: "Which one?",
+          scope: "state",
+          state,
+          options,
+        };
+    const where = state === null ? mock.slug : `${mock.slug} state "${state}"`;
+    return {
+      nudge: `${where} has ${names.length} variants and no ask binds them: call ask with suggestedAsk (or your own question with options bound to the variants) so the user can choose in one Send; never ask in chat`,
+      ask,
+    };
   }
 
   // The answer to every write: what was published, the parts found per state,
@@ -852,12 +956,14 @@ export function createApp({
   ): Promise<FlowResult> {
     const posts = await store.listPosts({ mockId: mock.id });
     const detail = mockDetailView(mock, posts);
+    const unbound = unboundVariants(mock, posts, post.state);
+    const nudges = [...(extra.nudges ?? []), ...(unbound ? [unbound.nudge] : [])];
     let partChanges: PartChanges | undefined;
     if (extra.previous) {
       partChanges = diffParts(partsInSurfaces(extra.previous), partsInSurfaces(post.surfaces));
     }
     const warnings = await iconWarnings(mock.project, post.surfaces);
-    const userFeedback = await collectFeedback(post.sessionId);
+    const feedback = await collectFeedback(post.sessionId);
     return ok(
       {
         mock: {
@@ -883,9 +989,10 @@ export function createApp({
         ...(partChanges && (partChanges.vanished.length || partChanges.renamed.length)
           ? { partChanges }
           : {}),
-        ...(extra.nudges?.length ? { nudges: extra.nudges } : {}),
+        ...(nudges.length ? { nudges } : {}),
+        ...(unbound ? { suggestedAsk: unbound.ask } : {}),
         ...(warnings.length ? { warnings } : {}),
-        ...(userFeedback ? { userFeedback } : {}),
+        feedback,
       },
       extra.status ?? 200,
     );
@@ -903,14 +1010,20 @@ export function createApp({
     warmPost(post, mock);
   }
 
-  // Publish one variant of one state of a mock. An existing (mock, state,
-  // variant) becomes a new version; anything else is created. `revise` refuses
-  // to create.
-  async function publishFlow(body: any, ctx: FlowContext, revise = false): Promise<FlowResult> {
+  // The one write: publish one variant of one state of a mock. An existing
+  // (mock, state, variant) becomes a new version; anything else is created.
+  // Exactly one body: `html`, the full ordered `surfaces` list, or `parts`
+  // spliced into the variant's latest (or `from`) version.
+  async function publishFlow(body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
     const slugIn = str(body.mock, MAX_TITLE);
     if (!slugIn) return fail(400, 'provide "mock": the mock slug, e.g. "writer"');
-    const partEdits = revise ? partEditsArg(body) : undefined;
+    const given = ["html", "surfaces", "parts"].filter((k) => body[k] !== undefined);
+    if (given.length === 0) return fail(400, 'provide "html", "surfaces" or "parts"');
+    if (given.length > 1) {
+      return fail(400, `pass one of "html", "surfaces" or "parts", not ${given.join(" and ")}`);
+    }
+    const partEdits = partEditsArg(body);
     if (isResult(partEdits)) return partEdits;
     const knobs = checkKnobs(body.knobs);
     if (!knobs.ok) return fail(400, knobs.error);
@@ -926,7 +1039,7 @@ export function createApp({
     const prompt = str(body.prompt, MAX_COMMENT_TEXT);
     const author = str(body.author, MAX_TITLE);
 
-    // An existing mock is addressable before a session exists (revise by id).
+    // An existing mock is addressable by id before a session exists.
     let mock: Mock | null = null;
     if (typeof body.mock === "string") mock = await store.getMock(body.mock);
 
@@ -941,131 +1054,121 @@ export function createApp({
         session?.project ||
         projectFromCwd(session?.cwd) ||
         resolveProject(undefined, str(body.cwd, 4096)));
-    // With `parts` the surfaces are the base version's, spliced once the variant is known.
-    let surfaces: Surface[] = [];
-    if (!partEdits) {
-      const parsed = await parseSurfaceInput(body, ctx, await kitScope(project));
-      if (isResult(parsed)) return parsed;
-      if (!parsed) return fail(400, 'provide "surfaces" (or "html")');
-      const bad = checkSurfaces(parsed);
-      if (bad) return bad;
-      surfaces = parsed;
-    }
     const slug = mock?.slug ?? slugify(slugIn);
     mock ??= await store.findMock(project, slug);
-    if (revise && !mock) return fail(404, `${project} has no mock "${slug}"`);
 
-    let posts = mock ? await store.listPosts({ mockId: mock.id }) : [];
-    let target: Post | null = null;
+    const posts = mock ? await store.listPosts({ mockId: mock.id }) : [];
     let state: string | null;
-    let applied: string[] | undefined;
-    if (revise && mock) {
-      const chosen = chooseVariant(mock, posts, stateIn, variantIn);
-      if (isResult(chosen)) return chosen;
-      target = chosen;
-      state = chosen.state;
-      if (partEdits) {
-        const base =
-          from === undefined || from === chosen.version
-            ? chosen.surfaces
-            : chosen.history.find((h) => h.version === from)?.surfaces;
-        if (!base) return fail(404, `${slug} has no version ${from}`);
-        const result = spliceParts(base, partEdits);
-        if (!result.ok) return fail(400, result.error);
-        const bad = checkSurfaces(result.surfaces);
-        if (bad) return bad;
-        surfaces = result.surfaces;
-        applied = result.applied;
+    if (stateIn === undefined || stateIn === null) {
+      if (mock && mock.states.length > 0) {
+        return fail(400, `${slug} has states; pass state`, { states: mock.states });
       }
+      state = null;
     } else {
-      if (stateIn === undefined || stateIn === null) {
-        if (mock && mock.states.length > 0) {
-          return fail(400, `${slug} has states; pass state`, { states: mock.states });
-        }
-        state = null;
-      } else {
-        if (mock && mock.states.length === 0 && posts.length > 0) {
-          return fail(
-            409,
-            `${slug} is a single-state mock; its variants have no state name. Publish a multi-state design as a new mock and name every state`,
-          );
-        }
-        state = stateIn;
+      if (mock && mock.states.length === 0 && posts.length > 0) {
+        return fail(
+          409,
+          `${slug} is a single-state mock; its variants have no state name. Publish a multi-state design as a new mock and name every state`,
+        );
       }
-      const inState = posts.filter((p) => p.state === state);
-      let variant = variantIn;
-      if (!variant) {
-        const live = inState.filter((p) => p.status !== "archived");
-        if (inState.length === 0) variant = DEFAULT_VARIANT;
-        else if (inState.length === 1) variant = inState[0].variant;
-        else if (live.length === 1) variant = live[0].variant;
-        else {
-          return fail(400, `${slug} has several variants; pass variant`, {
-            variants: inState.map(variantLabel),
-          });
-        }
-      }
-      target = inState.find((p) => p.variant === variant) ?? null;
-      if (!target) {
-        // A new variant: carried by the session the agent is writing from.
-        if (!session) {
-          session = await store.createSession({
-            agent: str(body.agent, MAX_TITLE) ?? "agent",
-            title: str(body.sessionTitle, MAX_TITLE),
-            cwd: str(body.cwd, 4096),
-            project,
-          });
-          bus.broadcast({ type: "session-created", id: session.id });
-        }
-        if (!mock) {
-          mock = await store.createMock({
-            project,
-            slug,
-            title: title ?? titleFromSlug(slug),
-            kind: kind ?? "component",
-            states: state === null ? [] : [state],
-            knobs: knobs.value,
-            sessionId: session.id,
-          });
-          bus.broadcast({ type: "mock-created", id: mock.id, project });
-        }
-        const slots =
-          mock.kind === "page" || kind === "page" ? await pageSlots(project, surfaces) : [];
-        const created = await store.createPost({
-          sessionId: session.id,
-          mock: mock.id,
-          state,
-          variant,
-          title: title ?? mock.title,
-          surfaces,
-          ...(Object.keys(variantKnobs.value).length ? { knobs: variantKnobs.value } : {}),
-          slots,
-          from,
-          prompt,
-          author,
-        });
-        if (!created) return fail(404, "session not found");
-        mock = await updateMockAfterWrite(mock, {
-          state,
-          kind,
-          title,
-          knobs: knobs.value,
-          session,
-        });
-        announcePost(mock, created, true);
-        if (prompt && ctx.request) notifyPublish(mock, created, prompt, ctx);
-        return writeResult(mock, created, ctx, {
-          nudges: knobNudges({ ...knobs.value, ...variantKnobs.value }),
-          status: 201,
+      state = stateIn;
+    }
+    const inState = posts.filter((p) => p.state === state);
+    let variant = variantIn;
+    if (!variant) {
+      const live = inState.filter((p) => p.status !== "archived");
+      if (inState.length === 0) variant = DEFAULT_VARIANT;
+      else if (inState.length === 1) variant = inState[0].variant;
+      else if (live.length === 1) variant = live[0].variant;
+      else {
+        return fail(400, `${slug} has several variants; pass variant`, {
+          variants: inState.map(variantLabel),
         });
       }
     }
+    const target = inState.find((p) => p.variant === variant) ?? null;
+    const missing = () =>
+      fail(404, `${slug} has no variant "${variant}"${state === null ? "" : ` in "${state}"`}`, {
+        variants: posts.map(variantLabel),
+      });
+    // What `parts` and kept surface ids refer to: the variant's current
+    // version, or the one `from` names.
+    const base = (): Surface[] | FlowResult => {
+      if (!target) return missing();
+      if (from === undefined || from === target.version) return target.surfaces;
+      return (
+        target.history.find((h) => h.version === from)?.surfaces ??
+        fail(404, `${slug} has no version ${from}`)
+      );
+    };
 
-    if (!mock || !target) return fail(404, `${project} has no mock "${slug}"`);
-    // A revision is written by whoever revises it; without an explicit session
-    // the variant's own session carries it.
+    let surfaces: Surface[];
+    let applied: string[] | undefined;
+    if (partEdits) {
+      const current = base();
+      if (isResult(current)) return current;
+      const result = spliceParts(current, partEdits);
+      if (!result.ok) return fail(400, result.error);
+      surfaces = result.surfaces;
+      applied = result.applied;
+    } else {
+      const parsed = await parseSurfaceInput(body, ctx, await kitScope(project), base);
+      if (isResult(parsed)) return parsed;
+      surfaces = parsed;
+    }
+    const bad = checkSurfaces(surfaces);
+    if (bad) return bad;
+    const nudges = knobNudges({ ...knobs.value, ...variantKnobs.value });
+
+    if (!target) {
+      // A new variant: carried by the session the agent is writing from.
+      if (!session) {
+        session = await store.createSession({
+          agent: str(body.agent, MAX_TITLE) ?? "agent",
+          title: str(body.sessionTitle, MAX_TITLE),
+          cwd: str(body.cwd, 4096),
+          project,
+        });
+        bus.broadcast({ type: "session-created", id: session.id });
+      }
+      if (!mock) {
+        mock = await store.createMock({
+          project,
+          slug,
+          title: title ?? titleFromSlug(slug),
+          kind: kind ?? "component",
+          states: state === null ? [] : [state],
+          knobs: knobs.value,
+          sessionId: session.id,
+        });
+        bus.broadcast({ type: "mock-created", id: mock.id, project });
+      }
+      const slots =
+        mock.kind === "page" || kind === "page" ? await pageSlots(project, surfaces) : [];
+      const created = await store.createPost({
+        sessionId: session.id,
+        mock: mock.id,
+        state,
+        variant,
+        title: title ?? mock.title,
+        surfaces,
+        ...(Object.keys(variantKnobs.value).length ? { knobs: variantKnobs.value } : {}),
+        slots,
+        from,
+        prompt,
+        author,
+      });
+      if (!created) return fail(404, "session not found");
+      mock = await updateMockAfterWrite(mock, { state, kind, title, knobs: knobs.value, session });
+      announcePost(mock, created, true);
+      if (prompt && ctx.request) notifyPublish(mock, created, prompt, ctx);
+      return writeResult(mock, created, ctx, { nudges, status: 201 });
+    }
+
+    if (!mock) return missing();
+    // A new version is written by whoever writes it; without an explicit
+    // session the variant's own session carries it.
     session ??= await store.getSession(target.sessionId);
-    const previous = target.surfaces;
     const slots = mock.kind === "page" ? await pageSlots(project, surfaces) : undefined;
     const updated = await store.updatePost(target.id, {
       surfaces,
@@ -1080,12 +1183,7 @@ export function createApp({
     mock = await updateMockAfterWrite(mock, { state, kind, knobs: knobs.value, session });
     announcePost(mock, updated, false);
     if (prompt && ctx.request) notifyPublish(mock, updated, prompt, ctx);
-    posts = [];
-    return writeResult(mock, updated, ctx, {
-      previous,
-      applied,
-      nudges: knobNudges({ ...knobs.value, ...variantKnobs.value }),
-    });
+    return writeResult(mock, updated, ctx, { previous: target.surfaces, applied, nudges });
   }
 
   // `parts`: new outer html per part ("name" or "name#key"), spliced into the
@@ -1100,9 +1198,6 @@ export function createApp({
     if (entries.length === 0) return fail(400, '"parts" is empty; name at least one part');
     if (entries.some(([, html]) => typeof html !== "string")) {
       return fail(400, 'each "parts" value must be the html string for that part');
-    }
-    if (body.html !== undefined || body.surfaces !== undefined) {
-      return fail(400, 'pass "parts" or "html"/"surfaces", not both');
     }
     return parts as Record<string, string>;
   }
@@ -1157,6 +1252,7 @@ export function createApp({
       mocks: rows,
       open,
       openMocks: rows.filter((r) => r.open > 0).length,
+      pending: mocks.map(pendingOf),
     });
   }
 
@@ -1173,13 +1269,14 @@ export function createApp({
     const mock = await resolveMock(ref, query.project, query.session);
     if (isResult(mock)) return mock;
     const posts = await store.listPosts({ mockId: mock.id });
-    return ok(
-      mockDetailView(mock, posts, {
+    return ok({
+      ...mockDetailView(mock, posts, {
         body: query.body,
         history: query.history,
         tuned: await lastTuned(mock.id),
       }),
-    );
+      pending: pendingOf(mock),
+    });
   }
 
   async function exportFlow(
@@ -1370,7 +1467,7 @@ export function createApp({
       text: added.map((a) => a.text).join(" · "),
       url: mockUrl(ctx.base, mock),
     });
-    const userFeedback = session ? await collectFeedback(session.id) : undefined;
+    const feedback = session ? await collectFeedback(session.id) : [];
     return ok({
       mock: mock.slug,
       mockId: mock.id,
@@ -1378,7 +1475,7 @@ export function createApp({
       asks: added,
       open: openAsks(mock).length,
       url: mockUrl(ctx.base, mock),
-      ...(userFeedback ? { userFeedback } : {}),
+      feedback,
     });
   }
 
@@ -1423,12 +1520,20 @@ export function createApp({
     };
   }
 
-  function sanitizeAnswers(raw: unknown, mock: Mock): Record<string, AskAnswer> | string {
+  // A stored ask, else the viewer's built-in variant ask under its reserved id.
+  const askById = (mock: Mock, posts: Post[], id: string): Ask | undefined =>
+    mock.asks.find((a) => a.id === id) ?? builtinAsk(mock, posts, id);
+
+  function sanitizeAnswers(
+    raw: unknown,
+    mock: Mock,
+    posts: Post[],
+  ): Record<string, AskAnswer> | string {
     if (raw === undefined || raw === null) return {};
     if (typeof raw !== "object" || Array.isArray(raw)) return '"answers" must be an object';
     const out: Record<string, AskAnswer> = {};
     for (const [askId, value] of Object.entries(raw as Record<string, unknown>)) {
-      const ask = mock.asks.find((a) => a.id === askId);
+      const ask = askById(mock, posts, askId);
       if (!ask) return `${mock.slug} has no ask "${askId}"`;
       const ids = Array.isArray(value) ? value : [value];
       if (ids.length === 0) continue;
@@ -1448,13 +1553,14 @@ export function createApp({
   function sanitizeAskTexts(
     raw: unknown,
     mock: Mock,
+    posts: Post[],
     key: "others" | "notes",
   ): Record<string, string> | string {
     if (raw === undefined || raw === null) return {};
     if (typeof raw !== "object" || Array.isArray(raw)) return `"${key}" must be an object`;
     const out: Record<string, string> = {};
     for (const [askId, value] of Object.entries(raw as Record<string, unknown>)) {
-      if (!mock.asks.some((a) => a.id === askId)) return `${mock.slug} has no ask "${askId}"`;
+      if (!askById(mock, posts, askId)) return `${mock.slug} has no ask "${askId}"`;
       if (value !== undefined && value !== null && typeof value !== "string") {
         return `${key} "${askId}" must be text`;
       }
@@ -1483,7 +1589,7 @@ export function createApp({
   // variants, knob paths or out-of-range values are refused, never stored.
   function sanitizeDraft(raw: any, mock: Mock, posts: Post[], base: Draft | null): Draft | string {
     const pick = (key: keyof Draft) => (raw?.[key] !== undefined ? raw[key] : base?.[key]);
-    const answers = sanitizeAnswers(pick("answers"), mock);
+    const answers = sanitizeAnswers(pick("answers"), mock, posts);
     if (typeof answers === "string") return answers;
     const mix = sanitizeMix(pick("mix"), posts);
     if (typeof mix === "string") return mix;
@@ -1491,12 +1597,12 @@ export function createApp({
     if (!tuned.ok) return tuned.error;
     const comments = sanitizePartComments(pick("comments"), mock);
     if (typeof comments === "string") return comments;
-    const others = sanitizeAskTexts(pick("others"), mock, "others");
+    const others = sanitizeAskTexts(pick("others"), mock, posts, "others");
     if (typeof others === "string") return others;
-    const notes = sanitizeAskTexts(pick("notes"), mock, "notes");
+    const notes = sanitizeAskTexts(pick("notes"), mock, posts, "notes");
     if (typeof notes === "string") return notes;
     for (const askId of Object.keys(others)) {
-      const ask = mock.asks.find((a) => a.id === askId);
+      const ask = askById(mock, posts, askId);
       if (!ask?.multi && answers[askId] !== undefined) return `ask "${askId}" takes one answer`;
     }
     const versionN = Number(pick("version"));
@@ -1564,7 +1670,8 @@ export function createApp({
 
   // Which variants a reply accepts and archives. A variant-bound answer accepts
   // the chosen variant(s) in every state the ask covers and archives their
-  // siblings there; a part-scoped pick is a mix, not a verdict.
+  // siblings there; a part-scoped pick is a mix, not a verdict. The built-in
+  // variant asks flip the same way, per state.
   function replyFlips(
     mock: Mock,
     posts: Post[],
@@ -1580,7 +1687,10 @@ export function createApp({
         else if (p.status !== "archived") archive.add(p.id);
       }
     };
-    for (const ask of mock.asks) {
+    const builtins = Object.keys(answers)
+      .filter((id) => !mock.asks.some((a) => a.id === id))
+      .flatMap((id) => builtinAsk(mock, posts, id) ?? []);
+    for (const ask of [...mock.asks, ...builtins]) {
       const answer = answers[ask.id];
       if (answer === undefined || ask.scope === "part") continue;
       const ids = Array.isArray(answer) ? answer : [answer];
@@ -1702,10 +1812,10 @@ export function createApp({
       text: text || decision?.kind || "reply",
       url: mockUrl(ctx.base, mock),
     });
-    const [seen] = await withSeen([comment]);
+    const [delivered] = await withDelivered([comment]);
     return ok(
       {
-        reply: seen,
+        reply: delivered,
         accepted: after
           .filter((p) => flips.accept.has(p.id))
           .map((p) => ({ state: p.state, variant: p.variant })),
@@ -1738,7 +1848,7 @@ export function createApp({
 
   // D8 "restore as vN": the user brings an older version back as the newest
   // one. Distinct from restoreFlow, which un-archives a variant. Viewer-only
-  // because the version is authored by the user; an agent restoring is a revise.
+  // because the version is authored by the user; an agent restoring publishes.
   async function restoreVersionFlow(
     ref: unknown,
     postId: string,
@@ -1783,187 +1893,6 @@ export function createApp({
     bus.broadcast({ type: "mock-deleted", id: mock.id, project: mock.project });
     return ok({ ok: true });
   }
-
-  // --- per-surface edits of one variant ---
-
-  function findSurfaceIndex(surfaces: Surface[], target: string): number {
-    const byId = surfaces.findIndex((s) => s.id === target);
-    if (byId >= 0) return byId;
-    const idx = Number(target);
-    if (Number.isInteger(idx) && idx >= 0 && idx < surfaces.length) return idx;
-    return -1;
-  }
-
-  // Slot a content string into a surface's content field, preserving kind and
-  // extra fields. Null when the kind has no content field or JSON parse fails.
-  function applyContent(surface: Surface, content: string, kits?: unknown): Surface | null {
-    const field = SURFACE_CONTENT_FIELDS[surface.kind];
-    if (!field) return null;
-    let value: unknown = content;
-    if (surface.kind === "json") {
-      try {
-        value = JSON.parse(content);
-      } catch {
-        return null;
-      }
-    }
-    if (surface.kind === "html") {
-      return {
-        ...surface,
-        html: value as string,
-        ...(kits !== undefined && { kits: Array.isArray(kits) ? kits : undefined }),
-      };
-    }
-    return { ...surface, [field]: value } as Surface;
-  }
-
-  type SurfaceEdit = (
-    surfaces: Surface[],
-    scope: SurfaceKitScope,
-  ) => Promise<Surface[] | { surfaces: Surface[]; applied: string[] } | FlowResult>;
-
-  async function editSurfaces(
-    ref: unknown,
-    body: any,
-    ctx: FlowContext,
-    edit: SurfaceEdit,
-  ): Promise<FlowResult> {
-    const resolved = await resolveMock(ref, body?.project, body?.session);
-    if (isResult(resolved)) return resolved;
-    const posts = await store.listPosts({ mockId: resolved.id });
-    const post = chooseVariant(
-      resolved,
-      posts,
-      stateArg(body?.state),
-      str(body?.variant, MAX_LABEL),
-    );
-    if (isResult(post)) return post;
-    const edited = await edit(post.surfaces, await kitScope(resolved.project));
-    if (isResult(edited)) return edited;
-    const [next, applied] = Array.isArray(edited)
-      ? [edited, undefined]
-      : [edited.surfaces, edited.applied];
-    const bad = checkSurfaces(next);
-    if (bad) return bad;
-    const updated = await store.updatePost(post.id, { surfaces: next });
-    if (!updated) return fail(404, "variant not found");
-    const session = await store.getSession(updated.sessionId);
-    const mock = await updateMockAfterWrite(resolved, {
-      state: updated.state,
-      knobs: {},
-      session,
-    });
-    announcePost(mock, updated, false);
-    return writeResult(mock, updated, ctx, { previous: post.surfaces, applied });
-  }
-
-  async function oneSurface(
-    raw: unknown,
-    ctx: FlowContext,
-    scope: SurfaceKitScope,
-  ): Promise<Surface | FlowResult> {
-    if (!ctx.strict) {
-      const [surface] = await coerceSurfaces([raw], scope);
-      return surface ?? fail(400, "invalid surface");
-    }
-    const parsed = await validateSurfaces([raw], scope);
-    return parsed.ok ? parsed.surfaces[0] : fail(400, parsed.error, surfaceIssues(parsed));
-  }
-
-  const appendSurfaceFlow = (ref: unknown, body: any, ctx: FlowContext) =>
-    editSurfaces(ref, body, ctx, async (surfaces, scope) => {
-      if (!body?.surface) return fail(400, 'provide a "surface" object');
-      const surface = await oneSurface(body.surface, ctx, scope);
-      if (isResult(surface)) return surface;
-      let at = surfaces.length;
-      for (const [key, shift] of [
-        ["before", 0],
-        ["after", 1],
-      ] as const) {
-        if (body[key] === undefined) continue;
-        const i = findSurfaceIndex(surfaces, String(body[key]));
-        if (i < 0) return fail(404, `surface "${body[key]}" not found`);
-        at = i + shift;
-        break;
-      }
-      const next = [...surfaces];
-      next.splice(at, 0, surface);
-      return next;
-    });
-
-  const replaceSurfaceFlow = (ref: unknown, target: string, body: any, ctx: FlowContext) =>
-    editSurfaces(ref, body, ctx, async (surfaces, scope) => {
-      const idx = findSurfaceIndex(surfaces, target);
-      if (idx < 0) return fail(404, `surface "${target}" not found`);
-      const partEdits = partEditsArg(body ?? {});
-      if (isResult(partEdits)) return partEdits;
-      if (partEdits) {
-        if (body.surface !== undefined || body.content !== undefined) {
-          return fail(400, 'pass "parts" or "surface"/"content", not both');
-        }
-        if (surfaces[idx].kind !== "html") {
-          return fail(
-            400,
-            `parts works on html surfaces; surface ${target} is ${surfaces[idx].kind}`,
-          );
-        }
-        const result = spliceParts([surfaces[idx]], partEdits);
-        if (!result.ok) return fail(400, result.error);
-        const next = [...surfaces];
-        next[idx] = result.surfaces[0];
-        return { surfaces: next, applied: result.applied };
-      }
-      let updated: Surface;
-      if (body?.surface !== undefined) {
-        const surface = await oneSurface(body.surface, ctx, scope);
-        if (isResult(surface)) return surface;
-        updated = surface;
-        if (body.kits !== undefined && updated.kind === "html") {
-          updated = { ...updated, kits: Array.isArray(body.kits) ? body.kits : undefined };
-        }
-      } else if (typeof body?.content === "string") {
-        const applied = applyContent(surfaces[idx], body.content, body.kits);
-        if (!applied) {
-          return fail(400, `content update not supported for ${surfaces[idx].kind} surfaces`);
-        }
-        const parsed = await validateSurfaces([applied], scope);
-        if (!parsed.ok) return fail(400, parsed.error, surfaceIssues(parsed));
-        updated = parsed.surfaces[0];
-      } else {
-        return fail(400, 'provide "surface" or "content"');
-      }
-      const next = [...surfaces];
-      // Validation drops ids; the edited surface keeps its identity.
-      next[idx] = { ...updated, id: surfaces[idx].id };
-      return next;
-    });
-
-  const removeSurfaceFlow = (ref: unknown, target: string, body: any, ctx: FlowContext) =>
-    editSurfaces(ref, body, ctx, async (surfaces) => {
-      const idx = findSurfaceIndex(surfaces, target);
-      if (idx < 0) return fail(404, `surface "${target}" not found`);
-      if (surfaces.length === 1) return fail(400, "a variant needs at least one surface");
-      return surfaces.filter((_, i) => i !== idx);
-    });
-
-  const reorderSurfacesFlow = (ref: unknown, body: any, ctx: FlowContext) =>
-    editSurfaces(ref, body, ctx, async (surfaces) => {
-      const order = body?.order;
-      if (!Array.isArray(order)) return fail(400, 'provide an "order" array');
-      if (order.length !== surfaces.length) {
-        return fail(400, "order array length must match surface count");
-      }
-      const used = new Set<number>();
-      const next: Surface[] = [];
-      for (const entry of order) {
-        const idx = findSurfaceIndex(surfaces, String(entry));
-        if (idx < 0) return fail(404, `surface "${entry}" not found`);
-        if (used.has(idx)) return fail(400, `surface "${entry}" appears twice in order`);
-        used.add(idx);
-        next.push(surfaces[idx]);
-      }
-      return next;
-    });
 
   // --- comments ---
 
@@ -2096,12 +2025,11 @@ export function createApp({
     });
   }
 
-  // A comment on a mock (optionally one variant). The viewer may author it as
-  // the user; every agent channel writes as its session's agent.
-  async function commentFlow(body: any, ctx: FlowContext): Promise<FlowResult> {
-    if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
-    const text = str(body.text, MAX_COMMENT_TEXT);
-    if (!text) return fail(400, 'provide non-empty "text"');
+  // Where a thread comment lands: a mock, optionally one variant of it, and the
+  // session whose stream carries it.
+  async function commentTarget(
+    body: any,
+  ): Promise<{ mock: Mock; post: Post | null; session: Session } | FlowResult> {
     let post: Post | null = null;
     let mock: Mock | null = null;
     if (typeof body.post === "string" && body.post) {
@@ -2137,19 +2065,26 @@ export function createApp({
       session = sid ? await store.getSession(sid) : null;
     }
     if (!session) return fail(409, `${mock.slug} has no agent session`);
-    // Only the trusted viewer may declare the two non-agent labels. Sandboxed
-    // surfaces have opaque origins, so their bridge is stamped "surface" by the
-    // viewer rather than by contained code.
-    const author =
-      ctx.viewer && (body.author === "user" || body.author === "surface")
-        ? body.author
-        : reservedAgent(session.agent);
+    return { mock, post, session };
+  }
+
+  // The user's comment in a thread: the trusted viewer's verb only. Sandboxed
+  // surfaces have opaque origins, so their bridge is stamped "surface" by the
+  // viewer rather than by contained code. An agent writes with say.
+  async function commentFlow(body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return fail(403, "only the viewer can do this; an agent posts with say");
+    if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
+    const text = str(body.text, MAX_COMMENT_TEXT);
+    if (!text) return fail(400, 'provide non-empty "text"');
+    const target = await commentTarget(body);
+    if (isResult(target)) return target;
+    const { mock, post, session } = target;
     const viewport = sanitizeViewport(body.viewport);
     const comment = await store.createComment({
       sessionId: session.id,
       mockId: mock.id,
       postId: post?.id ?? null,
-      author,
+      author: body.author === "surface" ? "surface" : "user",
       text,
       anchor: sanitizeCommentAnchor(body.anchor, mock, post),
       kind: "comment",
@@ -2159,10 +2094,33 @@ export function createApp({
     });
     if (!comment) return fail(404, "session not found");
     announceComment(comment);
-    // Agent replies are writes too — piggyback pending feedback on them, but
-    // never on the user's own comments.
-    const userFeedback = author === "user" ? undefined : await collectFeedback(comment.sessionId);
-    return ok({ ...comment, ...(userFeedback ? { userFeedback } : {}) }, 201);
+    const [delivered] = await withDelivered([comment]);
+    return ok(delivered, 201);
+  }
+
+  // The agent's plain-text message in a mock's thread. Stored as text and
+  // rendered as a text node, never as HTML. A write, so feedback rides along.
+  async function sayFlow(ref: unknown, body: any): Promise<FlowResult> {
+    if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
+    const text = typeof body.message === "string" ? str(body.message, MAX_COMMENT_TEXT) : undefined;
+    if (!text) return fail(400, 'provide non-empty "message" text');
+    const target = await commentTarget({ ...body, mock: ref, post: undefined });
+    if (isResult(target)) return target;
+    const { mock, post, session } = target;
+    const comment = await store.createComment({
+      sessionId: session.id,
+      mockId: mock.id,
+      postId: post?.id ?? null,
+      author: reservedAgent(session.agent),
+      text,
+      kind: "comment",
+      anchors: [],
+      postVersion: post ? post.version : null,
+      viewport: null,
+    });
+    if (!comment) return fail(404, "session not found");
+    announceComment(comment);
+    return ok({ feedback: await collectFeedback(comment.sessionId) }, 201);
   }
 
   // Long-poll: resolves as soon as a matching comment lands, or at timeout.
@@ -2225,11 +2183,52 @@ export function createApp({
     return { comments, lastSeq };
   }
 
-  // The agent's read: comments plus the batched feedback built from them.
-  async function feedbackFlow(q: CommentWait, signal?: AbortSignal): Promise<FlowResult> {
+  // The watch long-poll's answer: comments plus the batched feedback built
+  // from them.
+  async function listenFlow(q: CommentWait, signal?: AbortSignal): Promise<FlowResult> {
     const result = await waitForComments({ ...q, agent: true }, signal);
     const feedback = await buildFeedbackBatches(store, result.comments);
     return ok({ ...result, feedback });
+  }
+
+  // What the user is doing right now, per mock: derived from the SSE registry
+  // and the server-side draft, never stored. It is why an empty `feedback` still
+  // tells the agent something ("2 of 3 answered", or nobody is looking).
+  const pendingOf = (mock: Mock) => ({
+    mock: mock.slug,
+    viewerOpen: viewerClients > 0,
+    draft: mock.draft
+      ? {
+          answered: Object.keys(mock.draft.answers).length,
+          of: openAsks(mock).length,
+          comments: mock.draft.comments.length,
+          touchedAt: mock.draft.updatedAt,
+        }
+      : null,
+  });
+
+  // The feedback verb: never blocks. Takes what the session has not heard yet
+  // (the same cursor as piggyback and watch) plus `pending` for the project.
+  async function feedbackFlow(query: {
+    session?: unknown;
+    project?: unknown;
+  }): Promise<FlowResult> {
+    if (typeof query.session !== "string" || !query.session) {
+      return fail(400, 'provide "session": the session id a write returned');
+    }
+    const session = await store.getSession(query.session);
+    if (!session) return fail(404, `session "${query.session}" not found`);
+    const { comments } = await waitForComments({
+      sessionId: session.id,
+      author: "user",
+      waitSeconds: 0,
+      agent: true,
+    });
+    const project = str(query.project, MAX_TITLE) ?? session.project ?? undefined;
+    return ok({
+      feedback: await buildFeedbackBatches(store, comments),
+      pending: (await store.listMocks(project)).map(pendingOf),
+    });
   }
 
   // Store an uploaded blob. An explicit session is validated and a missing one
@@ -2587,13 +2586,6 @@ export function createApp({
     );
   });
 
-  app.post("/api/mocks/:id/revise", async (c) => {
-    const body = (await jsonBody(c)) ?? {};
-    const mock = await resolveMock(c.req.param("id"), body.project, body.session);
-    if (isResult(mock)) return send(c, mock);
-    return send(c, await publishFlow({ ...body, mock: mock.id }, flowCtx(c), true));
-  });
-
   app.delete("/api/mocks/:id", async (c) =>
     send(c, await removeMockFlow(c.req.param("id"), { project: c.req.query("project") })),
   );
@@ -2632,37 +2624,14 @@ export function createApp({
     ),
   );
 
-  app.post("/api/mocks/:id/surfaces", async (c) =>
-    send(c, await appendSurfaceFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  app.post("/api/mocks/:id/say", async (c) =>
+    send(c, await sayFlow(c.req.param("id"), await jsonBody(c))),
   );
-  app.patch("/api/mocks/:id/surfaces", async (c) =>
-    send(c, await reorderSurfacesFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
-  );
-  app.patch("/api/mocks/:id/surfaces/:target", async (c) =>
+
+  app.get("/api/feedback", async (c) =>
     send(
       c,
-      await replaceSurfaceFlow(
-        c.req.param("id"),
-        c.req.param("target"),
-        await jsonBody(c),
-        flowCtx(c),
-      ),
-    ),
-  );
-  app.delete("/api/mocks/:id/surfaces/:target", async (c) =>
-    send(
-      c,
-      await removeSurfaceFlow(
-        c.req.param("id"),
-        c.req.param("target"),
-        {
-          state: c.req.query("state"),
-          variant: c.req.query("variant"),
-          project: c.req.query("project"),
-          session: c.req.query("session"),
-        },
-        flowCtx(c),
-      ),
+      await feedbackFlow({ session: c.req.query("session"), project: c.req.query("project") }),
     ),
   );
 
@@ -2692,7 +2661,8 @@ export function createApp({
   });
 
   // Long-poll friendly: ?wait=N holds the request open up to N seconds until
-  // a matching comment arrives. This is how terminal agents block on feedback.
+  // a matching comment arrives. Plumbing for `mockpit watch` and the viewer;
+  // agents read with GET /api/feedback, which never blocks.
   // A wait counts against the connection cap (it pins a socket just like SSE);
   // an instant ?wait=0 read does not.
   app.get("/api/comments", async (c) => {
@@ -2728,9 +2698,9 @@ export function createApp({
     const isAgentRead = isAuthenticated(c) && (author === "user" || waitSeconds > 0);
     query.agent = isAgentRead;
     const respond = async (signal?: AbortSignal) => {
-      if (isAgentRead) return send(c, await feedbackFlow(query, signal));
+      if (isAgentRead) return send(c, await listenFlow(query, signal));
       const result = await waitForComments(query, signal);
-      return c.json({ ...result, comments: await withSeen(result.comments) });
+      return c.json({ ...result, comments: await withDelivered(result.comments) });
     };
     if (waitSeconds <= 0) return respond();
     if (!acquireHold()) return c.json({ error: "too many concurrent connections" }, 503);
@@ -3396,7 +3366,14 @@ export function createApp({
       }
     }
     if (!acquireHold()) return c.json({ error: "too many concurrent connections" }, 503);
-    const release = makeRelease();
+    viewerClients++;
+    let attached = true;
+    const releaseHold = makeRelease();
+    const release = () => {
+      if (attached) viewerClients--;
+      attached = false;
+      releaseHold();
+    };
     // Safety net: if the client disconnects before the stream callback opens,
     // the request abort still releases the slot. close() below is guarded so a
     // later abort firing release again is a no-op.
@@ -3475,21 +3452,12 @@ export function createApp({
 
   const mcpFlows: McpFlows = {
     publish: (body, ctx) => publishFlow(body, ctx),
-    revise: async (body, ctx) => {
-      const mock = await resolveMock(body?.mock, body?.project, body?.session);
-      if (isResult(mock)) return mock;
-      return publishFlow({ ...body, mock: mock.id }, ctx, true);
-    },
     list: (query) => listMocksFlow(query),
     get: (ref, query) => getMockFlow(ref, query),
     ask: (ref, body, ctx) => askFlow(ref, body, ctx),
     exportMock: (ref, query, ctx) => exportFlow(ref, query, ctx),
-    comment: (body, ctx) => commentFlow(body, ctx),
-    feedback: (query, signal) => feedbackFlow(query, signal),
-    appendSurface: appendSurfaceFlow,
-    replaceSurface: replaceSurfaceFlow,
-    removeSurface: removeSurfaceFlow,
-    reorderSurfaces: reorderSurfacesFlow,
+    say: (ref, body) => sayFlow(ref, body),
+    feedback: (query) => feedbackFlow(query),
   };
   const guide = (project: string, topic?: GuideTopic) =>
     topic ? (topics[topic] ?? "") : briefFor(project);
@@ -3502,6 +3470,7 @@ export function createApp({
     limits: { ...DEFAULT_RUN_LIMITS, ...runLimits },
     flows: mcpFlows,
     guide,
+    uploadAsset,
     async createSession({ agent, project }) {
       const session = await store.createSession({ agent, project: resolveProject(project) });
       bus.broadcast({ type: "session-created", id: session.id });

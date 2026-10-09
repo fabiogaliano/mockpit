@@ -129,18 +129,22 @@ test("questions: pictures, hover preview, pick, part focus, Mix override, Send, 
   await send.click();
   expect((await reply).status()).toBe(201);
 
-  await expect(page.locator(".top .pill.count")).toContainText("Sent");
+  const pill = page.locator(".top .pill.count");
+  await expect(pill).toHaveText("Sent · Not seen yet");
   await expect(page.locator('[data-mode="thread"]')).toHaveAttribute("aria-selected", "true");
   const row = page.locator(".trow.you");
   await expect(row).toHaveCount(1);
   await expect(row).toContainText("Sent · look quiet · versions drawer · trim below the lab");
-  await expect(row.locator(".tseen .tick")).toHaveText("✓");
+  await expect(row.locator(".tdelivered")).toHaveText("✓Not seen yet");
+  // Nobody has read it after a beat: the confirmation asks the user to say so.
+  await expect(page.locator(".top .sent-hint")).toHaveText("tell your agent you've answered");
 
-  // The agent reads its feedback; the row turns ✓✓ seen.
-  const read = await agentCall(server.url, `/api/comments?session=${session}&author=user`);
+  // The agent reads its feedback; the row and the confirmation turn Delivered.
+  const read = await agentCall(server.url, `/api/feedback?session=${session}`);
   expect(read.feedback).toHaveLength(1);
-  await expect(row.locator(".tseen .tick")).toHaveText("✓✓");
-  await expect(row.locator(".tseen")).toContainText("seen");
+  await expect(row.locator(".tdelivered")).toHaveText("✓✓Delivered");
+  await expect(pill).toHaveText("Sent · Delivered");
+  await expect(page.locator(".top .sent-hint")).toHaveCount(0);
 
   // The draft is gone and the Look settled the variants.
   expect(await viewerGet(page, `/api/mocks/${mockId}/draft`)).toEqual({ draft: null });
@@ -222,7 +226,7 @@ test("a note and an Other… write-in survive a reload and reach the agent in th
   await expect(page.locator(".trow.you .tnote")).toHaveCount(2);
   await expect(page.locator(".trow.you")).toContainText("note: neither, keep it hidden");
 
-  const read = await agentCall(server.url, `/api/comments?session=${session}&author=user&wait=5`);
+  const read = await agentCall(server.url, `/api/feedback?session=${session}`);
   const asks = read.feedback[0].reply.asks;
   expect(asks.find((a: any) => a.ask === "look")).toMatchObject({
     chosen: [{ id: "dark" }],
@@ -376,15 +380,12 @@ test("a plain mock offers Accept / Revise / Drop; Revise reaches the agent", asy
   await page.getByRole("button", { name: "Revise", exact: true }).click();
   expect((await reply).status()).toBe(201);
 
-  const read = await agentCall(
-    server.url,
-    `/api/comments?session=${out.sessionId}&author=user&wait=5`,
-  );
+  const read = await agentCall(server.url, `/api/feedback?session=${out.sessionId}`);
   expect(read.feedback).toHaveLength(1);
   const sent = JSON.stringify(read.feedback[0]);
   expect(sent).toContain("tighten the copy");
   expect(sent).toContain('"revise"');
-  await expect(page.locator(".trow.you .tseen .tick")).toHaveText("✓✓");
+  await expect(page.locator(".trow.you .tdelivered")).toContainText("Delivered");
 });
 
 test("the theme toggles dark ↔ light and persists across a reload", async ({ page, server }) => {
@@ -516,10 +517,7 @@ test("Mark: a pin on the stage, its comment and anchor in the reply, listed in T
   await expect(row).toContainText("Sent · 1 comment · revise default");
   await expect(row.locator(".cline")).toHaveText("title “make it louder”");
 
-  const read = await agentCall(
-    server.url,
-    `/api/comments?session=${out.sessionId}&author=user&wait=5`,
-  );
+  const read = await agentCall(server.url, `/api/feedback?session=${out.sessionId}`);
   expect(read.feedback).toHaveLength(1);
   const sent = read.feedback[0].reply.comments;
   expect(sent).toHaveLength(1);
@@ -578,20 +576,127 @@ test("un-archive: the variant switcher dims archived variants and restores them"
     html: "<p>b</p>",
   });
   await page.goto(`${server.url}/project/${PROJECT}/card`);
+  // While "Which one?" is open it is the switcher; the switcher returns once it is answered.
   const sw = page.locator(".variant-switch");
+  await expect(sw).toHaveCount(0);
+  await option(page, "a").click();
+  const reply = page.waitForResponse(
+    (r) => r.url().endsWith(`/api/mocks/${a.mock.id}/reply`) && r.request().method() === "POST",
+  );
+  await page.locator("button.send").click();
+  expect((await reply).status()).toBe(201);
   await expect(sw.locator('[role="tab"]')).toHaveCount(2);
-  await sw.locator('[data-variant="a"]').click();
-  await page.getByRole("button", { name: "Accept", exact: true }).click();
   await expect(sw.locator('[data-variant="a"] .vok')).toHaveText("✓");
   const b = sw.locator('[data-variant="b"]');
   await expect(b).toHaveClass(/arch/);
   await sw.getByRole("button", { name: "Restore b" }).click();
-  await expect(b).not.toHaveClass(/arch/);
+  // Two live variants again: the choice is open again, so "Which one?" is back.
+  await page.locator('[data-mode="questions"]').click();
+  await expect(page.locator(".ask")).toHaveText("Which one?");
+  await expect(sw).toHaveCount(0);
   const detail = await agentCall(server.url, `/api/mocks/${a.mock.id}`);
   const statuses = Object.fromEntries(
     detail.variants.map((v: { variant: string; status: string }) => [v.variant, v.status]),
   );
   expect(statuses).toEqual({ a: "accepted", b: "open" });
+});
+
+test("two variants and no ask: the built-in Which one? decides in one Send", async ({
+  page,
+  server,
+}) => {
+  const a = await publishCard(server.url, "a");
+  const mockId = a.mock.id;
+  await agentCall(server.url, "/api/mocks", {
+    mock: mockId,
+    session: a.sessionId,
+    variant: "b",
+    html: "<p>b</p>",
+  });
+  await page.goto(`${server.url}/project/${PROJECT}/card`);
+
+  await expect(page.locator(".ask")).toHaveText("Which one?");
+  await expect(page.getByRole("button", { name: "Accept", exact: true })).toHaveCount(0);
+  const looks = page.locator('.opt:not([data-option="other"])');
+  await expect(looks).toHaveCount(2);
+  await expect(looks.locator(".lbl")).toHaveText(["a", "b"]);
+  // Each option's picture is a sandboxed frame, never markup in the viewer.
+  await expect(looks.locator(".thumb iframe")).toHaveCount(2);
+  for (const sandbox of await looks
+    .locator(".thumb iframe")
+    .evaluateAll((els) => els.map((el) => el.getAttribute("sandbox")))) {
+    expect(sandbox).toBe("allow-scripts");
+  }
+
+  const write = page.waitForResponse(
+    (r) => r.url().endsWith(`/api/mocks/${mockId}/draft`) && r.request().method() === "PUT",
+  );
+  await option(page, "b").click();
+  const written = await write;
+  expect(written.ok()).toBe(true);
+  expect((await written.json()).draft.answers).toEqual({ variant: "b" });
+  const reply = page.waitForResponse(
+    (r) => r.url().endsWith(`/api/mocks/${mockId}/reply`) && r.request().method() === "POST",
+  );
+  await page.locator("button.send").click();
+  expect((await reply).status()).toBe(201);
+
+  // Stored but not read: the row and the confirmation say so.
+  const row = page.locator(".trow.you");
+  await expect(row).toContainText("Sent · look b");
+  await expect(row.locator(".tdelivered")).toContainText("Not seen yet");
+  await expect(page.locator(".top .pill.count")).toHaveText("Sent · Not seen yet");
+
+  // The reply flipped the variants; the choice is made, so the built-in ask is gone.
+  const detail = await agentCall(server.url, `/api/mocks/${mockId}`);
+  const statuses = Object.fromEntries(
+    detail.variants.map((v: { variant: string; status: string }) => [v.variant, v.status]),
+  );
+  expect(statuses).toEqual({ a: "archived", b: "accepted" });
+  await page.locator('[data-mode="questions"]').click();
+  await expect(page.locator(".ask")).not.toHaveText("Which one?");
+  await page.locator('[data-mode="thread"]').click();
+
+  const read = await agentCall(server.url, `/api/feedback?session=${a.sessionId}`);
+  expect(read.feedback).toHaveLength(1);
+  expect(read.feedback[0].reply.asks).toEqual([
+    expect.objectContaining({ ask: "variant", chosen: [expect.objectContaining({ id: "b" })] }),
+  ]);
+  await expect(row.locator(".tdelivered")).toContainText("Delivered");
+  await expect(page.locator(".top .pill.count")).toHaveText("Sent · Delivered");
+});
+
+test("Which one? is asked per state when the variant names differ", async ({ page, server }) => {
+  const first = await agentCall(server.url, "/api/mocks", {
+    project: PROJECT,
+    mock: "flow",
+    title: "Flow",
+    agent: "e2e",
+    state: "Start",
+    variant: "a",
+    html: "<p>start a</p>",
+  });
+  const more = [
+    ["Start", "b"],
+    ["End", "a"],
+    ["End", "c"],
+  ];
+  for (const [state, variant] of more) {
+    await agentCall(server.url, "/api/mocks", {
+      mock: first.mock.id,
+      session: first.sessionId,
+      state,
+      variant,
+      html: `<p>${state} ${variant}</p>`,
+    });
+  }
+  await page.goto(`${server.url}/project/${PROJECT}/flow`);
+  await expect(page.locator(".qhd")).toContainText("Question 1 of 2");
+  await expect(page.locator(".nm")).toHaveText("Start");
+  await expect(page.locator('.opt:not([data-option="other"]) .lbl')).toHaveText(["a", "b"]);
+  await page.getByRole("button", { name: "Next question" }).click();
+  await expect(page.locator(".nm")).toHaveText("End");
+  await expect(page.locator('.opt:not([data-option="other"]) .lbl')).toHaveText(["a", "c"]);
 });
 
 test("bridge: sendPrompt from the frame on stage prefills Thread's comment; others are ignored", async ({
@@ -623,7 +728,7 @@ test("bridge: sendPrompt from the frame on stage prefills Thread's comment; othe
   await input.press("Enter");
   await expect(input).toHaveValue("");
   await expect(page.locator(".trow.you")).toContainText("tighten the title");
-  const read = await agentCall(server.url, `/api/comments?session=${session}&author=user&wait=5`);
+  const read = await agentCall(server.url, `/api/feedback?session=${session}`);
   expect(JSON.stringify(read.feedback)).toContain("tighten the title");
   expect(JSON.stringify(read.feedback)).not.toContain("from a hidden frame");
 });

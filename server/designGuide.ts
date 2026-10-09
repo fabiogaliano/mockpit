@@ -1,7 +1,6 @@
 // The one document an agent fetches before its first publish: `mockpit
-// agent-howto`, `GET /agent-howto`, `mockpit guide --brief` and MCP
-// `get_design_guide` all return it. It is regenerated from the project's
-// STORED design settings, so the palette, kit and icons an agent is told about
+// guide`, `GET /agent-howto` and MCP `guide` all return it. It is regenerated
+// from the project's STORED design settings, so the palette, kit and icons an agent is told about
 // are the ones actually injected into its frames. Budget: 6,000 characters with
 // a palette (pinned in test/designGuide.test.ts). Anything deeper belongs in a
 // topic under guide/topics/, which agents fetch only when they need it.
@@ -41,12 +40,12 @@ export function iconsLine(design: DesignSettings | null): string {
 
 const TOPIC_SUMMARY: Record<GuideTopic, string> = {
   knobs: "every knob shape, how values reach html",
-  asks: "the ask JSON, scopes, the Look ask, multi",
+  asks: "the ask JSON, scopes, Look, Which one?, multi",
   surfaces: "markdown, diff, mermaid, code, terminal, json, image; uploads",
   html: "the contract, finish rules, tokens, kits, Tailwind, icons",
-  reply: "the reply JSON, delivery, revise, export",
+  reply: "the feedback JSON, pending, delivery, export",
   http: "curl, the tier table, errors, remote",
-  scripts: "publish, ask and wait in one run",
+  scripts: "publish and ask in one run",
 };
 
 const KIT_CLASSES = new Map(KITS.map((k) => [k.id, k.classes]));
@@ -249,19 +248,21 @@ Asks are questions, knobs are values; the user presses Send once, you get one re
 
 ## The loop
 
+Nothing waits for the user. Publish, ask, say where to look, end your turn;
+the question lives in the mock, never in chat. Never poll.
+
 \`\`\`sh
 mockpit init                    # once per repo: design system, icons, starter
 mockpit publish --mock writer --state "Writing" --variant quiet --html quiet.html
 mockpit publish --mock writer --state "Writing" --variant dark --html dark.html
 mockpit ask     --mock writer "Which look?" --option Quiet=quiet --option Dark=dark
-mockpit wait                    # blocks until the user presses Send
-mockpit revise  --mock writer --state "Writing" --variant dark --html v2.html
-mockpit revise  --mock writer --state "Writing" --variant dark --part body=body.html   # one part, not the document
+mockpit feedback                # after the user says they answered
+mockpit publish --mock writer --state "Writing" --variant dark --parts body=b.html  # v2, one part
 mockpit export  --mock writer   # the accepted html per state
 \`\`\`
 
 Server: \`$MOCKPIT_URL\` (default http://localhost:8228; \`mockpit serve\`).
-MCP tools: \`publish_mock\`, \`ask_user\`, \`wait_for_feedback\`, \`revise_mock\`.
+MCP tools have the verb names (\`publish\`, \`feedback\`, …).
 
 ## Parts
 
@@ -272,7 +273,7 @@ declare geometry; the viewer measures it.
 
 ## Ask or knob
 
-Two renders needed to show a choice: publish variants and ask, Look question
+A choice is several variants plus one ask that binds them. Look question
 first. One render plus a control: declare a knob with \`--knobs '{...}'\`.
 
 | knob | control |
@@ -287,17 +288,15 @@ Values reach the html unitless: \`calc(var(--k-body-size, 17) * 1px)\`, and as
 
 ## The reply
 
-\`wait\` returns \`{mock, reply: {answers, tuned, mix, comments, decision, text},
-accepted, archived}\`. In order: answers decide structure (a variant answer
-already accepted it and archived its siblings); tuned values become new
-defaults; mix names a part to take from another variant; address each comment on
-its part; decision (accept, revise, drop) stands in for answers when there were
-no asks. Each reply arrives exactly once, on the first channel to see it:
-
-- piggyback: write responses carry \`userFeedback\`.
-- watch: \`mockpit watch\` in the background, one line per reply.
-- checkpoint: \`mockpit wait --timeout 1\` at the start of a turn.
-- blocking: \`mockpit wait\` after an ask.
+\`feedback\` returns \`{feedback, pending}\`. A batch is \`{mock, reply: {asks, tuned,
+mix, comments, decision, text}, accepted, archived}\`. In order: answers decide
+structure (a variant answer already accepted it and archived its siblings);
+tuned values become new defaults; mix names a part to take from another variant;
+address each comment on its part; decision (accept, revise, drop) stands in for
+answers when there were no asks. Each Send arrives exactly once: in a write's
+\`feedback\`, \`mockpit feedback\` or a \`mockpit watch\` line.
+A \`pending\` draft means the user is still answering. Variants no ask binds
+earn a \`suggestedAsk\` on publish: send it with \`ask\`.
 
 ## HTML
 
@@ -321,7 +320,7 @@ Starter: begin from \`.mockpit/starter.html\` (this kit, these tokens, an icon).
 
 ## Topics
 
-\`mockpit agent-howto --topic <id>\`, MCP \`get_design_guide({topic})\`, or
+\`mockpit guide --topic <id>\`, MCP \`guide({topic})\`, or
 \`GET /agent-howto?topic=<id>\`:
 
 ${GUIDE_TOPICS.map((id) => `- ${id}: ${TOPIC_SUMMARY[id]}`).join("\n")}

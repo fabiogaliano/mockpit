@@ -258,3 +258,27 @@ test("buildFeedbackBatches resolves mocks and posts from the store", async () =>
   assert.equal(batch.mock, "card");
   assert.equal(batch.comments[0].variant, "default");
 });
+
+test("an answer to the built-in variant ask resolves like any ask", () => {
+  const posts = [
+    post({ id: "p1", variant: "quiet" }),
+    post({ id: "p2", variant: "dark", status: "accepted" }),
+  ];
+  const [batch] = groupFeedback(
+    [
+      comment({
+        kind: "reply",
+        payload: reply({ answers: { variant: "dark", "variant:Writing": "quiet" } }),
+      }),
+    ],
+    new Map([["m1", mock({ asks: [] })]]),
+    new Map([["m1", posts]]),
+  );
+  assert.deepEqual(
+    batch.reply?.asks.map((a) => [a.ask, a.text, a.chosen.map((c) => [c.id, c.label])]),
+    [
+      ["variant", "Which one?", [["dark", "dark"]]],
+      ["variant:Writing", "Which one?", [["quiet", "quiet"]]],
+    ],
+  );
+});

@@ -496,7 +496,8 @@ function OptionCard(props: {
   );
 }
 
-// A mock without asks: the plain verdict, sent as one reply (Q13).
+// Nothing to ask, not even "Which one?" (no state has a choice left between
+// live variants): the plain verdict on the variant on stage, sent as one reply (Q13).
 function Decide(props: { s: MockScreenState }) {
   const s = props.s;
   const [note, setNote] = createSignal("");

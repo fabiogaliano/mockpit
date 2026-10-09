@@ -5,6 +5,7 @@ import {
   type Ask,
   type AskAnswer,
   askAnswered,
+  BUILTIN_ASK_ID,
   type KnobConfig,
   type KnobValue,
   type Knobs,
@@ -99,6 +100,62 @@ export const isLookAsk = (ask: Ask): boolean =>
 export const lookAsk = (mock: Pick<MockDetail, "asks">): Ask | undefined =>
   mock.asks.find(isLookAsk);
 
+// --- the built-in "Which one?" ---
+
+type VariantRow = Pick<VariantView, "state" | "variant" | "status">;
+
+// What the user can still choose between in a state: its non-archived variants.
+export const liveVariants = (variants: VariantRow[], state: string | null): string[] => [
+  ...new Set(
+    variants.filter((v) => v.state === state && v.status !== "archived").map((v) => v.variant),
+  ),
+];
+
+// A state needs the built-in ask when it has a real choice (2+ live variants)
+// and no agent ask that applies there binds every one of them; otherwise the
+// user would have to Accept variants one by one.
+export function needsBuiltinAsk(
+  asks: Ask[],
+  variants: VariantRow[],
+  state: string | null,
+): boolean {
+  const live = liveVariants(variants, state);
+  if (live.length < 2) return false;
+  return !asks.some(
+    (a) =>
+      (a.scope === "mock" || (a.scope === "state" && a.state === state)) &&
+      live.every((name) => a.options.some((o) => o.variant === name)),
+  );
+}
+
+// The built-in asks a mock shows, under the ids the server reserves for them.
+// One mock-wide ask when every state needs one and the live variant names line
+// up, so the user answers once; one per needing state otherwise. Option ids
+// are variant names, as the server's reply handling expects.
+export function builtinAsks(
+  mock: Pick<MockDetail, "asks" | "states">,
+  variants: VariantRow[],
+): Ask[] {
+  const states = mock.states.length ? mock.states : [null];
+  const needing = states.filter((st) => needsBuiltinAsk(mock.asks, variants, st));
+  if (!needing.length) return [];
+  const ask = (names: string[], state: string | null): Ask => ({
+    id: state === null ? BUILTIN_ASK_ID : `${BUILTIN_ASK_ID}:${state}`,
+    text: "Which one?",
+    scope: state === null ? "mock" : "state",
+    ...(state === null ? {} : { state }),
+    options: names.map((v) => ({ id: v, label: v, variant: v })),
+    at: "",
+  });
+  const first = liveVariants(variants, needing[0]);
+  const sameNames = (st: string | null) => {
+    const names = liveVariants(variants, st);
+    return names.length === first.length && names.every((n) => first.includes(n));
+  };
+  if (needing.length === states.length && states.every(sameNames)) return [ask(first, null)];
+  return needing.map((st) => ask(liveVariants(variants, st), st));
+}
+
 // The latest version any variant of the mock reached.
 export const mockVersion = (variants: Pick<VariantView, "version">[]): number =>
   Math.max(1, ...variants.map((v) => v.version));
@@ -152,6 +209,13 @@ function askTopic(ask: Ask): string {
   if (ask.scope === "part" && ask.part) return ask.part;
   if (ask.scope === "state" && ask.state) return ask.state.toLowerCase();
   return "answer";
+}
+
+// An answer to no stored ask is a built-in one, named like the ask it stood for.
+function builtinTopic(id: string): string {
+  if (id === BUILTIN_ASK_ID) return "look";
+  if (id.startsWith(`${BUILTIN_ASK_ID}:`)) return id.slice(BUILTIN_ASK_ID.length + 1).toLowerCase();
+  return id;
 }
 
 export interface MixOption {
@@ -259,7 +323,8 @@ export function summarizeReply(
     else if (reply.notes?.[ask.id] !== undefined) parts.push(`${askTopic(ask)} noted`);
   }
   for (const [id, answer] of Object.entries(reply.answers)) {
-    if (!mock.asks.some((a) => a.id === id)) parts.push(`${id} ${answerIds(answer).join(" + ")}`);
+    if (!mock.asks.some((a) => a.id === id))
+      parts.push(`${builtinTopic(id)} ${answerIds(answer).join(" + ")}`);
   }
   const mix = Object.entries(reply.mix).map(([part, variant]) => `${part} · ${variant}'s`);
   if (mix.length) parts.push(`mix ${mix.join(", ")}`);
@@ -428,7 +493,7 @@ export interface ThreadRow {
   at: string;
   text: string;
   quote?: string;
-  seen?: boolean;
+  delivered?: boolean;
   id: string;
   // A reply's comments, each with where it was left ("title · At rest").
   comments?: { where: string; text: string }[];
@@ -479,7 +544,13 @@ export function threadRows(
     if (c.author === "user" || c.author === "surface") {
       const reply = c.kind === "reply" ? c.payload : undefined;
       const text = reply ? summarizeReply(reply, mock) : c.text || "Sent";
-      const row: ThreadRow = { who: "you", at: c.createdAt, text, seen: c.seen, id: c.id };
+      const row: ThreadRow = {
+        who: "you",
+        at: c.createdAt,
+        text,
+        delivered: c.delivered,
+        id: c.id,
+      };
       if (reply?.comments.length) {
         row.comments = reply.comments.map((x) => ({ where: commentWhere(x), text: x.text }));
       }

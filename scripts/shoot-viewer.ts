@@ -69,7 +69,8 @@ try {
   const rest = detail.variants.find(
     (v: { state: string; variant: string }) => v.state === "Writing" && v.variant === "quiet",
   );
-  await call(url, `/api/mocks/${mock.id}/revise`, "POST", {
+  await call(url, "/api/mocks", "POST", {
+    mock: mock.id,
     session: mock.sessionId,
     state: "Writing",
     variant: "quiet",
@@ -114,13 +115,12 @@ try {
   await page.locator("button.send").click();
   await page.locator(".trow.you").waitFor();
   // The agent reads the reply (its cursor passes it) and answers.
-  await call(url, `/api/comments?session=${mock.sessionId}&author=user`);
-  await call(url, "/api/comments", "POST", {
-    mock: mock.id,
+  await call(url, `/api/feedback?session=${mock.sessionId}`);
+  await call(url, `/api/mocks/${mock.id}/say`, "POST", {
     session: mock.sessionId,
-    text: "Going with that. I'll fold the trim into the page header in the next version.",
+    message: "Going with that. I'll fold the trim into the page header in the next version.",
   });
-  await page.locator(".tseen.ok").waitFor();
+  await page.locator(".tdelivered.ok").waitFor();
   await shot(page, "thread");
 
   // The at-rest quiet look is the one with a second version.

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -8,12 +9,13 @@ import { serve } from "@hono/node-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { createApp } from "../server/app.ts";
-import { MCP_TOOL_NAMES } from "../server/mcpSpec.ts";
+import { MCP_TOOL_NAMES, STDIO_MCP_TOOLS } from "../server/mcpSpec.ts";
 import { SqlStore } from "../server/sqlStore.ts";
 import { createSqliteStorage } from "../server/sqliteStorage.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const MCP_SERVER = join(ROOT, "mcp", "server.ts");
+const CLI = join(ROOT, "bin", "mockpit.js");
 
 const PROJECT = "stdio-test";
 
@@ -28,6 +30,7 @@ type WriteResult = {
   };
   sessionId: string;
   url: string;
+  suggestedAsk?: unknown;
   parts: Array<{ state: string | null; parts: Array<{ name: string }> }>;
   partChanges?: { vanished: string[]; renamed: Array<{ from: string; to: string }> };
 };
@@ -155,7 +158,7 @@ const viewerJson = (body: unknown, method = "POST"): RequestInit => ({
 const partNames = (result: WriteResult, state: string | null) =>
   result.parts.find((p) => p.state === state)?.parts.map((p) => p.name) ?? [];
 
-test("stdio MCP lists exactly the mock tools", { timeout: 15_000 }, async (t) => {
+test("stdio MCP lists exactly the spec's catalog", { timeout: 15_000 }, async (t) => {
   const app = await serveApp();
   const mcp = await connectMcp(app.url);
   t.after(async () => {
@@ -165,8 +168,23 @@ test("stdio MCP lists exactly the mock tools", { timeout: 15_000 }, async (t) =>
   const { tools } = await mcp.client.listTools();
   assert.deepEqual(
     tools.map((tool) => tool.name),
-    MCP_TOOL_NAMES,
+    STDIO_MCP_TOOLS.map((tool) => tool.name),
   );
+  assert.deepEqual(MCP_TOOL_NAMES, [
+    "publish",
+    "ask",
+    "read",
+    "feedback",
+    "say",
+    "export",
+    "upload",
+    "guide",
+  ]);
+  for (const tool of tools) {
+    const props = Object.keys((tool.inputSchema as { properties?: object }).properties ?? {});
+    assert.ok(!props.includes("timeoutSeconds"), `${tool.name} takes no timeout`);
+    assert.ok(!props.includes("session"), `${tool.name}: stdio holds the session`);
+  }
 });
 
 test(
@@ -185,7 +203,7 @@ test(
     // html travels as a path over stdio, so markup never passes through context.
     const quietFile = join(dir, "quiet.html");
     writeFileSync(quietFile, '<h1 data-part="title">Writer</h1><p data-part="body">x</p>');
-    const quiet = await callJson<WriteResult>(mcp.client, "publish_mock", {
+    const quiet = await callJson<WriteResult>(mcp.client, "publish", {
       mock: "writer",
       state: "Writing",
       variant: "quiet",
@@ -205,15 +223,16 @@ test(
     assert.equal(sessions[0].agent, "stdio-agent");
     assert.equal(quiet.sessionId, sessions[0].id);
 
-    const dark = await callJson<WriteResult>(mcp.client, "publish_mock", {
+    const dark = await callJson<WriteResult>(mcp.client, "publish", {
       mock: "writer",
       state: "Writing",
       variant: "dark",
       html: '<h1 data-part="title">Writer</h1><p data-part="body">dark</p>',
     });
     assert.equal(dark.sessionId, quiet.sessionId, "one session per conversation");
+    assert.ok(dark.suggestedAsk, "two unbound variants suggest an ask");
 
-    const revised = await callJson<WriteResult>(mcp.client, "revise_mock", {
+    const revised = await callJson<WriteResult>(mcp.client, "publish", {
       mock: "writer",
       state: "Writing",
       variant: "dark",
@@ -222,13 +241,17 @@ test(
     assert.equal(revised.post.version, 2);
     assert.deepEqual(revised.partChanges?.vanished, ["title"]);
 
-    const list = await callJson<{ mocks: Array<{ slug: string; variants: number }> }>(
-      mcp.client,
-      "list_mocks",
-    );
+    const list = await callJson<{
+      mocks: Array<{ slug: string; variants: number }>;
+      pending: Array<{ mock: string }>;
+    }>(mcp.client, "read");
     assert.deepEqual(
       list.mocks.map((m) => [m.slug, m.variants]),
       [["writer", 2]],
+    );
+    assert.deepEqual(
+      list.pending.map((p) => p.mock),
+      ["writer"],
     );
 
     const detail = await callJson<{
@@ -236,9 +259,11 @@ test(
       states: string[];
       knobs: Record<string, unknown>;
       variants: Array<{ variant: string; surfaces: Array<{ html?: string }> }>;
-    }>(mcp.client, "get_mock", { mock: "writer", body: true });
+      pending: { mock: string };
+    }>(mcp.client, "read", { mock: "writer", body: true });
     assert.deepEqual(detail.states, ["Writing"]);
     assert.deepEqual(detail.knobs, { "body.size": [17, 14, 22, 1] });
+    assert.equal(detail.pending.mock, "writer");
     assert.equal(
       detail.variants.find((v) => v.variant === "dark")?.surfaces[0].html,
       '<p data-part="body">dark v2</p>',
@@ -246,7 +271,7 @@ test(
 
     const asked = await callJson<{ asks: Array<{ id: string; options: Array<{ id: string }> }> }>(
       mcp.client,
-      "ask_user",
+      "ask",
       {
         mock: "writer",
         asks: [
@@ -268,7 +293,7 @@ test(
 
     const exported = await callJson<{ states: Array<{ variant: string; html: string }> }>(
       mcp.client,
-      "export_mock",
+      "export",
       { mock: "writer", variant: "dark" },
     );
     assert.equal(exported.states[0].html, '<p data-part="body">dark v2</p>');
@@ -276,75 +301,86 @@ test(
     // Part values travel as paths too, like html.
     const bodyFile = join(dir, "body.html");
     writeFileSync(bodyFile, '<p data-part="body" class="v3">dark v3</p>');
-    const spliced = await callJson<WriteResult & { applied?: string[] }>(
-      mcp.client,
-      "revise_mock",
-      { mock: "writer", state: "Writing", variant: "dark", parts: { body: bodyFile } },
-    );
+    const spliced = await callJson<WriteResult & { applied?: string[] }>(mcp.client, "publish", {
+      mock: "writer",
+      state: "Writing",
+      variant: "dark",
+      parts: { body: bodyFile },
+    });
     assert.equal(spliced.post.version, 3);
     assert.deepEqual(spliced.applied, ["body"]);
-    const afterSplice = await callJson<{ states: Array<{ html: string }> }>(
-      mcp.client,
-      "export_mock",
-      { mock: "writer", variant: "dark" },
-    );
+    const afterSplice = await callJson<{ states: Array<{ html: string }> }>(mcp.client, "export", {
+      mock: "writer",
+      variant: "dark",
+    });
     assert.equal(afterSplice.states[0].html, '<p data-part="body" class="v3">dark v3</p>');
 
-    const reply = await callJson<{ text: string; author: string; mockId: string }>(
-      mcp.client,
-      "reply_to_user",
-      { mock: "writer", message: "Two looks are up" },
+    const said = await callJson<{ feedback: unknown[] }>(mcp.client, "say", {
+      mock: "writer",
+      message: "Two looks are up",
+    });
+    assert.deepEqual(said.feedback, []);
+    const thread = await fetchJson<{ comments: Array<{ text: string; author: string }> }>(
+      app.url,
+      `/api/comments?mock=${detail.id}`,
     );
-    assert.equal(reply.text, "Two looks are up");
-    assert.equal(reply.author, "stdio-agent");
-    assert.equal(reply.mockId, detail.id);
+    assert.deepEqual(
+      [thread.comments.at(-1)?.text, thread.comments.at(-1)?.author],
+      ["Two looks are up", "stdio-agent"],
+    );
 
     const pngFile = join(dir, "shot.png");
     writeFileSync(pngFile, Buffer.from("not really a png"));
     const asset = await callJson<{ id: string; contentType: string; sessionId: string }>(
       mcp.client,
-      "upload_asset",
+      "upload",
       { path: pngFile },
     );
     assert.equal(asset.contentType, "image/png");
     assert.equal(asset.sessionId, quiet.sessionId);
 
+    // The full ordered list subsumes add, edit, reorder and remove.
     const target = { mock: "writer", state: "Writing", variant: "quiet" };
-    const added = await callJson<WriteResult>(mcp.client, "add_surface", {
+    const added = await callJson<WriteResult>(mcp.client, "publish", {
       ...target,
-      surface: { kind: "markdown", markdown: "notes" },
+      surfaces: [{ id: quiet.post.surfaces[0].id }, { kind: "markdown", markdown: "notes" }],
     });
     assert.deepEqual(
       added.post.surfaces.map((s) => s.kind),
       ["html", "markdown"],
     );
-    const edited = await callJson<WriteResult>(mcp.client, "edit_surface", {
+    const [htmlId, mdId] = added.post.surfaces.map((s) => s.id);
+    const reordered = await callJson<WriteResult>(mcp.client, "publish", {
       ...target,
-      target: "1",
-      content: "better notes",
-    });
-    assert.equal(edited.post.version, added.post.version + 1);
-    const reordered = await callJson<WriteResult>(mcp.client, "reorder_surfaces", {
-      ...target,
-      order: [1, 0],
+      surfaces: [{ id: mdId, kind: "markdown", markdown: "better notes" }, { id: htmlId }],
     });
     assert.deepEqual(
       reordered.post.surfaces.map((s) => s.kind),
       ["markdown", "html"],
     );
-    const removed = await callJson<WriteResult>(mcp.client, "remove_surface", {
+    const removed = await callJson<WriteResult>(mcp.client, "publish", {
       ...target,
-      target: "0",
+      surfaces: [{ id: htmlId }],
     });
     assert.deepEqual(
       removed.post.surfaces.map((s) => s.kind),
       ["html"],
     );
 
-    const guide = await callText(mcp.client, "get_design_guide");
+    const guide = await callText(mcp.client, "guide");
     assert.match(guide, /# mockpit brief/);
-    const html = await callText(mcp.client, "get_design_guide", { topic: "html" });
+    const html = await callText(mcp.client, "guide", { topic: "html" });
     assert.equal(html, "# stdio design guide");
+
+    const idle = await callJson<{ feedback: unknown[]; pending: Array<{ mock: string }> }>(
+      mcp.client,
+      "feedback",
+    );
+    assert.deepEqual(idle.feedback, []);
+    assert.deepEqual(
+      idle.pending.map((p) => p.mock),
+      ["writer"],
+    );
 
     // The user's Send goes through the viewer; the agent hears it exactly once.
     await fetchJson(
@@ -352,17 +388,16 @@ test(
       `/api/mocks/${detail.id}/reply`,
       viewerJson({ answers: { look: "dark" }, tuned: { "body.size": 19 }, text: "go dark" }),
     );
-    const waited = await callJson<{
+    const heard = await callJson<{
       feedback: Array<{
         mock: string;
         reply: { answers: Record<string, string>; tuned: Record<string, number>; text: string };
         accepted: Array<{ variant: string }>;
         archived: Array<{ variant: string }>;
       }>;
-      lastSeq: number;
-    }>(mcp.client, "wait_for_feedback", { timeoutSeconds: 5 });
-    assert.equal(waited.feedback.length, 1);
-    const batch = waited.feedback[0];
+    }>(mcp.client, "feedback");
+    assert.equal(heard.feedback.length, 1);
+    const batch = heard.feedback[0];
     assert.equal(batch.mock, "writer");
     assert.deepEqual(batch.reply.answers, { look: "dark" });
     assert.deepEqual(batch.reply.tuned, { "body.size": 19 });
@@ -375,15 +410,9 @@ test(
       batch.archived.map((v) => v.variant),
       ["quiet"],
     );
-    assert.ok(waited.lastSeq > 0);
 
-    const again = await callJson<{ feedback: unknown[]; note?: string }>(
-      mcp.client,
-      "wait_for_feedback",
-      { timeoutSeconds: 0 },
-    );
-    assert.deepEqual(again.feedback, []);
-    assert.match(again.note ?? "", /no user feedback/);
+    const again = await callJson<{ feedback: unknown[] }>(mcp.client, "feedback");
+    assert.deepEqual(again.feedback, [], "a reply is delivered once");
 
     const invoked = invokedTools.get(mcp.client) ?? new Set<string>();
     assert.deepEqual(
@@ -394,76 +423,62 @@ test(
   },
 );
 
+// One session, two tiers: whichever reads first takes the Send, the other never
+// sees it again, because the cursor lives on the server.
 test(
-  "stdio wait_for_feedback defaults to 55 seconds and caps at 230",
-  { timeout: 15_000 },
+  "a reply is delivered exactly once across CLI feedback and stdio feedback",
+  { timeout: 20_000 },
   async (t) => {
-    const waits: Array<string | null> = [];
-    const app = await serveApp(undefined, (url) => {
-      if (url.pathname === "/api/comments" && url.searchParams.has("author"))
-        waits.push(url.searchParams.get("wait"));
-    });
-    const dir = mkdtempSync(join(tmpdir(), "mockpit-mcp-wait-"));
-    const mcp = await connectMcp(app.url);
+    const app = await serveApp();
+    const session = await fetchJson<{ id: string }>(
+      app.url,
+      "/api/sessions",
+      viewerJson({ agent: "shared-agent", title: "Shared", project: PROJECT }),
+    );
+    const mcp = await connectMcp(app.url, { MOCKPIT_SESSION: session.id });
     t.after(async () => {
       await mcp.close();
       await app.close();
-      rmSync(dir, { recursive: true, force: true });
     });
-    const file = join(dir, "w.html");
-    writeFileSync(file, "<h1>T</h1>");
-    const published = await callJson<WriteResult>(mcp.client, "publish_mock", {
+    const cliFeedback = () =>
+      new Promise<{ feedback: Array<{ comments: Array<{ text: string }> }> }>((resolve, reject) => {
+        execFile(
+          process.execPath,
+          [CLI, "feedback"],
+          {
+            cwd: mkdtempSync(join(tmpdir(), "mockpit-mcp-cli-")),
+            env: cleanEnv({ MOCKPIT_URL: app.url, MOCKPIT_SESSION: session.id }),
+          },
+          (err, stdout, stderr) => (err ? reject(new Error(stderr)) : resolve(JSON.parse(stdout))),
+        );
+      });
+    const published = await callJson<WriteResult>(mcp.client, "publish", {
       mock: "writer",
-      html: file,
+      html: "<h1>T</h1>",
     });
-    // Pending feedback makes each long-poll return at once, so only the query is observed.
-    const comment = (text: string) =>
+    const userSays = (text: string) =>
       fetchJson(
         app.url,
         "/api/comments",
         viewerJson({ mock: published.mock.id, text, author: "user" }),
       );
-    await comment("one");
-    await callText(mcp.client, "wait_for_feedback");
-    await comment("two");
-    await callText(mcp.client, "wait_for_feedback", { timeoutSeconds: 900 });
-    assert.deepEqual(waits, ["55", "230"]);
-  },
-);
 
-test(
-  "a cancelled stdio wait leaves the next Send for the next wait",
-  { timeout: 20_000 },
-  async (t) => {
-    const app = await serveApp();
-    const mcp = await connectMcp(app.url);
-    t.after(async () => {
-      await mcp.close();
-      await app.close();
-    });
-    const published = await callJson<WriteResult>(mcp.client, "publish_mock", {
-      mock: "writer",
-      html: "<h1>T</h1>",
-    });
-    // The client's own tool timeout: it cancels and stops listening.
-    const abort = new AbortController();
-    const pending = mcp.client.callTool(
-      { name: "wait_for_feedback", arguments: { timeoutSeconds: 30 } },
-      undefined,
-      { signal: abort.signal },
+    await userSays("first");
+    const byCli = await cliFeedback();
+    assert.deepEqual(
+      byCli.feedback.flatMap((b) => b.comments.map((c) => c.text)),
+      ["first"],
     );
-    await new Promise((r) => setTimeout(r, 300));
-    abort.abort();
-    await assert.rejects(pending);
-    await new Promise((r) => setTimeout(r, 300));
+    const stdioAfter = await callJson<{ feedback: unknown[] }>(mcp.client, "feedback");
+    assert.deepEqual(stdioAfter.feedback, [], "stdio never redelivers what the CLI took");
 
-    await fetchJson(
-      app.url,
-      "/api/comments",
-      viewerJson({ mock: published.mock.id, text: "after the cancel", author: "user" }),
+    await fetchJson(app.url, `/api/mocks/${published.mock.id}/reply`, viewerJson({ text: "go" }));
+    const byStdio = await callJson<{ feedback: Array<{ reply: { text: string } }> }>(
+      mcp.client,
+      "feedback",
     );
-    const text = await callText(mcp.client, "wait_for_feedback", { timeoutSeconds: 0 });
-    assert.match(text, /after the cancel/);
+    assert.equal(byStdio.feedback[0].reply.text, "go");
+    assert.deepEqual((await cliFeedback()).feedback, [], "the CLI never redelivers it either");
   },
 );
 
@@ -479,7 +494,7 @@ test("stdio MCP honors a preconfigured conversation session", { timeout: 15_000 
     await mcp.close();
     await app.close();
   });
-  const published = await callJson<WriteResult>(mcp.client, "publish_mock", {
+  const published = await callJson<WriteResult>(mcp.client, "publish", {
     mock: "card",
     html: "<p>card</p>",
   });
@@ -506,29 +521,29 @@ test(
     const unauthenticated = await connectMcp(protectedApp.url);
     connections.push(unauthenticated);
     const unauthorized = readToolText(
-      await unauthenticated.client.callTool({ name: "publish_mock", arguments: publishArgs }),
-      "publish_mock",
+      await unauthenticated.client.callTool({ name: "publish", arguments: publishArgs }),
+      "publish",
     );
     assert.equal(unauthorized.isError, true);
     assert.match(unauthorized.text, /401/);
 
     const authorized = await connectMcp(protectedApp.url, { MOCKPIT_TOKEN: "secret" });
     connections.push(authorized);
-    const published = await callJson<WriteResult>(authorized.client, "publish_mock", publishArgs);
+    const published = await callJson<WriteResult>(authorized.client, "publish", publishArgs);
     assert.ok(published.post.id);
 
     // The server's hint (which states exist) reaches the agent verbatim.
-    await callJson(authorized.client, "publish_mock", {
+    await callJson(authorized.client, "publish", {
       mock: "multi",
       state: "Open",
       html: "<p>open</p>",
     });
     const ambiguous = readToolText(
       await authorized.client.callTool({
-        name: "publish_mock",
+        name: "publish",
         arguments: { mock: "multi", html: "<p>?</p>" },
       }),
-      "publish_mock",
+      "publish",
     );
     assert.equal(ambiguous.isError, true);
     assert.match(ambiguous.text, /pass state/);
@@ -537,8 +552,8 @@ test(
     const unreachable = await connectMcp("http://127.0.0.1:1");
     connections.push(unreachable);
     const failed = readToolText(
-      await unreachable.client.callTool({ name: "publish_mock", arguments: publishArgs }),
-      "publish_mock",
+      await unreachable.client.callTool({ name: "publish", arguments: publishArgs }),
+      "publish",
     );
     assert.equal(failed.isError, true);
     assert.match(failed.text, /mockpit server not reachable/);

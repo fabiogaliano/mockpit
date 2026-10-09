@@ -51,14 +51,23 @@ A page mock (`--kind page`, MCP `kind: "page"`) can embed a component mock in it
 html with `<mockpit-slot slug="button" variant="dark" version="3"></mockpit-slot>`.
 The server inlines that version's html body in place, inside the page's frame.
 `variant` defaults to `default`; a missing `version` pins to the current one at
-publish, so the page keeps showing what it was composed from until you revise
-it. An unknown slug renders as an empty placeholder, not silently dropped.
+publish, so the page keeps showing what it was composed from until you publish
+its next version. An unknown slug renders as an empty placeholder, not silently dropped.
 
 ## Editing one surface
 
-`mockpit surface add|edit|remove|move --mock <slug>` (MCP `add_surface`,
-`edit_surface`, `remove_surface`, `reorder_surfaces`) edits one surface of a
-variant in place.
+`publish` with `surfaces` takes the full ordered list, so one call adds, edits,
+removes and reorders. Every write returns each surface's `id`
+(`post.surfaces`). In the next list, an entry that is only `{ "id": "…" }`
+keeps that surface unchanged, an `id` with content replaces it in place, an
+entry without an `id` is new, an id you leave out is removed, and the list
+order is the new order:
+
+```json
+{ "mock": "writer", "surfaces": [{ "kind": "markdown", "markdown": "## Why" }, { "id": "s1" }] }
+```
+
+An unknown id fails with the surfaces present and writes nothing.
 
 ## Uploads
 
@@ -66,7 +75,7 @@ Push a binary once and reference it by id:
 
 ```
 CLI  mockpit upload shot.png          # prints { id, url }
-MCP  upload_asset  { data | path, contentType, filename?, kind? }
+MCP  upload        { data | path, contentType, filename?, kind? }
 POST /api/assets   (raw)   Content-Type: image/png   <bytes>   ?filename=shot.png&kind=image
 POST /api/assets   (json)  { "data": "<base64>", "contentType": "image/png", "filename": "shot.png" }
 ```
@@ -81,11 +90,11 @@ bytes dedupe. An asset lives as long as something references it. The limit is
 
 Each thing you add lights up its part of the viewer.
 
-| you publish            | the user gets                                              |
-| ---------------------- | ---------------------------------------------------------- |
-| a plain mock, any kind | the stage and Thread, with Accept / Revise / Drop          |
-| several variants       | a switcher in the frame header, or the Look ask if you ask |
-| asks                   | Questions: picture options on the stage, then Send         |
-| `data-part`            | Tune's component list and comments anchored on parts       |
-| `knobs`                | Tune's controls, live on the stage                         |
-| several states         | the state strip under the stage                            |
+| you publish            | the user gets                                          |
+| ---------------------- | ------------------------------------------------------ |
+| a plain mock, any kind | the stage and Thread, with Accept / Revise / Drop      |
+| several variants       | a switcher, plus a built-in "Which one?" until you ask |
+| asks                   | Questions: picture options on the stage, then Send     |
+| `data-part`            | Tune's component list and comments anchored on parts   |
+| `knobs`                | Tune's controls, live on the stage                     |
+| several states         | the state strip under the stage                        |

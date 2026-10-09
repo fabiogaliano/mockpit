@@ -123,10 +123,11 @@ export async function seedWriter(server: string): Promise<Seeded> {
   return { mockId, session, posts };
 }
 
+// A new version of an existing variant: publish addresses it by mock id.
 export async function revise(
   server: string,
   mockId: string,
   body: { state: string; variant: string; html: string; prompt?: string; session?: string },
 ) {
-  return agentCall(server, `/api/mocks/${mockId}/revise`, body);
+  return agentCall(server, "/api/mocks", { mock: mockId, ...body });
 }

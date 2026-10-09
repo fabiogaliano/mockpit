@@ -15,37 +15,23 @@ This skill is a bootstrap. The real instructions live on the running server, so
 they stay in sync with the deployed version:
 
 ```sh
-mockpit agent-howto                 # the brief: the loop, the reply, this project's palette, kit and icons
-mockpit agent-howto --topic knobs   # one reference topic: knobs, asks, surfaces, html, reply, http, scripts
+mockpit guide                 # the brief: the loop, the reply, this project's palette, kit and icons
+mockpit guide --topic knobs   # one reference topic: knobs, asks, surfaces, html, reply, http, scripts
 ```
 
 Once per repo run `mockpit init`: it detects the repo's design system, stores
 its palette, kit and icon sprite on the server, and writes
 `.mockpit/starter.html` to copy from. Never assemble a design set by hand.
 
-## How feedback reaches you
+## The loop
 
-A background monitor (`mockpit watch`) runs for the whole session and delivers
-each Send as one notification on your next turn, for example:
+Nothing waits for the user. Publish each variant, ask, tell the user in one
+line where to look, then end your turn. The question itself lives in the mock
+(`ask`), never in chat. The user answers in the browser at their own pace.
+Never poll.
 
-```
-mockpit reply on writer: Which look?: Dark · 1 tuned · mix body←quiet · 1 comment
-```
-
-Treat it as a message from the user; read the full reply with
-`wait_for_feedback` (timeout 0) or `mockpit wait --timeout 1` if the line is
-not enough. Picks, tuned values and comments the user is still making are
-drafts and never delivered before Send. Delivery is exactly once across the
-monitor, waits and the `userFeedback` field on write responses.
-
-Respond by revising (`revise_mock` / `mockpit revise --mock <slug> --state <s>
---variant <v> --html <file>`) or replying (`reply_to_user` / `mockpit comment`).
-
-## Publishing
-
-Prefer the MCP tools when connected (`publish_mock`, `revise_mock`, `ask_user`,
-`wait_for_feedback`, `list_mocks`, `get_mock`, `export_mock`,
-`get_design_guide`, `reply_to_user`); otherwise use the CLI.
+Prefer the MCP tools when connected (`publish`, `ask`, `read`, `feedback`,
+`say`, `export`, `upload`, `guide`); otherwise use the CLI.
 
 ```sh
 mockpit publish --mock writer --state "Writing" --variant quiet --html quiet.html
@@ -54,15 +40,35 @@ mockpit ask     --mock writer "Which look?" --option Quiet=quiet --option Dark=d
 mockpit export  --mock writer
 ```
 
+## How feedback reaches you
+
+The plugin's monitor runs `mockpit watch` for the whole session, so don't arm
+another. Each Send arrives as one notification on your next turn, for example:
+
+```
+mockpit reply on writer: Which look?: Dark · 1 tuned · mix body←quiet · 1 comment
+```
+
+Treat it as a message from the user and run `feedback` (`mockpit feedback`)
+for the full reply. It returns at once. Its `pending` says whether the user is
+still answering (`viewerOpen`, `draft {answered, of, comments}`). Picks, tuned
+values and comments are drafts and never delivered before Send. Each Send is
+delivered exactly once across the monitor, `feedback` and the `feedback` field
+on every write.
+
+Respond by publishing the next version (`publish`, or `--parts name=file` for
+one part) or with a short note in the thread (`say` / `mockpit say`).
+
 Rules of thumb:
 
-- One mock per concept, with a stable kebab-case slug; re-publishing the same
-  (mock, state, variant) makes a new version.
-- Two renders needed to show a choice → publish variants and ask. One render
-  plus a control → declare a knob.
+- One mock per concept, with a stable kebab-case slug; publishing the same
+  (mock, state, variant) again makes a new version.
+- A choice is several variants plus one ask that binds them. One render plus a
+  control → declare a knob. When a publish result nudges, send its
+  `suggestedAsk`.
 - Ask when a decision is genuinely the user's, not after every publish.
-- Use the kit, tokens and icons from `mockpit agent-howto` before writing CSS.
-- After a context loss: `mockpit status`, then `mockpit show --mock <slug>`.
+- Use the kit, tokens and icons from `mockpit guide` before writing CSS.
+- After a context loss: `mockpit read`, then `mockpit read <slug>`.
 
 ## Configuration
 

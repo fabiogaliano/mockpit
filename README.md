@@ -5,8 +5,8 @@
 Your agent publishes a mock (a page or a component) in each of its UI states and
 in a few parallel looks. It shows up live in your browser with the agent's
 questions beside it: pick a look from pictures, tune the knobs it exposed, leave
-comments on the parts it marked, then press **Send**. The agent wakes once with
-the whole batch and revises.
+comments on the parts it marked, then press **Send**, at your own pace. Nothing
+the agent calls waits for you: it gets the whole batch once and revises.
 
 <table>
   <tr>
@@ -40,7 +40,7 @@ mockpit turns that into a design-decision loop:
 | Comments      | Text on a post                                     | Anchored on a **part** the agent marked with `data-part`, in a given state                                                     |
 | Feedback      | Each comment reaches the agent as it's written     | Picks, tuned values, mix and comments stay drafts until you **Send**, then go out as one reply                                 |
 | Design system | Built-in viewer themes                             | `mockpit init` detects the repo's tokens, fonts and kit so the agent's markup matches your codebase                            |
-| Agent verbs   | Post-level: `publish`, `update`, `wait`, `comment` | Mock-level: `init`, `publish`, `ask`, `wait`, `revise`, `comment`, `status`, `show`, `export`                                  |
+| Agent verbs   | Post-level: `publish`, `update`, `wait`, `comment` | Mock-level, never blocking: `publish`, `ask`, `read`, `feedback`, `say`, `export`, `upload`, `guide`, `run`                    |
 
 ## The loop
 
@@ -48,18 +48,23 @@ mockpit turns that into a design-decision loop:
    open") in one or more variants ("quiet", "dark"). One stage shows the mock;
    the strip under it switches states.
 2. **Ask.** The agent asks what it can't decide alone: which look, where a
-   panel goes, which of two layouts. Options bound to a variant or to knob
-   values render as pictures; hovering one previews it on the stage, clicking
-   picks it. After the look, **Mix** offers to borrow a part from another look.
+   panel goes, which of two layouts. The question lives in the mock, not in
+   chat; the agent tells you where to look and ends its turn. Options bound to
+   a variant or to knob values render as pictures; hovering one previews it on
+   the stage, clicking picks it. After the look, **Mix** offers to borrow a part
+   from another look. Variants the agent forgot to ask about get a built-in
+   **Which one?**.
 3. **Tune.** Parts the agent marked are selectable on the stage. Tune lists
    them with the knobs it declared for each, plus a comment field. Presets
    save a set of tuned values in your browser.
 4. **Send.** Everything above is a draft (it survives a reload) until one
-   **Send**. A mock without questions gets **Accept / Revise / Drop** instead.
-   The Send lands in the Thread, marked ✓ sent and ✓✓ once the agent has read
-   it.
-5. **Revise.** The agent gets one reply: answers, tuned values, mix, comments.
-   It publishes the next version; the frame header's `v3 ▾` lists the history,
+   **Send**. A mock with a single variant and no questions gets **Accept /
+   Revise / Drop** instead. The Send lands in the Thread as **Not seen yet**,
+   then **Delivered** once the agent has it. If it isn't picked up, tell your
+   agent you've answered.
+5. **Revise.** The agent gets one reply (answers, tuned values, mix, comments)
+   on its next write, its next `feedback` call, or from `mockpit watch` under a
+   background monitor. It publishes the next version; the frame header's `v3 ▾` lists the history,
    and an older version opens under a banner with "restore as vN". Looks that
    lost are archived, not deleted.
 
@@ -126,31 +131,53 @@ There are also `terminal` (ANSI output), `image` (uploaded assets), `json`
 
 ## Agent verbs
 
-The same verbs on every tier, with the same fields: a zero-dependency CLI for
-agents with only a shell, MCP over stdio or streamable HTTP at `/mcp`, and plain
-HTTP.
+Nine verbs, the same on every tier with the same fields: a zero-dependency CLI
+for agents with only a shell, MCP over stdio or streamable HTTP at `/mcp`, and
+plain HTTP. None of them waits for the user.
 
-| CLI               | MCP                  | HTTP                                             |
-| ----------------- | -------------------- | ------------------------------------------------ |
-| `mockpit init`    | —                    | —                                                |
-| `mockpit publish` | `publish_mock`       | `POST /api/mocks`                                |
-| `mockpit revise`  | `revise_mock`        | `POST /api/mocks/:id/revise`                     |
-| `mockpit ask`     | `ask_user`           | `POST /api/mocks/:id/asks`                       |
-| `mockpit wait`    | `wait_for_feedback`  | `GET /api/comments?session=…&author=user&wait=N` |
-| `mockpit comment` | `reply_to_user`      | `POST /api/comments`                             |
-| `mockpit status`  | `list_mocks`         | `GET /api/mocks`                                 |
-| `mockpit show`    | `get_mock`           | `GET /api/mocks/:id`                             |
-| `mockpit export`  | `export_mock`        | `GET /api/mocks/:id/export`                      |
-| `mockpit upload`  | `upload_asset`       | `POST /api/assets`                               |
-| `mockpit run`     | `run` (`?mode=code`) | `POST /api/run`                                  |
+| CLI                   | MCP                  | HTTP                                   |
+| --------------------- | -------------------- | -------------------------------------- |
+| `mockpit publish`     | `publish`            | `POST /api/mocks`                      |
+| `mockpit ask`         | `ask`                | `POST /api/mocks/:id/asks`             |
+| `mockpit read [slug]` | `read`               | `GET /api/mocks`, `GET /api/mocks/:id` |
+| `mockpit feedback`    | `feedback`           | `GET /api/feedback?session=…`          |
+| `mockpit say`         | `say`                | `POST /api/mocks/:id/say`              |
+| `mockpit export`      | `export`             | `GET /api/mocks/:id/export`            |
+| `mockpit upload`      | `upload`             | `POST /api/assets`                     |
+| `mockpit guide`       | `guide`              | `GET /agent-howto`                     |
+| `mockpit run`         | `run` (`?mode=code`) | `POST /api/run`                        |
+
+The CLI adds `mockpit init` (detect the repo's design system, once per repo)
+and `mockpit watch` (one line per Send, for a background monitor).
+
+- **`publish` is the one write.** It creates the mock, state or variant, or the
+  next version of an existing one. Send `html`, the full ordered `surfaces`
+  list (an entry that is only `{id}` keeps that surface), or `parts` to replace
+  just the marked elements.
+- **`feedback` returns at once** with what the user sent since the agent last
+  heard, plus `pending`: whether the viewer is open and how far the user's
+  draft has got (`2 of 3 answered`). Every write returns `feedback` too, and
+  each Send is delivered exactly once across all of them.
+- **Asks are nudged.** A publish that leaves several variants with no ask
+  binding them returns a nudge and a ready `suggestedAsk`.
+
+A typical turn:
+
+```sh
+mockpit publish --mock writer --state "Writing" --variant quiet --html quiet.html
+mockpit publish --mock writer --state "Writing" --variant dark  --html dark.html
+mockpit ask     --mock writer "Which look?" --option Quiet=quiet --option Dark=dark
+# the agent says where to look and ends its turn; once you've answered:
+mockpit feedback
+```
 
 The running server serves the brief at `/agent-howto`: one short, project-aware
 document an agent reads before its first publish. Reference topics (`knobs`,
 `asks`, `surfaces`, `html`, `reply`, `http`, `scripts`) are at
 `/agent-howto?topic=<id>`; `/guide` is the `html` topic. `run` executes one
-script against the same verbs on the server, so publish, ask and wait take one
-call; `/mcp?mode=code` serves it as the only tool, for connectors without a
-codemode of their own.
+script against the same verbs on the server, so publishing variants and asking
+take one call; `/mcp?mode=code` serves it as the only tool, for connectors
+without a codemode of their own.
 
 ## Run it anywhere
 
@@ -176,8 +203,8 @@ The server app is importable from `mockpit/server` (`createApp`, `SqlStore`,
   `~/.mockpit/mockpit.db`, as long as the database is still empty; then upgrade.
   The JSON file is left untouched either way.
 - **`--item` is now `--mock`** (`mockpit publish --mock <slug> --state <s>
---variant <v>`), and the MCP tools are `*_mock` (`publish_mock`,
-  `revise_mock`, `list_mocks`, `get_mock`, `export_mock`).
+--variant <v>`), and the MCP tools are named by verb (`publish`, `ask`,
+  `read`, `feedback`, `say`, `export`, `upload`, `guide`).
 - **Removed:** the item, post, snippet and session-page routes
   (`/api/projects/:name/items`, `/api/posts`, `/api/surfaces`, `/api/snippets`,
   `/session/:id`, `/p/:id`), `?part=`, the item/post MCP tools and their

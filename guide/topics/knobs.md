@@ -1,8 +1,8 @@
 # mockpit topic: knobs
 
 A knob is a value the user tunes live on one render. Use one when one render
-plus a control shows the choice. When two renders are needed, publish variants
-and ask instead (topic `asks`). A knob with three or fewer discrete options (a
+plus a control shows the choice. A choice is several variants plus one ask
+that binds them; for that, publish variants and ask instead (topic `asks`). A knob with three or fewer discrete options (a
 toggle, a short select) gets a nudge in the publish response; keep it only if
 one render plus that control really shows the choice.
 

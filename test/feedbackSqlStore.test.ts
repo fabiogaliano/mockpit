@@ -61,13 +61,13 @@ test("SqlStore: piggybacked feedback on a write advances the cursor; only author
 
   // the agent's write piggybacks the pending feedback...
   const updated = (await (
-    await app.request(`/api/mocks/${s.mock.id}/revise`, json({ html: "<p>v2</p>" }))
+    await app.request("/api/mocks", json({ mock: s.mock.id, html: "<p>v2</p>" }))
   ).json()) as any;
-  // `userFeedback` is the batch shape: one entry per mock, comments inside.
-  assert.equal(updated.userFeedback.length, 1);
-  assert.equal(updated.userFeedback[0].mockId, s.mock.id);
+  // `feedback` is the batch shape: one entry per mock, comments inside.
+  assert.equal(updated.feedback.length, 1);
+  assert.equal(updated.feedback[0].mockId, s.mock.id);
   assert.deepEqual(
-    updated.userFeedback[0].comments.map((c: any) => c.text),
+    updated.feedback[0].comments.map((c: any) => c.text),
     ["tweak it"],
   );
 

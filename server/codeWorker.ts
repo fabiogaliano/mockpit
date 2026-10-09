@@ -46,11 +46,8 @@ const PRELUDE = `(function (call, out) {
     });
   };
   globalThis.mockpit = Object.freeze({
-    guide: fn("guide"), list: fn("list"), get: fn("get"), publish: fn("publish"),
-    revise: fn("revise"), ask: fn("ask"), wait: fn("wait"), reply: fn("reply"),
-    export: fn("export"),
-    surfaces: Object.freeze({ add: fn("surfaces.add"), edit: fn("surfaces.edit"),
-      remove: fn("surfaces.remove"), reorder: fn("surfaces.reorder") }),
+    guide: fn("guide"), read: fn("read"), publish: fn("publish"), ask: fn("ask"),
+    feedback: fn("feedback"), say: fn("say"), export: fn("export"), upload: fn("upload"),
   });
   globalThis.print = print;
   globalThis.console = Object.freeze({ log: print, info: print, warn: print, error: print });

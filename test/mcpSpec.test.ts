@@ -29,33 +29,17 @@ import {
 // the third. It pins the HTTP JSON-Schema enum, the stdio zod enum and the
 // runtime validator to the one canonical list (SURFACE_KINDS).
 
-const EXPECTED_TOOLS = [
-  "publish_mock",
-  "revise_mock",
-  "list_mocks",
-  "get_mock",
-  "ask_user",
-  "wait_for_feedback",
-  "reply_to_user",
-  "export_mock",
-  "upload_asset",
-  "get_design_guide",
-  "add_surface",
-  "edit_surface",
-  "remove_surface",
-  "reorder_surfaces",
-];
+const EXPECTED_TOOLS = ["publish", "ask", "read", "feedback", "say", "export", "upload", "guide"];
 
-// What a model reads per catalog (name, description, inputSchema, _meta),
-// measured at 15.7 KB (HTTP) and 15.3 KB (stdio) once the surface schema became
-// one trimmed $defs entry per tool (from 18.1 / 19.7 KB inlined) and revise and
-// edit_surface gained their `parts` param and get_design_guide its topics. Output schemas
-// are budgeted apart: only typed/codemode harnesses read them (5.7 KB). Growth
-// past these is bloat, not scope.
-const BUDGET_HTTP = 16_000;
-const BUDGET_STDIO = 15_500;
+// What a model reads per catalog (name, description, inputSchema, _meta). The
+// eight-tool catalog measured 7.6 KB (HTTP) and 7.2 KB (stdio) with the surface
+// schema one $defs entry on publish (from 15.7 / 15.3 KB for fourteen tools).
+// Output schemas are budgeted apart: only typed/codemode harnesses read them.
+// Growth past these is bloat, not scope.
+const BUDGET_HTTP = 8_000;
+const BUDGET_STDIO = 7_500;
 const BUDGET_OUTPUT = 6_000;
-const ALWAYS_LOADED = ["publish_mock", "ask_user", "wait_for_feedback", "get_design_guide"];
+const ALWAYS_LOADED = ["publish", "ask", "feedback", "guide"];
 
 const modelBytes = (tools: object[]) =>
   Buffer.byteLength(JSON.stringify(tools.map(({ outputSchema: _, ...rest }: any) => rest)));
@@ -74,7 +58,7 @@ const stdioTool = (name: string) => {
 };
 
 // The surface JSON Schema a client receives for the publish tool.
-const httpSurfaceSchema = httpTool("publish_mock").inputSchema.$defs.Surface;
+const httpSurfaceSchema = httpTool("publish").inputSchema.$defs.Surface;
 const httpKindEnum = httpSurfaceSchema.properties.kind.enum as string[];
 
 // A representative valid example per kind, including optional fields, so a
@@ -125,34 +109,32 @@ test("HTTP and stdio params agree except the documented transport-specific ones"
   }
 });
 
-test("the mock is required on every mock-addressed tool; wait needs a session on HTTP", () => {
-  for (const name of [
-    "publish_mock",
-    "revise_mock",
-    "get_mock",
-    "ask_user",
-    "reply_to_user",
-    "export_mock",
-    "add_surface",
-    "edit_surface",
-    "remove_surface",
-    "reorder_surfaces",
-  ]) {
+test("the mock is required where a tool addresses one; feedback needs a session on HTTP", () => {
+  for (const name of ["publish", "ask", "say", "export"]) {
     assert.ok(httpTool(name).inputSchema.required?.includes("mock"), `${name} requires mock`);
   }
-  assert.deepEqual(httpTool("wait_for_feedback").inputSchema.required, ["session"]);
+  assert.equal(httpTool("read").inputSchema.required, undefined, "read lists without a mock");
+  assert.deepEqual(httpTool("feedback").inputSchema.required, ["session"]);
   // Over stdio the server owns the conversation's session.
-  assert.equal(stdioTool("wait_for_feedback").inputSchema.session, undefined);
-  assert.ok(z.object(stdioTool("wait_for_feedback").inputSchema).safeParse({}).success);
+  assert.equal(stdioTool("feedback").inputSchema.session, undefined);
+  assert.ok(z.object(stdioTool("feedback").inputSchema).safeParse({}).success);
 });
 
-test("ask_user advertises options bound to variants or knob values", () => {
-  const asks = httpTool("ask_user").inputSchema.properties.asks;
+test("nothing in the catalog waits", () => {
+  const catalog = JSON.stringify(HTTP_MCP_TOOLS) + MCP_INSTRUCTIONS;
+  assert.doesNotMatch(catalog, /timeoutSeconds|wait_for|\bwait\b|55 s|230/);
+  assert.ok(
+    MCP_INSTRUCTIONS.includes("A choice is several variants plus one ask that binds them."),
+  );
+});
+
+test("ask advertises options bound to variants or knob values", () => {
+  const asks = httpTool("ask").inputSchema.properties.asks;
   const option = asks.items.properties.options.items;
   assert.ok(option.properties.variant, "options bind to a variant");
   assert.ok(option.properties.set, "options bind to knob values");
   assert.deepEqual(asks.items.required, ["text", "options"]);
-  const schema = z.object(stdioTool("ask_user").inputSchema);
+  const schema = z.object(stdioTool("ask").inputSchema);
   assert.ok(
     schema.safeParse({
       mock: "writer",
@@ -162,12 +144,12 @@ test("ask_user advertises options bound to variants or knob values", () => {
   assert.equal(schema.safeParse({ mock: "writer", asks: [{ text: "no options" }] }).success, false);
 });
 
-test("HTTP publish_mock advertises exactly the canonical kind set", () => {
+test("HTTP publish advertises exactly the canonical kind set", () => {
   assert.deepEqual([...httpKindEnum].sort(), [...SURFACE_KINDS].sort());
   assert.ok(!httpKindEnum.includes("trace"));
 });
 
-test("HTTP publish_mock advertises every field used by canonical examples", () => {
+test("HTTP publish advertises every field used by canonical examples", () => {
   const assertFieldsAdvertised = (schema: any, value: object, path: string) => {
     assert.ok(schema?.properties, `${path} must advertise object properties`);
     for (const [key, nested] of Object.entries(value)) {
@@ -187,13 +169,14 @@ test("compact MCP schemas retain critical surface semantics", () => {
   assert.match(httpSurfaceSchema.properties.html.description, /body fragment/);
   assert.match(httpSurfaceSchema.properties.markdown.description, /raw HTML is escaped/);
   assert.match(httpSurfaceSchema.properties.mermaid.description, /do not set colors/);
-  assert.match(httpSurfaceSchema.properties.assetId.description, /upload_asset/);
+  assert.match(httpSurfaceSchema.properties.assetId.description, /upload/);
+  assert.match(httpSurfaceSchema.properties.id.description, /alone keeps it/);
   assert.match(httpSurfaceSchema.properties.lineStart.description, /1-based/);
-  assert.match(httpTool("publish_mock").inputSchema.properties.knobs.description, /tunekit/);
+  assert.match(httpTool("publish").inputSchema.properties.knobs.description, /tunekit/);
 });
 
 test("the stdio publish schema accepts every kind and rejects an unknown one", () => {
-  const publish = z.object(stdioTool("publish_mock").inputSchema);
+  const publish = z.object(stdioTool("publish").inputSchema);
   for (const kind of SURFACE_KINDS) {
     const result = publish.safeParse({ mock: "m", surfaces: [EXAMPLES[kind]] });
     assert.ok(
@@ -201,6 +184,7 @@ test("the stdio publish schema accepts every kind and rejects an unknown one", (
       `stdio schema rejected "${kind}": ${result.success ? "" : result.error}`,
     );
   }
+  assert.ok(publish.safeParse({ mock: "m", surfaces: [{ id: "s1" }, EXAMPLES.html] }).success);
   assert.equal(
     publish.safeParse({ mock: "m", surfaces: [{ kind: "bogus", html: "x" }] }).success,
     false,
@@ -256,24 +240,12 @@ test("MCP instructions and tool schemas stay within their context budgets", () =
   );
 });
 
-test("each tool carries the surface schema once, by reference", () => {
-  for (const [name, path] of [
-    ["publish_mock", ["surfaces", "items"]],
-    ["revise_mock", ["surfaces", "items"]],
-    ["add_surface", ["surface"]],
-    ["edit_surface", ["surface"]],
-  ] as const) {
-    const schema = httpTool(name).inputSchema;
-    let node = schema.properties;
-    for (const key of path) node = node[key];
-    assert.deepEqual(node, { $ref: "#/$defs/Surface" }, `${name} references Surface`);
-    assert.deepEqual(schema.$defs.Surface, httpSurfaceSchema, `${name} carries the same Surface`);
-    assert.equal(
-      JSON.stringify(schema).split('"lineStart"').length - 1,
-      1,
-      `${name} inlines no copy`,
-    );
-  }
+test("the surface schema is declared once, by reference", () => {
+  const schema = httpTool("publish").inputSchema;
+  assert.deepEqual(schema.properties.surfaces.items, { $ref: "#/$defs/Surface" });
+  assert.equal(JSON.stringify(schema).split('"lineStart"').length - 1, 1, "no inlined copy");
+  const others = HTTP_MCP_TOOLS.filter((t) => t.name !== "publish");
+  assert.ok(!JSON.stringify(others).includes('"lineStart"'), "only publish carries surfaces");
 });
 
 test("both catalogs mark the core loop alwaysLoad and compile under the SDK's validator", () => {

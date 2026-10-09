@@ -896,6 +896,37 @@ export const askAnswered = (a: Pick<Ask, "answer" | "other" | "note">): boolean 
 export const openAsks = (mock: Pick<Mock, "asks">): Ask[] =>
   mock.asks.filter((a) => !askAnswered(a));
 
+// The viewer's built-in "Which one?" for variants no agent ask binds: `variant`
+// mock-wide, `variant:<state>` per state. Never stored; synthesized from the
+// variants so a reply answering it validates, flips and reads like any ask. An
+// option's id is the variant name, so the viewer needs no id mapping.
+export const BUILTIN_ASK_ID = "variant";
+
+export function builtinAsk(
+  mock: Pick<Mock, "states">,
+  posts: Pick<Post, "state" | "variant">[],
+  id: string,
+): Ask | undefined {
+  let state: string | null = null;
+  if (id !== BUILTIN_ASK_ID) {
+    if (!id.startsWith(`${BUILTIN_ASK_ID}:`)) return undefined;
+    state = id.slice(BUILTIN_ASK_ID.length + 1);
+    if (!mock.states.includes(state)) return undefined;
+  }
+  const names = [
+    ...new Set(posts.filter((p) => state === null || p.state === state).map((p) => p.variant)),
+  ];
+  if (names.length === 0) return undefined;
+  return {
+    id,
+    text: "Which one?",
+    scope: state === null ? "mock" : "state",
+    ...(state === null ? {} : { state }),
+    options: names.map((v) => ({ id: v, label: v, variant: v })),
+    at: "",
+  };
+}
+
 // Per-project rollup for the projects list. Pure, so every store agrees on
 // what "open" and "lastActiveAt" mean.
 export function summarizeProjects(mocks: Mock[], sessions: Session[]): ProjectSummary[] {

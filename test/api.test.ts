@@ -323,7 +323,7 @@ test("omitting the state on a multi-state mock is a 400 that lists the states", 
 
 test("an ambiguous variant is a 400 that lists the choices", async () => {
   const app = makeApp();
-  const { mockId } = await writer(app);
+  await writer(app);
   const pub = await call(
     app,
     "/api/mocks",
@@ -331,24 +331,11 @@ test("an ambiguous variant is a 400 that lists the choices", async () => {
   );
   assert.equal(pub.status, 400);
   assert.deepEqual(pub.body.variants, ["Writing/quiet", "Writing/dark"]);
-  const rev = await call(
-    app,
-    `/api/mocks/${mockId}/revise`,
-    agent({ state: "Writing", html: "<p/>" }),
-  );
-  assert.equal(rev.status, 400);
-  assert.deepEqual(rev.body.variants, ["Writing/quiet", "Writing/dark"]);
-  const unknown = await call(
-    app,
-    `/api/mocks/${mockId}/revise`,
-    agent({ state: "Nope", variant: "quiet", html: "<p/>" }),
-  );
-  assert.equal(unknown.status, 404);
 });
 
-// --- revise ------------------------------------------------------------------
+// --- versions ------------------------------------------------------------------
 
-test("revise flags parts that vanished or were renamed (matched by key)", async () => {
+test("a new version flags parts that vanished or were renamed (matched by key)", async () => {
   const app = makeApp();
   const out = await publish(app, {
     mock: "card",
@@ -356,8 +343,8 @@ test("revise flags parts that vanished or were renamed (matched by key)", async 
   });
   const rev = await call(
     app,
-    `/api/mocks/${out.mock.id}/revise`,
-    agent({ html: '<p data-part="copy" data-part-key="b">y</p>' }),
+    "/api/mocks",
+    agent({ mock: out.mock.id, html: '<p data-part="copy" data-part-key="b">y</p>' }),
   );
   assert.equal(rev.status, 200);
   assert.equal(rev.body.post.version, 2);
@@ -367,25 +354,41 @@ test("revise flags parts that vanished or were renamed (matched by key)", async 
   });
 });
 
-test("revise addresses a mock by slug and refuses to create one", async () => {
+test("publish versions a mock by id or slug; parts and kept ids need an existing variant", async () => {
   const app = makeApp();
-  await publish(app, { mock: "card", ...html("<p>1</p>") });
-  const rev = await call(
+  const out = await publish(app, { mock: "card", ...html("<p>1</p>") });
+  const bySlug = await call(
     app,
-    "/api/mocks/card/revise",
-    agent({ project: "demo", html: "<p>2</p>" }),
+    "/api/mocks",
+    agent({ project: "demo", mock: "card", html: "<p>2</p>" }),
   );
-  assert.equal(rev.status, 200);
-  assert.equal(rev.body.post.version, 2);
-  const missing = await call(
+  assert.equal(bySlug.status, 200);
+  assert.equal(bySlug.body.post.version, 2);
+  const byId = await call(app, "/api/mocks", agent({ mock: out.mock.id, html: "<p>3</p>" }));
+  assert.equal(byId.body.post.version, 3);
+  const parts = await call(
     app,
-    "/api/mocks/nope/revise",
-    agent({ project: "demo", html: "<p/>" }),
+    "/api/mocks",
+    agent({ project: "demo", mock: "nope", parts: { a: "<p/>" } }),
   );
-  assert.equal(missing.status, 404);
+  assert.equal(parts.status, 404);
+  const kept = await call(
+    app,
+    "/api/mocks",
+    agent({ project: "demo", mock: "card", variant: "other", surfaces: [{ id: "x" }] }),
+  );
+  assert.equal(kept.status, 404);
+  assert.equal((await call(app, "/api/mocks")).body.mocks.length, 1);
+  const two = await call(
+    app,
+    "/api/mocks",
+    agent({ project: "demo", mock: "card", html: "<p/>", parts: { a: "<p/>" } }),
+  );
+  assert.equal(two.status, 400);
+  assert.match(two.body.error, /one of "html", "surfaces" or "parts"/);
 });
 
-// --- part-scoped revise ------------------------------------------------------
+// --- parts -------------------------------------------------------------------
 
 const CARD =
   '<main><h1 data-part="title">T</h1><ul><li data-part="row" data-part-key="a">A</li>' +
@@ -394,13 +397,14 @@ const CARD =
 const currentHtml = async (app: App, mockId: string) =>
   (await call(app, `/api/mocks/${mockId}?body=1`)).body.variants[0].surfaces[0].html as string;
 
-test("revise with parts splices into the current html and diffs against it", async () => {
+test("publish with parts splices into the current html and diffs against it", async () => {
   const app = makeApp();
   const out = await publish(app, { mock: "card", ...html(CARD), kits: ["builtin"] });
   const rev = await call(
     app,
-    `/api/mocks/${out.mock.id}/revise`,
+    "/api/mocks",
     agent({
+      mock: out.mock.id,
       parts: {
         body: '<section data-part="copy">new</section>',
         "row#b": '<li data-part="row" data-part-key="b">B2</li>',
@@ -423,48 +427,48 @@ test("revise with parts splices into the current html and diffs against it", asy
   );
   assert.deepEqual(full.surfaces[0].kits, ["builtin"]);
 
-  // A plain revise answers without `applied`.
-  const plain = await call(app, `/api/mocks/${out.mock.id}/revise`, agent({ html: CARD }));
+  // A plain version answers without `applied`.
+  const plain = await call(app, "/api/mocks", agent({ mock: out.mock.id, html: CARD }));
   assert.equal(plain.body.applied, undefined);
 });
 
-test("revise with parts reports what is wrong and writes nothing", async () => {
+test("publish with parts reports what is wrong and writes nothing", async () => {
   const app = makeApp();
   const out = await publish(app, { mock: "card", ...html(CARD) });
-  const revise = (body: unknown) => call(app, `/api/mocks/${out.mock.id}/revise`, agent(body));
-  const cases: [unknown, RegExp][] = [
+  const version = (body: object) => call(app, "/api/mocks", agent({ mock: out.mock.id, ...body }));
+  const cases: [object, RegExp][] = [
     [{ parts: { nav: "<nav/>" } }, /no part "nav"; parts present: title, row, body/],
     [{ parts: { row: "<li/>" } }, /2 instances; target one: row#a, row#b/],
     [{ parts: { "row#z": "<li/>" } }, /no key "z"; instances: row#a, row#b/],
-    [{ parts: { body: "<p/>" }, html: "<p/>" }, /"parts" or "html"\/"surfaces", not both/],
+    [{ parts: { body: "<p/>" }, html: "<p/>" }, /one of "html", "surfaces" or "parts"/],
     [{ parts: {} }, /"parts" is empty/],
     [{ parts: ["<p/>"] }, /"parts" must be an object/],
     [{ parts: { body: 3 } }, /must be the html string/],
   ];
   for (const [body, error] of cases) {
-    const res = await revise(body);
+    const res = await version(body);
     assert.equal(res.status, 400, JSON.stringify(body));
     assert.match(res.body.error, error);
   }
   assert.equal(await currentHtml(app, out.mock.id), CARD);
 });
 
-test("revise with parts and from splices into that earlier version", async () => {
+test("publish with parts and from splices into that earlier version", async () => {
   const app = makeApp();
   const out = await publish(app, { mock: "card", ...html(CARD) });
-  await call(app, `/api/mocks/${out.mock.id}/revise`, agent({ html: "<p>v2</p>" }));
+  await call(app, "/api/mocks", agent({ mock: out.mock.id, html: "<p>v2</p>" }));
   const rev = await call(
     app,
-    `/api/mocks/${out.mock.id}/revise`,
-    agent({ from: 1, parts: { title: '<h1 data-part="title">T3</h1>' } }),
+    "/api/mocks",
+    agent({ mock: out.mock.id, from: 1, parts: { title: '<h1 data-part="title">T3</h1>' } }),
   );
   assert.equal(rev.status, 200, JSON.stringify(rev.body));
   assert.equal(rev.body.post.version, 3);
   assert.equal(await currentHtml(app, out.mock.id), CARD.replace(">T<", ">T3<"));
   const missing = await call(
     app,
-    `/api/mocks/${out.mock.id}/revise`,
-    agent({ from: 9, parts: { title: "<h1/>" } }),
+    "/api/mocks",
+    agent({ mock: out.mock.id, from: 9, parts: { title: "<h1/>" } }),
   );
   assert.equal(missing.status, 404);
 });
@@ -481,19 +485,19 @@ test("parts across several html surfaces: unique names splice, shared names are 
   });
   const ok = await call(
     app,
-    `/api/mocks/${out.mock.id}/revise`,
-    agent({ parts: { foot: '<p data-part="foot">F2</p>' } }),
+    "/api/mocks",
+    agent({ mock: out.mock.id, parts: { foot: '<p data-part="foot">F2</p>' } }),
   );
   assert.equal(ok.status, 200, JSON.stringify(ok.body));
   const surfaces = (await call(app, `/api/mocks/${out.mock.id}?body=1`)).body.variants[0].surfaces;
   assert.equal(surfaces[2].html, '<p data-part="foot">F2</p><i data-part="dup">2</i>');
   assert.equal(surfaces[1].markdown, "# notes");
-  const dup = await call(app, `/api/mocks/${out.mock.id}/revise`, agent({ parts: { dup: "" } }));
+  const dup = await call(app, "/api/mocks", agent({ mock: out.mock.id, parts: { dup: "" } }));
   assert.equal(dup.status, 400);
   assert.match(dup.body.error, /part "dup" is in several html surfaces \(0, 2\)/);
 });
 
-test("edit_surface and revise_mock take parts over MCP HTTP", async () => {
+test("publish takes parts over MCP HTTP", async () => {
   const app = makeApp();
   const out = await publish(app, {
     mock: "card",
@@ -502,51 +506,23 @@ test("edit_surface and revise_mock take parts over MCP HTTP", async () => {
       { kind: "markdown", markdown: "# notes" },
     ],
   });
-  const rev = await tool(app, "revise_mock", {
+  const rev = await tool(app, "publish", {
     project: "demo",
     mock: "card",
     parts: { title: '<h2 data-part="title">MCP</h2>' },
   });
   assert.equal(rev.post.version, 2);
   assert.deepEqual(rev.applied, ["title"]);
-  const edit = await tool(app, "edit_surface", {
-    project: "demo",
-    mock: "card",
-    target: "0",
-    parts: { "row#a": '<li data-part="item" data-part-key="a">A2</li>' },
-  });
-  assert.equal(edit.post.version, 3);
-  assert.deepEqual(edit.applied, ["row#a"]);
-  // "row" still has instance b, so nothing vanished.
-  assert.equal(edit.partChanges, undefined);
   assert.equal(
     await currentHtml(app, out.mock.id),
-    CARD.replace('<h1 data-part="title">T</h1>', '<h2 data-part="title">MCP</h2>').replace(
-      '<li data-part="row" data-part-key="a">A</li>',
-      '<li data-part="item" data-part-key="a">A2</li>',
-    ),
+    CARD.replace('<h1 data-part="title">T</h1>', '<h2 data-part="title">MCP</h2>'),
   );
-  const notHtml = await tool(app, "edit_surface", {
-    project: "demo",
-    mock: "card",
-    target: "1",
-    parts: { title: "<h1/>" },
-  });
-  assert.match(notHtml.error, /parts works on html surfaces; surface 1 is markdown/);
-  const both = await tool(app, "edit_surface", {
-    project: "demo",
-    mock: "card",
-    target: "0",
-    content: "<p/>",
-    parts: { title: "<h1/>" },
-  });
-  assert.match(both.error, /"parts" or "surface"\/"content", not both/);
-  const missing = await tool(app, "revise_mock", {
+  const missing = await tool(app, "publish", {
     project: "demo",
     mock: "card",
     parts: { nope: "<p/>" },
   });
-  assert.match(missing.error, /no part "nope"; parts present: title, item, row, body/);
+  assert.match(missing.error, /no part "nope"; parts present: title, row, body/);
 });
 
 // --- knobs -------------------------------------------------------------------
@@ -669,7 +645,7 @@ test("sessions: create resolves a project, rename, delete cascades", async () =>
   );
 
   const out = await publish(app, { mock: "card", ...html("<p/>") });
-  await call(app, "/api/comments", agent({ mock: out.mock.id, text: "hi" }));
+  await call(app, `/api/mocks/${out.mock.id}/say`, agent({ message: "hi" }));
   assert.equal(
     (await call(app, `/api/sessions/${out.sessionId}`, { method: "DELETE" })).status,
     200,
@@ -842,7 +818,7 @@ test("reply sends the draft as one reply comment, clears it, and flips statuses"
   assert.equal(reply.kind, "reply");
   assert.equal(reply.author, "user");
   assert.equal(reply.sessionId, session);
-  assert.equal(reply.seen, false);
+  assert.equal(reply.delivered, false);
   assert.deepEqual(reply.payload.answers, { look: "dark" });
   assert.deepEqual(reply.payload.tuned, { "body.size": 19 });
   assert.equal(reply.payload.text, "go dark");
@@ -921,8 +897,8 @@ test("restore as vN writes an older version back as a new user-authored version"
   const postId: string = first.post.id;
   await call(
     app,
-    `/api/mocks/${mockId}/revise`,
-    agent({ title: "Two", prompt: "tighter", ...html("<p>two</p>") }),
+    "/api/mocks",
+    agent({ mock: mockId, title: "Two", prompt: "tighter", ...html("<p>two</p>") }),
   );
   const path = `/api/mocks/${mockId}/variants/${postId}/restore`;
   assert.equal((await call(app, path, agent({ version: 1 }))).status, 403);
@@ -973,8 +949,8 @@ test("a reply drafted on an older version is accepted and keeps that version", a
   );
   await call(
     app,
-    `/api/mocks/${mockId}/revise`,
-    agent({ state: "Writing", variant: "dark", ...html("<p>Writing dark v2</p>") }),
+    "/api/mocks",
+    agent({ mock: mockId, state: "Writing", variant: "dark", ...html("<p>Writing dark v2</p>") }),
   );
   const sent = await call(app, `/api/mocks/${mockId}/reply`, viewer({}));
   assert.equal(sent.status, 201);
@@ -1018,7 +994,7 @@ test("a reply reaches the agent exactly once, with the asks resolved", async () 
   assert.equal(again.lastSeq, read.lastSeq);
   // The viewer's unfiltered read never touches the cursor and reports delivery.
   const thread = (await call(app, `/api/comments?mock=${mockId}`)).body.comments;
-  assert.equal(thread.find((c: any) => c.kind === "reply").seen, true);
+  assert.equal(thread.find((c: any) => c.kind === "reply").delivered, true);
 });
 
 test("notes and write-ins draft, validate, reach the agent in one reply, and clear", async () => {
@@ -1111,17 +1087,17 @@ test("the option id `other` is reserved for the viewer's write-in", async () => 
 test("user feedback piggybacks on the agent's next write, once", async () => {
   const app = makeApp();
   const out = await publish(app, { mock: "card", ...html("<p>1</p>") });
-  assert.equal(out.userFeedback, undefined);
+  assert.deepEqual(out.feedback, []);
   await call(app, "/api/comments", viewer({ mock: out.mock.id, text: "wider", author: "user" }));
   const next = await publish(app, { mock: "card", session: out.sessionId, ...html("<p>2</p>") });
   assert.deepEqual(
-    next.userFeedback.flatMap((b: any) => b.comments.map((c: any) => c.text)),
+    next.feedback.flatMap((b: any) => b.comments.map((c: any) => c.text)),
     ["wider"],
   );
   const third = await publish(app, { mock: "card", session: out.sessionId, ...html("<p>3</p>") });
-  assert.equal(third.userFeedback, undefined);
-  const wait = (await call(app, `/api/comments?session=${out.sessionId}&author=user`)).body;
-  assert.deepEqual(wait.feedback, []);
+  assert.deepEqual(third.feedback, []);
+  const read = (await call(app, `/api/feedback?session=${out.sessionId}`)).body;
+  assert.deepEqual(read.feedback, []);
 });
 
 test("long-poll resolves when a comment arrives", async () => {
@@ -1141,9 +1117,200 @@ test("long-poll resolves when a comment arrives", async () => {
   assert.ok(Date.now() - start < 4000);
 });
 
+test("GET /api/feedback never blocks, needs a session, and reads share its cursor", async () => {
+  const app = makeApp();
+  const { mockId, session } = await writer(app);
+  assert.equal((await call(app, "/api/feedback")).status, 400);
+  assert.equal((await call(app, "/api/feedback?session=nope")).status, 404);
+  await call(app, "/api/comments", viewer({ mock: mockId, text: "hi", author: "user" }));
+  // Reads report pending and never take feedback.
+  await call(app, "/api/mocks?project=demo");
+  await call(app, `/api/mocks/${mockId}`);
+  const started = Date.now();
+  const read = (await call(app, `/api/feedback?session=${session}`)).body;
+  assert.ok(Date.now() - started < 1000);
+  assert.deepEqual(Object.keys(read).sort(), ["feedback", "pending"]);
+  assert.deepEqual(
+    read.feedback.flatMap((b: any) => b.comments.map((c: any) => c.text)),
+    ["hi"],
+  );
+  assert.deepEqual((await call(app, `/api/feedback?session=${session}`)).body.feedback, []);
+});
+
+test("pending reports draft progress and whether a viewer is attached", async () => {
+  const app = makeApp();
+  const { mockId, session } = await writer(app);
+  await lookAsk(app, mockId);
+  await call(
+    app,
+    `/api/mocks/${mockId}/asks`,
+    agent({ asks: [{ id: "size", text: "Size?", options: ["S", "L"] }] }),
+  );
+  const pending = async () => (await call(app, `/api/feedback?session=${session}`)).body.pending;
+  assert.deepEqual(await pending(), [{ mock: "writer", viewerOpen: false, draft: null }]);
+
+  await call(
+    app,
+    `/api/mocks/${mockId}/draft`,
+    viewer(
+      { answers: { look: "dark" }, comments: [{ part: "title", state: "Writing", text: "x" }] },
+      "PUT",
+    ),
+  );
+  const ac = new AbortController();
+  const sse = await app.request("/api/events", { signal: ac.signal });
+  const [entry] = await pending();
+  assert.equal(entry.viewerOpen, true);
+  assert.deepEqual(
+    { ...entry.draft, touchedAt: typeof entry.draft.touchedAt },
+    { answered: 1, of: 2, comments: 1, touchedAt: "string" },
+  );
+  const list = (await call(app, "/api/mocks?project=demo")).body;
+  assert.equal(list.pending[0].draft.answered, 1);
+  const detail = (await call(app, `/api/mocks/${mockId}`)).body;
+  assert.equal(detail.pending.mock, "writer");
+  assert.equal(detail.pending.draft.of, 2);
+
+  ac.abort();
+  await sse.body!.cancel().catch(() => undefined);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal((await pending())[0].viewerOpen, false);
+  await call(app, `/api/mocks/${mockId}/reply`, viewer({}));
+  assert.equal((await pending())[0].draft, null, "Send clears the draft");
+});
+
+test("two variants no ask binds earn a nudge and a ready ask; a binding ask silences it", async () => {
+  const app = makeApp();
+  const one = await publish(app, { mock: "card", variant: "calm", ...html("<p/>") });
+  assert.equal(one.nudges, undefined);
+  assert.equal(one.suggestedAsk, undefined);
+  const two = await publish(app, {
+    mock: "card",
+    variant: "bold",
+    session: one.sessionId,
+    ...html("<p/>"),
+  });
+  assert.match(two.nudges[0], /2 variants and no ask binds them: call ask with suggestedAsk/);
+  assert.deepEqual(two.suggestedAsk, {
+    id: "variant",
+    text: "Which one?",
+    scope: "mock",
+    options: [
+      { label: "calm", variant: "calm" },
+      { label: "bold", variant: "bold" },
+    ],
+  });
+  // The suggestion is ready to send as is.
+  const asked = await call(
+    app,
+    `/api/mocks/${one.mock.id}/asks`,
+    agent({ asks: [two.suggestedAsk] }),
+  );
+  assert.equal(asked.status, 200);
+  const again = await publish(app, { mock: "card", variant: "bold", ...html("<p>2</p>") });
+  assert.equal(again.nudges, undefined);
+  assert.equal(again.suggestedAsk, undefined);
+  // A third variant the ask does not bind brings it back.
+  const third = await publish(app, { mock: "card", variant: "loud", ...html("<p/>") });
+  assert.equal(third.suggestedAsk.options.length, 3);
+});
+
+test("the suggested ask is mock-wide when variants line up across states, else per state", async () => {
+  const app = makeApp();
+  const { mockId, session } = await writer(app);
+  const wide = await publish(app, {
+    mock: mockId,
+    state: "Lab open",
+    variant: "dark",
+    ...html("<p>2</p>"),
+  });
+  assert.equal(wide.suggestedAsk.scope, "mock");
+  await publish(app, {
+    mock: mockId,
+    state: "Lab open",
+    variant: "loud",
+    session,
+    ...html("<p/>"),
+  });
+  const narrow = await publish(app, {
+    mock: mockId,
+    state: "Lab open",
+    variant: "dark",
+    ...html("<p>3</p>"),
+  });
+  assert.equal(narrow.suggestedAsk.scope, "state");
+  assert.equal(narrow.suggestedAsk.state, "Lab open");
+  assert.equal(narrow.suggestedAsk.id, "variant-lab-open");
+  assert.deepEqual(
+    narrow.suggestedAsk.options.map((o: any) => o.variant),
+    ["quiet", "dark", "loud"],
+  );
+  assert.match(narrow.nudges[0], /writer state "Lab open" has 3 variants/);
+  const sent = await call(app, `/api/mocks/${mockId}/asks`, agent({ asks: [narrow.suggestedAsk] }));
+  assert.equal(sent.status, 200);
+  const quiet = await publish(app, {
+    mock: mockId,
+    state: "Lab open",
+    variant: "dark",
+    ...html("<p>4</p>"),
+  });
+  assert.equal(quiet.suggestedAsk, undefined, "a state ask binds its own state");
+});
+
+test("a reply to the built-in variant ask flips per state and reads like any ask", async () => {
+  const app = makeApp();
+  const { mockId, session } = await writer(app);
+  await call(app, `/api/mocks/${mockId}/draft`, viewer({ answers: { variant: "dark" } }, "PUT"));
+  const sent = await call(app, `/api/mocks/${mockId}/reply`, viewer({}));
+  assert.equal(sent.status, 201, JSON.stringify(sent.body));
+  assert.deepEqual(await variants(app, mockId), {
+    "Writing/quiet": "archived",
+    "Writing/dark": "accepted",
+    "Lab open/quiet": "archived",
+    "Lab open/dark": "accepted",
+  });
+  const read = (await call(app, `/api/feedback?session=${session}`)).body;
+  assert.deepEqual(read.feedback[0].reply.asks, [
+    {
+      ask: "variant",
+      text: "Which one?",
+      chosen: [{ id: "dark", label: "dark", variant: "dark" }],
+    },
+  ]);
+  // Nothing is stored as an ask.
+  assert.deepEqual((await call(app, `/api/mocks/${mockId}`)).body.asks, []);
+
+  const other = makeApp();
+  const w = await writer(other);
+  const perState = await call(
+    other,
+    `/api/mocks/${w.mockId}/reply`,
+    viewer({ answers: { "variant:Lab open": "quiet" }, notes: { "variant:Lab open": "calmer" } }),
+  );
+  assert.equal(perState.status, 201, JSON.stringify(perState.body));
+  assert.deepEqual(await variants(other, w.mockId), {
+    "Writing/quiet": "open",
+    "Writing/dark": "open",
+    "Lab open/quiet": "accepted",
+    "Lab open/dark": "archived",
+  });
+  const fb = (await call(other, `/api/feedback?session=${w.session}`)).body.feedback[0];
+  assert.equal(fb.reply.asks[0].ask, "variant:Lab open");
+  assert.equal(fb.reply.asks[0].chosen[0].label, "quiet");
+  assert.equal(fb.reply.asks[0].note, "calmer");
+  for (const answers of [
+    { variant: "nope" },
+    { "variant:Nope": "dark" },
+    { variant: ["dark", "quiet"] },
+  ]) {
+    const bad = await call(other, `/api/mocks/${w.mockId}/reply`, viewer({ answers }));
+    assert.equal(bad.status, 400, JSON.stringify(answers));
+  }
+});
+
 // --- comments ------------------------------------------------------------------------
 
-test("programmatic comments are authored by the session's agent, never the user", async () => {
+test("POST /api/comments is the viewer's; an agent writes with say, as its own agent", async () => {
   const app = makeApp();
   const out = await publish(app, { mock: "card", agent: "pi", ...html("<p/>") });
   const forged = await call(
@@ -1151,22 +1318,62 @@ test("programmatic comments are authored by the session's agent, never the user"
     "/api/comments",
     agent({ mock: out.mock.id, text: "x", author: "user" }),
   );
-  assert.equal(forged.status, 201);
-  assert.notEqual(forged.body.author, "user");
+  assert.equal(forged.status, 403);
+  assert.match(forged.body.error, /say/);
+  const said = await call(app, `/api/mocks/card/say`, agent({ project: "demo", message: "done" }));
+  assert.equal(said.status, 201);
+  assert.deepEqual(said.body, { feedback: [] });
+  assert.equal(
+    (await call(app, `/api/mocks/card/say`, agent({ project: "demo", message: { html: "<b>" } })))
+      .status,
+    400,
+  );
   const user = await call(
     app,
     "/api/comments",
     viewer({ mock: out.mock.id, text: "x", author: "user" }),
   );
   assert.equal(user.body.author, "user");
+  assert.equal(user.body.delivered, false);
+  const thread = (await call(app, `/api/comments?mock=${out.mock.id}`)).body.comments;
+  assert.deepEqual(
+    thread.map((c: any) => [c.author, c.text, typeof c.delivered]),
+    [
+      ["pi", "done", "boolean"],
+      ["user", "x", "boolean"],
+    ],
+  );
+});
+
+test("say piggybacks the user's feedback and can address a variant", async () => {
+  const app = makeApp();
+  const { mockId, session } = await writer(app);
+  await call(app, "/api/comments", viewer({ mock: mockId, text: "hello", author: "user" }));
+  const said = await call(
+    app,
+    `/api/mocks/${mockId}/say`,
+    agent({ session, state: "Writing", variant: "dark", message: "on it" }),
+  );
+  assert.equal(said.status, 201);
+  assert.deepEqual(
+    said.body.feedback.flatMap((b: any) => b.comments.map((c: any) => c.text)),
+    ["hello"],
+  );
+  const thread = (await call(app, `/api/comments?mock=${mockId}`)).body.comments;
+  const mine = thread.find((c: any) => c.text === "on it");
+  assert.ok(mine.postId);
+  assert.equal(
+    (await call(app, `/api/mocks/${mockId}/say`, agent({ state: "Writing", message: "x" }))).status,
+    400,
+  );
 });
 
 test("comments target a mock, a state/variant, or a post, and carry sanitized anchors", async () => {
   const app = makeApp();
   const { mockId } = await writer(app);
-  assert.equal((await call(app, "/api/comments", agent({ text: "x" }))).status, 400);
-  assert.equal((await call(app, "/api/comments", agent({ mock: mockId }))).status, 400);
-  assert.equal((await call(app, "/api/comments", agent({ post: "nope", text: "x" }))).status, 404);
+  assert.equal((await call(app, "/api/comments", viewer({ text: "x" }))).status, 400);
+  assert.equal((await call(app, "/api/comments", viewer({ mock: mockId }))).status, 400);
+  assert.equal((await call(app, "/api/comments", viewer({ post: "nope", text: "x" }))).status, 404);
 
   const onPart = await call(
     app,
@@ -1226,66 +1433,83 @@ test("comments target a mock, a state/variant, or a post, and carry sanitized an
   );
 });
 
-// --- surface edits ---------------------------------------------------------------------
+// --- the full surface list --------------------------------------------------------------
 
-test("surface ops append, replace, remove and reorder one variant's surfaces", async () => {
+test("publish with the full surface list adds, edits, removes and reorders by id", async () => {
   const app = makeApp();
   const out = await publish(app, { mock: "card", ...html("<p>a</p>") });
-  const base = `/api/mocks/${out.mock.id}/surfaces`;
+  const [htmlId] = out.post.surfaces.map((s: any) => s.id);
+  const version = (surfaces: unknown[]) =>
+    call(app, "/api/mocks", agent({ mock: out.mock.id, surfaces }));
 
-  const added = await call(app, base, agent({ surface: { kind: "markdown", markdown: "# hi" } }));
-  assert.equal(added.status, 200);
+  const added = await version([{ id: htmlId }, { kind: "markdown", markdown: "# hi" }]);
+  assert.equal(added.status, 200, JSON.stringify(added.body));
   assert.equal(added.body.post.version, 2);
   assert.deepEqual(
-    added.body.post.surfaces.map((s: any) => s.kind),
-    ["html", "markdown"],
+    added.body.post.surfaces.map((s: any) => [s.kind, s.id === htmlId]),
+    [
+      ["html", true],
+      ["markdown", false],
+    ],
   );
-  const before = await call(
-    app,
-    base,
-    agent({ surface: { kind: "code", code: "x", language: "ts" }, before: "0" }),
-  );
+  const mdId = added.body.post.surfaces[1].id;
+  const before = await version([
+    { kind: "code", code: "x", language: "ts" },
+    { id: htmlId },
+    { id: mdId },
+  ]);
   assert.deepEqual(
     before.body.post.surfaces.map((s: any) => s.kind),
     ["code", "html", "markdown"],
   );
+  const codeId = before.body.post.surfaces[0].id;
 
-  const edited = await call(app, `${base}/2`, agent({ content: "# changed" }, "PATCH"));
+  const edited = await version([
+    { id: codeId },
+    { id: htmlId },
+    { id: mdId, kind: "markdown", markdown: "# changed" },
+  ]);
   assert.equal(edited.status, 200);
-  const md = (await call(app, `/api/mocks/${out.mock.id}?body=1`)).body.variants[0].surfaces[2];
-  assert.equal(md.markdown, "# changed");
-  assert.equal(md.id, added.body.post.surfaces[1].id);
+  const body = (await call(app, `/api/mocks/${out.mock.id}?body=1`)).body.variants[0].surfaces;
+  assert.equal(body[2].markdown, "# changed");
+  assert.equal(body[2].id, mdId, "an edited surface keeps its id");
+  assert.equal(body[1].html, "<p>a</p>", "a kept surface keeps its content");
 
-  const ids = before.body.post.surfaces.map((s: any) => s.id);
-  const reordered = await call(app, base, agent({ order: [ids[2], ids[1], ids[0]] }, "PATCH"));
+  const reordered = await version([{ id: mdId }, { id: htmlId }, { id: codeId }]);
   assert.deepEqual(
     reordered.body.post.surfaces.map((s: any) => s.kind),
     ["markdown", "html", "code"],
   );
-  assert.equal((await call(app, base, agent({ order: [0] }, "PATCH"))).status, 400);
-
-  const removed = await call(app, `${base}/0`, { method: "DELETE" });
+  const removed = await version([{ id: htmlId }, { id: codeId }]);
   assert.deepEqual(
     removed.body.post.surfaces.map((s: any) => s.kind),
     ["html", "code"],
   );
-  await call(app, `${base}/0`, { method: "DELETE" });
-  const last = await call(app, `${base}/0`, { method: "DELETE" });
-  assert.equal(last.status, 400);
-  assert.equal((await call(app, `${base}/9`, agent({ content: "x" }, "PATCH"))).status, 404);
+
+  assert.equal((await version([])).status, 400);
+  assert.equal((await version([{ id: "nope" }])).status, 404);
+  assert.equal((await version([{ id: htmlId }, { id: htmlId }])).status, 400);
+  const invalid = await version([{ id: htmlId }, { kind: "markdown" }]);
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.body.issues[0].requestPath, "surfaces[1].markdown");
 });
 
-test("surface ops on a multi-variant mock need state and variant", async () => {
+test("the full surface list on a multi-variant mock needs state and variant", async () => {
   const app = makeApp();
   const { mockId } = await writer(app);
-  const base = `/api/mocks/${mockId}/surfaces`;
-  const surface = { kind: "markdown", markdown: "x" };
-  assert.equal((await call(app, base, agent({ surface }))).status, 400);
-  const ok = await call(app, base, agent({ surface, state: "Lab open", variant: "dark" }));
+  const surfaces = [{ kind: "markdown", markdown: "x" }];
+  assert.equal(
+    (await call(app, "/api/mocks", agent({ mock: mockId, state: "Lab open", surfaces }))).status,
+    400,
+  );
+  const ok = await call(
+    app,
+    "/api/mocks",
+    agent({ mock: mockId, state: "Lab open", variant: "dark", surfaces }),
+  );
   assert.equal(ok.status, 200);
   assert.equal(ok.body.post.state, "Lab open");
-  const del = await call(app, `${base}/1?state=Lab%20open&variant=dark`, { method: "DELETE" });
-  assert.equal(del.status, 200);
+  assert.equal(ok.body.post.version, 2);
 });
 
 // --- export and delete -----------------------------------------------------------------
@@ -1339,6 +1563,11 @@ test("deleted routes are gone", async () => {
     ["POST", "/api/surfaces"],
     ["POST", "/api/snippets"],
     ["POST", "/api/test-post"],
+    ["POST", `/api/mocks/${out.mock.id}/revise`],
+    ["POST", `/api/mocks/${out.mock.id}/surfaces`],
+    ["PATCH", `/api/mocks/${out.mock.id}/surfaces`],
+    ["PATCH", `/api/mocks/${out.mock.id}/surfaces/0`],
+    ["DELETE", `/api/mocks/${out.mock.id}/surfaces/0`],
     ["GET", "/api/posts/recent"],
     ["GET", `/api/posts/${out.post.id}`],
     ["GET", `/p/${out.post.id}`],
@@ -1348,7 +1577,7 @@ test("deleted routes are gone", async () => {
     ["GET", "/api/projects/demo/items"],
     ["POST", "/api/demo/reshape"],
   ]) {
-    const res = await app.request(path, method === "POST" ? agent({}) : undefined);
+    const res = await app.request(path, method === "GET" ? undefined : agent({}, method));
     assert.equal(res.status, 404, `${method} ${path}`);
   }
 });
@@ -1429,7 +1658,7 @@ test("long-poll waits share the hold cap with SSE; instant reads do not count", 
   assert.equal((await app.request("/api/events")).status, 503);
   assert.equal((await app.request(wait)).status, 503);
   assert.equal((await app.request(`/api/comments?session=${out.sessionId}`)).status, 200);
-  await app.request("/api/comments", agent({ mock: out.mock.id, text: "release" }));
+  await app.request(`/api/mocks/${out.mock.id}/say`, agent({ message: "release" }));
   assert.equal((await poll).status, 200);
   const sseAgain = await app.request("/api/events", { signal: new AbortController().signal });
   assert.equal(sseAgain.status, 200);
@@ -1682,7 +1911,7 @@ test("public read session mode only exposes reads addressed by an unguessable id
   );
   const out = (await res.json()) as any;
   const id = out.mock.id;
-  await app.request("/api/comments", authed({ mock: id, text: "hi" }));
+  await app.request(`/api/mocks/${id}/say`, authed({ message: "hi" }));
 
   for (const path of [
     `/api/mocks/${id}`,
@@ -1704,6 +1933,7 @@ test("public read session mode only exposes reads addressed by an unguessable id
     "/api/projects",
     `/api/mocks/${id}?project=demo`,
     `/api/mocks/${id}/draft`,
+    `/api/feedback?session=${out.sessionId}`,
     "/api/comments",
   ]) {
     assert.equal((await app.request(path)).status, 401, path);
@@ -1980,32 +2210,18 @@ test("mcp: initialize and tools/list advertise exactly the mock tools", async ()
     await call(app, "/mcp", mcpCall(1, "initialize", { protocolVersion: "2025-03-26" }))
   ).body;
   assert.equal(init.result.serverInfo.name, "mockpit");
-  assert.match(init.result.instructions, /publish_mock/);
+  assert.match(init.result.instructions, /publish/);
+  assert.doesNotMatch(init.result.instructions, /\bwait\b|timeout/);
   const list = (await call(app, "/mcp", mcpCall(2, "tools/list"))).body;
   assert.deepEqual(
     list.result.tools.map((t: any) => t.name),
-    [
-      "publish_mock",
-      "revise_mock",
-      "list_mocks",
-      "get_mock",
-      "ask_user",
-      "wait_for_feedback",
-      "reply_to_user",
-      "export_mock",
-      "upload_asset",
-      "get_design_guide",
-      "add_surface",
-      "edit_surface",
-      "remove_surface",
-      "reorder_surfaces",
-    ],
+    ["publish", "ask", "read", "feedback", "say", "export", "upload", "guide"],
   );
 });
 
 test("mcp: the design loop round-trips through the shared flows", async () => {
   const app = makeApp();
-  const pub = await tool(app, "publish_mock", {
+  const pub = await tool(app, "publish", {
     project: "demo",
     mock: "writer",
     state: "Writing",
@@ -2015,7 +2231,7 @@ test("mcp: the design loop round-trips through the shared flows", async () => {
   assert.equal(pub.post.variant, "quiet");
   assert.deepEqual(pub.parts[0].parts, [{ name: "title" }]);
   const session = pub.sessionId;
-  await tool(app, "publish_mock", {
+  await tool(app, "publish", {
     project: "demo",
     mock: "writer",
     state: "Writing",
@@ -2023,7 +2239,7 @@ test("mcp: the design loop round-trips through the shared flows", async () => {
     session,
     html: "<p/>",
   });
-  const rev = await tool(app, "revise_mock", {
+  const rev = await tool(app, "publish", {
     project: "demo",
     mock: "writer",
     state: "Writing",
@@ -2031,32 +2247,32 @@ test("mcp: the design loop round-trips through the shared flows", async () => {
     html: "<p>2</p>",
   });
   assert.equal(rev.post.version, 2);
-  assert.equal((await tool(app, "list_mocks", { project: "demo" })).mocks.length, 1);
-  const asked = await tool(app, "ask_user", {
+  const listed = await tool(app, "read", { project: "demo" });
+  assert.equal(listed.mocks.length, 1);
+  assert.deepEqual(listed.pending, [{ mock: "writer", viewerOpen: false, draft: null }]);
+  const asked = await tool(app, "ask", {
     mock: "writer",
     project: "demo",
     asks: [{ id: "look", text: "Look?", options: [{ label: "Dark", variant: "dark" }] }],
   });
   assert.equal(asked.open, 1);
 
-  const empty = await tool(app, "wait_for_feedback", { session, timeoutSeconds: 0 });
+  const empty = await tool(app, "feedback", { session });
   assert.deepEqual(empty.feedback, []);
-  assert.match(empty.note, /no user feedback/);
+  assert.equal(empty.pending[0].mock, "writer");
 
   await call(app, `/api/mocks/${pub.mock.id}/reply`, viewer({ answers: { look: "dark" } }));
-  const fb = await tool(app, "wait_for_feedback", { session, timeoutSeconds: 0 });
+  const fb = await tool(app, "feedback", { session });
   assert.equal(fb.feedback[0].reply.answers.look, "dark");
-  const reply = await tool(app, "reply_to_user", {
-    mock: "writer",
-    project: "demo",
-    message: "on it",
-  });
-  assert.equal(reply.text, "on it");
-  assert.notEqual(reply.author, "user");
+  const said = await tool(app, "say", { mock: "writer", project: "demo", message: "on it" });
+  assert.deepEqual(said.feedback, []);
+  const thread = (await call(app, `/api/comments?mock=${pub.mock.id}`)).body.comments;
+  assert.notEqual(thread.find((c: any) => c.text === "on it").author, "user");
 
-  const detail = await tool(app, "get_mock", { mock: "writer", project: "demo", body: true });
+  const detail = await tool(app, "read", { mock: "writer", project: "demo", body: true });
   assert.equal(detail.variants.find((v: any) => v.variant === "dark").status, "accepted");
-  const exported = await tool(app, "export_mock", { mock: "writer", project: "demo" });
+  assert.deepEqual(detail.pending, { mock: "writer", viewerOpen: false, draft: null });
+  const exported = await tool(app, "export", { mock: "writer", project: "demo" });
   assert.equal(exported.states[0].variant, "dark");
 });
 
@@ -2085,7 +2301,7 @@ test("mcp: structuredContent matches each tool's outputSchema on both transports
     return value;
   };
 
-  const pub = await run("publish_mock", {
+  const pub = await run("publish", {
     project: "demo",
     mock: "writer",
     state: "Writing",
@@ -2094,7 +2310,7 @@ test("mcp: structuredContent matches each tool's outputSchema on both transports
     html: '<h1 data-part="title">T</h1><p data-part="body">b</p>',
   });
   const session = pub.sessionId;
-  await run("publish_mock", {
+  const second = await run("publish", {
     project: "demo",
     mock: "writer",
     state: "Writing",
@@ -2102,14 +2318,18 @@ test("mcp: structuredContent matches each tool's outputSchema on both transports
     session,
     html: '<h1 data-part="title">T</h1>',
   });
-  await run("ask_user", {
+  assert.ok(second.suggestedAsk, "two unbound variants suggest an ask");
+  await run("ask", {
     project: "demo",
     mock: "writer",
     session,
     asks: [{ id: "look", text: "Look?", options: [{ label: "Dark", variant: "dark" }] }],
   });
-  assert.deepEqual((await run("wait_for_feedback", { session, timeoutSeconds: 0 })).feedback, []);
+  assert.deepEqual((await run("feedback", { session })).feedback, []);
   await call(app, "/api/comments", viewer({ mock: pub.mock.id, text: "tighter", author: "user" }));
+  await call(app, `/api/mocks/${pub.mock.id}/draft`, viewer({ answers: { look: "dark" } }, "PUT"));
+  const drafting = await run("read", { project: "demo", mock: "writer", history: true });
+  assert.equal(drafting.pending.draft.answered, 1);
   await call(
     app,
     `/api/mocks/${pub.mock.id}/reply`,
@@ -2119,12 +2339,12 @@ test("mcp: structuredContent matches each tool's outputSchema on both transports
       comments: [{ part: "title", state: "Writing", text: "bigger" }],
     }),
   );
-  const fb = await run("wait_for_feedback", { session, timeoutSeconds: 0 });
+  const fb = await run("feedback", { session });
   assert.equal(fb.feedback.at(-1).reply.asks[0].chosen[0].label, "Dark");
-  // A revise that drops a part carries partChanges, and an undelivered
-  // comment rides along as userFeedback.
+  // A version that drops a part carries partChanges, and an undelivered
+  // comment rides along as feedback.
   await call(app, "/api/comments", viewer({ mock: pub.mock.id, text: "one more", author: "user" }));
-  const rev = await run("revise_mock", {
+  const rev = await run("publish", {
     project: "demo",
     mock: "writer",
     state: "Writing",
@@ -2133,10 +2353,12 @@ test("mcp: structuredContent matches each tool's outputSchema on both transports
     html: '<h1 data-part="title">T2</h1>',
   });
   assert.deepEqual(rev.partChanges.vanished, ["body"]);
-  assert.ok(rev.userFeedback?.length, "the pending comment rides along");
-  await run("get_mock", { project: "demo", mock: "writer", history: true });
-  await run("list_mocks", { project: "demo" });
-  await run("export_mock", { project: "demo", mock: "writer" });
+  assert.ok(rev.feedback.length, "the pending comment rides along");
+  await call(app, "/api/comments", viewer({ mock: pub.mock.id, text: "last", author: "user" }));
+  const said = await run("say", { project: "demo", mock: "writer", session, message: "ok" });
+  assert.equal(said.feedback.length, 1);
+  await run("read", { project: "demo" });
+  await run("export", { project: "demo", mock: "writer" });
   assert.deepEqual(
     [...checked].sort(),
     list
@@ -2147,41 +2369,38 @@ test("mcp: structuredContent matches each tool's outputSchema on both transports
   );
 });
 
-test("mcp: surface tools address a variant by mock + state/variant", async () => {
+test("mcp: publish takes the full surface list by id", async () => {
   const app = makeApp();
-  const pub = await tool(app, "publish_mock", { project: "demo", mock: "card", html: "<p/>" });
-  const added = await tool(app, "add_surface", {
+  const pub = await tool(app, "publish", { project: "demo", mock: "card", html: "<p/>" });
+  const id = pub.post.surfaces[0].id;
+  const added = await tool(app, "publish", {
     mock: pub.mock.id,
-    surface: { kind: "markdown", markdown: "# hi" },
+    surfaces: [{ kind: "markdown", markdown: "# hi" }, { id }],
   });
-  assert.equal(added.post.surfaces.length, 2);
-  const edited = await tool(app, "edit_surface", {
-    mock: pub.mock.id,
-    target: "1",
-    content: "# yo",
-  });
-  assert.equal(edited.post.version, 3);
-  const reordered = await tool(app, "reorder_surfaces", { mock: pub.mock.id, order: [1, 0] });
-  assert.equal(reordered.post.surfaces[0].kind, "markdown");
-  const removed = await tool(app, "remove_surface", { mock: pub.mock.id, target: "0" });
+  assert.deepEqual(
+    added.post.surfaces.map((s: any) => s.kind),
+    ["markdown", "html"],
+  );
+  const removed = await tool(app, "publish", { mock: pub.mock.id, surfaces: [{ id }] });
   assert.equal(removed.post.surfaces.length, 1);
+  assert.equal(removed.post.version, 3);
 });
 
 test("mcp: errors carry the REST hint; unknown tools and methods fail cleanly", async () => {
   const app = makeApp();
-  await tool(app, "publish_mock", { project: "demo", mock: "w", state: "A", html: "<p/>" });
-  await tool(app, "publish_mock", { project: "demo", mock: "w", state: "B", html: "<p/>" });
-  const missingState = await tool(app, "publish_mock", {
+  await tool(app, "publish", { project: "demo", mock: "w", state: "A", html: "<p/>" });
+  await tool(app, "publish", { project: "demo", mock: "w", state: "B", html: "<p/>" });
+  const missingState = await tool(app, "publish", {
     project: "demo",
     mock: "w",
     html: "<p/>",
   });
   assert.match(missingState.error, /pass state.*"states":\["A","B"\]/);
-  assert.match((await tool(app, "publish_mock", { mock: "x" })).error, /surfaces/);
-  assert.match((await tool(app, "wait_for_feedback", {})).error, /session id/);
-  assert.match((await tool(app, "nope", {})).error, /unknown tool/);
-  // A deprecated alias is just an unknown tool now.
-  assert.match((await tool(app, "publish_post", {})).error, /unknown tool/);
+  assert.match((await tool(app, "publish", { mock: "x" })).error, /surfaces/);
+  assert.match((await tool(app, "feedback", {})).error, /session/);
+  for (const retired of ["nope", "publish_mock", "wait_for_feedback", "revise_mock", "wait"]) {
+    assert.match((await tool(app, retired, {})).error, /unknown tool/, retired);
+  }
   const bad = (await call(app, "/mcp", mcpCall(1, "resources/list"))).body;
   assert.equal(bad.error.code, -32601);
 });
@@ -2210,11 +2429,11 @@ test("mcp: transport edge cases", async () => {
   );
 });
 
-test("mcp: upload_asset and get_design_guide", async () => {
+test("mcp: upload and guide", async () => {
   const app = makeApp();
   const session = (await call(app, "/api/sessions", agent({ agent: "m" }))).body;
   const data = Buffer.from("\x89PNG\r\n\x1a\n pixels");
-  const asset = await tool(app, "upload_asset", {
+  const asset = await tool(app, "upload", {
     data: data.toString("base64"),
     contentType: "image/png",
     kind: "image",
@@ -2224,37 +2443,31 @@ test("mcp: upload_asset and get_design_guide", async () => {
   assert.equal(asset.sessionId, session.id);
   assert.equal(asset.byteLength, data.length);
   assert.ok(asset.url.endsWith(`/a/${asset.id}`));
-  assert.match((await tool(app, "upload_asset", { contentType: "image/png" })).error, /base64/);
-  const guide = await tool(app, "get_design_guide", {});
+  assert.match((await tool(app, "upload", { contentType: "image/png" })).error, /base64/);
+  const guide = await tool(app, "guide", {});
   assert.match(guide, /Run `mockpit init`/);
-  assert.equal(await tool(app, "get_design_guide", { topic: "html" }), "# guide");
-  const unknown = await tool(app, "get_design_guide", { topic: "colours" });
+  assert.equal(await tool(app, "guide", { topic: "html" }), "# guide");
+  const unknown = await tool(app, "guide", { topic: "colours" });
   assert.match(
     unknown.error,
     /unknown topic "colours"; topics: knobs, asks, surfaces, html, reply, http/,
   );
 });
 
-test("feedback consumed by the MCP wait is not re-delivered over REST, and vice versa", async () => {
+test("feedback taken by the MCP tool is not re-delivered over REST, and vice versa", async () => {
   const app = makeApp();
   const out = await publish(app, { mock: "card", ...html("<p/>") });
   await call(app, "/api/comments", viewer({ mock: out.mock.id, text: "one", author: "user" }));
-  const viaMcp = await tool(app, "wait_for_feedback", {
-    session: out.sessionId,
-    timeoutSeconds: 0,
-  });
+  const viaMcp = await tool(app, "feedback", { session: out.sessionId });
   assert.equal(viaMcp.feedback[0].comments[0].text, "one");
-  const rest = (await call(app, `/api/comments?session=${out.sessionId}&author=user`)).body;
+  const rest = (await call(app, `/api/feedback?session=${out.sessionId}`)).body;
   assert.deepEqual(rest.feedback, []);
   const write = await publish(app, { mock: "card", session: out.sessionId, ...html("<p>2</p>") });
-  assert.equal(write.userFeedback, undefined);
+  assert.deepEqual(write.feedback, []);
 
   await call(app, "/api/comments", viewer({ mock: out.mock.id, text: "two", author: "user" }));
-  const viaRest = (await call(app, `/api/comments?session=${out.sessionId}&author=user`)).body;
+  const viaRest = (await call(app, `/api/feedback?session=${out.sessionId}`)).body;
   assert.equal(viaRest.feedback[0].comments[0].text, "two");
-  const mcpAgain = await tool(app, "wait_for_feedback", {
-    session: out.sessionId,
-    timeoutSeconds: 0,
-  });
+  const mcpAgain = await tool(app, "feedback", { session: out.sessionId });
   assert.deepEqual(mcpAgain.feedback, []);
 });

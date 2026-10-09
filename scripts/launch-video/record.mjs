@@ -195,16 +195,17 @@ await app.locator("button.send").click();
 const sent = app.locator(".trow.you");
 await sent.waitFor();
 await sleep(1500);
-await api(`/api/comments?session=${session}&author=user&wait=10`, undefined, { method: "GET" });
-await sent.locator(".tseen.ok").waitFor();
+await api(`/api/feedback?session=${session}`, undefined, { method: "GET" });
+await sent.locator(".tdelivered.ok").waitFor();
 await sleep(1200);
-await api("/api/comments", { mock: mockId, session, text: "Quiet it is. v2 coming up." });
+await api(`/api/mocks/${mockId}/say`, { session, message: "Quiet it is. v2 coming up." });
 await sleep(1400);
 const writing = DEMO.states[0];
 // The answers may have left another state on the stage; v2 lands on this one.
 await app.locator(".strip [role=tab]", { hasText: writing.label }).click();
 await sleep(600);
-await api(`/api/mocks/${mockId}/revise`, {
+await api("/api/mocks", {
+  mock: mockId,
   session,
   state: writing.label,
   variant: "quiet",

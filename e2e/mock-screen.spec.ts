@@ -111,8 +111,8 @@ test("answer a mock's questions and send one reply", async ({ page, server }) =>
   const sent = page.locator(".trow.you");
   await expect(sent).toHaveCount(1);
   await expect(sent).toContainText("Sent · look quiet");
-  await expect(sent.locator(".tseen .tick")).toHaveText("✓");
-  await expect(page.locator(".top .pill")).toContainText("Sent");
+  await expect(sent.locator(".tdelivered")).toHaveText("✓Not seen yet");
+  await expect(page.locator(".top .pill")).toHaveText("Sent · Not seen yet");
 
   await page.goto(`${server.url}/project/e2e`);
   const row = page.locator(".home-row", { hasText: "Card" });

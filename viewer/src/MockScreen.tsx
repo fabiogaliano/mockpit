@@ -47,9 +47,19 @@ export function MockScreen(props: { project: string; slug: string }) {
               </Show>
             }
           >
-            <button type="button" class="pill count" onClick={() => s.setMode("thread")}>
-              <i class="dot ok" />
-              <span>Sent</span>
+            <Show when={s.nudgeAgent()}>
+              <span class="sent-hint" role="status">
+                tell your agent you've answered
+              </span>
+            </Show>
+            <button
+              type="button"
+              class="pill count"
+              classList={{ waiting: s.sentDelivered() === false }}
+              onClick={() => s.setMode("thread")}
+            >
+              <i class="dot" classList={{ ok: s.sentDelivered() !== false }} />
+              <span>{`Sent · ${s.sentDelivered() === false ? "Not seen yet" : "Delivered"}`}</span>
             </button>
           </Show>
         }

@@ -97,25 +97,25 @@ test("a failing call rejects in the script; the calls log keeps the writes that 
   const r = await run(
     app,
     `await mockpit.publish({ mock: "writer", html: "<p>one</p>" });
-await mockpit.revise({ mock: "missing", html: "<p>two</p>" });
+await mockpit.publish({ mock: "missing", parts: { hero: "<p>two</p>" } });
 return "unreached";`,
   );
   assert.equal(r.ok, false);
   assert.equal(r.error?.kind, "script");
-  assert.match(r.error!.message, /no mock "missing"/);
+  assert.match(r.error!.message, /missing has no variant "default"/);
   assert.equal(r.error?.line, 2);
   assert.deepEqual(
     r.calls.map((c) => [c.fn, c.ok]),
     [
       ["publish", true],
-      ["revise", false],
+      ["publish", false],
     ],
   );
   assert.ok(await store.findMock("demo", "writer"), "the publish before the failure landed");
 
   const caught = await run(
     app,
-    `try { await mockpit.get("nope"); } catch (e) { return "caught: " + e.message; }`,
+    `try { await mockpit.read("nope"); } catch (e) { return "caught: " + e.message; }`,
   );
   assert.equal(caught.ok, true);
   assert.match(String(caught.value), /^caught: /);
@@ -180,8 +180,8 @@ test("host calls are capped per run and queued past the in-flight limit", async 
   const { app } = makeApp({ limits: { maxCalls: 3, maxInflight: 2 } });
   const many = await run(
     app,
-    `const all = await Promise.all([1, 2, 3].map(() => mockpit.list()));
-     await mockpit.list();`,
+    `const all = await Promise.all([1, 2, 3].map(() => mockpit.read()));
+     await mockpit.read();`,
   );
   assert.equal(many.error?.kind, "script");
   assert.match(many.error!.message, /call limit of 3/);
@@ -189,8 +189,10 @@ test("host calls are capped per run and queued past the in-flight limit", async 
     many.calls.map((c) => c.ok),
     [true, true, true, false],
   );
-  const unknown = await run(app, `return await mockpit.surfaces.add.call(null)`);
-  assert.equal(unknown.ok, false);
+  for (const retired of ["wait", "revise", "list", "get", "reply", "surfaces"]) {
+    const gone = await run(app, `return typeof mockpit.${retired};`);
+    assert.equal(gone.value, "undefined", retired);
+  }
 });
 
 test("output past the cap keeps its head and tail and says so", async () => {
@@ -263,7 +265,7 @@ test("a run needs the workspace token like any write", async () => {
 });
 
 test("a run checks its input, its session and the concurrent-run cap", async () => {
-  const { app } = makeApp({ limits: { maxRuns: 1 } });
+  const { app } = makeApp({ limits: { maxRuns: 1, cpuMs: 5_000 } });
   const post = (body: unknown) =>
     app.request("/api/run", { method: "POST", headers: CT, body: JSON.stringify(body) });
   assert.equal((await post({})).status, 400);
@@ -274,7 +276,9 @@ test("a run checks its input, its session and the concurrent-run cap", async () 
   assert.equal((await post({ code: "1", session: "nope" })).status, 404);
 
   const first = await run(app, `await mockpit.publish({ mock: "m", html: "<p>x</p>" });`);
-  const holding = run(app, "await mockpit.wait(1);", { session: first.session });
+  const holding = run(app, "const t = Date.now(); while (Date.now() - t < 800) {}", {
+    session: first.session,
+  });
   await new Promise((r) => setTimeout(r, 200));
   const busy = await post({ code: "return 1" });
   assert.equal(busy.status, 503);
@@ -307,33 +311,40 @@ test("without an executor, run says it is unavailable on every tier", async () =
   assert.match(mcp.result.content[0].text, /not available on this deployment/);
 });
 
-test("a Send the script waited for reaches the envelope even when the script then throws", async () => {
+test("feedback() returns at once; a Send it read reaches the envelope even when the script then throws", async () => {
   const { app, store } = makeApp();
   const setup = await run(app, AB);
   assert.equal(setup.ok, true, JSON.stringify(setup.error));
   const mock = (await store.findMock("demo", "writer"))!;
-  const pending = run(
-    app,
-    `const got = await mockpit.wait(5);
-     print("got", got.length);
-     throw new Error("crashed after the wait");`,
-    { session: setup.session },
-  );
-  await new Promise((r) => setTimeout(r, 300));
+  const nothing = await run(app, "return await mockpit.feedback();", { session: setup.session });
+  assert.deepEqual(nothing.value, {
+    feedback: [],
+    pending: [{ mock: "writer", viewerOpen: false, draft: null }],
+  });
+  assert.equal(nothing.calls[0].summary, "no feedback");
   const sent = await viewerPost(app, `/api/mocks/${mock.id}/reply`, {
     answers: { look: "bold" },
     text: "bold it is",
   });
   assert.equal(sent.status, 201, await sent.clone().text());
-  const r = await pending;
+  const r = await run(
+    app,
+    `const got = await mockpit.feedback();
+     print("got", got.feedback.length);
+     throw new Error("crashed after reading");`,
+    { session: setup.session },
+  );
   assert.equal(r.ok, false);
   assert.equal(r.error?.kind, "script");
   assert.deepEqual(r.prints, ["got 1"]);
   assert.equal(r.feedback.length, 1);
   assert.equal(r.feedback[0].reply?.text, "bold it is");
+  assert.equal(r.feedback[0].reply?.asks[0].chosen[0].label, "Bold");
   assert.equal(r.calls.at(-1)?.summary, "1 batch(es)");
   // Delivered once: no later read returns it again.
-  const again = await run(app, "return await mockpit.wait(0);", { session: setup.session });
+  const again = await run(app, "return (await mockpit.feedback()).feedback;", {
+    session: setup.session,
+  });
   assert.deepEqual(again.value, []);
   assert.deepEqual(again.feedback, []);
 });
@@ -351,7 +362,7 @@ test("feedback piggybacked on a write is in the envelope even when the run is cu
   assert.equal(comment.status, 201);
   const r = await run(
     app,
-    `await mockpit.revise({ mock: "writer", variant: "calm", html: '<p data-part="hero">warm</p>' });
+    `await mockpit.publish({ mock: "writer", variant: "calm", html: '<p data-part="hero">warm</p>' });
      while (true) {}`,
     { session: setup.session },
   );
@@ -362,26 +373,18 @@ test("feedback piggybacked on a write is in the envelope even when the run is cu
   );
 });
 
-test("a run that waits until its deadline returns in time with an empty wait", async () => {
-  const { app } = makeApp({ limits: { deadlineMs: 1_500, cpuMs: 1_000 } });
-  const setup = await run(app, `await mockpit.publish({ mock: "m", html: "<p>x</p>" });`);
-  const started = Date.now();
-  const r = await run(app, "return await mockpit.wait(60);", { session: setup.session });
-  assert.equal(r.ok, true);
-  assert.deepEqual(r.value, []);
-  assert.ok(Date.now() - started < 1_500, "the wait was clamped under the deadline");
-});
-
-test("aborting the request aborts the run and its wait without moving the cursor", async () => {
-  const { app, store } = makeApp();
+test("aborting the request aborts the run without moving the cursor", async () => {
+  const { app, store } = makeApp({ limits: { cpuMs: 30_000, deadlineMs: 30_000 } });
   const setup = await run(app, AB);
   const sessionId = setup.session!;
+  const mock = (await store.findMock("demo", "writer"))!;
+  await viewerPost(app, `/api/mocks/${mock.id}/reply`, { text: "before the abort" });
   const before = (await store.getSession(sessionId))!.agentSeq;
   const controller = new AbortController();
   const started = Date.now();
   const pending = run(
     app,
-    "await mockpit.wait(30); return 'finished';",
+    "while (true) {}",
     { session: sessionId },
     {
       signal: controller.signal,
@@ -393,11 +396,11 @@ test("aborting the request aborts the run and its wait without moving the cursor
   assert.equal(r.error?.kind, "aborted");
   assert.ok(Date.now() - started < 3_000);
   assert.equal((await store.getSession(sessionId))!.agentSeq, before);
-  // The next Send is still there for the next wait.
-  const mock = (await store.findMock("demo", "writer"))!;
-  await viewerPost(app, `/api/mocks/${mock.id}/reply`, { text: "after the abort" });
-  const next = await run(app, "return await mockpit.wait(1);", { session: sessionId });
-  assert.equal((next.value as { reply: { text: string } }[])[0].reply.text, "after the abort");
+  // The Send is still there for the next read.
+  const next = await run(app, "return (await mockpit.feedback()).feedback;", {
+    session: sessionId,
+  });
+  assert.equal((next.value as { reply: { text: string } }[])[0].reply.text, "before the abort");
 
   const early = new AbortController();
   early.abort();
@@ -407,29 +410,41 @@ test("aborting the request aborts the run and its wait without moving the cursor
 
 test("every host function reaches its flow", async () => {
   const { app } = makeApp();
+  const png = Buffer.from("\x89PNG\r\n\x1a\n pixels").toString("base64");
   const r = await run(
     app,
     `const v = { mock: "writer", variant: "calm" };
-     await mockpit.publish({ ...v, title: "Writer", html: '<p data-part="hero">a</p>' });
-     await mockpit.revise({ ...v, parts: { hero: '<p data-part="hero">b</p>' } });
-     await mockpit.surfaces.add(v, { kind: "markdown", markdown: "# notes" }, { after: 0 });
-     await mockpit.surfaces.edit(v, 1, { content: "# edited" });
-     await mockpit.surfaces.reorder(v, [1, 0]);
-     await mockpit.surfaces.remove(v, 0);
-     await mockpit.reply(v, "revised the hero");
-     const listed = await mockpit.list();
-     const got = await mockpit.get("writer", { body: true });
+     const first = await mockpit.publish({ ...v, title: "Writer", html: '<p data-part="hero">a</p>' });
+     await mockpit.publish({ ...v, parts: { hero: '<p data-part="hero">b</p>' } });
+     const [html] = first.post.surfaces;
+     const added = await mockpit.publish({ ...v, surfaces: [{ id: html.id }, { kind: "markdown", markdown: "# notes" }] });
+     const md = added.post.surfaces[1];
+     await mockpit.publish({ ...v, surfaces: [{ id: md.id, kind: "markdown", markdown: "# edited" }, { id: html.id }] });
+     const removed = await mockpit.publish({ ...v, surfaces: [{ id: md.id }] });
+     await mockpit.say(v, "revised the hero");
+     const asset = await mockpit.upload("${png}", { contentType: "image/png", kind: "image" });
+     const listed = await mockpit.read();
+     const got = await mockpit.read("writer", { body: true });
+     const fb = await mockpit.feedback();
      const exported = await mockpit.export(v);
      const brief = await mockpit.guide();
      const topic = await mockpit.guide("scripts");
      let bad = "";
      try { await mockpit.guide("nope"); } catch (e) { bad = e.message; }
-     return { listed: listed.map((m) => m.slug), states: exported.states.length,
-       variants: got.variants.length, brief: brief.length > 0, topic: topic.includes("declare const mockpit"), bad };`,
+     return { listed: listed.mocks.map((m) => m.slug), pending: listed.pending.length,
+       kinds: removed.post.surfaces.map((s) => s.kind), markdown: got.variants[0].surfaces[0].markdown,
+       asset: asset.url.endsWith("/a/" + asset.id), feedback: fb.feedback.length,
+       states: exported.states.length, variants: got.variants.length, brief: brief.length > 0,
+       topic: topic.includes("declare const mockpit"), bad };`,
   );
   assert.equal(r.ok, true, JSON.stringify(r.error));
   assert.deepEqual(r.value, {
     listed: ["writer"],
+    pending: 1,
+    kinds: ["markdown"],
+    markdown: "# edited",
+    asset: true,
+    feedback: 0,
     states: 1,
     variants: 1,
     brief: true,
@@ -440,14 +455,15 @@ test("every host function reaches its flow", async () => {
     r.calls.map((c) => c.fn),
     [
       "publish",
-      "revise",
-      "surfaces.add",
-      "surfaces.edit",
-      "surfaces.reorder",
-      "surfaces.remove",
-      "reply",
-      "list",
-      "get",
+      "publish",
+      "publish",
+      "publish",
+      "publish",
+      "say",
+      "upload",
+      "read",
+      "read",
+      "feedback",
       "export",
       "guide",
       "guide",
@@ -455,14 +471,17 @@ test("every host function reaches its flow", async () => {
     ],
   );
   assert.equal(r.calls[1].summary, "writer/calm v2");
+  assert.equal(r.calls[4].summary, "writer/calm v5");
 });
 
 test("the run API text names exactly the host functions", () => {
   const block = RUN_API.slice(RUN_API.indexOf("declare const mockpit"));
   const named = [...block.matchAll(/^\s+(\w+)\(/gm)].map((m) => m[1]);
-  const expected = RUN_FUNCTIONS.map((f) => f.replace("surfaces.", ""));
-  assert.deepEqual([...named].sort(), [...expected].sort());
+  assert.deepEqual([...named].sort(), [...RUN_FUNCTIONS].sort());
   assert.ok(RUN_DESCRIPTION.includes(RUN_API));
+  // A script never waits for the user, so nothing in its API says it can.
+  assert.ok(!(RUN_FUNCTIONS as readonly string[]).includes("wait"));
+  assert.doesNotMatch(RUN_DESCRIPTION, /\bwait\b|200 s|timeoutSeconds/);
 });
 
 test("/mcp?mode=code lists only run, about 4.3k chars; the default catalog is unchanged", async () => {
@@ -483,7 +502,7 @@ test("/mcp?mode=code lists only run, about 4.3k chars; the default catalog is un
   assert.ok(RUN_DESCRIPTION.length < 4_600, `run description is ${RUN_DESCRIPTION.length} chars`);
   assert.ok(code.result.tools[0].outputSchema);
   const plain = await rpc("/mcp", "tools/list");
-  assert.equal(plain.result.tools.length, 14);
+  assert.equal(plain.result.tools.length, 8);
   assert.deepEqual(plain.result.tools, HTTP_MCP_TOOLS);
   assert.deepEqual(code.result.tools, HTTP_RUN_TOOLS);
   const init = await rpc("/mcp?mode=code", "initialize", {});
@@ -512,7 +531,7 @@ test("the scripts topic carries the run API", async () => {
 });
 
 function serveApp() {
-  const { app } = makeApp({ limits: { deadlineMs: 20_000 } });
+  const { app } = makeApp({ limits: { deadlineMs: 20_000, cpuMs: 20_000 } });
   return new Promise<{ url: string; close: () => Promise<void> }>((resolve) => {
     const server = serve({ fetch: app.fetch, port: 0 }, (info) => {
       resolve({
@@ -566,7 +585,7 @@ test("stdio MOCKPIT_MCP_MODE=code runs scripts by code or path", { timeout: 20_0
     const file = join(dir, "script.js");
     writeFileSync(
       file,
-      `const w = await mockpit.revise({ mock: "m", html: \`<p>"quoted" \${1 + 1}</p>\` });\nreturn w.post.version;`,
+      `const w = await mockpit.publish({ mock: "m", html: \`<p>"quoted" \${1 + 1}</p>\` });\nreturn w.post.version;`,
     );
     const fromPath = (await client.callTool({ name: "run", arguments: { path: file } })) as any;
     assert.equal(fromPath.structuredContent.value, 2);
@@ -587,11 +606,9 @@ test("stdio MOCKPIT_MCP_MODE=code runs scripts by code or path", { timeout: 20_0
     // The client's cancel reaches the server and ends the run.
     const cancel = new AbortController();
     const waiting = client
-      .callTool(
-        { name: "run", arguments: { code: "await mockpit.wait(15); return 'late';" } },
-        undefined,
-        { signal: cancel.signal },
-      )
+      .callTool({ name: "run", arguments: { code: "while (true) {} return 'late';" } }, undefined, {
+        signal: cancel.signal,
+      })
       .catch((e: Error) => e);
     await new Promise((r) => setTimeout(r, 400));
     cancel.abort();

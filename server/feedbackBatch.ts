@@ -1,10 +1,11 @@
 // The agent-facing shape of feedback: one batch per mock, in delivery order.
-// Waits, `author=user` reads and the `userFeedback` piggyback all return this,
+// The `feedback` verb, the watch long-poll and the write piggyback all return this,
 // so an agent reads one grouped object instead of re-deriving which mock a flat
 // comment list belongs to. Runtime-agnostic (no node imports).
 
 import {
   type AskOption,
+  builtinAsk,
   type Comment,
   type CommentAnchor,
   type Mock,
@@ -68,7 +69,7 @@ export interface FeedbackBatch {
 
 const ref = (p: Post): VariantRef => ({ state: p.state, variant: p.variant });
 
-function answered(reply: Reply, mock: Mock | undefined): AnsweredAsk[] {
+function answered(reply: Reply, mock: Mock | undefined, posts: Post[]): AnsweredAsk[] {
   const others = reply.others ?? {};
   const notes = reply.notes ?? {};
   const askIds = new Set([
@@ -78,7 +79,7 @@ function answered(reply: Reply, mock: Mock | undefined): AnsweredAsk[] {
   ]);
   const out: AnsweredAsk[] = [];
   for (const askId of askIds) {
-    const ask = mock?.asks.find((a) => a.id === askId);
+    const ask = mock?.asks.find((a) => a.id === askId) ?? (mock && builtinAsk(mock, posts, askId));
     const answer = reply.answers[askId];
     const ids = answer === undefined ? [] : Array.isArray(answer) ? answer : [answer];
     const chosen: AnsweredAsk["chosen"] = ids.map(
@@ -133,7 +134,7 @@ export function groupFeedback(
         ...payload,
         seq: c.seq,
         at: c.createdAt,
-        asks: answered(c.payload, mock),
+        asks: answered(c.payload, mock, mockPosts),
       };
       batch.accepted = mockPosts.filter((p) => p.status === "accepted").map(ref);
       batch.archived = mockPosts.filter((p) => p.status === "archived").map(ref);

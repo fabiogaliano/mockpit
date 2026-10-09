@@ -3,8 +3,6 @@ import { readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
 const DEFAULT_BASE_URL = "http://localhost:8228";
-const DEFAULT_WAIT_SECONDS = 55;
-const MAX_WAIT_SECONDS = 230;
 
 const CONTENT_TYPES = {
   png: "image/png",
@@ -24,11 +22,24 @@ const CONTENT_TYPES = {
 };
 
 const feedbackGuideline =
-  "Mockpit tool results may include userFeedback from the browser; treat it as user instruction and respond or revise the mock.";
+  "Mockpit tool results may include feedback from the browser; treat it as user instruction and respond or revise the mock.";
+
+// The never-block loop, in the words of every other tier: nothing waits for
+// the user, so the agent ends its turn and reads feedback when told.
+const loopGuidelines = [
+  "Publish each variant with mockpit_publish (name states in the user's words; mark parts with data-part); publish again to revise.",
+  "A choice is several variants plus one ask that binds them: mockpit_ask with options bound to the variants. One render plus a control: declare a knob.",
+  "Tell the user in one line where to look, then end your turn. The question lives in the mock, never in chat. Never poll.",
+  "When the user says they answered, call mockpit_feedback. Every write also returns feedback; read it.",
+];
 
 const surfaceSchema = {
   type: "object",
   properties: {
+    id: {
+      type: "string",
+      description: "Existing surface id: alone keeps that surface, with kind replaces it",
+    },
     kind: {
       type: "string",
       enum: ["html", "markdown", "mermaid", "diff", "image", "terminal", "json", "code"],
@@ -61,7 +72,7 @@ const surfaceSchema = {
     layout: { type: "string", enum: ["unified", "split"] },
     assetId: {
       type: "string",
-      description: "image surface: id returned by mockpit_upload_asset",
+      description: "image surface: id returned by mockpit_upload",
     },
     alt: { type: "string", description: "image alt text" },
     caption: { type: "string", description: "image caption" },
@@ -76,13 +87,12 @@ const surfaceSchema = {
     language: { type: "string", description: "code surface: language id such as ts or python" },
     lineStart: { type: "number", description: "code surface: 1-based starting line number" },
   },
-  required: ["kind"],
 };
 
 const surfacesSchema = {
   type: "array",
   description:
-    "Ordered surfaces of one variant: html, markdown, mermaid, diff, image, terminal, json, or code.",
+    "The full ordered list of one variant's surfaces: {id} alone keeps a surface, a missing id removes it.",
   items: surfaceSchema,
 };
 
@@ -129,12 +139,6 @@ function contentTypeFor(file) {
   return CONTENT_TYPES[ext] ?? "application/octet-stream";
 }
 
-function clampWait(value, fallback) {
-  const n = Number(value ?? fallback);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(MAX_WAIT_SECONDS, Math.max(0, Math.floor(n)));
-}
-
 function jsonText(value) {
   return JSON.stringify(value, null, 2);
 }
@@ -152,7 +156,6 @@ async function requestJson(path, init = {}) {
       }),
     });
   } catch (error) {
-    if (init.signal?.aborted) throw error;
     throw new Error(
       `mockpit server not reachable at ${baseUrl()} — start it with "mockpit serve" (${error.message})`,
     );
@@ -198,7 +201,7 @@ function rememberSession(state, sessionId) {
   if (typeof sessionId === "string" && sessionId) state.sessionId = sessionId;
 }
 
-// `userFeedback` is one batch per mock: the user's reply (answers, mix, tuned
+// `feedback` is one batch per mock: the user's reply (answers, mix, tuned
 // knob values, part comments) plus any plain comments. Rendered one line per
 // thing the user said, so nothing is summarized away.
 function feedbackLines(feedback) {
@@ -231,6 +234,20 @@ function feedbackLines(feedback) {
   return lines;
 }
 
+// What the user is doing right now, so the agent can say "take your time".
+// viewerOpen is workspace-wide, so it is said once rather than per mock.
+function pendingLines(pending) {
+  const rows = [pending ?? []].flat();
+  const lines = rows
+    .filter((p) => p.draft)
+    .map(
+      (p) =>
+        `- ${p.mock}: the user is answering (${p.draft.answered} of ${p.draft.of} answered, ${p.draft.comments} comments)`,
+    );
+  if (lines.length === 0 && rows.some((p) => p.viewerOpen)) lines.push("- the viewer is open");
+  return lines.length ? ["Pending:", ...lines] : [];
+}
+
 function feedbackSummary(feedback) {
   const lines = feedbackLines(feedback);
   if (lines.length === 0) return "";
@@ -247,6 +264,7 @@ function reconstructSession(ctx) {
     if (details && typeof details.sessionId === "string") sessionId = details.sessionId;
     if (details?.asset && typeof details.asset.sessionId === "string")
       sessionId = details.asset.sessionId;
+    if (details && typeof details.session === "string") sessionId = details.session;
   }
   return sessionId;
 }
@@ -284,22 +302,22 @@ export default function mockpitExtension(pi) {
   const projectOf = (params, ctx) => params.project ?? resolveProjectName(ctx.cwd);
   const mockPath = (mock) => `/api/mocks/${encodeURIComponent(mock)}`;
 
-  pi.registerTool({
-    name: "mockpit_get_design_guide",
-    label: "Mockpit Guide",
-    description:
-      "Fetch the mockpit design contract for this project: HTML fragment rules, theme variables, parts (data-part) and knobs. Call once before the first mockpit_publish_mock.",
-    promptSnippet: "Fetch mockpit's design guide before authoring mocks.",
-    promptGuidelines: [
-      "Use mockpit_get_design_guide before your first mockpit_publish_mock call unless you already know the current guide.",
-    ],
-    parameters: { type: "object", properties: {} },
-    async execute(_id, _params, _signal, _onUpdate, ctx) {
-      const query = new URLSearchParams({ project: resolveProjectName(ctx.cwd) });
-      const guide = await requestText(`/agent-howto?${query}`);
-      return { content: [{ type: "text", text: guide }], details: { baseUrl: baseUrl() } };
-    },
-  });
+  // GET /api/feedback reads from a session's cursor, so a feedback call before
+  // any write still needs one; later writes then land in the same session.
+  async function ensureSession(ctx, title) {
+    if (state.sessionId) return state.sessionId;
+    const created = await requestJson("/api/sessions", {
+      method: "POST",
+      body: JSON.stringify({
+        agent: agentName(),
+        title,
+        cwd: ctx.cwd,
+        project: resolveProjectName(ctx.cwd),
+      }),
+    });
+    rememberSession(state, created.id);
+    return created.id;
+  }
 
   // project › mock › state › variant › version.
   const mockProps = {
@@ -311,101 +329,91 @@ export default function mockpitExtension(pi) {
     variant: { type: "string", description: 'Variant label; default "default"' },
     project: { type: "string", description: "Project name; defaults to the repo" },
   };
-  const writeProps = {
-    ...mockProps,
-    title: { type: "string", description: "Mock title" },
-    html: { type: "string", description: "HTML body fragment; mark parts with data-part" },
-    path: { type: "string", description: "File to read the html from instead" },
-    surfaces: surfacesSchema,
-    knobs: { type: "object", description: "Knobs in tunekit usePane shape, keyed by path" },
-    from: { type: "number", description: "Branch from this version" },
-    prompt: { type: "string", description: "What prompted this version" },
-  };
-
-  async function writeMock(params, ctx, revise) {
-    const project = projectOf(params, ctx);
-    const html = params.path ? await readFile(resolve(ctx.cwd, params.path), "utf8") : params.html;
-    const { path: _path, ...rest } = params;
-    const result = await requestJson(revise ? `${mockPath(params.mock)}/revise` : "/api/mocks", {
-      method: "POST",
-      body: JSON.stringify({
-        ...rest,
-        html,
-        project,
-        session: state.sessionId,
-        // Only used when this publish creates the session.
-        agent: agentName(),
-        cwd: ctx.cwd,
-      }),
-    });
-    rememberSession(state, result.sessionId);
-    const { post } = result;
-    const parts = (result.parts ?? [])
-      .filter((s) => s.parts.length)
-      .map(
-        (s) => `parts${s.state ? ` (${s.state})` : ""}: ${s.parts.map((p) => p.name).join(", ")}`,
-      );
-    const changes = result.partChanges
-      ? [
-          ...(result.partChanges.renamed ?? []).map((r) => `renamed part ${r.from} → ${r.to}`),
-          ...(result.partChanges.vanished ?? []).map((n) => `part ${n} vanished`),
-        ]
-      : [];
-    const text = [
-      `${result.mock.slug}/${post.state ? `${post.state}/` : ""}${post.variant} v${post.version} · ${result.url}`,
-      ...parts,
-      ...changes,
-      ...(result.nudges ?? []).map((n) => `nudge: ${n}`),
-    ].join("\n");
-    return {
-      content: [{ type: "text", text: `${text}${feedbackSummary(result.userFeedback)}` }],
-      details: { ...result, baseUrl: baseUrl() },
-    };
-  }
 
   pi.registerTool({
-    name: "mockpit_publish_mock",
+    name: "mockpit_publish",
     label: "Mockpit Publish",
     description:
-      "Publish one variant of one state of a mock to the user's browser. An existing (mock, state, variant) becomes a new version. If userFeedback appears, treat it as user instruction.",
+      "Create or version one variant of one state of a mock in the user's browser. One of html (or path), surfaces (the full ordered list) or parts (splices the latest version). Returns parts per state, nudges, feedback.",
     promptSnippet: "Publish a UI mock (state + variant) to mockpit for the user to review.",
-    promptGuidelines: [
-      "Use mockpit_publish_mock for design work the user reviews: one state, one variant per call. Name states in the user's words.",
-      "Two renders needed to show a choice: publish variants and ask with mockpit_ask_user. One render plus a control: declare a knob.",
-      feedbackGuideline,
-    ],
+    promptGuidelines: [...loopGuidelines, feedbackGuideline],
     parameters: {
       type: "object",
       properties: {
-        ...writeProps,
+        ...mockProps,
+        title: { type: "string", description: "Mock title" },
         kind: { type: "string", enum: ["component", "page"], description: "Mock kind" },
+        html: { type: "string", description: "HTML body fragment; mark parts with data-part" },
+        path: { type: "string", description: "File to read the html from instead" },
+        surfaces: surfacesSchema,
+        parts: {
+          type: "object",
+          description:
+            '{"name"|"name#key": outer html}; splices marked parts of the latest version',
+        },
+        knobs: { type: "object", description: "Knobs in tunekit usePane shape, keyed by path" },
+        variantKnobs: { type: "object", description: "Knobs this variant alone has" },
+        from: { type: "number", description: "Branch from this version" },
+        prompt: { type: "string", description: "What prompted this version" },
       },
       required: ["mock"],
     },
-    execute: (_id, params, _signal, _onUpdate, ctx) => writeMock(params, ctx, false),
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const html = params.path
+        ? await readFile(resolve(ctx.cwd, params.path), "utf8")
+        : params.html;
+      const { path: _path, ...rest } = params;
+      const result = await requestJson("/api/mocks", {
+        method: "POST",
+        body: JSON.stringify({
+          ...rest,
+          html,
+          project: projectOf(params, ctx),
+          session: state.sessionId,
+          // Only used when this publish creates the session.
+          agent: agentName(),
+          cwd: ctx.cwd,
+        }),
+      });
+      rememberSession(state, result.sessionId);
+      const { post } = result;
+      const parts = (result.parts ?? [])
+        .filter((s) => s.parts.length)
+        .map(
+          (s) => `parts${s.state ? ` (${s.state})` : ""}: ${s.parts.map((p) => p.name).join(", ")}`,
+        );
+      const changes = result.partChanges
+        ? [
+            ...(result.partChanges.renamed ?? []).map((r) => `renamed part ${r.from} → ${r.to}`),
+            ...(result.partChanges.vanished ?? []).map((n) => `part ${n} vanished`),
+          ]
+        : [];
+      const text = [
+        `${result.mock.slug}/${post.state ? `${post.state}/` : ""}${post.variant} v${post.version} · ${result.url}`,
+        ...parts,
+        ...(result.applied?.length ? [`applied: ${result.applied.join(", ")}`] : []),
+        ...changes,
+        ...(result.nudges ?? []).map((n) => `nudge: ${n}`),
+        ...(result.suggestedAsk
+          ? [`suggestedAsk (send with mockpit_ask): ${JSON.stringify(result.suggestedAsk)}`]
+          : []),
+      ].join("\n");
+      return {
+        content: [{ type: "text", text: `${text}${feedbackSummary(result.feedback)}` }],
+        details: { ...result, baseUrl: baseUrl() },
+      };
+    },
   });
 
   pi.registerTool({
-    name: "mockpit_revise_mock",
-    label: "Mockpit Revise",
-    description:
-      "Publish the next version of an existing variant. If userFeedback appears, treat it as user instruction.",
-    promptSnippet: "Revise a mockpit mock variant after user feedback.",
-    promptGuidelines: [
-      "Use mockpit_revise_mock rather than publishing a near-duplicate mock.",
-      feedbackGuideline,
-    ],
-    parameters: { type: "object", properties: writeProps, required: ["mock"] },
-    execute: (_id, params, _signal, _onUpdate, ctx) => writeMock(params, ctx, true),
-  });
-
-  pi.registerTool({
-    name: "mockpit_ask_user",
+    name: "mockpit_ask",
     label: "Mockpit Ask",
     description:
-      "Ask structured questions on a mock. Bind options to variants ({label, variant}) or knob values ({label, set}). Follow with mockpit_wait_for_feedback.",
+      "Ask structured questions on a mock. A choice is several variants plus one ask that binds them ({label, variant}); options may also set knob values ({label, set}). Reusing an ask id replaces it.",
     promptSnippet: "Ask the user to choose between mockpit variants.",
-    promptGuidelines: ["Use mockpit_ask_user once the variants are published, then wait."],
+    promptGuidelines: [
+      "Use mockpit_ask once the variants are published, tell the user where to look, then end your turn.",
+    ],
     parameters: {
       type: "object",
       properties: {
@@ -436,51 +444,51 @@ export default function mockpitExtension(pi) {
         )
         .join("\n");
       return {
-        content: [{ type: "text", text: `${text}${feedbackSummary(result.userFeedback)}` }],
+        content: [
+          { type: "text", text: `${text}\n${result.url}${feedbackSummary(result.feedback)}` },
+        ],
         details: { ...result, baseUrl: baseUrl() },
       };
     },
   });
 
   pi.registerTool({
-    name: "mockpit_list_mocks",
-    label: "Mockpit Mocks",
-    description: "List a project's mocks: slug, states, variants, open asks. No bodies.",
-    promptSnippet: "List mockpit mocks.",
-    promptGuidelines: ["Use mockpit_list_mocks to recover mock slugs when you lost track."],
-    parameters: { type: "object", properties: { project: mockProps.project } },
-    async execute(_id, params, _signal, _onUpdate, ctx) {
-      const project = projectOf(params, ctx);
-      const result = await requestJson(`/api/mocks?${new URLSearchParams({ project })}`);
-      const lines = result.mocks.map(
-        (m) =>
-          `${m.slug} · ${m.kind} · ${m.states.length ? m.states.join(" / ") : "single state"} · ${m.variants} variants${m.open ? ` · ${m.open} open` : ""}`,
-      );
-      return {
-        content: [{ type: "text", text: lines.join("\n") || `No mocks in ${project}.` }],
-        details: { ...result, baseUrl: baseUrl() },
-      };
-    },
-  });
-
-  pi.registerTool({
-    name: "mockpit_get_mock",
-    label: "Mockpit Mock",
+    name: "mockpit_read",
+    label: "Mockpit Read",
     description:
-      "One mock: states, variants, asks with answers, parts per state, knobs and last tuned values.",
-    promptSnippet: "Read one mockpit mock.",
+      "Without mock: every mock (slug, states, variants, open asks) plus pending. With mock: its states, variants, asks with answers, parts, knobs and last tuned values, plus pending. Never consumes feedback.",
+    promptSnippet: "Read mockpit mocks.",
+    promptGuidelines: [
+      "Use mockpit_read to recover mock slugs or a mock's state when you lost track.",
+    ],
     parameters: {
       type: "object",
       properties: {
-        mock: mockProps.mock,
+        mock: { type: "string", description: "Mock slug; omit for every mock" },
         project: mockProps.project,
-        body: { type: "boolean", description: "Include surfaces" },
+        body: { type: "boolean", description: "Include each variant's surfaces" },
         history: { type: "boolean", description: "Include version rows" },
       },
-      required: ["mock"],
     },
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const query = new URLSearchParams({ project: projectOf(params, ctx) });
+      if (params.mock === undefined) {
+        const result = await requestJson(`/api/mocks?${query}`);
+        const lines = result.mocks.map(
+          (m) =>
+            `${m.slug} · ${m.kind} · ${m.states.length ? m.states.join(" / ") : "single state"} · ${m.variants} variants${m.open ? ` · ${m.open} open` : ""}`,
+        );
+        const busy = pendingLines(result.pending);
+        return {
+          content: [
+            {
+              type: "text",
+              text: [...lines, ...busy].join("\n") || `No mocks in ${query.get("project")}.`,
+            },
+          ],
+          details: { ...result, baseUrl: baseUrl() },
+        };
+      }
       if (params.body) query.set("body", "1");
       if (params.history) query.set("history", "1");
       const mock = await requestJson(`${mockPath(params.mock)}?${query}`);
@@ -489,9 +497,75 @@ export default function mockpitExtension(pi) {
   });
 
   pi.registerTool({
-    name: "mockpit_export_mock",
+    name: "mockpit_feedback",
+    label: "Mockpit Feedback",
+    description:
+      "Returns at once: what the user sent since you last heard (one batch per mock: answers, mix, tuned knobs, part comments, comments, accepted/archived), delivered once, plus pending (viewer open, draft progress).",
+    promptSnippet: "Read the user's mockpit reply when they say they answered.",
+    promptGuidelines: [
+      "Call mockpit_feedback when the user says they answered; it returns at once, so do not call it in a loop.",
+    ],
+    parameters: { type: "object", properties: { project: mockProps.project } },
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const session = await ensureSession(ctx);
+      const query = new URLSearchParams({ session, project: projectOf(params, ctx) });
+      const result = await requestJson(`/api/feedback?${query}`);
+      const batches = result.feedback ?? [];
+      const busy = pendingLines(result.pending);
+      const head =
+        batches.length > 0
+          ? `Received mockpit feedback:\n${feedbackLines(batches).join("\n")}\n\n${jsonText(batches)}`
+          : "No new mockpit feedback.";
+      return {
+        content: [{ type: "text", text: [head, ...busy].join("\n") }],
+        details: { ...result, sessionId: session, baseUrl: baseUrl() },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "mockpit_say",
+    label: "Mockpit Say",
+    description:
+      "Post a short plain-text message in a mock's thread. Returns feedback; treat it as user instruction.",
+    promptSnippet: "Say something to the user in a mockpit thread.",
+    promptGuidelines: [
+      "Use mockpit_say for brief acknowledgements; publish again for substantive revisions.",
+      feedbackGuideline,
+    ],
+    parameters: {
+      type: "object",
+      properties: { ...mockProps, message: { type: "string", description: "Plain text" } },
+      required: ["mock", "message"],
+    },
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const result = await requestJson(`${mockPath(params.mock)}/say`, {
+        method: "POST",
+        body: JSON.stringify({
+          message: params.message,
+          state: params.state,
+          variant: params.variant,
+          project: projectOf(params, ctx),
+          session: state.sessionId,
+        }),
+      });
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Said on ${params.mock}.${feedbackSummary(result.feedback)}`,
+          },
+        ],
+        details: { ...result, baseUrl: baseUrl() },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "mockpit_export",
     label: "Mockpit Export",
-    description: "The accepted html per state, version history, and the last reply's tuned values.",
+    description:
+      "The accepted (or current) html per state, version history, and the last reply's tuned values.",
     promptSnippet: "Export an accepted mockpit mock.",
     parameters: { type: "object", properties: mockProps, required: ["mock"] },
     async execute(_id, params, _signal, _onUpdate, ctx) {
@@ -504,98 +578,13 @@ export default function mockpitExtension(pi) {
   });
 
   pi.registerTool({
-    name: "mockpit_wait_for_feedback",
-    label: "Mockpit Wait",
-    description:
-      "Wait for the user's feedback: one batch per mock with their reply (answers, mix, tuned values, part comments). Delivered once. Use timeoutSeconds 0 for a non-blocking check.",
-    promptSnippet: "Wait for the user's mockpit reply.",
-    promptGuidelines: [
-      "Use mockpit_wait_for_feedback after asking, and before final answers if feedback may be pending.",
-    ],
-    parameters: {
-      type: "object",
-      properties: {
-        session: { type: "string", description: "Session id; defaults to remembered session" },
-        timeoutSeconds: { type: "number", description: "Seconds to wait, 0-230; default 55" },
-      },
-    },
-    async execute(_toolCallId, params, signal) {
-      const session = params.session ?? state.sessionId;
-      if (!session) throw new Error("No mockpit session yet. Publish first or pass session.");
-      const wait = clampWait(params.timeoutSeconds, DEFAULT_WAIT_SECONDS);
-      const query = new URLSearchParams({ session, author: "user", wait: String(wait) });
-      // Aborting the long-poll on cancel keeps the server from delivering a
-      // batch to a call nobody is waiting on.
-      const result = await requestJson(`/api/comments?${query}`, { signal });
-      const batches = result.feedback ?? [];
-      return {
-        content: [
-          {
-            type: "text",
-            text:
-              batches.length > 0
-                ? `Received mockpit feedback:\n${feedbackLines(batches).join("\n")}\n\n${jsonText(batches.length === 1 ? batches[0] : batches)}`
-                : "No new mockpit feedback.",
-          },
-        ],
-        details: {
-          feedback: batches,
-          lastSeq: result.lastSeq,
-          sessionId: session,
-          baseUrl: baseUrl(),
-        },
-      };
-    },
-  });
-
-  pi.registerTool({
-    name: "mockpit_reply_to_user",
-    label: "Mockpit Reply",
-    description:
-      "Post a short message in a mock's thread. If userFeedback appears, treat it as user instruction.",
-    promptSnippet: "Reply to the user in a mockpit thread.",
-    promptGuidelines: [
-      "Use mockpit_reply_to_user for brief acknowledgements; use mockpit_revise_mock for substantive revisions.",
-      feedbackGuideline,
-    ],
-    parameters: {
-      type: "object",
-      properties: { ...mockProps, message: { type: "string", description: "Plain-text reply" } },
-      required: ["mock", "message"],
-    },
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const comment = await requestJson("/api/comments", {
-        method: "POST",
-        body: JSON.stringify({
-          text: params.message,
-          mock: params.mock,
-          state: params.state,
-          variant: params.variant,
-          project: projectOf(params, ctx),
-          session: state.sessionId,
-        }),
-      });
-      rememberSession(state, comment.sessionId);
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Posted mockpit reply on ${params.mock}.${feedbackSummary(comment.userFeedback)}`,
-          },
-        ],
-        details: { ...comment, baseUrl: baseUrl() },
-      };
-    },
-  });
-
-  pi.registerTool({
-    name: "mockpit_upload_asset",
+    name: "mockpit_upload",
     label: "Mockpit Upload",
     description:
-      "Upload an asset to mockpit and get an assetId/URL. Use it as an image surface {kind:'image', assetId}, or embed the URL in html.",
+      "Upload an asset to mockpit and get an id and URL. Use the id as an image surface's assetId, or embed the URL in html.",
     promptSnippet: "Upload an image or file asset for use in a mock.",
     promptGuidelines: [
-      "Use mockpit_upload_asset before referencing local images or files in mockpit_publish_mock.",
+      "Use mockpit_upload before referencing local images or files in mockpit_publish.",
     ],
     parameters: {
       type: "object",
@@ -605,18 +594,9 @@ export default function mockpitExtension(pi) {
         contentType: { type: "string", description: "MIME type; inferred from path when omitted" },
         filename: { type: "string", description: "Original filename shown for downloads" },
         kind: { type: "string", enum: ["image", "file"], description: "Asset kind" },
-        session: {
-          type: "string",
-          description: "Session id; defaults to remembered session or creates one",
-        },
         sessionTitle: {
           type: "string",
-          description:
-            "Task name when this upload needs to create a session before the first publish",
-        },
-        newSession: {
-          type: "boolean",
-          description: "Force a fresh mockpit session for this upload",
+          description: "Task name when this upload creates the session before the first publish",
         },
       },
     },
@@ -626,8 +606,7 @@ export default function mockpitExtension(pi) {
       let contentType = params.contentType;
       if (params.path) {
         const cleanPath = params.path.replace(/^@/, "");
-        const filePath = resolve(ctx.cwd, cleanPath);
-        bytes = await readFile(filePath);
+        bytes = await readFile(resolve(ctx.cwd, cleanPath));
         filename ??= basename(cleanPath);
         contentType ??= contentTypeFor(cleanPath);
       } else if (params.data) {
@@ -637,37 +616,87 @@ export default function mockpitExtension(pi) {
       } else {
         throw new Error("Provide either path or base64 data.");
       }
-
-      let session = params.newSession ? undefined : (params.session ?? state.sessionId);
-      if (!session && (params.sessionTitle || params.newSession)) {
-        const created = await requestJson("/api/sessions", {
-          method: "POST",
-          body: JSON.stringify({ agent: agentName(), title: params.sessionTitle, cwd: ctx.cwd }),
-        });
-        session = created.id;
-        rememberSession(state, session);
-      }
-
-      const query = new URLSearchParams();
-      if (filename) query.set("filename", filename);
+      const session = await ensureSession(ctx, params.sessionTitle);
+      const query = new URLSearchParams({ filename, session, agent: agentName() });
       if (params.kind) query.set("kind", params.kind);
-      if (session) query.set("session", session);
-      query.set("agent", agentName());
-
       const asset = await requestJson(`/api/assets?${query}`, {
         method: "POST",
         headers: { "content-type": contentType },
         body: bytes,
       });
-      rememberSession(state, asset.sessionId);
       return {
         content: [
           {
             type: "text",
-            text: `Uploaded mockpit asset ${asset.id} (${asset.contentType}, ${asset.byteLength} bytes)\nurl: ${asset.url}\nsessionId: ${asset.sessionId}`,
+            text: `Uploaded mockpit asset ${asset.id} (${asset.contentType}, ${asset.byteLength} bytes)\nurl: ${asset.url}`,
           },
         ],
         details: { asset, sessionId: asset.sessionId, baseUrl: baseUrl() },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "mockpit_guide",
+    label: "Mockpit Guide",
+    description:
+      "Fetch the brief: the loop, parts, asks and knobs, the reply, the html contract, and this project's palette, kit and icons. Read it before the first mockpit_publish. Pass topic for one reference section.",
+    promptSnippet: "Fetch mockpit's brief before authoring mocks.",
+    promptGuidelines: [
+      "Use mockpit_guide before your first mockpit_publish call unless you already know the current brief.",
+    ],
+    parameters: {
+      type: "object",
+      properties: {
+        project: mockProps.project,
+        topic: {
+          type: "string",
+          enum: ["knobs", "asks", "surfaces", "html", "reply", "http", "scripts"],
+          description: "One reference section instead of the brief",
+        },
+      },
+    },
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const query = new URLSearchParams(
+        params.topic === undefined ? { project: projectOf(params, ctx) } : { topic: params.topic },
+      );
+      const guide = await requestText(`/agent-howto?${query}`);
+      return { content: [{ type: "text", text: guide }], details: { baseUrl: baseUrl() } };
+    },
+  });
+
+  pi.registerTool({
+    name: "mockpit_run",
+    label: "Mockpit Run",
+    description:
+      "Run a script (the body of an async function, plain JavaScript) in the server's sandbox against the mockpit API: publish variants and ask in one call; nothing waits for the user. See mockpit_guide topic scripts.",
+    promptSnippet: "Run a mockpit script server-side.",
+    parameters: {
+      type: "object",
+      properties: {
+        code: { type: "string", description: "JavaScript: the body of an async function" },
+        path: { type: "string", description: "Local .js file to run instead of code" },
+        project: mockProps.project,
+      },
+    },
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const code = params.path
+        ? await readFile(resolve(ctx.cwd, params.path), "utf8")
+        : (params.code ?? "");
+      if (!code.trim()) throw new Error("Provide code, or path to a .js file.");
+      const result = await requestJson("/api/run", {
+        method: "POST",
+        body: JSON.stringify({
+          code,
+          session: state.sessionId,
+          project: projectOf(params, ctx),
+          agent: agentName(),
+        }),
+      });
+      rememberSession(state, result.session);
+      return {
+        content: [{ type: "text", text: jsonText(result) }],
+        details: { ...result, sessionId: result.session, baseUrl: baseUrl() },
       };
     },
   });

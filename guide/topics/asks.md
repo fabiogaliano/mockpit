@@ -1,7 +1,9 @@
 # mockpit topic: asks
 
-An ask is your structured question on a mock. Ask when two renders are needed
-to show a choice, and only when the decision is really the user's.
+An ask is your structured question on a mock. A choice is several variants
+plus one ask that binds them. Ask only when the decision is really the user's,
+and ask in the mock, never in chat: after asking, tell the user in one line
+where to look and end your turn.
 
 ```sh
 mockpit ask --mock writer "Which look?" --option Quiet=quiet --option Dark=dark --id look
@@ -10,7 +12,7 @@ mockpit ask --mock writer --asks asks.json
 
 ## Shape
 
-The same JSON goes to `--asks`, MCP `ask_user` and `POST /api/mocks/:id/asks`:
+The same JSON goes to `--asks`, MCP `ask` and `POST /api/mocks/:id/asks`:
 
 ```json
 [
@@ -69,3 +71,17 @@ When you publish variants, ask `scope: "mock"` with one option per variant, and
 ask it first. Questions appear in the order you ask them. This one is titled
 "Look" and unlocks Mix, which lets the user borrow a part from another look.
 Variants without a Look ask get a plain switcher in the frame header.
+
+## When you forget to ask
+
+A publish that leaves a state with two or more open variants and no ask
+binding them returns a nudge and a ready `suggestedAsk` (mock-wide when the
+variant names line up across states, else for that state). Send it as is with
+`ask`, or write your own question with options bound to the variants. The CLI
+prints the `mockpit ask` command for you.
+
+Until an ask binds them, the viewer shows a built-in "Which one?" with a
+picture of each variant, so the user can still choose in one Send. Its answer
+reads like any other ask under the reserved id `variant` (per state:
+`variant:<state>`), and accepts and archives per state. Your own ask over
+those variants replaces it.

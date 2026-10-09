@@ -9,8 +9,8 @@
 //
 // The gif pass replays the decide loop live: the agent publishes three looks and
 // its asks → the user previews the looks on the stage and picks one → answers a
-// part question → Send → Thread shows ✓, then ✓✓ once the agent's wait reads it
-// → the agent replies and publishes v2. ffmpeg turns the recorded webm into the
+// part question → Send → Thread shows ✓, then ✓✓ once the agent's feedback
+// read takes it → the agent replies and publishes v2. ffmpeg turns the recorded webm into the
 // gif: mpdecimate drops held frames (keeping one every two seconds, so the
 // closing hold survives) and an undithered 128-colour palette suits flat UI; both
 // keep the README gif small.
@@ -239,20 +239,20 @@ async function gif() {
     await glide(rb.x - 40, rb.y + rb.height / 2);
     await sleep(1600);
 
-    // The agent's blocking wait reads the batch: ✓ turns ✓✓ seen.
-    await api(`/api/comments?session=${session}&author=user&wait=10`);
-    await row.locator(".tseen.ok").waitFor();
+    // The agent's feedback read takes the batch: ✓ turns ✓✓ seen.
+    await api(`/api/feedback?session=${session}`);
+    await row.locator(".tdelivered.ok").waitFor();
     await sleep(1300);
 
     // The agent answers in the thread and publishes v2 of the picked look.
-    await api("/api/comments", {
-      mock: mockId,
+    await api(`/api/mocks/${mockId}/say`, {
       session,
-      text: "Quiet it is, with the trim below the page. v2 moves it.",
+      message: "Quiet it is, with the trim below the page. v2 moves it.",
     });
     await sleep(1400);
     const writing = DEMO.states[0];
-    await api(`/api/mocks/${mockId}/revise`, {
+    await api("/api/mocks", {
+      mock: mockId,
       session,
       state: writing.label,
       variant: "quiet",

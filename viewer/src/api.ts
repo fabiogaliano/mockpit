@@ -19,7 +19,7 @@ export type MockSummary = ReturnType<typeof mockSummaryView>;
 export type MockDetail = ReturnType<typeof mockDetailView>;
 export type VariantView = ReturnType<typeof variantView>;
 export type HistoryRow = NonNullable<VariantView["history"]>[number];
-export type CommentRow = Comment & { seen: boolean };
+export type CommentRow = Comment & { delivered: boolean };
 export type { FeedEvent, ProjectSummary };
 
 // What the viewer edits: a Draft minus the server's timestamp.

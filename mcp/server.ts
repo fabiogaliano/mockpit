@@ -4,7 +4,6 @@ import { readFileSync, statSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { feedbackResult } from "../server/mcpHttp.ts";
 import {
   MCP_INSTRUCTIONS,
   MCP_SERVER_INFO,
@@ -30,8 +29,7 @@ async function api(path: string, init: RequestInit = {}) {
   let res: Response;
   try {
     res = await fetch(`${API}${path}`, { ...init, headers });
-  } catch (err) {
-    if (init.signal?.aborted) throw err;
+  } catch {
     throw new Error(
       `mockpit server not reachable at ${API} — ask the user to start it with "mockpit serve" or "npm run dev"`,
     );
@@ -133,42 +131,24 @@ async function ensureSession(title?: string): Promise<string> {
   return sessionId;
 }
 
-// Every tool is a pass-through to the REST route the CLI uses: same request,
-// same response, so the three tiers cannot drift. Only the session (one per
-// conversation), the project (this repo) and file paths are filled in here.
-const handlers: Record<string, (args: any, signal?: AbortSignal) => Promise<unknown>> = {
-  async publish_mock(args) {
+// Every tool is a pass-through to the REST route the CLI uses, mapped the way
+// server/mcpHttp.ts maps HTTP MCP: same request, same response, so the tiers
+// cannot drift. Only the session (one per conversation), the project (this
+// repo) and file paths are filled in here.
+const handlers: Record<string, (args: any) => Promise<unknown>> = {
+  async publish(args) {
     const session = await ensureSession(args.sessionTitle);
     const html = typeof args.html === "string" ? readMaybeFile(args.html) : undefined;
     return post("/api/mocks", {
       ...args,
       html,
+      parts: readPartFiles(args.parts),
       session,
       agent: AGENT,
       project: resolveProject(args.project),
     });
   },
-  async revise_mock(args) {
-    const session = await ensureSession();
-    const html = typeof args.html === "string" ? readMaybeFile(args.html) : undefined;
-    return post(`/api/mocks/${enc(args.mock)}/revise`, {
-      ...args,
-      html,
-      parts: readPartFiles(args.parts),
-      session,
-      project: resolveProject(args.project),
-    });
-  },
-  list_mocks: (args) => json(`/api/mocks${query({ project: resolveProject(args.project) })}`),
-  get_mock: (args) =>
-    json(
-      `/api/mocks/${enc(args.mock)}${query({
-        project: resolveProject(args.project),
-        body: args.body,
-        history: args.history,
-      })}`,
-    ),
-  async ask_user(args) {
+  async ask(args) {
     const session = await ensureSession();
     return post(`/api/mocks/${enc(args.mock)}/asks`, {
       ...args,
@@ -176,29 +156,33 @@ const handlers: Record<string, (args: any, signal?: AbortSignal) => Promise<unkn
       project: resolveProject(args.project),
     });
   },
-  async wait_for_feedback(args, signal) {
+  read: (args) =>
+    json(
+      args.mock === undefined
+        ? `/api/mocks${query({ project: resolveProject(args.project) })}`
+        : `/api/mocks/${enc(args.mock)}${query({
+            project: resolveProject(args.project),
+            body: args.body,
+            history: args.history,
+          })}`,
+    ),
+  // Never waits: the server reads from the session's cursor, shared with
+  // piggyback and `mockpit watch`, so each Send is delivered exactly once.
+  async feedback(args) {
     const session = await ensureSession();
-    // No client-side cursor: the server resumes author=user reads from the
-    // session's agent cursor, shared with piggyback delivery. The client's
-    // cancel (its own tool timeout) aborts the long-poll, so the server never
-    // hands this request a batch the agent will not see.
-    const wait = Math.min(230, Math.max(0, args.timeoutSeconds ?? 55));
-    return feedbackResult(
-      await json(`/api/comments${query({ session, author: "user", wait })}`, { signal }),
-    );
+    return json(`/api/feedback${query({ session, project: resolveProject(args.project) })}`);
   },
-  async reply_to_user(args) {
+  async say(args) {
     const session = await ensureSession();
-    return post("/api/comments", {
-      mock: args.mock,
+    return post(`/api/mocks/${enc(args.mock)}/say`, {
       state: args.state,
       variant: args.variant,
       project: resolveProject(args.project),
       session,
-      text: args.message,
+      message: args.message,
     });
   },
-  export_mock: (args) =>
+  export: (args) =>
     json(
       `/api/mocks/${enc(args.mock)}/export${query({
         project: resolveProject(args.project),
@@ -206,7 +190,7 @@ const handlers: Record<string, (args: any, signal?: AbortSignal) => Promise<unkn
         variant: args.variant,
       })}`,
     ),
-  async upload_asset({ path, data, contentType, filename, kind }) {
+  async upload({ path, data, contentType, filename, kind }) {
     const session = await ensureSession();
     // Stdio shares the agent's filesystem, so a path beats base64 in context.
     return post("/api/assets", {
@@ -219,7 +203,7 @@ const handlers: Record<string, (args: any, signal?: AbortSignal) => Promise<unkn
   },
   // The brief renders this project's real palette, kit, and icons, so the
   // agent never restates them; a topic is the same text on every tier.
-  get_design_guide: (args) =>
+  guide: (args) =>
     api(
       `/agent-howto${query(
         args.topic === undefined
@@ -227,37 +211,11 @@ const handlers: Record<string, (args: any, signal?: AbortSignal) => Promise<unkn
           : { topic: args.topic },
       )}`,
     ),
-  add_surface: (args) =>
-    post(`/api/mocks/${enc(args.mock)}/surfaces`, {
-      ...args,
-      project: resolveProject(args.project),
-    }),
-  edit_surface: (args) =>
-    post(
-      `/api/mocks/${enc(args.mock)}/surfaces/${enc(args.target)}`,
-      { ...args, parts: readPartFiles(args.parts), project: resolveProject(args.project) },
-      "PATCH",
-    ),
-  remove_surface: (args) =>
-    json(
-      `/api/mocks/${enc(args.mock)}/surfaces/${enc(args.target)}${query({
-        state: args.state,
-        variant: args.variant,
-        project: resolveProject(args.project),
-      })}`,
-      { method: "DELETE" },
-    ),
-  reorder_surfaces: (args) =>
-    post(
-      `/api/mocks/${enc(args.mock)}/surfaces`,
-      { ...args, project: resolveProject(args.project) },
-      "PATCH",
-    ),
 };
 
 // The script travels as a file path when it can, so it is never JSON-escaped
-// into the model's tool call. The client's cancel aborts the run server-side.
-async function run(args: any, signal?: AbortSignal) {
+// into the model's tool call.
+async function run(args: any) {
   const code =
     typeof args.path === "string" && args.path
       ? readFileSync(args.path, "utf8")
@@ -269,7 +227,6 @@ async function run(args: any, signal?: AbortSignal) {
   return json("/api/run", {
     method: "POST",
     body: JSON.stringify({ code, session, project: resolveProject(args.project), agent: AGENT }),
-    signal,
   });
 }
 
@@ -279,16 +236,12 @@ const server = new McpServer(MCP_SERVER_INFO, {
 
 if (CODE_MODE) {
   const [{ name, ...config }] = STDIO_RUN_TOOLS;
-  server.registerTool(name, config, async (args: any, extra) =>
-    runToolResult(await run(args, extra.signal)),
-  );
+  server.registerTool(name, config, async (args: any) => runToolResult(await run(args)));
 } else {
   for (const tool of STDIO_MCP_TOOLS) {
     const handler = handlers[tool.name];
     const { name, ...config } = tool;
-    server.registerTool(name, config, async (args: any, extra) =>
-      toolResult(name, await handler(args, extra.signal)),
-    );
+    server.registerTool(name, config, async (args: any) => toolResult(name, await handler(args)));
   }
 }
 // Replaces the SDK's own listing (registered above), so stdio advertises the

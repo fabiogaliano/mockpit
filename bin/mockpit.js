@@ -27,18 +27,33 @@ mock is the page or component on stage; a state is one moment of it ("Lab
 open"); a variant is a parallel design of a state; a version is its history.
 Mark the parts you want feedback on with data-part="name" in the html.
 
-design loop:
+the loop (never blocks on the user):
+  1. mockpit init once per repo; read the brief (mockpit guide).
+  2. mockpit publish once per variant; mark parts with data-part.
+  3. A choice is several variants plus one ask that binds them: mockpit ask
+     with options bound to variants. One render plus a control: --knobs.
+  4. Tell the user in one line where to look, then end your turn. The question
+     itself lives in the mock (ask), never in chat. The user answers in the
+     browser at their own pace. Never poll.
+  5. When the user says they answered (or a mockpit watch line wakes you), run
+     mockpit feedback. Every write also returns feedback; read it.
+  6. mockpit publish the revision; mockpit export once a variant is accepted.
+  In Claude Code, arm mockpit watch under Monitor after asking, then end the
+  turn; elsewhere the user's next message is the wake-up.
+
+verbs:
   mockpit init [--project name] [--kit <id>] [--kit-url <url> --kit-doc <file|text>]
                                           detect the repo's design system, store
                                           palette/kit/icon sets, write .mockpit/starter.html
-  mockpit icons [add|remove <set>...]    list the icon sets html surfaces can name
-                                          (icon="prefix:name"); add or remove an
-                                          Iconify set for this project
   mockpit publish --mock <slug> --html <file> [options]
-                                          publish (or re-version) one variant of
-                                          one state
+                                          create or version one variant of one state
       --state <label>   state, in the user's words (omit for a single-state mock)
       --variant <name>  variant label (default "default")
+      --html <file|->   the html body (or a positional file)
+      --surfaces <json|file>  instead: the full ordered surface list; {"id"}
+                        alone keeps a surface, a missing id removes it
+      --parts <name=file|->  instead: replace just that data-part's element in
+                        the latest version (repeatable; name#key targets one instance)
       --title <t>       mock title
       --kind <k>        component|page (default component)
       --knobs <json|file>  knobs in tunekit usePane shape, keyed by path
@@ -49,10 +64,6 @@ design loop:
       --md/--mermaid/--diff/--terminal/--data/--code/--image <file|->
                         add a surface of that kind after the html (repeatable;
                         --data is a JSON tree)
-  mockpit revise --mock <slug> --html <file> [--state s] [--variant v] [--from N]
-                                          publish the next version of a variant
-      --part <name=file|->  instead of --html: replace just that data-part's
-                        element (repeatable; name#key targets one instance)
   mockpit ask --mock <slug> "<question>" --option <label[=variant]> ...
                                           ask the user; bind options to variants
       --option <l[=v]>  an option (repeatable); "=variant" binds it to a variant
@@ -62,45 +73,36 @@ design loop:
       --multi           allow several answers
       --id <id>         stable id; reusing one replaces that ask
       --asks <json|file>  several asks at once, full shape
-  mockpit wait [--mock <slug>] [--timeout s]
-                                          block until the user sends their reply;
-                                          prints the feedback batch as JSON
-      --timeout <sec>   seconds to wait (default 55, max 230)
-      --session <id>    session to watch (default: auto)
-      --after <seq>     re-read after this cursor (default: where the agent left
-                        off, tracked server-side across CLI/MCP)
-  mockpit run <file|->                   run a script against the mockpit API on the
-                                          server: publish, ask and wait in one go
-                                          (mockpit guide --topic scripts)
-  mockpit status [--project <name>]      one line per mock: states, variants, open asks
-  mockpit show --mock <slug> [--body] [--history]
-                                          mock metadata, asks, parts, knobs;
-                                          bodies and version rows are opt-in
+  mockpit read [slug] [--body] [--history]
+                                          no slug: every mock plus what the user
+                                          is doing now; a slug: that mock
+  mockpit feedback                       what the user sent since you last heard,
+                                          plus pending; returns at once
+  mockpit say "<text>" --mock <slug> [--state s] [--variant v]
+                                          a plain-text message in a mock's thread
   mockpit export --mock <slug> [--state s] [--variant v] [--out <dir>]
                                           write the accepted html + history per state
                                           to .mockpit/accepted/<mock>/<state>/
-  mockpit guide --brief                  the short, project-aware agent guide
+  mockpit upload <file> [--kind image|file]
+                                          upload an asset, print its id and URL
+  mockpit guide [--topic <id>]           the project-aware brief, or one reference topic
+  mockpit run <file|->                   run a script against the mockpit API on the
+                                          server (mockpit guide --topic scripts)
+  mockpit watch [--session <id>]         stream user feedback, one line per Send
+                                          (for a background monitor)
 
 other commands:
   mockpit serve [--port N] [--host H] [--open]
                                           start the server (API + viewer)
   mockpit demo                           seed the Writer mock to explore the viewer
-  mockpit comment "<text>" --mock <slug> [--state s] [--variant v]
-                                          reply to the user in a mock's thread
-  mockpit watch [--session <id>]         stream user feedback forever, one line
-                                          each (for a background monitor)
-  mockpit surface add|remove|edit|move --mock <slug> ...
-                                          edit one surface of a variant
-  mockpit upload <file> [--kind image|file]
-                                          upload an asset, print its id and URL
+  mockpit icons [add|remove <set>...]    list the icon sets html surfaces can name
+                                          (icon="prefix:name"); add or remove an
+                                          Iconify set for this project
   mockpit asset-url <file>               print the URL a file will have (no upload)
   mockpit kits                           list the opt-in html kits (bundled + project)
   mockpit kit add <id> --url <css> --doc <file|text> [--script <js>]
                                           define a project kit from a CDN stylesheet
   mockpit kit remove <id>                remove a project kit
-  mockpit agent-howto [--topic <id>]     print the brief to read before publishing,
-                                          or one reference topic
-  mockpit guide [--brief|--topic <id>]   print the html topic (or the brief, or a topic)
   mockpit setup                          print the AGENTS.md integration block
   mockpit version                        show version and check for updates
   mockpit mcp                            run the stdio MCP server (for agent configs)
@@ -119,11 +121,6 @@ environment:
   MOCKPIT_SESSION  fixed session id (overrides auto-detection)
   MOCKPIT_AGENT    agent name used when creating sessions
 `;
-
-// Same default and ceiling on every tier (CLI, stdio MCP, HTTP MCP, Pi); the
-// server clamps each long-poll at 230 s too.
-const DEFAULT_WAIT_SECONDS = 55;
-const MAX_WAIT_SECONDS = 230;
 
 // Per-command help, so `mockpit publish --help` costs a few lines instead of
 // the whole manual. Commands without an entry fall back to HELP.
@@ -147,8 +144,15 @@ mockpit icons remove <set> [<set>...]
   lucide and mage are bundled. add finds @iconify-json/<set> in node_modules,
   the global npm root or bun's cache, else fetches it from jsDelivr.`,
   publish: `mockpit publish --mock <slug> --html <file> [options]
+mockpit publish --mock <slug> --surfaces <json|file> [options]
+mockpit publish --mock <slug> --parts <name=file|-> ... [options]
+  Creates the mock, state or variant, or the next version of an existing one.
   --state <label>    state in the user's words (omit for a single-state mock)
   --variant <name>   variant label (default "default")
+  --surfaces <json|file>  the full ordered list: {"id"} alone keeps a surface,
+                     a missing id removes it, order is the list order
+  --parts <name=file|->   replace only the element carrying data-part="name"
+                     (name#key for one instance) in the latest version; repeatable
   --title <t>        mock title
   --kind <k>         component|page (default component)
   --knobs <json|file>  knobs in tunekit usePane shape
@@ -157,46 +161,45 @@ mockpit icons remove <set> [<set>...]
   --project <name>   project (default: git remote, else directory name)
   --md/--mermaid/--diff/--terminal/--data/--code/--image <file>  more surfaces
   --json / --quiet
-  Prints the parts found per state and flags parts that vanished or were renamed.`,
-  revise: `mockpit revise --mock <slug> --html <file> [--state s] [--variant v] [--from <N>]
-  mockpit revise --mock <slug> --part <name=file|-> ... [--state s] [--variant v]
-  Publish the next version of an existing variant. --part replaces only the element
-  carrying data-part="name" (name#key for one instance); the rest is kept.`,
+  Prints the parts found per state, parts that vanished or were renamed,
+  nudges, a ready-to-run "mockpit ask" when variants have no ask, and feedback.`,
   ask: `mockpit ask --mock <slug> "<question>" --option <label[=variant]> ... [--scope mock|state|part]
   [--state s] [--part p] [--multi] [--id id]
   mockpit ask --mock <slug> --asks <json|file>
-  Ask the user. Two renders needed to show a choice: bind options to variants.`,
-  wait: `mockpit wait [--mock <slug>] [--timeout <seconds>] [--session <id>]
-  Block until the user sends (default 55 s, max 230), then print the feedback batch:
-  {mock, reply: {answers, mix, tuned, comments, text}, comments, accepted, archived}.`,
+  Ask the user. A choice is several variants plus one ask that binds them.
+  Then tell the user where to look and end your turn.`,
+  read: `mockpit read [slug] [--project <name>] [--body] [--history]
+  No slug: one line per mock (states, variants, open asks) plus pending, what
+  the user is doing now. A slug: the mock's states, variants, asks with
+  answers, parts, knobs and last tuned values, plus its pending, as JSON.
+  --body includes surfaces, --history version rows. Never consumes feedback.`,
+  feedback: `mockpit feedback [--project <name>] [--session <id>]
+  Returns at once with {feedback, pending} as JSON: one batch per mock the user
+  sent since you last heard ({mock, reply: {asks, mix, tuned, comments},
+  comments, accepted, archived}), delivered once across feedback, watch and
+  every write; and pending ({mock, viewerOpen, draft}) so you can tell the
+  user "take your time" or "2 of 3 answered". Run it when the user says they
+  answered.`,
+  say: `mockpit say "<text>" --mock <slug> [--state s] [--variant v]
+  A plain-text message in the mock's thread, as your session's agent.`,
   run: `mockpit run <file|-> [--session <id>] [--project <name>] [--json]
   Run a script (the body of an async function, plain JavaScript) in the server's
   sandbox against the mockpit API; see mockpit guide --topic scripts. Prints each
   host call in order, the script's prints, its value or error, and any user
   feedback the run received. --json prints the whole result. Exits 2 when the
-  script failed. 200 s per run.`,
+  script failed.`,
   watch: `mockpit watch [--session <id>] [--after <seq>]
-  Stream user feedback forever, one line per piece, for a background monitor.
-  Delivery is shared with wait and piggyback: each piece arrives once.`,
-  status: `mockpit status [--project <name>]
-  One line per mock: slug, kind, states, variants, open asks.`,
-  show: `mockpit show --mock <slug> [--body] [--history]
-  Metadata, asks, parts and knobs. --body includes surfaces, --history version rows.`,
+  Stream user feedback, one line per Send, for a background monitor (in
+  Claude Code, arm it under Monitor after asking, then end the turn).
+  Delivery is shared with feedback and every write: each Send arrives once.`,
   export: `mockpit export --mock <slug> [--state s] [--variant v] [--out <dir>]
   Write index.html + history.json per state to .mockpit/accepted/<mock>/<state>/.`,
-  comment: `mockpit comment "<text>" --mock <slug> [--state s] [--variant v]
-  Reply to the user in a mock's thread.`,
-  surface: `mockpit surface add --mock <slug> [--state s] [--variant v] --md <f> [--before N|--after N]
-mockpit surface remove --mock <slug> [--state s] [--variant v] <N|id>
-mockpit surface edit --mock <slug> [--state s] [--variant v] <N|id> <file|->
-mockpit surface move --mock <slug> [--state s] [--variant v] <N|id> --to <M>`,
-  "agent-howto": `mockpit agent-howto [--topic <id>] [--project <name>]
+  upload: `mockpit upload <file> [--kind image|file] [--session <id>]
+  Upload an asset; prints its id and URL. Use the id as an image surface's assetId.`,
+  guide: `mockpit guide [--topic <id>] [--project <name>]
   No flag prints the brief: the loop, parts, asks and knobs, the reply, and
   this project's palette, kit and icons. --topic prints one reference topic
   (knobs, asks, surfaces, html, reply, http, scripts).`,
-  guide: `mockpit guide [--brief] [--topic <id>]
-  No flag prints the html topic. --brief prints the project-aware brief
-  (same as mockpit agent-howto). --topic prints one reference topic.`,
 };
 
 // `console.log(...)` on a pipe is asynchronous, so exiting on the next line
@@ -764,6 +767,15 @@ function readJsonFlag(name, value) {
 
 const stateLabel = (s) => (s === null || s === undefined ? "" : `${s}/`);
 
+// A shell-quoted argument for the ready-to-run lines the CLI prints.
+const shq = (s) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${String(s).replace(/'/g, `'\\''`)}'`);
+
+// The server's suggested ask as the command that sends it: an agent that was
+// nudged can run it as is. --asks carries ids and scope, which flags can't.
+function suggestedAskLine(slug, ask) {
+  return `mockpit ask --mock ${shq(slug)} --asks ${shq(JSON.stringify([ask]))}`;
+}
+
 // One line per write: what was published, its URL, the parts found per state,
 // anything that moved, and feedback the user left while the agent worked.
 function printPublished(result, flags) {
@@ -785,14 +797,33 @@ function printPublished(result, flags) {
   }
   if (changes?.vanished?.length) console.log(`vanished: ${changes.vanished.join(", ")}`);
   for (const nudge of result.nudges ?? []) console.log(`nudge: ${nudge}`);
+  if (result.suggestedAsk)
+    console.log(`suggested: ${suggestedAskLine(mock.slug, result.suggestedAsk)}`);
   for (const warning of result.warnings ?? []) console.log(`warning: ${warning}`);
-  // Only speak when there IS feedback: an empty line per publish is pure token
-  // cost, and the cursor guarantees anything pending arrives on some write.
-  if (result.userFeedback?.length)
-    console.log(`userFeedback: ${JSON.stringify(result.userFeedback)}`);
+  printFeedback(result.feedback);
 }
 
-// publish and revise share one flag set and one body.
+// Only speak when there IS feedback: an empty line per write is pure token
+// cost, and the cursor guarantees anything pending arrives on some write.
+function printFeedback(feedback) {
+  if (feedback?.length) console.log(`feedback: ${JSON.stringify(feedback)}`);
+}
+
+// What the user is doing right now. viewerOpen is workspace-wide, so it is
+// said once rather than per mock.
+function pendingLines(pending) {
+  const rows = pending ?? [];
+  const lines = rows
+    .filter((p) => p.draft)
+    .map(
+      (p) =>
+        `pending: ${p.mock} — the user is answering (${p.draft.answered} of ${p.draft.of} answered, ${p.draft.comments} comment${p.draft.comments === 1 ? "" : "s"})`,
+    );
+  if (lines.length === 0 && rows.some((p) => p.viewerOpen))
+    lines.push("pending: the viewer is open");
+  return lines;
+}
+
 function parsePublishFlags() {
   return parse({
     tokens: true,
@@ -802,7 +833,8 @@ function parsePublishFlags() {
       title: { type: "string" },
       kind: { type: "string" },
       html: { type: "string" },
-      part: { type: "string", multiple: true },
+      surfaces: { type: "string" },
+      parts: { type: "string", multiple: true },
       knobs: { type: "string" },
       from: { type: "string" },
       prompt: { type: "string" },
@@ -822,21 +854,20 @@ function parsePublishFlags() {
   });
 }
 
-// `--part name=file` (repeatable; `name#key` targets one instance): the new
-// outer html of one part, spliced server-side into the current version.
-function readPartFlags(values, slug, revise) {
+// `--parts name=file` (repeatable; `name#key` targets one instance): the new
+// outer html of one part, spliced server-side into the latest version.
+function readPartFlags(values, slug) {
   if (!values?.length) return undefined;
-  const example = `mockpit revise --mock ${slug} --part body=body.html`;
-  if (!revise) die("--part edits a published version; use it with revise", example);
+  const example = `mockpit publish --mock ${slug} --parts body=body.html`;
   const parts = {};
   let stdin = false;
   for (const raw of values) {
     const at = raw.indexOf("=");
-    if (at <= 0 || at === raw.length - 1) die(`--part needs name=file (got "${raw}")`, example);
+    if (at <= 0 || at === raw.length - 1) die(`--parts needs name=file (got "${raw}")`, example);
     const name = raw.slice(0, at);
     const file = raw.slice(at + 1);
     if (file === "-") {
-      if (stdin) die("only one --part can read stdin", example);
+      if (stdin) die("only one --parts can read stdin", example);
       stdin = true;
     } else if (!existsSync(file)) die(`cannot read ${file}`, `ls ${file}`);
     parts[name] = readContent(file);
@@ -844,33 +875,52 @@ function readPartFlags(values, slug, revise) {
   return parts;
 }
 
-async function publishMock({ revise = false } = {}) {
+async function publishMock() {
   const { values: flags, positionals, tokens } = parsePublishFlags();
-  const verb = revise ? "revise" : "publish";
-  const slug = requireMock(flags, `mockpit ${verb} --mock writer --html writer.html`);
+  const slug = requireMock(flags, "mockpit publish --mock writer --html writer.html");
   const project = resolveProject(flags).name;
   const from = flags.from === undefined ? undefined : Number(flags.from);
   if (from !== undefined && !Number.isInteger(from)) {
-    die(
-      `--from must be a version number (got "${flags.from}")`,
-      `mockpit show --mock ${slug} --history`,
-    );
+    die(`--from must be a version number (got "${flags.from}")`, `mockpit read ${slug} --history`);
   }
   const file = flags.html ?? positionals[0];
+  const composed =
+    file !== undefined || tokens.some((t) => t.kind === "option" && SURFACE_FLAGS.has(t.name));
+  const given = [
+    composed && "--html",
+    flags.surfaces !== undefined && "--surfaces",
+    flags.parts?.length && "--parts",
+  ].filter(Boolean);
+  if (given.length > 1) {
+    die(
+      `pass one of --html, --surfaces or --parts, not ${given.join(" and ")}`,
+      `mockpit publish --help`,
+    );
+  }
   // Checked before the session exists so a typo'd path leaves nothing behind on the server.
   if (file && file !== "-" && !existsSync(file)) die(`cannot read ${file}`, `ls ${file}`);
-  const parts = readPartFlags(flags.part, slug, revise);
-  const session = await resolveSession(flags, { create: true });
-  const surfaces = [];
-  if (file) {
-    const html = { kind: "html", html: readContent(file) };
-    const kits = normalizeKits(flags.kit);
-    if (kits) html.kits = kits;
-    surfaces.push(html);
+  const parts = readPartFlags(flags.parts, slug);
+  let surfaces =
+    flags.surfaces === undefined ? undefined : readJsonFlag("surfaces", flags.surfaces);
+  if (surfaces !== undefined && !Array.isArray(surfaces)) {
+    die(
+      "--surfaces must be a JSON array",
+      `--surfaces '[{"id":"<id>"},{"kind":"markdown","markdown":"# notes"}]'`,
+    );
   }
-  surfaces.push(...(await surfacesFromFlags(flags, tokens, { session, layout: flags.layout })));
-  if (surfaces.length === 0 && !parts)
-    die(`no html for ${slug}`, `mockpit ${verb} --mock ${slug} --html <file>`);
+  const session = await resolveSession(flags, { create: true });
+  if (composed) {
+    surfaces = [];
+    if (file) {
+      const html = { kind: "html", html: readContent(file) };
+      const kits = normalizeKits(flags.kit);
+      if (kits) html.kits = kits;
+      surfaces.push(html);
+    }
+    surfaces.push(...(await surfacesFromFlags(flags, tokens, { session, layout: flags.layout })));
+  }
+  if (!surfaces && !parts)
+    die(`no html for ${slug}`, `mockpit publish --mock ${slug} --html <file>`);
   const body = {
     session,
     project,
@@ -882,13 +932,13 @@ async function publishMock({ revise = false } = {}) {
     ...(flags.knobs !== undefined && { knobs: readJsonFlag("knobs", flags.knobs) }),
     ...(from !== undefined && { from }),
     prompt: flags.prompt,
-    ...(surfaces.length && { surfaces }),
+    ...(surfaces && { surfaces }),
     ...(parts && { parts }),
   };
   const result = await api(
-    revise ? `${mockPath(slug)}/revise` : "/api/mocks",
+    "/api/mocks",
     { method: "POST", body: JSON.stringify(body) },
-    { report: "die", fix: `mockpit show --mock ${slug}` },
+    { report: "die", fix: `mockpit read ${slug}` },
   );
   printPublished(result, flags);
   return result;
@@ -903,7 +953,7 @@ function parseOption(raw) {
 
 // One feedback batch, one line — for a background monitor's notifications.
 // The run envelope for a reader: what landed, what the script said, how it
-// ended, and the feedback it took (which no later wait will return).
+// ended, and the feedback it took (which no later read will return).
 function printRun(r) {
   for (const c of r.calls ?? []) console.log(`${c.ok ? "ok  " : "fail"} ${c.fn} ${c.summary}`);
   for (const line of r.prints ?? []) console.log(`> ${line}`);
@@ -1243,10 +1293,6 @@ const commands = {
     await publishMock();
   },
 
-  async revise() {
-    await publishMock({ revise: true });
-  },
-
   async ask() {
     const { values: flags, positionals } = parse({
       allowPositionals: true,
@@ -1311,7 +1357,7 @@ const commands = {
           asks,
         }),
       },
-      { report: "die", fix: `mockpit show --mock ${slug}` },
+      { report: "die", fix: `mockpit read ${slug}` },
     );
     if (flags.json) return out(result);
     if (flags.quiet) return;
@@ -1320,14 +1366,38 @@ const commands = {
         `asked on ${result.mock}: ${ask.text} [${ask.options.map((o) => o.label).join(" | ")}]`,
       );
     }
-    if (result.userFeedback?.length)
-      console.log(`userFeedback: ${JSON.stringify(result.userFeedback)}`);
+    console.log(`tell the user to look at ${result.url}, then end your turn`);
+    printFeedback(result.feedback);
   },
 
-  async status() {
-    const { values: flags } = parse({ options: { project: { type: "string" } } });
+  // Metadata by default. Bodies and version rows are opt-in, because a full
+  // variant with its history is the biggest thing an agent can pull into context.
+  async read() {
+    const { values: flags, positionals } = parse({
+      allowPositionals: true,
+      options: {
+        project: { type: "string" },
+        body: { type: "boolean" },
+        history: { type: "boolean" },
+      },
+    });
     const project = resolveProject(flags).name;
-    const list = (await apiSoft(`/api/mocks${query({ project })}`)) ?? { mocks: [], open: 0 };
+    if (positionals.length > 1) die("read takes one mock slug", "mockpit read writer");
+    if (positionals.length === 1) {
+      const slug = slugify(positionals[0]);
+      return out(
+        await api(
+          `${mockPath(slug)}${query({ project, body: flags.body, history: flags.history })}`,
+          {},
+          { report: "die", fix: `mockpit read --project ${project}` },
+        ),
+      );
+    }
+    const list = (await apiSoft(`/api/mocks${query({ project })}`)) ?? {
+      mocks: [],
+      open: 0,
+      pending: [],
+    };
     if (flags.json) return out(list);
     if (flags.quiet) return;
     const mocks = list.mocks ?? [];
@@ -1343,30 +1413,8 @@ const commands = {
         `  ${m.slug} · ${m.kind} · ${states} · ${m.variants} variant${m.variants === 1 ? "" : "s"}${m.open ? ` · ${m.open} open` : ""}`,
       );
     }
+    for (const line of pendingLines(list.pending)) console.log(line);
   },
-
-  // Metadata by default. Bodies and version rows are opt-in, because a full
-  // variant with its history is the biggest thing an agent can pull into context.
-  async show() {
-    const { values: flags } = parse({
-      options: {
-        mock: { type: "string" },
-        project: { type: "string" },
-        body: { type: "boolean" },
-        history: { type: "boolean" },
-      },
-    });
-    const slug = requireMock(flags, "mockpit show --mock writer");
-    const project = resolveProject(flags).name;
-    out(
-      await api(
-        `${mockPath(slug)}${query({ project, body: flags.body, history: flags.history })}`,
-        {},
-        { report: "die", fix: `mockpit status --project ${project}` },
-      ),
-    );
-  },
-
   async export() {
     const { values: flags } = parse({
       options: {
@@ -1382,7 +1430,7 @@ const commands = {
     const data = await api(
       `${mockPath(slug)}/export${query({ project, state: flags.state, variant: flags.variant })}`,
       {},
-      { report: "die", fix: `mockpit show --mock ${slug}` },
+      { report: "die", fix: `mockpit read ${slug}` },
     );
     if (flags.json) return out(data);
     const root = join(flags.out ? flags.out : join(process.cwd(), ".mockpit", "accepted"), slug);
@@ -1447,52 +1495,20 @@ const commands = {
     if (!result.ok) process.exit(2);
   },
 
-  async wait() {
+  // Never waits: the server reads from the session's cursor, shared with watch
+  // and piggyback, so each Send is delivered exactly once.
+  async feedback() {
     const { values: flags } = parse({
-      options: {
-        session: { type: "string" },
-        timeout: { type: "string" },
-        after: { type: "string" },
-        mock: { type: "string" },
-      },
+      options: { session: { type: "string" }, project: { type: "string" } },
     });
-    const session = await resolveSession(flags);
-    if (!session) fail("no active session — publish something first, or pass --session");
-    if (flags.after !== undefined && !/^\d+$/.test(flags.after)) {
-      fail(`--after must be a number (got "${flags.after}")`);
-    }
-    const timeout = Math.min(
-      MAX_WAIT_SECONDS,
-      Math.max(1, Number(flags.timeout ?? DEFAULT_WAIT_SECONDS)),
+    const session = await resolveSession(flags, { create: true });
+    const result = await api(
+      `/api/feedback${query({ session, project: resolveProject(flags).name })}`,
+      {},
+      { report: "die" },
     );
-    const deadline = Date.now() + timeout * 1000;
-    // No client-side cursor: without --after, the server resumes from the
-    // session's agent cursor, shared with piggyback and MCP delivery.
-    let cursor = flags.after;
-    let batches = [];
-    while (Date.now() < deadline && batches.length === 0) {
-      const chunk = Math.min(60, Math.ceil((deadline - Date.now()) / 1000));
-      const result = await api(
-        `/api/comments${query({ session, author: "user", after: cursor, wait: chunk })}`,
-      );
-      if (cursor !== undefined) cursor = result.lastSeq ?? cursor;
-      batches = result.feedback ?? [];
-      if (flags.mock) {
-        const slug = slugify(flags.mock);
-        batches = batches.filter((b) => b.mock === slug);
-      }
-    }
-    if (flags.quiet) return;
-    if (batches.length === 0) {
-      return out({
-        feedback: [],
-        timedOut: true,
-        hint: "no user feedback yet — run wait again or continue",
-      });
-    }
-    out(batches.length === 1 ? batches[0] : batches);
+    if (!flags.quiet) out(result);
   },
-
   async watch() {
     const { values: flags } = parse({
       options: { session: { type: "string" }, after: { type: "string" } },
@@ -1506,7 +1522,7 @@ const commands = {
     //
     // After the first poll it carries no client cursor: an author=user read
     // resumes from the session's server-side cursor and advances it, so
-    // feedback is delivered exactly once across watch, wait, and piggyback.
+    // feedback is delivered exactly once across watch, feedback, and piggyback.
     let firstAfter = flags.after;
     for (;;) {
       const session = (await resolveSession(flags)) ?? (await resolveSessionByCwd());
@@ -1536,147 +1552,31 @@ const commands = {
     }
   },
 
-  async comment() {
+  async say() {
     const { values: flags, positionals } = parse({ allowPositionals: true, options: MOCK_FLAGS });
     const text = positionals.join(" ").trim();
-    if (!text) die("comment needs text", 'mockpit comment "…" --mock writer');
-    const slug = requireMock(flags, `mockpit comment "${text}" --mock writer`);
+    if (!text) die("say needs text", 'mockpit say "…" --mock writer');
+    const slug = requireMock(flags, `mockpit say "${text}" --mock writer`);
     const session = await resolveSession(flags);
-    out(
-      await api(
-        "/api/comments",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            text,
-            mock: slug,
-            state: flags.state,
-            variant: flags.variant,
-            project: resolveProject(flags).name,
-            session: session ?? undefined,
-          }),
-        },
-        { report: "die", fix: `mockpit show --mock ${slug}` },
-      ),
+    const result = await api(
+      `${mockPath(slug)}/say`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          message: text,
+          state: flags.state,
+          variant: flags.variant,
+          project: resolveProject(flags).name,
+          session: session ?? undefined,
+        }),
+      },
+      { report: "die", fix: `mockpit read ${slug}` },
     );
+    if (flags.json) return out(result);
+    if (flags.quiet) return;
+    console.log(`said on ${slug}`);
+    printFeedback(result.feedback);
   },
-
-  async surface() {
-    const sub = rest.shift();
-    if (!sub || sub === "--help" || sub === "-h") printAndExit(COMMAND_HELP.surface);
-    const target = (flags, extra = {}) => ({
-      project: resolveProject(flags).name,
-      state: flags.state,
-      variant: flags.variant,
-      ...extra,
-    });
-    const send = (path, method, body, flags) =>
-      api(path, { method, body: JSON.stringify(body) }, { report: "die" }).then((r) =>
-        printPublished(r, flags),
-      );
-
-    if (sub === "add") {
-      const { values: flags, tokens } = parse({
-        tokens: true,
-        allowPositionals: true,
-        options: {
-          ...MOCK_FLAGS,
-          md: { type: "string", multiple: true },
-          mermaid: { type: "string", multiple: true },
-          diff: { type: "string", multiple: true },
-          terminal: { type: "string", multiple: true },
-          data: { type: "string", multiple: true },
-          code: { type: "string", multiple: true },
-          image: { type: "string", multiple: true },
-          before: { type: "string" },
-          after: { type: "string" },
-          layout: { type: "string" },
-        },
-      });
-      const slug = requireMock(flags, "mockpit surface add --mock writer --md notes.md");
-      const session = await resolveSession(flags, { create: true });
-      const surfaces = await surfacesFromFlags(flags, tokens, { session, layout: flags.layout });
-      if (surfaces.length === 0) fail("provide at least one surface flag (--md, --code, ...)");
-      // One append per surface so --before/--after applies to each, in order.
-      for (const surface of surfaces) {
-        await send(
-          `${mockPath(slug)}/surfaces`,
-          "POST",
-          target(flags, { surface, before: flags.before, after: flags.after }),
-          { ...flags, quiet: true },
-        );
-      }
-      if (!flags.quiet) console.log(`added ${surfaces.length} surface(s) to ${slug}`);
-    } else if (sub === "remove") {
-      const { values: flags, positionals } = parse({ allowPositionals: true, options: MOCK_FLAGS });
-      const slug = requireMock(flags, "mockpit surface remove --mock writer 1");
-      if (!positionals[0]) fail("usage: mockpit surface remove --mock <slug> <N|id>");
-      const result = await api(
-        `${mockPath(slug)}/surfaces/${encodeURIComponent(positionals[0])}${query(target(flags))}`,
-        { method: "DELETE" },
-        { report: "die" },
-      );
-      printPublished(result, flags);
-    } else if (sub === "edit") {
-      const { values: flags, positionals } = parse({ allowPositionals: true, options: MOCK_FLAGS });
-      const slug = requireMock(flags, "mockpit surface edit --mock writer 0 writer.html");
-      const [which, file] = positionals;
-      if (!which || file === undefined)
-        fail("usage: mockpit surface edit --mock <slug> <N|id> <file|->");
-      await send(
-        `${mockPath(slug)}/surfaces/${encodeURIComponent(which)}`,
-        "PATCH",
-        target(flags, { content: readContent(file) }),
-        flags,
-      );
-    } else if (sub === "move") {
-      const { values: flags, positionals } = parse({
-        allowPositionals: true,
-        options: { ...MOCK_FLAGS, to: { type: "string" } },
-      });
-      const slug = requireMock(flags, "mockpit surface move --mock writer 2 --to 0");
-      const which = positionals[0];
-      if (!which || flags.to === undefined)
-        fail("usage: mockpit surface move --mock <slug> <N|id> --to <M>");
-      const mock = await api(
-        `${mockPath(slug)}${query({ project: resolveProject(flags).name })}`,
-        {},
-        { report: "die" },
-      );
-      const variants = (mock.variants ?? []).filter(
-        (v) =>
-          (flags.state === undefined || v.state === flags.state) &&
-          (flags.variant === undefined || v.variant === flags.variant),
-      );
-      if (variants.length !== 1) {
-        die(
-          `${slug} has ${variants.length} matching variants; pass --state and --variant`,
-          `mockpit show --mock ${slug}`,
-        );
-      }
-      const ids = variants[0].surfaces.map((s) => s.id ?? String(s.index));
-      let fromIdx = ids.indexOf(which);
-      if (fromIdx < 0) fromIdx = Number(which);
-      const toIdx = Number(flags.to);
-      if (!Number.isInteger(fromIdx) || fromIdx < 0 || fromIdx >= ids.length)
-        fail(`surface "${which}" not found`);
-      if (!Number.isInteger(toIdx) || toIdx < 0 || toIdx >= ids.length) {
-        fail(`--to must be a valid index (0-${ids.length - 1})`);
-      }
-      const order = ids.map((_, i) => i);
-      const [moved] = order.splice(fromIdx, 1);
-      order.splice(toIdx, 0, moved);
-      await send(
-        `${mockPath(slug)}/surfaces`,
-        "PATCH",
-        target(flags, { state: variants[0].state, variant: variants[0].variant, order }),
-        flags,
-      );
-    } else {
-      fail(`unknown surface subcommand: ${sub} (use add, remove, edit, or move)`);
-    }
-  },
-
   async demo() {
     parse();
     const { DEMO } = await import("./demoData.js");
@@ -1819,28 +1719,15 @@ const commands = {
 
   async guide() {
     const { values: flags } = parse({
-      options: {
-        brief: { type: "boolean" },
-        topic: { type: "string" },
-        project: { type: "string" },
-      },
+      options: { topic: { type: "string" }, project: { type: "string" } },
     });
     if (flags.topic !== undefined) return printTopic(flags.topic);
-    if (flags.brief) return printBrief(flags);
-    return printTopic("html");
+    return printBrief(flags);
   },
 
   async setup() {
     parse();
     console.log(await fetchTextWithFallback("/setup", join(ROOT, "guide", "AGENT_SETUP.md")));
-  },
-
-  async "agent-howto"() {
-    const { values: flags } = parse({
-      options: { topic: { type: "string" }, project: { type: "string" } },
-    });
-    if (flags.topic !== undefined) return printTopic(flags.topic);
-    return printBrief(flags);
   },
 
   // Print the running version and check for updates (non-blocking, best-effort).
@@ -1891,7 +1778,7 @@ async function printTopic(topic) {
   if (!topics.includes(topic)) {
     die(
       `unknown topic "${topic}"; topics: ${topics.join(", ")}`,
-      `mockpit agent-howto --topic ${topics[0]}`,
+      `mockpit guide --topic ${topics[0]}`,
     );
   }
   const path = `/agent-howto?${new URLSearchParams({ topic })}`;

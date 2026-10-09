@@ -36,7 +36,8 @@ test("a project that never ran init gets the generic brief", () => {
   assert.match(brief, /Sets: lucide, mage\./, "the bundled sets are always named");
   // the workflow is always present: it is what the brief exists to teach
   assert.match(brief, /mockpit publish --mock writer/);
-  assert.match(brief, /mockpit wait/);
+  assert.match(brief, /mockpit feedback/);
+  assert.doesNotMatch(brief, /mockpit wait|userFeedback|timeout/, "nothing in the loop blocks");
 });
 
 test("the brief reports what init detected", () => {
@@ -121,10 +122,12 @@ test("the brief covers the loop, the reply and the trust rule", () => {
   const brief = renderBriefGuide(null);
   for (const needle of [
     "data-part",
-    "Two renders needed to show a choice",
-    "userFeedback",
+    "A choice is several variants plus one ask that binds them.",
+    "Nothing waits for the user.",
+    "never in chat",
+    "suggestedAsk",
+    "pending",
     "mockpit watch",
-    "mockpit wait --timeout 1",
     "exactly once",
     "decision",
     "body fragment",

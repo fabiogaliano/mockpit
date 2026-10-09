@@ -3,7 +3,10 @@ import type { Ask } from "../../server/types.ts";
 import type { CommentRow, DraftInput, MockDetail, VariantView } from "../src/api.ts";
 import {
   askPick,
+  builtinAsks,
   carryOver,
+  liveVariants,
+  needsBuiltinAsk,
   draftIsEmpty,
   emptyDraft,
   pickInDraft,
@@ -117,6 +120,14 @@ describe("summarizeReply", () => {
       { asks: [] },
     );
     expect(text).toBe("Sent · revise default · “tighten it”");
+  });
+
+  it("names a built-in answer by the ask it stood for", () => {
+    const text = summarizeReply(
+      { answers: { variant: "b", "variant:Lab open": "a" }, mix: {}, tuned: {}, comments: [] },
+      { asks: [] },
+    );
+    expect(text).toBe("Sent · look b · lab open a");
   });
 
   it("joins multi answers", () => {
@@ -482,7 +493,7 @@ describe("notes and Other…", () => {
           anchors: [],
           postVersion: null,
           viewport: null,
-          seen: false,
+          delivered: false,
           payload,
         } as CommentRow,
       ],
@@ -535,7 +546,7 @@ describe("threadRows", () => {
       anchors: [],
       postVersion: null,
       viewport: null,
-      seen: false,
+      delivered: false,
       ...over,
     }) as CommentRow;
   const variants = [
@@ -562,7 +573,7 @@ describe("threadRows", () => {
           id: "r",
           author: "user",
           kind: "reply",
-          seen: true,
+          delivered: true,
           createdAt: "2026-01-01T00:00:03Z",
           payload: {
             mockId: "m",
@@ -581,7 +592,7 @@ describe("threadRows", () => {
       variants,
       mock,
     );
-    expect(rows.map((r) => [r.who, r.text, r.quote, r.seen])).toEqual([
+    expect(rows.map((r) => [r.who, r.text, r.quote, r.delivered])).toEqual([
       ["agent", "published v1 · asked 2", undefined, undefined],
       ["you", "Sent · look dark · 2 comments", undefined, true],
       ["agent", "published v2 · replied:", "Done.", undefined],
@@ -765,5 +776,106 @@ describe("layoutPins", () => {
     for (const a of pins)
       for (const b of pins)
         if (a !== b) expect(Math.abs(a.x - b.x) >= 22 || Math.abs(a.y - b.y) >= 22).toBe(true);
+  });
+});
+
+describe("the built-in Which one?", () => {
+  const row = (state: string | null, variant: string, status = "open") => ({
+    state,
+    variant,
+    status: status as VariantView["status"],
+  });
+  const opts = (a: Ask) => a.options.map((o) => [o.id, o.label, o.variant]);
+
+  it("counts only non-archived variants of the state as live", () => {
+    const vs = [row("A", "x"), row("A", "y", "archived"), row("A", "z", "accepted"), row("B", "x")];
+    expect(liveVariants(vs, "A")).toEqual(["x", "z"]);
+    expect(liveVariants(vs, "B")).toEqual(["x"]);
+  });
+
+  it("needs one for 2+ live variants no applicable agent ask binds", () => {
+    const vs = [row(null, "a"), row(null, "b")];
+    expect(needsBuiltinAsk([], vs, null)).toBe(true);
+    expect(needsBuiltinAsk([], [row(null, "a"), row(null, "b", "archived")], null)).toBe(false);
+    const binds: Ask = {
+      id: "pick",
+      text: "?",
+      scope: "mock",
+      options: [
+        { id: "1", label: "A", variant: "a" },
+        { id: "2", label: "B", variant: "b" },
+      ],
+      at: "t",
+    };
+    expect(needsBuiltinAsk([binds], vs, null)).toBe(false);
+    // Binding only some of them leaves the choice unasked.
+    expect(needsBuiltinAsk([{ ...binds, options: binds.options.slice(0, 1) }], vs, null)).toBe(
+      true,
+    );
+    // A part ask is a mix, not a verdict; a state ask covers only its own state.
+    expect(needsBuiltinAsk([{ ...binds, scope: "part", part: "title" }], vs, null)).toBe(true);
+    const sv = [row("A", "a"), row("A", "b"), row("B", "a"), row("B", "b")];
+    const onA: Ask = { ...binds, scope: "state", state: "A" };
+    expect(needsBuiltinAsk([onA], sv, "A")).toBe(false);
+    expect(needsBuiltinAsk([onA], sv, "B")).toBe(true);
+  });
+
+  it("is one mock-wide ask when the names line up in every state", () => {
+    const vs = ["A", "B"].flatMap((st) => [row(st, "a"), row(st, "b")]);
+    const asks = builtinAsks({ asks: [], states: ["A", "B"] }, vs);
+    expect(asks).toHaveLength(1);
+    expect([asks[0].id, asks[0].scope, asks[0].state, asks[0].text]).toEqual([
+      "variant",
+      "mock",
+      undefined,
+      "Which one?",
+    ]);
+    expect(opts(asks[0])).toEqual([
+      ["a", "a", "a"],
+      ["b", "b", "b"],
+    ]);
+    expect(builtinAsks({ asks: [], states: [] }, [row(null, "a"), row(null, "b")])[0].id).toBe(
+      "variant",
+    );
+  });
+
+  it("is one ask per state when the names differ or a state is covered", () => {
+    const vs = [row("A", "a"), row("A", "b"), row("B", "a"), row("B", "c"), row("C", "solo")];
+    const asks = builtinAsks({ asks: [], states: ["A", "B", "C"] }, vs);
+    expect(asks.map((a) => [a.id, a.scope, a.state, opts(a).map((o) => o[0])])).toEqual([
+      ["variant:A", "state", "A", ["a", "b"]],
+      ["variant:B", "state", "B", ["a", "c"]],
+    ]);
+    const same = ["A", "B"].flatMap((st) => [row(st, "a"), row(st, "b")]);
+    const onA: Ask = {
+      id: "s",
+      text: "?",
+      scope: "state",
+      state: "A",
+      options: [
+        { id: "a", label: "a", variant: "a" },
+        { id: "b", label: "b", variant: "b" },
+      ],
+      at: "t",
+    };
+    expect(builtinAsks({ asks: [onA], states: ["A", "B"] }, same).map((a) => a.id)).toEqual([
+      "variant:B",
+    ]);
+  });
+
+  it("is gone once an agent ask binds the variants, or one is left", () => {
+    const vs = [row(null, "a"), row(null, "b")];
+    expect(builtinAsks({ asks: [look], states: [] }, vs)).toHaveLength(1);
+    const binds: Ask = {
+      ...look,
+      options: vs.map((v) => ({ id: v.variant, label: v.variant, variant: v.variant })),
+    };
+    expect(builtinAsks({ asks: [binds], states: [] }, vs)).toEqual([]);
+    expect(
+      builtinAsks({ asks: [], states: [] }, [
+        row(null, "a", "accepted"),
+        row(null, "b", "archived"),
+      ]),
+    ).toEqual([]);
   });
 });

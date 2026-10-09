@@ -1,6 +1,6 @@
 // D8: the thread lives in the panel. Agent rows come from publishes and the
-// agent's comments; your Sends show ✓ once stored and ✓✓ once the agent's
-// feedback cursor has passed them.
+// agent's comments; your Sends read "Not seen yet" once stored and "Delivered"
+// once the agent's feedback cursor has passed them (D5).
 
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { readonly } from "./host.ts";
@@ -57,9 +57,9 @@ export function Thread(props: { s: MockScreenState; scroller: () => HTMLElement 
                 <div class="tquote">{r.quote}</div>
               </Show>
               <Show when={r.who === "you"}>
-                <div class="tseen" classList={{ ok: r.seen }}>
-                  <span class="tick">{r.seen ? "✓✓" : "✓"}</span>
-                  {r.seen ? "seen" : "sent"}
+                <div class="tdelivered" classList={{ ok: r.delivered }}>
+                  <span class="tick">{r.delivered ? "✓✓" : "✓"}</span>
+                  {r.delivered ? "Delivered" : "Not seen yet"}
                 </div>
               </Show>
             </div>

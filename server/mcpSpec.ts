@@ -11,12 +11,12 @@ export const MCP_SERVER_INFO = { name: "mockpit", version: "0.2.0" };
 const SURFACE_KIND_ENUM = [...SURFACE_KINDS] as [SurfaceKind, ...SurfaceKind[]];
 
 export const MCP_INSTRUCTIONS =
-  "Mockpit shows design work to the user: project > mock > state > variant > version. Publish " +
-  "with publish_mock (name each state in the user's words; mark parts with data-part), iterate " +
-  "with revise_mock. Two renders needed to show a choice: publish variants and ask_user with " +
-  "options bound to them. One render plus a control: declare a knob. Then wait_for_feedback for " +
-  "the user's one batched reply. Read userFeedback in write results; feedback is delivered once. " +
-  "Fetch get_design_guide before html.";
+  "Mockpit shows design work to the user: project > mock > state > variant > version. publish " +
+  "each variant (name states in the user's words; mark parts with data-part); publish again to " +
+  "revise. A choice is several variants plus one ask that binds them. One render plus a " +
+  "control: declare a knob. Say where to look, then end your turn; nothing waits. When the " +
+  "user says they answered, call feedback. Writes return feedback too; it is delivered once. " +
+  "Fetch guide before html.";
 
 const field = {
   mock: "Mock slug or id",
@@ -33,7 +33,6 @@ const field = {
   variantKnobs: "Knobs this variant alone has",
   from: "Branch from this version",
   prompt: "What prompted this version; usually omit",
-  target: "Surface id or 0-based index",
   kits: `Opt-in bundles: ${KIT_IDS.join("|")}`,
 } as const;
 
@@ -48,7 +47,11 @@ const diffFileSchema = z.object({
 // generate one `Surface` type instead of four anonymous copies.
 export const mcpSurfaceSchema = z
   .object({
-    kind: z.enum(SURFACE_KIND_ENUM),
+    id: z
+      .string()
+      .optional()
+      .describe("Existing surface id: alone keeps it, with kind replaces it"),
+    kind: z.enum(SURFACE_KIND_ENUM).optional(),
     html: z.string().optional().describe(field.html),
     kits: z.array(z.string()).optional().describe(field.kits),
     markdown: z.string().optional().describe("Prose; raw HTML is escaped"),
@@ -56,7 +59,7 @@ export const mcpSurfaceSchema = z
     patch: z.string().optional().describe("Preferred over files"),
     files: z.array(diffFileSchema).optional(),
     layout: z.enum(["unified", "split"]).optional(),
-    assetId: z.string().optional().describe("Id from upload_asset"),
+    assetId: z.string().optional().describe("Id from upload"),
     alt: z.string().optional(),
     caption: z.string().optional(),
     title: z.string().optional(),
@@ -95,16 +98,13 @@ const askSchema = z.object({
 type Param =
   | { t: "string" | "number" | "boolean" | "integer"; d?: string; req?: boolean }
   | { t: "enum"; values: readonly [string, ...string[]]; d?: string; req?: boolean }
-  | { t: "surface" | "surfaces" | "asks" | "object" | "order"; d?: string; req?: boolean };
+  | { t: "surfaces" | "asks" | "object"; d?: string; req?: boolean };
 
 function zodParam(p: Param): z.ZodType {
   let s: z.ZodType;
   switch (p.t) {
     case "enum":
       s = z.enum(p.values as [string, ...string[]]);
-      break;
-    case "surface":
-      s = mcpSurfaceSchema;
       break;
     case "surfaces":
       s = z.array(mcpSurfaceSchema);
@@ -114,9 +114,6 @@ function zodParam(p: Param): z.ZodType {
       break;
     case "object":
       s = z.record(z.string(), z.unknown());
-      break;
-    case "order":
-      s = z.array(z.union([z.string(), z.number()]));
       break;
     case "integer":
       s = z.number().int();
@@ -134,7 +131,6 @@ const P = {
   variant: { t: "string", d: field.variant },
   project: { t: "string", d: field.project },
   session: { t: "string", d: field.session },
-  target: { t: "string", d: field.target, req: true },
 } as const satisfies Record<string, Param>;
 
 const VARIANT_REF = { mock: P.mock, state: P.state, variant: P.variant, project: P.project };
@@ -151,15 +147,19 @@ interface ToolDef {
 
 export const MCP_TOOL_DEFS: ToolDef[] = [
   {
-    name: "publish_mock",
+    name: "publish",
     description:
-      "Publish one variant of one state of a mock. An existing (mock, state, variant) becomes a new version. Returns the parts found per state and any that vanished or were renamed. Read userFeedback.",
+      "Create or version one variant of one state of a mock. One of html, surfaces (the full ordered list) or parts (splices the latest version). Returns parts per state, nudges, feedback.",
     params: {
       ...VARIANT_REF,
       title: { t: "string", d: field.title },
       kind: { t: "enum", values: ["component", "page"] },
       html: { t: "string", d: field.html },
-      surfaces: { t: "surfaces", d: "Instead of html, for other kinds" },
+      surfaces: {
+        t: "surfaces",
+        d: "Full ordered list: {id} keeps a surface, a missing id removes it",
+      },
+      parts: { t: "object", d: '{"name"|"name#key": outer html}; splices marked parts' },
       knobs: { t: "object", d: field.knobs },
       variantKnobs: { t: "object", d: field.variantKnobs },
       from: { t: "integer", d: field.from },
@@ -171,43 +171,9 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
     httpOnly: ["session", "agent"],
   },
   {
-    name: "revise_mock",
+    name: "ask",
     description:
-      "Publish the next version of an existing variant; from branches off an earlier one. Flags parts that vanished or were renamed. Read userFeedback.",
-    params: {
-      ...VARIANT_REF,
-      title: { t: "string", d: field.title },
-      html: { t: "string", d: field.html },
-      parts: { t: "object", d: '{"name"|"name#key": outer html}; splices parts, not with html' },
-      surfaces: { t: "surfaces", d: "Instead of html, for other kinds" },
-      knobs: { t: "object", d: field.knobs },
-      variantKnobs: { t: "object", d: field.variantKnobs },
-      from: { t: "integer", d: field.from },
-      prompt: { t: "string", d: field.prompt },
-      session: P.session,
-    },
-    httpOnly: ["session"],
-  },
-  {
-    name: "list_mocks",
-    description: "List mocks: slug, states, variants, open asks. No bodies.",
-    params: { project: P.project },
-  },
-  {
-    name: "get_mock",
-    description:
-      "One mock: states, variants, asks with answers, parts per state, knobs and last tuned values. Bodies and version rows are opt-in.",
-    params: {
-      mock: P.mock,
-      project: P.project,
-      body: { t: "boolean", d: "Include each variant's surfaces" },
-      history: { t: "boolean", d: "Include version rows" },
-    },
-  },
-  {
-    name: "ask_user",
-    description:
-      "Ask structured questions on a mock. Bind options to variants (two renders needed to show a choice) or to knob values. Reusing an ask id replaces it. Follow with wait_for_feedback.",
+      "Ask structured questions on a mock. A choice is several variants plus one ask that binds them; options may also set knob values. Reusing an ask id replaces it.",
     params: {
       mock: P.mock,
       project: P.project,
@@ -217,33 +183,44 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
     httpOnly: ["session"],
   },
   {
-    name: "wait_for_feedback",
+    name: "read",
     description:
-      "Wait for the user's feedback (default 55 seconds, max 230): one batch per mock with the reply (answers, mix, tuned knob values, part comments), plain comments, and the variants accepted/archived. 0 is a non-blocking check.",
+      "Without mock: every mock (slug, states, variants, open asks) plus pending. With mock: its states, variants, asks with answers, parts, knobs and last tuned values, plus pending. Never consumes feedback.",
     params: {
-      session: { t: "string", d: "Session id returned by publish_mock", req: true },
-      timeoutSeconds: { t: "number", d: "Seconds to wait; 0 checks only" },
+      mock: { t: "string", d: field.mock },
+      project: P.project,
+      body: { t: "boolean", d: "Include each variant's surfaces" },
+      history: { t: "boolean", d: "Include version rows" },
+    },
+  },
+  {
+    name: "feedback",
+    description:
+      "Returns at once: what the user sent since you last heard (one batch per mock: reply answers, mix, tuned knobs, part comments, comments, accepted/archived), delivered once, plus pending (viewer open, draft progress).",
+    params: {
+      project: P.project,
+      session: { t: "string", d: "Session id returned by publish", req: true },
     },
     httpOnly: ["session"],
   },
   {
-    name: "reply_to_user",
-    description: "Post a short plain-text message in a mock's thread. Read userFeedback.",
+    name: "say",
+    description: "Post a short plain-text message in a mock's thread. Returns feedback.",
     params: {
       ...VARIANT_REF,
-      message: { t: "string", d: "Plain-text reply", req: true },
+      message: { t: "string", d: "Plain text", req: true },
       session: P.session,
     },
     httpOnly: ["session"],
   },
   {
-    name: "export_mock",
+    name: "export",
     description:
       "The accepted (or current) html per state, version history, screenshot URL, knobs and the last reply's tuned values.",
     params: VARIANT_REF,
   },
   {
-    name: "upload_asset",
+    name: "upload",
     description: "Upload bytes and return id and URL. Reference id as an image surface's assetId.",
     params: {
       data: { t: "string", d: "Base64 file bytes" },
@@ -256,7 +233,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
     stdioExtra: { path: { t: "string", d: "Local file path; use instead of data" } },
   },
   {
-    name: "get_design_guide",
+    name: "guide",
     description:
       "Fetch the brief: the loop, parts, asks and knobs, the reply, the html contract, and this " +
       "project's palette, kit and icons. Read it before the first publish. Pass topic for one " +
@@ -264,45 +241,6 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
     params: {
       project: P.project,
       topic: { t: "enum", values: GUIDE_TOPICS, d: "One reference section instead of the brief" },
-    },
-  },
-  {
-    name: "add_surface",
-    description:
-      "Insert one surface into a variant; before/after take an id or 0-based index. Read userFeedback.",
-    params: {
-      ...VARIANT_REF,
-      surface: { t: "surface", req: true },
-      before: { t: "string", d: field.target },
-      after: { t: "string", d: field.target },
-    },
-  },
-  {
-    name: "edit_surface",
-    description:
-      "Replace one surface of a variant by id/index, or pass content to keep its kind options. Read userFeedback.",
-    params: {
-      ...VARIANT_REF,
-      target: P.target,
-      surface: { t: "surface" },
-      content: { t: "string", d: "New content for the existing kind" },
-      parts: { t: "object", d: 'Html only: {"name"|"name#key": outer html}; splices parts' },
-      kits: { t: "object", d: field.kits },
-    },
-  },
-  {
-    name: "remove_surface",
-    description:
-      "Remove one surface of a variant by id/index; a variant keeps at least one. Read userFeedback.",
-    params: { ...VARIANT_REF, target: P.target },
-  },
-  {
-    name: "reorder_surfaces",
-    description:
-      "Reorder every surface of a variant by id or 0-based index; order length must match. Read userFeedback.",
-    params: {
-      ...VARIANT_REF,
-      order: { t: "order", d: "All surface ids or 0-based indexes in desired order", req: true },
     },
   },
 ];
@@ -357,12 +295,14 @@ const feedbackSchema = o({
   accepted: z.array(variantRef),
   archived: z.array(variantRef),
 }).meta({ id: "Feedback" });
-// Typed once, on wait_for_feedback: repeating it on every write would cost
-// more than the rest of the write's output schema.
-const userFeedback = z
-  .array(bag)
-  .optional()
-  .describe("Feedback batches as wait_for_feedback returns");
+// Typed once, on feedback: repeating it on every write would cost more than
+// the rest of the write's output schema.
+const feedbackRide = z.array(bag).describe("Feedback batches as the feedback tool returns");
+const pendingSchema = o({
+  mock: str,
+  viewerOpen: z.boolean(),
+  draft: o({ answered: num, of: num, comments: num, touchedAt: str }).nullable(),
+}).meta({ id: "Pending" });
 
 const writeOutput = {
   post: o({ state: nullStr, variant: str, version: num }),
@@ -371,7 +311,8 @@ const writeOutput = {
   parts: partsByState,
   partChanges: o({ vanished: strs, renamed: z.array(o({ from: str, to: str })) }).optional(),
   nudges: strs.optional(),
-  userFeedback,
+  suggestedAsk: bag.optional().describe("Send with ask when a nudge names it"),
+  feedback: feedbackRide,
 };
 
 const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
@@ -388,29 +329,26 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
       line: num.optional(),
       column: num.optional(),
     }).optional(),
-    feedback: z.array(feedbackSchema).describe("Every reply the run received, also on failure"),
+    feedback: z.array(feedbackSchema).describe("Every batch the run received, also on failure"),
     session: nullStr,
   },
-  publish_mock: writeOutput,
-  revise_mock: writeOutput,
-  ask_user: { asks: z.array(o({ id: str, text: str })), open: num, url: str, userFeedback },
-  wait_for_feedback: {
-    feedback: z.array(feedbackSchema).describe("One batch per mock; empty on timeout"),
-    lastSeq: num,
+  publish: writeOutput,
+  ask: { asks: z.array(o({ id: str, text: str })), open: num, url: str, feedback: feedbackRide },
+  feedback: {
+    feedback: z.array(feedbackSchema).describe("One batch per mock; empty when nothing is new"),
+    pending: z.array(pendingSchema),
   },
-  get_mock: {
-    states: strs,
-    asks: z.array(o({ id: str, text: str, answer: z.union([str, strs]).optional() })),
-    knobs: bag,
-    variants: z.array(o({ state: nullStr, variant: str, status: str, version: num })),
-    parts: partsByState,
-    tuned: bag.describe("Knob values from the latest reply"),
+  say: { feedback: feedbackRide },
+  read: {
+    mocks: z.array(o({ slug: str, states: strs, variants: num, open: num })).optional(),
+    states: strs.optional(),
+    asks: z.array(o({ id: str, text: str })).optional(),
+    variants: z.array(o({ state: nullStr, variant: str, status: str, version: num })).optional(),
+    knobs: bag.optional(),
+    tuned: bag.optional().describe("Knob values from the latest reply"),
+    pending: z.union([z.array(pendingSchema), pendingSchema]),
   },
-  list_mocks: {
-    mocks: z.array(o({ slug: str, states: strs, variants: num, open: num })),
-    open: num.describe("Unanswered asks across mocks"),
-  },
-  export_mock: {
+  export: {
     states: z.array(o({ state: nullStr, variant: str, version: num, html: str, markdown: str })),
     reply: bag.nullable(),
   },
@@ -418,7 +356,7 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
 
 // The core loop, loaded up front by harnesses that defer the rest of the
 // catalog behind a tool search.
-const ALWAYS_LOAD = new Set(["publish_mock", "ask_user", "wait_for_feedback", "get_design_guide"]);
+const ALWAYS_LOAD = new Set(["publish", "ask", "feedback", "guide"]);
 const toolMeta = (name: string) =>
   ALWAYS_LOAD.has(name) ? { _meta: { "anthropic/alwaysLoad": true } } : {};
 
@@ -428,14 +366,9 @@ function shapeFor(tool: ToolDef, transport: "http" | "stdio"): z.ZodRawShape {
   for (const [key, p] of Object.entries(params)) {
     if (transport === "stdio" && tool.httpOnly?.includes(key)) continue;
     shape[key] =
-      // edit_surface's kits is a string list, not a free object.
-      key === "kits"
-        ? z.array(z.string()).optional().describe(field.kits)
-        : transport === "stdio" &&
-            key === "html" &&
-            (tool.name === "publish_mock" || tool.name === "revise_mock")
-          ? z.string().optional().describe(`${field.html}; or a file path`)
-          : zodParam(p);
+      transport === "stdio" && key === "html" && tool.name === "publish"
+        ? z.string().optional().describe(`${field.html}; or a file path`)
+        : zodParam(p);
   }
   return shape;
 }

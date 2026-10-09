@@ -17,9 +17,10 @@ The model is **project › mock › state › variant › version**: a project i
 (from the agent's cwd/git remote), a mock is a page or component by stable slug
 owning ordered **states**, **asks** and global **knobs**; a variant (a `Post`) is
 a parallel design of one state; versions are its history. A **part** is a
-`data-part` element in a render. The agent's verbs are `init`, `publish`, `ask`,
-`wait`, `revise`, `comment`, `status`, `show`, `export`; the user's is Send (or
-Accept / Revise / Drop on a mock without asks), which releases one **reply**.
+`data-part` element in a render. The agent's nine verbs are `publish`, `ask`,
+`read`, `feedback`, `say`, `export`, `upload`, `guide` and `run` (the CLI adds
+`init` and `watch`); the user's is Send (or Accept / Revise / Drop on a mock
+whose state has one variant and no asks), which releases one **reply**.
 
 Current product stances (deliberate choices, not accidents — revisit
 consciously, not as a side effect):
@@ -32,12 +33,16 @@ consciously, not as a side effect):
   (stdio and streamable HTTP at `/mcp`), raw HTTP. Features should work on
   all three — the CLI and curl tiers are why agents with only a shell can
   use this.
-- Feedback is never silently lost: a Send renders in the viewer (the Thread)
-  and reaches the agent (`userFeedback` piggybacked on writes, a blocking wait,
-  or a background watch). Guard this hardest — both halves have regressed
-  before.
+- Never block. No tool, CLI verb, HTTP call or `run` function waits for the
+  user: the agent asks, says where to look and ends its turn. Long-poll and
+  SSE are plumbing for `mockpit watch` and the viewer, never agent contract.
+- Feedback is never silently lost: a Send renders in the viewer (the Thread,
+  marked Delivered / Not seen yet from the sessions' `agentSeq`) and reaches the
+  agent (`feedback` piggybacked on writes, the non-blocking `feedback` verb, or
+  a background `mockpit watch`). Guard this hardest — both halves have
+  regressed before.
 - Tiers, no modes: each thing the agent adds lights up its part of the viewer
-  (variants → switcher, asks → Questions, `data-part` → Tune parts and part
+  (variants → switcher and the built-in "Which one?", asks → Questions, `data-part` → Tune parts and part
   comments, `knobs` → Tune knobs, states → strip). A plain publish of any kind
   still gets stage + Thread + Accept / Revise / Drop.
 - Self-hosted only; the embeddable viewer engine was dropped. Keep the
@@ -48,7 +53,7 @@ consciously, not as a side effect):
 - `server/app.ts` — runtime-agnostic Hono app: all routes (`/api/mocks…`,
   `/api/comments` long-poll, SSE `/api/events`, renderer `/s/:id`, assets
   `/api/assets` + `/a/:id`), and the flow functions REST and MCP share
-  (publish, revise, asks, draft, reply, export).
+  (publish, asks, read, feedback, say, draft, reply, export).
 - `server/types.ts` — data model + `Store` interface; no runtime imports.
   `Mock` (states, asks, knobs, draft), `Post` (one variant of one state: an
   ordered list of surfaces — `html` | `markdown` | `diff` | `terminal` | `image`
@@ -168,10 +173,10 @@ consciously, not as a side effect):
   on `body` makes a template's surrounding newlines render as blank lines and
   inflate the height — scope `pre-wrap` to a wrapper element.
 - Feedback cursor: each session carries `agentSeq`, the highest comment seq
-  already delivered to the agent. Piggyback collection and `author=user`
-  waits advance it, and `author=user` session waits with no explicit `after`
-  resume from it — clients keep no cursor of their own, so CLI, MCP, and
-  piggyback share one stream. The viewer's unfiltered reads never touch it.
+  already delivered to the agent. Piggyback collection, `GET /api/feedback`
+  and `author=user` long-polls (`mockpit watch`) advance it, and they resume
+  from it when no explicit `after` is given — clients keep no cursor of their
+  own, so CLI, MCP, `run` and piggyback share one stream. The viewer's unfiltered reads never touch it.
   Delivery is exactly-once by design, across channels.
 - Drafts (Q13): the user's picks, tuned values, mix and part comments are a
   server-side draft per mock — they survive reload, stay bound to the version

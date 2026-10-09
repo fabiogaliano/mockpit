@@ -27,7 +27,8 @@ type Ask = {
 type Written = {
   post: { state: string | null; variant: string; version: number }; url: string;
   parts: { state: string | null; parts: { name: string }[] }[];
-  partChanges?: { vanished: string[]; renamed: { from: string; to: string }[] }; nudges?: string[];
+  partChanges?: { vanished: string[]; renamed: { from: string; to: string }[] };
+  nudges?: string[]; suggestedAsk?: Ask; // send it with ask when nudged
 };
 type Feedback = {
   mock: string | null;
@@ -35,42 +36,34 @@ type Feedback = {
   comments: { text: string; state: string | null; variant: string | null }[];
   accepted: { state: string | null; variant: string }[]; archived: { state: string | null; variant: string }[];
 };
+type Pending = { mock: string; viewerOpen: boolean; draft: null | { answered: number; of: number; comments: number; touchedAt: string } };
 declare const mockpit: {
   guide(topic?: "knobs" | "asks" | "surfaces" | "html" | "reply" | "http" | "scripts"): Promise<string>;
-  list(): Promise<{ slug: string; states: string[]; variants: number; open: number }[]>;
-  get(mock: string, opts?: { body?: boolean; history?: boolean }): Promise<unknown>;
-  publish(v: Ref & { title?: string; kind?: "component" | "page"; html?: string; surfaces?: Surface[]; knobs?: Knobs; variantKnobs?: Knobs; from?: number }): Promise<Written>;
-  /** parts: {"name"|"name#key": outer html} splices marked parts instead of html. */
-  revise(v: Ref & { html?: string; parts?: Record<string, string>; surfaces?: Surface[]; knobs?: Knobs; from?: number }): Promise<Written>;
+  /** No mock: every mock plus pending. With one: its states, variants, asks, parts, knobs. */
+  read(mock?: string, opts?: { body?: boolean; history?: boolean }): Promise<unknown>;
+  /** Creates or versions (mock, state, variant). One of: html; surfaces, the full ordered list
+   * ({id} alone keeps that surface, a missing id is removed); parts {"name"|"name#key": outer html}. */
+  publish(v: Ref & { title?: string; kind?: "component" | "page"; html?: string; surfaces?: (Surface | { id: string })[]; parts?: Record<string, string>; knobs?: Knobs; variantKnobs?: Knobs; from?: number }): Promise<Written>;
   ask(mock: string, asks: Ask[]): Promise<{ asks: { id: string; text: string }[]; url: string }>;
-  /** The user's Send, or [] after \`seconds\` (default 55; clamped to what is left of the run). */
-  wait(seconds?: number): Promise<Feedback[]>;
-  reply(v: Ref, message: string): Promise<void>;
-  surfaces: {
-    add(v: Ref, surface: Surface, at?: { before?: string | number; after?: string | number }): Promise<Written>;
-    edit(v: Ref, target: string | number, change: { surface?: Surface; content?: string; parts?: Record<string, string> }): Promise<Written>;
-    remove(v: Ref, target: string | number): Promise<Written>;
-    reorder(v: Ref, order: (string | number)[]): Promise<Written>;
-  };
+  /** Never waits: what the user sent since you last heard, and what they are doing now. */
+  feedback(): Promise<{ feedback: Feedback[]; pending: Pending[] }>;
+  say(v: Ref, message: string): Promise<void>;
   export(v: Ref): Promise<{ states: { state: string | null; variant: string; version: number; html: string }[]; reply: unknown }>;
+  /** data: base64 bytes. Use id as an image surface's assetId. */
+  upload(data: string, opts: { contentType: string; filename?: string; kind?: "image" | "file" }): Promise<{ id: string; url: string }>;
 };
 declare function print(...values: unknown[]): void;`;
 
 // The host functions a script can reach, by the dotted name the calls log uses.
 export const RUN_FUNCTIONS = [
   "guide",
-  "list",
-  "get",
+  "read",
   "publish",
-  "revise",
   "ask",
-  "wait",
-  "reply",
-  "surfaces.add",
-  "surfaces.edit",
-  "surfaces.remove",
-  "surfaces.reorder",
+  "feedback",
+  "say",
   "export",
+  "upload",
 ] as const;
 export type RunFunction = (typeof RUN_FUNCTIONS)[number];
 
@@ -79,18 +72,19 @@ await mockpit.publish({ mock: "writer", variant: "calm", html: html("calm") });
 await mockpit.publish({ mock: "writer", variant: "bold", html: html("bold") });
 const { url } = await mockpit.ask("writer", [{ id: "look", text: "Which look?",
   options: [{ label: "Calm", variant: "calm" }, { label: "Bold", variant: "bold" }] }]);
-print("open", url);
-return await mockpit.wait(150);`;
+// Tell the user where to look and end the turn; a later run reads mockpit.feedback().
+return url;`;
 
 export const RUN_DESCRIPTION =
   "Run a script against mockpit, which shows design work to the user (project > mock > state > " +
-  "variant > version). Publish variants, ask and wait for the reply in one call. Returns value, " +
-  "prints, calls (every host call in order: which writes landed), error {kind, message, line} " +
-  "and feedback (every reply received, even if the script failed). 200 s limit. Read " +
-  "mockpit.guide() before the first html.\n\n" +
+  "variant > version). Publish variants and ask in one call; nothing waits for the user. Returns " +
+  "value, prints, calls (every host call in order: which writes landed), error {kind, message, " +
+  "line} and feedback (every batch received, even if the script failed). Read mockpit.guide() " +
+  "before the first html.\n\n" +
   `\`\`\`ts\n${RUN_API}\n\`\`\`\n\nExample:\n\`\`\`js\n${RUN_EXAMPLE}\n\`\`\``;
 
 export const RUN_INSTRUCTIONS =
   "Mockpit shows design work to the user. Call run with a JavaScript body that uses the " +
-  "mockpit API in its description: publish variants, ask, wait for the user's one batched " +
-  "reply. Feedback is delivered once; read the run's feedback field.";
+  "mockpit API in its description: publish variants, ask, then end your turn. When the user " +
+  "says they answered, run mockpit.feedback(). Feedback is delivered once; read the run's " +
+  "feedback field.";

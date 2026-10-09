@@ -185,15 +185,15 @@ for (const cmd of [
   "serve",
   "init",
   "publish",
-  "revise",
   "ask",
-  "wait",
+  "read",
+  "feedback",
+  "say",
   "watch",
-  "status",
-  "show",
   "export",
-  "comment",
-  "surface",
+  "upload",
+  "guide",
+  "run",
   "kits",
   "demo",
 ]) {
@@ -212,9 +212,21 @@ test("watch --help prints its own help, not the catalog", async () => {
   assert.ok(!stdout.includes("a live visual surface"));
 });
 
-test("wait --help states the shared default and ceiling", async () => {
-  const { stdout } = await run("wait", "--help");
-  assert.match(stdout, /default 55 s, max 230/);
+// Never block: no verb waits, so no help text names a wait or its timeouts.
+test("help describes the never-block loop and names no wait", async () => {
+  const { stdout } = await run("--help");
+  assert.match(stdout, /Tell the user in one line where to look, then end your turn/);
+  assert.match(stdout, /Never poll/);
+  assert.match(stdout, /A choice is several variants plus one ask that binds them/);
+  assert.match(stdout, /In Claude Code, arm mockpit watch under Monitor after asking/);
+  const verbs = ["publish", "ask", "read", "feedback", "say", "run", "watch", "export", "guide"];
+  for (const text of [
+    stdout,
+    ...(await Promise.all(verbs.map((v) => run(v, "--help")))).map((r) => r.stdout),
+  ]) {
+    assert.doesNotMatch(text, /wait|\b55\b|\b230\b|--timeout/i);
+  }
+  assert.match((await run("watch", "--help")).stdout, /arm it under Monitor after asking/);
 });
 
 test("ask rejects a positional question alongside --asks", async () => {
@@ -247,12 +259,37 @@ test("top-level help prints the command catalog in the mock vocabulary", async (
     assert.equal(code, 0);
     assert.match(stdout, /^mockpit — a live visual surface/);
     assert.match(stdout, /project › mock › state › variant › version/);
-    for (const verb of ["init", "publish", "revise", "ask", "wait", "status", "show", "export"]) {
+    for (const verb of [
+      "init",
+      "publish",
+      "ask",
+      "read",
+      "feedback",
+      "say",
+      "export",
+      "upload",
+      "guide",
+      "run",
+      "watch",
+    ]) {
       assert.ok(stdout.includes(`mockpit ${verb}`), `catalog must list "${verb}"`);
     }
     for (const verb of ["serve", "demo"]) assert.ok(stdout.includes(`mockpit ${verb}`));
     // retired verbs are gone from the catalog
-    for (const gone of ["trace-sync", "install-hook", "test-post", "mockpit list", "--item"]) {
+    for (const gone of [
+      "trace-sync",
+      "install-hook",
+      "test-post",
+      "mockpit list",
+      "--item",
+      "mockpit revise",
+      "mockpit wait",
+      "mockpit status",
+      "mockpit show",
+      "mockpit comment",
+      "mockpit surface",
+      "agent-howto",
+    ]) {
       assert.ok(!stdout.includes(gone), `catalog must not mention "${gone}"`);
     }
     assert.equal(stderr, "");
@@ -268,6 +305,13 @@ test("removed verbs are unknown commands", async () => {
     "list",
     "page",
     "update",
+    "revise",
+    "wait",
+    "comment",
+    "status",
+    "show",
+    "surface",
+    "agent-howto",
   ]) {
     const { code, stderr } = await run(verb);
     assert.equal(code, 1);
@@ -299,27 +343,25 @@ test("missing option value fails with a one-line error, not a stack trace", asyn
 });
 
 test("a non-numeric --after fails fast instead of being silently dropped", async () => {
-  for (const verb of ["watch", "wait"]) {
-    const { code, stderr } = await runWith(
-      { env: { MOCKPIT_URL: "http://127.0.0.1:1", MOCKPIT_SESSION: "s" } },
-      verb,
-      "--after",
-      "abc",
-    );
-    assert.equal(code, 1);
-    assert.match(stderr, /--after must be a number/);
-  }
+  const { code, stderr } = await runWith(
+    { env: { MOCKPIT_URL: "http://127.0.0.1:1", MOCKPIT_SESSION: "s" } },
+    "watch",
+    "--after",
+    "abc",
+  );
+  assert.equal(code, 1);
+  assert.match(stderr, /--after must be a number/);
 });
 
 test("mock verbs without --mock fail in the agent error format", async () => {
-  for (const verb of ["show", "export", "revise"]) {
+  for (const verb of ["export", "publish", "ask"]) {
     const { code, stderr } = await runWith({ env: { MOCKPIT_URL: "http://127.0.0.1:1" } }, verb);
     assert.equal(code, 2);
     assert.match(stderr, /^error --mock needs a slug\n {2}fix: mockpit /);
   }
 });
 
-// --- publish / revise ------------------------------------------------------
+// --- publish --------------------------------------------------------------
 
 test("publish prints the variant line, the parts per state and the url", async () => {
   const server = await serveSession();
@@ -543,7 +585,7 @@ test("publish --knobs declares knobs and prints a nudge for a few discrete optio
   }
 });
 
-test("revise flags parts that vanished or were renamed", async () => {
+test("publish versions an existing variant and flags parts that vanished", async () => {
   const server = await serveSession();
   try {
     await seedWriter(server);
@@ -551,7 +593,7 @@ test("revise flags parts that vanished or were renamed", async () => {
     const { code, stdout, stderr } = await cli(
       server,
       {},
-      "revise",
+      "publish",
       "--mock",
       "writer",
       "--state",
@@ -569,7 +611,7 @@ test("revise flags parts that vanished or were renamed", async () => {
   }
 });
 
-test("revise --part splices one part per flag, one of them from stdin", async () => {
+test("publish --parts splices one part per flag, one of them from stdin", async () => {
   const server = await serveSession();
   try {
     const id = await seedWriter(server);
@@ -584,16 +626,16 @@ test("revise --part splices one part per flag, one of them from stdin", async ()
         },
         stdin: '<section data-part="copy">from stdin</section>',
       },
-      "revise",
+      "publish",
       "--mock",
       "writer",
       "--state",
       "Writing",
       "--variant",
       "quiet",
-      "--part",
+      "--parts",
       `title=${title}`,
-      "--part",
+      "--parts",
       "body=-",
     );
     assert.equal(code, 0, stderr);
@@ -611,37 +653,109 @@ test("revise --part splices one part per flag, one of them from stdin", async ()
   }
 });
 
-test("revise --part errors: bad flag, unknown part, publish", async () => {
+test("publish --parts errors: bad flag, unknown part, a new variant, mixed with --html", async () => {
   const server = await serveSession();
   try {
     await seedWriter(server);
     const file = tmpFile("p.html", "<nav data-part='nav'>N</nav>");
     const target = ["--mock", "writer", "--state", "Writing", "--variant", "quiet"];
-    const malformed = await cli(server, {}, "revise", ...target, "--part", "nav");
+    const malformed = await cli(server, {}, "publish", ...target, "--parts", "nav");
     assert.equal(malformed.code, 2);
-    assert.match(malformed.stderr, /--part needs name=file \(got "nav"\)/);
-    const unknown = await cli(server, {}, "revise", ...target, "--part", `nav=${file}`);
+    assert.match(malformed.stderr, /--parts needs name=file \(got "nav"\)/);
+    const unknown = await cli(server, {}, "publish", ...target, "--parts", `nav=${file}`);
     assert.equal(unknown.code, 2);
     assert.match(unknown.stderr, /no part "nav"; parts present: title, body/);
-    const publish = await cli(server, {}, "publish", ...target, "--part", `nav=${file}`);
-    assert.equal(publish.code, 2);
-    assert.match(publish.stderr, /--part edits a published version; use it with revise/);
+    const fresh = await cli(server, {}, "publish", "--mock", "nope", "--parts", `nav=${file}`);
+    assert.equal(fresh.code, 2);
+    assert.match(fresh.stderr, /^error nope has no variant "default"/);
+    const mixed = await cli(
+      server,
+      {},
+      "publish",
+      ...target,
+      "--html",
+      file,
+      "--parts",
+      `nav=${file}`,
+    );
+    assert.equal(mixed.code, 2);
+    assert.match(mixed.stderr, /pass one of --html, --surfaces or --parts, not --html and --parts/);
   } finally {
     await server.close();
   }
 });
 
-test("revise refuses to create a mock, and ambiguity names the choices", async () => {
+test("publish --surfaces takes the full ordered list: {id} keeps, order moves, a missing id removes", async () => {
+  const server = await serveSession();
+  try {
+    const where = ["--mock", "notes", "--state", "Draft", "--variant", "a"];
+    const first = await cli(
+      server,
+      {},
+      "publish",
+      ...where,
+      "--html",
+      tmpFile("n.html", "<p>n</p>"),
+      "--md",
+      tmpFile("a.md", "# a"),
+      "--terminal",
+      tmpFile("t.txt", "$ ls"),
+      "--json",
+    );
+    assert.equal(first.code, 0, first.stderr);
+    const written = JSON.parse(first.stdout);
+    const [html, md, term] = written.post.surfaces.map((s: any) => s.id);
+    const surfaces = async () =>
+      (await getJson(`${server.url}/api/mocks/${written.mock.id}?body=1`)).variants[0].surfaces;
+
+    // Reorder and edit: the terminal moves first, markdown gets new content.
+    const reordered = await cli(
+      server,
+      {},
+      "publish",
+      ...where,
+      "--surfaces",
+      JSON.stringify([{ id: term }, { id: html }, { id: md, kind: "markdown", markdown: "# b" }]),
+    );
+    assert.equal(reordered.code, 0, reordered.stderr);
+    assert.match(reordered.stdout, /^notes\/Draft\/a v2 · /m);
+    assert.deepEqual(
+      (await surfaces()).map((s: any) => [s.kind, s.markdown ?? null]),
+      [
+        ["terminal", null],
+        ["html", null],
+        ["markdown", "# b"],
+      ],
+    );
+
+    // Remove by omission; the list may come from a file.
+    const removed = await cli(
+      server,
+      {},
+      "publish",
+      ...where,
+      "--surfaces",
+      tmpFile("s.json", JSON.stringify([{ id: html }, { id: md }])),
+    );
+    assert.equal(removed.code, 0, removed.stderr);
+    assert.match(removed.stdout, /^notes\/Draft\/a v3 · /m);
+    assert.deepEqual(
+      (await surfaces()).map((s: any) => s.kind),
+      ["html", "markdown"],
+    );
+
+    const notList = await cli(server, {}, "publish", ...where, "--surfaces", '{"id":"x"}');
+    assert.equal(notList.code, 2);
+    assert.match(notList.stderr, /^error --surfaces must be a JSON array/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("publish names the choices on ambiguity", async () => {
   const server = await serveSession();
   try {
     const file = tmpFile("x.html", "<p>x</p>");
-    const missing = await cli(server, {}, "revise", "--mock", "nope", "--html", file);
-    assert.equal(missing.code, 2);
-    assert.match(
-      missing.stderr,
-      /^error acme\/site has no mock "nope"\n {2}fix: mockpit show --mock nope\n$/,
-    );
-
     await seedWriter(server);
     const ambiguous = await cli(
       server,
@@ -663,6 +777,45 @@ test("revise refuses to create a mock, and ambiguity names the choices", async (
     const noState = await cli(server, {}, "publish", "--mock", "writer", "--html", file);
     assert.equal(noState.code, 2);
     assert.match(noState.stderr, /writer has states; pass state \(Writing, Lab open\)/);
+  } finally {
+    await server.close();
+  }
+});
+
+test("publish prints the unbound-variants nudge and a ready-to-run suggested ask", async () => {
+  const server = await serveSession();
+  try {
+    const id = await seedWriter(server);
+    const third = await cli(
+      server,
+      {},
+      "publish",
+      "--mock",
+      "writer",
+      "--state",
+      "Writing",
+      "--variant",
+      "editorial",
+      "--html",
+      tmpFile("e.html", '<h1 data-part="title">E</h1>'),
+    );
+    assert.equal(third.code, 0, third.stderr);
+    assert.match(third.stdout, /^nudge: .*no ask binds them/m);
+    const line = third.stdout.match(/^suggested: (mockpit ask .*)$/m)?.[1];
+    assert.ok(line, third.stdout);
+    const json = line.match(/--asks '(.*)'$/)?.[1];
+    assert.ok(json, line);
+    const [ask] = JSON.parse(json);
+    assert.deepEqual(
+      ask.options.map((o: any) => o.variant),
+      ["quiet", "dark", "editorial"],
+    );
+
+    // Pasting the line's --asks sends it as is.
+    const sent = await cli(server, {}, "ask", "--mock", "writer", "--asks", json);
+    assert.equal(sent.code, 0, sent.stderr);
+    const mock = await getJson(`${server.url}/api/mocks/${id}`);
+    assert.ok(mock.asks.some((a: any) => a.id === ask.id));
   } finally {
     await server.close();
   }
@@ -705,7 +858,7 @@ test("a missing html file fails before any request reaches the server", async ()
   assert.match(stderr, /^error cannot read /);
 });
 
-// --- ask / wait / watch -----------------------------------------------------
+// --- ask / feedback / watch-------------------------------------------------
 
 test("ask binds options to variants; --asks takes the full shape", async () => {
   const server = await serveSession();
@@ -780,7 +933,7 @@ test("ask binds options to variants; --asks takes the full shape", async () => {
   }
 });
 
-test("wait prints the reply batch once; a second wait does not redeliver it", async () => {
+test("feedback returns at once with pending, then the reply exactly once", async () => {
   const server = await serveSession();
   try {
     const id = await seedWriter(server);
@@ -798,6 +951,27 @@ test("wait prints the reply batch once; a second wait does not redeliver it", as
       "--id",
       "look",
     );
+
+    const started = Date.now();
+    const idle = await cli(server, {}, "feedback");
+    assert.equal(idle.code, 0, idle.stderr);
+    assert.ok(Date.now() - started < 5_000, "feedback never waits");
+    assert.deepEqual(JSON.parse(idle.stdout), {
+      feedback: [],
+      pending: [{ mock: "writer", viewerOpen: false, draft: null }],
+    });
+
+    // The user is mid-answer: pending says so, and nothing is delivered early.
+    await fetch(`${server.url}/api/mocks/${id}/draft`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", "sec-fetch-site": "same-origin" },
+      body: JSON.stringify({ answers: { look: "dark" } }),
+    });
+    const drafting = JSON.parse((await cli(server, {}, "feedback")).stdout);
+    assert.deepEqual(drafting.feedback, []);
+    assert.equal(drafting.pending[0].draft.answered, 1);
+    assert.equal(drafting.pending[0].draft.of, 1);
+
     const reply = await viewerReply(server.url, id, {
       answers: { look: "dark" },
       comments: [{ part: "title", state: "Writing", text: "bigger" }],
@@ -805,48 +979,41 @@ test("wait prints the reply batch once; a second wait does not redeliver it", as
     });
     assert.equal(reply.reply.kind, "reply");
 
-    const first = await cli(server, {}, "wait", "--timeout", "5");
+    const first = await cli(server, {}, "feedback");
     assert.equal(first.code, 0, first.stderr);
-    const batch = JSON.parse(first.stdout);
+    const { feedback, pending } = JSON.parse(first.stdout);
+    assert.equal(feedback.length, 1);
+    const [batch] = feedback;
     assert.equal(batch.mock, "writer");
     assert.deepEqual(batch.reply.answers, { look: "dark" });
     assert.equal(batch.reply.text, "go dark");
     assert.equal(batch.reply.asks[0].chosen[0].variant, "dark");
     assert.deepEqual(batch.accepted, [{ state: "Writing", variant: "dark" }]);
     assert.deepEqual(batch.archived, [{ state: "Writing", variant: "quiet" }]);
+    assert.equal(pending[0].draft, null, "Send cleared the draft");
 
-    const second = await cli(server, {}, "wait", "--timeout", "1");
-    assert.equal(second.code, 0);
-    const empty = JSON.parse(second.stdout);
-    assert.equal(empty.timedOut, true);
-    assert.deepEqual(empty.feedback, []);
+    const second = JSON.parse((await cli(server, {}, "feedback")).stdout);
+    assert.deepEqual(second.feedback, [], "a reply is delivered once");
   } finally {
     await server.close();
   }
 });
 
-test("wait --mock filters batches to one mock", async () => {
-  const server = await serveSession();
+test("feedback without a session starts one rather than failing", async () => {
+  const server = await serveApp();
   try {
-    const id = await seedWriter(server);
-    await viewerReply(server.url, id, { text: "hello" });
-    const other = await cli(server, {}, "wait", "--mock", "card", "--timeout", "1");
-    assert.equal(JSON.parse(other.stdout).timedOut, true);
+    const { code, stdout, stderr } = await runWith(
+      {
+        cwd: tmpRepo(),
+        env: { MOCKPIT_URL: server.url, MOCKPIT_PROJECT: "fresh/repo", MOCKPIT_AGENT: "t" },
+      },
+      "feedback",
+    );
+    assert.equal(code, 0, stderr);
+    assert.deepEqual(JSON.parse(stdout), { feedback: [], pending: [] });
   } finally {
     await server.close();
   }
-});
-
-test("wait explains when there is no active session", async () => {
-  const { code, stdout, stderr } = await runWith(
-    { cwd: tmpRepo(), env: { MOCKPIT_URL: "http://127.0.0.1:1" } },
-    "wait",
-    "--timeout",
-    "1",
-  );
-  assert.equal(code, 1);
-  assert.equal(stdout, "");
-  assert.match(stderr, /no active session/);
 });
 
 test("watch streams each piece of feedback as one line and re-arms", async () => {
@@ -894,37 +1061,52 @@ test("watch streams each piece of feedback as one line and re-arms", async () =>
   }
 });
 
-// --- status / show / export / comment ---------------------------------------
+// --- read / export / say ----------------------------------------------------
 
-test("status prints one line per mock with its states, variants and open asks", async () => {
+test("read with no slug prints one line per mock, plus pending", async () => {
   const server = await serveSession();
   try {
-    await seedWriter(server);
+    const id = await seedWriter(server);
     await cli(server, {}, "ask", "--mock", "writer", "Look?", "--option", "Quiet=quiet");
-    const { code, stdout } = await cli(server, {}, "status");
+    const { code, stdout } = await cli(server, {}, "read");
     assert.equal(code, 0);
     assert.match(stdout, /^acme\/site · 1 mock · 1 open ask$/m);
     assert.match(stdout, /^ {2}writer · component · Writing \/ Lab open · 3 variants · 1 open$/m);
+    assert.doesNotMatch(stdout, /^pending:/m, "nothing pending yet");
 
-    const json = JSON.parse((await cli(server, {}, "status", "--json")).stdout);
+    await fetch(`${server.url}/api/mocks/${id}/draft`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", "sec-fetch-site": "same-origin" },
+      body: JSON.stringify({ comments: [{ part: "title", state: "Writing", text: "x" }] }),
+    });
+    const drafting = await cli(server, {}, "read");
+    assert.match(
+      drafting.stdout,
+      /^pending: writer — the user is answering \(0 of 1 answered, 1 comment\)$/m,
+    );
+
+    const json = JSON.parse((await cli(server, {}, "read", "--json")).stdout);
     assert.equal(json.mocks[0].slug, "writer");
+    assert.equal(json.pending[0].mock, "writer");
+    assert.equal(json.pending[0].draft.comments, 1);
 
-    const empty = await cli(server, { project: "empty/repo" }, "status");
+    const empty = await cli(server, { project: "empty/repo" }, "read");
     assert.match(empty.stdout, /^empty\/repo · 0 mocks · nothing waiting on the user$/m);
   } finally {
     await server.close();
   }
 });
 
-test("show prints mock metadata; bodies and history are opt-in", async () => {
+test("read <slug> prints the mock and its pending; bodies and history are opt-in", async () => {
   const server = await serveSession();
   try {
     await seedWriter(server);
-    const meta = JSON.parse((await cli(server, {}, "show", "--mock", "writer")).stdout);
+    const meta = JSON.parse((await cli(server, {}, "read", "writer")).stdout);
     assert.deepEqual(meta.states, ["Writing", "Lab open"]);
     assert.equal(meta.variants.length, 3);
     assert.equal(meta.variants[0].surfaces[0].html, undefined, "no body by default");
     assert.equal(meta.variants[0].history, undefined);
+    assert.deepEqual(meta.pending, { mock: "writer", viewerOpen: false, draft: null });
     assert.deepEqual(
       meta.parts.map((p: any) => [p.state, p.parts.map((x: any) => x.name)]),
       [
@@ -934,14 +1116,14 @@ test("show prints mock metadata; bodies and history are opt-in", async () => {
     );
 
     const full = JSON.parse(
-      (await cli(server, {}, "show", "--mock", "writer", "--body", "--history")).stdout,
+      (await cli(server, {}, "read", "writer", "--body", "--history")).stdout,
     );
     assert.match(full.variants[0].surfaces[0].html, /data-part="title"/);
     assert.equal(full.variants[0].history[0].version, 1);
 
-    const missing = await cli(server, {}, "show", "--mock", "nope");
+    const missing = await cli(server, {}, "read", "nope");
     assert.equal(missing.code, 2);
-    assert.match(missing.stderr, /^error acme\/site has no mock "nope"/);
+    assert.match(missing.stderr, /^error acme\/site has no mock "nope"\n {2}fix: mockpit read /);
   } finally {
     await server.close();
   }
@@ -1012,14 +1194,14 @@ test("export writes index.html + history.json per state into the repo", async ()
   }
 });
 
-test("comment replies in the mock's thread as the session's agent", async () => {
+test("say posts plain text in the mock's thread as the session's agent", async () => {
   const server = await serveSession();
   try {
     const id = await seedWriter(server);
     const { code, stdout, stderr } = await cli(
       server,
       {},
-      "comment",
+      "say",
       "on",
       "it",
       "--mock",
@@ -1030,89 +1212,21 @@ test("comment replies in the mock's thread as the session's agent", async () => 
       "dark",
     );
     assert.equal(code, 0, stderr);
-    const comment = JSON.parse(stdout);
-    assert.equal(comment.text, "on it");
-    assert.equal(comment.mockId, id);
-    assert.equal(comment.author, "cli-test");
-    assert.ok(comment.postId);
+    assert.equal(stdout, "said on writer\n");
+    const thread = await getJson(`${server.url}/api/comments?mock=${id}`);
+    const said = thread.comments.at(-1);
+    assert.equal(said.text, "on it");
+    assert.equal(said.author, "cli-test");
+    assert.ok(said.postId);
 
-    const noText = await cli(server, {}, "comment", "--mock", "writer");
+    // A user comment left meanwhile rides back on the say.
+    await post(`${server.url}/api/comments`, { mock: id, text: "and the title", author: "user" });
+    const ride = await cli(server, {}, "say", "ok", "--mock", "writer");
+    assert.match(ride.stdout, /^feedback: .*and the title/m);
+
+    const noText = await cli(server, {}, "say", "--mock", "writer");
     assert.equal(noText.code, 2);
-    assert.match(noText.stderr, /^error comment needs text/);
-  } finally {
-    await server.close();
-  }
-});
-
-// --- surface edits ----------------------------------------------------------
-
-test("surface add/edit/move/remove edit one variant", async () => {
-  const server = await serveSession();
-  try {
-    const id = await seedWriter(server);
-    const where = ["--mock", "writer", "--state", "Writing", "--variant", "dark"];
-    const surfaces = async () =>
-      (await getJson(`${server.url}/api/mocks/${id}?body=1`)).variants.find(
-        (v: any) => v.state === "Writing" && v.variant === "dark",
-      ).surfaces;
-
-    const add = await cli(
-      server,
-      {},
-      "surface",
-      "add",
-      ...where,
-      "--md",
-      tmpFile("a.md", "# a"),
-      "--terminal",
-      tmpFile("t.txt", "$ ls"),
-    );
-    assert.equal(add.code, 0, add.stderr);
-    assert.match(add.stdout, /^added 2 surface\(s\) to writer$/m);
-    assert.deepEqual(
-      (await surfaces()).map((s: any) => s.kind),
-      ["html", "markdown", "terminal"],
-    );
-
-    const edit = await cli(server, {}, "surface", "edit", ...where, "1", tmpFile("b.md", "# b"));
-    assert.equal(edit.code, 0, edit.stderr);
-    assert.equal((await surfaces())[1].markdown, "# b");
-
-    const move = await cli(server, {}, "surface", "move", ...where, "2", "--to", "0");
-    assert.equal(move.code, 0, move.stderr);
-    assert.deepEqual(
-      (await surfaces()).map((s: any) => s.kind),
-      ["terminal", "html", "markdown"],
-    );
-
-    const remove = await cli(server, {}, "surface", "remove", ...where, "0");
-    assert.equal(remove.code, 0, remove.stderr);
-    assert.match(remove.stdout, /^writer\/Writing\/dark v6 · /m);
-    assert.deepEqual(
-      (await surfaces()).map((s: any) => s.kind),
-      ["html", "markdown"],
-    );
-
-    const none = await cli(server, {}, "surface", "add", ...where);
-    assert.equal(none.code, 1);
-    assert.match(none.stderr, /provide at least one surface flag/);
-    const badTo = await cli(server, {}, "surface", "move", ...where, "0", "--to", "9");
-    assert.match(badTo.stderr, /--to must be a valid index/);
-    const ambiguous = await cli(
-      server,
-      {},
-      "surface",
-      "move",
-      "--mock",
-      "writer",
-      "0",
-      "--to",
-      "1",
-    );
-    assert.equal(ambiguous.code, 2);
-    assert.match(ambiguous.stderr, /3 matching variants/);
-    const unknown = await cli(server, {}, "surface", "bogus");
-    assert.match(unknown.stderr, /unknown surface subcommand: bogus/);
+    assert.match(noText.stderr, /^error say needs text/);
   } finally {
     await server.close();
   }
@@ -1184,7 +1298,7 @@ test("init imports the repo's design system and writes the starter", async () =>
     assert.equal(design.kit, "tailwind");
     assert.deepEqual(design.iconSets, []);
 
-    const brief = await cli(server, { cwd }, "guide", "--brief");
+    const brief = await cli(server, { cwd }, "guide");
     assert.match(brief.stdout, /Kit: tailwind/);
     assert.match(brief.stdout, /mockpit publish --mock/);
   } finally {
@@ -1221,7 +1335,7 @@ test("init on a shadcn repo: the frame gets the repo's Tailwind stylesheet", asy
       /^design: +tailwind: src\/app\/globals\.css \(stripped: tw-animate-css\)/m,
     );
 
-    const brief = await cli(server, { cwd }, "guide", "--brief");
+    const brief = await cli(server, { cwd }, "guide");
     assert.match(brief.stdout, /`bg-card`/);
     assert.match(brief.stdout, /not available: `tw-animate-css`/);
 
@@ -1352,18 +1466,21 @@ test("kits lists the workspace's available kits", async () => {
 
 test("topics and setup fall back to bundled markdown when no server is reachable", async () => {
   const offline = { env: { MOCKPIT_URL: "http://127.0.0.1:1" } };
-  for (const args of [["guide"], ["setup"], ["agent-howto", "--topic", "knobs"]]) {
+  for (const args of [["guide", "--topic", "html"], ["setup"], ["guide", "--topic", "knobs"]]) {
     const { code, stdout, stderr } = await runWith(offline, ...args);
     assert.equal(code, 0);
     assert.match(stdout, /#/);
     assert.equal(stderr, "");
   }
-  assert.match((await runWith(offline, "guide")).stdout, /# mockpit topic: html/);
+  assert.match(
+    (await runWith(offline, "guide", "--topic", "html")).stdout,
+    /# mockpit topic: html/,
+  );
 });
 
 test("the brief prints the generic version with no server; an unknown topic lists the real ones", async () => {
   const offline = { cwd: tmpRepo(), env: { MOCKPIT_URL: "http://127.0.0.1:1" } };
-  const brief = await runWith(offline, "agent-howto");
+  const brief = await runWith(offline, "guide");
   assert.equal(brief.code, 0);
   assert.match(brief.stdout, /^# mockpit brief\n/);
   assert.match(brief.stdout, /Run `mockpit init` in the repo/);
@@ -1372,7 +1489,7 @@ test("the brief prints the generic version with no server; an unknown topic list
     /^note: no mockpit at http:\/\/127\.0\.0\.1:1; this is the generic brief/,
   );
 
-  const unknown = await runWith(offline, "agent-howto", "--topic", "colours");
+  const unknown = await runWith(offline, "guide", "--topic", "colours");
   assert.equal(unknown.code, 2);
   assert.match(
     unknown.stderr,
@@ -1452,7 +1569,7 @@ test("kit add/remove and kits manage a project kit; init --kit-url makes it the 
     );
     assert.equal(init.code, 0, init.stderr);
     assert.match(init.stdout, /^kit: +acme$/m);
-    const brief = await cli(server, { cwd }, "guide", "--brief");
+    const brief = await cli(server, { cwd }, "guide");
     assert.match(brief.stdout, /Kit: acme[\s\S]*\.acme-card/);
 
     const basecoat = await cli(server, { cwd }, "init", "--kit", "basecoat");

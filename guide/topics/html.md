@@ -2,7 +2,7 @@
 
 An `html` surface is a blank canvas. Custom SVG, bespoke layout, small
 interactions and animation are all fine. Below are the hard rules, the finish
-guardrails, and the vocabulary available inside the frame. `mockpit agent-howto`
+guardrails, and the vocabulary available inside the frame. `mockpit guide`
 prints this project's real palette, kit and icons.
 
 ## Contract
@@ -142,7 +142,7 @@ mockpit publish --mock ci-status --html status.html --kit issues   # repeat --ki
 ```
 
 ```js
-publish_mock({ mock: "ci-status", surfaces: [{ kind: "html", html, kits: ["issues"] }] });
+publish({ mock: "ci-status", surfaces: [{ kind: "html", html, kits: ["issues"] }] });
 ```
 
 A kit only adds vocabulary. Write custom markup right beside kit classes.

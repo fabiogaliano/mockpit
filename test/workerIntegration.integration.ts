@@ -18,7 +18,7 @@ type WriteResult = {
   };
   sessionId: string;
   // One batch per mock — a reply plus the comments released with it.
-  userFeedback?: Array<{ mock: string | null; comments: Array<{ text: string }> }>;
+  feedback: Array<{ mock: string | null; comments: Array<{ text: string }> }>;
 };
 
 type MockDetail = {
@@ -187,10 +187,7 @@ test(
     let eventTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       await expectJson(
-        await worker.fetch(
-          "/api/comments",
-          json({ mock: mockId, text: "event stream probe", author: "worker-agent" }),
-        ),
+        await worker.fetch(`/api/mocks/${mockId}/say`, json({ message: "event stream probe" })),
         201,
       );
       const event = await Promise.race([
@@ -348,8 +345,9 @@ test(
 
     const afterWait = await expectJson<WriteResult>(
       await worker.fetch(
-        `/api/mocks/${mockId}/revise`,
+        "/api/mocks",
         json({
+          mock: mockId,
           session: sessionId,
           title: "Worker post v2",
           surfaces: [{ kind: "html", html: `${marker}<p>v2</p>` }],
@@ -357,7 +355,7 @@ test(
       ),
       200,
     );
-    assert.equal(afterWait.userFeedback, undefined);
+    assert.deepEqual(afterWait.feedback, []);
 
     await expectJson(
       await worker.fetch(
@@ -368,8 +366,9 @@ test(
     );
     const piggybacked = await expectJson<WriteResult>(
       await worker.fetch(
-        `/api/mocks/${mockId}/revise`,
+        "/api/mocks",
         json({
+          mock: mockId,
           session: sessionId,
           title: "Worker post v3",
           surfaces: [{ kind: "html", html: `${marker}<p>v3</p>` }],
@@ -378,7 +377,7 @@ test(
       200,
     );
     assert.deepEqual(
-      piggybacked.userFeedback?.flatMap((batch) => batch.comments.map((c) => c.text)),
+      piggybacked.feedback.flatMap((batch) => batch.comments.map((c) => c.text)),
       ["persist this feedback"],
     );
 
@@ -422,8 +421,9 @@ test(
     );
     const afterRestart = await expectJson<WriteResult>(
       await worker.fetch(
-        `/api/mocks/${mockId}/revise`,
+        "/api/mocks",
         json({
+          mock: mockId,
           session: sessionId,
           title: "Worker post v4",
           surfaces: [{ kind: "html", html: `${marker}<p>v4</p>` }],
@@ -432,7 +432,7 @@ test(
       200,
     );
     assert.deepEqual(
-      afterRestart.userFeedback?.flatMap((batch) => batch.comments.map((c) => c.text)),
+      afterRestart.feedback.flatMap((batch) => batch.comments.map((c) => c.text)),
       ["feedback after restart"],
     );
 
