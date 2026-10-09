@@ -82,7 +82,7 @@
     "lint:fix": "oxlint . --fix",
     "changeset": "changeset",
     "changeset:status": "changeset status",
-    "release:version": "changeset version",
+    "release:version": "changeset version && npm install --package-lock-only --ignore-scripts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.workers.json --noEmit && tsc -p tsconfig.viewer.json --noEmit",
     "clean:dist": "node scripts/clean-dist.ts",
     "build": "npm run clean:dist && tsc -p tsconfig.build.json && npm run build:viewer",

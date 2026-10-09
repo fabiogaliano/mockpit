@@ -20,10 +20,4 @@ For maintenance-only PRs that should not appear in release notes, create an empt
 npm run changeset -- --empty
 ```
 
-Release prep runs:
-
-```bash
-npm run release:version
-```
-
-That consumes the pending `.changeset/*.md` files, updates `CHANGELOG.md`, and bumps package versions for the release commit.
+After CI passes on `main`, the Release workflow runs `npm run release:version` in a `chore: release packages` PR: it consumes the pending `.changeset/*.md` files, updates `CHANGELOG.md`, and bumps the version. Merging that PR publishes it. See `docs/releasing.md`.

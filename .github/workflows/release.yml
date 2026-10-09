@@ -1,21 +1,16 @@
 name: Release
 
+# Runs after CI passes on main. With changesets pending it opens (or updates)
+# the "chore: release packages" PR that versions them; once that PR is merged
+# there are none left, and it publishes the new version to npm and creates its
+# GitHub release. See docs/releasing.md.
+
 on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
   workflow_dispatch:
-    inputs:
-      publish:
-        description: Publish the package to npm
-        required: true
-        default: false
-        type: boolean
-      npm_tag:
-        description: npm dist-tag to publish under (for example latest or beta)
-        required: true
-        default: latest
-        type: string
-  push:
-    tags:
-      - "v*"
 
 env:
   SKIP_INSTALL_SIMPLE_GIT_HOOKS: "1"
@@ -24,133 +19,109 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: npm-release
   cancel-in-progress: false
 
 jobs:
-  validate:
-    name: Validate release package
+  detect:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node
-        uses: actions/setup-node@v6
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
+      - run: npm install -g npm@11.17.0
+      - run: npm ci --ignore-scripts
+      - uses: changesets/action/select-mode@v2.1.1
+        id: mode
 
-      - name: Use npm with dependency-age gates
-        run: npm install -g npm@11.17.0
-
-      - name: Install dependencies without lifecycle scripts
-        run: npm ci --ignore-scripts
-
-      - name: Audit dependencies
-        run: npm run security:audit
-
-      - name: Verify tag matches package version
-        if: github.event_name == 'push'
-        run: node scripts/check-release-version.ts "${{ github.ref_name }}"
-
-      - name: Format check
-        run: npm run format:check
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Test suite
-        run: npm test
-
-      - name: Pack npm tarball
-        run: npm pack
-
-      - name: Smoke-test packed CLI
-        run: |
-          npm install -g --ignore-scripts ./mockpit-*.tgz
-          mockpit help
+  version:
+    needs: detect
+    if: needs.detect.outputs.mode == 'version'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install -g npm@11.17.0
+      - run: npm ci --ignore-scripts
+      - uses: changesets/action/version@v2.1.1
+        with:
+          script: npm run release:version
+          commit-message: "chore: version packages"
+          pr-title: "chore: release packages"
+          pr-base-branch: main
 
   publish:
-    name: Publish npm package
+    needs: detect
+    if: needs.detect.outputs.mode == 'publish'
     runs-on: ubuntu-latest
-    needs:
-      - validate
-    if: github.event_name == 'push' || inputs.publish == true
     environment: npm
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node
-        uses: actions/setup-node@v6
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
           registry-url: https://registry.npmjs.org
+      # 11.5+ is what speaks npm trusted publishing (OIDC).
+      - run: npm install -g npm@11.17.0
+      - run: npm ci --ignore-scripts
+      - run: npm run security:audit
 
-      - name: Use npm with dependency-age gates
-        run: npm install -g npm@11.17.0
-
-      - name: Install dependencies without lifecycle scripts
-        run: npm ci --ignore-scripts
-
-      - name: Audit dependencies
-        run: npm run security:audit
-
-      - name: Verify tag matches package version
-        if: github.event_name == 'push'
-        run: node scripts/check-release-version.ts "${{ github.ref_name }}"
-
-      - name: Publish package
+      - name: Publish the version unless npm already has it
+        id: publish
         env:
-          NPM_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.npm_tag || ((contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc')) && 'beta' || 'latest') }}
-        run: npm publish --tag "$NPM_TAG"
-
-  create-github-release:
-    name: Create GitHub release
-    runs-on: ubuntu-latest
-    needs:
-      - publish
-    if: github.event_name == 'push'
-    permissions:
-      contents: write
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Set up Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-
-      - name: Extract changelog release notes
+          # Trusted publishing needs no token. NPM_TOKEN is only the bootstrap
+          # for the very first publish, before npm has a package to attach a
+          # trusted publisher to; delete the secret once that is configured.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          mkdir -p dist/release
-          node scripts/extract-release-notes.ts "${{ github.ref_name }}" > dist/release/notes.md
+          version="$(node -p 'require("./package.json").version')"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if npm view "mockpit@$version" version >/dev/null 2>&1; then
+            echo "mockpit@$version is already on npm; skipping."
+            exit 0
+          fi
+          case "$version" in
+            *-alpha*|*-beta*|*-rc*) tag=beta ;;
+            *) tag=latest ;;
+          esac
+          npm publish --provenance --tag "$tag"
 
-      - name: Create or update GitHub release
+      - name: Create the GitHub release unless it exists
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.ref_name }}
+          VERSION: ${{ steps.publish.outputs.version }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
-          prerelease_args=()
-          case "$TAG_NAME" in
-            *-alpha*|*-beta*|*-rc*)
-              prerelease_args+=(--prerelease)
-              ;;
-          esac
-
-          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release edit "$TAG_NAME" --title "$TAG_NAME" --notes-file dist/release/notes.md "${prerelease_args[@]}"
-          else
-            gh release create "$TAG_NAME" --title "$TAG_NAME" --notes-file dist/release/notes.md "${prerelease_args[@]}"
+          tag="v$VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "$tag already has a GitHub release; skipping."
+            exit 0
           fi
+          node scripts/extract-release-notes.ts "$tag" > "$RUNNER_TEMP/notes.md"
+          prerelease=()
+          case "$VERSION" in *-alpha*|*-beta*|*-rc*) prerelease=(--prerelease) ;; esac
+          gh release create "$tag" --target "$RELEASE_SHA" --title "$tag" \
+            --notes-file "$RUNNER_TEMP/notes.md" "${prerelease[@]}"
