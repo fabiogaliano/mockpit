@@ -350,6 +350,14 @@ function agentName(flags) {
   return flags.agent ?? process.env.MOCKPIT_AGENT ?? readState().agent ?? "agent";
 }
 
+// The state file is keyed by the agent's pid, which a resumed conversation
+// doesn't keep; Claude Code's session id does, so the server can hand back the
+// same mockpit session (and its feedback cursor).
+function harnessKey() {
+  const id = process.env.CLAUDE_CODE_SESSION_ID;
+  return id ? `claude-code:${id}` : undefined;
+}
+
 async function resolveSession(flags, { create = false } = {}) {
   if (flags.session) return flags.session;
   if (process.env.MOCKPIT_SESSION) return process.env.MOCKPIT_SESSION;
@@ -371,6 +379,7 @@ async function resolveSession(flags, { create = false } = {}) {
       title: flags["session-title"],
       cwd: process.cwd(),
       project: resolveProject(flags).name,
+      key: harnessKey(),
     }),
   });
   writeState({ session: session.id, agent: agentName(flags) });

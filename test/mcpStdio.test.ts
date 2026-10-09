@@ -46,6 +46,7 @@ function cleanEnv(overrides: Record<string, string> = {}) {
   delete env.MOCKPIT_SESSION;
   delete env.MOCKPIT_AGENT;
   delete env.MOCKPIT_TOKEN;
+  delete env.CLAUDE_CODE_SESSION_ID;
   // A fixed project keeps the stdio server from deriving one from this repo's
   // git remote, so the test reads the same project the tools wrote.
   return { ...env, MOCKPIT_PROJECT: PROJECT, ...overrides };
@@ -479,6 +480,41 @@ test(
     );
     assert.equal(byStdio.feedback[0].reply.text, "go");
     assert.deepEqual((await cliFeedback()).feedback, [], "the CLI never redelivers it either");
+  },
+);
+
+// The never-block contract ends the agent's turn after `ask`; a resumed
+// Claude Code conversation answers from a new MCP process, which must reclaim
+// the session that owns the reply rather than start an empty one.
+test(
+  "a resumed Claude Code conversation picks up the reply sent to its old process",
+  { timeout: 20_000 },
+  async (t) => {
+    const app = await serveApp();
+    t.after(() => app.close());
+    const conversation = { CLAUDE_CODE_SESSION_ID: "conv-1" };
+    const first = await connectMcp(app.url, conversation);
+    const published = await callJson<WriteResult>(first.client, "publish", {
+      mock: "writer",
+      html: "<h1>T</h1>",
+    });
+    await first.close();
+
+    await fetchJson(app.url, `/api/mocks/${published.mock.id}/reply`, viewerJson({ text: "go" }));
+
+    const other = await connectMcp(app.url, { CLAUDE_CODE_SESSION_ID: "conv-2" });
+    const resumed = await connectMcp(app.url, conversation);
+    t.after(async () => {
+      await other.close();
+      await resumed.close();
+    });
+    const strangers = await callJson<{ feedback: unknown[] }>(other.client, "feedback");
+    assert.deepEqual(strangers.feedback, [], "another conversation does not take the reply");
+    const got = await callJson<{ feedback: Array<{ reply: { text: string } }> }>(
+      resumed.client,
+      "feedback",
+    );
+    assert.equal(got.feedback[0].reply.text, "go");
   },
 );
 

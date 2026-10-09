@@ -68,6 +68,13 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     assert.equal(await store.getSession("missing"), null);
   });
 
+  contract("finds a session by its harness key", async (store) => {
+    const keyed = await store.createSession({ agent: "cc", key: "claude-code:abc" });
+    await store.createSession({ agent: "cc" });
+    assert.equal((await store.getSessionByKey("claude-code:abc"))?.id, keyed.id);
+    assert.equal(await store.getSessionByKey("claude-code:missing"), null);
+  });
+
   // SQLite truncates TEXT at an embedded NUL, so the store strips NUL from
   // stored text rather than silently cutting it. Surfaces ride a JSON column
   // (NUL encoded as an escape, no raw byte) so they're unaffected.

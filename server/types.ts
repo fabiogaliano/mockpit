@@ -639,6 +639,10 @@ export interface CreateSessionInput {
   title?: string;
   cwd?: string;
   project?: string;
+  // The harness's own conversation id (e.g. Claude Code's). A resumed
+  // conversation runs a fresh MCP/CLI process; the key lets it reclaim its
+  // session, and with it the feedback cursor, instead of starting a new one.
+  key?: string;
 }
 
 export interface CreateMockInput {
@@ -729,6 +733,7 @@ export interface PostQuery {
 export interface Store {
   listSessions(): Promise<Session[]>;
   getSession(id: string): Promise<Session | null>;
+  getSessionByKey(key: string): Promise<Session | null>;
   createSession(input: CreateSessionInput): Promise<Session>;
   renameSession(id: string, title: string): Promise<Session | null>;
   removeSession(id: string): Promise<boolean>;

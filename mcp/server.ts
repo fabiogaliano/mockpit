@@ -112,6 +112,12 @@ const query = (params: Record<string, unknown>) => {
 // lazily-created session shared across tool calls maps cleanly onto it.
 let sessionId: string | null = process.env.MOCKPIT_SESSION ?? null;
 
+// A resumed Claude Code conversation spawns a new MCP process; its session id
+// survives the resume, so keying on it hands back the same mockpit session.
+const harnessKey = process.env.CLAUDE_CODE_SESSION_ID
+  ? `claude-code:${process.env.CLAUDE_CODE_SESSION_ID}`
+  : undefined;
+
 // `title` is used only when this call creates the session — once one exists
 // (here or in the viewer, where the user can rename it) it is never retitled.
 async function ensureSession(title?: string): Promise<string> {
@@ -124,6 +130,7 @@ async function ensureSession(title?: string): Promise<string> {
         cwd: process.cwd(),
         title,
         project: resolveProject(),
+        key: harnessKey,
       }),
     }),
   );

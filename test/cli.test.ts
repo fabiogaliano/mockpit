@@ -26,6 +26,7 @@ function testEnv(overrides?: Record<string, string>) {
   delete env.MOCKPIT_SESSION;
   delete env.MOCKPIT_AGENT;
   delete env.MOCKPIT_TOKEN;
+  delete env.CLAUDE_CODE_SESSION_ID;
   return { ...env, ...overrides };
 }
 

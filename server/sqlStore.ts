@@ -121,7 +121,7 @@ export class SqlStore implements Store {
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY, agent TEXT NOT NULL, title TEXT, cwd TEXT,
         createdAt TEXT NOT NULL, lastActiveAt TEXT NOT NULL,
-        agentSeq INTEGER NOT NULL DEFAULT 0, project TEXT
+        agentSeq INTEGER NOT NULL DEFAULT 0, project TEXT, key TEXT
       );
       CREATE TABLE IF NOT EXISTS mocks (
         id TEXT PRIMARY KEY, project TEXT NOT NULL, slug TEXT NOT NULL, title TEXT NOT NULL,
@@ -155,6 +155,7 @@ export class SqlStore implements Store {
     this.addMissing("sessions", {
       agentSeq: "INTEGER NOT NULL DEFAULT 0",
       project: "TEXT",
+      key: "TEXT",
     });
     if (legacy) this.migrateLegacy();
     this.createIndexes();
@@ -171,6 +172,7 @@ export class SqlStore implements Store {
       CREATE INDEX IF NOT EXISTS mockpit_comments_post_seq_idx ON comments (postId, seq);
       CREATE INDEX IF NOT EXISTS mockpit_comments_id_idx ON comments (id);
       CREATE INDEX IF NOT EXISTS mockpit_assets_session_idx ON assets (sessionId);
+      CREATE INDEX IF NOT EXISTS mockpit_sessions_key_idx ON sessions (key);
     `);
   }
 
@@ -614,6 +616,13 @@ export class SqlStore implements Store {
     return rows.length > 0 ? this.rowToSession(rows[0]) : null;
   }
 
+  async getSessionByKey(key: string) {
+    const rows = this.sql
+      .exec("SELECT * FROM sessions WHERE key = ? ORDER BY lastActiveAt DESC LIMIT 1", key)
+      .toArray();
+    return rows.length > 0 ? this.rowToSession(rows[0]) : null;
+  }
+
   async createSession(input: CreateSessionInput) {
     const now = new Date().toISOString();
     const session: Session = {
@@ -628,7 +637,7 @@ export class SqlStore implements Store {
         stripNul(input.project)?.trim() || projectFromCwd(stripNul(input.cwd ?? null)) || null,
     };
     this.sql.exec(
-      "INSERT INTO sessions (id, agent, title, cwd, createdAt, lastActiveAt, agentSeq, project) VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+      "INSERT INTO sessions (id, agent, title, cwd, createdAt, lastActiveAt, agentSeq, project, key) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)",
       session.id,
       session.agent,
       session.title,
@@ -636,6 +645,7 @@ export class SqlStore implements Store {
       session.createdAt,
       session.lastActiveAt,
       session.project,
+      stripNul(input.key)?.trim() || null,
     );
     return session;
   }

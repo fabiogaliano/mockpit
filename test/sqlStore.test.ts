@@ -19,6 +19,7 @@ const hotPathIndexes = {
   mockpit_mocks_updated_at_idx: ["updatedAt"],
   mockpit_posts_mock_idx: ["mockId", "state", "variant"],
   mockpit_posts_session_created_at_idx: ["sessionId", "createdAt"],
+  mockpit_sessions_key_idx: ["key"],
 } as const;
 
 test("SqlStore adds hot-path indexes to existing workspaces idempotently", () => {

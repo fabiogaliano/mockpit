@@ -630,6 +630,21 @@ test("GET /api/sessions/:id and /api/projects summarize the workspace", async ()
   assert.equal(demo.sessions, 1);
 });
 
+test("sessions: a harness key hands back the session it created", async () => {
+  const app = makeApp();
+  const first = await call(app, "/api/sessions", agent({ agent: "cc", title: "A", key: "k1" }));
+  assert.equal(first.status, 201);
+  const again = await call(app, "/api/sessions", agent({ agent: "cc", title: "B", key: "k1" }));
+  assert.equal(again.status, 200);
+  assert.equal(again.body.id, first.body.id);
+  assert.equal(again.body.title, "A");
+  const other = await call(app, "/api/sessions", agent({ agent: "cc", key: "k2" }));
+  assert.notEqual(other.body.id, first.body.id);
+  const unkeyed = await call(app, "/api/sessions", agent({ agent: "cc" }));
+  const unkeyedAgain = await call(app, "/api/sessions", agent({ agent: "cc" }));
+  assert.notEqual(unkeyed.body.id, unkeyedAgain.body.id);
+});
+
 test("sessions: create resolves a project, rename, delete cascades", async () => {
   const app = makeApp();
   const created = await call(app, "/api/sessions", agent({ agent: "pi", cwd: "/work/acme" }));

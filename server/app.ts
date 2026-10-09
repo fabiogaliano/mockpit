@@ -2517,6 +2517,9 @@ export function createApp({
   app.post("/api/sessions", async (c) => {
     const body = (await jsonBody(c)) ?? {};
     const cwd = str(body.cwd, 4096);
+    const key = str(body.key, MAX_TITLE);
+    const existing = key ? await store.getSessionByKey(key) : null;
+    if (existing) return c.json(existing, 200);
     const session = await store.createSession({
       agent: str(body.agent, MAX_TITLE) ?? "agent",
       title: str(body.title, MAX_TITLE),
@@ -2524,6 +2527,7 @@ export function createApp({
       // Resolved once here so every mock this session publishes lands in the
       // same project.
       project: resolveProject(str(body.project, MAX_TITLE), cwd),
+      key,
     });
     bus.broadcast({ type: "session-created", id: session.id });
     return c.json(session, 201);
