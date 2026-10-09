@@ -1285,7 +1285,7 @@ const commands = {
     writeFileSync(starter, renderStarter({ ...design, kit }, iconSets));
     say("wrote:", ".mockpit/starter.html");
     if (ignoreMockpitDir()) say("wrote:", ".gitignore (+ .mockpit/)");
-    say("next:", "mockpit guide --brief");
+    say("next:", "mockpit guide");
     if (flags.json) out({ project, design: stored, starter });
   },
 

@@ -1070,8 +1070,9 @@ test("read with no slug prints one line per mock, plus pending", async () => {
     await cli(server, {}, "ask", "--mock", "writer", "Look?", "--option", "Quiet=quiet");
     const { code, stdout } = await cli(server, {}, "read");
     assert.equal(code, 0);
-    assert.match(stdout, /^acme\/site · 1 mock · 1 open ask$/m);
-    assert.match(stdout, /^ {2}writer · component · Writing \/ Lab open · 3 variants · 1 open$/m);
+    // The Quiet-only ask leaves Writing's variants unbound: the built-in counts too.
+    assert.match(stdout, /^acme\/site · 1 mock · 2 open asks$/m);
+    assert.match(stdout, /^ {2}writer · component · Writing \/ Lab open · 3 variants · 2 open$/m);
     assert.doesNotMatch(stdout, /^pending:/m, "nothing pending yet");
 
     await fetch(`${server.url}/api/mocks/${id}/draft`, {
@@ -1082,7 +1083,7 @@ test("read with no slug prints one line per mock, plus pending", async () => {
     const drafting = await cli(server, {}, "read");
     assert.match(
       drafting.stdout,
-      /^pending: writer — the user is answering \(0 of 1 answered, 1 comment\)$/m,
+      /^pending: writer — the user is answering \(0 of 2 answered, 1 comment\)$/m,
     );
 
     const json = JSON.parse((await cli(server, {}, "read", "--json")).stdout);

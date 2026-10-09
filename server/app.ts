@@ -81,7 +81,7 @@ import {
   type Mock,
   type MockKind,
   newId,
-  openAsks,
+  openCount,
   OTHER_ID,
   type PartComment,
   type Post,
@@ -1245,14 +1245,19 @@ export function createApp({
     const project = str(query.project, MAX_TITLE);
     const mocks = await store.listMocks(project);
     const rows = [];
-    for (const m of mocks) rows.push(mockSummaryView(m, await store.listPosts({ mockId: m.id })));
+    const pending = [];
+    for (const m of mocks) {
+      const posts = await store.listPosts({ mockId: m.id });
+      rows.push(mockSummaryView(m, posts));
+      pending.push(pendingOf(m, posts));
+    }
     const open = rows.reduce((n, r) => n + r.open, 0);
     return ok({
       ...(project ? { project } : {}),
       mocks: rows,
       open,
       openMocks: rows.filter((r) => r.open > 0).length,
-      pending: mocks.map(pendingOf),
+      pending,
     });
   }
 
@@ -1275,7 +1280,7 @@ export function createApp({
         history: query.history,
         tuned: await lastTuned(mock.id),
       }),
-      pending: pendingOf(mock),
+      pending: pendingOf(mock, posts),
     });
   }
 
@@ -1473,7 +1478,7 @@ export function createApp({
       mockId: mock.id,
       project: mock.project,
       asks: added,
-      open: openAsks(mock).length,
+      open: openCount(mock, posts),
       url: mockUrl(ctx.base, mock),
       feedback,
     });
@@ -2194,13 +2199,13 @@ export function createApp({
   // What the user is doing right now, per mock: derived from the SSE registry
   // and the server-side draft, never stored. It is why an empty `feedback` still
   // tells the agent something ("2 of 3 answered", or nobody is looking).
-  const pendingOf = (mock: Mock) => ({
+  const pendingOf = (mock: Mock, posts: Post[]) => ({
     mock: mock.slug,
     viewerOpen: viewerClients > 0,
     draft: mock.draft
       ? {
           answered: Object.keys(mock.draft.answers).length,
-          of: openAsks(mock).length,
+          of: openCount(mock, posts),
           comments: mock.draft.comments.length,
           touchedAt: mock.draft.updatedAt,
         }
@@ -2227,7 +2232,11 @@ export function createApp({
     const project = str(query.project, MAX_TITLE) ?? session.project ?? undefined;
     return ok({
       feedback: await buildFeedbackBatches(store, comments),
-      pending: (await store.listMocks(project)).map(pendingOf),
+      pending: await Promise.all(
+        (await store.listMocks(project)).map(async (m) =>
+          pendingOf(m, await store.listPosts({ mockId: m.id })),
+        ),
+      ),
     });
   }
 

@@ -896,6 +896,44 @@ export const askAnswered = (a: Pick<Ask, "answer" | "other" | "note">): boolean 
 export const openAsks = (mock: Pick<Mock, "asks">): Ask[] =>
   mock.asks.filter((a) => !askAnswered(a));
 
+// How many built-in "Which one?" asks the viewer shows: one mock-wide when every
+// state needs one and the live names line up, else one per needing state. Same
+// rule as viewer/src/logic.ts builtinAsks, so Home, `read` and `pending` count
+// the question the user actually sees. Answering it archives the losers, which
+// is what makes it stop counting.
+export function builtinAskCount(
+  mock: Pick<Mock, "asks" | "states">,
+  posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
+  mockId: string,
+): number {
+  const live = (state: string | null) =>
+    posts
+      .filter((p) => p.mock === mockId && p.state === state && p.status !== "archived")
+      .map((p) => p.variant);
+  const needs = (state: string | null) => {
+    const names = live(state);
+    if (names.length < 2) return false;
+    return !mock.asks.some(
+      (a) =>
+        (a.scope === "mock" || (a.scope === "state" && a.state === state)) &&
+        names.every((n) => a.options.some((o) => o.variant === n)),
+    );
+  };
+  const states = mock.states.length ? mock.states : [null];
+  const needing = states.filter(needs);
+  if (!needing.length) return 0;
+  const key = (state: string | null) => [...live(state)].sort().join("\n");
+  const first = key(needing[0]);
+  return needing.length === states.length && states.every((st) => key(st) === first)
+    ? 1
+    : needing.length;
+}
+
+export const openCount = (
+  mock: Pick<Mock, "id" | "asks" | "states">,
+  posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
+): number => openAsks(mock).length + builtinAskCount(mock, posts, mock.id);
+
 // The viewer's built-in "Which one?" for variants no agent ask binds: `variant`
 // mock-wide, `variant:<state>` per state. Never stored; synthesized from the
 // variants so a reply answering it validates, flips and reads like any ask. An
@@ -929,7 +967,11 @@ export function builtinAsk(
 
 // Per-project rollup for the projects list. Pure, so every store agrees on
 // what "open" and "lastActiveAt" mean.
-export function summarizeProjects(mocks: Mock[], sessions: Session[]): ProjectSummary[] {
+export function summarizeProjects(
+  mocks: Mock[],
+  sessions: Session[],
+  posts: Post[] = [],
+): ProjectSummary[] {
   const byProject = new Map<string, Mock[]>();
   for (const m of mocks) {
     const list = byProject.get(m.project);
@@ -952,7 +994,7 @@ export function summarizeProjects(mocks: Mock[], sessions: Session[]): ProjectSu
       return {
         name,
         mocks: list.length,
-        open: list.reduce((n, m) => n + openAsks(m).length, 0),
+        open: list.reduce((n, m) => n + openCount(m, posts), 0),
         lastActiveAt: [lastMock, sessionActive.get(name) ?? ""].sort().pop() ?? "",
         sessions: sessionCounts.get(name) ?? 0,
       };

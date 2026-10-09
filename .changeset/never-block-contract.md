@@ -29,7 +29,8 @@ browser at their own pace.
   binding them returns a nudge and a ready `suggestedAsk`. Until an ask binds
   them, the viewer shows a built-in "Which one?" with a picture per variant;
   its answer arrives like any ask under the reserved id `variant` (per state:
-  `variant:<state>`) and accepts and archives per state.
+  `variant:<state>`) and accepts and archives per state. Home, `read` and
+  `pending` count it as open.
 - **Delivered / Not seen yet.** Each Send in the Thread says whether an agent
   has received it, and the Send confirmation suggests telling your agent
   you've answered when none has.

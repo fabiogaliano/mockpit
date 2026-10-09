@@ -712,7 +712,11 @@ export class SqlStore implements Store {
   // --- projects / mocks ---
 
   async listProjects() {
-    return summarizeProjects(await this.listMocks(), await this.listSessions());
+    return summarizeProjects(
+      await this.listMocks(),
+      await this.listSessions(),
+      await this.listPosts(),
+    );
   }
 
   async listMocks(project?: string) {

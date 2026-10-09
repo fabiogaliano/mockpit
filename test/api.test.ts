@@ -575,7 +575,9 @@ test("GET /api/mocks lists summaries with open counts; ?project scopes it", asyn
   );
   const all = (await call(app, "/api/mocks")).body;
   assert.equal(all.mocks.length, 2);
-  assert.equal(all.open, 1);
+  // The agent's ask binds no variants, so the viewer also shows its built-in
+  // "Which one?": both count as open.
+  assert.equal(all.open, 2);
   assert.equal(all.openMocks, 1);
   const demo = (await call(app, "/api/mocks?project=demo")).body;
   assert.equal(demo.project, "demo");
@@ -584,7 +586,7 @@ test("GET /api/mocks lists summaries with open counts; ?project scopes it", asyn
   assert.equal(row.slug, "writer");
   assert.equal(row.stateCount, 2);
   assert.equal(row.variants, 4);
-  assert.equal(row.open, 1);
+  assert.equal(row.open, 2);
   assert.ok(row.thumbnail.postId);
 });
 
@@ -690,7 +692,7 @@ test("asks are upserted by id and land in the thread", async () => {
   const detail = (await call(app, `/api/mocks/${mockId}`)).body;
   assert.equal(detail.asks.length, 1);
   assert.equal(detail.asks[0].text, "Pick a look");
-  assert.equal(detail.open, 1);
+  assert.equal(detail.open, 2); // plus the built-in "Which one?" for the unbound variants
   const thread = (await call(app, `/api/comments?mock=${mockId}`)).body.comments;
   assert.deepEqual(
     thread.map((c: any) => [c.kind, c.text, c.sessionId]),
@@ -2263,7 +2265,8 @@ test("mcp: the design loop round-trips through the shared flows", async () => {
     project: "demo",
     asks: [{ id: "look", text: "Look?", options: [{ label: "Dark", variant: "dark" }] }],
   });
-  assert.equal(asked.open, 1);
+  // "look" binds only dark, so quiet stays unbound and the built-in ask counts.
+  assert.equal(asked.open, 2);
 
   const empty = await tool(app, "feedback", { session });
   assert.deepEqual(empty.feedback, []);

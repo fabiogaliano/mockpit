@@ -8,7 +8,7 @@ import {
   partsByState,
   variantView,
 } from "../server/apiViews.ts";
-import type { Mock, Post } from "../server/types.ts";
+import { builtinAskCount, type Mock, type Post } from "../server/types.ts";
 
 const mock = (over: Partial<Mock> = {}): Mock => ({
   id: "m1",
@@ -120,10 +120,56 @@ test("a mock summary counts open asks and thumbnails the accepted variant of the
     post({ id: "p1", variant: "quiet" }),
     post({ id: "p2", variant: "dark", status: "accepted" }),
   ]);
-  assert.equal(summary.open, 1);
+  // One unanswered agent ask, plus the built-in "Which one?" for Writing's two
+  // unbound variants.
+  assert.equal(summary.open, 2);
   assert.equal(summary.variants, 2);
   assert.equal(summary.stateCount, 2);
   assert.deepEqual(summary.thumbnail, { postId: "p2", surface: 0, version: 2 });
+});
+
+test("open counts the built-in Which one? the viewer shows, mock-wide or per state", () => {
+  const noAsks = mock({ asks: [] });
+  const both = (state: string, variant: string, status: Post["status"] = "open") =>
+    post({ id: `${state}-${variant}`, state, variant, status });
+  const lined = [
+    both("Writing", "quiet"),
+    both("Writing", "dark"),
+    both("Lab open", "quiet"),
+    both("Lab open", "dark"),
+  ];
+  assert.equal(builtinAskCount(noAsks, lined, "m1"), 1, "same names everywhere: one ask");
+  assert.equal(
+    builtinAskCount(noAsks, [...lined, both("Lab open", "bold")], "m1"),
+    2,
+    "names differ: one per state",
+  );
+  assert.equal(
+    builtinAskCount(noAsks, [both("Writing", "quiet"), both("Writing", "dark")], "m1"),
+    1,
+    "only one state needs it",
+  );
+  assert.equal(
+    builtinAskCount(noAsks, [both("Writing", "quiet"), both("Writing", "dark", "archived")], "m1"),
+    0,
+    "answered: the loser is archived",
+  );
+  const bound = mock({
+    asks: [
+      {
+        id: "look",
+        text: "?",
+        scope: "mock",
+        options: [
+          { id: "q", label: "Q", variant: "quiet" },
+          { id: "d", label: "D", variant: "dark" },
+        ],
+        at: "t",
+      },
+    ],
+  });
+  assert.equal(builtinAskCount(bound, lined, "m1"), 0, "an agent ask binds them");
+  assert.equal(builtinAskCount(noAsks, lined, "other"), 0, "other mocks' posts never count");
 });
 
 test("a single-state mock counts as one state", () => {
