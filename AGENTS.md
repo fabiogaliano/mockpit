@@ -317,8 +317,9 @@ the finding needs.
 - Changesets drive release notes. For user-visible changes run
   `npm run changeset` and select `patch`/`minor`/`major`; for maintenance-only
   PRs run `npm run changeset -- --empty`. Do not edit `CHANGELOG.md` for normal
-  PRs — `npm run release:version` updates it during release prep.
-- Release: run `npm run release:version`, commit `chore(release): X.Y.Z`, tag
-  `vX.Y.Z`, and push the tag. The release workflow verifies the tag matches
-  `package.json`, publishes npm with provenance, and creates the GitHub release
-  from that changelog section. See `docs/releasing.md`.
+  PRs — the release PR updates it.
+- Release: CI-driven. After CI passes on `main`, the Release workflow opens the
+  `chore: release packages` PR from pending changesets; merging it publishes
+  npm (trusted publishing, with provenance) and creates the `vX.Y.Z` GitHub
+  release from that changelog section. Never publish or tag by hand. See
+  `docs/releasing.md`.
