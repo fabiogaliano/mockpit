@@ -57,14 +57,23 @@ it.
 ## Authentication
 
 The publish job runs in the `npm` environment and authenticates with npm
-trusted publishing (OIDC): no token is stored. On npmjs.com, the `mockpit`
-package's **Settings → Trusted publishing** names the GitHub repository
-`fabiogaliano/mockpit`, the workflow `release.yml`, and the environment `npm`.
+trusted publishing (OIDC): no token is stored anywhere. The trust names the
+GitHub repository `fabiogaliano/mockpit`, the workflow `release.yml`, and the
+environment `npm`; `npm trust list mockpit` shows it. Renaming the workflow file
+or the environment breaks publishing until the trust is updated.
 
-npm can only attach a trusted publisher to a package that exists, so the very
-first publish needs a token: add a granular npm access token with publish rights
-as the `NPM_TOKEN` secret (on the `npm` environment), let one release publish,
-configure trusted publishing, then delete the secret.
+npm can only attach a trusted publisher to a package that already exists, so a
+new package's first version is published by hand, which is how `mockpit@1.0.0`
+shipped: from a checkout of its tag, logged in with `npm login`,
+
+```sh
+npm pack && npm publish mockpit-<version>.tgz --access public   # 2FA prompt
+npm trust github mockpit --file release.yml --repository fabiogaliano/mockpit \
+  --environment npm --allow-publish --yes                       # 2FA prompt
+```
+
+npm processes a new version for a few minutes after the publish succeeds, so
+`npm view mockpit` can lag the release.
 
 The repository must allow GitHub Actions to create pull requests (**Settings →
 Actions → General → Workflow permissions**) for the release PR to open.

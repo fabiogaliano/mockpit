@@ -82,6 +82,9 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
+    # A hung `playwright install --with-deps` (apt) otherwise holds the job, and
+    # with it the release, for GitHub's 6-hour default.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
