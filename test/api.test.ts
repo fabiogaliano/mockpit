@@ -1085,6 +1085,108 @@ test("notes and write-ins draft, validate, reach the agent in one reply, and cle
   assert.equal(detail.open, 1, "a write-in or a note answers its ask; look stays open");
 });
 
+// The smallest valid PNG header bytes are enough: the server stores bytes, it
+// doesn't decode them.
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+
+async function attach(app: App, mockId: string, bytes: Uint8Array, type = "image/png") {
+  return call(app, `/api/assets?mock=${mockId}&filename=shot.png`, {
+    method: "POST",
+    headers: { "content-type": type, "sec-fetch-site": "same-origin" },
+    body: bytes,
+  });
+}
+
+test("images attach to a write-in or a note and reach the agent by URL and MCP image", async () => {
+  const app = makeApp();
+  const { mockId, session } = await writer(app);
+  await call(
+    app,
+    `/api/mocks/${mockId}/asks`,
+    agent({
+      asks: [
+        { id: "lang", text: "Which language?", options: ["English", "Portuguese"] },
+        { id: "list", text: "Which list?", options: ["Table", "Cards"] },
+      ],
+    }),
+  );
+  const up = await attach(app, mockId, PNG);
+  assert.equal(up.status, 201);
+  const imageId: string = up.body.id;
+  assert.equal(up.body.sessionId, session, "an attachment belongs to the mock's session");
+
+  const svg = await attach(app, mockId, new TextEncoder().encode("<svg/>"), "image/svg+xml");
+  assert.equal(svg.status, 415, "svg is active content, never attachable");
+  const fromAgent = await call(app, `/api/assets?mock=${mockId}`, {
+    method: "POST",
+    headers: { "content-type": "image/png" },
+    body: PNG,
+  });
+  assert.equal(fromAgent.status, 403, "only the viewer attaches for the user");
+
+  const path = `/api/mocks/${mockId}/draft`;
+  const put = (body: unknown) => call(app, path, viewer(body, "PUT"));
+  assert.equal((await put({ noteImages: { list: ["nope"] } })).status, 400);
+  assert.equal((await put({ noteImages: { nope: [imageId] } })).status, 400);
+  assert.equal((await put({ noteImages: { list: imageId } })).status, 400);
+  const tooMany = Array.from({ length: 7 }, (_, i) => `${imageId}${i}`);
+  assert.equal((await put({ noteImages: { list: tooMany } })).status, 400);
+  const fileAsset = await call(app, `/api/assets?session=${session}`, {
+    method: "POST",
+    headers: { "content-type": "text/plain" },
+    body: "hello",
+  });
+  assert.equal((await put({ noteImages: { list: [fileAsset.body.id] } })).status, 400);
+
+  // An image alone is a write-in / a note: its text is present as "".
+  const saved = await put({
+    otherImages: { lang: [imageId, imageId] },
+    notes: { list: "like this" },
+    noteImages: { list: [imageId] },
+  });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.body.draft.others, { lang: "" });
+  assert.deepEqual(saved.body.draft.otherImages, { lang: [imageId] });
+
+  const sent = await call(app, `/api/mocks/${mockId}/reply`, viewer({}));
+  assert.equal(sent.status, 201);
+  const url = `http://localhost/a/${imageId}`;
+  const mcp = await call(
+    app,
+    "/mcp",
+    mcpCall(1, "tools/call", { name: "feedback", arguments: { session } }),
+  );
+  const [text, ...images] = mcp.body.result.content;
+  const batch = JSON.parse(text.text).feedback[0];
+  assert.deepEqual(batch.reply.asks, [
+    {
+      ask: "lang",
+      text: "Which language?",
+      chosen: [{ id: "other", label: "", other: true, images: [{ id: imageId, url }] }],
+    },
+    {
+      ask: "list",
+      text: "Which list?",
+      chosen: [],
+      note: "like this",
+      noteImages: [{ id: imageId, url }],
+    },
+  ]);
+  assert.equal(batch.reply.otherImages, undefined, "images ride in asks, not as id maps");
+  assert.deepEqual(
+    images.map((c: any) => c.type),
+    ["image", "image"],
+    "the model sees each attached image",
+  );
+  assert.equal(images[0].mimeType, "image/png");
+  assert.equal(images[0].data, Buffer.from(PNG).toString("base64"));
+
+  const detail = (await call(app, `/api/mocks/${mockId}`)).body;
+  const byId = Object.fromEntries(detail.asks.map((a: any) => [a.id, a]));
+  assert.deepEqual(byId.lang.otherImages, [imageId]);
+  assert.deepEqual(byId.list.noteImages, [imageId]);
+});
+
 test("the option id `other` is reserved for the viewer's write-in", async () => {
   const app = makeApp();
   const { mockId } = await writer(app);

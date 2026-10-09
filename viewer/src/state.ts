@@ -5,7 +5,13 @@
 
 import { batch, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { createStore } from "solid-js/store";
-import type { Ask, KnobValue, PartCommentAnchor, ReplyDecision } from "../../server/types.ts";
+import {
+  type Ask,
+  type KnobValue,
+  MAX_ASK_IMAGES,
+  type PartCommentAnchor,
+  type ReplyDecision,
+} from "../../server/types.ts";
 import {
   api,
   type CommentRow,
@@ -14,6 +20,7 @@ import {
   subscribe,
   watchMock,
 } from "./api.ts";
+import { extensionOf, prepareImage, rejectReason } from "./attach.ts";
 import { host } from "./host.ts";
 import {
   answerIds,
@@ -31,6 +38,7 @@ import {
   overriddenAsks,
   type PartsReport,
   pickInDraft,
+  setAskField,
   tuneVisible,
   unanswered,
 } from "./logic.ts";
@@ -38,6 +46,15 @@ import { setTheme } from "./theme.ts";
 import { narrow } from "./viewport.ts";
 
 export type Mode = "questions" | "tune" | "thread";
+export type AskField = "other" | "note";
+
+// An image on its way up (a local preview), or one that failed (with why).
+export interface PendingImage {
+  key: string;
+  url: string;
+  name: string;
+  error?: string;
+}
 export type Question = { kind: "ask"; ask: Ask } | { kind: "mix" };
 
 // What the stage shows while the pointer rests on an option: another variant,
@@ -84,6 +101,10 @@ export function createMockScreen(project: string, slug: string) {
   // "No, all <look>" is an answer even though it borrows nothing.
   const [mixTouched, setMixTouched] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  // `${field}:${askId}` → images still uploading or failed there.
+  const [uploads, setUploads] = createSignal<Record<string, PendingImage[]>>({});
+  // The last attach/remove, for a polite live region.
+  const [attachStatus, setAttachStatus] = createSignal("");
   // The Mark tool (D11): while on, a click on the stage leaves a comment there.
   const [marking, setMarking] = createSignal(false);
   // Thread's comment field; a frame's sendPrompt fills it.
@@ -128,6 +149,15 @@ export function createMockScreen(project: string, slug: string) {
   const otherOf = (ask: Ask) => (drafted(ask) ? draft()?.others[ask.id] : ask.other);
   const otherTicked = (ask: Ask) => !!otherOpen()[ask.id] || otherOf(ask) !== undefined;
   const noteOf = (ask: Ask) => draft()?.notes[ask.id] ?? ask.note;
+  const otherImagesOf = (ask: Ask) =>
+    (drafted(ask) ? draft()?.otherImages[ask.id] : ask.otherImages) ?? [];
+  const noteImagesOf = (ask: Ask) =>
+    (draft()?.notes[ask.id] !== undefined ? draft()?.noteImages[ask.id] : ask.noteImages) ?? [];
+  const textOf = (ask: Ask, field: AskField) =>
+    (field === "other" ? otherOf(ask) : noteOf(ask)) ?? "";
+  const imagesOf = (ask: Ask, field: AskField) =>
+    field === "other" ? otherImagesOf(ask) : noteImagesOf(ask);
+  const pendingOf = (ask: Ask, field: AskField) => uploads()[`${field}:${ask.id}`] ?? [];
 
   // The variant the Look question settled on, drafted or sent.
   const lookPick = createMemo(() => {
@@ -243,6 +273,8 @@ export function createMockScreen(project: string, slug: string) {
       comments: [...base.comments],
       others: { ...base.others },
       notes: { ...base.notes },
+      otherImages: { ...base.otherImages },
+      noteImages: { ...base.noteImages },
     });
     batch(() => {
       setDraftSignal(next);
@@ -295,6 +327,8 @@ export function createMockScreen(project: string, slug: string) {
             comments: d.comments,
             others: d.others ?? {},
             notes: d.notes ?? {},
+            otherImages: d.otherImages ?? {},
+            noteImages: d.noteImages ?? {},
           }
         : null,
     );
@@ -482,24 +516,87 @@ export function createMockScreen(project: string, slug: string) {
     setOtherOpen({ ...otherOpen(), [ask.id]: open });
     setFlagged(flagged().filter((x) => x !== ask.id));
   }
-  // The write-in under "Other…", and the note on a question. Blank is none.
-  function setOther(ask: Ask, text: string) {
+  // The write-in under "Other…", and the note on a question, with their
+  // images. Blank text with no image is none.
+  function setField(ask: Ask, field: AskField, text: string, images: string[]) {
     writeDraft((d) => {
-      if (text.trim()) {
-        d.others[ask.id] = text;
-        if (!ask.multi) delete d.answers[ask.id];
-      } else delete d.others[ask.id];
-      return d;
+      const next = setAskField(d, ask.id, field, text, images);
+      if (field === "other" && next.others[ask.id] !== undefined && !ask.multi) {
+        delete next.answers[ask.id];
+      }
+      return next;
     });
-    setOtherOpen({ ...otherOpen(), [ask.id]: true });
+    if (field === "other") setOtherOpen({ ...otherOpen(), [ask.id]: true });
   }
-  function setNote(ask: Ask, text: string) {
-    writeDraft((d) => {
-      if (text.trim()) d.notes[ask.id] = text;
-      else delete d.notes[ask.id];
-      return d;
-    });
+  const setOther = (ask: Ask, text: string) => setField(ask, "other", text, otherImagesOf(ask));
+  const setNote = (ask: Ask, text: string) => setField(ask, "note", text, noteImagesOf(ask));
+
+  function setPending(slot: string, fn: (list: PendingImage[]) => PendingImage[]) {
+    const all = { ...uploads() };
+    const next = fn(all[slot] ?? []);
+    if (next.length) all[slot] = next;
+    else delete all[slot];
+    setUploads(all);
   }
+  let uploadSeq = 0;
+  // Uploads at once, so Send never waits on bytes; the draft only ever holds
+  // ids the server has. A file that can't go keeps its chip with the reason.
+  async function attachImages(ask: Ask, field: AskField, files: File[]) {
+    const m = mock();
+    if (!m || !files.length) return;
+    const slot = `${field}:${ask.id}`;
+    const room = MAX_ASK_IMAGES - imagesOf(ask, field).length - pendingOf(ask, field).length;
+    if (room <= 0) {
+      setAttachStatus(`At most ${MAX_ASK_IMAGES} images here`);
+      return;
+    }
+    if (files.length > room) setAttachStatus(`At most ${MAX_ASK_IMAGES} images here`);
+    await Promise.all(
+      files.slice(0, room).map(async (file) => {
+        const key = `u${++uploadSeq}`;
+        const url = URL.createObjectURL(file);
+        const failed = (why: string) => {
+          setPending(slot, (l) => l.map((p) => (p.key === key ? { ...p, error: why } : p)));
+          setAttachStatus(why);
+        };
+        setPending(slot, (l) => [...l, { key, url, name: file.name }]);
+        const refused = rejectReason(file);
+        if (refused) return failed(refused);
+        try {
+          const blob = await prepareImage(file);
+          const name = `${file.name.replace(/\.[^.]*$/, "") || "image"}.${extensionOf(blob.type)}`;
+          const { id } = await api.attach(m.id, blob, name);
+          const was = pendingOf(ask, field).some((p) => p.key === key);
+          setPending(slot, (l) => l.filter((p) => p.key !== key));
+          URL.revokeObjectURL(url);
+          // Removed while it was uploading: the user no longer wants it.
+          if (!was) return;
+          const images = imagesOf(ask, field);
+          if (!images.includes(id)) setField(ask, field, textOf(ask, field), [...images, id]);
+          setAttachStatus(`Attached ${file.name || "image"}`);
+        } catch (e) {
+          failed(e instanceof Error ? e.message : String(e));
+        }
+      }),
+    );
+  }
+  function detachImage(ask: Ask, field: AskField, id: string) {
+    setField(
+      ask,
+      field,
+      textOf(ask, field),
+      imagesOf(ask, field).filter((x) => x !== id),
+    );
+    setAttachStatus("Image removed");
+  }
+  function dismissPending(ask: Ask, field: AskField, key: string) {
+    const p = pendingOf(ask, field).find((x) => x.key === key);
+    if (p) URL.revokeObjectURL(p.url);
+    setPending(`${field}:${ask.id}`, (l) => l.filter((x) => x.key !== key));
+  }
+  onCleanup(() => {
+    for (const list of Object.values(uploads())) for (const p of list) URL.revokeObjectURL(p.url);
+  });
   // `null` is "No, all <look>": clears every borrow.
   function toggleMix(opt: { part: string; variant: string } | null) {
     writeDraft((d) => {
@@ -684,6 +781,12 @@ export function createMockScreen(project: string, slug: string) {
     noteOf,
     setOther,
     setNote,
+    imagesOf,
+    pendingOf,
+    attachImages,
+    detachImage,
+    dismissPending,
+    attachStatus,
     tuneShown,
     variantFor,
     activeVariant,

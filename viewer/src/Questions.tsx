@@ -4,9 +4,19 @@
 // hover device a pick moves on to the next open question, on touch the first
 // tap previews and the second confirms. Mix is the optional last question.
 
-import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
+import {
+  createMemo,
+  createSignal,
+  createUniqueId,
+  For,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import type { Ask, AskOption } from "../../server/types.ts";
-import { surfaceUrl, type VariantView } from "./api.ts";
+import { assetUrl, surfaceUrl, type VariantView } from "./api.ts";
+import { ACCEPT, filesOf, hasFiles } from "./attach.ts";
 import { host, readonly } from "./host.ts";
 import {
   answerIds,
@@ -19,7 +29,7 @@ import {
   partBox,
   sendCount,
 } from "./logic.ts";
-import type { MockScreenState } from "./state.ts";
+import type { AskField, MockScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 
@@ -39,6 +49,20 @@ export function Questions(props: { s: MockScreenState }) {
 
 function QuestionView(props: { s: MockScreenState }) {
   const s = props.s;
+  // A file dropped beside a drop zone would make the browser open it and
+  // leave the page; files land only where a zone takes them.
+  onMount(() => {
+    const win = host().window;
+    const guard = (e: DragEvent) => {
+      if (hasFiles(e.dataTransfer)) e.preventDefault();
+    };
+    win.addEventListener("dragover", guard);
+    win.addEventListener("drop", guard);
+    onCleanup(() => {
+      win.removeEventListener("dragover", guard);
+      win.removeEventListener("drop", guard);
+    });
+  });
   const total = () => s.questions().length;
   const i = () => Math.min(s.cur(), total() - 1);
   const q = () => s.questions()[i()];
@@ -56,6 +80,9 @@ function QuestionView(props: { s: MockScreenState }) {
 
   return (
     <>
+      <div class="sr-only" aria-live="polite">
+        {s.attachStatus()}
+      </div>
       <div class="qhd">
         <Header s={s} index={i()} total={total()} />
         <span class="grow" />
@@ -319,6 +346,9 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
       </div>
       <Show when={s.otherTicked(props.ask)}>
         <AskText
+          s={s}
+          ask={props.ask}
+          field="other"
           class="other-text"
           label="Your answer"
           value={s.otherOf(props.ask) ?? ""}
@@ -350,6 +380,9 @@ function AskNote(props: { s: MockScreenState; ask: Ask }) {
       }
     >
       <AskText
+        s={s}
+        ask={props.ask}
+        field="note"
         class="ask-note"
         label="Note"
         value={s.noteOf(props.ask) ?? ""}
@@ -361,7 +394,13 @@ function AskNote(props: { s: MockScreenState; ask: Ask }) {
   );
 }
 
+// A write-in or a note, with images like a chat composer: attach with the
+// button, paste, or drop onto the box. Each image uploads as soon as it's
+// added; its × removes it.
 function AskText(props: {
+  s: MockScreenState;
+  ask: Ask;
+  field: AskField;
   class: string;
   label: string;
   value: string;
@@ -369,19 +408,154 @@ function AskText(props: {
   focus: boolean;
   onInput: (v: string) => void;
 }) {
+  const s = props.s;
+  const id = createUniqueId();
+  let textarea: HTMLTextAreaElement | undefined;
+  let picker: HTMLInputElement | undefined;
+  let list: HTMLUListElement | undefined;
+  // Counted, because dragenter/dragleave fire for every child crossed.
+  const [over, setOver] = createSignal(0);
+  const images = () => s.imagesOf(props.ask, props.field);
+  const pending = () => s.pendingOf(props.ask, props.field);
+  const attach = (files: File[]) => void s.attachImages(props.ask, props.field, files);
+  // Focus stays in the tray after a removal: the next chip, else the one
+  // before, else the text.
+  const refocus = (index: number) =>
+    queueMicrotask(() => {
+      const xs = list?.querySelectorAll<HTMLButtonElement>(".attach-x") ?? [];
+      (xs[index] ?? xs[index - 1] ?? textarea)?.focus();
+    });
+  const drag = (e: DragEvent) => {
+    if (readonly() || !hasFiles(e.dataTransfer)) return false;
+    e.preventDefault();
+    return true;
+  };
   return (
-    <label class={`asktext ${props.class}`}>
-      <span class="up-text-label">{props.label}</span>
+    <div
+      class={`asktext ${props.class}`}
+      classList={{ dropping: over() > 0 }}
+      onDragEnter={(e) => drag(e) && setOver(over() + 1)}
+      onDragOver={(e) => {
+        if (drag(e) && e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+      }}
+      onDragLeave={(e) => drag(e) && setOver(Math.max(0, over() - 1))}
+      onDrop={(e) => {
+        if (!drag(e)) return;
+        setOver(0);
+        attach(filesOf(e.dataTransfer, "drop"));
+      }}
+    >
+      <label class="up-text-label" for={id}>
+        {props.label}
+      </label>
       <textarea
+        id={id}
         rows={2}
         maxLength={8000}
         placeholder={props.placeholder}
         value={props.value}
         readOnly={readonly()}
-        ref={(el) => props.focus && queueMicrotask(() => el.focus())}
+        ref={(el) => {
+          textarea = el;
+          if (props.focus) queueMicrotask(() => el.focus());
+        }}
         onInput={(e) => props.onInput(e.currentTarget.value)}
+        onPaste={(e) => {
+          if (readonly()) return;
+          const files = filesOf(e.clipboardData, "paste");
+          // Text pastes as text; only a paste that carries images is ours.
+          if (!files.length) return;
+          e.preventDefault();
+          attach(files);
+        }}
       />
-    </label>
+      <Show when={images().length || pending().length || !readonly()}>
+        <div class="attach-row">
+          <ul
+            class="attach-list"
+            ref={(el) => (list = el)}
+            aria-label={`Attached images, ${images().length + pending().length}`}
+          >
+            <For each={images()}>
+              {(asset, i) => (
+                <li class="attach-item">
+                  <img src={assetUrl(asset)} alt="" />
+                  <Show when={!readonly()}>
+                    <button
+                      type="button"
+                      class="attach-x"
+                      aria-label={`Remove image ${i() + 1}`}
+                      onClick={() => {
+                        s.detachImage(props.ask, props.field, asset);
+                        refocus(i());
+                      }}
+                    >
+                      <XIcon />
+                    </button>
+                  </Show>
+                </li>
+              )}
+            </For>
+            <For each={pending()}>
+              {(p, i) => (
+                <li class="attach-item" classList={{ pending: !p.error, failed: !!p.error }}>
+                  <img src={p.url} alt="" />
+                  <Show when={p.error}>
+                    <span class="attach-err" title={p.error}>
+                      !
+                    </span>
+                  </Show>
+                  <button
+                    type="button"
+                    class="attach-x"
+                    aria-label={p.error ? `Dismiss ${p.name}: ${p.error}` : `Cancel ${p.name}`}
+                    onClick={() => {
+                      s.dismissPending(props.ask, props.field, p.key);
+                      refocus(images().length + i());
+                    }}
+                  >
+                    <XIcon />
+                  </button>
+                </li>
+              )}
+            </For>
+          </ul>
+          <Show when={!readonly()}>
+            <button
+              type="button"
+              class="attach-btn"
+              aria-label="Attach images"
+              title="Attach images — or paste, or drop them here"
+              onClick={() => picker?.click()}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M8 3v10M3 8h10" />
+              </svg>
+            </button>
+            <input
+              ref={(el) => (picker = el)}
+              type="file"
+              accept={ACCEPT}
+              multiple
+              hidden
+              onChange={(e) => {
+                attach(Array.from(e.currentTarget.files ?? []));
+                // Picking the same file again must still fire change.
+                e.currentTarget.value = "";
+              }}
+            />
+          </Show>
+        </div>
+      </Show>
+    </div>
+  );
+}
+
+function XIcon() {
+  return (
+    <svg viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M3 3l6 6M9 3l-6 6" />
+    </svg>
   );
 }
 

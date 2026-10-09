@@ -78,6 +78,8 @@ import {
   type Knobs,
   type KnobValue,
   type MarkdownSurface,
+  ATTACHABLE_IMAGE_TYPES,
+  MAX_ASK_IMAGES,
   MAX_ASSET_BYTES,
   type Mock,
   type MockKind,
@@ -547,7 +549,7 @@ export function createApp({
   // User comments the agent has not seen yet ride along on its next write, so
   // agents hear feedback without blocking on the long-poll. The cursor also
   // advances past the agent's own comments to keep reads cheap.
-  async function collectFeedback(sessionId: string): Promise<FeedbackBatch[]> {
+  async function collectFeedback(sessionId: string, base: string): Promise<FeedbackBatch[]> {
     const session = await store.getSession(sessionId);
     if (!session) return [];
     const fresh = await store.listComments({ sessionId, afterSeq: session.agentSeq });
@@ -555,7 +557,7 @@ export function createApp({
     await store.markAgentSeen(sessionId, fresh[fresh.length - 1].seq);
     bus.broadcast({ type: "comment-delivered", sessionId, seq: fresh[fresh.length - 1].seq });
     const feedback = fresh.filter((cm) => cm.author === "user");
-    return feedback.length > 0 ? await buildFeedbackBatches(store, feedback) : [];
+    return feedback.length > 0 ? await buildFeedbackBatches(store, feedback, base) : [];
   }
 
   // Per-comment delivery state for the viewer: `delivered` once the session's
@@ -971,7 +973,7 @@ export function createApp({
       partChanges = diffParts(partsInSurfaces(extra.previous), partsInSurfaces(post.surfaces));
     }
     const warnings = await iconWarnings(mock.project, post.surfaces);
-    const feedback = await collectFeedback(post.sessionId);
+    const feedback = await collectFeedback(post.sessionId, ctx.base);
     return ok(
       {
         mock: {
@@ -1480,7 +1482,7 @@ export function createApp({
       text: added.map((a) => a.text).join(" · "),
       url: mockUrl(ctx.base, mock),
     });
-    const feedback = session ? await collectFeedback(session.id) : [];
+    const feedback = session ? await collectFeedback(session.id, ctx.base) : [];
     return ok({
       mock: mock.slug,
       mockId: mock.id,
@@ -1583,6 +1585,38 @@ export function createApp({
     return out;
   }
 
+  // askId → attached image ids: known asks, ids of stored raster images only,
+  // deduped and capped, empty lists dropped.
+  async function sanitizeAskImages(
+    raw: unknown,
+    mock: Mock,
+    posts: Post[],
+    key: "otherImages" | "noteImages",
+  ): Promise<Record<string, string[]> | string> {
+    if (raw === undefined || raw === null) return {};
+    if (typeof raw !== "object" || Array.isArray(raw)) return `"${key}" must be an object`;
+    const out: Record<string, string[]> = {};
+    for (const [askId, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (!askById(mock, posts, askId)) return `${mock.slug} has no ask "${askId}"`;
+      if (!Array.isArray(value) || value.some((id) => typeof id !== "string")) {
+        return `${key} "${askId}" must be a list of asset ids`;
+      }
+      const ids = [...new Set(value as string[])];
+      if (ids.length > MAX_ASK_IMAGES) {
+        return `${key} "${askId}" takes at most ${MAX_ASK_IMAGES} images`;
+      }
+      for (const id of ids) {
+        const asset = await store.getAsset(id);
+        if (!asset) return `asset "${id}" not found`;
+        if (!ATTACHABLE_IMAGE_TYPES.has(asset.contentType)) {
+          return `asset "${id}" is not an attachable image`;
+        }
+      }
+      if (ids.length) out[askId] = ids;
+    }
+    return out;
+  }
+
   function sanitizeMix(raw: unknown, posts: Post[]): Record<string, string> | string {
     if (raw === undefined || raw === null) return {};
     if (typeof raw !== "object" || Array.isArray(raw)) return '"mix" must be an object';
@@ -1600,7 +1634,12 @@ export function createApp({
 
   // A draft, validated against the mock as it is now: unknown asks, options,
   // variants, knob paths or out-of-range values are refused, never stored.
-  function sanitizeDraft(raw: any, mock: Mock, posts: Post[], base: Draft | null): Draft | string {
+  async function sanitizeDraft(
+    raw: any,
+    mock: Mock,
+    posts: Post[],
+    base: Draft | null,
+  ): Promise<Draft | string> {
     const pick = (key: keyof Draft) => (raw?.[key] !== undefined ? raw[key] : base?.[key]);
     const answers = sanitizeAnswers(pick("answers"), mock, posts);
     if (typeof answers === "string") return answers;
@@ -1614,6 +1653,12 @@ export function createApp({
     if (typeof others === "string") return others;
     const notes = sanitizeAskTexts(pick("notes"), mock, posts, "notes");
     if (typeof notes === "string") return notes;
+    const otherImages = await sanitizeAskImages(pick("otherImages"), mock, posts, "otherImages");
+    if (typeof otherImages === "string") return otherImages;
+    const noteImages = await sanitizeAskImages(pick("noteImages"), mock, posts, "noteImages");
+    if (typeof noteImages === "string") return noteImages;
+    for (const askId of Object.keys(otherImages)) others[askId] ??= "";
+    for (const askId of Object.keys(noteImages)) notes[askId] ??= "";
     for (const askId of Object.keys(others)) {
       const ask = askById(mock, posts, askId);
       if (!ask?.multi && answers[askId] !== undefined) return `ask "${askId}" takes one answer`;
@@ -1631,6 +1676,8 @@ export function createApp({
       comments,
       others,
       notes,
+      ...(Object.keys(otherImages).length ? { otherImages } : {}),
+      ...(Object.keys(noteImages).length ? { noteImages } : {}),
       updatedAt: new Date().toISOString(),
     };
   }
@@ -1650,7 +1697,7 @@ export function createApp({
     const mock = await resolveMock(ref);
     if (isResult(mock)) return mock;
     const posts = await store.listPosts({ mockId: mock.id });
-    const draft = sanitizeDraft(body, mock, posts, null);
+    const draft = await sanitizeDraft(body, mock, posts, null);
     if (typeof draft === "string") return fail(400, draft);
     await store.putDraft(mock.id, draft);
     bus.broadcast({ type: "draft-updated", mockId: mock.id });
@@ -1743,10 +1790,18 @@ export function createApp({
     if (answer !== undefined || other !== undefined) {
       delete next.answer;
       delete next.other;
+      delete next.otherImages;
       if (answer !== undefined) next.answer = answer;
       if (other !== undefined) next.other = other;
+      const images = draft.otherImages?.[a.id];
+      if (other !== undefined && images) next.otherImages = images;
     }
-    if (note !== undefined) next.note = note;
+    if (note !== undefined) {
+      next.note = note;
+      delete next.noteImages;
+      const images = draft.noteImages?.[a.id];
+      if (images) next.noteImages = images;
+    }
     return next;
   }
 
@@ -1758,7 +1813,7 @@ export function createApp({
     const mock = await resolveMock(ref);
     if (isResult(mock)) return mock;
     const posts = await store.listPosts({ mockId: mock.id });
-    const draft = sanitizeDraft(body ?? {}, mock, posts, mock.draft);
+    const draft = await sanitizeDraft(body ?? {}, mock, posts, mock.draft);
     if (typeof draft === "string") return fail(400, draft);
     const text = str(body?.text, MAX_COMMENT_TEXT);
     const decision = sanitizeDecision(body?.decision, mock, posts);
@@ -1785,6 +1840,8 @@ export function createApp({
       comments: draft.comments,
       ...(Object.keys(draft.others ?? {}).length ? { others: draft.others } : {}),
       ...(Object.keys(draft.notes ?? {}).length ? { notes: draft.notes } : {}),
+      ...(draft.otherImages ? { otherImages: draft.otherImages } : {}),
+      ...(draft.noteImages ? { noteImages: draft.noteImages } : {}),
       ...(text ? { text } : {}),
       ...(decision ? { decision } : {}),
     };
@@ -2113,7 +2170,7 @@ export function createApp({
 
   // The agent's plain-text message in a mock's thread. Stored as text and
   // rendered as a text node, never as HTML. A write, so feedback rides along.
-  async function sayFlow(ref: unknown, body: any): Promise<FlowResult> {
+  async function sayFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
     const text = typeof body.message === "string" ? str(body.message, MAX_COMMENT_TEXT) : undefined;
     if (!text) return fail(400, 'provide non-empty "message" text');
@@ -2133,7 +2190,7 @@ export function createApp({
     });
     if (!comment) return fail(404, "session not found");
     announceComment(comment);
-    return ok({ feedback: await collectFeedback(comment.sessionId) }, 201);
+    return ok({ feedback: await collectFeedback(comment.sessionId, ctx.base) }, 201);
   }
 
   // Long-poll: resolves as soon as a matching comment lands, or at timeout.
@@ -2198,9 +2255,13 @@ export function createApp({
 
   // The watch long-poll's answer: comments plus the batched feedback built
   // from them.
-  async function listenFlow(q: CommentWait, signal?: AbortSignal): Promise<FlowResult> {
+  async function listenFlow(
+    q: CommentWait,
+    base: string,
+    signal?: AbortSignal,
+  ): Promise<FlowResult> {
     const result = await waitForComments({ ...q, agent: true }, signal);
-    const feedback = await buildFeedbackBatches(store, result.comments);
+    const feedback = await buildFeedbackBatches(store, result.comments, base);
     return ok({ ...result, feedback });
   }
 
@@ -2222,10 +2283,10 @@ export function createApp({
 
   // The feedback verb: never blocks. Takes what the session has not heard yet
   // (the same cursor as piggyback and watch) plus `pending` for the project.
-  async function feedbackFlow(query: {
-    session?: unknown;
-    project?: unknown;
-  }): Promise<FlowResult> {
+  async function feedbackFlow(
+    query: { session?: unknown; project?: unknown },
+    ctx: FlowContext,
+  ): Promise<FlowResult> {
     if (typeof query.session !== "string" || !query.session) {
       return fail(400, 'provide "session": the session id a write returned');
     }
@@ -2239,7 +2300,7 @@ export function createApp({
     });
     const project = str(query.project, MAX_TITLE) ?? session.project ?? undefined;
     return ok({
-      feedback: await buildFeedbackBatches(store, comments),
+      feedback: await buildFeedbackBatches(store, comments, ctx.base),
       pending: await Promise.all(
         (await store.listMocks(project)).map(async (m) =>
           pendingOf(m, await store.listPosts({ mockId: m.id })),
@@ -2249,8 +2310,9 @@ export function createApp({
   }
 
   // Store an uploaded blob. An explicit session is validated and a missing one
-  // is auto-created so an upload can precede the first publish. The asset's
-  // data is dropped from the result (it's bytes).
+  // is auto-created so an upload can precede the first publish. An image the
+  // user attaches names its mock instead, and belongs to the session that mock
+  // replies to. The asset's data is dropped from the result (it's bytes).
   async function uploadAsset(input: {
     data: Uint8Array;
     contentType: string;
@@ -2258,12 +2320,26 @@ export function createApp({
     kind?: AssetKind;
     session?: string;
     agent?: string;
-  }): Promise<{ asset: Omit<Asset, "data"> } | { error: string; status: 400 | 404 | 413 }> {
+    mock?: string;
+  }): Promise<
+    { asset: Omit<Asset, "data"> } | { error: string; status: 400 | 404 | 409 | 413 | 415 }
+  > {
     if (input.data.byteLength === 0) return { error: "empty upload", status: 400 };
     if (input.data.byteLength > MAX_ASSET_BYTES) {
       return { error: `asset exceeds ${MAX_ASSET_BYTES} bytes`, status: 413 };
     }
     let sessionId = input.session;
+    if (input.mock !== undefined) {
+      if (!ATTACHABLE_IMAGE_TYPES.has(input.contentType)) {
+        return { error: "attach a png, jpeg, webp or gif image", status: 415 };
+      }
+      const mock = await store.getMock(input.mock);
+      if (!mock) return { error: `mock "${input.mock}" not found`, status: 404 };
+      const posts = await store.listPosts({ mockId: mock.id });
+      const latest = [...posts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+      sessionId = mock.sessionId ?? latest?.sessionId;
+      if (!sessionId) return { error: `${mock.slug} has no agent session`, status: 409 };
+    }
     if (sessionId && !(await store.getSession(sessionId))) {
       return { error: `session "${sessionId}" not found`, status: 404 };
     }
@@ -2646,13 +2722,16 @@ export function createApp({
   );
 
   app.post("/api/mocks/:id/say", async (c) =>
-    send(c, await sayFlow(c.req.param("id"), await jsonBody(c))),
+    send(c, await sayFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
 
   app.get("/api/feedback", async (c) =>
     send(
       c,
-      await feedbackFlow({ session: c.req.query("session"), project: c.req.query("project") }),
+      await feedbackFlow(
+        { session: c.req.query("session"), project: c.req.query("project") },
+        flowCtx(c),
+      ),
     ),
   );
 
@@ -2719,7 +2798,7 @@ export function createApp({
     const isAgentRead = isAuthenticated(c) && (author === "user" || waitSeconds > 0);
     query.agent = isAgentRead;
     const respond = async (signal?: AbortSignal) => {
-      if (isAgentRead) return send(c, await listenFlow(query, signal));
+      if (isAgentRead) return send(c, await listenFlow(query, flowCtx(c).base, signal));
       const result = await waitForComments(query, signal);
       return c.json({ ...result, comments: await withDelivered(result.comments) });
     };
@@ -3334,9 +3413,14 @@ export function createApp({
             kind: isAssetKind(kindQ) ? kindQ : undefined,
             session: c.req.query("session"),
             agent: c.req.query("agent"),
+            mock: c.req.query("mock"),
           };
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : "invalid upload" }, 400);
+    }
+    // An attachment on a mock is the user's, so only the viewer may make one.
+    if (body.mock !== undefined && !flowCtx(c).viewer) {
+      return c.json({ error: "only the viewer can attach images to a mock" }, 403);
     }
     const result = await uploadAsset(body);
     if ("error" in result) return c.json({ error: result.error }, result.status);
@@ -3493,8 +3577,8 @@ export function createApp({
     get: (ref, query) => getMockFlow(ref, query),
     ask: (ref, body, ctx) => askFlow(ref, body, ctx),
     exportMock: (ref, query, ctx) => exportFlow(ref, query, ctx),
-    say: (ref, body) => sayFlow(ref, body),
-    feedback: (query) => feedbackFlow(query),
+    say: (ref, body, ctx) => sayFlow(ref, body, ctx),
+    feedback: (query, ctx) => feedbackFlow(query, ctx),
   };
   const guide = (project: string, topic?: GuideTopic) =>
     topic ? (topics[topic] ?? "") : briefFor(project);

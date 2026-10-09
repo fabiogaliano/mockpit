@@ -10,6 +10,7 @@ import {
   draftIsEmpty,
   emptyDraft,
   pickInDraft,
+  setAskField,
   tuneVisible,
   unanswered,
   createHitRefs,
@@ -242,6 +243,8 @@ describe("carryOver", () => {
       ],
       others: { panel: "a tab", gone: "x" },
       notes: { look: "on mobile", gone: "y" },
+      otherImages: {},
+      noteImages: {},
     };
     const { draft: next, flagged } = carryOver(draft, mock, variants, 4);
     expect(next.version).toBe(4);
@@ -303,6 +306,8 @@ describe("versions and knobs", () => {
         comments: [],
         others: { panel: "a tab" },
         notes: {},
+        otherImages: {},
+        noteImages: {},
       },
     );
     expect(values).toEqual({ "trim.position": "bottom", "body.size": 19 });
@@ -322,6 +327,8 @@ describe("versions and knobs", () => {
         comments: [{ part: null, state: null, text: "c" }],
         others: {},
         notes: {},
+        otherImages: {},
+        noteImages: {},
       }),
     ).toBe(5);
   });
@@ -503,6 +510,73 @@ describe("notes and Other…", () => {
     expect(rows[0].notes).toEqual([
       { ask: "Which look?", text: "on desktop" },
       { ask: "Trim above or below?", text: "neither fits" },
+    ]);
+  });
+});
+
+describe("attached images", () => {
+  it("keeps a write-in or a note while it has text or images, and drops it once both are empty", () => {
+    let d = setAskField(emptyDraft(1), "panel", "note", "", ["a"]);
+    expect(d.notes).toEqual({ panel: "" });
+    expect(d.noteImages).toEqual({ panel: ["a"] });
+    expect(draftIsEmpty(d)).toBe(false);
+    d = setAskField(d, "panel", "note", "like this", []);
+    expect(d.notes).toEqual({ panel: "like this" });
+    expect(d.noteImages).toEqual({});
+    d = setAskField(d, "panel", "note", "  ", []);
+    expect(d.notes).toEqual({});
+    expect(setAskField(emptyDraft(1), "panel", "other", "", ["a"]).otherImages).toEqual({
+      panel: ["a"],
+    });
+  });
+
+  it("drops a write-in's images with the write-in when an option is picked", () => {
+    const d = setAskField(emptyDraft(1), "panel", "other", "", ["a"]);
+    const r = pickInDraft(d, panel, "margin", true);
+    expect(r.draft.others).toEqual({});
+    expect(r.draft.otherImages).toEqual({});
+  });
+
+  it("shows a reply's images under their question, and an image-only note as no text", () => {
+    const payload = {
+      mockId: "m",
+      version: 1,
+      answers: {},
+      mix: {},
+      tuned: {},
+      comments: [],
+      others: { panel: "" },
+      notes: { look: "" },
+      otherImages: { panel: ["a"] },
+      noteImages: { look: ["b", "c"] },
+    };
+    expect(summarizeReply(payload, mock)).toBe("Sent · look noted · versions open an image");
+    const [row] = threadRows(
+      [
+        {
+          id: "r",
+          seq: 1,
+          sessionId: "s",
+          mockId: "m",
+          postId: null,
+          author: "user",
+          text: "",
+          createdAt: "2026-01-01T00:00:02Z",
+          kind: "reply",
+          anchors: [],
+          postVersion: null,
+          viewport: null,
+          delivered: false,
+          payload,
+        } as CommentRow,
+      ],
+      [],
+      mock,
+    );
+    expect(row.notes).toBeUndefined();
+    expect(row.images).toEqual([
+      { ask: panel.text, ids: ["a"] },
+      { ask: "Which look?", ids: ["b", "c"] },
     ]);
   });
 });

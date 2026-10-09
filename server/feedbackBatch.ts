@@ -31,12 +31,19 @@ export interface FeedbackComment {
   viewport?: number;
 }
 
+// An image the user attached, by the URL an agent can fetch it from.
+export interface ImageRef {
+  id: string;
+  url: string;
+}
+
 // The user's write-in under "Other…", delivered as one more choice so an agent
 // reads it like any option; `other` says it is free text, not one of yours.
 export interface OtherChoice {
   id: typeof OTHER_ID;
   label: string;
   other: true;
+  images?: ImageRef[];
 }
 
 // An answered ask, resolved to the options the user chose, so the agent reads
@@ -46,10 +53,14 @@ export interface AnsweredAsk {
   text: string;
   chosen: (AskOption | OtherChoice)[];
   note?: string;
+  noteImages?: ImageRef[];
 }
 
-// The write-ins and notes ride in `asks`, not again as id maps.
-export interface FeedbackReply extends Omit<Reply, "others" | "notes"> {
+// The write-ins, notes and their images ride in `asks`, not again as id maps.
+export interface FeedbackReply extends Omit<
+  Reply,
+  "others" | "notes" | "otherImages" | "noteImages"
+> {
   seq: number;
   at: string;
   asks: AnsweredAsk[];
@@ -69,9 +80,16 @@ export interface FeedbackBatch {
 
 const ref = (p: Post): VariantRef => ({ state: p.state, variant: p.variant });
 
-function answered(reply: Reply, mock: Mock | undefined, posts: Post[]): AnsweredAsk[] {
+function answered(
+  reply: Reply,
+  mock: Mock | undefined,
+  posts: Post[],
+  base: string,
+): AnsweredAsk[] {
   const others = reply.others ?? {};
   const notes = reply.notes ?? {};
+  const refs = (ids: string[] | undefined): ImageRef[] =>
+    (ids ?? []).map((id) => ({ id, url: `${base}/a/${encodeURIComponent(id)}` }));
   const askIds = new Set([
     ...Object.keys(reply.answers),
     ...Object.keys(others),
@@ -85,13 +103,21 @@ function answered(reply: Reply, mock: Mock | undefined, posts: Post[]): Answered
     const chosen: AnsweredAsk["chosen"] = ids.map(
       (id) => ask?.options.find((o) => o.id === id) ?? { id, label: id },
     );
+    const otherImages = refs(reply.otherImages?.[askId]);
     if (others[askId] !== undefined)
-      chosen.push({ id: OTHER_ID, label: others[askId], other: true });
+      chosen.push({
+        id: OTHER_ID,
+        label: others[askId],
+        other: true,
+        ...(otherImages.length ? { images: otherImages } : {}),
+      });
+    const noteImages = refs(reply.noteImages?.[askId]);
     out.push({
       ask: askId,
       text: ask?.text ?? "",
       chosen,
       ...(notes[askId] !== undefined ? { note: notes[askId] } : {}),
+      ...(noteImages.length ? { noteImages } : {}),
     });
   }
   return out;
@@ -101,11 +127,12 @@ function answered(reply: Reply, mock: Mock | undefined, posts: Post[]): Answered
 // one. A mock gets a fresh batch whenever a second reply arrives for it, so a
 // batch carries at most one reply and nothing is merged away. A comment whose
 // mock is unknown still gets a batch — feedback is never dropped for want of
-// context.
+// context. `base` (origin + base path) makes image URLs absolute.
 export function groupFeedback(
   comments: Comment[],
   mocks: Map<string, Mock>,
   posts: Map<string, Post[]>,
+  base = "",
 ): FeedbackBatch[] {
   const batches: FeedbackBatch[] = [];
   const open = new Map<string, FeedbackBatch>();
@@ -129,12 +156,18 @@ export function groupFeedback(
       batches.push(batch);
     }
     if (c.kind === "reply" && c.payload) {
-      const { others: _others, notes: _notes, ...payload } = c.payload;
+      const {
+        others: _others,
+        notes: _notes,
+        otherImages: _otherImages,
+        noteImages: _noteImages,
+        ...payload
+      } = c.payload;
       batch.reply = {
         ...payload,
         seq: c.seq,
         at: c.createdAt,
-        asks: answered(c.payload, mock, mockPosts),
+        asks: answered(c.payload, mock, mockPosts, base),
       };
       batch.accepted = mockPosts.filter((p) => p.status === "accepted").map(ref);
       batch.archived = mockPosts.filter((p) => p.status === "archived").map(ref);
@@ -158,6 +191,7 @@ export function groupFeedback(
 export async function buildFeedbackBatches(
   store: Store,
   comments: Comment[],
+  base: string,
 ): Promise<FeedbackBatch[]> {
   const mocks = new Map<string, Mock>();
   const posts = new Map<string, Post[]>();
@@ -168,5 +202,18 @@ export async function buildFeedbackBatches(
     mocks.set(c.mockId, mock);
     posts.set(c.mockId, await store.listPosts({ mockId: c.mockId }));
   }
-  return groupFeedback(comments, mocks, posts);
+  return groupFeedback(comments, mocks, posts, base);
+}
+
+// Every image a list of batches carries, in order — what the MCP tiers attach
+// as image content so the model sees what the user attached.
+export function feedbackImages(batches: FeedbackBatch[]): ImageRef[] {
+  const out: ImageRef[] = [];
+  for (const b of batches) {
+    for (const a of b.reply?.asks ?? []) {
+      for (const c of a.chosen) if ("other" in c && c.images) out.push(...c.images);
+      if (a.noteImages) out.push(...a.noteImages);
+    }
+  }
+  return out;
 }

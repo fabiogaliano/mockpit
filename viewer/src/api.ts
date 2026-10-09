@@ -31,6 +31,8 @@ export interface DraftInput {
   comments: PartComment[];
   others: Record<string, string>;
   notes: Record<string, string>;
+  otherImages: Record<string, string[]>;
+  noteImages: Record<string, string[]>;
 }
 
 export interface MockList {
@@ -53,7 +55,7 @@ const url = (path: string) => `${basePath()}${path}`;
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url(path), {
     ...init,
-    headers: init?.body ? { "content-type": "application/json" } : undefined,
+    headers: init?.headers ?? (init?.body ? { "content-type": "application/json" } : undefined),
   });
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new ApiError(res.status, body?.error ?? res.statusText);
@@ -92,6 +94,12 @@ export const api = {
   comments: (mockId: string, after?: number) =>
     call<{ comments: CommentRow[]; lastSeq: number }>(
       `/api/comments?mock=${encodeURIComponent(mockId)}${after === undefined ? "" : `&after=${after}`}`,
+    ),
+  // An image the user attaches to a write-in or a note; the bytes go up raw.
+  attach: (mockId: string, image: Blob, filename: string) =>
+    call<{ id: string }>(
+      `/api/assets?mock=${encodeURIComponent(mockId)}&kind=image&filename=${encodeURIComponent(filename)}`,
+      { method: "POST", body: image, headers: { "content-type": image.type } },
     ),
   theme: () => call<{ mode: "dark" | "light" }>("/api/theme"),
   putTheme: (mode: "dark" | "light") => call<{ mode: string }>("/api/theme", json("PUT", { mode })),

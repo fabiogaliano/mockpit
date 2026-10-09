@@ -782,6 +782,61 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     assert.equal(await store.isAssetReferenced(asset.id), false);
   });
 
+  contract(
+    "an image the user attached is referenced by its draft, then its reply",
+    async (store) => {
+      const session = await store.createSession({ agent: "pi" });
+      const mock = await store.createMock({
+        project: "demo",
+        slug: "writer",
+        sessionId: session.id,
+      });
+      const asset = await store.putAsset({
+        sessionId: session.id,
+        kind: "image",
+        contentType: "image/png",
+        data: bytes(7, 7, 7),
+      });
+      assert.ok(asset);
+      assert.equal(await store.isAssetReferenced(asset.id), false);
+      const draft: Draft = {
+        version: 1,
+        answers: {},
+        mix: {},
+        tuned: {},
+        comments: [],
+        notes: { look: "" },
+        noteImages: { look: [asset.id] },
+        updatedAt: new Date().toISOString(),
+      };
+      await store.putDraft(mock.id, draft);
+      assert.equal(await store.isAssetReferenced(asset.id), true, "a draft holds it");
+      await store.putDraft(mock.id, null);
+      assert.equal(await store.isAssetReferenced(asset.id), false, "a dropped draft lets it go");
+      await store.putDraft(mock.id, draft);
+      await store.commitReply({
+        mockId: mock.id,
+        sessionId: session.id,
+        text: "",
+        payload: {
+          mockId: mock.id,
+          version: 1,
+          answers: {},
+          mix: {},
+          tuned: {},
+          comments: [],
+          notes: { look: "" },
+          noteImages: { look: [asset.id] },
+        },
+        asks: [],
+        accept: [],
+        archive: [],
+      });
+      assert.equal((await store.getMock(mock.id))?.draft, null);
+      assert.equal(await store.isAssetReferenced(asset.id), true, "the sent reply holds it");
+    },
+  );
+
   contract("an update keeps history-referenced assets and adds new ones", async (store) => {
     const session = await store.createSession({ agent: "pi" });
     const oldAsset = await store.putAsset({

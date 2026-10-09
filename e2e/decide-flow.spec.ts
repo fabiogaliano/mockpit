@@ -242,6 +242,78 @@ test("a note and an Other… write-in survive a reload and reach the agent in th
   expect(await viewerGet(page, `/api/mocks/${mockId}/draft`)).toEqual({ draft: null });
 });
 
+// 1×1 PNG: real image bytes, so the browser decodes it like any screenshot.
+const PNG_B64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+test("images attach to a note by picker and paste, × removes one, and the rest reach the agent", async ({
+  page,
+  server,
+}) => {
+  const { mockId, session } = await seedWriter(server.url);
+  await page.goto(`${server.url}${mockPath}`);
+  await page.getByRole("button", { name: "Add a note" }).click();
+  const note = page.locator(".ask-note");
+  const thumbs = note.locator(".attach-item:not(.pending)");
+
+  await note.locator('input[type="file"]').setInputFiles({
+    name: "shot.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(PNG_B64, "base64"),
+  });
+  await expect(thumbs).toHaveCount(1);
+  await expect(thumbs.first().locator("img")).toHaveAttribute("src", /\/a\//);
+
+  // A pasted screenshot attaches the same way; a text paste stays text.
+  await note.locator("textarea").evaluate(async (el, b64) => {
+    const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
+    // Different bytes from the first, so it is a second asset.
+    const file = new File([blob, new Uint8Array([0])], "image.png", { type: "image/png" });
+    const data = new DataTransfer();
+    data.items.add(file);
+    el.dispatchEvent(
+      new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
+    );
+  }, PNG_B64);
+  await expect(thumbs).toHaveCount(2);
+
+  const saved = page.waitForResponse(
+    (r) => r.url().endsWith(`/api/mocks/${mockId}/draft`) && r.request().method() === "PUT",
+  );
+  await thumbs.nth(1).getByRole("button", { name: "Remove image 2" }).click();
+  await expect(thumbs).toHaveCount(1);
+  await expect(note.getByRole("button", { name: "Remove image 1" })).toBeFocused();
+  expect((await saved).ok()).toBe(true);
+  const typed = page.waitForResponse(
+    (r) => r.url().endsWith(`/api/mocks/${mockId}/draft`) && r.request().method() === "PUT",
+  );
+  await note.locator("textarea").fill("like this one");
+  expect((await typed).ok()).toBe(true);
+
+  await page.reload();
+  await cornerPin(page, 1).click();
+  await expect(page.locator(".ask-note .attach-item")).toHaveCount(1);
+
+  // Hover devices move on to the next open question by themselves.
+  const hover = await page.evaluate(() => matchMedia("(hover: hover)").matches);
+  for (const id of ["dark", "drawer", "below"]) {
+    if (id !== "dark" && !hover) await page.getByRole("button", { name: "Next question" }).click();
+    await pickAndWait(page, mockId, id);
+  }
+  const reply = page.waitForResponse(
+    (r) => r.url().endsWith(`/api/mocks/${mockId}/reply`) && r.request().method() === "POST",
+  );
+  await page.locator("button.send").click();
+  expect((await reply).status()).toBe(201);
+  await expect(page.locator(".trow.you .timgs img")).toHaveCount(1);
+
+  const read = await agentCall(server.url, `/api/feedback?session=${session}`);
+  const look = read.feedback[0].reply.asks.find((a: any) => a.ask === "look");
+  expect(look.note).toBe("like this one");
+  expect(look.noteImages).toHaveLength(1);
+  expect(look.noteImages[0].url).toContain("/a/");
+});
+
 test("versions: popover, viewing an older one, back, restore as a new version", async ({
   page,
   server,

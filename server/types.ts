@@ -329,6 +329,9 @@ export interface Ask {
   other?: string;
   // The user's note qualifying the answer ("Table on desktop, Cards on mobile").
   note?: string;
+  // Asset ids of the images the user attached to the write-in / the note.
+  otherImages?: string[];
+  noteImages?: string[];
   at: string;
 }
 
@@ -373,6 +376,10 @@ export interface Draft {
   // because drafts stored before they existed lack them.
   others?: Record<string, string>;
   notes?: Record<string, string>;
+  // askId → asset ids attached to that write-in / note. An attachment with no
+  // text still counts: its write-in or note is then present as "".
+  otherImages?: Record<string, string[]>;
+  noteImages?: Record<string, string[]>;
   updatedAt: string;
 }
 
@@ -386,6 +393,8 @@ export interface Reply {
   comments: PartComment[];
   others?: Record<string, string>;
   notes?: Record<string, string>;
+  otherImages?: Record<string, string[]>;
+  noteImages?: Record<string, string[]>;
   text?: string;
   decision?: ReplyDecision;
 }
@@ -825,6 +834,15 @@ export function stripNul<T extends string | null | undefined>(s: T): T {
 // budget the store evicts down to. One Durable Object holds the whole workspace, so
 // the budget sits well under its ~10 GB SQLite ceiling.
 export const MAX_ASSET_BYTES = 5 * 1024 * 1024;
+// What the user may attach to a write-in or a note: raster formats a model can
+// read. SVG is active content, so it is never attachable.
+export const ATTACHABLE_IMAGE_TYPES: ReadonlySet<string> = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+]);
+export const MAX_ASK_IMAGES = 6;
 export const MAX_WORKSPACE_ASSET_BYTES = 2 * 1024 * 1024 * 1024;
 
 // Short, unguessable id: 8 random bytes (64 bits) as 11 url-safe base64 chars.
@@ -1042,6 +1060,20 @@ export function surfacesByteLength(surfaces: Surface[]): number {
 export function collectAssetIds(surfaces: Surface[], out: Set<string>): void {
   for (const p of surfaces) {
     if (p.kind === "image") out.add(p.assetId);
+  }
+}
+
+// The images a draft, a reply or a sent ask carries (all keep the user's
+// attachments in otherImages / noteImages).
+export function collectAttachedIds(
+  holder: { otherImages?: unknown; noteImages?: unknown } | null | undefined,
+  out: Set<string>,
+): void {
+  for (const map of [holder?.otherImages, holder?.noteImages]) {
+    if (!map || typeof map !== "object") continue;
+    for (const ids of Array.isArray(map) ? [map] : Object.values(map)) {
+      if (Array.isArray(ids)) for (const id of ids) if (typeof id === "string") out.add(id);
+    }
   }
 }
 

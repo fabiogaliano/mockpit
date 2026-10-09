@@ -24,6 +24,8 @@ export const emptyDraft = (version: number): DraftInput => ({
   comments: [],
   others: {},
   notes: {},
+  otherImages: {},
+  noteImages: {},
 });
 
 // The asks a draft says something about: a pick, a write-in or a note.
@@ -60,6 +62,27 @@ export function askPick(
   };
 }
 
+// A write-in or a note set to this text and these images. They stand
+// together: the field is present while either has something (an image alone
+// keeps its text as ""), and gone once both are empty.
+export function setAskField(
+  d: DraftInput,
+  askId: string,
+  field: "other" | "note",
+  text: string,
+  images: string[],
+): DraftInput {
+  const texts = { ...(field === "other" ? d.others : d.notes) };
+  const imgs = { ...(field === "other" ? d.otherImages : d.noteImages) };
+  if (text.trim() || images.length) texts[askId] = text;
+  else delete texts[askId];
+  if (images.length) imgs[askId] = images;
+  else delete imgs[askId];
+  return field === "other"
+    ? { ...d, others: texts, otherImages: imgs }
+    : { ...d, notes: texts, noteImages: imgs };
+}
+
 // Picking an option or "Other…" (option null) in a draft: single asks keep one
 // of them, multi asks toggle. A write-in starts empty and only counts once it
 // has text, so `otherOpen` is the viewer's "Other is ticked" before that.
@@ -71,11 +94,13 @@ export function pickInDraft(
 ): { draft: DraftInput; otherOpen: boolean } {
   const answers = { ...d.answers };
   const others = { ...d.others };
+  const otherImages = { ...d.otherImages };
   const ids = answerIds(answers[ask.id]);
   let open = otherOpen || others[ask.id] !== undefined;
   if (option === null) {
     if (open && ask.multi) {
       delete others[ask.id];
+      delete otherImages[ask.id];
       open = false;
     } else if (!open) {
       if (!ask.multi) delete answers[ask.id];
@@ -88,9 +113,10 @@ export function pickInDraft(
   } else {
     answers[ask.id] = option;
     delete others[ask.id];
+    delete otherImages[ask.id];
     open = false;
   }
-  return { draft: { ...d, answers, others }, otherOpen: open };
+  return { draft: { ...d, answers, others, otherImages }, otherOpen: open };
 }
 
 // The Look ask (Q9): mock-wide, its options bound to variants.
@@ -317,7 +343,7 @@ export function summarizeReply(
     const other = reply.others?.[ask.id];
     const said = [
       answer !== undefined ? optionLabels(ask, answer) : "",
-      other !== undefined ? `“${other}”` : "",
+      other !== undefined ? (other ? `“${other}”` : "an image") : "",
     ].filter(Boolean);
     if (said.length) parts.push(`${askTopic(ask)} ${said.join(" + ")}`);
     else if (reply.notes?.[ask.id] !== undefined) parts.push(`${askTopic(ask)} noted`);
@@ -348,8 +374,8 @@ export function carryOver(
   const names = new Set(variants.map((v) => v.variant));
   const answers: Record<string, AskAnswer> = {};
   const flagged: string[] = [];
-  const known = (texts: Record<string, string>) =>
-    Object.fromEntries(Object.entries(texts).filter(([id]) => mock.asks.some((a) => a.id === id)));
+  const known = <T>(byAsk: Record<string, T>) =>
+    Object.fromEntries(Object.entries(byAsk).filter(([id]) => mock.asks.some((a) => a.id === id)));
   for (const [id, answer] of Object.entries(draft.answers)) {
     const ask = mock.asks.find((a) => a.id === id);
     const ok =
@@ -382,6 +408,8 @@ export function carryOver(
       comments,
       others: known(draft.others),
       notes: known(draft.notes),
+      otherImages: known(draft.otherImages),
+      noteImages: known(draft.noteImages),
     },
     flagged,
   };
@@ -499,6 +527,8 @@ export interface ThreadRow {
   comments?: { where: string; text: string }[];
   // A reply's notes, each under the question it qualifies.
   notes?: { ask: string; text: string }[];
+  // The images a reply attached, each under its question.
+  images?: { ask: string; ids: string[] }[];
 }
 
 export const commentWhere = (c: Pick<PartComment, "part" | "state">): string =>
@@ -554,11 +584,21 @@ export function threadRows(
       if (reply?.comments.length) {
         row.comments = reply.comments.map((x) => ({ where: commentWhere(x), text: x.text }));
       }
-      const notes = Object.entries(reply?.notes ?? {});
+      const notes = Object.entries(reply?.notes ?? {}).filter(([, text]) => text);
       if (notes.length) {
         row.notes = notes.map(([id, text]) => ({
           ask: mock.asks.find((a) => a.id === id)?.text ?? id,
           text,
+        }));
+      }
+      const attached = [
+        ...Object.entries(reply?.otherImages ?? {}),
+        ...Object.entries(reply?.noteImages ?? {}),
+      ];
+      if (attached.length) {
+        row.images = attached.map(([id, ids]) => ({
+          ask: mock.asks.find((a) => a.id === id)?.text ?? id,
+          ids,
         }));
       }
       rows.push(row);

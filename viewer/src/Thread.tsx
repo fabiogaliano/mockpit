@@ -3,6 +3,7 @@
 // once the agent's feedback cursor has passed them (D5).
 
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { assetUrl } from "./api.ts";
 import { readonly } from "./host.ts";
 import { threadRows, timeAgo } from "./logic.ts";
 import type { MockScreenState } from "./state.ts";
@@ -52,6 +53,21 @@ export function Thread(props: { s: MockScreenState; scroller: () => HTMLElement 
                     )}
                   </For>
                 </div>
+              </Show>
+              <Show when={r.images?.length}>
+                <For each={r.images}>
+                  {(g) => (
+                    <div class="timgs" data-images>
+                      <For each={g.ids}>
+                        {(id) => (
+                          <a href={assetUrl(id)} target="_blank" rel="noopener">
+                            <img src={assetUrl(id)} alt={`Image attached to “${g.ask}”`} />
+                          </a>
+                        )}
+                      </For>
+                    </div>
+                  )}
+                </For>
               </Show>
               <Show when={r.quote}>
                 <div class="tquote">{r.quote}</div>

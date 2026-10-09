@@ -9,6 +9,7 @@ import {
   MCP_SERVER_INFO,
   runToolResult,
   toolResult,
+  withFeedbackImages,
 } from "./mcpSpec.ts";
 import { RUN_INSTRUCTIONS } from "./runApi.ts";
 import type { Asset, AssetKind, Store } from "./types.ts";
@@ -32,8 +33,8 @@ export interface McpFlows {
       ctx: FlowContext,
     ]
   >;
-  say: Flow<[ref: unknown, body: any]>;
-  feedback: Flow<[query: { session?: unknown; project?: unknown }]>;
+  say: Flow<[ref: unknown, body: any, ctx: FlowContext]>;
+  feedback: Flow<[query: { session?: unknown; project?: unknown }, ctx: FlowContext]>;
 }
 
 export interface McpDeps {
@@ -78,6 +79,11 @@ export function registerMcp(app: Hono, deps: McpDeps) {
     return projects[0]?.name ?? "workspace";
   }
 
+  async function loadImage(ref: { id: string }) {
+    const asset = await store.getAsset(ref.id);
+    return asset ? { data: asset.data, mimeType: asset.contentType } : null;
+  }
+
   async function callTool(name: string, args: any, ctx: FlowContext): Promise<unknown> {
     switch (name) {
       case "publish":
@@ -94,9 +100,9 @@ export function registerMcp(app: Hono, deps: McpDeps) {
           }),
         );
       case "feedback":
-        return unwrap(await flows.feedback({ session: args.session, project: args.project }));
+        return unwrap(await flows.feedback({ session: args.session, project: args.project }, ctx));
       case "say":
-        return unwrap(await flows.say(args.mock, args));
+        return unwrap(await flows.say(args.mock, args, ctx));
       case "export":
         return unwrap(await flows.exportMock(args.mock, args, ctx));
       case "upload": {
@@ -178,12 +184,14 @@ export function registerMcp(app: Hono, deps: McpDeps) {
         const name = msg.params?.name;
         if (name === "run") {
           const args = msg.params?.arguments ?? {};
-          return rpc(msg.id, runToolResult(unwrap(await deps.run(args, ctx))));
+          const envelope = unwrap(await deps.run(args, ctx));
+          return rpc(
+            msg.id,
+            await withFeedbackImages(runToolResult(envelope), envelope, loadImage),
+          );
         }
-        return rpc(
-          msg.id,
-          toolResult(name, await callTool(name, msg.params?.arguments ?? {}, ctx)),
-        );
+        const value = await callTool(name, msg.params?.arguments ?? {}, ctx);
+        return rpc(msg.id, await withFeedbackImages(toolResult(name, value), value, loadImage));
       } catch (err) {
         return rpc(msg.id, {
           content: [{ type: "text", text: `error: ${err instanceof Error ? err.message : err}` }],

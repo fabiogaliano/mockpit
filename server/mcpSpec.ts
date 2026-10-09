@@ -1,5 +1,7 @@
 import * as z from "zod/v4";
+import { encodeBase64 } from "./base64.ts";
 import { GUIDE_TOPICS } from "./designGuide.ts";
+import { type FeedbackBatch, feedbackImages, type ImageRef } from "./feedbackBatch.ts";
 import { KIT_IDS } from "./kits.ts";
 import { RUN_DESCRIPTION } from "./runApi.ts";
 import { SURFACE_KINDS, type SurfaceKind } from "./types.ts";
@@ -453,6 +455,26 @@ export function toolResult(name: string, value: unknown) {
     content: [{ type: "text" as const, text }],
     ...(structured ? { structuredContent: value as Record<string, unknown> } : {}),
   };
+}
+
+// The images a result's feedback carries, inlined as image content so the
+// model sees what the user attached instead of only its URL. Capped per result:
+// the rest stay reachable by URL in the JSON.
+export const MAX_RESULT_IMAGES = 8;
+export async function withFeedbackImages<T extends { content: unknown[] }>(
+  result: T,
+  value: unknown,
+  load: (ref: ImageRef) => Promise<{ data: Uint8Array; mimeType: string } | null>,
+): Promise<T> {
+  const batches = (value as { feedback?: unknown } | null)?.feedback;
+  if (!Array.isArray(batches)) return result;
+  const images: { type: "image"; data: string; mimeType: string }[] = [];
+  for (const ref of feedbackImages(batches as FeedbackBatch[]).slice(0, MAX_RESULT_IMAGES)) {
+    const bytes = await load(ref).catch(() => null);
+    if (bytes)
+      images.push({ type: "image", data: encodeBase64(bytes.data), mimeType: bytes.mimeType });
+  }
+  return images.length ? { ...result, content: [...result.content, ...images] } : result;
 }
 
 // A run that failed is still a full envelope (calls, feedback); isError tells

@@ -24,7 +24,8 @@ It returns at once:
             "ask": "trim",
             "text": "Trim above or below?",
             "chosen": [{ "id": "below", "label": "Below", "set": { "trim.position": "bottom" } }],
-            "note": "below on mobile only"
+            "note": "below on mobile only",
+            "noteImages": [{ "id": "k3Jf9xQ2aLw", "url": "http://localhost:8228/a/k3Jf9xQ2aLw" }]
           },
           {
             "ask": "lang",
@@ -68,7 +69,11 @@ taking any feedback.
    other. A `chosen` entry with `other: true` is
    the user's own answer (its `label`), not one of your options; it flips no
    variant and sets no knob. `note` qualifies the answer and may come with
-   nothing chosen.
+   nothing chosen. The user can attach images (screenshots, references) to
+   either: `images` on the `other` choice, `noteImages` on the ask, each
+   `{id, url}`; the text may then be `""`. Look at every one. Over MCP they
+   also arrive as image content in the same result; elsewhere fetch the `url`
+   (with your token, if the server has one) and open the file.
 2. `tuned` holds knob values. Write them back into the source as the new
    defaults. tunekit's skill (`skills/tunekit` in the tunekit package) covers
    applying copied values.

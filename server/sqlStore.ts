@@ -3,6 +3,7 @@ import {
   type Ask,
   type Asset,
   collectAssetIds,
+  collectAttachedIds,
   type Comment,
   type CommentQuery,
   type CommitReplyInput,
@@ -810,6 +811,7 @@ export class SqlStore implements Store {
       next.updatedAt,
       id,
     );
+    if (patch.asks !== undefined) this.invalidateAssetRefs();
     return next;
   }
 
@@ -836,6 +838,7 @@ export class SqlStore implements Store {
       draft ? JSON.stringify(draft) : null,
       mockId,
     );
+    this.invalidateAssetRefs();
     return { ...mock, draft };
   }
 
@@ -1112,6 +1115,7 @@ export class SqlStore implements Store {
     if (rows.length === 0) return null;
     const comment = this.rowToComment(rows[0]);
     this.sql.exec("DELETE FROM comments WHERE id = ?", id);
+    if (comment.kind === "reply") this.invalidateAssetRefs();
     this.touch(comment.sessionId);
     return comment;
   }
@@ -1148,6 +1152,7 @@ export class SqlStore implements Store {
           input.mockId,
         );
       }
+      this.invalidateAssetRefs();
       return comment;
     });
   }
@@ -1162,6 +1167,16 @@ export class SqlStore implements Store {
     }
     for (const r of this.sql.exec("SELECT surfaces FROM post_versions").toArray()) {
       collectAssetIds(parseJson<Surface[]>(r.surfaces, []), out);
+    }
+    // The user's attachments: in a draft, in a sent reply, on an answered ask.
+    for (const r of this.sql.exec("SELECT asks, draft FROM mocks").toArray()) {
+      collectAttachedIds(parseJson<Draft | null>(r.draft, null), out);
+      for (const ask of parseJson<Ask[]>(r.asks, [])) collectAttachedIds(ask, out);
+    }
+    for (const r of this.sql
+      .exec("SELECT payload FROM comments WHERE kind = 'reply' AND payload IS NOT NULL")
+      .toArray()) {
+      collectAttachedIds(parseJson<Reply | null>(r.payload, null), out);
     }
     // An installed icon set is referenced by its project's design, not by a
     // surface; evicting it would blank that project's icons.

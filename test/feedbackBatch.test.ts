@@ -254,7 +254,7 @@ test("buildFeedbackBatches resolves mocks and posts from the store", async () =>
     text: "hi",
   });
   assert.ok(c);
-  const [batch] = await buildFeedbackBatches(store, [c]);
+  const [batch] = await buildFeedbackBatches(store, [c], "http://x");
   assert.equal(batch.mock, "card");
   assert.equal(batch.comments[0].variant, "default");
 });

@@ -15,6 +15,7 @@ import {
   STDIO_RUN_CATALOG,
   STDIO_RUN_TOOLS,
   toolResult,
+  withFeedbackImages,
 } from "../server/mcpSpec.ts";
 import { RUN_INSTRUCTIONS } from "../server/runApi.ts";
 
@@ -261,18 +262,35 @@ async function run(args: any) {
   });
 }
 
+async function loadImage(ref: { id: string }) {
+  const res = await fetch(`${API}/a/${encodeURIComponent(ref.id)}`, {
+    headers: TOKEN ? { authorization: `Bearer ${TOKEN}` } : {},
+  });
+  if (!res.ok) return null;
+  return {
+    data: new Uint8Array(await res.arrayBuffer()),
+    mimeType: res.headers.get("content-type") ?? "image/png",
+  };
+}
+
 const server = new McpServer(MCP_SERVER_INFO, {
   instructions: CODE_MODE ? RUN_INSTRUCTIONS : MCP_INSTRUCTIONS,
 });
 
 if (CODE_MODE) {
   const [{ name, ...config }] = STDIO_RUN_TOOLS;
-  server.registerTool(name, config, async (args: any) => runToolResult(await run(args)));
+  server.registerTool(name, config, async (args: any) => {
+    const envelope = await run(args);
+    return withFeedbackImages(runToolResult(envelope), envelope, loadImage);
+  });
 } else {
   for (const tool of STDIO_MCP_TOOLS) {
     const handler = handlers[tool.name];
     const { name, ...config } = tool;
-    server.registerTool(name, config, async (args: any) => toolResult(name, await handler(args)));
+    server.registerTool(name, config, async (args: any) => {
+      const value = await handler(args);
+      return withFeedbackImages(toolResult(name, value), value, loadImage);
+    });
   }
 }
 // Replaces the SDK's own listing (registered above), so stdio advertises the

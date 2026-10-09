@@ -263,13 +263,13 @@ export function createRunFlow(deps: RunDeps) {
         return [value, `${value.mock} ${value.asks.length} ask(s)`];
       },
       async feedback() {
-        const value = await take(flows.feedback(await mine({})));
+        const value = await take(flows.feedback(await mine({}), flowCtx));
         const n = value.feedback.length;
         return [value, n ? `${n} batch(es)` : "no feedback"];
       },
       async say([v, message]) {
         const r = plain(v);
-        await take(flows.say(r.mock, { ...(await mine(r)), message }));
+        await take(flows.say(r.mock, { ...(await mine(r)), message }, flowCtx));
         return [null, String(r.mock ?? "?")];
       },
       async upload([data, opts]) {

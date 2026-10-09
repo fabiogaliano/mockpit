@@ -63,7 +63,8 @@ An option binds to one of:
 The viewer shows a picture of each option it can render. `multi: true` allows
 several answers. Option ids default to the slugged label. Reusing an ask `id`
 replaces that ask. The viewer adds an "Other…" write-in and a note to every
-ask, so don't add your own; the option id `other` is reserved.
+ask (both take attached images), so don't add your own; the option id `other`
+is reserved.
 
 ## The Look ask
 
