@@ -4,7 +4,7 @@ import { basename, resolve } from "node:path";
 
 const DEFAULT_BASE_URL = "http://localhost:8228";
 const DEFAULT_WAIT_SECONDS = 120;
-const MAX_WAIT_SECONDS = 300;
+const MAX_WAIT_SECONDS = 230;
 
 const CONTENT_TYPES = {
   png: "image/png",

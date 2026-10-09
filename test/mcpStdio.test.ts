@@ -395,7 +395,7 @@ test(
 );
 
 test(
-  "stdio wait_for_feedback defaults to 120 seconds and caps at 300",
+  "stdio wait_for_feedback defaults to 120 seconds and caps at 230",
   { timeout: 15_000 },
   async (t) => {
     const waits: Array<string | null> = [];
@@ -427,7 +427,7 @@ test(
     await callText(mcp.client, "wait_for_feedback");
     await comment("two");
     await callText(mcp.client, "wait_for_feedback", { timeoutSeconds: 900 });
-    assert.deepEqual(waits, ["120", "300"]);
+    assert.deepEqual(waits, ["120", "230"]);
   },
 );
 

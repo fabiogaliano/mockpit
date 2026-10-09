@@ -173,7 +173,7 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
     const session = await ensureSession();
     // No client-side cursor: the server resumes author=user reads from the
     // session's agent cursor, shared with piggyback delivery.
-    const wait = Math.min(300, Math.max(0, args.timeoutSeconds ?? 120));
+    const wait = Math.min(230, Math.max(0, args.timeoutSeconds ?? 120));
     return feedbackResult(await json(`/api/comments${query({ session, author: "user", wait })}`));
   },
   async reply_to_user(args) {

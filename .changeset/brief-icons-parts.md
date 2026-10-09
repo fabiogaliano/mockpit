@@ -38,6 +38,7 @@ Icons by name, part-scoped revisions, a shorter brief, and typed MCP results.
   and shadcn `components.json` feed the brief when present: the team's rules,
   the main tokens and the installed component list.
 - **Waits agree.** `mockpit wait`, `wait_for_feedback` (stdio and HTTP) and the
-  Pi extension all default to 120 seconds and cap at 300.
+  Pi extension all default to 120 seconds and cap at 230, under claude.ai's
+  240 s tool-call limit.
 - `mockpit ask "<question>" --asks <file>` is now an error instead of dropping
   the question, and `mockpit watch --help` prints its own help.

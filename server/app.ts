@@ -104,7 +104,9 @@ export type { FeedEvent } from "./events.ts";
 export type { FeedbackBatch } from "./feedbackBatch.ts";
 
 const MAX_SURFACE_BYTES = 2 * 1024 * 1024;
-const MAX_WAIT_SECONDS = 300;
+// Under claude.ai's 240 s per-tool-call limit, so a remote connector's wait
+// returns before the client gives up on it.
+const MAX_WAIT_SECONDS = 230;
 // Hard ceiling on any request body, applied globally. Every write endpoint
 // reads its body with an unbounded `c.req.json()` (and /mcp likewise), so
 // without this a single oversize POST is an out-of-memory flood — and the local

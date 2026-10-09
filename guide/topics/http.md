@@ -41,7 +41,7 @@ curl -s -X POST $B/api/mocks/checkout/asks -H 'content-type: application/json' -
   "session": "S", "project": "demo", "asks": [{"id": "pad", "text": "How roomy?", "scope": "part",
   "part": "total", "options": [{"label": "Tight", "set": {"pad": 8}}, {"label": "Roomy", "set": {"pad": 24}}]}]}'
 
-# wait is seconds, max 300; the CLI and MCP default to 120
+# wait is seconds, max 230; the CLI and MCP default to 120
 curl -s "$B/api/comments?session=S&author=user&wait=120"
 # → {"comments":[…],"lastSeq":6,"feedback":[{"mock":"checkout","reply":{…},"accepted":[…],"archived":[]}]}
 
