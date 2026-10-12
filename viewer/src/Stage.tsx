@@ -24,8 +24,10 @@ import { createStore } from "solid-js/store";
 import { isSandboxedSurfaceKind, type Surface } from "../../server/types.ts";
 import { assetUrl, surfaceUrl, type VariantView } from "./api.ts";
 import { host, readonly, root } from "./host.ts";
+import { useInspectGestures } from "./gestures.ts";
 import { JsonTree } from "./JsonTree.tsx";
 import {
+  clampZoom,
   createHitRefs,
   draftKnobValues,
   frameKey,
@@ -33,6 +35,7 @@ import {
   layoutPins,
   markPins,
   nextMark,
+  PANEL_W,
   type PartBox,
   partBox,
   partPinSpot,
@@ -40,10 +43,10 @@ import {
   reportIsCurrent,
 } from "./logic.ts";
 import type { MockScreenState } from "./state.ts";
+import { StageHead } from "./StageHead.tsx";
 import { theme } from "./theme.ts";
-import { FRAME_W } from "./Thumb.tsx";
 import { Versions } from "./Versions.tsx";
-import { narrow, win } from "./viewport.ts";
+import { coarse, sheet, win } from "./viewport.ts";
 
 const num = (v: unknown, d = 0) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const MAX_TEXT = 200;
@@ -74,13 +77,13 @@ const httpUrl = (v: unknown): string | null => {
 };
 
 // Everything a frame says is untrusted: copy out plain strings and numbers only.
-function readReport(d: Record<string, unknown>): PartsReport | null {
+function readReport(d: Record<string, unknown>, frameW: number): PartsReport | null {
   if (!Array.isArray(d.parts)) return null;
   const scroll = (d.scroll ?? {}) as Record<string, unknown>;
   const viewport = (d.viewport ?? {}) as Record<string, unknown>;
   return {
     version: num(d.version),
-    width: num(viewport.w, FRAME_W) || FRAME_W,
+    width: num(viewport.w, frameW) || frameW,
     height: num(d.height),
     scroll: { x: num(scroll.x), y: num(scroll.y) },
     parts: d.parts.slice(0, 200).flatMap((p: Record<string, unknown>) => {
@@ -102,11 +105,14 @@ function readReport(d: Record<string, unknown>): PartsReport | null {
   };
 }
 
-export const PANEL_W = 380;
 const TOPBAR = 52;
-const HEAD = 44;
-// The collapsed bottom sheet: grip plus mode row.
-const SHEET = 96;
+// Pins grow under a finger, and step apart far enough that their 44px hit
+// areas never overlap.
+const pinSize = () => (coarse() ? 28 : 22);
+const pinGap = () => (coarse() ? 44 - pinSize() : 6);
+const pinEdge = () => (coarse() ? (44 - pinSize()) / 2 : 2);
+// The collapsed bottom sheet: grip plus mode row, both finger-sized on touch.
+const sheetH = () => (coarse() ? 112 : 96);
 
 export function Stage(props: { s: MockScreenState }) {
   const s = props.s;
@@ -120,22 +126,45 @@ export function Stage(props: { s: MockScreenState }) {
   const refs = createHitRefs();
   const [vbtn, setVbtn] = createSignal<HTMLElement>();
   const [pending, setPending] = createSignal<PendingMark | null>(null);
+  const [headH, setHeadH] = createSignal(44);
+  // Inspect's zoom: fit the screen, or a scale the user picked or pinched.
+  const [zoom, setZoom] = createSignal<"fit" | number>("fit");
+  let layersEl!: HTMLDivElement;
 
   const multiState = () => s.states().length > 1;
   const banner = () => s.viewVersion() !== null || s.boundVersion() !== null;
-  const scale = createMemo(() => {
-    const avail = narrow() ? win().w - 24 : win().w - 48 - PANEL_W - 12;
-    return Math.max(narrow() ? 0.1 : 0.3, Math.min(1, avail / FRAME_W));
+  const frameW = () => s.frameW();
+  const inspecting = () => s.inspect();
+  // A finger scrolls the page, not the frame: the frame takes its full height
+  // and the stage scrolls natively. Inspect does the same with any pointer.
+  const uncapped = () => coarse() || inspecting();
+  const fitScale = createMemo(() => {
+    const w = win().w;
+    const avail = inspecting() ? w : sheet() ? w - 24 : w - 48 - PANEL_W - 12;
+    const floor = sheet() || inspecting() ? 0.1 : 0.3;
+    // Less the stage's 1px border on each side, so the frame is never clipped.
+    return Math.max(floor, Math.min(1, (avail - 2) / frameW()));
   });
-  const availH = createMemo(
-    () =>
-      win().h -
-      TOPBAR -
-      (narrow() ? 24 + SHEET : 48) -
-      (multiState() ? 56 : 0) -
-      HEAD -
-      (banner() ? 32 : 0) -
-      2,
+  const scale = createMemo(() => {
+    if (!inspecting()) return fitScale();
+    const z = zoom();
+    return z === "fit" ? fitScale() : clampZoom(z, fitScale());
+  });
+  const availH = createMemo(() =>
+    inspecting()
+      ? win().h - headH()
+      : win().h -
+        TOPBAR -
+        (sheet() ? 24 + sheetH() : 48) -
+        (multiState() ? 56 : 0) -
+        headH() -
+        (banner() ? 32 : 0) -
+        2,
+  );
+  createEffect(
+    on(inspecting, (open) => {
+      if (!open) setZoom("fit");
+    }),
   );
 
   const shown = createMemo(() =>
@@ -171,7 +200,7 @@ export function Stage(props: { s: MockScreenState }) {
       setHeights(`${info.key}#${info.index}`, Math.max(1, Math.min(num(d.height), 20000)));
     } else if (d.type === "parts" && info.primary) {
       if (!reportIsCurrent(info.version, d.version)) return;
-      const r = readReport(d);
+      const r = readReport(d, frameW());
       if (r) setReports(info.key, r);
     } else if (d.type === "hit" && info.primary && info.key === activeKey()) {
       const kind = refs.resolve(d.ref);
@@ -228,21 +257,44 @@ export function Stage(props: { s: MockScreenState }) {
   });
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || !s.marking()) return;
-      if (pending()) setPending(null);
-      else s.setMarking(false);
+      if (e.key !== "Escape") return;
+      if (s.marking()) {
+        if (pending()) setPending(null);
+        else s.setMarking(false);
+      } else if (inspecting()) s.setInspect(false);
     };
     root().addEventListener("keydown", onKey);
     onCleanup(() => root().removeEventListener("keydown", onKey));
   });
+  onCleanup(() => s.setInspect(false));
+
+  useInspectGestures({
+    scroller: () => layersEl,
+    enabled: inspecting,
+    scale,
+    fit: fitScale,
+    setZoom,
+  });
 
   const activeH = () => contentH[activeKey()] ?? 640;
-  const layersH = () => Math.min(activeH() * scale(), Math.max(200, availH()));
+  const layersH = () =>
+    inspecting() ? availH() : Math.min(activeH() * scale(), Math.max(200, availH()));
 
   return (
-    <div class="stagewrap" style={{ width: `${FRAME_W * scale()}px` }}>
+    <div
+      class="stagewrap"
+      classList={{ inspect: inspecting() }}
+      style={inspecting() ? undefined : { width: `${frameW() * scale() + 2}px` }}
+    >
       <div class="stage" classList={{ old: s.viewVersion() !== null }}>
-        <StageHead s={s} anchor={setVbtn} />
+        <StageHead
+          s={s}
+          anchor={setVbtn}
+          onHeight={setHeadH}
+          zoom={zoom()}
+          scale={scale()}
+          setZoom={setZoom}
+        />
         <Show when={s.viewVersion() !== null}>
           <div class="banner">
             <b>{`Viewing v${s.viewVersion()}`}</b>
@@ -266,8 +318,11 @@ export function Stage(props: { s: MockScreenState }) {
             <span class="banner-note">{`your answers stay on v${s.boundVersion()} until you do`}</span>
           </div>
         </Show>
-        <div class="layers" style={{ height: `${layersH()}px` }}>
-          <div class="layers-sizer" style={{ height: `${activeH() * scale()}px` }} />
+        <div class="layers" ref={(el) => (layersEl = el)} style={{ height: `${layersH()}px` }}>
+          <div
+            class="layers-sizer"
+            style={{ height: `${activeH() * scale()}px`, width: `${frameW() * scale()}px` }}
+          />
           <For each={shownKeys()}>
             {(key) => (
               <Show when={byKey(key)}>
@@ -277,7 +332,8 @@ export function Stage(props: { s: MockScreenState }) {
                     variant={variant()}
                     active={key === activeKey()}
                     scale={scale()}
-                    capH={availH() / scale()}
+                    frameW={frameW()}
+                    capH={uncapped() ? Infinity : availH() / scale()}
                     report={reports[key]}
                     heights={heights}
                     frames={frames}
@@ -295,102 +351,11 @@ export function Stage(props: { s: MockScreenState }) {
           </For>
         </div>
       </div>
-      <CornerPins s={s} />
+      <Show when={!inspecting()}>
+        <CornerPins s={s} />
+      </Show>
       <Show when={s.versionsOpen()}>
         <Versions s={s} anchor={vbtn()} />
-      </Show>
-    </div>
-  );
-}
-
-function StageHead(props: { s: MockScreenState; anchor: (el: HTMLElement) => void }) {
-  const s = props.s;
-  const v = () => s.activeVariant();
-  const siblings = () => s.variants().filter((x) => x.state === s.activeState());
-  return (
-    <div class="stage-head">
-      <b class="stage-title">{s.mock()?.title}</b>
-      <Show when={s.activeState() !== null}>
-        <span class="stage-state">{s.activeState()}</span>
-      </Show>
-      <Show when={v()}>
-        {(variant) => (
-          <button
-            type="button"
-            class="vbtn"
-            ref={props.anchor}
-            aria-haspopup="menu"
-            aria-expanded={s.versionsOpen()}
-            onClick={(e) => {
-              e.stopPropagation();
-              s.setVersionsOpen(!s.versionsOpen());
-            }}
-          >
-            {`v${s.frameVersionOf(variant())} ▾`}
-          </button>
-        )}
-      </Show>
-      <span class="grow" />
-      {/* Q9: variants without a Look ask get a plain switcher. */}
-      <Show when={!s.look() && siblings().length > 1}>
-        <div class="variant-switch" role="tablist" aria-label="Variant">
-          <For each={siblings()}>
-            {(x) => (
-              <>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={x.variant === v()?.variant}
-                  classList={{ on: x.variant === v()?.variant, arch: x.status === "archived" }}
-                  data-variant={x.variant}
-                  title={x.status === "archived" ? `${x.variant} · archived` : undefined}
-                  onClick={() => s.chooseVariant(x.variant)}
-                >
-                  {x.variant}
-                  <Show when={x.status === "accepted"}>
-                    <span class="vok" aria-label="accepted">
-                      ✓
-                    </span>
-                  </Show>
-                </button>
-                <Show when={x.status === "archived" && !readonly()}>
-                  <button
-                    type="button"
-                    class="vrestore"
-                    aria-label={`Restore ${x.variant}`}
-                    onClick={() => void s.restoreVariant(x.variant, [x.state])}
-                  >
-                    restore
-                  </button>
-                </Show>
-              </>
-            )}
-          </For>
-        </div>
-      </Show>
-      <Show when={!readonly()}>
-        <button
-          type="button"
-          class="markbtn"
-          classList={{ on: s.marking() }}
-          aria-pressed={s.marking()}
-          title="Mark: click the stage to leave a comment there (Esc to stop)"
-          onClick={() => s.setMarking(!s.marking())}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M12 21s-6-5.6-6-11a6 6 0 0 1 12 0c0 5.4-6 11-6 11Z" />
-            <circle cx="12" cy="10" r="2" />
-          </svg>
-          Mark
-        </button>
       </Show>
     </div>
   );
@@ -410,6 +375,8 @@ function CornerPins(props: { s: MockScreenState }) {
         }
         return [];
       }),
+      pinSize(),
+      pinGap(),
     ),
   );
   return (
@@ -460,6 +427,7 @@ function VariantFrame(props: {
   variant: VariantView;
   active: boolean;
   scale: number;
+  frameW: number;
   capH: number;
   report: PartsReport | undefined;
   heights: Record<string, number>;
@@ -541,7 +509,10 @@ function VariantFrame(props: {
     <div
       class="frame"
       classList={{ on: props.active }}
-      style={{ height: `${props.height * props.scale}px` }}
+      style={{
+        height: `${props.height * props.scale}px`,
+        width: `${props.frameW * props.scale}px`,
+      }}
       data-state={props.variant.state ?? ""}
       data-variant={props.variant.variant}
       aria-hidden={!props.active}
@@ -549,7 +520,7 @@ function VariantFrame(props: {
       <div
         class="frame-scale"
         ref={(el) => (column = el)}
-        style={{ transform: `scale(${props.scale})` }}
+        style={{ width: `${props.frameW}px`, transform: `scale(${props.scale})` }}
       >
         <For each={kinds()}>
           {(kind, i) => {
@@ -569,7 +540,7 @@ function VariantFrame(props: {
                         src={url}
                         sandbox="allow-scripts"
                         title={`${props.variant.variant} ${kind}`}
-                        width={FRAME_W}
+                        width={props.frameW}
                         height={surfaceH(i())}
                         tabIndex={props.active ? 0 : -1}
                       />
@@ -606,6 +577,8 @@ function VariantFrame(props: {
           s={s}
           report={props.report}
           scale={props.scale}
+          frameW={props.frameW}
+          capped={Number.isFinite(props.capH)}
           top={primaryTop() * props.scale}
           height={surfaceH(primary()) * props.scale}
           refs={props.refs}
@@ -622,6 +595,10 @@ function Overlay(props: {
   s: MockScreenState;
   report: PartsReport | undefined;
   scale: number;
+  frameW: number;
+  // The frame is shorter than its page and scrolls inside; else the stage
+  // around it scrolls natively and a wheel needs no forwarding.
+  capped: boolean;
   top: number;
   height: number;
   refs: ReturnType<typeof createHitRefs>;
@@ -699,10 +676,12 @@ function Overlay(props: {
       ...(p.selector ? { selector: p.selector } : {}),
       ...(p.quote ? { quote: p.quote } : {}),
       box: box.map((v) => Math.round(v * 10) / 10),
+      width: Math.round(r.width),
     });
     props.setPending(null);
   };
   const onWheel = (e: WheelEvent) => {
+    if (!props.capped) return;
     e.preventDefault();
     props.post({ type: "scroll", dx: e.deltaX / props.scale, dy: e.deltaY / props.scale });
   };
@@ -720,8 +699,12 @@ function Overlay(props: {
             if (q.kind !== "ask" || q.ask.scope !== "part" || !q.ask.part) return [];
             const p = find(q.ask.part);
             if (!p) return [];
-            return [{ index: i, ...partPinSpot(at(p), FRAME_W * props.scale) }];
+            return [
+              { index: i, ...partPinSpot(at(p), props.frameW * props.scale, pinSize(), pinEdge()) },
+            ];
           }),
+          pinSize(),
+          pinGap(),
         )
       : [],
   );
@@ -735,8 +718,11 @@ function Overlay(props: {
       class="overlay"
       classList={{ marking: s.marking() }}
       ref={(el) => (layer = el)}
+      // The width the frame's document reports laying out at: a number, for tests.
+      data-doc-width={props.report?.width}
       style={{ top: `${props.top}px`, height: `${props.height}px` }}
-      onPointerMove={(e) => hit(e, props.refs.hover())}
+      // Only a mouse hovers: a finger's move is a scroll, and its tap selects.
+      onPointerMove={(e) => e.pointerType === "mouse" && hit(e, props.refs.hover())}
       onPointerLeave={() => {
         props.refs.leave();
         s.setHoverPart(null);
@@ -771,10 +757,17 @@ function Overlay(props: {
               <button
                 type="button"
                 class="pin mark"
-                classList={{ moved: m().moved }}
-                style={{ left: `${at().x - 11}px`, top: `${at().y - 11}px` }}
-                title={`${m().part ?? "page"}: ${m().text}${m().moved ? " · may have moved" : ""}`}
+                classList={{ moved: m().moved, elsewhere: m().placedAt !== null }}
+                style={{
+                  left: `${at().x - pinSize() / 2}px`,
+                  top: `${at().y - pinSize() / 2}px`,
+                }}
+                title={`${m().part ?? "page"}: ${m().text}${m().moved ? " · may have moved" : ""}${
+                  m().placedAt !== null ? ` · placed at ${m().placedAt}px wide` : ""
+                }`}
+                aria-label={`Mark ${m().n}${m().placedAt !== null ? `, placed at ${m().placedAt}px wide` : ""}`}
                 data-mark={m().n}
+                data-placed-at={m().placedAt ?? undefined}
                 onClick={(e) => {
                   e.stopPropagation();
                   s.selectPart(m().part);
@@ -794,6 +787,7 @@ function Overlay(props: {
               height={props.height}
               where={p().part === undefined ? "" : (p().part ?? "page")}
               onSave={save}
+              onCancel={() => props.setPending(null)}
             />
           )}
         </Show>
@@ -810,28 +804,32 @@ function MarkField(props: {
   height: number;
   where: string;
   onSave: (text: string) => void;
+  onCancel: () => void;
 }) {
   const [value, setValue] = createSignal("");
-  const W = 260;
-  const left = () => Math.max(4, Math.min(props.at.x + 16, props.width - W - 4));
-  const below = () => props.at.y + 16 + 76 < props.height;
-  const top = () => Math.max(4, below() ? props.at.y + 16 : props.at.y - 16 - 76);
+  const W = () => Math.min(280, props.width - 8);
+  const H = () => (coarse() ? 150 : 112);
+  const left = () => Math.max(4, Math.min(props.at.x + 16, props.width - W() - 4));
+  const below = () => props.at.y + 16 + H() < props.height;
+  const top = () => Math.max(4, below() ? props.at.y + 16 : props.at.y - 16 - H());
+  let input: HTMLInputElement | undefined;
   const submit = () => {
     const t = value().trim();
     if (t) props.onSave(t);
+    else input?.focus();
   };
   return (
     <>
       <span
         class="pin mark pending"
-        style={{ left: `${props.at.x - 11}px`, top: `${props.at.y - 11}px` }}
+        style={{ left: `${props.at.x - pinSize() / 2}px`, top: `${props.at.y - pinSize() / 2}px` }}
         aria-hidden="true"
       >
         {String(props.n)}
       </span>
       <div
         class="markfield"
-        style={{ left: `${left()}px`, top: `${top()}px`, width: `${W}px` }}
+        style={{ left: `${left()}px`, top: `${top()}px`, width: `${W()}px` }}
         onClick={(e) => e.stopPropagation()}
         onPointerMove={(e) => e.stopPropagation()}
       >
@@ -843,12 +841,24 @@ function MarkField(props: {
           placeholder="Comment, for the agent…"
           aria-label={`Comment for mark ${props.n}`}
           value={value()}
-          ref={(el) => queueMicrotask(() => el.focus())}
+          ref={(el) => {
+            input = el;
+            queueMicrotask(() => el.focus());
+          }}
           onInput={(e) => setValue(e.currentTarget.value)}
+          enterkeyhint="done"
           onKeyDown={(e) => {
             if (e.key === "Enter") submit();
           }}
         />
+        <div class="markfield-actions">
+          <button type="button" class="markfield-cancel" onClick={() => props.onCancel()}>
+            Cancel
+          </button>
+          <button type="button" class="markfield-save" onClick={submit}>
+            Save
+          </button>
+        </div>
       </div>
     </>
   );

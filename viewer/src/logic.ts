@@ -825,16 +825,22 @@ export const safeColor = (v: unknown): boolean =>
 // middle on the box's top edge, so it never covers what the part draws there
 // (a right-aligned label runs to that corner). Without room on the right it
 // sits above the corner instead.
+// `edge` keeps the pin (and, under a finger, its wider hit area) inside the
+// overlay, which clips.
 export function partPinSpot(
   box: { x: number; y: number; w: number; h: number },
   width: number,
   size = 22,
+  edge = 2,
 ): { x: number; y: number } {
   const right = box.x + box.w;
-  if (right + 2 + size <= width - 2) {
-    return { x: right + 2, y: Math.max(2, box.y - size / 2) };
+  if (right + 2 + size <= width - edge) {
+    return { x: right + 2, y: Math.max(edge, box.y - size / 2) };
   }
-  return { x: Math.max(2, right - size / 2), y: Math.max(2, box.y - size - 2) };
+  return {
+    x: Math.max(edge, Math.min(width - edge - size, right - size / 2)),
+    y: Math.max(edge, box.y - size - 2),
+  };
 }
 
 // A picture of a page shrunk into an option card: the page fills the card's
@@ -912,6 +918,9 @@ export interface MarkPin {
   y: number;
   // Past the first step of the chain: the part it was left on is gone.
   moved: boolean;
+  // The stage width it was placed at, when the stage is at another width now:
+  // the page may have reflowed under it.
+  placedAt: number | null;
 }
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -959,7 +968,9 @@ export function markPins(
     n++;
     if (c.state !== state || !report) return;
     const p = anchorPoint(c, report);
-    if (p) out.push({ n, index, part: c.part, text: c.text, ...p });
+    const w = c.anchor.width;
+    const placedAt = w && Math.round(w) !== Math.round(report.width) ? w : null;
+    if (p) out.push({ n, index, part: c.part, text: c.text, ...p, placedAt });
   });
   return out;
 }
@@ -967,3 +978,44 @@ export function markPins(
 // The number the next mark gets.
 export const nextMark = (comments: PartComment[]): number =>
   comments.filter((c) => c.anchor).length + 1;
+
+// --- the stage on any screen: device width, layout, zoom ---
+
+// The widths a design is judged at. Desktop is the stage's historical width and
+// what every thumbnail renders at; the others are the devices the viewer itself
+// is checked on, so a mock can be read at the width it will ship to.
+export const DEVICE_WIDTHS = [
+  { label: "Phone", w: 390 },
+  { label: "Tablet", w: 744 },
+  { label: "Desktop", w: 820 },
+  { label: "Wide", w: 1280 },
+] as const;
+export const DESKTOP_W = 820;
+const PHONE_MAX = 600;
+
+// A phone opens a mock at phone width; anything else at desktop width.
+export const defaultDeviceWidth = (winW: number, coarse: boolean): number =>
+  coarse && winW < PHONE_MAX ? DEVICE_WIDTHS[0].w : DESKTOP_W;
+
+// A width remembered in storage counts only if it is still one we offer.
+export function readDeviceWidth(raw: string | null): number | null {
+  const n = Number(raw);
+  return DEVICE_WIDTHS.some((d) => d.w === n) ? n : null;
+}
+
+// The panel sits beside the stage only while the stage keeps a readable width
+// next to it; below that it becomes a bottom sheet under a full-width stage.
+export const PANEL_W = 380;
+const PANEL_GUTTERS = 72;
+const MIN_STAGE_W = 480;
+export const panelBeside = (winW: number): boolean => winW >= PANEL_W + PANEL_GUTTERS + MIN_STAGE_W;
+
+// Inspect zooms between fitting the screen and twice the design's size.
+export const MAX_ZOOM = 2;
+export const clampZoom = (z: number, fit: number): number =>
+  Math.max(Math.min(fit, 1), Math.min(MAX_ZOOM, Number.isFinite(z) ? z : fit));
+
+// Keeps the point under the pinch's midpoint still while the scale changes:
+// `scroll` and `mid` are in the scroller's px at scale z0, the result at z1.
+export const zoomScroll = (scroll: number, mid: number, z0: number, z1: number): number =>
+  Math.max(0, ((scroll + mid) * z1) / z0 - mid);
