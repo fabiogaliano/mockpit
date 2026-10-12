@@ -63,9 +63,11 @@ Rules of thumb:
 
 - One mock per concept, with a stable kebab-case slug; publishing the same
   (mock, state, variant) again makes a new version.
-- A choice is several variants plus one ask that binds them. One render plus a
-  control → declare a knob. When a publish result nudges, send its
-  `suggestedAsk`.
+- A choice is several variants plus one ask that binds them. A variant decides
+  everything it differs on; don't ask those dimensions again. Options that
+  change a look carry a `variant` or a knob `set`, so the user sees them live;
+  plain options only for what can't be seen. One render plus a control →
+  declare a knob. When a publish result nudges, follow it.
 - Ask when a decision is genuinely the user's, not after every publish.
 - Use the kit, tokens and icons from `mockpit guide` before writing CSS.
 - After a context loss: `mockpit read`, then `mockpit read <slug>`.

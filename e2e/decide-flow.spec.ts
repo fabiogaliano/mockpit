@@ -95,7 +95,7 @@ test("questions: pictures, hover preview, pick, part focus, Mix override, Send, 
 
   // Mix, last: picture options, Send once nothing is open.
   await expect(header(page)).toContainText("4 of 4");
-  await expect(page.locator(".nm")).toHaveText("Mix");
+  await expect(page.locator(".nm")).toHaveText("Mix Optional · from mockpit");
   await expect(option(page, "none")).toContainText("No, all quiet");
   const borrow = option(page, "versions:editorial");
   await expect(borrow.locator("iframe")).toHaveCount(1);

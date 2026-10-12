@@ -4,6 +4,7 @@ import { getCookie, setCookie } from "hono/cookie";
 import { streamSSE } from "hono/streaming";
 import { decodeBase64 } from "./base64.ts";
 import { mockDetailView, mockSummaryView, sessionRowView, surfaceRef } from "./apiViews.ts";
+import { askNudges } from "./askNudges.ts";
 import { EventBus, type FeedEvent } from "./events.ts";
 import {
   GUIDE_TOPICS,
@@ -930,12 +931,41 @@ export function createApp({
       posts.filter((p) => p.state === s && p.status !== "archived").map((p) => p.variant);
     const names = live(state);
     if (names.length < 2) return null;
+    const applies = (a: Ask) => a.scope !== "part" && !(a.scope === "state" && a.state !== state);
     const bound = mock.asks.some((a) => {
-      if (a.scope === "part" || (a.scope === "state" && a.state !== state)) return false;
+      if (!applies(a)) return false;
       const variants = new Set(a.options.map((o) => o.variant));
       return names.every((n) => variants.has(n));
     });
     if (bound) return null;
+    const where = state === null ? mock.slug : `${mock.slug} state "${state}"`;
+    // An ask that already picks between some of these variants is the question:
+    // a second, generic "Which one?" would make the user choose the look twice.
+    const existing = mock.asks.find((a) => applies(a) && a.options.some((o) => o.variant));
+    if (existing) {
+      const have = new Set(existing.options.map((o) => o.variant));
+      const missing = names.filter((n) => !have.has(n));
+      const ask = {
+        id: existing.id,
+        text: existing.text,
+        scope: existing.scope,
+        ...(existing.state ? { state: existing.state } : {}),
+        ...(existing.multi ? { multi: true } : {}),
+        options: [
+          ...existing.options.map((o) => ({
+            id: o.id,
+            label: o.label,
+            ...(o.variant ? { variant: o.variant } : {}),
+            ...(o.set ? { set: o.set } : {}),
+          })),
+          ...missing.map((v) => ({ label: v, variant: v })),
+        ],
+      };
+      return {
+        nudge: `${where}: your ask "${existing.id}" doesn't bind ${missing.map((m) => `"${m}"`).join(", ")}: bind these variants to your existing ask by calling ask with suggestedAsk (same id, one more option each), not a second "Which one?"; never ask in chat`,
+        ask,
+      };
+    }
     const key = (list: string[]) => [...list].sort().join("\n");
     const states = mock.states.length ? mock.states : [null];
     const wide = states.every((s) => key(live(s)) === key(names));
@@ -949,7 +979,6 @@ export function createApp({
           state,
           options,
         };
-    const where = state === null ? mock.slug : `${mock.slug} state "${state}"`;
     return {
       nudge: `${where} has ${names.length} variants and no ask binds them: call ask with suggestedAsk (or your own question with options bound to the variants) so the user can choose in one Send; never ask in chat`,
       ask,
@@ -1483,6 +1512,7 @@ export function createApp({
       url: mockUrl(ctx.base, mock),
     });
     const feedback = session ? await collectFeedback(session.id, ctx.base) : [];
+    const nudges = askNudges(added, mock.asks);
     return ok({
       mock: mock.slug,
       mockId: mock.id,
@@ -1490,6 +1520,7 @@ export function createApp({
       asks: added,
       open: openCount(mock, posts),
       url: mockUrl(ctx.base, mock),
+      ...(nudges.length ? { nudges } : {}),
       feedback,
     });
   }

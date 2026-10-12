@@ -78,7 +78,7 @@ taking any feedback.
    defaults. tunekit's skill (`skills/tunekit` in the tunekit package) covers
    applying copied values.
 3. `mix` maps a part to the variant it should come from. Compose that part from
-   the other look into the chosen one.
+   the other look into the chosen one; the user's answers still win over it.
 4. `comments` are anchored on a part in a state (`part: null` means no part).
    Address each one.
 5. `decision` (`{kind: accept|revise|drop, state, variant}`) comes instead of

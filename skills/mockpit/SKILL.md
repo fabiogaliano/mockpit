@@ -19,8 +19,10 @@ The loop never waits for the user:
 2. `mockpit publish --mock <slug> --state "<user's words>" --variant <v> --html f.html`,
    once per variant; mark parts with `data-part`.
 3. A choice is several variants plus one ask that binds them: `mockpit ask`
-   with options bound to variants. One render plus a control: `--knobs`. When a
-   publish result nudges, send its `suggestedAsk`.
+   with options bound to variants. A variant decides everything it differs on;
+   don't ask those dimensions again. Options that change a look carry a
+   `variant` or a knob `set`, so the user sees them live. One render plus a
+   control: `--knobs`. When a publish result nudges, follow it.
 4. Tell the user in one line where to look, then end your turn. The question
    itself lives in the mock (`ask`), never in chat. The user answers in the
    browser at their own pace. Never poll.

@@ -1380,6 +1380,7 @@ const commands = {
         `asked on ${result.mock}: ${ask.text} [${ask.options.map((o) => o.label).join(" | ")}]`,
       );
     }
+    for (const nudge of result.nudges ?? []) console.log(`nudge: ${nudge}`);
     console.log(`tell the user to look at ${result.url}, then end your turn`);
     printFeedback(result.feedback);
   },

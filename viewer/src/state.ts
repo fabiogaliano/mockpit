@@ -7,6 +7,7 @@ import { batch, createEffect, createMemo, createSignal, onCleanup } from "solid-
 import { createStore } from "solid-js/store";
 import {
   type Ask,
+  type AskAnswer,
   type KnobValue,
   MAX_ASK_IMAGES,
   type PartCommentAnchor,
@@ -34,6 +35,7 @@ import {
   type KnobContext,
   lookAsk,
   mixOptions,
+  mixSettled,
   mockVersion,
   overriddenAsks,
   type PartsReport,
@@ -187,6 +189,21 @@ export function createMockScreen(project: string, slug: string) {
   }
   const activeVariant = createMemo(() => variantFor(activeState()));
 
+  // What the answers so far (sent, then drafted) settle, so Mix can't undo them.
+  const settled = createMemo(() => {
+    const answers: Record<string, AskAnswer> = {};
+    const others: Record<string, string> = {};
+    for (const a of asks()) {
+      if (a.answer !== undefined) answers[a.id] = a.answer;
+      if (a.other !== undefined) others[a.id] = a.other;
+    }
+    const d = draft();
+    for (const id of Object.keys(d?.answers ?? {})) delete others[id];
+    for (const id of Object.keys(d?.others ?? {})) delete answers[id];
+    Object.assign(answers, d?.answers ?? {});
+    Object.assign(others, d?.others ?? {});
+    return mixSettled(asks(), answers, others);
+  });
   const mixOpts = createMemo(() => {
     const m = mock();
     return m
@@ -195,6 +212,7 @@ export function createMockScreen(project: string, slug: string) {
           variants(),
           lookPick(),
           (state, variant) => reports[frameKey(state, variant)],
+          settled(),
         )
       : [];
   });
@@ -803,6 +821,7 @@ export function createMockScreen(project: string, slug: string) {
     questions,
     owed,
     overridden,
+    settled,
     mixOpts,
     mixAnswered,
     selectedPart,
