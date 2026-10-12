@@ -102,11 +102,13 @@ a {
 
 .screen {
   display: grid;
-  grid-template-rows: 52px minmax(0, 1fr);
+  grid-template-rows: calc(52px + env(safe-area-inset-top)) minmax(0, 1fr);
   height: 100%;
 }
 .mock-screen {
   overflow: hidden;
+  /* dvh: the toolbar-aware height on iOS, where 100% can sit under Safari's bar */
+  height: 100dvh;
 }
 .home {
   overflow: auto;
@@ -118,7 +120,8 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 0 16px;
+  padding: env(safe-area-inset-top) max(16px, env(safe-area-inset-right)) 0
+    max(16px, env(safe-area-inset-left));
   border-bottom: 1px solid var(--line);
 }
 .crumb {
@@ -139,12 +142,17 @@ a {
   color: var(--t5);
 }
 .crumb .home {
+  position: relative;
   color: var(--t4);
   text-decoration: none;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.crumb .home:hover {
-  color: var(--t1);
+@media (hover: hover) {
+  .crumb .home:hover {
+    color: var(--t1);
+  }
 }
 .right {
   display: flex;
@@ -171,10 +179,12 @@ a {
   background: #fff;
   box-shadow: inset 0 0 0 1px var(--line);
 }
-.reopen:hover,
-.count:hover {
-  background: var(--row-hover);
-  color: var(--t1);
+@media (hover: hover) {
+  .reopen:hover,
+  .count:hover {
+    background: var(--row-hover);
+    color: var(--t1);
+  }
 }
 .sent-hint {
   font-size: 13px;
@@ -205,10 +215,12 @@ a {
     background var(--ease),
     color var(--ease);
 }
-.themebtn:hover,
-.bellbtn:hover {
-  background: var(--row);
-  color: var(--t1);
+@media (hover: hover) {
+  .themebtn:hover,
+  .bellbtn:hover {
+    background: var(--row);
+    color: var(--t1);
+  }
 }
 .themebtn svg,
 .bellbtn svg {
@@ -278,9 +290,11 @@ a {
   font-weight: 500;
   text-decoration: none;
 }
-.home-next:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
+@media (hover: hover) {
+  .home-next:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
 }
 .home-empty {
   color: var(--t4);
@@ -311,11 +325,15 @@ a {
   background: #fff;
   box-shadow: inset 0 0 0 1px var(--line);
 }
-.home-row:hover {
-  background: var(--row-hover);
+@media (hover: hover) {
+  .home-row:hover {
+    background: var(--row-hover);
+  }
 }
-[data-theme="light"] .home-row:hover {
-  background: #f2f2f2;
+@media (hover: hover) {
+  [data-theme="light"] .home-row:hover {
+    background: #f2f2f2;
+  }
 }
 .home-thumb {
   position: relative;
@@ -329,10 +347,16 @@ a {
   width: 100%;
   height: 100%;
 }
+.home-text {
+  min-width: 0;
+}
 .home-name {
   font-size: 15px;
   font-weight: 600;
   color: var(--t1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .home-sub {
   font-size: 13px;
@@ -349,6 +373,7 @@ a {
   font-weight: 500;
   color: var(--q);
   background: color-mix(in srgb, var(--q) 14%, transparent);
+  white-space: nowrap;
 }
 .home-done {
   color: var(--ok);
@@ -360,6 +385,40 @@ a {
   font-size: 13px;
   color: var(--t5);
   text-align: right;
+  white-space: nowrap;
+}
+/* A phone: the open count and the age stack in one column beside the name. */
+@media (max-width: 480px) {
+  .home-main {
+    padding: 24px max(12px, env(safe-area-inset-right)) 24px max(12px, env(safe-area-inset-left));
+  }
+  .home-row {
+    grid-template-columns: 72px minmax(0, 1fr) auto;
+    grid-template-areas:
+      "thumb text badge"
+      "thumb text ago";
+    row-gap: 2px;
+    column-gap: 12px;
+    padding-inline-end: 12px;
+  }
+  .home-thumb {
+    grid-area: thumb;
+    width: 72px;
+    height: 52px;
+  }
+  .home-text {
+    grid-area: text;
+  }
+  .home-chip,
+  .home-done {
+    grid-area: badge;
+    justify-self: end;
+    align-self: end;
+  }
+  .home-ago {
+    grid-area: ago;
+    align-self: start;
+  }
 }
 
 /* ---------- thumbnails: a scaled sandboxed frame, only ever a picture ---------- */
@@ -408,14 +467,22 @@ a {
 }
 .stage-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  height: 44px;
-  padding: 0 14px 0 20px;
+  gap: 6px 10px;
+  min-height: 44px;
+  padding: 6px 14px 6px 20px;
   border-bottom: 1px solid var(--line);
   font-size: 13px;
   color: var(--t4);
   white-space: nowrap;
+}
+.stage-id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .stage-title {
   color: var(--t1);
@@ -423,7 +490,88 @@ a {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.stage-state {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stage-tools {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  margin-inline-start: auto;
+}
+.widthpick {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  color: var(--t4);
+}
+.widthpick select {
+  appearance: none;
+  height: 26px;
+  padding: 0 22px 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.widthpick select option {
+  background: var(--panel);
+  color: var(--t1);
+}
+.widthpick select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+.widthpick svg {
+  position: absolute;
+  right: 5px;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+}
+.zoomseg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--row);
+}
+.zoomseg button {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--t4);
+  font-size: 12px;
+  font-weight: 500;
+}
+.zoomseg button.on {
+  background: var(--fill);
+  color: var(--t1);
+}
+.zoomval {
+  min-width: 4ch;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+.donebtn {
+  position: relative;
+  height: 26px;
+  padding: 0 12px;
+  border-radius: 6px;
+  background: var(--t2);
+  color: var(--panel);
+  font-size: 12px;
+  font-weight: 600;
+}
 .vbtn {
+  position: relative;
   display: inline-block;
   padding: 2px 7px;
   border-radius: 5px;
@@ -433,9 +581,13 @@ a {
   font-family: var(--mono);
   transition: background var(--ease);
 }
-.vbtn:hover,
 .vbtn[aria-expanded="true"] {
   background: var(--row);
+}
+@media (hover: hover) {
+  .vbtn:hover {
+    background: var(--row);
+  }
 }
 .variant-switch {
   display: inline-flex;
@@ -445,6 +597,7 @@ a {
   background: var(--row);
 }
 .variant-switch button {
+  position: relative;
   height: 26px;
   padding: 0 10px;
   border-radius: 6px;
@@ -474,10 +627,14 @@ a {
   text-decoration-color: var(--t5);
   text-underline-offset: 3px;
 }
-.vrestore:hover {
-  color: var(--t1);
+@media (hover: hover) {
+  .vrestore:hover {
+    color: var(--t1);
+  }
 }
-.markbtn {
+.markbtn,
+.inspectbtn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -489,13 +646,17 @@ a {
   font-weight: 500;
   transition: background var(--ease);
 }
-.markbtn svg {
+.markbtn svg,
+.inspectbtn svg {
   width: 14px;
   height: 14px;
 }
-.markbtn:hover {
-  background: var(--row);
-  color: var(--t2);
+@media (hover: hover) {
+  .markbtn:hover,
+  .inspectbtn:hover {
+    background: var(--row);
+    color: var(--t2);
+  }
 }
 .markbtn.on {
   background: var(--accent);
@@ -518,7 +679,6 @@ a {
   position: absolute;
   left: 0;
   top: 0;
-  width: 100%;
   overflow: hidden;
   visibility: hidden;
 }
@@ -532,7 +692,6 @@ a {
   }
 }
 .frame-scale {
-  width: 820px;
   transform-origin: 0 0;
 }
 .surface iframe {
@@ -601,7 +760,9 @@ a {
   border-radius: 6px;
   box-shadow: 0 0 0 4000px rgb(250 250 250 / 0.45);
   pointer-events: none;
-  transition: all 150ms ease-out;
+  transition-property: left, top, width, height;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
 }
 .box {
   position: absolute;
@@ -667,6 +828,12 @@ a {
 .pin.mark.pending {
   opacity: 0.85;
 }
+/* Placed at another stage width: the page may have reflowed under it. */
+.pin.mark.elsewhere {
+  opacity: 0.45;
+  outline: 1.5px dashed var(--t4);
+  outline-offset: 2px;
+}
 .overlay.marking {
   cursor: crosshair;
 }
@@ -688,6 +855,28 @@ a {
   font-size: 12px;
   color: var(--t4);
 }
+.markfield-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.markfield-actions button {
+  position: relative;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.markfield-cancel {
+  color: var(--t3);
+  background: var(--row);
+}
+.markfield-save {
+  color: var(--panel);
+  background: var(--t2);
+}
+
 .markfield .up-text-input {
   height: 32px;
   padding: 0 10px;
@@ -785,9 +974,13 @@ a {
   text-align: left;
   font-size: 14px;
 }
-.vrow:hover,
 .vrow.on {
   background: var(--row);
+}
+@media (hover: hover) {
+  .vrow:hover {
+    background: var(--row);
+  }
 }
 .vrow .vv {
   width: 24px;
@@ -826,6 +1019,7 @@ a {
   color: var(--t4);
 }
 .strip {
+  position: relative;
   display: inline-flex;
   gap: 2px;
   padding: 4px;
@@ -847,8 +1041,10 @@ a {
     color var(--ease),
     background var(--ease);
 }
-.strip > button:hover {
-  color: var(--t2);
+@media (hover: hover) {
+  .strip > button:hover {
+    color: var(--t2);
+  }
 }
 .strip > button.on {
   background: var(--fill);
@@ -873,6 +1069,7 @@ a {
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 76px);
+  max-height: calc(100dvh - 76px);
 }
 .up-header {
   display: flex;
@@ -952,11 +1149,13 @@ a {
   gap: 8px;
   padding: 0 16px 0 14px;
 }
-.up-preset-trigger:hover,
-.up-preset-add:hover,
-.up-copy-btn:hover {
-  background: var(--row-hover);
-  color: var(--t1);
+@media (hover: hover) {
+  .up-preset-trigger:hover,
+  .up-preset-add:hover,
+  .up-copy-btn:hover {
+    background: var(--row-hover);
+    color: var(--t1);
+  }
 }
 .up-copy-btn[data-copied] {
   color: var(--ok);
@@ -999,13 +1198,20 @@ a {
     color var(--ease),
     background var(--ease);
 }
-.up-mode:hover {
-  color: var(--t2);
+@media (hover: hover) {
+  .up-mode:hover {
+    color: var(--t2);
+  }
 }
-.up-mode-active,
-.up-mode-active:hover {
+.up-mode-active {
   color: var(--t1);
   background: var(--fill);
+}
+@media (hover: hover) {
+  .up-mode-active:hover {
+    color: var(--t1);
+    background: var(--fill);
+  }
 }
 .up-mode .n {
   font-size: 12px;
@@ -1069,8 +1275,10 @@ a {
   color: var(--t3);
   text-align: left;
 }
-.up-group-hd:hover {
-  color: var(--t1);
+@media (hover: hover) {
+  .up-group-hd:hover {
+    color: var(--t1);
+  }
 }
 .up-group-hd svg {
   width: 18px;
@@ -1118,9 +1326,13 @@ a {
   background: var(--fill);
   transition: background 0.15s;
 }
-.up-slider:hover .up-slider-fill,
 .up-slider-dragging .up-slider-fill {
   background: var(--fill-hover);
+}
+@media (hover: hover) {
+  .up-slider:hover .up-slider-fill {
+    background: var(--fill-hover);
+  }
 }
 .up-slider-handle {
   position: absolute;
@@ -1230,22 +1442,33 @@ a {
     color 0.15s,
     background 0.15s;
 }
-.up-seg-btn:hover {
-  color: var(--t2);
+@media (hover: hover) {
+  .up-seg-btn:hover {
+    color: var(--t2);
+  }
 }
-.up-seg-btn-active,
-.up-seg-btn-active:hover {
+.up-seg-btn-active {
   color: var(--t1);
   background: var(--fill);
+}
+@media (hover: hover) {
+  .up-seg-btn-active:hover {
+    color: var(--t1);
+    background: var(--fill);
+  }
 }
 
 .up-select-trigger {
   padding-right: 12px;
   transition: background var(--ease);
 }
-.up-select-trigger:hover,
 .up-select-trigger-open {
   background: var(--row-hover);
+}
+@media (hover: hover) {
+  .up-select-trigger:hover {
+    background: var(--row-hover);
+  }
 }
 .up-select-right {
   display: flex;
@@ -1306,9 +1529,11 @@ a {
   text-align: left;
   transition: background var(--ease);
 }
-.up-select-option:hover {
-  background: var(--fill);
-  color: var(--t1);
+@media (hover: hover) {
+  .up-select-option:hover {
+    background: var(--fill);
+    color: var(--t1);
+  }
 }
 .up-select-option-selected {
   color: var(--t1);
@@ -1386,8 +1611,10 @@ a {
     transform 0.12s,
     box-shadow 0.12s;
 }
-.up-cp-dot:hover {
-  transform: scale(1.12);
+@media (hover: hover) {
+  .up-cp-dot:hover {
+    transform: scale(1.12);
+  }
 }
 .up-cp-dot-on {
   box-shadow:
@@ -1435,9 +1662,11 @@ a {
   line-height: 30px;
   color: var(--t3);
 }
-.nav:hover {
-  background: var(--row-hover);
-  color: var(--t1);
+@media (hover: hover) {
+  .nav:hover {
+    background: var(--row-hover);
+    color: var(--t1);
+  }
 }
 .nav:disabled {
   color: var(--t5);
@@ -1475,8 +1704,10 @@ a {
     background var(--ease),
     box-shadow var(--ease);
 }
-.opt:hover {
-  background: var(--row-hover);
+@media (hover: hover) {
+  .opt:hover {
+    background: var(--row-hover);
+  }
 }
 .opt.on {
   box-shadow: inset 0 0 0 1.5px var(--t2);
@@ -1519,8 +1750,10 @@ a {
   font-weight: 600;
   flex: none;
 }
-.primary:hover {
-  background: var(--hi);
+@media (hover: hover) {
+  .primary:hover {
+    background: var(--hi);
+  }
 }
 .primary:disabled {
   background: var(--row);
@@ -1539,8 +1772,10 @@ a {
   text-decoration-color: var(--t5);
   text-underline-offset: 3px;
 }
-.lnk:hover {
-  text-decoration-color: var(--t2);
+@media (hover: hover) {
+  .lnk:hover {
+    text-decoration-color: var(--t2);
+  }
 }
 .clines {
   display: flex;
@@ -1706,8 +1941,10 @@ a {
   color: var(--t2);
   font-weight: 600;
 }
-.secondary:hover {
-  background: var(--row-hover);
+@media (hover: hover) {
+  .secondary:hover {
+    background: var(--row-hover);
+  }
 }
 .up-select-dropdown {
   position: absolute;
@@ -1738,85 +1975,154 @@ a {
   display: none;
 }
 
-/* ---------- narrow screens (§5): stage on top, the panel a bottom sheet ---------- */
-@media (max-width: 899px) {
-  .main {
-    padding: 12px 12px 108px;
-  }
-  .col {
-    max-width: 100%;
-  }
-  .stripwrap {
-    max-width: calc(100vw - 24px);
-  }
-  .stripwrap .cap {
+/* ---------- the stage over a bottom sheet (§5): set by viewport.ts when the
+   panel no longer fits beside a readable stage ---------- */
+.sheeted .main {
+  padding: 12px max(12px, env(safe-area-inset-right)) 108px max(12px, env(safe-area-inset-left));
+}
+.sheeted .col {
+  max-width: 100%;
+}
+.sheeted .stripwrap {
+  max-width: calc(100vw - 24px);
+}
+.sheeted .strip {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.sheeted .strip::-webkit-scrollbar {
+  display: none;
+}
+.sheeted .strip > button {
+  flex: none;
+  white-space: nowrap;
+}
+.sheeted .cap {
+  flex: none;
+}
+/* More states past an edge: the row fades out there instead of cutting off. */
+.strip.fade-end {
+  mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+}
+.strip.fade-start {
+  mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent);
+}
+.strip.fade-start.fade-end {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 32px,
+    #000 calc(100% - 32px),
+    transparent
+  );
+}
+.up-shell.sheet {
+  top: auto;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  max-height: 62vh;
+  max-height: 62dvh;
+  border-radius: 16px 16px 0 0;
+  border-bottom: 0;
+  padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.up-shell.sheet .up-header,
+.up-shell.sheet .up-preset-bar {
+  display: none;
+}
+.up-shell.sheet:not(.open) .up-content {
+  display: none;
+}
+.up-shell.sheet:not(.open) .up-tabs-wrap {
+  border-bottom: 0;
+}
+.up-shell.sheet .sheet-handle {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 22px;
+  flex: none;
+  touch-action: none;
+}
+.sheet-handle i {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--fill);
+}
+.up-shell.sheet .opts {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.up-shell.sheet .opts::-webkit-scrollbar {
+  display: none;
+}
+.up-shell.sheet .opt:not(.pill) {
+  flex: 0 0 min(46%, 200px);
+  scroll-snap-align: start;
+}
+/* A phone-wide stage has no room for tool labels; the icons keep their names. */
+@media (max-width: 480px) {
+  /* The top bar already names the mock; the head keeps the state and version. */
+  .sheeted .stage-title {
     display: none;
   }
-  .strip {
-    display: flex;
-    max-width: 100%;
-    overflow-x: auto;
-    scrollbar-width: none;
-    overscroll-behavior-x: contain;
+  .sheeted .stage-head {
+    padding-inline: 12px 6px;
   }
-  .strip::-webkit-scrollbar {
-    display: none;
+  .sheeted .stage-tools {
+    gap: 0;
   }
-  .strip > button {
-    flex: none;
+  .sheeted .tool-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
     white-space: nowrap;
   }
-  .up-shell.sheet {
-    top: auto;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    width: auto;
-    max-height: 62vh;
-    border-radius: 16px 16px 0 0;
-    border-bottom: 0;
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-  .up-shell.sheet .up-header,
-  .up-shell.sheet .up-preset-bar {
-    display: none;
-  }
-  .up-shell.sheet:not(.open) .up-content {
-    display: none;
-  }
-  .up-shell.sheet:not(.open) .up-tabs-wrap {
-    border-bottom: 0;
-  }
-  .sheet-handle {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    width: 100%;
-    height: 22px;
-    flex: none;
-    touch-action: none;
-  }
-  .sheet-handle i {
-    width: 36px;
-    height: 4px;
-    border-radius: 2px;
-    background: var(--fill);
-  }
-  .opts {
-    display: flex;
-    overflow-x: auto;
-    scroll-snap-type: x mandatory;
-    scrollbar-width: none;
-    padding-bottom: 2px;
-  }
-  .opts::-webkit-scrollbar {
-    display: none;
-  }
-  .opt:not(.pill) {
-    flex: 0 0 min(46%, 200px);
-    scroll-snap-align: start;
-  }
 }
+
+/* ---------- Inspect: the stage alone, full screen ---------- */
+.inspecting .top,
+.inspecting .up-shell,
+.inspecting .stripwrap {
+  display: none;
+}
+.stagewrap.inspect {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  background: var(--page);
+}
+.stagewrap.inspect .stage {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: var(--page);
+}
+.stagewrap.inspect .layers {
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+/* Our pan and pinch take over only here; everywhere else the page scrolls and
+   zooms as the browser does. */
+.stagewrap.inspect .overlay {
+  touch-action: none;
+}
+
 @keyframes up-dropdown-in {
   from {
     opacity: 0;
@@ -1962,10 +2268,14 @@ html.theming *:not(iframe) {
   stroke-linecap: round;
   box-shadow: 0 0 0 1.5px var(--row);
 }
-.attach-item:hover .attach-x,
 .attach-item.failed .attach-x,
 .attach-x:focus-visible {
   opacity: 1;
+}
+@media (hover: hover) {
+  .attach-item:hover .attach-x {
+    opacity: 1;
+  }
 }
 .attach-x:focus-visible {
   outline: none;
@@ -1989,9 +2299,11 @@ html.theming *:not(iframe) {
   border: none;
   color: var(--t4);
 }
-.attach-btn:hover {
-  color: var(--t2);
-  background: var(--row-hover);
+@media (hover: hover) {
+  .attach-btn:hover {
+    color: var(--t2);
+    background: var(--row-hover);
+  }
 }
 .attach-btn:focus-visible {
   outline: none;
@@ -2049,4 +2361,91 @@ html.theming *:not(iframe) {
 }
 .tnote .cwhere {
   display: block;
+}
+
+/* ---------- touch ---------- */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select,
+  .up-text-input,
+  .markfield .up-text-input,
+  .asktext textarea,
+  .widthpick select {
+    font-size: 16px;
+  }
+  .markfield .up-text-input {
+    height: 40px;
+  }
+  .pin {
+    width: 28px;
+    height: 28px;
+    font-size: 13px;
+    line-height: 28px;
+  }
+  .strip > button,
+  .up-mode,
+  .variant-switch button,
+  .zoomseg button {
+    min-height: 44px;
+  }
+  .variant-switch button,
+  .zoomseg button {
+    min-width: 44px;
+  }
+  .up-modes,
+  .variant-switch,
+  .zoomseg {
+    padding: 2px;
+  }
+  .up-shell.sheet .sheet-handle {
+    height: 44px;
+  }
+  .sheeted .main {
+    padding-top: 20px;
+    padding-bottom: 124px;
+  }
+  /* The visible control stays compact; a transparent box around it takes the
+     tap. Neighbours sit at least 44px apart center to center, so these never
+     overlap. */
+  .pin::after,
+  .vbtn::after,
+  .markbtn::after,
+  .inspectbtn::after,
+  .donebtn::after,
+  .markfield-actions button::after,
+  .themebtn::after,
+  .bellbtn::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
+  .crumb .home {
+    display: inline-block;
+    min-width: 44px;
+    padding-block: 12px;
+  }
+  .widthpick select {
+    height: 44px;
+  }
+  .stage-tools {
+    gap: 4px;
+  }
+  .markbtn,
+  .inspectbtn,
+  .donebtn {
+    min-width: 44px;
+    justify-content: center;
+  }
+  .themebtn,
+  .bellbtn {
+    position: relative;
+  }
+  .bellbtn {
+    margin-right: 0;
+  }
 }
