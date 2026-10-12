@@ -249,9 +249,75 @@ export interface MixOption {
   variant: string;
 }
 
+// What the user's answers already settle, so Mix never undoes one. A borrow
+// brings a part over whole, with every dimension its look varies on, so:
+// - an answered mock- or state-wide plain ask whose pick sets a part's knob
+//   ("notes.tone") decides that part (in that state, for a state ask), and Mix
+//   does not offer it;
+// - picks that set only global knobs are no conflict: knobs apply to every look
+//   alike;
+// - an answer in words (an option with no `set`, or an Other… write-in) may
+//   touch any part and the viewer cannot see which, so it stands: Mix names it
+//   as still applying to whatever is borrowed.
+// The Look ask is Mix's own input, and a part ask keeps its "Mix uses … instead
+// · undo" line, so neither counts here.
+export interface MixSettled {
+  decided: { part: string; state: string | null }[];
+  standing: Ask[];
+}
+export function mixSettled(
+  asks: Ask[],
+  answers: Record<string, AskAnswer>,
+  others: Record<string, string> = {},
+): MixSettled {
+  const out: MixSettled = { decided: [], standing: [] };
+  for (const ask of asks) {
+    if (ask.scope === "part" || ask.options.some((o) => o.variant)) continue;
+    const picked = answerIds(answers[ask.id])
+      .map((id) => ask.options.find((o) => o.id === id))
+      .filter((o) => o !== undefined);
+    const state = ask.scope === "state" ? (ask.state ?? null) : null;
+    let worded = others[ask.id] !== undefined;
+    for (const o of picked) {
+      const paths = Object.keys(o.set ?? {});
+      if (!paths.length) worded = true;
+      for (const path of paths) {
+        const part = knobPart(path);
+        if (part !== null) out.decided.push({ part, state });
+      }
+    }
+    if (worded) out.standing.push(ask);
+  }
+  return out;
+}
+
+// Mix's note on the answers that stand over any borrow.
+export function standingLine(standing: Pick<Ask, "text">[]): string {
+  const list = standing.map((a) => `“${a.text}”`).join(", ");
+  return standing.length > 1
+    ? `Your answers to ${list} still apply to anything you borrow.`
+    : `Your answer to ${list} still applies to anything you borrow.`;
+}
+
+const isDecided = (settled: MixSettled | undefined, part: string, state: string | null) =>
+  !!settled?.decided.some((d) => d.part === part && (d.state === null || d.state === state));
+
+// A part this close to the frame's own size is the whole composition, not a
+// piece of it: borrowing it would swap the look.
+const WHOLE_FRAME = 0.9;
+function wrapsFrame(report: PartsReport, name: string): boolean {
+  return report.parts.some(
+    (p) =>
+      p.name === name &&
+      p.box.w >= report.width * WHOLE_FRAME &&
+      p.box.h >= report.height * WHOLE_FRAME,
+  );
+}
+
 // Mix (D6): borrow a part from another look. A part qualifies when another
 // look renders it differently from the picked one in the same state; each such
-// look is one option. Nothing to mix until a look is picked.
+// look is one option. Nothing to mix until a look is picked, and never a part
+// an answer settled (`mixSettled`) or one that wraps the whole frame.
 //
 // "Differently" is judged from what the frames report (the viewer never holds
 // the html of a sandboxed surface): the part's instances, labels and sizes. A
@@ -262,6 +328,7 @@ export function mixOptions(
   variants: Pick<VariantView, "state" | "variant" | "status" | "parts">[],
   look: string | null,
   reportOf: (state: string | null, variant: string) => PartsReport | undefined,
+  settled?: MixSettled,
 ): MixOption[] {
   const ask = lookAsk(mock);
   if (!ask || !look) return [];
@@ -277,7 +344,8 @@ export function mixOptions(
     const mine = reportOf(state, look);
     for (const part of picked.parts) {
       const base = partShape(mine, part);
-      if (base === undefined) continue;
+      if (base === undefined || isDecided(settled, part, state) || wrapsFrame(mine!, part))
+        continue;
       for (const v of inState) {
         const key = `${part}\u0000${v.variant}`;
         if (v === picked || seen.has(key) || !v.parts.includes(part)) continue;

@@ -335,7 +335,13 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
     session: nullStr,
   },
   publish: writeOutput,
-  ask: { asks: z.array(o({ id: str, text: str })), open: num, url: str, feedback: feedbackRide },
+  ask: {
+    asks: z.array(o({ id: str, text: str })),
+    open: num,
+    url: str,
+    nudges: strs.optional(),
+    feedback: feedbackRide,
+  },
   feedback: {
     feedback: z.array(feedbackSchema).describe("One batch per mock; empty when nothing is new"),
     pending: z.array(pendingSchema),

@@ -23,6 +23,7 @@ import {
   layoutPins,
   markPins,
   mixOptions,
+  mixSettled,
   nextMark,
   overriddenAsks,
   partPinSpot,
@@ -32,6 +33,7 @@ import {
   resolveKnobs,
   safeColor,
   sendCount,
+  standingLine,
   summarizeReply,
   threadRows,
   tuneComponents,
@@ -210,6 +212,84 @@ describe("mixOptions", () => {
     expect(
       mixOptions(mock, archived, "quiet", reportOf).some((o) => o.variant === "editorial"),
     ).toBe(false);
+  });
+  it("drops a part an answered mock- or state-wide ask settled", () => {
+    const wide = mixSettled(
+      [{ ...accent, options: [{ id: "big", label: "Big title", set: { "title.size": 30 } }] }],
+      { accent: "big" },
+    );
+    expect(mixOptions(mock, variants, "quiet", reportOf, wide).map((o) => o.part)).toEqual([
+      "toast",
+      "lab",
+    ]);
+    const narrow = mixSettled(
+      [
+        {
+          ...accent,
+          scope: "state",
+          state: "Lab open",
+          options: [{ id: "big", label: "Big title", set: { "title.size": 30 } }],
+        },
+      ],
+      { accent: "big" },
+    );
+    // The title is decided in Lab open only; Writing still offers it.
+    expect(mixOptions(mock, variants, "quiet", reportOf, narrow).map((o) => o.part)).toContain(
+      "title",
+    );
+  });
+
+  it("never offers a part that wraps the whole frame", () => {
+    const whole = (state: string | null, v: string) =>
+      state === "Lab open" ? report(box("lab", v === "dark" ? 800 : 760, 590)) : reportOf(state, v);
+    expect(mixOptions(mock, variants, "quiet", whole).map((o) => o.part)).not.toContain("lab");
+  });
+});
+
+const accent: Ask = {
+  id: "accent",
+  text: "Which accent means progress?",
+  scope: "mock",
+  options: [
+    { id: "olive", label: "Olive" },
+    { id: "orange", label: "Orange" },
+    { id: "warm", label: "Warm", set: { accent: "#e8590c" } },
+  ],
+  at: "t",
+};
+
+describe("mixSettled", () => {
+  it("a worded answer stands; a global knob set does not", () => {
+    expect(mixSettled([look, accent], { look: "quiet", accent: "olive" })).toEqual({
+      decided: [],
+      standing: [accent],
+    });
+    expect(mixSettled([accent], { accent: "warm" })).toEqual({ decided: [], standing: [] });
+  });
+
+  it("a part knob set decides that part, scoped like the ask", () => {
+    const state: Ask = {
+      ...accent,
+      scope: "state",
+      state: "Lab open",
+      options: [{ id: "w", label: "Wide", set: { "lab.width": 300, accent: "#000" } }],
+    };
+    expect(mixSettled([state], { accent: "w" }).decided).toEqual([
+      { part: "lab", state: "Lab open" },
+    ]);
+  });
+
+  it("an Other… write-in stands; unanswered, look and part asks never count", () => {
+    expect(mixSettled([accent], {}, { accent: "teal" }).standing).toEqual([accent]);
+    expect(mixSettled([accent, trim], { trim: "above" })).toEqual({ decided: [], standing: [] });
+    expect(mixSettled([look], { look: "dark" })).toEqual({ decided: [], standing: [] });
+  });
+
+  it("reads as one note over the borrow", () => {
+    expect(standingLine([accent])).toBe(
+      "Your answer to “Which accent means progress?” still applies to anything you borrow.",
+    );
+    expect(standingLine([accent, { text: "Voice?" }])).toMatch(/^Your answers to .* still apply/);
   });
 });
 

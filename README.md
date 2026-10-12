@@ -159,7 +159,10 @@ and `mockpit watch` (one line per Send, for a background monitor).
   draft has got (`2 of 3 answered`). Every write returns `feedback` too, and
   each Send is delivered exactly once across all of them.
 - **Asks are nudged.** A publish that leaves several variants with no ask
-  binding them returns a nudge and a ready `suggestedAsk`.
+  binding them returns a nudge and a ready `suggestedAsk` (your existing Look
+  ask plus the new variants, when there is one). An `ask` whose options read
+  visual but can't be seen, or that repeats what the variants decide, is nudged
+  too.
 
 A typical turn:
 

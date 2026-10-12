@@ -28,6 +28,7 @@ import {
   type MixOption,
   partBox,
   sendCount,
+  standingLine,
 } from "./logic.ts";
 import type { AskField, MockScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
@@ -585,8 +586,13 @@ function MixBlock(props: { s: MockScreenState; index: number }) {
   const none = () => s.mixAnswered() && !Object.keys(s.draft()?.mix ?? {}).length;
   return (
     <div class="qblock">
-      <div class="nm">Mix</div>
-      <div class="ask">Keep anything from the other looks?</div>
+      <div class="nm">
+        Mix <span class="qtag">Optional · from mockpit</span>
+      </div>
+      <div class="ask">Borrow a part from another look?</div>
+      <Show when={s.settled().standing.length}>
+        <div class="ovrline">{standingLine(s.settled().standing)}</div>
+      </Show>
       <div class="opts">
         <OptionCard
           picture={
