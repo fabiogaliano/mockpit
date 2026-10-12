@@ -1053,3 +1053,132 @@ export function markPins(
 // The number the next mark gets.
 export const nextMark = (comments: PartComment[]): number =>
   comments.filter((c) => c.anchor).length + 1;
+
+// --- the decision flow: across mocks, review, keys and swipes ---
+
+type QueueMock = { slug: string; open: number; createdAt: string };
+
+// An agent publishes mocks in the order it wants them answered, so the queue
+// runs oldest first. Most recently updated would put the last mock asked on
+// first: the reverse of the agent's plan.
+export const queueOrder = <T extends QueueMock>(mocks: T[]): T[] =>
+  [...mocks].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.slug.localeCompare(b.slug));
+
+// The next mock that still owes answers after `current` in queue order (or
+// before it, for `dir` -1), wrapping around; never `current` itself. With no
+// current mock (Home), the first one owed.
+export function nextOwedMock<T extends QueueMock>(
+  mocks: T[],
+  current: string | null,
+  dir: 1 | -1 = 1,
+): T | null {
+  const order = queueOrder(mocks);
+  const at = current === null ? -1 : order.findIndex((m) => m.slug === current);
+  const n = order.length;
+  for (let k = 1; k <= n; k++) {
+    const i = at < 0 ? (dir === 1 ? k - 1 : n - k) : (((at + dir * k) % n) + n) % n;
+    const m = order[i];
+    if (m.slug !== current && m.open > 0) return m;
+  }
+  return null;
+}
+
+// One line of the review step: the question, what it reads as now, and the
+// option a picture can stand for.
+export interface ReviewRow {
+  index: number;
+  name: string;
+  said: string[];
+  // The first picked option, so the row can show its picture.
+  option: string | null;
+  owed: boolean;
+  optional: boolean;
+}
+
+export type FlowQuestion = { kind: "ask"; ask: Ask } | { kind: "mix" };
+
+export function reviewRows(
+  questions: FlowQuestion[],
+  read: {
+    name: (ask: Ask) => string;
+    pick: (ask: Ask) => AskPick;
+    owed: (ask: Ask) => boolean;
+    mix: Record<string, string>;
+    mixAnswered: boolean;
+  },
+): ReviewRow[] {
+  return questions.map((q, index) => {
+    if (q.kind === "mix") {
+      const borrowed = Object.entries(read.mix).map(([p, v]) => `${p} · ${v}'s`);
+      return {
+        index,
+        name: "Mix",
+        said: read.mixAnswered ? (borrowed.length ? borrowed : ["none"]) : [],
+        option: null,
+        owed: false,
+        optional: true,
+      };
+    }
+    const { ids, other, note } = read.pick(q.ask);
+    const said = ids.map((id) => q.ask.options.find((o) => o.id === id)?.label ?? id);
+    if (other !== undefined) said.push(`“${other}”`);
+    if (!said.length && note !== undefined) said.push("a note");
+    return {
+      index,
+      name: read.name(q.ask),
+      said,
+      option: ids[0] ?? null,
+      owed: read.owed(q.ask),
+      optional: false,
+    };
+  });
+}
+
+export type FlowKey =
+  | { kind: "pick"; n: number }
+  | { kind: "step"; by: 1 | -1 }
+  | { kind: "primary" }
+  | { kind: "mock"; by: 1 | -1 }
+  | { kind: "clear" }
+  | { kind: "help" };
+
+// What a key does on the mock screen, or null when it isn't ours. Keys typed
+// into a field stay the field's; Enter on a focused button stays the button's
+// (its own click); a chord with ⌘/Ctrl/Alt belongs to the browser.
+export function flowKey(e: {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+  typing: boolean;
+  onControl: boolean;
+}): FlowKey | null {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.typing) return null;
+  if (/^[1-9]$/.test(e.key)) return { kind: "pick", n: Number(e.key) - 1 };
+  switch (e.key) {
+    case "ArrowRight":
+      return { kind: "step", by: 1 };
+    case "ArrowLeft":
+      return { kind: "step", by: -1 };
+    case "]":
+      return { kind: "mock", by: 1 };
+    case "[":
+      return { kind: "mock", by: -1 };
+    case "Escape":
+      return { kind: "clear" };
+    case "?":
+      return { kind: "help" };
+    case "Enter":
+      return e.onControl ? null : { kind: "primary" };
+  }
+  return null;
+}
+
+const SWIPE_PX = 56;
+
+// A horizontal swipe moves between questions: a finger travelling left goes
+// to the next one. Mostly-vertical travel is a scroll, and short travel a tap.
+export function swipeStep(dx: number, dy: number): 1 | -1 | 0 {
+  if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) < 2 * Math.abs(dy)) return 0;
+  return dx < 0 ? 1 : -1;
+}

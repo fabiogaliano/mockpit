@@ -1089,6 +1089,8 @@ test("read with no slug prints one line per mock, plus pending", async () => {
 
     const json = JSON.parse((await cli(server, {}, "read", "--json")).stdout);
     assert.equal(json.mocks[0].slug, "writer");
+    // A comment-only draft has started nothing the row counts as answered.
+    assert.equal(json.mocks[0].drafted, 0);
     assert.equal(json.pending[0].mock, "writer");
     assert.equal(json.pending[0].draft.comments, 1);
 

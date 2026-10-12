@@ -40,6 +40,11 @@ import {
   tunedLines,
   tuneWrite,
   untunedValue,
+  flowKey,
+  nextOwedMock,
+  queueOrder,
+  reviewRows,
+  swipeStep,
 } from "../src/logic.ts";
 
 const look: Ask = {
@@ -1073,5 +1078,119 @@ describe("the built-in Which one?", () => {
         row(null, "b", "archived"),
       ]),
     ).toEqual([]);
+  });
+});
+
+describe("the decision flow", () => {
+  const m = (slug: string, open: number, createdAt: string) => ({ slug, open, createdAt });
+  // Published direction → floors → day; the agent then asked on day last.
+  const kitchen = [
+    m("day", 3, "t3"),
+    m("direction", 4, "t1"),
+    m("floors", 2, "t2"),
+    m("x", 0, "t0"),
+  ];
+
+  it("queues mocks oldest first, the order the agent published them in", () => {
+    expect(queueOrder(kitchen).map((x) => x.slug)).toEqual(["x", "direction", "floors", "day"]);
+    expect(queueOrder([m("b", 1, "t"), m("a", 1, "t")]).map((x) => x.slug)).toEqual(["a", "b"]);
+  });
+
+  it("Home's next is the oldest owed mock; after one, the next owed after it, wrapping", () => {
+    expect(nextOwedMock(kitchen, null)?.slug).toBe("direction");
+    expect(nextOwedMock(kitchen, "direction")?.slug).toBe("floors");
+    expect(nextOwedMock(kitchen, "day")?.slug).toBe("direction");
+    expect(nextOwedMock(kitchen, "direction", -1)?.slug).toBe("day");
+    expect(nextOwedMock(kitchen, null, -1)?.slug).toBe("day");
+    // A mock that no longer owes anything is skipped, and so is the current one.
+    expect(nextOwedMock(kitchen, "x")?.slug).toBe("direction");
+    expect(nextOwedMock([m("a", 2, "t1"), m("b", 0, "t2")], "a")).toBeNull();
+    expect(nextOwedMock([], null)).toBeNull();
+    // A slug no longer listed (deleted mid-queue) restarts from the top.
+    expect(nextOwedMock(kitchen, "gone")?.slug).toBe("direction");
+  });
+
+  it("review rows read each question as it stands: picks, a write-in, a note, or owed", () => {
+    const pick = (a: Ask) =>
+      a.id === "look"
+        ? { ids: ["dark"], other: undefined, note: undefined }
+        : a.id === "trim"
+          ? { ids: [], other: "inline", note: "x" }
+          : { ids: [], other: undefined, note: "later" };
+    const rows = reviewRows(
+      [
+        { kind: "ask", ask: look },
+        { kind: "ask", ask: trim },
+        { kind: "ask", ask: { ...trim, id: "n" } },
+        { kind: "mix" },
+      ],
+      {
+        name: (a) => a.id,
+        pick,
+        owed: (a) => a.id === "n",
+        mix: { versions: "editorial" },
+        mixAnswered: true,
+      },
+    );
+    expect(rows.map((r) => [r.index, r.name, r.said, r.option, r.owed])).toEqual([
+      [0, "look", ["Dark"], "dark", false],
+      [1, "trim", ["“inline”"], null, false],
+      [2, "n", ["a note"], null, true],
+      [3, "Mix", ["versions · editorial's"], null, false],
+    ]);
+    expect(rows[3].optional).toBe(true);
+    const untouched = reviewRows([{ kind: "mix" }], {
+      name: () => "",
+      pick,
+      owed: () => false,
+      mix: {},
+      mixAnswered: false,
+    });
+    expect(untouched[0].said).toEqual([]);
+    const none = reviewRows([{ kind: "mix" }], {
+      name: () => "",
+      pick,
+      owed: () => false,
+      mix: {},
+      mixAnswered: true,
+    });
+    expect(none[0].said).toEqual(["none"]);
+  });
+
+  it("maps keys to flow actions, and leaves typing, chords and focused buttons alone", () => {
+    const k = (key: string, over: Partial<Parameters<typeof flowKey>[0]> = {}) =>
+      flowKey({
+        key,
+        metaKey: false,
+        ctrlKey: false,
+        altKey: false,
+        typing: false,
+        onControl: false,
+        ...over,
+      });
+    expect(k("1")).toEqual({ kind: "pick", n: 0 });
+    expect(k("9")).toEqual({ kind: "pick", n: 8 });
+    expect(k("0")).toBeNull();
+    expect(k("ArrowRight")).toEqual({ kind: "step", by: 1 });
+    expect(k("ArrowLeft")).toEqual({ kind: "step", by: -1 });
+    expect(k("]")).toEqual({ kind: "mock", by: 1 });
+    expect(k("[")).toEqual({ kind: "mock", by: -1 });
+    expect(k("Escape")).toEqual({ kind: "clear" });
+    expect(k("?")).toEqual({ kind: "help" });
+    expect(k("Enter")).toEqual({ kind: "primary" });
+    expect(k("Enter", { onControl: true })).toBeNull();
+    expect(k("1", { typing: true })).toBeNull();
+    expect(k("Escape", { typing: true })).toBeNull();
+    expect(k("1", { metaKey: true })).toBeNull();
+    expect(k("[", { ctrlKey: true })).toBeNull();
+    expect(k("a")).toBeNull();
+  });
+
+  it("a mostly horizontal swipe steps questions; a scroll or a tap does not", () => {
+    expect(swipeStep(-80, 10)).toBe(1);
+    expect(swipeStep(80, -10)).toBe(-1);
+    expect(swipeStep(-40, 0)).toBe(0);
+    expect(swipeStep(-80, 60)).toBe(0);
+    expect(swipeStep(0, -200)).toBe(0);
   });
 });
