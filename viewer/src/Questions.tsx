@@ -2,7 +2,8 @@
 // can render them (a variant that exists for the ask's state, or a knob set it
 // can apply), pills otherwise. Hover previews on the stage, click picks; on a
 // hover device a pick moves on to the next open question, on touch the first
-// tap previews and the second confirms. Mix is the optional last question.
+// tap previews and the second confirms (see `tapPicks`). Mix is the optional
+// last question.
 
 import {
   createMemo,
@@ -28,6 +29,7 @@ import {
   type MixOption,
   partBox,
   sendCount,
+  tapPicks,
 } from "./logic.ts";
 import type { AskField, MockScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
@@ -251,8 +253,15 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
   function choose(o: AskOption, state: string | null) {
     if (readonly()) return;
     const hover = hoverDevice();
-    if (!hover && s.preview()?.key !== keyOf(o)) {
-      s.setPreview(previewOf(o, state));
+    const preview = previewOf(o, state);
+    const tap = {
+      hover,
+      previewing: s.preview()?.key === keyOf(o),
+      canPreview: preview !== null,
+      unpicks: !!props.ask.multi && picked(o),
+    };
+    if (!tapPicks(tap)) {
+      s.setPreview(preview);
       return;
     }
     s.pick(props.ask, o.id);
@@ -576,9 +585,15 @@ function MixBlock(props: { s: MockScreenState; index: number }) {
     if (!v || idx < 0) return null;
     return surfaceUrl(v.postId, idx, { version: s.frameVersionOf(v), mode: theme() });
   };
-  function choose(key: string, apply: () => void, preview: () => void) {
+  function choose(key: string, on: boolean, apply: () => void, preview: () => void) {
     if (readonly()) return;
-    if (!hoverDevice() && s.preview()?.key !== key) return preview();
+    const tap = {
+      hover: hoverDevice(),
+      previewing: s.preview()?.key === key,
+      canPreview: true,
+      unpicks: on,
+    };
+    if (!tapPicks(tap)) return preview();
     apply();
     s.setPreview(null);
   }
@@ -603,6 +618,7 @@ function MixBlock(props: { s: MockScreenState; index: number }) {
           onChoose={() =>
             choose(
               "mix:none",
+              none(),
               () => s.toggleMix(null),
               () => s.setPreview({ key: "mix:none" }),
             )
@@ -624,7 +640,9 @@ function MixBlock(props: { s: MockScreenState; index: number }) {
                 data={`${o.part}:${o.variant}`}
                 onEnter={preview}
                 onLeave={() => s.preview()?.key === key && s.setPreview(null)}
-                onChoose={() => choose(key, () => s.toggleMix(o), preview)}
+                onChoose={() =>
+                  choose(key, s.draft()?.mix[o.part] === o.variant, () => s.toggleMix(o), preview)
+                }
               />
             );
           }}

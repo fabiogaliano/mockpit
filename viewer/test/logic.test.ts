@@ -10,6 +10,7 @@ import {
   draftIsEmpty,
   emptyDraft,
   pickInDraft,
+  tapPicks,
   setAskField,
   tuneVisible,
   unanswered,
@@ -511,6 +512,23 @@ describe("notes and Other…", () => {
       { ask: "Which look?", text: "on desktop" },
       { ask: "Trim above or below?", text: "neither fits" },
     ]);
+  });
+});
+
+describe("tapPicks", () => {
+  const tap = { hover: false, previewing: false, canPreview: true, unpicks: false };
+  it("on touch, an option with a preview previews first and picks on the second tap", () => {
+    expect(tapPicks(tap)).toBe(false);
+    expect(tapPicks({ ...tap, previewing: true })).toBe(true);
+  });
+  it("on touch, an option with nothing to preview picks on the first tap", () => {
+    expect(tapPicks({ ...tap, canPreview: false })).toBe(true);
+  });
+  it("on touch, taking back a multi pick needs one tap", () => {
+    expect(tapPicks({ ...tap, unpicks: true })).toBe(true);
+  });
+  it("with hover, a click always picks", () => {
+    expect(tapPicks({ ...tap, hover: true })).toBe(true);
   });
 });
 
