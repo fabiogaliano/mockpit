@@ -24,7 +24,7 @@ export function askNudges(added: Ask[], all: Ask[]): string[] {
     if (visual.length || looksVisual(ask.text)) {
       const named = (visual.length ? visual : pills).map((o) => `"${o.label}"`).join(", ");
       out.push(
-        `ask "${ask.id}": ${named} reads visual but has no variant or set, so the user can only imagine it: make it a visual option (a knob set, or a variant) they see live on hover; keep plain options for what can't be seen`,
+        `ask "${ask.id}": ${named} look visual. Give each a knob set or variant so the user sees it.`,
       );
     }
     if (ask.scope === "part" || bindsVariants(ask)) continue;
@@ -37,7 +37,7 @@ export function askNudges(added: Ask[], all: Ask[]): string[] {
     );
     if (look) {
       out.push(
-        `ask "${ask.id}" sits next to "${look.id}", which picks a variant: a variant decides everything it differs on, so if the variants differ on this, drop "${ask.id}" or make its options knob sets on the chosen variant`,
+        `ask "${ask.id}" may re-ask what the variants in "${look.id}" decide. Drop it or use knob sets.`,
       );
     }
   }

@@ -29,7 +29,6 @@ import {
   type MixOption,
   partBox,
   sendCount,
-  standingLine,
   tapPicks,
 } from "./logic.ts";
 import type { AskField, MockScreenState } from "./state.ts";
@@ -174,10 +173,6 @@ function Header(props: { s: MockScreenState; index: number; total: number }) {
     const a = ask();
     return a ? s.flagged().includes(a.id) : false;
   };
-  const over = () => {
-    const a = ask();
-    return a ? !!s.overridden()[a.id] : false;
-  };
   return (
     <Show
       when={labels()}
@@ -191,7 +186,7 @@ function Header(props: { s: MockScreenState; index: number; total: number }) {
       }
     >
       <span>{`${props.index + 1} of ${props.total} · `}</span>
-      <span class="picked" classList={{ ovr: over() }}>{`picked: ${labels()}`}</span>
+      <span class="picked">{`picked: ${labels()}`}</span>
     </Show>
   );
 }
@@ -239,7 +234,6 @@ function optionPicture(
 function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
   const s = props.s;
   const m = () => s.mock()!;
-  const over = () => s.overridden()[props.ask.id];
   const picked = (o: AskOption) => answerIds(s.answerOf(props.ask)).includes(o.id);
   const keyOf = (o: AskOption) => `${props.ask.id}:${o.id}`;
   const [timer, setTimer] = createSignal(0);
@@ -282,14 +276,6 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
   return (
     <div class="qblock">
       <div class="nm">{askName(props.ask, m())}</div>
-      <Show when={over()}>
-        <div class="ovrline">
-          {`Mix uses ${over()}'s ${props.ask.part} instead · `}
-          <button type="button" class="lnk" onClick={() => s.undoMix(props.ask.part!)}>
-            undo
-          </button>
-        </div>
-      </Show>
       <div class="ask">{props.ask.text}</div>
       <div class="opts">
         <For each={props.ask.options}>
@@ -605,9 +591,11 @@ function MixBlock(props: { s: MockScreenState; index: number }) {
         Mix <span class="qtag">Optional · from mockpit</span>
       </div>
       <div class="ask">Borrow a part from another look?</div>
-      <Show when={s.settled().standing.length}>
-        <div class="ovrline">{standingLine(s.settled().standing)}</div>
-      </Show>
+      <div class="qhint">
+        {hoverDevice()
+          ? "Hover one to see it on the stage."
+          : "Tap one to see it on the stage, tap again to keep it."}
+      </div>
       <div class="opts">
         <OptionCard
           picture={
@@ -634,7 +622,8 @@ function MixBlock(props: { s: MockScreenState; index: number }) {
           {(o) => {
             const key = `mix:${o.part}:${o.variant}`;
             const state = () => stateFor(o);
-            const preview = () => s.setPreview({ key, variant: o.variant, state: state() });
+            const preview = () =>
+              s.setPreview({ key, variant: o.variant, state: state(), part: o.part });
             const src = () => pictureOf(o.variant, state());
             const focus = () => partBox(s.reports[frameKey(state(), o.variant)], o.part) ?? null;
             return (

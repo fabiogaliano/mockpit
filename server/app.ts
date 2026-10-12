@@ -939,9 +939,16 @@ export function createApp({
     });
     if (bound) return null;
     const where = state === null ? mock.slug : `${mock.slug} state "${state}"`;
+    const key = (list: string[]) => [...list].sort().join("\n");
+    const states = mock.states.length ? mock.states : [null];
+    const wide = states.every((s) => key(live(s)) === key(names));
     // An ask that already picks between some of these variants is the question:
     // a second, generic "Which one?" would make the user choose the look twice.
-    const existing = mock.asks.find((a) => applies(a) && a.options.some((o) => o.variant));
+    // A mock-wide one only fits while every state has the same variants; else a
+    // variant only some states have would leave the others no real choice.
+    const existing = mock.asks.find(
+      (a) => applies(a) && a.options.some((o) => o.variant) && (a.scope === "state" || wide),
+    );
     if (existing) {
       const have = new Set(existing.options.map((o) => o.variant));
       const missing = names.filter((n) => !have.has(n));
@@ -962,13 +969,10 @@ export function createApp({
         ],
       };
       return {
-        nudge: `${where}: your ask "${existing.id}" doesn't bind ${missing.map((m) => `"${m}"`).join(", ")}: bind these variants to your existing ask by calling ask with suggestedAsk (same id, one more option each), not a second "Which one?"; never ask in chat`,
+        nudge: `${where}: bind ${missing.map((m) => `"${m}"`).join(", ")} to your existing ask "${existing.id}": call ask with suggestedAsk. Never ask in chat.`,
         ask,
       };
     }
-    const key = (list: string[]) => [...list].sort().join("\n");
-    const states = mock.states.length ? mock.states : [null];
-    const wide = states.every((s) => key(live(s)) === key(names));
     const options = names.map((v) => ({ label: v, variant: v }));
     const ask = wide
       ? { id: BUILTIN_ASK_ID, text: "Which one?", scope: "mock", options }
@@ -980,7 +984,7 @@ export function createApp({
           options,
         };
     return {
-      nudge: `${where} has ${names.length} variants and no ask binds them: call ask with suggestedAsk (or your own question with options bound to the variants) so the user can choose in one Send; never ask in chat`,
+      nudge: `${where} has ${names.length} variants and no ask binds them: call ask with suggestedAsk. Never ask in chat.`,
       ask,
     };
   }

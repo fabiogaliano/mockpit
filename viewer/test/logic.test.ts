@@ -25,8 +25,8 @@ import {
   markPins,
   mixOptions,
   mixSettled,
+  pruneMix,
   nextMark,
-  overriddenAsks,
   partPinSpot,
   type PartBox,
   type PartsReport,
@@ -34,7 +34,6 @@ import {
   resolveKnobs,
   safeColor,
   sendCount,
-  standingLine,
   summarizeReply,
   threadRows,
   tuneComponents,
@@ -240,10 +239,27 @@ describe("mixOptions", () => {
     );
   });
 
-  it("never offers a part that wraps the whole frame", () => {
-    const whole = (state: string | null, v: string) =>
+  it("never offers a part that wraps the whole frame, in the picked look or the donor", () => {
+    const pickedWhole = (state: string | null, v: string) =>
       state === "Lab open" ? report(box("lab", v === "dark" ? 800 : 760, 590)) : reportOf(state, v);
-    expect(mixOptions(mock, variants, "quiet", whole).map((o) => o.part)).not.toContain("lab");
+    expect(mixOptions(mock, variants, "quiet", pickedWhole).map((o) => o.part)).not.toContain(
+      "lab",
+    );
+    const donorWhole = (state: string | null, v: string) =>
+      state === "Lab open" && v === "dark" ? report(box("lab", 800, 590)) : reportOf(state, v);
+    expect(mixOptions(mock, variants, "quiet", donorWhole).map((o) => o.part)).not.toContain("lab");
+  });
+
+  it("offers nothing where a worded answer closed Mix", () => {
+    const worded = mixSettled([accent], { accent: "olive" });
+    expect(mixOptions(mock, variants, "quiet", reportOf, worded)).toEqual([]);
+    const inLab = mixSettled([{ ...accent, scope: "state", state: "Lab open" }], {
+      accent: "olive",
+    });
+    expect(mixOptions(mock, variants, "quiet", reportOf, inLab).map((o) => o.part)).toEqual([
+      "title",
+      "toast",
+    ]);
   });
 });
 
@@ -260,15 +276,18 @@ const accent: Ask = {
 };
 
 describe("mixSettled", () => {
-  it("a worded answer stands; a global knob set does not", () => {
+  const none = { decided: [], closed: [] };
+
+  it("a worded answer closes Mix in its scope; a global knob set does not", () => {
     expect(mixSettled([look, accent], { look: "quiet", accent: "olive" })).toEqual({
       decided: [],
-      standing: [accent],
+      closed: [null],
     });
-    expect(mixSettled([accent], { accent: "warm" })).toEqual({ decided: [], standing: [] });
+    expect(mixSettled([accent], {}, { accent: "teal" }).closed).toEqual([null]);
+    expect(mixSettled([accent], { accent: "warm" })).toEqual(none);
   });
 
-  it("a part knob set decides that part, scoped like the ask", () => {
+  it("a part knob set, an answered part ask or a tuned part knob decides the part", () => {
     const state: Ask = {
       ...accent,
       scope: "state",
@@ -278,31 +297,36 @@ describe("mixSettled", () => {
     expect(mixSettled([state], { accent: "w" }).decided).toEqual([
       { part: "lab", state: "Lab open" },
     ]);
+    expect(mixSettled([trim], { trim: "above" }).decided).toEqual([{ part: "trim", state: null }]);
+    expect(mixSettled([], {}, {}, { "body.size": 18, size: 3 }).decided).toEqual([
+      { part: "body", state: null },
+    ]);
   });
 
-  it("an Other… write-in stands; unanswered, look and part asks never count", () => {
-    expect(mixSettled([accent], {}, { accent: "teal" }).standing).toEqual([accent]);
-    expect(mixSettled([accent, trim], { trim: "above" })).toEqual({ decided: [], standing: [] });
-    expect(mixSettled([look], { look: "dark" })).toEqual({ decided: [], standing: [] });
-  });
-
-  it("reads as one note over the borrow", () => {
-    expect(standingLine([accent])).toBe(
-      "Your answer to “Which accent means progress?” still applies to anything you borrow.",
-    );
-    expect(standingLine([accent, { text: "Voice?" }])).toMatch(/^Your answers to .* still apply/);
+  it("unanswered asks and the Look ask never count", () => {
+    expect(mixSettled([accent, trim], {})).toEqual(none);
+    expect(mixSettled([look], { look: "dark" })).toEqual(none);
   });
 });
 
-describe("overriddenAsks", () => {
-  it("flags an answered part ask whose part Mix borrows", () => {
-    expect(overriddenAsks(mock.asks, { trim: "above" }, { trim: "dark" })).toEqual({
-      trim: "dark",
-    });
+describe("pruneMix", () => {
+  const statesOf = (part: string) => (part === "lab" ? ["Lab open"] : ["Writing", "Lab open"]);
+  const mix = { title: "editorial", lab: "dark" };
+
+  it("drops a borrow the user's later choice decided, keeps the rest", () => {
+    const later = mixSettled([trim], { trim: "above" }, {}, { "title.size": 40 });
+    expect(pruneMix({ ...mix, trim: "dark" }, later, statesOf)).toEqual({ lab: "dark" });
   });
-  it("leaves unanswered asks and other parts alone", () => {
-    expect(overriddenAsks(mock.asks, {}, { trim: "dark" })).toEqual({});
-    expect(overriddenAsks(mock.asks, { trim: "above" }, { body: "dark" })).toEqual({});
+
+  it("drops a borrow from any state a worded answer closed", () => {
+    const closedLab = mixSettled([{ ...accent, scope: "state", state: "Lab open" }], {
+      accent: "olive",
+    });
+    expect(pruneMix(mix, closedLab, statesOf)).toEqual({});
+    const closedWriting = mixSettled([{ ...accent, scope: "state", state: "Writing" }], {
+      accent: "olive",
+    });
+    expect(pruneMix(mix, closedWriting, statesOf)).toEqual({ lab: "dark" });
   });
 });
 

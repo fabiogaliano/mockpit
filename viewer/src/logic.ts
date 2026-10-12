@@ -260,58 +260,78 @@ export interface MixOption {
   variant: string;
 }
 
-// What the user's answers already settle, so Mix never undoes one. A borrow
-// brings a part over whole, with every dimension its look varies on, so:
-// - an answered mock- or state-wide plain ask whose pick sets a part's knob
-//   ("notes.tone") decides that part (in that state, for a state ask), and Mix
-//   does not offer it;
-// - picks that set only global knobs are no conflict: knobs apply to every look
+// What the user already chose, so Mix can never contradict it. A borrow brings
+// a part over whole, with every dimension its look varies on, so:
+// - an answered part ask decides its part;
+// - an answered mock- or state-wide ask whose pick sets a part knob
+//   ("notes.tone") decides that part, and a tuned part knob does too;
+// - picks or tuning on global knobs are no conflict: knobs apply to every look
 //   alike;
-// - an answer in words (an option with no `set`, or an Other… write-in) may
-//   touch any part and the viewer cannot see which, so it stands: Mix names it
-//   as still applying to whatever is borrowed.
-// The Look ask is Mix's own input, and a part ask keeps its "Mix uses … instead
-// · undo" line, so neither counts here.
+// - an answer in words (a pick with no `set`, or an Other… write-in) may touch
+//   any part and the viewer cannot see which, so it closes Mix in its scope
+//   (every state for a mock-wide ask).
+// A decided part is never offered, and a borrow made before the choice is
+// dropped (`pruneMix`). The Look ask is Mix's own input and counts for nothing.
 export interface MixSettled {
   decided: { part: string; state: string | null }[];
-  standing: Ask[];
+  // States Mix is closed in; null closes every state.
+  closed: (string | null)[];
 }
 export function mixSettled(
   asks: Ask[],
   answers: Record<string, AskAnswer>,
   others: Record<string, string> = {},
+  tuned: Record<string, KnobValue> = {},
 ): MixSettled {
-  const out: MixSettled = { decided: [], standing: [] };
+  const out: MixSettled = { decided: [], closed: [] };
+  for (const path of Object.keys(tuned)) {
+    const part = knobPart(path);
+    if (part !== null) out.decided.push({ part, state: null });
+  }
   for (const ask of asks) {
-    if (ask.scope === "part" || ask.options.some((o) => o.variant)) continue;
-    const picked = answerIds(answers[ask.id])
-      .map((id) => ask.options.find((o) => o.id === id))
-      .filter((o) => o !== undefined);
-    const state = ask.scope === "state" ? (ask.state ?? null) : null;
+    if (ask.options.some((o) => o.variant)) continue;
+    const state = ask.scope === "mock" ? null : (ask.state ?? null);
+    const said = answers[ask.id] !== undefined || others[ask.id] !== undefined;
+    if (ask.scope === "part") {
+      if (said && ask.part) out.decided.push({ part: ask.part, state });
+      continue;
+    }
     let worded = others[ask.id] !== undefined;
-    for (const o of picked) {
-      const paths = Object.keys(o.set ?? {});
+    for (const id of answerIds(answers[ask.id])) {
+      const paths = Object.keys(ask.options.find((o) => o.id === id)?.set ?? {});
       if (!paths.length) worded = true;
       for (const path of paths) {
         const part = knobPart(path);
         if (part !== null) out.decided.push({ part, state });
       }
     }
-    if (worded) out.standing.push(ask);
+    if (worded) out.closed.push(state);
   }
   return out;
 }
 
-// Mix's note on the answers that stand over any borrow.
-export function standingLine(standing: Pick<Ask, "text">[]): string {
-  const list = standing.map((a) => `“${a.text}”`).join(", ");
-  return standing.length > 1
-    ? `Your answers to ${list} still apply to anything you borrow.`
-    : `Your answer to ${list} still applies to anything you borrow.`;
-}
+const inScope = (scope: string | null, state: string | null) => scope === null || scope === state;
 
-const isDecided = (settled: MixSettled | undefined, part: string, state: string | null) =>
-  !!settled?.decided.some((d) => d.part === part && (d.state === null || d.state === state));
+// Whether Mix may offer `part` in `state`.
+export const mixAllowed = (settled: MixSettled, part: string, state: string | null): boolean =>
+  !settled.closed.some((c) => inScope(c, state)) &&
+  !settled.decided.some((d) => d.part === part && inScope(d.state, state));
+
+// The borrows still allowed. A borrow names no state, so it goes once any state
+// showing the part forbids it; `statesOf` lists the states that show a part.
+export function pruneMix(
+  mix: Record<string, string>,
+  settled: MixSettled,
+  statesOf: (part: string) => (string | null)[],
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [part, variant] of Object.entries(mix)) {
+    const states = statesOf(part);
+    if ((states.length ? states : [null]).every((st) => mixAllowed(settled, part, st)))
+      out[part] = variant;
+  }
+  return out;
+}
 
 // A part this close to the frame's own size is the whole composition, not a
 // piece of it: borrowing it would swap the look.
@@ -327,8 +347,8 @@ function wrapsFrame(report: PartsReport, name: string): boolean {
 
 // Mix (D6): borrow a part from another look. A part qualifies when another
 // look renders it differently from the picked one in the same state; each such
-// look is one option. Nothing to mix until a look is picked, and never a part
-// an answer settled (`mixSettled`) or one that wraps the whole frame.
+// look is one option. Nothing to mix until a look is picked, and never what the
+// user already chose (`mixSettled`) or a part that wraps either whole frame.
 //
 // "Differently" is judged from what the frames report (the viewer never holds
 // the html of a sandboxed surface): the part's instances, labels and sizes. A
@@ -339,7 +359,7 @@ export function mixOptions(
   variants: Pick<VariantView, "state" | "variant" | "status" | "parts">[],
   look: string | null,
   reportOf: (state: string | null, variant: string) => PartsReport | undefined,
-  settled?: MixSettled,
+  settled: MixSettled = { decided: [], closed: [] },
 ): MixOption[] {
   const ask = lookAsk(mock);
   if (!ask || !look) return [];
@@ -351,16 +371,18 @@ export function mixOptions(
       (v) => v.state === state && v.status !== "archived" && looks.includes(v.variant),
     );
     const picked = inState.find((v) => v.variant === look);
-    if (!picked) continue;
     const mine = reportOf(state, look);
+    if (!picked || !mine) continue;
     for (const part of picked.parts) {
       const base = partShape(mine, part);
-      if (base === undefined || isDecided(settled, part, state) || wrapsFrame(mine!, part))
+      if (base === undefined || !mixAllowed(settled, part, state) || wrapsFrame(mine, part))
         continue;
       for (const v of inState) {
         const key = `${part}\u0000${v.variant}`;
         if (v === picked || seen.has(key) || !v.parts.includes(part)) continue;
-        const other = partShape(reportOf(state, v.variant), part);
+        const donor = reportOf(state, v.variant);
+        if (!donor || wrapsFrame(donor, part)) continue;
+        const other = partShape(donor, part);
         if (other === undefined || other === base) continue;
         seen.add(key);
         out.push({ part, variant: v.variant });
@@ -379,21 +401,6 @@ function partShape(report: PartsReport | undefined, name: string): string | unde
     .map((p) => `${p.label}:${Math.round(p.box.w)}x${Math.round(p.box.h)}:${p.visible ? 1 : 0}`)
     .sort()
     .join("|");
-}
-
-// A Mix borrow that replaces what an answered part ask decided: askId → the
-// look whose part wins instead.
-export function overriddenAsks(
-  asks: Ask[],
-  answers: Record<string, AskAnswer>,
-  mix: Record<string, string>,
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const ask of asks) {
-    if (ask.scope !== "part" || !ask.part || answers[ask.id] === undefined) continue;
-    if (mix[ask.part]) out[ask.id] = mix[ask.part];
-  }
-  return out;
 }
 
 const optionLabels = (ask: Ask, answer: AskAnswer): string =>
