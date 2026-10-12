@@ -273,10 +273,10 @@ declare geometry; the viewer measures it.
 
 ## Ask or knob
 
-A choice is several variants plus one ask that binds them. Ask it first; a
-variant decides all it differs on: never re-ask it. Options that change a look
-carry a \`variant\` or knob \`set\` (seen live); plain ones only for the
-unseen. One render plus a control: a knob, \`--knobs '{...}'\`.
+A choice is several variants plus one ask that binds them. Ask it first. A
+variant decides everything it differs on; don't re-ask it. Visual options
+carry a \`variant\` or knob \`set\`. One render plus a control: a knob,
+\`--knobs '{...}'\`.
 
 | knob | control |
 | --- | --- |

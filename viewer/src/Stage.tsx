@@ -432,18 +432,14 @@ export function Pin(props: { s: MockScreenState; index: number; style: JSX.CSSPr
     const a = ask();
     return a ? s.answerOf(a) !== undefined : false;
   };
-  const over = () => {
-    const a = ask();
-    return a ? s.overridden()[a.id] : undefined;
-  };
   const cur = () => s.mode() === "questions" && s.cur() === props.index;
   return (
     <button
       type="button"
       class="pin"
-      classList={{ ok: answered() && !over(), ovr: answered() && !!over(), cur: cur() }}
+      classList={{ ok: answered(), cur: cur() }}
       style={props.style}
-      title={`Question ${props.index + 1}${over() ? " · overridden by Mix" : ""}`}
+      title={`Question ${props.index + 1}`}
       data-question={props.index + 1}
       onClick={(e) => {
         e.stopPropagation();

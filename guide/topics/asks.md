@@ -60,11 +60,8 @@ An option binds to one of:
 - a knob `set`: picking it applies those values live.
 - nothing: a plain pill.
 
-Make choices visual. An option that changes how something looks (color,
-border, radius, spacing, size, font, shadow, layout) carries a `variant` or a
-knob `set`, so the user sees it on the stage on hover or tap; declare the knob
-it sets. Plain pills are for what can't be seen: copy intent, behavior, scope.
-One variant ask plus knob-`set` asks beats several text questions.
+Options that change how something looks carry a `variant` or a knob `set`,
+so the user sees them live. Plain pills only for what can't be seen.
 
 The viewer shows a picture of each option it can render. `multi: true` allows
 several answers. Option ids default to the slugged label. Reusing an ask `id`
@@ -76,28 +73,20 @@ is reserved.
 
 When you publish variants, ask `scope: "mock"` with one option per variant, and
 ask it first. Questions appear in the order you ask them. This one is titled
-"Look" and unlocks Mix, the viewer's optional step to borrow a part from
-another look. Variants without a Look ask get a plain switcher in the frame
-header.
+"Look" and unlocks Mix, which lets the user borrow a part from another look.
+Variants without a Look ask get a plain switcher in the frame header.
 
-A variant decides everything it differs on. Don't ask again about those
-dimensions (accent, voice, navigation): vary variants on one axis, and ask the
-other axes as knob `set`s on the chosen variant. A new variant joins the
-existing Look ask: resend it under the same `id` with one more option.
+A variant decides everything it differs on; don't re-ask it. Ask other axes as
+knob `set`s.
 
 ## When you forget to ask
 
 A publish that leaves a state with two or more open variants and no ask
 binding them returns a nudge and a ready `suggestedAsk` (mock-wide when the
-variant names line up across states, else for that state). When an ask of
-yours already binds some of those variants, the `suggestedAsk` is that ask with
-the new variants added under its own `id`. Send it as is with `ask`, or write
-your own question with options bound to the variants. The CLI prints the
-`mockpit ask` command for you.
-
-`ask` nudges too: an option whose label reads visual (color, border, spacing,
-size, font…) with no `variant` or `set`, or a plain mock-wide ask next to a
-Look ask, which likely covers what the variants already decide.
+variant names line up across states, else for that state), or your existing
+ask plus the new variants. Send it as is with `ask`, or write your own question
+with options bound to the variants. The CLI prints the `mockpit ask` command
+for you.
 
 Until an ask binds them, the viewer shows a built-in "Which one?" with a
 picture of each variant, so the user can still choose in one Send. Its answer

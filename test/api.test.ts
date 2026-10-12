@@ -1360,7 +1360,7 @@ test("a new variant joins the existing look ask instead of a second Which one?",
   };
   await call(app, `/api/mocks/${one.mock.id}/asks`, agent({ asks: [look] }));
   const third = await publish(app, { mock: "card", variant: "loud", ...html("<p/>") });
-  assert.match(third.nudges[0], /your ask "look" doesn't bind "loud": bind these variants/);
+  assert.match(third.nudges[0], /bind "loud" to your existing ask "look"/);
   assert.deepEqual(third.suggestedAsk, {
     id: "look",
     text: "Which feel?",
@@ -1379,6 +1379,34 @@ test("a new variant joins the existing look ask instead of a second Which one?",
   assert.equal(sent.body.asks[0].id, "look");
   const quiet = await publish(app, { mock: "card", variant: "loud", ...html("<p>2</p>") });
   assert.equal(quiet.nudges, undefined);
+});
+
+test("a variant only one state has gets a state ask, not the mock-wide look", async () => {
+  const app = makeApp();
+  const { mockId, session } = await writer(app);
+  const look = {
+    id: "look",
+    text: "Which look?",
+    options: [
+      { label: "Quiet", variant: "quiet" },
+      { label: "Dark", variant: "dark" },
+    ],
+  };
+  await call(app, `/api/mocks/${mockId}/asks`, agent({ asks: [look] }));
+  const loud = await publish(app, {
+    mock: mockId,
+    state: "Lab open",
+    variant: "loud",
+    session,
+    ...html("<p/>"),
+  });
+  assert.match(loud.nudges[0], /writer state "Lab open" has 3 variants/);
+  assert.equal(loud.suggestedAsk.scope, "state");
+  assert.equal(loud.suggestedAsk.state, "Lab open");
+  assert.deepEqual(
+    loud.suggestedAsk.options.map((o: any) => o.variant),
+    ["quiet", "dark", "loud"],
+  );
 });
 
 test("ask nudges a visual option nobody can see, and a plain ask next to the look", async () => {
@@ -1407,8 +1435,8 @@ test("ask nudges a visual option nobody can see, and a plain ask next to the loo
     { id: "accent", text: "Which accent means progress?", options: ["Olive", "Orange"] },
   ]);
   assert.equal(plain.body.nudges.length, 2);
-  assert.match(plain.body.nudges[0], /"Olive", "Orange" reads visual .* make it a visual option/);
-  assert.match(plain.body.nudges[1], /ask "accent" sits next to "look"/);
+  assert.match(plain.body.nudges[0], /"Olive", "Orange" look visual/);
+  assert.match(plain.body.nudges[1], /ask "accent" may re-ask .* "look"/);
   const visual = await asks([
     {
       id: "accent",

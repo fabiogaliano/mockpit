@@ -37,7 +37,7 @@ test("a plain option labelled visually is nudged; a set or variant option is not
       { id: "y", label: "Yes" },
     ],
   });
-  assert.match(askNudges([pills], [pills])[0], /ask "q": "Blue" reads visual/);
+  assert.match(askNudges([pills], [pills])[0], /ask "q": "Blue" look visual/);
   const set = ask({ options: [{ id: "b", label: "Blue", set: { accent: "#00f" } }] });
   assert.deepEqual(askNudges([set], [set]), []);
   assert.deepEqual(askNudges([look], [look]), []);
@@ -45,7 +45,7 @@ test("a plain option labelled visually is nudged; a set or variant option is not
 
 test("a visual question with plain options names them all", () => {
   const q = ask({ text: "Which border?", options: [{ id: "a", label: "A" }] });
-  assert.match(askNudges([q], [q])[0], /"A" reads visual/);
+  assert.match(askNudges([q], [q])[0], /"A" look visual/);
 });
 
 test("a plain ask next to a look ask is nudged once", () => {
@@ -53,7 +53,7 @@ test("a plain ask next to a look ask is nudged once", () => {
   assert.deepEqual(askNudges([plain], [plain]), []);
   const out = askNudges([plain], [look, plain]);
   assert.equal(out.length, 1);
-  assert.match(out[0], /ask "q" sits next to "look"/);
+  assert.match(out[0], /ask "q" may re-ask what the variants in "look" decide/);
   // A part ask and a look for another state stand apart.
   assert.deepEqual(askNudges([ask({ scope: "part", part: "x" })], [look]), []);
   const other: Ask = { ...look, scope: "state", state: "A" };
