@@ -42,6 +42,7 @@ import {
   type PartsReport,
   reportIsCurrent,
 } from "./logic.ts";
+import { PartReactions } from "./Reactions.tsx";
 import type { MockScreenState } from "./state.ts";
 import { StageHead } from "./StageHead.tsx";
 import { theme } from "./theme.ts";
@@ -778,6 +779,18 @@ function Overlay(props: {
             );
           }}
         </Index>
+        <Show when={!readonly() && !s.marking() && !props.pending ? box(s.reactPart()) : null}>
+          {(b) => (
+            <PartReactions
+              s={s}
+              r={b().r}
+              label={b().p.label}
+              part={b().p.name}
+              width={layer.clientWidth}
+              height={props.height}
+            />
+          )}
+        </Show>
         <Show when={props.pending}>
           {(p) => (
             <MarkField
@@ -848,7 +861,7 @@ function MarkField(props: {
           onInput={(e) => setValue(e.currentTarget.value)}
           enterkeyhint="done"
           onKeyDown={(e) => {
-            if (e.key === "Enter") submit();
+            if (e.key === "Enter" && !e.isComposing) submit();
           }}
         />
         <div class="markfield-actions">

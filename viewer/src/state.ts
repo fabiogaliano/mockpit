@@ -10,8 +10,10 @@ import {
   type KnobValue,
   MAX_ASK_IMAGES,
   type PartCommentAnchor,
+  type Reaction,
   type ReplyDecision,
 } from "../../server/types.ts";
+import { reactionOf, reactionStatus, toggleReaction } from "./reactionRules.ts";
 import {
   api,
   type CommentRow,
@@ -108,6 +110,8 @@ export function createMockScreen(project: string, slug: string) {
   const [uploads, setUploads] = createSignal<Record<string, PendingImage[]>>({});
   // The last attach/remove, for a polite live region.
   const [attachStatus, setAttachStatus] = createSignal("");
+  // The last reaction tap, for a polite live region.
+  const [reactStatus, setReactStatus] = createSignal("");
   // The Mark tool (D11): while on, a click on the stage leaves a comment there.
   const [marking, setMarking] = createSignal(false);
   // Thread's comment field; a frame's sendPrompt fills it.
@@ -482,10 +486,11 @@ export function createMockScreen(project: string, slug: string) {
     setChosenVariant({ ...chosenVariant(), [String(activeState())]: variant });
   }
   // Over a bottom sheet a tap on the stage only marks the part: opening Tune
-  // there would cover the stage the user is looking at.
+  // there would cover the stage the user is looking at. With no Tune to open,
+  // it marks the part too, so it can still take a reaction.
   function selectPart(part: string | null) {
     setSelectedPart(part);
-    if (sheet()) setTapped(part);
+    if (sheet() || !tuneShown()) setTapped(part);
     else if (part && mode() !== "tune") setMode("tune");
   }
   // No Tune tab (nothing to tune): a Tune mode restored from history or set by
@@ -661,6 +666,26 @@ export function createMockScreen(project: string, slug: string) {
       return d;
     });
   }
+  // A one-tap reaction on a part of the variant on stage, or (part null) on the
+  // variant itself. Toggles: the same reaction again takes it back.
+  function react(part: string | null, reaction: Reaction) {
+    const v = activeVariant();
+    if (!v) return;
+    const target = { part, state: activeState(), variant: v.variant };
+    let now: Reaction | null = null;
+    writeDraft((d) => {
+      d.comments = toggleReaction(d.comments, target, reaction);
+      now = reactionOf(d.comments, target);
+      return d;
+    });
+    setReactStatus(reactionStatus(part ?? v.variant, now));
+  }
+  const reactionOn = (part: string | null): Reaction | null => {
+    const v = activeVariant();
+    return v
+      ? reactionOf(draft()?.comments ?? [], { part, state: activeState(), variant: v.variant })
+      : null;
+  };
   // A frame's sendPrompt: the text waits in Thread for the user to send it,
   // never straight to the agent.
   function prefill(text: string) {
@@ -865,6 +890,10 @@ export function createMockScreen(project: string, slug: string) {
     toggleMix,
     undoMix,
     addComment,
+    react,
+    reactionOn,
+    reactStatus,
+    reactPart: () => (mode() === "tune" ? selectedPart() : tapped()),
     frameW,
     setFrameW,
     inspect,
