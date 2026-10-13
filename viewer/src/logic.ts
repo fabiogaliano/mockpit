@@ -613,6 +613,7 @@ export interface ThreadRow {
   text: string;
   quote?: string;
   delivered?: boolean;
+  ownerGone?: boolean;
   id: string;
   // A reply's comments, each with where it was left ("title · At rest").
   comments?: { where: string; text: string }[];
@@ -670,6 +671,7 @@ export function threadRows(
         at: c.createdAt,
         text,
         delivered: c.delivered,
+        ...(c.ownerGone ? { ownerGone: true } : {}),
         id: c.id,
       };
       if (reply?.comments.length) {

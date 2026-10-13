@@ -454,6 +454,10 @@ export function createMockScreen(project: string, slug: string) {
         case "comment-created":
           if (e.mockId === id) refetch("comments");
           break;
+        case "session-created":
+          // A new session may supersede the one an undelivered Send waits on.
+          if (comments().some((c) => !c.delivered)) refetch("comments");
+          break;
         case "comment-deleted":
         case "comment-delivered":
           if (

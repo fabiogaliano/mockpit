@@ -220,6 +220,7 @@ function feedbackLines(feedback) {
   const lines = [];
   for (const batch of feedback ?? []) {
     const prefix = batch.mock ? `${batch.mock}: ` : "";
+    if (batch.handoff) lines.push(`- ${prefix}${batch.handoff}`);
     const reply = batch.reply;
     if (reply) {
       for (const a of reply.asks ?? []) {

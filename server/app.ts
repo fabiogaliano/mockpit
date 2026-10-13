@@ -16,6 +16,7 @@ import {
   unknownTopicMessage,
 } from "./designGuide.ts";
 import { buildFeedbackBatches, type FeedbackBatch } from "./feedbackBatch.ts";
+import { HANDOFF_NOTE, handoffReady, supersedes } from "./handoff.ts";
 import {
   bundledIconSets,
   expandIcons,
@@ -556,30 +557,98 @@ export function createApp({
 
   // --- shared flows (used by both the REST API and the MCP endpoint) ---
 
+  // Sessions with an author=user long-poll held open right now: a waiting
+  // `mockpit watch` is a live agent, whatever its agentActiveAt says.
+  const listening = new Map<string, number>();
+
   // User comments the agent has not seen yet ride along on its next write, so
   // agents hear feedback without blocking on the long-poll. The cursor also
   // advances past the agent's own comments to keep reads cheap.
   async function collectFeedback(sessionId: string, base: string): Promise<FeedbackBatch[]> {
+    // Touch before reading the cursor: a taker's handOff checks agentActiveAt,
+    // so it can't move this cursor under a read already in flight.
+    await store.touchAgent(sessionId);
     const session = await store.getSession(sessionId);
     if (!session) return [];
+    const handedOff = await takeOrphaned(session);
     const fresh = await store.listComments({ sessionId, afterSeq: session.agentSeq });
-    if (fresh.length === 0) return [];
-    await store.markAgentSeen(sessionId, fresh[fresh.length - 1].seq);
-    bus.broadcast({ type: "comment-delivered", sessionId, seq: fresh[fresh.length - 1].seq });
+    if (fresh.length > 0) {
+      await store.markAgentSeen(sessionId, fresh[fresh.length - 1].seq);
+      bus.broadcast({ type: "comment-delivered", sessionId, seq: fresh[fresh.length - 1].seq });
+    }
     const feedback = fresh.filter((cm) => cm.author === "user");
-    return feedback.length > 0 ? await buildFeedbackBatches(store, feedback, base) : [];
+    return feedbackWithHandoffs(feedback, handedOff, base);
+  }
+
+  async function feedbackWithHandoffs(
+    own: Comment[],
+    handedOff: Comment[],
+    base: string,
+  ): Promise<FeedbackBatch[]> {
+    const mine = own.length > 0 ? await buildFeedbackBatches(store, own, base) : [];
+    if (handedOff.length === 0) return mine;
+    const theirs = await buildFeedbackBatches(store, handedOff, base);
+    return [...mine, ...theirs.map((b) => ({ ...b, handoff: HANDOFF_NOTE }))];
+  }
+
+  // The user comments still owed to sessions `taker` supersedes (handoff.ts),
+  // taken for `taker`: each owner's cursor moves past them in one conditional
+  // write, so delivery stays exactly-once across sessions.
+  async function takeOrphaned(taker: Session): Promise<Comment[]> {
+    if (!taker.project) return [];
+    const now = Date.now();
+    const taken: Comment[] = [];
+    for (const owner of await store.listSessions(taker.project)) {
+      if (!supersedes(taker, owner, listening.has(owner.id))) continue;
+      const owed = await store.listComments({ sessionId: owner.id, afterSeq: owner.agentSeq });
+      // Seq order is time order, so the ready comments are a prefix; stop at the
+      // first one still inside its grace and leave the rest owed.
+      let upto = owner.agentSeq;
+      const take: Comment[] = [];
+      for (const c of owed) {
+        if (c.author === "user" && !handoffReady(c, owner, taker, now)) break;
+        upto = c.seq;
+        if (c.author === "user") take.push(c);
+      }
+      if (take.length === 0) continue;
+      if (!(await store.handOff(owner.id, owner, upto))) continue;
+      bus.broadcast({ type: "comment-delivered", sessionId: owner.id, seq: upto });
+      taken.push(...take);
+    }
+    return taken;
   }
 
   // Per-comment delivery state for the viewer: `delivered` once the session's
-  // agentSeq has passed the comment. Computed, never stored.
-  async function withDelivered(comments: Comment[]): Promise<(Comment & { delivered: boolean })[]> {
-    const cursors = new Map<string, number>();
+  // agentSeq has passed the comment. Computed, never stored. `ownerGone` marks
+  // an undelivered user comment whose session a newer one already supersedes,
+  // so the Thread can say the next agent here will get it.
+  async function withDelivered(
+    comments: Comment[],
+  ): Promise<(Comment & { delivered: boolean; ownerGone?: true })[]> {
+    const sessions = new Map<string, Session | null>();
     for (const c of comments) {
-      if (!cursors.has(c.sessionId)) {
-        cursors.set(c.sessionId, (await store.getSession(c.sessionId))?.agentSeq ?? 0);
-      }
+      if (!sessions.has(c.sessionId))
+        sessions.set(c.sessionId, await store.getSession(c.sessionId));
     }
-    return comments.map((c) => ({ ...c, delivered: c.seq <= (cursors.get(c.sessionId) ?? 0) }));
+    const gone = new Map<string, boolean>();
+    const ownerGone = async (owner: Session): Promise<boolean> => {
+      if (!gone.has(owner.id)) {
+        const peers = owner.project ? await store.listSessions(owner.project) : [];
+        gone.set(
+          owner.id,
+          peers.some((t) => supersedes(t, owner, listening.has(owner.id))),
+        );
+      }
+      return gone.get(owner.id)!;
+    };
+    const out: (Comment & { delivered: boolean; ownerGone?: true })[] = [];
+    for (const c of comments) {
+      const owner = sessions.get(c.sessionId);
+      const delivered = c.seq <= (owner?.agentSeq ?? 0);
+      const waiting = !delivered && !!owner && c.author === "user" && (await ownerGone(owner));
+      out.push({ ...c, delivered, ...(waiting ? { ownerGone: true as const } : {}) });
+    }
+    return out;
   }
 
   // The workspace's light/dark choice. Older workspaces stored a theme id under
@@ -999,12 +1068,19 @@ export function createApp({
   }
 
   // The answer to every write: what was published, the parts found per state,
-  // what moved since the previous version, and any feedback waiting.
+  // what moved since the previous version, and any feedback waiting — for the
+  // session that wrote, which on a new version may not be the variant's own.
   async function writeResult(
     mock: Mock,
     post: Post,
     ctx: FlowContext,
-    extra: { previous?: Surface[]; applied?: string[]; nudges?: string[]; status?: number } = {},
+    extra: {
+      previous?: Surface[];
+      applied?: string[];
+      nudges?: string[];
+      status?: number;
+      writer?: Session | null;
+    } = {},
   ): Promise<FlowResult> {
     const posts = await store.listPosts({ mockId: mock.id });
     const detail = mockDetailView(mock, posts);
@@ -1015,7 +1091,7 @@ export function createApp({
       partChanges = diffParts(partsInSurfaces(extra.previous), partsInSurfaces(post.surfaces));
     }
     const warnings = await iconWarnings(mock.project, post.surfaces);
-    const feedback = await collectFeedback(post.sessionId, ctx.base);
+    const feedback = await collectFeedback(extra.writer?.id ?? post.sessionId, ctx.base);
     return ok(
       {
         mock: {
@@ -1235,7 +1311,12 @@ export function createApp({
     mock = await updateMockAfterWrite(mock, { state, kind, knobs: knobs.value, session });
     announcePost(mock, updated, false);
     if (prompt && ctx.request) notifyPublish(mock, updated, prompt, ctx);
-    return writeResult(mock, updated, ctx, { previous: target.surfaces, applied, nudges });
+    return writeResult(mock, updated, ctx, {
+      previous: target.surfaces,
+      applied,
+      nudges,
+      writer: session,
+    });
   }
 
   // `parts`: new outer html per part ("name" or "name#key"), spliced into the
@@ -2271,7 +2352,11 @@ export function createApp({
   async function waitForComments(
     q: CommentWait,
     signal?: AbortSignal,
-  ): Promise<{ comments: Comment[]; lastSeq: number }> {
+  ): Promise<{ comments: Comment[]; lastSeq: number; handedOff: Comment[] }> {
+    // The agent listening for its feedback: it is alive, and it may take
+    // replies owed to a session it superseded (handoff.ts).
+    const listener = q.agent && q.author === "user" ? q.sessionId : undefined;
+    if (listener) await store.touchAgent(listener);
     // An author=user session wait with no explicit cursor resumes from the
     // session's agentSeq — "where the agent left off" lives server-side so the
     // CLI, both MCP transports, and piggyback share one exactly-once stream.
@@ -2279,6 +2364,11 @@ export function createApp({
     if (afterSeq === undefined && q.author === "user" && q.sessionId) {
       afterSeq = (await store.getSession(q.sessionId))?.agentSeq;
     }
+    const takeOrphanedFor = async (id: string | undefined) => {
+      const taker = id ? await store.getSession(id) : null;
+      return taker ? await takeOrphaned(taker) : [];
+    };
+    let handedOff = await takeOrphanedFor(listener);
     const query = { sessionId: q.sessionId, mockId: q.mockId, postId: q.postId, afterSeq };
     const matches = (list: Comment[]) =>
       q.author ? list.filter((cm) => cm.author === q.author) : list;
@@ -2286,7 +2376,8 @@ export function createApp({
 
     let all = await store.listComments(query);
     let comments = matches(all);
-    if (comments.length === 0 && wait > 0) {
+    if (comments.length === 0 && handedOff.length === 0 && wait > 0) {
+      if (listener) listening.set(listener, (listening.get(listener) ?? 0) + 1);
       await new Promise<void>((resolve) => {
         const timer = setTimeout(done, wait * 1000);
         const unsubscribe = bus.subscribe((event) => {
@@ -2309,9 +2400,16 @@ export function createApp({
           resolve();
         }
       });
+      if (listener) {
+        const n = (listening.get(listener) ?? 1) - 1;
+        if (n > 0) listening.set(listener, n);
+        else listening.delete(listener);
+      }
       // A caller that gave up can't receive this batch, so delivering it would
       // advance the cursor past feedback no agent ever saw.
-      if (signal?.aborted) return { comments: [], lastSeq: afterSeq ?? 0 };
+      if (signal?.aborted) return { comments: [], lastSeq: afterSeq ?? 0, handedOff: [] };
+      if (listener) await store.touchAgent(listener);
+      handedOff = await takeOrphanedFor(listener);
       all = await store.listComments(query);
       comments = matches(all);
     }
@@ -2324,7 +2422,7 @@ export function createApp({
       await store.markAgentSeen(q.sessionId, lastSeq);
       bus.broadcast({ type: "comment-delivered", sessionId: q.sessionId, seq: lastSeq });
     }
-    return { comments, lastSeq };
+    return { comments, lastSeq, handedOff };
   }
 
   // The watch long-poll's answer: comments plus the batched feedback built
@@ -2334,8 +2432,8 @@ export function createApp({
     base: string,
     signal?: AbortSignal,
   ): Promise<FlowResult> {
-    const result = await waitForComments({ ...q, agent: true }, signal);
-    const feedback = await buildFeedbackBatches(store, result.comments, base);
+    const { handedOff, ...result } = await waitForComments({ ...q, agent: true }, signal);
+    const feedback = await feedbackWithHandoffs(result.comments, handedOff, base);
     return ok({ ...result, feedback });
   }
 
@@ -2366,7 +2464,7 @@ export function createApp({
     }
     const session = await store.getSession(query.session);
     if (!session) return fail(404, `session "${query.session}" not found`);
-    const { comments } = await waitForComments({
+    const { comments, handedOff } = await waitForComments({
       sessionId: session.id,
       author: "user",
       waitSeconds: 0,
@@ -2374,7 +2472,7 @@ export function createApp({
     });
     const project = str(query.project, MAX_TITLE) ?? session.project ?? undefined;
     return ok({
-      feedback: await buildFeedbackBatches(store, comments, ctx.base),
+      feedback: await feedbackWithHandoffs(comments, handedOff, ctx.base),
       pending: await Promise.all(
         (await store.listMocks(project)).map(async (m) =>
           pendingOf(m, await store.listPosts({ mockId: m.id })),
@@ -2738,7 +2836,11 @@ export function createApp({
     const cwd = str(body.cwd, 4096);
     const key = str(body.key, MAX_TITLE);
     const existing = key ? await store.getSessionByKey(key) : null;
-    if (existing) return c.json(existing, 200);
+    if (existing) {
+      // A resumed conversation is that agent back, not a new one superseding it.
+      await store.touchAgent(existing.id);
+      return c.json((await store.getSession(existing.id)) ?? existing, 200);
+    }
     const session = await store.createSession({
       agent: str(body.agent, MAX_TITLE) ?? "agent",
       title: str(body.title, MAX_TITLE),
@@ -2934,7 +3036,7 @@ export function createApp({
     query.agent = isAgentRead;
     const respond = async (signal?: AbortSignal) => {
       if (isAgentRead) return send(c, await listenFlow(query, flowCtx(c).base, signal));
-      const result = await waitForComments(query, signal);
+      const { handedOff: _none, ...result } = await waitForComments(query, signal);
       return c.json({ ...result, comments: await withDelivered(result.comments) });
     };
     if (waitSeconds <= 0) return respond();
