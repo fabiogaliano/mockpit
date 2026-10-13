@@ -4,7 +4,7 @@
 # A workflow's pull_request trigger DOES run on fork PRs (gated once by the
 # repo's first-time-contributor approval), so this restores CodeQL coverage for
 # outside contributors. Keep languages/query-suite/schedule in sync with what
-# default setup ran: actions + javascript-typescript + python, default queries,
+# default setup ran: actions + javascript-typescript, default queries,
 # weekly schedule.
 name: CodeQL
 
@@ -35,7 +35,7 @@ jobs:
       fail-fast: false
       matrix:
         # javascript-typescript covers both JS and TS in one analysis.
-        language: [actions, javascript-typescript, python]
+        language: [actions, javascript-typescript]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
