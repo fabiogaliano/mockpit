@@ -15,7 +15,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import type { Ask, AskOption } from "../../server/types.ts";
+import type { Ask, AskOption, KnobValue } from "../../server/types.ts";
 import { assetUrl, surfaceUrl, type VariantView } from "./api.ts";
 import { ACCEPT, filesOf, hasFiles } from "./attach.ts";
 import { host, readonly } from "./host.ts";
@@ -23,6 +23,7 @@ import {
   answerIds,
   askName,
   askState,
+  draftKnobValues,
   frameKey,
   isLookAsk,
   type MixOption,
@@ -199,7 +200,15 @@ function Review(props: { s: MockScreenState }) {
                 onClick={() => s.goQuestion(r.index, { fromReview: true })}
               >
                 <Show when={picture(r.index, r.option)}>
-                  {(p) => <Thumb width={s.frameW()} class="crop review-thumb" fit src={p().src} />}
+                  {(p) => (
+                    <Thumb
+                      width={s.frameW()}
+                      class="crop review-thumb"
+                      fit
+                      src={p().src}
+                      knobs={p().knobs}
+                    />
+                  )}
                 </Show>
                 <span class="review-text">
                   <span class="review-name">
@@ -318,12 +327,26 @@ function Header(props: { s: MockScreenState; index: number; total: number }) {
   );
 }
 
-// The option's picture source, or null when it can only be a pill.
+// What a picture of this variant shows besides the option itself: the draft's
+// knob values (defaults, other answers, tuning), the same ones the stage shows.
+// A picture that ignored them would show a screen the user never chose.
+function draftValues(s: MockScreenState, v: VariantView): Record<string, KnobValue> {
+  const m = s.mock();
+  return m ? draftKnobValues(m, v.knobs, s.draft()) : {};
+}
+
+// The option's picture source and the knob values it shows, or null when it can
+// only be a pill.
 function optionPicture(
   s: MockScreenState,
   ask: Ask,
   o: AskOption,
-): { src: string; variant: VariantView; state: string | null } | null {
+): {
+  src: string;
+  knobs: Record<string, KnobValue>;
+  variant: VariantView;
+  state: string | null;
+} | null {
   const m = s.mock();
   if (!m) return null;
   const state = askState(ask, m, s.activeState());
@@ -337,6 +360,7 @@ function optionPicture(
     if (!v || idx < 0) return null;
     return {
       src: surfaceUrl(v.postId, idx, { version: s.frameVersionOf(v), mode: theme() }),
+      knobs: draftValues(s, v),
       variant: v,
       state,
     };
@@ -346,11 +370,14 @@ function optionPicture(
     const idx = html(v);
     if (!v || idx < 0) return null;
     return {
+      // The URL bakes only the option's own values so it stays stable while the
+      // rest of the draft changes; those arrive through `knobs`.
       src: surfaceUrl(v.postId, idx, {
         version: s.frameVersionOf(v),
         mode: theme(),
         knobs: o.set,
       }),
+      knobs: { ...draftValues(s, v), ...o.set },
       variant: v,
       state,
     };
@@ -383,7 +410,14 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
               <OptionCard
                 picture={
                   pic() ? (
-                    <Thumb width={s.frameW()} class="crop" fit src={pic()!.src} focus={focus()} />
+                    <Thumb
+                      width={s.frameW()}
+                      class="crop"
+                      fit
+                      src={pic()!.src}
+                      knobs={pic()!.knobs}
+                      focus={focus()}
+                    />
                   ) : null
                 }
                 label={o.label}
@@ -663,11 +697,17 @@ function MixBlock(props: { s: MockScreenState; index: number }) {
         .some((v) => v.state === st && v.variant === o.variant && v.parts.includes(o.part));
     return has(s.activeState()) ? s.activeState() : (s.states().find(has) ?? s.activeState());
   };
+  const variantOf = (variant: string, state: string | null) =>
+    s.variants().find((x) => x.state === state && x.variant === variant);
   const pictureOf = (variant: string, state: string | null) => {
-    const v = s.variants().find((x) => x.state === state && x.variant === variant);
+    const v = variantOf(variant, state);
     const idx = v ? v.surfaces.findIndex((x) => x.kind === "html") : -1;
     if (!v || idx < 0) return null;
     return surfaceUrl(v.postId, idx, { version: s.frameVersionOf(v), mode: theme() });
+  };
+  const knobsOf = (variant: string, state: string | null) => {
+    const v = variantOf(variant, state);
+    return v ? draftValues(s, v) : undefined;
   };
   function choose(key: string, on: boolean, apply: () => void, preview: () => void) {
     if (readonly()) return;
@@ -703,6 +743,7 @@ function MixBlock(props: { s: MockScreenState; index: number }) {
                 class="crop"
                 fit
                 src={pictureOf(look(), s.activeState())!}
+                knobs={knobsOf(look(), s.activeState())}
               />
             ) : null
           }
@@ -733,7 +774,14 @@ function MixBlock(props: { s: MockScreenState; index: number }) {
               <OptionCard
                 picture={
                   src() ? (
-                    <Thumb width={s.frameW()} class="crop" fit src={src()!} focus={focus()} />
+                    <Thumb
+                      width={s.frameW()}
+                      class="crop"
+                      fit
+                      src={src()!}
+                      knobs={knobsOf(o.variant, state())}
+                      focus={focus()}
+                    />
                   ) : null
                 }
                 label={`${o.part} · ${o.variant}'s`}
