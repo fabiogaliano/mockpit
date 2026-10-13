@@ -784,6 +784,20 @@ test("drafts are viewer-only, validated, and survive until cleared", async () =>
     { answers: read.answers, mix: read.mix, tuned: read.tuned, comments: read.comments },
     draft,
   );
+  // A mark keeps the stage width it was placed at; a width that isn't a sane
+  // CSS px count is dropped rather than failing the whole draft.
+  const widths = await put({
+    comments: [
+      { part: null, text: "a", anchor: { offset: [0.1, 0.2], width: 390.4 } },
+      { part: null, text: "b", anchor: { offset: [0.1, 0.2], width: -5 } },
+      { part: null, text: "c", anchor: { offset: [0.1, 0.2], width: "820" } },
+    ],
+  });
+  assert.equal(widths.status, 200);
+  assert.deepEqual(
+    widths.body.draft.comments.map((c: { anchor: { width?: number } }) => c.anchor.width),
+    [390, undefined, undefined],
+  );
   assert.equal((await call(app, path, viewer(undefined, "DELETE"))).body.draft, null);
   assert.equal((await call(app, path, viewer(undefined, "GET"))).body.draft, null);
 });

@@ -3,7 +3,7 @@
 // version). Components read signals from here and call its actions; nothing
 // else talks to the API for this screen.
 
-import { batch, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { batch, createEffect, createMemo, createSignal, on, onCleanup } from "solid-js";
 import { createStore } from "solid-js/store";
 import {
   type Ask,
@@ -28,6 +28,8 @@ import {
   askState,
   builtinAsks,
   carryOver,
+  defaultDeviceWidth,
+  DESKTOP_W,
   draftIsEmpty,
   emptyDraft,
   frameKey,
@@ -40,12 +42,13 @@ import {
   mockVersion,
   type PartsReport,
   pickInDraft,
+  readDeviceWidth,
   setAskField,
   tuneVisible,
   unanswered,
 } from "./logic.ts";
 import { setTheme } from "./theme.ts";
-import { narrow } from "./viewport.ts";
+import { coarse, sheet, win } from "./viewport.ts";
 
 export type Mode = "questions" | "tune" | "thread";
 export type AskField = "other" | "note";
@@ -87,8 +90,8 @@ export function createMockScreen(project: string, slug: string) {
   // The part picked on the stage, shown in Tune; null is the page ("Look").
   const [selectedPart, setSelectedPart] = createSignal<string | null>(null);
   const [hoverPart, setHoverPart] = createSignal<string | null>(null);
-  // A part tapped on a narrow stage (no Tune there); lit until the question or
-  // mode moves on.
+  // A part tapped on a stage over a bottom sheet, where a tap must not swap the
+  // sheet's mode; lit until the question or mode moves on.
   const [tapped, setTapped] = createSignal<string | null>(null);
   const [viewVersion, setViewVersion] = createSignal<number | null>(null);
   const [versionsOpen, setVersionsOpen] = createSignal(false);
@@ -115,6 +118,10 @@ export function createMockScreen(project: string, slug: string) {
   const [threadText, setThreadText] = createSignal("");
   // Where Tune's knob controls mount: tunekit's pane is moved into it while Tune is open.
   const [tuneHost, setTuneHost] = createSignal<HTMLElement | null>(null);
+  // The width the stage renders the design at, remembered per mock in this browser.
+  const [frameW, setFrameWSignal] = createSignal(DESKTOP_W);
+  // Inspect: the stage alone, full screen, zoomable.
+  const [inspect, setInspect] = createSignal(false);
   // The stage frames' latest parts reports, keyed by frameKey(state, variant).
   const [reports, setReports] = createStore<Record<string, PartsReport | undefined>>({});
 
@@ -501,17 +508,46 @@ export function createMockScreen(project: string, slug: string) {
   function chooseVariant(variant: string) {
     setChosenVariant({ ...chosenVariant(), [String(activeState())]: variant });
   }
-  // Narrow screens have no Tune, so a tap on the stage only marks the part.
+  // Over a bottom sheet a tap on the stage only marks the part: opening Tune
+  // there would cover the stage the user is looking at.
   function selectPart(part: string | null) {
     setSelectedPart(part);
-    if (narrow()) setTapped(part);
+    if (sheet()) setTapped(part);
     else if (part && mode() !== "tune") setMode("tune");
   }
-  // No Tune tab (narrow screen, or nothing to tune): a Tune mode restored from
-  // history or set by a stray click lands on Questions instead.
+  // No Tune tab (nothing to tune): a Tune mode restored from history or set by
+  // a stray click lands on Questions instead.
   createEffect(() => {
-    if (mode() === "tune" && (narrow() || (mock() && !tuneShown()))) setModeSignal("questions");
+    if (mode() === "tune" && mock() && !tuneShown()) setModeSignal("questions");
   });
+
+  const widthKey = (id: string) => `mockpit-width:${id}`;
+  // Keyed by id alone: a refetch or a resize must not undo the user's choice.
+  createEffect(
+    on(
+      () => mock()?.id,
+      (id) => {
+        if (!id) return;
+        let stored: string | null = null;
+        try {
+          stored = host().storage?.getItem(widthKey(id)) ?? null;
+        } catch {
+          // Unreadable storage: fall back to the default width.
+        }
+        setFrameWSignal(readDeviceWidth(stored) ?? defaultDeviceWidth(win().w, coarse()));
+      },
+    ),
+  );
+  function setFrameW(w: number) {
+    setFrameWSignal(w);
+    const id = mock()?.id;
+    if (!id) return;
+    try {
+      host().storage?.setItem(widthKey(id), String(w));
+    } catch {
+      // Storage full or denied: the width still applies for this visit.
+    }
+  }
 
   // The next question still owed after i, else the last one (where Send lives).
   function nextStop(i: number): number | null {
@@ -849,6 +885,10 @@ export function createMockScreen(project: string, slug: string) {
     pick,
     toggleMix,
     addComment,
+    frameW,
+    setFrameW,
+    inspect,
+    setInspect,
     marking,
     setMarking,
     threadText,

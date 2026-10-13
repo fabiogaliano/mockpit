@@ -1561,12 +1561,17 @@ export function createApp({
         : undefined;
     const quote = str(a.quote, 200);
     const selector = str(a.selector, 500);
+    const width =
+      typeof a.width === "number" && Number.isFinite(a.width) && a.width >= 1 && a.width <= 10000
+        ? Math.round(a.width)
+        : undefined;
     if (!offset && !box && !quote && !selector) return undefined;
     return {
       ...(offset ? { offset } : {}),
       ...(quote ? { quote } : {}),
       ...(selector ? { selector } : {}),
       ...(box ? { box } : {}),
+      ...(width ? { width } : {}),
     };
   }
 

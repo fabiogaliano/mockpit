@@ -14,7 +14,15 @@ import {
   setAskField,
   tuneVisible,
   unanswered,
+  clampZoom,
   createHitRefs,
+  defaultDeviceWidth,
+  DESKTOP_W,
+  DEVICE_WIDTHS,
+  panelBeside,
+  PANEL_W,
+  readDeviceWidth,
+  zoomScroll,
   draftKnobValues,
   fitThumb,
   frameVersion,
@@ -528,6 +536,59 @@ describe("marks", () => {
     expect(nextMark(comments)).toBe(4);
     expect(nextMark([])).toBe(1);
   });
+
+  it("flags a mark placed at another stage width", () => {
+    const at = (width?: number) => ({
+      part: null,
+      state: null,
+      text: "x",
+      anchor: { offset: [0.5, 0.5] as [number, number], ...(width ? { width } : {}) },
+    });
+    const pins = markPins([at(390), at(800), at()], null, doc());
+    expect(pins.map((p) => p.placedAt)).toEqual([390, null, null]);
+  });
+});
+
+describe("the stage on any screen", () => {
+  it("opens a phone at phone width and everything else at desktop width", () => {
+    expect(defaultDeviceWidth(390, true)).toBe(390);
+    expect(defaultDeviceWidth(744, true)).toBe(DESKTOP_W);
+    expect(defaultDeviceWidth(390, false)).toBe(DESKTOP_W);
+  });
+
+  it("remembers only a width it still offers", () => {
+    expect(readDeviceWidth("744")).toBe(744);
+    expect(readDeviceWidth("1280")).toBe(1280);
+    expect(readDeviceWidth("500")).toBe(null);
+    expect(readDeviceWidth(null)).toBe(null);
+    expect(readDeviceWidth("wide")).toBe(null);
+    expect(DEVICE_WIDTHS.map((d) => d.w)).toContain(DESKTOP_W);
+  });
+
+  it("keeps the panel beside the stage only while the stage stays readable", () => {
+    expect(panelBeside(1133)).toBe(true);
+    expect(panelBeside(744)).toBe(false);
+    expect(panelBeside(390)).toBe(false);
+    expect(panelBeside(PANEL_W + 72 + 480)).toBe(true);
+    expect(panelBeside(PANEL_W + 72 + 479)).toBe(false);
+  });
+
+  it("clamps zoom between fit (never above 100%) and 200%", () => {
+    expect(clampZoom(5, 0.5)).toBe(2);
+    expect(clampZoom(0.1, 0.5)).toBe(0.5);
+    expect(clampZoom(1.3, 0.5)).toBe(1.3);
+    // A design narrower than the screen fits at 100%, and may still shrink to it.
+    expect(clampZoom(0.8, 1.6)).toBe(1);
+    expect(clampZoom(Number.NaN, 0.5)).toBe(0.5);
+  });
+
+  it("keeps the point under a pinch still as the scale changes", () => {
+    // At 1×, scrolled 100 with the pinch 50px in: the point is at 150. At 2× it
+    // is at 300, so the scroll that keeps it 50px in is 250.
+    expect(zoomScroll(100, 50, 1, 2)).toBe(250);
+    expect(zoomScroll(250, 50, 2, 1)).toBe(100);
+    expect(zoomScroll(0, 50, 2, 1)).toBe(0);
+  });
 });
 
 describe("notes and Other…", () => {
@@ -914,8 +975,14 @@ describe("partPinSpot", () => {
   });
   it("moves above the corner when there is no room on the right", () => {
     const p = partPinSpot({ ...box, w: 750 }, 800);
-    expect(p).toEqual({ x: 779, y: 6 });
+    // Never past the overlay's right edge, which clips.
+    expect(p).toEqual({ x: 776, y: 6 });
     expect(p.y + 22).toBeLessThanOrEqual(box.y);
+  });
+  it("keeps a finger's wider hit area inside the overlay too", () => {
+    const edge = (44 - 28) / 2;
+    const p = partPinSpot({ x: 0, y: 0, w: 800, h: 20 }, 800, 28, edge);
+    expect(p).toEqual({ x: 800 - edge - 28, y: edge });
   });
   it("stays inside the overlay at its top edge", () => {
     expect(partPinSpot({ x: 0, y: 0, w: 100, h: 20 }, 800)).toEqual({ x: 102, y: 2 });
