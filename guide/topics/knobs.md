@@ -2,9 +2,9 @@
 
 A knob is a value the user tunes live on one render. Use one when one render
 plus a control shows the choice. A choice is several variants plus one ask
-that binds them; for that, publish variants and ask instead (topic `asks`). A knob with three or fewer discrete options (a
-toggle, a short select) gets a nudge in the publish response; keep it only if
-one render plus that control really shows the choice.
+that binds them; for that, publish variants and ask instead (topic `asks`).
+A 2–3 option knob is a choice: ask with options that `set` it. Publishing
+one returns that nudge.
 
 ## Declaring
 

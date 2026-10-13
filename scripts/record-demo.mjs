@@ -195,7 +195,7 @@ async function gif() {
     await page.goto(`${base}/project/${encodeURIComponent(DEMO.project)}`);
     await sleep(900);
 
-    // The agent publishes: a Look question over three looks, and a part question.
+    // The agent publishes: a Look ask over three looks, and a part question.
     const asks = DEMO.asks.filter((a) => a.id !== "versions-layout");
     const { mockId, session } = await publishWriter(api, asks);
     const homeRow = page.locator(`.home-row[data-mock="${DEMO.slug}"]`);

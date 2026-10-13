@@ -42,7 +42,7 @@ consciously, not as a side effect):
   a background `mockpit watch`). Guard this hardest — both halves have
   regressed before.
 - Tiers, no modes: each thing the agent adds lights up its part of the viewer
-  (variants → switcher and the built-in "Which one?", asks → Questions, `data-part` → Tune parts and part
+  (variants → switcher and the built-in Look ask, asks → Questions, `data-part` → Tune parts and part
   comments, `knobs` → Tune knobs, states → strip). A plain publish of any kind
   still gets stage + Thread + Accept / Revise / Drop.
 - Self-hosted only; the embeddable viewer engine was dropped. Keep the

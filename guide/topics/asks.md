@@ -7,8 +7,11 @@ where to look and end your turn.
 
 ```sh
 mockpit ask --mock writer "Which look?" --option Quiet=quiet --option Dark=dark --id look
+mockpit ask --mock writer "Trim?" --option Above=knob:trim.position=top --option Below=knob:trim.position=bottom
 mockpit ask --mock writer --asks asks.json
 ```
+
+`=knob:` sets one knob; for an option that sets several, use `--asks` JSON.
 
 ## Shape
 
@@ -86,10 +89,11 @@ binding them returns a nudge and a ready `suggestedAsk` (mock-wide when the
 variant names line up across states, else for that state), or your existing
 ask plus the new variants. Send it as is with `ask`, or write your own question
 with options bound to the variants. The CLI prints the `mockpit ask` command
-for you.
+for you. Sending it stops the nudge and keeps the answered Look ask on the
+mock; the built-in one is gone once answered.
 
-Until an ask binds them, the viewer shows a built-in "Which one?" with a
-picture of each variant, so the user can still choose in one Send. Its answer
+Until an ask binds them, the viewer shows a built-in Look ask with a picture
+of each variant, so the user can still choose in one Send. Its answer
 reads like any other ask under the reserved id `variant` (per state:
 `variant:<state>`), and accepts and archives per state. Your own ask over
 those variants replaces it.

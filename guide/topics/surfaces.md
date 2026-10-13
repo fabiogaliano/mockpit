@@ -90,11 +90,11 @@ bytes dedupe. An asset lives as long as something references it. The limit is
 
 Each thing you add lights up its part of the viewer.
 
-| you publish            | the user gets                                          |
-| ---------------------- | ------------------------------------------------------ |
-| a plain mock, any kind | the stage and Thread, with Accept / Revise / Drop      |
-| several variants       | a switcher, plus a built-in "Which one?" until you ask |
-| asks                   | Questions: picture options on the stage, then Send     |
-| `data-part`            | Tune's component list and comments anchored on parts   |
-| `knobs`                | Tune's controls, live on the stage                     |
-| several states         | the state strip under the stage                        |
+| you publish            | the user gets                                        |
+| ---------------------- | ---------------------------------------------------- |
+| a plain mock, any kind | the stage and Thread, with Accept / Revise / Drop    |
+| several variants       | a switcher, plus a built-in Look ask until you ask   |
+| asks                   | Questions: picture options on the stage, then Send   |
+| `data-part`            | Tune's component list and comments anchored on parts |
+| `knobs`                | Tune's controls, live on the stage                   |
+| several states         | the state strip under the stage                      |

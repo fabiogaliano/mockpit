@@ -208,7 +208,7 @@ export function createMockScreen(project: string, slug: string) {
     field === "other" ? otherImagesOf(ask) : noteImagesOf(ask);
   const pendingOf = (ask: Ask, field: AskField) => uploads()[`${field}:${ask.id}`] ?? [];
 
-  // The variant the Look question settled on, drafted or sent.
+  // The variant the Look ask settled on, drafted or sent.
   const lookPick = createMemo(() => {
     const ask = look();
     if (!ask) return null;

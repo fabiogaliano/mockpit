@@ -335,10 +335,10 @@ export function checkKnobValues(
 }
 
 // How many discrete choices a knob offers, or null when it is continuous. A knob
-// with only a handful is usually a decision dressed as a control (plan D12).
+// with only a handful is usually a decision dressed as a control (plan D12). A
+// toggle is null: on/off reads fine on one render.
 export function discreteChoices(config: KnobConfig): number | null {
   const knob = explicitKnob(config);
-  if (knob.type === "toggle") return 2;
   if (knob.type === "select") return knob.options.length;
   if (knob.type === "image" && knob.options) return knob.options.length;
   return null;
