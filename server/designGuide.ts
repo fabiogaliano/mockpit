@@ -291,10 +291,10 @@ Values reach the html unitless: \`calc(var(--k-body-size, 17) * 1px)\`, and as
 ## Feedback
 
 \`feedback\` returns \`{feedback, pending}\`. A batch is \`{mock, reply: {asks, tuned,
-mix, comments, decision, text}, accepted, archived}\`. In order: answers decide
+mix, comments, reactions, decision, text}, accepted, archived}\`. In order: answers decide
 structure (a variant answer already accepted it);
 tuned values become new defaults; mix names a part to take from another variant (answers win);
-address each comment on its part; decision (accept, revise, drop) stands in for
+address each comment and reaction on its part; decision (accept, revise, drop) stands in for
 answers when there were no asks. Each Send arrives exactly once: in a write's
 \`feedback\`, \`mockpit feedback\` or a \`mockpit watch\` line.
 A \`pending\` draft means the user is still answering. Send a nudge's

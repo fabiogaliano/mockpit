@@ -70,6 +70,8 @@ const json = (method: string, body: unknown): RequestInit => ({
 export const api = {
   projects: () => call<ProjectSummary[]>("/api/projects"),
   mocks: (project: string) => call<MockList>(`/api/mocks?project=${encodeURIComponent(project)}`),
+  // Every project's mocks: what the app badge counts.
+  allMocks: () => call<MockList>("/api/mocks"),
   mock: (id: string) => call<MockDetail>(`/api/mocks/${encodeURIComponent(id)}?history=1`),
   // The same view without version rows: enough to name a mock and its variants.
   mockHead: (id: string) => call<MockDetail>(`/api/mocks/${encodeURIComponent(id)}`),

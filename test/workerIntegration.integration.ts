@@ -165,6 +165,14 @@ test(
     assert.match(mcpRun.result.content[0].text, /not available on this deployment/);
     const scripts = await worker.fetch("/agent-howto?topic=scripts");
     assert.match(await scripts.text(), /declare const mockpit/);
+    // The installable-app files are public on the Worker too: no key, real bytes.
+    const manifest = await worker.fetch("/manifest.webmanifest");
+    assert.equal(manifest.status, 200);
+    assert.equal(((await manifest.json()) as { start_url: string }).start_url, "./");
+    const icon = await worker.fetch("/icon-192.png");
+    assert.equal(icon.status, 200);
+    assert.equal(icon.headers.get("content-type"), "image/png");
+    assert.ok((await icon.arrayBuffer()).byteLength > 100);
 
     const eventStream = await worker.fetch(`/api/events?session=${sessionId}`, {
       headers: AUTH,

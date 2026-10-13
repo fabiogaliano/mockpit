@@ -13,6 +13,7 @@ import {
   type Reply,
 } from "../../server/types.ts";
 import type { CommentRow, DraftInput, HistoryRow, MockDetail, VariantView } from "./api.ts";
+import { commentText, reactionWhere } from "./reactionRules.ts";
 
 type MockLike = Pick<MockDetail, "asks" | "states" | "title" | "knobs">;
 
@@ -442,8 +443,10 @@ export function summarizeReply(
   if (mix.length) parts.push(`mix ${mix.join(", ")}`);
   const tuned = Object.entries(reply.tuned).map(([k, v]) => `${k} ${fmtValue(v)}`);
   if (tuned.length) parts.push(`tuned ${tuned.join(", ")}`);
-  const n = reply.comments.length;
+  const reacted = reply.comments.filter((c) => c.reaction).length;
+  const n = reply.comments.length - reacted;
   if (n) parts.push(`${n} comment${n === 1 ? "" : "s"}`);
+  if (reacted) parts.push(`${reacted} reaction${reacted === 1 ? "" : "s"}`);
   if (reply.decision) parts.push(`${reply.decision.kind} ${reply.decision.variant}`);
   if (reply.text) parts.push(`“${reply.text}”`);
   return parts.length ? `Sent · ${parts.join(" · ")}` : "Sent";
@@ -484,7 +487,9 @@ export function carryOver(
   const tuned: Record<string, KnobValue> = {};
   for (const [k, v] of Object.entries(draft.tuned)) if (paths.has(k)) tuned[k] = v;
   const allParts = new Set(variants.flatMap((v) => v.parts));
-  const comments = draft.comments.filter((c) => c.part === null || allParts.has(c.part));
+  const comments = draft.comments.filter(
+    (c) => (c.part === null || allParts.has(c.part)) && (!c.variant || names.has(c.variant)),
+  );
   return {
     draft: {
       version: toVersion,
@@ -668,7 +673,10 @@ export function threadRows(
         id: c.id,
       };
       if (reply?.comments.length) {
-        row.comments = reply.comments.map((x) => ({ where: commentWhere(x), text: x.text }));
+        row.comments = reply.comments.map((x) => ({
+          where: x.reaction ? reactionWhere(x) : commentWhere(x),
+          text: commentText(x),
+        }));
       }
       const notes = Object.entries(reply?.notes ?? {}).filter(([, text]) => text);
       if (notes.length) {
