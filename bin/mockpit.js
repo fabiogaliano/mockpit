@@ -67,6 +67,8 @@ verbs:
       --knobs <json|file>  knobs in tunekit usePane shape, keyed by path
       --from <N>        branch from version N
       --prompt <text>   what prompted this version
+      --note <text>     one line on what this variant is, shown beside it
+      --widths <list>   device widths to show it at, e.g. 390,1280
       --project <name>  project (default: git remote, else directory name)
       --kit <id>        opt the html surface into a kit (repeatable; see "mockpit kits")
       --md/--mermaid/--diff/--terminal/--data/--code/--image <file|->
@@ -168,6 +170,10 @@ mockpit publish --mock <slug> --parts <name=file|-> ... [options]
   --knobs <json|file>  knobs in tunekit usePane shape
   --from <N>         branch from version N
   --prompt <text>    what prompted this version
+  --note <text>      one line on what this variant is, shown beside it (never
+                     inside the design)
+  --widths <list>    device widths the mock is judged at, side by side, e.g.
+                     390,1280 (the ones the user ships to)
   --project <name>   project (default: git remote, else directory name)
   --md/--mermaid/--diff/--terminal/--data/--code/--image <file>  more surfaces
   --json / --quiet
@@ -855,6 +861,8 @@ function parsePublishFlags() {
       knobs: { type: "string" },
       from: { type: "string" },
       prompt: { type: "string" },
+      note: { type: "string" },
+      widths: { type: "string" },
       kit: { type: "string", multiple: true },
       layout: { type: "string" },
       md: { type: "string", multiple: true },
@@ -949,6 +957,13 @@ async function publishMock() {
     ...(flags.knobs !== undefined && { knobs: readJsonFlag("knobs", flags.knobs) }),
     ...(from !== undefined && { from }),
     prompt: flags.prompt,
+    note: flags.note,
+    ...(flags.widths !== undefined && {
+      widths: flags.widths
+        .split(",")
+        .filter((w) => w.trim())
+        .map((w) => Number(w)),
+    }),
     ...(surfaces && { surfaces }),
     ...(parts && { parts }),
   };

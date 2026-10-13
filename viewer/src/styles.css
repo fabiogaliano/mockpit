@@ -109,6 +109,8 @@ a {
 
 .screen {
   display: grid;
+  /* minmax(0, …): a long crumb or a wide stage must not widen the page past the screen. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: calc(52px + env(safe-area-inset-top)) minmax(0, 1fr);
   height: 100%;
 }
@@ -478,6 +480,7 @@ a {
   border-radius: 4px;
 }
 .stage-head {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -652,7 +655,8 @@ a {
   }
 }
 .markbtn,
-.inspectbtn {
+.inspectbtn,
+.morebtn {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -666,13 +670,15 @@ a {
   transition: background var(--ease);
 }
 .markbtn svg,
-.inspectbtn svg {
+.inspectbtn svg,
+.morebtn svg {
   width: 14px;
   height: 14px;
 }
 @media (hover: hover) {
   .markbtn:hover,
-  .inspectbtn:hover {
+  .inspectbtn:hover,
+  .morebtn:hover {
     background: var(--row);
     color: var(--t2);
   }
@@ -680,6 +686,18 @@ a {
 .markbtn.on {
   background: var(--accent-solid);
   color: var(--on-accent);
+}
+.morebtn.on {
+  background: var(--row);
+  color: var(--t2);
+}
+.more-k {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--t4);
+  font-size: 12px;
 }
 .layers {
   position: relative;
@@ -2066,47 +2084,6 @@ a {
 .up-comp-opt .dot {
   margin-left: 2px;
 }
-.sheet-handle {
-  display: none;
-}
-
-/* ---------- the stage over a bottom sheet (§5): set by viewport.ts when the
-   panel no longer fits beside a readable stage ---------- */
-/* No side gutters: a device width that fits the screen renders at 100%. The
-   safe area still holds the stage off a notch; Stage.tsx fits to the same. */
-.sheeted .main {
-  padding: 12px env(safe-area-inset-right) 108px env(safe-area-inset-left);
-}
-/* A design as wide as the screen bleeds edge to edge, with no side borders to
-   steal its pixels. */
-.stagewrap.edge .stage {
-  border-inline: 0;
-  border-radius: 0;
-}
-.sheeted .col {
-  max-width: 100%;
-}
-.sheeted .stripwrap {
-  max-width: calc(100vw - 24px);
-}
-.sheeted .strip {
-  display: flex;
-  min-width: 0;
-  max-width: 100%;
-  overflow-x: auto;
-  scrollbar-width: none;
-  overscroll-behavior-x: contain;
-}
-.sheeted .strip::-webkit-scrollbar {
-  display: none;
-}
-.sheeted .strip > button {
-  flex: none;
-  white-space: nowrap;
-}
-.sheeted .cap {
-  flex: none;
-}
 /* More states past an edge: the row fades out there instead of cutting off. */
 .strip.fade-end {
   mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
@@ -2123,77 +2100,390 @@ a {
     transparent
   );
 }
-.up-shell.sheet {
-  top: auto;
-  left: 0;
+
+/* ---------- the canvas: phones and iPads in portrait (MockScreen, Stage) ----------
+   A plain page header, the stage as a pannable canvas under it, the question
+   card floating over it. */
+.mock-screen.on-canvas {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.chead {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  border-bottom: 1px solid var(--line);
+  background: var(--page);
+}
+.crow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 6px 0 14px;
+}
+.crow-stage {
+  padding-bottom: 4px;
+}
+.chead .crumb {
+  font-size: 15px;
+}
+.chead .markbtn {
+  gap: 6px;
+}
+.chead-look {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chead-look:disabled {
+  cursor: default;
+  opacity: 1;
+}
+.chead-name {
+  color: var(--t2);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.chead-note {
+  color: var(--t4);
+  font-size: 13px;
+}
+.chead-widths {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+.chead-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--row);
+}
+.chead-seg button {
+  position: relative;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 7px;
+  color: var(--t4);
+  font-size: 12px;
+  font-weight: 600;
+}
+.chead-seg button.on {
+  background: var(--fill);
+  color: var(--t1);
+}
+.chead-pick {
+  position: relative;
+  flex: none;
+}
+.chead-pick select {
+  appearance: none;
+  height: 32px;
+  max-width: 40vw;
+  padding: 0 24px 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--row);
+  color: var(--t2);
+  font: 600 13px var(--sans);
+}
+.chead-pick::after {
+  content: "▾";
+  position: absolute;
+  top: 50%;
+  right: 9px;
+  color: var(--t4);
+  font-size: 10px;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+.chead .zoomval {
+  position: relative;
+  min-width: 48px;
+  height: 32px;
+  margin: 0;
+  border-radius: 8px;
+  text-align: center;
+}
+.chead-menu,
+.chead-notepop {
+  position: absolute;
+  top: calc(100% + 4px);
+  z-index: 40;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  box-shadow: var(--dd-shadow);
+  animation: up-dropdown-in 0.15s cubic-bezier(0, 0, 0.2, 1);
+}
+.chead-menu {
+  right: 6px;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  padding: 6px;
+}
+.chead-menu > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--t2);
+  text-align: start;
+}
+@media (hover: hover) {
+  .chead-menu > button:hover {
+    background: var(--row);
+  }
+}
+.chead-menu small {
+  margin-inline-start: auto;
+  color: var(--t4);
+}
+.menu-react {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 4px;
+  padding: 6px 4px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.chead-notepop {
+  left: 12px;
+  max-width: min(380px, calc(100vw - 24px));
+  padding: 10px 12px;
+  color: var(--t2);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.chead-notepop b {
+  color: var(--t1);
+}
+.chead-notepop p {
+  margin: 2px 0 0;
+}
+.stagewrap.canvas {
+  position: fixed;
   right: 0;
   bottom: 0;
-  width: auto;
-  max-height: 62vh;
-  max-height: 62dvh;
-  border-radius: 16px 16px 0 0;
-  border-bottom: 0;
-  padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  left: 0;
+  padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  background-color: var(--page);
+  background-image: radial-gradient(var(--line) 1px, transparent 1px);
+  background-size: 22px 22px;
 }
-.up-shell.sheet .up-header,
-.up-shell.sheet .up-preset-bar {
-  display: none;
+.stagewrap.canvas .stage {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
-.up-shell.sheet:not(.open) .up-content {
-  display: none;
+.stagewrap.canvas .layers {
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-bottom: env(safe-area-inset-bottom);
 }
-.up-shell.sheet:not(.open) .up-tabs-wrap {
-  border-bottom: 0;
-}
-.up-shell.sheet .sheet-handle {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: 100%;
-  height: 22px;
-  flex: none;
+/* Pan and pinch are ours everywhere on the canvas, artboards or the space
+   around them; the header keeps the browser's. */
+.stagewrap.canvas .layers,
+.stagewrap.canvas .overlay,
+.stagewrap.canvas .board {
   touch-action: none;
 }
-.sheet-handle i {
-  width: 36px;
-  height: 4px;
-  border-radius: 2px;
+.stagewrap.canvas .banner {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  z-index: 6;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.board-live {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+.stagewrap.canvas .frame.on,
+.board {
+  border-radius: 4px;
+  box-shadow:
+    0 0 0 1px var(--edge),
+    0 18px 50px #0008;
+}
+.board {
+  position: absolute;
+  overflow: hidden;
+  background: var(--frame);
+}
+.board iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 0;
+  pointer-events: none;
+  transform-origin: 0 0;
+}
+.board-label {
+  position: absolute;
+  top: 8px;
+  color: var(--t4);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.qcard {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--edge);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: 0 16px 50px #000a;
+  overflow: hidden;
+  transition: left 0.25s cubic-bezier(0, 0, 0.2, 1);
+}
+.qcard.hidden {
+  display: none;
+}
+.qcard-grip,
+.qcard .qhd,
+.qcard-mode {
+  cursor: grab;
+  touch-action: none;
+}
+.qcard-grip {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+}
+.qcard-grip i {
+  width: 40px;
+  height: 5px;
+  border-radius: 3px;
   background: var(--fill);
 }
-.up-shell.sheet .opts {
+.qcard-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 14px 14px;
+}
+/* Carried, the card is a chip the shape of where it would land. */
+.qcard.chip {
+  top: 0 !important;
+  bottom: auto !important;
+  left: 0 !important;
+  border-color: var(--accent);
+  border-radius: 10px;
+  background: var(--accent-solid);
+  transition: none;
+}
+.qcard.chip > * {
+  visibility: hidden;
+}
+.qcard:not(.col) .opts {
   display: flex;
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
   padding-bottom: 2px;
 }
-.up-shell.sheet .opts::-webkit-scrollbar {
+.qcard:not(.col) .opts::-webkit-scrollbar {
   display: none;
 }
-.up-shell.sheet .opt:not(.pill) {
-  flex: 0 0 min(46%, 200px);
+.qcard:not(.col) .opt:not(.pill) {
+  flex: 0 0 min(44%, 190px);
   scroll-snap-align: start;
 }
-/* A phone-wide stage has no room for tool labels; the icons keep their names. */
-@media (max-width: 480px) {
-  /* The top bar already names the mock; the head keeps the state and version. */
-  .sheeted .stage-title {
-    display: none;
-  }
-  .sheeted .stage-head {
-    padding-inline: 12px 6px;
-  }
-  .sheeted .stage-tools {
-    gap: 0;
-  }
-  .sheeted .tool-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
+.qcard.col .opts {
+  grid-template-columns: 1fr;
+}
+.qcard-mode {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0 10px;
+}
+.qcard-mode b {
+  color: var(--t1);
+}
+.qcard-back {
+  min-height: 36px;
+  color: var(--t3);
+  font-size: 13px;
+}
+.qcard-marks i {
+  position: fixed;
+  z-index: 35;
+  border: 1px solid #ffffff38;
+  border-radius: 6px;
+  background: #ffffff1f;
+  pointer-events: none;
+  transition:
+    background 0.12s,
+    transform 0.12s;
+}
+[data-theme="light"] .qcard-marks i {
+  border-color: #0003;
+  background: #00000014;
+}
+.qcard-marks i.hot {
+  border-color: var(--accent);
+  background: var(--accent-solid);
+  transform: scale(1.15);
+}
+.qcard-handle {
+  position: fixed;
+  z-index: 30;
+  background: var(--accent-solid);
+  color: var(--on-accent);
+  font: 700 13px var(--sans);
+  box-shadow: 0 6px 20px #000a;
+  touch-action: none;
+}
+.qcard-handle.left {
+  border-radius: 0 12px 12px 0;
+}
+.qcard-handle.right {
+  border-radius: 12px 0 0 12px;
+}
+.qcard-handle.top {
+  border-radius: 0 0 12px 12px;
+}
+.qcard-handle.bottom {
+  border-radius: 12px 12px 0 0;
+}
+.opt .onote {
+  display: -webkit-box;
+  margin-top: -4px;
+  padding: 0 8px;
+  overflow: hidden;
+  color: var(--t4);
+  font-size: 12px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 /* ---------- Inspect: the stage alone, full screen ---------- */
@@ -2670,10 +2960,6 @@ html.theming *:not(iframe) {
     min-height: 44px;
   }
 }
-.up-shell.sheet.sheet-peek {
-  max-height: 40vh;
-  max-height: 40dvh;
-}
 @media (max-width: 599px) {
   .carried-title {
     max-width: 9ch;
@@ -2687,17 +2973,21 @@ html.theming *:not(iframe) {
   .up-text-input,
   .markfield .up-text-input,
   .asktext textarea,
-  .widthpick select {
+  .widthpick select,
+  .chead-pick select {
     font-size: 16px;
+  }
+  .chead-pick select {
+    height: 44px;
+  }
+  .crow {
+    min-height: 50px;
+  }
+  .qcard-grip {
+    height: 28px;
   }
   .markfield .up-text-input {
     height: 40px;
-  }
-  .pin {
-    width: 28px;
-    height: 28px;
-    font-size: 13px;
-    line-height: 28px;
   }
   .strip > button,
   .up-mode,
@@ -2722,20 +3012,16 @@ html.theming *:not(iframe) {
   .zoomseg {
     padding: 2px;
   }
-  .up-shell.sheet .sheet-handle {
-    height: 44px;
-  }
-  .sheeted .main {
-    padding-top: 20px;
-    padding-bottom: 124px;
-  }
   /* The visible control stays compact; a transparent box around it takes the
      tap. Neighbours sit at least 44px apart center to center, so these never
      overlap. */
   .pin::after,
+  .chead-seg button::after,
+  .chead .zoomval::after,
   .vbtn::after,
   .markbtn::after,
   .inspectbtn::after,
+  .morebtn::after,
   .donebtn::after,
   .markfield-actions button::after,
   .themebtn::after,
@@ -2761,6 +3047,7 @@ html.theming *:not(iframe) {
   }
   .markbtn,
   .inspectbtn,
+  .morebtn,
   .donebtn {
     min-width: 44px;
     justify-content: center;

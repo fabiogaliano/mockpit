@@ -20,6 +20,9 @@ export function Thumb(props: {
   class?: string;
   focus?: Focus | null;
   title?: string;
+  // The width the page lays out at; option pictures match the stage's, so a
+  // phone design is pictured at phone width and a part's box lines up.
+  width?: number;
   // A picture box whose size is fixed by its CSS (an aspect ratio) before
   // anything loads, so nothing under it moves when the page reports its
   // height. A page shorter than the box is centred in it, not stretched.
@@ -50,7 +53,7 @@ export function Thumb(props: {
   });
   const frame = () => {
     const { w, h } = size();
-    const fit = fitThumb(w, h, docH(), props.focus ?? null, FRAME_W);
+    const fit = fitThumb(w, h, docH(), props.focus ?? null, props.width ?? FRAME_W);
     return props.fit && fit.h < h ? { ...fit, y: fit.y + (h - fit.h) / 2 } : fit;
   };
   return (
@@ -76,7 +79,7 @@ export function Thumb(props: {
             loading="lazy"
             tabIndex={-1}
             title={props.title ?? ""}
-            width={FRAME_W}
+            width={props.width ?? FRAME_W}
             height={Math.ceil(frame().frameH)}
             style={{
               transform: `translate(${frame().x}px, ${frame().y}px) scale(${frame().s})`,

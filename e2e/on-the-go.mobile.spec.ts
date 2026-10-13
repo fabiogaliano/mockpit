@@ -37,10 +37,13 @@ test("tap a part, 👍, Send: the agent's feedback has the reaction", async ({ p
   await expect(like).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator('[role="status"]', { hasText: "Liked Hero" })).toHaveCount(1);
 
-  // No asks on a single look: the verdict is the Send.
-  await page.locator('[data-mode="questions"]').tap();
+  // No asks on a single look: the verdict is the Send, from wherever the
+  // questions are (the card on the canvas, the panel beside the stage).
+  // Beside the stage a tapped part opens Tune; the verdict is under Questions.
+  const questions = page.locator('[data-mode="questions"]');
+  if (await questions.count()) await questions.tap();
   await page.locator(".decide button", { hasText: "Revise" }).tap();
-  await expect(page.locator('[data-mode="thread"][aria-selected="true"]')).toBeVisible();
+  await expect(page.locator(".trow.you")).toBeVisible();
 
   const { feedback } = await agentCall<{ feedback: { reply: { reactions?: string[] } }[] }>(
     server.url,

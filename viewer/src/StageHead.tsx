@@ -3,7 +3,7 @@
 
 import { createEffect, For, on, onCleanup, onMount, Show } from "solid-js";
 import { readonly } from "./host.ts";
-import { DEVICE_WIDTHS } from "./logic.ts";
+import { DEVICE_WIDTHS, type Zoom } from "./logic.ts";
 import { ReactionBar } from "./Reactions.tsx";
 import type { MockScreenState } from "./state.ts";
 
@@ -11,9 +11,9 @@ export function StageHead(props: {
   s: MockScreenState;
   anchor: (el: HTMLElement) => void;
   onHeight: (h: number) => void;
-  zoom: "fit" | number;
+  zoom: Zoom;
   scale: number;
-  setZoom: (z: "fit" | number) => void;
+  setZoom: (z: Zoom) => void;
 }) {
   const s = props.s;
   const v = () => s.activeVariant();

@@ -375,7 +375,7 @@ export const HIT_TEST_JS = `
 //   copy             {text}                      window.copyToClipboard (BRIDGE_JS)
 //   switch-session   {key}                       Cmd+Opt+ArrowUp/Down (BRIDGE_JS)
 //   hit-test-result  {ref, path, text, rect}     reply to hit-test (HIT_TEST_JS)
-//   parts            {version, parts, height, scroll:{x,y}, viewport:{w,h}}  (PARTS_JS)
+//   parts            {version, parts, height, scroll:{x,y}, viewport:{w,h,scrollW}}  (PARTS_JS)
 //       parts[i] = {name, label, key, box:{x,y,w,h}, visible, fixed, depth, parent, order}
 //       box is in DOCUMENT px (viewport rect + scroll), so the host draws
 //       (box − scroll) × scale, which is also right for fixed and sticky parts.
@@ -503,7 +503,8 @@ export const PARTS_JS = `
       parts: parts,
       height: document.body ? document.body.scrollHeight : document.documentElement.scrollHeight,
       scroll: { x: sx, y: sy },
-      viewport: { w: innerWidth, h: innerHeight },
+      // scrollWidth past innerWidth: the design is wider than the frame.
+      viewport: { w: innerWidth, h: innerHeight, scrollW: document.documentElement.scrollWidth },
     };
   }
   var last = '';

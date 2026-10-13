@@ -48,7 +48,9 @@ import {
   pruneMix,
   mockVersion,
   nextOwedMock,
+  overflowWidth,
   type PartsReport,
+  type Zoom,
   pickInDraft,
   readDeviceWidth,
   reviewRows,
@@ -60,7 +62,7 @@ import {
 } from "./logic.ts";
 import { mockPath, navigate } from "./route.ts";
 import { setTheme } from "./theme.ts";
-import { coarse, sheet, win } from "./viewport.ts";
+import { canvasLayout, coarse, win } from "./viewport.ts";
 
 export type Mode = "questions" | "tune" | "thread";
 export type AskField = "other" | "note";
@@ -128,8 +130,8 @@ export function createMockScreen(project: string, slug: string) {
   // The part picked on the stage, shown in Tune; null is the page ("Look").
   const [selectedPart, setSelectedPart] = createSignal<string | null>(null);
   const [hoverPart, setHoverPart] = createSignal<string | null>(null);
-  // A part tapped on a stage over a bottom sheet, where a tap must not swap the
-  // sheet's mode; lit until the question or mode moves on.
+  // A part tapped on the canvas, where a tap must not swap the question card's
+  // mode; lit until the question or mode moves on.
   const [tapped, setTapped] = createSignal<string | null>(null);
   const [viewVersion, setViewVersion] = createSignal<number | null>(null);
   const [versionsOpen, setVersionsOpen] = createSignal(false);
@@ -163,8 +165,13 @@ export function createMockScreen(project: string, slug: string) {
   const [tuneHost, setTuneHost] = createSignal<HTMLElement | null>(null);
   // The width the stage renders the design at, remembered per mock in this browser.
   const [frameW, setFrameWSignal] = createSignal(DESKTOP_W);
+  // Only a width the user picked holds against a design that overflows it.
+  const [widthPicked, setWidthPicked] = createSignal(false);
   // Inspect: the stage alone, full screen, zoomable.
   const [inspect, setInspect] = createSignal(false);
+  // The zoom of Inspect and of the canvas, and the scale the stage last drew at.
+  const [zoom, setZoom] = createSignal<Zoom>("fit");
+  const [stageScale, setStageScale] = createSignal(1);
   // The stage frames' latest parts reports, keyed by frameKey(state, variant).
   const [reports, setReports] = createStore<Record<string, PartsReport | undefined>>({});
 
@@ -620,12 +627,12 @@ export function createMockScreen(project: string, slug: string) {
     userMoved();
     setChosenVariant({ ...chosenVariant(), [String(activeState())]: variant });
   }
-  // Over a bottom sheet a tap on the stage only marks the part: opening Tune
-  // there would cover the stage the user is looking at. With no Tune to open,
+  // On the canvas a tap on the design only marks the part: opening Tune there
+  // would cover the design the user is looking at. With no Tune to open,
   // it marks the part too, so it can still take a reaction.
   function selectPart(part: string | null) {
     setSelectedPart(part);
-    if (sheet() || !tuneShown()) setTapped(part);
+    if (canvasLayout() || !tuneShown()) setTapped(part);
     else if (part && mode() !== "tune") setMode("tune");
   }
   // No Tune tab (nothing to tune): a Tune mode restored from history or set by
@@ -647,11 +654,22 @@ export function createMockScreen(project: string, slug: string) {
         } catch {
           // Unreadable storage: fall back to the default width.
         }
-        setFrameWSignal(readDeviceWidth(stored) ?? defaultDeviceWidth(win().w, coarse()));
+        const declared = mock()?.widths ?? [];
+        const picked = readDeviceWidth(stored, declared);
+        setWidthPicked(picked !== null);
+        setFrameWSignal(picked ?? declared[0] ?? defaultDeviceWidth(win().w, coarse()));
       },
     ),
   );
+  createEffect(() => {
+    // Widths the agent declared are the ones to judge at, overflow or not.
+    if (widthPicked() || (mock()?.widths ?? []).length) return;
+    const v = activeVariant();
+    const w = v && overflowWidth(frameW(), reports[frameKey(v.state, v.variant)]);
+    if (w) setFrameWSignal(w);
+  });
   function setFrameW(w: number) {
+    setWidthPicked(true);
     setFrameWSignal(w);
     const id = mock()?.id;
     if (!id) return;
@@ -934,7 +952,7 @@ export function createMockScreen(project: string, slug: string) {
     if (next !== null) goQuestion(next);
     else goReview();
   }
-  // ←/→ and a swipe: one question at a time, the review after the last.
+  // ←/→ and the arrows: one question at a time, the review after the last.
   function step(by: 1 | -1) {
     const total = questions().length;
     if (!total || mode() !== "questions") return;
@@ -996,7 +1014,8 @@ export function createMockScreen(project: string, slug: string) {
     return o.set ? { key, knobs: o.set } : null;
   }
   // A click, a tap or a number key on an option. On touch the first tap
-  // previews (tapPicks); a key acts as a click, having nothing to hover.
+  // previews on the stage (tapPicks) and a second tap on it picks; a key acts as
+  // a click, having nothing to hover. A pick moves on, as a click does.
   function choose(ask: Ask, optionId: string, hover: boolean) {
     if (readonly()) return;
     const index = cur();
@@ -1013,7 +1032,7 @@ export function createMockScreen(project: string, slug: string) {
     }
     pick(ask, optionId);
     setPreview(null);
-    if (!hover || ask.multi) return;
+    if (ask.multi) return;
     cancelAdvance();
     advanceTimer = host().window.setTimeout(() => {
       if (mode() !== "questions" || reviewing() || cur() !== index) return;
@@ -1200,6 +1219,10 @@ export function createMockScreen(project: string, slug: string) {
     setFrameW,
     inspect,
     setInspect,
+    zoom,
+    setZoom,
+    stageScale,
+    setStageScale,
     marking,
     setMarking,
     threadText,

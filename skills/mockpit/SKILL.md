@@ -17,12 +17,14 @@ The loop never waits for the user:
 
 1. `mockpit init` once per repo; read the brief (`mockpit guide`).
 2. `mockpit publish --mock <slug> --state "<user's words>" --variant <v> --html f.html`,
-   once per variant; mark parts with `data-part`.
+   once per variant; mark parts with `data-part`. The html is the UI alone:
+   say what a variant is in `--note`, never in the design, and name the
+   widths it ships at once with `--widths 390,1280`.
 3. A choice is several variants plus one ask that binds them: `mockpit ask`
    with options bound to variants. A variant decides everything it differs on;
    don't re-ask it. Visual options carry a `variant` or knob `set`. One render
-   plus a control: `--knobs`. When a publish result nudges, send its
-   `suggestedAsk`.
+   plus a control: `--knobs`; declare knobs for what is worth fine-tuning
+   even unasked. When a publish result nudges, send its `suggestedAsk`.
 4. Tell the user in one line where to look, then end your turn. The question
    itself lives in the mock (`ask`), never in chat. The user answers in the
    browser at their own pace. Never poll.

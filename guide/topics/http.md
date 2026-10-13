@@ -29,7 +29,8 @@ call; otherwise each call starts a new session and the reply goes elsewhere.
 B=http://localhost:8228
 curl -s -X POST $B/api/mocks -H 'content-type: application/json' -d '{
   "project": "demo", "mock": "checkout", "title": "Checkout", "state": "Empty cart",
-  "agent": "claude", "knobs": {"pad": [16, 8, 32, 2]},
+  "agent": "claude", "knobs": {"pad": [16, 8, 32, 2]}, "widths": [390, 1280],
+  "note": "One column; the summary carries the empty state",
   "html": "<section data-part=\"summary\" data-part-label=\"Summary\" style=\"padding:calc(var(--k-pad,16)*1px)\">Your cart is empty</section>"}'
 # → {"mock":{…},"post":{…},"sessionId":"S","url":"…","parts":[{"state":"Empty cart","parts":[{"name":"summary","label":"Summary"}]}],"feedback":[]}
 

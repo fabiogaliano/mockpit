@@ -429,6 +429,9 @@ export interface Mock {
   states: string[];
   asks: Ask[];
   knobs: Knobs;
+  // The device widths the mock is judged at, side by side on a canvas; [] lets
+  // the viewer choose one for the screen it is on.
+  widths: number[];
   draft: Draft | null;
   // The agent conversation currently driving this mock (its latest writer), so a
   // reply lands on the cursor of the session that is waiting for it.
@@ -475,6 +478,9 @@ export interface Post {
   history: PostVersion[];
   // Per-part knob overrides for this variant.
   knobs?: Knobs;
+  // A line or two on what this variant is, shown beside it so the design itself
+  // carries no captions. Stays across versions until replaced.
+  note?: string;
   slots: Slot[];
   // Provenance of the CURRENT version — the same three fields a PostVersion
   // carries; on the next update they move into the history entry.
@@ -681,6 +687,7 @@ export interface CreateMockInput {
   kind?: MockKind;
   states?: string[];
   knobs?: Knobs;
+  widths?: number[];
   sessionId?: string | null;
 }
 
@@ -690,6 +697,7 @@ export interface UpdateMockInput {
   states?: string[];
   asks?: Ask[];
   knobs?: Knobs;
+  widths?: number[];
   sessionId?: string | null;
 }
 
@@ -701,6 +709,7 @@ export interface CreatePostInput {
   title?: string;
   surfaces: Surface[];
   knobs?: Knobs;
+  note?: string;
   slots?: Slot[];
   from?: number;
   prompt?: string;
@@ -712,6 +721,8 @@ export interface UpdatePostInput {
   surfaces?: Surface[];
   // undefined keeps, null clears.
   knobs?: Knobs | null;
+  // undefined keeps, "" clears.
+  note?: string;
   slots?: Slot[];
   from?: number;
   prompt?: string;

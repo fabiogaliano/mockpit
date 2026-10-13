@@ -357,6 +357,10 @@ const fail = (status: number, error: string, extra: Record<string, unknown> = {}
   body: { error, ...extra },
 });
 
+const MAX_NOTE = 400;
+const MAX_WIDTHS = 4;
+const MIN_WIDTH = 280;
+const MAX_WIDTH = 2560;
 const str = (v: unknown, max: number): string | undefined =>
   typeof v === "string" && v.trim() ? v.trim().slice(0, max) : undefined;
 
@@ -1166,6 +1170,9 @@ export function createApp({
     const from = Number.isInteger(fromN) && fromN > 0 ? fromN : undefined;
     const prompt = str(body.prompt, MAX_COMMENT_TEXT);
     const author = str(body.author, MAX_TITLE);
+    const note = body.note === undefined ? undefined : (str(body.note, MAX_NOTE) ?? "");
+    const widths = widthsArg(body.widths);
+    if (isResult(widths)) return widths;
 
     // An existing mock is addressable by id before a session exists.
     let mock: Mock | null = null;
@@ -1267,6 +1274,7 @@ export function createApp({
           kind: kind ?? "component",
           states: state === null ? [] : [state],
           knobs: knobs.value,
+          ...(widths ? { widths } : {}),
           sessionId: session.id,
         });
         bus.broadcast({ type: "mock-created", id: mock.id, project });
@@ -1281,13 +1289,21 @@ export function createApp({
         title: title ?? mock.title,
         surfaces,
         ...(Object.keys(variantKnobs.value).length ? { knobs: variantKnobs.value } : {}),
+        ...(note ? { note } : {}),
         slots,
         from,
         prompt,
         author,
       });
       if (!created) return fail(404, "session not found");
-      mock = await updateMockAfterWrite(mock, { state, kind, title, knobs: knobs.value, session });
+      mock = await updateMockAfterWrite(mock, {
+        state,
+        kind,
+        title,
+        knobs: knobs.value,
+        widths,
+        session,
+      });
       announcePost(mock, created, true);
       if (prompt && ctx.request) notifyPublish(mock, created, prompt, ctx);
       return writeResult(mock, created, ctx, { nudges, status: 201 });
@@ -1302,13 +1318,14 @@ export function createApp({
       surfaces,
       title,
       ...(body.variantKnobs !== undefined ? { knobs: variantKnobs.value } : {}),
+      ...(note !== undefined ? { note } : {}),
       slots,
       from,
       prompt,
       author,
     });
     if (!updated) return fail(404, "variant not found");
-    mock = await updateMockAfterWrite(mock, { state, kind, knobs: knobs.value, session });
+    mock = await updateMockAfterWrite(mock, { state, kind, knobs: knobs.value, widths, session });
     announcePost(mock, updated, false);
     if (prompt && ctx.request) notifyPublish(mock, updated, prompt, ctx);
     return writeResult(mock, updated, ctx, {
@@ -1317,6 +1334,20 @@ export function createApp({
       nudges,
       writer: session,
     });
+  }
+
+  // `widths`: the device widths the mock is judged at, in the agent's order;
+  // [] hands the choice back to the viewer.
+  function widthsArg(v: unknown): number[] | FlowResult | undefined {
+    if (v === undefined) return undefined;
+    const bad = `"widths" must be up to ${MAX_WIDTHS} integer px widths between ${MIN_WIDTH} and ${MAX_WIDTH}, e.g. [390, 1280]`;
+    if (!Array.isArray(v) || v.length > MAX_WIDTHS) return fail(400, bad);
+    const out: number[] = [];
+    for (const w of v) {
+      if (!Number.isInteger(w) || w < MIN_WIDTH || w > MAX_WIDTH) return fail(400, bad);
+      if (!out.includes(w)) out.push(w);
+    }
+    return out;
   }
 
   // `parts`: new outer html per part ("name" or "name#key"), spliced into the
@@ -1344,6 +1375,7 @@ export function createApp({
       kind?: MockKind;
       title?: string;
       knobs: Knobs;
+      widths?: number[];
       session: Session | null;
     },
   ): Promise<Mock> {
@@ -1355,6 +1387,7 @@ export function createApp({
       ...(w.kind ? { kind: w.kind } : {}),
       ...(w.title ? { title: w.title } : {}),
       ...(knobs ? { knobs } : {}),
+      ...(w.widths ? { widths: w.widths } : {}),
       ...(w.session ? { sessionId: w.session.id } : {}),
     });
     if (!updated) return mock;

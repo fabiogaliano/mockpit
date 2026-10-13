@@ -61,7 +61,7 @@ const POST_COLUMNS = `
   variant TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', title TEXT NOT NULL,
   surfaces TEXT NOT NULL, knobs TEXT, slots TEXT NOT NULL DEFAULT '[]',
   createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, version INTEGER NOT NULL,
-  curFrom INTEGER, curPrompt TEXT, curAuthor TEXT`;
+  curFrom INTEGER, curPrompt TEXT, curAuthor TEXT, note TEXT`;
 
 // Store implementation on SQLite — a Durable Object's `ctx.storage.sql` in the
 // Worker, or node:sqlite via an adapter on Node (see server/sqliteStorage.ts).
@@ -128,7 +128,8 @@ export class SqlStore implements Store {
         id TEXT PRIMARY KEY, project TEXT NOT NULL, slug TEXT NOT NULL, title TEXT NOT NULL,
         kind TEXT NOT NULL DEFAULT 'component', states TEXT NOT NULL DEFAULT '[]',
         asks TEXT NOT NULL DEFAULT '[]', knobs TEXT NOT NULL DEFAULT '{}', draft TEXT,
-        sessionId TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
+        sessionId TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL,
+        widths TEXT NOT NULL DEFAULT '[]'
       );
       CREATE TABLE IF NOT EXISTS posts (${POST_COLUMNS});
       CREATE TABLE IF NOT EXISTS post_versions (
@@ -159,6 +160,8 @@ export class SqlStore implements Store {
       key: "TEXT",
       agentActiveAt: "TEXT",
     });
+    this.addMissing("mocks", { widths: "TEXT NOT NULL DEFAULT '[]'" });
+    this.addMissing("posts", { note: "TEXT" });
     if (legacy) this.migrateLegacy();
     this.createIndexes();
   }
@@ -538,6 +541,7 @@ export class SqlStore implements Store {
       states: parseJson<string[]>(r.states, []),
       asks: parseJson<Ask[]>(r.asks, []),
       knobs: parseJson<Knobs>(r.knobs, {}),
+      widths: parseJson<number[]>(r.widths, []),
       draft: parseJson<Draft | null>(r.draft, null),
       sessionId: (r.sessionId as string) ?? null,
       createdAt: r.createdAt as string,
@@ -561,6 +565,7 @@ export class SqlStore implements Store {
       version: r.version as number,
       history,
       ...(knobs ? { knobs } : {}),
+      ...(r.note == null ? {} : { note: r.note as string }),
       slots: parseJson<Slot[]>(r.slots, []),
       ...(r.curFrom == null ? {} : { from: r.curFrom as number }),
       ...(r.curPrompt == null ? {} : { prompt: r.curPrompt as string }),
@@ -802,13 +807,14 @@ export class SqlStore implements Store {
       states: (input.states ?? []).map((s) => stripNul(s)),
       asks: [],
       knobs: input.knobs ?? {},
+      widths: input.widths ?? [],
       draft: null,
       sessionId: input.sessionId ?? null,
       createdAt: now,
       updatedAt: now,
     };
     this.sql.exec(
-      "INSERT INTO mocks (id, project, slug, title, kind, states, asks, knobs, draft, sessionId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, '[]', ?, NULL, ?, ?, ?)",
+      "INSERT INTO mocks (id, project, slug, title, kind, states, asks, knobs, widths, draft, sessionId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, '[]', ?, ?, NULL, ?, ?, ?)",
       mock.id,
       mock.project,
       mock.slug,
@@ -816,6 +822,7 @@ export class SqlStore implements Store {
       mock.kind,
       JSON.stringify(mock.states),
       JSON.stringify(mock.knobs),
+      JSON.stringify(mock.widths),
       mock.sessionId,
       mock.createdAt,
       mock.updatedAt,
@@ -833,16 +840,18 @@ export class SqlStore implements Store {
       ...(patch.states !== undefined && { states: patch.states.map((s) => stripNul(s)) }),
       ...(patch.asks !== undefined && { asks: patch.asks }),
       ...(patch.knobs !== undefined && { knobs: patch.knobs }),
+      ...(patch.widths !== undefined && { widths: patch.widths }),
       ...(patch.sessionId !== undefined && { sessionId: patch.sessionId }),
       updatedAt: new Date().toISOString(),
     };
     this.sql.exec(
-      "UPDATE mocks SET title = ?, kind = ?, states = ?, asks = ?, knobs = ?, sessionId = ?, updatedAt = ? WHERE id = ?",
+      "UPDATE mocks SET title = ?, kind = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, updatedAt = ? WHERE id = ?",
       next.title,
       next.kind,
       JSON.stringify(next.states),
       JSON.stringify(next.asks),
       JSON.stringify(next.knobs),
+      JSON.stringify(next.widths),
       next.sessionId,
       next.updatedAt,
       id,
@@ -947,13 +956,14 @@ export class SqlStore implements Store {
       version: 1,
       history: [],
       ...(input.knobs ? { knobs: input.knobs } : {}),
+      ...(stripNul(input.note ?? "").trim() ? { note: stripNul(input.note ?? "").trim() } : {}),
       slots: input.slots ?? [],
       ...(input.from === undefined ? {} : { from: input.from }),
       ...(input.prompt === undefined ? {} : { prompt: stripNul(input.prompt) }),
       ...(input.author === undefined ? {} : { author: stripNul(input.author) }),
     };
     this.sql.exec(
-      "INSERT INTO posts (id, sessionId, mockId, state, variant, status, title, surfaces, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)",
+      "INSERT INTO posts (id, sessionId, mockId, state, variant, status, title, surfaces, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, note) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
       post.id,
       post.sessionId,
       post.mock,
@@ -968,6 +978,7 @@ export class SqlStore implements Store {
       post.from ?? null,
       post.prompt ?? null,
       post.author ?? null,
+      post.note ?? null,
     );
     this.touch(input.sessionId);
     this.touchMock(post.mock, now);
@@ -997,6 +1008,7 @@ export class SqlStore implements Store {
       const surfaces =
         patch.surfaces !== undefined ? normalizeSurfaceIds(patch.surfaces) : post.surfaces;
       const knobs = patch.knobs === undefined ? post.knobs : (patch.knobs ?? undefined);
+      const note = patch.note === undefined ? post.note : stripNul(patch.note).trim() || undefined;
       const slots = patch.slots ?? post.slots;
       const state = patch.state === undefined ? post.state : patch.state;
       const version = post.version + 1;
@@ -1006,10 +1018,11 @@ export class SqlStore implements Store {
       const prompt = stripNul(patch.prompt ?? "");
       const author = patch.author === undefined ? null : stripNul(patch.author);
       this.sql.exec(
-        "UPDATE posts SET title = ?, surfaces = ?, knobs = ?, slots = ?, state = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ? WHERE id = ? AND version = ?",
+        "UPDATE posts SET title = ?, surfaces = ?, knobs = ?, note = ?, slots = ?, state = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ? WHERE id = ? AND version = ?",
         title,
         JSON.stringify(surfaces),
         knobs ? JSON.stringify(knobs) : null,
+        note ?? null,
         JSON.stringify(slots),
         state,
         updatedAt,
@@ -1031,12 +1044,13 @@ export class SqlStore implements Store {
         this.touch(post.sessionId);
         this.touchMock(post.mock, updatedAt);
         if (patch.surfaces !== undefined) this.addAssetRefs(surfaces);
-        const { knobs: _knobs, author: _author, ...rest } = post;
+        const { knobs: _knobs, note: _note, author: _author, ...rest } = post;
         return {
           ...rest,
           title,
           surfaces,
           ...(knobs ? { knobs } : {}),
+          ...(note ? { note } : {}),
           slots,
           state,
           version,

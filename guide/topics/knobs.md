@@ -4,7 +4,8 @@ A knob is a value the user tunes live on one render. Use one when one render
 plus a control shows the choice. A choice is several variants plus one ask
 that binds them; for that, publish variants and ask instead (topic `asks`).
 A 2–3 option knob is a choice: ask with options that `set` it. Publishing
-one returns that nudge.
+one returns that nudge. Declare knobs for what is worth fine-tuning (size,
+spacing, colour, density) even when the user did not ask; they wait in Tune.
 
 ## Declaring
 

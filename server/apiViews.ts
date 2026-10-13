@@ -71,6 +71,7 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
   ...(post.prompt ? { prompt: post.prompt } : {}),
   ...(post.author === undefined ? {} : { author: post.author }),
   ...(post.knobs ? { knobs: post.knobs } : {}),
+  ...(post.note ? { note: post.note } : {}),
   ...(post.slots.length ? { slots: post.slots } : {}),
   // The part names this variant's own markup marks, so the viewer can tell
   // which looks render a part (Mix) without the html bodies.
@@ -164,6 +165,7 @@ export const mockDetailView = (
   asks: mock.asks,
   open: openCount(mock, posts),
   knobs: mock.knobs,
+  widths: mock.widths,
   sessionId: mock.sessionId,
   createdAt: mock.createdAt,
   updatedAt: mock.updatedAt,

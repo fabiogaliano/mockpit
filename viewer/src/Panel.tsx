@@ -1,7 +1,6 @@
-// D4: the panel — header (mock · N tuned), the preset row, the mode row
-// (Questions · Tune · Thread) and the mode's content. When the stage needs the
-// full width it is a bottom sheet (§5): collapsed to its mode row, dragged or
-// tapped open.
+// D4: the panel beside the stage — header (mock · N tuned), the preset row, the
+// mode row (Questions · Tune · Thread) and the mode's content. Where it does not
+// fit beside the stage, the question card takes its place (QuestionCard.tsx).
 
 import {
   createEffect,
@@ -23,7 +22,6 @@ import type { MockScreenState, Mode } from "./state.ts";
 import { Thread, useThreadRows } from "./Thread.tsx";
 import type { TuneState } from "./tune.ts";
 import { Chevron, PartSelector, Tune } from "./Tune.tsx";
-import { sheet } from "./viewport.ts";
 
 const Icon = (props: { d: string[] }) => (
   <svg
@@ -49,7 +47,6 @@ export function Panel(props: { s: MockScreenState; t: TuneState }) {
   const s = props.s;
   const [content, setContent] = createSignal<HTMLElement>();
   const [copied, setCopied] = createSignal(false);
-  const [sheetOpen, setSheetOpen] = createSignal(false);
   const rows = useThreadRows(s);
   const tuned = () => Object.keys(s.draft()?.tuned ?? {}).length;
 
@@ -74,7 +71,6 @@ export function Panel(props: { s: MockScreenState; t: TuneState }) {
       aria-selected={s.mode() === k}
       data-mode={k}
       onClick={() => {
-        if (sheet()) setSheetOpen(true);
         if (s.mode() !== k) s.setMode(k);
       }}
     >
@@ -92,19 +88,7 @@ export function Panel(props: { s: MockScreenState; t: TuneState }) {
   );
 
   return (
-    <aside
-      class="up-shell"
-      classList={{
-        sheet: sheet(),
-        open: sheet() && sheetOpen(),
-        // A preview on stage shrinks the sheet so the change shows above it.
-        "sheet-peek": sheet() && sheetOpen() && !!s.preview(),
-      }}
-      aria-label="Panel"
-    >
-      <Show when={sheet()}>
-        <SheetHandle open={sheetOpen()} setOpen={setSheetOpen} />
-      </Show>
+    <aside class="up-shell" aria-label="Panel">
       <div class="up-header">
         <span class="up-header-title">{s.mock()?.title}</span>
         <div class="up-header-right">
@@ -241,44 +225,5 @@ function PresetBar(props: { s: MockScreenState; copied: boolean; onCopy: () => v
         {props.copied ? "Copied" : "Copy"}
       </button>
     </div>
-  );
-}
-
-// The sheet's grip: a tap toggles it, a drag up opens and a drag down closes.
-function SheetHandle(props: { open: boolean; setOpen: (v: boolean) => void }) {
-  let startY = 0;
-  let moved = 0;
-  const onDown = (e: PointerEvent) => {
-    startY = e.clientY;
-    moved = 0;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  };
-  const onMove = (e: PointerEvent) => {
-    if (e.buttons === 0 && e.pointerType === "mouse") return;
-    moved = e.clientY - startY;
-  };
-  // A drag settles on pointerup; a tap waits for the click. Opening on a tap's
-  // pointerup would slide the sheet under the finger before the browser's
-  // click, which then lands on whatever option is there now.
-  const onUp = () => {
-    if (Math.abs(moved) >= 8) props.setOpen(moved < 0);
-  };
-  const onClick = () => {
-    if (Math.abs(moved) < 8) props.setOpen(!props.open);
-    moved = 0;
-  };
-  return (
-    <button
-      type="button"
-      class="sheet-handle"
-      aria-label={props.open ? "Collapse panel" : "Expand panel"}
-      aria-expanded={props.open}
-      onPointerDown={onDown}
-      onPointerMove={onMove}
-      onPointerUp={onUp}
-      onClick={onClick}
-    >
-      <i />
-    </button>
   );
 }

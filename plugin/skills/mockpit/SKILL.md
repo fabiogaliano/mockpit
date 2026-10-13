@@ -65,8 +65,11 @@ Rules of thumb:
   (mock, state, variant) again makes a new version.
 - A choice is several variants plus one ask that binds them. A variant decides
   everything it differs on; don't re-ask it. Visual options carry a `variant`
-  or knob `set`. One render plus a control → declare a knob. When a publish
-  result nudges, send its `suggestedAsk`.
+  or knob `set`. One render plus a control → declare a knob; declare knobs for
+  what is worth fine-tuning even unasked. When a publish result nudges, send
+  its `suggestedAsk`.
+- The html is the UI alone. Say what a variant is in `note`, never as text
+  beside the design; name the widths it ships at once with `widths`.
 - Ask when a decision is genuinely the user's, not after every publish.
 - Use the kit, tokens and icons from `mockpit guide` before writing CSS.
 - After a context loss: `mockpit read`, then `mockpit read <slug>`.

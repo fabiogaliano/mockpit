@@ -26,8 +26,24 @@ function media(query: string) {
 // A finger, not a mouse: no hover, and the stage scrolls the page natively.
 export const coarse = media("(pointer: coarse)");
 
-// The panel is a bottom sheet under a full-width stage.
-export const sheet = () => !panelBeside(win().w);
+// The panel does not fit beside the stage: the stage is a canvas and the
+// questions float over it.
+export const canvasLayout = () => !panelBeside(win().w);
+
+// Where the canvas starts: under its header, which measures itself.
+const [canvasTopSignal, setCanvasTopSignal] = createRoot(() => createSignal(96));
+export const canvasTop = canvasTopSignal;
+export const setCanvasTop = setCanvasTopSignal;
+
+// The strip of the canvas a question card resting on a side takes.
+const [cardInsetSignal, setCardInsetSignal] = createRoot(() =>
+  createSignal(
+    { left: 0, right: 0 },
+    { equals: (a, b) => a.left === b.left && a.right === b.right },
+  ),
+);
+export const cardInset = cardInsetSignal;
+export const setCardInset = setCardInsetSignal;
 
 // The left and right safe-area insets together (a notched phone held sideways):
 // CSS knows them and script does not, so a hidden probe padded by them is read

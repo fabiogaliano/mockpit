@@ -27,7 +27,6 @@ import {
   isLookAsk,
   type MixOption,
   partBox,
-  swipeStep,
   tapPicks,
 } from "./logic.ts";
 import type { AskField, MockScreenState, Primary } from "./state.ts";
@@ -72,35 +71,8 @@ function QuestionView(props: { s: MockScreenState }) {
     return x ? (x.kind === "mix" ? MIX_KEY : `ask:${x.ask.id}`) : null;
   });
 
-  // A horizontal swipe on the panel steps questions. Touch events, not pointer
-  // events, so the panel's own vertical scroll keeps working; a swipe that
-  // starts on a field, or on an option row that scrolls sideways, is theirs.
-  let start: { x: number; y: number } | null = null;
-  const onTouchStart = (e: TouchEvent) => {
-    start = null;
-    if (e.touches.length !== 1) return;
-    const target = e.target as Element;
-    if (target.closest("textarea, input, select")) return;
-    const row = target.closest<HTMLElement>(".opts");
-    if (row && row.scrollWidth > row.clientWidth + 1) return;
-    start = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-  };
-  const onTouchEnd = (e: TouchEvent) => {
-    const from = start;
-    start = null;
-    const t = e.changedTouches[0];
-    if (!from || !t) return;
-    const by = swipeStep(t.clientX - from.x, t.clientY - from.y);
-    if (by) s.step(by);
-  };
-
   return (
-    <div
-      class="qview"
-      onTouchStart={onTouchStart}
-      onTouchEnd={onTouchEnd}
-      onTouchCancel={() => (start = null)}
-    >
+    <div class="qview">
       <div class="sr-only" aria-live="polite">
         {s.attachStatus()}
       </div>
@@ -114,7 +86,10 @@ function QuestionView(props: { s: MockScreenState }) {
           <Header s={s} index={i()} total={total()} />
         </Show>
         <span class="grow" />
-        <KeysHint s={s} />
+        {/* The shortcuts are keyboard ones; a finger has the arrows beside it. */}
+        <Show when={hoverDevice()}>
+          <KeysHint s={s} />
+        </Show>
         <button
           type="button"
           class="nav"
@@ -224,7 +199,7 @@ function Review(props: { s: MockScreenState }) {
                 onClick={() => s.goQuestion(r.index, { fromReview: true })}
               >
                 <Show when={picture(r.index, r.option)}>
-                  {(p) => <Thumb class="crop review-thumb" fit src={p().src} />}
+                  {(p) => <Thumb width={s.frameW()} class="crop review-thumb" fit src={p().src} />}
                 </Show>
                 <span class="review-text">
                   <span class="review-name">
@@ -277,15 +252,13 @@ function KeysHint(props: { s: MockScreenState }) {
 }
 
 function KeysList() {
-  const rows: [string, string][] = hoverDevice()
-    ? [
-        ["1–9", "pick an option"],
-        ["← →", "previous / next question"],
-        ["Enter", "next, review, send"],
-        ["[ ]", "previous / next mock to answer"],
-        ["Esc", "clear the preview"],
-      ]
-    : [["Swipe ← →", "previous / next question"]];
+  const rows: [string, string][] = [
+    ["1–9", "pick an option"],
+    ["← →", "previous / next question"],
+    ["Enter", "next, review, send"],
+    ["[ ]", "previous / next mock to answer"],
+    ["Esc", "clear the preview"],
+  ];
   return (
     <dl class="keys">
       <For each={rows}>
@@ -408,8 +381,13 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
             };
             const card = () => (
               <OptionCard
-                picture={pic() ? <Thumb class="crop" fit src={pic()!.src} focus={focus()} /> : null}
+                picture={
+                  pic() ? (
+                    <Thumb width={s.frameW()} class="crop" fit src={pic()!.src} focus={focus()} />
+                  ) : null
+                }
                 label={o.label}
+                note={o.variant ? pic()?.variant.note : undefined}
                 on={picked(o)}
                 previewing={s.preview()?.key === keyOf(o)}
                 data={o.id}
@@ -720,7 +698,12 @@ function MixBlock(props: { s: MockScreenState; index: number }) {
         <OptionCard
           picture={
             pictureOf(look(), s.activeState()) ? (
-              <Thumb class="crop" fit src={pictureOf(look(), s.activeState())!} />
+              <Thumb
+                width={s.frameW()}
+                class="crop"
+                fit
+                src={pictureOf(look(), s.activeState())!}
+              />
             ) : null
           }
           label={`No, all ${look()}`}
@@ -748,7 +731,11 @@ function MixBlock(props: { s: MockScreenState; index: number }) {
             const focus = () => partBox(s.reports[frameKey(state(), o.variant)], o.part) ?? null;
             return (
               <OptionCard
-                picture={src() ? <Thumb class="crop" fit src={src()!} focus={focus()} /> : null}
+                picture={
+                  src() ? (
+                    <Thumb width={s.frameW()} class="crop" fit src={src()!} focus={focus()} />
+                  ) : null
+                }
                 label={`${o.part} · ${o.variant}'s`}
                 on={s.draft()?.mix[o.part] === o.variant}
                 previewing={s.preview()?.key === key}
@@ -771,6 +758,8 @@ function OptionCard(props: {
   picture: JSX.Element | null;
   other?: boolean;
   label: string;
+  // What the look is, in the agent's words, under its name.
+  note?: string;
   on: boolean;
   previewing: boolean;
   data: string;
@@ -798,6 +787,9 @@ function OptionCard(props: {
     >
       {props.picture}
       <span class="lbl">{props.label}</span>
+      <Show when={props.note}>
+        <span class="onote">{props.note}</span>
+      </Show>
       <Show when={props.on}>
         <span class="tick">✓</span>
       </Show>

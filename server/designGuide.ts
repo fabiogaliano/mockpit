@@ -271,12 +271,22 @@ feedback on. The same name in two states is the same part. \`data-part-key\`
 tells list items apart and keeps comments anchored across a rename. Never
 declare geometry; the viewer measures it.
 
+## The design is the UI
+
+Publish the screen alone, laid out for the width it ships at: no captions,
+side notes, labels or rationale beside it (they shrink the design on a phone).
+Say what a variant is in \`--note "System font, thin bars; feels like a tool"\`;
+the viewer shows it on the variant and its option. Name the widths the user
+ships to once, \`--widths 390,1280\`, and the design is shown at each, side by
+side; without them the viewer picks one for the screen it is on.
+
 ## Ask or knob
 
 A choice is several variants plus one ask that binds them. Ask it first. A
 variant decides everything it differs on; don't re-ask it. Visual options
 carry a \`variant\` or knob \`set\`. One render plus a control: a knob,
-\`--knobs '{...}'\`.
+\`--knobs '{...}'\`. Declare knobs for what is worth fine-tuning (size,
+spacing, colour, density) even unasked; they wait in Tune.
 
 | knob | control |
 | --- | --- |

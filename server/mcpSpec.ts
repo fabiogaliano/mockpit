@@ -35,6 +35,8 @@ const field = {
   variantKnobs: "Knobs this variant alone has",
   from: "Branch from this version",
   prompt: "What prompted this version; usually omit",
+  note: "What this variant is; shown beside it, never in the html",
+  widths: "Widths it ships at, side by side: [390,1280]",
   kits: `Opt-in bundles: ${KIT_IDS.join("|")}`,
 } as const;
 
@@ -100,7 +102,7 @@ const askSchema = z.object({
 type Param =
   | { t: "string" | "number" | "boolean" | "integer"; d?: string; req?: boolean }
   | { t: "enum"; values: readonly [string, ...string[]]; d?: string; req?: boolean }
-  | { t: "surfaces" | "asks" | "object"; d?: string; req?: boolean };
+  | { t: "surfaces" | "asks" | "object" | "integers"; d?: string; req?: boolean };
 
 function zodParam(p: Param): z.ZodType {
   let s: z.ZodType;
@@ -119,6 +121,9 @@ function zodParam(p: Param): z.ZodType {
       break;
     case "integer":
       s = z.number().int();
+      break;
+    case "integers":
+      s = z.array(z.number().int());
       break;
     default:
       s = p.t === "string" ? z.string() : p.t === "number" ? z.number() : z.boolean();
@@ -166,6 +171,8 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       variantKnobs: { t: "object", d: field.variantKnobs },
       from: { t: "integer", d: field.from },
       prompt: { t: "string", d: field.prompt },
+      note: { t: "string", d: field.note },
+      widths: { t: "integers", d: field.widths },
       session: P.session,
       sessionTitle: { t: "string", d: field.sessionTitle },
       agent: { t: "string", d: field.agent },

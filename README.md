@@ -70,10 +70,12 @@ mockpit turns that into a design-decision loop:
 
 **Home** lists the project's mocks with a thumbnail, their states and how many
 questions are open, with "Answer next ›" to jump to the first one. Dark and
-light themes, toggled from the top bar. On a phone or tablet the panel becomes a
-bottom sheet, the stage scrolls under your finger and renders the design at a
-chosen width (Phone 390, Tablet 744, Desktop 820, Wide 1280), and Inspect opens
-the stage full screen to pan and pinch-zoom it.
+light themes, toggled from the top bar. On a phone or an iPad in portrait the
+design is a canvas you pan and pinch, at each width the agent names (or one you
+pick: Phone 390, Tablet 744, Desktop 820, Wide 1280) side by side, and the
+questions float over it in a card you can snap to a corner, a side or the
+bottom, or tuck against an edge. On a desktop, Inspect opens the stage full
+screen to pan and pinch-zoom it.
 
 ## Quick start
 

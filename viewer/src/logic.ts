@@ -574,6 +574,8 @@ export interface PartsReport {
   width: number;
   height: number;
   scroll: { x: number; y: number };
+  // The document's scroll width: past `width`, the design overflows its frame.
+  scrollW: number;
 }
 
 export const frameKey = (state: string | null, variant: string) => `${state ?? ""}\u0000${variant}`;
@@ -1212,15 +1214,6 @@ export function flowKey(e: {
   return null;
 }
 
-const SWIPE_PX = 56;
-
-// A horizontal swipe moves between questions: a finger travelling left goes
-// to the next one. Mostly-vertical travel is a scroll, and short travel a tap.
-export function swipeStep(dx: number, dy: number): 1 | -1 | 0 {
-  if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) < 2 * Math.abs(dy)) return 0;
-  return dx < 0 ? 1 : -1;
-}
-
 // --- the stage on any screen: device width, layout, zoom ---
 
 // The widths a design is judged at. Desktop is the stage's historical width and
@@ -1243,20 +1236,39 @@ export const defaultDeviceWidth = (winW: number, coarse: boolean): number => {
   return winW <= PHONE_MAX ? DEVICE_WIDTHS[0].w : DEVICE_WIDTHS[1].w;
 };
 
-// A width remembered in storage counts only if it is still one we offer.
-export function readDeviceWidth(raw: string | null): number | null {
-  const n = Number(raw);
-  return DEVICE_WIDTHS.some((d) => d.w === n) ? n : null;
+// A design wider than its frame (a board laid out for a desktop, opened at
+// phone width) is cut off on both sides when it centers itself. Unless the user
+// picked the width, the stage steps up to the next offered one, shrunk to fit,
+// until the design fits or the widest is reached. Only a report measured at
+// this width counts: one from before the last step would step twice.
+export function overflowWidth(frameW: number, r: PartsReport | undefined): number | null {
+  if (!r || r.width !== frameW || r.scrollW <= frameW + 1) return null;
+  return DEVICE_WIDTHS.find((d) => d.w > frameW)?.w ?? null;
 }
 
+// A width remembered in storage counts only if it is still one we offer, or
+// one the mock itself asks to be judged at.
+export function readDeviceWidth(raw: string | null, declared: number[] = []): number | null {
+  const n = Number(raw);
+  return DEVICE_WIDTHS.some((d) => d.w === n) || declared.includes(n) ? n : null;
+}
+
+// A device width by name where it is one we know ("Phone 390"), else its px.
+export const widthLabel = (w: number): string => {
+  const d = DEVICE_WIDTHS.find((x) => x.w === w);
+  return d ? d.label : `${w}`;
+};
+
 // The panel sits beside the stage only while the stage keeps a readable width
-// next to it; below that it becomes a bottom sheet under a full-width stage.
+// next to it; below that the stage is a canvas and the questions float over it.
 export const PANEL_W = 380;
 const PANEL_GUTTERS = 72;
 const MIN_STAGE_W = 480;
 export const panelBeside = (winW: number): boolean => winW >= PANEL_W + PANEL_GUTTERS + MIN_STAGE_W;
 
-// Inspect zooms between fitting the screen and twice the design's size.
+// Inspect zooms between fitting the screen and twice the design's size; the
+// canvas also zooms out to "all", every width side by side.
+export type Zoom = "fit" | "all" | number;
 export const MAX_ZOOM = 2;
 export const clampZoom = (z: number, fit: number): number =>
   Math.max(Math.min(fit, 1), Math.min(MAX_ZOOM, Number.isFinite(z) ? z : fit));

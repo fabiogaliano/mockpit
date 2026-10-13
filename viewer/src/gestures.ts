@@ -1,5 +1,5 @@
-// Inspect's touch gestures on the stage overlay, which alone has touch-action:
-// none there: one finger pans the scroller, two pinch it between fit and 2×.
+// The touch gestures of Inspect and the canvas, on the stage overlay and the
+// artboards, which alone have touch-action: none there: one finger pans the scroller, two pinch it between fit and 2×.
 // Pointer Events only (no WebKit gesture events), and the page's own zoom is
 // never disabled.
 
@@ -9,6 +9,8 @@ import { clampZoom, zoomScroll } from "./logic.ts";
 export function useInspectGestures(opts: {
   scroller: () => HTMLElement;
   enabled: () => boolean;
+  // The whole scroller is the surface (the canvas), not just what is drawn on it.
+  anywhere?: () => boolean;
   scale: () => number;
   fit: () => number;
   setZoom: (z: number) => void;
@@ -34,7 +36,9 @@ export function useInspectGestures(opts: {
   const down = (e: PointerEvent) => {
     if (touches.size === 0) swallowClick = false;
     if (!opts.enabled() || e.pointerType !== "touch") return;
-    if (!(e.target as Element).closest?.(".overlay")) return;
+    // The live frame's overlay, or an artboard of another width beside it; on
+    // the canvas, the empty space between and around them too.
+    if (!opts.anywhere?.() && !(e.target as Element).closest?.(".overlay, .board")) return;
     const el = opts.scroller();
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (touches.size === 1) panFrom(el, e.clientX, e.clientY);

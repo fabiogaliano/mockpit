@@ -3,7 +3,6 @@
 // hide, and the count says how many there are.
 import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js";
 import type { MockScreenState } from "./state.ts";
-import { sheet } from "./viewport.ts";
 
 export function Strip(props: { s: MockScreenState }) {
   const s = props.s;
@@ -41,7 +40,7 @@ export function Strip(props: { s: MockScreenState }) {
   return (
     <Show when={n() > 1}>
       <div class="stripwrap">
-        <div class="cap">{sheet() ? `${n()} states` : `showing ${n()} UI states`}</div>
+        <div class="cap">{`showing ${n()} UI states`}</div>
         <div
           class="strip"
           classList={{ "fade-start": edges().start, "fade-end": edges().end }}

@@ -32,11 +32,9 @@ test("on touch, plain options pick on one tap and the reply reaches the agent", 
   await page.goto(`${server.url}${mockPath}`);
   expect(await page.evaluate(() => matchMedia("(hover: hover)").matches)).toBe(false);
   const next = page.getByRole("button", { name: "Next question" });
-  // A phone gets the panel as a bottom sheet, collapsed to its mode row.
-  await page.getByRole("button", { name: "Expand panel" }).tap();
 
-  // Q1, variant options: the first tap previews, the second picks. The tap
-  // that opened the sheet must not land on the option that slid under it.
+  // Q1, variant options: the first tap previews, the second picks. The
+  // questions are in view from the start: nothing to open first.
   await expect(header(page)).toContainText("Question 1 of 3");
   await expect(onStage(page)).toHaveAttribute("data-variant", "quiet");
   await expect(page.locator(".opt.previewing")).toHaveCount(0);
@@ -106,30 +104,30 @@ async function swipe(page: Page, selector: string, dx: number) {
   }, dx);
 }
 
-test("on touch, a sideways swipe on the panel moves between questions and on to the review", async ({
+test("on touch, the arrows move between questions and on to the review; a swipe does not", async ({
   page,
   server,
 }) => {
   await seedWriter(server.url);
   await page.goto(`${server.url}${mockPath}`);
-  await page.getByRole("button", { name: "Expand panel" }).tap();
   await expect(header(page)).toContainText("Question 1 of 3");
 
+  // A sideways swipe is left to the page: it never steps questions.
   await swipe(page, ".qblock .ask", -120);
-  await expect(header(page)).toContainText("Question 2 of 3");
-  await swipe(page, ".qblock .ask", 120);
   await expect(header(page)).toContainText("Question 1 of 3");
-  // Too short, or mostly a scroll: not a swipe.
-  await swipe(page, ".qblock .ask", -30);
-  await expect(header(page)).toContainText("Question 1 of 3");
+  await expect(page.getByRole("button", { name: "Shortcuts" })).toHaveCount(0);
 
+  const next = page.getByRole("button", { name: "Next question" });
   for (const n of [2, 3]) {
-    await swipe(page, ".qblock .ask", -120);
+    await next.tap();
     await expect(header(page)).toContainText(`Question ${n} of 3`);
   }
-  await swipe(page, ".qblock .ask", -120);
+  await page.getByRole("button", { name: "Previous question" }).tap();
+  await expect(header(page)).toContainText("Question 2 of 3");
+  await next.tap();
+  await next.tap();
   await expect(header(page)).toContainText("Review · 3 questions");
-  // The review's Send sits pinned at the bottom of the sheet, inside the screen.
+  // The review's Send sits pinned at the bottom of the card, inside the screen.
   const actions = page.locator(".qactions");
   await expect(actions).toHaveCount(1);
   const box = await actions.boundingBox();

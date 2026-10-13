@@ -103,7 +103,10 @@ consciously, not as a side effect):
   `mcp/server.ts` — stdio MCP, a thin client over the HTTP API.
 - `viewer/` — Solid + TypeScript in `viewer/src/`, Vite-built into one
   self-contained `viewer/dist/index.html`. `Home` (mock list), `MockScreen`
-  (`TopBar`, `Stage` + `Strip`, `Panel`), `Stage` (frames, part overlay, pins,
+  (`TopBar`, `Stage` + `Strip`, `Panel` beside the stage; where the panel does
+  not fit, `CanvasHead`, the stage as a pannable canvas with the mock's other
+  `widths` as picture-only artboards beside the live frame, and `QuestionCard`
+  floating over it, snapping per `dock.ts`), `Stage` (frames, part overlay, pins,
   hit-testing through the bridge), `Panel` (`Questions` · `Tune` · `Thread`),
   `Versions`, `Thumb` (shrunk sandboxed frames for Home and option pictures);
   `state.ts` (the mock screen's state and actions), `logic.ts` (pure rules),
@@ -218,7 +221,7 @@ npm run lint         # oxlint, warnings are errors
 npm run format:check # oxfmt
 npm run security:audit
 npm run test:e2e     # Playwright, chromium + webkit (separate CI job): bridge,
-                     # mock-screen, decide-flow; builds the viewer first
+                     # mock-screen, decide-flow, touch, mobile; builds the viewer first
 npm run bench        # performance suite (separate CI job); bench:check gates it
 ```
 
