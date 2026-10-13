@@ -4,6 +4,7 @@
 import { createEffect, For, on, onCleanup, onMount, Show } from "solid-js";
 import { readonly } from "./host.ts";
 import { DEVICE_WIDTHS } from "./logic.ts";
+import { ReactionBar } from "./Reactions.tsx";
 import type { MockScreenState } from "./state.ts";
 
 export function StageHead(props: {
@@ -98,6 +99,21 @@ export function StageHead(props: {
           </For>
         </div>
       </Show>
+      {/* With one variant, Accept / Revise / Drop already say this. */}
+      <Show when={!readonly() && siblings().length > 1 && v()}>
+        {(variant) => (
+          <ReactionBar
+            s={s}
+            part={null}
+            about={`variant ${variant().variant}`}
+            name={variant().variant}
+            class="variant-reactions"
+          />
+        )}
+      </Show>
+      <div class="sr-only" role="status">
+        {s.reactStatus()}
+      </div>
       <div class="stage-tools">
         <label class="widthpick" title="The width the design renders at">
           <span class="sr-only">Width</span>

@@ -42,6 +42,7 @@ import {
   type PartsReport,
   reportIsCurrent,
 } from "./logic.ts";
+import { PartReactions } from "./Reactions.tsx";
 import type { MockScreenState } from "./state.ts";
 import { StageHead } from "./StageHead.tsx";
 import { theme } from "./theme.ts";
@@ -450,11 +451,12 @@ function VariantFrame(props: {
   let primaryWrap: HTMLDivElement | undefined;
   const [primaryTop, setPrimaryTop] = createSignal(0);
 
+  const measure = () => {
+    if (!column) return;
+    props.onContent(column.offsetHeight);
+    if (primaryWrap) setPrimaryTop(primaryWrap.offsetTop);
+  };
   onMount(() => {
-    const measure = () => {
-      props.onContent(column.offsetHeight);
-      if (primaryWrap) setPrimaryTop(primaryWrap.offsetTop);
-    };
     const ro = new ResizeObserver(measure);
     ro.observe(column);
     measure();
@@ -500,6 +502,16 @@ function VariantFrame(props: {
     if (i === primary()) return Math.min(h ?? 640, Math.max(160, props.capH));
     return h ?? 160;
   };
+  // A frame's new height is measured in the same task it is set. ResizeObserver
+  // alone only reports on WebKit's next rendering update, and until then the
+  // stage keeps the old height and the page below the fold can't be scrolled to.
+  createEffect(
+    on(
+      () => kinds().map((_, i) => surfaceH(i)),
+      () => measure(),
+      { defer: true },
+    ),
+  );
 
   return (
     <div
@@ -774,12 +786,24 @@ function Overlay(props: {
             );
           }}
         </Index>
+        <Show when={!readonly() && !s.marking() && !props.pending ? box(s.reactPart()) : null}>
+          {(b) => (
+            <PartReactions
+              s={s}
+              r={b().r}
+              label={b().p.label}
+              part={b().p.name}
+              width={props.frameW * props.scale}
+              height={props.height}
+            />
+          )}
+        </Show>
         <Show when={props.pending}>
           {(p) => (
             <MarkField
               n={nextMark(s.draft()?.comments ?? [])}
               at={toView(p().x, p().y)}
-              width={layer.clientWidth}
+              width={props.frameW * props.scale}
               height={props.height}
               where={p().part === undefined ? "" : (p().part ?? "page")}
               onSave={save}
@@ -844,7 +868,7 @@ function MarkField(props: {
           onInput={(e) => setValue(e.currentTarget.value)}
           enterkeyhint="done"
           onKeyDown={(e) => {
-            if (e.key === "Enter") submit();
+            if (e.key === "Enter" && !e.isComposing) submit();
           }}
         />
         <div class="markfield-actions">
