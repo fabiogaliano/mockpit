@@ -36,6 +36,7 @@ It returns at once:
         "mix": { "body": "quiet" },
         "tuned": { "body.size": 19 },
         "comments": [{ "part": "title", "state": "Writing", "text": "bigger" }],
+        "reactions": ["👍 part \"title\" (variant dark, state Writing)"],
         "text": "close, go dark"
       },
       "comments": [],
@@ -81,7 +82,10 @@ taking any feedback.
    the other look into the chosen one. If `mix` conflicts with an answer, the
    answer wins.
 4. `comments` are anchored on a part in a state (`part: null` means no part).
-   Address each one.
+   Address each one. `reactions` are one-tap verdicts, one line each:
+   👍 keep it, 👎 rework it, "more like this" go further that way. A reaction
+   without a part is about the whole variant; one may end with the user's
+   note in quotes. Reactions never also appear in `comments`.
 5. `decision` (`{kind: accept|revise|drop, state, variant}`) comes instead of
    answers when the mock has no asks and the user pressed Accept, Revise or
    Drop.

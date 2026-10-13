@@ -1,6 +1,8 @@
 // The mock screen: top bar, the stage with its state strip, and the panel.
 
 import { Show } from "solid-js";
+import { useFlowKeys } from "./flowKeys.ts";
+import { CarriedChip } from "./NextCard.tsx";
 import { linkClick, projectPath } from "./route.ts";
 import { Panel } from "./Panel.tsx";
 import { Stage } from "./Stage.tsx";
@@ -13,6 +15,7 @@ import { sheet } from "./viewport.ts";
 export function MockScreen(props: { project: string; slug: string }) {
   const s = createMockScreen(props.project, props.slug);
   const t = createTune(s);
+  useFlowKeys(s);
   const home = () => projectPath(props.project);
   return (
     <div class="screen mock-screen" classList={{ sheeted: sheet(), inspecting: s.inspect() }}>
@@ -30,22 +33,25 @@ export function MockScreen(props: { project: string; slug: string }) {
           <Show
             when={s.sent()}
             fallback={
-              <Show when={s.mode() !== "questions" && s.owed().length > 0}>
-                <button
-                  type="button"
-                  class="pill reopen"
-                  onClick={() => {
-                    const first = s.owed()[0];
-                    const i = s
-                      .questions()
-                      .findIndex((q) => q.kind === "ask" && q.ask.id === first.id);
-                    s.goQuestion(Math.max(0, i));
-                  }}
-                >
-                  <i class="dot" />
-                  {`${s.owed().length} open ›`}
-                </button>
-              </Show>
+              <>
+                <CarriedChip project={props.project} slug={props.slug} />
+                <Show when={s.mode() !== "questions" && s.owed().length > 0}>
+                  <button
+                    type="button"
+                    class="pill reopen"
+                    onClick={() => {
+                      const first = s.owed()[0];
+                      const i = s
+                        .questions()
+                        .findIndex((q) => q.kind === "ask" && q.ask.id === first.id);
+                      s.goQuestion(Math.max(0, i));
+                    }}
+                  >
+                    <i class="dot" />
+                    {`${s.owed().length} open ›`}
+                  </button>
+                </Show>
+              </>
             }
           >
             <Show when={s.nudgeAgent()}>

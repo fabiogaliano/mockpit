@@ -16,6 +16,7 @@ import {
 } from "solid-js";
 import { host, root } from "./host.ts";
 import { tunedLines } from "./logic.ts";
+import { NextCard } from "./NextCard.tsx";
 import { loadPresets, type Preset, storePresets } from "./presets.ts";
 import { Questions } from "./Questions.tsx";
 import type { MockScreenState, Mode } from "./state.ts";
@@ -93,7 +94,12 @@ export function Panel(props: { s: MockScreenState; t: TuneState }) {
   return (
     <aside
       class="up-shell"
-      classList={{ sheet: sheet(), open: sheet() && sheetOpen() }}
+      classList={{
+        sheet: sheet(),
+        open: sheet() && sheetOpen(),
+        // A preview on stage shrinks the sheet so the change shows above it.
+        "sheet-peek": sheet() && sheetOpen() && !!s.preview(),
+      }}
       aria-label="Panel"
     >
       <Show when={sheet()}>
@@ -121,6 +127,7 @@ export function Panel(props: { s: MockScreenState; t: TuneState }) {
           </Show>
         </div>
       </div>
+      <NextCard s={s} />
       <div class="up-content" ref={setContent}>
         <Switch>
           <Match when={s.mode() === "questions"}>

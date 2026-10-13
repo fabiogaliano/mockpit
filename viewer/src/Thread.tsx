@@ -109,7 +109,7 @@ function CommentField(props: { s: MockScreenState }) {
         value={s.threadText()}
         disabled={busy()}
         onInput={(e) => s.setThreadText(e.currentTarget.value)}
-        onKeyDown={(e) => e.key === "Enter" && void submit()}
+        onKeyDown={(e) => e.key === "Enter" && !e.isComposing && void submit()}
       />
     </label>
   );

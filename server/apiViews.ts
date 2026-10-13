@@ -4,6 +4,7 @@
 import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
 import {
   isSandboxedSurfaceKind,
+  draftedCount,
   type Mock,
   openCount,
   type Post,
@@ -126,21 +127,26 @@ function thumbnail(mock: Mock, posts: Post[]) {
   return { postId: pick.id, surface: Math.max(surface, 0), version: pick.version };
 }
 
-export const mockSummaryView = (mock: Mock, posts: Post[]) => ({
-  id: mock.id,
-  project: mock.project,
-  slug: mock.slug,
-  title: mock.title,
-  kind: mock.kind,
-  states: mock.states,
-  stateCount: Math.max(mock.states.length, 1),
-  variants: posts.length,
-  open: openCount(mock, posts),
-  sessionId: mock.sessionId,
-  createdAt: mock.createdAt,
-  updatedAt: mock.updatedAt,
-  thumbnail: thumbnail(mock, posts),
-});
+export const mockSummaryView = (mock: Mock, posts: Post[]) => {
+  const drafted = draftedCount(mock, posts);
+  return {
+    id: mock.id,
+    project: mock.project,
+    slug: mock.slug,
+    title: mock.title,
+    kind: mock.kind,
+    states: mock.states,
+    stateCount: Math.max(mock.states.length, 1),
+    variants: posts.length,
+    open: openCount(mock, posts),
+    // Only once the user has started one, so a list with no drafts costs nothing.
+    ...(drafted === null ? {} : { drafted }),
+    sessionId: mock.sessionId,
+    createdAt: mock.createdAt,
+    updatedAt: mock.updatedAt,
+    thumbnail: thumbnail(mock, posts),
+  };
+};
 
 // One mock as anyone outside the viewer's own draft sees it: the draft is the
 // user's unsent work and never leaves through this view.

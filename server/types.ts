@@ -350,11 +350,21 @@ export interface PartCommentAnchor {
   // at another width, so the agent and the viewer can tell which layout it meant.
   width?: number;
 }
+// A one-tap verdict on a part (or, with part null, on the variant itself),
+// for a reviewer on a phone who would rather not type: like, dislike, or
+// "more like this". Rides as a part comment, so it travels in the one reply.
+export const REACTIONS = ["up", "down", "more"] as const;
+export type Reaction = (typeof REACTIONS)[number];
+
 export interface PartComment {
   part: string | null;
   state: string | null;
+  // "" on a reaction with nothing typed.
   text: string;
   anchor?: PartCommentAnchor;
+  reaction?: Reaction;
+  // The variant on stage when the reaction was made: the same part differs by look.
+  variant?: string;
 }
 
 // What a reply decides about one variant outside the ask flow (the plain
@@ -927,11 +937,11 @@ export const openAsks = (mock: Pick<Mock, "asks">): Ask[] =>
 // rule as viewer/src/logic.ts builtinAsks, so Home, `read` and `pending` count
 // the question the user actually sees. Answering it archives the losers, which
 // is what makes it stop counting.
-export function builtinAskCount(
+export function builtinAskIds(
   mock: Pick<Mock, "asks" | "states">,
   posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
   mockId: string,
-): number {
+): string[] {
   const live = (state: string | null) =>
     posts
       .filter((p) => p.mock === mockId && p.state === state && p.status !== "archived")
@@ -947,18 +957,42 @@ export function builtinAskCount(
   };
   const states = mock.states.length ? mock.states : [null];
   const needing = states.filter(needs);
-  if (!needing.length) return 0;
+  if (!needing.length) return [];
   const key = (state: string | null) => [...live(state)].sort().join("\n");
   const first = key(needing[0]);
   return needing.length === states.length && states.every((st) => key(st) === first)
-    ? 1
-    : needing.length;
+    ? [BUILTIN_ASK_ID]
+    : needing.map((st) => (st === null ? BUILTIN_ASK_ID : `${BUILTIN_ASK_ID}:${st}`));
 }
+
+export const builtinAskCount = (
+  mock: Pick<Mock, "asks" | "states">,
+  posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
+  mockId: string,
+): number => builtinAskIds(mock, posts, mockId).length;
 
 export const openCount = (
   mock: Pick<Mock, "id" | "asks" | "states">,
   posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
 ): number => openAsks(mock).length + builtinAskCount(mock, posts, mock.id);
+
+// How many of the open asks the user's unsent draft already speaks for (a
+// pick, a write-in or a note), so Home can show a started mock as "draft 2/4";
+// null when there is no draft. A count only: the draft's content stays private.
+export function draftedCount(
+  mock: Pick<Mock, "id" | "asks" | "states" | "draft">,
+  posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
+): number | null {
+  const d = mock.draft;
+  if (!d) return null;
+  const open = [...openAsks(mock).map((a) => a.id), ...builtinAskIds(mock, posts, mock.id)];
+  const said = (id: string) => {
+    const a = d.answers[id];
+    const picked = Array.isArray(a) ? a.length > 0 : a !== undefined;
+    return picked || d.others?.[id] !== undefined || d.notes?.[id] !== undefined;
+  };
+  return open.filter(said).length;
+}
 
 // The viewer's built-in "Which one?" for variants no agent ask binds: `variant`
 // mock-wide, `variant:<state>` per state. Never stored; synthesized from the

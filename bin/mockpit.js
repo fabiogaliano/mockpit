@@ -1022,6 +1022,7 @@ function watchLines(batch) {
             .join(", ")}`
         : "",
       r.comments?.length ? `${r.comments.length} comment${r.comments.length === 1 ? "" : "s"}` : "",
+      r.reactions?.length ? r.reactions.join(", ") : "",
       r.decision ? r.decision.kind : "",
       r.text ?? "",
     ].filter(Boolean);

@@ -149,7 +149,9 @@ export function Tune(props: { s: MockScreenState; t: TuneState }) {
     const p = part();
     return p ? statesWith(s, p) : [];
   });
-  const mine = createMemo(() => (s.draft()?.comments ?? []).filter((c) => c.part === part()));
+  const mine = createMemo(() =>
+    (s.draft()?.comments ?? []).filter((c) => c.part === part() && !c.reaction),
+  );
   const submit = () => {
     const body = text().trim();
     if (!body) return;
@@ -225,7 +227,7 @@ export function Tune(props: { s: MockScreenState; t: TuneState }) {
               placeholder={`on ${part() ?? "the page"}…`}
               value={text()}
               onInput={(e) => setText(e.currentTarget.value)}
-              onKeyDown={(e) => e.key === "Enter" && submit()}
+              onKeyDown={(e) => e.key === "Enter" && !e.isComposing && submit()}
             />
           </label>
         </Show>

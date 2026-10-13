@@ -290,6 +290,7 @@ const feedbackSchema = o({
     mix: bag,
     tuned: bag,
     comments: z.array(o({ part: nullStr, text: str })),
+    reactions: strs.optional().describe('One-tap reactions, e.g. 👍 part "hero" (variant B)'),
   })
     .nullable()
     .describe("The user's Send; null if only comments"),

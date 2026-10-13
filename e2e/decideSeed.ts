@@ -123,6 +123,23 @@ export async function seedWriter(server: string): Promise<Seeded> {
   return { mockId, session, posts };
 }
 
+// A one-variant mock with one plain ask, published after whatever came before
+// it, so it queues behind earlier mocks.
+export async function seedAsked(server: string, slug: string, title: string) {
+  const out = await agentCall(server, "/api/mocks", {
+    project: PROJECT,
+    mock: slug,
+    title,
+    agent: "e2e",
+    html: `<p>${title}</p>`,
+  });
+  await agentCall(server, `/api/mocks/${out.mock.id}/asks`, {
+    session: out.sessionId,
+    asks: [{ id: "tone", text: "Which tone?", options: ["Warm", "Plain"] }],
+  });
+  return { mockId: out.mock.id as string, session: out.sessionId as string };
+}
+
 // A new version of an existing variant: publish addresses it by mock id.
 export async function revise(
   server: string,

@@ -11,20 +11,25 @@ import {
   type KnobValue,
   MAX_ASK_IMAGES,
   type PartCommentAnchor,
+  type Reaction,
   type ReplyDecision,
 } from "../../server/types.ts";
+import { reactionOf, reactionStatus, toggleReaction } from "./reactionRules.ts";
 import {
   api,
   type CommentRow,
   type DraftInput,
   type MockDetail,
+  type MockSummary,
   subscribe,
   watchMock,
 } from "./api.ts";
 import { extensionOf, prepareImage, rejectReason } from "./attach.ts";
-import { host } from "./host.ts";
+import { setCarried } from "./carry.ts";
+import { host, readonly } from "./host.ts";
 import {
   answerIds,
+  askName,
   askState,
   builtinAsks,
   carryOver,
@@ -40,13 +45,18 @@ import {
   mixSettled,
   pruneMix,
   mockVersion,
+  nextOwedMock,
   type PartsReport,
   pickInDraft,
   readDeviceWidth,
+  reviewRows,
+  sendCount,
   setAskField,
+  tapPicks,
   tuneVisible,
   unanswered,
 } from "./logic.ts";
+import { mockPath, navigate } from "./route.ts";
 import { setTheme } from "./theme.ts";
 import { coarse, sheet, win } from "./viewport.ts";
 
@@ -73,7 +83,27 @@ export interface Preview {
   part?: string;
 }
 
+// What the primary button under the questions does now.
+export type Primary =
+  | { kind: "next"; to: number }
+  | { kind: "review" }
+  | { kind: "back" }
+  | { kind: "send"; count: number }
+  | { kind: "owed"; to: number }
+  | null;
+
+// Where Send leaves the user: the next mock still owing answers (null when none
+// does), and whether the screen is about to carry them there on its own.
+export interface AfterSend {
+  next: MockSummary | null;
+  auto: boolean;
+}
+
 const SAVE_MS = 300;
+// Long enough to read "Next: …" and press Stay, short enough to feel carried.
+const FORWARD_MS = 1600;
+// A pick on a hover device moves on after a beat, so the tick is seen landing.
+const ADVANCE_MS = 450;
 // Long enough for an agent that is watching to pick a reply up.
 const BEAT_MS = 4000;
 
@@ -87,6 +117,12 @@ export function createMockScreen(project: string, slug: string) {
   const [preview, setPreview] = createSignal<Preview | null>(null);
   const [mode, setModeSignal] = createSignal<Mode>("questions");
   const [cur, setCur] = createSignal(0);
+  // The review step after the last question: every answer as a row, and Send.
+  const [reviewing, setReviewing] = createSignal(false);
+  // A question opened from a review row: a pick there goes back to the review.
+  const [returning, setReturning] = createSignal(false);
+  const [afterSend, setAfterSend] = createSignal<AfterSend | null>(null);
+  const [keysOpen, setKeysOpen] = createSignal(false);
   // The part picked on the stage, shown in Tune; null is the page ("Look").
   const [selectedPart, setSelectedPart] = createSignal<string | null>(null);
   const [hoverPart, setHoverPart] = createSignal<string | null>(null);
@@ -112,6 +148,8 @@ export function createMockScreen(project: string, slug: string) {
   const [uploads, setUploads] = createSignal<Record<string, PendingImage[]>>({});
   // The last attach/remove, for a polite live region.
   const [attachStatus, setAttachStatus] = createSignal("");
+  // The last reaction tap, for a polite live region.
+  const [reactStatus, setReactStatus] = createSignal("");
   // The Mark tool (D11): while on, a click on the stage leaves a comment there.
   const [marking, setMarking] = createSignal(false);
   // Thread's comment field; a frame's sendPrompt fills it.
@@ -315,6 +353,9 @@ export function createMockScreen(project: string, slug: string) {
       setSent(false);
       setError(null);
     });
+    // Answering again here means staying: no carrying off to the next mock.
+    host().window.clearTimeout(forwardTimer);
+    setAfterSend(null);
     pending = next;
     lastLocalWrite = Date.now();
     host().window.clearTimeout(saveTimer);
@@ -379,8 +420,13 @@ export function createMockScreen(project: string, slug: string) {
     await Promise.all([loadDraft(), loadComments()]);
     const m = mock();
     if (!m) return;
-    // Open on the first question still owed, on the state it is about.
+    // Open on the first question still owed, on the state it is about; a draft
+    // that already answers everything resumes on its review, one tap from Send.
     const first = owed()[0];
+    if (!first && questions().length && !draftIsEmpty(draft())) {
+      goReview({ history: false });
+      return;
+    }
     const idx = first ? questions().findIndex((q) => q.kind === "ask" && q.ask.id === first.id) : 0;
     goQuestion(Math.max(0, idx), { history: false });
   }
@@ -445,6 +491,7 @@ export function createMockScreen(project: string, slug: string) {
     state: string | null;
     mode: Mode;
     cur: number;
+    review: boolean;
     view: number | null;
   };
   const snap = (): Snap => ({
@@ -452,6 +499,7 @@ export function createMockScreen(project: string, slug: string) {
     state: activeState(),
     mode: mode(),
     cur: cur(),
+    review: reviewing(),
     view: viewVersion(),
   });
   function record(replace: boolean) {
@@ -462,10 +510,13 @@ export function createMockScreen(project: string, slug: string) {
   function restoreSnap(s: unknown) {
     if (!s || typeof s !== "object" || (s as Snap).mockpit !== "mock") return false;
     const v = s as Snap;
+    cancelAdvance();
     batch(() => {
       setActiveState(v.state);
       setModeSignal(v.mode);
       setCur(v.cur);
+      setReviewing(!!v.review);
+      setReturning(false);
       setViewVersion(v.view);
       setPreview(null);
       setVersionsOpen(false);
@@ -473,11 +524,27 @@ export function createMockScreen(project: string, slug: string) {
     return true;
   }
 
-  function goQuestion(i: number, opts: { history?: boolean } = {}) {
+  // A pick's move-on, pending for a beat. Any other move cancels it: the user
+  // has gone elsewhere, and coming back to the same question must not let the
+  // stale move fire then.
+  let advanceTimer = 0;
+  const cancelAdvance = () => host().window.clearTimeout(advanceTimer);
+  onCleanup(cancelAdvance);
+  // Any move the user makes on this screen after a Send means they are still
+  // here: neither a pending move-on nor the carry to the next mock may fire.
+  const userMoved = () => {
+    cancelAdvance();
+    stayHere();
+  };
+
+  function goQuestion(i: number, opts: { history?: boolean; fromReview?: boolean } = {}) {
+    userMoved();
     const q = questions()[i];
     const m = mock();
     batch(() => {
       setCur(i);
+      setReviewing(false);
+      setReturning(!!opts.fromReview);
       setModeSignal("questions");
       setTapped(null);
       setPreview(null);
@@ -489,8 +556,20 @@ export function createMockScreen(project: string, slug: string) {
     if (opts.history !== false) record(false);
     else record(true);
   }
+  function goReview(opts: { history?: boolean } = {}) {
+    userMoved();
+    batch(() => {
+      setReviewing(true);
+      setReturning(false);
+      setModeSignal("questions");
+      setTapped(null);
+      setPreview(null);
+    });
+    record(opts.history === false);
+  }
   function setMode(next: Mode) {
-    if (next === "questions") return goQuestion(cur());
+    if (next === "questions") return reviewing() ? goReview() : goQuestion(cur());
+    userMoved();
     batch(() => {
       setModeSignal(next);
       setPreview(null);
@@ -499,6 +578,7 @@ export function createMockScreen(project: string, slug: string) {
     record(false);
   }
   function showState(state: string | null) {
+    userMoved();
     batch(() => {
       setActiveState(state);
       setPreview(null);
@@ -506,13 +586,15 @@ export function createMockScreen(project: string, slug: string) {
     record(true);
   }
   function chooseVariant(variant: string) {
+    userMoved();
     setChosenVariant({ ...chosenVariant(), [String(activeState())]: variant });
   }
   // Over a bottom sheet a tap on the stage only marks the part: opening Tune
-  // there would cover the stage the user is looking at.
+  // there would cover the stage the user is looking at. With no Tune to open,
+  // it marks the part too, so it can still take a reaction.
   function selectPart(part: string | null) {
     setSelectedPart(part);
-    if (sheet()) setTapped(part);
+    if (sheet() || !tuneShown()) setTapped(part);
     else if (part && mode() !== "tune") setMode("tune");
   }
   // No Tune tab (nothing to tune): a Tune mode restored from history or set by
@@ -549,15 +631,19 @@ export function createMockScreen(project: string, slug: string) {
     }
   }
 
-  // The next question still owed after i, else the last one (where Send lives).
+  // The next question still owed after i; null once none is, which is the
+  // review step's turn.
   function nextStop(i: number): number | null {
     const qs = questions();
-    for (let k = 1; k <= qs.length; k++) {
+    for (let k = 1; k < qs.length; k++) {
       const j = (i + k) % qs.length;
       const q = qs[j];
       if (q.kind === "ask" && owed().some((a) => a.id === q.ask.id)) return j;
     }
-    return qs.length - 1 !== i ? qs.length - 1 : null;
+    // Mix is optional, but offered once on the way to the review.
+    const last = qs.length - 1;
+    if (i < last && qs[last]?.kind === "mix" && !mixAnswered()) return last;
+    return null;
   }
 
   // --- answers ---
@@ -682,6 +768,26 @@ export function createMockScreen(project: string, slug: string) {
       return d;
     });
   }
+  // A one-tap reaction on a part of the variant on stage, or (part null) on the
+  // variant itself. Toggles: the same reaction again takes it back.
+  function react(part: string | null, reaction: Reaction) {
+    const v = activeVariant();
+    if (!v) return;
+    const target = { part, state: activeState(), variant: v.variant };
+    let now: Reaction | null = null;
+    writeDraft((d) => {
+      d.comments = toggleReaction(d.comments, target, reaction);
+      now = reactionOf(d.comments, target);
+      return d;
+    });
+    setReactStatus(reactionStatus(part ?? v.variant, now));
+  }
+  const reactionOn = (part: string | null): Reaction | null => {
+    const v = activeVariant();
+    return v
+      ? reactionOf(draft()?.comments ?? [], { part, state: activeState(), variant: v.variant })
+      : null;
+  };
   // A frame's sendPrompt: the text waits in Thread for the user to send it,
   // never straight to the agent.
   function prefill(text: string) {
@@ -767,14 +873,163 @@ export function createMockScreen(project: string, slug: string) {
       });
       setMixTouched(false);
       setOtherOpen({});
+      setReviewing(false);
+      setReturning(false);
       record(true);
       host().window.clearTimeout(beatTimer);
       beatTimer = host().window.setTimeout(() => setBeat(true), BEAT_MS);
+      void planNext();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSending(false);
     }
+  }
+
+  // --- the flow: question → review → Send → the next mock ---
+
+  const firstOwed = () => {
+    const first = owed()[0];
+    return first ? questions().findIndex((q) => q.kind === "ask" && q.ask.id === first.id) : -1;
+  };
+  // Once a question is answered: back to the review it was opened from, else on
+  // to the next one owed, else the review.
+  function advance(from: number) {
+    if (returning()) return goReview();
+    const next = nextStop(from);
+    if (next !== null) goQuestion(next);
+    else goReview();
+  }
+  // ←/→ and a swipe: one question at a time, the review after the last.
+  function step(by: 1 | -1) {
+    const total = questions().length;
+    if (!total || mode() !== "questions") return;
+    if (reviewing()) {
+      if (by === -1) goQuestion(total - 1);
+      return;
+    }
+    const to = Math.min(cur(), total - 1) + by;
+    if (to < 0) return;
+    if (to >= total) goReview();
+    else goQuestion(to);
+  }
+
+  const asked = (ask: Ask) =>
+    answerOf(ask) !== undefined || otherOf(ask) !== undefined || noteOf(ask) !== undefined;
+  const primary = createMemo<Primary>(() => {
+    const qs = questions();
+    if (!qs.length || mode() !== "questions") return null;
+    if (reviewing()) {
+      if (readonly()) return null;
+      const to = firstOwed();
+      if (to >= 0) return { kind: "owed", to };
+      const count = sendCount(draft() ?? emptyDraft(0));
+      return count > 0 ? { kind: "send", count } : null;
+    }
+    if (returning()) return { kind: "back" };
+    const i = Math.min(cur(), qs.length - 1);
+    if (i === qs.length - 1) return { kind: "review" };
+    const q = qs[i];
+    const done = q.kind === "mix" ? mixAnswered() : asked(q.ask);
+    return done ? { kind: "next", to: nextStop(i) ?? qs.length - 1 } : null;
+  });
+  function runPrimary() {
+    const p = primary();
+    if (!p) return;
+    if (p.kind === "next" || p.kind === "owed") goQuestion(p.to);
+    else if (p.kind === "review" || p.kind === "back") goReview();
+    else void send();
+  }
+  const review = createMemo(() => {
+    const m = mock();
+    if (!m) return [];
+    return reviewRows(questions(), {
+      name: (a) => askName(a, m),
+      pick: (a) => ({ ids: answerIds(answerOf(a)), other: otherOf(a), note: noteOf(a) }),
+      owed: (a) => owed().some((o) => o.id === a.id),
+      mix: draft()?.mix ?? {},
+      mixAnswered: mixAnswered(),
+    });
+  });
+
+  const optionKey = (ask: Ask, optionId: string) => `${ask.id}:${optionId}`;
+  function previewOf(ask: Ask, optionId: string): Preview | null {
+    const m = mock();
+    const o = ask.options.find((x) => x.id === optionId);
+    if (!m || !o) return null;
+    const key = optionKey(ask, o.id);
+    if (o.variant) return { key, variant: o.variant, state: askState(ask, m, activeState()) };
+    return o.set ? { key, knobs: o.set } : null;
+  }
+  // A click, a tap or a number key on an option. On touch the first tap
+  // previews (tapPicks); a key acts as a click, having nothing to hover.
+  function choose(ask: Ask, optionId: string, hover: boolean) {
+    if (readonly()) return;
+    const index = cur();
+    const p = previewOf(ask, optionId);
+    const tap = {
+      hover,
+      previewing: preview()?.key === optionKey(ask, optionId),
+      canPreview: p !== null,
+      unpicks: !!ask.multi && answerIds(answerOf(ask)).includes(optionId),
+    };
+    if (!tapPicks(tap)) {
+      setPreview(p);
+      return;
+    }
+    pick(ask, optionId);
+    setPreview(null);
+    if (!hover || ask.multi) return;
+    cancelAdvance();
+    advanceTimer = host().window.setTimeout(() => {
+      if (mode() !== "questions" || reviewing() || cur() !== index) return;
+      if (!answerIds(answerOf(ask)).includes(optionId)) return;
+      advance(index);
+    }, ADVANCE_MS);
+  }
+  // A number key: the nth option of the question on screen, "Other…" after them.
+  function chooseNth(n: number) {
+    if (mode() !== "questions" || reviewing()) return;
+    const q = questions()[cur()];
+    if (!q || q.kind !== "ask") return;
+    const o = q.ask.options[n];
+    if (o) choose(q.ask, o.id, true);
+    else if (n === q.ask.options.length && !readonly()) pick(q.ask, null);
+  }
+
+  async function owedMock(by: 1 | -1): Promise<MockSummary | null> {
+    const list = await api.mocks(project).catch(() => null);
+    return list ? nextOwedMock(list.mocks, slug, by) : null;
+  }
+  async function goOwedMock(by: 1 | -1) {
+    const next = await owedMock(by);
+    if (next && !disposed) navigate(mockPath(project, next.slug));
+  }
+  let forwardTimer = 0;
+  onCleanup(() => host().window.clearTimeout(forwardTimer));
+  // The Send's status rides along, so Delivered stays in sight on the next mock.
+  function goNext() {
+    const a = afterSend();
+    const m = mock();
+    const id = sentId();
+    host().window.clearTimeout(forwardTimer);
+    if (!a?.next || disposed) return;
+    if (m && id) setCarried({ project, slug, title: m.title, replyId: id, mockId: m.id });
+    navigate(mockPath(project, a.next.slug));
+  }
+  function stayHere() {
+    host().window.clearTimeout(forwardTimer);
+    const a = afterSend();
+    if (a?.auto) setAfterSend({ ...a, auto: false });
+  }
+  async function planNext() {
+    const next = await owedMock(1);
+    if (disposed) return;
+    // A hidden tab never moves on by itself: the user would come back elsewhere.
+    const auto = !!next && host().window.document.visibilityState !== "hidden";
+    setAfterSend({ next, auto });
+    host().window.clearTimeout(forwardTimer);
+    if (auto) forwardTimer = host().window.setTimeout(goNext, FORWARD_MS);
   }
 
   // --- versions ---
@@ -856,6 +1111,23 @@ export function createMockScreen(project: string, slug: string) {
     setMode,
     cur,
     goQuestion,
+    goReview,
+    reviewing,
+    returning,
+    review,
+    step,
+    primary,
+    runPrimary,
+    choose,
+    chooseNth,
+    previewOf,
+    optionKey,
+    afterSend,
+    goNext,
+    stayHere,
+    goOwedMock,
+    keysOpen,
+    setKeysOpen,
     nextStop,
     questions,
     owed,
@@ -885,6 +1157,10 @@ export function createMockScreen(project: string, slug: string) {
     pick,
     toggleMix,
     addComment,
+    react,
+    reactionOn,
+    reactStatus,
+    reactPart: () => (mode() === "tune" ? selectedPart() : tapped()),
     frameW,
     setFrameW,
     inspect,

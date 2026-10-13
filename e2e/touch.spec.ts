@@ -62,8 +62,10 @@ test("on touch, plain options pick on one tap and the reply reaches the agent", 
   await expect(option(page, "inside")).toHaveAttribute("aria-pressed", "true");
   await next.tap();
 
-  // Every question answered: Send shows, and the reply is delivered.
+  // Every question answered: the review holds Send, and the reply is delivered.
   await expect(header(page)).toContainText("4 of 4");
+  await page.getByRole("button", { name: "Review ›" }).tap();
+  await expect(header(page)).toContainText("Review");
   const send = page.locator("button.send");
   await expect(send).toHaveText("Send 3");
   const reply = page.waitForResponse(
@@ -78,4 +80,59 @@ test("on touch, plain options pick on one tap and the reply reaches the agent", 
   const read = await agentCall(server.url, `/api/feedback?session=${session}`);
   expect(read.feedback).toHaveLength(1);
   await expect(page.locator(".trow.you .tdelivered")).toHaveText("✓✓Delivered");
+});
+
+// A finger travelling across the element. WebKit has no Touch constructor, so
+// each event is a plain one carrying the touch lists a real swipe fires.
+async function swipe(page: Page, selector: string, dx: number) {
+  await page.locator(selector).evaluate((el, dx) => {
+    const box = el.getBoundingClientRect();
+    const x = box.left + box.width / 2;
+    const y = box.top + box.height / 2;
+    const fire = (type: string, clientX: number) => {
+      const t = { identifier: 1, target: el, clientX, clientY: y, pageX: clientX, pageY: y };
+      const live = type === "touchend" ? [] : [t];
+      const e = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperties(e, {
+        touches: { value: live },
+        targetTouches: { value: live },
+        changedTouches: { value: [t] },
+      });
+      el.dispatchEvent(e);
+    };
+    fire("touchstart", x);
+    fire("touchmove", x + dx / 2);
+    fire("touchend", x + dx);
+  }, dx);
+}
+
+test("on touch, a sideways swipe on the panel moves between questions and on to the review", async ({
+  page,
+  server,
+}) => {
+  await seedWriter(server.url);
+  await page.goto(`${server.url}${mockPath}`);
+  await page.getByRole("button", { name: "Expand panel" }).tap();
+  await expect(header(page)).toContainText("Question 1 of 3");
+
+  await swipe(page, ".qblock .ask", -120);
+  await expect(header(page)).toContainText("Question 2 of 3");
+  await swipe(page, ".qblock .ask", 120);
+  await expect(header(page)).toContainText("Question 1 of 3");
+  // Too short, or mostly a scroll: not a swipe.
+  await swipe(page, ".qblock .ask", -30);
+  await expect(header(page)).toContainText("Question 1 of 3");
+
+  for (const n of [2, 3]) {
+    await swipe(page, ".qblock .ask", -120);
+    await expect(header(page)).toContainText(`Question ${n} of 3`);
+  }
+  await swipe(page, ".qblock .ask", -120);
+  await expect(header(page)).toContainText("Review · 3 questions");
+  // The review's Send sits pinned at the bottom of the sheet, inside the screen.
+  const actions = page.locator(".qactions");
+  await expect(actions).toHaveCount(1);
+  const box = await actions.boundingBox();
+  const viewport = page.viewportSize()!;
+  expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
 });

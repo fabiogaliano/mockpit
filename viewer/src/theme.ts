@@ -4,6 +4,7 @@
 // is the source of truth across devices.
 
 import { createSignal } from "solid-js";
+import { DIALKIT } from "../../server/themes.ts";
 import { api } from "./api.ts";
 import { host, root } from "./host.ts";
 
@@ -25,6 +26,8 @@ function apply(next: Theme, fade: boolean) {
     fadeTimer = host().window.setTimeout(() => el.classList.remove("theming"), 200);
   }
   el.dataset.theme = next;
+  // The browser's own chrome (and an installed app's title bar) follows too.
+  root().querySelector('meta[name="theme-color"]')?.setAttribute("content", DIALKIT[next].bg);
   try {
     host().storage?.setItem(KEY, next);
   } catch {
