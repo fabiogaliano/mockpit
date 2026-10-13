@@ -1004,6 +1004,7 @@ function printRun(r) {
 function watchLines(batch) {
   const lines = [];
   const name = batch.mock ?? "a mock";
+  if (batch.handoff) lines.push(`mockpit handoff on ${name}: ${batch.handoff}`);
   if (batch.reply) {
     const r = batch.reply;
     const bits = [

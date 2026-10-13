@@ -19,7 +19,9 @@ export type MockSummary = ReturnType<typeof mockSummaryView>;
 export type MockDetail = ReturnType<typeof mockDetailView>;
 export type VariantView = ReturnType<typeof variantView>;
 export type HistoryRow = NonNullable<VariantView["history"]>[number];
-export type CommentRow = Comment & { delivered: boolean };
+// `ownerGone`: undelivered, and a newer agent session in the project superseded
+// the one it was sent to, so the next agent there will get it.
+export type CommentRow = Comment & { delivered: boolean; ownerGone?: boolean };
 export type { FeedEvent, ProjectSummary };
 
 // What the viewer edits: a Draft minus the server's timestamp.

@@ -82,6 +82,8 @@ export interface FeedbackBatch {
   // The variants the reply left accepted / archived (restorable).
   accepted: VariantRef[];
   archived: VariantRef[];
+  // Set when this batch was sent to an earlier, now quiet session (handoff.ts).
+  handoff?: string;
 }
 
 const ref = (p: Post): VariantRef => ({ state: p.state, variant: p.variant });
