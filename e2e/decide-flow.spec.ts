@@ -44,7 +44,7 @@ test("Home lists the mock with its open count and Answer next goes to it", async
   await expect(header(page)).toContainText("Question 1 of 3");
 });
 
-test("questions: pictures, hover preview, pick, part focus, Mix override, Send, ✓ → ✓✓", async ({
+test("questions: pictures, hover preview, pick, part focus, Mix preview, Send, ✓ → ✓✓", async ({
   page,
   server,
 }) => {
@@ -95,31 +95,26 @@ test("questions: pictures, hover preview, pick, part focus, Mix override, Send, 
 
   // Mix, last: picture options, Send once nothing is open.
   await expect(header(page)).toContainText("4 of 4");
-  await expect(page.locator(".nm")).toHaveText("Mix");
+  await expect(page.locator(".nm")).toHaveText("Mix Optional · from mockpit");
   await expect(option(page, "none")).toContainText("No, all quiet");
-  const borrow = option(page, "versions:editorial");
+  // Q2 decided the versions, so Mix never offers to borrow them.
+  await expect(option(page, "versions:editorial")).toHaveCount(0);
+  const borrow = option(page, "title:editorial");
   await expect(borrow.locator("iframe")).toHaveCount(1);
+  await expect(page.locator(".qhint")).toHaveText("Hover one to see it on the stage.");
+  // Hovering a borrow previews the donor look with the part spotlit.
+  await borrow.hover();
+  await expect(onStage(page)).toHaveAttribute("data-variant", "editorial");
+  await expect(page.locator(".frame.on .overlay .spot")).toHaveCount(1);
+  await page.locator(".qhd").hover();
+  await expect(onStage(page)).toHaveAttribute("data-variant", "quiet");
   await expect(page.locator("button.send")).toHaveText("Send 3");
-  await pickAndWait(page, mockId, "versions:editorial");
+  await pickAndWait(page, mockId, "title:editorial");
   await expect(page.locator("button.send")).toHaveText("Send 4");
-
-  // The borrow overrides Q2: struck ✓, the "Mix uses …" line, and undo.
-  await expect(cornerPin(page, 1)).toHaveText("✓");
-  await page.getByRole("button", { name: "Previous question" }).click();
-  await page.getByRole("button", { name: "Previous question" }).click();
-  await expect(header(page)).toContainText("2 of 4");
-  await expect(page.locator(".qhd .picked")).toHaveClass(/ovr/);
-  const line = page.locator(".ovrline");
-  await expect(line).toContainText("Mix uses editorial's versions instead · undo");
-  await expect(page.locator('.pin[data-question="2"]')).toHaveClass(/ovr/);
-  await line.getByRole("button", { name: "undo" }).click();
-  await expect(line).toHaveCount(0);
-  await expect(page.locator(".qhd .picked")).not.toHaveClass(/ovr/);
-  await expect(page.locator('.pin[data-question="2"]')).toHaveClass(/ok/);
+  await pickAndWait(page, mockId, "title:editorial");
+  await expect(page.locator("button.send")).toHaveText("Send 3");
 
   // Send from the last question.
-  await page.getByRole("button", { name: "Next question" }).click();
-  await page.getByRole("button", { name: "Next question" }).click();
   await expect(header(page)).toContainText("4 of 4");
   const send = page.locator("button.send");
   await expect(send).toHaveText("Send 3");

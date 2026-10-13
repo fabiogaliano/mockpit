@@ -60,6 +60,9 @@ An option binds to one of:
 - a knob `set`: picking it applies those values live.
 - nothing: a plain pill.
 
+Options that change how something looks carry a `variant` or a knob `set`,
+so the user sees them live. Plain pills only for what can't be seen.
+
 The viewer shows a picture of each option it can render. `multi: true` allows
 several answers. Option ids default to the slugged label. Reusing an ask `id`
 replaces that ask. The viewer adds an "Other…" write-in and a note to every
@@ -73,13 +76,17 @@ ask it first. Questions appear in the order you ask them. This one is titled
 "Look" and unlocks Mix, which lets the user borrow a part from another look.
 Variants without a Look ask get a plain switcher in the frame header.
 
+A variant decides everything it differs on; don't re-ask it. Ask other axes as
+knob `set`s.
+
 ## When you forget to ask
 
 A publish that leaves a state with two or more open variants and no ask
 binding them returns a nudge and a ready `suggestedAsk` (mock-wide when the
-variant names line up across states, else for that state). Send it as is with
-`ask`, or write your own question with options bound to the variants. The CLI
-prints the `mockpit ask` command for you.
+variant names line up across states, else for that state), or your existing
+ask plus the new variants. Send it as is with `ask`, or write your own question
+with options bound to the variants. The CLI prints the `mockpit ask` command
+for you.
 
 Until an ask binds them, the viewer shows a built-in "Which one?" with a
 picture of each variant, so the user can still choose in one Send. Its answer

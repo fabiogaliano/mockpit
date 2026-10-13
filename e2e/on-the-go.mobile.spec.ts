@@ -1,4 +1,4 @@
-import { agentCall, expect, test } from "./fixtures.ts";
+import { agentCall, expect, startMockpitServer, test } from "./fixtures.ts";
 
 // Designing from a phone: a tap on a part, one more on 👍, and the Send
 // carries it to the agent; and the viewer is installable to a home screen.
@@ -48,6 +48,18 @@ test("tap a part, 👍, Send: the agent's feedback has the reaction", async ({ p
   );
   expect(feedback).toHaveLength(1);
   expect(feedback[0].reply.reactions).toEqual(['👍 part "hero"']);
+});
+
+test("?key= signs in, then leaves the address bar", async ({ page }) => {
+  const tokened = await startMockpitServer({ MOCKPIT_TOKEN: "s3cret" });
+  try {
+    await page.goto(`${tokened.url}/?key=s3cret`);
+    // The cookie carries on: the empty workspace loads, which needs auth.
+    await expect(page.locator(".home-empty")).toBeVisible();
+    expect(new URL(page.url()).searchParams.has("key")).toBe(false);
+  } finally {
+    tokened.stop();
+  }
 });
 
 test("the viewer is installable: manifest, icons and Apple tags", async ({ page, server }) => {

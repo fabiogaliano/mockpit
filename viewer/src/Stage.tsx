@@ -400,18 +400,14 @@ export function Pin(props: { s: MockScreenState; index: number; style: JSX.CSSPr
     const a = ask();
     return a ? s.answerOf(a) !== undefined : false;
   };
-  const over = () => {
-    const a = ask();
-    return a ? s.overridden()[a.id] : undefined;
-  };
   const cur = () => s.mode() === "questions" && s.cur() === props.index;
   return (
     <button
       type="button"
       class="pin"
-      classList={{ ok: answered() && !over(), ovr: answered() && !!over(), cur: cur() }}
+      classList={{ ok: answered(), cur: cur() }}
       style={props.style}
-      title={`Question ${props.index + 1}${over() ? " · overridden by Mix" : ""}`}
+      title={`Question ${props.index + 1}`}
       data-question={props.index + 1}
       onClick={(e) => {
         e.stopPropagation();
@@ -455,11 +451,12 @@ function VariantFrame(props: {
   let primaryWrap: HTMLDivElement | undefined;
   const [primaryTop, setPrimaryTop] = createSignal(0);
 
+  const measure = () => {
+    if (!column) return;
+    props.onContent(column.offsetHeight);
+    if (primaryWrap) setPrimaryTop(primaryWrap.offsetTop);
+  };
   onMount(() => {
-    const measure = () => {
-      props.onContent(column.offsetHeight);
-      if (primaryWrap) setPrimaryTop(primaryWrap.offsetTop);
-    };
     const ro = new ResizeObserver(measure);
     ro.observe(column);
     measure();
@@ -505,6 +502,16 @@ function VariantFrame(props: {
     if (i === primary()) return Math.min(h ?? 640, Math.max(160, props.capH));
     return h ?? 160;
   };
+  // A frame's new height is measured in the same task it is set. ResizeObserver
+  // alone only reports on WebKit's next rendering update, and until then the
+  // stage keeps the old height and the page below the fold can't be scrolled to.
+  createEffect(
+    on(
+      () => kinds().map((_, i) => surfaceH(i)),
+      () => measure(),
+      { defer: true },
+    ),
+  );
 
   return (
     <div
@@ -786,7 +793,7 @@ function Overlay(props: {
               r={b().r}
               label={b().p.label}
               part={b().p.name}
-              width={layer.clientWidth}
+              width={props.frameW * props.scale}
               height={props.height}
             />
           )}
@@ -796,7 +803,7 @@ function Overlay(props: {
             <MarkField
               n={nextMark(s.draft()?.comments ?? [])}
               at={toView(p().x, p().y)}
-              width={layer.clientWidth}
+              width={props.frameW * props.scale}
               height={props.height}
               where={p().part === undefined ? "" : (p().part ?? "page")}
               onSave={save}

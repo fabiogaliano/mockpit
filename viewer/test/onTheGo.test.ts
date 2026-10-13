@@ -6,10 +6,47 @@ import { carryOver, summarizeReply, threadRows } from "../src/logic.ts";
 import {
   commentText,
   reactionOf,
+  reactionSpot,
   reactionStatus,
   reactionWhere,
   toggleReaction,
 } from "../src/reactionRules.ts";
+import { withoutKey } from "../src/route.ts";
+
+describe("withoutKey", () => {
+  it("drops ?key= and keeps the rest of the URL", () => {
+    expect(withoutKey("https://m.dev/project/a/b?key=s3cret")).toBe("/project/a/b");
+    expect(withoutKey("https://m.dev/mp/?x=1&key=s3cret#t")).toBe("/mp/?x=1#t");
+  });
+
+  it("leaves a URL without a key alone", () => {
+    expect(withoutKey("https://m.dev/project/a?x=1")).toBeNull();
+  });
+});
+
+describe("reactionSpot", () => {
+  const bar = { w: 200, h: 50 };
+  it("sits under the part, clamped to the overlay's current width", () => {
+    const part = { x: 300, y: 100, w: 100, h: 40 };
+    expect(reactionSpot(part, bar, { width: 800, height: 900 })).toEqual({ left: 300, top: 148 });
+    // Narrower after a rotation or a width change: pulled back inside.
+    expect(reactionSpot(part, bar, { width: 390, height: 900 }).left).toBe(186);
+  });
+
+  it("clears a name tag drawn under a part at the top of the page", () => {
+    expect(reactionSpot({ x: 0, y: 0, w: 100, h: 40 }, bar, { width: 800, height: 900 })).toEqual({
+      left: 4,
+      top: 70,
+    });
+  });
+
+  it("goes above when there is no room below, else inside the top edge", () => {
+    const low = { x: 10, y: 700, w: 100, h: 180 };
+    expect(reactionSpot(low, bar, { width: 800, height: 900 }).top).toBe(620);
+    const tall = { x: 10, y: 40, w: 100, h: 850 };
+    expect(reactionSpot(tall, bar, { width: 800, height: 900 }).top).toBe(48);
+  });
+});
 
 const hero = { part: "hero", state: null, variant: "B" };
 

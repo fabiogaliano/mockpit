@@ -250,9 +250,15 @@ function SheetHandle(props: { open: boolean; setOpen: (v: boolean) => void }) {
     if (e.buttons === 0 && e.pointerType === "mouse") return;
     moved = e.clientY - startY;
   };
+  // A drag settles on pointerup; a tap waits for the click. Opening on a tap's
+  // pointerup would slide the sheet under the finger before the browser's
+  // click, which then lands on whatever option is there now.
   const onUp = () => {
+    if (Math.abs(moved) >= 8) props.setOpen(moved < 0);
+  };
+  const onClick = () => {
     if (Math.abs(moved) < 8) props.setOpen(!props.open);
-    else props.setOpen(moved < 0);
+    moved = 0;
   };
   return (
     <button
@@ -263,6 +269,7 @@ function SheetHandle(props: { open: boolean; setOpen: (v: boolean) => void }) {
       onPointerDown={onDown}
       onPointerMove={onMove}
       onPointerUp={onUp}
+      onClick={onClick}
     >
       <i />
     </button>

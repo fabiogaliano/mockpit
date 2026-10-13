@@ -4,7 +4,7 @@
 
 import { createSignal, For, type JSX, onCleanup, onMount } from "solid-js";
 import { REACTIONS, type Reaction } from "../../server/types.ts";
-import { REACTION_LABEL } from "./reactionRules.ts";
+import { REACTION_LABEL, reactionSpot } from "./reactionRules.ts";
 import type { MockScreenState } from "./state.ts";
 
 const Thumb = (props: { down?: boolean }) => (
@@ -113,19 +113,7 @@ export function PartReactions(props: {
     ro.observe(node);
     onCleanup(() => ro.disconnect());
   });
-  const GAP = 8;
-  // The part's name tag sits on its top edge, or under its bottom edge when the
-  // part touches the top of the page (PartBoxView's `edge`).
-  const LABEL_H = 22;
-  const tagBelow = () => props.r.y < LABEL_H;
-  const top = () => {
-    const { h } = size();
-    const below = props.r.y + props.r.h + GAP + (tagBelow() ? LABEL_H : 0);
-    if (below + h <= props.height - 4) return below;
-    const above = props.r.y - LABEL_H - GAP - h;
-    return above >= 4 ? above : Math.max(4, props.r.y + GAP);
-  };
-  const left = () => Math.max(4, Math.min(props.r.x, props.width - size().w - 4));
+  const spot = () => reactionSpot(props.r, size(), { width: props.width, height: props.height });
   return (
     <ReactionBar
       s={props.s}
@@ -133,7 +121,7 @@ export function PartReactions(props: {
       about={props.label}
       class="part-reactions"
       ref={(node) => (el = node)}
-      style={{ left: `${left()}px`, top: `${top()}px` }}
+      style={{ left: `${spot().left}px`, top: `${spot().top}px` }}
     />
   );
 }

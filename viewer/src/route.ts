@@ -44,6 +44,21 @@ export function navigate(path: string, opts: { replace?: boolean } = {}) {
   setRoute(read());
 }
 
+// `?key=` only bootstraps the cookie, which the server set on this very load.
+// Left in the URL it rides into history, copied links and an installed app's
+// address, so the URL without it, or null when there is none.
+export function withoutKey(href: string): string | null {
+  const u = new URL(href);
+  if (!u.searchParams.has("key")) return null;
+  u.searchParams.delete("key");
+  return `${u.pathname}${u.search}${u.hash}`;
+}
+
+export function dropKeyParam() {
+  const next = withoutKey(host().location.href);
+  if (next !== null) host().history.replaceState(host().history.state, "", next);
+}
+
 // Plain left clicks on our own links stay in the app; modified clicks open tabs.
 export function linkClick(e: MouseEvent, path: string) {
   if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)

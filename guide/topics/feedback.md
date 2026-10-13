@@ -79,11 +79,12 @@ taking any feedback.
    defaults. tunekit's skill (`skills/tunekit` in the tunekit package) covers
    applying copied values.
 3. `mix` maps a part to the variant it should come from. Compose that part from
-   the other look into the chosen one.
+   the other look into the chosen one. Answers win.
 4. `comments` are anchored on a part in a state (`part: null` means no part).
    Address each one. `reactions` are one-tap verdicts, one line each:
    👍 keep it, 👎 rework it, "more like this" go further that way. A reaction
-   without a part is about the whole variant.
+   without a part is about the whole variant; one may end with the user's
+   note in quotes. Reactions never also appear in `comments`.
 5. `decision` (`{kind: accept|revise|drop, state, variant}`) comes instead of
    answers when the mock has no asks and the user pressed Accept, Revise or
    Drop.

@@ -7,6 +7,7 @@ import { batch, createEffect, createMemo, createSignal, on, onCleanup } from "so
 import { createStore } from "solid-js/store";
 import {
   type Ask,
+  type AskAnswer,
   type KnobValue,
   MAX_ASK_IMAGES,
   type PartCommentAnchor,
@@ -38,8 +39,9 @@ import {
   type KnobContext,
   lookAsk,
   mixOptions,
+  mixSettled,
+  pruneMix,
   mockVersion,
-  overriddenAsks,
   type PartsReport,
   pickInDraft,
   readDeviceWidth,
@@ -69,6 +71,8 @@ export interface Preview {
   variant?: string;
   state?: string | null;
   knobs?: Record<string, KnobValue>;
+  // A Mix borrow: the part outlined on the donor look while it previews.
+  part?: string;
 }
 
 const SAVE_MS = 300;
@@ -198,6 +202,24 @@ export function createMockScreen(project: string, slug: string) {
   }
   const activeVariant = createMemo(() => variantFor(activeState()));
 
+  // What the user chose so far (sent, then drafted), so Mix can't contradict it.
+  const settled = createMemo(() => {
+    const answers: Record<string, AskAnswer> = {};
+    const others: Record<string, string> = {};
+    for (const a of asks()) {
+      if (a.answer !== undefined) answers[a.id] = a.answer;
+      if (a.other !== undefined) others[a.id] = a.other;
+    }
+    const d = draft();
+    for (const id of Object.keys(d?.answers ?? {})) delete others[id];
+    for (const id of Object.keys(d?.others ?? {})) delete answers[id];
+    Object.assign(answers, d?.answers ?? {});
+    Object.assign(others, d?.others ?? {});
+    return mixSettled(asks(), answers, others, d?.tuned ?? {});
+  });
+  const partStates = (part: string) =>
+    (mock()?.parts ?? []).filter((s) => s.parts.some((p) => p.name === part)).map((s) => s.state);
+  const allowedMix = (mix: Record<string, string>) => pruneMix(mix, settled(), partStates);
   const mixOpts = createMemo(() => {
     const m = mock();
     return m
@@ -206,6 +228,7 @@ export function createMockScreen(project: string, slug: string) {
           variants(),
           lookPick(),
           (state, variant) => reports[frameKey(state, variant)],
+          settled(),
         )
       : [];
   });
@@ -243,6 +266,8 @@ export function createMockScreen(project: string, slug: string) {
   // The part the current question is about, while Questions is open.
   const focusPart = createMemo(() => {
     if (mode() !== "questions") return null;
+    const borrowing = preview()?.part;
+    if (borrowing) return borrowing;
     const q = questions()[cur()];
     return q?.kind === "ask" && q.ask.scope === "part" ? (q.ask.part ?? null) : null;
   });
@@ -251,10 +276,12 @@ export function createMockScreen(project: string, slug: string) {
   const stagePart = createMemo(() =>
     mode() === "tune" ? selectedPart() : (tapped() ?? focusPart()),
   );
-  const overridden = createMemo(() => {
-    const m = mock();
-    const d = draft();
-    return m && d ? overriddenAsks(asks(), d.answers, d.mix) : {};
+  // A borrow made before the user chose that part's fate would contradict it.
+  createEffect(() => {
+    const mix = draft()?.mix ?? {};
+    const kept = allowedMix(mix);
+    if (Object.keys(kept).length === Object.keys(mix).length) return;
+    writeDraft((d) => ({ ...d, mix: kept }));
   });
 
   // --- draft writes: local at once, server after a short pause ---
@@ -649,12 +676,6 @@ export function createMockScreen(project: string, slug: string) {
     setMixTouched(true);
   }
   const mixAnswered = () => mixTouched() || Object.keys(draft()?.mix ?? {}).length > 0;
-  function undoMix(part: string) {
-    writeDraft((d) => {
-      delete d.mix[part];
-      return d;
-    });
-  }
   function addComment(
     part: string | null,
     state: string | null,
@@ -751,7 +772,7 @@ export function createMockScreen(project: string, slug: string) {
     const d = draft() ?? emptyDraft(stageVersion());
     setSending(true);
     try {
-      const { reply } = await api.reply(m.id, { ...d, ...extra });
+      const { reply } = await api.reply(m.id, { ...d, mix: allowedMix(d.mix), ...extra });
       // The draft holds the picks until the mock carrying them as sent answers
       // arrives: dropping it first would put the stage on another variant for
       // one fetch (a flash of a different frame fading in, then back).
@@ -863,7 +884,7 @@ export function createMockScreen(project: string, slug: string) {
     nextStop,
     questions,
     owed,
-    overridden,
+    settled,
     mixOpts,
     mixAnswered,
     selectedPart,
@@ -888,7 +909,6 @@ export function createMockScreen(project: string, slug: string) {
     setError,
     pick,
     toggleMix,
-    undoMix,
     addComment,
     react,
     reactionOn,
