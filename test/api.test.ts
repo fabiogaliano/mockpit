@@ -1346,6 +1346,110 @@ test("two variants no ask binds earn a nudge and a ready ask; a binding ask sile
   assert.equal(third.suggestedAsk.options.length, 3);
 });
 
+test("a new variant joins the existing look ask instead of a second Which one?", async () => {
+  const app = makeApp();
+  const one = await publish(app, { mock: "card", variant: "calm", ...html("<p/>") });
+  await publish(app, { mock: "card", variant: "bold", session: one.sessionId, ...html("<p/>") });
+  const look = {
+    id: "look",
+    text: "Which feel?",
+    options: [
+      { label: "Calm", variant: "calm" },
+      { label: "Bold", variant: "bold" },
+    ],
+  };
+  await call(app, `/api/mocks/${one.mock.id}/asks`, agent({ asks: [look] }));
+  const third = await publish(app, { mock: "card", variant: "loud", ...html("<p/>") });
+  assert.match(third.nudges[0], /bind "loud" to your existing ask "look"/);
+  assert.deepEqual(third.suggestedAsk, {
+    id: "look",
+    text: "Which feel?",
+    scope: "mock",
+    options: [
+      { id: "calm", label: "Calm", variant: "calm" },
+      { id: "bold", label: "Bold", variant: "bold" },
+      { label: "loud", variant: "loud" },
+    ],
+  });
+  const sent = await call(
+    app,
+    `/api/mocks/${one.mock.id}/asks`,
+    agent({ asks: [third.suggestedAsk] }),
+  );
+  assert.equal(sent.body.asks[0].id, "look");
+  const quiet = await publish(app, { mock: "card", variant: "loud", ...html("<p>2</p>") });
+  assert.equal(quiet.nudges, undefined);
+});
+
+test("a variant only one state has gets a state ask, not the mock-wide look", async () => {
+  const app = makeApp();
+  const { mockId, session } = await writer(app);
+  const look = {
+    id: "look",
+    text: "Which look?",
+    options: [
+      { label: "Quiet", variant: "quiet" },
+      { label: "Dark", variant: "dark" },
+    ],
+  };
+  await call(app, `/api/mocks/${mockId}/asks`, agent({ asks: [look] }));
+  const loud = await publish(app, {
+    mock: mockId,
+    state: "Lab open",
+    variant: "loud",
+    session,
+    ...html("<p/>"),
+  });
+  assert.match(loud.nudges[0], /writer state "Lab open" has 3 variants/);
+  assert.equal(loud.suggestedAsk.scope, "state");
+  assert.equal(loud.suggestedAsk.state, "Lab open");
+  assert.deepEqual(
+    loud.suggestedAsk.options.map((o: any) => o.variant),
+    ["quiet", "dark", "loud"],
+  );
+});
+
+test("ask nudges a visual option nobody can see, and a plain ask next to the look", async () => {
+  const app = makeApp();
+  const one = await publish(app, {
+    mock: "card",
+    variant: "calm",
+    knobs: { accent: "#2a6" },
+    ...html("<p/>"),
+  });
+  await publish(app, { mock: "card", variant: "bold", session: one.sessionId, ...html("<p/>") });
+  const asks = (list: unknown[]) =>
+    call(app, `/api/mocks/${one.mock.id}/asks`, agent({ asks: list }));
+  const look = await asks([
+    {
+      id: "look",
+      text: "Which feel?",
+      options: [
+        { label: "Calm", variant: "calm" },
+        { label: "Bold", variant: "bold" },
+      ],
+    },
+  ]);
+  assert.equal(look.body.nudges, undefined);
+  const plain = await asks([
+    { id: "accent", text: "Which accent means progress?", options: ["Olive", "Orange"] },
+  ]);
+  assert.equal(plain.body.nudges.length, 2);
+  assert.match(plain.body.nudges[0], /"Olive", "Orange" look visual/);
+  assert.match(plain.body.nudges[1], /ask "accent" may re-ask .* "look"/);
+  const visual = await asks([
+    {
+      id: "accent",
+      text: "Which accent means progress?",
+      options: [
+        { label: "Olive", set: { accent: "#4f7a3a" } },
+        { label: "Orange", set: { accent: "#e8590c" } },
+      ],
+    },
+  ]);
+  assert.equal(visual.body.nudges, undefined);
+});
+
 test("the suggested ask is mock-wide when variants line up across states, else per state", async () => {
   const app = makeApp();
   const { mockId, session } = await writer(app);

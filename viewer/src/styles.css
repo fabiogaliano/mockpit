@@ -696,10 +696,6 @@ a {
   text-align: left;
   font-size: 14px;
 }
-.pin.ovr {
-  background: #8a8a8a;
-  text-decoration: line-through;
-}
 .pin.cur {
   box-shadow:
     0 0 0 2px var(--page),
@@ -709,11 +705,6 @@ a {
   box-shadow:
     0 0 0 2px var(--page),
     0 0 0 4px var(--pin-ok);
-}
-.pin.ovr.cur {
-  box-shadow:
-    0 0 0 2px var(--page),
-    0 0 0 4px #8a8a8a;
 }
 [data-theme="light"] .pin {
   box-shadow:
@@ -1414,17 +1405,10 @@ a {
 .qhd .picked {
   color: var(--ok);
 }
-.qhd .picked.ovr {
-  color: var(--t4);
-  text-decoration: line-through;
-}
-.ovrline {
+.qhint {
   color: var(--t4);
   font-size: 13px;
   margin: -4px 0 10px;
-}
-.ovrline .lnk {
-  font-size: 13px;
 }
 .nav {
   width: 32px;
@@ -1451,6 +1435,12 @@ a {
   line-height: 22px;
   color: var(--t1);
   margin: 4px 0 0;
+}
+.nm .qtag {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--t4);
+  margin-left: 6px;
 }
 .ask {
   color: var(--t4);

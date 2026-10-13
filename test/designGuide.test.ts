@@ -123,6 +123,8 @@ test("the brief covers the loop, feedback and the trust rule", () => {
   for (const needle of [
     "data-part",
     "A choice is several variants plus one ask that binds them.",
+    "decides everything it differs on",
+    "Visual options",
     "Nothing waits for the user.",
     "never in chat",
     "suggestedAsk",

@@ -244,7 +244,7 @@ project › mock › state › variant › version. A project is the repo; a moc
 page or component, by slug; a state is one moment of it in the user's words
 ("Writing"), omitted for a single-state mock; a variant is a parallel design of
 a state; versions are its history. A part is an element marked \`data-part\`.
-Asks are questions, knobs are values; the user presses Send once, you get one reply.
+The user answers asks, tunes knobs, presses Send once; you get one reply.
 
 ## The loop
 
@@ -262,7 +262,7 @@ mockpit export  --mock writer   # the accepted html per state
 \`\`\`
 
 Server: \`$MOCKPIT_URL\` (default http://localhost:8228; \`mockpit serve\`).
-MCP tools have the verb names (\`publish\`, \`feedback\`, …).
+MCP tools share the verb names.
 
 ## Parts
 
@@ -273,8 +273,10 @@ declare geometry; the viewer measures it.
 
 ## Ask or knob
 
-A choice is several variants plus one ask that binds them. Look question
-first. One render plus a control: declare a knob with \`--knobs '{...}'\`.
+A choice is several variants plus one ask that binds them. Ask it first. A
+variant decides everything it differs on; don't re-ask it. Visual options
+carry a \`variant\` or knob \`set\`. One render plus a control: a knob,
+\`--knobs '{...}'\`.
 
 | knob | control |
 | --- | --- |
@@ -284,19 +286,19 @@ first. One render plus a control: declare a knob with \`--knobs '{...}'\`.
 | \`"trim.position": {"type": "select", "options": ["top", "bottom"]}\` | select |
 
 Values reach the html unitless: \`calc(var(--k-body-size, 17) * 1px)\`, and as
-\`data-k-trim-position\` on \`<html>\`. Topics \`knobs\` and \`asks\` have the rest.
+\`data-k-trim-position\` on \`<html>\`.
 
 ## Feedback
 
 \`feedback\` returns \`{feedback, pending}\`. A batch is \`{mock, reply: {asks, tuned,
 mix, comments, decision, text}, accepted, archived}\`. In order: answers decide
-structure (a variant answer already accepted it and archived its siblings);
-tuned values become new defaults; mix names a part to take from another variant;
+structure (a variant answer already accepted it);
+tuned values become new defaults; mix names a part to take from another variant (answers win);
 address each comment on its part; decision (accept, revise, drop) stands in for
 answers when there were no asks. Each Send arrives exactly once: in a write's
 \`feedback\`, \`mockpit feedback\` or a \`mockpit watch\` line.
-A \`pending\` draft means the user is still answering. Variants no ask binds
-earn a \`suggestedAsk\` on publish: send it with \`ask\`.
+A \`pending\` draft means the user is still answering. Send a nudge's
+\`suggestedAsk\` with \`ask\`.
 
 ## HTML
 
