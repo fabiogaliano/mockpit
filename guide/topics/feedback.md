@@ -65,7 +65,7 @@ taking any feedback.
 1. `answers` and `asks` decide structure. A variant-bound answer has already
    accepted that variant and archived its siblings (`accepted`, `archived`).
    Stop iterating on the archived ones. The ask `variant` (per state
-   `variant:<state>`) is the viewer's built-in "Which one?", read like any
+   `variant:<state>`) is the viewer's built-in Look ask, read like any
    other. A `chosen` entry with `other: true` is
    the user's own answer (its `label`), not one of your options; it flips no
    variant and sets no knob. `note` qualifies the answer and may come with
@@ -78,7 +78,8 @@ taking any feedback.
    defaults. tunekit's skill (`skills/tunekit` in the tunekit package) covers
    applying copied values.
 3. `mix` maps a part to the variant it should come from. Compose that part from
-   the other look into the chosen one. Answers win.
+   the other look into the chosen one. If `mix` conflicts with an answer, the
+   answer wins.
 4. `comments` are anchored on a part in a state (`part: null` means no part).
    Address each one.
 5. `decision` (`{kind: accept|revise|drop, state, variant}`) comes instead of

@@ -591,7 +591,7 @@ test("Mark: a pin on the stage, its comment and anchor in the reply, listed in T
   expect(sent[0]).toMatchObject({ part: "title", text: "make it louder", anchor: c.anchor });
 });
 
-test("un-archive: a losing look is restored from the answered Look question", async ({
+test("un-archive: a losing look is restored from the answered Look ask", async ({
   page,
   server,
 }) => {

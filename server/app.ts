@@ -62,7 +62,6 @@ import {
   type AskOption,
   type Asset,
   type AssetKind,
-  BUILTIN_ASK_ID,
   builtinAsk,
   type CodeSurface,
   type Comment,
@@ -909,9 +908,9 @@ export function createApp({
     const out: string[] = [];
     for (const [path, config] of Object.entries(knobs)) {
       const n = discreteChoices(config);
-      if (n !== null && n <= 3) {
+      if (n !== null && n >= 2 && n <= 3) {
         out.push(
-          `knob "${path}" has ${n} discrete options: if each option needs its own render, ask instead (ask with options bound to variants); keep a knob when one render plus a control shows it`,
+          `knob "${path}": a 2–3 option knob is a choice. Ask with options that \`set\` it.`,
         );
       }
     }
@@ -974,15 +973,15 @@ export function createApp({
       };
     }
     const options = names.map((v) => ({ label: v, variant: v }));
+    // Not the built-in's reserved id: a stored ask under it would collide with the
+    // built-in the viewer synthesizes once a new variant goes unbound. Nor any id
+    // already taken, which sending this would silently replace.
+    const base = wide ? "look" : `look-${slugify(state ?? "")}`;
+    let id = base;
+    for (let n = 2; mock.asks.some((a) => a.id === id); n++) id = `${base}-${n}`;
     const ask = wide
-      ? { id: BUILTIN_ASK_ID, text: "Which one?", scope: "mock", options }
-      : {
-          id: `${BUILTIN_ASK_ID}-${slugify(state ?? "")}`,
-          text: "Which one?",
-          scope: "state",
-          state,
-          options,
-        };
+      ? { id, text: "Which one?", scope: "mock", options }
+      : { id, text: "Which one?", scope: "state", state, options };
     return {
       nudge: `${where} has ${names.length} variants and no ask binds them: call ask with suggestedAsk. Never ask in chat.`,
       ask,

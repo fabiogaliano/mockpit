@@ -533,7 +533,7 @@ test("publish --kit puts the (deduped) kit ids on the html surface; an unknown k
   }
 });
 
-test("publish --knobs declares knobs and prints a nudge for a few discrete options", async () => {
+test("publish --knobs declares knobs and prints a nudge for a 2–3 option select", async () => {
   const server = await serveSession();
   try {
     const file = tmpFile("k.html", '<p data-part="body">b</p>');
@@ -549,7 +549,7 @@ test("publish --knobs declares knobs and prints a nudge for a few discrete optio
       '{"body.size":[17,14,22,1],"trim":{"type":"select","options":["top","bottom"]}}',
     );
     assert.equal(code, 0, stderr);
-    assert.match(stdout, /^nudge: knob "trim" has 2 discrete options/m);
+    assert.match(stdout, /^nudge: knob "trim": a 2–3 option knob is a choice/m);
     assert.doesNotMatch(stdout, /knob "body.size"/);
     const mock = await getJson(`${server.url}/api/mocks/${await mockId(server.url)}`);
     assert.deepEqual(mock.knobs["body.size"], [17, 14, 22, 1]);
@@ -929,6 +929,35 @@ test("ask binds options to variants; --asks takes the full shape", async () => {
     );
     assert.equal(badVariant.code, 2);
     assert.match(badVariant.stderr, /names variant "loud"/);
+
+    const card = tmpFile("c.html", '<p data-part="trim">t</p>');
+    const knobs =
+      '{"trim.position":{"type":"select","options":["top","bottom"]},"size":[17,14,22,1]}';
+    await cli(server, {}, "publish", "--mock", "card", "--html", card, "--knobs", knobs, "--quiet");
+    const set = await cli(
+      server,
+      {},
+      "ask",
+      "--mock",
+      "card",
+      "Trim?",
+      "--option",
+      "Above=knob:trim.position=top",
+      "--option",
+      "Big=knob:size=20",
+      "--json",
+    );
+    assert.equal(set.code, 0, set.stderr);
+    assert.deepEqual(
+      JSON.parse(set.stdout).asks[0].options.map((o: any) => [o.label, o.set]),
+      [
+        ["Above", { "trim.position": "top" }],
+        ["Big", { size: 20 }],
+      ],
+    );
+    const noValue = await cli(server, {}, "ask", "--mock", "card", "T", "--option", "A=knob:size");
+    assert.equal(noValue.code, 2);
+    assert.match(noValue.stderr, /needs knob:<path>=<value>/);
   } finally {
     await server.close();
   }

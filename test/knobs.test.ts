@@ -134,8 +134,8 @@ test("a value may target a mock knob or a variant-only knob, never an undeclared
   assert.match(err(checkKnobValues({ size: 99 }, mock, posts, "tuned")), /within 12..24/);
 });
 
-test("discrete knobs report their choice count; continuous ones report null", () => {
-  assert.equal(discreteChoices(true), 2);
+test("discrete knobs report their choice count; toggles and continuous ones report null", () => {
+  assert.equal(discreteChoices(true), null);
   assert.equal(discreteChoices({ type: "select", options: ["a", "b", "c"] }), 3);
   assert.equal(discreteChoices({ type: "image", options: ["a.png"] }), 1);
   assert.equal(discreteChoices({ type: "image" }), null);

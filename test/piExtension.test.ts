@@ -279,7 +279,7 @@ test("publish, ask, read, feedback, say and export round-trip through a real ser
   );
   assert.match(text(quiet), /^writer\/Writing\/quiet v1 · .*\/project\/acme%2Fsite\/writer/);
   assert.match(text(quiet), /parts \(Writing\): title, body/);
-  assert.match(text(quiet), /nudge: knob "trim" has 2 discrete options/);
+  assert.match(text(quiet), /nudge: knob "trim": a 2–3 option knob is a choice/);
   const sessionId = quiet.details!.sessionId;
   assert.ok(sessionId);
   const session = await getJson(`${server.url}/api/sessions/${sessionId}`);
@@ -294,7 +294,7 @@ test("publish, ask, read, feedback, say and export round-trip through a real ser
   );
   assert.equal(dark.details!.sessionId, sessionId);
   assert.match(text(dark), /nudge: .*no ask binds them/);
-  assert.match(text(dark), /suggestedAsk \(send with mockpit_ask\): \{"id":"variant"/);
+  assert.match(text(dark), /suggestedAsk \(send with mockpit_ask\): \{"id":"look"/);
 
   const revised = await invoke(
     harness,

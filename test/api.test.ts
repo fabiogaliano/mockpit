@@ -546,7 +546,7 @@ test("knob configs are validated and merged onto the mock by path", async () => 
   assert.deepEqual(Object.keys(detail.knobs).sort(), ["body.weight", "size"]);
 });
 
-test("a knob with three or fewer discrete options earns a nudge toward asking", async () => {
+test("a select with two or three options earns a nudge toward asking; a toggle does not", async () => {
   const app = makeApp();
   const out = await publish(app, {
     mock: "k",
@@ -557,9 +557,9 @@ test("a knob with three or fewer discrete options earns a nudge toward asking", 
     },
     ...html("<p/>"),
   });
-  assert.equal(out.nudges.length, 2);
-  assert.match(out.nudges[0], /trim\.position/);
-  assert.match(out.nudges[1], /toast\.show/);
+  // A toggle is not a choice: on/off reads on one render.
+  assert.equal(out.nudges.length, 1);
+  assert.match(out.nudges[0], /^knob "trim\.position": a 2–3 option knob is a choice/);
 });
 
 // --- reads -------------------------------------------------------------------
@@ -1337,7 +1337,7 @@ test("two variants no ask binds earn a nudge and a ready ask; a binding ask sile
   });
   assert.match(two.nudges[0], /2 variants and no ask binds them: call ask with suggestedAsk/);
   assert.deepEqual(two.suggestedAsk, {
-    id: "variant",
+    id: "look",
     text: "Which one?",
     scope: "mock",
     options: [
@@ -1360,7 +1360,16 @@ test("two variants no ask binds earn a nudge and a ready ask; a binding ask sile
   assert.equal(third.suggestedAsk.options.length, 3);
 });
 
-test("a new variant joins the existing look ask instead of a second Which one?", async () => {
+test("the suggested ask skips an ask id already in use", async () => {
+  const app = makeApp();
+  const one = await publish(app, { mock: "card", variant: "calm", ...html("<p/>") });
+  const taken = { id: "look", text: "Ship it?", options: ["Yes", "No"] };
+  await call(app, `/api/mocks/${one.mock.id}/asks`, agent({ asks: [taken] }));
+  const two = await publish(app, { mock: "card", variant: "bold", ...html("<p/>") });
+  assert.equal(two.suggestedAsk.id, "look-2");
+});
+
+test("a new variant joins the existing Look ask instead of a second built-in", async () => {
   const app = makeApp();
   const one = await publish(app, { mock: "card", variant: "calm", ...html("<p/>") });
   await publish(app, { mock: "card", variant: "bold", session: one.sessionId, ...html("<p/>") });
@@ -1423,7 +1432,7 @@ test("a variant only one state has gets a state ask, not the mock-wide look", as
   );
 });
 
-test("ask nudges a visual option nobody can see, and a plain ask next to the look", async () => {
+test("ask nudges a visual option nobody can see next to the Look, not another axis", async () => {
   const app = makeApp();
   const one = await publish(app, {
     mock: "card",
@@ -1448,9 +1457,13 @@ test("ask nudges a visual option nobody can see, and a plain ask next to the loo
   const plain = await asks([
     { id: "accent", text: "Which accent means progress?", options: ["Olive", "Orange"] },
   ]);
-  assert.equal(plain.body.nudges.length, 2);
-  assert.match(plain.body.nudges[0], /"Olive", "Orange" look visual/);
-  assert.match(plain.body.nudges[1], /ask "accent" may re-ask .* "look"/);
+  assert.deepEqual(plain.body.nudges, [
+    `ask "accent": "Olive", "Orange" may re-ask what "look" decides. Drop it or use knob sets.`,
+  ]);
+  const axis = await asks([
+    { id: "versions", text: "Where should versions live?", options: ["Drawer", "Margin"] },
+  ]);
+  assert.equal(axis.body.nudges, undefined, "a plain ask on another axis stands beside the Look");
   const visual = await asks([
     {
       id: "accent",
@@ -1489,7 +1502,7 @@ test("the suggested ask is mock-wide when variants line up across states, else p
   });
   assert.equal(narrow.suggestedAsk.scope, "state");
   assert.equal(narrow.suggestedAsk.state, "Lab open");
-  assert.equal(narrow.suggestedAsk.id, "variant-lab-open");
+  assert.equal(narrow.suggestedAsk.id, "look-lab-open");
   assert.deepEqual(
     narrow.suggestedAsk.options.map((o: any) => o.variant),
     ["quiet", "dark", "loud"],

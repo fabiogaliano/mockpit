@@ -37,7 +37,9 @@ the loop (never blocks on the user):
   1. mockpit init once per repo; read the brief (mockpit guide).
   2. mockpit publish once per variant; mark parts with data-part.
   3. A choice is several variants plus one ask that binds them: mockpit ask
-     with options bound to variants. One render plus a control: --knobs.
+     with options bound to variants. A variant decides everything it differs
+     on; don't re-ask it. Visual options carry a variant or knob set. One
+     render plus a control: --knobs.
   4. Tell the user in one line where to look, then end your turn. The question
      itself lives in the mock (ask), never in chat. The user answers in the
      browser at their own pace. Never poll.
@@ -72,7 +74,8 @@ verbs:
                         --data is a JSON tree)
   mockpit ask --mock <slug> "<question>" --option <label[=variant]> ...
                                           ask the user; bind options to variants
-      --option <l[=v]>  an option (repeatable); "=variant" binds it to a variant
+      --option <l[=v]>  an option (repeatable); "=variant" binds it to a variant,
+                        "=knob:path=value" sets one knob
       --scope <s>       mock|state|part (default mock)
       --state <label>   the state a state-scoped ask is about
       --part <name>     the part a part-scoped ask is about
@@ -958,8 +961,23 @@ async function publishMock() {
   return result;
 }
 
-// "Quiet" is an unbound option; "Quiet=quiet" binds it to the quiet variant.
+// "Quiet" is an unbound option; "Quiet=quiet" binds it to the quiet variant;
+// "Above=knob:trim.position=top" sets one knob. The value is JSON when it
+// parses (17, true), else a string, so slider and toggle values keep their type.
 function parseOption(raw) {
+  const knob = raw.indexOf("=knob:");
+  if (knob > 0) {
+    const pair = raw.slice(knob + "=knob:".length);
+    const eq = pair.indexOf("=");
+    if (eq <= 0)
+      die(`option "${raw}" needs knob:<path>=<value>`, "--option Above=knob:trim.position=top");
+    const text = pair.slice(eq + 1);
+    let value = text;
+    try {
+      value = JSON.parse(text);
+    } catch {}
+    return { label: raw.slice(0, knob), set: { [pair.slice(0, eq)]: value } };
+  }
   const at = raw.lastIndexOf("=");
   if (at <= 0) return { label: raw };
   return { label: raw.slice(0, at), variant: raw.slice(at + 1) };
