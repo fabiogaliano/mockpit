@@ -2,6 +2,8 @@ import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { getCookie, setCookie } from "hono/cookie";
 import { streamSSE } from "hono/streaming";
+import { ICON_SIZES, ICON_SVG, themeColor, webManifest } from "./appIcon.ts";
+import { ICON_PNG_BASE64 } from "./appIconPng.ts";
 import { decodeBase64 } from "./base64.ts";
 import { mockDetailView, mockSummaryView, sessionRowView, surfaceRef } from "./apiViews.ts";
 import { EventBus, type FeedEvent } from "./events.ts";
@@ -88,6 +90,8 @@ import {
   OTHER_ID,
   type PartComment,
   type Post,
+  type Reaction,
+  REACTIONS,
   projectFromCwd,
   type Reply,
   type ReplyDecision,
@@ -359,6 +363,12 @@ const MAX_LABEL = 120;
 const MAX_ASKS = 20;
 const MAX_OPTIONS = 20;
 const MAX_DRAFT_COMMENTS = 50;
+const APP_FILES = new Set([
+  "/manifest.webmanifest",
+  "/icon.svg",
+  "/apple-touch-icon.png",
+  ...ICON_SIZES.map((s) => `/icon-${s}.png`),
+]);
 
 const titleFromSlug = (slug: string) =>
   slug.replace(/-/g, " ").replace(/^./, (ch) => ch.toUpperCase());
@@ -1496,21 +1506,46 @@ export function createApp({
 
   // --- drafts and replies (the user's side; viewer origin only) ---
 
-  function sanitizePartComments(raw: unknown, mock: Mock): PartComment[] | string {
+  function sanitizePartComments(raw: unknown, mock: Mock, posts: Post[]): PartComment[] | string {
     if (raw === undefined || raw === null) return [];
     if (!Array.isArray(raw)) return '"comments" must be an array';
     if (raw.length > MAX_DRAFT_COMMENTS) return `at most ${MAX_DRAFT_COMMENTS} comments`;
     const out: PartComment[] = [];
     for (const c of raw) {
+      const reaction = c?.reaction;
+      if (reaction !== undefined && !(REACTIONS as readonly unknown[]).includes(reaction))
+        return `reaction must be one of ${REACTIONS.join(", ")}`;
       const text = str(c?.text, MAX_COMMENT_TEXT);
-      if (!text) return "every comment needs text";
+      if (!text && !reaction) return "every comment needs text";
       const state = stateArg(c.state) ?? null;
       if (state !== null && !mock.states.includes(state))
         return `${mock.slug} has no state "${state}"`;
       const part = str(c.part, 200) ?? null;
+      const variant = str(c.variant, 200);
+      if (variant && !posts.some((p) => p.variant === variant && p.state === state))
+        return `${mock.slug} has no variant "${variant}"${state ? ` in "${state}"` : ""}`;
       const a = c.anchor && typeof c.anchor === "object" ? c.anchor : null;
       const anchor = a ? sanitizePartAnchor(a) : undefined;
-      out.push({ part, state, text, ...(anchor ? { anchor } : {}) });
+      const next: PartComment = {
+        part,
+        state,
+        text: text ?? "",
+        ...(anchor ? { anchor } : {}),
+        ...(reaction ? { reaction: reaction as Reaction } : {}),
+        ...(variant ? { variant } : {}),
+      };
+      // One reaction per target: a later tap on the same part replaces the earlier one.
+      if (reaction) {
+        const same = out.findIndex(
+          (o) =>
+            o.reaction &&
+            o.part === part &&
+            o.state === state &&
+            (o.variant ?? null) === (variant ?? null),
+        );
+        if (same >= 0) out.splice(same, 1);
+      }
+      out.push(next);
     }
     return out;
   }
@@ -1652,7 +1687,7 @@ export function createApp({
     if (typeof mix === "string") return mix;
     const tuned = checkKnobValues(pick("tuned"), mock, posts, "tuned");
     if (!tuned.ok) return tuned.error;
-    const comments = sanitizePartComments(pick("comments"), mock);
+    const comments = sanitizePartComments(pick("comments"), mock, posts);
     if (typeof comments === "string") return comments;
     const others = sanitizeAskTexts(pick("others"), mock, posts, "others");
     if (typeof others === "string") return others;
@@ -2400,6 +2435,10 @@ export function createApp({
     if (!authToken) return next();
     if (path === "/guide" || path === "/setup" || path === "/agent-howto") return next();
     if (path.startsWith(STATIC_ASSET_PREFIX)) return next();
+    // The installable-app files carry no workspace data, and a browser may
+    // fetch them without the cookie; the manifest adds the key only for a
+    // caller that already holds it.
+    if (APP_FILES.has(path)) return next();
 
     const key = c.req.query("key");
     if (key === authToken) {
@@ -2485,6 +2524,25 @@ export function createApp({
     return injectHead(text, `<script>${config}</script>`);
   };
 
+  // The tags that make the viewer installable to a home screen. `use-credentials`
+  // sends the cookie with the manifest fetch, which browsers otherwise omit.
+  const withAppHead = (request: Request, mode: Mode) => (text: string) => {
+    const base = escapeHtml(requestBasePath(request));
+    return injectHead(
+      text,
+      [
+        `<link rel="manifest" href="${base}/manifest.webmanifest" crossorigin="use-credentials">`,
+        `<link rel="icon" href="${base}/icon.svg" type="image/svg+xml">`,
+        `<link rel="apple-touch-icon" href="${base}/apple-touch-icon.png">`,
+        `<meta name="theme-color" content="${themeColor(mode)}">`,
+        `<meta name="mobile-web-app-capable" content="yes">`,
+        `<meta name="apple-mobile-web-app-capable" content="yes">`,
+        `<meta name="apple-mobile-web-app-title" content="mockpit">`,
+        `<meta name="apple-mobile-web-app-status-bar-style" content="default">`,
+      ].join("\n"),
+    );
+  };
+
   // --- viewer pages ---
 
   // Link previews for a mock page: the first open variant's first surface,
@@ -2536,14 +2594,19 @@ export function createApp({
     // sandboxed surface documents at /s/:id are *meant* to be framed and carry
     // their own `sandbox` CSP header instead, so they never pass through here.
     c.header("Content-Security-Policy", "frame-ancestors 'self'");
-    const html = withDocumentTitle(
-      withViewerConfig(
-        withOrigin(viewerHtml, { req: { url: c.req.url } }),
-        c.req.raw,
-        !!publicRead && !isAuthenticated(c),
+    const html = withAppHead(
+      c.req.raw,
+      await workspaceMode(),
+    )(
+      withDocumentTitle(
+        withViewerConfig(
+          withOrigin(viewerHtml, { req: { url: c.req.url } }),
+          c.req.raw,
+          !!publicRead && !isAuthenticated(c),
+          opts.title,
+        ),
         opts.title,
       ),
-      opts.title,
     );
     if (!opts.preview) return html;
     const { mock, post } = opts.preview;
@@ -2553,6 +2616,39 @@ export function createApp({
     );
   };
   app.get("/", async (c) => c.html(await configuredViewerHtml(c)));
+
+  // --- the installable app: manifest and icons ---
+
+  app.get("/manifest.webmanifest", async (c) => {
+    // A tokened workspace bakes the key into start_url for a caller that holds
+    // it (the viewer links the manifest with credentials), so a home-screen
+    // launch, which may not share the browser's cookies, signs itself in.
+    const keyed = !!authToken && isAuthenticated(c);
+    const manifest = webManifest(
+      await workspaceMode(),
+      keyed ? `./?key=${encodeURIComponent(authToken!)}` : "./",
+    );
+    c.header("Content-Type", "application/manifest+json; charset=utf-8");
+    c.header("X-Content-Type-Options", "nosniff");
+    c.header("Cache-Control", keyed ? "private, no-store" : "no-cache");
+    return c.body(JSON.stringify(manifest));
+  });
+  app.get("/icon.svg", (c) => {
+    c.header("Content-Type", "image/svg+xml");
+    // Our own art, but SVG is a document: opened top-level it runs at this origin.
+    c.header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    c.header("X-Content-Type-Options", "nosniff");
+    c.header("Cache-Control", "public, max-age=86400");
+    return c.body(ICON_SVG);
+  });
+  const iconPng = (size: number) => (c: Context) => {
+    c.header("Content-Type", "image/png");
+    c.header("X-Content-Type-Options", "nosniff");
+    c.header("Cache-Control", "public, max-age=86400");
+    return c.body(decodeBase64(ICON_PNG_BASE64[size]).buffer as ArrayBuffer);
+  };
+  for (const size of ICON_SIZES) app.get(`/icon-${size}.png`, iconPng(size));
+  app.get("/apple-touch-icon.png", iconPng(180));
   // The engine reads the project/mock out of the URL itself; these render the
   // same shell as "/".
   app.get("/project/:name", async (c) =>

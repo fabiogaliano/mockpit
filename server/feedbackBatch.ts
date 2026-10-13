@@ -8,9 +8,12 @@ import {
   builtinAsk,
   type Comment,
   type CommentAnchor,
+  DEFAULT_VARIANT,
   type Mock,
   OTHER_ID,
+  type PartComment,
   type Post,
+  type Reaction,
   type Reply,
   type Store,
 } from "./types.ts";
@@ -64,6 +67,9 @@ export interface FeedbackReply extends Omit<
   seq: number;
   at: string;
   asks: AnsweredAsk[];
+  // One-tap reactions as one line each (`👍 part "hero" (variant B)`); they are
+  // left out of `comments`, which keeps only what the user typed.
+  reactions?: string[];
 }
 
 export interface FeedbackBatch {
@@ -79,6 +85,33 @@ export interface FeedbackBatch {
 }
 
 const ref = (p: Post): VariantRef => ({ state: p.state, variant: p.variant });
+
+const REACTION_LEAD: Record<Reaction, string> = {
+  up: "👍",
+  down: "👎",
+  more: "more like this:",
+};
+
+// `👍 part "hero" (variant B, state Mobile)`, `👎 variant B`, `more like this: the page`.
+export function reactionLine(c: PartComment & { reaction: Reaction }): string {
+  // A mock published without variant names has only "default": naming it is noise.
+  const variant = c.variant && c.variant !== DEFAULT_VARIANT ? c.variant : null;
+  const where = [
+    c.part !== null && variant ? `variant ${variant}` : "",
+    c.state ? `state ${c.state}` : "",
+  ].filter(Boolean);
+  const target =
+    c.part !== null
+      ? `part ${JSON.stringify(c.part)}`
+      : variant
+        ? `variant ${variant}`
+        : "the page";
+  const tail = where.length ? ` (${where.join(", ")})` : "";
+  const note = c.text ? ` “${c.text}”` : "";
+  return `${REACTION_LEAD[c.reaction]} ${target}${tail}${note}`;
+}
+
+const isReaction = (c: PartComment): c is PartComment & { reaction: Reaction } => !!c.reaction;
 
 function answered(
   reply: Reply,
@@ -163,11 +196,14 @@ export function groupFeedback(
         noteImages: _noteImages,
         ...payload
       } = c.payload;
+      const reactions = (payload.comments ?? []).filter(isReaction).map(reactionLine);
       batch.reply = {
         ...payload,
+        comments: (payload.comments ?? []).filter((x) => !x.reaction),
         seq: c.seq,
         at: c.createdAt,
         asks: answered(c.payload, mock, mockPosts, base),
+        ...(reactions.length ? { reactions } : {}),
       };
       batch.accepted = mockPosts.filter((p) => p.status === "accepted").map(ref);
       batch.archived = mockPosts.filter((p) => p.status === "archived").map(ref);

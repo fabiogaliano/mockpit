@@ -350,11 +350,21 @@ export interface PartCommentAnchor {
   // at another width, so the agent and the viewer can tell which layout it meant.
   width?: number;
 }
+// A one-tap verdict on a part (or, with part null, on the variant itself),
+// for a reviewer on a phone who would rather not type: like, dislike, or
+// "more like this". Rides as a part comment, so it travels in the one reply.
+export const REACTIONS = ["up", "down", "more"] as const;
+export type Reaction = (typeof REACTIONS)[number];
+
 export interface PartComment {
   part: string | null;
   state: string | null;
+  // "" on a reaction with nothing typed.
   text: string;
   anchor?: PartCommentAnchor;
+  reaction?: Reaction;
+  // The variant on stage when the reaction was made: the same part differs by look.
+  variant?: string;
 }
 
 // What a reply decides about one variant outside the ask flow (the plain
