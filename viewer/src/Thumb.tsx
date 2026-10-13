@@ -20,8 +20,9 @@ export function Thumb(props: {
   class?: string;
   focus?: Focus | null;
   title?: string;
-  // Size the box to the page (up to 4:3 of its width) instead of the box's own
-  // CSS height, so no empty band shows under a short page.
+  // A picture box whose size is fixed by its CSS (an aspect ratio) before
+  // anything loads, so nothing under it moves when the page reports its
+  // height. A page shorter than the box is centred in it, not stretched.
   fit?: boolean;
 }) {
   let box!: HTMLDivElement;
@@ -49,20 +50,15 @@ export function Thumb(props: {
   });
   const frame = () => {
     const { w, h } = size();
-    return fitThumb(
-      w,
-      props.fit ? Math.round((w * 3) / 4) : h,
-      docH(),
-      props.focus ?? null,
-      FRAME_W,
-    );
+    const fit = fitThumb(w, h, docH(), props.focus ?? null, FRAME_W);
+    return props.fit && fit.h < h ? { ...fit, y: fit.y + (h - fit.h) / 2 } : fit;
   };
   return (
     <div
       class={`thumb ${props.class ?? ""}`}
       ref={(el) => (box = el)}
-      style={props.fit && size().w ? { height: `${frame().h}px` } : undefined}
-      // Marks the box once its page has reported a height: its size is final.
+      // Marks the box once its page has reported a height and the picture in
+      // it is placed for good; the box itself never changes size.
       data-sized={docH() !== null ? "" : undefined}
       aria-hidden="true"
     >

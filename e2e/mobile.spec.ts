@@ -148,8 +148,12 @@ test("the width control renders the design at a device width", async ({ page, se
   await open(page, server.url);
   const iframe = page.locator(".frame.on iframe");
   const overlay = page.locator(".frame.on .overlay");
-  const phone = page.viewportSize()!.width < 600;
-  await expect(iframe).toHaveAttribute("width", phone ? "390" : "820");
+  // Each screen opens at the device width it can show at true size.
+  const screenW = page.viewportSize()!.width;
+  const start = screenW <= 600 ? "390" : screenW <= 900 ? "744" : "820";
+  const other = start === "744" ? "390" : "744";
+  await expect(iframe).toHaveAttribute("width", start);
+  if (start !== "820") await expect(page.locator(".zoomval")).toHaveText("100%");
 
   // A mark remembers the width it was placed at.
   await page.locator(".markbtn").tap();
@@ -160,14 +164,14 @@ test("the width control renders the design at a device width", async ({ page, se
   await expect(page.locator(".pin.mark")).toHaveCount(1);
   await expect(page.locator(".pin.mark.elsewhere")).toHaveCount(0);
 
-  await page.locator(".widthpick select").selectOption("744");
-  await expect(iframe).toHaveAttribute("width", "744");
-  await expect(overlay).toHaveAttribute("data-doc-width", "744");
+  await page.locator(".widthpick select").selectOption(other);
+  await expect(iframe).toHaveAttribute("width", other);
+  await expect(overlay).toHaveAttribute("data-doc-width", other);
   await expect(page.locator(".pin.mark.elsewhere")).toHaveCount(1);
 
   // Remembered per mock.
   await page.reload();
-  await expect(page.locator(".frame.on iframe")).toHaveAttribute("width", "744");
+  await expect(page.locator(".frame.on iframe")).toHaveAttribute("width", other);
 });
 
 test("Inspect at 100% pans, and a pinch zooms", async ({ page, server }) => {

@@ -47,7 +47,7 @@ import type { MockScreenState } from "./state.ts";
 import { StageHead } from "./StageHead.tsx";
 import { theme } from "./theme.ts";
 import { Versions } from "./Versions.tsx";
-import { coarse, sheet, win } from "./viewport.ts";
+import { coarse, safeX, sheet, win } from "./viewport.ts";
 
 const num = (v: unknown, d = 0) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const MAX_TEXT = 200;
@@ -139,12 +139,20 @@ export function Stage(props: { s: MockScreenState }) {
   // A finger scrolls the page, not the frame: the frame takes its full height
   // and the stage scrolls natively. Inspect does the same with any pointer.
   const uncapped = () => coarse() || inspecting();
-  const fitScale = createMemo(() => {
+  // Beside the panel, the column between the gutters; over a sheet or in
+  // Inspect, the whole screen inside its safe area.
+  const availW = createMemo(() => {
     const w = win().w;
-    const avail = inspecting() ? w : sheet() ? w - 24 : w - 48 - PANEL_W - 12;
+    return inspecting() || sheet() ? w - safeX() : w - 48 - PANEL_W - 12;
+  });
+  // Over a sheet, a design too wide for the screen plus borders goes edge to
+  // edge without them, so a 390 design on a 390 phone stays at 100%.
+  const edge = createMemo(() => sheet() && !inspecting() && frameW() + 2 > availW());
+  const fitScale = createMemo(() => {
     const floor = sheet() || inspecting() ? 0.1 : 0.3;
     // Less the stage's 1px border on each side, so the frame is never clipped.
-    return Math.max(floor, Math.min(1, (avail - 2) / frameW()));
+    const border = edge() || inspecting() ? 0 : 2;
+    return Math.max(floor, Math.min(1, (availW() - border) / frameW()));
   });
   const scale = createMemo(() => {
     if (!inspecting()) return fitScale();
@@ -284,8 +292,8 @@ export function Stage(props: { s: MockScreenState }) {
   return (
     <div
       class="stagewrap"
-      classList={{ inspect: inspecting() }}
-      style={inspecting() ? undefined : { width: `${frameW() * scale() + 2}px` }}
+      classList={{ inspect: inspecting(), edge: edge() }}
+      style={inspecting() ? undefined : { width: `${frameW() * scale() + (edge() ? 0 : 2)}px` }}
     >
       <div class="stage" classList={{ old: s.viewVersion() !== null }}>
         <StageHead
@@ -353,7 +361,7 @@ export function Stage(props: { s: MockScreenState }) {
         </div>
       </div>
       <Show when={!inspecting()}>
-        <CornerPins s={s} />
+        <CornerPins s={s} edge={edge()} />
       </Show>
       <Show when={s.versionsOpen()}>
         <Versions s={s} anchor={vbtn()} />
@@ -364,15 +372,18 @@ export function Stage(props: { s: MockScreenState }) {
 
 // Mock- and state-wide questions pin to the stage's top-left corner, in a row
 // along its top edge; part questions pin to their part (in the frame overlay).
-function CornerPins(props: { s: MockScreenState }) {
+function CornerPins(props: { s: MockScreenState; edge: boolean }) {
   const s = props.s;
+  // A stage at the screen's edge has no gutter to hang a pin into; the pin
+  // steps inside, far enough that its 44px tap area stays on screen.
+  const x = () => (props.edge ? 8 : -10);
   const corner = createMemo(() =>
     layoutPins(
       s.questions().flatMap((q, i) => {
         if (q.kind !== "ask") return [];
         const a = q.ask;
         if (a.scope === "mock" || (a.scope === "state" && a.state === s.activeState())) {
-          return [{ index: i, x: -10, y: -10 }];
+          return [{ index: i, x: x(), y: -10 }];
         }
         return [];
       }),

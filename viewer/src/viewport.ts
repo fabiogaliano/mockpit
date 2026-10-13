@@ -3,7 +3,7 @@
 // (coarse), never a device guess: an iPad sends a desktop user agent.
 
 import { createRoot, createSignal } from "solid-js";
-import { host } from "./host.ts";
+import { host, root } from "./host.ts";
 import { panelBeside } from "./logic.ts";
 
 const size = () => ({ w: host().window.innerWidth, h: host().window.innerHeight });
@@ -28,3 +28,27 @@ export const coarse = media("(pointer: coarse)");
 
 // The panel is a bottom sheet under a full-width stage.
 export const sheet = () => !panelBeside(win().w);
+
+// The left and right safe-area insets together (a notched phone held sideways):
+// CSS knows them and script does not, so a hidden probe padded by them is read
+// on every resize. The stage fits inside them and never sits under a notch.
+let safeXSignal: (() => number) | null = null;
+export function safeX(): number {
+  safeXSignal ??= createRoot(() => {
+    const doc = root();
+    const probe = doc.createElement("div");
+    probe.setAttribute("aria-hidden", "true");
+    probe.style.cssText =
+      "position:fixed;top:0;left:0;width:0;height:0;visibility:hidden;pointer-events:none;" +
+      "padding:0 env(safe-area-inset-right) 0 env(safe-area-inset-left)";
+    doc.body?.appendChild(probe);
+    const read = () => {
+      const cs = host().window.getComputedStyle?.(probe);
+      return cs ? (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) : 0;
+    };
+    const [get, set] = createSignal(read());
+    host().window.addEventListener("resize", () => set(read()));
+    return get;
+  });
+  return safeXSignal();
+}

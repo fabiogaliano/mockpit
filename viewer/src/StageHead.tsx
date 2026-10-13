@@ -18,6 +18,7 @@ export function StageHead(props: {
   const s = props.s;
   const v = () => s.activeVariant();
   const siblings = () => s.variants().filter((x) => x.state === s.activeState());
+  const pct = () => Math.round(props.scale * 100);
   let head!: HTMLDivElement;
   let inspectBtn: HTMLButtonElement | undefined;
   let doneBtn: HTMLButtonElement | undefined;
@@ -132,6 +133,14 @@ export function StageHead(props: {
             <path d="M6 9.5L12 15.5L18 9.5" />
           </svg>
         </label>
+        {/* Whether the design is seen at true size or shrunk to fit the screen. */}
+        <span
+          class="zoomval"
+          classList={{ shrunk: pct() < 100 }}
+          title={pct() === 100 ? "True size" : pct() < 100 ? "Shrunk to fit" : "Zoomed in"}
+        >
+          {`${pct()}%`}
+        </span>
         <Show when={!readonly()}>
           <button
             type="button"
@@ -199,10 +208,6 @@ export function StageHead(props: {
               100%
             </button>
           </div>
-          {/* Fit and 100% name themselves; a pinched scale needs its number. */}
-          <Show when={typeof props.zoom === "number" && props.zoom !== 1}>
-            <span class="zoomval">{`${Math.round(props.scale * 100)}%`}</span>
-          </Show>
           <button
             type="button"
             class="donebtn"
