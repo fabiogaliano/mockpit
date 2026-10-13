@@ -1,5 +1,0 @@
----
-"mockpit": minor
----
-
-Answering across many mocks takes fewer steps. After the last question, a review lists every answer (a picture for a variant pick). Tap one to change it and you come straight back. Send stays pinned within thumb reach on a phone. After Send, the viewer moves you to the next mock that still owes answers, oldest first, which is the order the agent published them in. It shows "Next: <title> · N questions ›" with a Stay here button, and your Send's Delivered / Not seen yet chip comes along. The same happens after Accept, Revise or Drop. Home's "Answer next" uses the same order, and a mock you've started shows "draft 2/4". Mock lists on every tier now carry `drafted`, the number of open asks the unsent draft answers (absent when there is no draft). Keys: 1–9 pick, ←/→ move between questions, Enter goes on (Next, Review, Send), `[`/`]` jump to the previous or next mock that owes answers, Esc clears a preview, and `?` lists the keys. On touch, a sideways swipe on the panel moves between questions, and a preview shrinks the sheet so you can see the change.
