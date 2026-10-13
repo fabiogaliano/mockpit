@@ -562,7 +562,8 @@ test("Mark: a pin on the stage, its comment and anchor in the reply, listed in T
   const mockId = out.mock.id;
   await page.goto(`${server.url}/project/${PROJECT}/card`);
   const overlay = page.locator(".frame.on .overlay");
-  // The frame has reported its parts once hovering the title boxes it.
+  // A hover before the frame's first parts report finds no part to box.
+  await expect(overlay).toHaveAttribute("data-doc-width", /\d/);
   await overlay.hover({ position: { x: 120, y: 70 } });
   await expect(overlay.locator('.box[data-part="title"]')).toHaveCount(1);
 

@@ -106,8 +106,8 @@ consciously, not as a side effect):
   (`TopBar`, `Stage` + `Strip`, `Panel`), `Stage` (frames, part overlay, pins,
   hit-testing through the bridge), `Panel` (`Questions` · `Tune` · `Thread`),
   `Versions`, `Thumb` (shrunk sandboxed frames for Home and option pictures);
-  `state.ts` (the mock screen's state and actions), `logic.ts` (pure rules,
-  unit-tested), `tune.ts` (tunekit mounted via `initPane({ host })`),
+  `state.ts` (the mock screen's state and actions), `logic.ts` (pure rules),
+  `tune.ts` (tunekit mounted via `initPane({ host })`),
   `presets.ts` (Tune presets in localStorage), `theme.ts`, `host.ts`.
 - `bin/mockpit.js` — CLI, Node built-ins only; `bin/demoData.js` — the Writer
   mock `mockpit demo` seeds.
@@ -211,8 +211,7 @@ consciously, not as a side effect):
 ## Validation
 
 ```sh
-npm test             # Node unit/API/store tests + viewer unit tests
-npm run coverage     # all-source Node/Pi + viewer unit reports and floors
+npm test             # store contract, in-place migration, reply delivery
 npm run test:worker  # real local workerd + Durable Object integration
 npm run typecheck    # three tsc programs: node + workers + viewer
 npm run lint         # oxlint, warnings are errors
@@ -223,7 +222,7 @@ npm run test:e2e     # Playwright, chromium + webkit (separate CI job): bridge,
 npm run bench        # performance suite (separate CI job); bench:check gates it
 ```
 
-The first seven must pass before committing; e2e should pass before merge for
+The first six must pass before committing; e2e should pass before merge for
 viewer/rendering changes. CI also gates PRs on changeset status and smoke-tests
 the packed CLI. Pre-commit formats staged files (`npm run prepare` after a fresh clone).
 
@@ -243,16 +242,15 @@ Performance (`bench/`, see `bench/README.md`):
 
 Testing notes:
 
-- Coverage is deliberately split by runtime. c8 uses `--all` for every shipped
-  Node/Pi source under `bin/`, `extensions/`, `mcp/`, and `server/`, plus the
-  Node-testable Worker exports/helpers; Vitest reports every executable
-  `viewer/src/` TypeScript/TSX file, including untested TSX. Do not combine those
-  percentages. `workers/index.ts`
-  runs in workerd (`npm run test:worker`) and browser behavior runs in Playwright;
-  both are required behavioral gates, not falsely attributed to Node coverage.
-  Coverage floors pin the honest baselines. Never lower one merely to make CI
-  green or hide shipped source to preserve a headline number; a reviewed reset is
-  allowed when the source inventory or instrumentation intentionally changes.
+- **Add a test only when it is vital.** The suite is deliberately small: e2e
+  for the flows a user depends on (publish → answer → Send → the agent hears
+  it, the bridge, touch and mobile), and Node tests only for what a browser
+  can't see and whose failure loses data — the store contract, `SqlStore`'s
+  in-place migration, exactly-once reply delivery — plus the workerd run. A bug
+  fix, a refactor or a new feature does not earn a test by default; extend an
+  existing e2e flow when a break there would reach the user unnoticed, and
+  otherwise verify by running the thing (a screenshot, a curl, the CLI). No unit
+  tests of pure helpers, no coverage targets.
 - `runStoreContract()` runs the same suite against every store. SqlStore runs
   on `createSqliteStorage()` (`:memory:`), the same `node:sqlite` adapter the
   local server uses on disk — so the contract covers the real Node SQLite path.

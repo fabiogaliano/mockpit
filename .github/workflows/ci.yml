@@ -35,7 +35,7 @@ jobs:
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
-      - run: npm run coverage
+      - run: npm test
       - run: npm run test:worker
 
       - name: Release-note changeset
@@ -100,7 +100,7 @@ jobs:
   # Windows uses entirely separate code paths in the CLI (PowerShell process
   # tree walk in agentPid, cmd /c start for --open) and OS-specific path/state
   # keying — none of which the Linux jobs exercise. It bills at 2x, so run it
-  # only on push to main, not on every PR. Keep it lean: unit tests plus a
+  # only on push to main, not on every PR. Keep it lean: the store tests plus a
   # packed serve+publish round trip that runs the Windows agentPid walk.
   windows-smoke:
     if: github.event_name == 'push'
