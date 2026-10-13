@@ -3,8 +3,8 @@
 // nothing left, the way back to the project. And on that next mock, the chip
 // that keeps the last Send's Delivered / Not seen yet in sight.
 
-import { Show } from "solid-js";
-import { carried, useCarriedDelivery } from "./carry.ts";
+import { onCleanup, Show } from "solid-js";
+import { carried, setCarried, useCarriedDelivery } from "./carry.ts";
 import { linkClick, mockPath, projectPath } from "./route.ts";
 import type { MockScreenState } from "./state.ts";
 
@@ -65,6 +65,11 @@ export function CarriedChip(props: { project: string; slug: string }) {
     const c = carried();
     return c && c.project === props.project && c.slug !== props.slug ? c : null;
   };
+  // Once a screen has shown it Delivered, it has done its job; until then it
+  // keeps following the user from mock to mock.
+  onCleanup(() => {
+    if (shown() && delivered()) setCarried(null);
+  });
   return (
     <Show when={shown()}>
       {(c) => (

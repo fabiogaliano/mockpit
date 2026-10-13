@@ -70,8 +70,10 @@ mockpit turns that into a design-decision loop:
 
 **Home** lists the project's mocks with a thumbnail, their states and how many
 questions are open, with "Answer next ›" to jump to the first one. Dark and
-light themes, toggled from the top bar. On a narrow screen the panel becomes a
-bottom sheet.
+light themes, toggled from the top bar. On a phone or tablet the panel becomes a
+bottom sheet, the stage scrolls under your finger and renders the design at a
+chosen width (Phone 390, Tablet 744, Desktop 820, Wide 1280), and Inspect opens
+the stage full screen to pan and pinch-zoom it.
 
 ## Quick start
 

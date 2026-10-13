@@ -4,6 +4,7 @@
 
 import { createMemo, createResource, For, onCleanup, Show } from "solid-js";
 import { api, type MockSummary, subscribe, surfaceUrl } from "./api.ts";
+import { setCarried } from "./carry.ts";
 import { nextOwedMock, timeAgo } from "./logic.ts";
 import { linkClick, mockPath, navigate, projectPath } from "./route.ts";
 import { setTheme, theme } from "./theme.ts";
@@ -11,6 +12,8 @@ import { Thumb } from "./Thumb.tsx";
 import { TopBar } from "./TopBar.tsx";
 
 export function Home(props: { project: string | null }) {
+  // Home shows where every mock stands; a Send carried from a mock ends here.
+  setCarried(null);
   const [projects, { refetch: refetchProjects }] = createResource(() => api.projects());
   const project = createMemo(() => props.project ?? projects()?.[0]?.name ?? null);
   const [list, { refetch }] = createResource(project, (p) => api.mocks(p));

@@ -1,5 +1,7 @@
 // The mock screen's keyboard: flowKey (logic.ts) says what a key means, this
 // applies it. The Mark tool and the Versions popover own their keys while open.
+// Any key or press on the screen also keeps it from moving on by itself after
+// a Send: the user is reading or doing something here.
 
 import { onCleanup, onMount } from "solid-js";
 import { root } from "./host.ts";
@@ -11,7 +13,11 @@ const CONTROL = "button, a[href], summary, [role='button'], [role='tab'], [role=
 
 export function useFlowKeys(s: MockScreenState) {
   onMount(() => {
+    const stay = () => {
+      if (s.afterSend()?.auto) s.stayHere();
+    };
     const onKey = (e: KeyboardEvent) => {
+      stay();
       if (e.defaultPrevented || e.isComposing || s.marking() || s.versionsOpen()) return;
       // Tune's controls live in a shadow root: the event's own target is
       // retargeted to the host, the first node of its path is the real one.
@@ -58,6 +64,10 @@ export function useFlowKeys(s: MockScreenState) {
       e.preventDefault();
     };
     root().addEventListener("keydown", onKey);
-    onCleanup(() => root().removeEventListener("keydown", onKey));
+    root().addEventListener("pointerdown", stay, true);
+    onCleanup(() => {
+      root().removeEventListener("keydown", onKey);
+      root().removeEventListener("pointerdown", stay, true);
+    });
   });
 }

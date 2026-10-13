@@ -10,6 +10,7 @@ import { createMockScreen } from "./state.ts";
 import { Strip } from "./Strip.tsx";
 import { createTune } from "./tune.ts";
 import { TopBar } from "./TopBar.tsx";
+import { sheet } from "./viewport.ts";
 
 export function MockScreen(props: { project: string; slug: string }) {
   const s = createMockScreen(props.project, props.slug);
@@ -17,7 +18,7 @@ export function MockScreen(props: { project: string; slug: string }) {
   useFlowKeys(s);
   const home = () => projectPath(props.project);
   return (
-    <div class="screen mock-screen">
+    <div class="screen mock-screen" classList={{ sheeted: sheet(), inspecting: s.inspect() }}>
       <TopBar
         left={
           <>

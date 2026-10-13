@@ -21,6 +21,11 @@ const cornerPin = (page: Page, n: number) => page.locator(`.pins .pin[data-quest
 const partPin = (page: Page, n: number) =>
   page.locator(`.frame.on .overlay .pin[data-question="${n}"]`);
 
+// Option pictures shrink to their page once its frame reports a height, which
+// moves whatever sits under them; a click aimed before that lands elsewhere.
+const picturesSettled = (page: Page) =>
+  expect(page.locator(".opts .thumb:not([data-sized])")).toHaveCount(0);
+
 async function pickAndWait(page: Page, mockId: string, id: string) {
   const write = page.waitForResponse(
     (r) => r.url().endsWith(`/api/mocks/${mockId}/draft`) && r.request().method() === "PUT",
@@ -189,6 +194,7 @@ test("a note and an Other… write-in survive a reload and reach the agent in th
   // Q1: the note is opt-in, collapsed until asked for.
   await expect(header(page)).toContainText("Question 1 of 3");
   await expect(page.locator(".ask-note")).toHaveCount(0);
+  await picturesSettled(page);
   await page.getByRole("button", { name: "Add a note" }).click();
   let write = saved();
   await page.locator(".ask-note textarea").fill("Dark on desktop, quiet on mobile");
@@ -258,6 +264,7 @@ test("images attach to a note by picker and paste, × removes one, and the rest 
 }) => {
   const { mockId, session } = await seedWriter(server.url);
   await page.goto(`${server.url}${mockPath}`);
+  await picturesSettled(page);
   await page.getByRole("button", { name: "Add a note" }).click();
   const note = page.locator(".ask-note");
   const thumbs = note.locator(".attach-item:not(.pending)");
@@ -887,6 +894,11 @@ test("keys pick and step, the review changes an answer, Send carries on to the n
   await expect(chip).toHaveText("Writer · Not seen yet");
   await agentCall(server.url, `/api/feedback?session=${session}`);
   await expect(chip).toHaveText("Writer · Delivered");
+  // Seen Delivered, it ends there: by way of Home and back, it is gone.
+  await page.locator(".crumb .home").click();
+  await page.locator('.home-row[data-mock="card"]').click();
+  await expect(header(page)).toContainText("Question 1 of 1");
+  await expect(chip).toHaveCount(0);
 
   // The last mock owed: Send says so instead of moving on, and the carried
   // chip gives way to this mock's own.
@@ -905,6 +917,8 @@ test("Stay keeps the screen after Send; ] and [ step through the mocks owed", as
   await seedAsked(server.url, "first", "First");
   await seedAsked(server.url, "second", "Second");
   await seedAsked(server.url, "third", "Third");
+  // Fake timers, still flowing in real time, so the beat can be run past at once.
+  await page.clock.install();
   await page.goto(`${server.url}/project/${PROJECT}/second`);
   await expect(header(page)).toContainText("Question 1 of 1");
   await page.keyboard.press("]");
@@ -926,10 +940,32 @@ test("Stay keeps the screen after Send; ] and [ step through the mocks owed", as
   await expect(stay).toHaveCount(0);
   await expect(page.locator(".nextcard-bar")).toHaveCount(0);
   // Well past the beat, still here, the way on still offered.
-  await page.waitForTimeout(2000);
+  await page.clock.runFor(5000);
   await expect(page).toHaveURL(/\/third$/);
   await page.locator(".nextcard-go").click();
   await expect(page).toHaveURL(/\/first$/);
+});
+
+test("after Send, a tap anywhere on the screen (here: Thread) keeps it from moving on", async ({
+  page,
+  server,
+}) => {
+  await seedAsked(server.url, "first", "First");
+  await seedAsked(server.url, "second", "Second");
+  await page.clock.install();
+  await page.goto(`${server.url}/project/${PROJECT}/first`);
+  await expect(header(page)).toContainText("Question 1 of 1");
+  await page.keyboard.press("1");
+  await expect(header(page)).toContainText("Review · 1 question");
+  await page.locator("button.send").click();
+  await expect(page.getByRole("button", { name: "Stay here" })).toBeVisible();
+  // Reading the Thread for Delivered must not be cut short by the move-on.
+  await page.locator('[data-mode="thread"]').click();
+  await expect(page.getByRole("button", { name: "Stay here" })).toHaveCount(0);
+  await page.clock.runFor(5000);
+  await expect(page).toHaveURL(/\/first$/);
+  await expect(page.locator(".trow.you")).toHaveCount(1);
+  await expect(page.locator(".nextcard-go")).toHaveText("Next: Second · 1 question ›");
 });
 
 test("Home: Answer next follows the agent's order, and a started mock shows its draft", async ({

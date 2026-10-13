@@ -34,6 +34,7 @@ import type { AskField, MockScreenState, Primary } from "./state.ts";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 
+const MIX_KEY = "mix";
 const hoverDevice = () => host().window.matchMedia?.("(hover: hover)").matches ?? true;
 
 export function Questions(props: { s: MockScreenState }) {
@@ -66,6 +67,10 @@ function QuestionView(props: { s: MockScreenState }) {
   const total = () => s.questions().length;
   const i = () => Math.min(s.cur(), total() - 1);
   const q = () => s.questions()[i()];
+  const questionKey = createMemo(() => {
+    const x = q();
+    return x ? (x.kind === "mix" ? MIX_KEY : `ask:${x.ask.id}`) : null;
+  });
 
   // A horizontal swipe on the panel steps questions. Touch events, not pointer
   // events, so the panel's own vertical scroll keeps working; a swipe that
@@ -133,14 +138,21 @@ function QuestionView(props: { s: MockScreenState }) {
         <KeysList />
       </Show>
       <Show when={!s.reviewing()} fallback={<Review s={s} />}>
-        <Show when={q()} keyed>
-          {(x) =>
-            x.kind === "mix" ? (
+        {/* Keyed by the question's id, not its object: the list is rebuilt
+            whenever a frame reports its parts, and remounting on that would
+            close an open note and drop the focus out of its field mid-typing. */}
+        <Show when={questionKey()} keyed>
+          {(key) => {
+            const ask = () => {
+              const x = q();
+              return x?.kind === "ask" ? x.ask : null;
+            };
+            return key === MIX_KEY ? (
               <MixBlock s={s} index={i()} />
             ) : (
-              <AskBlock s={s} ask={x.ask} index={i()} />
-            )
-          }
+              <Show when={ask()}>{(a) => <AskBlock s={s} ask={a()} index={i()} />}</Show>
+            );
+          }}
         </Show>
       </Show>
       <Show when={s.error()}>

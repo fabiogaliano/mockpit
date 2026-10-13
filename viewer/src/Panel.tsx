@@ -1,7 +1,7 @@
 // D4: the panel — header (mock · N tuned), the preset row, the mode row
-// (Questions · Tune · Thread) and the mode's content. On a narrow screen it is
-// a bottom sheet (§5): collapsed to its mode row, dragged or tapped open, and
-// without Tune.
+// (Questions · Tune · Thread) and the mode's content. When the stage needs the
+// full width it is a bottom sheet (§5): collapsed to its mode row, dragged or
+// tapped open.
 
 import {
   createEffect,
@@ -23,7 +23,7 @@ import type { MockScreenState, Mode } from "./state.ts";
 import { Thread, useThreadRows } from "./Thread.tsx";
 import type { TuneState } from "./tune.ts";
 import { Chevron, PartSelector, Tune } from "./Tune.tsx";
-import { narrow } from "./viewport.ts";
+import { sheet } from "./viewport.ts";
 
 const Icon = (props: { d: string[] }) => (
   <svg
@@ -74,7 +74,7 @@ export function Panel(props: { s: MockScreenState; t: TuneState }) {
       aria-selected={s.mode() === k}
       data-mode={k}
       onClick={() => {
-        if (narrow()) setSheetOpen(true);
+        if (sheet()) setSheetOpen(true);
         if (s.mode() !== k) s.setMode(k);
       }}
     >
@@ -95,14 +95,14 @@ export function Panel(props: { s: MockScreenState; t: TuneState }) {
     <aside
       class="up-shell"
       classList={{
-        sheet: narrow(),
-        open: narrow() && sheetOpen(),
+        sheet: sheet(),
+        open: sheet() && sheetOpen(),
         // A preview on stage shrinks the sheet so the change shows above it.
-        "sheet-peek": narrow() && sheetOpen() && !!s.preview(),
+        "sheet-peek": sheet() && sheetOpen() && !!s.preview(),
       }}
       aria-label="Panel"
     >
-      <Show when={narrow()}>
+      <Show when={sheet()}>
         <SheetHandle open={sheetOpen()} setOpen={setSheetOpen} />
       </Show>
       <div class="up-header">
@@ -119,7 +119,7 @@ export function Panel(props: { s: MockScreenState; t: TuneState }) {
         <div class="up-tabs">
           <div class="up-modes" role="tablist">
             {modeButton("questions", "Questions")}
-            <Show when={!narrow() && s.tuneShown()}>{modeButton("tune", "Tune")}</Show>
+            <Show when={s.tuneShown()}>{modeButton("tune", "Tune")}</Show>
             {modeButton("thread", "Thread")}
           </div>
           <Show when={s.mode() === "tune"}>

@@ -346,6 +346,9 @@ export interface PartCommentAnchor {
   quote?: string;
   selector?: string;
   box?: number[];
+  // The stage width (CSS px) the comment was placed at: the same page reflows
+  // at another width, so the agent and the viewer can tell which layout it meant.
+  width?: number;
 }
 export interface PartComment {
   part: string | null;
