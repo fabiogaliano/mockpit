@@ -587,7 +587,18 @@ test("GET /api/mocks lists summaries with open counts; ?project scopes it", asyn
   assert.equal(row.stateCount, 2);
   assert.equal(row.variants, 4);
   assert.equal(row.open, 2);
+  assert.equal(row.drafted, undefined, "no draft yet");
   assert.ok(row.thumbnail.postId);
+
+  // The user picks one of the two: the row says how far the unsent draft got.
+  const ask = (await call(app, `/api/mocks/${mockId}`)).body.asks[0];
+  await call(
+    app,
+    `/api/mocks/${mockId}/draft`,
+    viewer({ answers: { [ask.id]: ask.options[0].id } }, "PUT"),
+  );
+  const drafted = (await call(app, "/api/mocks?project=demo")).body.mocks[0];
+  assert.deepEqual([drafted.drafted, drafted.open], [1, 2]);
 });
 
 test("GET /api/mocks/:id resolves an id, a slug in a project, or a unique slug", async () => {
@@ -2506,6 +2517,7 @@ test("mcp: the design loop round-trips through the shared flows", async () => {
   assert.equal(rev.post.version, 2);
   const listed = await tool(app, "read", { project: "demo" });
   assert.equal(listed.mocks.length, 1);
+  assert.equal(listed.mocks[0].drafted, undefined);
   assert.deepEqual(listed.pending, [{ mock: "writer", viewerOpen: false, draft: null }]);
   const asked = await tool(app, "ask", {
     mock: "writer",

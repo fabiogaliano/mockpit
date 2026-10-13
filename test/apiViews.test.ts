@@ -183,3 +183,30 @@ test("the agent's mock detail never carries the user's unsent draft", () => {
   assert.deepEqual(detail.tuned, { size: 3 });
   assert.equal(detail.variants.length, 1);
 });
+
+test("a mock summary counts the open asks an unsent draft speaks for, never its content", () => {
+  const draft = (over: Partial<NonNullable<Mock["draft"]>>) => ({
+    version: 1,
+    answers: {},
+    mix: {},
+    tuned: {},
+    comments: [],
+    updatedAt: "t",
+    ...over,
+  });
+  const looks = [post({ id: "p1", variant: "quiet" }), post({ id: "p2", variant: "dark" })];
+  assert.equal(mockSummaryView(mock({ draft: null }), looks).drafted, undefined, "no draft");
+  // A pick on an ask that was already answered is not one of the owed.
+  assert.equal(mockSummaryView(mock({ draft: draft({ answers: { b: "y" } }) }), looks).drafted, 0);
+  const started = mockSummaryView(
+    mock({
+      draft: draft({ answers: { "variant:Writing": "dark", a: [] }, notes: { a: "later" } }),
+    }),
+    looks,
+  );
+  // The built-in "Which one?" and a note-only answer both count, out of the two open.
+  assert.deepEqual([started.drafted, started.open], [2, 2]);
+  assert.equal(JSON.stringify(started).includes("later"), false);
+  const wrote = mockSummaryView(mock({ draft: draft({ others: { a: "" } }) }), looks);
+  assert.equal(wrote.drafted, 1, "a write-in with only an image still answers");
+});

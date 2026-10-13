@@ -62,6 +62,8 @@ export function Thumb(props: {
       class={`thumb ${props.class ?? ""}`}
       ref={(el) => (box = el)}
       style={props.fit && size().w ? { height: `${frame().h}px` } : undefined}
+      // Marks the box once its page has reported a height: its size is final.
+      data-sized={docH() !== null ? "" : undefined}
       aria-hidden="true"
     >
       {/* Keyed by src: a new document is a new element, never a frame navigation

@@ -1,15 +1,19 @@
 // D10: the project's mocks, newest activity first — thumbnail · name · states ·
-// open count · age — under one line that says what is waiting.
+// draft progress · open count · age — under one line that says what is waiting
+// and links the next mock to answer, in the agent's order (nextOwedMock).
 
 import { createMemo, createResource, For, onCleanup, Show } from "solid-js";
 import { api, type MockSummary, subscribe, surfaceUrl } from "./api.ts";
-import { timeAgo } from "./logic.ts";
+import { setCarried } from "./carry.ts";
+import { nextOwedMock, timeAgo } from "./logic.ts";
 import { linkClick, mockPath, navigate, projectPath } from "./route.ts";
 import { setTheme, theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 import { TopBar } from "./TopBar.tsx";
 
 export function Home(props: { project: string | null }) {
+  // Home shows where every mock stands; a Send carried from a mock ends here.
+  setCarried(null);
   const [projects, { refetch: refetchProjects }] = createResource(() => api.projects());
   const project = createMemo(() => props.project ?? projects()?.[0]?.name ?? null);
   const [list, { refetch }] = createResource(project, (p) => api.mocks(p));
@@ -17,7 +21,7 @@ export function Home(props: { project: string | null }) {
     [...(list()?.mocks ?? [])].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
   );
   const open = () => list()?.open ?? 0;
-  const next = createMemo(() => mocks().find((m) => m.open > 0));
+  const next = createMemo(() => nextOwedMock(mocks(), null));
 
   const stop = subscribe(
     (e) => {
@@ -126,6 +130,11 @@ function MockRow(props: { mock: MockSummary; project: string }) {
           <div class="home-name">{props.mock.title}</div>
           <div class="home-sub">
             {props.mock.stateCount === 1 ? "1 state" : `${props.mock.stateCount} states`}
+            <Show when={props.mock.drafted !== undefined && props.mock.open > 0}>
+              <span class="home-draft" title="Answered, not sent yet">
+                {` · draft ${props.mock.drafted}/${props.mock.open}`}
+              </span>
+            </Show>
           </div>
         </div>
         <Show

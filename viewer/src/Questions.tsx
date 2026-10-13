@@ -3,7 +3,7 @@
 // can apply), pills otherwise. Hover previews on the stage, click picks; on a
 // hover device a pick moves on to the next open question, on touch the first
 // tap previews and the second confirms (see `tapPicks`). Mix is the optional
-// last question.
+// last question; the review after it lists every answer above Send.
 
 import {
   createMemo,
@@ -23,19 +23,18 @@ import {
   answerIds,
   askName,
   askState,
-  emptyDraft,
   frameKey,
   isLookAsk,
   type MixOption,
   partBox,
-  sendCount,
+  swipeStep,
   tapPicks,
 } from "./logic.ts";
-import type { AskField, MockScreenState } from "./state.ts";
+import type { AskField, MockScreenState, Primary } from "./state.ts";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 
-const ADVANCE_MS = 450;
+const MIX_KEY = "mix";
 const hoverDevice = () => host().window.matchMedia?.("(hover: hover)").matches ?? true;
 
 export function Questions(props: { s: MockScreenState }) {
@@ -68,32 +67,60 @@ function QuestionView(props: { s: MockScreenState }) {
   const total = () => s.questions().length;
   const i = () => Math.min(s.cur(), total() - 1);
   const q = () => s.questions()[i()];
-  const isLast = () => i() === total() - 1;
-  const n = () => sendCount(s.draft() ?? emptyDraft(0));
-  const answered = () => {
+  const questionKey = createMemo(() => {
     const x = q();
-    if (x.kind === "mix") return s.mixAnswered();
-    return (
-      s.answerOf(x.ask) !== undefined ||
-      s.otherOf(x.ask) !== undefined ||
-      s.noteOf(x.ask) !== undefined
-    );
+    return x ? (x.kind === "mix" ? MIX_KEY : `ask:${x.ask.id}`) : null;
+  });
+
+  // A horizontal swipe on the panel steps questions. Touch events, not pointer
+  // events, so the panel's own vertical scroll keeps working; a swipe that
+  // starts on a field, or on an option row that scrolls sideways, is theirs.
+  let start: { x: number; y: number } | null = null;
+  const onTouchStart = (e: TouchEvent) => {
+    start = null;
+    if (e.touches.length !== 1) return;
+    const target = e.target as Element;
+    if (target.closest("textarea, input, select")) return;
+    const row = target.closest<HTMLElement>(".opts");
+    if (row && row.scrollWidth > row.clientWidth + 1) return;
+    start = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+  const onTouchEnd = (e: TouchEvent) => {
+    const from = start;
+    start = null;
+    const t = e.changedTouches[0];
+    if (!from || !t) return;
+    const by = swipeStep(t.clientX - from.x, t.clientY - from.y);
+    if (by) s.step(by);
   };
 
   return (
-    <>
+    <div
+      class="qview"
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={() => (start = null)}
+    >
       <div class="sr-only" aria-live="polite">
         {s.attachStatus()}
       </div>
       <div class="qhd">
-        <Header s={s} index={i()} total={total()} />
+        <Show
+          when={!s.reviewing()}
+          fallback={
+            <span>{`Review · ${total()} ${total() === 1 ? "question" : "questions"}`}</span>
+          }
+        >
+          <Header s={s} index={i()} total={total()} />
+        </Show>
         <span class="grow" />
+        <KeysHint s={s} />
         <button
           type="button"
           class="nav"
           aria-label="Previous question"
-          disabled={i() === 0}
-          onClick={() => s.goQuestion(i() - 1)}
+          disabled={!s.reviewing() && i() === 0}
+          onClick={() => s.step(-1)}
         >
           ‹
         </button>
@@ -101,50 +128,167 @@ function QuestionView(props: { s: MockScreenState }) {
           type="button"
           class="nav"
           aria-label="Next question"
-          disabled={isLast()}
-          onClick={() => s.goQuestion(i() + 1)}
+          disabled={s.reviewing()}
+          onClick={() => s.step(1)}
         >
           ›
         </button>
       </div>
-      <Show when={q()} keyed>
-        {(x) =>
-          x.kind === "mix" ? (
-            <MixBlock s={s} index={i()} />
-          ) : (
-            <AskBlock s={s} ask={x.ask} index={i()} />
-          )
-        }
+      <Show when={s.keysOpen()}>
+        <KeysList />
+      </Show>
+      <Show when={!s.reviewing()} fallback={<Review s={s} />}>
+        {/* Keyed by the question's id, not its object: the list is rebuilt
+            whenever a frame reports its parts, and remounting on that would
+            close an open note and drop the focus out of its field mid-typing. */}
+        <Show when={questionKey()} keyed>
+          {(key) => {
+            const ask = () => {
+              const x = q();
+              return x?.kind === "ask" ? x.ask : null;
+            };
+            return key === MIX_KEY ? (
+              <MixBlock s={s} index={i()} />
+            ) : (
+              <Show when={ask()}>{(a) => <AskBlock s={s} ask={a()} index={i()} />}</Show>
+            );
+          }}
+        </Show>
       </Show>
       <Show when={s.error()}>
         <div class="qerr" role="alert">
           {s.error()}
         </div>
       </Show>
-      <Show
-        when={isLast() && s.owed().length === 0 && n() > 0 && !readonly()}
-        fallback={
-          <Show when={(answered() && !isLast()) || (isLast() && s.owed().length > 0)}>
+      <Show when={s.primary()} keyed>
+        {(p) => (
+          <div class="qactions">
             <button
               type="button"
               class="primary"
-              onClick={() => s.goQuestion(s.nextStop(i()) ?? total() - 1)}
+              classList={{ send: p.kind === "send" }}
+              disabled={p.kind === "send" && s.sending()}
+              onClick={() => s.runPrimary()}
             >
-              Next ›
+              {primaryLabel(p, s.owed().length)}
             </button>
-          </Show>
-        }
-      >
-        <button
-          type="button"
-          class="primary send"
-          disabled={s.sending()}
-          onClick={() => void s.send()}
-        >
-          {`Send ${n()}`}
-        </button>
+          </div>
+        )}
       </Show>
-    </>
+    </div>
+  );
+}
+
+function primaryLabel(p: NonNullable<Primary>, owed: number): string {
+  switch (p.kind) {
+    case "next":
+      return "Next ›";
+    case "review":
+      return "Review ›";
+    case "back":
+      return "Back to review ›";
+    case "owed":
+      return owed === 1 ? "Answer the open question ›" : `Answer ${owed} open questions ›`;
+    case "send":
+      return `Send ${p.count}`;
+  }
+}
+
+// After the last question: every answer as a row, a tap reopens that question
+// and its pick comes back here.
+function Review(props: { s: MockScreenState }) {
+  const s = props.s;
+  const askAt = (index: number) => {
+    const q = s.questions()[index];
+    return q?.kind === "ask" ? q.ask : null;
+  };
+  const picture = (index: number, option: string | null) => {
+    const ask = askAt(index);
+    const o = ask && option ? ask.options.find((x) => x.id === option) : undefined;
+    return ask && o ? optionPicture(s, ask, o) : null;
+  };
+  return (
+    <div class="qblock">
+      <div class="nm">Your answers</div>
+      <div class="ask">Check them, then send them in one reply.</div>
+      <ol class="review">
+        <For each={s.review()}>
+          {(r) => (
+            <li>
+              <button
+                type="button"
+                class="review-row"
+                classList={{ owed: r.owed }}
+                data-review={r.index}
+                aria-label={`${r.name}: ${r.said.length ? r.said.join(", ") : r.owed ? "not answered" : "skipped"}. Change`}
+                onClick={() => s.goQuestion(r.index, { fromReview: true })}
+              >
+                <Show when={picture(r.index, r.option)}>
+                  {(p) => <Thumb class="crop review-thumb" fit src={p().src} />}
+                </Show>
+                <span class="review-text">
+                  <span class="review-name">
+                    {r.name}
+                    <Show when={r.optional}>
+                      <span class="qtag">Optional</span>
+                    </Show>
+                  </span>
+                  <span class="review-said">
+                    {r.said.length ? r.said.join(", ") : r.owed ? "Not answered" : "Skipped"}
+                  </span>
+                </span>
+                <span class="review-go" aria-hidden="true">
+                  {r.owed ? <i class="dot" /> : "›"}
+                </span>
+              </button>
+            </li>
+          )}
+        </For>
+      </ol>
+    </div>
+  );
+}
+
+// The shortcuts, behind a small "?" (and the ? key).
+function KeysHint(props: { s: MockScreenState }) {
+  const s = props.s;
+  return (
+    <button
+      type="button"
+      class="keys-btn"
+      aria-label="Shortcuts"
+      aria-expanded={s.keysOpen()}
+      title="Shortcuts (?)"
+      onClick={() => s.setKeysOpen(!s.keysOpen())}
+    >
+      ?
+    </button>
+  );
+}
+
+function KeysList() {
+  const rows: [string, string][] = hoverDevice()
+    ? [
+        ["1–9", "pick an option"],
+        ["← →", "previous / next question"],
+        ["Enter", "next, review, send"],
+        ["[ ]", "previous / next mock to answer"],
+        ["Esc", "clear the preview"],
+      ]
+    : [["Swipe ← →", "previous / next question"]];
+  return (
+    <dl class="keys">
+      <For each={rows}>
+        {([k, what]) => (
+          <div class="keys-row">
+            <dt>
+              <kbd>{k}</kbd>
+            </dt>
+            <dd>{what}</dd>
+          </div>
+        )}
+      </For>
+    </dl>
   );
 }
 
@@ -235,43 +379,7 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
   const s = props.s;
   const m = () => s.mock()!;
   const picked = (o: AskOption) => answerIds(s.answerOf(props.ask)).includes(o.id);
-  const keyOf = (o: AskOption) => `${props.ask.id}:${o.id}`;
-  const [timer, setTimer] = createSignal(0);
-
-  const previewOf = (o: AskOption, state: string | null) =>
-    o.variant
-      ? { key: keyOf(o), variant: o.variant, state }
-      : o.set
-        ? { key: keyOf(o), knobs: o.set }
-        : null;
-
-  function choose(o: AskOption, state: string | null) {
-    if (readonly()) return;
-    const hover = hoverDevice();
-    const preview = previewOf(o, state);
-    const tap = {
-      hover,
-      previewing: s.preview()?.key === keyOf(o),
-      canPreview: preview !== null,
-      unpicks: !!props.ask.multi && picked(o),
-    };
-    if (!tapPicks(tap)) {
-      s.setPreview(preview);
-      return;
-    }
-    s.pick(props.ask, o.id);
-    s.setPreview(null);
-    if (!hover || props.ask.multi) return;
-    host().window.clearTimeout(timer());
-    setTimer(
-      host().window.setTimeout(() => {
-        if (s.mode() !== "questions" || s.cur() !== props.index) return;
-        if (!answerIds(s.answerOf(props.ask)).includes(o.id)) return;
-        const next = s.nextStop(props.index);
-        if (next !== null) s.goQuestion(next);
-      }, ADVANCE_MS),
-    );
-  }
+  const keyOf = (o: AskOption) => s.optionKey(props.ask, o.id);
 
   return (
     <div class="qblock">
@@ -279,9 +387,8 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
       <div class="ask">{props.ask.text}</div>
       <div class="opts">
         <For each={props.ask.options}>
-          {(o) => {
+          {(o, i) => {
             const pic = () => optionPicture(s, props.ask, o);
-            const state = () => askState(props.ask, m(), s.activeState());
             const focus = () => {
               const p = pic();
               if (!p || props.ask.scope !== "part") return null;
@@ -296,9 +403,10 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
                 on={picked(o)}
                 previewing={s.preview()?.key === keyOf(o)}
                 data={o.id}
-                onEnter={() => s.setPreview(previewOf(o, state()))}
+                shortcut={i() < 9 ? String(i() + 1) : undefined}
+                onEnter={() => s.setPreview(s.previewOf(props.ask, o.id))}
                 onLeave={() => s.preview()?.key === keyOf(o) && s.setPreview(null)}
-                onChoose={() => choose(o, state())}
+                onChoose={() => s.choose(props.ask, o.id, hoverDevice())}
               />
             );
             // D13: once the Look is sent its losers are archived; each stays restorable.
@@ -335,6 +443,7 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
           on={s.otherTicked(props.ask)}
           previewing={false}
           data="other"
+          shortcut={props.ask.options.length < 9 ? String(props.ask.options.length + 1) : undefined}
           onEnter={() => s.setPreview(null)}
           onLeave={() => {}}
           onChoose={() => !readonly() && s.pick(props.ask, null)}
@@ -654,6 +763,7 @@ function OptionCard(props: {
   on: boolean;
   previewing: boolean;
   data: string;
+  shortcut?: string;
   onEnter: () => void;
   onLeave: () => void;
   onChoose: () => void;
@@ -669,6 +779,7 @@ function OptionCard(props: {
         previewing: props.previewing,
       }}
       aria-pressed={props.on}
+      aria-keyshortcuts={props.shortcut}
       data-option={props.data}
       onPointerEnter={(e) => e.pointerType === "mouse" && props.onEnter()}
       onPointerLeave={(e) => e.pointerType === "mouse" && props.onLeave()}
