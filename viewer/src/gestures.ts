@@ -14,10 +14,21 @@ export function useInspectGestures(opts: {
   scale: () => number;
   fit: () => number;
   setZoom: (z: number) => void;
+  // A finger that lands on an artboard whose page scrolls inside it: that page
+  // takes the vertical travel, the scroller only the sideways part.
+  frameScroll?: (target: Element) => ((dy: number) => void) | null;
 }) {
   const touches = new Map<number, { x: number; y: number }>();
   let gesture:
-    | { kind: "pan"; x: number; y: number; left: number; top: number }
+    | {
+        kind: "pan";
+        x: number;
+        y: number;
+        left: number;
+        top: number;
+        frame: ((dy: number) => void) | null;
+        lastY: number;
+      }
     | { kind: "pinch"; dist: number; z: number; mid: { x: number; y: number } }
     | null = null;
   let swallowClick = false;
@@ -30,8 +41,9 @@ export function useInspectGestures(opts: {
       mid: { x: (a.x + b.x) / 2 - box.left, y: (a.y + b.y) / 2 - box.top },
     };
   };
-  const panFrom = (el: HTMLElement, x: number, y: number) => {
-    gesture = { kind: "pan", x, y, left: el.scrollLeft, top: el.scrollTop };
+  const panFrom = (el: HTMLElement, x: number, y: number, target?: Element) => {
+    const frame = (target && opts.frameScroll?.(target)) || null;
+    gesture = { kind: "pan", x, y, left: el.scrollLeft, top: el.scrollTop, frame, lastY: y };
   };
   const down = (e: PointerEvent) => {
     if (touches.size === 0) swallowClick = false;
@@ -41,7 +53,7 @@ export function useInspectGestures(opts: {
     if (!opts.anywhere?.() && !(e.target as Element).closest?.(".overlay, .board")) return;
     const el = opts.scroller();
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (touches.size === 1) panFrom(el, e.clientX, e.clientY);
+    if (touches.size === 1) panFrom(el, e.clientX, e.clientY, e.target as Element);
     else if (touches.size === 2) {
       const p = pair(el);
       gesture = { kind: "pinch", dist: p.dist, z: opts.scale(), mid: p.mid };
@@ -57,7 +69,10 @@ export function useInspectGestures(opts: {
       const dy = e.clientY - gesture.y;
       if (Math.hypot(dx, dy) > 8) swallowClick = true;
       el.scrollLeft = gesture.left - dx;
-      el.scrollTop = gesture.top - dy;
+      if (gesture.frame) {
+        gesture.frame(gesture.lastY - e.clientY);
+        gesture.lastY = e.clientY;
+      } else el.scrollTop = gesture.top - dy;
     } else if (gesture.kind === "pinch" && touches.size === 2) {
       const p = pair(el);
       const z0 = opts.scale();

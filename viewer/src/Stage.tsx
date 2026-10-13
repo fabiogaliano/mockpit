@@ -308,6 +308,27 @@ export function Stage(props: { s: MockScreenState }) {
   });
   onCleanup(() => s.setInspect(false));
 
+  // On the canvas every artboard stops at the canvas's height and its page
+  // scrolls inside it, so a long page reads top to bottom without panning the
+  // whole board out from under the other widths. In page px.
+  const boardCap = () => Math.max(160, (availH() - BOARD_LABEL - BOARD_PAD) / scale());
+  const boardFrames = new Map<number, HTMLIFrameElement>();
+  // A finger on an artboard scrolls its page; the canvas keeps the sideways part.
+  const frameScroll = (target: Element) => {
+    if (!canvas()) return null;
+    if (target.closest(".overlay")) {
+      const key = activeKey();
+      return (dy: number) => post(key, { type: "scroll", dx: 0, dy: dy / scale() });
+    }
+    const board = target.closest<HTMLElement>(".board");
+    const frame = board && boardFrames.get(Number(board.dataset.w));
+    if (!frame) return null;
+    return (dy: number) =>
+      frame.contentWindow?.postMessage(
+        { __mockpit: true, type: "scroll", dx: 0, dy: dy / scale() },
+        "*",
+      );
+  };
   useInspectGestures({
     scroller: () => layersEl,
     enabled: pannable,
@@ -315,6 +336,7 @@ export function Stage(props: { s: MockScreenState }) {
     scale,
     fit: () => Math.min(fitScale(), fitAll()),
     setZoom,
+    frameScroll,
   });
   // Picking a width brings its artboard into view, fitted; "all" shows them all.
   createEffect(
@@ -342,7 +364,7 @@ export function Stage(props: { s: MockScreenState }) {
   // Room under the artboards to pan them up past a card resting at the bottom.
   const canvasH = () =>
     BOARD_LABEL +
-    Math.max(activeH(), ...others().map((w) => boardH[w] ?? 640)) * scale() +
+    Math.max(activeH(), ...others().map((w) => Math.min(boardH[w] ?? 640, boardCap()))) * scale() +
     availH() * 0.4;
 
   return (
@@ -419,7 +441,12 @@ export function Stage(props: { s: MockScreenState }) {
                         scale={scale()}
                         x={xOf(w)}
                         height={boardH[w] ?? 640}
+                        cap={boardCap()}
                         onHeight={(h) => setBoardH(w, h)}
+                        onFrame={(el) => {
+                          if (el) boardFrames.set(w, el);
+                          else boardFrames.delete(w);
+                        }}
                       />
                     </>
                   )}
@@ -441,7 +468,7 @@ export function Stage(props: { s: MockScreenState }) {
                       active={key === activeKey()}
                       scale={scale()}
                       frameW={frameW()}
-                      capH={uncapped() ? Infinity : availH() / scale()}
+                      capH={canvas() ? boardCap() : uncapped() ? Infinity : availH() / scale()}
                       report={reports[key]}
                       heights={heights}
                       frames={frames}
@@ -482,10 +509,25 @@ function Board(props: {
   scale: number;
   x: number;
   height: number;
+  // The tallest it is drawn, in page px; a longer page scrolls inside.
+  cap: number;
   onHeight: (h: number) => void;
+  onFrame: (el: HTMLIFrameElement | null) => void;
 }) {
   const s = props.s;
   let frameEl: HTMLIFrameElement | undefined;
+  const shownH = () => Math.min(props.height, props.cap);
+  // The iframe takes no pointer events (it is a picture), so a wheel over it
+  // lands here and is handed to its page.
+  const onWheel = (e: WheelEvent) => {
+    if (props.height <= props.cap || !frameEl?.contentWindow) return;
+    e.preventDefault();
+    frameEl.contentWindow.postMessage(
+      { __mockpit: true, type: "scroll", dx: 0, dy: e.deltaY / props.scale },
+      "*",
+    );
+  };
+  onCleanup(() => props.onFrame(null));
   const index = () => props.variant.surfaces.findIndex((x) => x.kind === "html");
   const src = () => {
     const m = s.mock();
@@ -512,24 +554,32 @@ function Board(props: {
   return (
     <div
       class="board"
+      data-w={props.w}
+      ref={(el) => {
+        el.addEventListener("wheel", onWheel, { passive: false });
+        onCleanup(() => el.removeEventListener("wheel", onWheel));
+      }}
       style={{
         left: `${props.x}px`,
         top: `${BOARD_LABEL}px`,
         width: `${props.w * props.scale}px`,
-        height: `${props.height * props.scale}px`,
+        height: `${shownH() * props.scale}px`,
       }}
     >
       <Show when={src()} keyed>
         {(url) => (
           <iframe
-            ref={(el) => (frameEl = el)}
+            ref={(el) => {
+              frameEl = el;
+              props.onFrame(el);
+            }}
             src={url}
             sandbox="allow-scripts"
             tabIndex={-1}
             aria-hidden="true"
             title={`${props.variant.variant} at ${props.w}`}
             width={props.w}
-            height={props.height}
+            height={shownH()}
             style={{ transform: `scale(${props.scale})` }}
           />
         )}
