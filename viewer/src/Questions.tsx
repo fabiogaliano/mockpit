@@ -245,6 +245,16 @@ function Review(props: { s: MockScreenState }) {
           )}
         </For>
       </ol>
+      <MixNotes s={s} />
+    </div>
+  );
+}
+
+// Borrows a later answer removed from Mix, each with the answer that did it.
+function MixNotes(props: { s: MockScreenState }) {
+  return (
+    <div class="mix-notes" role="status">
+      <For each={props.s.mixDropped()}>{(n) => <p class="mix-note">{n.note}</p>}</For>
     </div>
   );
 }
@@ -705,6 +715,7 @@ function MixBlock(props: { s: MockScreenState; index: number }) {
           ? "Hover one to see it on the stage."
           : "Tap one to see it on the stage, tap again to keep it."}
       </div>
+      <MixNotes s={s} />
       <div class="opts">
         <OptionCard
           picture={

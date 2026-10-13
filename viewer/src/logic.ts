@@ -334,6 +334,22 @@ export function pruneMix(
   return out;
 }
 
+// Which answer took a borrow of `part` away, so the viewer can say so: the
+// first ask whose answer alone forbids it, or null when a tuned value did.
+export function mixDropCause(
+  asks: Ask[],
+  answers: Record<string, AskAnswer>,
+  others: Record<string, string>,
+  part: string,
+  statesOf: (part: string) => (string | null)[],
+): Ask | null {
+  for (const ask of asks) {
+    const alone = mixSettled([ask], answers, others);
+    if (!(part in pruneMix({ [part]: "" }, alone, statesOf))) return ask;
+  }
+  return null;
+}
+
 // A part this close to the frame's own size is the whole composition, not a
 // piece of it: borrowing it would swap the look.
 const WHOLE_FRAME = 0.9;
@@ -1216,10 +1232,14 @@ export const DEVICE_WIDTHS = [
 ] as const;
 export const DESKTOP_W = 820;
 const PHONE_MAX = 600;
+const TABLET_MAX = 900;
 
-// A phone opens a mock at phone width; anything else at desktop width.
-export const defaultDeviceWidth = (winW: number, coarse: boolean): number =>
-  coarse && winW < PHONE_MAX ? DEVICE_WIDTHS[0].w : DESKTOP_W;
+// A touch screen opens a mock at the device width it can show at true size
+// (a phone at Phone, an iPad mini portrait at Tablet); a mouse at desktop width.
+export const defaultDeviceWidth = (winW: number, coarse: boolean): number => {
+  if (!coarse || winW > TABLET_MAX) return DESKTOP_W;
+  return winW <= PHONE_MAX ? DEVICE_WIDTHS[0].w : DEVICE_WIDTHS[1].w;
+};
 
 // A width remembered in storage counts only if it is still one we offer.
 export function readDeviceWidth(raw: string | null): number | null {

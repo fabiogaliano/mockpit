@@ -41,8 +41,10 @@ import {
   frameVersion,
   type KnobContext,
   lookAsk,
+  mixDropCause,
   mixOptions,
   mixSettled,
+  partLabel,
   pruneMix,
   mockVersion,
   nextOwedMock,
@@ -143,6 +145,9 @@ export function createMockScreen(project: string, slug: string) {
   const [otherOpen, setOtherOpen] = createSignal<Record<string, boolean>>({});
   // "No, all <look>" is an answer even though it borrows nothing.
   const [mixTouched, setMixTouched] = createSignal(false);
+  // Borrows a later answer took out of Mix, said where Mix and the review show
+  // it, so the review's "none" never reads as the user's own choice.
+  const [mixDropped, setMixDropped] = createSignal<{ part: string; note: string }[]>([]);
   const [error, setError] = createSignal<string | null>(null);
   // `${field}:${askId}` → images still uploading or failed there.
   const [uploads, setUploads] = createSignal<Record<string, PendingImage[]>>({});
@@ -237,7 +242,7 @@ export function createMockScreen(project: string, slug: string) {
   const activeVariant = createMemo(() => variantFor(activeState()));
 
   // What the user chose so far (sent, then drafted), so Mix can't contradict it.
-  const settled = createMemo(() => {
+  const chosen = createMemo(() => {
     const answers: Record<string, AskAnswer> = {};
     const others: Record<string, string> = {};
     for (const a of asks()) {
@@ -249,7 +254,11 @@ export function createMockScreen(project: string, slug: string) {
     for (const id of Object.keys(d?.others ?? {})) delete answers[id];
     Object.assign(answers, d?.answers ?? {});
     Object.assign(others, d?.others ?? {});
-    return mixSettled(asks(), answers, others, d?.tuned ?? {});
+    return { answers, others, tuned: d?.tuned ?? {} };
+  });
+  const settled = createMemo(() => {
+    const c = chosen();
+    return mixSettled(asks(), c.answers, c.others, c.tuned);
   });
   const partStates = (part: string) =>
     (mock()?.parts ?? []).filter((s) => s.parts.some((p) => p.name === part)).map((s) => s.state);
@@ -315,6 +324,24 @@ export function createMockScreen(project: string, slug: string) {
     const mix = draft()?.mix ?? {};
     const kept = allowedMix(mix);
     if (Object.keys(kept).length === Object.keys(mix).length) return;
+    const m = mock();
+    const c = chosen();
+    const notes = Object.keys(mix)
+      .filter((part) => !(part in kept))
+      .map((part) => {
+        const by = mixDropCause(asks(), c.answers, c.others, part, partStates);
+        const label = m ? partLabel(m, part) : part;
+        // A heading that only repeats the part ("Hero") or says nothing
+        // ("Question") gives way to the question's own words.
+        const name = by && m ? askName(by, m) : null;
+        const topic = name === "Question" || name === label ? by?.text : name;
+        const why = by ? `your answer to “${topic}” decides it` : "your tuned value decides it";
+        return { part, note: `Removed “${label}” from Mix — ${why}` };
+      });
+    setMixDropped((prev) => [
+      ...prev.filter((x) => !notes.some((n) => n.part === x.part)),
+      ...notes,
+    ]);
     writeDraft((d) => ({ ...d, mix: kept }));
   });
 
@@ -755,6 +782,8 @@ export function createMockScreen(project: string, slug: string) {
       return d;
     });
     setMixTouched(true);
+    // A fresh Mix choice answers the notice; it has nothing left to explain.
+    setMixDropped([]);
   }
   const mixAnswered = () => mixTouched() || Object.keys(draft()?.mix ?? {}).length > 0;
   function addComment(
@@ -872,6 +901,7 @@ export function createMockScreen(project: string, slug: string) {
         setTapped(null);
       });
       setMixTouched(false);
+      setMixDropped([]);
       setOtherOpen({});
       setReviewing(false);
       setReturning(false);
@@ -1134,6 +1164,7 @@ export function createMockScreen(project: string, slug: string) {
     settled,
     mixOpts,
     mixAnswered,
+    mixDropped,
     selectedPart,
     selectPart,
     focusPart,

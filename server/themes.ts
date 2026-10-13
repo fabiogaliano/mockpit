@@ -14,6 +14,11 @@ export interface Accent {
   bg: string;
   text: string;
   border: string;
+  // A solid fill that carries small text, and the text on it. `text` is tuned
+  // to read on the page, which often leaves it too light under white text, so
+  // filled controls get their own pair (≥4.5:1). Defaults: `text` and white.
+  solid?: string;
+  onSolid?: string;
 }
 
 export interface Palette {
@@ -60,6 +65,8 @@ function viewerVars(p: Palette): Record<string, string> {
     "border-2": p.border2,
     accent: p.info.text,
     "accent-bg": p.info.bg,
+    "accent-solid": p.info.solid ?? p.info.text,
+    "on-accent": p.info.onSolid ?? "#fff",
     hover: p.hover,
     danger: p.danger.text,
   };
@@ -160,7 +167,14 @@ export const DIALKIT: Theme = {
     border: "#e6e6e6",
     border2: "#d6d6d6",
     hover: "#ebebeb",
-    info: { bg: "rgba(37, 99, 235, 0.1)", text: "#2563eb", border: "#2563eb" },
+    // White on #2563eb is already 5.2:1, so the fill is the accent itself.
+    info: {
+      bg: "rgba(37, 99, 235, 0.1)",
+      text: "#2563eb",
+      border: "#2563eb",
+      solid: "#2563eb",
+      onSolid: "#fff",
+    },
     success: { bg: "rgba(43, 147, 72, 0.12)", text: "#2b9348", border: "#2b9348" },
     warning: { bg: "#fff8e6", text: "#e8590c", border: "#f0e0b8" },
     danger: { bg: "rgba(220, 38, 38, 0.1)", text: "#dc2626", border: "#dc2626" },
@@ -175,7 +189,14 @@ export const DIALKIT: Theme = {
     border: "#242424",
     border2: "#3a3a3a",
     hover: "#262626",
-    info: { bg: "rgba(139, 123, 255, 0.16)", text: "#8b7bff", border: "#8b7bff" },
+    // #8b7bff under white text is 3.3:1; the same hue, darker, is 5.0:1.
+    info: {
+      bg: "rgba(139, 123, 255, 0.16)",
+      text: "#8b7bff",
+      border: "#8b7bff",
+      solid: "#6b5ae0",
+      onSolid: "#fff",
+    },
     success: { bg: "rgba(74, 222, 128, 0.14)", text: "#4ade80", border: "#4ade80" },
     warning: { bg: "#2a2312", text: "#e8590c", border: "#4a3c1c" },
     danger: { bg: "rgba(248, 113, 113, 0.14)", text: "#f87171", border: "#f87171" },
@@ -298,10 +319,14 @@ function accentFrom(
   border: string[],
   fallback: Accent,
 ): Accent {
+  const ink = pick(vars, text);
   return {
     bg: pick(vars, bg) ?? fallback.bg,
-    text: pick(vars, text) ?? fallback.text,
+    text: ink ?? fallback.text,
     border: pick(vars, border) ?? fallback.border,
+    // The default's solid pair belongs to the default's ink; a repo's own ink
+    // fills with itself.
+    ...(ink ? {} : { solid: fallback.solid, onSolid: fallback.onSolid }),
   };
 }
 

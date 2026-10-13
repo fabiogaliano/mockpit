@@ -555,9 +555,10 @@ describe("marks", () => {
 });
 
 describe("the stage on any screen", () => {
-  it("opens a phone at phone width and everything else at desktop width", () => {
+  it("opens a touch screen at the device width it shows at true size", () => {
     expect(defaultDeviceWidth(390, true)).toBe(390);
-    expect(defaultDeviceWidth(744, true)).toBe(DESKTOP_W);
+    expect(defaultDeviceWidth(744, true)).toBe(744);
+    expect(defaultDeviceWidth(1133, true)).toBe(DESKTOP_W);
     expect(defaultDeviceWidth(390, false)).toBe(DESKTOP_W);
   });
 
