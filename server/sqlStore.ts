@@ -122,7 +122,7 @@ export class SqlStore implements Store {
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY, agent TEXT NOT NULL, title TEXT, cwd TEXT,
         createdAt TEXT NOT NULL, lastActiveAt TEXT NOT NULL,
-        agentSeq INTEGER NOT NULL DEFAULT 0, project TEXT, key TEXT
+        agentSeq INTEGER NOT NULL DEFAULT 0, project TEXT, key TEXT, agentActiveAt TEXT
       );
       CREATE TABLE IF NOT EXISTS mocks (
         id TEXT PRIMARY KEY, project TEXT NOT NULL, slug TEXT NOT NULL, title TEXT NOT NULL,
@@ -157,6 +157,7 @@ export class SqlStore implements Store {
       agentSeq: "INTEGER NOT NULL DEFAULT 0",
       project: "TEXT",
       key: "TEXT",
+      agentActiveAt: "TEXT",
     });
     if (legacy) this.migrateLegacy();
     this.createIndexes();
@@ -522,6 +523,8 @@ export class SqlStore implements Store {
       lastActiveAt: r.lastActiveAt as string,
       agentSeq: (r.agentSeq as number) ?? 0,
       project: (r.project as string) ?? null,
+      agentActiveAt: (r.agentActiveAt as string) ?? null,
+      keyed: r.key != null,
     };
   }
 
@@ -605,11 +608,14 @@ export class SqlStore implements Store {
 
   // --- sessions ---
 
-  async listSessions() {
-    return this.sql
-      .exec("SELECT * FROM sessions ORDER BY lastActiveAt DESC")
-      .toArray()
-      .map((r) => this.rowToSession(r));
+  async listSessions(project?: string) {
+    const rows =
+      project === undefined
+        ? this.sql.exec("SELECT * FROM sessions ORDER BY lastActiveAt DESC").toArray()
+        : this.sql
+            .exec("SELECT * FROM sessions WHERE project = ? ORDER BY lastActiveAt DESC", project)
+            .toArray();
+    return rows.map((r) => this.rowToSession(r));
   }
 
   async getSession(id: string) {
@@ -636,9 +642,11 @@ export class SqlStore implements Store {
       agentSeq: 0,
       project:
         stripNul(input.project)?.trim() || projectFromCwd(stripNul(input.cwd ?? null)) || null,
+      agentActiveAt: now,
+      keyed: !!stripNul(input.key)?.trim(),
     };
     this.sql.exec(
-      "INSERT INTO sessions (id, agent, title, cwd, createdAt, lastActiveAt, agentSeq, project, key) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)",
+      "INSERT INTO sessions (id, agent, title, cwd, createdAt, lastActiveAt, agentSeq, project, key, agentActiveAt) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)",
       session.id,
       session.agent,
       session.title,
@@ -647,6 +655,7 @@ export class SqlStore implements Store {
       session.lastActiveAt,
       session.project,
       stripNul(input.key)?.trim() || null,
+      session.agentActiveAt,
     );
     return session;
   }
@@ -702,6 +711,33 @@ export class SqlStore implements Store {
       seq,
       sessionId,
       seq,
+    );
+  }
+
+  async touchAgent(sessionId: string) {
+    this.sql.exec(
+      "UPDATE sessions SET agentActiveAt = ? WHERE id = ?",
+      new Date().toISOString(),
+      sessionId,
+    );
+  }
+
+  async handOff(
+    sessionId: string,
+    seen: Pick<Session, "agentSeq" | "agentActiveAt">,
+    toSeq: number,
+  ) {
+    return (
+      this.sql
+        .exec(
+          "UPDATE sessions SET agentSeq = ? WHERE id = ? AND agentSeq = ? AND agentActiveAt IS ? AND agentSeq < ? RETURNING id",
+          toSeq,
+          sessionId,
+          seen.agentSeq,
+          seen.agentActiveAt,
+          toSeq,
+        )
+        .toArray().length > 0
     );
   }
 

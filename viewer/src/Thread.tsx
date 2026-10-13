@@ -75,7 +75,11 @@ export function Thread(props: { s: MockScreenState; scroller: () => HTMLElement 
               <Show when={r.who === "you"}>
                 <div class="tdelivered" classList={{ ok: r.delivered }}>
                   <span class="tick">{r.delivered ? "✓✓" : "✓"}</span>
-                  {r.delivered ? "Delivered" : "Not seen yet"}
+                  {r.delivered
+                    ? "Delivered"
+                    : r.ownerGone
+                      ? "Waiting — the agent that asked restarted; the next agent in this project will get it"
+                      : "Not seen yet"}
                 </div>
               </Show>
             </div>

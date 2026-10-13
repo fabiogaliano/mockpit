@@ -15,6 +15,13 @@ export interface Session {
   // The repo this session's agent is working in. Resolved once at session
   // create; null when neither a project nor a cwd was given.
   project: string | null;
+  // When the agent last called with this session; null on rows from before it
+  // was tracked. Unlike lastActiveAt, the user's Sends and comments never bump
+  // it, so it tells a quiet agent apart from a busy thread (orphaned replies).
+  agentActiveAt: string | null;
+  // Whether the harness gave a conversation key: a keyed session can come back
+  // (a resumed conversation reclaims it), a keyless one never does.
+  keyed: boolean;
 }
 
 // A post is an ordered list of surfaces. Each surface declares its own kind;
@@ -753,7 +760,8 @@ export interface PostQuery {
 }
 
 export interface Store {
-  listSessions(): Promise<Session[]>;
+  // Every session, or one project's.
+  listSessions(project?: string): Promise<Session[]>;
   getSession(id: string): Promise<Session | null>;
   getSessionByKey(key: string): Promise<Session | null>;
   createSession(input: CreateSessionInput): Promise<Session>;
@@ -761,6 +769,16 @@ export interface Store {
   removeSession(id: string): Promise<boolean>;
   // Advance the delivered-to-agent comment cursor (never moves backwards).
   markAgentSeen(sessionId: string, seq: number): Promise<void>;
+  // Record that the session's agent made a call (agentActiveAt = now).
+  touchAgent(sessionId: string): Promise<void>;
+  // Hand a quiet session's owed comments to another session: move its cursor
+  // to `toSeq` only if its cursor and agentActiveAt still equal what the caller
+  // read. True when this call won, so two takers can't both deliver.
+  handOff(
+    sessionId: string,
+    seen: Pick<Session, "agentSeq" | "agentActiveAt">,
+    toSeq: number,
+  ): Promise<boolean>;
 
   // Workspace-level key/value settings (e.g. the selected theme id). Returns null
   // for an unset key.
