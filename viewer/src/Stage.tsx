@@ -242,6 +242,10 @@ export function Stage(props: { s: MockScreenState }) {
       if (!reportIsCurrent(info.version, d.version)) return;
       const r = readReport(d, frameW());
       if (r) setReports(info.key, r);
+    } else if (d.type === "tap" && info.primary && info.key === activeKey() && passthrough()) {
+      // A tap the page took itself while the overlay stepped aside: ask which
+      // part is under it, exactly as a click on the overlay would.
+      post(info.key, { type: "hit", ref: refs.click(), x: num(d.x), y: num(d.y) });
     } else if (d.type === "hit" && info.primary && info.key === activeKey()) {
       const kind = refs.resolve(d.ref);
       const part = d.part == null ? null : text(d.part);
@@ -312,23 +316,11 @@ export function Stage(props: { s: MockScreenState }) {
   // scrolls inside it, so a long page reads top to bottom without panning the
   // whole board out from under the other widths. In page px.
   const boardCap = () => Math.max(160, (availH() - BOARD_LABEL - BOARD_PAD) / scale());
-  const boardFrames = new Map<number, HTMLIFrameElement>();
-  // A finger on an artboard scrolls its page; the canvas keeps the sideways part.
-  const frameScroll = (target: Element) => {
-    if (!canvas()) return null;
-    if (target.closest(".overlay")) {
-      const key = activeKey();
-      return (dy: number) => post(key, { type: "scroll", dx: 0, dy: dy / scale() });
-    }
-    const board = target.closest<HTMLElement>(".board");
-    const frame = board && boardFrames.get(Number(board.dataset.w));
-    if (!frame) return null;
-    return (dy: number) =>
-      frame.contentWindow?.postMessage(
-        { __mockpit: true, type: "scroll", dx: 0, dy: dy / scale() },
-        "*",
-      );
-  };
+  // Under a finger the live frame's overlay steps aside and the page takes the
+  // touch itself, so the browser scrolls it natively (momentum, bounce) and the
+  // canvas can't move with it: touches inside a frame never reach this document.
+  // The canvas pans from the space around the artboards. Mark puts it back.
+  const passthrough = () => canvas() && coarse() && !s.marking();
   useInspectGestures({
     scroller: () => layersEl,
     enabled: pannable,
@@ -336,7 +328,6 @@ export function Stage(props: { s: MockScreenState }) {
     scale,
     fit: () => Math.min(fitScale(), fitAll()),
     setZoom,
-    frameScroll,
   });
   // Picking a width brings its artboard into view, fitted; "all" shows them all.
   createEffect(
@@ -443,10 +434,6 @@ export function Stage(props: { s: MockScreenState }) {
                         height={boardH[w] ?? 640}
                         cap={boardCap()}
                         onHeight={(h) => setBoardH(w, h)}
-                        onFrame={(el) => {
-                          if (el) boardFrames.set(w, el);
-                          else boardFrames.delete(w);
-                        }}
                       />
                     </>
                   )}
@@ -469,6 +456,7 @@ export function Stage(props: { s: MockScreenState }) {
                       scale={scale()}
                       frameW={frameW()}
                       capH={canvas() ? boardCap() : uncapped() ? Infinity : availH() / scale()}
+                      passthrough={passthrough()}
                       report={reports[key]}
                       heights={heights}
                       frames={frames}
@@ -512,22 +500,10 @@ function Board(props: {
   // The tallest it is drawn, in page px; a longer page scrolls inside.
   cap: number;
   onHeight: (h: number) => void;
-  onFrame: (el: HTMLIFrameElement | null) => void;
 }) {
   const s = props.s;
   let frameEl: HTMLIFrameElement | undefined;
   const shownH = () => Math.min(props.height, props.cap);
-  // The iframe takes no pointer events (it is a picture), so a wheel over it
-  // lands here and is handed to its page.
-  const onWheel = (e: WheelEvent) => {
-    if (props.height <= props.cap || !frameEl?.contentWindow) return;
-    e.preventDefault();
-    frameEl.contentWindow.postMessage(
-      { __mockpit: true, type: "scroll", dx: 0, dy: e.deltaY / props.scale },
-      "*",
-    );
-  };
-  onCleanup(() => props.onFrame(null));
   const index = () => props.variant.surfaces.findIndex((x) => x.kind === "html");
   const src = () => {
     const m = s.mock();
@@ -554,11 +530,6 @@ function Board(props: {
   return (
     <div
       class="board"
-      data-w={props.w}
-      ref={(el) => {
-        el.addEventListener("wheel", onWheel, { passive: false });
-        onCleanup(() => el.removeEventListener("wheel", onWheel));
-      }}
       style={{
         left: `${props.x}px`,
         top: `${BOARD_LABEL}px`,
@@ -569,10 +540,7 @@ function Board(props: {
       <Show when={src()} keyed>
         {(url) => (
           <iframe
-            ref={(el) => {
-              frameEl = el;
-              props.onFrame(el);
-            }}
+            ref={(el) => (frameEl = el)}
             src={url}
             sandbox="allow-scripts"
             tabIndex={-1}
@@ -652,6 +620,7 @@ function VariantFrame(props: {
   scale: number;
   frameW: number;
   capH: number;
+  passthrough: boolean;
   report: PartsReport | undefined;
   heights: Record<string, number>;
   frames: Map<HTMLIFrameElement, { key: string; index: number; primary: boolean; version: number }>;
@@ -813,6 +782,7 @@ function VariantFrame(props: {
           scale={props.scale}
           frameW={props.frameW}
           capped={Number.isFinite(props.capH)}
+          passthrough={props.passthrough}
           top={primaryTop() * props.scale}
           height={surfaceH(primary()) * props.scale}
           refs={props.refs}
@@ -833,6 +803,8 @@ function Overlay(props: {
   // The frame is shorter than its page and scrolls inside; else the stage
   // around it scrolls natively and a wheel needs no forwarding.
   capped: boolean;
+  // The page takes touches itself (see Stage); only pins and controls stay live.
+  passthrough: boolean;
   top: number;
   height: number;
   refs: ReturnType<typeof createHitRefs>;
@@ -950,7 +922,7 @@ function Overlay(props: {
   return (
     <div
       class="overlay"
-      classList={{ marking: s.marking() }}
+      classList={{ marking: s.marking(), passthrough: props.passthrough }}
       ref={(el) => (layer = el)}
       // The width the frame's document reports laying out at: a number, for tests.
       data-doc-width={props.report?.width}

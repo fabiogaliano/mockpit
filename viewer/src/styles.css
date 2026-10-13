@@ -2515,6 +2515,27 @@ a {
 .stagewrap.inspect .overlay {
   touch-action: none;
 }
+/* The page under a passthrough overlay takes touches itself and scrolls
+   natively; pins, marks and reactions on top stay tappable. */
+.overlay.passthrough {
+  pointer-events: none;
+}
+.overlay.passthrough :is(.pin, .part-reactions, .markfield) {
+  pointer-events: auto;
+}
+/* On the canvas the other widths are pages you can scroll, not just pictures. */
+.stagewrap.canvas .board iframe {
+  pointer-events: auto;
+}
+/* Under a finger the canvas moves only by its own pan and pinch. Natively
+   scrollable, it would catch a swipe a frame's page can't take (one already at
+   its end): WebKit hands that to the nearest scroller outside the iframe, and
+   overscroll-behavior inside the frame doesn't stop it. Script still scrolls it. */
+@media (pointer: coarse) {
+  .stagewrap.canvas .layers {
+    overflow: hidden;
+  }
+}
 
 @keyframes up-dropdown-in {
   from {

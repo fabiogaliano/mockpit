@@ -77,7 +77,11 @@ const TOKENS_CSS = `
   --border-radius-lg: 12px;
   --border-radius-xl: 16px;
 }
-html { box-sizing: border-box; scrollbar-width: none; }
+/* A page that scrolls inside a host's frame stops at its own ends instead of
+   handing the rest of a swipe to the host (Safari reads the root's value), and
+   a pinch on it can't zoom the whole viewer around it. */
+html { box-sizing: border-box; scrollbar-width: none; overscroll-behavior: contain; touch-action: pan-x pan-y; }
+body { overscroll-behavior: contain; }
 html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; }
 *, *::before, *::after { box-sizing: inherit; }
 body {
@@ -389,6 +393,8 @@ export const HIT_TEST_JS = `
 //       50/150/400/1000ms timers, and on any layout-affecting change; never
 //       twice in a row with identical content.
 //   hit              {ref, part, key}            reply to hit; part = name|null
+//   tap              {x, y}                      a finger's tap in document px (PARTS_JS);
+//                                                a drag never reports
 //
 // host → frame
 //   hit-test   {ref, x, y}      x,y normalized 0..1 of the document box (Mark tool)
@@ -573,6 +579,28 @@ export const PARTS_JS = `
     // Our own class flip must not look like the agent's page changing.
     mo.takeRecords();
   }
+
+  // A finger's tap, in document px, for a host that lets touches through to the
+  // page (its canvas, where the page scrolls natively). A drag is a scroll: the
+  // browser cancels the pointer or it moves too far. A mouse clicks the host's
+  // own overlay instead, so it never reports here.
+  var tapAt = null;
+  window.addEventListener('pointerdown', function (e) {
+    tapAt = e.isPrimary && e.pointerType !== 'mouse' ? { x: e.clientX, y: e.clientY, t: Date.now() } : null;
+  }, true);
+  window.addEventListener('pointercancel', function () { tapAt = null; }, true);
+  window.addEventListener('pointerup', function (e) {
+    var a = tapAt;
+    tapAt = null;
+    if (!a || !e.isPrimary) return;
+    if (Math.abs(e.clientX - a.x) > 10 || Math.abs(e.clientY - a.y) > 10 || Date.now() - a.t > 600) return;
+    parent.postMessage({
+      __mockpit: true,
+      type: 'tap',
+      x: e.clientX + (window.scrollX || 0),
+      y: e.clientY + (window.scrollY || 0),
+    }, '*');
+  }, true);
 
   window.addEventListener('message', function (e) {
     if (e.source !== parent) return;
