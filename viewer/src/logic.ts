@@ -119,6 +119,17 @@ export function pickInDraft(
   return { draft: { ...d, answers, others, otherImages }, otherOpen: open };
 }
 
+// On touch the first tap previews and the second picks, so a look is seen
+// before it's chosen. A tap with nothing new to show picks at once: an option
+// with no preview would otherwise never be pickable, and taking back a pick
+// shouldn't cost two taps.
+export const tapPicks = (t: {
+  hover: boolean;
+  previewing: boolean;
+  canPreview: boolean;
+  unpicks: boolean;
+}): boolean => t.hover || t.previewing || !t.canPreview || t.unpicks;
+
 // The Look ask (Q9): mock-wide, its options bound to variants.
 export const isLookAsk = (ask: Ask): boolean =>
   ask.scope === "mock" && ask.options.some((o) => o.variant);
