@@ -46,7 +46,7 @@ jobs:
           package-manager-cache: false
       - run: npm install -g npm@11.17.0
       - run: npm ci --ignore-scripts
-      - uses: changesets/action/select-mode@v2.1.1
+      - uses: changesets/action/select-mode@v2.1.2
         id: mode
 
   version:
@@ -67,7 +67,7 @@ jobs:
           package-manager-cache: false
       - run: npm install -g npm@11.17.0
       - run: npm ci --ignore-scripts
-      - uses: changesets/action/version@v2.1.1
+      - uses: changesets/action/version@v2.1.2
         with:
           script: npm run release:version
           commit-message: "chore: version packages"
