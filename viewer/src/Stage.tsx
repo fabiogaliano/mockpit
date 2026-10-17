@@ -116,6 +116,8 @@ const TOPBAR = 52;
 // one's label, and the space between them (scaled with them).
 const BOARD_PAD = 16;
 const BOARD_LABEL = 30;
+// Page px kept around a focused region, so it reads in its surroundings.
+const FOCUS_PAD = 24;
 const BOARD_GAP = 64;
 // The least height the canvas keeps for the artboards beside an open card.
 const MIN_FREE_H = 200;
@@ -186,12 +188,31 @@ export function Stage(props: { s: MockScreenState }) {
     const c = cardInset();
     return Math.max(Math.min(full, MIN_FREE_H), full - c.top - c.bottom);
   });
+  const activeKey = createMemo(() => {
+    const v = s.activeVariant();
+    return v ? frameKey(v.state, v.variant) : "";
+  });
+  // On a phone a whole screen fits beside the card only at a scale too small to
+  // read a change by, so a question about one region fits that region instead.
+  // Its height only grows while the question is on: previewing a smaller fill
+  // must not make the stage jump.
+  const focusBox = createMemo(() =>
+    canvas() ? partBox(reports[activeKey()], s.focusPart()) : undefined,
+  );
+  const [focusH, setFocusH] = createSignal(0);
+  createEffect(on([() => s.focusPart(), activeKey], () => setFocusH(0)));
+  createEffect(() => {
+    const h = focusBox()?.h;
+    if (h) setFocusH((prev) => Math.max(prev, h));
+  });
   const fitScale = createMemo(() => {
     // On the canvas the live width fits one whole screen of its device into the
     // space the card leaves, never past true size: a 390 design on a phone reads
     // as a phone screen, and shrinks again when the card opens over it.
     if (canvas()) {
-      const h = (freeH() - BOARD_LABEL - BOARD_PAD) / screenHeight(frameW());
+      const room = freeH() - BOARD_LABEL - BOARD_PAD;
+      const whole = room / screenHeight(frameW());
+      const h = focusH() ? Math.max(whole, room / (focusH() + 2 * FOCUS_PAD)) : whole;
       return Math.max(0.1, Math.min(1, availW() / frameW(), h));
     }
     const floor = inspecting() ? 0.1 : 0.3;
@@ -238,10 +259,6 @@ export function Stage(props: { s: MockScreenState }) {
     equals: (a, b) => a.length === b.length && a.every((k, i) => k === b[i]),
   });
   const byKey = (key: string) => shown().find((v) => frameKey(v.state, v.variant) === key);
-  const activeKey = createMemo(() => {
-    const v = s.activeVariant();
-    return v ? frameKey(v.state, v.variant) : "";
-  });
 
   function primaryOf(key: string): HTMLIFrameElement | null {
     for (const [el, info] of frames) if (info.key === key && info.primary) return el;
@@ -387,6 +404,33 @@ export function Stage(props: { s: MockScreenState }) {
       host().window.requestAnimationFrame(() => layersEl?.scrollTo?.(left, 0));
     }),
   );
+
+  // Each question brings the region it is about into view once, and a question
+  // about no region returns to the top; later scrolls are the user's own. A
+  // capped frame scrolls its page; an uncapped one scrolls the stage.
+  let scrolledFor = "";
+  createEffect(() => {
+    if (s.mode() !== "questions" || (pannable() && zoom() !== "fit")) return;
+    const key = activeKey();
+    const r = reports[key];
+    if (!r) return;
+    const part = s.focusPart();
+    const want = `${key}|${part ?? ""}`;
+    if (want === scrolledFor) return;
+    const b = partBox(r, part);
+    if (part && !b) return;
+    scrolledFor = want;
+    if (canvas() || !uncapped()) {
+      const dy = b ? b.y - FOCUS_PAD - r.scroll.y : -r.scroll.y;
+      if (dy) post(key, { type: "scroll", dx: 0, dy });
+    } else if (b) {
+      host().window.requestAnimationFrame(() =>
+        layersEl
+          ?.querySelector(".frame.on .box.sel")
+          ?.scrollIntoView({ block: "center", behavior: "smooth" }),
+      );
+    }
+  });
 
   const activeH = () => contentH[activeKey()] ?? 640;
   const layersH = () =>

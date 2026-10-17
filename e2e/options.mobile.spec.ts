@@ -85,3 +85,49 @@ test("a tap reaches the stage before a slow stylesheet loads, then outlines what
   await expect(doc).toHaveAttribute("data-k-pending", "dots");
   await expect(page.locator('.frame.on .box.flash[data-part="dots"]')).toBeVisible();
 });
+
+// A whole phone screen beside the question card reads at under a fifth of its
+// size, too small to see a fill change; a question about one slot fits that
+// slot instead and scrolls the page to it.
+test("a slot's question brings the slot into view at a readable size", async ({
+  page,
+  server,
+}, testInfo) => {
+  const tall = `<style>body{margin:0;font:16px system-ui}header{height:900px;padding:24px}section{padding:16px;margin:16px;border:1px solid #ccc;border-radius:12px}</style>
+<header data-part="head">Monday</header>
+<section data-part="entry" data-part-label="Entry" data-fill="dots">···</section>
+<section data-part="entry" data-fill="skeleton"><div style="height:120px">Reading your message…</div></section>
+<footer style="height:400px"></footer>`;
+  const pub = await agentCall<{ mock: { id: string }; sessionId?: string }>(
+    server.url,
+    "/api/mocks",
+    { project: "z", mock: "zoom", title: "Zoom", agent: "e2e", html: tall, widths: [390] },
+  );
+  await agentCall(server.url, `/api/mocks/${pub.mock.id}/asks`, {
+    session: pub.sessionId,
+    asks: [
+      {
+        id: "entry",
+        text: "Right after you send?",
+        options: [
+          { label: "Typing dots", set: { entry: "dots" } },
+          { label: "A skeleton card", set: { entry: "skeleton" } },
+        ],
+      },
+    ],
+  });
+  await page.goto(`${server.url}/project/z/zoom`);
+  const box = page.locator('.frame.on .box.sel[data-part="entry"]');
+  await expect(box).toBeVisible();
+  await expect
+    .poll(async () => {
+      const b = await box.boundingBox();
+      const vh = page.viewportSize()!.height;
+      return !!b && b.y >= 0 && b.y + b.height <= vh;
+    })
+    .toBe(true);
+  if (testInfo.project.name === "iphone") {
+    const frame = await page.locator(".frame.on iframe").boundingBox();
+    expect(frame!.width / 390).toBeGreaterThan(0.5);
+  }
+});

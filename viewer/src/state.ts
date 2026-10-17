@@ -402,13 +402,15 @@ export function createMockScreen(project: string, slug: string) {
       tuned: draft()?.tuned ?? {},
     };
   });
-  // The part the current question is about, while Questions is open.
+  // The part the current question is about, while Questions is open: the slot
+  // it chooses a fill for, else the part it is scoped to.
   const focusPart = createMemo(() => {
     if (mode() !== "questions") return null;
     const borrowing = preview()?.part;
     if (borrowing) return borrowing;
     const q = questions()[cur()];
-    return q?.kind === "ask" && q.ask.scope === "part" ? (q.ask.part ?? null) : null;
+    if (q?.kind !== "ask") return null;
+    return askSlot(q.ask)?.part ?? (q.ask.scope === "part" ? (q.ask.part ?? null) : null);
   });
   // The part outlined on the stage. selectedPart outlives the question that set
   // it (Tune opens on it), so outside Tune the outline follows the question.
