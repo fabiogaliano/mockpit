@@ -133,6 +133,20 @@ export function createMockScreen(project: string, slug: string) {
   // A part tapped on the canvas, where a tap must not swap the question card's
   // mode; lit until the question or mode moves on.
   const [tapped, setTapped] = createSignal<string | null>(null);
+  // The part an answer just changed, outlined on stage for a moment so a pick
+  // never changes the screen out of sight. Armed by a pick or preview; the
+  // stage finds the part from the next parts report.
+  const [flash, setFlash] = createSignal<string | null>(null);
+  let flashArmedAt = 0;
+  let flashTimer = 0;
+  const armFlash = () => (flashArmedAt = Date.now());
+  const flashArmed = () => Date.now() - flashArmedAt < 1500;
+  function showFlash(part: string) {
+    flashArmedAt = 0;
+    setFlash(part);
+    host().window.clearTimeout(flashTimer);
+    flashTimer = host().window.setTimeout(() => setFlash(null), 1600);
+  }
   const [viewVersion, setViewVersion] = createSignal<number | null>(null);
   const [versionsOpen, setVersionsOpen] = createSignal(false);
   const [sent, setSent] = createSignal(false);
@@ -1020,6 +1034,11 @@ export function createMockScreen(project: string, slug: string) {
     if (readonly()) return;
     const index = cur();
     const p = previewOf(ask, optionId);
+    if (p?.knobs) {
+      // A part-scoped ask names its part; otherwise the stage works it out.
+      if (ask.scope === "part" && ask.part) showFlash(ask.part);
+      else armFlash();
+    }
     const tap = {
       hover,
       previewing: preview()?.key === optionKey(ask, optionId),
@@ -1192,6 +1211,9 @@ export function createMockScreen(project: string, slug: string) {
     selectPart,
     focusPart,
     stagePart,
+    flash,
+    flashArmed,
+    showFlash,
     hoverPart,
     setHoverPart,
     viewVersion,

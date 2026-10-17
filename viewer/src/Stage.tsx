@@ -19,6 +19,7 @@ import {
   onCleanup,
   onMount,
   Show,
+  untrack,
 } from "solid-js";
 import { createStore } from "solid-js/store";
 import { isSandboxedSurfaceKind, type Surface } from "../../server/types.ts";
@@ -27,6 +28,7 @@ import { host, readonly, root } from "./host.ts";
 import { useInspectGestures } from "./gestures.ts";
 import { JsonTree } from "./JsonTree.tsx";
 import {
+  changedPart,
   clampZoom,
   createHitRefs,
   draftKnobValues,
@@ -126,6 +128,8 @@ const pinEdge = () => (coarse() ? (44 - PIN) / 2 : 2);
 export function Stage(props: { s: MockScreenState }) {
   const s = props.s;
   const { reports, setReports } = s;
+  // Per frame, the version whose knob runtime has said it is listening.
+  const [ready, setReady] = createStore<Record<string, number | undefined>>({});
   const [heights, setHeights] = createStore<Record<string, number>>({});
   const [contentH, setContentH] = createStore<Record<string, number>>({});
   const frames = new Map<
@@ -256,10 +260,18 @@ export function Stage(props: { s: MockScreenState }) {
     if (!info) return;
     if (d.type === "resize") {
       setHeights(`${info.key}#${info.index}`, Math.max(1, Math.min(num(d.height), 20000)));
+    } else if (d.type === "ready" && info.primary) {
+      if (reportIsCurrent(info.version, d.version)) setReady(info.key, info.version);
     } else if (d.type === "parts" && info.primary) {
       if (!reportIsCurrent(info.version, d.version)) return;
       const r = readReport(d, frameW());
-      if (r) setReports(info.key, r);
+      if (!r) return;
+      const prev = reports[info.key];
+      if (prev && info.key === activeKey() && s.flashArmed()) {
+        const part = changedPart(prev, r);
+        if (part) s.showFlash(part);
+      }
+      setReports(info.key, r);
     } else if (d.type === "tap" && info.primary && info.key === activeKey() && passthrough()) {
       // A tap the page took itself while the overlay stepped aside: ask which
       // part is under it, exactly as a click on the overlay would.
@@ -510,6 +522,7 @@ export function Stage(props: { s: MockScreenState }) {
                       capH={canvas() ? boardCap() : uncapped() ? Infinity : availH() / scale()}
                       passthrough={passthrough()}
                       report={reports[key]}
+                      ready={ready[key]}
                       heights={heights}
                       frames={frames}
                       refs={refs}
@@ -517,7 +530,10 @@ export function Stage(props: { s: MockScreenState }) {
                       pending={pending()}
                       setPending={setPending}
                       onContent={(h) => setContentH(key, h)}
-                      onReload={() => setReports(key, undefined)}
+                      onReload={() => {
+                        setReports(key, undefined);
+                        setReady(key, undefined);
+                      }}
                       height={contentH[key] ?? 640}
                     />
                   )}
@@ -675,6 +691,9 @@ function VariantFrame(props: {
   capH: number;
   passthrough: boolean;
   report: PartsReport | undefined;
+  // The version of a document whose knob runtime is listening, before it has
+  // reported its parts (a slow stylesheet can hold that report back).
+  ready: number | undefined;
   heights: Record<string, number>;
   frames: Map<HTMLIFrameElement, { key: string; index: number; primary: boolean; version: number }>;
   refs: ReturnType<typeof createHitRefs>;
@@ -714,11 +733,12 @@ function VariantFrame(props: {
 
   // Knob values follow the draft (defaults, picked knob-set options, tuning);
   // a hovered knob-set option overlays the frame on stage. Re-sent whenever a
-  // fresh document reports in, since a reload starts from the baked values.
+  // fresh document says it is listening, since a reload starts from the values
+  // baked into its URL.
   let lastKnobs = "";
   createEffect(() => {
     const m = s.mock();
-    const reported = props.report?.version;
+    const reported = props.report?.version ?? props.ready;
     if (!m || reported === undefined) return;
     const values = {
       ...draftKnobValues(m, props.variant.knobs, s.draft()),
@@ -790,8 +810,28 @@ function VariantFrame(props: {
             const surface = () => props.variant.surfaces[i()];
             if (isSandboxedSurfaceKind(kind)) {
               const isPrimary = i() === primary();
+              // The draft's values ride in the URL so the first paint already
+              // shows the user's answers, scripts or no scripts. Read untracked:
+              // a pick must not reload the frame; it goes over the bridge.
               const src = () =>
-                surfaceUrl(props.variant.postId, i(), { version: version(), mode: theme() });
+                surfaceUrl(props.variant.postId, i(), {
+                  version: version(),
+                  mode: theme(),
+                  knobs: isPrimary
+                    ? untrack(() => {
+                        const m = s.mock();
+                        if (!m) return undefined;
+                        // Only declared paths: the route refuses the whole URL
+                        // over one value it can't check, which would blank the stage.
+                        const declared = { ...m.knobs, ...props.variant.knobs };
+                        return Object.fromEntries(
+                          Object.entries(draftKnobValues(m, props.variant.knobs, s.draft())).filter(
+                            ([path]) => path in declared,
+                          ),
+                        );
+                      })
+                    : undefined,
+                });
               // A new document gets a new element: navigating an existing frame
               // would add a joint-history entry, and Back would walk the frames.
               return (
@@ -1013,6 +1053,25 @@ function Overlay(props: {
           {(b) => <PartBoxView b={b()} cls="hov" />}
         </Show>
         <Show when={box(s.stagePart())}>{(b) => <PartBoxView b={b()} cls="sel" />}</Show>
+        <Show when={s.flash() !== s.stagePart() && box(s.flash())}>
+          {(b) => (
+            <PartBoxView
+              b={b()}
+              cls="flash"
+              ref={(el) => {
+                // Out of sight means the answer looked like it did nothing.
+                const r = b().r;
+                if (r.y >= 0 && r.y + r.h <= props.height) return;
+                if (props.capped)
+                  props.post({ type: "scroll", dx: 0, dy: (r.y - 24) / props.scale });
+                else
+                  host().window.requestAnimationFrame(() =>
+                    el.scrollIntoView({ block: "nearest", behavior: "smooth" }),
+                  );
+              }}
+            />
+          )}
+        </Show>
         <Index each={partPins()}>
           {(p) => <Pin s={s} index={p().index} style={{ left: `${p().x}px`, top: `${p().y}px` }} />}
         </Index>
@@ -1145,10 +1204,12 @@ function MarkField(props: {
 function PartBoxView(props: {
   b: { p: PartBox; r: { x: number; y: number; w: number; h: number } };
   cls: string;
+  ref?: (el: HTMLDivElement) => void;
 }) {
   const edge = () => props.b.r.y < 22;
   return (
     <div
+      ref={props.ref}
       class={`box ${props.cls}`}
       classList={{ edge: edge() }}
       data-part={props.b.p.name}

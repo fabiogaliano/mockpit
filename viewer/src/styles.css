@@ -825,6 +825,24 @@ a {
   border-radius: 6px 6px 0 0;
   white-space: nowrap;
 }
+.box.flash {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-solid) 25%, transparent);
+  animation: box-flash 1.6s ease-out forwards;
+}
+@keyframes box-flash {
+  0%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .box.flash {
+    animation: none;
+  }
+}
 .box.edge .lbl {
   top: auto;
   bottom: -1.5px;

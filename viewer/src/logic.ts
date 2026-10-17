@@ -578,6 +578,45 @@ export interface PartsReport {
   scrollW: number;
 }
 
+// The part an answer changed, from the parts report before and after it took
+// effect: first, in document order, a part that appeared, vanished or swapped
+// (its visible count changed); else the deepest part whose size changed, so a
+// card that grew wins over the column that grew around it. Moves alone don't
+// count: everything below a grown part moves with it.
+export function changedPart(prev: PartsReport, next: PartsReport): string | null {
+  const shown = (r: PartsReport) => {
+    const by = new Map<string, PartBox[]>();
+    for (const p of r.parts) {
+      if (!p.visible) continue;
+      const list = by.get(p.name) ?? [];
+      list.push(p);
+      by.set(p.name, list);
+    }
+    for (const list of by.values()) list.sort((a, b) => a.order - b.order);
+    return by;
+  };
+  const before = shown(prev);
+  const after = shown(next);
+  const names = [
+    ...new Set([...next.parts, ...prev.parts].sort((a, b) => a.order - b.order).map((p) => p.name)),
+  ];
+  for (const name of names) {
+    if ((before.get(name)?.length ?? 0) !== (after.get(name)?.length ?? 0)) return name;
+  }
+  let best: { name: string; depth: number } | null = null;
+  for (const [name, list] of after) {
+    const old = before.get(name) ?? [];
+    const grew = list.some(
+      (p, i) =>
+        Math.abs(p.box.w - (old[i]?.box.w ?? 0)) > 2 ||
+        Math.abs(p.box.h - (old[i]?.box.h ?? 0)) > 2,
+    );
+    const depth = Math.max(...list.map((p) => p.depth));
+    if (grew && (!best || depth > best.depth)) best = { name, depth };
+  }
+  return best?.name ?? null;
+}
+
 export const frameKey = (state: string | null, variant: string) => `${state ?? ""}\u0000${variant}`;
 
 // A reloading frame keeps its window, so its old document can still report.

@@ -395,6 +395,8 @@ export const HIT_TEST_JS = `
 //   hit              {ref, part, key}            reply to hit; part = name|null
 //   tap              {x, y}                      a finger's tap in document px (PARTS_JS);
 //                                                a drag never reports
+//   ready            {version}                   the knob runtime is listening (KNOBS_JS,
+//                                                from <head>); values can be sent now
 //   pinch            {phase, a:{x,y}, b:{x,y}}   two fingers on the page, in viewport px
 //                                                (PARTS_JS); phase start|move|end. The
 //                                                page's own two-finger touches are
@@ -699,9 +701,19 @@ ${KNOB_VALUE_JS}
       detail: { values: JSON.parse(JSON.stringify(current)) },
     }));
   }
-  function initial() { apply(doc.knobs && typeof doc.knobs === 'object' ? doc.knobs : {}, false); }
+  // The URL's values are already on <html>; a live command may also have come
+  // in before the body existed, so both are bound once it does.
+  function initial() {
+    var start = doc.knobs && typeof doc.knobs === 'object' ? doc.knobs : {};
+    for (var k in start) if (own(start, k) && !own(current, k)) current[k] = start[k];
+    apply(current, false);
+  }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initial);
   else initial();
+  // Runs from <head>, before the page's own markup and anything slow it loads
+  // (a web font, a CDN stylesheet), so the host can send values at once rather
+  // than wait for the first parts report, which those can hold back.
+  if (parent !== window) parent.postMessage({ __mockpit: true, type: 'ready', version: doc.version }, '*');
   window.addEventListener('message', function (e) {
     if (e.source !== parent || parent === window) return;
     var d = e.data;
@@ -1263,6 +1275,7 @@ ${htmlTag}
 <meta http-equiv="Content-Security-Policy" content="${buildCsp(doc.origin)}">
 <title>${escapeHtml(doc.title)}</title>
 ${preamble.headScript}
+${scriptTag(doc.origin, KNOBS_PATH)}
 ${styles}
 ${design.headScripts}
 ${kits.flatMap((k) => (k.script ? [`<script src="${escapeHtml(k.script)}" defer></script>`] : [])).join("\n")}
@@ -1272,7 +1285,6 @@ ${SVG_DEFS}
 ${expandIcons(doc.html, doc.resolveIcon ?? (() => null)).html}
 ${scriptTag(doc.origin, BRIDGE_PATH)}
 ${scriptTag(doc.origin, HIT_TEST_PATH)}
-${scriptTag(doc.origin, KNOBS_PATH)}
 ${scriptTag(doc.origin, PARTS_PATH)}
 ${kit.js ? `<script>${kit.js}</script>` : ""}
 </body>
