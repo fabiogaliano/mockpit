@@ -1,3 +1,4 @@
+import { scanFills, slotCss } from "./fills.ts";
 import { CDN_ALLOWLIST, checkCdnUrl } from "./cdn.ts";
 import { CORE_CSS, KITS, kitAssets } from "./kits.ts";
 import { expandIcons, type IconResolver } from "./icons.ts";
@@ -1267,6 +1268,9 @@ export function renderHtmlPage(doc: {
     ]),
     `<style>${design.css}${colorSchemeCss(doc.mode)}</style>`,
   ].join("\n");
+  // Slots (fills.ts): only the chosen fill of each shows, keyed on the knob
+  // attribute; with no value yet, the default fill.
+  const fillCss = slotCss(scanFills(doc.html).slots);
   return `<!doctype html>
 ${htmlTag}
 <head>
@@ -1277,6 +1281,7 @@ ${htmlTag}
 ${preamble.headScript}
 ${scriptTag(doc.origin, KNOBS_PATH)}
 ${styles}
+${fillCss ? `<style>${fillCss}</style>` : ""}
 ${design.headScripts}
 ${kits.flatMap((k) => (k.script ? [`<script src="${escapeHtml(k.script)}" defer></script>`] : [])).join("\n")}
 </head>

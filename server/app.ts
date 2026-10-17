@@ -29,6 +29,8 @@ import {
   resolverFor,
 } from "./icons.ts";
 import { checkProjectKit, KIT_IDS, kitSummaries } from "./kits.ts";
+import { chosenFills, decisionsFor, replyValues } from "./decisions.ts";
+import { composeFills, slotsInSurfaces } from "./fills.ts";
 import { checkKnobs, checkKnobValues, discreteChoices } from "./knobs.ts";
 import { diffParts, type PartChanges, partsInSurfaces, spliceParts } from "./parts.ts";
 import { postToMarkdown } from "./postMarkdown.ts";
@@ -1089,7 +1091,29 @@ export function createApp({
     const posts = await store.listPosts({ mockId: mock.id });
     const detail = mockDetailView(mock, posts);
     const unbound = unboundVariants(mock, posts, post.state);
-    const nudges = [...(extra.nudges ?? []), ...(unbound ? [unbound.nudge] : [])];
+    // A slot no ask sets is a decision nobody was asked; hand over the ask.
+    const slots = slotsInSurfaces(post.surfaces);
+    const setPaths = new Set(
+      mock.asks.flatMap((a) => a.options.flatMap((o) => Object.keys(o.set ?? {}))),
+    );
+    const slotAsks = slots
+      .filter((sl) => !setPaths.has(sl.part))
+      .map((sl) => ({
+        id: sl.part,
+        text: `Which ${sl.label ?? sl.part}?`,
+        scope: "part" as const,
+        part: sl.part,
+        options: sl.fills.map((f) => ({ label: f.label ?? f.name, set: { [sl.part]: f.name } })),
+      }));
+    const nudges = [
+      ...(extra.nudges ?? []),
+      ...(unbound ? [unbound.nudge] : []),
+      ...(slotAsks.length
+        ? [
+            `${slotAsks.map((a) => `slot "${a.part}"`).join(", ")} ${slotAsks.length === 1 ? "has" : "have"} fills and no ask sets ${slotAsks.length === 1 ? "it" : "them"}: send suggestedSlotAsks with ask (reword the text in the user's terms)`,
+          ]
+        : []),
+    ];
     let partChanges: PartChanges | undefined;
     if (extra.previous) {
       partChanges = diffParts(partsInSurfaces(extra.previous), partsInSurfaces(post.surfaces));
@@ -1117,12 +1141,14 @@ export function createApp({
         sessionId: post.sessionId,
         url: mockUrl(ctx.base, mock, post),
         parts: detail.parts,
+        ...(slots.length ? { slots } : {}),
         ...(extra.applied ? { applied: extra.applied } : {}),
         ...(partChanges && (partChanges.vanished.length || partChanges.renamed.length)
           ? { partChanges }
           : {}),
         ...(nudges.length ? { nudges } : {}),
         ...(unbound ? { suggestedAsk: unbound.ask } : {}),
+        ...(slotAsks.length ? { suggestedSlotAsks: slotAsks } : {}),
         ...(warnings.length ? { warnings } : {}),
         feedback,
       },
@@ -1464,6 +1490,11 @@ export function createApp({
       (s) => wantedState === undefined || s === wantedState,
     );
     if (states.length === 0) return fail(404, `${mock.slug} has no state "${wantedState}"`);
+    const replies = (await store.listComments({ mockId: mock.id })).filter(
+      (c) => c.kind === "reply",
+    );
+    const lastReply = replies[replies.length - 1]?.payload ?? null;
+    const lastValues = lastReply ? replyValues(lastReply, mock) : {};
     const entries = [];
     for (const state of states) {
       const inState = posts.filter((p) => p.state === state);
@@ -1475,13 +1506,20 @@ export function createApp({
       if (!post) continue;
       if (wantedVariant && post.variant !== wantedVariant) continue;
       const html = post.surfaces.find((s) => s.kind === "html");
+      // With slots, the screen as decided: only the chosen fills, by the last
+      // reply's values (defaults before any reply). The authored markup with
+      // every fill stays available as `source`.
+      const slots = slotsInSurfaces(post.surfaces);
+      const raw = html && html.kind === "html" ? html.html : "";
+      const composed = slots.length ? composeFills(raw, chosenFills(slots, lastValues)) : raw;
       entries.push({
         state,
         variant: post.variant,
         postId: post.id,
         version: post.version,
         status: post.status,
-        html: html && html.kind === "html" ? html.html : "",
+        html: composed,
+        ...(slots.length ? { source: raw } : {}),
         markdown: postToMarkdown(post, {
           postUrl: `${ctx.base}/s/${post.id}`,
           assetBase: ctx.base,
@@ -1510,9 +1548,7 @@ export function createApp({
         variants: posts.map(variantLabel),
       });
     }
-    const replies = (await store.listComments({ mockId: mock.id })).filter(
-      (c) => c.kind === "reply",
-    );
+    const decisions = lastReply ? decisionsFor(mock, posts, lastReply) : null;
     return ok({
       project: mock.project,
       mock: mock.slug,
@@ -1520,7 +1556,8 @@ export function createApp({
       kind: mock.kind,
       states: entries,
       knobs: mock.knobs,
-      reply: replies[replies.length - 1]?.payload ?? null,
+      reply: lastReply,
+      ...(decisions ? { decisions } : {}),
     });
   }
 

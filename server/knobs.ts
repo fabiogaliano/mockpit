@@ -2,6 +2,7 @@
 // declared schema before they are stored or used). Runtime-agnostic. The config
 // shape mirrors tunekit's usePane config; see the knob types in types.ts.
 
+import { slotKnobs, slotsInSurfaces } from "./fills.ts";
 import type {
   ExplicitKnob,
   KnobAxis,
@@ -302,21 +303,28 @@ export function checkKnobValue(
   }
 }
 
-// The declared knob for a path: the mock's own, else a variant's override.
+// The declared knob for a path: the mock's own, else a variant's override,
+// else the knob a variant's slot implies (fills.ts), so an option can `set` a
+// slot's fill without the agent declaring anything.
 export function knobFor(
   path: string,
   mock: Pick<Mock, "knobs">,
-  posts: Pick<Post, "knobs">[],
+  posts: (Pick<Post, "knobs"> & { surfaces?: Post["surfaces"] })[],
 ): KnobConfig | undefined {
   if (Object.hasOwn(mock.knobs, path)) return mock.knobs[path];
   for (const p of posts) if (p.knobs && Object.hasOwn(p.knobs, path)) return p.knobs[path];
+  for (const p of posts) {
+    if (!p.surfaces) continue;
+    const implied = slotKnobs(slotsInSurfaces(p.surfaces));
+    if (Object.hasOwn(implied, path)) return implied[path];
+  }
   return undefined;
 }
 
 export function checkKnobValues(
   raw: unknown,
   mock: Pick<Mock, "knobs">,
-  posts: Pick<Post, "knobs">[],
+  posts: (Pick<Post, "knobs"> & { surfaces?: Post["surfaces"] })[],
   what: string,
 ): Checked<Record<string, KnobValue>> {
   if (raw === undefined || raw === null) return { ok: true, value: {} };

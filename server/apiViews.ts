@@ -1,6 +1,7 @@
 // Response shapes shared by every tier (REST, both MCP transports, the CLI), so
 // one mock reads the same however an agent asks for it.
 
+import { slotKnobs, slotsInSurfaces } from "./fills.ts";
 import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
 import {
   isSandboxedSurfaceKind,
@@ -70,7 +71,11 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
   ...(post.from === undefined ? {} : { from: post.from }),
   ...(post.prompt ? { prompt: post.prompt } : {}),
   ...(post.author === undefined ? {} : { author: post.author }),
-  ...(post.knobs ? { knobs: post.knobs } : {}),
+  // A slot is a select knob on its part (fills.ts); declared knobs win.
+  ...(slotsInSurfaces(post.surfaces).length || post.knobs
+    ? { knobs: { ...slotKnobs(slotsInSurfaces(post.surfaces)), ...post.knobs } }
+    : {}),
+  ...(slotsInSurfaces(post.surfaces).length ? { slots: slotsInSurfaces(post.surfaces) } : {}),
   ...(post.note ? { note: post.note } : {}),
   ...(post.slots.length ? { slots: post.slots } : {}),
   // The part names this variant's own markup marks, so the viewer can tell

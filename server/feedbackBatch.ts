@@ -3,6 +3,7 @@
 // so an agent reads one grouped object instead of re-deriving which mock a flat
 // comment list belongs to. Runtime-agnostic (no node imports).
 
+import { type Decisions, decisionsFor } from "./decisions.ts";
 import {
   type AskOption,
   builtinAsk,
@@ -70,6 +71,9 @@ export interface FeedbackReply extends Omit<
   // One-tap reactions as one line each (`👍 part "hero" (variant B)`); they are
   // left out of `comments`, which keeps only what the user typed.
   reactions?: string[];
+  // The screen as decided: per state the look and each slot's fill, nested
+  // under the fill that holds it, plus the knob values set (decisions.ts).
+  decisions?: Decisions;
 }
 
 export interface FeedbackBatch {
@@ -207,6 +211,8 @@ export function groupFeedback(
         asks: answered(c.payload, mock, mockPosts, base),
         ...(reactions.length ? { reactions } : {}),
       };
+      const decisions = mock ? decisionsFor(mock, mockPosts, c.payload) : null;
+      if (decisions) batch.reply.decisions = decisions;
       batch.accepted = mockPosts.filter((p) => p.status === "accepted").map(ref);
       batch.archived = mockPosts.filter((p) => p.status === "archived").map(ref);
       continue;

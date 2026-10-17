@@ -209,7 +209,8 @@ mockpit publish --mock <slug> --parts <name=file|-> ... [options]
   Claude Code, arm it under Monitor after asking, then end the turn).
   Delivery is shared with feedback and every write: each Send arrives once.`,
   export: `mockpit export --mock <slug> [--state s] [--variant v] [--out <dir>]
-  Write index.html + history.json per state to .mockpit/accepted/<mock>/<state>/.`,
+  Write index.html + history.json per state to .mockpit/accepted/<mock>/<state>/;
+  with slots, index.html is the chosen screen, plus source.html and decisions.json.`,
   upload: `mockpit upload <file> [--kind image|file] [--session <id>]
   Upload an asset; prints its id and URL. Use the id as an image surface's assetId.`,
   guide: `mockpit guide [--topic <id>] [--project <name>]
@@ -1488,6 +1489,15 @@ const commands = {
       const dir = join(root, entry.state === null ? "default" : slugify(entry.state));
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, "index.html"), entry.html ?? "");
+      // The screen with every fill, when index.html is the composed choice.
+      if (entry.source) writeFileSync(join(dir, "source.html"), entry.source);
+      const decided = data.decisions?.states?.[entry.state ?? ""];
+      if (decided) {
+        writeFileSync(
+          join(dir, "decisions.json"),
+          JSON.stringify({ ...decided, knobs: data.decisions.knobs }, null, 2) + "\n",
+        );
+      }
       writeFileSync(
         join(dir, "history.json"),
         JSON.stringify(
