@@ -42,8 +42,9 @@ declare const mockpit: {
   /** No mock: every mock plus pending. With one: its states, variants, asks, parts, knobs. */
   read(mock?: string, opts?: { body?: boolean; history?: boolean }): Promise<unknown>;
   /** Creates or versions (mock, state, variant). One of: html; surfaces, the full ordered list
-   * ({id} alone keeps that surface, a missing id is removed); parts {"name"|"name#key": outer html}. */
-  publish(v: Ref & { title?: string; kind?: "component" | "page"; html?: string; surfaces?: (Surface | { id: string })[]; parts?: Record<string, string>; knobs?: Knobs; variantKnobs?: Knobs; from?: number; prompt?: string; note?: string; widths?: number[] }): Promise<Written>;
+   * ({id} alone keeps that surface, a missing id is removed); parts {"name"|"name#key": outer html};
+   * fills {"part#fill": outer html}, replacing or adding one alternative of a slot. */
+  publish(v: Ref & { title?: string; kind?: "component" | "page"; html?: string; surfaces?: (Surface | { id: string })[]; parts?: Record<string, string>; fills?: Record<string, string>; knobs?: Knobs; variantKnobs?: Knobs; from?: number; prompt?: string; note?: string; widths?: number[] }): Promise<Written>;
   ask(mock: string, asks: Ask[]): Promise<{ asks: { id: string; text: string }[]; url: string; nudges?: string[] }>;
   /** Never waits: what the user sent since you last heard, and what they are doing now. */
   feedback(): Promise<{ feedback: Feedback[]; pending: Pending[] }>;

@@ -72,11 +72,40 @@ replaces that ask. The viewer adds an "Other…" write-in and a note to every
 ask (both take attached images), so don't add your own; the option id `other`
 is reserved.
 
+## Slots
+
+A slot is one region with alternative fills, in one html. Give each
+alternative the same `data-part` and its own `data-fill`:
+
+```html
+<section data-part="entry" data-part-label="Entry" data-fill="dots" data-fill-label="Typing dots">
+  …
+</section>
+<section data-part="entry" data-fill="skeleton">…</section>
+<section data-part="entry" data-fill="filling" data-fill-default>…</section>
+```
+
+The first fill is the default unless one carries `data-fill-default`. The
+server derives a select knob at the part's name and shows only the chosen
+fill, so you write no switching CSS; give each fill whatever display it
+needs. Draw anything inside a fill, including further slots: a slot inside a
+fill is asked only while that fill is chosen, right after its parent's
+question.
+
+Publish returns the slots it found and, for each one no ask binds, a ready
+`suggestedSlotAsks` entry: `scope: "part"`, one option per fill with
+`set: {"entry": "<fill>"}`. Send them with `ask`, relabelled if you like. On a
+pick the viewer outlines the fill on stage. `fills` in publish replaces or
+adds one fill without resending the page (topic `feedback`).
+
+Use a slot when the alternatives differ in one region; use variants when the
+whole screen differs. Both mix: variants are looks, each look may have slots.
+
 ## The Look ask
 
 When you publish variants, ask `scope: "mock"` with one option per variant, and
 ask it first. Questions appear in the order you ask them. This one is titled
-"Look" and unlocks Mix, which lets the user borrow a part from another look.
+"Look". Tune then offers, per part, to borrow it from another look.
 Variants without a Look ask get a plain switcher in the frame header.
 
 A variant decides everything it differs on; don't re-ask it. Ask other axes as

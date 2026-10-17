@@ -1,4 +1,4 @@
-// Page composition: `<mockpit-slot slug="…" variant="…" version="…">` tags in a
+// Page composition: `<mockpit-embed slug="…" variant="…" version="…">` tags in a
 // page item's html are expanded server-side by inlining the referenced variant
 // version's first html surface body. Snapshot semantics — publish resolves a
 // missing `version` to the component's current one and stores the resolved list
@@ -7,17 +7,19 @@
 // Runtime-agnostic (no node imports) and string-only: the result is handed to
 // renderHtmlPage, which serves it from /s/:id under the sandbox CSP header, so
 // an inlined component body is exactly as contained as the page's own markup.
+// `<mockpit-slot>`, the tag's first name, is still read: "slot" now means a
+// part with alternative fills (fills.ts).
 
-import type { Slot } from "./types.ts";
+import type { Embed } from "./types.ts";
 
-export interface SlotTag {
+export interface EmbedTag {
   raw: string;
   slug: string;
   variant: string;
   version: number | null;
 }
 
-const SLOT_TAG = /<mockpit-slot\b([^>]*?)(?:\/>|>\s*<\/mockpit-slot\s*>|>)/gi;
+const EMBED_TAG = /<mockpit-(?:embed|slot)\b([^>]*?)(?:\/>|>\s*<\/mockpit-(?:embed|slot)\s*>|>)/gi;
 const ATTR = /([a-z-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/gi;
 
 function attributes(raw: string): Record<string, string> {
@@ -28,11 +30,11 @@ function attributes(raw: string): Record<string, string> {
   return out;
 }
 
-export function parseSlotTags(html: string): SlotTag[] {
-  const tags: SlotTag[] = [];
-  SLOT_TAG.lastIndex = 0;
+export function parseEmbedTags(html: string): EmbedTag[] {
+  const tags: EmbedTag[] = [];
+  EMBED_TAG.lastIndex = 0;
   let m: RegExpExecArray | null;
-  while ((m = SLOT_TAG.exec(html))) {
+  while ((m = EMBED_TAG.exec(html))) {
     const attrs = attributes(m[1] ?? "");
     const slug = attrs.slug ?? "";
     if (!slug) continue;
@@ -47,32 +49,32 @@ export function parseSlotTags(html: string): SlotTag[] {
   return tags;
 }
 
-// The slot list to store on a page post: every tag with its version resolved
+// The embed list to store on a page post: every tag with its version resolved
 // (a missing one pins to the component's current version at publish time).
-export function resolveSlots(
+export function resolveEmbeds(
   html: string,
   currentVersion: (slug: string, variant: string) => number | null,
-): Slot[] {
-  const slots: Slot[] = [];
-  for (const tag of parseSlotTags(html)) {
+): Embed[] {
+  const embeds: Embed[] = [];
+  for (const tag of parseEmbedTags(html)) {
     const version = tag.version ?? currentVersion(tag.slug, tag.variant);
     if (version == null) continue;
-    slots.push({ slug: tag.slug, variant: tag.variant, version });
+    embeds.push({ slug: tag.slug, variant: tag.variant, version });
   }
-  return slots;
+  return embeds;
 }
 
 const escapeAttr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 
-// Replace each tag with the resolved body. An unresolvable slot renders as an
+// Replace each tag with the resolved body. An unresolvable embed renders as an
 // empty marked-up placeholder rather than vanishing, so a broken reference is
 // visible in review instead of silently changing the layout.
-export function expandSlots(
+export function expandEmbeds(
   html: string,
   body: (slot: { slug: string; variant: string; version: number | null }) => string | null,
 ): string {
-  SLOT_TAG.lastIndex = 0;
-  return html.replace(SLOT_TAG, (raw, attrRaw: string) => {
+  EMBED_TAG.lastIndex = 0;
+  return html.replace(EMBED_TAG, (raw, attrRaw: string) => {
     const attrs = attributes(attrRaw ?? "");
     const slug = attrs.slug ?? "";
     if (!slug) return raw;
@@ -80,7 +82,7 @@ export function expandSlots(
     const parsed = Number(attrs.version);
     const version = Number.isInteger(parsed) && parsed > 0 ? parsed : null;
     const resolved = body({ slug, variant, version });
-    const label = `data-mockpit-slot="${escapeAttr(slug)}" data-mockpit-variant="${escapeAttr(
+    const label = `data-mockpit-embed="${escapeAttr(slug)}" data-mockpit-variant="${escapeAttr(
       variant,
     )}"${version == null ? "" : ` data-mockpit-version="${version}"`}`;
     return resolved == null

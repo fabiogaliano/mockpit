@@ -30,7 +30,7 @@ import {
 } from "./icons.ts";
 import { checkProjectKit, KIT_IDS, kitSummaries } from "./kits.ts";
 import { chosenFills, decisionsFor, replyValues } from "./decisions.ts";
-import { composeFills, slotsInSurfaces } from "./fills.ts";
+import { composeFills, slotsInSurfaces, spliceFills } from "./fills.ts";
 import { checkKnobs, checkKnobValues, discreteChoices } from "./knobs.ts";
 import { diffParts, type PartChanges, partsInSurfaces, spliceParts } from "./parts.ts";
 import { postToMarkdown } from "./postMarkdown.ts";
@@ -46,7 +46,7 @@ import {
   removeHook,
   vapidKeys,
 } from "./push.ts";
-import { expandSlots, parseSlotTags } from "./slots.ts";
+import { expandEmbeds, parseEmbedTags } from "./embeds.ts";
 import { type McpFlows, registerMcp } from "./mcpHttp.ts";
 import { createRunFlow, DEFAULT_RUN_LIMITS, type Executor, type RunLimits } from "./run.ts";
 import { type LogSink, logMiddleware, writeLog } from "./eventLog.ts";
@@ -100,7 +100,7 @@ import {
   type ReplyDecision,
   reservedAgent,
   type Session,
-  type Slot,
+  type Embed,
   slugify,
   type Store,
   type Surface,
@@ -935,40 +935,40 @@ export function createApp({
     return null;
   }
 
-  // A page's slot list, with each missing version pinned to the referenced
+  // A page's embed list, with each missing version pinned to the referenced
   // component's current one (snapshot semantics).
-  async function pageSlots(project: string, surfaces: Surface[]): Promise<Slot[]> {
+  async function pageEmbeds(project: string, surfaces: Surface[]): Promise<Embed[]> {
     const html = surfaces.find((s) => s.kind === "html");
     if (!html || html.kind !== "html") return [];
-    const slots: Slot[] = [];
-    for (const tag of parseSlotTags(html.html)) {
+    const embeds: Embed[] = [];
+    for (const tag of parseEmbedTags(html.html)) {
       let version = tag.version;
       if (version == null)
-        version = (await slotTarget(project, tag.slug, tag.variant))?.version ?? null;
-      if (version != null) slots.push({ slug: tag.slug, variant: tag.variant, version });
+        version = (await embedTarget(project, tag.slug, tag.variant))?.version ?? null;
+      if (version != null) embeds.push({ slug: tag.slug, variant: tag.variant, version });
     }
-    return slots;
+    return embeds;
   }
 
-  // A slot names a component mock by slug; it renders that mock's first state.
-  async function slotTarget(project: string, slug: string, variant: string) {
+  // An embed names a component mock by slug; it renders that mock's first state.
+  async function embedTarget(project: string, slug: string, variant: string) {
     const mock = await store.findMock(project, slug);
     if (!mock) return null;
     return store.findPost(mock.id, mock.states[0] ?? null, variant);
   }
 
-  // Inline each `<mockpit-slot>` with the referenced variant version's first
-  // html surface body. The stored `slots` list (resolved at publish) wins over
+  // Inline each `<mockpit-embed>` with the referenced variant version's first
+  // html surface body. The stored `embeds` list (resolved at publish) wins over
   // a bare tag, so a page keeps rendering the versions it was composed from.
   async function expandPageHtml(project: string, post: Post, html: string): Promise<string> {
-    const pinned = new Map(post.slots.map((s) => [`${s.slug}::${s.variant}`, s.version]));
+    const pinned = new Map(post.embeds.map((s) => [`${s.slug}::${s.variant}`, s.version]));
     const bodies = new Map<string, string | null>();
-    for (const tag of parseSlotTags(html)) {
+    for (const tag of parseEmbedTags(html)) {
       const key = `${tag.slug}::${tag.variant}`;
       const version = tag.version ?? pinned.get(key) ?? null;
       const cacheKey = `${key}::${version}`;
       if (bodies.has(cacheKey)) continue;
-      const target = await slotTarget(project, tag.slug, tag.variant);
+      const target = await embedTarget(project, tag.slug, tag.variant);
       if (!target) {
         bodies.set(cacheKey, null);
         continue;
@@ -980,7 +980,7 @@ export function createApp({
       const body = surfaces?.find((s) => s.kind === "html");
       bodies.set(cacheKey, body && body.kind === "html" ? body.html : null);
     }
-    return expandSlots(html, ({ slug, variant, version }) => {
+    return expandEmbeds(html, ({ slug, variant, version }) => {
       const key = `${slug}::${variant}`;
       const pinnedVersion = version ?? pinned.get(key) ?? null;
       return bodies.get(`${key}::${pinnedVersion}`) ?? null;
@@ -1170,19 +1170,24 @@ export function createApp({
 
   // The one write: publish one variant of one state of a mock. An existing
   // (mock, state, variant) becomes a new version; anything else is created.
-  // Exactly one body: `html`, the full ordered `surfaces` list, or `parts`
-  // spliced into the variant's latest (or `from`) version.
+  // Exactly one body: `html`, the full ordered `surfaces` list, or `parts` or
+  // `fills` spliced into the variant's latest (or `from`) version.
   async function publishFlow(body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
     const slugIn = str(body.mock, MAX_TITLE);
     if (!slugIn) return fail(400, 'provide "mock": the mock slug, e.g. "writer"');
-    const given = ["html", "surfaces", "parts"].filter((k) => body[k] !== undefined);
-    if (given.length === 0) return fail(400, 'provide "html", "surfaces" or "parts"');
+    const given = ["html", "surfaces", "parts", "fills"].filter((k) => body[k] !== undefined);
+    if (given.length === 0) return fail(400, 'provide "html", "surfaces", "parts" or "fills"');
     if (given.length > 1) {
-      return fail(400, `pass one of "html", "surfaces" or "parts", not ${given.join(" and ")}`);
+      return fail(
+        400,
+        `pass one of "html", "surfaces", "parts" or "fills", not ${given.join(" and ")}`,
+      );
     }
-    const partEdits = partEditsArg(body);
+    const partEdits = editsArg(body, "parts");
     if (isResult(partEdits)) return partEdits;
+    const fillEdits = editsArg(body, "fills");
+    if (isResult(fillEdits)) return fillEdits;
     const knobs = checkKnobs(body.knobs);
     if (!knobs.ok) return fail(400, knobs.error);
     const variantKnobs = checkKnobs(body.variantKnobs);
@@ -1265,10 +1270,12 @@ export function createApp({
 
     let surfaces: Surface[];
     let applied: string[] | undefined;
-    if (partEdits) {
+    if (partEdits || fillEdits) {
       const current = base();
       if (isResult(current)) return current;
-      const result = spliceParts(current, partEdits);
+      const result = partEdits
+        ? spliceParts(current, partEdits)
+        : spliceFills(current, fillEdits as Record<string, string>);
       if (!result.ok) return fail(400, result.error);
       surfaces = result.surfaces;
       applied = result.applied;
@@ -1305,8 +1312,8 @@ export function createApp({
         });
         bus.broadcast({ type: "mock-created", id: mock.id, project });
       }
-      const slots =
-        mock.kind === "page" || kind === "page" ? await pageSlots(project, surfaces) : [];
+      const embeds =
+        mock.kind === "page" || kind === "page" ? await pageEmbeds(project, surfaces) : [];
       const created = await store.createPost({
         sessionId: session.id,
         mock: mock.id,
@@ -1316,7 +1323,7 @@ export function createApp({
         surfaces,
         ...(Object.keys(variantKnobs.value).length ? { knobs: variantKnobs.value } : {}),
         ...(note ? { note } : {}),
-        slots,
+        embeds,
         from,
         prompt,
         author,
@@ -1339,13 +1346,13 @@ export function createApp({
     // A new version is written by whoever writes it; without an explicit
     // session the variant's own session carries it.
     session ??= await store.getSession(target.sessionId);
-    const slots = mock.kind === "page" ? await pageSlots(project, surfaces) : undefined;
+    const embeds = mock.kind === "page" ? await pageEmbeds(project, surfaces) : undefined;
     const updated = await store.updatePost(target.id, {
       surfaces,
       title,
       ...(body.variantKnobs !== undefined ? { knobs: variantKnobs.value } : {}),
       ...(note !== undefined ? { note } : {}),
-      slots,
+      embeds,
       from,
       prompt,
       author,
@@ -1378,18 +1385,27 @@ export function createApp({
 
   // `parts`: new outer html per part ("name" or "name#key"), spliced into the
   // variant's html so a tweak costs the tweak rather than the whole document.
-  function partEditsArg(body: any): Record<string, string> | FlowResult | undefined {
-    if (body?.parts === undefined) return undefined;
-    const parts = body.parts;
-    if (!parts || typeof parts !== "object" || Array.isArray(parts)) {
-      return fail(400, '"parts" must be an object: { "<part name>": "<html for that part>" }');
+  // `fills`: the same per slot alternative ("part#fill"), replaced or added.
+  function editsArg(
+    body: any,
+    key: "parts" | "fills",
+  ): Record<string, string> | FlowResult | undefined {
+    if (body?.[key] === undefined) return undefined;
+    const edits = body[key];
+    const shape =
+      key === "parts"
+        ? '{ "<part name>": "<html for that part>" }'
+        : '{ "<part>#<fill>": "<html for that fill>" }';
+    if (!edits || typeof edits !== "object" || Array.isArray(edits)) {
+      return fail(400, `"${key}" must be an object: ${shape}`);
     }
-    const entries = Object.entries(parts);
-    if (entries.length === 0) return fail(400, '"parts" is empty; name at least one part');
+    const entries = Object.entries(edits);
+    if (entries.length === 0)
+      return fail(400, `"${key}" is empty; name at least one ${key.slice(0, -1)}`);
     if (entries.some(([, html]) => typeof html !== "string")) {
-      return fail(400, 'each "parts" value must be the html string for that part');
+      return fail(400, `each "${key}" value must be the html string for that ${key.slice(0, -1)}`);
     }
-    return parts as Record<string, string>;
+    return edits as Record<string, string>;
   }
 
   // A write may add a state, retitle the mock, declare knobs, and makes its
@@ -3665,7 +3681,7 @@ export function createApp({
 
     // Cache the finished document under the same key the pre-warm uses; the
     // resolved `version` makes it immutable, so a hit is always correct.
-    // A page's slots are pinned at publish, so they are a function of
+    // A page's embeds are pinned at publish, so they are a function of
     // (id, version) too and need no separate key component.
     const cacheKey = renderKey({ postId: post.id, idx, version, mode, origin, knobs: knobsKey });
     const design = mock ? await designFor(mock.project) : null;

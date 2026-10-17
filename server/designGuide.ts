@@ -40,7 +40,7 @@ export function iconsLine(design: DesignSettings | null): string {
 
 const TOPIC_SUMMARY: Record<GuideTopic, string> = {
   knobs: "every knob shape, how values reach html",
-  asks: "the ask JSON, scopes, the Look ask, multi",
+  asks: "the ask JSON, scopes, slots (data-fill), the Look ask, multi",
   surfaces: "markdown, diff, mermaid, code, terminal, json, image; uploads",
   html: "the contract, finish rules, tokens, kits, Tailwind, icons",
   feedback: "the feedback JSON, pending, delivery, export",
@@ -258,7 +258,8 @@ mockpit publish --mock writer --state "Writing" --variant dark --html dark.html
 mockpit ask     --mock writer "Which look?" --option Quiet=quiet --option Dark=dark
 mockpit feedback                # after the user says they answered
 mockpit publish --mock writer --state "Writing" --variant dark --parts body=b.html  # v2, one part
-mockpit export  --mock writer   # the accepted html per state
+mockpit publish --mock writer --state "Writing" --variant dark --fills bar#tabs=t.html
+mockpit export  --mock writer   # the chosen html per state
 \`\`\`
 
 Server: \`$MOCKPIT_URL\` (default http://localhost:8228; \`mockpit serve\`).
@@ -280,11 +281,15 @@ the viewer shows it on the variant and its option. Name the widths the user
 ships to once, \`--widths 390,1280\`, and the design is shown at each, side by
 side; without them the viewer picks one for the screen it is on.
 
-## Ask or knob
+## Ask, slot or knob
 
-A choice is several variants plus one ask that binds them. Ask it first. A
-variant decides everything it differs on; don't re-ask it. Visual options
-carry a \`variant\` or knob \`set\`. One render plus a control: a knob,
+Answers drive the screen. A choice is several variants plus one ask that binds
+them (ask it first), or a slot: one region's alternatives in one html, sharing
+\`data-part\`, each its own \`data-fill\` (\`<nav data-part="bar" data-fill="thin">\`).
+The viewer shows the chosen fill. A fill may hold slots, asked only while it is
+chosen. Send publish's \`suggestedSlotAsks\` (\`set: {"bar": "tabs"}\`). A variant
+decides all it differs on; don't re-ask it. Visual options carry a \`variant\`
+or knob \`set\`. One render plus a control: a knob,
 \`--knobs '{...}'\`. Declare knobs for what is worth fine-tuning (size,
 spacing, colour, density) even unasked; they wait in Tune.
 
@@ -305,7 +310,8 @@ mix, comments, reactions, decision, text}, accepted, archived}\`. In order: answ
 decide structure (a variant answer already accepted it); tuned values become
 defaults; mix names a part to take from another variant (if it conflicts with an
 answer, the answer wins); address each comment and reaction on its part; decision
-(accept, revise, drop) replaces answers when there were no asks. Each Send arrives exactly once: in a write's
+(accept, revise, drop) replaces answers when there were no asks; \`decisions\` is
+the screen as chosen, per state: variant, then each slot's fill, nested. Each Send arrives exactly once: in a write's
 \`feedback\`, \`mockpit feedback\` or a \`mockpit watch\` line.
 A \`pending\` draft means the user is still answering. Send a nudge's
 \`suggestedAsk\` with \`ask\`.
@@ -314,7 +320,8 @@ A \`pending\` draft means the user is still answering. Send a nudge's
 
 Send a body fragment: no doctype, html, head or body. Keep content in normal
 flow: no \`position: fixed\`, no absolute layers over a fixed height; grid-stack
-(\`grid-area: 1/1\`) to overlap. Never hardcode a color; use the tokens below so
+(\`grid-area: 1/1\`) to overlap. A web font is decoration: the page must read
+without it. Never hardcode a color; use the tokens below so
 dark and light both work. External loads only from cdnjs.cloudflare.com, esm.sh,
 cdn.jsdelivr.net, unpkg.com and Google Fonts.
 

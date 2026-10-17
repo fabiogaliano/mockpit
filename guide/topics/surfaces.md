@@ -45,10 +45,11 @@ A version can combine surfaces. `[html, diff]` is a design with its code review;
 html is sandboxed because you author the markup. Every other kind is rendered
 from data, so send data, never markup.
 
-## Page slots
+## Page embeds
 
 A page mock (`--kind page`, MCP `kind: "page"`) can embed a component mock in its
-html with `<mockpit-slot slug="button" variant="dark" version="3"></mockpit-slot>`.
+html with `<mockpit-embed slug="button" variant="dark" version="3"></mockpit-embed>`
+(`<mockpit-slot>` still works; a slot is now a region with fills, topic `asks`).
 The server inlines that version's html body in place, inside the page's frame.
 `variant` defaults to `default`; a missing `version` pins to the current one at
 publish, so the page keeps showing what it was composed from until you publish

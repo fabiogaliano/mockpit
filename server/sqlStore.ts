@@ -33,7 +33,7 @@ import {
   reservedAgent,
   selectEvictions,
   type Session,
-  type Slot,
+  type Embed,
   slugify,
   type SqlStorage,
   type SqlStorageValue,
@@ -566,7 +566,8 @@ export class SqlStore implements Store {
       history,
       ...(knobs ? { knobs } : {}),
       ...(r.note == null ? {} : { note: r.note as string }),
-      slots: parseJson<Slot[]>(r.slots, []),
+      // The column keeps its first name, from when embeds were called slots.
+      embeds: parseJson<Embed[]>(r.slots, []),
       ...(r.curFrom == null ? {} : { from: r.curFrom as number }),
       ...(r.curPrompt == null ? {} : { prompt: r.curPrompt as string }),
       ...(r.curAuthor == null ? {} : { author: r.curAuthor as string }),
@@ -957,7 +958,7 @@ export class SqlStore implements Store {
       history: [],
       ...(input.knobs ? { knobs: input.knobs } : {}),
       ...(stripNul(input.note ?? "").trim() ? { note: stripNul(input.note ?? "").trim() } : {}),
-      slots: input.slots ?? [],
+      embeds: input.embeds ?? [],
       ...(input.from === undefined ? {} : { from: input.from }),
       ...(input.prompt === undefined ? {} : { prompt: stripNul(input.prompt) }),
       ...(input.author === undefined ? {} : { author: stripNul(input.author) }),
@@ -972,7 +973,7 @@ export class SqlStore implements Store {
       post.title,
       JSON.stringify(post.surfaces),
       post.knobs ? JSON.stringify(post.knobs) : null,
-      JSON.stringify(post.slots),
+      JSON.stringify(post.embeds),
       post.createdAt,
       post.updatedAt,
       post.from ?? null,
@@ -1009,7 +1010,7 @@ export class SqlStore implements Store {
         patch.surfaces !== undefined ? normalizeSurfaceIds(patch.surfaces) : post.surfaces;
       const knobs = patch.knobs === undefined ? post.knobs : (patch.knobs ?? undefined);
       const note = patch.note === undefined ? post.note : stripNul(patch.note).trim() || undefined;
-      const slots = patch.slots ?? post.slots;
+      const embeds = patch.embeds ?? post.embeds;
       const state = patch.state === undefined ? post.state : patch.state;
       const version = post.version + 1;
       const updatedAt = new Date().toISOString();
@@ -1023,7 +1024,7 @@ export class SqlStore implements Store {
         JSON.stringify(surfaces),
         knobs ? JSON.stringify(knobs) : null,
         note ?? null,
-        JSON.stringify(slots),
+        JSON.stringify(embeds),
         state,
         updatedAt,
         version,
@@ -1051,7 +1052,7 @@ export class SqlStore implements Store {
           surfaces,
           ...(knobs ? { knobs } : {}),
           ...(note ? { note } : {}),
-          slots,
+          embeds,
           state,
           version,
           updatedAt,

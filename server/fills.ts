@@ -96,6 +96,15 @@ interface Open {
 }
 
 export function scanFills(html: string): FillScan {
+  const { slots, ranges } = scanAll(html);
+  const real = slots.filter((s) => s.fills.length >= 2);
+  const isSlot = new Set(real.map((s) => s.part));
+  return { slots: real, ranges: ranges.filter((r) => isSlot.has(r.part)) };
+}
+
+// Every part carrying `data-fill`, a lone fill included: a splice may add the
+// second fill that makes it a slot.
+function scanAll(html: string): FillScan {
   const ranges: Range[] = [];
   // Per part, in document order: each fill element and the fill it sits in.
   const seen = new Map<
@@ -170,7 +179,6 @@ export function scanFills(html: string): FillScan {
   }
   const slots: SlotInfo[] = [];
   for (const [part, s] of seen) {
-    if (s.fills.length < 2) continue;
     slots.push({
       part,
       ...(s.label ? { label: s.label } : {}),
@@ -179,8 +187,7 @@ export function scanFills(html: string): FillScan {
       parent: s.parent,
     });
   }
-  const isSlot = new Set(slots.map((s) => s.part));
-  return { slots, ranges: ranges.filter((r) => isSlot.has(r.part)) };
+  return { slots, ranges };
 }
 
 // Each slot is a select knob at its part's path: the fills are its options and
@@ -268,4 +275,104 @@ export function slotsInSurfaces(surfaces: Surface[]): SlotInfo[] {
   }
   bySurfaces.set(surfaces, out);
   return out;
+}
+
+const attrValue = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+const FIRST_TAG = /^(?:\s|<!--[\s\S]*?-->)*<([A-Za-z][\w:-]*)((?:\s[^<>]*?)?)(\/?)>/;
+
+// The replacement must be one element marked as that fill: the marks are added
+// when missing and a contradicting one is refused, so a splice cannot quietly
+// land in another slot.
+function markFill(html: string, part: string, fill: string): string | { error: string } {
+  const m = FIRST_TAG.exec(html);
+  if (!m) return { error: `fill "${part}#${fill}" must be html starting with its element` };
+  const attrs = attributes(m[2] ?? "");
+  if (attrs["data-part"] !== undefined && attrs["data-part"] !== part) {
+    return { error: `fill "${part}#${fill}" is marked data-part="${attrs["data-part"]}"` };
+  }
+  if (attrs["data-fill"] !== undefined && attrs["data-fill"] !== fill) {
+    return { error: `fill "${part}#${fill}" is marked data-fill="${attrs["data-fill"]}"` };
+  }
+  const add =
+    (attrs["data-part"] === undefined ? ` data-part="${attrValue(part)}"` : "") +
+    (attrs["data-fill"] === undefined ? ` data-fill="${attrValue(fill)}"` : "");
+  const at = m.index + m[0].indexOf("<") + 1 + m[1].length;
+  return html.slice(0, at) + add + html.slice(at);
+}
+
+export type FillSplice =
+  | { ok: true; surfaces: Surface[]; applied: string[] }
+  | { ok: false; error: string };
+
+// Replace one fill of a slot, or add it after the slot's last fill, keyed
+// "part#fill". Like spliceParts, every target is located in the original
+// markup and overlapping edits are refused.
+export function spliceFills(surfaces: Surface[], edits: Record<string, string>): FillSplice {
+  const docs = surfaces.flatMap((s, i) => (s.kind === "html" ? [{ i, surface: s }] : []));
+  if (docs.length === 0) {
+    return { ok: false, error: "fills needs an html surface; this variant has none" };
+  }
+  const scans = docs.map((d) => scanAll(d.surface.html).ranges);
+  const plan = new Map<number, { start: number; end: number; text: string; n: number }[]>();
+  const targets = Object.keys(edits);
+  for (const [n, target] of targets.entries()) {
+    const at = target.indexOf("#");
+    const part = at > 0 ? target.slice(0, at) : "";
+    const fill = at > 0 ? target.slice(at + 1).trim() : "";
+    if (!PATH_SEGMENT.test(part) || !fill) {
+      return {
+        ok: false,
+        error: `fills keys are "part#fill", e.g. "entry#skeleton" (got "${target}")`,
+      };
+    }
+    const where = scans.flatMap((rs, d) => (rs.some((r) => r.part === part) ? [d] : []));
+    if (where.length === 0) {
+      return {
+        ok: false,
+        error: `no fills of "${part}"; mark its alternatives data-part="${part}" data-fill="<name>" with html or parts first`,
+      };
+    }
+    if (where.length > 1) {
+      return {
+        ok: false,
+        error: `fills of "${part}" are in several html surfaces; revise with surfaces`,
+      };
+    }
+    const d = where[0];
+    const own = scans[d].filter((r) => r.part === part);
+    const same = own.filter((r) => r.fill === fill);
+    if (same.length > 1) {
+      return {
+        ok: false,
+        error: `fill "${target}" appears ${same.length} times; revise with html or parts`,
+      };
+    }
+    const text = markFill(edits[target], part, fill);
+    if (typeof text !== "string") return { ok: false, error: text.error };
+    const edit = same.length
+      ? { start: same[0].start, end: same[0].end, text, n }
+      : (() => {
+          const end = Math.max(...own.map((r) => r.end));
+          return { start: end, end, text: `\n${text}`, n };
+        })();
+    const list = plan.get(d) ?? [];
+    const clash = list.find((e) => e.start < edit.end && edit.start < e.end);
+    if (clash) {
+      return { ok: false, error: `fills "${targets[clash.n]}" and "${target}" overlap; send one` };
+    }
+    list.push(edit);
+    plan.set(d, list);
+  }
+  const next = [...surfaces];
+  for (const [d, list] of plan) {
+    const { i, surface } = docs[d];
+    let html = surface.html;
+    // From the end, and same-place additions last-listed first, so they land in listed order.
+    for (const e of list.toSorted((a, b) => b.start - a.start || b.n - a.n)) {
+      html = html.slice(0, e.start) + e.text + html.slice(e.end);
+    }
+    next[i] = { ...surface, html };
+  }
+  return { ok: true, surfaces: next, applied: targets };
 }

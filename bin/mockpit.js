@@ -62,6 +62,8 @@ verbs:
                         alone keeps a surface, a missing id removes it
       --parts <name=file|->  instead: replace just that data-part's element in
                         the latest version (repeatable; name#key targets one instance)
+      --fills <part#fill=file|->  instead: replace or add one fill of a slot in
+                        the latest version (repeatable)
       --title <t>       mock title
       --kind <k>        component|page (default component)
       --knobs <json|file>  knobs in tunekit usePane shape, keyed by path
@@ -158,6 +160,7 @@ mockpit icons remove <set> [<set>...]
   publish: `mockpit publish --mock <slug> --html <file> [options]
 mockpit publish --mock <slug> --surfaces <json|file> [options]
 mockpit publish --mock <slug> --parts <name=file|-> ... [options]
+mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
   Creates the mock, state or variant, or the next version of an existing one.
   --state <label>    state in the user's words (omit for a single-state mock)
   --variant <name>   variant label (default "default")
@@ -165,6 +168,9 @@ mockpit publish --mock <slug> --parts <name=file|-> ... [options]
                      a missing id removes it, order is the list order
   --parts <name=file|->   replace only the element carrying data-part="name"
                      (name#key for one instance) in the latest version; repeatable
+  --fills <part#fill=file|->  replace the element carrying data-part="part"
+                     data-fill="fill" in the latest version, or add it after
+                     that slot's other fills; the marks are added if missing
   --title <t>        mock title
   --kind <k>         component|page (default component)
   --knobs <json|file>  knobs in tunekit usePane shape
@@ -859,6 +865,7 @@ function parsePublishFlags() {
       html: { type: "string" },
       surfaces: { type: "string" },
       parts: { type: "string", multiple: true },
+      fills: { type: "string", multiple: true },
       knobs: { type: "string" },
       from: { type: "string" },
       prompt: { type: "string" },
@@ -882,18 +889,27 @@ function parsePublishFlags() {
 
 // `--parts name=file` (repeatable; `name#key` targets one instance): the new
 // outer html of one part, spliced server-side into the latest version.
-function readPartFlags(values, slug) {
+// `--fills part#fill=file` is the same for one alternative of a slot.
+function readPartFlags(values, slug, flag = "parts") {
   if (!values?.length) return undefined;
-  const example = `mockpit publish --mock ${slug} --parts body=body.html`;
+  const example =
+    flag === "parts"
+      ? `mockpit publish --mock ${slug} --parts body=body.html`
+      : `mockpit publish --mock ${slug} --fills entry#skeleton=skeleton.html`;
   const parts = {};
   let stdin = false;
   for (const raw of values) {
     const at = raw.indexOf("=");
-    if (at <= 0 || at === raw.length - 1) die(`--parts needs name=file (got "${raw}")`, example);
+    if (at <= 0 || at === raw.length - 1) {
+      die(
+        `--${flag} needs ${flag === "parts" ? "name" : "part#fill"}=file (got "${raw}")`,
+        example,
+      );
+    }
     const name = raw.slice(0, at);
     const file = raw.slice(at + 1);
     if (file === "-") {
-      if (stdin) die("only one --parts can read stdin", example);
+      if (stdin) die(`only one --${flag} can read stdin`, example);
       stdin = true;
     } else if (!existsSync(file)) die(`cannot read ${file}`, `ls ${file}`);
     parts[name] = readContent(file);
@@ -916,16 +932,18 @@ async function publishMock() {
     composed && "--html",
     flags.surfaces !== undefined && "--surfaces",
     flags.parts?.length && "--parts",
+    flags.fills?.length && "--fills",
   ].filter(Boolean);
   if (given.length > 1) {
     die(
-      `pass one of --html, --surfaces or --parts, not ${given.join(" and ")}`,
+      `pass one of --html, --surfaces, --parts or --fills, not ${given.join(" and ")}`,
       `mockpit publish --help`,
     );
   }
   // Checked before the session exists so a typo'd path leaves nothing behind on the server.
   if (file && file !== "-" && !existsSync(file)) die(`cannot read ${file}`, `ls ${file}`);
   const parts = readPartFlags(flags.parts, slug);
+  const fills = readPartFlags(flags.fills, slug, "fills");
   let surfaces =
     flags.surfaces === undefined ? undefined : readJsonFlag("surfaces", flags.surfaces);
   if (surfaces !== undefined && !Array.isArray(surfaces)) {
@@ -945,7 +963,7 @@ async function publishMock() {
     }
     surfaces.push(...(await surfacesFromFlags(flags, tokens, { session, layout: flags.layout })));
   }
-  if (!surfaces && !parts)
+  if (!surfaces && !parts && !fills)
     die(`no html for ${slug}`, `mockpit publish --mock ${slug} --html <file>`);
   const body = {
     session,
@@ -967,6 +985,7 @@ async function publishMock() {
     }),
     ...(surfaces && { surfaces }),
     ...(parts && { parts }),
+    ...(fills && { fills }),
   };
   const result = await api(
     "/api/mocks",

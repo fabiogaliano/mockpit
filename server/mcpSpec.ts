@@ -156,7 +156,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "publish",
     description:
-      "Create or version one variant of one state of a mock. One of html, surfaces (the full ordered list) or parts (splices the latest version). Returns parts per state, nudges, feedback.",
+      "Create or version one variant of one state of a mock. One of html, surfaces (the full ordered list), parts or fills (splice the latest version). Returns parts per state, nudges, feedback.",
     params: {
       ...VARIANT_REF,
       title: { t: "string", d: field.title },
@@ -167,6 +167,10 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
         d: "Full ordered list: {id} keeps a surface, a missing id removes it",
       },
       parts: { t: "object", d: '{"name"|"name#key": outer html}; splices marked parts' },
+      fills: {
+        t: "object",
+        d: '{"part#fill": outer html}; replaces that fill of a slot, or adds it after the others',
+      },
       knobs: { t: "object", d: field.knobs },
       variantKnobs: { t: "object", d: field.variantKnobs },
       from: { t: "integer", d: field.from },

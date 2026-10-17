@@ -192,7 +192,7 @@ consciously, not as a side effect):
   they were made on, are never delivered before Send, and are cleared by it.
   The reply is one `kind: "reply"` comment through the same cursor; a
   variant-bound answer flips accepted/archived in the same transaction.
-- Mix offers a part from another look only when that look's frame reports it
+- Borrow (Tune, per part) offers a part from another look only when that look's frame reports it
   differently (count, labels, rounded sizes, visibility); a pure restyle at
   equal size is not offered.
 - tunekit is a second renderer (Preact) in a Solid page: it stays in its own

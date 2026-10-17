@@ -51,11 +51,14 @@ mockpit turns that into a design-decision loop:
    panel goes, which of two layouts. The question lives in the mock, not in
    chat; the agent tells you where to look and ends its turn. Options bound to
    a variant or to knob values render as pictures; hovering one previews it on
-   the stage, clicking picks it. After the look, **Mix** offers to borrow a part
-   from another look. Variants the agent forgot to ask about get a built-in
-   **Which one?**.
+   the stage, clicking picks it, and the part it changed is outlined. A
+   region the agent drew several ways (a slot: one `data-part`, a `data-fill`
+   per alternative) is asked about once; a slot inside a fill is asked only
+   while that fill is chosen. Variants the agent forgot to ask about get a
+   built-in **Which one?**.
 3. **Tune.** Parts the agent marked are selectable on the stage. Tune lists
-   them with the knobs it declared for each, plus a comment field. Presets
+   them with the knobs it declared for each, a **Borrow** line for a part
+   another look draws differently, plus a comment field. Presets
    save a set of tuned values in your browser.
 4. **Send.** Everything above is a draft (it survives a reload) until one
    **Send**. A mock with a single variant and no questions gets **Accept /

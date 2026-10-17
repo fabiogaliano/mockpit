@@ -35,6 +35,17 @@ It returns at once:
         ],
         "mix": { "body": "quiet" },
         "tuned": { "body.size": 19 },
+        "decisions": {
+          "states": {
+            "Writing": {
+              "variant": "dark",
+              "slots": {
+                "bar": { "fill": "tabs", "label": "Tabs", "slots": { "badge": { "fill": "dot" } } }
+              }
+            }
+          },
+          "knobs": { "trim.position": "bottom", "body.size": 19 }
+        },
         "comments": [{ "part": "title", "state": "Writing", "text": "bigger" }],
         "reactions": ["👍 part \"title\" (variant dark, state Writing)"],
         "text": "close, go dark"
@@ -113,7 +124,7 @@ Never poll `feedback` in a loop; the user answers at their own pace.
 ```sh
 mockpit publish --mock writer --state "Writing" --variant dark --html dark-v2.html --prompt "bigger title"
 mockpit say "Went dark; body at 19px" --mock writer
-mockpit export  --mock writer             # .mockpit/accepted/writer/<state>/{index.html,history.json}
+mockpit export  --mock writer             # .mockpit/accepted/writer/<state>/{index.html,history.json,…}
 mockpit read                              # one line per mock, plus pending
 mockpit read    writer                    # states, variants, asks and answers, parts, knobs, tuned
 ```
@@ -126,12 +137,26 @@ mockpit read    writer                    # states, variants, asks and answers, 
 "<p data-part=\"body\">new copy</p>"}})`, or `parts` in the HTTP publish body.
   Each value replaces the whole element carrying `data-part="body"`, so you can
   rename, relabel or retag it. `"row#a"` targets one keyed instance. Send one of
-  `html`, `surfaces` or `parts` per call. The response lists `applied` plus the
+  `html`, `surfaces`, `parts` or `fills` per call. The response lists `applied` plus the
   usual `partChanges`. An unknown name, or one matching several instances,
   fails with the parts or keys present and writes nothing.
+- Replace or add one fill of a slot: `--fills bar#tabs=tabs.html`, MCP
+  `publish({fills: {"bar#tabs": "<nav>…</nav>"}})`. A fill that exists is
+  replaced; a new one goes after that slot's other fills. `data-part` and
+  `data-fill` are added to the element when missing.
+- `decisions` (only when the mock has slots or the reply set knobs) is the
+  screen as chosen: per state the variant, then each slot's fill with the
+  slots inside it, then every non-slot knob value. `from` on a slot means the
+  user borrowed it from another variant. A slot inside a fill that was not
+  chosen is absent, and its question's answer is not sent.
 - `say` posts a short plain-text note in the mock's thread. Give substantial
   answers as a new version, not prose.
 - `export` returns the accepted (else current) html per state, its version
-  history, the knobs and the last reply's tuned values.
+  history, the knobs and the last reply's tuned values. With slots, `html` is
+  the composed screen (only the chosen fills, the fill marks dropped),
+  `source` keeps every fill, and `decisions` is as above. The CLI writes
+  `index.html`, `source.html` and `decisions.json`. Port the composed html
+  into the codebase in its own language and components; mockpit does not
+  generate code.
 - `read <slug>` returns metadata only. `--body` adds surfaces, `--history` adds
   version rows.

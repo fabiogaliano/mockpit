@@ -175,6 +175,7 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
       ...args,
       html,
       parts: readPartFiles(args.parts),
+      fills: readPartFiles(args.fills),
       session,
       agent: AGENT,
       project: resolveProject(args.project),

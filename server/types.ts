@@ -443,7 +443,7 @@ export interface Mock {
 // One component included in a page, pinned to an exact version (snapshot
 // semantics: pulling a newer version is an explicit new page version). `slug`
 // names a mock in the same project.
-export interface Slot {
+export interface Embed {
   slug: string;
   variant: string;
   version: number;
@@ -481,7 +481,8 @@ export interface Post {
   // A line or two on what this variant is, shown beside it so the design itself
   // carries no captions. Stays across versions until replaced.
   note?: string;
-  slots: Slot[];
+  // Component mocks a page embeds, pinned at publish (embeds.ts).
+  embeds: Embed[];
   // Provenance of the CURRENT version — the same three fields a PostVersion
   // carries; on the next update they move into the history entry.
   from?: number;
@@ -710,7 +711,7 @@ export interface CreatePostInput {
   surfaces: Surface[];
   knobs?: Knobs;
   note?: string;
-  slots?: Slot[];
+  embeds?: Embed[];
   from?: number;
   prompt?: string;
   author?: string;
@@ -723,7 +724,7 @@ export interface UpdatePostInput {
   knobs?: Knobs | null;
   // undefined keeps, "" clears.
   note?: string;
-  slots?: Slot[];
+  embeds?: Embed[];
   from?: number;
   prompt?: string;
   author?: string;
