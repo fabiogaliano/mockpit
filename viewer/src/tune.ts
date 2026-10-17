@@ -54,6 +54,7 @@ const BRIDGE = `
 .dialkit-color-label, .dialkit-color-value { font-size: 15px; }
 .up-slider-label, .up-select-trigger, .up-labeled-row-label, .up-text-label { color: var(--t3); }
 .up-slider-label, .up-slider-value { padding: 0 4px; }
+.up-cp-scroll { flex: 1 1 auto; }
 `;
 
 const panelId = (mockId: string, c: TuneComponent) => `mockpit:${mockId}:${c.part ?? "look"}`;

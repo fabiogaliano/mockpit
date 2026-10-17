@@ -5,7 +5,17 @@
 // dock.ts). Carried to an edge it docks as a handle there; a tap brings it back.
 // Tune and Thread, opened from the header's menu, take the card's place.
 
-import { createEffect, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  For,
+  Match,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+  Switch,
+} from "solid-js";
 import {
   type Area,
   cardWidth,
@@ -32,7 +42,7 @@ import type { MockScreenState } from "./state.ts";
 import { Thread } from "./Thread.tsx";
 import type { TuneState } from "./tune.ts";
 import { PartSelector, Tune } from "./Tune.tsx";
-import { canvasTop, setCardInset, win } from "./viewport.ts";
+import { canvasTop, NO_INSET, setCardInset, win } from "./viewport.ts";
 
 const CHIP = { row: { w: 84, h: 44 }, col: { w: 44, h: 72 } };
 const MARK = { row: { w: 48, h: 22 }, col: { w: 22, h: 40 } };
@@ -63,14 +73,41 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
   const width = () => cardWidth(place().at, area());
   const rect = () => spotRect(place().at, width(), 0, area());
 
-  // A card resting on a side takes that strip of the canvas, so the artboards
-  // fit beside it; anywhere else it floats over them.
+  // A resting card takes its band of the canvas: a strip down a side, so the
+  // artboards fit beside it, or the space above or below it, so they shrink to
+  // fit the rest. Its height follows each question, so it is measured; while it
+  // is carried the artboards hold still.
+  let cardEl!: HTMLDivElement;
+  const [cardBox, setCardBox] = createSignal({ top: 0, bottom: 0 });
+  const measure = () => {
+    const r = cardEl?.getBoundingClientRect();
+    if (r) setCardBox({ top: r.top, bottom: r.bottom });
+  };
+  onMount(() => {
+    const ro = new ResizeObserver(measure);
+    ro.observe(cardEl);
+    onCleanup(() => ro.disconnect());
+  });
+  createEffect(on([place, win, canvasTop], () => host().window.requestAnimationFrame(measure)));
   createEffect(() => {
     const p = place();
-    const inset = !p.docked && isColumn(p.at) ? width() + 24 : 0;
-    setCardInset(p.at === "mid-left" ? { left: inset, right: 0 } : { left: 0, right: inset });
+    if (carry()) return;
+    if (p.docked) return setCardInset(NO_INSET);
+    if (isColumn(p.at)) {
+      const inset = width() + 24;
+      return setCardInset(
+        p.at === "mid-left" ? { ...NO_INSET, left: inset } : { ...NO_INSET, right: inset },
+      );
+    }
+    const a = area();
+    const b = cardBox();
+    setCardInset(
+      p.at.startsWith("top")
+        ? { ...NO_INSET, top: Math.max(0, b.bottom - a.top) }
+        : { ...NO_INSET, bottom: Math.max(0, a.top + a.h - b.top) },
+    );
   });
-  onCleanup(() => setCardInset({ left: 0, right: 0 }));
+  onCleanup(() => setCardInset(NO_INSET));
   // Tune or Thread opened from the menu brings a docked card back.
   createEffect(
     on(
@@ -200,6 +237,7 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
         )}
       </Show>
       <div
+        ref={(el) => (cardEl = el)}
         class="qcard"
         classList={{ col: col(), chip: !!carry(), hidden: !!place().docked && !carry() }}
         style={cardStyle()}

@@ -1,10 +1,13 @@
 // The touch gestures of Inspect and the canvas, on the stage overlay and the
 // artboards, which alone have touch-action: none there: one finger pans the scroller, two pinch it between fit and 2×.
 // Pointer Events only (no WebKit gesture events), and the page's own zoom is
-// never disabled.
+// never disabled. A pinch that lands on a page the canvas lets touches through
+// to is caught by the page's bridge and fed in through `pinch`.
 
 import { onCleanup, onMount } from "solid-js";
 import { clampZoom, zoomScroll } from "./logic.ts";
+
+type Point = { x: number; y: number };
 
 export function useInspectGestures(opts: {
   scroller: () => HTMLElement;
@@ -15,7 +18,7 @@ export function useInspectGestures(opts: {
   fit: () => number;
   setZoom: (z: number) => void;
 }) {
-  const touches = new Map<number, { x: number; y: number }>();
+  const touches = new Map<number, Point>();
   let gesture:
     | { kind: "pan"; x: number; y: number; left: number; top: number }
     | { kind: "pinch"; dist: number; z: number; mid: { x: number; y: number } }
@@ -58,18 +61,37 @@ export function useInspectGestures(opts: {
       if (Math.hypot(dx, dy) > 8) swallowClick = true;
       el.scrollLeft = gesture.left - dx;
       el.scrollTop = gesture.top - dy;
-    } else if (gesture.kind === "pinch" && touches.size === 2) {
-      const p = pair(el);
-      const z0 = opts.scale();
-      const z1 = clampZoom((gesture.z * p.dist) / gesture.dist, opts.fit());
-      // The midpoint's own travel pans; the spread zooms around it.
-      const left = zoomScroll(el.scrollLeft + gesture.mid.x - p.mid.x, p.mid.x, z0, z1);
-      const top = zoomScroll(el.scrollTop + gesture.mid.y - p.mid.y, p.mid.y, z0, z1);
-      gesture.mid = p.mid;
-      opts.setZoom(z1);
-      el.scrollLeft = left;
-      el.scrollTop = top;
+    } else if (gesture.kind === "pinch" && touches.size === 2) pinchTo(el);
+  };
+  const pinchTo = (el: HTMLElement) => {
+    if (gesture?.kind !== "pinch") return;
+    const p = pair(el);
+    const z0 = opts.scale();
+    const z1 = clampZoom((gesture.z * p.dist) / gesture.dist, opts.fit());
+    // The midpoint's own travel pans; the spread zooms around it.
+    const left = zoomScroll(el.scrollLeft + gesture.mid.x - p.mid.x, p.mid.x, z0, z1);
+    const top = zoomScroll(el.scrollTop + gesture.mid.y - p.mid.y, p.mid.y, z0, z1);
+    gesture.mid = p.mid;
+    opts.setZoom(z1);
+    el.scrollLeft = left;
+    el.scrollTop = top;
+  };
+  // Two fingers on a page inside a frame, already in this document's px.
+  const pinch = (phase: "start" | "move" | "end", a: Point, b: Point) => {
+    if (!opts.enabled()) return;
+    if (phase === "end") {
+      touches.clear();
+      gesture = null;
+      return;
     }
+    const el = opts.scroller();
+    touches.clear();
+    touches.set(-1, a);
+    touches.set(-2, b);
+    if (phase === "start" || gesture?.kind !== "pinch") {
+      const p = pair(el);
+      gesture = { kind: "pinch", dist: p.dist, z: opts.scale(), mid: p.mid };
+    } else pinchTo(el);
   };
   const up = (e: PointerEvent) => {
     if (!touches.delete(e.pointerId)) return;
@@ -99,4 +121,5 @@ export function useInspectGestures(opts: {
       el.removeEventListener("click", click, true);
     });
   });
+  return { pinch };
 }

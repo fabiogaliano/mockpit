@@ -80,18 +80,42 @@ test("fits the screen without horizontal scrolling", async ({ page, server }) =>
   expect(await noOverflow(page)).toBe(true);
 });
 
-test("a tall mock takes its full height and the stage scrolls", async ({ page, server }) => {
+test("a tall mock opens as one whole screen on the canvas, at full height beside the panel", async ({
+  page,
+  server,
+}) => {
   await open(page, server.url);
-  const iframe = page.locator(".frame.on iframe");
-  // Uncapped: the frame is as tall as its page, not the screen.
+  if (!(await onCanvas(page))) {
+    // Uncapped: the frame is as tall as its page, and the stage scrolls.
+    const iframe = page.locator(".frame.on iframe");
+    await expect
+      .poll(async () => Number(await iframe.getAttribute("height")))
+      .toBeGreaterThan(page.viewportSize()!.height);
+    const scrolled = await page.evaluate(() => {
+      const l = document.querySelector<HTMLElement>(".layers")!;
+      l.scrollTop = 600;
+      return { top: l.scrollTop, room: l.scrollHeight - l.clientHeight };
+    });
+    expect(scrolled.room).toBeGreaterThan(600);
+    expect(scrolled.top).toBe(600);
+    return;
+  }
+  const vp = page.viewportSize()!;
+  // The artboard shows a whole screen of its device, all of it on this screen.
   await expect
-    .poll(async () => Number(await iframe.getAttribute("height")))
-    .toBeGreaterThan(page.viewportSize()!.height);
-  const scrolled = await page.evaluate(() => {
-    const l = document.querySelector<HTMLElement>(".layers")!;
-    l.scrollTop = 600;
-    return { top: l.scrollTop, room: l.scrollHeight - l.clientHeight };
-  });
+    .poll(async () => {
+      const b = (await page.locator(".frame.on").boundingBox())!;
+      return b.x >= 0 && b.x + b.width <= vp.width && b.y + b.height <= vp.height;
+    })
+    .toBe(true);
+  // The page below that screen is read by scrolling the page itself.
+  const scrolled = await page
+    .frameLocator(".frame.on iframe")
+    .locator("html")
+    .evaluate((el) => {
+      window.scrollTo(0, 600);
+      return { top: window.scrollY, room: el.scrollHeight - window.innerHeight };
+    });
   expect(scrolled.room).toBeGreaterThan(600);
   expect(scrolled.top).toBe(600);
 });
@@ -174,7 +198,11 @@ test("the width control renders the design at a device width", async ({ page, se
   const start = screenW <= 600 ? "390" : screenW <= 900 ? "744" : "820";
   const other = start === "744" ? "390" : "744";
   await expect(iframe).toHaveAttribute("width", start);
-  if (start !== "820") await expect(page.locator(".zoomval")).toHaveText("100%");
+  if (start !== "820") {
+    // Fitted to one whole screen: never wider than this one.
+    const b = (await page.locator(".frame.on").boundingBox())!;
+    expect(b.x + b.width).toBeLessThanOrEqual(screenW);
+  }
 
   // A mark remembers the width it was placed at.
   await page.locator(".markbtn").tap();

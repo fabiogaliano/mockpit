@@ -395,6 +395,10 @@ export const HIT_TEST_JS = `
 //   hit              {ref, part, key}            reply to hit; part = name|null
 //   tap              {x, y}                      a finger's tap in document px (PARTS_JS);
 //                                                a drag never reports
+//   pinch            {phase, a:{x,y}, b:{x,y}}   two fingers on the page, in viewport px
+//                                                (PARTS_JS); phase start|move|end. The
+//                                                page's own two-finger touches are
+//                                                cancelled: the host zooms its canvas
 //
 // host → frame
 //   hit-test   {ref, x, y}      x,y normalized 0..1 of the document box (Mark tool)
@@ -601,6 +605,38 @@ export const PARTS_JS = `
       y: e.clientY + (window.scrollY || 0),
     }, '*');
   }, true);
+
+  // Two fingers are the host's: a page laid on its canvas takes one-finger
+  // scrolls itself, but a pinch zooms the canvas, not this page or the browser.
+  var pinching = false;
+  function pinch(phase, e) {
+    var t = e.touches;
+    parent.postMessage({
+      __mockpit: true,
+      type: 'pinch',
+      phase: phase,
+      a: t[0] ? { x: t[0].clientX, y: t[0].clientY } : null,
+      b: t[1] ? { x: t[1].clientX, y: t[1].clientY } : null,
+    }, '*');
+  }
+  window.addEventListener('touchstart', function (e) {
+    if (e.touches.length !== 2) return;
+    e.preventDefault();
+    pinching = true;
+    pinch('start', e);
+  }, { capture: true, passive: false });
+  window.addEventListener('touchmove', function (e) {
+    if (!pinching || e.touches.length < 2) return;
+    e.preventDefault();
+    pinch('move', e);
+  }, { capture: true, passive: false });
+  function release(e) {
+    if (!pinching || e.touches.length >= 2) return;
+    pinching = false;
+    pinch('end', e);
+  }
+  window.addEventListener('touchend', release, true);
+  window.addEventListener('touchcancel', release, true);
 
   window.addEventListener('message', function (e) {
     if (e.source !== parent) return;

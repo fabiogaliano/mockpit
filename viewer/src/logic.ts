@@ -1236,6 +1236,12 @@ export const defaultDeviceWidth = (winW: number, coarse: boolean): number => {
   return winW <= PHONE_MAX ? DEVICE_WIDTHS[0].w : DEVICE_WIDTHS[1].w;
 };
 
+// One screen of a device at a design width: a phone's 390×844, a tablet's
+// portrait 820×1180, a desktop's 1280×800. The canvas fits a whole screen, so a
+// phone design on a phone reads as that phone's screen, not a page to scroll.
+export const screenHeight = (w: number): number =>
+  Math.round(w * (w <= PHONE_MAX ? 844 / 390 : w <= TABLET_MAX ? 1180 / 820 : 800 / 1280));
+
 // A design wider than its frame (a board laid out for a desktop, opened at
 // phone width) is cut off on both sides when it centers itself. Unless the user
 // picked the width, the stage steps up to the next offered one, shrunk to fit,

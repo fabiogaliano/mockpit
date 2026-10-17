@@ -35,12 +35,20 @@ const [canvasTopSignal, setCanvasTopSignal] = createRoot(() => createSignal(96))
 export const canvasTop = canvasTopSignal;
 export const setCanvasTop = setCanvasTopSignal;
 
-// The strip of the canvas a question card resting on a side takes.
+// The band of the canvas an open question card takes: a strip down a side, or
+// across the top or the bottom.
+export interface CardInset {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+export const NO_INSET: CardInset = { left: 0, right: 0, top: 0, bottom: 0 };
 const [cardInsetSignal, setCardInsetSignal] = createRoot(() =>
-  createSignal(
-    { left: 0, right: 0 },
-    { equals: (a, b) => a.left === b.left && a.right === b.right },
-  ),
+  createSignal<CardInset>(NO_INSET, {
+    equals: (a, b) =>
+      a.left === b.left && a.right === b.right && a.top === b.top && a.bottom === b.bottom,
+  }),
 );
 export const cardInset = cardInsetSignal;
 export const setCardInset = setCardInsetSignal;

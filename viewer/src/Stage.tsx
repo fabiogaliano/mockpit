@@ -41,6 +41,7 @@ import {
   partPinSpot,
   type PartsReport,
   reportIsCurrent,
+  screenHeight,
   widthLabel,
 } from "./logic.ts";
 import { PartReactions } from "./Reactions.tsx";
@@ -114,6 +115,8 @@ const TOPBAR = 52;
 const BOARD_PAD = 16;
 const BOARD_LABEL = 30;
 const BOARD_GAP = 64;
+// The least height the canvas keeps for the artboards beside an open card.
+const MIN_FREE_H = 200;
 // Under a finger a pin keeps its size and takes a 44px tap area around it;
 // pins step apart far enough that those areas never overlap.
 const PIN = 22;
@@ -172,10 +175,21 @@ export function Stage(props: { s: MockScreenState }) {
     const centred = Math.max(0, (availW() - frameW() * fitScale()) / 2);
     return cardInset().left + (zoom() === "all" ? BOARD_PAD : centred);
   };
+  // The canvas's height the card leaves free, above or below it. A card taller
+  // than most of the screen still leaves the artboards a usable strip.
+  const freeH = createMemo(() => {
+    const full = win().h - canvasTop();
+    const c = cardInset();
+    return Math.max(Math.min(full, MIN_FREE_H), full - c.top - c.bottom);
+  });
   const fitScale = createMemo(() => {
-    // On the canvas a width that fits the screen is drawn at true size, edge to
-    // edge if it must: a 390 design on a 390 phone stays at 100%.
-    if (canvas()) return Math.max(0.1, Math.min(1, availW() / frameW()));
+    // On the canvas the live width fits one whole screen of its device into the
+    // space the card leaves, never past true size: a 390 design on a phone reads
+    // as a phone screen, and shrinks again when the card opens over it.
+    if (canvas()) {
+      const h = (freeH() - BOARD_LABEL - BOARD_PAD) / screenHeight(frameW());
+      return Math.max(0.1, Math.min(1, availW() / frameW(), h));
+    }
     const floor = inspecting() ? 0.1 : 0.3;
     // Less the stage's 1px border on each side, so the frame is never clipped.
     const border = inspecting() ? 0 : 2;
@@ -186,12 +200,15 @@ export function Stage(props: { s: MockScreenState }) {
     const total = others().reduce((sum, w) => sum + BOARD_GAP + w, frameW());
     return Math.max(0.05, Math.min(fitScale(), (availW() - 2 * BOARD_PAD) / total));
   });
+  // How far a pinch zooms out: to fit (or all widths) in Inspect; on the
+  // canvas, to half of fit too, to see a design smaller than its screen.
+  const zoomFloor = () => Math.min(fitAll(), canvas() ? fitScale() / 2 : fitScale());
   const scale = createMemo(() => {
     if (!pannable()) return fitScale();
     const z = zoom();
     if (z === "fit") return fitScale();
     if (z === "all") return fitAll();
-    return clampZoom(z, Math.min(fitScale(), fitAll()));
+    return clampZoom(z, zoomFloor());
   });
   createEffect(() => s.setStageScale(scale()));
   const availH = createMemo(() =>
@@ -233,6 +250,7 @@ export function Stage(props: { s: MockScreenState }) {
   const onMessage = (e: MessageEvent) => {
     const d = e.data as Record<string, unknown> | null;
     if (!d || typeof d !== "object" || d.__mockpit !== true) return;
+    if (d.type === "pinch") return pinchFromFrame(e.source, d);
     let info: { key: string; index: number; primary: boolean; version: number } | undefined;
     for (const [el, i] of frames) if (el.contentWindow === e.source) info = i;
     if (!info) return;
@@ -274,6 +292,22 @@ export function Stage(props: { s: MockScreenState }) {
       }
     }
   };
+  // Two fingers on a page the canvas lets touches through to (the live frame or
+  // an artboard): its points arrive in that page's px, mapped here onto the
+  // screen through the frame's drawn box. Only ever a zoom of our own canvas.
+  function pinchFromFrame(source: MessageEventSource | null, d: Record<string, unknown>) {
+    const phase = d.phase === "start" || d.phase === "move" || d.phase === "end" ? d.phase : null;
+    if (!phase || !layersEl) return;
+    const frame = [...layersEl.querySelectorAll("iframe")].find((f) => f.contentWindow === source);
+    if (!frame || !frame.offsetWidth) return;
+    const r = frame.getBoundingClientRect();
+    const k = r.width / frame.offsetWidth;
+    const at = (v: unknown) => {
+      const p = (v ?? {}) as Record<string, unknown>;
+      return { x: r.left + num(p.x) * k, y: r.top + num(p.y) * k };
+    };
+    gestures.pinch(phase, at(d.a), at(d.b));
+  }
   function updatePending(ref: unknown, patch: Partial<PendingMark>) {
     const p = pending();
     if (p && p.ref === ref) setPending({ ...p, ...patch });
@@ -314,19 +348,23 @@ export function Stage(props: { s: MockScreenState }) {
 
   // On the canvas every artboard stops at the canvas's height and its page
   // scrolls inside it, so a long page reads top to bottom without panning the
-  // whole board out from under the other widths. In page px.
-  const boardCap = () => Math.max(160, (availH() - BOARD_LABEL - BOARD_PAD) / scale());
+  // whole board out from under the other widths. In page px. Fitted, that is the
+  // height the card leaves; at a zoom the user picked, the card floats over it.
+  const boardCap = () => {
+    const h = typeof zoom() === "number" ? availH() : freeH();
+    return Math.max(160, (h - BOARD_LABEL - BOARD_PAD) / scale());
+  };
   // Under a finger the live frame's overlay steps aside and the page takes the
   // touch itself, so the browser scrolls it natively (momentum, bounce) and the
   // canvas can't move with it: touches inside a frame never reach this document.
   // The canvas pans from the space around the artboards. Mark puts it back.
   const passthrough = () => canvas() && coarse() && !s.marking();
-  useInspectGestures({
+  const gestures = useInspectGestures({
     scroller: () => layersEl,
     enabled: pannable,
     anywhere: canvas,
     scale,
-    fit: () => Math.min(fitScale(), fitAll()),
+    fit: zoomFloor,
     setZoom,
   });
   // Picking a width brings its artboard into view, fitted; "all" shows them all.
@@ -352,8 +390,11 @@ export function Stage(props: { s: MockScreenState }) {
   };
   const canvasW = () =>
     xOf(order().at(-1)!) + order().at(-1)! * scale() + BOARD_PAD + cardInset().right;
+  // The artboards start under a card resting at the top.
+  const padT = () => (canvas() ? cardInset().top : 0);
   // Room under the artboards to pan them up past a card resting at the bottom.
   const canvasH = () =>
+    padT() +
     BOARD_LABEL +
     Math.max(activeH(), ...others().map((w) => Math.min(boardH[w] ?? 640, boardCap()))) * scale() +
     availH() * 0.4;
@@ -414,7 +455,10 @@ export function Stage(props: { s: MockScreenState }) {
             }
           />
           <Show when={canvas()}>
-            <div class="board-label" style={{ left: `${Math.max(10, xOf(frameW()))}px` }}>
+            <div
+              class="board-label"
+              style={{ left: `${Math.max(10, xOf(frameW()))}px`, top: `${padT() + 8}px` }}
+            >
               {`${widthLabel(frameW())} · ${frameW()}`}
             </div>
             <Show when={s.activeVariant()}>
@@ -422,7 +466,10 @@ export function Stage(props: { s: MockScreenState }) {
                 <For each={others()}>
                   {(w) => (
                     <>
-                      <div class="board-label" style={{ left: `${Math.max(10, xOf(w))}px` }}>
+                      <div
+                        class="board-label"
+                        style={{ left: `${Math.max(10, xOf(w))}px`, top: `${padT() + 8}px` }}
+                      >
                         {`${widthLabel(w)} · ${w}`}
                       </div>
                       <Board
@@ -431,6 +478,7 @@ export function Stage(props: { s: MockScreenState }) {
                         w={w}
                         scale={scale()}
                         x={xOf(w)}
+                        y={padT() + BOARD_LABEL}
                         height={boardH[w] ?? 640}
                         cap={boardCap()}
                         onHeight={(h) => setBoardH(w, h)}
@@ -443,7 +491,11 @@ export function Stage(props: { s: MockScreenState }) {
           </Show>
           <div
             class="board-live"
-            style={canvas() ? { left: `${xOf(frameW())}px`, top: `${BOARD_LABEL}px` } : undefined}
+            style={
+              canvas()
+                ? { left: `${xOf(frameW())}px`, top: `${padT() + BOARD_LABEL}px` }
+                : undefined
+            }
           >
             <For each={shownKeys()}>
               {(key) => (
@@ -496,6 +548,7 @@ function Board(props: {
   w: number;
   scale: number;
   x: number;
+  y: number;
   height: number;
   // The tallest it is drawn, in page px; a longer page scrolls inside.
   cap: number;
@@ -532,7 +585,7 @@ function Board(props: {
       class="board"
       style={{
         left: `${props.x}px`,
-        top: `${BOARD_LABEL}px`,
+        top: `${props.y}px`,
         width: `${props.w * props.scale}px`,
         height: `${shownH() * props.scale}px`,
       }}
@@ -679,6 +732,13 @@ function VariantFrame(props: {
 
   const register = (el: HTMLIFrameElement, index: number) => {
     props.frames.set(el, { key: key(), index, primary: index === primary(), version: version() });
+    // A new document at the same version (a theme switch) starts from the
+    // declared defaults yet reports the same version as the old one: drop the
+    // old report so the knobs go out again when the new one reports in.
+    if (index === primary()) {
+      lastKnobs = "";
+      props.onReload();
+    }
     onCleanup(() => props.frames.delete(el));
   };
   // The registry is read by the message handler, outside any tracking scope.
