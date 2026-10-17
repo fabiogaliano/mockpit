@@ -77,7 +77,8 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
     : {}),
   ...(slotsInSurfaces(post.surfaces).length ? { slots: slotsInSurfaces(post.surfaces) } : {}),
   ...(post.note ? { note: post.note } : {}),
-  ...(post.slots.length ? { slots: post.slots } : {}),
+  // Component mocks embedded in a page (server/slots.ts).
+  ...(post.slots.length ? { embeds: post.slots } : {}),
   // The part names this variant's own markup marks, so the viewer can tell
   // which looks render a part (Mix) without the html bodies.
   parts: partsInSurfaces(post.surfaces).map((p) => p.name),

@@ -925,22 +925,31 @@ export interface TuneComponent {
 export function tuneComponents(
   mock: Pick<MockDetail, "asks" | "parts">,
   knobs: Knobs,
+  // Slot paths (a slot's knob is its part's name): tuned under that part.
+  slots: string[] = [],
+  // Parts another look draws differently: selectable to borrow them.
+  borrowable: string[] = [],
 ): TuneComponent[] {
   const paths = Object.keys(knobs);
+  const partOf = (p: string) => (slots.includes(p) ? p : knobPart(p));
   const out: TuneComponent[] = [
-    { part: null, label: "Look", paths: paths.filter((p) => knobPart(p) === null) },
+    { part: null, label: "Look", paths: paths.filter((p) => partOf(p) === null) },
   ];
   const names: string[] = [];
   for (const s of mock.parts)
     for (const p of s.parts) if (!names.includes(p.name)) names.push(p.name);
   for (const p of paths) {
-    const part = knobPart(p);
+    const part = partOf(p);
     if (part !== null && !names.includes(part)) names.push(part);
   }
   for (const name of names) {
-    const own = paths.filter((p) => knobPart(p) === name);
+    // The slot's fill first, then the part's own knobs.
+    const own = paths
+      .filter((p) => partOf(p) === name)
+      .sort((a, b) => Number(b === name) - Number(a === name));
     const asked = mock.asks.some((a) => a.scope === "part" && a.part === name);
-    if (own.length || asked) out.push({ part: name, label: name, paths: own });
+    if (own.length || asked || borrowable.includes(name))
+      out.push({ part: name, label: name, paths: own });
   }
   return out;
 }
@@ -1171,6 +1180,12 @@ export interface ReviewRow {
   option: string | null;
   owed: boolean;
   optional: boolean;
+  // How deep the question's slot sits inside other fills, for indenting.
+  depth: number;
+  // The state the question belongs to, when the review groups by state.
+  group: string | null;
+  // A question inside a fill that isn't chosen: shown struck, not sent.
+  dormant: boolean;
 }
 
 export type FlowQuestion = { kind: "ask"; ask: Ask } | { kind: "mix" };
@@ -1183,6 +1198,9 @@ export function reviewRows(
     owed: (ask: Ask) => boolean;
     mix: Record<string, string>;
     mixAnswered: boolean;
+    depth?: (ask: Ask) => number;
+    group?: (ask: Ask) => string | null;
+    dormant?: (ask: Ask) => boolean;
   },
 ): ReviewRow[] {
   return questions.map((q, index) => {
@@ -1195,6 +1213,9 @@ export function reviewRows(
         option: null,
         owed: false,
         optional: true,
+        depth: 0,
+        group: null,
+        dormant: false,
       };
     }
     const { ids, other, note } = read.pick(q.ask);
@@ -1209,6 +1230,9 @@ export function reviewRows(
       option: ids[0] ?? null,
       owed: read.owed(q.ask),
       optional: false,
+      depth: read.depth?.(q.ask) ?? 0,
+      group: read.group?.(q.ask) ?? null,
+      dormant: read.dormant?.(q.ask) ?? false,
     };
   });
 }

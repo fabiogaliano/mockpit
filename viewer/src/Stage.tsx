@@ -1058,6 +1058,7 @@ function Overlay(props: {
             <PartBoxView
               b={b()}
               cls="flash"
+              label={s.flashLabel() ?? undefined}
               ref={(el) => {
                 // Out of sight means the answer looked like it did nothing.
                 const r = b().r;
@@ -1205,6 +1206,7 @@ function PartBoxView(props: {
   b: { p: PartBox; r: { x: number; y: number; w: number; h: number } };
   cls: string;
   ref?: (el: HTMLDivElement) => void;
+  label?: string;
 }) {
   const edge = () => props.b.r.y < 22;
   return (
@@ -1220,7 +1222,7 @@ function PartBoxView(props: {
         height: `${props.b.r.h + 4}px`,
       }}
     >
-      <span class="lbl">{props.b.p.label}</span>
+      <span class="lbl">{props.label ?? props.b.p.label}</span>
     </div>
   );
 }

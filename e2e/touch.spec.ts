@@ -46,7 +46,7 @@ test("on touch, plain options pick on one tap and the reply reaches the agent", 
   await next.tap();
 
   // Q2, knob-set options: the same two taps.
-  await expect(header(page)).toContainText("Question 2 of 4");
+  await expect(header(page)).toContainText("Question 2 of 3");
   await option(page, "inline").tap();
   await expect(option(page, "inline")).toHaveAttribute("aria-pressed", "false");
   await tapAndSave(page, mockId, "inline");
@@ -54,14 +54,13 @@ test("on touch, plain options pick on one tap and the reply reaches the agent", 
   await next.tap();
 
   // Q3, plain options: nothing to preview, so one tap picks.
-  await expect(header(page)).toContainText("Question 3 of 4");
+  await expect(header(page)).toContainText("Question 3 of 3");
   await expect(option(page, "inside")).toHaveClass(/pill/);
   await tapAndSave(page, mockId, "inside");
   await expect(option(page, "inside")).toHaveAttribute("aria-pressed", "true");
-  await next.tap();
 
   // Every question answered: the review holds Send, and the reply is delivered.
-  await expect(header(page)).toContainText("4 of 4");
+  await expect(header(page)).toContainText("3 of 3");
   await page.getByRole("button", { name: "Review ›" }).tap();
   await expect(header(page)).toContainText("Review");
   const send = page.locator("button.send");

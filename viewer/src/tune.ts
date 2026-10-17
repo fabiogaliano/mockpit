@@ -60,7 +60,7 @@ const BRIDGE = `
 const panelId = (mockId: string, c: TuneComponent) => `mockpit:${mockId}:${c.part ?? "look"}`;
 // Inside a part's panel a knob is named without its part ("body.size" → "size").
 const keyOf = (c: TuneComponent, path: string) =>
-  c.part === null ? path : path.slice(c.part.length + 1);
+  c.part === null ? path : path === c.part ? "fill" : path.slice(c.part.length + 1);
 
 // The control tunekit draws for a knob. An image knob becomes a select over its
 // option names: tunekit would load each option as an <img> here, in the trusted
@@ -89,7 +89,9 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 export function createTune(s: MockScreenState) {
   const components = createMemo(() => {
     const m = s.mock();
-    return m ? tuneComponents(m, s.knobContext().knobs) : [];
+    const slots = (s.activeVariant()?.slots ?? []).map((sl) => sl.part);
+    const borrowable = s.mixOpts().map((o) => o.part);
+    return m ? tuneComponents(m, s.knobContext().knobs, slots, borrowable) : [];
   });
   // A part clicked on the stage that has nothing to tune still shows, so it can
   // take a comment; the selector's list and ‹ › only walk the tunable ones.

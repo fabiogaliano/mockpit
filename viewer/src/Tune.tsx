@@ -149,6 +149,8 @@ export function Tune(props: { s: MockScreenState; t: TuneState }) {
     const p = part();
     return p ? statesWith(s, p) : [];
   });
+  // Borrowing this part from another look (what Mix offered as a question).
+  const borrow = createMemo(() => s.mixOpts().filter((o) => o.part === part()));
   const mine = createMemo(() =>
     (s.draft()?.comments ?? []).filter((c) => c.part === part() && !c.reaction),
   );
@@ -200,6 +202,37 @@ export function Tune(props: { s: MockScreenState; t: TuneState }) {
       <Show when={!t.current()?.paths.length}>
         <div class="up-note">
           {part() === null ? "No page-wide knobs." : `No knobs on ${part()}.`}
+        </div>
+      </Show>
+      <Show when={borrow().length}>
+        <hr class="up-rule" />
+        <div class="borrow">
+          <div class="up-note">From another look</div>
+          <For each={borrow()}>
+            {(o) => {
+              const on = () => s.draft()?.mix[o.part] === o.variant;
+              return (
+                <button
+                  type="button"
+                  class="borrow-row"
+                  classList={{ on: on() }}
+                  aria-pressed={on()}
+                  onMouseEnter={() =>
+                    s.setPreview({
+                      key: `mix:${o.part}:${o.variant}`,
+                      variant: o.variant,
+                      part: o.part,
+                    })
+                  }
+                  onMouseLeave={() => s.setPreview(null)}
+                  onClick={() => s.toggleMix(o)}
+                >
+                  <span>{`${part()} as in ${o.variant}`}</span>
+                  <span class="borrow-act">{on() ? "Borrowed" : "Borrow"}</span>
+                </button>
+              );
+            }}
+          </For>
         </div>
       </Show>
       <hr class="up-rule" />

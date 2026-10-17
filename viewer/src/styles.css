@@ -3101,3 +3101,69 @@ html.theming *:not(iframe) {
     margin-right: 0;
   }
 }
+
+/* Slots: the chip on a question that chooses a slot's fill, a question that
+   doesn't apply to the fill chosen, and the review's state groups. */
+.slotchip {
+  margin-inline-start: 8px;
+  font: 600 11px/1 var(--sans);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  padding: 3px 7px;
+  border-radius: 999px;
+  vertical-align: 2px;
+}
+.dormant {
+  margin: 4px 0 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--fill);
+  border-radius: var(--r);
+  color: var(--tx2, inherit);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.dormant b {
+  font-weight: 600;
+}
+.dormant .lnk {
+  display: block;
+  margin-top: 6px;
+}
+.opts.asleep {
+  opacity: 0.45;
+}
+.review-group {
+  margin: 12px 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.6;
+}
+.review-row.dormant .review-said {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.borrow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.borrow-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  background: var(--row);
+  border: 1px solid transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.borrow-row.on {
+  border-color: var(--accent);
+}
+.borrow-act {
+  color: var(--accent);
+}

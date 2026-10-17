@@ -189,12 +189,15 @@ function Review(props: { s: MockScreenState }) {
       <div class="ask">Check them, then send them in one reply.</div>
       <ol class="review">
         <For each={s.review()}>
-          {(r) => (
-            <li>
+          {(r, k) => (
+            <li style={{ "margin-inline-start": `${r.depth * 14}px` }}>
+              <Show when={r.group !== null && r.group !== s.review()[k() - 1]?.group}>
+                <div class="review-group">{r.group}</div>
+              </Show>
               <button
                 type="button"
                 class="review-row"
-                classList={{ owed: r.owed }}
+                classList={{ owed: r.owed, dormant: r.dormant }}
                 data-review={r.index}
                 aria-label={`${r.name}: ${r.said.length ? r.said.join(", ") : r.owed ? "not answered" : "skipped"}. Change`}
                 onClick={() => s.goQuestion(r.index, { fromReview: true })}
@@ -219,6 +222,9 @@ function Review(props: { s: MockScreenState }) {
                   </span>
                   <span class="review-said">
                     {r.said.length ? r.said.join(", ") : r.owed ? "Not answered" : "Skipped"}
+                    <Show when={r.dormant && r.said.length}>
+                      <span class="qtag">not sent</span>
+                    </Show>
                   </span>
                 </span>
                 <span class="review-go" aria-hidden="true">
@@ -315,6 +321,9 @@ function Header(props: { s: MockScreenState; index: number; total: number }) {
       fallback={
         <span>
           {`Question ${props.index + 1} of ${props.total}`}
+          <Show when={ask() && s.dormantOf(ask()!)}>
+            <span class="flag">{" · skipped"}</span>
+          </Show>
           <Show when={flagged()}>
             <span class="flag">{` · your pick is gone in v${s.latest()}`}</span>
           </Show>
@@ -323,6 +332,9 @@ function Header(props: { s: MockScreenState; index: number; total: number }) {
     >
       <span>{`${props.index + 1} of ${props.total} · `}</span>
       <span class="picked">{`picked: ${labels()}`}</span>
+      <Show when={ask() && s.dormantOf(ask()!)}>
+        <span class="flag">{" · skipped"}</span>
+      </Show>
     </Show>
   );
 }
@@ -391,20 +403,48 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
   const picked = (o: AskOption) => answerIds(s.answerOf(props.ask)).includes(o.id);
   const keyOf = (o: AskOption) => s.optionKey(props.ask, o.id);
 
+  const slot = () => s.askSlot(props.ask);
+  const dormant = () => s.dormantOf(props.ask);
+  // The region the pictures crop to: the slot the ask chooses, else its part.
+  const region = () => slot()?.part ?? (props.ask.scope === "part" ? props.ask.part : undefined);
+  const parentAsk = () => {
+    const d = dormant();
+    return d
+      ? s.questions().findIndex((q) => q.kind === "ask" && s.askSlot(q.ask)?.part === d.part)
+      : -1;
+  };
   return (
     <div class="qblock">
-      <div class="nm">{askName(props.ask, m())}</div>
+      <div class="nm">
+        {askName(props.ask, m())}
+        <Show when={slot()}>
+          {(sl) => <span class="slotchip">{`Slot · ${sl().label ?? sl().part}`}</span>}
+        </Show>
+      </div>
       <div class="ask">{props.ask.text}</div>
-      <div class="opts">
+      <Show when={dormant()}>
+        {(d) => (
+          <div class="dormant" role="status">
+            {"Only for "}
+            <b>{d().label}</b>
+            {". It doesn't apply to the fill you picked, so it is skipped and not sent."}
+            <Show when={parentAsk() >= 0}>
+              <button type="button" class="lnk" onClick={() => s.goQuestion(parentAsk())}>
+                {`Go to question ${parentAsk() + 1}`}
+              </button>
+            </Show>
+          </div>
+        )}
+      </Show>
+      <div class="opts" classList={{ asleep: !!dormant() }}>
         <For each={props.ask.options}>
           {(o, i) => {
             const pic = () => optionPicture(s, props.ask, o);
             const focus = () => {
               const p = pic();
-              if (!p || props.ask.scope !== "part") return null;
-              return (
-                partBox(s.reports[frameKey(p.state, p.variant.variant)], props.ask.part) ?? null
-              );
+              const r = region();
+              if (!p || !r) return null;
+              return partBox(s.reports[frameKey(p.state, p.variant.variant)], r) ?? null;
             };
             const card = () => (
               <OptionCard

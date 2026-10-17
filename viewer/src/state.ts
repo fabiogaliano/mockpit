@@ -14,6 +14,7 @@ import {
   type Reaction,
   type ReplyDecision,
 } from "../../server/types.ts";
+import type { SlotInfo } from "../../server/fills.ts";
 import { reactionOf, reactionStatus, toggleReaction } from "./reactionRules.ts";
 import {
   api,
@@ -46,6 +47,7 @@ import {
   mixSettled,
   partLabel,
   pruneMix,
+  resolveKnobs,
   mockVersion,
   nextOwedMock,
   overflowWidth,
@@ -137,12 +139,15 @@ export function createMockScreen(project: string, slug: string) {
   // never changes the screen out of sight. Armed by a pick or preview; the
   // stage finds the part from the next parts report.
   const [flash, setFlash] = createSignal<string | null>(null);
+  // "entry · skeleton" when the flashed part is a slot and the fill is known.
+  const [flashLabel, setFlashLabel] = createSignal<string | null>(null);
   let flashArmedAt = 0;
   let flashTimer = 0;
   const armFlash = () => (flashArmedAt = Date.now());
   const flashArmed = () => Date.now() - flashArmedAt < 1500;
-  function showFlash(part: string) {
+  function showFlash(part: string, label: string | null = null) {
     flashArmedAt = 0;
+    setFlashLabel(label);
     setFlash(part);
     host().window.clearTimeout(flashTimer);
     flashTimer = host().window.setTimeout(() => setFlash(null), 1600);
@@ -262,6 +267,63 @@ export function createMockScreen(project: string, slug: string) {
   }
   const activeVariant = createMemo(() => variantFor(activeState()));
 
+  // --- slots (server/fills.ts): a part with alternative fills ---
+
+  // The slots of the look on stage for a state, never a hovered one: a preview
+  // must not make questions appear and vanish under the pointer.
+  const slotsIn = (state: string | null): SlotInfo[] => variantFor(state, false)?.slots ?? [];
+  // The slot an ask chooses: every option sets exactly that one slot's path.
+  function askSlot(ask: Ask): SlotInfo | null {
+    const m = mock();
+    if (!m) return null;
+    const paths = new Set(ask.options.flatMap((o) => Object.keys(o.set ?? {})));
+    if (paths.size !== 1) return null;
+    const [path] = paths;
+    return slotsIn(askState(ask, m, activeState())).find((sl) => sl.part === path) ?? null;
+  }
+  // The values in force on a state's look (defaults, answers, tuning).
+  function valuesIn(state: string | null): Record<string, KnobValue> {
+    const m = mock();
+    if (!m) return {};
+    return resolveKnobs({
+      ...knobContext(),
+      knobs: { ...m.knobs, ...variantFor(state, false)?.knobs },
+    });
+  }
+  // A slot inside a fill that isn't chosen: its question doesn't apply now.
+  // Walks up, so a slot two fills deep is dormant when either is unchosen.
+  function dormantOf(ask: Ask): { part: string; fill: string; label: string } | null {
+    const m = mock();
+    let slot = askSlot(ask);
+    if (!m || !slot?.parent) return null;
+    const state = askState(ask, m, activeState());
+    const slots = slotsIn(state);
+    const values = valuesIn(state);
+    while (slot?.parent) {
+      const { part, fill }: { part: string; fill: string } = slot.parent;
+      const parent: SlotInfo | undefined = slots.find((sl) => sl.part === part);
+      if ((values[part] ?? parent?.default) !== fill) {
+        const label = parent?.fills.find((f) => f.name === fill)?.label ?? fill;
+        return { part, fill, label };
+      }
+      slot = parent ?? null;
+    }
+    return null;
+  }
+  // How deep an ask's slot sits inside other fills (0 at the top of the screen).
+  function slotDepth(ask: Ask): number {
+    const m = mock();
+    let slot = askSlot(ask);
+    if (!m || !slot) return 0;
+    const slots = slotsIn(askState(ask, m, activeState()));
+    let depth = 0;
+    while (slot?.parent) {
+      depth++;
+      slot = slots.find((sl) => sl.part === slot!.parent!.part) ?? null;
+    }
+    return depth;
+  }
+
   // What the user chose so far (sent, then drafted), so Mix can't contradict it.
   const chosen = createMemo(() => {
     const answers: Record<string, AskAnswer> = {};
@@ -299,14 +361,27 @@ export function createMockScreen(project: string, slug: string) {
   const questions = createMemo<Question[]>(() => {
     const m = mock();
     if (!m) return [];
-    const list: Question[] = asks().map((ask) => ({ kind: "ask", ask }));
-    // Mix only exists once a look is picked and another look renders a part.
-    if (look() && lookPick() && mixOpts().length) list.push({ kind: "mix" });
-    return list;
+    // A slot's question comes right after the question of the slot it sits in.
+    const all = asks();
+    const slotOf = new Map(all.map((a) => [a.id, askSlot(a)]));
+    const parentAsk = (a: Ask) => {
+      const parent = slotOf.get(a.id)?.parent;
+      return parent ? all.find((b) => slotOf.get(b.id)?.part === parent.part) : undefined;
+    };
+    const ordered: Ask[] = [];
+    const put = (a: Ask) => {
+      if (ordered.includes(a)) return;
+      ordered.push(a);
+      for (const c of all) if (parentAsk(c) === a) put(c);
+    };
+    for (const a of all) if (!parentAsk(a)) put(a);
+    for (const a of all) put(a);
+    // Borrowing a part from another look is in Tune, per part, not a question.
+    return ordered.map((ask) => ({ kind: "ask", ask }));
   });
   const owed = createMemo(() => {
     const m = mock();
-    return m ? unanswered(withAsks(m), draft()) : [];
+    return m ? unanswered(withAsks(m), draft()).filter((a) => !dormantOf(a)) : [];
   });
   // Tune is shown only with something to tune (tiers, no modes).
   const tuneShown = createMemo(() => {
@@ -918,7 +993,21 @@ export function createMockScreen(project: string, slug: string) {
     const d = draft() ?? emptyDraft(stageVersion());
     setSending(true);
     try {
-      const { reply } = await api.reply(m.id, { ...d, mix: allowedMix(d.mix), ...extra });
+      // A question inside a fill that isn't chosen doesn't apply: its answer stays out.
+      const asleep = new Set(
+        asks()
+          .filter((a) => dormantOf(a))
+          .map((a) => a.id),
+      );
+      const keep = <T>(rec: Record<string, T>) =>
+        Object.fromEntries(Object.entries(rec).filter(([id]) => !asleep.has(id)));
+      const { reply } = await api.reply(m.id, {
+        ...d,
+        answers: keep(d.answers),
+        others: keep(d.others),
+        mix: allowedMix(d.mix),
+        ...extra,
+      });
       // The draft holds the picks until the mock carrying them as sent answers
       // arrives: dropping it first would put the stage on another variant for
       // one fetch (a flash of a different frame fading in, then back).
@@ -997,7 +1086,14 @@ export function createMockScreen(project: string, slug: string) {
     if (i === qs.length - 1) return { kind: "review" };
     const q = qs[i];
     const done = q.kind === "mix" ? mixAnswered() : asked(q.ask);
-    return done ? { kind: "next", to: nextStop(i) ?? qs.length - 1 } : null;
+    if (!done) return null;
+    // Nothing owed after this one: on to the last question that still applies,
+    // or straight to the review when none past here does.
+    const to = nextStop(i);
+    if (to !== null) return { kind: "next", to };
+    let last = qs.length - 1;
+    while (last > i && qs[last].kind === "ask" && dormantOf((qs[last] as { ask: Ask }).ask)) last--;
+    return last > i ? { kind: "next", to: last } : { kind: "review" };
   });
   function runPrimary() {
     const p = primary();
@@ -1009,12 +1105,16 @@ export function createMockScreen(project: string, slug: string) {
   const review = createMemo(() => {
     const m = mock();
     if (!m) return [];
+    const multi = m.states.length > 1;
     return reviewRows(questions(), {
       name: (a) => askName(a, m),
       pick: (a) => ({ ids: answerIds(answerOf(a)), other: otherOf(a), note: noteOf(a) }),
       owed: (a) => owed().some((o) => o.id === a.id),
       mix: draft()?.mix ?? {},
       mixAnswered: mixAnswered(),
+      depth: slotDepth,
+      group: (a) => (multi && a.scope !== "mock" ? askState(a, m, activeState()) : null),
+      dormant: (a) => !!dormantOf(a),
     });
   });
 
@@ -1035,8 +1135,14 @@ export function createMockScreen(project: string, slug: string) {
     const index = cur();
     const p = previewOf(ask, optionId);
     if (p?.knobs) {
-      // A part-scoped ask names its part; otherwise the stage works it out.
-      if (ask.scope === "part" && ask.part) showFlash(ask.part);
+      // A slot ask names its part and fill; a part-scoped ask its part;
+      // otherwise the stage works it out from the parts reports.
+      const slot = askSlot(ask);
+      const fill = slot ? p.knobs[slot.part] : undefined;
+      if (slot && typeof fill === "string") {
+        const label = slot.fills.find((f) => f.name === fill)?.label ?? fill;
+        showFlash(slot.part, `${slot.label ?? slot.part} · ${label}`);
+      } else if (ask.scope === "part" && ask.part) showFlash(ask.part);
       else armFlash();
     }
     const tap = {
@@ -1212,7 +1318,10 @@ export function createMockScreen(project: string, slug: string) {
     focusPart,
     stagePart,
     flash,
+    flashLabel,
     flashArmed,
+    askSlot,
+    dormantOf,
     showFlash,
     hoverPart,
     setHoverPart,

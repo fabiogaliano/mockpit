@@ -49,7 +49,7 @@ test("Home lists the mock with its open count and Answer next goes to it", async
   await expect(header(page)).toContainText("Question 1 of 3");
 });
 
-test("questions: pictures, hover preview, pick, part focus, Mix preview, Send, ✓ → ✓✓", async ({
+test("questions: pictures, hover preview, pick, part focus, Borrow in Tune, Send, ✓ → ✓✓", async ({
   page,
   server,
 }) => {
@@ -73,17 +73,17 @@ test("questions: pictures, hover preview, pick, part focus, Mix preview, Send, �
   await page.locator(".qhd").hover();
   await expect(onStage(page)).toHaveAttribute("data-variant", "quiet");
 
-  // Click picks and moves on; Mix joins as the last question.
+  // Click picks and moves on.
   await pickAndWait(page, mockId, "quiet");
   await expect(cornerPin(page, 1)).toHaveText("✓");
-  await expect(header(page)).toContainText("Question 2 of 4");
+  await expect(header(page)).toContainText("Question 2 of 3");
   await page.getByRole("button", { name: "Previous question" }).click();
-  await expect(header(page)).toContainText("1 of 4 · picked: Quiet");
+  await expect(header(page)).toContainText("1 of 3 · picked: Quiet");
   await expect(option(page, "quiet")).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Next question" }).click();
 
   // Q2, a part ask: knob-set options are pictures, the part carries the pin.
-  await expect(header(page)).toContainText("Question 2 of 4");
+  await expect(header(page)).toContainText("Question 2 of 3");
   await expect(page.locator(".nm")).toHaveText("Versions");
   await expect(option(page, "drawer").locator("iframe")).toHaveCount(1);
   await expect(partPin(page, 2)).toHaveText("2");
@@ -91,44 +91,41 @@ test("questions: pictures, hover preview, pick, part focus, Mix preview, Send, �
   await pickAndWait(page, mockId, "drawer");
 
   // Q3 is bound to a part that only "Lab open" shows: the strip follows it.
-  await expect(header(page)).toContainText("Question 3 of 4");
+  await expect(header(page)).toContainText("Question 3 of 3");
   await expect(activeState(page)).toHaveText("Lab open");
   await expect(partPin(page, 3)).toHaveText("3");
   await expect(option(page, "below")).toHaveClass(/pill/);
   await pickAndWait(page, mockId, "below");
   await expect(partPin(page, 3)).toHaveText("✓");
 
-  // Mix, last: picture options; the review comes after it.
-  await expect(header(page)).toContainText("4 of 4");
-  await expect(page.locator(".nm")).toHaveText("Mix Optional · from mockpit");
-  await expect(option(page, "none")).toContainText("No, all quiet");
-  // Q2 decided the versions, so Mix never offers to borrow them.
-  await expect(option(page, "versions:editorial")).toHaveCount(0);
-  const borrow = option(page, "title:editorial");
-  await expect(borrow.locator("iframe")).toHaveCount(1);
-  await expect(page.locator(".qhint")).toHaveText("Hover one to see it on the stage.");
-  // Hovering a borrow previews the donor look with the part spotlit.
+  // Borrowing a part from another look is in Tune, per part, not a question.
+  await expect(header(page)).toContainText("3 of 3");
+  await expect(page.locator(".nm", { hasText: "Mix" })).toHaveCount(0);
+  await page.locator('[data-mode="tune"]').click();
+  await page.locator(".up-comp-trigger").click();
+  await page.locator(".up-select-option", { hasText: "title" }).click();
+  const borrow = page.locator(".borrow-row", { hasText: "title as in editorial" });
+  await expect(borrow).toHaveCount(1);
   await borrow.hover();
   await expect(onStage(page)).toHaveAttribute("data-variant", "editorial");
-  await expect(page.locator(".frame.on .overlay .spot")).toHaveCount(1);
-  await page.locator(".qhd").hover();
-  await expect(onStage(page)).toHaveAttribute("data-variant", "quiet");
-  await expect(page.locator("button.send")).toHaveCount(0);
-  await expect(page.locator(".qactions .primary")).toHaveText("Review ›");
-  await pickAndWait(page, mockId, "title:editorial");
+  await borrow.click();
   await expect(borrow).toHaveAttribute("aria-pressed", "true");
-  await pickAndWait(page, mockId, "title:editorial");
+  await borrow.click();
   await expect(borrow).toHaveAttribute("aria-pressed", "false");
+  // Q2 decided the versions, so they are never offered to borrow.
+  await page.locator(".up-comp-trigger").click();
+  await page.locator(".up-select-option", { hasText: "versions" }).click();
+  await expect(page.locator(".borrow-row")).toHaveCount(0);
+  await page.locator('[data-mode="questions"]').click();
 
   // Send from the review after the last question: one row per answer.
-  await expect(header(page)).toContainText("4 of 4");
+  await expect(page.locator("button.send")).toHaveCount(0);
   await page.getByRole("button", { name: "Review ›" }).click();
-  await expect(header(page)).toContainText("Review · 4 questions");
+  await expect(header(page)).toContainText("Review · 3 questions");
   await expect(page.locator(".review-row .review-said")).toHaveText([
     "Quiet",
     "Drawer",
     "Below the lab",
-    "none",
   ]);
   // A variant answer shows as its picture.
   await expect(page.locator('.review-row[data-review="0"] iframe')).toHaveCount(1);
@@ -843,40 +840,38 @@ test("keys pick and step, the review changes an answer, Send carries on to the n
   let write = saved();
   await page.keyboard.press("2");
   expect((await write).ok()).toBe(true);
-  await expect(header(page)).toContainText("Question 2 of 4");
+  await expect(header(page)).toContainText("Question 2 of 3");
   // ←/→ step between questions; typing in a field keeps its keys.
   await page.keyboard.press("ArrowLeft");
-  await expect(header(page)).toContainText("1 of 4 · picked: Dark");
+  await expect(header(page)).toContainText("1 of 3 · picked: Dark");
   await page.getByRole("button", { name: "Add a note" }).click();
   await page.locator(".ask-note textarea").press("3");
-  await expect(header(page)).toContainText("1 of 4 · picked: Dark");
+  await expect(header(page)).toContainText("1 of 3 · picked: Dark");
   // Out of the field (a click on plain text), the keys are the flow's again.
   await page.locator(".qblock .ask").click();
   await page.keyboard.press("ArrowRight");
-  await expect(header(page)).toContainText("Question 2 of 4");
+  await expect(header(page)).toContainText("Question 2 of 3");
   write = saved();
   await page.keyboard.press("1");
   expect((await write).ok()).toBe(true);
-  await expect(header(page)).toContainText("Question 3 of 4");
+  await expect(header(page)).toContainText("Question 3 of 3");
+  // The last pick moves on to the review.
   write = saved();
   await page.keyboard.press("1");
   expect((await write).ok()).toBe(true);
-  // Mix is offered once on the way; Enter moves on to the review.
-  await expect(header(page)).toContainText("4 of 4");
-  await page.keyboard.press("Enter");
 
   // The review: a row per answer; a row reopens its question, and the new pick
   // comes straight back here.
-  await expect(header(page)).toContainText("Review · 4 questions");
+  await expect(header(page)).toContainText("Review · 3 questions");
   const said = page.locator(".review-row .review-said");
-  await expect(said).toHaveText(["Dark", "Drawer", "Below the lab", "Skipped"]);
+  await expect(said).toHaveText(["Dark", "Drawer", "Below the lab"]);
   await page.locator('.review-row[data-review="0"]').click();
-  await expect(header(page)).toContainText("1 of 4 · picked: Dark");
+  await expect(header(page)).toContainText("1 of 3 · picked: Dark");
   await expect(page.locator(".qactions .primary")).toHaveText("Back to review ›");
   write = saved();
   await option(page, "quiet").click();
   expect((await write).ok()).toBe(true);
-  await expect(header(page)).toContainText("Review · 4 questions");
+  await expect(header(page)).toContainText("Review · 3 questions");
   await expect(said.first()).toHaveText("Quiet");
 
   // Enter sends from the review; the next mock owed is offered and taken.
@@ -990,4 +985,71 @@ test("Home: Answer next follows the agent's order, and a started mock shows its 
   await expect(page.locator('.home-row[data-mock="writer"] .home-sub')).toHaveText("4 states");
   await page.getByRole("link", { name: "Answer next ›" }).click();
   await expect(page).toHaveURL(new RegExp(`${mockPath}$`));
+});
+
+test("slots: a fill's own question applies only while that fill is chosen; the reply carries the decisions", async ({
+  page,
+  server,
+}) => {
+  const html = `<p data-part="msg">Bife à Passarinhos</p>
+<section data-part="entry" data-part-label="Entry" data-fill="dots" data-fill-label="Typing dots">···</section>
+<section data-part="entry" data-fill="skeleton" data-fill-label="A skeleton card">
+  <div data-part="rows" data-part-label="Rows" data-fill="pulse">pulse</div>
+  <div data-part="rows" data-fill="shimmer">shimmer</div>
+</section>
+<section data-part="entry" data-fill="filling" data-fill-label="The card fills in">Logging…</section>`;
+  const pub = await agentCall(server.url, "/api/mocks", {
+    project: PROJECT,
+    mock: "send",
+    title: "Send",
+    agent: "e2e",
+    html,
+  });
+  expect(pub.slots.map((s: { part: string }) => s.part)).toEqual(["entry", "rows"]);
+  await agentCall(server.url, `/api/mocks/${pub.mock.id}/asks`, {
+    session: pub.sessionId,
+    asks: pub.suggestedSlotAsks,
+  });
+  const mockId = pub.mock.id;
+  await page.goto(`${server.url}/project/${PROJECT}/send`);
+
+  // The question names its slot, and the stage shows only the chosen fill.
+  await expect(page.locator(".nm .slotchip")).toHaveText("Slot · Entry");
+  const doc = page.frameLocator(".frame.on iframe");
+  await expect(doc.locator('[data-fill="dots"]')).toBeVisible();
+  await expect(doc.locator('[data-fill="skeleton"]')).toBeHidden();
+
+  // The skeleton fill holds a slot of its own: its question comes next.
+  await pickAndWait(page, mockId, "a-skeleton-card");
+  await expect(doc.locator('[data-fill="skeleton"]')).toBeVisible();
+  await expect(header(page)).toContainText("Question 2 of 2");
+  await expect(page.locator(".nm .slotchip")).toHaveText("Slot · Rows");
+  await pickAndWait(page, mockId, "shimmer");
+  await expect(header(page)).toContainText("Review · 2 questions");
+
+  // Back to typing dots: the rows question no longer applies and is not sent.
+  await page.locator('.review-row[data-review="0"]').click();
+  await pickAndWait(page, mockId, "typing-dots");
+  await expect(page.locator('.review-row[data-review="1"]')).toHaveClass(/dormant/);
+  await expect(page.locator('.review-row[data-review="1"] .qtag')).toHaveText("not sent");
+  await page.locator('.review-row[data-review="1"]').click();
+  await expect(header(page)).toContainText("skipped");
+  await expect(page.locator(".dormant")).toContainText("Only for A skeleton card");
+  await page.getByRole("button", { name: "Go to question 1" }).click();
+  await page.getByRole("button", { name: "Review ›" }).click();
+
+  const reply = page.waitForResponse(
+    (r) => r.url().endsWith(`/api/mocks/${mockId}/reply`) && r.request().method() === "POST",
+  );
+  await page.locator("button.send").click();
+  expect((await reply).status()).toBe(201);
+  const read = await agentCall(server.url, `/api/feedback?session=${pub.sessionId}`);
+  const sent = read.feedback[0].reply;
+  expect(Object.keys(sent.answers)).toEqual(["entry"]);
+  expect(sent.decisions.states[""].slots).toEqual({
+    entry: { fill: "dots", label: "Typing dots" },
+  });
+  const exported = await agentCall(server.url, `/api/mocks/${mockId}/export`);
+  expect(exported.states[0].html).toContain("···");
+  expect(exported.states[0].html).not.toContain("Logging");
 });
