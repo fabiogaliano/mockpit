@@ -6,7 +6,7 @@
 
 import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { readonly, root } from "./host.ts";
-import { DEVICE_WIDTHS, widthLabel } from "./logic.ts";
+import { DEVICE_WIDTHS, MAX_ZOOM, widthLabel, type Zoom } from "./logic.ts";
 import { bell, toggleBell } from "./notify.ts";
 import { ReactionBar } from "./Reactions.tsx";
 import { linkClick, projectPath } from "./route.ts";
@@ -14,9 +14,9 @@ import type { MockScreenState } from "./state.ts";
 import { theme, toggleTheme } from "./theme.ts";
 import { useThreadRows } from "./Thread.tsx";
 import { Versions } from "./Versions.tsx";
-import { setCanvasTop, win } from "./viewport.ts";
+import { phoneLayout, setCanvasTop } from "./viewport.ts";
 
-const PHONE = 600;
+const ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, MAX_ZOOM];
 
 // Opens one popover at a time and closes it on Escape or a press outside it.
 function usePopover() {
@@ -69,8 +69,9 @@ export function CanvasHead(props: { s: MockScreenState; project: string; right?:
   const declared = () => s.mock()?.widths ?? [];
   // The mock's own widths when it names them; else the ones the viewer offers.
   const widths = () => (declared().length ? declared() : DEVICE_WIDTHS.map((d) => d.w));
-  const all = () => declared().length > 1;
-  const phone = () => win().w <= PHONE;
+  const phone = phoneLayout;
+  // A phone shows one artboard at a time, never the row of them.
+  const all = () => declared().length > 1 && !phone();
   const pct = () => Math.round(s.stageScale() * 100);
   const home = () => projectPath(props.project);
   const pick = (w: number) => {
@@ -78,6 +79,13 @@ export function CanvasHead(props: { s: MockScreenState; project: string; right?:
     s.setZoom("fit");
   };
   const onWidth = (w: number) => s.frameW() === w && s.zoom() !== "all";
+  // Only the steps the stage can reach: a phone's page never zooms out past
+  // its width, so a step below that would only show the floor again.
+  const zoomSteps = () => ZOOM_STEPS.filter((z) => z >= s.zoomMin() - 0.005);
+  const setZoom = (z: Zoom) => {
+    s.setZoom(z);
+    pop.close();
+  };
 
   return (
     <header class="chead" ref={(el) => (head = el)}>
@@ -204,7 +212,11 @@ export function CanvasHead(props: { s: MockScreenState; project: string; right?:
               onChange={(e) => s.showState(s.states()[Number(e.currentTarget.value)])}
             >
               <For each={s.states()}>
-                {(state, i) => <option value={String(i())}>{state ?? "default"}</option>}
+                {(state, i) => (
+                  <option value={String(i())}>
+                    {`${state ?? "default"}${s.owedIn(state) ? ` · ${s.owedIn(state)} open` : ""}`}
+                  </option>
+                )}
               </For>
             </select>
           </label>
@@ -255,7 +267,7 @@ export function CanvasHead(props: { s: MockScreenState; project: string; right?:
                   }}
                 >
                   <For each={widths()}>
-                    {(w) => <option value={String(w)}>{`${widthLabel(w)} ${w}`}</option>}
+                    {(w) => <option value={String(w)}>{widthLabel(w)}</option>}
                   </For>
                   <Show when={all()}>
                     <option value="all">All</option>
@@ -290,17 +302,42 @@ export function CanvasHead(props: { s: MockScreenState; project: string; right?:
               </Show>
             </div>
           </Show>
-          {/* Tapping the scale flips between fitting the screen and true size. */}
           <button
             type="button"
             class="zoomval"
-            classList={{ shrunk: pct() < 100 }}
-            title={pct() === 100 ? "True size" : "Shrunk to fit; tap for true size"}
-            onClick={() => s.setZoom(pct() === 100 && s.zoom() === 1 ? "fit" : 1)}
+            classList={{ shrunk: pct() < 100, on: pop.open() === "zoom" }}
+            aria-haspopup="menu"
+            aria-expanded={pop.open() === "zoom"}
+            aria-label={`Zoom ${pct()}%`}
+            onClick={(e) => pop.toggle("zoom", e.currentTarget)}
           >
             {`${pct()}%`}
           </button>
         </div>
+        <Show when={pop.open() === "zoom"}>
+          <div class="chead-menu zoom-menu" ref={pop.ref} role="menu" aria-label="Zoom">
+            <button
+              type="button"
+              role="menuitemradio"
+              aria-checked={s.zoom() === "fit"}
+              onClick={() => setZoom("fit")}
+            >
+              Fit
+            </button>
+            <For each={zoomSteps()}>
+              {(z) => (
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={typeof s.zoom() === "number" && pct() === Math.round(z * 100)}
+                  onClick={() => setZoom(z)}
+                >
+                  {`${Math.round(z * 100)}%`}
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
         <Show when={s.versionsOpen()}>
           <Versions s={s} anchor={vbtn} />
         </Show>

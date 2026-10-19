@@ -209,7 +209,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "feedback",
     description:
-      "Returns at once: what the user sent since you last heard (one batch per mock: reply answers, mix, tuned knobs, part comments, comments, accepted/archived), delivered once, plus pending (viewer open, draft progress).",
+      "Returns at once: what the user sent since you last heard (one batch per mock: reply answers, mix, tuned knobs, part comments, comments, accepted/archived, or resolved with the asks it dismissed), delivered once, plus pending (viewer open, draft progress).",
     params: {
       project: P.project,
       session: { t: "string", d: "Session id returned by publish", req: true },
@@ -308,12 +308,21 @@ const feedbackSchema = o({
   comments: z.array(o({ seq: num, text: str })),
   accepted: z.array(variantRef),
   archived: z.array(variantRef),
+  resolved: z
+    .literal(true)
+    .optional()
+    .describe("The user resolved the mock: its open asks were closed unanswered"),
+  dismissed: z
+    .array(o({ ask: str, text: str }))
+    .optional()
+    .describe("The asks the resolution closed; don't ask them again"),
 }).meta({ id: "Feedback" });
 // Typed once, on feedback: repeating it on every write would cost more than
 // the rest of the write's output schema.
 const feedbackRide = z.array(bag).describe("Feedback batches as the feedback tool returns");
 const pendingSchema = o({
   mock: str,
+  resolved: z.literal(true).optional(),
   viewerOpen: z.boolean(),
   draft: o({ answered: num, of: num, comments: num, touchedAt: str }).nullable(),
 }).meta({ id: "Pending" });

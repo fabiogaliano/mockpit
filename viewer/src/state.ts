@@ -8,6 +8,7 @@ import { createStore } from "solid-js/store";
 import {
   type Ask,
   type AskAnswer,
+  askAnswered,
   type KnobValue,
   MAX_ASK_IMAGES,
   type PartCommentAnchor,
@@ -32,6 +33,7 @@ import {
   answerIds,
   askName,
   askState,
+  askStates,
   builtinAsks,
   carryOver,
   defaultDeviceWidth,
@@ -77,6 +79,16 @@ export interface PendingImage {
   error?: string;
 }
 export type Question = { kind: "ask"; ask: Ask } | { kind: "mix" };
+// One question on one state: an ask shown on several states is an entry on each.
+export interface FlowEntry {
+  state: string | null;
+  ask: Ask;
+}
+// A question to go to: the nth one on that state.
+export interface Stop {
+  state: string | null;
+  to: number;
+}
 
 // What the stage shows while the pointer rests on an option: another variant,
 // or knob values sent live to the frame on stage.
@@ -91,11 +103,11 @@ export interface Preview {
 
 // What the primary button under the questions does now.
 export type Primary =
-  | { kind: "next"; to: number }
+  | ({ kind: "next" } & Stop)
   | { kind: "review" }
   | { kind: "back" }
   | { kind: "send"; count: number }
-  | { kind: "owed"; to: number }
+  | ({ kind: "owed" } & Stop)
   | null;
 
 // Where Send leaves the user: the next mock still owing answers (null when none
@@ -123,6 +135,9 @@ export function createMockScreen(project: string, slug: string) {
   const [preview, setPreview] = createSignal<Preview | null>(null);
   const [mode, setModeSignal] = createSignal<Mode>("questions");
   const [cur, setCur] = createSignal(0);
+  // Sent answers the user chose to change ("Change answer"): back among the
+  // open questions until the next Send. A sent answer is otherwise read-only.
+  const [revising, setRevising] = createSignal<Record<string, true>>({});
   // The review step after the last question: every answer as a row, and Send.
   const [reviewing, setReviewing] = createSignal(false);
   // A question opened from a review row: a pick there goes back to the review.
@@ -164,6 +179,13 @@ export function createMockScreen(project: string, slug: string) {
   // askId → "Other…" ticked; a write-in counts once it has text, so until then
   // the tick lives only here.
   const [otherOpen, setOtherOpen] = createSignal<Record<string, boolean>>({});
+  // askId → the write-in a pick took out of the draft, so ticking "Other…"
+  // again brings back what was typed instead of an empty box.
+  const [otherStash, setOtherStash] = createSignal<
+    Record<string, { text: string; images: string[] }>
+  >({});
+  // `${field}:${askId}` → that write-in or note folded to one line.
+  const [folded, setFoldedSignal] = createSignal<Record<string, boolean>>({});
   // "No, all <look>" is an answer even though it borrows nothing.
   const [mixTouched, setMixTouched] = createSignal(false);
   // Borrows a later answer took out of Mix, said where Mix and the review show
@@ -191,6 +213,9 @@ export function createMockScreen(project: string, slug: string) {
   // The zoom of Inspect and of the canvas, and the scale the stage last drew at.
   const [zoom, setZoom] = createSignal<Zoom>("fit");
   const [stageScale, setStageScale] = createSignal(1);
+  // The least scale a zoom can reach on the stage now, so the header offers
+  // only the steps it can take.
+  const [zoomMin, setZoomMin] = createSignal(0.1);
   // The stage frames' latest parts reports, keyed by frameKey(state, variant).
   const [reports, setReports] = createStore<Record<string, PartsReport | undefined>>({});
 
@@ -358,7 +383,21 @@ export function createMockScreen(project: string, slug: string) {
         )
       : [];
   });
-  const questions = createMemo<Question[]>(() => {
+  // What the user still has to say: an ask open on the server, one they chose
+  // to change, or one their draft already speaks for (so a reload never hides
+  // an unsent answer). A sent answer stays out of the way.
+  const inDraft = (ask: Ask) => {
+    const d = draft();
+    return (
+      !!d &&
+      (d.answers[ask.id] !== undefined ||
+        d.others[ask.id] !== undefined ||
+        d.notes[ask.id] !== undefined)
+    );
+  };
+  const live = (ask: Ask) =>
+    (!askAnswered(ask) && !ask.dismissed) || !!revising()[ask.id] || inDraft(ask);
+  const ordered = createMemo<Ask[]>(() => {
     const m = mock();
     if (!m) return [];
     // A slot's question comes right after the question of the slot it sits in.
@@ -376,13 +415,52 @@ export function createMockScreen(project: string, slug: string) {
     };
     for (const a of all) if (!parentAsk(a)) put(a);
     for (const a of all) put(a);
-    // Borrowing a part from another look is in Tune, per part, not a question.
-    return ordered.map((ask) => ({ kind: "ask", ask }));
+    return ordered;
   });
+  // The questions state by state, in the mock's order: each state holds the
+  // asks about it (askStates), so a mock-wide one appears on every state it
+  // applies to and is answered once for all of them.
+  const flow = createMemo<FlowEntry[]>(() => {
+    const m = mock();
+    if (!m) return [];
+    const open = ordered().filter(live);
+    const out: FlowEntry[] = [];
+    for (const state of states()) {
+      for (const ask of open)
+        if (askStates(ask, m, variants()).includes(state)) out.push({ state, ask });
+    }
+    return out;
+  });
+  const entriesIn = (state: string | null) => flow().filter((e) => e.state === state);
+  // The questions on the state on stage. Borrowing a part from another look is
+  // in Tune, per part, not a question.
+  const questions = createMemo<Question[]>(() =>
+    entriesIn(activeState()).map((e) => ({ kind: "ask", ask: e.ask })),
+  );
+  // Each ask once, in the order the flow first meets it: what the review lists.
+  const reviewAsks = createMemo<Ask[]>(() => {
+    const seen = new Set<string>();
+    return flow().flatMap((e) => (seen.has(e.ask.id) ? [] : (seen.add(e.ask.id), [e.ask])));
+  });
+  // Sent answers (and asks a resolution dismissed) on the state on stage, or on
+  // every state: the folded, read-only Answered group.
+  const closedAsks = (scope: "state" | "all") => {
+    const m = mock();
+    if (!m) return [];
+    return ordered().filter(
+      (a) =>
+        !live(a) &&
+        (askAnswered(a) || !!a.dismissed) &&
+        (scope === "all" || askStates(a, m, variants()).includes(activeState())),
+    );
+  };
   const owed = createMemo(() => {
     const m = mock();
     return m ? unanswered(withAsks(m), draft()).filter((a) => !dormantOf(a)) : [];
   });
+  const isOwed = (ask: Ask) => owed().some((a) => a.id === ask.id);
+  // How many questions still owed are shown on a state, for its tab.
+  const owedIn = (state: string | null) => entriesIn(state).filter((e) => isOwed(e.ask)).length;
   // Tune is shown only with something to tune (tiers, no modes).
   const tuneShown = createMemo(() => {
     const m = mock();
@@ -547,13 +625,12 @@ export function createMockScreen(project: string, slug: string) {
     if (!m) return;
     // Open on the first question still owed, on the state it is about; a draft
     // that already answers everything resumes on its review, one tap from Send.
-    const first = owed()[0];
-    if (!first && questions().length && !draftIsEmpty(draft())) {
+    const first = firstOwed();
+    if (!first && asks().length && !draftIsEmpty(draft())) {
       goReview({ history: false });
       return;
     }
-    const idx = first ? questions().findIndex((q) => q.kind === "ask" && q.ask.id === first.id) : 0;
-    goQuestion(Math.max(0, idx), { history: false });
+    goQuestion(first?.to ?? 0, { history: false, ...(first ? { state: first.state } : {}) });
   }
 
   const refetch = coalesce({ mock: loadMock, draft: loadDraft, comments: loadComments });
@@ -666,24 +743,76 @@ export function createMockScreen(project: string, slug: string) {
     stayHere();
   };
 
-  function goQuestion(i: number, opts: { history?: boolean; fromReview?: boolean } = {}) {
+  // The ith question on a state (the one on stage unless named), which comes
+  // on stage with it.
+  function goQuestion(
+    i: number,
+    opts: { history?: boolean; fromReview?: boolean; state?: string | null } = {},
+  ) {
     userMoved();
-    const q = questions()[i];
-    const m = mock();
+    const state = opts.state === undefined ? activeState() : opts.state;
+    const ask = entriesIn(state)[i]?.ask;
     batch(() => {
+      setActiveState(state);
       setCur(i);
       setReviewing(false);
       setReturning(!!opts.fromReview);
       setModeSignal("questions");
       setTapped(null);
       setPreview(null);
-      if (q && m) {
-        if (q.kind === "ask") setActiveState(askState(q.ask, m, activeState()));
-        if (q.kind === "ask" && q.ask.scope === "part" && q.ask.part) setSelectedPart(q.ask.part);
-      }
+      if (ask?.scope === "part" && ask.part) setSelectedPart(ask.part);
     });
     if (opts.history !== false) record(false);
     else record(true);
+  }
+  // An ask wherever it shows, on the state on stage when it shows there.
+  function goAsk(id: string, opts: { fromReview?: boolean } = {}) {
+    const here = entriesIn(activeState()).findIndex((e) => e.ask.id === id);
+    if (here >= 0) return goQuestion(here, opts);
+    const e = flow().find((x) => x.ask.id === id);
+    if (e) goQuestion(entriesIn(e.state).indexOf(e), { ...opts, state: e.state });
+  }
+  function goOwed() {
+    const first = firstOwed();
+    if (first) goQuestion(first.to, { state: first.state });
+    else setMode("questions");
+  }
+  // "Change answer" on a sent one: deliberate, so it alone reopens it.
+  function changeAnswer(ask: Ask) {
+    if (readonly()) return;
+    setRevising({ ...revising(), [ask.id]: true });
+    goAsk(ask.id);
+  }
+  // Leave a sent answer as it was: whatever the draft held for it goes, and so
+  // does the question.
+  function keepAnswer(ask: Ask) {
+    const { [ask.id]: _, ...rest } = revising();
+    setRevising(rest);
+    if (inDraft(ask)) {
+      writeDraft((d) => {
+        for (const rec of [d.answers, d.others, d.notes, d.otherImages, d.noteImages]) {
+          delete rec[ask.id];
+        }
+        return d;
+      });
+    }
+    const { [ask.id]: _open, ...opened } = otherOpen();
+    setOtherOpen(opened);
+    const next = firstOwed();
+    if (next) goQuestion(next.to, { state: next.state });
+    else goQuestion(0);
+  }
+  const revisingOf = (ask: Ask) => !!revising()[ask.id] && askAnswered(ask);
+  // Back from Resolved: the questions it closed are open again.
+  async function reopen() {
+    const m = mock();
+    if (!m) return;
+    try {
+      await api.reopen(m.id);
+      await loadMock();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }
   function goReview(opts: { history?: boolean } = {}) {
     userMoved();
@@ -706,11 +835,19 @@ export function createMockScreen(project: string, slug: string) {
     });
     record(false);
   }
+  // A state picked on the strip brings its own questions: the first it still
+  // owes, else its first.
   function showState(state: string | null) {
     userMoved();
+    const here = entriesIn(state);
+    const owedAt = here.findIndex((e) => isOwed(e.ask));
     batch(() => {
       setActiveState(state);
       setPreview(null);
+      if (!reviewing()) {
+        setCur(Math.max(0, owedAt));
+        setReturning(false);
+      }
     });
     record(true);
   }
@@ -771,30 +908,64 @@ export function createMockScreen(project: string, slug: string) {
     }
   }
 
-  // The next question still owed after i; null once none is, which is the
-  // review step's turn.
-  function nextStop(i: number): number | null {
-    const qs = questions();
-    for (let k = 1; k < qs.length; k++) {
-      const j = (i + k) % qs.length;
-      const q = qs[j];
-      if (q.kind === "ask" && owed().some((a) => a.id === q.ask.id)) return j;
+  // The next question still owed after the ith on the state on stage: later on
+  // that state, then earlier on it, then on the other states from the next one
+  // round. null once none is, which is the review step's turn.
+  function nextStop(i: number): Stop | null {
+    const st = activeState();
+    const here = entriesIn(st);
+    const current = here[i]?.ask.id;
+    const owes = (e: FlowEntry) => e.ask.id !== current && isOwed(e.ask);
+    for (let k = 1; k <= here.length; k++) {
+      const j = (((i + k) % here.length) + here.length) % here.length;
+      if (owes(here[j])) return { state: st, to: j };
     }
-    // Mix is optional, but offered once on the way to the review.
-    const last = qs.length - 1;
-    if (i < last && qs[last]?.kind === "mix" && !mixAnswered()) return last;
+    const all = states();
+    const at = all.indexOf(st);
+    for (let k = 1; k < all.length; k++) {
+      const other = all[(at + k) % all.length];
+      const j = entriesIn(other).findIndex(owes);
+      if (j >= 0) return { state: other, to: j };
+    }
     return null;
   }
+  // The first question still owed: on the state on stage if it has one, else
+  // the first in the mock's order.
+  function firstOwed(): Stop | null {
+    const st = activeState();
+    const here = entriesIn(st).findIndex((e) => isOwed(e.ask));
+    if (here >= 0) return { state: st, to: here };
+    for (const other of states()) {
+      const j = entriesIn(other).findIndex((e) => isOwed(e.ask));
+      if (j >= 0) return { state: other, to: j };
+    }
+    return null;
+  }
+  // Where the question on stage sits in the whole flow (half a step before
+  // where its state's entries would be, when it has none), so the arrows walk
+  // every state in turn.
+  const flowAt = createMemo(() => {
+    const all = states();
+    const at = all.indexOf(activeState());
+    const start = flow().findIndex((e) => all.indexOf(e.state) >= at);
+    const base = start < 0 ? flow().length : start;
+    const n = questions().length;
+    return n ? base + Math.min(cur(), n - 1) : base - 0.5;
+  });
 
   // --- answers ---
 
   // `null` is "Other…".
   function pick(ask: Ask, optionId: string | null) {
+    const wasOpen = otherTicked(ask);
+    const typed = { text: otherOf(ask) ?? "", images: otherImagesOf(ask) };
+    const kept = otherStash()[ask.id];
     let open = false;
     writeDraft((base) => {
       const r = pickInDraft(base, ask, optionId, !!otherOpen()[ask.id]);
       open = r.otherOpen;
-      const d = r.draft;
+      let d = r.draft;
+      if (!wasOpen && open && kept) d = setAskField(d, ask.id, "other", kept.text, kept.images);
       if (optionId !== null && look()?.id === ask.id) {
         // A borrow from the look just picked is no longer a borrow.
         const chosen = ask.options.find((o) => o.id === optionId)?.variant;
@@ -803,8 +974,17 @@ export function createMockScreen(project: string, slug: string) {
       return d;
     });
     setOtherOpen({ ...otherOpen(), [ask.id]: open });
+    if (wasOpen && !open && (typed.text.trim() || typed.images.length)) {
+      setOtherStash({ ...otherStash(), [ask.id]: typed });
+    } else if (!wasOpen && open && kept) {
+      const { [ask.id]: _, ...rest } = otherStash();
+      setOtherStash(rest);
+    }
     setFlagged(flagged().filter((x) => x !== ask.id));
   }
+  const foldedOf = (ask: Ask, field: AskField) => !!folded()[`${field}:${ask.id}`];
+  const setFolded = (ask: Ask, field: AskField, on: boolean) =>
+    setFoldedSignal({ ...folded(), [`${field}:${ask.id}`]: on });
   // The write-in under "Other…", and the note on a question, with their
   // images. Blank text with no image is none.
   function setField(ask: Ask, field: AskField, text: string, images: string[]) {
@@ -1030,6 +1210,9 @@ export function createMockScreen(project: string, slug: string) {
       setMixTouched(false);
       setMixDropped([]);
       setOtherOpen({});
+      setOtherStash({});
+      setFoldedSignal({});
+      setRevising({});
       setReviewing(false);
       setReturning(false);
       record(true);
@@ -1045,62 +1228,80 @@ export function createMockScreen(project: string, slug: string) {
 
   // --- the flow: question → review → Send → the next mock ---
 
-  const firstOwed = () => {
-    const first = owed()[0];
-    return first ? questions().findIndex((q) => q.kind === "ask" && q.ask.id === first.id) : -1;
-  };
-  // Once a question is answered: back to the review it was opened from, else on
-  // to the next one owed, else the review.
+  // Once a question is answered: on to the next one owed, else the review. One
+  // opened from the review moves on too, so filling in what it showed open
+  // takes one pass.
   function advance(from: number) {
-    if (returning()) return goReview();
     const next = nextStop(from);
-    if (next !== null) goQuestion(next);
+    if (next !== null) goQuestion(next.to, { state: next.state });
     else goReview();
   }
-  // ←/→ and the arrows: one question at a time, the review after the last.
-  function step(by: 1 | -1) {
-    const total = questions().length;
-    if (!total || mode() !== "questions") return;
+  const goEntry = (e: FlowEntry) => goQuestion(entriesIn(e.state).indexOf(e), { state: e.state });
+  // An ask's first entry: a mock-wide one met again on a later state is the
+  // same question, so the arrows pass it by there unless they are already on
+  // that state.
+  const firstEntry = createMemo(() => {
+    const first = new Map<string, FlowEntry>();
+    for (const e of flow()) if (!first.has(e.ask.id)) first.set(e.ask.id, e);
+    return first;
+  });
+  const stops = (e: FlowEntry) => e.state === activeState() || firstEntry().get(e.ask.id) === e;
+  // Where ←/→ go from here: a question, the review after the last, or nowhere.
+  const stepTarget = (by: 1 | -1): FlowEntry | "review" | null => {
+    const fl = flow();
     if (reviewing()) {
-      if (by === -1) goQuestion(total - 1);
-      return;
+      if (by === 1) return null;
+      for (let j = fl.length - 1; j >= 0; j--)
+        if (firstEntry().get(fl[j].ask.id) === fl[j]) return fl[j];
+      return null;
     }
-    const to = Math.min(cur(), total - 1) + by;
-    if (to < 0) return;
-    if (to >= total) goReview();
-    else goQuestion(to);
+    if (by === 1) {
+      for (let j = Math.floor(flowAt()) + 1; j < fl.length; j++) if (stops(fl[j])) return fl[j];
+      return fl.length ? "review" : null;
+    }
+    for (let j = Math.ceil(flowAt()) - 1; j >= 0; j--) if (stops(fl[j])) return fl[j];
+    return null;
+  };
+  // ←/→ and the arrows: one question at a time across the states, the review
+  // after the last.
+  function step(by: 1 | -1) {
+    if (mode() !== "questions") return;
+    const to = stepTarget(by);
+    if (to === "review") goReview();
+    else if (to) goEntry(to);
   }
 
   const asked = (ask: Ask) =>
     answerOf(ask) !== undefined || otherOf(ask) !== undefined || noteOf(ask) !== undefined;
   const primary = createMemo<Primary>(() => {
-    const qs = questions();
-    if (!qs.length || mode() !== "questions") return null;
+    if (!asks().length || mode() !== "questions") return null;
     if (reviewing()) {
       if (readonly()) return null;
       const to = firstOwed();
-      if (to >= 0) return { kind: "owed", to };
+      if (to) return { kind: "owed", ...to };
       const count = sendCount(draft() ?? emptyDraft(0));
       return count > 0 ? { kind: "send", count } : null;
     }
-    if (returning()) return { kind: "back" };
+    const qs = questions();
+    // Nothing open on this state: on to a state that still asks, else the
+    // review if there is anything to send.
+    if (!qs.length) {
+      const to = nextStop(-1);
+      if (to) return { kind: "next", ...to };
+      return draftIsEmpty(draft()) ? null : { kind: "review" };
+    }
     const i = Math.min(cur(), qs.length - 1);
-    if (i === qs.length - 1) return { kind: "review" };
     const q = qs[i];
     const done = q.kind === "mix" ? mixAnswered() : asked(q.ask);
-    if (!done) return null;
-    // Nothing owed after this one: on to the last question that still applies,
-    // or straight to the review when none past here does.
-    const to = nextStop(i);
-    if (to !== null) return { kind: "next", to };
-    let last = qs.length - 1;
-    while (last > i && qs[last].kind === "ask" && dormantOf((qs[last] as { ask: Ask }).ask)) last--;
-    return last > i ? { kind: "next", to: last } : { kind: "review" };
+    const to = done ? nextStop(i) : null;
+    if (returning()) return to ? { kind: "next", ...to } : { kind: "back" };
+    if (!done) return stepTarget(1) === "review" ? { kind: "review" } : null;
+    return to ? { kind: "next", ...to } : { kind: "review" };
   });
   function runPrimary() {
     const p = primary();
     if (!p) return;
-    if (p.kind === "next" || p.kind === "owed") goQuestion(p.to);
+    if (p.kind === "next" || p.kind === "owed") goQuestion(p.to, { state: p.state });
     else if (p.kind === "review" || p.kind === "back") goReview();
     else void send();
   }
@@ -1108,16 +1309,24 @@ export function createMockScreen(project: string, slug: string) {
     const m = mock();
     if (!m) return [];
     const multi = m.states.length > 1;
-    return reviewRows(questions(), {
-      name: (a) => askName(a, m),
-      pick: (a) => ({ ids: answerIds(answerOf(a)), other: otherOf(a), note: noteOf(a) }),
-      owed: (a) => owed().some((o) => o.id === a.id),
-      mix: draft()?.mix ?? {},
-      mixAnswered: mixAnswered(),
-      depth: slotDepth,
-      group: (a) => (multi && a.scope !== "mock" ? askState(a, m, activeState()) : null),
-      dormant: (a) => !!dormantOf(a),
-    });
+    // An ask on one state is grouped under it; one on several, above them all.
+    const only = (a: Ask) => {
+      const on = [...new Set(flow().flatMap((e) => (e.ask.id === a.id ? [e.state] : [])))];
+      return on.length === 1 ? on[0] : null;
+    };
+    return reviewRows(
+      reviewAsks().map((ask) => ({ kind: "ask", ask })),
+      {
+        name: (a) => askName(a, m),
+        pick: (a) => ({ ids: answerIds(answerOf(a)), other: otherOf(a), note: noteOf(a) }),
+        owed: (a) => owed().some((o) => o.id === a.id),
+        mix: draft()?.mix ?? {},
+        mixAnswered: mixAnswered(),
+        depth: slotDepth,
+        group: (a) => (multi ? only(a) : null),
+        dormant: (a) => !!dormantOf(a),
+      },
+    );
   });
 
   const optionKey = (ask: Ask, optionId: string) => `${ask.id}:${optionId}`;
@@ -1206,7 +1415,12 @@ export function createMockScreen(project: string, slug: string) {
     const next = await owedMock(1);
     if (disposed) return;
     // A hidden tab never moves on by itself: the user would come back elsewhere.
-    const auto = !!next && host().window.document.visibilityState !== "hidden";
+    // Nor does it carry the user into another agent conversation's work, which
+    // is a different piece of work even in the same repo: that one is offered.
+    const auto =
+      !!next &&
+      next.sessionId === mock()?.sessionId &&
+      host().window.document.visibilityState !== "hidden";
     setAfterSend({ next, auto });
     host().window.clearTimeout(forwardTimer);
     if (auto) forwardTimer = host().window.setTimeout(goNext, FORWARD_MS);
@@ -1273,6 +1487,8 @@ export function createMockScreen(project: string, slug: string) {
     noteOf,
     setOther,
     setNote,
+    foldedOf,
+    setFolded,
     imagesOf,
     pendingOf,
     attachImages,
@@ -1291,6 +1507,12 @@ export function createMockScreen(project: string, slug: string) {
     setMode,
     cur,
     goQuestion,
+    goAsk,
+    goOwed,
+    changeAnswer,
+    keepAnswer,
+    revisingOf,
+    reopen,
     goReview,
     reviewing,
     returning,
@@ -1310,7 +1532,13 @@ export function createMockScreen(project: string, slug: string) {
     setKeysOpen,
     nextStop,
     questions,
+    flow,
+    stepTarget,
+    reviewAsks,
+    closedAsks,
+    asks,
     owed,
+    owedIn,
     settled,
     mixOpts,
     mixAnswered,
@@ -1356,6 +1584,8 @@ export function createMockScreen(project: string, slug: string) {
     setZoom,
     stageScale,
     setStageScale,
+    zoomMin,
+    setZoomMin,
     marking,
     setMarking,
     threadText,

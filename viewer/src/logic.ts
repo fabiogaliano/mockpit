@@ -171,9 +171,11 @@ export function needsBuiltinAsk(
 // up, so the user answers once; one per needing state otherwise. Option ids
 // are variant names, as the server's reply handling expects.
 export function builtinAsks(
-  mock: Pick<MockDetail, "asks" | "states">,
+  mock: Pick<MockDetail, "asks" | "states"> & { resolvedAt?: string | null },
   variants: VariantRow[],
 ): Ask[] {
+  // Resolving the mock closed its choices too (server/types.ts builtinAskIds).
+  if (mock.resolvedAt) return [];
   const states = mock.states.length ? mock.states : [null];
   const needing = states.filter((st) => needsBuiltinAsk(mock.asks, variants, st));
   if (!needing.length) return [];
@@ -207,6 +209,33 @@ export function frameVersion(variant: Pick<VariantView, "version" | "history">, 
 
 export const historyRow = (variant: VariantView, version: number): HistoryRow | undefined =>
   variant.history?.find((h) => h.version === version);
+
+// Every state an ask is shown on, in the mock's order: its own state; each
+// state holding its part; for a mock-wide ask that picks between variants,
+// each state with one of those variants; any other mock-wide ask, every state.
+export function askStates(
+  ask: Ask,
+  mock: Pick<MockDetail, "states" | "parts">,
+  variants: Pick<VariantView, "state" | "variant">[],
+): (string | null)[] {
+  const all: (string | null)[] = mock.states.length ? mock.states : [null];
+  if (ask.scope === "state" && ask.state !== undefined) {
+    return all.includes(ask.state) ? [ask.state] : all.slice(0, 1);
+  }
+  if (ask.scope === "part" && ask.part) {
+    const holding = all.filter(
+      (s) => mock.parts.find((p) => p.state === s)?.parts.some((p) => p.name === ask.part) ?? false,
+    );
+    if (holding.length) return holding;
+    return ask.state !== undefined && all.includes(ask.state) ? [ask.state] : all.slice(0, 1);
+  }
+  const named = new Set(ask.options.flatMap((o) => (o.variant ? [o.variant] : [])));
+  if (named.size) {
+    const having = all.filter((s) => variants.some((v) => v.state === s && named.has(v.variant)));
+    if (having.length) return having;
+  }
+  return all;
+}
 
 // The state an ask shows on: its own, else the first state holding its part.
 export function askState(
@@ -722,7 +751,11 @@ export function threadRows(
     const c = e.c;
     if (c.author === "user" || c.author === "surface") {
       const reply = c.kind === "reply" ? c.payload : undefined;
-      const text = reply ? summarizeReply(reply, mock) : c.text || "Sent";
+      const text = reply?.resolved
+        ? resolvedLine(reply.resolved.dismissed.length)
+        : reply
+          ? summarizeReply(reply, mock)
+          : c.text || "Sent";
       const row: ThreadRow = {
         who: "you",
         at: c.createdAt,
@@ -786,7 +819,13 @@ export function timeAgo(iso: string, now = Date.now()): string {
 }
 
 export const openAsks = (mock: Pick<MockDetail, "asks">): Ask[] =>
-  mock.asks.filter((a) => !askAnswered(a));
+  mock.asks.filter((a) => !askAnswered(a) && !a.dismissed);
+
+// A resolution in the thread: what it closed.
+export const resolvedLine = (dismissed: number): string =>
+  dismissed
+    ? `Resolved · ${dismissed} ${dismissed === 1 ? "question" : "questions"} closed unanswered`
+    : "Resolved";
 
 // A question the user still owes: open on the server and not answered in the
 // draft. A write-in with text or a note alone answers it.

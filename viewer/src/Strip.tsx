@@ -59,6 +59,13 @@ export function Strip(props: { s: MockScreenState }) {
                 onClick={() => s.showState(state)}
               >
                 {state}
+                <Show when={s.owedIn(state)}>
+                  {(n) => (
+                    <span class="tab-open" aria-label={`, ${n()} open`}>
+                      {n()}
+                    </span>
+                  )}
+                </Show>
               </button>
             )}
           </For>

@@ -314,7 +314,11 @@ answer, the answer wins); address each comment and reaction on its part; decisio
 the screen as chosen, per state: variant, then each slot's fill, nested. Each Send arrives exactly once: in a write's
 \`feedback\`, \`mockpit feedback\` or a \`mockpit watch\` line.
 A \`pending\` draft means the user is still answering. Send a nudge's
-\`suggestedAsk\` with \`ask\`.
+\`suggestedAsk\` with \`ask\`. A batch with \`resolved: true\` (no reply) means
+the user closed the mock unanswered: its \`dismissed\` asks were not worth
+answering. Don't ask them again, under any id; \`ask\` skips a dismissed id.
+The viewer shows each state its own asks and only open ones; a sent answer is
+not shown again.
 
 ## HTML
 

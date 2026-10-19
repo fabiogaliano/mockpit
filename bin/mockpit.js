@@ -198,7 +198,8 @@ mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
   feedback: `mockpit feedback [--project <name>] [--session <id>]
   Returns at once with {feedback, pending} as JSON: one batch per mock the user
   sent since you last heard ({mock, reply: {asks, mix, tuned, comments},
-  comments, accepted, archived}), delivered once across feedback, watch and
+  comments, accepted, archived}, or {mock, resolved: true, dismissed} when the
+  user closed it unanswered), delivered once across feedback, watch and
   every write; and pending ({mock, viewerOpen, draft}) so you can tell the
   user "take your time" or "2 of 3 answered". Run it when the user says they
   answered.`,
@@ -1040,6 +1041,12 @@ function watchLines(batch) {
   const lines = [];
   const name = batch.mock ?? "a mock";
   if (batch.handoff) lines.push(`mockpit handoff on ${name}: ${batch.handoff}`);
+  if (batch.resolved) {
+    const n = batch.dismissed?.length ?? 0;
+    lines.push(
+      `mockpit resolved ${name}: ${n ? `${n} question${n === 1 ? "" : "s"} dismissed unanswered (${batch.dismissed.map((d) => d.text || d.ask).join("; ")}); don't ask again` : "closed by the user"}`,
+    );
+  }
   if (batch.reply) {
     const r = batch.reply;
     const bits = [
@@ -1480,7 +1487,7 @@ const commands = {
     for (const m of mocks) {
       const states = m.states.length ? m.states.join(" / ") : "single state";
       console.log(
-        `  ${m.slug} · ${m.kind} · ${states} · ${m.variants} variant${m.variants === 1 ? "" : "s"}${m.open ? ` · ${m.open} open` : ""}`,
+        `  ${m.slug} · ${m.kind} · ${states} · ${m.variants} variant${m.variants === 1 ? "" : "s"}${m.resolvedAt ? " · resolved" : m.open ? ` · ${m.open} open` : ""}`,
       );
     }
     for (const line of pendingLines(list.pending)) console.log(line);

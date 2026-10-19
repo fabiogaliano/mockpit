@@ -52,7 +52,17 @@ The same JSON goes to `--asks`, MCP `ask` and `POST /api/mocks/:id/asks`:
 ## Scope
 
 `scope` says what an ask decides: `mock` (the default), `state` (add `state`)
-or `part` (add `part`, the `data-part` name).
+or `part` (add `part`, the `data-part` name). Scope also says where the user
+sees it: the viewer shows each state with its own questions. A `state` ask
+shows on that state, a `part` ask on every state that marks the part, and a
+`mock` ask whose options name variants on every state that has them (any
+other `mock` ask on every state); answered once, it counts once.
+
+Only open asks are shown and counted ("1 of 3"). Once a Send answers one, it
+folds into a read-only Answered list and stays out of the next round, so ask
+new questions for what is still open rather than re-sending answered ones; the
+user changes a sent answer only on purpose, and the change arrives as a normal
+Send.
 
 ## Options
 

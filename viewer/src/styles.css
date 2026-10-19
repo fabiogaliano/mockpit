@@ -2271,6 +2271,20 @@ a {
   margin-inline-start: auto;
   color: var(--t4);
 }
+.zoom-menu {
+  min-width: 132px;
+}
+.zoom-menu > button {
+  font-variant-numeric: tabular-nums;
+}
+.zoom-menu > button[aria-checked="true"] {
+  background: var(--fill);
+  color: var(--t1);
+  font-weight: 600;
+}
+.chead .zoomval.on {
+  background: var(--row);
+}
 .menu-react {
   display: flex;
   flex-direction: column;
@@ -2603,6 +2617,62 @@ html.theming *:not(iframe) {
   border: none;
   padding: 0;
   outline: none;
+}
+.asktext-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.asktext-fold {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: -4px -6px -4px 0;
+  border-radius: 6px;
+  color: var(--t4);
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .asktext-fold:hover {
+    color: var(--t2);
+    background: var(--row-hover);
+  }
+}
+.asktext-fold svg,
+.asktext-folded svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.asktext-folded {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  color: var(--t4);
+  cursor: pointer;
+}
+.asktext-gist {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  color: var(--t2);
+}
+.asktext-count {
+  flex: none;
+  font-size: 13px;
+  color: var(--t4);
 }
 .asktext textarea::placeholder {
   color: var(--t5);
@@ -3166,4 +3236,446 @@ html.theming *:not(iframe) {
 }
 .borrow-act {
   color: var(--accent);
+}
+
+/* ---------- the phone sheet (QuestionCard on a phone) ---------- */
+/* No pinch scales the viewer on a phone: on the design a pinch zooms the
+   design (its page forwards it), and anywhere else it would scale the header
+   and the sheet out from under the finger. Text size is still Safari's aA. */
+.mock-screen.phone {
+  touch-action: pan-x pan-y;
+}
+/* The design is the page here, not an artboard on a board: a page whose own
+   background is transparent must not show the canvas's dots through its text. */
+.mock-screen.phone .stagewrap.canvas {
+  background-image: none;
+}
+/* The stage is the one scroller: native, with momentum, sideways too once
+   zoomed. Frames take their full height and never take a touch, so a swipe
+   can't be caught by a page at its end; the overlay still answers taps. */
+.mock-screen.phone .stagewrap.canvas :is(.layers, .overlay) {
+  touch-action: pan-x pan-y;
+}
+.mock-screen.phone .stagewrap.canvas .surface iframe {
+  pointer-events: none;
+}
+/* A question's region scrolls to the top, short of the header, so the pin on
+   its corner keeps its whole tap area. */
+.mock-screen.phone .stagewrap.canvas .box.sel {
+  scroll-margin-top: 24px;
+}
+@media (pointer: coarse) {
+  .mock-screen.phone .stagewrap.canvas .layers {
+    overflow: auto;
+  }
+}
+.qcard.sheet {
+  inset: auto 0 0;
+  width: auto;
+  max-height: 56dvh;
+  border-width: 1px 0 0;
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -12px 40px #0007;
+  transition: none;
+}
+.qcard.sheet .qcard-grip {
+  width: 100%;
+  height: 20px;
+  cursor: default;
+  touch-action: none;
+}
+.qcard.sheet .qhd,
+.qcard.sheet .qcard-mode {
+  cursor: default;
+}
+.qcard.sheet .qcard-body {
+  padding: 0 16px calc(12px + env(safe-area-inset-bottom));
+}
+.qcard.sheet .qactions {
+  bottom: calc(-12px - env(safe-area-inset-bottom));
+  margin: 4px -16px calc(-12px - env(safe-area-inset-bottom));
+  padding: 8px 16px calc(12px + env(safe-area-inset-bottom));
+}
+.qcard.folded .qcard-body {
+  display: none;
+}
+.qpeek {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 16px calc(10px + env(safe-area-inset-bottom));
+  text-align: start;
+  touch-action: none;
+}
+.qpeek-k {
+  flex: none;
+  color: var(--t4);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.qpeek-t {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--t1);
+  font-size: 15px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qpeek-go {
+  flex: none;
+  color: var(--t3);
+  font-size: 16px;
+}
+/* The header's second row holds version, state and width on one line. The
+   pickers keep 16px text, so focusing one doesn't zoom the page, and their
+   44px height, so they stay a finger's target. */
+.mock-screen.phone .vbtn {
+  flex: none;
+  white-space: nowrap;
+}
+.mock-screen.phone .chead-pick select {
+  max-width: 36vw;
+  padding: 0 22px 0 10px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+.qcard.sheet .opt .lbl {
+  font-size: 15px;
+}
+/* The question is the headline; its topic is a small label over it. */
+.qcard.sheet .nm {
+  color: var(--t4);
+  font-size: 13px;
+  line-height: 18px;
+}
+.qcard.sheet .nm.plain {
+  display: none;
+}
+.qcard.sheet .ask {
+  margin: 2px 0 12px;
+  color: var(--t1);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-wrap: pretty;
+}
+/* Word answers stack as full-width rows: a long one wraps inside its row and
+   every row is one easy thumb target. Pictures keep their sideways scroller. */
+.qcard.sheet .opts:has(.opt.pill:not(.other)) {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow: visible;
+}
+.qcard.sheet .opt.pill {
+  align-self: stretch;
+  justify-content: space-between;
+  gap: 12px;
+  height: auto;
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  text-align: start;
+}
+.qcard.sheet .opt.pill .lbl {
+  color: var(--t2);
+  font-size: 15px;
+  line-height: 1.35;
+}
+.qcard.sheet .opt.pill.on .lbl {
+  color: var(--t1);
+}
+.qcard.sheet .opt.pill .tick {
+  flex: none;
+}
+
+/* ---------- open questions only: Answered, Resolved ---------- */
+.none-open {
+  margin: 4px 0;
+}
+.revising {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--row);
+  color: var(--t2);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.revising .lnk {
+  min-height: 32px;
+}
+.resolved-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  background: var(--row);
+  color: var(--t2);
+  font-size: 13px;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+.resolved-note span {
+  flex: 1 1 200px;
+}
+.resolved-note .secondary {
+  margin-top: 0;
+  padding: 0 16px;
+}
+.answered {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 4px;
+}
+.answered-hd,
+.home-resolved-hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 4px;
+  color: var(--t4);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: start;
+}
+@media (hover: hover) {
+  .answered-hd:hover,
+  .home-resolved-hd:hover {
+    color: var(--t2);
+  }
+}
+.answered-hd:focus-visible,
+.home-resolved-hd:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+.answered-chev {
+  display: inline-block;
+  width: 12px;
+  font-size: 16px;
+  transition: rotate 0.15s cubic-bezier(0, 0, 0.2, 1);
+}
+[aria-expanded="true"] > .answered-chev {
+  rotate: 90deg;
+}
+.answered-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.answered-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 6px 6px 12px;
+  border-radius: var(--r);
+  background: var(--row);
+}
+.answered-row .review-said {
+  font-weight: 500;
+}
+.answered-row .review-said.dismissed {
+  color: var(--t4);
+  font-weight: 400;
+}
+.answered-note {
+  font-size: 13px;
+  color: var(--t4);
+  overflow-wrap: anywhere;
+}
+.answered-change {
+  flex: none;
+  margin-top: 0;
+  padding: 0 12px;
+  font-size: 13px;
+  background: var(--btn);
+}
+.strip > button .tab-open {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  margin-inline-start: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--pin-q);
+  color: var(--on-accent);
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: 1px;
+}
+
+/* Home: a row swipes left to resolve; the action shows underneath it. */
+.home-item {
+  position: relative;
+  border-radius: var(--r);
+}
+.home-swipe-act {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-inline-end: 20px;
+  border-radius: var(--r);
+  background: color-mix(in srgb, var(--pin-ok) 55%, var(--row));
+  color: var(--on-accent);
+  font-size: 14px;
+  font-weight: 600;
+  transition: background var(--ease);
+}
+.home-swipe-act.armed {
+  background: var(--pin-ok);
+}
+.home-swipe-act svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.home-slide {
+  position: relative;
+  touch-action: pan-y;
+  transition: transform 0.2s cubic-bezier(0, 0, 0.2, 1);
+}
+.home-slide.dragging {
+  transition: none;
+}
+.home-slide.gone {
+  transform: translate3d(-100%, 0, 0);
+  transition: transform 0.18s cubic-bezier(0.4, 0, 1, 1);
+}
+/* Shown only while the row moves, so its edge never peeks out at rest. */
+.home-item:not(.swiping) .home-swipe-act {
+  visibility: hidden;
+}
+.home-act {
+  position: absolute;
+  inset-inline-end: 12px;
+  top: 50%;
+  translate: 0 -50%;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 8px;
+  background: var(--btn);
+  color: var(--t2);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 0 0 1px var(--line);
+}
+@media (hover: hover) {
+  .home-act:hover {
+    background: var(--fill);
+    color: var(--t1);
+  }
+  .home-act:not(.reopen) {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--ease);
+  }
+  .home-slide:hover .home-act,
+  .home-act:focus-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+/* A finger swipes instead; the button stays for keyboards and screen readers. */
+@media (hover: none) {
+  .home-act:not(.reopen):not(:focus-visible) {
+    position: absolute;
+    width: 1px;
+    min-width: 0;
+    height: 1px;
+    min-height: 0;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+}
+.home-act:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.home-item.is-resolved .home-chip,
+.home-item.is-resolved .home-done,
+.home-item.is-resolved .home-ago {
+  visibility: hidden;
+}
+.home-item.is-resolved .home-thumb {
+  opacity: 0.6;
+}
+.home-resolved {
+  margin-top: 20px;
+}
+.home-resolved .home-list {
+  margin-top: 4px;
+}
+.home-toast {
+  position: fixed;
+  z-index: 80;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 24px);
+  padding: 4px 4px 4px 16px;
+  border-radius: 12px;
+  background: var(--t2);
+  color: var(--panel);
+  font-size: 14px;
+  box-shadow: var(--shadow);
+}
+.home-toast span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-toast-undo {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: var(--panel);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .home-toast {
+    animation: up-dropdown-in 0.15s cubic-bezier(0, 0, 0.2, 1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-slide,
+  .home-slide.gone,
+  .answered-chev {
+    transition: none;
+  }
 }

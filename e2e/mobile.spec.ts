@@ -4,8 +4,9 @@ import { agentCall, expect, test } from "./fixtures.ts";
 // The mobile baseline (iPhone 13 Pro, iPad mini 6 portrait and landscape, on
 // real WebKit): the viewer fits the screen, a finger scrolls a tall mock and
 // taps a part, fields don't trigger iOS zoom, targets are finger-sized, the
-// stage renders at a chosen device width (behind More over a bottom sheet), a
-// design wider than that width is shown whole, and Inspect pans at 100%.
+// stage renders at a chosen device width, a design wider than that width is
+// shown whole, and Inspect pans at 100%. On the phone the design is one page
+// the browser scrolls, and the questions are a sheet fixed to the bottom.
 
 const ROWS = 30;
 const tall = `<style>body{margin:0;font:16px system-ui}section{padding:24px;border-bottom:1px solid #ddd}</style>
@@ -69,6 +70,9 @@ async function openThread(page: Page) {
   await page.locator(".chead-menu button", { hasText: "Thread" }).tap();
 }
 
+// Too narrow for an artboard beside the design: one page and a bottom sheet.
+const onPhone = (page: Page) => page.viewportSize()!.width <= 600;
+
 const noOverflow = (page: Page) =>
   page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
 
@@ -80,12 +84,12 @@ test("fits the screen without horizontal scrolling", async ({ page, server }) =>
   expect(await noOverflow(page)).toBe(true);
 });
 
-test("a tall mock opens as one whole screen on the canvas, at full height beside the panel", async ({
+test("a tall mock opens as one whole screen on an iPad canvas, at full height elsewhere", async ({
   page,
   server,
 }) => {
   await open(page, server.url);
-  if (!(await onCanvas(page))) {
+  if (!(await onCanvas(page)) || onPhone(page)) {
     // Uncapped: the frame is as tall as its page, and the stage scrolls.
     const iframe = page.locator(".frame.on iframe");
     await expect
@@ -228,8 +232,10 @@ test("Inspect, or the canvas, at 100% pans, and a pinch zooms", async ({ page, s
   await pickWidth(page, "1280");
   const canvas = await onCanvas(page);
   if (canvas) {
-    // The canvas is Inspect already: the scale in the header flips to true size.
+    // The canvas is Inspect already: the scale in the header opens its steps.
     await page.locator(".chead .zoomval").tap();
+    await page.getByRole("menuitemradio", { name: "100%" }).tap();
+    await expect(page.locator(".chead .zoomval")).toHaveText("100%");
   } else {
     await page.locator(".inspectbtn").tap();
     await expect(page.locator(".top")).toBeHidden();
@@ -241,6 +247,39 @@ test("Inspect, or the canvas, at 100% pans, and a pinch zooms", async ({ page, s
   await expect
     .poll(() => layers.evaluate((l) => l.scrollWidth - l.clientWidth))
     .toBeGreaterThan(100);
+  if (canvas) {
+    // A step is a finger-sized row; the one in force is marked, and Fit is one.
+    const zoomval = page.locator(".chead .zoomval");
+    await zoomval.tap();
+    const step = page.getByRole("menuitemradio", { name: "150%" });
+    await expect.poll(async () => (await step.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await step.tap();
+    await expect(zoomval).toHaveText("150%");
+    await expect(page.locator(".frame.on iframe")).toHaveAttribute("width", "1280");
+    await expect
+      .poll(async () => (await page.locator(".frame.on").boundingBox())!.width)
+      .toBeCloseTo(1280 * 1.5, 0);
+    await zoomval.tap();
+    await expect(step).toHaveAttribute("aria-checked", "true");
+    await page.getByRole("menuitemradio", { name: "Fit" }).tap();
+    await expect(page.getByRole("menu", { name: "Zoom" })).toHaveCount(0);
+    await expect(zoomval).not.toHaveText("150%");
+    await zoomval.tap();
+    await page.getByRole("menuitemradio", { name: "100%" }).tap();
+  }
+  if (onPhone(page)) {
+    // A phone's stage is the browser's to scroll, both ways, and never to zoom:
+    // its pinch comes from touch events, which WebKit here can't synthesize.
+    const style = await layers.evaluate((l) => {
+      const cs = getComputedStyle(l);
+      return { x: cs.overflowX, y: cs.overflowY, touch: cs.touchAction };
+    });
+    expect(style).toEqual({ x: "auto", y: "auto", touch: "pan-x pan-y" });
+    expect(
+      await page.locator(".frame.on .overlay").evaluate((el) => getComputedStyle(el).touchAction),
+    ).toBe("pan-x pan-y");
+    return;
+  }
 
   // One finger pans both axes (touch-action: none on the overlay hands the
   // gesture to the viewer's own Pointer Events handling).
@@ -347,6 +386,21 @@ test("without room for the panel: a two-row header, the questions in view, notes
   await expect(page.locator(".qcard .qhd")).toBeVisible();
   await expect(page.locator(".pins .pin")).toHaveCount(0);
   await expect(page.locator(".chead-note")).toContainText("Rows in one column");
+  if (onPhone(page)) {
+    // One page, no artboards beside it; the questions are a sheet on the
+    // bottom edge that a tap folds to one line and opens again.
+    await expect(page.locator(".board")).toHaveCount(0);
+    const vp = page.viewportSize()!;
+    expect(card.x).toBe(0);
+    expect(card.width).toBe(vp.width);
+    expect(Math.round(card.y + card.height)).toBe(vp.height);
+    await page.locator(".qcard-grip").tap();
+    await expect(page.locator(".qcard .qhd")).toBeHidden();
+    await expect(page.locator(".qpeek")).toContainText("Hero height?");
+    await page.locator(".qpeek").tap();
+    await expect(page.locator(".qcard .qhd")).toBeVisible();
+    return;
+  }
   // The mock's other width is a picture beside the live one.
   await expect(page.locator(".board")).toHaveCount(1);
   await expect(page.locator(".board iframe")).toHaveAttribute("width", "1280");

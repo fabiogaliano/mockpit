@@ -4,6 +4,8 @@
 // as small markers, and on release it snaps to the one the finger is in (see
 // dock.ts). Carried to an edge it docks as a handle there; a tap brings it back.
 // Tune and Thread, opened from the header's menu, take the card's place.
+// On a phone none of that: the card is a sheet fixed to the bottom, and a tap
+// or a swipe on its top folds it to one line so the page above can be read.
 
 import {
   createEffect,
@@ -42,7 +44,7 @@ import type { MockScreenState } from "./state.ts";
 import { Thread } from "./Thread.tsx";
 import type { TuneState } from "./tune.ts";
 import { PartSelector, Tune } from "./Tune.tsx";
-import { canvasTop, NO_INSET, setCardInset, win } from "./viewport.ts";
+import { canvasTop, NO_INSET, phoneLayout, setCardInset, win } from "./viewport.ts";
 
 const CHIP = { row: { w: 84, h: 44 }, col: { w: 44, h: 72 } };
 const MARK = { row: { w: 48, h: 22 }, col: { w: 22, h: 40 } };
@@ -57,6 +59,11 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
     }
   })();
   const [place, setPlace] = createSignal<CardPlace>(readPlace(stored));
+  const phone = phoneLayout;
+  // Where the card rests now: a phone's sheet has one place, whatever an iPad
+  // left in storage.
+  const spot = (): CardPlace => (phone() ? { at: "bottom-center", docked: null } : place());
+  const [folded, setFolded] = createSignal(false);
   const [carry, setCarry] = createSignal<{ x: number; y: number; hot: Spot } | null>(null);
   const [content, setContent] = createSignal<HTMLElement>();
 
@@ -69,9 +76,9 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
       // Storage denied: the place holds for this visit.
     }
   };
-  const col = () => isColumn(carry()?.hot ?? place().at);
-  const width = () => cardWidth(place().at, area());
-  const rect = () => spotRect(place().at, width(), 0, area());
+  const col = () => isColumn(carry()?.hot ?? spot().at);
+  const width = () => cardWidth(spot().at, area());
+  const rect = () => spotRect(spot().at, width(), 0, area());
 
   // A resting card takes its band of the canvas: a strip down a side, so the
   // artboards fit beside it, or the space above or below it, so they shrink to
@@ -88,9 +95,11 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
     ro.observe(cardEl);
     onCleanup(() => ro.disconnect());
   });
-  createEffect(on([place, win, canvasTop], () => host().window.requestAnimationFrame(measure)));
+  createEffect(
+    on([spot, folded, win, canvasTop], () => host().window.requestAnimationFrame(measure)),
+  );
   createEffect(() => {
-    const p = place();
+    const p = spot();
     if (carry()) return;
     if (p.docked) return setCardInset(NO_INSET);
     if (isColumn(p.at)) {
@@ -113,7 +122,8 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
     on(
       () => s.mode(),
       (m) => {
-        if (m !== "questions" && place().docked) save({ ...place(), docked: null });
+        if (m !== "questions" && spot().docked) save({ ...spot(), docked: null });
+        if (m !== "questions") setFolded(false);
       },
       { defer: true },
     ),
@@ -131,7 +141,7 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
       if (moved < 8) return;
       if (moved > 40 && edgeDistance(ev.clientX, ev.clientY, area()) < DOCK_EDGE) {
         end();
-        save({ ...place(), docked: dockAt(ev.clientX, ev.clientY, area()) });
+        save({ ...spot(), docked: dockAt(ev.clientX, ev.clientY, area()) });
         return;
       }
       setCarry({ x: ev.clientX, y: ev.clientY, hot: spotAt(ev.clientX, ev.clientY, area()) });
@@ -171,11 +181,11 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
       el.removeEventListener("pointerup", up);
       el.removeEventListener("pointercancel", up);
       setHandleAt(null);
-      const d = place().docked;
+      const d = spot().docked;
       if (!d) return;
       if (moved <= 10) return save({ at: spotForHandle(d), docked: null });
       if (edgeDistance(ev.clientX, ev.clientY, area()) < OPEN_ZONE) {
-        return save({ ...place(), docked: dockAt(ev.clientX, ev.clientY, area()) });
+        return save({ ...spot(), docked: dockAt(ev.clientX, ev.clientY, area()) });
       }
       save({ at: spotAt(ev.clientX, ev.clientY, area()), docked: null });
     };
@@ -184,8 +194,62 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
     el.addEventListener("pointercancel", up);
   };
 
+  // A vertical swipe on the sheet's top folds or unfolds it; a tap on the grip
+  // or the folded line toggles it through their own clicks. Followed on the
+  // window, not captured, so a tap still lands on the button it started on.
+  let swiped = false;
+  const startSwipe = (e: PointerEvent) => {
+    const y0 = e.clientY;
+    swiped = false;
+    const move = (ev: PointerEvent) => {
+      const dy = ev.clientY - y0;
+      if (Math.abs(dy) < 32 || dy > 0 === folded()) return;
+      swiped = true;
+      setFolded(dy > 0);
+      end();
+    };
+    const end = () => {
+      host().window.removeEventListener("pointermove", move);
+      host().window.removeEventListener("pointerup", end);
+      host().window.removeEventListener("pointercancel", end);
+    };
+    host().window.addEventListener("pointermove", move);
+    host().window.addEventListener("pointerup", end);
+    host().window.addEventListener("pointercancel", end);
+  };
+  const toggle = (open: boolean) => {
+    if (swiped) {
+      swiped = false;
+      return;
+    }
+    setFolded(!open);
+  };
+  // What the folded sheet still says: where you are and what is asked.
+  const peek = (): { k: string; t: string } => {
+    if (s.mode() === "tune") return { k: "Tune", t: "" };
+    if (s.mode() === "thread") return { k: "Thread", t: "" };
+    const qs = s.questions();
+    if (!s.asks().length) return { k: "Decide", t: s.mock()?.title ?? "" };
+    if (s.reviewing()) {
+      const n = s.owed().length;
+      return { k: "Review", t: n ? `${n} still open` : "Ready to send" };
+    }
+    if (!qs.length) {
+      const n = s.owed().length;
+      return { k: "Questions", t: n ? `${n} open on other states` : "Nothing open" };
+    }
+    const i = Math.min(s.cur(), qs.length - 1);
+    const q = qs[i];
+    return {
+      k: `${i + 1} of ${qs.length}`,
+      t: q.kind === "ask" ? q.ask.text : "Borrow a part from another look?",
+    };
+  };
+
   const chip = () => (col() ? CHIP.col : CHIP.row);
   const cardStyle = () => {
+    // The sheet is placed by CSS alone, so a stale window size can't move it.
+    if (phone()) return {};
     const c = carry();
     if (c) {
       const { w, h } = chip();
@@ -199,7 +263,7 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
     // height: the card grows and shrinks with each question, and WebKit may not
     // report its first size at all.
     const a = area();
-    const v = place().at.split("-")[0];
+    const v = spot().at.split("-")[0];
     return {
       width: `${width()}px`,
       "max-height": `${a.h - 2 * INSET}px`,
@@ -239,7 +303,13 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
       <div
         ref={(el) => (cardEl = el)}
         class="qcard"
-        classList={{ col: col(), chip: !!carry(), hidden: !!place().docked && !carry() }}
+        classList={{
+          col: col(),
+          chip: !!carry(),
+          hidden: !!spot().docked && !carry(),
+          sheet: phone(),
+          folded: phone() && folded(),
+        }}
         style={cardStyle()}
         role="region"
         aria-label="Questions"
@@ -247,13 +317,42 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
         // stay buttons.
         onPointerDown={(e) => {
           const t = e.target as Element;
+          if (phone()) {
+            if (t.closest(".qcard-grip, .qpeek, .qhd, .qcard-mode") && !t.closest(".qhd button"))
+              startSwipe(e);
+            return;
+          }
           if (t.closest("button, a, input, textarea, select")) return;
           if (t.closest(".qcard-grip, .qhd, .qcard-mode")) startCarry(e);
         }}
       >
-        <div class="qcard-grip" aria-hidden="true">
-          <i />
-        </div>
+        <Show
+          when={phone()}
+          fallback={
+            <div class="qcard-grip" aria-hidden="true">
+              <i />
+            </div>
+          }
+        >
+          <button
+            type="button"
+            class="qcard-grip"
+            aria-expanded={!folded()}
+            aria-label={folded() ? "Show questions" : "Hide questions"}
+            onClick={() => toggle(folded())}
+          >
+            <i />
+          </button>
+          <Show when={folded()}>
+            <button type="button" class="qpeek" onClick={() => toggle(true)}>
+              <span class="qpeek-k">{peek().k}</span>
+              <span class="qpeek-t">{peek().t}</span>
+              <span class="qpeek-go" aria-hidden="true">
+                ⌃
+              </span>
+            </button>
+          </Show>
+        </Show>
         <div class="qcard-body" ref={setContent}>
           <Switch>
             <Match when={s.mode() === "questions"}>
@@ -272,7 +371,7 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
           </Switch>
         </div>
       </div>
-      <Show when={carry() ? null : place().docked}>
+      <Show when={carry() ? null : spot().docked}>
         {(d) => {
           const r = () => {
             const at = handleAt();

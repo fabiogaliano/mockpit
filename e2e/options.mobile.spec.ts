@@ -131,3 +131,67 @@ test("a slot's question brings the slot into view at a readable size", async ({
     expect(frame!.width / 390).toBeGreaterThan(0.5);
   }
 });
+
+// A select knob that the design reads as a `data-k-*` attribute, the way a
+// design reads a faceplate tone. On touch the first tap previews it on stage
+// and a second picks; the pick stays on stage past its question and a reload,
+// which only a draft answer does: a preview is held in memory alone.
+test("a tapped knob option reaches the stage and stays there once picked", async ({
+  page,
+  server,
+}) => {
+  const pub = await agentCall<{ mock: { id: string }; sessionId?: string }>(
+    server.url,
+    "/api/mocks",
+    {
+      project: "t",
+      mock: "tone",
+      title: "Tone",
+      agent: "e2e",
+      html: `<style>body{margin:0}.dv{height:600px;background:#e9e4da}[data-k-tone="graphite"] .dv{background:#2c2b29}</style>
+<div class="dv" data-part="plate" data-part-label="Plate"></div>`,
+      knobs: { tone: { type: "select", options: ["warm", "graphite"] } },
+    },
+  );
+  await agentCall(server.url, `/api/mocks/${pub.mock.id}/asks`, {
+    session: pub.sessionId,
+    asks: [
+      {
+        id: "tone",
+        text: "Faceplate tone?",
+        options: [
+          { id: "warm", label: "Warm", set: { tone: "warm" } },
+          { id: "graphite", label: "Graphite", set: { tone: "graphite" } },
+        ],
+      },
+      {
+        id: "night",
+        text: "Graphite after 21:00?",
+        options: [
+          { id: "yes", label: "Yes" },
+          { id: "no", label: "No" },
+        ],
+      },
+    ],
+  });
+
+  await page.goto(`${server.url}/project/t/tone`);
+  const doc = page.frameLocator(".frame.on iframe").locator("html");
+  await expect(doc).toHaveAttribute("data-k-tone", "warm");
+  const saved = page.waitForResponse(
+    (r) => r.url().includes("/draft") && r.request().method() === "PUT",
+  );
+  const graphite = page.locator('.opt[data-option="graphite"]');
+  await graphite.tap();
+  await expect(doc).toHaveAttribute("data-k-tone", "graphite");
+  await graphite.tap();
+  await saved;
+  await expect(page.locator(".qhd").first()).toContainText("Question 2 of 2");
+  await expect(doc).toHaveAttribute("data-k-tone", "graphite");
+
+  await page.reload();
+  await expect(page.frameLocator(".frame.on iframe").locator("html")).toHaveAttribute(
+    "data-k-tone",
+    "graphite",
+  );
+});

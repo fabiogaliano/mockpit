@@ -160,7 +160,7 @@ export class SqlStore implements Store {
       key: "TEXT",
       agentActiveAt: "TEXT",
     });
-    this.addMissing("mocks", { widths: "TEXT NOT NULL DEFAULT '[]'" });
+    this.addMissing("mocks", { widths: "TEXT NOT NULL DEFAULT '[]'", resolvedAt: "TEXT" });
     this.addMissing("posts", { note: "TEXT" });
     if (legacy) this.migrateLegacy();
     this.createIndexes();
@@ -544,6 +544,7 @@ export class SqlStore implements Store {
       widths: parseJson<number[]>(r.widths, []),
       draft: parseJson<Draft | null>(r.draft, null),
       sessionId: (r.sessionId as string) ?? null,
+      resolvedAt: (r.resolvedAt as string) ?? null,
       createdAt: r.createdAt as string,
       updatedAt: r.updatedAt as string,
     };
@@ -811,6 +812,7 @@ export class SqlStore implements Store {
       widths: input.widths ?? [],
       draft: null,
       sessionId: input.sessionId ?? null,
+      resolvedAt: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -843,10 +845,11 @@ export class SqlStore implements Store {
       ...(patch.knobs !== undefined && { knobs: patch.knobs }),
       ...(patch.widths !== undefined && { widths: patch.widths }),
       ...(patch.sessionId !== undefined && { sessionId: patch.sessionId }),
+      ...(patch.resolvedAt !== undefined && { resolvedAt: patch.resolvedAt }),
       updatedAt: new Date().toISOString(),
     };
     this.sql.exec(
-      "UPDATE mocks SET title = ?, kind = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, updatedAt = ? WHERE id = ?",
+      "UPDATE mocks SET title = ?, kind = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, resolvedAt = ?, updatedAt = ? WHERE id = ?",
       next.title,
       next.kind,
       JSON.stringify(next.states),
@@ -854,6 +857,7 @@ export class SqlStore implements Store {
       JSON.stringify(next.knobs),
       JSON.stringify(next.widths),
       next.sessionId,
+      next.resolvedAt,
       next.updatedAt,
       id,
     );
@@ -1189,6 +1193,14 @@ export class SqlStore implements Store {
         JSON.stringify(input.asks),
         input.mockId,
       );
+      if (input.resolvedAt !== undefined) {
+        this.sql.exec(
+          "UPDATE mocks SET resolvedAt = ?, updatedAt = ? WHERE id = ?",
+          input.resolvedAt,
+          input.resolvedAt,
+          input.mockId,
+        );
+      }
       for (const id of input.accept) {
         this.sql.exec(
           "UPDATE posts SET status = 'accepted' WHERE id = ? AND mockId = ?",

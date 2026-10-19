@@ -124,13 +124,15 @@ export async function seedWriter(server: string): Promise<Seeded> {
 }
 
 // A one-variant mock with one plain ask, published after whatever came before
-// it, so it queues behind earlier mocks.
-export async function seedAsked(server: string, slug: string, title: string) {
+// it, so it queues behind earlier mocks; by the given session's agent, else a
+// new one's.
+export async function seedAsked(server: string, slug: string, title: string, session?: string) {
   const out = await agentCall(server, "/api/mocks", {
     project: PROJECT,
     mock: slug,
     title,
     agent: "e2e",
+    ...(session ? { session } : {}),
     html: `<p>${title}</p>`,
   });
   await agentCall(server, `/api/mocks/${out.mock.id}/asks`, {

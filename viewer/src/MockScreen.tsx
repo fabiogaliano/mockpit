@@ -14,7 +14,7 @@ import { createMockScreen } from "./state.ts";
 import { Strip } from "./Strip.tsx";
 import { createTune } from "./tune.ts";
 import { TopBar } from "./TopBar.tsx";
-import { canvasLayout } from "./viewport.ts";
+import { canvasLayout, phoneLayout } from "./viewport.ts";
 
 export function MockScreen(props: { project: string; slug: string }) {
   const s = createMockScreen(props.project, props.slug);
@@ -29,15 +29,7 @@ export function MockScreen(props: { project: string; slug: string }) {
         <>
           <CarriedChip project={props.project} slug={props.slug} />
           <Show when={s.mode() !== "questions" && s.owed().length > 0}>
-            <button
-              type="button"
-              class="pill reopen"
-              onClick={() => {
-                const first = s.owed()[0];
-                const i = s.questions().findIndex((q) => q.kind === "ask" && q.ask.id === first.id);
-                s.goQuestion(Math.max(0, i));
-              }}
-            >
+            <button type="button" class="pill reopen" onClick={() => s.goOwed()}>
               <i class="dot" />
               {`${s.owed().length} open ›`}
             </button>
@@ -64,7 +56,7 @@ export function MockScreen(props: { project: string; slug: string }) {
   return (
     <div
       class="screen mock-screen"
-      classList={{ "on-canvas": canvasLayout(), inspecting: s.inspect() }}
+      classList={{ "on-canvas": canvasLayout(), phone: phoneLayout(), inspecting: s.inspect() }}
     >
       <Show
         when={canvasLayout()}

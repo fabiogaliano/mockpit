@@ -1138,6 +1138,50 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     },
   );
 
+  contract(
+    "a resolution stores resolvedAt with the dismissed asks; reopen clears it",
+    async (store) => {
+      const session = await store.createSession({ agent: "pi" });
+      const mock = await store.createMock({ project: "demo", slug: "card", sessionId: session.id });
+      assert.equal(mock.resolvedAt, null);
+      const asks = [
+        {
+          id: "tone",
+          text: "?",
+          scope: "mock" as const,
+          options: [],
+          dismissed: true as const,
+          at: "t",
+        },
+      ];
+      const at = "2026-10-19T10:00:00.000Z";
+      const comment = await store.commitReply({
+        mockId: mock.id,
+        sessionId: session.id,
+        text: "",
+        payload: {
+          mockId: mock.id,
+          version: 1,
+          answers: {},
+          mix: {},
+          tuned: {},
+          comments: [],
+          resolved: { dismissed: ["tone"] },
+        },
+        asks,
+        accept: [],
+        archive: [],
+        resolvedAt: at,
+      });
+      assert.deepEqual(comment?.payload?.resolved, { dismissed: ["tone"] });
+      const after = await store.getMock(mock.id);
+      assert.equal(after?.resolvedAt, at);
+      assert.equal(after?.asks[0].dismissed, true);
+      assert.equal((await store.updateMock(mock.id, { resolvedAt: null }))?.resolvedAt, null);
+      assert.equal((await store.getMock(mock.id))?.resolvedAt, null);
+    },
+  );
+
   contract("removing a mock cascades to its variants and comments", async (store) => {
     const session = await store.createSession({ agent: "pi" });
     const mock = await store.createMock({ project: "demo", slug: "writer" });

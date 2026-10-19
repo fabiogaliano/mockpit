@@ -149,6 +149,7 @@ export const mockSummaryView = (mock: Mock, posts: Post[]) => {
     // Only once the user has started one, so a list with no drafts costs nothing.
     ...(drafted === null ? {} : { drafted }),
     sessionId: mock.sessionId,
+    resolvedAt: mock.resolvedAt,
     createdAt: mock.createdAt,
     updatedAt: mock.updatedAt,
     thumbnail: thumbnail(mock, posts),
@@ -173,6 +174,7 @@ export const mockDetailView = (
   knobs: mock.knobs,
   widths: mock.widths,
   sessionId: mock.sessionId,
+  resolvedAt: mock.resolvedAt,
   createdAt: mock.createdAt,
   updatedAt: mock.updatedAt,
   variants: posts.map((p) => variantView(p, opts)),

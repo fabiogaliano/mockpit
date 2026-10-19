@@ -89,6 +89,12 @@ export const api = {
       `/api/mocks/${encodeURIComponent(id)}/variants/${encodeURIComponent(postId)}/restore`,
       json("POST", { version }),
     ),
+  // Close a mock from the project list: its open asks are dismissed unanswered
+  // and the agent hears it once; reopen brings them back.
+  resolve: (id: string) =>
+    call<{ mock: MockSummary }>(`/api/mocks/${encodeURIComponent(id)}/resolve`, json("POST", {})),
+  reopen: (id: string) =>
+    call<{ mock: MockSummary }>(`/api/mocks/${encodeURIComponent(id)}/reopen`, json("POST", {})),
   // Un-archive one variant of one state (D13).
   restoreVariant: (id: string, state: string | null, variant: string) =>
     call<unknown>(`/api/mocks/${encodeURIComponent(id)}/restore`, json("POST", { state, variant })),

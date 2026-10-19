@@ -30,7 +30,9 @@ The loop never waits for the user:
    browser at their own pace. Never poll.
 5. When the user says they answered (or a `mockpit watch` line wakes you), run
    `mockpit feedback`. Every write also returns `feedback`; read it. Empty
-   `feedback` with a `pending` draft means they are still answering.
+   `feedback` with a `pending` draft means they are still answering. A batch
+   with `resolved: true` means they closed the mock unanswered: never re-ask
+   its `dismissed` asks.
 6. `mockpit publish` the revision (`--parts name=file` for one part);
    `mockpit export` once a variant is accepted.
 

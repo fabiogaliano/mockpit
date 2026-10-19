@@ -56,6 +56,10 @@ values and comments are drafts and never delivered before Send. Each Send is
 delivered exactly once across the monitor, `feedback` and the `feedback` field
 on every write.
 
+A `mockpit resolved on <mock>: …` line (a batch with `resolved: true` and
+`dismissed` asks) means the user closed that mock unanswered. Its dismissed
+questions were not worth answering: don't ask them again, in any wording.
+
 Respond by publishing the next version (`publish`, or `--parts name=file` for
 one part) or with a short note in the thread (`say` / `mockpit say`).
 

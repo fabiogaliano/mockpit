@@ -2,8 +2,10 @@
 // can render them (a variant that exists for the ask's state, or a knob set it
 // can apply), pills otherwise. Hover previews on the stage, click picks; on a
 // hover device a pick moves on to the next open question, on touch the first
-// tap previews and the second confirms (see `tapPicks`). Mix is the optional
-// last question; the review after it lists every answer above Send.
+// tap previews and the second confirms (see `tapPicks`). Each state shows the
+// questions about it, and only open ones: sent answers fold into a read-only
+// Answered group, changed only through its "Change answer". The review after
+// the last question lists every answer above Send.
 
 import {
   createMemo,
@@ -41,12 +43,40 @@ export function Questions(props: { s: MockScreenState }) {
   const s = props.s;
   return (
     <Show when={s.mock()}>
-      <Show when={s.questions().length} fallback={<Decide s={s} />}>
+      <Show when={s.mock()?.resolvedAt}>
+        <ResolvedNote s={s} />
+      </Show>
+      <Show when={s.asks().length} fallback={<Decide s={s} />}>
         <QuestionView s={s} />
       </Show>
     </Show>
   );
 }
+
+// A mock the user resolved from the project list: what that did, and the way back.
+function ResolvedNote(props: { s: MockScreenState }) {
+  return (
+    <div class="resolved-note" role="status">
+      <span>Resolved. Questions still open were closed unanswered, and your agent was told.</span>
+      <Show when={!readonly()}>
+        <button type="button" class="secondary" onClick={() => void props.s.reopen()}>
+          Reopen
+        </button>
+      </Show>
+    </div>
+  );
+}
+
+// "Mobile · " before the count, when the mock has states to tell apart.
+const stateLead = (s: MockScreenState) =>
+  s.states().length > 1 && s.activeState() !== null ? `${s.activeState()} · ` : "";
+// The count is per state, so "1 of 1" alone would read as the last question
+// when other states still ask something.
+const openElsewhere = (s: MockScreenState) => {
+  const here = new Set(s.questions().flatMap((q) => (q.kind === "ask" ? [q.ask.id] : [])));
+  const n = s.owed().filter((a) => !here.has(a.id)).length;
+  return n ? ` · ${n} open on other ${n === 1 ? "state" : "states"}` : "";
+};
 
 function QuestionView(props: { s: MockScreenState }) {
   const s = props.s;
@@ -81,10 +111,12 @@ function QuestionView(props: { s: MockScreenState }) {
         <Show
           when={!s.reviewing()}
           fallback={
-            <span>{`Review · ${total()} ${total() === 1 ? "question" : "questions"}`}</span>
+            <span>{`Review · ${s.reviewAsks().length} ${s.reviewAsks().length === 1 ? "question" : "questions"}`}</span>
           }
         >
-          <Header s={s} index={i()} total={total()} />
+          <Show when={total()} fallback={<span>{`${stateLead(s)}Nothing open`}</span>}>
+            <Header s={s} index={i()} total={total()} />
+          </Show>
         </Show>
         <span class="grow" />
         {/* The shortcuts are keyboard ones; a finger has the arrows beside it. */}
@@ -95,7 +127,7 @@ function QuestionView(props: { s: MockScreenState }) {
           type="button"
           class="nav"
           aria-label="Previous question"
-          disabled={!s.reviewing() && i() === 0}
+          disabled={s.stepTarget(-1) === null}
           onClick={() => s.step(-1)}
         >
           ‹
@@ -104,7 +136,7 @@ function QuestionView(props: { s: MockScreenState }) {
           type="button"
           class="nav"
           aria-label="Next question"
-          disabled={s.reviewing()}
+          disabled={s.stepTarget(1) === null}
           onClick={() => s.step(1)}
         >
           ›
@@ -114,6 +146,9 @@ function QuestionView(props: { s: MockScreenState }) {
         <KeysList />
       </Show>
       <Show when={!s.reviewing()} fallback={<Review s={s} />}>
+        <Show when={!total()}>
+          <NoneOpen s={s} />
+        </Show>
         {/* Keyed by the question's id, not its object: the list is rebuilt
             whenever a frame reports its parts, and remounting on that would
             close an open note and drop the focus out of its field mid-typing. */}
@@ -146,19 +181,101 @@ function QuestionView(props: { s: MockScreenState }) {
               disabled={p.kind === "send" && s.sending()}
               onClick={() => s.runPrimary()}
             >
-              {primaryLabel(p, s.owed().length)}
+              {primaryLabel(p, s.owed().length, s.activeState())}
             </button>
           </div>
         )}
       </Show>
+      <Answered s={s} scope={s.reviewing() ? "all" : "state"} />
     </div>
   );
 }
 
-function primaryLabel(p: NonNullable<Primary>, owed: number): string {
+// The state on stage has nothing open: why, in a line.
+function NoneOpen(props: { s: MockScreenState }) {
+  const s = props.s;
+  const text = () => {
+    if (s.mock()?.resolvedAt) return "Nothing open: resolving closed the rest.";
+    if (s.flow().length)
+      return s.states().length > 1
+        ? "Nothing open on this state. Other states still have questions."
+        : "Nothing open.";
+    return s.closedAsks("all").length ? "All answered. Your answers were sent." : "Nothing open.";
+  };
+  return (
+    <div class="qblock">
+      <div class="ask none-open">{text()}</div>
+    </div>
+  );
+}
+
+// Sent answers, folded: read-only, each with the answer it got. Changing one
+// is its own button, so a stray tap can't reopen it.
+function Answered(props: { s: MockScreenState; scope: "state" | "all" }) {
+  const s = props.s;
+  const [open, setOpen] = createSignal(false);
+  const id = createUniqueId();
+  const rows = () => s.closedAsks(props.scope);
+  const said = (a: Ask) => {
+    if (a.dismissed) return "Dismissed, not answered";
+    const out = answerIds(a.answer).map((x) => a.options.find((o) => o.id === x)?.label ?? x);
+    if (a.other !== undefined) out.push(a.other ? `“${a.other}”` : "an image");
+    if (!out.length && a.note !== undefined) out.push("a note");
+    return out.join(", ");
+  };
+  return (
+    <Show when={rows().length}>
+      <div class="answered">
+        <button
+          type="button"
+          class="answered-hd"
+          aria-expanded={open()}
+          aria-controls={id}
+          onClick={() => setOpen(!open())}
+        >
+          <span class="answered-chev" aria-hidden="true">
+            ›
+          </span>
+          {`Answered · ${rows().length}`}
+        </button>
+        <Show when={open()}>
+          <ul class="answered-list" id={id}>
+            <For each={rows()}>
+              {(a) => (
+                <li class="answered-row" data-answered={a.id}>
+                  <span class="review-text">
+                    <span class="review-name">{a.text}</span>
+                    <span class="review-said" classList={{ dismissed: !!a.dismissed }}>
+                      {said(a)}
+                    </span>
+                    <Show when={a.note && !a.dismissed}>
+                      <span class="answered-note">{`Note: ${a.note}`}</span>
+                    </Show>
+                  </span>
+                  <Show when={!readonly() && !a.dismissed}>
+                    <button
+                      type="button"
+                      class="secondary answered-change"
+                      aria-label={`Change answer: ${a.text}`}
+                      onClick={() => s.changeAnswer(a)}
+                    >
+                      Change answer
+                    </button>
+                  </Show>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
+      </div>
+    </Show>
+  );
+}
+
+function primaryLabel(p: NonNullable<Primary>, owed: number, here: string | null): string {
   switch (p.kind) {
     case "next":
-      return "Next ›";
+      return p.state !== here && p.state !== null ? `Next: ${p.state} ›` : "Next ›";
     case "review":
       return "Review ›";
     case "back":
@@ -174,10 +291,7 @@ function primaryLabel(p: NonNullable<Primary>, owed: number): string {
 // and its pick comes back here.
 function Review(props: { s: MockScreenState }) {
   const s = props.s;
-  const askAt = (index: number) => {
-    const q = s.questions()[index];
-    return q?.kind === "ask" ? q.ask : null;
-  };
+  const askAt = (index: number) => s.reviewAsks()[index] ?? null;
   const picture = (index: number, option: string | null) => {
     const ask = askAt(index);
     const o = ask && option ? ask.options.find((x) => x.id === option) : undefined;
@@ -200,7 +314,10 @@ function Review(props: { s: MockScreenState }) {
                 classList={{ owed: r.owed, dormant: r.dormant }}
                 data-review={r.index}
                 aria-label={`${r.name}: ${r.said.length ? r.said.join(", ") : r.owed ? "not answered" : "skipped"}. Change`}
-                onClick={() => s.goQuestion(r.index, { fromReview: true })}
+                onClick={() => {
+                  const a = askAt(r.index);
+                  if (a) s.goAsk(a.id, { fromReview: true });
+                }}
               >
                 <Show when={picture(r.index, r.option)}>
                   {(p) => (
@@ -320,21 +437,23 @@ function Header(props: { s: MockScreenState; index: number; total: number }) {
       when={labels()}
       fallback={
         <span>
-          {`Question ${props.index + 1} of ${props.total}`}
+          {`${stateLead(s)}Question ${props.index + 1} of ${props.total}`}
           <Show when={ask() && s.dormantOf(ask()!)}>
             <span class="flag">{" · skipped"}</span>
           </Show>
           <Show when={flagged()}>
             <span class="flag">{` · your pick is gone in v${s.latest()}`}</span>
           </Show>
+          {openElsewhere(s)}
         </span>
       }
     >
-      <span>{`${props.index + 1} of ${props.total} · `}</span>
+      <span>{`${stateLead(s)}${props.index + 1} of ${props.total} · `}</span>
       <span class="picked">{`picked: ${labels()}`}</span>
       <Show when={ask() && s.dormantOf(ask()!)}>
         <span class="flag">{" · skipped"}</span>
       </Show>
+      <span>{openElsewhere(s)}</span>
     </Show>
   );
 }
@@ -415,13 +534,31 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
   };
   return (
     <div class="qblock">
-      <div class="nm">
+      {/* Plain: named only "Question", or for the state the header above
+          already names. */}
+      <div
+        class="nm"
+        classList={{
+          plain:
+            (askName(props.ask, m()) === "Question" ||
+              (stateLead(s) !== "" && askName(props.ask, m()) === s.activeState())) &&
+            !slot(),
+        }}
+      >
         {askName(props.ask, m())}
         <Show when={slot()}>
           {(sl) => <span class="slotchip">{`Slot · ${sl().label ?? sl().part}`}</span>}
         </Show>
       </div>
       <div class="ask">{props.ask.text}</div>
+      <Show when={s.revisingOf(props.ask)}>
+        <div class="revising" role="status">
+          <span>{"Changing a sent answer. A new pick goes out with your next Send."}</span>
+          <button type="button" class="lnk" onClick={() => s.keepAnswer(props.ask)}>
+            Keep sent answer
+          </button>
+        </div>
+      </Show>
       <Show when={dormant()}>
         {(d) => (
           <div class="dormant" role="status">
@@ -585,6 +722,15 @@ function AskText(props: {
   const images = () => s.imagesOf(props.ask, props.field);
   const pending = () => s.pendingOf(props.ask, props.field);
   const attach = (files: File[]) => void s.attachImages(props.ask, props.field, files);
+  const folded = () => s.foldedOf(props.ask, props.field);
+  // Only something written is worth folding away; an empty box has nothing to keep.
+  const foldable = () => !!props.value.trim() || images().length > 0;
+  // Unfolding remounts the field, which should then take the caret.
+  const [unfolded, setUnfolded] = createSignal(false);
+  const fold = (on: boolean) => {
+    setUnfolded(!on);
+    s.setFolded(props.ask, props.field, on);
+  };
   // Focus stays in the tray after a removal: the next chip, else the one
   // before, else the text.
   const refocus = (index: number) =>
@@ -598,123 +744,175 @@ function AskText(props: {
     return true;
   };
   return (
-    <div
-      class={`asktext ${props.class}`}
-      classList={{ dropping: over() > 0 }}
-      onDragEnter={(e) => drag(e) && setOver(over() + 1)}
-      onDragOver={(e) => {
-        if (drag(e) && e.dataTransfer) e.dataTransfer.dropEffect = "copy";
-      }}
-      onDragLeave={(e) => drag(e) && setOver(Math.max(0, over() - 1))}
-      onDrop={(e) => {
-        if (!drag(e)) return;
-        setOver(0);
-        attach(filesOf(e.dataTransfer, "drop"));
-      }}
+    <Show
+      when={!(folded() && foldable())}
+      fallback={<FoldedText {...props} onOpen={() => fold(false)} />}
     >
-      <label class="up-text-label" for={id}>
-        {props.label}
-      </label>
-      <textarea
-        id={id}
-        rows={2}
-        maxLength={8000}
-        placeholder={props.placeholder}
-        value={props.value}
-        readOnly={readonly()}
-        ref={(el) => {
-          textarea = el;
-          if (props.focus) queueMicrotask(() => el.focus());
+      <div
+        class={`asktext ${props.class}`}
+        classList={{ dropping: over() > 0 }}
+        onDragEnter={(e) => drag(e) && setOver(over() + 1)}
+        onDragOver={(e) => {
+          if (drag(e) && e.dataTransfer) e.dataTransfer.dropEffect = "copy";
         }}
-        onInput={(e) => props.onInput(e.currentTarget.value)}
-        onPaste={(e) => {
-          if (readonly()) return;
-          const files = filesOf(e.clipboardData, "paste");
-          // Text pastes as text; only a paste that carries images is ours.
-          if (!files.length) return;
-          e.preventDefault();
-          attach(files);
+        onDragLeave={(e) => drag(e) && setOver(Math.max(0, over() - 1))}
+        onDrop={(e) => {
+          if (!drag(e)) return;
+          setOver(0);
+          attach(filesOf(e.dataTransfer, "drop"));
         }}
-      />
-      <Show when={images().length || pending().length || !readonly()}>
-        <div class="attach-row">
-          <ul
-            class="attach-list"
-            ref={(el) => (list = el)}
-            aria-label={`Attached images, ${images().length + pending().length}`}
-          >
-            <For each={images()}>
-              {(asset, i) => (
-                <li class="attach-item">
-                  <img src={assetUrl(asset)} alt="" />
-                  <Show when={!readonly()}>
+      >
+        <div class="asktext-head">
+          <label class="up-text-label" for={id}>
+            {props.label}
+          </label>
+          <Show when={foldable()}>
+            <button
+              type="button"
+              class="asktext-fold"
+              aria-label={`Minimize ${props.label.toLowerCase()}`}
+              title="Minimize"
+              onClick={() => fold(true)}
+            >
+              <svg viewBox="0 0 12 12" aria-hidden="true">
+                <path d="M3 7.5l3-3 3 3" />
+              </svg>
+            </button>
+          </Show>
+        </div>
+        <textarea
+          id={id}
+          rows={2}
+          maxLength={8000}
+          placeholder={props.placeholder}
+          value={props.value}
+          readOnly={readonly()}
+          ref={(el) => {
+            textarea = el;
+            if (props.focus || unfolded()) queueMicrotask(() => el.focus());
+          }}
+          onInput={(e) => props.onInput(e.currentTarget.value)}
+          onPaste={(e) => {
+            if (readonly()) return;
+            const files = filesOf(e.clipboardData, "paste");
+            // Text pastes as text; only a paste that carries images is ours.
+            if (!files.length) return;
+            e.preventDefault();
+            attach(files);
+          }}
+        />
+        <Show when={images().length || pending().length || !readonly()}>
+          <div class="attach-row">
+            <ul
+              class="attach-list"
+              ref={(el) => (list = el)}
+              aria-label={`Attached images, ${images().length + pending().length}`}
+            >
+              <For each={images()}>
+                {(asset, i) => (
+                  <li class="attach-item">
+                    <img src={assetUrl(asset)} alt="" />
+                    <Show when={!readonly()}>
+                      <button
+                        type="button"
+                        class="attach-x"
+                        aria-label={`Remove image ${i() + 1}`}
+                        onClick={() => {
+                          s.detachImage(props.ask, props.field, asset);
+                          refocus(i());
+                        }}
+                      >
+                        <XIcon />
+                      </button>
+                    </Show>
+                  </li>
+                )}
+              </For>
+              <For each={pending()}>
+                {(p, i) => (
+                  <li class="attach-item" classList={{ pending: !p.error, failed: !!p.error }}>
+                    <img src={p.url} alt="" />
+                    <Show when={p.error}>
+                      <span class="attach-err" title={p.error}>
+                        !
+                      </span>
+                    </Show>
                     <button
                       type="button"
                       class="attach-x"
-                      aria-label={`Remove image ${i() + 1}`}
+                      aria-label={p.error ? `Dismiss ${p.name}: ${p.error}` : `Cancel ${p.name}`}
                       onClick={() => {
-                        s.detachImage(props.ask, props.field, asset);
-                        refocus(i());
+                        s.dismissPending(props.ask, props.field, p.key);
+                        refocus(images().length + i());
                       }}
                     >
                       <XIcon />
                     </button>
-                  </Show>
-                </li>
-              )}
-            </For>
-            <For each={pending()}>
-              {(p, i) => (
-                <li class="attach-item" classList={{ pending: !p.error, failed: !!p.error }}>
-                  <img src={p.url} alt="" />
-                  <Show when={p.error}>
-                    <span class="attach-err" title={p.error}>
-                      !
-                    </span>
-                  </Show>
-                  <button
-                    type="button"
-                    class="attach-x"
-                    aria-label={p.error ? `Dismiss ${p.name}: ${p.error}` : `Cancel ${p.name}`}
-                    onClick={() => {
-                      s.dismissPending(props.ask, props.field, p.key);
-                      refocus(images().length + i());
-                    }}
-                  >
-                    <XIcon />
-                  </button>
-                </li>
-              )}
-            </For>
-          </ul>
-          <Show when={!readonly()}>
-            <button
-              type="button"
-              class="attach-btn"
-              aria-label="Attach images"
-              title="Attach images — or paste, or drop them here"
-              onClick={() => picker?.click()}
-            >
-              <svg viewBox="0 0 16 16" aria-hidden="true">
-                <path d="M8 3v10M3 8h10" />
-              </svg>
-            </button>
-            <input
-              ref={(el) => (picker = el)}
-              type="file"
-              accept={ACCEPT}
-              multiple
-              hidden
-              onChange={(e) => {
-                attach(Array.from(e.currentTarget.files ?? []));
-                // Picking the same file again must still fire change.
-                e.currentTarget.value = "";
-              }}
-            />
-          </Show>
-        </div>
+                  </li>
+                )}
+              </For>
+            </ul>
+            <Show when={!readonly()}>
+              <button
+                type="button"
+                class="attach-btn"
+                aria-label="Attach images"
+                title="Attach images — or paste, or drop them here"
+                onClick={() => picker?.click()}
+              >
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M8 3v10M3 8h10" />
+                </svg>
+              </button>
+              <input
+                ref={(el) => (picker = el)}
+                type="file"
+                accept={ACCEPT}
+                multiple
+                hidden
+                onChange={(e) => {
+                  attach(Array.from(e.currentTarget.files ?? []));
+                  // Picking the same file again must still fire change.
+                  e.currentTarget.value = "";
+                }}
+              />
+            </Show>
+          </div>
+        </Show>
+      </div>
+    </Show>
+  );
+}
+
+// A folded write-in or note: one line of what was written, the whole row
+// opens it again.
+function FoldedText(props: {
+  s: MockScreenState;
+  ask: Ask;
+  field: AskField;
+  class: string;
+  label: string;
+  value: string;
+  onOpen: () => void;
+}) {
+  const n = () => props.s.imagesOf(props.ask, props.field).length;
+  return (
+    <button
+      type="button"
+      class={`asktext asktext-folded ${props.class}`}
+      aria-expanded="false"
+      aria-label={`${props.label}: ${props.value.trim() || "no text"}. Expand`}
+      onClick={props.onOpen}
+    >
+      <span class="up-text-label">{props.label}</span>
+      <span class="asktext-gist">{props.value.trim()}</span>
+      <Show when={n()}>
+        <span class="asktext-count">{`${n()} ${n() === 1 ? "image" : "images"}`}</span>
       </Show>
-    </div>
+      <svg viewBox="0 0 12 12" aria-hidden="true">
+        <path d="M3 4.5l3 3 3-3" />
+      </svg>
+    </button>
   );
 }
 

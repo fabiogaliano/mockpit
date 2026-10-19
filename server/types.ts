@@ -339,6 +339,9 @@ export interface Ask {
   // Asset ids of the images the user attached to the write-in / the note.
   otherImages?: string[];
   noteImages?: string[];
+  // Set when the user resolved the mock with this ask still open: closed
+  // unanswered, as not worth answering. Neither open nor answered.
+  dismissed?: true;
   at: string;
 }
 
@@ -417,6 +420,9 @@ export interface Reply {
   noteImages?: Record<string, string[]>;
   text?: string;
   decision?: ReplyDecision;
+  // A resolution instead of an answer: the user closed the mock, and these
+  // asks (stored or built-in ids) with it, unanswered.
+  resolved?: { dismissed: string[] };
 }
 
 export interface Mock {
@@ -436,6 +442,9 @@ export interface Mock {
   // The agent conversation currently driving this mock (its latest writer), so a
   // reply lands on the cursor of the session that is waiting for it.
   sessionId: string | null;
+  // When the user resolved it: off the open list, its open asks dismissed,
+  // until they reopen it. null while it is live.
+  resolvedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -700,6 +709,7 @@ export interface UpdateMockInput {
   knobs?: Knobs;
   widths?: number[];
   sessionId?: string | null;
+  resolvedAt?: string | null;
 }
 
 export interface CreatePostInput {
@@ -764,6 +774,8 @@ export interface CommitReplyInput {
   asks: Ask[];
   accept: string[];
   archive: string[];
+  // A resolution sets it (a reply leaves it as it is).
+  resolvedAt?: string;
 }
 
 export interface PostQuery {
@@ -960,7 +972,7 @@ export const htmlSurface = (html: string, kits?: unknown): HtmlSurface => ({
 export const askAnswered = (a: Pick<Ask, "answer" | "other" | "note">): boolean =>
   a.answer !== undefined || a.other !== undefined || a.note !== undefined;
 export const openAsks = (mock: Pick<Mock, "asks">): Ask[] =>
-  mock.asks.filter((a) => !askAnswered(a));
+  mock.asks.filter((a) => !askAnswered(a) && !a.dismissed);
 
 // How many built-in "Which one?" asks the viewer shows: one mock-wide when every
 // state needs one and the live names line up, else one per needing state. Same
@@ -968,10 +980,12 @@ export const openAsks = (mock: Pick<Mock, "asks">): Ask[] =>
 // the question the user actually sees. Answering it archives the losers, which
 // is what makes it stop counting.
 export function builtinAskIds(
-  mock: Pick<Mock, "asks" | "states">,
+  mock: Pick<Mock, "asks" | "states"> & { resolvedAt?: string | null },
   posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
   mockId: string,
 ): string[] {
+  // Resolving closed the choice along with every other open question.
+  if (mock.resolvedAt) return [];
   const live = (state: string | null) =>
     posts
       .filter((p) => p.mock === mockId && p.state === state && p.status !== "archived")
@@ -996,13 +1010,13 @@ export function builtinAskIds(
 }
 
 export const builtinAskCount = (
-  mock: Pick<Mock, "asks" | "states">,
+  mock: Pick<Mock, "asks" | "states"> & { resolvedAt?: string | null },
   posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
   mockId: string,
 ): number => builtinAskIds(mock, posts, mockId).length;
 
 export const openCount = (
-  mock: Pick<Mock, "id" | "asks" | "states">,
+  mock: Pick<Mock, "id" | "asks" | "states"> & { resolvedAt?: string | null },
   posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
 ): number => openAsks(mock).length + builtinAskCount(mock, posts, mock.id);
 
@@ -1010,7 +1024,7 @@ export const openCount = (
 // pick, a write-in or a note), so Home can show a started mock as "draft 2/4";
 // null when there is no draft. A count only: the draft's content stays private.
 export function draftedCount(
-  mock: Pick<Mock, "id" | "asks" | "states" | "draft">,
+  mock: Pick<Mock, "id" | "asks" | "states" | "draft"> & { resolvedAt?: string | null },
   posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
 ): number | null {
   const d = mock.draft;

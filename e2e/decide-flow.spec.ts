@@ -46,7 +46,7 @@ test("Home lists the mock with its open count and Answer next goes to it", async
   await expect(page.locator(".home-lead")).toContainText("3 open across 1 mock");
   await page.getByRole("link", { name: "Answer next ›" }).click();
   await expect(page).toHaveURL(new RegExp(`${mockPath}$`));
-  await expect(header(page)).toContainText("Question 1 of 3");
+  await expect(header(page)).toContainText("Question 1 of 2");
 });
 
 test("questions: pictures, hover preview, pick, part focus, Borrow in Tune, Send, ✓ → ✓✓", async ({
@@ -57,7 +57,7 @@ test("questions: pictures, hover preview, pick, part focus, Borrow in Tune, Send
   await page.goto(`${server.url}${mockPath}`);
 
   // Q1 Look: picture options, no Send yet.
-  await expect(header(page)).toContainText("Question 1 of 3");
+  await expect(header(page)).toContainText("Question 1 of 2");
   await expect(page.locator(".nm")).toHaveText("Look");
   for (const look of ["quiet", "dark", "editorial"]) {
     await expect(option(page, look).locator("iframe")).toHaveCount(1);
@@ -76,14 +76,14 @@ test("questions: pictures, hover preview, pick, part focus, Borrow in Tune, Send
   // Click picks and moves on.
   await pickAndWait(page, mockId, "quiet");
   await expect(cornerPin(page, 1)).toHaveText("✓");
-  await expect(header(page)).toContainText("Question 2 of 3");
+  await expect(header(page)).toContainText("Question 2 of 2");
   await page.getByRole("button", { name: "Previous question" }).click();
-  await expect(header(page)).toContainText("1 of 3 · picked: Quiet");
+  await expect(header(page)).toContainText("1 of 2 · picked: Quiet");
   await expect(option(page, "quiet")).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Next question" }).click();
 
   // Q2, a part ask: knob-set options are pictures, the part carries the pin.
-  await expect(header(page)).toContainText("Question 2 of 3");
+  await expect(header(page)).toContainText("Question 2 of 2");
   await expect(page.locator(".nm")).toHaveText("Versions");
   await expect(option(page, "drawer").locator("iframe")).toHaveCount(1);
   await expect(partPin(page, 2)).toHaveText("2");
@@ -92,7 +92,7 @@ test("questions: pictures, hover preview, pick, part focus, Borrow in Tune, Send
 
   // Q3 is bound to a part that only "Lab open" shows: the strip follows it.
   await expect(header(page)).toContainText("Question 3 of 3");
-  await expect(activeState(page)).toHaveText("Lab open");
+  await expect(activeState(page)).toContainText("Lab open");
   await expect(partPin(page, 3)).toHaveText("3");
   await expect(option(page, "below")).toHaveClass(/pill/);
   await pickAndWait(page, mockId, "below");
@@ -189,7 +189,7 @@ test("a note and an Other… write-in survive a reload and reach the agent in th
     );
 
   // Q1: the note is opt-in, collapsed until asked for.
-  await expect(header(page)).toContainText("Question 1 of 3");
+  await expect(header(page)).toContainText("Question 1 of 2");
   await expect(page.locator(".ask-note")).toHaveCount(0);
   await picturesSettled(page);
   await page.getByRole("button", { name: "Add a note" }).click();
@@ -618,7 +618,7 @@ test("un-archive: a losing look is restored from the answered Look ask", async (
 }) => {
   const { mockId } = await seedWriter(server.url);
   await page.goto(`${server.url}${mockPath}`);
-  await expect(header(page)).toContainText("Question 1 of 3");
+  await expect(header(page)).toContainText("Question 1 of 2");
   const status = await page.evaluate(async (id) => {
     const r = await fetch(`/api/mocks/${id}/reply`, {
       method: "POST",
@@ -635,8 +635,16 @@ test("un-archive: a losing look is restored from the answered Look ask", async (
   }, mockId);
   expect(status).toBe(201);
 
-  await cornerPin(page, 1).click();
+  // Sent answers fold away, read-only: changing one is a deliberate step.
+  await expect(page.locator(".none-open")).toHaveText("All answered. Your answers were sent.");
+  await expect(page.locator(".opt")).toHaveCount(0);
+  await page.getByRole("button", { name: "Answered · 2" }).click();
+  await expect(page.locator(".answered-row .review-said")).toHaveText(["Quiet", "Drawer"]);
+  await page
+    .getByRole("button", { name: "Change answer: Which look should the Writer take?" })
+    .click();
   await expect(page.locator(".nm")).toHaveText("Look");
+  await expect(page.locator(".revising")).toContainText("Changing a sent answer");
   const dark = page.locator('.opt-arch[data-archived="dark"]');
   await expect(dark).toHaveCount(1);
   await expect(page.locator('.opt-arch[data-archived="editorial"]')).toHaveCount(1);
@@ -779,7 +787,7 @@ test("Which one? is asked per state when the variant names differ", async ({ pag
     });
   }
   await page.goto(`${server.url}/project/${PROJECT}/flow`);
-  await expect(page.locator(".qhd")).toContainText("Question 1 of 2");
+  await expect(page.locator(".qhd")).toContainText("Question 1 of 1");
   await expect(page.locator(".nm")).toHaveText("Start");
   await expect(page.locator('.opt:not([data-option="other"]) .lbl')).toHaveText(["a", "b"]);
   await page.getByRole("button", { name: "Next question" }).click();
@@ -828,7 +836,7 @@ test("keys pick and step, the review changes an answer, Send carries on to the n
   server,
 }) => {
   const { mockId, session } = await seedWriter(server.url);
-  await seedAsked(server.url, "card", "Card");
+  await seedAsked(server.url, "card", "Card", session);
   await page.goto(`${server.url}${mockPath}`);
   const saved = () =>
     page.waitForResponse(
@@ -836,21 +844,21 @@ test("keys pick and step, the review changes an answer, Send carries on to the n
     );
 
   // Number keys pick the nth option (a key acts as a click: pick, then move on).
-  await expect(header(page)).toContainText("Question 1 of 3");
+  await expect(header(page)).toContainText("Question 1 of 2");
   let write = saved();
   await page.keyboard.press("2");
   expect((await write).ok()).toBe(true);
-  await expect(header(page)).toContainText("Question 2 of 3");
+  await expect(header(page)).toContainText("Question 2 of 2");
   // ←/→ step between questions; typing in a field keeps its keys.
   await page.keyboard.press("ArrowLeft");
-  await expect(header(page)).toContainText("1 of 3 · picked: Dark");
+  await expect(header(page)).toContainText("1 of 2 · picked: Dark");
   await page.getByRole("button", { name: "Add a note" }).click();
   await page.locator(".ask-note textarea").press("3");
-  await expect(header(page)).toContainText("1 of 3 · picked: Dark");
+  await expect(header(page)).toContainText("1 of 2 · picked: Dark");
   // Out of the field (a click on plain text), the keys are the flow's again.
   await page.locator(".qblock .ask").click();
   await page.keyboard.press("ArrowRight");
-  await expect(header(page)).toContainText("Question 2 of 3");
+  await expect(header(page)).toContainText("Question 2 of 2");
   write = saved();
   await page.keyboard.press("1");
   expect((await write).ok()).toBe(true);
@@ -910,9 +918,9 @@ test("Stay keeps the screen after Send; ] and [ step through the mocks owed", as
   page,
   server,
 }) => {
-  await seedAsked(server.url, "first", "First");
-  await seedAsked(server.url, "second", "Second");
-  await seedAsked(server.url, "third", "Third");
+  const { session } = await seedAsked(server.url, "first", "First");
+  await seedAsked(server.url, "second", "Second", session);
+  await seedAsked(server.url, "third", "Third", session);
   // Fake timers, still flowing in real time, so the beat can be run past at once.
   await page.clock.install();
   await page.goto(`${server.url}/project/${PROJECT}/second`);
@@ -946,8 +954,8 @@ test("after Send, a tap anywhere on the screen (here: Thread) keeps it from movi
   page,
   server,
 }) => {
-  await seedAsked(server.url, "first", "First");
-  await seedAsked(server.url, "second", "Second");
+  const { session } = await seedAsked(server.url, "first", "First");
+  await seedAsked(server.url, "second", "Second", session);
   await page.clock.install();
   await page.goto(`${server.url}/project/${PROJECT}/first`);
   await expect(header(page)).toContainText("Question 1 of 1");
@@ -962,6 +970,24 @@ test("after Send, a tap anywhere on the screen (here: Thread) keeps it from movi
   await expect(page).toHaveURL(/\/first$/);
   await expect(page.locator(".trow.you")).toHaveCount(1);
   await expect(page.locator(".nextcard-go")).toHaveText("Next: Second · 1 question ›");
+});
+
+test("after Send, another agent conversation's mock is offered, never moved to", async ({
+  page,
+  server,
+}) => {
+  await seedAsked(server.url, "first", "First");
+  await seedAsked(server.url, "other", "Other");
+  await page.clock.install();
+  await page.goto(`${server.url}/project/${PROJECT}/first`);
+  await expect(header(page)).toContainText("Question 1 of 1");
+  await page.keyboard.press("1");
+  await expect(header(page)).toContainText("Review · 1 question");
+  await page.locator("button.send").click();
+  await expect(page.locator(".nextcard-go")).toHaveText("Next: Other · 1 question ›");
+  await expect(page.getByRole("button", { name: "Stay here" })).toHaveCount(0);
+  await page.clock.runFor(5000);
+  await expect(page).toHaveURL(/\/first$/);
 });
 
 test("Home: Answer next follows the agent's order, and a started mock shows its draft", async ({
@@ -1052,4 +1078,146 @@ test("slots: a fill's own question applies only while that fill is chosen; the r
   const exported = await agentCall(server.url, `/api/mocks/${mockId}/export`);
   expect(exported.states[0].html).toContain("···");
   expect(exported.states[0].html).not.toContain("Logging");
+});
+
+// --- questions per state, open ones only, and Resolve ---
+
+test("a state's questions show on that state, and the strip counts what each still owes", async ({
+  page,
+  server,
+}) => {
+  const first = await agentCall(server.url, "/api/mocks", {
+    project: PROJECT,
+    mock: "steps",
+    title: "Steps",
+    agent: "e2e",
+    state: "Empty",
+    html: "<p>empty</p>",
+  });
+  await agentCall(server.url, "/api/mocks", {
+    mock: first.mock.id,
+    session: first.sessionId,
+    state: "Full",
+    html: "<p>full</p>",
+  });
+  await agentCall(server.url, `/api/mocks/${first.mock.id}/asks`, {
+    session: first.sessionId,
+    asks: [
+      {
+        id: "copy",
+        text: "What does the empty state say?",
+        scope: "state",
+        state: "Empty",
+        options: ["Nothing yet", "Start here"],
+      },
+      {
+        id: "sort",
+        text: "How is the list sorted?",
+        scope: "state",
+        state: "Full",
+        options: ["Newest", "Name"],
+      },
+      {
+        id: "dense",
+        text: "How dense?",
+        scope: "state",
+        state: "Full",
+        options: ["Roomy", "Tight"],
+      },
+    ],
+  });
+  await page.goto(`${server.url}/project/${PROJECT}/steps`);
+  await expect(header(page)).toContainText("Empty · Question 1 of 1");
+  await expect(page.locator('.strip [role="tab"] .tab-open')).toHaveText(["1", "2"]);
+
+  // Answered there, the flow moves on to the next state and its own questions.
+  await option(page, "nothing-yet").click();
+  await expect(header(page)).toContainText("Full · Question 1 of 2");
+  await expect(activeState(page)).toContainText("Full");
+  await expect(page.locator('.strip [role="tab"] .tab-open')).toHaveText(["2"]);
+
+  // Back on Empty, only its own question shows.
+  await page.locator('.strip [role="tab"]', { hasText: "Empty" }).click();
+  await expect(header(page)).toContainText("Empty · 1 of 1 · picked: Nothing yet");
+});
+
+test("after a Send only new questions are open; a sent answer is folded and changes only on purpose", async ({
+  page,
+  server,
+}) => {
+  const card = await seedAsked(server.url, "card", "Card");
+  await page.goto(`${server.url}/project/${PROJECT}/card`);
+  await expect(header(page)).toContainText("Question 1 of 1");
+  await option(page, "warm").click();
+  await expect(header(page)).toContainText("Review · 1 question");
+  const reply = page.waitForResponse(
+    (r) => r.url().endsWith(`/api/mocks/${card.mockId}/reply`) && r.request().method() === "POST",
+  );
+  await page.locator("button.send").click();
+  expect((await reply).status()).toBe(201);
+
+  await agentCall(server.url, `/api/mocks/${card.mockId}/asks`, {
+    session: card.session,
+    asks: [
+      { id: "size", text: "Which size?", options: ["Small", "Large"] },
+      { id: "edge", text: "Which edge?", options: ["Round", "Square"] },
+    ],
+  });
+  await page.locator('[data-mode="questions"]').click();
+  // Two new questions, not three: the sent one is out of the way.
+  await expect(header(page)).toContainText("Question 1 of 2");
+  await expect(page.locator(".qblock .ask").first()).toHaveText("Which size?");
+  const answered = page.getByRole("button", { name: "Answered · 1" });
+  await expect(answered).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator(".answered-row")).toHaveCount(0);
+  await answered.click();
+  await expect(page.locator(".answered-row .review-said")).toHaveText("Warm");
+  await expect(page.locator(".answered-row .opt")).toHaveCount(0);
+
+  // Stepping through never lands on it, and the review lists only the open ones.
+  const next = page.getByRole("button", { name: "Next question" });
+  await next.click();
+  await expect(header(page)).toContainText("Question 2 of 2");
+  await next.click();
+  await expect(header(page)).toContainText("Review · 2 questions");
+  await expect(page.locator(".review-row")).toHaveCount(2);
+
+  // Change answer is the one way back in; keeping it folds it away again.
+  await page.getByRole("button", { name: "Change answer: Which tone?" }).click();
+  await expect(page.locator(".qblock .ask").first()).toHaveText("Which tone?");
+  await expect(page.locator(".revising")).toContainText("Changing a sent answer");
+  await expect(option(page, "warm")).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Keep sent answer" }).click();
+  await expect(page.locator(".revising")).toHaveCount(0);
+  await expect(header(page)).toContainText("Question 1 of 2");
+  await expect(page.locator(".qblock .ask").first()).toHaveText("Which size?");
+});
+
+test("Home: a row's Resolve button closes the mock; the mock says so and reopens", async ({
+  page,
+  server,
+}) => {
+  const card = await seedAsked(server.url, "card", "Card");
+  await page.goto(`${server.url}/project/${PROJECT}`);
+  const row = page.locator('.home-item:has([data-mock="card"])');
+  await row.hover();
+  await row.getByRole("button", { name: "Resolve Card" }).click();
+  await expect(page.locator(".home-toast")).toContainText("Resolved “Card”");
+  await expect(page.locator(".home-lead")).toContainText("0 open");
+  const read = await agentCall(server.url, `/api/feedback?session=${card.session}`);
+  expect(read.feedback).toEqual([
+    expect.objectContaining({
+      mock: "card",
+      resolved: true,
+      dismissed: [{ ask: "tone", text: "Which tone?" }],
+    }),
+  ]);
+
+  await page.locator(".home-resolved-hd").click();
+  await page.locator('.home-resolved .home-row[data-mock="card"]').click();
+  await expect(page.locator(".resolved-note")).toContainText("Resolved.");
+  await expect(page.locator(".opt")).toHaveCount(0);
+  await page.locator(".resolved-note").getByRole("button", { name: "Reopen" }).click();
+  await expect(page.locator(".resolved-note")).toHaveCount(0);
+  await expect(header(page)).toContainText("Question 1 of 1");
 });

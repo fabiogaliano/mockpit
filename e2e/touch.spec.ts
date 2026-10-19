@@ -35,7 +35,7 @@ test("on touch, plain options pick on one tap and the reply reaches the agent", 
 
   // Q1, variant options: the first tap previews, the second picks. The
   // questions are in view from the start: nothing to open first.
-  await expect(header(page)).toContainText("Question 1 of 3");
+  await expect(header(page)).toContainText("Question 1 of 2");
   await expect(onStage(page)).toHaveAttribute("data-variant", "quiet");
   await expect(page.locator(".opt.previewing")).toHaveCount(0);
   await option(page, "dark").tap();
@@ -46,7 +46,7 @@ test("on touch, plain options pick on one tap and the reply reaches the agent", 
   await next.tap();
 
   // Q2, knob-set options: the same two taps.
-  await expect(header(page)).toContainText("Question 2 of 3");
+  await expect(header(page)).toContainText("Question 2 of 2");
   await option(page, "inline").tap();
   await expect(option(page, "inline")).toHaveAttribute("aria-pressed", "false");
   await tapAndSave(page, mockId, "inline");
@@ -109,20 +109,22 @@ test("on touch, the arrows move between questions and on to the review; a swipe 
 }) => {
   await seedWriter(server.url);
   await page.goto(`${server.url}${mockPath}`);
-  await expect(header(page)).toContainText("Question 1 of 3");
+  await expect(header(page)).toContainText("Question 1 of 2");
 
   // A sideways swipe is left to the page: it never steps questions.
   await swipe(page, ".qblock .ask", -120);
-  await expect(header(page)).toContainText("Question 1 of 3");
+  await expect(header(page)).toContainText("Question 1 of 2");
   await expect(page.getByRole("button", { name: "Shortcuts" })).toHaveCount(0);
 
+  // Each state shows its own questions: At rest has two, then Lab open adds
+  // Trim, and going back stays on Lab open, where the shared ones show too.
   const next = page.getByRole("button", { name: "Next question" });
-  for (const n of [2, 3]) {
-    await next.tap();
-    await expect(header(page)).toContainText(`Question ${n} of 3`);
-  }
+  await next.tap();
+  await expect(header(page)).toContainText("At rest · Question 2 of 2");
+  await next.tap();
+  await expect(header(page)).toContainText("Lab open · Question 3 of 3");
   await page.getByRole("button", { name: "Previous question" }).tap();
-  await expect(header(page)).toContainText("Question 2 of 3");
+  await expect(header(page)).toContainText("Lab open · Question 2 of 3");
   await next.tap();
   await next.tap();
   await expect(header(page)).toContainText("Review · 3 questions");

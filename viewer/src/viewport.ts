@@ -30,6 +30,13 @@ export const coarse = media("(pointer: coarse)");
 // questions float over it.
 export const canvasLayout = () => !panelBeside(win().w);
 
+// Too narrow for the card to rest beside the design or a second artboard to
+// show: the design reads as one page fitted to the width, and the questions
+// are a sheet fixed to the bottom. One scroll and one zoom, so a finger never
+// has to guess which layer it moves.
+export const PHONE_W = 600;
+export const phoneLayout = () => canvasLayout() && win().w <= PHONE_W;
+
 // Where the canvas starts: under its header, which measures itself.
 const [canvasTopSignal, setCanvasTopSignal] = createRoot(() => createSignal(96));
 export const canvasTop = canvasTopSignal;

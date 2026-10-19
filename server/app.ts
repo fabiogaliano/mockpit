@@ -64,10 +64,12 @@ import {
   type Anchor,
   type Ask,
   type AskAnswer,
+  askAnswered,
   type AskOption,
   type Asset,
   type AssetKind,
   builtinAsk,
+  builtinAskIds,
   type CodeSurface,
   type Comment,
   type CommentAnchor,
@@ -89,6 +91,7 @@ import {
   type Mock,
   type MockKind,
   newId,
+  openAsks,
   openCount,
   OTHER_ID,
   type PartComment,
@@ -416,7 +419,7 @@ export function createApp({
   // warm entry, it can never be served to the wrong caller (renderKey includes it).
   let lastOrigin: string | null = null;
   app.use("*", (c, next) => {
-    lastOrigin = new URL(c.req.url).origin;
+    lastOrigin = requestOrigin(c.req.raw);
     c.header("Referrer-Policy", "no-referrer");
     return next();
   });
@@ -549,6 +552,19 @@ export function createApp({
   };
   const requestBasePath = (request: Request): string =>
     normalizeBasePath(typeof basePath === "function" ? basePath(request) : basePath);
+
+  // Behind a TLS-terminating proxy (tailscale serve, a tunnel) the request
+  // reaches us as http while the browser is on https. A surface bakes this
+  // origin into its script URLs and CSP, and an http script inside an https
+  // page is blocked as mixed content: the frame then never runs its bridge, so
+  // live knobs and part reports silently stop. Trusting the header is safe
+  // here: it only shapes the caller's own response.
+  const requestOrigin = (request: Request): string => {
+    const url = new URL(request.url);
+    const proto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+    if (proto === "https" || proto === "http") url.protocol = `${proto}:`;
+    return url.origin;
+  };
 
   // Cached, fail-silent update lookup: being offline or rate-limited must
   // cost nothing but the absence of the notice. Failures are cached too, so
@@ -1653,20 +1669,50 @@ export function createApp({
     const asks = [...mock.asks];
     const taken = new Set(asks.map((a) => a.id));
     const added: Ask[] = [];
+    const skipped: string[] = [];
     for (const entry of raw) {
       const ask = sanitizeAsk(entry, mock, posts, taken);
       if (typeof ask === "string") return fail(400, ask);
       const at = asks.findIndex((a) => a.id === ask.id);
+      // The user closed this one as not worth answering; asking it again is
+      // exactly the noise they resolved away. Only their Reopen revives it.
+      if (at >= 0 && asks[at].dismissed) {
+        skipped.push(ask.id);
+        continue;
+      }
       if (at >= 0) asks[at] = ask;
       else asks.push(ask);
       taken.add(ask.id);
       added.push(ask);
     }
+    const skippedNudges = skipped.map(
+      (id) =>
+        `ask "${id}": the user dismissed it when they resolved ${mock.slug}; not asked again. Don't re-ask it.`,
+    );
+    if (!added.length) {
+      return ok({
+        mock: mock.slug,
+        mockId: mock.id,
+        project: mock.project,
+        asks: [],
+        skipped,
+        open: openCount(mock, posts),
+        url: mockUrl(ctx.base, mock),
+        nudges: skippedNudges,
+        feedback: mock.sessionId ? await collectFeedback(mock.sessionId, ctx.base) : [],
+      });
+    }
     let sessionId = mock.sessionId;
     if (typeof body.session === "string" && (await store.getSession(body.session))) {
       sessionId = body.session;
     }
-    const updated = await store.updateMock(mock.id, { asks, sessionId });
+    // A new question on a resolved mock brings it back to the open list, or it
+    // would wait where the user no longer looks.
+    const updated = await store.updateMock(mock.id, {
+      asks,
+      sessionId,
+      ...(mock.resolvedAt ? { resolvedAt: null } : {}),
+    });
     if (!updated) return fail(404, "mock not found");
     mock = updated;
     bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
@@ -1692,12 +1738,13 @@ export function createApp({
       url: mockUrl(ctx.base, mock),
     });
     const feedback = session ? await collectFeedback(session.id, ctx.base) : [];
-    const nudges = askNudges(added, mock.asks);
+    const nudges = [...skippedNudges, ...askNudges(added, mock.asks)];
     return ok({
       mock: mock.slug,
       mockId: mock.id,
       project: mock.project,
       asks: added,
+      ...(skipped.length ? { skipped } : {}),
       open: openCount(mock, posts),
       url: mockUrl(ctx.base, mock),
       ...(nudges.length ? { nudges } : {}),
@@ -2028,6 +2075,7 @@ export function createApp({
     const note = draft.notes?.[a.id];
     if (answer === undefined && other === undefined && note === undefined) return a;
     const next: Ask = { ...a };
+    delete next.dismissed;
     if (answer !== undefined || other !== undefined) {
       delete next.answer;
       delete next.other;
@@ -2136,6 +2184,68 @@ export function createApp({
       },
       201,
     );
+  }
+
+  // The user closes a mock from the project list: its open asks are dismissed
+  // unanswered, an unsent draft goes with them, and the agent hears it once,
+  // as a resolution through the same cursor as a Send.
+  async function resolveFlow(ref: unknown, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const mock = await resolveMock(ref);
+    if (isResult(mock)) return mock;
+    const posts = await store.listPosts({ mockId: mock.id });
+    if (mock.resolvedAt) return ok({ mock: mockSummaryView(mock, posts), dismissed: [] });
+    const dismissed = [...openAsks(mock).map((a) => a.id), ...builtinAskIds(mock, posts, mock.id)];
+    const asks = mock.asks.map((a): Ask => (askAnswered(a) ? a : { ...a, dismissed: true }));
+    const at = new Date().toISOString();
+    const latest = [...posts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+    const sessionId = mock.sessionId ?? latest?.sessionId;
+    const session = sessionId ? await store.getSession(sessionId) : null;
+    const comment = session
+      ? await store.commitReply({
+          mockId: mock.id,
+          sessionId: session.id,
+          text: "",
+          payload: {
+            mockId: mock.id,
+            version: Math.max(1, ...posts.map((p) => p.version)),
+            answers: {},
+            mix: {},
+            tuned: {},
+            comments: [],
+            resolved: { dismissed },
+          },
+          asks,
+          accept: [],
+          archive: [],
+          resolvedAt: at,
+        })
+      : null;
+    if (comment) announceComment(comment);
+    else {
+      // No agent to tell: the mock still leaves the open list.
+      await store.updateMock(mock.id, { asks, resolvedAt: at });
+      await store.putDraft(mock.id, null);
+    }
+    bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
+    bus.broadcast({ type: "draft-updated", mockId: mock.id });
+    const after = (await store.getMock(mock.id)) ?? mock;
+    return ok({ mock: mockSummaryView(after, posts), dismissed });
+  }
+
+  // Back from Resolved: the asks it dismissed are open again. The agent was
+  // told they were dismissed; answers given now reach it as a normal Send.
+  async function reopenFlow(ref: unknown, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const mock = await resolveMock(ref);
+    if (isResult(mock)) return mock;
+    const posts = await store.listPosts({ mockId: mock.id });
+    if (!mock.resolvedAt) return ok({ mock: mockSummaryView(mock, posts) });
+    const asks = mock.asks.map(({ dismissed: _, ...a }) => a);
+    const updated = await store.updateMock(mock.id, { asks, resolvedAt: null });
+    if (!updated) return fail(404, "mock not found");
+    bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
+    return ok({ mock: mockSummaryView(updated, posts) });
   }
 
   async function restoreFlow(ref: unknown, body: any): Promise<FlowResult> {
@@ -2528,6 +2638,8 @@ export function createApp({
   // tells the agent something ("2 of 3 answered", or nobody is looking).
   const pendingOf = (mock: Mock, posts: Post[]) => ({
     mock: mock.slug,
+    // Closed by the user: nothing there is waiting on them, or on you.
+    ...(mock.resolvedAt ? { resolved: true } : {}),
     viewerOpen: viewing.has(mock.id),
     draft: mock.draft
       ? {
@@ -2703,8 +2815,8 @@ export function createApp({
     onError: (c) => c.json({ error: `asset exceeds ${MAX_ASSET_BYTES} bytes` }, 413),
   });
 
-  const withOrigin = (text: string, c: { req: { url: string } }) =>
-    text.replaceAll(LOCAL_ORIGIN, new URL(c.req.url).origin);
+  const withOrigin = (text: string, c: { req: { raw: Request } }) =>
+    text.replaceAll(LOCAL_ORIGIN, requestOrigin(c.req.raw));
 
   const injectHead = (text: string, head: string) => {
     const headClose = text.lastIndexOf("</head>");
@@ -2773,7 +2885,7 @@ export function createApp({
     mode: Mode,
     rendererGeneration: string,
   ) => {
-    const origin = new URL(request.url).origin;
+    const origin = requestOrigin(request);
     const publicBasePath = requestBasePath(request);
     const canonical = `${origin}${publicBasePath}/project/${encodeURIComponent(mock.project)}/${encodeURIComponent(mock.slug)}`;
     const imageUrl = new URL(`${origin}${publicBasePath}/s/${post.id}.png`);
@@ -2818,7 +2930,7 @@ export function createApp({
     )(
       withDocumentTitle(
         withViewerConfig(
-          withOrigin(viewerHtml, { req: { url: c.req.url } }),
+          withOrigin(viewerHtml, c),
           c.req.raw,
           !!publicRead && !isAuthenticated(c),
           opts.title,
@@ -2888,7 +3000,7 @@ export function createApp({
   // --- REST plumbing for the shared flows ---
 
   const flowCtx = (c: Context, strict = true): FlowContext => ({
-    base: `${new URL(c.req.url).origin}${requestBasePath(c.req.raw)}`,
+    base: `${requestOrigin(c.req.raw)}${requestBasePath(c.req.raw)}`,
     // The browser sets Fetch Metadata on same-origin requests; only the trusted
     // viewer may act as the user (drafts, replies, user-authored comments).
     viewer: c.req.header("sec-fetch-site") === "same-origin",
@@ -3026,6 +3138,13 @@ export function createApp({
 
   app.post("/api/mocks/:id/reply", async (c) =>
     send(c, await replyFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+
+  app.post("/api/mocks/:id/resolve", async (c) =>
+    send(c, await resolveFlow(c.req.param("id"), flowCtx(c))),
+  );
+  app.post("/api/mocks/:id/reopen", async (c) =>
+    send(c, await reopenFlow(c.req.param("id"), flowCtx(c))),
   );
 
   app.post("/api/mocks/:id/restore", async (c) =>
@@ -3604,7 +3723,7 @@ export function createApp({
     const mode: Mode | undefined =
       modeParam === "light" || modeParam === "dark" ? modeParam : undefined;
     const kParam: string | undefined = c.req.query("k");
-    const origin = new URL(c.req.url).origin;
+    const origin = requestOrigin(c.req.raw);
 
     // Cache-first. A hit needs nothing from the post row, and the row is the
     // expensive part of this route (surfaces + every retained version). Only a
@@ -3747,7 +3866,7 @@ export function createApp({
     }
     const result = await uploadAsset(body);
     if ("error" in result) return c.json({ error: result.error }, result.status);
-    const origin = new URL(c.req.url).origin;
+    const origin = requestOrigin(c.req.raw);
     const publicBasePath = requestBasePath(c.req.raw);
     const assetPath = encodeURIComponent(result.asset.id);
     return c.json({ ...result.asset, url: `${origin}${publicBasePath}/a/${assetPath}` }, 201);

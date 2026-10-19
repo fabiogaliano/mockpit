@@ -51,7 +51,7 @@ import type { MockScreenState } from "./state.ts";
 import { StageHead } from "./StageHead.tsx";
 import { theme } from "./theme.ts";
 import { Versions } from "./Versions.tsx";
-import { canvasLayout, canvasTop, cardInset, coarse, safeX, win } from "./viewport.ts";
+import { canvasLayout, canvasTop, cardInset, coarse, phoneLayout, safeX, win } from "./viewport.ts";
 
 const num = (v: unknown, d = 0) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const MAX_TEXT = 200;
@@ -157,13 +157,19 @@ export function Stage(props: { s: MockScreenState }) {
   // over it instead of a bottom sheet.
   const canvas = () => canvasLayout() && !inspecting();
   const pannable = () => inspecting() || canvas();
+  // On a phone the canvas is one page: a single artboard fitted to the width,
+  // edge to edge under the header, with nothing beside or below it to pan to.
+  const phone = () => canvas() && phoneLayout();
+  // Above a phone's page, no label: only room for the tap area of a pin on its
+  // very first line, which would otherwise sit under the header.
+  const labelH = () => (phone() ? 12 : BOARD_LABEL);
   // A finger scrolls the page, not the frame: the frame takes its full height
   // and the stage scrolls natively. Inspect does the same with any pointer.
   const uncapped = () => coarse() || pannable();
   // Every width on the canvas in the mock's order, the live one in its place
   // (or first, when the user picked one the mock does not name).
   const order = createMemo(() => {
-    const declared = canvas() ? (s.mock()?.widths ?? []) : [];
+    const declared = canvas() && !phone() ? (s.mock()?.widths ?? []) : [];
     return declared.includes(frameW()) ? declared : [frameW(), ...declared];
   });
   const others = createMemo(() => order().filter((w) => w !== frameW()));
@@ -209,6 +215,7 @@ export function Stage(props: { s: MockScreenState }) {
     // On the canvas the live width fits one whole screen of its device into the
     // space the card leaves, never past true size: a 390 design on a phone reads
     // as a phone screen, and shrinks again when the card opens over it.
+    if (phone()) return Math.max(0.1, Math.min(1, availW() / frameW()));
     if (canvas()) {
       const room = freeH() - BOARD_LABEL - BOARD_PAD;
       const whole = room / screenHeight(frameW());
@@ -227,7 +234,8 @@ export function Stage(props: { s: MockScreenState }) {
   });
   // How far a pinch zooms out: to fit (or all widths) in Inspect; on the
   // canvas, to half of fit too, to see a design smaller than its screen.
-  const zoomFloor = () => Math.min(fitAll(), canvas() ? fitScale() / 2 : fitScale());
+  // A phone's page never zooms out past its width: nothing sits beside it.
+  const zoomFloor = () => Math.min(fitAll(), canvas() && !phone() ? fitScale() / 2 : fitScale());
   const scale = createMemo(() => {
     if (!pannable()) return fitScale();
     const z = zoom();
@@ -236,6 +244,7 @@ export function Stage(props: { s: MockScreenState }) {
     return clampZoom(z, zoomFloor());
   });
   createEffect(() => s.setStageScale(scale()));
+  createEffect(() => s.setZoomMin(Math.min(zoomFloor(), 1)));
   const availH = createMemo(() =>
     canvas()
       ? win().h - canvasTop()
@@ -387,14 +396,51 @@ export function Stage(props: { s: MockScreenState }) {
   // touch itself, so the browser scrolls it natively (momentum, bounce) and the
   // canvas can't move with it: touches inside a frame never reach this document.
   // The canvas pans from the space around the artboards. Mark puts it back.
-  const passthrough = () => canvas() && coarse() && !s.marking();
+  // A phone has no space around its page, so there the page never scrolls
+  // itself: it takes its full height, the stage is the one thing a finger
+  // scrolls (natively, both ways once zoomed), and two fingers zoom it.
+  const passthrough = () => canvas() && coarse() && !s.marking() && !phone();
   const gestures = useInspectGestures({
     scroller: () => layersEl,
     enabled: pannable,
+    pointers: () => !phone(),
     anywhere: canvas,
     scale,
     fit: zoomFloor,
     setZoom,
+  });
+  // A phone's pinch, from touches: the browser keeps one-finger scrolling, and
+  // a second finger is taken from it before it can pan or zoom the viewer.
+  onMount(() => {
+    const el = layersEl;
+    let pinching = false;
+    const at = (t: Touch | undefined) => ({ x: t?.clientX ?? 0, y: t?.clientY ?? 0 });
+    const start = (e: TouchEvent) => {
+      if (!phone() || e.touches.length !== 2) return;
+      e.preventDefault();
+      pinching = true;
+      gestures.pinch("start", at(e.touches[0]), at(e.touches[1]));
+    };
+    const move = (e: TouchEvent) => {
+      if (!pinching || e.touches.length < 2) return;
+      e.preventDefault();
+      gestures.pinch("move", at(e.touches[0]), at(e.touches[1]));
+    };
+    const end = (e: TouchEvent) => {
+      if (!pinching || e.touches.length >= 2) return;
+      pinching = false;
+      gestures.pinch("end", at(undefined), at(undefined));
+    };
+    el.addEventListener("touchstart", start, { passive: false });
+    el.addEventListener("touchmove", move, { passive: false });
+    el.addEventListener("touchend", end);
+    el.addEventListener("touchcancel", end);
+    onCleanup(() => {
+      el.removeEventListener("touchstart", start);
+      el.removeEventListener("touchmove", move);
+      el.removeEventListener("touchend", end);
+      el.removeEventListener("touchcancel", end);
+    });
   });
   // Picking a width brings its artboard into view, fitted; "all" shows them all.
   createEffect(
@@ -420,14 +466,15 @@ export function Stage(props: { s: MockScreenState }) {
     const b = partBox(r, part);
     if (part && !b) return;
     scrolledFor = want;
-    if (canvas() || !uncapped()) {
+    if ((canvas() && !phone()) || !uncapped()) {
       const dy = b ? b.y - FOCUS_PAD - r.scroll.y : -r.scroll.y;
       if (dy) post(key, { type: "scroll", dx: 0, dy });
     } else if (b) {
       host().window.requestAnimationFrame(() =>
         layersEl
           ?.querySelector(".frame.on .box.sel")
-          ?.scrollIntoView({ block: "center", behavior: "smooth" }),
+          // A phone's sheet covers the lower half: the region goes to the top.
+          ?.scrollIntoView({ block: phone() ? "start" : "center", behavior: "smooth" }),
       );
     }
   });
@@ -445,15 +492,22 @@ export function Stage(props: { s: MockScreenState }) {
     return x;
   };
   const canvasW = () =>
-    xOf(order().at(-1)!) + order().at(-1)! * scale() + BOARD_PAD + cardInset().right;
+    xOf(order().at(-1)!) +
+    order().at(-1)! * scale() +
+    (phone() ? 0 : BOARD_PAD) +
+    cardInset().right;
   // The artboards start under a card resting at the top.
   const padT = () => (canvas() ? cardInset().top : 0);
-  // Room under the artboards to pan them up past a card resting at the bottom.
+  // Room under the artboards to pan them up past a card resting at the bottom;
+  // on a phone, just enough to bring the page's end above the sheet.
   const canvasH = () =>
-    padT() +
-    BOARD_LABEL +
-    Math.max(activeH(), ...others().map((w) => Math.min(boardH[w] ?? 640, boardCap()))) * scale() +
-    availH() * 0.4;
+    phone()
+      ? labelH() + activeH() * scale() + cardInset().bottom
+      : padT() +
+        BOARD_LABEL +
+        Math.max(activeH(), ...others().map((w) => Math.min(boardH[w] ?? 640, boardCap()))) *
+          scale() +
+        availH() * 0.4;
 
   return (
     <div
@@ -511,12 +565,14 @@ export function Stage(props: { s: MockScreenState }) {
             }
           />
           <Show when={canvas()}>
-            <div
-              class="board-label"
-              style={{ left: `${Math.max(10, xOf(frameW()))}px`, top: `${padT() + 8}px` }}
-            >
-              {`${widthLabel(frameW())} · ${frameW()}`}
-            </div>
+            <Show when={!phone()}>
+              <div
+                class="board-label"
+                style={{ left: `${Math.max(10, xOf(frameW()))}px`, top: `${padT() + 8}px` }}
+              >
+                {`${widthLabel(frameW())} · ${frameW()}`}
+              </div>
+            </Show>
             <Show when={s.activeVariant()}>
               {(variant) => (
                 <For each={others()}>
@@ -548,9 +604,7 @@ export function Stage(props: { s: MockScreenState }) {
           <div
             class="board-live"
             style={
-              canvas()
-                ? { left: `${xOf(frameW())}px`, top: `${padT() + BOARD_LABEL}px` }
-                : undefined
+              canvas() ? { left: `${xOf(frameW())}px`, top: `${padT() + labelH()}px` } : undefined
             }
           >
             <For each={shownKeys()}>
@@ -563,7 +617,13 @@ export function Stage(props: { s: MockScreenState }) {
                       active={key === activeKey()}
                       scale={scale()}
                       frameW={frameW()}
-                      capH={canvas() ? boardCap() : uncapped() ? Infinity : availH() / scale()}
+                      capH={
+                        canvas() && !phone()
+                          ? boardCap()
+                          : uncapped()
+                            ? Infinity
+                            : availH() / scale()
+                      }
                       passthrough={passthrough()}
                       report={reports[key]}
                       ready={ready[key]}

@@ -88,6 +88,10 @@ export interface FeedbackBatch {
   archived: VariantRef[];
   // Set when this batch was sent to an earlier, now quiet session (handoff.ts).
   handoff?: string;
+  // The user resolved the mock instead of answering: these asks were closed
+  // unanswered, as not worth answering. Don't ask them again.
+  resolved?: true;
+  dismissed?: { ask: string; text: string }[];
 }
 
 const ref = (p: Post): VariantRef => ({ state: p.state, variant: p.variant });
@@ -180,7 +184,7 @@ export function groupFeedback(
     const mock = c.mockId ? mocks.get(c.mockId) : undefined;
     const mockPosts = (c.mockId && posts.get(c.mockId)) || [];
     let batch = open.get(key);
-    if (!batch || (c.kind === "reply" && batch.reply)) {
+    if (!batch || (c.kind === "reply" && (batch.reply || batch.resolved))) {
       batch = {
         mockId: c.mockId,
         project: mock?.project ?? null,
@@ -193,6 +197,16 @@ export function groupFeedback(
       };
       open.set(key, batch);
       batches.push(batch);
+    }
+    if (c.kind === "reply" && c.payload?.resolved) {
+      batch.resolved = true;
+      batch.dismissed = c.payload.resolved.dismissed.map((id) => ({
+        ask: id,
+        text:
+          (mock?.asks.find((a) => a.id === id) ?? (mock && builtinAsk(mock, mockPosts, id)))
+            ?.text ?? "",
+      }));
+      continue;
     }
     if (c.kind === "reply" && c.payload) {
       const {
