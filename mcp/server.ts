@@ -191,13 +191,15 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
   },
   read: (args) =>
     json(
-      args.mock === undefined
-        ? `/api/mocks${query({ project: resolveProject(args.project) })}`
-        : `/api/mocks/${enc(args.mock)}${query({
-            project: resolveProject(args.project),
-            body: args.body,
-            history: args.history,
-          })}`,
+      args.mock === undefined && args.tree === true
+        ? `/api/projects/${enc(resolveProject(args.project))}/tree`
+        : args.mock === undefined
+          ? `/api/mocks${query({ project: resolveProject(args.project) })}`
+          : `/api/mocks/${enc(args.mock)}${query({
+              project: resolveProject(args.project),
+              body: args.body,
+              history: args.history,
+            })}`,
     ),
   // Never waits: the server reads from the session's cursor, shared with
   // piggyback and `mockpit watch`, so each Send is delivered exactly once.

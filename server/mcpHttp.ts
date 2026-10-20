@@ -24,6 +24,7 @@ type Flow<A extends unknown[]> = (...args: A) => Promise<FlowResult>;
 export interface McpFlows {
   publish: Flow<[body: any, ctx: FlowContext]>;
   list: Flow<[query: { project?: string }]>;
+  tree: Flow<[query: { project?: string }]>;
   get: Flow<[ref: unknown, query: { project?: unknown; body?: boolean; history?: boolean }]>;
   ask: Flow<[ref: unknown, body: any, ctx: FlowContext]>;
   exportMock: Flow<
@@ -91,6 +92,9 @@ export function registerMcp(app: Hono, deps: McpDeps) {
       case "ask":
         return unwrap(await flows.ask(args.mock, args, ctx));
       case "read":
+        if (args.mock === undefined && args.tree === true) {
+          return unwrap(await flows.tree({ project: args.project }));
+        }
         if (args.mock === undefined) return unwrap(await flows.list({ project: args.project }));
         return unwrap(
           await flows.get(args.mock, {

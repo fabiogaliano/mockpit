@@ -156,6 +156,7 @@ mockpit say "Went dark; body at 19px" --mock writer
 mockpit export  --mock writer             # .mockpit/accepted/writer/<state>/{index.html,history.json,…}
 mockpit read                              # one line per mock, plus pending
 mockpit read    writer                    # states, variants, asks and answers, parts, knobs, settled
+mockpit read    --tree                    # the project as a tree: variants, forkedFrom, uses / usedIn
 ```
 
 - `publish` on an existing (mock, state, variant) makes its next version.

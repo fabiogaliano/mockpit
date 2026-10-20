@@ -193,11 +193,13 @@ mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
   mockpit ask --mock <slug> --asks <json|file>
   Ask the user. A choice is several variants plus one ask that binds them.
   Then tell the user where to look and end your turn.`,
-  read: `mockpit read [slug] [--project <name>] [--body] [--history]
+  read: `mockpit read [slug] [--project <name>] [--body] [--history] [--tree]
   No slug: one line per mock (states, variants, open asks) plus pending, what
   the user is doing now. A slug: the mock's states, variants, asks with
   answers, parts, knobs and settled values, plus its pending, as JSON.
-  --body includes surfaces, --history version rows. Never consumes feedback.`,
+  --body includes surfaces, --history version rows. --tree (no slug): the
+  project as a tree, each mock's variants with status and forkedFrom, and the
+  mocks it uses and is used in, as JSON. Never consumes feedback.`,
   feedback: `mockpit feedback [--project <name>] [--session <id>]
   Returns at once with {feedback, pending} as JSON: one batch per mock the user
   sent since you last heard ({mock, reply: {asks, mix, tuned, comments},
@@ -1461,10 +1463,20 @@ const commands = {
         project: { type: "string" },
         body: { type: "boolean" },
         history: { type: "boolean" },
+        tree: { type: "boolean" },
       },
     });
     const project = resolveProject(flags).name;
     if (positionals.length > 1) die("read takes one mock slug", "mockpit read writer");
+    if (flags.tree) {
+      return out(
+        await api(
+          `/api/projects/${encodeURIComponent(project)}/tree`,
+          {},
+          { report: "die", fix: `mockpit read --project ${project}` },
+        ),
+      );
+    }
     if (positionals.length === 1) {
       const slug = slugify(positionals[0]);
       return out(

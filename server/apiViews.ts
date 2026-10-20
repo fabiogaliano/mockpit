@@ -4,9 +4,9 @@
 import { slotKnobs, slotsInSurfaces } from "./fills.ts";
 import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
 import {
-  isSandboxedSurfaceKind,
   draftedCount,
   type Embed,
+  isSandboxedSurfaceKind,
   isLive,
   type KnobValue,
   type Mock,
@@ -205,4 +205,39 @@ export const mockDetailView = (
 export const sessionRowView = (session: Session, postCount: number) => ({
   ...session,
   postCount,
+});
+
+// One mock as a node of the project tree (GET /api/projects/:name/tree): its
+// variants per state with status and lineage, and the mocks it embeds (`uses`);
+// `usedIn` is filled in once every node is known.
+export const treeNodeView = (
+  mock: Mock,
+  posts: Post[],
+  extra: { settled: Record<string, KnobValue>; uses: string[]; embeds: Map<string, EmbedView> },
+) => ({
+  id: mock.id,
+  slug: mock.slug,
+  title: mock.title,
+  kind: mock.kind,
+  open: openCount(mock, posts),
+  states: mock.states.length ? mock.states : [null],
+  widths: mock.widths,
+  createdAt: mock.createdAt,
+  updatedAt: mock.updatedAt,
+  resolvedAt: mock.resolvedAt,
+  settled: extra.settled,
+  uses: extra.uses,
+  usedIn: [] as string[],
+  variants: posts.map((p) => ({
+    postId: p.id,
+    state: p.state,
+    variant: p.variant,
+    status: p.status,
+    version: p.version,
+    updatedAt: p.updatedAt,
+    surface: p.surfaces.findIndex((x) => isSandboxedSurfaceKind(x.kind)),
+    ...(p.note ? { note: p.note } : {}),
+    ...(p.forkedFrom ? { forkedFrom: p.forkedFrom } : {}),
+    ...(extra.embeds.get(p.id) ? { embedsKey: extra.embeds.get(p.id)!.key } : {}),
+  })),
 });

@@ -1038,6 +1038,21 @@ test("after Send, another agent conversation's mock is offered, never moved to",
   await expect(page).toHaveURL(/\/first$/);
 });
 
+test("Home: the canvas lays out each mock with its designs; a row finds its mock there", async ({
+  page,
+  server,
+}) => {
+  await seedWriter(server.url);
+  await page.goto(`${server.url}/project/${PROJECT}`);
+  const cluster = page.locator('.pc-cluster[data-cluster="writer"]');
+  await expect(cluster).toBeVisible();
+  await expect(page.locator('.pc-tile[data-variant="quiet"]')).toHaveCount(4);
+  await page.getByRole("button", { name: "Tree of Writer" }).click();
+  await expect(cluster).toHaveClass(/marked/);
+  await page.locator('.pc-tile[data-variant="dark"]').first().click();
+  await expect(page).toHaveURL(new RegExp(`${mockPath}$`));
+});
+
 test("Home: Answer next follows the agent's order, and a started mock shows its draft", async ({
   page,
   server,

@@ -4,6 +4,10 @@
 // A swipe left on a row (or its Resolve button) resolves the mock: its open
 // questions close unanswered and it moves to a folded Resolved list, where
 // Reopen brings it back.
+// With room for it (a wide screen and a mouse), the list is a sidebar beside
+// the project canvas (ProjectCanvas); each row's tree button finds its mock
+// there. On a phone the same button opens the tree one level at a time
+// (TreeDrill).
 
 import { createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
 import { api, type MockSummary, subscribe, surfaceUrl } from "./api.ts";
@@ -11,6 +15,8 @@ import { setCarried } from "./carry.ts";
 import { useSwipeAction } from "./gestures.ts";
 import { host, readonly } from "./host.ts";
 import { nextOwedMock, timeAgo } from "./logic.ts";
+import { type CanvasHandle, ProjectCanvas } from "./ProjectCanvas.tsx";
+import { TreeDrill } from "./TreeDrill.tsx";
 import { linkClick, mockPath, navigate, projectPath } from "./route.ts";
 import { setTheme, theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
@@ -21,7 +27,17 @@ export function Home(props: { project: string | null }) {
   setCarried(null);
   const [projects, { refetch: refetchProjects }] = createResource(() => api.projects());
   const project = createMemo(() => props.project ?? projects()?.[0]?.name ?? null);
-  const [list, { refetch }] = createResource(project, (p) => api.mocks(p));
+  const [list, { refetch: refetchList }] = createResource(project, (p) => api.mocks(p));
+  const [tree, { refetch: refetchTree }] = createResource(project, (p) => api.tree(p));
+  const refetch = () => Promise.all([refetchList(), refetchTree()]);
+  const wideQuery = host().window.matchMedia?.("(min-width: 1000px) and (pointer: fine)");
+  const [wide, setWide] = createSignal(wideQuery?.matches ?? false);
+  const onWide = (e: MediaQueryListEvent) => setWide(e.matches);
+  wideQuery?.addEventListener("change", onWide);
+  onCleanup(() => wideQuery?.removeEventListener("change", onWide));
+  let canvas: CanvasHandle | undefined;
+  const [drill, setDrill] = createSignal<string | null>(null);
+  const showTree = (slug: string) => (wide() ? canvas?.locate(slug) : setDrill(slug));
   // Resolved a moment ago, before the list catches up.
   const [leaving, setLeaving] = createSignal<Record<string, true>>({});
   const all = createMemo(() =>
@@ -113,7 +129,7 @@ export function Home(props: { project: string | null }) {
           </>
         }
       />
-      <main class="home-main">
+      <main class="home-main" classList={{ "with-canvas": wide() && !!project() }}>
         <div class="home-col">
           <Show
             when={project()}
@@ -154,6 +170,7 @@ export function Home(props: { project: string | null }) {
                       <MockRow
                         mock={m()}
                         project={project()!}
+                        onTree={() => showTree(m().slug)}
                         {...(readonly() ? {} : { onResolve: () => void resolve(m()) })}
                       />
                     )}
@@ -195,7 +212,20 @@ export function Home(props: { project: string | null }) {
             </Show>
           </Show>
         </div>
+        <Show when={wide() && project()}>
+          {(p) => (
+            <ProjectCanvas project={p()} nodes={tree()?.tree ?? []} ref={(h) => (canvas = h)} />
+          )}
+        </Show>
       </main>
+      <Show when={drill() && project()}>
+        <TreeDrill
+          project={project()!}
+          nodes={tree()?.tree ?? []}
+          start={drill()!}
+          onClose={() => setDrill(null)}
+        />
+      </Show>
       <Show when={toast()}>
         {(t) => (
           <div class="home-toast" role="status">
@@ -222,6 +252,7 @@ function MockRow(props: {
   project: string;
   onResolve?: () => void;
   onReopen?: () => void;
+  onTree?: () => void;
 }) {
   const href = () => mockPath(props.project, props.mock.slug);
   const thumb = () => props.mock.thumbnail;
@@ -304,6 +335,19 @@ function MockRow(props: {
           </Show>
           <span class="home-ago">{timeAgo(props.mock.updatedAt)}</span>
         </a>
+        <Show when={props.onTree}>
+          <button
+            type="button"
+            class="home-tree"
+            aria-label={`Tree of ${props.mock.title}`}
+            title="Where it sits in the tree"
+            onClick={() => props.onTree?.()}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4 3v10M4 6h5M4 11h5M11 6h1M11 11h1" />
+            </svg>
+          </button>
+        </Show>
         <Show when={props.onResolve}>
           <button
             type="button"

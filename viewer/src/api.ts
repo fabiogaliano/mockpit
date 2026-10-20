@@ -2,7 +2,12 @@
 // straight from the server's view functions, so a contract change breaks the
 // viewer's typecheck instead of its runtime.
 
-import type { mockDetailView, mockSummaryView, variantView } from "../../server/apiViews.ts";
+import type {
+  mockDetailView,
+  mockSummaryView,
+  treeNodeView,
+  variantView,
+} from "../../server/apiViews.ts";
 import type { FeedEvent } from "../../server/events.ts";
 import type {
   AskAnswer,
@@ -17,6 +22,8 @@ import { basePath, host } from "./host.ts";
 
 export type MockSummary = ReturnType<typeof mockSummaryView>;
 export type MockDetail = ReturnType<typeof mockDetailView>;
+export type TreeNode = ReturnType<typeof treeNodeView>;
+export type TreeVariant = TreeNode["variants"][number];
 export type VariantView = ReturnType<typeof variantView>;
 export type HistoryRow = NonNullable<VariantView["history"]>[number];
 // `ownerGone`: undelivered, and a newer agent session in the project superseded
@@ -74,6 +81,11 @@ export const api = {
   mocks: (project: string) => call<MockList>(`/api/mocks?project=${encodeURIComponent(project)}`),
   // Every project's mocks: what the app badge counts.
   allMocks: () => call<MockList>("/api/mocks"),
+  // The project as a tree: what the canvas and the phone's drill-down lay out.
+  tree: (project: string) =>
+    call<{ project: string; tree: TreeNode[] }>(
+      `/api/projects/${encodeURIComponent(project)}/tree`,
+    ),
   mock: (id: string) => call<MockDetail>(`/api/mocks/${encodeURIComponent(id)}?history=1`),
   // The same view without version rows: enough to name a mock and its variants.
   mockHead: (id: string) => call<MockDetail>(`/api/mocks/${encodeURIComponent(id)}`),

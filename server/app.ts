@@ -8,6 +8,7 @@ import { decodeBase64 } from "./base64.ts";
 import {
   type EmbedView,
   mockDetailView,
+  treeNodeView,
   mockSummaryView,
   sessionRowView,
   surfaceRef,
@@ -1624,6 +1625,42 @@ export function createApp({
       openMocks: rows.filter((r) => r.open > 0).length,
       pending,
     });
+  }
+
+  // The project as a tree: every mock with its variants per state (status,
+  // lineage, what its embeds resolve to) and the components it embeds and is
+  // embedded in. What the viewer's canvas and an agent's `read --tree` lay out.
+  async function treeFlow(query: { project?: string }): Promise<FlowResult> {
+    const project = str(query.project, MAX_TITLE);
+    if (!project) return fail(400, 'provide "project"');
+    const mocks = await store.listMocks(project);
+    const nodes = [];
+    const pending = [];
+    for (const m of mocks) {
+      const posts = await store.listPosts({ mockId: m.id });
+      const embeds = await embedViews(m, posts);
+      const uses = new Set<string>();
+      for (const p of posts) {
+        if (!isLive(p.status)) continue;
+        for (const x of p.surfaces) {
+          if (x.kind === "html") for (const t of parseEmbedTags(x.html)) uses.add(t.slug);
+        }
+      }
+      nodes.push(
+        treeNodeView(m, posts, {
+          settled: settledValues(await replyPayloads(m.id), m, posts),
+          uses: [...uses],
+          embeds,
+        }),
+      );
+      pending.push(pendingOf(m, posts));
+    }
+    const bySlug = new Map(nodes.map((n) => [n.slug, n]));
+    for (const n of nodes) {
+      n.uses = n.uses.filter((s) => bySlug.has(s));
+      for (const s of n.uses) bySlug.get(s)!.usedIn.push(n.slug);
+    }
+    return ok({ project, tree: nodes, pending });
   }
 
   async function replyPayloads(mockId: string): Promise<Reply[]> {
@@ -3451,6 +3488,9 @@ export function createApp({
 
   // The project's design system, imported by `mockpit init` and injected into
   // every html surface of the project (see renderHtmlPage).
+  app.get("/api/projects/:name/tree", async (c) =>
+    send(c, await treeFlow({ project: c.req.param("name") })),
+  );
   app.get("/api/projects/:name/design", async (c) => c.json(await designFor(c.req.param("name"))));
 
   app.put("/api/projects/:name/design", async (c) => {
@@ -4228,6 +4268,7 @@ export function createApp({
   const mcpFlows: McpFlows = {
     publish: (body, ctx) => publishFlow(body, ctx),
     list: (query) => listMocksFlow(query),
+    tree: (query) => treeFlow(query),
     get: (ref, query) => getMockFlow(ref, query),
     ask: (ref, body, ctx) => askFlow(ref, body, ctx),
     exportMock: (ref, query, ctx) => exportFlow(ref, query, ctx),

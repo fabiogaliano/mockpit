@@ -206,6 +206,10 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       project: P.project,
       body: { t: "boolean", d: "Include each variant's surfaces" },
       history: { t: "boolean", d: "Include version rows" },
+      tree: {
+        t: "boolean",
+        d: "Without mock: the project as a tree (each mock's variants with status and forkedFrom, the mocks it uses and is used in)",
+      },
     },
   },
   {
@@ -378,6 +382,7 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
     variants: z.array(o({ state: nullStr, variant: str, status: str, version: num })).optional(),
     knobs: bag.optional(),
     settled: bag.optional().describe("Every knob value the user has sent, later replies winning"),
+    tree: z.array(bag).optional(),
     pending: z.union([z.array(pendingSchema), pendingSchema]),
   },
   export: {
