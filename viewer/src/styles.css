@@ -4043,7 +4043,7 @@ html.theming *:not(iframe) {
 }
 .drill-thumb {
   position: relative;
-  height: 56px;
+  height: 72px;
   overflow: hidden;
   border-radius: 8px;
   background: var(--row);
@@ -4140,4 +4140,26 @@ html.theming *:not(iframe) {
 .mood-cap b {
   color: var(--t1);
   font-weight: 600;
+}
+.st-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-end: 6px;
+  padding: 1px 8px;
+  border-radius: 99px;
+  font-size: 12px;
+  background: var(--row);
+  color: var(--t4);
+}
+.st-chip.st-accepted {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
+}
+.st-chip.st-open {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+.drill-row {
+  text-decoration: none;
+  color: inherit;
 }

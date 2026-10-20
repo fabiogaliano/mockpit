@@ -7,7 +7,13 @@ import { basePath, host } from "./host.ts";
 
 export type Route =
   | { screen: "home"; project: string | null; view: "tree" | "picks"; focus: string | null }
-  | { screen: "mock"; project: string; slug: string };
+  | {
+      screen: "mock";
+      project: string;
+      slug: string;
+      // Open on this state and variant (a tile on the canvas, Picks, the tree).
+      open: { state: string | null; variant: string } | null;
+    };
 
 export function parseRoute(pathname: string, base = "", search = ""): Route {
   const path = base && pathname.startsWith(base) ? pathname.slice(base.length) : pathname;
@@ -27,7 +33,15 @@ export function parseRoute(pathname: string, base = "", search = ""): Route {
     focus: q.get("focus") || null,
   });
   if (seg[0] === "project" && seg[1]) {
-    if (seg[2]) return { screen: "mock", project: dec(seg[1]), slug: dec(seg[2]) };
+    if (seg[2]) {
+      const variant = q.get("variant");
+      return {
+        screen: "mock",
+        project: dec(seg[1]),
+        slug: dec(seg[2]),
+        open: variant ? { state: q.get("state"), variant } : null,
+      };
+    }
     return home(dec(seg[1]));
   }
   return home(null);
@@ -35,8 +49,17 @@ export function parseRoute(pathname: string, base = "", search = ""): Route {
 
 export const projectPath = (project: string) =>
   `${basePath()}/project/${encodeURIComponent(project)}`;
-export const mockPath = (project: string, slug: string) =>
-  `${projectPath(project)}/${encodeURIComponent(slug)}`;
+export const mockPath = (
+  project: string,
+  slug: string,
+  open?: { state: string | null; variant: string },
+) => {
+  const base = `${projectPath(project)}/${encodeURIComponent(slug)}`;
+  if (!open) return base;
+  const q = new URLSearchParams({ variant: open.variant });
+  if (open.state !== null) q.set("state", open.state);
+  return `${base}?${q}`;
+};
 export const picksPath = (project: string) => `${projectPath(project)}?view=picks`;
 export const focusPath = (project: string, slug: string) =>
   `${projectPath(project)}?focus=${encodeURIComponent(slug)}`;

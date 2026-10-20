@@ -148,9 +148,9 @@ export function ProjectCanvas(props: {
   // A click that ended a pan is not a click.
   let lastMoved = false;
   const pointerUp = () => (lastMoved = onUp());
-  const open = (slug: string) => {
+  const open = (slug: string, at?: { state: string | null; variant: string }) => {
     if (lastMoved) return;
-    navigate(mockPath(props.project, slug));
+    navigate(mockPath(props.project, slug, at));
   };
 
   const pictures = createMemo(() => {
@@ -274,7 +274,7 @@ export function ProjectCanvas(props: {
                 ]
                   .filter(Boolean)
                   .join(" · ")}
-                onClick={() => open(t.slug)}
+                onClick={() => open(t.slug, { state: t.variant.state, variant: t.variant.variant })}
               >
                 <Show
                   when={pictures().has(t.variant.postId) && src(node(), t.variant)}

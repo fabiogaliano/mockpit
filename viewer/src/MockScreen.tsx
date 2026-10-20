@@ -16,8 +16,12 @@ import { createTune } from "./tune.ts";
 import { TopBar } from "./TopBar.tsx";
 import { canvasLayout, phoneLayout } from "./viewport.ts";
 
-export function MockScreen(props: { project: string; slug: string }) {
-  const s = createMockScreen(props.project, props.slug);
+export function MockScreen(props: {
+  project: string;
+  slug: string;
+  open?: { state: string | null; variant: string } | null;
+}) {
+  const s = createMockScreen(props.project, props.slug, props.open ?? null);
   const t = createTune(s);
   useFlowKeys(s);
   const home = () => projectPath(props.project);

@@ -125,7 +125,11 @@ const ADVANCE_MS = 450;
 // Long enough for an agent that is watching to pick a reply up.
 const BEAT_MS = 4000;
 
-export function createMockScreen(project: string, slug: string) {
+export function createMockScreen(
+  project: string,
+  slug: string,
+  open: { state: string | null; variant: string } | null = null,
+) {
   const [mock, setMock] = createSignal<MockDetail | null>(null);
   const [missing, setMissing] = createSignal(false);
   const [comments, setComments] = createSignal<CommentRow[]>([]);
@@ -588,6 +592,13 @@ export function createMockScreen(project: string, slug: string) {
     batch(() => {
       setMock(m);
       setMissing(false);
+      // The first load lands on the variant the user opened, once.
+      const at = open;
+      if (at && m.variants.some((v) => v.state === at.state && v.variant === at.variant)) {
+        setActiveState(at.state);
+        setChosenVariant({ [String(at.state)]: at.variant });
+        open = null;
+      }
       if (!states().includes(activeState())) setActiveState(states()[0]);
     });
   }

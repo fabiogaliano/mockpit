@@ -7,7 +7,8 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { surfaceUrl, type TreeNode, type TreeVariant } from "./api.ts";
 import { designWidth } from "./canvasLayout.ts";
-import { mockPath, navigate } from "./route.ts";
+import { linkClick, mockPath, navigate } from "./route.ts";
+import { StatusChip } from "./StatusChip.tsx";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 
@@ -75,17 +76,23 @@ export function TreeDrill(props: {
                     <Show when={n().states.length > 1}>
                       <h3>{state}</h3>
                     </Show>
-                    <For each={live()}>{(v) => <VariantRow node={n()} v={v} />}</For>
+                    <For each={live()}>
+                      {(v) => <VariantRow project={props.project} node={n()} v={v} />}
+                    </For>
                     <Show when={archived().length}>
                       <details class="drill-fold">
                         <summary>{`Archived (${archived().length})`}</summary>
-                        <For each={archived()}>{(v) => <VariantRow node={n()} v={v} />}</For>
+                        <For each={archived()}>
+                          {(v) => <VariantRow project={props.project} node={n()} v={v} />}
+                        </For>
                       </details>
                     </Show>
                     <Show when={dropped().length}>
                       <details class="drill-fold">
                         <summary>{`Dropped (${dropped().length})`}</summary>
-                        <For each={dropped()}>{(v) => <VariantRow node={n()} v={v} />}</For>
+                        <For each={dropped()}>
+                          {(v) => <VariantRow project={props.project} node={n()} v={v} />}
+                        </For>
                       </details>
                     </Show>
                   </section>
@@ -101,11 +108,15 @@ export function TreeDrill(props: {
   );
 }
 
-function VariantRow(props: { node: TreeNode; v: TreeVariant }) {
+function VariantRow(props: { project: string; node: TreeNode; v: TreeVariant }) {
+  const href = () =>
+    mockPath(props.project, props.node.slug, { state: props.v.state, variant: props.v.variant });
   return (
-    <div
+    <a
       class="drill-row"
       classList={{ muted: props.v.status === "archived" || props.v.status === "dropped" }}
+      href={href()}
+      onClick={(e) => linkClick(e, href())}
     >
       <div class="drill-thumb">
         <Show when={props.v.surface >= 0}>
@@ -117,29 +128,20 @@ function VariantRow(props: { node: TreeNode; v: TreeVariant }) {
             })}
             width={designWidth(props.node)}
             knobs={props.node.settled}
+            whole
           />
         </Show>
       </div>
       <div class="drill-text">
-        <span class="drill-name">
-          {props.v.variant}
-          <Show when={props.v.status === "accepted"}>
-            <span class="vok" aria-label="accepted">
-              ✓
-            </span>
-          </Show>
-        </span>
+        <span class="drill-name">{props.v.variant}</span>
         <span class="drill-sub">
-          {[
-            props.v.status,
-            `v${props.v.version}`,
-            props.v.forkedFrom && `from ${props.v.forkedFrom.variant}`,
-          ]
+          <StatusChip status={props.v.status} />
+          {[`v${props.v.version}`, props.v.forkedFrom && `from ${props.v.forkedFrom.variant}`]
             .filter(Boolean)
             .join(" · ")}
         </span>
       </div>
-    </div>
+    </a>
   );
 }
 

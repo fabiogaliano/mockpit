@@ -325,6 +325,7 @@ function Review(props: { s: MockScreenState }) {
                       width={s.frameW()}
                       class="crop review-thumb"
                       fit
+                      whole
                       src={p().src}
                       knobs={p().knobs}
                     />
@@ -599,6 +600,7 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
                       src={pic()!.src}
                       knobs={pic()!.knobs}
                       focus={focus()}
+                      whole={!focus()}
                     />
                   ) : null
                 }

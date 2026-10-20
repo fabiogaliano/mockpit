@@ -28,6 +28,10 @@ export function Thumb(props: {
   // anything loads, so nothing under it moves when the page reports its
   // height. A page shorter than the box is centred in it, not stretched.
   fit?: boolean;
+  // The whole page, scaled to fit the box both ways and centred, instead of
+  // filling the width and cropping the bottom: a tall phone design in a small
+  // picture still reads as a phone.
+  whole?: boolean;
   // A box as tall as the page pictured, up to this many times its width: the
   // moodboard packs designs at their own heights.
   grow?: number;
@@ -73,7 +77,13 @@ export function Thumb(props: {
   const frame = () => {
     const { w } = size();
     const h = props.grow ? w * props.grow : size().h;
-    const fit = fitThumb(w, h, docH(), props.focus ?? null, props.width ?? FRAME_W);
+    const frameW = props.width ?? FRAME_W;
+    const doc = docH();
+    if (props.whole && doc && w && h) {
+      const s = Math.min(w / frameW, h / doc);
+      return { s, x: (w - frameW * s) / 2, y: (h - doc * s) / 2, h, frameH: doc };
+    }
+    const fit = fitThumb(w, h, doc, props.focus ?? null, frameW);
     return props.fit && fit.h < h ? { ...fit, y: fit.y + (h - fit.h) / 2 } : fit;
   };
   return (
