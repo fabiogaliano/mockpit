@@ -30,6 +30,11 @@ line where to look, then end your turn. The question itself lives in the mock
 (`ask`), never in chat. The user answers in the browser at their own pace.
 Never poll.
 
+Build screens from components: each reusable piece (button, card, header) is
+its own `--kind component` mock, embedded in pages with
+`<mockpit-embed slug="card">`, so a decision on it reaches every page and the
+viewer can show the tree.
+
 Prefer the MCP tools when connected (`publish`, `ask`, `read`, `feedback`,
 `say`, `export`, `upload`, `guide`); otherwise use the CLI.
 

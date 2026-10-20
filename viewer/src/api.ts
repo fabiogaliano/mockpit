@@ -107,6 +107,12 @@ export const api = {
     call<{ mock: MockSummary }>(`/api/mocks/${encodeURIComponent(id)}/resolve`, json("POST", {})),
   reopen: (id: string) =>
     call<{ mock: MockSummary }>(`/api/mocks/${encodeURIComponent(id)}/reopen`, json("POST", {})),
+  // Star or unstar one variant: a favourite, not a decision.
+  star: (id: string, state: string | null, variant: string, starred: boolean) =>
+    call<unknown>(
+      `/api/mocks/${encodeURIComponent(id)}/star`,
+      json("POST", { state, variant, starred }),
+    ),
   // Un-archive one variant of one state (D13).
   restoreVariant: (id: string, state: string | null, variant: string) =>
     call<unknown>(`/api/mocks/${encodeURIComponent(id)}/restore`, json("POST", { state, variant })),

@@ -510,6 +510,8 @@ export interface Post {
   // The variant (in the same state) and version this one was forked from: the
   // lineage tree. Absent on a variant started from scratch.
   forkedFrom?: ForkRef;
+  // The user's favourite: a mark, not a decision. Unrelated to status.
+  starred?: true;
   // Provenance of the CURRENT version — the same three fields a PostVersion
   // carries; on the next update they move into the history entry.
   from?: number;
@@ -850,6 +852,7 @@ export interface Store {
   updatePost(id: string, patch: UpdatePostInput): Promise<Post | null>;
   removePost(id: string): Promise<boolean>;
   setPostStatus(id: string, status: PostStatus): Promise<Post | null>;
+  setPostStarred(id: string, starred: boolean): Promise<Post | null>;
 
   listComments(query: CommentQuery): Promise<Comment[]>;
   createComment(input: CreateCommentInput): Promise<Comment | null>;

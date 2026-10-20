@@ -97,6 +97,7 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
     : {}),
   ...(post.embeds.length ? { publishedWith: post.embeds } : {}),
   ...(post.forkedFrom ? { forkedFrom: post.forkedFrom } : {}),
+  ...(post.starred ? { starred: true } : {}),
   // The part names this variant's own markup marks, so the viewer can tell
   // which looks render a part (Mix) without the html bodies.
   parts: partsInSurfaces(post.surfaces).map((p) => p.name),
@@ -238,6 +239,7 @@ export const treeNodeView = (
     surface: p.surfaces.findIndex((x) => isSandboxedSurfaceKind(x.kind)),
     ...(p.note ? { note: p.note } : {}),
     ...(p.forkedFrom ? { forkedFrom: p.forkedFrom } : {}),
+    ...(p.starred ? { starred: true } : {}),
     ...(extra.embeds.get(p.id) ? { embedsKey: extra.embeds.get(p.id)!.key } : {}),
   })),
 });

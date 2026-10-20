@@ -1038,7 +1038,7 @@ test("after Send, another agent conversation's mock is offered, never moved to",
   await expect(page).toHaveURL(/\/first$/);
 });
 
-test("Home: the canvas lays out each mock with its designs; a row finds its mock there", async ({
+test("Home: the canvas lays out each mock with its designs; a row finds its mock, a tile opens its variant", async ({
   page,
   server,
 }) => {
@@ -1049,8 +1049,10 @@ test("Home: the canvas lays out each mock with its designs; a row finds its mock
   await expect(page.locator('.pc-tile[data-variant="quiet"]')).toHaveCount(4);
   await page.getByRole("button", { name: "Tree of Writer" }).click();
   await expect(cluster).toHaveClass(/marked/);
+  // A tile opens its mock on that state and variant.
   await page.locator('.pc-tile[data-variant="dark"]').first().click();
-  await expect(page).toHaveURL(new RegExp(`${mockPath}$`));
+  await expect(page).toHaveURL(/\/writer\?variant=dark&state=/);
+  await expect(onStage(page)).toHaveAttribute("data-variant", "dark");
 });
 
 test("Home: Answer next follows the agent's order, and a started mock shows its draft", async ({

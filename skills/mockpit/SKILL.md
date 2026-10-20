@@ -20,6 +20,9 @@ The loop never waits for the user:
    once per variant; mark parts with `data-part`. The html is the UI alone:
    say what a variant is in `--note`, never in the design, and name the
    widths it ships at once with `--widths 390,1280`.
+   Build screens from components: each reusable piece is its own
+   `--kind component` mock, embedded in pages with
+   `<mockpit-embed slug="card">`, so one decision on it reaches every page.
 3. A choice is several variants plus one ask that binds them: `mockpit ask`
    with options bound to variants. A variant decides everything it differs on;
    don't re-ask it. Visual options carry a `variant` or knob `set`. One render

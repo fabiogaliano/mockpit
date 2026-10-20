@@ -4185,3 +4185,194 @@ html.theming *:not(iframe) {
   opacity: 0.45;
   pointer-events: none;
 }
+.starbtn {
+  display: grid;
+  place-items: center;
+  min-width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  color: var(--t4);
+  font-size: 15px;
+}
+.starbtn.on {
+  color: #f5b301;
+}
+@media (hover: hover) {
+  .starbtn:hover {
+    background: var(--fill);
+    color: var(--t1);
+  }
+}
+.pc-star {
+  margin-inline-start: 4px;
+  color: #f5b301;
+}
+
+/* ---------- Library and Picks ---------- */
+.vseg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--row);
+  font-size: 13px;
+}
+.vseg button {
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 6px;
+  color: var(--t4);
+}
+.vseg button[aria-pressed="true"] {
+  background: var(--fill);
+  color: var(--t1);
+}
+.lib-faint {
+  font-size: 12px;
+  color: var(--t5);
+}
+.lib {
+  width: 100%;
+  max-width: 1600px;
+}
+.lib-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.lib-starred {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 9px;
+  background: var(--row);
+  color: var(--t4);
+  font-size: 13px;
+}
+.lib-starred[aria-pressed="true"] {
+  color: #f5b301;
+  box-shadow: 0 0 0 1px #f5b301;
+}
+.lib-mock {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+.lib-head,
+.mood-group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.lib-head a,
+.mood-group-head a {
+  color: var(--t1);
+  font-weight: 600;
+  text-decoration: none;
+}
+.lib-states {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+.lib-state {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  min-width: 0;
+}
+.lib-status select {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--row);
+  color: var(--t2);
+  font: inherit;
+  font-size: 13px;
+}
+.lib-state-name {
+  font-size: 12px;
+  color: var(--t4);
+}
+.lib-strip,
+.mood-row {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+.lib-variant {
+  display: grid;
+  gap: 4px;
+  flex: none;
+  width: 150px;
+}
+.lib-thumb {
+  position: relative;
+  display: block;
+  height: 120px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--row);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.lib-thumb .thumb {
+  position: absolute;
+  inset: 0;
+}
+.lib-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 13px;
+}
+.lib-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mood-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.mood-group {
+  margin-bottom: 20px;
+}
+.mood-row .mood-tile {
+  flex: none;
+  width: 240px;
+  margin: 0;
+}
+.mood-row .mood-tile.phone {
+  width: 180px;
+}
+.pc-mini {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 0 0 1px var(--line);
+  cursor: pointer;
+}
+.pc-mini i,
+.pc-mini b {
+  position: absolute;
+  border-radius: 2px;
+}
+.pc-mini i {
+  background: var(--fill);
+}
+.pc-mini b {
+  box-shadow: 0 0 0 1.5px var(--accent);
+}

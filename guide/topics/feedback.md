@@ -195,5 +195,7 @@ mockpit read    --tree                    # the project as a tree: variants, for
   The viewer renders every later question and the stage on top of it, so ask
   the deciding question first and its dependents after, or one answer is
   judged against a default the user hasn't chosen.
+- A variant with `starred: true` is one the user marked as a favourite. A star
+  decides nothing; treat it as "keep this in mind" when revising.
 - `read <slug>` returns metadata only. `--body` adds surfaces, `--history` adds
   version rows.

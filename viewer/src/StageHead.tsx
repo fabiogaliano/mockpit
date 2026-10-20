@@ -81,6 +81,23 @@ export function StageHead(props: {
             </button>
           )}
         </Show>
+        <Show when={!readonly() && v()}>
+          {(variant) => (
+            <button
+              type="button"
+              class="starbtn"
+              classList={{ on: !!variant().starred }}
+              aria-pressed={!!variant().starred}
+              aria-label={
+                variant().starred ? `Unstar ${variant().variant}` : `Star ${variant().variant}`
+              }
+              title="Star: a favourite to come back to. It decides nothing."
+              onClick={() => void s.starVariant(variant(), !variant().starred)}
+            >
+              {variant().starred ? "★" : "☆"}
+            </button>
+          )}
+        </Show>
       </div>
       {/* Q9: variants without a Look ask get a plain switcher. */}
       <Show when={!s.look() && siblings().length > 1}>

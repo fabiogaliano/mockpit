@@ -1007,6 +1007,9 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     assert.equal((await store.setPostStatus(p.id, "archived"))?.status, "archived");
     assert.equal((await store.getPost(p.id))?.status, "archived");
     assert.equal(await store.setPostStatus("missing", "open"), null);
+    assert.equal((await store.setPostStarred(p.id, true))?.starred, true);
+    assert.equal((await store.getPost(p.id))?.starred, true);
+    assert.equal((await store.setPostStarred(p.id, false))?.starred, undefined);
   });
 
   contract("a draft round-trips and clears", async (store) => {

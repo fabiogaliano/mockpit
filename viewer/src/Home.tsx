@@ -24,16 +24,17 @@ import { useSwipeAction } from "./gestures.ts";
 import { host, readonly } from "./host.ts";
 import { nextOwedMock, timeAgo } from "./logic.ts";
 import { type CanvasHandle, ProjectCanvas } from "./ProjectCanvas.tsx";
+import { Library } from "./Library.tsx";
 import { Picks } from "./Picks.tsx";
 import { TreeDrill } from "./TreeDrill.tsx";
-import { picksPath, linkClick, mockPath, navigate, projectPath } from "./route.ts";
+import { libraryPath, linkClick, picksPath, mockPath, navigate, projectPath } from "./route.ts";
 import { setTheme, theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 import { TopBar } from "./TopBar.tsx";
 
 export function Home(props: {
   project: string | null;
-  view: "tree" | "picks";
+  view: "tree" | "library" | "picks";
   focus: string | null;
 }) {
   // Home shows where every mock stands; a Send carried from a mock ends here.
@@ -142,6 +143,13 @@ export function Home(props: {
                   Tree
                 </a>
                 <a
+                  href={libraryPath(p())}
+                  aria-current={props.view === "library" ? "page" : undefined}
+                  onClick={(e) => linkClick(e, libraryPath(p()))}
+                >
+                  Library
+                </a>
+                <a
                   href={picksPath(p())}
                   aria-current={props.view === "picks" ? "page" : undefined}
                   onClick={(e) => linkClick(e, picksPath(p()))}
@@ -173,6 +181,13 @@ export function Home(props: {
           </>
         }
       />
+      <Show when={props.view === "library" && project()}>
+        {(p) => (
+          <main class="home-main">
+            <Library project={p()} nodes={tree()?.tree ?? []} onChanged={() => void refetch()} />
+          </main>
+        )}
+      </Show>
       <Show when={props.view === "picks" && project()}>
         {(p) => (
           <main class="home-main">
@@ -180,7 +195,7 @@ export function Home(props: {
           </main>
         )}
       </Show>
-      <Show when={props.view !== "picks"}>
+      <Show when={props.view === "tree"}>
         <main class="home-main" classList={{ "with-canvas": wide() && !!project() }}>
           <div class="home-col">
             <Show

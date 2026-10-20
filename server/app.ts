@@ -2482,6 +2482,30 @@ export function createApp({
     return ok({ state: updated.state, variant: updated.variant, status: updated.status });
   }
 
+  // The user stars (or unstars) a variant: a favourite to come back to, which
+  // decides nothing. Viewer-only; the agent reads it as `starred`.
+  async function starFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const mock = await resolveMock(ref);
+    if (isResult(mock)) return mock;
+    if (typeof body?.starred !== "boolean") return fail(400, '"starred" must be true or false');
+    const posts = await store.listPosts({ mockId: mock.id });
+    const chosen = chooseVariant(mock, posts, stateArg(body?.state), str(body?.variant, MAX_LABEL));
+    if (isResult(chosen)) return chosen;
+    const updated = await store.setPostStarred(chosen.id, body.starred);
+    if (!updated) return fail(404, "variant not found");
+    bus.broadcast({
+      type: "post-updated",
+      id: updated.id,
+      mockId: mock.id,
+      sessionId: updated.sessionId,
+      version: updated.version,
+      by: "user",
+    });
+    bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
+    return ok({ state: updated.state, variant: updated.variant, starred: !!updated.starred });
+  }
+
   // D8 "restore as vN": the user brings an older version back as the newest
   // one. Distinct from restoreFlow, which un-archives a variant. Viewer-only
   // because the version is authored by the user; an agent restoring publishes.
@@ -3362,6 +3386,9 @@ export function createApp({
     send(c, await reopenFlow(c.req.param("id"), flowCtx(c))),
   );
 
+  app.post("/api/mocks/:id/star", async (c) =>
+    send(c, await starFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
   app.post("/api/mocks/:id/restore", async (c) =>
     send(c, await restoreFlow(c.req.param("id"), await jsonBody(c))),
   );

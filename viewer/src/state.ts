@@ -1188,6 +1188,16 @@ export function createMockScreen(
       setError(e instanceof Error ? e.message : String(e));
     }
   }
+  async function starVariant(v: { state: string | null; variant: string }, starred: boolean) {
+    const m = mock();
+    if (!m) return;
+    try {
+      await api.star(m.id, v.state, v.variant, starred);
+      await loadMock();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
   // Tune's writer (phase 4b): one tuned knob value into the draft.
   function setTuned(path: string, value: KnobValue | undefined) {
     writeDraft((d) => {
@@ -1645,6 +1655,7 @@ export function createMockScreen(
     prefill,
     postComment,
     restoreVariant,
+    starVariant,
     setTuned,
     replaceTuned,
     knobContext,

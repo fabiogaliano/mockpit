@@ -281,6 +281,15 @@ the viewer shows it on the variant and its option. Name the widths the user
 ships to once, \`--widths 390,1280\`, and the design is shown at each, side by
 side; without them the viewer picks one for the screen it is on.
 
+## Build from components
+
+A screen made of reusable pieces (a button, a card, a header, a day strip) is
+built from them: publish each piece as its own mock (\`--kind component\`), and
+the screen (\`--kind page\`) embeds it with \`<mockpit-embed slug="card">\`.
+Vary a piece in its own mock, not by copying it into every page: the user
+sees every page it is in, a decision on it reaches all of them, and the
+viewer's canvas and Library show the tree. Topic \`surfaces\` has the details.
+
 ## Ask, slot or knob
 
 Answers drive the screen. A choice is several variants plus one ask that binds

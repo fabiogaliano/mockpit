@@ -28,6 +28,9 @@ import { mockPath, navigate } from "./route.ts";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 
+// Opening below this, the canvas starts at it on the first mocks instead:
+// a whole project at a few percent is cards nobody can read.
+const READABLE_SCALE = 0.6;
 // Below this a picture is too small to tell designs apart; cards say more.
 const PICTURE_MIN_SCALE = 0.18;
 const PICTURE_CAP = 24;
@@ -67,6 +70,43 @@ export function ProjectCanvas(props: {
   const fitAll = () => {
     const l = layout();
     fitTo({ x: 0, y: 0, w: l.w, h: l.h });
+  };
+  // The whole project when it fits at a readable size, else the first mocks at
+  // that size, from the top left; the minimap shows the rest.
+  const openReadable = () => {
+    const l = layout();
+    const { w, h } = size();
+    const whole = Math.min((w - 48) / l.w, (h - 48) / l.h, 1);
+    if (whole >= READABLE_SCALE) return fitAll();
+    setView({ scale: READABLE_SCALE, x: 24, y: 24 });
+  };
+  // The minimap: every cluster as a box, the visible area outlined; a press
+  // there centres the canvas on that point.
+  const MINI_W = 180;
+  const MINI_H = 120;
+  const mini = createMemo(() => {
+    const l = layout();
+    const k = Math.min(MINI_W / Math.max(1, l.w), MINI_H / Math.max(1, l.h));
+    const v = view();
+    const s = size();
+    return {
+      k,
+      boxes: l.clusters.map((c) => ({ x: c.x * k, y: c.y * k, w: c.w * k, h: c.h * k })),
+      vp: {
+        x: (-v.x / v.scale) * k,
+        y: (-v.y / v.scale) * k,
+        w: (s.w / v.scale) * k,
+        h: (s.h / v.scale) * k,
+      },
+    };
+  });
+  const miniJump = (e: PointerEvent) => {
+    e.stopPropagation();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const { k } = mini();
+    const wx = (e.clientX - r.left) / k;
+    const wy = (e.clientY - r.top) / k;
+    setView((v) => ({ ...v, x: size().w / 2 - wx * v.scale, y: size().h / 2 - wy * v.scale }));
   };
   const zoomAt = (factor: number, px: number, py: number) =>
     setView((v) => {
@@ -118,7 +158,7 @@ export function ProjectCanvas(props: {
     on([layout, size], ([l, s]) => {
       if (fitted || !s.w || !l.clusters.length) return;
       fitted = true;
-      fitAll();
+      openReadable();
       if (pending) locate(pending);
     }),
   );
@@ -291,6 +331,11 @@ export function ProjectCanvas(props: {
                 </Show>
                 <span class="pc-label">
                   {t.variant.variant}
+                  <Show when={t.variant.starred}>
+                    <span class="pc-star" aria-label="starred">
+                      ★
+                    </span>
+                  </Show>
                   <Show when={t.variant.status === "accepted"}>
                     <span class="vok" aria-label="accepted">
                       ✓
@@ -346,9 +391,44 @@ export function ProjectCanvas(props: {
           +
         </button>
         <button type="button" onClick={fitAll}>
-          Fit
+          Fit all
         </button>
       </div>
+      <Show
+        when={
+          live().length &&
+          (layout().w * view().scale > size().w || layout().h * view().scale > size().h)
+        }
+      >
+        <div
+          class="pc-mini"
+          style={{ width: `${MINI_W}px`, height: `${MINI_H}px` }}
+          role="img"
+          aria-label="Minimap: where you are on the canvas"
+          onPointerDown={miniJump}
+        >
+          <For each={mini().boxes}>
+            {(b) => (
+              <i
+                style={{
+                  left: `${b.x}px`,
+                  top: `${b.y}px`,
+                  width: `${b.w}px`,
+                  height: `${b.h}px`,
+                }}
+              />
+            )}
+          </For>
+          <b
+            style={{
+              left: `${mini().vp.x}px`,
+              top: `${mini().vp.y}px`,
+              width: `${mini().vp.w}px`,
+              height: `${mini().vp.h}px`,
+            }}
+          />
+        </div>
+      </Show>
       <Show when={!live().length}>
         <p class="pc-empty">Nothing on the canvas yet.</p>
       </Show>

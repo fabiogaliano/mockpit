@@ -162,7 +162,11 @@ export class SqlStore implements Store {
       agentActiveAt: "TEXT",
     });
     this.addMissing("mocks", { widths: "TEXT NOT NULL DEFAULT '[]'", resolvedAt: "TEXT" });
-    this.addMissing("posts", { note: "TEXT", forkedFrom: "TEXT" });
+    this.addMissing("posts", {
+      note: "TEXT",
+      forkedFrom: "TEXT",
+      starred: "INTEGER NOT NULL DEFAULT 0",
+    });
     if (legacy) this.migrateLegacy();
     this.createIndexes();
   }
@@ -571,6 +575,7 @@ export class SqlStore implements Store {
       // The column keeps its first name, from when embeds were called slots.
       embeds: parseJson<Embed[]>(r.slots, []),
       ...(r.forkedFrom == null ? {} : { forkedFrom: parseJson<ForkRef>(r.forkedFrom, null!) }),
+      ...(r.starred ? { starred: true as const } : {}),
       ...(r.curFrom == null ? {} : { from: r.curFrom as number }),
       ...(r.curPrompt == null ? {} : { prompt: r.curPrompt as string }),
       ...(r.curAuthor == null ? {} : { author: r.curAuthor as string }),
@@ -1090,6 +1095,14 @@ export class SqlStore implements Store {
     if (!post) return null;
     this.sql.exec("UPDATE posts SET status = ? WHERE id = ?", status, id);
     return { ...post, status };
+  }
+
+  async setPostStarred(id: string, starred: boolean) {
+    const post = await this.getPost(id);
+    if (!post) return null;
+    this.sql.exec("UPDATE posts SET starred = ? WHERE id = ?", starred ? 1 : 0, id);
+    const { starred: _, ...rest } = post;
+    return starred ? { ...rest, starred: true as const } : rest;
   }
 
   // --- comments ---
