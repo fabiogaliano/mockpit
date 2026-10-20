@@ -105,8 +105,8 @@ consciously, not as a side effect):
   self-contained `viewer/dist/index.html`. `Home` (mock list; on a wide
   screen a sidebar beside `ProjectCanvas`, the project tree laid out by the
   pure `canvasLayout.ts` from `GET /api/projects/:name/tree`; on a phone each
-  row opens `TreeDrill`, the tree one level at a time; `?view=board` is
-  `Board`, the moodboard of accepted designs), `MockScreen`
+  row opens `TreeDrill`, the tree one level at a time; `?view=picks` is
+  `Picks`, every accepted design packed tight), `MockScreen`
   (`TopBar`, `Stage` + `Strip`, `Panel` beside the stage; where the panel does
   not fit, `CanvasHead`, the stage as a pannable canvas with the mock's other
   `widths` as picture-only artboards beside the live frame, and `QuestionCard`

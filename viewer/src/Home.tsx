@@ -24,16 +24,16 @@ import { useSwipeAction } from "./gestures.ts";
 import { host, readonly } from "./host.ts";
 import { nextOwedMock, timeAgo } from "./logic.ts";
 import { type CanvasHandle, ProjectCanvas } from "./ProjectCanvas.tsx";
-import { Board } from "./Board.tsx";
+import { Picks } from "./Picks.tsx";
 import { TreeDrill } from "./TreeDrill.tsx";
-import { boardPath, linkClick, mockPath, navigate, projectPath } from "./route.ts";
+import { picksPath, linkClick, mockPath, navigate, projectPath } from "./route.ts";
 import { setTheme, theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 import { TopBar } from "./TopBar.tsx";
 
 export function Home(props: {
   project: string | null;
-  view: "tree" | "board";
+  view: "tree" | "picks";
   focus: string | null;
 }) {
   // Home shows where every mock stands; a Send carried from a mock ends here.
@@ -142,11 +142,11 @@ export function Home(props: {
                   Tree
                 </a>
                 <a
-                  href={boardPath(p())}
-                  aria-current={props.view === "board" ? "page" : undefined}
-                  onClick={(e) => linkClick(e, boardPath(p()))}
+                  href={picksPath(p())}
+                  aria-current={props.view === "picks" ? "page" : undefined}
+                  onClick={(e) => linkClick(e, picksPath(p()))}
                 >
-                  Board
+                  Picks
                 </a>
               </nav>
             )}
@@ -173,14 +173,14 @@ export function Home(props: {
           </>
         }
       />
-      <Show when={props.view === "board" && project()}>
+      <Show when={props.view === "picks" && project()}>
         {(p) => (
           <main class="home-main">
-            <Board project={p()} nodes={tree()?.tree ?? []} />
+            <Picks project={p()} nodes={tree()?.tree ?? []} />
           </main>
         )}
       </Show>
-      <Show when={props.view !== "board"}>
+      <Show when={props.view !== "picks"}>
         <main class="home-main" classList={{ "with-canvas": wide() && !!project() }}>
           <div class="home-col">
             <Show

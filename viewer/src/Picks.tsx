@@ -1,7 +1,7 @@
-// The moodboard: every decision so far, packed tight. One tile per state a
+// Picks: every decision so far, packed tight. One tile per state a
 // variant has been accepted for, pictured with everything the user has
 // settled (answers and tuning) and with its components as they are now, so the
-// board grows as answers arrive and always shows the current whole. Pages
+// view grows as answers arrive and always shows the current whole. Pages
 // first, then the components they are built from. A tile opens its mock's
 // place in the tree.
 
@@ -12,13 +12,13 @@ import { focusPath, linkClick } from "./route.ts";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 
-interface BoardTile {
+interface PickTile {
   node: TreeNode;
   state: string | null;
   variant: TreeVariant;
 }
 
-export function Board(props: { project: string; nodes: TreeNode[] }) {
+export function Picks(props: { project: string; nodes: TreeNode[] }) {
   const ordered = createMemo(() => {
     const byAge = (a: TreeNode, b: TreeNode) => a.createdAt.localeCompare(b.createdAt);
     return [
@@ -27,7 +27,7 @@ export function Board(props: { project: string; nodes: TreeNode[] }) {
     ];
   });
   const tiles = createMemo(() => {
-    const out: BoardTile[] = [];
+    const out: PickTile[] = [];
     for (const node of ordered()) {
       for (const state of node.states) {
         const variant = node.variants.find((v) => v.state === state && v.status === "accepted");
@@ -59,7 +59,7 @@ export function Board(props: { project: string; nodes: TreeNode[] }) {
                   class="mood-tile"
                   classList={{ phone: phone() }}
                   href={href()}
-                  data-board={`${t.node.slug}${t.state ? `/${t.state}` : ""}`}
+                  data-pick={`${t.node.slug}${t.state ? `/${t.state}` : ""}`}
                   onClick={(e) => linkClick(e, href())}
                 >
                   <Thumb

@@ -1,12 +1,12 @@
 // URL ⇄ screen. Home is /project/:name, a mock is /project/:name/:slug; "/" is
-// the home of the most recently active project. On Home, `?view=board` shows
-// the moodboard and `?focus=<slug>` opens on that mock's place in the tree.
+// the home of the most recently active project. On Home, `?view=picks` shows
+// every accepted design and `?focus=<slug>` opens on that mock's place in the tree.
 
 import { createSignal } from "solid-js";
 import { basePath, host } from "./host.ts";
 
 export type Route =
-  | { screen: "home"; project: string | null; view: "tree" | "board"; focus: string | null }
+  | { screen: "home"; project: string | null; view: "tree" | "picks"; focus: string | null }
   | { screen: "mock"; project: string; slug: string };
 
 export function parseRoute(pathname: string, base = "", search = ""): Route {
@@ -23,7 +23,7 @@ export function parseRoute(pathname: string, base = "", search = ""): Route {
   const home = (project: string | null): Route => ({
     screen: "home",
     project,
-    view: q.get("view") === "board" ? "board" : "tree",
+    view: q.get("view") === "picks" ? "picks" : "tree",
     focus: q.get("focus") || null,
   });
   if (seg[0] === "project" && seg[1]) {
@@ -37,7 +37,7 @@ export const projectPath = (project: string) =>
   `${basePath()}/project/${encodeURIComponent(project)}`;
 export const mockPath = (project: string, slug: string) =>
   `${projectPath(project)}/${encodeURIComponent(slug)}`;
-export const boardPath = (project: string) => `${projectPath(project)}?view=board`;
+export const picksPath = (project: string) => `${projectPath(project)}?view=picks`;
 export const focusPath = (project: string, slug: string) =>
   `${projectPath(project)}?focus=${encodeURIComponent(slug)}`;
 
