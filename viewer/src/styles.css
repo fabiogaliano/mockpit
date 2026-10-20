@@ -4660,3 +4660,8 @@ html.theming *:not(iframe) {
   display: flex;
   gap: 6px;
 }
+/* Trying: the design takes taps; the outline says so. */
+.frame.trying {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}

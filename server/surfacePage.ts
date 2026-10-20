@@ -399,6 +399,7 @@ export const HIT_TEST_JS = `
 //   ready            {version}                   the knob runtime is listening (KNOBS_JS,
 //                                                from <head>); values can be sent now
 //   pinch            {phase, a:{x,y}, b:{x,y}}   two fingers on the page, in viewport px
+//   zoom             {x, y, dy}                  ⌘/Ctrl+scroll or a trackpad pinch, in viewport px
 //                                                (PARTS_JS); phase start|move|end. The
 //                                                page's own two-finger touches are
 //                                                cancelled: the host zooms its canvas
@@ -640,6 +641,13 @@ export const PARTS_JS = `
   }
   window.addEventListener('touchend', release, true);
   window.addEventListener('touchcancel', release, true);
+  // ⌘/Ctrl+scroll and a trackpad pinch (ctrl+wheel) are the host's too: they
+  // zoom the canvas around the pointer, never this page or the browser.
+  window.addEventListener('wheel', function (e) {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    parent.postMessage({ __mockpit: true, type: 'zoom', x: e.clientX, y: e.clientY, dy: e.deltaY }, '*');
+  }, { capture: true, passive: false });
 
   window.addEventListener('message', function (e) {
     if (e.source !== parent) return;

@@ -124,7 +124,23 @@ export function useInspectGestures(opts: {
       el.removeEventListener("click", click, true);
     });
   });
-  return { pinch };
+  // A trackpad pinch or ⌘/Ctrl+scroll, at a point in this document's px: the
+  // canvas zooms around it, as a two-finger pinch would.
+  const zoomAt = (factor: number, x: number, y: number) => {
+    if (!opts.enabled()) return;
+    const el = opts.scroller();
+    const box = el.getBoundingClientRect();
+    const mx = x - box.left;
+    const my = y - box.top;
+    const z0 = opts.scale();
+    const z1 = clampZoom(z0 * factor, opts.fit());
+    const left = zoomScroll(el.scrollLeft, mx, z0, z1);
+    const top = zoomScroll(el.scrollTop, my, z0, z1);
+    opts.setZoom(z1);
+    el.scrollLeft = left;
+    el.scrollTop = top;
+  };
+  return { pinch, zoomAt };
 }
 
 // A row that a finger swipes left to act on it (resolve a mock on Home). The

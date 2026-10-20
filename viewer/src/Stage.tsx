@@ -252,6 +252,7 @@ export function Stage(props: { s: MockScreenState }) {
     const d = e.data as Record<string, unknown> | null;
     if (!d || typeof d !== "object" || d.__mockpit !== true) return;
     if (d.type === "pinch") return pinchFromFrame(e.source, d);
+    if (d.type === "zoom") return zoomFromFrame(e.source, d);
     let info: { key: string; index: number; primary: boolean; version: number } | undefined;
     for (const [el, i] of frames) if (el.contentWindow === e.source) info = i;
     if (!info) return;
@@ -323,6 +324,17 @@ export function Stage(props: { s: MockScreenState }) {
     };
     gestures.pinch(phase, at(d.a), at(d.b));
   }
+  // ⌘/Ctrl+scroll or a trackpad pinch over a page the user is trying: the page
+  // keeps it from the browser and reports where, in its px; mapped like a pinch.
+  function zoomFromFrame(source: MessageEventSource | null, d: Record<string, unknown>) {
+    if (!layersEl) return;
+    const frame = [...layersEl.querySelectorAll("iframe")].find((f) => f.contentWindow === source);
+    if (!frame || !frame.offsetWidth) return;
+    const r = frame.getBoundingClientRect();
+    const k = r.width / frame.offsetWidth;
+    const dy = Math.max(-200, Math.min(200, num(d.dy)));
+    gestures.zoomAt(Math.exp(-dy * 0.01), r.left + num(d.x) * k, r.top + num(d.y) * k);
+  }
   function updatePending(ref: unknown, patch: Partial<PendingMark>) {
     const p = pending();
     if (p && p.ref === ref) setPending({ ...p, ...patch });
@@ -379,6 +391,22 @@ export function Stage(props: { s: MockScreenState }) {
   });
   // A phone's pinch, from touches: the browser keeps one-finger scrolling, and
   // a second finger is taken from it before it can pan or zoom the viewer.
+  // ⌘/Ctrl+scroll and a trackpad pinch (which arrives as ctrl+wheel) zoom the
+  // stage around the pointer instead of the browser's page.
+  onMount(() => {
+    const el = layersEl;
+    const wheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || !pannable()) return;
+      e.preventDefault();
+      gestures.zoomAt(
+        Math.exp(-Math.max(-200, Math.min(200, e.deltaY)) * 0.01),
+        e.clientX,
+        e.clientY,
+      );
+    };
+    el.addEventListener("wheel", wheel, { passive: false });
+    onCleanup(() => el.removeEventListener("wheel", wheel));
+  });
   onMount(() => {
     const el = layersEl;
     let pinching = false;
@@ -857,7 +885,7 @@ function VariantFrame(props: {
   return (
     <div
       class="frame"
-      classList={{ on: props.active }}
+      classList={{ on: props.active, trying: props.active && s.trying() }}
       style={{
         height: `${props.height * props.scale}px`,
         width: `${props.frameW * props.scale}px`,
@@ -1055,7 +1083,7 @@ function Overlay(props: {
     props.setPending(null);
   };
   const onWheel = (e: WheelEvent) => {
-    if (!props.capped) return;
+    if (!props.capped || e.ctrlKey || e.metaKey) return;
     e.preventDefault();
     props.post({ type: "scroll", dx: e.deltaX / props.scale, dy: e.deltaY / props.scale });
   };
