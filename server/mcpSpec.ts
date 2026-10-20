@@ -88,6 +88,10 @@ const askSchema = z.object({
   state: z.string().optional(),
   part: z.string().optional().describe("data-part name, for scope part"),
   multi: z.boolean().optional(),
+  after: z
+    .string()
+    .optional()
+    .describe("Id of an earlier ask this depends on; it opens once that one is answered"),
   options: z.array(
     z.object({
       id: z.string().optional(),

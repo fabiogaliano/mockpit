@@ -189,7 +189,7 @@ mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
   Prints the parts found per state, parts that vanished or were renamed,
   nudges, a ready-to-run "mockpit ask" when variants have no ask, and feedback.`,
   ask: `mockpit ask --mock <slug> "<question>" --option <label[=variant]> ... [--scope mock|state|part]
-  [--state s] [--part p] [--multi] [--id id]
+  [--state s] [--part p] [--multi] [--id id] [--after <ask id>]
   mockpit ask --mock <slug> --asks <json|file>
   Ask the user. A choice is several variants plus one ask that binds them.
   Then tell the user where to look and end your turn.`,
@@ -1389,6 +1389,7 @@ const commands = {
         part: { type: "string" },
         multi: { type: "boolean" },
         id: { type: "string" },
+        after: { type: "string" },
         asks: { type: "string" },
       },
     });
@@ -1426,6 +1427,7 @@ const commands = {
           ...(flags.state && { state: flags.state }),
           ...(flags.part && { part: flags.part }),
           ...(flags.multi && { multi: true }),
+          ...(flags.after && { after: flags.after }),
         },
       ];
     }

@@ -4163,3 +4163,25 @@ html.theming *:not(iframe) {
   text-decoration: none;
   color: inherit;
 }
+.qwith {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 8px 0 4px;
+  font-size: 13px;
+  color: var(--t4);
+}
+.qwith-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+  color: var(--ok);
+}
+.opts.waiting {
+  opacity: 0.45;
+  pointer-events: none;
+}

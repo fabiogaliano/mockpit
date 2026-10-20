@@ -333,6 +333,9 @@ export interface Ask {
   part?: string;
   options: AskOption[];
   multi?: boolean;
+  // The id of an ask this one depends on: it waits until that one is answered
+  // and its pictures then show that answer.
+  after?: string;
   // Set when a reply answered it; an ask with none of answer, other or note is
   // still open.
   answer?: AskAnswer;

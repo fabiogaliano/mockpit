@@ -76,6 +76,11 @@ An option binds to one of:
 Options that change how something looks carry a `variant` or a knob `set`,
 so the user sees them live. Plain pills only for what can't be seen.
 
+When one question only makes sense once another is answered (an accent's
+placement depends on the palette), give it `after: "<that ask's id>"` (CLI
+`--after palette`). It stays closed until that one is answered, then its
+pictures render with that answer and say so. Ask the deciding question first.
+
 The viewer shows a picture of each option it can render. `multi: true` allows
 several answers. Option ids default to the slugged label. Reusing an ask `id`
 replaces that ask. The viewer adds an "Other…" write-in and a note to every

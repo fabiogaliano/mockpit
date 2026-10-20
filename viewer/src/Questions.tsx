@@ -565,6 +565,47 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
           </button>
         </div>
       </Show>
+      <Show when={s.waitingOn(props.ask)}>
+        {(before) => {
+          const at = () =>
+            s.questions().findIndex((q) => q.kind === "ask" && q.ask.id === before().id);
+          return (
+            <div class="dormant" role="status">
+              {"Opens after "}
+              <b>{before().text}</b>
+              {" is answered: its pictures need that answer."}
+              <Show when={at() >= 0}>
+                <button type="button" class="lnk" onClick={() => s.goQuestion(at())}>
+                  {`Go to question ${at() + 1}`}
+                </button>
+              </Show>
+            </div>
+          );
+        }}
+      </Show>
+      <Show when={s.shownWith(props.ask) || s.changesOf(props.ask).length}>
+        <div class="qwith">
+          <Show when={s.shownWith(props.ask)}>
+            {(w) => {
+              const at = () =>
+                s.questions().findIndex((q) => q.kind === "ask" && q.ask.id === w().ask.id);
+              return (
+                <span class="qwith-chip">
+                  {`With ${w().labels}`}
+                  <Show when={at() >= 0}>
+                    <button type="button" class="lnk" onClick={() => s.goQuestion(at())}>
+                      change
+                    </button>
+                  </Show>
+                </span>
+              );
+            }}
+          </Show>
+          <Show when={s.changesOf(props.ask).length}>
+            <span class="qwith-changes">{`Changes: ${s.changesOf(props.ask).join(" · ")}`}</span>
+          </Show>
+        </div>
+      </Show>
       <Show when={dormant()}>
         {(d) => (
           <div class="dormant" role="status">
@@ -579,7 +620,7 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
           </div>
         )}
       </Show>
-      <div class="opts" classList={{ asleep: !!dormant() }}>
+      <div class="opts" classList={{ asleep: !!dormant(), waiting: !!s.waitingOn(props.ask) }}>
         <For each={props.ask.options}>
           {(o, i) => {
             const pic = () => optionPicture(s, props.ask, o);

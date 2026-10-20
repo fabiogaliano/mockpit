@@ -1841,6 +1841,12 @@ export function createApp({
     let id = slugify(str(raw.id, 64) ?? text).slice(0, 40);
     if (!str(raw.id, 64))
       for (let n = 2; taken.has(id); n++) id = `${slugify(text).slice(0, 36)}-${n}`;
+    const after = raw.after === undefined ? undefined : str(raw.after, 64);
+    if (raw.after !== undefined) {
+      if (!after || after === id || !taken.has(after)) {
+        return `ask "${text}": after must name an earlier ask's id (asked before it or earlier in this call)`;
+      }
+    }
     return {
       id,
       text,
@@ -1849,6 +1855,7 @@ export function createApp({
       ...(part ? { part } : {}),
       options,
       ...(raw.multi === true ? { multi: true } : {}),
+      ...(after ? { after } : {}),
       at: new Date().toISOString(),
     };
   }

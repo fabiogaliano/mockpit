@@ -49,6 +49,7 @@ import {
   mixSettled,
   partLabel,
   pruneMix,
+  knobPart,
   resolveKnobs,
   mockVersion,
   nextOwedMock,
@@ -342,6 +343,40 @@ export function createMockScreen(
     }
     return null;
   }
+  // The ask this one waits on (`after`) while that one has no answer yet.
+  function waitingOn(ask: Ask): Ask | null {
+    if (!ask.after) return null;
+    const before = mock()?.asks.find((a) => a.id === ask.after);
+    return before && answerOf(before) === undefined && !before.dismissed ? before : null;
+  }
+  // What an answered `after` ask chose, which this one's pictures show.
+  function shownWith(ask: Ask): { ask: Ask; labels: string } | null {
+    if (!ask.after) return null;
+    const before = mock()?.asks.find((a) => a.id === ask.after);
+    if (!before || answerOf(before) === undefined) return null;
+    const ids = answerIds(answerOf(before));
+    const labels = before.options
+      .filter((o) => ids.includes(o.id))
+      .map((o) => o.label)
+      .join(", ");
+    return labels ? { ask: before, labels } : null;
+  }
+  // The parts an ask's options change: each knob `set` names a part (a slot is
+  // its own part; "key.color" belongs to "key"), in the labels the user reads.
+  function changesOf(ask: Ask): string[] {
+    const m = mock();
+    if (!m) return [];
+    const names = new Set<string>();
+    for (const o of ask.options) {
+      for (const path of Object.keys(o.set ?? {})) {
+        const part = askSlot(ask)?.part ?? knobPart(path);
+        if (part) names.add(part);
+      }
+    }
+    const label = (name: string) =>
+      m.parts.flatMap((s) => s.parts).find((p) => p.name === name)?.label ?? name;
+    return [...names].map(label);
+  }
   // How deep an ask's slot sits inside other fills (0 at the top of the screen).
   function slotDepth(ask: Ask): number {
     const m = mock();
@@ -463,7 +498,7 @@ export function createMockScreen(
   };
   const owed = createMemo(() => {
     const m = mock();
-    return m ? unanswered(withAsks(m), draft()).filter((a) => !dormantOf(a)) : [];
+    return m ? unanswered(withAsks(m), draft()).filter((a) => !dormantOf(a) && !waitingOn(a)) : [];
   });
   const isOwed = (ask: Ask) => owed().some((a) => a.id === ask.id);
   // How many questions still owed are shown on a state, for its tab.
@@ -1564,6 +1599,9 @@ export function createMockScreen(
     flashArmed,
     askSlot,
     dormantOf,
+    waitingOn,
+    shownWith,
+    changesOf,
     showFlash,
     hoverPart,
     setHoverPart,
