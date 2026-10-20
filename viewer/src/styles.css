@@ -2533,7 +2533,7 @@ a {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
   border: 1px solid var(--edge);
   background: var(--panel);
   color: var(--t1);
@@ -2565,34 +2565,24 @@ a {
   border-bottom: 0;
   border-radius: 12px 12px 0 0;
 }
-.qh-grip {
+/* Stacked along the tab: which way it opens, then how many questions are open. */
+.qh-open {
   flex: none;
-  width: 3px;
-  height: 12px;
-  border-radius: 2px;
-  background: var(--fill);
-}
-.qcard-handle.top .qh-grip,
-.qcard-handle.bottom .qh-grip {
-  width: 12px;
-  height: 3px;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: var(--t4);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .qh-n {
-  display: grid;
-  place-items: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
-  border-radius: 9px;
-  background: var(--accent-solid);
-  color: var(--on-accent);
-  font: 700 11px/1 var(--sans);
+  color: var(--accent);
+  font: 700 13px/1 var(--sans);
   font-variant-numeric: tabular-nums;
 }
 .qh-n.done {
-  background: transparent;
   color: var(--ok);
-  font-size: 13px;
 }
 @media (hover: hover) {
   .qcard-handle:hover {

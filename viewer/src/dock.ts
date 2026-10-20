@@ -48,8 +48,8 @@ export const SPOTS: Spot[] = [
 ];
 export const INSET = 12;
 // The handle a docked card leaves on its edge.
-export const HANDLE_T = 24;
-export const HANDLE_L = 48;
+export const HANDLE_T = 30;
+export const HANDLE_L = 60;
 // A finger this close to an edge while carrying the card docks it there.
 export const DOCK_EDGE = 22;
 // Released this far from every edge, a dragged handle opens the card again.

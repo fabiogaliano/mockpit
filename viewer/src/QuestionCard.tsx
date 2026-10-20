@@ -479,7 +479,18 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
               }}
               onPointerDown={dragHandle}
             >
-              <span class="qh-grip" aria-hidden="true" />
+              <svg class="qh-open" viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  d={
+                    {
+                      left: "M6 4l4 4-4 4",
+                      right: "M10 4l-4 4 4 4",
+                      top: "M4 6l4 4 4-4",
+                      bottom: "M4 10l4-4 4 4",
+                    }[d().edge]
+                  }
+                />
+              </svg>
               <span class="qh-n" classList={{ done: !owed() }}>
                 {owed() ? String(owed()) : "✓"}
               </span>
