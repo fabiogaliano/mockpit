@@ -6,13 +6,9 @@
 
 import { createMemo, createSignal, For, Show } from "solid-js";
 import type { PostStatus } from "../../server/types.ts";
-import { api, surfaceUrl, type TreeNode, type TreeVariant } from "./api.ts";
-import { designWidth } from "./canvasLayout.ts";
-import { readonly } from "./host.ts";
+import type { TreeNode, TreeVariant } from "./api.ts";
 import { linkClick, mockPath } from "./route.ts";
-import { StatusChip } from "./StatusChip.tsx";
-import { theme } from "./theme.ts";
-import { Thumb } from "./Thumb.tsx";
+import { VariantCard } from "./VariantCard.tsx";
 
 type Kind = "all" | "page" | "component";
 type Status = "live" | PostStatus;
@@ -49,10 +45,6 @@ export function Library(props: { project: string; nodes: TreeNode[]; onChanged: 
       }))
       .filter((r) => r.states.length),
   );
-  const star = async (node: TreeNode, v: TreeVariant) => {
-    await api.star(node.id, v.state, v.variant, !v.starred);
-    props.onChanged();
-  };
 
   return (
     <div class="lib">
@@ -112,63 +104,14 @@ export function Library(props: { project: string; nodes: TreeNode[]; onChanged: 
                       </Show>
                       <div class="lib-strip">
                         <For each={st.variants}>
-                          {(v) => {
-                            const href = () =>
-                              mockPath(props.project, r.node.slug, {
-                                state: v.state,
-                                variant: v.variant,
-                              });
-                            return (
-                              <div class="lib-variant" data-variant={v.variant}>
-                                <a
-                                  class="lib-thumb"
-                                  href={href()}
-                                  onClick={(e) => linkClick(e, href())}
-                                  aria-label={`Open ${r.node.title} · ${v.variant}`}
-                                >
-                                  <Show when={v.surface >= 0}>
-                                    <Thumb
-                                      src={surfaceUrl(v.postId, v.surface, {
-                                        version: v.version,
-                                        mode: theme(),
-                                        e: v.embedsKey,
-                                      })}
-                                      width={designWidth(r.node)}
-                                      knobs={r.node.settled}
-                                      whole
-                                    />
-                                  </Show>
-                                </a>
-                                <div class="lib-meta">
-                                  <Show
-                                    when={!readonly()}
-                                    fallback={<span>{v.starred ? "★" : ""}</span>}
-                                  >
-                                    <button
-                                      type="button"
-                                      class="starbtn"
-                                      classList={{ on: !!v.starred }}
-                                      aria-pressed={!!v.starred}
-                                      aria-label={
-                                        v.starred ? `Unstar ${v.variant}` : `Star ${v.variant}`
-                                      }
-                                      onClick={() => void star(r.node, v)}
-                                    >
-                                      {v.starred ? "★" : "☆"}
-                                    </button>
-                                  </Show>
-                                  <span class="lib-name">{v.variant}</span>
-                                  <span class="lib-faint">{`v${v.version}`}</span>
-                                </div>
-                                <div class="lib-meta">
-                                  <StatusChip status={v.status} />
-                                  <Show when={v.forkedFrom}>
-                                    {(f) => <span class="lib-faint">{`from ${f().variant}`}</span>}
-                                  </Show>
-                                </div>
-                              </div>
-                            );
-                          }}
+                          {(v) => (
+                            <VariantCard
+                              project={props.project}
+                              node={r.node}
+                              v={v}
+                              onChanged={props.onChanged}
+                            />
+                          )}
                         </For>
                       </div>
                     </div>

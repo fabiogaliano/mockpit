@@ -8,7 +8,7 @@ export function TryButton(props: { s: MockScreenState; label?: boolean }) {
   return (
     <button
       type="button"
-      class="markbtn trybtn"
+      class="trybtn"
       classList={{ on: props.s.trying() }}
       aria-pressed={props.s.trying()}
       title="Try: use the design as a prototype. Taps go to it, not to parts."

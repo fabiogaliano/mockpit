@@ -102,10 +102,13 @@ consciously, not as a side effect):
   transports' schemas. `server/mcpHttp.ts` — stateless MCP at `/mcp`;
   `mcp/server.ts` — stdio MCP, a thin client over the HTTP API.
 - `viewer/` — Solid + TypeScript in `viewer/src/`, Vite-built into one
-  self-contained `viewer/dist/index.html`. `Home` (mock list; on a wide
-  screen a sidebar beside `ProjectCanvas`, the project tree laid out by the
-  pure `canvasLayout.ts` from `GET /api/projects/:name/tree`; on a phone each
-  row opens `TreeDrill`, the tree one level at a time; `?view=library` is
+  self-contained `viewer/dist/index.html`. `Home` (mock list grouped into
+  pages and components; by device: a mouse on a wide screen gets a sidebar
+  beside `ProjectCanvas`, the project tree laid out by the pure
+  `canvasLayout.ts` from `GET /api/projects/:name/tree`; an upright tablet
+  the canvas with the list as a drawer; a tablet sideways the open mocks as
+  rows above `TreeCards`; a phone the list. A row's tree button opens
+  `TreeDrill`, a mock's screens as strips of `VariantCard`s; `?view=library` is
   `Library`, every mock's variants with status and stars; `?view=picks` is
   `Picks`, the chosen (or starred) designs grouped by mock), `MockScreen`
   (`TopBar`, `Stage` + `Strip`, `Panel` beside the stage; where the panel does

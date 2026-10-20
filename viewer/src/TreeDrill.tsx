@@ -1,16 +1,16 @@
-// The project tree one level at a time, for a phone where a canvas is too
-// small to read: a mock's variants per state (the chosen one first, archived
-// and dropped folded away), the components it is built from and the mocks it
-// is built into. Tapping a component goes one level down; the breadcrumb goes
-// back up. Open takes the mock to its screen.
+// One mock's place in the tree, for a phone or a tablet: each of its screens
+// (states; a component's looks) as a strip of its versions, pictured whole with
+// status and star; then the components it is made of and the pages it appears
+// on, as pictures that go one level deeper. The breadcrumb goes back up; Open
+// takes the mock to its screen.
 
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { surfaceUrl, type TreeNode, type TreeVariant } from "./api.ts";
 import { designWidth } from "./canvasLayout.ts";
-import { linkClick, mockPath, navigate } from "./route.ts";
-import { StatusChip } from "./StatusChip.tsx";
+import { mockPath, navigate } from "./route.ts";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
+import { VariantCard } from "./VariantCard.tsx";
 
 const rank = (v: TreeVariant) =>
   v.status === "accepted" ? 0 : v.status === "open" ? 1 : v.status === "archived" ? 2 : 3;
@@ -20,12 +20,21 @@ export function TreeDrill(props: {
   nodes: TreeNode[];
   start: string;
   onClose: () => void;
+  onChanged: () => void;
 }) {
   const [path, setPath] = createSignal<string[]>([props.start]);
   const bySlug = createMemo(() => new Map(props.nodes.map((n) => [n.slug, n])));
   const node = createMemo(() => bySlug().get(path()[path().length - 1]));
   const go = (slug: string) => setPath([...path(), slug]);
   const back = (i: number) => setPath(path().slice(0, i + 1));
+  const summary = (n: TreeNode) => {
+    const total = n.states.length;
+    const decided = n.states.filter((s) =>
+      n.variants.some((v) => v.state === s && v.status === "accepted"),
+    ).length;
+    const word = `${total} ${n.kind === "page" ? "screen" : "look"}${total === 1 ? "" : "s"}`;
+    return `${word} · ${decided === total ? "all decided" : `${total - decided} to decide`}`;
+  };
 
   return (
     <div class="drill" role="dialog" aria-modal="true" aria-label="Project tree">
@@ -52,8 +61,10 @@ export function TreeDrill(props: {
         {(n) => (
           <div class="drill-body">
             <header class="drill-head">
-              <h2>{n().title}</h2>
-              <span class="pc-kind">{n().kind}</span>
+              <div class="drill-title">
+                <h2>{n().title}</h2>
+                <span class="drill-sum">{summary(n())}</span>
+              </div>
               <button
                 type="button"
                 class="drill-open"
@@ -64,84 +75,42 @@ export function TreeDrill(props: {
             </header>
             <For each={n().states}>
               {(state) => {
-                const inState = () =>
+                const versions = () =>
                   n()
-                    .variants.filter((v) => v.state === state)
+                    .variants.filter((v) => v.state === state && v.status !== "dropped")
                     .sort((a, b) => rank(a) - rank(b));
-                const live = () => inState().filter((v) => rank(v) < 2);
-                const archived = () => inState().filter((v) => v.status === "archived");
-                const dropped = () => inState().filter((v) => v.status === "dropped");
                 return (
                   <section class="drill-state">
-                    <Show when={n().states.length > 1}>
+                    <Show when={state !== null}>
                       <h3>{state}</h3>
                     </Show>
-                    <For each={live()}>
-                      {(v) => <VariantRow project={props.project} node={n()} v={v} />}
-                    </For>
-                    <Show when={archived().length}>
-                      <details class="drill-fold">
-                        <summary>{`Archived (${archived().length})`}</summary>
-                        <For each={archived()}>
-                          {(v) => <VariantRow project={props.project} node={n()} v={v} />}
-                        </For>
-                      </details>
-                    </Show>
-                    <Show when={dropped().length}>
-                      <details class="drill-fold">
-                        <summary>{`Dropped (${dropped().length})`}</summary>
-                        <For each={dropped()}>
-                          {(v) => <VariantRow project={props.project} node={n()} v={v} />}
-                        </For>
-                      </details>
-                    </Show>
+                    <div class="lib-strip">
+                      <For each={versions()}>
+                        {(v) => (
+                          <VariantCard
+                            project={props.project}
+                            node={n()}
+                            v={v}
+                            onChanged={props.onChanged}
+                          />
+                        )}
+                      </For>
+                    </div>
                   </section>
                 );
               }}
             </For>
-            <Links title="Built from" slugs={n().uses} nodes={bySlug()} onGo={go} />
-            <Links title="Used in" slugs={n().usedIn} nodes={bySlug()} onGo={go} />
+            <Links
+              title={`Components in this ${n().kind}`}
+              slugs={n().uses}
+              nodes={bySlug()}
+              onGo={go}
+            />
+            <Links title="Appears on" slugs={n().usedIn} nodes={bySlug()} onGo={go} />
           </div>
         )}
       </Show>
     </div>
-  );
-}
-
-function VariantRow(props: { project: string; node: TreeNode; v: TreeVariant }) {
-  const href = () =>
-    mockPath(props.project, props.node.slug, { state: props.v.state, variant: props.v.variant });
-  return (
-    <a
-      class="drill-row"
-      classList={{ muted: props.v.status === "archived" || props.v.status === "dropped" }}
-      href={href()}
-      onClick={(e) => linkClick(e, href())}
-    >
-      <div class="drill-thumb">
-        <Show when={props.v.surface >= 0}>
-          <Thumb
-            src={surfaceUrl(props.v.postId, props.v.surface, {
-              version: props.v.version,
-              mode: theme(),
-              e: props.v.embedsKey,
-            })}
-            width={designWidth(props.node)}
-            knobs={props.node.settled}
-            whole
-          />
-        </Show>
-      </div>
-      <div class="drill-text">
-        <span class="drill-name">{props.v.variant}</span>
-        <span class="drill-sub">
-          <StatusChip status={props.v.status} />
-          {[`v${props.v.version}`, props.v.forkedFrom && `from ${props.v.forkedFrom.variant}`]
-            .filter(Boolean)
-            .join(" · ")}
-        </span>
-      </div>
-    </a>
   );
 }
 
@@ -155,16 +124,35 @@ function Links(props: {
     <Show when={props.slugs.length}>
       <section class="drill-links">
         <h3>{props.title}</h3>
-        <For each={props.slugs}>
-          {(slug) => (
-            <button type="button" class="drill-link" onClick={() => props.onGo(slug)}>
-              <span>{props.nodes.get(slug)?.title ?? slug}</span>
-              <span class="drill-chev" aria-hidden="true">
-                ›
-              </span>
-            </button>
-          )}
-        </For>
+        <div class="drill-comps">
+          <For each={props.slugs}>
+            {(slug) => {
+              const n = () => props.nodes.get(slug);
+              const v = () =>
+                n()?.variants.find((x) => x.status === "accepted" && x.surface >= 0) ??
+                n()?.variants.find((x) => x.surface >= 0);
+              return (
+                <button type="button" class="drill-comp" onClick={() => props.onGo(slug)}>
+                  <span class="drill-comp-pic">
+                    <Show when={n() && v()}>
+                      <Thumb
+                        src={surfaceUrl(v()!.postId, v()!.surface, {
+                          version: v()!.version,
+                          mode: theme(),
+                          e: v()!.embedsKey,
+                        })}
+                        width={designWidth(n()!)}
+                        knobs={n()!.settled}
+                        whole
+                      />
+                    </Show>
+                  </span>
+                  <span>{n()?.title ?? slug}</span>
+                </button>
+              );
+            }}
+          </For>
+        </div>
       </section>
     </Show>
   );

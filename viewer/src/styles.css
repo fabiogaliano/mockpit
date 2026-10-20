@@ -688,6 +688,7 @@ a {
     color: var(--t1);
   }
 }
+.trybtn,
 .markbtn,
 .inspectbtn,
 .morebtn {
@@ -703,6 +704,7 @@ a {
   font-weight: 500;
   transition: background var(--ease);
 }
+.trybtn svg,
 .markbtn svg,
 .inspectbtn svg,
 .morebtn svg {
@@ -710,6 +712,7 @@ a {
   height: 14px;
 }
 @media (hover: hover) {
+  .trybtn:hover,
   .markbtn:hover,
   .inspectbtn:hover,
   .morebtn:hover {
@@ -717,6 +720,7 @@ a {
     color: var(--t2);
   }
 }
+.trybtn.on,
 .markbtn.on {
   background: var(--accent-solid);
   color: var(--on-accent);
@@ -2185,6 +2189,7 @@ a {
 .chead .crumb {
   font-size: 15px;
 }
+.chead .trybtn,
 .chead .markbtn {
   gap: 6px;
 }
@@ -3164,6 +3169,7 @@ html.theming *:not(iframe) {
   .chead-seg button::after,
   .chead .zoomval::after,
   .vbtn::after,
+  .trybtn::after,
   .markbtn::after,
   .inspectbtn::after,
   .morebtn::after,
@@ -3190,6 +3196,7 @@ html.theming *:not(iframe) {
   .stage-tools {
     gap: 4px;
   }
+  .trybtn,
   .markbtn,
   .inspectbtn,
   .morebtn,
@@ -4375,4 +4382,163 @@ html.theming *:not(iframe) {
 }
 .pc-mini b {
   box-shadow: 0 0 0 1.5px var(--accent);
+}
+.drill-title {
+  display: grid;
+  gap: 2px;
+}
+.drill-sum {
+  font-size: 13px;
+  color: var(--t4);
+}
+.lib-variant.muted {
+  opacity: 0.45;
+}
+.drill-comps {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+}
+.drill-comp {
+  display: grid;
+  gap: 6px;
+  flex: none;
+  width: 96px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t1);
+  text-align: center;
+}
+.drill-comp-pic {
+  position: relative;
+  display: block;
+  height: 96px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--row);
+}
+.drill-comp-pic .thumb {
+  position: absolute;
+  inset: 0;
+}
+
+/* ---------- Home by device ---------- */
+.home-views-row {
+  padding: 10px 12px 0;
+}
+.home-views-row .home-views {
+  display: flex;
+  margin: 0;
+}
+.home-views-row .home-views a {
+  flex: 1;
+  min-height: 40px;
+}
+.home-group {
+  margin: 18px 4px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t4);
+}
+.home-col > .home-group:first-of-type {
+  margin-top: 4px;
+}
+/* A tablet upright: the canvas takes the screen, the list is a drawer over it. */
+.home-main.with-drawer {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr);
+}
+.with-drawer .home-col {
+  position: absolute;
+  z-index: 5;
+  inset: 0 auto 0 0;
+  width: min(380px, 85vw);
+  background: var(--page);
+  box-shadow: 8px 0 24px rgb(0 0 0 / 0.35);
+  transform: translateX(-102%);
+  transition: transform 0.2s cubic-bezier(0, 0, 0.2, 1);
+}
+.with-drawer.drawer-open .home-col {
+  transform: none;
+}
+.drawer-btn {
+  position: absolute;
+  z-index: 6;
+  left: 12px;
+  top: 12px;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 0 0 1px var(--line);
+  color: var(--t1);
+  font-size: 18px;
+}
+.drawer-open .drawer-btn {
+  left: calc(min(380px, 85vw) + 12px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .with-drawer .home-col {
+    transition: none;
+  }
+}
+/* A tablet sideways: grouped cards. */
+.tcards-group h3 {
+  margin: 18px 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t4);
+}
+.tcards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+.tcard {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 14px;
+  background: var(--row);
+  color: var(--t1);
+  text-align: start;
+}
+.tcard-pic {
+  position: relative;
+  display: block;
+  height: 180px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--frame);
+}
+.tcard-pic .thumb {
+  position: absolute;
+  inset: 0;
+}
+.tcard-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tcard-sub {
+  font-size: 13px;
+  color: var(--t4);
+}
+.home-main.cards .home-col {
+  max-width: 1400px;
+}
+.screen.home-phone {
+  grid-template-rows: calc(52px + env(safe-area-inset-top)) auto minmax(0, 1fr);
+}
+.home-phone .home-main {
+  padding-top: 16px;
+}
+.lib-variant.phone {
+  width: 128px;
+}
+.lib-variant.phone .lib-thumb {
+  height: 236px;
 }

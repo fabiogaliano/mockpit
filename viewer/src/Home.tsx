@@ -26,6 +26,7 @@ import { nextOwedMock, timeAgo } from "./logic.ts";
 import { type CanvasHandle, ProjectCanvas } from "./ProjectCanvas.tsx";
 import { Library } from "./Library.tsx";
 import { Picks } from "./Picks.tsx";
+import { TreeCards } from "./TreeCards.tsx";
 import { TreeDrill } from "./TreeDrill.tsx";
 import { libraryPath, linkClick, picksPath, mockPath, navigate, projectPath } from "./route.ts";
 import { setTheme, theme } from "./theme.ts";
@@ -44,14 +45,28 @@ export function Home(props: {
   const [list, { refetch: refetchList }] = createResource(project, (p) => api.mocks(p));
   const [tree, { refetch: refetchTree }] = createResource(project, (p) => api.tree(p));
   const refetch = () => Promise.all([refetchList(), refetchTree()]);
-  const wideQuery = host().window.matchMedia?.("(min-width: 1000px) and (pointer: fine)");
-  const [wide, setWide] = createSignal(wideQuery?.matches ?? false);
-  const onWide = (e: MediaQueryListEvent) => setWide(e.matches);
-  wideQuery?.addEventListener("change", onWide);
-  onCleanup(() => wideQuery?.removeEventListener("change", onWide));
+  const [viewport, setViewport] = createSignal(readViewport());
+  const onResize = () => setViewport(readViewport());
+  host().window.addEventListener("resize", onResize);
+  onCleanup(() => host().window.removeEventListener("resize", onResize));
+  // The tree fits the device: a mouse on a wide screen gets the list beside
+  // the canvas; a tablet held sideways, the mocks as grouped cards; a tablet
+  // upright, the canvas with the list as a drawer; a phone, the list.
+  const layout = createMemo(() => {
+    const w = viewport().w;
+    if (w < 700) return "phone";
+    if (w < 1000) return "tablet";
+    return viewport().fine ? "desktop" : "tablet-wide";
+  });
+  const withCanvas = () => layout() === "desktop" || layout() === "tablet";
+  const [drawer, setDrawer] = createSignal(true);
   let canvas: CanvasHandle | undefined;
   const [drill, setDrill] = createSignal<string | null>(null);
-  const showTree = (slug: string) => (wide() ? canvas?.locate(slug) : setDrill(slug));
+  const showTree = (slug: string) => {
+    if (!withCanvas()) return setDrill(slug);
+    if (layout() === "tablet") setDrawer(false);
+    canvas?.locate(slug);
+  };
   // `?focus=`: open on that mock's place in the tree, once it has loaded.
   let focused = false;
   createEffect(() => {
@@ -76,6 +91,29 @@ export function Home(props: {
   // instead of remounting it out from under the finger.
   const byId = createMemo(() => Object.fromEntries(all().map((m) => [m.id, m])));
   const [resolvedOpen, setResolvedOpen] = createSignal(false);
+  const waiting = createMemo(() =>
+    mocks()
+      .filter((m) => m.open > 0)
+      .map((m) => m.id),
+  );
+  // Pages and components listed apart, each newest first; headed only when
+  // the project has both.
+  const groups = createMemo(() =>
+    [
+      {
+        title: "Pages",
+        ids: mocks()
+          .filter((m) => m.kind === "page")
+          .map((m) => m.id),
+      },
+      {
+        title: "Components",
+        ids: mocks()
+          .filter((m) => m.kind !== "page")
+          .map((m) => m.id),
+      },
+    ].filter((g) => g.ids.length),
+  );
   const open = () => list()?.open ?? 0;
   const next = createMemo(() => nextOwedMock(mocks(), null));
 
@@ -128,38 +166,40 @@ export function Home(props: {
   );
   onCleanup(stop);
 
+  const views = () => (
+    <Show when={project()}>
+      {(p) => (
+        <nav class="home-views" aria-label="View">
+          <a
+            href={projectPath(p())}
+            aria-current={props.view === "tree" ? "page" : undefined}
+            onClick={(e) => linkClick(e, projectPath(p()))}
+          >
+            Tree
+          </a>
+          <a
+            href={libraryPath(p())}
+            aria-current={props.view === "library" ? "page" : undefined}
+            onClick={(e) => linkClick(e, libraryPath(p()))}
+          >
+            Library
+          </a>
+          <a
+            href={picksPath(p())}
+            aria-current={props.view === "picks" ? "page" : undefined}
+            onClick={(e) => linkClick(e, picksPath(p()))}
+          >
+            Picks
+          </a>
+        </nav>
+      )}
+    </Show>
+  );
+
   return (
-    <div class="screen home">
+    <div class="screen home" classList={{ "home-phone": layout() === "phone" }}>
       <TopBar
-        right={
-          <Show when={project()}>
-            {(p) => (
-              <nav class="home-views" aria-label="View">
-                <a
-                  href={projectPath(p())}
-                  aria-current={props.view === "tree" ? "page" : undefined}
-                  onClick={(e) => linkClick(e, projectPath(p()))}
-                >
-                  Tree
-                </a>
-                <a
-                  href={libraryPath(p())}
-                  aria-current={props.view === "library" ? "page" : undefined}
-                  onClick={(e) => linkClick(e, libraryPath(p()))}
-                >
-                  Library
-                </a>
-                <a
-                  href={picksPath(p())}
-                  aria-current={props.view === "picks" ? "page" : undefined}
-                  onClick={(e) => linkClick(e, picksPath(p()))}
-                >
-                  Picks
-                </a>
-              </nav>
-            )}
-          </Show>
-        }
+        right={<Show when={layout() !== "phone"}>{views()}</Show>}
         left={
           <>
             <span>mockpit</span>
@@ -181,6 +221,9 @@ export function Home(props: {
           </>
         }
       />
+      <Show when={layout() === "phone"}>
+        <div class="home-views-row">{views()}</div>
+      </Show>
       <Show when={props.view === "library" && project()}>
         {(p) => (
           <main class="home-main">
@@ -196,7 +239,26 @@ export function Home(props: {
         )}
       </Show>
       <Show when={props.view === "tree"}>
-        <main class="home-main" classList={{ "with-canvas": wide() && !!project() }}>
+        <main
+          class="home-main"
+          classList={{
+            "with-canvas": withCanvas() && !!project(),
+            "with-drawer": layout() === "tablet" && !!project(),
+            "drawer-open": layout() === "tablet" && drawer(),
+            cards: layout() === "tablet-wide",
+          }}
+        >
+          <Show when={layout() === "tablet" && project()}>
+            <button
+              type="button"
+              class="drawer-btn"
+              aria-expanded={drawer()}
+              aria-label={drawer() ? "Hide the mock list" : "Show the mock list"}
+              onClick={() => setDrawer(!drawer())}
+            >
+              {drawer() ? "✕" : "☰"}
+            </button>
+          </Show>
           <div class="home-col">
             <Show
               when={project()}
@@ -229,22 +291,59 @@ export function Home(props: {
                   </a>
                 </Show>
               </p>
-              <ol class="home-list">
-                <For each={mocks().map((m) => m.id)}>
-                  {(id) => (
-                    <Show when={byId()[id]}>
-                      {(m) => (
-                        <MockRow
-                          mock={m()}
-                          project={project()!}
-                          onTree={() => showTree(m().slug)}
-                          {...(readonly() ? {} : { onResolve: () => void resolve(m()) })}
-                        />
-                      )}
+              <Show
+                when={layout() !== "tablet-wide"}
+                fallback={
+                  <>
+                    <Show when={waiting().length}>
+                      <h3 class="home-group">Waiting on you</h3>
+                      <ol class="home-list">
+                        <For each={waiting()}>
+                          {(id) => (
+                            <Show when={byId()[id]}>
+                              {(m) => (
+                                <MockRow
+                                  mock={m()}
+                                  project={project()!}
+                                  onTree={() => showTree(m().slug)}
+                                  {...(readonly() ? {} : { onResolve: () => void resolve(m()) })}
+                                />
+                              )}
+                            </Show>
+                          )}
+                        </For>
+                      </ol>
                     </Show>
+                    <TreeCards nodes={tree()?.tree ?? []} onOpen={setDrill} />
+                  </>
+                }
+              >
+                <For each={groups()}>
+                  {(g) => (
+                    <>
+                      <Show when={groups().length > 1}>
+                        <h3 class="home-group">{g.title}</h3>
+                      </Show>
+                      <ol class="home-list">
+                        <For each={g.ids}>
+                          {(id) => (
+                            <Show when={byId()[id]}>
+                              {(m) => (
+                                <MockRow
+                                  mock={m()}
+                                  project={project()!}
+                                  onTree={() => showTree(m().slug)}
+                                  {...(readonly() ? {} : { onResolve: () => void resolve(m()) })}
+                                />
+                              )}
+                            </Show>
+                          )}
+                        </For>
+                      </ol>
+                    </>
                   )}
                 </For>
-              </ol>
+              </Show>
               <Show when={resolved().length}>
                 <section class="home-resolved" aria-label="Resolved">
                   <button
@@ -279,7 +378,7 @@ export function Home(props: {
               </Show>
             </Show>
           </div>
-          <Show when={wide() && project()}>
+          <Show when={withCanvas() && project()}>
             {(p) => (
               <ProjectCanvas project={p()} nodes={tree()?.tree ?? []} ref={(h) => (canvas = h)} />
             )}
@@ -292,6 +391,7 @@ export function Home(props: {
           nodes={tree()?.tree ?? []}
           start={drill()!}
           onClose={() => setDrill(null)}
+          onChanged={() => void refetch()}
         />
       </Show>
       <Show when={toast()}>
@@ -310,6 +410,11 @@ export function Home(props: {
       </Show>
     </div>
   );
+}
+
+function readViewport() {
+  const w = host().window;
+  return { w: w.innerWidth, fine: w.matchMedia?.("(pointer: fine)").matches ?? true };
 }
 
 const reducedMotion = () =>

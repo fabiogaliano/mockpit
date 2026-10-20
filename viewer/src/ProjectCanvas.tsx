@@ -166,12 +166,50 @@ export function ProjectCanvas(props: {
   // Drag on the background pans; a drag that starts on a tile still pans once
   // it moves, and only a still press opens the tile.
   let drag: { x: number; y: number; vx: number; vy: number; moved: boolean } | null = null;
+  // Two fingers pinch: the distance between them scales the canvas about
+  // their midpoint, and the midpoint moving pans it.
+  const touches = new Map<number, { x: number; y: number }>();
+  let pinch: { d: number; mx: number; my: number } | null = null;
+  const pinchOf = () => {
+    const [a, b] = [...touches.values()];
+    const r = box.getBoundingClientRect();
+    return {
+      d: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+      mx: (a.x + b.x) / 2 - r.left,
+      my: (a.y + b.y) / 2 - r.top,
+    };
+  };
   const onDown = (e: PointerEvent) => {
     if (e.button !== 0) return;
+    if (e.pointerType === "touch") {
+      touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size === 2) {
+        pinch = pinchOf();
+        drag = null;
+        lastMoved = true;
+        return;
+      }
+    }
     const v = view();
     drag = { x: e.clientX, y: e.clientY, vx: v.x, vy: v.y, moved: false };
   };
   const onMove = (e: PointerEvent) => {
+    if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && touches.size === 2) {
+      const next = pinchOf();
+      const k = next.d / pinch.d;
+      setView((v) => {
+        const scale = clamp(v.scale * k);
+        const f = scale / v.scale;
+        return {
+          scale,
+          x: next.mx - (pinch!.mx - v.x) * f,
+          y: next.my - (pinch!.my - v.y) * f,
+        };
+      });
+      pinch = next;
+      return;
+    }
     if (!drag) return;
     const dx = e.clientX - drag.x;
     const dy = e.clientY - drag.y;
@@ -187,7 +225,15 @@ export function ProjectCanvas(props: {
   };
   // A click that ended a pan is not a click.
   let lastMoved = false;
-  const pointerUp = () => (lastMoved = onUp());
+  const pointerUp = (e: PointerEvent) => {
+    touches.delete(e.pointerId);
+    if (pinch) {
+      if (touches.size < 2) pinch = null;
+      drag = null;
+      return;
+    }
+    lastMoved = onUp();
+  };
   const open = (slug: string, at?: { state: string | null; variant: string }) => {
     if (lastMoved) return;
     navigate(mockPath(props.project, slug, at));
