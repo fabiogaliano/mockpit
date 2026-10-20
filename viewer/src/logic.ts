@@ -678,10 +678,10 @@ export function knobDefault(cfg: KnobConfig): KnobValue | undefined {
 }
 
 // The knob values a frame should show for the draft: declared defaults (a part
-// knob inheriting the global it refines), then answered knob-set options, then
-// tuned values.
+// knob inheriting the global it refines), then what was already sent, then
+// answered knob-set options, then tuned values.
 export function draftKnobValues(
-  mock: Pick<MockDetail, "asks" | "knobs">,
+  mock: Pick<MockDetail, "asks" | "knobs" | "settled">,
   variantKnobs: Knobs | undefined,
   draft: DraftInput | null,
 ): Record<string, KnobValue> {
@@ -690,6 +690,7 @@ export function draftKnobValues(
     asks: mock.asks,
     answers: draft?.answers ?? {},
     tuned: draft?.tuned ?? {},
+    settled: mock.settled,
   });
 }
 
@@ -851,13 +852,14 @@ export function partBox(
 // --- Tune (D4): which knob value is in force, and where a change lands ---
 
 // What a knob's value depends on: the knobs declared for the variant on stage,
-// the asks (an answered knob-set option sets values), the answers so far, and
-// the user's tuned values.
+// the asks (an answered knob-set option sets values), the drafted answers, the
+// user's tuned values, and what earlier replies settled.
 export interface KnobContext {
   knobs: Knobs;
   asks: Ask[];
   answers: Record<string, AskAnswer>;
   tuned: Record<string, KnobValue>;
+  settled: Record<string, KnobValue>;
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -907,15 +909,17 @@ function answerSets(asks: Ask[], answers: Record<string, AskAnswer>): Record<str
   return out;
 }
 
-// Every knob's value in force: tuned, else set by an answer, else inherited
-// from the global it refines, else its declared default. Paths a tuned value or
-// an answer names without a declaration still pass through.
+// Every knob's value in force: tuned, else set by a drafted answer, else
+// settled by an earlier reply, else inherited from the global it refines, else
+// its declared default. Paths a tuned value or an answer names without a
+// declaration still pass through.
 export function resolveKnobs(ctx: KnobContext): Record<string, KnobValue> {
   const sets = answerSets(ctx.asks, ctx.answers);
-  const out: Record<string, KnobValue> = { ...sets, ...ctx.tuned };
+  const out: Record<string, KnobValue> = { ...ctx.settled, ...sets, ...ctx.tuned };
   const visit = (path: string): KnobValue | undefined => {
     if (path in ctx.tuned) return ctx.tuned[path];
     if (path in sets) return sets[path];
+    if (path in ctx.settled) return ctx.settled[path];
     const from = inheritsFrom(path, ctx.knobs);
     if (from !== undefined) return visit(from);
     const cfg = ctx.knobs[path];

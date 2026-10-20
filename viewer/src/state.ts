@@ -466,18 +466,16 @@ export function createMockScreen(project: string, slug: string) {
     const m = mock();
     return !!m && tuneVisible(m, inState(activeState()));
   });
-  // What Tune reads and writes: the knobs of the variant on stage, every answer
-  // so far (sent, then drafted), and the tuned values.
+  // What Tune reads and writes: the knobs of the variant on stage, the drafted
+  // answers, the tuned values, and what earlier replies settled.
   const knobContext = createMemo<KnobContext>(() => {
     const m = mock();
-    const answers: KnobContext["answers"] = {};
-    for (const a of m?.asks ?? []) if (a.answer !== undefined) answers[a.id] = a.answer;
-    Object.assign(answers, draft()?.answers ?? {});
     return {
       knobs: { ...m?.knobs, ...activeVariant()?.knobs },
       asks: m?.asks ?? [],
-      answers,
+      answers: draft()?.answers ?? {},
       tuned: draft()?.tuned ?? {},
+      settled: m?.settled ?? {},
     };
   });
   // The part the current question is about, while Questions is open: the slot

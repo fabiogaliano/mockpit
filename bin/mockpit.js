@@ -193,7 +193,7 @@ mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
   read: `mockpit read [slug] [--project <name>] [--body] [--history]
   No slug: one line per mock (states, variants, open asks) plus pending, what
   the user is doing now. A slug: the mock's states, variants, asks with
-  answers, parts, knobs and last tuned values, plus its pending, as JSON.
+  answers, parts, knobs and settled values, plus its pending, as JSON.
   --body includes surfaces, --history version rows. Never consumes feedback.`,
   feedback: `mockpit feedback [--project <name>] [--session <id>]
   Returns at once with {feedback, pending} as JSON: one batch per mock the user

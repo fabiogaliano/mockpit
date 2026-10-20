@@ -612,6 +612,54 @@ test("Mark: a pin on the stage, its comment and anchor in the reply, listed in T
   expect(sent[0]).toMatchObject({ part: "title", text: "make it louder", anchor: c.anchor });
 });
 
+test("a sent answer stays in force on the stage and under later questions", async ({
+  page,
+  server,
+}) => {
+  const { mockId, session } = await seedWriter(server.url);
+  await page.goto(`${server.url}${mockPath}`);
+  await expect(header(page)).toContainText("Question 1 of 2");
+  const status = await page.evaluate(async (id) => {
+    const r = await fetch(`/api/mocks/${id}/reply`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        version: 1,
+        answers: { versions: "inline" },
+        mix: {},
+        tuned: {},
+        comments: [],
+      }),
+    });
+    return r.status;
+  }, mockId);
+  expect(status).toBe(201);
+
+  const detail = await agentCall(server.url, `/api/mocks/${mockId}`);
+  expect(detail.settled).toEqual({ "versions.layout": "inline" });
+
+  // A later question's pictures render on top of what was sent, not the default.
+  await agentCall(server.url, `/api/mocks/${mockId}/asks`, {
+    session,
+    asks: [
+      {
+        id: "again",
+        text: "Which look, with inline versions?",
+        scope: "mock",
+        options: [
+          { id: "quiet", label: "Quiet", variant: "quiet" },
+          { id: "dark", label: "Dark", variant: "dark" },
+        ],
+      },
+    ],
+  });
+  await page.reload();
+  const picture = page.frameLocator(`.opt[data-option="dark"] iframe`).locator("html");
+  await expect(picture).toHaveAttribute("data-k-versions-layout", "inline");
+  const stage = page.frameLocator(".frame.on iframe").locator("html");
+  await expect(stage).toHaveAttribute("data-k-versions-layout", "inline");
+});
+
 test("un-archive: a losing look is restored from the answered Look ask", async ({
   page,
   server,

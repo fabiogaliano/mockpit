@@ -153,7 +153,7 @@ mockpit publish --mock writer --state "Writing" --variant dark --html dark-v2.ht
 mockpit say "Went dark; body at 19px" --mock writer
 mockpit export  --mock writer             # .mockpit/accepted/writer/<state>/{index.html,history.json,…}
 mockpit read                              # one line per mock, plus pending
-mockpit read    writer                    # states, variants, asks and answers, parts, knobs, tuned
+mockpit read    writer                    # states, variants, asks and answers, parts, knobs, settled
 ```
 
 - `publish` on an existing (mock, state, variant) makes its next version.
@@ -179,11 +179,16 @@ mockpit read    writer                    # states, variants, asks and answers, 
 - `say` posts a short plain-text note in the mock's thread. Give substantial
   answers as a new version, not prose.
 - `export` returns the accepted (else current) html per state, its version
-  history, the knobs and the last reply's tuned values. With slots, `html` is
+  history, the knobs, `settled` and the last reply. With slots, `html` is
   the composed screen (only the chosen fills, the fill marks dropped),
   `source` keeps every fill, and `decisions` is as above. The CLI writes
   `index.html`, `source.html` and `decisions.json`. Port the composed html
   into the codebase in its own language and components; mockpit does not
   generate code.
+- `settled` (on `read` and `export`) is every knob value the user has sent:
+  each answered option's `set` and each tuned value, later replies winning.
+  The viewer renders every later question and the stage on top of it, so ask
+  the deciding question first and its dependents after, or one answer is
+  judged against a default the user hasn't chosen.
 - `read <slug>` returns metadata only. `--body` adds surfaces, `--history` adds
   version rows.

@@ -6,6 +6,7 @@ import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
 import {
   isSandboxedSurfaceKind,
   draftedCount,
+  type KnobValue,
   type Mock,
   openCount,
   type Post,
@@ -161,7 +162,7 @@ export const mockSummaryView = (mock: Mock, posts: Post[]) => {
 export const mockDetailView = (
   mock: Mock,
   posts: Post[],
-  opts: VariantViewOptions & { tuned?: Record<string, unknown> } = {},
+  opts: VariantViewOptions & { settled?: Record<string, KnobValue> } = {},
 ) => ({
   id: mock.id,
   project: mock.project,
@@ -179,8 +180,9 @@ export const mockDetailView = (
   updatedAt: mock.updatedAt,
   variants: posts.map((p) => variantView(p, opts)),
   parts: partsByState(mock, posts),
-  // The knob values of the latest reply — what the user last sent, not drafts.
-  tuned: opts.tuned ?? {},
+  // Every knob value the user has sent (answers' sets and tuning, later replies
+  // winning), never drafts. Later questions render on top of it.
+  settled: opts.settled ?? {},
 });
 
 export const sessionRowView = (session: Session, postCount: number) => ({

@@ -29,7 +29,7 @@ import {
   resolverFor,
 } from "./icons.ts";
 import { checkProjectKit, KIT_IDS, kitSummaries } from "./kits.ts";
-import { chosenFills, decisionsFor, replyValues } from "./decisions.ts";
+import { chosenFills, decisionsFor, settledValues } from "./decisions.ts";
 import { composeFills, slotsInSurfaces, spliceFills } from "./fills.ts";
 import { checkKnobs, checkKnobValues, discreteChoices } from "./knobs.ts";
 import { diffParts, type PartChanges, partsInSurfaces, spliceParts } from "./parts.ts";
@@ -1485,10 +1485,10 @@ export function createApp({
     });
   }
 
-  // The tuned values of the mock's latest reply: what the user last sent.
-  async function lastTuned(mockId: string): Promise<Record<string, unknown>> {
-    const replies = (await store.listComments({ mockId })).filter((c) => c.kind === "reply");
-    return replies[replies.length - 1]?.payload?.tuned ?? {};
+  async function replyPayloads(mockId: string): Promise<Reply[]> {
+    return (await store.listComments({ mockId }))
+      .filter((c) => c.kind === "reply" && c.payload)
+      .map((c) => c.payload as Reply);
   }
 
   async function getMockFlow(
@@ -1502,7 +1502,7 @@ export function createApp({
       ...mockDetailView(mock, posts, {
         body: query.body,
         history: query.history,
-        tuned: await lastTuned(mock.id),
+        settled: settledValues(await replyPayloads(mock.id), mock, posts),
       }),
       pending: pendingOf(mock, posts),
     });
@@ -1522,11 +1522,9 @@ export function createApp({
       (s) => wantedState === undefined || s === wantedState,
     );
     if (states.length === 0) return fail(404, `${mock.slug} has no state "${wantedState}"`);
-    const replies = (await store.listComments({ mockId: mock.id })).filter(
-      (c) => c.kind === "reply",
-    );
-    const lastReply = replies[replies.length - 1]?.payload ?? null;
-    const lastValues = lastReply ? replyValues(lastReply, mock) : {};
+    const replies = await replyPayloads(mock.id);
+    const lastReply = replies[replies.length - 1] ?? null;
+    const settled = settledValues(replies, mock, posts);
     const entries = [];
     for (const state of states) {
       const inState = posts.filter((p) => p.state === state);
@@ -1538,12 +1536,12 @@ export function createApp({
       if (!post) continue;
       if (wantedVariant && post.variant !== wantedVariant) continue;
       const html = post.surfaces.find((s) => s.kind === "html");
-      // With slots, the screen as decided: only the chosen fills, by the last
-      // reply's values (defaults before any reply). The authored markup with
+      // With slots, the screen as decided: only the chosen fills, by every
+      // value sent so far (defaults before any reply). The authored markup with
       // every fill stays available as `source`.
       const slots = slotsInSurfaces(post.surfaces);
       const raw = html && html.kind === "html" ? html.html : "";
-      const composed = slots.length ? composeFills(raw, chosenFills(slots, lastValues)) : raw;
+      const composed = slots.length ? composeFills(raw, chosenFills(slots, settled)) : raw;
       entries.push({
         state,
         variant: post.variant,
@@ -1588,6 +1586,7 @@ export function createApp({
       kind: mock.kind,
       states: entries,
       knobs: mock.knobs,
+      settled,
       reply: lastReply,
       ...(decisions ? { decisions } : {}),
     });

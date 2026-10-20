@@ -198,7 +198,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "read",
     description:
-      "Without mock: every mock (slug, states, variants, open asks) plus pending. With mock: its states, variants, asks with answers, parts, knobs and last tuned values, plus pending. Never consumes feedback.",
+      "Without mock: every mock (slug, states, variants, open asks) plus pending. With mock: its states, variants, asks with answers, parts, knobs and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
     params: {
       mock: { t: "string", d: field.mock },
       project: P.project,
@@ -229,7 +229,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "export",
     description:
-      "The accepted (or current) html per state, version history, screenshot URL, knobs and the last reply's tuned values.",
+      "The accepted (or current) html per state, version history, screenshot URL, knobs, the settled values and the last reply.",
     params: VARIANT_REF,
   },
   {
@@ -374,11 +374,12 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
     asks: z.array(o({ id: str, text: str })).optional(),
     variants: z.array(o({ state: nullStr, variant: str, status: str, version: num })).optional(),
     knobs: bag.optional(),
-    tuned: bag.optional().describe("Knob values from the latest reply"),
+    settled: bag.optional().describe("Every knob value the user has sent, later replies winning"),
     pending: z.union([z.array(pendingSchema), pendingSchema]),
   },
   export: {
     states: z.array(o({ state: nullStr, variant: str, version: num, html: str, markdown: str })),
+    settled: bag,
     reply: bag.nullable(),
   },
 };

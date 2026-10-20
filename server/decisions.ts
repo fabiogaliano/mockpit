@@ -6,6 +6,7 @@
 // Runtime-agnostic (no node imports).
 
 import { type SlotInfo, slotsInSurfaces } from "./fills.ts";
+import { checkKnobValue, knobFor } from "./knobs.ts";
 import type { KnobValue, Mock, Post, Reply } from "./types.ts";
 
 export interface SlotDecision {
@@ -41,6 +42,25 @@ export function replyValues(
     for (const id of ids) Object.assign(out, ask.options.find((o) => o.id === id)?.set ?? {});
   }
   return { ...out, ...reply.tuned };
+}
+
+// Every value the user has sent, oldest reply first so a later answer or tune
+// replaces an earlier one. Values the knobs declared now can't hold drop out:
+// the agent may have renamed or narrowed a knob since.
+export function settledValues(
+  replies: Pick<Reply, "answers" | "tuned">[],
+  mock: Pick<Mock, "asks" | "knobs">,
+  posts: (Pick<Post, "knobs"> & { surfaces?: Post["surfaces"] })[],
+): Record<string, KnobValue> {
+  const all: Record<string, KnobValue> = {};
+  for (const r of replies) Object.assign(all, replyValues(r, mock));
+  const out: Record<string, KnobValue> = {};
+  for (const [path, value] of Object.entries(all)) {
+    const config = knobFor(path, mock, posts);
+    const checked = config === undefined ? null : checkKnobValue(path, config, value);
+    if (checked?.ok) out[path] = checked.value;
+  }
+  return out;
 }
 
 // The fill each slot shows under these values: a value naming one of its
