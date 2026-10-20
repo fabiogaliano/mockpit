@@ -43,7 +43,6 @@ import {
   partPinSpot,
   type PartsReport,
   reportIsCurrent,
-  screenHeight,
   widthLabel,
 } from "./logic.ts";
 import { PartReactions } from "./Reactions.tsx";
@@ -119,8 +118,6 @@ const BOARD_LABEL = 30;
 // Page px kept around a focused region, so it reads in its surroundings.
 const FOCUS_PAD = 24;
 const BOARD_GAP = 64;
-// The least height the canvas keeps for the artboards beside an open card.
-const MIN_FREE_H = 200;
 // Under a finger a pin keeps its size and takes a 44px tap area around it;
 // pins step apart far enough that those areas never overlap.
 const PIN = 22;
@@ -187,41 +184,15 @@ export function Stage(props: { s: MockScreenState }) {
     const centred = Math.max(0, (availW() - frameW() * fitScale()) / 2);
     return cardInset().left + (zoom() === "all" ? BOARD_PAD : centred);
   };
-  // The canvas's height the card leaves free, above or below it. A card taller
-  // than most of the screen still leaves the artboards a usable strip.
-  const freeH = createMemo(() => {
-    const full = win().h - canvasTop();
-    const c = cardInset();
-    return Math.max(Math.min(full, MIN_FREE_H), full - c.top - c.bottom);
-  });
   const activeKey = createMemo(() => {
     const v = s.activeVariant();
     return v ? frameKey(v.state, v.variant) : "";
   });
-  // On a phone a whole screen fits beside the card only at a scale too small to
-  // read a change by, so a question about one region fits that region instead.
-  // Its height only grows while the question is on: previewing a smaller fill
-  // must not make the stage jump.
-  const focusBox = createMemo(() =>
-    canvas() ? partBox(reports[activeKey()], s.focusPart()) : undefined,
-  );
-  const [focusH, setFocusH] = createSignal(0);
-  createEffect(on([() => s.focusPart(), activeKey], () => setFocusH(0)));
-  createEffect(() => {
-    const h = focusBox()?.h;
-    if (h) setFocusH((prev) => Math.max(prev, h));
-  });
   const fitScale = createMemo(() => {
-    // On the canvas the live width fits one whole screen of its device into the
-    // space the card leaves, never past true size: a 390 design on a phone reads
-    // as a phone screen, and shrinks again when the card opens over it.
-    if (phone()) return Math.max(0.1, Math.min(1, availW() / frameW()));
-    if (canvas()) {
-      const room = freeH() - BOARD_LABEL - BOARD_PAD;
-      const whole = room / screenHeight(frameW());
-      const h = focusH() ? Math.max(whole, room / (focusH() + 2 * FOCUS_PAD)) : whole;
-      return Math.max(0.1, Math.min(1, availW() / frameW(), h));
-    }
+    // On the canvas the design is shown whole, fitted to the width beside the
+    // card and never past true size; its height is the canvas's to pan and zoom,
+    // so nothing is cut off at the height of one screen.
+    if (canvas()) return Math.max(0.1, Math.min(1, availW() / frameW()));
     const floor = inspecting() ? 0.1 : 0.3;
     // Less the stage's 1px border on each side, so the frame is never clipped.
     const border = inspecting() ? 0 : 2;
@@ -394,18 +365,9 @@ export function Stage(props: { s: MockScreenState }) {
   // scrolls inside it, so a long page reads top to bottom without panning the
   // whole board out from under the other widths. In page px. Fitted, that is the
   // height the card leaves; at a zoom the user picked, the card floats over it.
-  const boardCap = () => {
-    const h = typeof zoom() === "number" ? availH() : freeH();
-    return Math.max(160, (h - BOARD_LABEL - BOARD_PAD) / scale());
-  };
-  // Under a finger the live frame's overlay steps aside and the page takes the
-  // touch itself, so the browser scrolls it natively (momentum, bounce) and the
-  // canvas can't move with it: touches inside a frame never reach this document.
-  // The canvas pans from the space around the artboards. Mark puts it back.
-  // A phone has no space around its page, so there the page never scrolls
-  // itself: it takes its full height, the stage is the one thing a finger
-  // scrolls (natively, both ways once zoomed), and two fingers zoom it.
-  const passthrough = () => s.trying() || (canvas() && coarse() && !s.marking() && !phone());
+  // Pages take their full height, so a finger always moves the stage, never a
+  // page inside it; only Try hands touches to the design itself.
+  const passthrough = () => s.trying();
   const gestures = useInspectGestures({
     scroller: () => layersEl,
     enabled: pannable,
@@ -472,7 +434,7 @@ export function Stage(props: { s: MockScreenState }) {
     const b = partBox(r, part);
     if (part && !b) return;
     scrolledFor = want;
-    if ((canvas() && !phone()) || !uncapped()) {
+    if (!canvas() && !uncapped()) {
       const dy = b ? b.y - FOCUS_PAD - r.scroll.y : -r.scroll.y;
       if (dy) post(key, { type: "scroll", dx: 0, dy });
     } else if (b) {
@@ -511,8 +473,7 @@ export function Stage(props: { s: MockScreenState }) {
       ? labelH() + activeH() * scale() + cardInset().bottom
       : padT() +
         BOARD_LABEL +
-        Math.max(activeH(), ...others().map((w) => Math.min(boardH[w] ?? 640, boardCap()))) *
-          scale() +
+        Math.max(activeH(), ...others().map((w) => boardH[w] ?? 640)) * scale() +
         availH() * 0.4;
 
   return (
@@ -598,7 +559,7 @@ export function Stage(props: { s: MockScreenState }) {
                         x={xOf(w)}
                         y={padT() + BOARD_LABEL}
                         height={boardH[w] ?? 640}
-                        cap={boardCap()}
+                        cap={Infinity}
                         onHeight={(h) => setBoardH(w, h)}
                       />
                     </>
@@ -623,13 +584,7 @@ export function Stage(props: { s: MockScreenState }) {
                       active={key === activeKey()}
                       scale={scale()}
                       frameW={frameW()}
-                      capH={
-                        canvas() && !phone()
-                          ? boardCap()
-                          : uncapped()
-                            ? Infinity
-                            : availH() / scale()
-                      }
+                      capH={canvas() || uncapped() ? Infinity : availH() / scale()}
                       passthrough={passthrough()}
                       report={reports[key]}
                       ready={ready[key]}

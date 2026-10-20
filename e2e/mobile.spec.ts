@@ -84,42 +84,25 @@ test("fits the screen without horizontal scrolling", async ({ page, server }) =>
   expect(await noOverflow(page)).toBe(true);
 });
 
-test("a tall mock opens as one whole screen on an iPad canvas, at full height elsewhere", async ({
+test("a tall mock shows at its full height, fitted to the width; the stage scrolls, not the page", async ({
   page,
   server,
 }) => {
   await open(page, server.url);
-  if (!(await onCanvas(page)) || onPhone(page)) {
-    // Uncapped: the frame is as tall as its page, and the stage scrolls.
-    const iframe = page.locator(".frame.on iframe");
-    await expect
-      .poll(async () => Number(await iframe.getAttribute("height")))
-      .toBeGreaterThan(page.viewportSize()!.height);
-    const scrolled = await page.evaluate(() => {
-      const l = document.querySelector<HTMLElement>(".layers")!;
-      l.scrollTop = 600;
-      return { top: l.scrollTop, room: l.scrollHeight - l.clientHeight };
-    });
-    expect(scrolled.room).toBeGreaterThan(600);
-    expect(scrolled.top).toBe(600);
-    return;
-  }
   const vp = page.viewportSize()!;
-  // The artboard shows a whole screen of its device, all of it on this screen.
+  const iframe = page.locator(".frame.on iframe");
   await expect
-    .poll(async () => {
-      const b = (await page.locator(".frame.on").boundingBox())!;
-      return b.x >= 0 && b.x + b.width <= vp.width && b.y + b.height <= vp.height;
-    })
-    .toBe(true);
-  // The page below that screen is read by scrolling the page itself.
-  const scrolled = await page
-    .frameLocator(".frame.on iframe")
-    .locator("html")
-    .evaluate((el) => {
-      window.scrollTo(0, 600);
-      return { top: window.scrollY, room: el.scrollHeight - window.innerHeight };
-    });
+    .poll(async () => Number(await iframe.getAttribute("height")))
+    .toBeGreaterThan(vp.height);
+  // Fitted to the width: the whole design is across the screen.
+  const b = (await page.locator(".frame.on").boundingBox())!;
+  expect(b.x).toBeGreaterThanOrEqual(0);
+  expect(b.x + b.width).toBeLessThanOrEqual(vp.width + 1);
+  const scrolled = await page.evaluate(() => {
+    const l = document.querySelector<HTMLElement>(".layers")!;
+    l.scrollTop = 600;
+    return { top: l.scrollTop, room: l.scrollHeight - l.clientHeight };
+  });
   expect(scrolled.room).toBeGreaterThan(600);
   expect(scrolled.top).toBe(600);
 });

@@ -2596,10 +2596,6 @@ a {
 .overlay.passthrough :is(.pin, .part-reactions, .markfield) {
   pointer-events: auto;
 }
-/* On the canvas the other widths are pages you can scroll, not just pictures. */
-.stagewrap.canvas .board iframe {
-  pointer-events: auto;
-}
 /* Under a finger the canvas moves only by its own pan and pinch. Natively
    scrollable, it would catch a swipe a frame's page can't take (one already at
    its end): WebKit hands that to the nearest scroller outside the iframe, and
