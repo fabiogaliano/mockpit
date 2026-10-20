@@ -88,6 +88,7 @@ import {
   ATTACHABLE_IMAGE_TYPES,
   MAX_ASK_IMAGES,
   MAX_ASSET_BYTES,
+  isLive,
   type Mock,
   type MockKind,
   newId,
@@ -846,7 +847,7 @@ export function createApp({
         variants: posts.map(variantLabel),
       });
     }
-    const live = candidates.filter((p) => p.status !== "archived");
+    const live = candidates.filter((p) => isLive(p.status));
     if (live.length === 1 && !variant) return live[0];
     return fail(400, `${mock.slug} has several variants; pass ${variant ? "state" : "variant"}`, {
       variants: candidates.map(variantLabel),
@@ -1028,7 +1029,7 @@ export function createApp({
     state: string | null,
   ): { nudge: string; ask: Record<string, unknown> } | null {
     const live = (s: string | null) =>
-      posts.filter((p) => p.state === s && p.status !== "archived").map((p) => p.variant);
+      posts.filter((p) => p.state === s && isLive(p.status)).map((p) => p.variant);
     const names = live(state);
     if (names.length < 2) return null;
     const applies = (a: Ask) => a.scope !== "part" && !(a.scope === "state" && a.state !== state);
@@ -1258,7 +1259,7 @@ export function createApp({
     const inState = posts.filter((p) => p.state === state);
     let variant = variantIn;
     if (!variant) {
-      const live = inState.filter((p) => p.status !== "archived");
+      const live = inState.filter((p) => isLive(p.status));
       if (inState.length === 0) variant = DEFAULT_VARIANT;
       else if (inState.length === 1) variant = inState[0].variant;
       else if (live.length === 1) variant = live[0].variant;
@@ -2024,14 +2025,15 @@ export function createApp({
     posts: Post[],
     answers: Record<string, AskAnswer>,
     decision: ReplyDecision | undefined,
-  ): { accept: Set<string>; archive: Set<string> } {
+  ): { accept: Set<string>; archive: Set<string>; drop: Set<string> } {
     const accept = new Set<string>();
     const archive = new Set<string>();
+    const drop = new Set<string>();
     const settle = (inState: Post[], chosen: Set<string>) => {
       if (!inState.some((p) => chosen.has(p.variant))) return;
       for (const p of inState) {
         if (chosen.has(p.variant)) accept.add(p.id);
-        else if (p.status !== "archived") archive.add(p.id);
+        else if (isLive(p.status)) archive.add(p.id);
       }
     };
     const builtins = Object.keys(answers)
@@ -2060,10 +2062,14 @@ export function createApp({
       );
     } else if (decision?.kind === "drop") {
       const post = posts.find((p) => p.state === decision.state && p.variant === decision.variant);
-      if (post) archive.add(post.id);
+      if (post) drop.add(post.id);
     }
-    for (const id of accept) archive.delete(id);
-    return { accept, archive };
+    for (const id of accept) {
+      archive.delete(id);
+      drop.delete(id);
+    }
+    for (const id of drop) archive.delete(id);
+    return { accept, archive, drop };
   }
 
   // An ask as a reply leaves it. A pick or a write-in replaces whatever was
@@ -2143,6 +2149,7 @@ export function createApp({
       asks,
       accept: [...flips.accept],
       archive: [...flips.archive],
+      drop: [...flips.drop],
     });
     if (!comment) return fail(409, `${mock.slug} has no agent session to reply to`);
     announceComment(comment);
@@ -2150,7 +2157,7 @@ export function createApp({
     bus.broadcast({ type: "draft-updated", mockId: mock.id });
     const after = await store.listPosts({ mockId: mock.id });
     for (const p of after) {
-      if (flips.accept.has(p.id) || flips.archive.has(p.id)) {
+      if (flips.accept.has(p.id) || flips.archive.has(p.id) || flips.drop.has(p.id)) {
         bus.broadcast({
           type: "post-updated",
           id: p.id,
@@ -2179,6 +2186,9 @@ export function createApp({
           .map((p) => ({ state: p.state, variant: p.variant })),
         archived: after
           .filter((p) => flips.archive.has(p.id))
+          .map((p) => ({ state: p.state, variant: p.variant })),
+        dropped: after
+          .filter((p) => flips.drop.has(p.id))
           .map((p) => ({ state: p.state, variant: p.variant })),
       },
       201,
@@ -2987,7 +2997,7 @@ export function createApp({
     const mock = await store.findMock(c.req.param("name"), c.req.param("slug"));
     if (!mock) return c.html(await configuredViewerHtml(c, { title: c.req.param("name") }));
     const posts = await store.listPosts({ mockId: mock.id });
-    const post = posts.find((p) => p.status !== "archived") ?? posts[0];
+    const post = posts.find((p) => isLive(p.status)) ?? posts[0];
     return c.html(
       await configuredViewerHtml(c, {
         title: mock.title,

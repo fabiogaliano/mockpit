@@ -198,7 +198,7 @@ mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
   feedback: `mockpit feedback [--project <name>] [--session <id>]
   Returns at once with {feedback, pending} as JSON: one batch per mock the user
   sent since you last heard ({mock, reply: {asks, mix, tuned, comments},
-  comments, accepted, archived}, or {mock, resolved: true, dismissed} when the
+  comments, accepted, archived, dropped}, or {mock, resolved: true, dismissed} when the
   user closed it unanswered), delivered once across feedback, watch and
   every write; and pending ({mock, viewerOpen, draft}) so you can tell the
   user "take your time" or "2 of 3 answered". Run it when the user says they

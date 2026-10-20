@@ -1215,6 +1215,13 @@ export class SqlStore implements Store {
           input.mockId,
         );
       }
+      for (const id of input.drop ?? []) {
+        this.sql.exec(
+          "UPDATE posts SET status = 'dropped' WHERE id = ? AND mockId = ?",
+          id,
+          input.mockId,
+        );
+      }
       this.invalidateAssetRefs();
       return comment;
     });

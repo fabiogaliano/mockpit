@@ -6,6 +6,7 @@ import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
 import {
   isSandboxedSurfaceKind,
   draftedCount,
+  isLive,
   type KnobValue,
   type Mock,
   openCount,
@@ -115,7 +116,7 @@ export function partsByState(mock: Mock, posts: Post[]): StateParts[] {
     state,
     parts: mergeParts(
       posts
-        .filter((p) => p.state === state && p.status !== "archived")
+        .filter((p) => p.state === state && isLive(p.status))
         .map((p) => partsInSurfaces(p.surfaces)),
     ),
   }));

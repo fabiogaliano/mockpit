@@ -616,21 +616,29 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
                 ? mine.map((v) => v.state)
                 : [];
             };
+            // A dropped look is gone from the choice; the stage's Dropped fold restores it.
+            const dropped = () => {
+              if (!o.variant) return false;
+              const mine = s.variants().filter((v) => v.variant === o.variant);
+              return mine.length > 0 && mine.every((v) => v.status === "dropped");
+            };
             return (
-              <Show when={archivedIn().length} fallback={card()}>
-                <div class="opt-arch" data-archived={o.variant}>
-                  {card()}
-                  <Show when={!readonly()}>
-                    <button
-                      type="button"
-                      class="vrestore"
-                      aria-label={`Restore ${o.label}`}
-                      onClick={() => void s.restoreVariant(o.variant!, archivedIn())}
-                    >
-                      restore
-                    </button>
-                  </Show>
-                </div>
+              <Show when={!dropped()}>
+                <Show when={archivedIn().length} fallback={card()}>
+                  <div class="opt-arch" data-archived={o.variant}>
+                    {card()}
+                    <Show when={!readonly()}>
+                      <button
+                        type="button"
+                        class="vrestore"
+                        aria-label={`Restore ${o.label}`}
+                        onClick={() => void s.restoreVariant(o.variant!, archivedIn())}
+                      >
+                        restore
+                      </button>
+                    </Show>
+                  </div>
+                </Show>
               </Show>
             );
           }}

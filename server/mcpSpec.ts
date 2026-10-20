@@ -209,7 +209,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "feedback",
     description:
-      "Returns at once: what the user sent since you last heard (one batch per mock: reply answers, mix, tuned knobs, part comments, comments, accepted/archived, or resolved with the asks it dismissed), delivered once, plus pending (viewer open, draft progress).",
+      "Returns at once: what the user sent since you last heard (one batch per mock: reply answers, mix, tuned knobs, part comments, comments, accepted/archived/dropped, or resolved with the asks it dismissed), delivered once, plus pending (viewer open, draft progress).",
     params: {
       project: P.project,
       session: { t: "string", d: "Session id returned by publish", req: true },
@@ -308,6 +308,7 @@ const feedbackSchema = o({
   comments: z.array(o({ seq: num, text: str })),
   accepted: z.array(variantRef),
   archived: z.array(variantRef),
+  dropped: z.array(variantRef),
   resolved: z
     .literal(true)
     .optional()

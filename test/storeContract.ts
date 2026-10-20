@@ -1123,6 +1123,17 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
       assert.equal((await store.getPost(quiet.id))?.status, "archived");
       const listed = await store.listComments({ sessionId: session.id });
       assert.deepEqual(listed.at(-1)?.payload, payload, "the payload survives a read");
+      await store.commitReply({
+        mockId: mock.id,
+        sessionId: session.id,
+        text: "",
+        payload,
+        asks,
+        accept: [],
+        archive: [],
+        drop: [quiet.id],
+      });
+      assert.equal((await store.getPost(quiet.id))?.status, "dropped");
       assert.equal(
         await store.commitReply({
           mockId: "missing",

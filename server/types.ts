@@ -305,8 +305,12 @@ export type KnobValue = number | boolean | string | PadValue | SpringKnob | Easi
 
 export type MockKind = "page" | "component";
 // A variant's review state. A variant-bound answer accepts the chosen variant
-// and archives its siblings in that state; archived variants are restorable.
-export type PostStatus = "open" | "accepted" | "archived";
+// and archives its siblings in that state; archived variants stay in view,
+// muted. Drop hides one. Both are restorable.
+export type PostStatus = "open" | "accepted" | "archived" | "dropped";
+
+// Still in the running: what the user can choose between.
+export const isLive = (status: PostStatus): boolean => status === "open" || status === "accepted";
 
 export interface AskOption {
   id: string;
@@ -774,6 +778,7 @@ export interface CommitReplyInput {
   asks: Ask[];
   accept: string[];
   archive: string[];
+  drop?: string[];
   // A resolution sets it (a reply leaves it as it is).
   resolvedAt?: string;
 }
@@ -988,7 +993,7 @@ export function builtinAskIds(
   if (mock.resolvedAt) return [];
   const live = (state: string | null) =>
     posts
-      .filter((p) => p.mock === mockId && p.state === state && p.status !== "archived")
+      .filter((p) => p.mock === mockId && p.state === state && isLive(p.status))
       .map((p) => p.variant);
   const needs = (state: string | null) => {
     const names = live(state);

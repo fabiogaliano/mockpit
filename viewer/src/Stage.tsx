@@ -22,7 +22,7 @@ import {
   untrack,
 } from "solid-js";
 import { createStore } from "solid-js/store";
-import { isSandboxedSurfaceKind, type Surface } from "../../server/types.ts";
+import { isLive, isSandboxedSurfaceKind, type Surface } from "../../server/types.ts";
 import { assetUrl, surfaceUrl, type VariantView } from "./api.ts";
 import { host, readonly, root } from "./host.ts";
 import { useInspectGestures } from "./gestures.ts";
@@ -259,7 +259,7 @@ export function Stage(props: { s: MockScreenState }) {
   );
 
   const shown = createMemo(() =>
-    s.variants().filter((v) => v.status !== "archived" || v === s.variantFor(v.state)),
+    s.variants().filter((v) => isLive(v.status) || v === s.variantFor(v.state)),
   );
   // Frames are keyed by (state, variant), not by object: every refetch brings
   // new variant objects, and keying by them would remount every frame (a fresh

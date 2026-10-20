@@ -635,6 +635,19 @@ a {
   text-decoration: line-through;
   text-decoration-color: var(--t5);
 }
+.dropped-fold {
+  font-size: 12px;
+  color: var(--t4);
+}
+.dropped-fold summary {
+  cursor: pointer;
+}
+.dropped-row {
+  display: inline-flex;
+  gap: 4px;
+  margin-right: 8px;
+  color: var(--t5);
+}
 .vok {
   margin-left: 5px;
   color: var(--ok);

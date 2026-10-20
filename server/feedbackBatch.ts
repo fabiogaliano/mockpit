@@ -86,6 +86,8 @@ export interface FeedbackBatch {
   // The variants the reply left accepted / archived (restorable).
   accepted: VariantRef[];
   archived: VariantRef[];
+  // Dropped by the user: hidden from the viewer, restorable. Don't build on them.
+  dropped: VariantRef[];
   // Set when this batch was sent to an earlier, now quiet session (handoff.ts).
   handoff?: string;
   // The user resolved the mock instead of answering: these asks were closed
@@ -194,6 +196,7 @@ export function groupFeedback(
         comments: [],
         accepted: [],
         archived: [],
+        dropped: [],
       };
       open.set(key, batch);
       batches.push(batch);
@@ -229,6 +232,7 @@ export function groupFeedback(
       if (decisions) batch.reply.decisions = decisions;
       batch.accepted = mockPosts.filter((p) => p.status === "accepted").map(ref);
       batch.archived = mockPosts.filter((p) => p.status === "archived").map(ref);
+      batch.dropped = mockPosts.filter((p) => p.status === "dropped").map(ref);
       continue;
     }
     const post = c.postId ? mockPosts.find((p) => p.id === c.postId) : undefined;

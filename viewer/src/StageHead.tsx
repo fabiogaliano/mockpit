@@ -17,7 +17,13 @@ export function StageHead(props: {
 }) {
   const s = props.s;
   const v = () => s.activeVariant();
-  const siblings = () => s.variants().filter((x) => x.state === s.activeState());
+  // A dropped variant leaves the switcher unless it is the one on stage.
+  const siblings = () =>
+    s
+      .variants()
+      .filter((x) => x.state === s.activeState() && (x.status !== "dropped" || x === v()));
+  const dropped = () =>
+    s.variants().filter((x) => x.state === s.activeState() && x.status === "dropped");
   const pct = () => Math.round(props.scale * 100);
   let head!: HTMLDivElement;
   let inspectBtn: HTMLButtonElement | undefined;
@@ -99,6 +105,26 @@ export function StageHead(props: {
             )}
           </For>
         </div>
+      </Show>
+      <Show when={dropped().length && !readonly()}>
+        <details class="dropped-fold">
+          <summary>{`Dropped (${dropped().length})`}</summary>
+          <For each={dropped()}>
+            {(x) => (
+              <span class="dropped-row">
+                {x.variant}
+                <button
+                  type="button"
+                  class="vrestore"
+                  aria-label={`Restore ${x.variant}`}
+                  onClick={() => void s.restoreVariant(x.variant, [x.state])}
+                >
+                  restore
+                </button>
+              </span>
+            )}
+          </For>
+        </details>
       </Show>
       {/* With one variant, Accept / Revise / Drop already say this. */}
       <Show when={!readonly() && siblings().length > 1 && v()}>

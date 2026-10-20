@@ -6,6 +6,7 @@ import {
   type AskAnswer,
   askAnswered,
   BUILTIN_ASK_ID,
+  isLive,
   type KnobConfig,
   type KnobValue,
   type Knobs,
@@ -142,11 +143,9 @@ export const lookAsk = (mock: Pick<MockDetail, "asks">): Ask | undefined =>
 
 type VariantRow = Pick<VariantView, "state" | "variant" | "status">;
 
-// What the user can still choose between in a state: its non-archived variants.
+// What the user can still choose between in a state: its live variants.
 export const liveVariants = (variants: VariantRow[], state: string | null): string[] => [
-  ...new Set(
-    variants.filter((v) => v.state === state && v.status !== "archived").map((v) => v.variant),
-  ),
+  ...new Set(variants.filter((v) => v.state === state && isLive(v.status)).map((v) => v.variant)),
 ];
 
 // A state needs the built-in ask when it has a real choice (2+ live variants)
@@ -414,7 +413,7 @@ export function mixOptions(
   const seen = new Set<string>();
   for (const state of mock.states.length ? mock.states : [null]) {
     const inState = variants.filter(
-      (v) => v.state === state && v.status !== "archived" && looks.includes(v.variant),
+      (v) => v.state === state && isLive(v.status) && looks.includes(v.variant),
     );
     const picked = inState.find((v) => v.variant === look);
     const mine = reportOf(state, look);
