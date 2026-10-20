@@ -2545,8 +2545,7 @@ a {
   position: absolute;
   inset: -10px;
 }
-.qcard-handle.left,
-.qcard-handle.right {
+.qcard-handle {
   flex-direction: column;
 }
 .qcard-handle.left {
