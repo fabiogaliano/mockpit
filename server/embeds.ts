@@ -23,10 +23,15 @@ export interface EmbedTag {
 }
 
 // What a tag resolved to: the variant and version shown, and its html body.
+// `attrs` (pre-escaped) go on the wrapper: the component's settled knob values,
+// so the page shows the component as decided. `stamp` names those values for
+// the embeds key, so deciding something on a component re-renders its pages.
 export interface ResolvedEmbed {
   variant: string;
   version: number;
   html: string;
+  attrs?: string;
+  stamp?: string;
 }
 
 export type EmbedResolver = (tag: EmbedTag) => Promise<ResolvedEmbed | null>;
@@ -77,6 +82,8 @@ export interface Expanded {
   html: string;
   // Every embed rendered, nested ones included, in document order.
   used: Embed[];
+  // Each used embed's settled-values stamp, in the same order.
+  stamps: string[];
   // The first slug chain that loops back on itself (["page", "card", "page"]).
   cycle: string[] | null;
 }
@@ -93,6 +100,7 @@ export async function expandHtml(
   stack: string[],
 ): Promise<Expanded> {
   const used: Embed[] = [];
+  const stamps: string[] = [];
   let cycle: string[] | null = null;
   const matches: { tag: EmbedTag | null }[] = [];
   EMBED_TAG.lastIndex = 0;
@@ -129,23 +137,27 @@ export async function expandHtml(
       version: resolved.version,
       ...(tag.version != null ? { pinned: true as const } : {}),
     });
+    stamps.push(resolved.stamp ?? "");
     const inner = await expandHtml(resolved.html, resolve, [...stack, tag.slug]);
     used.push(...inner.used);
+    stamps.push(...inner.stamps);
     cycle ??= inner.cycle;
-    bodies.push(`<div ${label(resolved.variant, resolved.version)}>${inner.html}</div>`);
+    bodies.push(
+      `<div ${label(resolved.variant, resolved.version)}${resolved.attrs ?? ""}>${inner.html}</div>`,
+    );
   }
   let i = 0;
   EMBED_TAG.lastIndex = 0;
   const out = html.replace(EMBED_TAG, (raw) => bodies[i++] ?? raw);
-  return { html: out, used, cycle };
+  return { html: out, used, stamps, cycle };
 }
 
 // A short, stable key for what a document's embeds resolved to: part of the
 // render cache key and of the frame URL, so a component's new version reloads
 // every page that shows it and a stale document is never served as current.
-export function embedsKey(used: Embed[]): string {
+export function embedsKey({ used, stamps }: Pick<Expanded, "used" | "stamps">): string {
   let h = 0x811c9dc5;
-  const s = used.map((e) => `${e.slug}:${e.variant}@${e.version}`).join("|");
+  const s = used.map((e, i) => `${e.slug}:${e.variant}@${e.version}:${stamps[i] ?? ""}`).join("|");
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
     h = Math.imul(h, 0x01000193);

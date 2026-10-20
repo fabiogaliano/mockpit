@@ -60,6 +60,10 @@ variants and questions.
   them. `version="3"` pins it.
 - No `variant`: the component's accepted variant (else `default`). Name one to
   show a specific variant.
+- The component shows as decided: its slots keep only the fills the user
+  settled on, and its other settled knob values ride on the embed's wrapper
+  (`data-k-<path>` and `--k-<path>`), so write its knob CSS as
+  `[data-k-tone="loud"] .chip`, not `html[data-k-tone=…]`.
 - `read` lists each variant's `embeds` as they render now (nested included,
   with every version, for the user to peek back) and `publishedWith`, the
   versions it rendered with when you published it.

@@ -69,6 +69,7 @@ import {
   escapeHtml,
   renderHtmlPage,
   renderMermaidPage,
+  knobAttributes,
   renderSandboxedPart,
   STATIC_ASSET_PREFIX,
   staticAsset,
@@ -989,7 +990,9 @@ export function createApp({
   }
 
   // Resolves tags to bodies: the tag's version if it pins one, else a peek
-  // (`overrides`, slug → version) the viewer asked for, else the latest.
+  // (`overrides`, slug → version) the viewer asked for, else the latest. The
+  // body shows the component as decided: its slots composed to the fills its
+  // settled values chose, its other settled values on the wrapper.
   function embedResolver(project: string, overrides: Record<string, number> = {}): EmbedResolver {
     return async (tag) => {
       const post = await embedTarget(project, tag.slug, tag.variant);
@@ -1000,9 +1003,25 @@ export function createApp({
           ? post.surfaces
           : post.history.find((h) => h.version === version)?.surfaces;
       const body = surfaces?.find((x) => x.kind === "html");
-      return body && body.kind === "html"
-        ? { variant: post.variant, version, html: body.html }
-        : null;
+      if (!surfaces || !body || body.kind !== "html") return null;
+      const mock = await store.getMock(post.mock);
+      const settled = mock
+        ? settledValues(
+            await replyPayloads(mock.id),
+            mock,
+            await store.listPosts({ mockId: mock.id }),
+          )
+        : {};
+      const slots = slotsInSurfaces(surfaces);
+      const fills = new Set(slots.map((sl) => sl.part));
+      const rest = Object.fromEntries(Object.entries(settled).filter(([p]) => !fills.has(p)));
+      return {
+        variant: post.variant,
+        version,
+        html: slots.length ? composeFills(body.html, chosenFills(slots, settled)) : body.html,
+        attrs: knobAttributes(rest).attrs,
+        ...(Object.keys(settled).length ? { stamp: JSON.stringify(settled) } : {}),
+      };
     };
   }
 
@@ -1013,7 +1032,7 @@ export function createApp({
     html: string,
     overrides?: Record<string, number>,
   ): Promise<Expanded> {
-    if (!hasEmbedTags(html)) return { html, used: [], cycle: null };
+    if (!hasEmbedTags(html)) return { html, used: [], stamps: [], cycle: null };
     return expandHtml(html, embedResolver(project, overrides), [slug]);
   }
 
@@ -1041,7 +1060,8 @@ export function createApp({
     for (const post of posts) {
       const html = post.surfaces.find((x) => x.kind === "html");
       if (!html || html.kind !== "html" || !hasEmbedTags(html.html)) continue;
-      const { used } = await composedHtml(mock.project, mock.slug, html.html);
+      const composed = await composedHtml(mock.project, mock.slug, html.html);
+      const { used } = composed;
       const list = [];
       for (const e of used) {
         const target = await embedTarget(mock.project, e.slug, e.variant);
@@ -1050,7 +1070,7 @@ export function createApp({
           : [e.version];
         list.push({ ...e, latest: target?.version ?? e.version, versions });
       }
-      out.set(post.id, { key: embedsKey(used), list });
+      out.set(post.id, { key: embedsKey(composed), list });
     }
     return out;
   }
@@ -2333,6 +2353,7 @@ export function createApp({
     announceComment(comment);
     bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
     bus.broadcast({ type: "draft-updated", mockId: mock.id });
+    void announceEmbedders(mock).catch((err) => console.warn("[mockpit] embedders", err));
     const after = await store.listPosts({ mockId: mock.id });
     for (const p of after) {
       if (flips.accept.has(p.id) || flips.archive.has(p.id) || flips.drop.has(p.id)) {
@@ -3894,7 +3915,7 @@ export function createApp({
             version: post.version,
             mode,
             origin,
-            embeds: composed ? embedsKey(composed.used) : undefined,
+            embeds: composed ? embedsKey(composed) : undefined,
           });
           if (renderCache.has(key)) continue;
           await cachedRender(key, () =>
@@ -4026,7 +4047,7 @@ export function createApp({
       }
       composed = await composedHtml(mock.project, mock.slug, surface.html, overrides);
     }
-    const eKey = composed ? embedsKey(composed.used) : undefined;
+    const eKey = composed ? embedsKey(composed) : undefined;
     // Every input is in the URL (the palette is fixed, the mode is a query
     // param), so a version-pinned document never changes, unless it follows a
     // component's latest version and the URL does not name that state (`e`).

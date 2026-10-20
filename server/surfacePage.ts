@@ -784,6 +784,20 @@ export function knobPreamble(
   version: number | undefined,
   knobs: Record<string, unknown> | undefined,
 ): { htmlTag: string; headScript: string } {
+  const { attrs, values } = knobAttributes(knobs);
+  return {
+    htmlTag: `<html lang="en"${attrs}>`,
+    headScript: `<script>window.__mockpitDoc=${scriptJson({ version: version ?? null, knobs: values })};</script>`,
+  };
+}
+
+// Knob values as an element's `data-k-*` attributes and `--k-*` style vars, the
+// same marks the preamble puts on <html>; an embedded component's wrapper
+// carries its own settled values this way.
+export function knobAttributes(knobs: Record<string, unknown> | undefined): {
+  attrs: string;
+  values: Record<string, unknown>;
+} {
   const attrs: string[] = [];
   const vars: string[] = [];
   const values: Record<string, unknown> = {};
@@ -795,10 +809,7 @@ export function knobPreamble(
     for (const [name, css] of knobVars(path, v)) vars.push(`--k-${name}:${css}`);
   }
   const style = vars.length ? ` style="${escapeHtml(vars.join(";"))}"` : "";
-  return {
-    htmlTag: `<html lang="en"${attrs.join("")}${style}>`,
-    headScript: `<script>window.__mockpitDoc=${scriptJson({ version: version ?? null, knobs: values })};</script>`,
-  };
+  return { attrs: `${attrs.join("")}${style}`, values };
 }
 
 // Our own highlight, shipped in the base stylesheet so turning it on is a class
