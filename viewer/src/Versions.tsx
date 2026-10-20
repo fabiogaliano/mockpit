@@ -21,6 +21,10 @@ export function Versions(props: { s: MockScreenState; anchor: HTMLElement | unde
       .sort((a, b) => b.version - a.version);
   });
   const shown = () => (variant() ? s.frameVersionOf(variant()!) : 0);
+  const firstLine = () => {
+    const f = variant()?.forkedFrom;
+    return f ? `forked from ${f.variant} · v${f.version}` : "first version";
+  };
 
   onMount(() => {
     const doc = root();
@@ -60,7 +64,7 @@ export function Versions(props: { s: MockScreenState; anchor: HTMLElement | unde
           >
             <span class="vv">{`v${r.version}`}</span>
             <span class="vmeta">
-              {[timeAgo(r.at), r.prompt || (r.version === 1 ? "first version" : "")]
+              {[timeAgo(r.at), r.prompt || (r.version === 1 ? firstLine() : "")]
                 .filter(Boolean)
                 .join(" · ")}
             </span>

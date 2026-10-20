@@ -476,6 +476,11 @@ export interface PostVersion {
 }
 
 // A variant of one state of a mock.
+export interface ForkRef {
+  variant: string;
+  version: number;
+}
+
 export interface Post {
   id: string;
   sessionId: string;
@@ -496,6 +501,9 @@ export interface Post {
   note?: string;
   // Component mocks a page embeds, pinned at publish (embeds.ts).
   embeds: Embed[];
+  // The variant (in the same state) and version this one was forked from: the
+  // lineage tree. Absent on a variant started from scratch.
+  forkedFrom?: ForkRef;
   // Provenance of the CURRENT version — the same three fields a PostVersion
   // carries; on the next update they move into the history entry.
   from?: number;
@@ -726,6 +734,7 @@ export interface CreatePostInput {
   knobs?: Knobs;
   note?: string;
   embeds?: Embed[];
+  forkedFrom?: ForkRef;
   from?: number;
   prompt?: string;
   author?: string;

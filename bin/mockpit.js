@@ -175,6 +175,9 @@ mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
   --kind <k>         component|page (default component)
   --knobs <json|file>  knobs in tunekit usePane shape
   --from <N>         branch from version N
+  --fork <v[@N]>     start this new variant from sibling v (its version N, else
+                     its latest); alone it copies v, with --parts/--fills it
+                     edits the copy
   --prompt <text>    what prompted this version
   --note <text>      one line on what this variant is, shown beside it (never
                      inside the design)
@@ -869,6 +872,7 @@ function parsePublishFlags() {
       fills: { type: "string", multiple: true },
       knobs: { type: "string" },
       from: { type: "string" },
+      fork: { type: "string" },
       prompt: { type: "string" },
       note: { type: "string" },
       widths: { type: "string" },
@@ -964,7 +968,7 @@ async function publishMock() {
     }
     surfaces.push(...(await surfacesFromFlags(flags, tokens, { session, layout: flags.layout })));
   }
-  if (!surfaces && !parts && !fills)
+  if (!surfaces && !parts && !fills && !flags.fork)
     die(`no html for ${slug}`, `mockpit publish --mock ${slug} --html <file>`);
   const body = {
     session,
@@ -976,6 +980,7 @@ async function publishMock() {
     kind: flags.kind,
     ...(flags.knobs !== undefined && { knobs: readJsonFlag("knobs", flags.knobs) }),
     ...(from !== undefined && { from }),
+    ...(flags.fork !== undefined && { fork: flags.fork }),
     prompt: flags.prompt,
     note: flags.note,
     ...(flags.widths !== undefined && {

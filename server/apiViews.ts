@@ -81,6 +81,7 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
   ...(post.note ? { note: post.note } : {}),
   // Component mocks embedded in a page (server/embeds.ts).
   ...(post.embeds.length ? { embeds: post.embeds } : {}),
+  ...(post.forkedFrom ? { forkedFrom: post.forkedFrom } : {}),
   // The part names this variant's own markup marks, so the viewer can tell
   // which looks render a part (Mix) without the html bodies.
   parts: partsInSurfaces(post.surfaces).map((p) => p.name),

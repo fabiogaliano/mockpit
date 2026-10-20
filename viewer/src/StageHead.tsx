@@ -81,7 +81,14 @@ export function StageHead(props: {
                   aria-selected={x.variant === v()?.variant}
                   classList={{ on: x.variant === v()?.variant, arch: x.status === "archived" }}
                   data-variant={x.variant}
-                  title={x.status === "archived" ? `${x.variant} · archived` : undefined}
+                  title={
+                    [
+                      x.forkedFrom && `from ${x.forkedFrom.variant} v${x.forkedFrom.version}`,
+                      x.status === "archived" && "archived",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || undefined
+                  }
                   onClick={() => s.chooseVariant(x.variant)}
                 >
                   {x.variant}

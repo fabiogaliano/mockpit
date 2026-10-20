@@ -159,7 +159,9 @@ mockpit read    writer                    # states, variants, asks and answers, 
 ```
 
 - `publish` on an existing (mock, state, variant) makes its next version.
-  `--from N` branches off an earlier one. The result flags vanished or renamed
+  `--from N` branches off an earlier one. `--fork quiet@2` (MCP/HTTP
+  `fork: "quiet@2"`) starts a NEW variant from a sibling's version and records
+  the lineage; alone it copies it, with `--parts`/`--fills` it edits the copy. The result flags vanished or renamed
   parts. Don't publish a near-duplicate variant; publish the next version.
 - Replace one part instead of the document: `--parts body=body.html`
   (repeatable; `--parts body=-` reads stdin), MCP `publish({parts: {body:

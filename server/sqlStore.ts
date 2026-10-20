@@ -34,6 +34,7 @@ import {
   selectEvictions,
   type Session,
   type Embed,
+  type ForkRef,
   slugify,
   type SqlStorage,
   type SqlStorageValue,
@@ -161,7 +162,7 @@ export class SqlStore implements Store {
       agentActiveAt: "TEXT",
     });
     this.addMissing("mocks", { widths: "TEXT NOT NULL DEFAULT '[]'", resolvedAt: "TEXT" });
-    this.addMissing("posts", { note: "TEXT" });
+    this.addMissing("posts", { note: "TEXT", forkedFrom: "TEXT" });
     if (legacy) this.migrateLegacy();
     this.createIndexes();
   }
@@ -569,6 +570,7 @@ export class SqlStore implements Store {
       ...(r.note == null ? {} : { note: r.note as string }),
       // The column keeps its first name, from when embeds were called slots.
       embeds: parseJson<Embed[]>(r.slots, []),
+      ...(r.forkedFrom == null ? {} : { forkedFrom: parseJson<ForkRef>(r.forkedFrom, null!) }),
       ...(r.curFrom == null ? {} : { from: r.curFrom as number }),
       ...(r.curPrompt == null ? {} : { prompt: r.curPrompt as string }),
       ...(r.curAuthor == null ? {} : { author: r.curAuthor as string }),
@@ -963,12 +965,13 @@ export class SqlStore implements Store {
       ...(input.knobs ? { knobs: input.knobs } : {}),
       ...(stripNul(input.note ?? "").trim() ? { note: stripNul(input.note ?? "").trim() } : {}),
       embeds: input.embeds ?? [],
+      ...(input.forkedFrom ? { forkedFrom: input.forkedFrom } : {}),
       ...(input.from === undefined ? {} : { from: input.from }),
       ...(input.prompt === undefined ? {} : { prompt: stripNul(input.prompt) }),
       ...(input.author === undefined ? {} : { author: stripNul(input.author) }),
     };
     this.sql.exec(
-      "INSERT INTO posts (id, sessionId, mockId, state, variant, status, title, surfaces, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, note) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
+      "INSERT INTO posts (id, sessionId, mockId, state, variant, status, title, surfaces, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, note, forkedFrom) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
       post.id,
       post.sessionId,
       post.mock,
@@ -984,6 +987,7 @@ export class SqlStore implements Store {
       post.prompt ?? null,
       post.author ?? null,
       post.note ?? null,
+      post.forkedFrom ? JSON.stringify(post.forkedFrom) : null,
     );
     this.touch(input.sessionId);
     this.touchMock(post.mock, now);

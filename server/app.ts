@@ -105,6 +105,7 @@ import {
   reservedAgent,
   type Session,
   type Embed,
+  type ForkRef,
   slugify,
   type Store,
   type Surface,
@@ -1194,7 +1195,11 @@ export function createApp({
     const slugIn = str(body.mock, MAX_TITLE);
     if (!slugIn) return fail(400, 'provide "mock": the mock slug, e.g. "writer"');
     const given = ["html", "surfaces", "parts", "fills"].filter((k) => body[k] !== undefined);
-    if (given.length === 0) return fail(400, 'provide "html", "surfaces", "parts" or "fills"');
+    const forkIn = forkArg(body.fork);
+    if (isResult(forkIn)) return forkIn;
+    if (given.length === 0 && !forkIn) {
+      return fail(400, 'provide "html", "surfaces", "parts" or "fills" (or "fork" alone)');
+    }
     if (given.length > 1) {
       return fail(
         400,
@@ -1274,9 +1279,36 @@ export function createApp({
       fail(404, `${slug} has no variant "${variant}"${state === null ? "" : ` in "${state}"`}`, {
         variants: posts.map(variantLabel),
       });
+    // A fork starts a new variant from a sibling's version: that version's
+    // surfaces are what `parts`, `fills` and kept surface ids refer to.
+    let fork: { ref: ForkRef; surfaces: Surface[]; knobs?: Knobs; note?: string } | null = null;
+    if (forkIn) {
+      if (target) {
+        return fail(409, `${variant} already exists; fork names a new variant to start`);
+      }
+      const source = inState.find((p) => p.variant === forkIn.variant);
+      if (!source) {
+        return fail(404, `no variant "${forkIn.variant}" to fork in this state`, {
+          variants: inState.map(variantLabel),
+        });
+      }
+      const version = forkIn.version ?? source.version;
+      const surfacesAt =
+        version === source.version
+          ? source.surfaces
+          : source.history.find((h) => h.version === version)?.surfaces;
+      if (!surfacesAt) return fail(404, `${source.variant} has no version ${version}`);
+      fork = {
+        ref: { variant: source.variant, version },
+        surfaces: surfacesAt,
+        ...(source.knobs ? { knobs: source.knobs } : {}),
+        ...(source.note ? { note: source.note } : {}),
+      };
+    }
     // What `parts` and kept surface ids refer to: the variant's current
     // version, or the one `from` names.
     const base = (): Surface[] | FlowResult => {
+      if (fork) return fork.surfaces;
       if (!target) return missing();
       if (from === undefined || from === target.version) return target.surfaces;
       return (
@@ -1287,7 +1319,9 @@ export function createApp({
 
     let surfaces: Surface[];
     let applied: string[] | undefined;
-    if (partEdits || fillEdits) {
+    if (fork && given.length === 0) {
+      surfaces = fork.surfaces;
+    } else if (partEdits || fillEdits) {
       const current = base();
       if (isResult(current)) return current;
       const result = partEdits
@@ -1338,9 +1372,14 @@ export function createApp({
         variant,
         title: title ?? mock.title,
         surfaces,
-        ...(Object.keys(variantKnobs.value).length ? { knobs: variantKnobs.value } : {}),
-        ...(note ? { note } : {}),
+        ...(Object.keys(variantKnobs.value).length
+          ? { knobs: variantKnobs.value }
+          : fork?.knobs
+            ? { knobs: fork.knobs }
+            : {}),
+        ...(note ? { note } : note === undefined && fork?.note ? { note: fork.note } : {}),
         embeds,
+        ...(fork ? { forkedFrom: fork.ref } : {}),
         from,
         prompt,
         author,
@@ -1384,6 +1423,20 @@ export function createApp({
       nudges,
       writer: session,
     });
+  }
+
+  // `fork`: "variant" or "variant@N", the sibling version a new variant starts
+  // from.
+  function forkArg(v: unknown): { variant: string; version?: number } | FlowResult | undefined {
+    if (v === undefined || v === null || v === "") return undefined;
+    const bad = '"fork" must be "<variant>" or "<variant>@<version>", e.g. "quiet@2"';
+    if (typeof v !== "string") return fail(400, bad);
+    const m = /^(.+?)(?:@(\d+))?$/.exec(v.trim());
+    const variant = m && str(m[1], MAX_LABEL);
+    if (!variant) return fail(400, bad);
+    const version = m[2] === undefined ? undefined : Number(m[2]);
+    if (version !== undefined && version < 1) return fail(400, bad);
+    return version === undefined ? { variant } : { variant, version };
   }
 
   // `widths`: the device widths the mock is judged at, in the agent's order;
