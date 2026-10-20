@@ -1,8 +1,9 @@
 // The questions over the canvas: a card that floats above the design instead
 // of a bottom sheet, so answering never means dragging a drawer open. Dragged
-// by its grip it becomes a chip under the finger, the spots it can land on show
-// as small markers, and on release it snaps to the one the finger is in (see
+// by its grip it follows the finger, the spots it can land on show as small
+// markers, and on release it glides into the one the finger is in (see
 // dock.ts). Carried to an edge it docks as a handle there; a tap brings it back.
+// Its fold button shrinks it to one line, the question it is on.
 // Tune and Thread, opened from the header's menu, take the card's place.
 // On a phone none of that: the card is a sheet fixed to the bottom, and a tap
 // or a swipe on its top folds it to one line so the page above can be read.
@@ -46,7 +47,10 @@ import type { TuneState } from "./tune.ts";
 import { PartSelector, Tune } from "./Tune.tsx";
 import { canvasTop, NO_INSET, phoneLayout, setCardInset, win } from "./viewport.ts";
 
-const CHIP = { row: { w: 84, h: 44 }, col: { w: 44, h: 72 } };
+// How long the card takes to glide into its spot or open from its line.
+const SNAP_MS = 220;
+const reducedMotion = () =>
+  host().window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 const MARK = { row: { w: 48, h: 22 }, col: { w: 22, h: 40 } };
 
 export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
@@ -64,7 +68,11 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
   // left in storage.
   const spot = (): CardPlace => (phone() ? { at: "bottom-center", docked: null } : place());
   const [folded, setFolded] = createSignal(false);
-  const [carry, setCarry] = createSignal<{ x: number; y: number; hot: Spot } | null>(null);
+  const [carry, setCarry] = createSignal<{
+    dx: number;
+    dy: number;
+    hot: Spot;
+  } | null>(null);
   const [content, setContent] = createSignal<HTMLElement>();
 
   const area = (): Area => ({ top: canvasTop(), w: win().w, h: win().h - canvasTop() });
@@ -144,12 +152,19 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
         save({ ...spot(), docked: dockAt(ev.clientX, ev.clientY, area()) });
         return;
       }
-      setCarry({ x: ev.clientX, y: ev.clientY, hot: spotAt(ev.clientX, ev.clientY, area()) });
+      setCarry({
+        dx: ev.clientX - x0,
+        dy: ev.clientY - y0,
+        hot: spotAt(ev.clientX, ev.clientY, area()),
+      });
     };
     const up = (ev: PointerEvent) => {
       const c = carry();
+      const from = cardEl.getBoundingClientRect();
       end();
-      if (c && moved >= 8) save({ at: spotAt(ev.clientX, ev.clientY, area()), docked: null });
+      if (!c || moved < 8) return;
+      save({ at: spotAt(ev.clientX, ev.clientY, area()), docked: null });
+      glideFrom(from);
     };
     const end = () => {
       el.removeEventListener("pointermove", move);
@@ -205,7 +220,7 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
       const dy = ev.clientY - y0;
       if (Math.abs(dy) < 32 || dy > 0 === folded()) return;
       swiped = true;
-      setFolded(dy > 0);
+      setFold(dy > 0);
       end();
     };
     const end = () => {
@@ -222,7 +237,7 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
       swiped = false;
       return;
     }
-    setFolded(!open);
+    setFold(!open);
   };
   // What the folded sheet still says: where you are and what is asked.
   const peek = (): { k: string; t: string } => {
@@ -246,19 +261,41 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
     };
   };
 
-  const chip = () => (col() ? CHIP.col : CHIP.row);
+  // From where the card was to where it now rests, as one movement: the place
+  // changes at once and the card is drawn travelling there from the old one.
+  const glideFrom = (from: DOMRect) => {
+    if (reducedMotion()) return;
+    host().window.requestAnimationFrame(() => {
+      const to = cardEl.getBoundingClientRect();
+      const base = getComputedStyle(cardEl).transform;
+      const rest = base === "none" ? "" : base;
+      cardEl.animate(
+        [
+          { transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) ${rest}` },
+          { transform: rest || "none" },
+        ],
+        { duration: SNAP_MS, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
+      );
+    });
+  };
+  // Fold to the question's line, or open again; opening fades the questions in.
+  const setFold = (on: boolean) => {
+    setFolded(on);
+    if (on || reducedMotion()) return;
+    host().window.requestAnimationFrame(() =>
+      cardEl.querySelector(".qcard-body")?.animate(
+        [
+          { opacity: 0, transform: "translateY(6px)" },
+          { opacity: 1, transform: "none" },
+        ],
+        { duration: 160, easing: "ease-out" },
+      ),
+    );
+  };
   const cardStyle = () => {
     // The sheet is placed by CSS alone, so a stale window size can't move it.
     if (phone()) return {};
     const c = carry();
-    if (c) {
-      const { w, h } = chip();
-      return {
-        width: `${w}px`,
-        height: `${h}px`,
-        transform: `translate3d(${c.x - w / 2}px, ${c.y - h / 2}px, 0)`,
-      };
-    }
     // Anchored by CSS to the edge it rests against, not placed from a measured
     // height: the card grows and shrinks with each question, and WebKit may not
     // report its first size at all.
@@ -270,7 +307,14 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
       left: `${rect().x}px`,
       top: v === "top" ? `${a.top + INSET}px` : v === "mid" ? `${a.top + a.h / 2}px` : "auto",
       bottom: v === "bottom" ? `calc(${INSET}px + env(safe-area-inset-bottom))` : "auto",
-      transform: v === "mid" ? "translateY(-50%)" : "none",
+      // Carried, it follows the finger from where it rests, lifted a little.
+      transform:
+        [
+          c ? `translate3d(${c.dx}px, ${c.dy}px, 0) scale(0.97)` : "",
+          v === "mid" ? "translateY(-50%)" : "",
+        ]
+          .filter(Boolean)
+          .join(" ") || "none",
     };
   };
   const owed = () => s.owed().length;
@@ -304,11 +348,11 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
         ref={(el) => (cardEl = el)}
         class="qcard"
         classList={{
-          col: col(),
-          chip: !!carry(),
+          "qcard-col": col(),
+          carrying: !!carry(),
           hidden: !!spot().docked && !carry(),
           sheet: phone(),
-          folded: phone() && folded(),
+          folded: folded(),
         }}
         style={cardStyle()}
         role="region"
@@ -329,8 +373,20 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
         <Show
           when={phone()}
           fallback={
-            <div class="qcard-grip" aria-hidden="true">
-              <i />
+            <div class="qcard-grip">
+              <i aria-hidden="true" />
+              <button
+                type="button"
+                class="qcard-fold"
+                aria-expanded={!folded()}
+                aria-label={folded() ? "Show questions" : "Minimise questions"}
+                title={folded() ? "Show questions" : "Minimise"}
+                onClick={() => setFold(!folded())}
+              >
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d={folded() ? "M4 10l4-4 4 4" : "M4 6l4 4 4-4"} />
+                </svg>
+              </button>
             </div>
           }
         >
@@ -343,15 +399,19 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
           >
             <i />
           </button>
-          <Show when={folded()}>
-            <button type="button" class="qpeek" onClick={() => toggle(true)}>
-              <span class="qpeek-k">{peek().k}</span>
-              <span class="qpeek-t">{peek().t}</span>
-              <span class="qpeek-go" aria-hidden="true">
-                ⌃
-              </span>
-            </button>
-          </Show>
+        </Show>
+        <Show when={folded()}>
+          <button
+            type="button"
+            class="qpeek"
+            onClick={() => (phone() ? toggle(true) : setFold(false))}
+          >
+            <span class="qpeek-k">{peek().k}</span>
+            <span class="qpeek-t">{peek().t}</span>
+            <span class="qpeek-go" aria-hidden="true">
+              ⌃
+            </span>
+          </button>
         </Show>
         <div class="qcard-body" ref={setContent}>
           <Switch>

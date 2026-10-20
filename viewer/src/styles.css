@@ -2096,11 +2096,13 @@ a {
   font-size: 13px;
 }
 .decide {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 .decide > button {
-  flex: 1;
+  min-width: 0;
+  padding-inline: 8px;
 }
 .secondary {
   height: 44px;
@@ -2430,7 +2432,6 @@ a {
   background: var(--panel);
   box-shadow: 0 16px 50px #000a;
   overflow: hidden;
-  transition: left 0.25s cubic-bezier(0, 0, 0.2, 1);
 }
 .qcard.hidden {
   display: none;
@@ -2458,38 +2459,66 @@ a {
 .qcard-body {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   overscroll-behavior: contain;
   padding: 0 14px 14px;
 }
 /* Carried, the card is a chip the shape of where it would land. */
-.qcard.chip {
-  top: 0 !important;
-  bottom: auto !important;
-  left: 0 !important;
+.qcard.carrying {
   border-color: var(--accent);
-  border-radius: 10px;
-  background: var(--accent-solid);
+  box-shadow: 0 24px 60px #000c;
+  opacity: 0.94;
+  cursor: grabbing;
   transition: none;
 }
-.qcard.chip > * {
-  visibility: hidden;
+.qcard-fold {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--t4);
+  cursor: pointer;
 }
-.qcard:not(.col) .opts {
+.qcard-fold {
+  position: relative;
+}
+.qcard-fold::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+}
+.qcard-fold svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+@media (hover: hover) {
+  .qcard-fold:hover {
+    background: var(--row);
+    color: var(--t1);
+  }
+}
+.qcard:not(.qcard-col) .opts {
   display: flex;
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
   padding-bottom: 2px;
 }
-.qcard:not(.col) .opts::-webkit-scrollbar {
+.qcard:not(.qcard-col) .opts::-webkit-scrollbar {
   display: none;
 }
-.qcard:not(.col) .opt:not(.pill) {
+.qcard:not(.qcard-col) .opt:not(.pill) {
   flex: 0 0 min(44%, 190px);
   scroll-snap-align: start;
 }
-.qcard.col .opts {
+.qcard.qcard-col .opts {
   grid-template-columns: 1fr;
 }
 .qcard-mode {
@@ -3381,19 +3410,20 @@ html.theming *:not(iframe) {
   font-weight: 500;
   text-overflow: ellipsis;
 }
-.qcard.sheet .opt .lbl {
+.qcard .opt .lbl {
   font-size: 15px;
 }
-/* The question is the headline; its topic is a small label over it. */
-.qcard.sheet .nm {
+/* In the card, wherever it rests: the question is the headline and its topic a
+   small label over it. */
+.qcard .nm {
   color: var(--t4);
   font-size: 13px;
   line-height: 18px;
 }
-.qcard.sheet .nm.plain {
+.qcard .nm.plain {
   display: none;
 }
-.qcard.sheet .ask {
+.qcard .ask {
   margin: 2px 0 12px;
   color: var(--t1);
   font-size: 17px;
@@ -3403,13 +3433,13 @@ html.theming *:not(iframe) {
 }
 /* Word answers stack as full-width rows: a long one wraps inside its row and
    every row is one easy thumb target. Pictures keep their sideways scroller. */
-.qcard.sheet .opts:has(.opt.pill:not(.other)) {
+.qcard .opts:has(.opt.pill:not(.other)) {
   flex-direction: column;
   flex-wrap: nowrap;
   gap: 6px;
   overflow: visible;
 }
-.qcard.sheet .opt.pill {
+.qcard .opt.pill {
   align-self: stretch;
   justify-content: space-between;
   gap: 12px;
@@ -3419,15 +3449,15 @@ html.theming *:not(iframe) {
   border-radius: 12px;
   text-align: start;
 }
-.qcard.sheet .opt.pill .lbl {
+.qcard .opt.pill .lbl {
   color: var(--t2);
   font-size: 15px;
   line-height: 1.35;
 }
-.qcard.sheet .opt.pill.on .lbl {
+.qcard .opt.pill.on .lbl {
   color: var(--t1);
 }
-.qcard.sheet .opt.pill .tick {
+.qcard .opt.pill .tick {
   flex: none;
 }
 
@@ -4537,4 +4567,28 @@ html.theming *:not(iframe) {
 }
 .lib-variant.phone .lib-thumb {
   height: 236px;
+}
+/* The grip's bar in the middle, the fold button at its end. */
+.qcard:not(.sheet) .qcard-grip {
+  display: grid;
+  grid-template-columns: 32px 1fr 32px;
+  align-items: center;
+  justify-items: center;
+  height: 32px;
+  padding: 0 6px;
+}
+.qcard:not(.sheet) .qcard-grip > i {
+  grid-column: 2;
+}
+/* Folded, its one line opens it: the grip keeps only the bar to carry it by. */
+.qcard.folded .qcard-fold {
+  visibility: hidden;
+}
+/* Nothing inside may widen the card: a field's own width or a long word wraps
+   or shrinks to the card instead of pushing its body past the edge. */
+.qcard > * {
+  min-width: 0;
+}
+.qcard:not(.sheet) .qpeek {
+  padding-bottom: 10px;
 }
