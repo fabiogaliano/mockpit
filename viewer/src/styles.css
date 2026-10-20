@@ -2546,15 +2546,15 @@ a {
   inset: -10px;
 }
 .qcard-handle {
-  flex-direction: column;
+  gap: 6px;
 }
 .qcard-handle.left {
   border-left: 0;
-  border-radius: 0 12px 12px 0;
+  border-radius: 0 17px 17px 0;
 }
 .qcard-handle.right {
   border-right: 0;
-  border-radius: 12px 0 0 12px;
+  border-radius: 17px 0 0 17px;
 }
 .qcard-handle.top {
   border-top: 0;
@@ -2564,7 +2564,7 @@ a {
   border-bottom: 0;
   border-radius: 12px 12px 0 0;
 }
-/* Stacked along the tab: which way it opens, then how many questions are open. */
+/* In a row: which way it opens, then how many questions are open. */
 .qh-open {
   flex: none;
   width: 14px;
@@ -2576,12 +2576,21 @@ a {
   stroke-linejoin: round;
 }
 .qh-n {
-  color: var(--accent);
-  font: 700 13px/1 var(--sans);
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: var(--accent-solid);
+  color: var(--on-accent);
+  font: 700 11px/1 var(--sans);
   font-variant-numeric: tabular-nums;
 }
 .qh-n.done {
+  background: transparent;
   color: var(--ok);
+  font-size: 13px;
 }
 @media (hover: hover) {
   .qcard-handle:hover {

@@ -48,11 +48,9 @@ export const SPOTS: Spot[] = [
 ];
 export const INSET = 12;
 // The handle a docked card leaves on its edge.
-export const HANDLE_T = 30;
-export const HANDLE_L = 60;
-// On a top or bottom edge the tab is short and wide enough to stack its
-// chevron over its count, as a side tab does.
-const FLAT = { w: 52, h: 46 };
+// The tab is the same small pill on every edge: a chevron and the count in a
+// row, sticking out of the edge it rests on.
+export const HANDLE = { w: 58, h: 34 };
 // A finger this close to an edge while carrying the card docks it there.
 export const DOCK_EDGE = 22;
 // Released this far from every edge, a dragged handle opens the card again.
@@ -110,17 +108,12 @@ export function dockAt(px: number, py: number, area: Area): Docked {
 export function handleRect(d: Docked, area: Area): Rect {
   const vertical = d.edge === "left" || d.edge === "right";
   const span = vertical ? area.h : area.w;
-  const long = vertical ? HANDLE_L : FLAT.w;
+  const long = vertical ? HANDLE.h : HANDLE.w;
   const off =
     d.anchor === "start" ? INSET : d.anchor === "end" ? span - long - INSET : (span - long) / 2;
   return vertical
-    ? { x: d.edge === "left" ? 0 : area.w - HANDLE_T, y: area.top + off, w: HANDLE_T, h: HANDLE_L }
-    : {
-        x: off,
-        y: d.edge === "top" ? area.top : area.top + area.h - FLAT.h,
-        w: FLAT.w,
-        h: FLAT.h,
-      };
+    ? { x: d.edge === "left" ? 0 : area.w - HANDLE.w, y: area.top + off, ...HANDLE }
+    : { x: off, y: d.edge === "top" ? area.top : area.top + area.h - HANDLE.h, ...HANDLE };
 }
 
 // Minimised from where it rests, the card docks on the edge beside it.
