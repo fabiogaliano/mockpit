@@ -39,7 +39,9 @@ import { Thumb } from "./Thumb.tsx";
 const MIX_KEY = "mix";
 const hoverDevice = () => host().window.matchMedia?.("(hover: hover)").matches ?? true;
 
-export function Questions(props: { s: MockScreenState }) {
+// `compact`: in the floating card, where every line costs canvas: no header
+// row; the count, the arrows and the note share one footer.
+export function Questions(props: { s: MockScreenState; compact?: boolean }) {
   const s = props.s;
   return (
     <Show when={s.mock()}>
@@ -47,7 +49,7 @@ export function Questions(props: { s: MockScreenState }) {
         <ResolvedNote s={s} />
       </Show>
       <Show when={s.asks().length} fallback={<Decide s={s} />}>
-        <QuestionView s={s} />
+        <QuestionView s={s} compact={props.compact} />
       </Show>
     </Show>
   );
@@ -78,7 +80,7 @@ const openElsewhere = (s: MockScreenState) => {
   return n ? ` · ${n} open on other ${n === 1 ? "state" : "states"}` : "";
 };
 
-function QuestionView(props: { s: MockScreenState }) {
+function QuestionView(props: { s: MockScreenState; compact?: boolean }) {
   const s = props.s;
   // A file dropped beside a drop zone would make the browser open it and
   // leave the page; files land only where a zone takes them.
@@ -102,12 +104,36 @@ function QuestionView(props: { s: MockScreenState }) {
     return x ? (x.kind === "mix" ? MIX_KEY : `ask:${x.ask.id}`) : null;
   });
 
+  // The compact card's note opens from its footer button.
+  const [noteOpen, setNoteOpen] = createSignal<string | null>(null);
+  const curAsk = () => {
+    const x = q();
+    return x?.kind === "ask" ? x.ask : null;
+  };
+  // What the header row would have said beyond the count, kept for the compact
+  // card as one small line, and only when there is something to say.
+  const meta = () => {
+    if (s.reviewing()) return "";
+    if (!total()) return `${stateLead(s)}Nothing open`;
+    const a = curAsk();
+    const bits = [
+      s.states().length > 1 ? (s.activeState() ?? "") : "",
+      a && s.dormantOf(a) ? "skipped" : "",
+      a && s.flagged().includes(a.id) ? `your pick is gone in v${s.latest()}` : "",
+      openElsewhere(s).replace(/^ · /, ""),
+    ].filter(Boolean);
+    return bits.join(" · ");
+  };
+
   return (
-    <div class="qview">
+    <div class="qview" classList={{ compact: !!props.compact }}>
       <div class="sr-only" aria-live="polite">
         {s.attachStatus()}
       </div>
-      <div class="qhd">
+      <Show when={props.compact && meta()}>
+        <div class="qmeta">{meta()}</div>
+      </Show>
+      <div class="qhd" classList={{ "sr-only": !!props.compact }}>
         <Show
           when={!s.reviewing()}
           fallback={
@@ -123,24 +149,26 @@ function QuestionView(props: { s: MockScreenState }) {
         <Show when={hoverDevice()}>
           <KeysHint s={s} />
         </Show>
-        <button
-          type="button"
-          class="nav"
-          aria-label="Previous question"
-          disabled={s.stepTarget(-1) === null}
-          onClick={() => s.step(-1)}
-        >
-          ‹
-        </button>
-        <button
-          type="button"
-          class="nav"
-          aria-label="Next question"
-          disabled={s.stepTarget(1) === null}
-          onClick={() => s.step(1)}
-        >
-          ›
-        </button>
+        <Show when={!props.compact}>
+          <button
+            type="button"
+            class="nav"
+            aria-label="Previous question"
+            disabled={s.stepTarget(-1) === null}
+            onClick={() => s.step(-1)}
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            class="nav"
+            aria-label="Next question"
+            disabled={s.stepTarget(1) === null}
+            onClick={() => s.step(1)}
+          >
+            ›
+          </button>
+        </Show>
       </div>
       <Show when={s.keysOpen()}>
         <KeysList />
@@ -161,10 +189,64 @@ function QuestionView(props: { s: MockScreenState }) {
             return key === MIX_KEY ? (
               <MixBlock s={s} index={i()} />
             ) : (
-              <Show when={ask()}>{(a) => <AskBlock s={s} ask={a()} index={i()} />}</Show>
+              <Show when={ask()}>
+                {(a) => (
+                  <AskBlock
+                    s={s}
+                    ask={a()}
+                    index={i()}
+                    compact={props.compact}
+                    noteOpen={noteOpen() === a().id}
+                  />
+                )}
+              </Show>
             );
           }}
         </Show>
+      </Show>
+      <Show when={props.compact && (total() || s.reviewing())}>
+        <div class="qfoot">
+          <Show
+            when={!s.reviewing() && curAsk() && !readonly()}
+            fallback={<span class="qfoot-gap" />}
+          >
+            <button
+              type="button"
+              class="qfoot-note"
+              classList={{ on: noteOpen() === curAsk()?.id || s.noteOf(curAsk()!) !== undefined }}
+              aria-label="Add a note for the agent"
+              title="Note for the agent"
+              onClick={() => setNoteOpen(noteOpen() === curAsk()!.id ? null : curAsk()!.id)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-8l-4 3v-3H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
+              </svg>
+            </button>
+          </Show>
+          <span class="qfoot-count" aria-hidden="true">
+            {s.reviewing() ? "Review" : `${i() + 1}/${total()}`}
+          </span>
+          <span class="qfoot-nav">
+            <button
+              type="button"
+              class="nav"
+              aria-label="Previous question"
+              disabled={s.stepTarget(-1) === null}
+              onClick={() => s.step(-1)}
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              class="nav"
+              aria-label="Next question"
+              disabled={s.stepTarget(1) === null}
+              onClick={() => s.step(1)}
+            >
+              ›
+            </button>
+          </span>
+        </div>
       </Show>
       <Show when={s.error()}>
         <div class="qerr" role="alert">
@@ -522,7 +604,13 @@ function optionPicture(
   return null;
 }
 
-function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
+function AskBlock(props: {
+  s: MockScreenState;
+  ask: Ask;
+  index: number;
+  compact?: boolean;
+  noteOpen?: boolean;
+}) {
   const s = props.s;
   const m = () => s.mock()!;
   const picked = (o: AskOption) => answerIds(s.answerOf(props.ask)).includes(o.id);
@@ -717,23 +805,24 @@ function AskBlock(props: { s: MockScreenState; ask: Ask; index: number }) {
           onInput={(v) => s.setOther(props.ask, v)}
         />
       </Show>
-      <AskNote s={s} ask={props.ask} />
+      <AskNote s={s} ask={props.ask} compact={props.compact} open={props.noteOpen} />
     </div>
   );
 }
 
 // A quiet "Add a note" under each question: opt-in, and open on its own once
 // a note exists, so an unused one costs nothing.
-function AskNote(props: { s: MockScreenState; ask: Ask }) {
+function AskNote(props: { s: MockScreenState; ask: Ask; compact?: boolean; open?: boolean }) {
   const s = props.s;
-  const [open, setOpen] = createSignal(false);
+  const [own, setOwn] = createSignal(false);
+  const open = () => own() || !!props.open;
   const shown = () => open() || s.noteOf(props.ask) !== undefined;
   return (
     <Show
       when={shown()}
       fallback={
-        <Show when={!readonly()}>
-          <button type="button" class="lnk addnote" onClick={() => setOpen(true)}>
+        <Show when={!readonly() && !props.compact}>
+          <button type="button" class="lnk addnote" onClick={() => setOwn(true)}>
             Add a note
           </button>
         </Show>

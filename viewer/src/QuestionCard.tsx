@@ -139,6 +139,7 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
   );
 
   const startCarry = (e: PointerEvent) => {
+    const onGrip = !!(e.target as Element).closest(".qcard-grip");
     e.preventDefault();
     const el = e.currentTarget as HTMLElement;
     el.setPointerCapture(e.pointerId);
@@ -163,6 +164,8 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
       const c = carry();
       const from = cardEl.getBoundingClientRect();
       end();
+      // A press on the grip that never moved is a tap: it minimises.
+      if (moved < 8 && onGrip) return minimise();
       if (!c || moved < 8) return;
       save({ at: spotAt(ev.clientX, ev.clientY, area()), docked: null });
       glideFrom(from);
@@ -387,27 +390,24 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
               startSwipe(e);
             return;
           }
-          if (t.closest("button, a, input, textarea, select")) return;
+          if (t.closest("button, a, input, textarea, select") && !t.closest(".qcard-grip")) return;
           if (t.closest(".qcard-grip, .qhd, .qcard-mode")) startCarry(e);
         }}
       >
         <Show
           when={phone()}
           fallback={
-            <div class="qcard-grip">
+            <button
+              type="button"
+              class="qcard-grip"
+              aria-label="Minimise questions"
+              title="Tap to minimise · drag to move"
+              // A pointer's tap is read from its press (startCarry); this is
+              // the keyboard's Enter or Space, whose click has no detail.
+              onClick={(e) => e.detail === 0 && minimise()}
+            >
               <i aria-hidden="true" />
-              <button
-                type="button"
-                class="qcard-fold"
-                aria-label="Minimise questions"
-                title="Minimise to the edge"
-                onClick={minimise}
-              >
-                <svg viewBox="0 0 16 16" aria-hidden="true">
-                  <path d="M4 8h8" />
-                </svg>
-              </button>
-            </div>
+            </button>
           }
         >
           <button
@@ -433,7 +433,7 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
           <Switch>
             <Match when={s.mode() === "questions"}>
               <NextCard s={s} />
-              <Questions s={s} />
+              <Questions s={s} compact={!phone()} />
             </Match>
             <Match when={s.mode() === "tune"}>
               <ModeBack s={s} label="Tune" />
