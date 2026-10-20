@@ -298,7 +298,13 @@ export function Stage(props: { s: MockScreenState }) {
         if (part) s.showFlash(part);
       }
       setReports(info.key, r);
-    } else if (d.type === "tap" && info.primary && info.key === activeKey() && passthrough()) {
+    } else if (
+      d.type === "tap" &&
+      info.primary &&
+      info.key === activeKey() &&
+      passthrough() &&
+      !s.trying()
+    ) {
       // A tap the page took itself while the overlay stepped aside: ask which
       // part is under it, exactly as a click on the overlay would.
       post(info.key, { type: "hit", ref: refs.click(), x: num(d.x), y: num(d.y) });
@@ -399,7 +405,7 @@ export function Stage(props: { s: MockScreenState }) {
   // A phone has no space around its page, so there the page never scrolls
   // itself: it takes its full height, the stage is the one thing a finger
   // scrolls (natively, both ways once zoomed), and two fingers zoom it.
-  const passthrough = () => canvas() && coarse() && !s.marking() && !phone();
+  const passthrough = () => s.trying() || (canvas() && coarse() && !s.marking() && !phone());
   const gestures = useInspectGestures({
     scroller: () => layersEl,
     enabled: pannable,

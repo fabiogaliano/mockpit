@@ -207,7 +207,18 @@ export function createMockScreen(
   // The last reaction tap, for a polite live region.
   const [reactStatus, setReactStatus] = createSignal("");
   // The Mark tool (D11): while on, a click on the stage leaves a comment there.
-  const [marking, setMarking] = createSignal(false);
+  const [marking, setMarkingSignal] = createSignal(false);
+  // Try: taps, scrolls and motion go to the design itself, as a prototype;
+  // nothing is selected or marked until it is off again.
+  const [trying, setTryingSignal] = createSignal(false);
+  const setMarking = (on: boolean) => {
+    if (on) setTryingSignal(false);
+    setMarkingSignal(on);
+  };
+  const setTrying = (on: boolean) => {
+    if (on) setMarkingSignal(false);
+    setTryingSignal(on);
+  };
   // Thread's comment field; a frame's sendPrompt fills it.
   const [threadText, setThreadText] = createSignal("");
   // Where Tune's knob controls mount: tunekit's pane is moved into it while Tune is open.
@@ -1650,6 +1661,8 @@ export function createMockScreen(
     setZoomMin,
     marking,
     setMarking,
+    trying,
+    setTrying,
     threadText,
     setThreadText,
     prefill,

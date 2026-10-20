@@ -11,6 +11,7 @@ import { bell, toggleBell } from "./notify.ts";
 import { ReactionBar } from "./Reactions.tsx";
 import { linkClick, projectPath } from "./route.ts";
 import type { MockScreenState } from "./state.ts";
+import { TryButton } from "./TryButton.tsx";
 import { theme, toggleTheme } from "./theme.ts";
 import { useThreadRows } from "./Thread.tsx";
 import { Versions } from "./Versions.tsx";
@@ -99,6 +100,7 @@ export function CanvasHead(props: { s: MockScreenState; project: string; right?:
         </div>
         <span class="grow" />
         {props.right}
+        <TryButton s={s} label={!phone()} />
         <Show when={!readonly()}>
           <button
             type="button"

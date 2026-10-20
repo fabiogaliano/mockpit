@@ -17,7 +17,8 @@ The loop never waits for the user:
 
 1. `mockpit init` once per repo; read the brief (`mockpit guide`).
 2. `mockpit publish --mock <slug> --state "<user's words>" --variant <v> --html f.html`,
-   once per variant; mark parts with `data-part`. The html is the UI alone:
+   once per variant; mark parts with `data-part`. Name a state by what the
+   user sees ("Home, idle"), never by your process ("Prototype", "v2"). The html is the UI alone:
    say what a variant is in `--note`, never in the design, and name the
    widths it ships at once with `--widths 390,1280`.
    Build screens from components: each reusable piece is its own

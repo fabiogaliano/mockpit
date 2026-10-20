@@ -7,6 +7,7 @@ import { DEVICE_WIDTHS, type Zoom } from "./logic.ts";
 import { ReactionBar } from "./Reactions.tsx";
 import { mockPath, navigate } from "./route.ts";
 import type { MockScreenState } from "./state.ts";
+import { TryButton } from "./TryButton.tsx";
 
 export function StageHead(props: {
   s: MockScreenState;
@@ -239,6 +240,7 @@ export function StageHead(props: {
         >
           {`${pct()}%`}
         </span>
+        <TryButton s={s} />
         <Show when={!readonly()}>
           <button
             type="button"
