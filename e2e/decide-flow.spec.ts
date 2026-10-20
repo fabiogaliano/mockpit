@@ -70,7 +70,7 @@ test("questions: pictures, hover preview, pick, part focus, Borrow in Tune, Send
   await expect(onStage(page)).toHaveAttribute("data-variant", "dark");
   await option(page, "editorial").hover();
   await expect(onStage(page)).toHaveAttribute("data-variant", "editorial");
-  await page.locator(".qhd").hover();
+  await page.locator(".qmeta").hover();
   await expect(onStage(page)).toHaveAttribute("data-variant", "quiet");
 
   // Click picks and moves on.

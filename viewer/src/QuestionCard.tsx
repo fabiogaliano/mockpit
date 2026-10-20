@@ -433,7 +433,7 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
           <Switch>
             <Match when={s.mode() === "questions"}>
               <NextCard s={s} />
-              <Questions s={s} compact={!phone()} />
+              <Questions s={s} compact />
             </Match>
             <Match when={s.mode() === "tune"}>
               <ModeBack s={s} label="Tune" />

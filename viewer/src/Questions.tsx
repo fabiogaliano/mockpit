@@ -39,8 +39,8 @@ import { Thumb } from "./Thumb.tsx";
 const MIX_KEY = "mix";
 const hoverDevice = () => host().window.matchMedia?.("(hover: hover)").matches ?? true;
 
-// `compact`: in the floating card, where every line costs canvas: no header
-// row; the count, the arrows and the note share one footer.
+// `compact`: no header row; the count, the arrows and the note share one
+// footer (the panel, the floating card and the phone's sheet all use it).
 export function Questions(props: { s: MockScreenState; compact?: boolean }) {
   const s = props.s;
   return (
@@ -227,6 +227,10 @@ function QuestionView(props: { s: MockScreenState; compact?: boolean }) {
             {s.reviewing() ? "Review" : `${i() + 1}/${total()}`}
           </span>
           <span class="qfoot-nav">
+            {/* The shortcuts are keyboard ones; a finger has the arrows. */}
+            <Show when={hoverDevice()}>
+              <KeysHint s={s} />
+            </Show>
             <button
               type="button"
               class="nav"

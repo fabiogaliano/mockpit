@@ -4658,6 +4658,7 @@ html.theming *:not(iframe) {
 .qfoot-nav {
   justify-self: end;
   display: flex;
+  align-items: center;
   gap: 6px;
 }
 /* Trying: the design takes taps; the outline says so. */

@@ -115,7 +115,7 @@ export function Panel(props: { s: MockScreenState; t: TuneState }) {
       <div class="up-content" ref={setContent}>
         <Switch>
           <Match when={s.mode() === "questions"}>
-            <Questions s={s} />
+            <Questions s={s} compact />
           </Match>
           <Match when={s.mode() === "tune"}>
             <Tune s={s} t={props.t} />
