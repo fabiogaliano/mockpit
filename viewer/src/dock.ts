@@ -48,8 +48,8 @@ export const SPOTS: Spot[] = [
 ];
 export const INSET = 12;
 // The handle a docked card leaves on its edge.
-export const HANDLE_T = 30;
-export const HANDLE_L = 64;
+export const HANDLE_T = 24;
+export const HANDLE_L = 48;
 // A finger this close to an edge while carrying the card docks it there.
 export const DOCK_EDGE = 22;
 // Released this far from every edge, a dragged handle opens the card again.
@@ -121,6 +121,13 @@ export function handleRect(d: Docked, area: Area): Rect {
         w: HANDLE_L,
         h: HANDLE_T,
       };
+}
+
+// Minimised from where it rests, the card docks on the edge beside it.
+export function dockFor(at: Spot): Docked {
+  const [v, h] = at.split("-") as ["top" | "mid" | "bottom", "left" | "center" | "right"];
+  if (h === "center") return { edge: v === "top" ? "top" : "bottom", anchor: "center" };
+  return { edge: h, anchor: v === "top" ? "start" : v === "bottom" ? "end" : "center" };
 }
 
 // A handle opened by a tap reopens at the spot nearest it.

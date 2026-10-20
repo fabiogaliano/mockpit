@@ -2,8 +2,8 @@
 // of a bottom sheet, so answering never means dragging a drawer open. Dragged
 // by its grip it follows the finger, the spots it can land on show as small
 // markers, and on release it glides into the one the finger is in (see
-// dock.ts). Carried to an edge it docks as a handle there; a tap brings it back.
-// Its fold button shrinks it to one line, the question it is on.
+// dock.ts). Carried to an edge, or minimised, it docks as a small handle on
+// that edge, saying only how many questions are open; a tap brings it back.
 // Tune and Thread, opened from the header's menu, take the card's place.
 // On a phone none of that: the card is a sheet fixed to the bottom, and a tap
 // or a swipe on its top folds it to one line so the page above can be read.
@@ -25,6 +25,7 @@ import {
   type CardPlace,
   DOCK_EDGE,
   dockAt,
+  dockFor,
   edgeDistance,
   handleRect,
   INSET,
@@ -198,7 +199,7 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
       setHandleAt(null);
       const d = spot().docked;
       if (!d) return;
-      if (moved <= 10) return save({ at: spotForHandle(d), docked: null });
+      if (moved <= 10) return openFrom(d);
       if (edgeDistance(ev.clientX, ev.clientY, area()) < OPEN_ZONE) {
         return save({ ...spot(), docked: dockAt(ev.clientX, ev.clientY, area()) });
       }
@@ -267,16 +268,36 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
     if (reducedMotion()) return;
     host().window.requestAnimationFrame(() => {
       const to = cardEl.getBoundingClientRect();
-      const base = getComputedStyle(cardEl).transform;
-      const rest = base === "none" ? "" : base;
       cardEl.animate(
-        [
-          { transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) ${rest}` },
-          { transform: rest || "none" },
-        ],
+        [{ translate: `${from.left - to.left}px ${from.top - to.top}px` }, { translate: "0 0" }],
         { duration: SNAP_MS, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
       );
     });
+  };
+  // The card and its handle as one object: minimised, the card shrinks into
+  // the handle's place on the edge and the handle slides out of it; opened,
+  // the reverse. Without motion it is simply swapped.
+  const shrinkTo = (r: { x: number; y: number; w: number; h: number }, opening: boolean) => {
+    const c = cardEl.getBoundingClientRect();
+    const dx = r.x + r.w / 2 - (c.left + c.width / 2);
+    const dy = r.y + r.h / 2 - (c.top + c.height / 2);
+    const small = { translate: `${dx}px ${dy}px`, scale: "0.12", opacity: 0 };
+    const whole = { translate: "0 0", scale: "1", opacity: 1 };
+    return cardEl.animate(opening ? [small, whole] : [whole, small], {
+      duration: SNAP_MS,
+      easing: opening ? "cubic-bezier(0.2, 0.8, 0.2, 1)" : "cubic-bezier(0.4, 0, 1, 1)",
+    });
+  };
+  const minimise = () => {
+    const d = dockFor(spot().at);
+    if (reducedMotion()) return save({ ...spot(), docked: d });
+    shrinkTo(handleRect(d, area()), false).finished.then(() => save({ ...spot(), docked: d }));
+  };
+  const openFrom = (d: { edge: string; anchor: string }) => {
+    const r = handleRect(d as Parameters<typeof handleRect>[0], area());
+    save({ at: spotForHandle(d as Parameters<typeof spotForHandle>[0]), docked: null });
+    if (reducedMotion()) return;
+    host().window.requestAnimationFrame(() => shrinkTo(r, true));
   };
   // Fold to the question's line, or open again; opening fades the questions in.
   const setFold = (on: boolean) => {
@@ -352,7 +373,7 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
           carrying: !!carry(),
           hidden: !!spot().docked && !carry(),
           sheet: phone(),
-          folded: folded(),
+          folded: phone() && folded(),
         }}
         style={cardStyle()}
         role="region"
@@ -378,13 +399,12 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
               <button
                 type="button"
                 class="qcard-fold"
-                aria-expanded={!folded()}
-                aria-label={folded() ? "Show questions" : "Minimise questions"}
-                title={folded() ? "Show questions" : "Minimise"}
-                onClick={() => setFold(!folded())}
+                aria-label="Minimise questions"
+                title="Minimise to the edge"
+                onClick={minimise}
               >
                 <svg viewBox="0 0 16 16" aria-hidden="true">
-                  <path d={folded() ? "M4 10l4-4 4 4" : "M4 6l4 4 4-4"} />
+                  <path d="M4 8h8" />
                 </svg>
               </button>
             </div>
@@ -400,12 +420,8 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
             <i />
           </button>
         </Show>
-        <Show when={folded()}>
-          <button
-            type="button"
-            class="qpeek"
-            onClick={() => (phone() ? toggle(true) : setFold(false))}
-          >
+        <Show when={phone() && folded()}>
+          <button type="button" class="qpeek" onClick={() => toggle(true)}>
             <span class="qpeek-k">{peek().k}</span>
             <span class="qpeek-t">{peek().t}</span>
             <span class="qpeek-go" aria-hidden="true">
@@ -442,6 +458,18 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
             <button
               type="button"
               class={`qcard-handle ${d().edge}`}
+              ref={(el) => {
+                if (reducedMotion()) return;
+                const from = { left: "-100% 0", right: "100% 0", top: "0 -100%", bottom: "0 100%" }[
+                  d().edge
+                ];
+                host().window.requestAnimationFrame(() =>
+                  el.animate([{ translate: from }, { translate: "0 0" }], {
+                    duration: SNAP_MS,
+                    easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+                  }),
+                );
+              }}
               aria-label={owed() ? `Questions, ${owed()} open` : "Questions"}
               style={{
                 left: `${r().x}px`,
@@ -451,7 +479,10 @@ export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
               }}
               onPointerDown={dragHandle}
             >
-              {owed() ? String(owed()) : "✓"}
+              <span class="qh-grip" aria-hidden="true" />
+              <span class="qh-n" classList={{ done: !owed() }}>
+                {owed() ? String(owed()) : "✓"}
+              </span>
             </button>
           );
         }}

@@ -57,7 +57,12 @@ async function open(page: Page, server: string, more: object[] = []) {
 
 // On the canvas the widths are the header's chips (a menu on a phone); beside
 // the panel, the stage head's picker.
-const onCanvas = async (page: Page) => (await page.locator(".chead").count()) > 0;
+// Which head the mock screen drew, once it has drawn one: asked before the
+// screen renders, the answer would always be "not a canvas".
+const onCanvas = async (page: Page) => {
+  await page.locator(".chead, .stage-head").first().waitFor();
+  return (await page.locator(".chead").count()) > 0;
+};
 async function pickWidth(page: Page, w: string) {
   if (!(await onCanvas(page))) return page.locator(".widthpick select").selectOption(w);
   const chip = page.locator(`.chead-seg button[title="${w} px"]`);

@@ -2555,26 +2555,79 @@ a {
   background: var(--accent-solid);
   transform: scale(1.15);
 }
+/* Docked: a slim tab on the edge, the card's own surface, saying only how many
+   questions are open (a check when none). */
 .qcard-handle {
   position: fixed;
   z-index: 30;
-  background: var(--accent-solid);
-  color: var(--on-accent);
-  font: 700 13px var(--sans);
-  box-shadow: 0 6px 20px #000a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--edge);
+  background: var(--panel);
+  color: var(--t1);
+  box-shadow: 0 8px 24px #0008;
   touch-action: none;
 }
+.qcard-handle::after {
+  content: "";
+  position: absolute;
+  inset: -10px;
+}
+.qcard-handle.left,
+.qcard-handle.right {
+  flex-direction: column;
+}
 .qcard-handle.left {
+  border-left: 0;
   border-radius: 0 12px 12px 0;
 }
 .qcard-handle.right {
+  border-right: 0;
   border-radius: 12px 0 0 12px;
 }
 .qcard-handle.top {
+  border-top: 0;
   border-radius: 0 0 12px 12px;
 }
 .qcard-handle.bottom {
+  border-bottom: 0;
   border-radius: 12px 12px 0 0;
+}
+.qh-grip {
+  flex: none;
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--fill);
+}
+.qcard-handle.top .qh-grip,
+.qcard-handle.bottom .qh-grip {
+  width: 12px;
+  height: 3px;
+}
+.qh-n {
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--accent-solid);
+  color: var(--on-accent);
+  font: 700 11px/1 var(--sans);
+  font-variant-numeric: tabular-nums;
+}
+.qh-n.done {
+  background: transparent;
+  color: var(--ok);
+  font-size: 13px;
+}
+@media (hover: hover) {
+  .qcard-handle:hover {
+    background: var(--row);
+  }
 }
 .opt .onote {
   display: -webkit-box;
