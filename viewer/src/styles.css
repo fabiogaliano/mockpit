@@ -4086,3 +4086,58 @@ html.theming *:not(iframe) {
 .drill-chev {
   color: var(--t4);
 }
+
+/* ---------- moodboard (Board) ---------- */
+.home-views {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  margin-inline-end: 8px;
+  border-radius: 9px;
+  background: var(--row);
+  font-size: 13px;
+}
+.home-views a {
+  display: grid;
+  place-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  color: var(--t4);
+  text-decoration: none;
+}
+.home-views a[aria-current="page"] {
+  background: var(--fill);
+  color: var(--t1);
+}
+.mood {
+  width: 100%;
+  max-width: 1600px;
+}
+.mood-grid {
+  columns: 300px;
+  column-gap: 12px;
+}
+.mood-tile {
+  display: block;
+  break-inside: avoid;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--row);
+  box-shadow: 0 0 0 1px var(--line);
+  text-decoration: none;
+}
+
+.mood-cap {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--t4);
+}
+.mood-cap b {
+  color: var(--t1);
+  font-weight: 600;
+}

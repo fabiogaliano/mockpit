@@ -76,16 +76,21 @@ export function ProjectCanvas(props: {
     });
 
   let timer = 0;
-  props.ref?.({
-    locate(slug) {
-      const c = layout().clusters.find((x) => x.node.slug === slug);
-      if (!c) return;
-      fitTo(c, 0.9);
-      setMarked(slug);
-      host().window.clearTimeout(timer);
-      timer = host().window.setTimeout(() => setMarked(null), 1600);
-    },
-  });
+  // Asked before the canvas had a size or a layout: done after the first fit.
+  let pending: string | null = null;
+  const locate = (slug: string) => {
+    const c = layout().clusters.find((x) => x.node.slug === slug);
+    if (!c || !size().w) {
+      pending = slug;
+      return;
+    }
+    pending = null;
+    fitTo(c, 0.9);
+    setMarked(slug);
+    host().window.clearTimeout(timer);
+    timer = host().window.setTimeout(() => setMarked(null), 1600);
+  };
+  props.ref?.({ locate });
   onCleanup(() => host().window.clearTimeout(timer));
 
   onMount(() => {
@@ -114,6 +119,7 @@ export function ProjectCanvas(props: {
       if (fitted || !s.w || !l.clusters.length) return;
       fitted = true;
       fitAll();
+      if (pending) locate(pending);
     }),
   );
 

@@ -9,20 +9,33 @@
 // there. On a phone the same button opens the tree one level at a time
 // (TreeDrill).
 
-import { createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  onCleanup,
+  Show,
+} from "solid-js";
 import { api, type MockSummary, subscribe, surfaceUrl } from "./api.ts";
 import { setCarried } from "./carry.ts";
 import { useSwipeAction } from "./gestures.ts";
 import { host, readonly } from "./host.ts";
 import { nextOwedMock, timeAgo } from "./logic.ts";
 import { type CanvasHandle, ProjectCanvas } from "./ProjectCanvas.tsx";
+import { Board } from "./Board.tsx";
 import { TreeDrill } from "./TreeDrill.tsx";
-import { linkClick, mockPath, navigate, projectPath } from "./route.ts";
+import { boardPath, linkClick, mockPath, navigate, projectPath } from "./route.ts";
 import { setTheme, theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 import { TopBar } from "./TopBar.tsx";
 
-export function Home(props: { project: string | null }) {
+export function Home(props: {
+  project: string | null;
+  view: "tree" | "board";
+  focus: string | null;
+}) {
   // Home shows where every mock stands; a Send carried from a mock ends here.
   setCarried(null);
   const [projects, { refetch: refetchProjects }] = createResource(() => api.projects());
@@ -38,6 +51,15 @@ export function Home(props: { project: string | null }) {
   let canvas: CanvasHandle | undefined;
   const [drill, setDrill] = createSignal<string | null>(null);
   const showTree = (slug: string) => (wide() ? canvas?.locate(slug) : setDrill(slug));
+  // `?focus=`: open on that mock's place in the tree, once it has loaded.
+  let focused = false;
+  createEffect(() => {
+    const slug = props.focus;
+    const nodes = tree()?.tree;
+    if (focused || !slug || !nodes?.some((n) => n.slug === slug)) return;
+    focused = true;
+    showTree(slug);
+  });
   // Resolved a moment ago, before the list catches up.
   const [leaving, setLeaving] = createSignal<Record<string, true>>({});
   const all = createMemo(() =>
@@ -108,6 +130,28 @@ export function Home(props: { project: string | null }) {
   return (
     <div class="screen home">
       <TopBar
+        right={
+          <Show when={project()}>
+            {(p) => (
+              <nav class="home-views" aria-label="View">
+                <a
+                  href={projectPath(p())}
+                  aria-current={props.view === "tree" ? "page" : undefined}
+                  onClick={(e) => linkClick(e, projectPath(p()))}
+                >
+                  Tree
+                </a>
+                <a
+                  href={boardPath(p())}
+                  aria-current={props.view === "board" ? "page" : undefined}
+                  onClick={(e) => linkClick(e, boardPath(p()))}
+                >
+                  Board
+                </a>
+              </nav>
+            )}
+          </Show>
+        }
         left={
           <>
             <span>mockpit</span>
@@ -129,95 +173,104 @@ export function Home(props: { project: string | null }) {
           </>
         }
       />
-      <main class="home-main" classList={{ "with-canvas": wide() && !!project() }}>
-        <div class="home-col">
-          <Show
-            when={project()}
-            fallback={
-              <Show when={!projects.loading}>
-                <p class="home-empty">
-                  Nothing published yet. Agents publish with `mockpit publish`.
-                </p>
-              </Show>
-            }
-          >
-            <p class="home-lead">
-              <Show
-                when={open() > 0}
-                fallback={
-                  <>
-                    <i class="dot ok" />0 open · all answered
-                  </>
-                }
-              >
-                <i class="dot" />
-                {`${open()} open across ${list()?.openMocks ?? 0} ${list()?.openMocks === 1 ? "mock" : "mocks"} ·`}
-                <a
-                  class="home-next"
-                  href={mockPath(project()!, next()?.slug ?? "")}
-                  title={next()?.title}
-                  onClick={(e) => linkClick(e, mockPath(project()!, next()?.slug ?? ""))}
-                >
-                  Answer next ›
-                </a>
-              </Show>
-            </p>
-            <ol class="home-list">
-              <For each={mocks().map((m) => m.id)}>
-                {(id) => (
-                  <Show when={byId()[id]}>
-                    {(m) => (
-                      <MockRow
-                        mock={m()}
-                        project={project()!}
-                        onTree={() => showTree(m().slug)}
-                        {...(readonly() ? {} : { onResolve: () => void resolve(m()) })}
-                      />
-                    )}
-                  </Show>
-                )}
-              </For>
-            </ol>
-            <Show when={resolved().length}>
-              <section class="home-resolved" aria-label="Resolved">
-                <button
-                  type="button"
-                  class="home-resolved-hd"
-                  aria-expanded={resolvedOpen()}
-                  onClick={() => setResolvedOpen(!resolvedOpen())}
-                >
-                  <span class="answered-chev" aria-hidden="true">
-                    ›
-                  </span>
-                  {`Resolved · ${resolved().length}`}
-                </button>
-                <Show when={resolvedOpen()}>
-                  <ol class="home-list">
-                    <For each={resolved().map((m) => m.id)}>
-                      {(id) => (
-                        <Show when={byId()[id]}>
-                          {(m) => (
-                            <MockRow
-                              mock={m()}
-                              project={project()!}
-                              {...(readonly() ? {} : { onReopen: () => void reopen(id) })}
-                            />
-                          )}
-                        </Show>
-                      )}
-                    </For>
-                  </ol>
+      <Show when={props.view === "board" && project()}>
+        {(p) => (
+          <main class="home-main">
+            <Board project={p()} nodes={tree()?.tree ?? []} />
+          </main>
+        )}
+      </Show>
+      <Show when={props.view !== "board"}>
+        <main class="home-main" classList={{ "with-canvas": wide() && !!project() }}>
+          <div class="home-col">
+            <Show
+              when={project()}
+              fallback={
+                <Show when={!projects.loading}>
+                  <p class="home-empty">
+                    Nothing published yet. Agents publish with `mockpit publish`.
+                  </p>
                 </Show>
-              </section>
+              }
+            >
+              <p class="home-lead">
+                <Show
+                  when={open() > 0}
+                  fallback={
+                    <>
+                      <i class="dot ok" />0 open · all answered
+                    </>
+                  }
+                >
+                  <i class="dot" />
+                  {`${open()} open across ${list()?.openMocks ?? 0} ${list()?.openMocks === 1 ? "mock" : "mocks"} ·`}
+                  <a
+                    class="home-next"
+                    href={mockPath(project()!, next()?.slug ?? "")}
+                    title={next()?.title}
+                    onClick={(e) => linkClick(e, mockPath(project()!, next()?.slug ?? ""))}
+                  >
+                    Answer next ›
+                  </a>
+                </Show>
+              </p>
+              <ol class="home-list">
+                <For each={mocks().map((m) => m.id)}>
+                  {(id) => (
+                    <Show when={byId()[id]}>
+                      {(m) => (
+                        <MockRow
+                          mock={m()}
+                          project={project()!}
+                          onTree={() => showTree(m().slug)}
+                          {...(readonly() ? {} : { onResolve: () => void resolve(m()) })}
+                        />
+                      )}
+                    </Show>
+                  )}
+                </For>
+              </ol>
+              <Show when={resolved().length}>
+                <section class="home-resolved" aria-label="Resolved">
+                  <button
+                    type="button"
+                    class="home-resolved-hd"
+                    aria-expanded={resolvedOpen()}
+                    onClick={() => setResolvedOpen(!resolvedOpen())}
+                  >
+                    <span class="answered-chev" aria-hidden="true">
+                      ›
+                    </span>
+                    {`Resolved · ${resolved().length}`}
+                  </button>
+                  <Show when={resolvedOpen()}>
+                    <ol class="home-list">
+                      <For each={resolved().map((m) => m.id)}>
+                        {(id) => (
+                          <Show when={byId()[id]}>
+                            {(m) => (
+                              <MockRow
+                                mock={m()}
+                                project={project()!}
+                                {...(readonly() ? {} : { onReopen: () => void reopen(id) })}
+                              />
+                            )}
+                          </Show>
+                        )}
+                      </For>
+                    </ol>
+                  </Show>
+                </section>
+              </Show>
             </Show>
+          </div>
+          <Show when={wide() && project()}>
+            {(p) => (
+              <ProjectCanvas project={p()} nodes={tree()?.tree ?? []} ref={(h) => (canvas = h)} />
+            )}
           </Show>
-        </div>
-        <Show when={wide() && project()}>
-          {(p) => (
-            <ProjectCanvas project={p()} nodes={tree()?.tree ?? []} ref={(h) => (canvas = h)} />
-          )}
-        </Show>
-      </main>
+        </main>
+      </Show>
       <Show when={drill() && project()}>
         <TreeDrill
           project={project()!}

@@ -28,6 +28,9 @@ export function Thumb(props: {
   // anything loads, so nothing under it moves when the page reports its
   // height. A page shorter than the box is centred in it, not stretched.
   fit?: boolean;
+  // A box as tall as the page pictured, up to this many times its width: the
+  // moodboard packs designs at their own heights.
+  grow?: number;
   // Knob values the picture should show, sent to the page once it reports in
   // and again whenever they change, so a picture follows the draft without
   // reloading. A value baked into src is only where the page starts.
@@ -68,7 +71,8 @@ export function Thumb(props: {
     });
   });
   const frame = () => {
-    const { w, h } = size();
+    const { w } = size();
+    const h = props.grow ? w * props.grow : size().h;
     const fit = fitThumb(w, h, docH(), props.focus ?? null, props.width ?? FRAME_W);
     return props.fit && fit.h < h ? { ...fit, y: fit.y + (h - fit.h) / 2 } : fit;
   };
@@ -79,6 +83,11 @@ export function Thumb(props: {
       // Marks the box once its page has reported a height and the picture in
       // it is placed for good; the box itself never changes size.
       data-sized={docH() !== null ? "" : undefined}
+      style={
+        props.grow
+          ? { height: `${docH() === null ? size().w * 0.6 : Math.ceil(frame().h)}px` }
+          : undefined
+      }
       aria-hidden="true"
     >
       {/* Keyed by src: a new document is a new element, never a frame navigation
