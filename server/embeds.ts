@@ -1,8 +1,10 @@
-// Page composition: `<mockpit-embed slug="…" variant="…" version="…">` tags in a
-// page item's html are expanded server-side by inlining the referenced variant
-// version's first html surface body. Snapshot semantics — publish resolves a
-// missing `version` to the component's current one and stores the resolved list
-// on the post, so a page keeps rendering what it was composed from.
+// Composition: `<mockpit-embed slug="…" variant="…" version="…">` tags in any
+// mock's html are expanded server-side by inlining the referenced variant
+// version's first html surface body, recursively, so a component can be built
+// from components. A tag without `version` follows the component's latest
+// version; one without `variant` follows the component's accepted variant.
+// Publish records the versions it saw on the post (`Post.embeds`), so what a
+// version rendered with stays answerable.
 //
 // Runtime-agnostic (no node imports) and string-only: the result is handed to
 // renderHtmlPage, which serves it from /s/:id under the sandbox CSP header, so
@@ -13,11 +15,25 @@
 import type { Embed } from "./types.ts";
 
 export interface EmbedTag {
-  raw: string;
   slug: string;
-  variant: string;
+  // null: the component's accepted variant.
+  variant: string | null;
+  // null: the component's latest version.
   version: number | null;
 }
+
+// What a tag resolved to: the variant and version shown, and its html body.
+export interface ResolvedEmbed {
+  variant: string;
+  version: number;
+  html: string;
+}
+
+export type EmbedResolver = (tag: EmbedTag) => Promise<ResolvedEmbed | null>;
+
+// Deep enough for page › section › component › control; past it a chain is
+// almost certainly a mistake and costs a render each time.
+export const MAX_EMBED_DEPTH = 6;
 
 const EMBED_TAG = /<mockpit-(?:embed|slot)\b([^>]*?)(?:\/>|>\s*<\/mockpit-(?:embed|slot)\s*>|>)/gi;
 const ATTR = /([a-z-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/gi;
@@ -30,63 +46,109 @@ function attributes(raw: string): Record<string, string> {
   return out;
 }
 
+function tagOf(attrRaw: string): EmbedTag | null {
+  const attrs = attributes(attrRaw);
+  const slug = attrs.slug ?? "";
+  if (!slug) return null;
+  const version = Number(attrs.version);
+  return {
+    slug,
+    variant: attrs.variant || null,
+    version: Number.isInteger(version) && version > 0 ? version : null,
+  };
+}
+
 export function parseEmbedTags(html: string): EmbedTag[] {
   const tags: EmbedTag[] = [];
   EMBED_TAG.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = EMBED_TAG.exec(html))) {
-    const attrs = attributes(m[1] ?? "");
-    const slug = attrs.slug ?? "";
-    if (!slug) continue;
-    const version = Number(attrs.version);
-    tags.push({
-      raw: m[0],
-      slug,
-      variant: attrs.variant || "default",
-      version: Number.isInteger(version) && version > 0 ? version : null,
-    });
+    const tag = tagOf(m[1] ?? "");
+    if (tag) tags.push(tag);
   }
   return tags;
 }
 
-// The embed list to store on a page post: every tag with its version resolved
-// (a missing one pins to the component's current version at publish time).
-export function resolveEmbeds(
-  html: string,
-  currentVersion: (slug: string, variant: string) => number | null,
-): Embed[] {
-  const embeds: Embed[] = [];
-  for (const tag of parseEmbedTags(html)) {
-    const version = tag.version ?? currentVersion(tag.slug, tag.variant);
-    if (version == null) continue;
-    embeds.push({ slug: tag.slug, variant: tag.variant, version });
-  }
-  return embeds;
-}
+export const hasEmbedTags = (html: string): boolean => /<mockpit-(?:embed|slot)\b/i.test(html);
 
 const escapeAttr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 
-// Replace each tag with the resolved body. An unresolvable embed renders as an
-// empty marked-up placeholder rather than vanishing, so a broken reference is
-// visible in review instead of silently changing the layout.
-export function expandEmbeds(
+export interface Expanded {
+  html: string;
+  // Every embed rendered, nested ones included, in document order.
+  used: Embed[];
+  // The first slug chain that loops back on itself (["page", "card", "page"]).
+  cycle: string[] | null;
+}
+
+// Replace each tag with its resolved body, expanding that body's own tags in
+// turn. `stack` is the chain of slugs being expanded (the root mock's first),
+// so a component that reaches back up renders a marked placeholder instead of
+// recursing. An unresolvable embed renders as an empty marked-up placeholder
+// rather than vanishing, so a broken reference is visible in review instead of
+// silently changing the layout.
+export async function expandHtml(
   html: string,
-  body: (slot: { slug: string; variant: string; version: number | null }) => string | null,
-): string {
+  resolve: EmbedResolver,
+  stack: string[],
+): Promise<Expanded> {
+  const used: Embed[] = [];
+  let cycle: string[] | null = null;
+  const matches: { tag: EmbedTag | null }[] = [];
   EMBED_TAG.lastIndex = 0;
-  return html.replace(EMBED_TAG, (raw, attrRaw: string) => {
-    const attrs = attributes(attrRaw ?? "");
-    const slug = attrs.slug ?? "";
-    if (!slug) return raw;
-    const variant = attrs.variant || "default";
-    const parsed = Number(attrs.version);
-    const version = Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-    const resolved = body({ slug, variant, version });
-    const label = `data-mockpit-embed="${escapeAttr(slug)}" data-mockpit-variant="${escapeAttr(
-      variant,
-    )}"${version == null ? "" : ` data-mockpit-version="${version}"`}`;
-    return resolved == null
-      ? `<div ${label} data-mockpit-missing="1"></div>`
-      : `<div ${label}>${resolved}</div>`;
-  });
+  let m: RegExpExecArray | null;
+  while ((m = EMBED_TAG.exec(html))) matches.push({ tag: tagOf(m[1] ?? "") });
+
+  const bodies: (string | null)[] = [];
+  for (const { tag } of matches) {
+    if (!tag) {
+      bodies.push(null);
+      continue;
+    }
+    const label = (variant: string | null, version: number | null) =>
+      `data-mockpit-embed="${escapeAttr(tag.slug)}"${
+        variant ? ` data-mockpit-variant="${escapeAttr(variant)}"` : ""
+      }${version == null ? "" : ` data-mockpit-version="${version}"`}`;
+    if (stack.includes(tag.slug)) {
+      cycle ??= [...stack.slice(stack.indexOf(tag.slug)), tag.slug];
+      bodies.push(`<div ${label(tag.variant, tag.version)} data-mockpit-cycle="1"></div>`);
+      continue;
+    }
+    if (stack.length >= MAX_EMBED_DEPTH) {
+      bodies.push(`<div ${label(tag.variant, tag.version)} data-mockpit-too-deep="1"></div>`);
+      continue;
+    }
+    const resolved = await resolve(tag);
+    if (!resolved) {
+      bodies.push(`<div ${label(tag.variant, tag.version)} data-mockpit-missing="1"></div>`);
+      continue;
+    }
+    used.push({
+      slug: tag.slug,
+      variant: resolved.variant,
+      version: resolved.version,
+      ...(tag.version != null ? { pinned: true as const } : {}),
+    });
+    const inner = await expandHtml(resolved.html, resolve, [...stack, tag.slug]);
+    used.push(...inner.used);
+    cycle ??= inner.cycle;
+    bodies.push(`<div ${label(resolved.variant, resolved.version)}>${inner.html}</div>`);
+  }
+  let i = 0;
+  EMBED_TAG.lastIndex = 0;
+  const out = html.replace(EMBED_TAG, (raw) => bodies[i++] ?? raw);
+  return { html: out, used, cycle };
+}
+
+// A short, stable key for what a document's embeds resolved to: part of the
+// render cache key and of the frame URL, so a component's new version reloads
+// every page that shows it and a stale document is never served as current.
+export function embedsKey(used: Embed[]): string {
+  let h = 0x811c9dc5;
+  const s = used.map((e) => `${e.slug}:${e.variant}@${e.version}`).join("|");
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
 }

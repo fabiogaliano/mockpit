@@ -45,15 +45,26 @@ A version can combine surfaces. `[html, diff]` is a design with its code review;
 html is sandboxed because you author the markup. Every other kind is rendered
 from data, so send data, never markup.
 
-## Page embeds
+## Composition: embeds
 
-A page mock (`--kind page`, MCP `kind: "page"`) can embed a component mock in its
-html with `<mockpit-embed slug="button" variant="dark" version="3"></mockpit-embed>`
-(`<mockpit-slot>` still works; a slot is now a region with fills, topic `asks`).
-The server inlines that version's html body in place, inside the page's frame.
-`variant` defaults to `default`; a missing `version` pins to the current one at
-publish, so the page keeps showing what it was composed from until you publish
-its next version. An unknown slug renders as an empty placeholder, not silently dropped.
+Any mock can embed another mock of the project in its html with
+`<mockpit-embed slug="button"></mockpit-embed>` (`<mockpit-slot>` still works;
+a slot is now a region with fills, topic `asks`). The server inlines that
+mock's html body in place, inside the embedding frame, and expands the
+component's own embeds in turn (up to 6 levels), so build a page from
+sections and sections from components, each its own mock with its own
+variants and questions.
+
+- No `version`: the embed follows the component's latest version, so a new
+  version of the button shows in every page that uses it without republishing
+  them. `version="3"` pins it.
+- No `variant`: the component's accepted variant (else `default`). Name one to
+  show a specific variant.
+- `read` lists each variant's `embeds` as they render now (nested included,
+  with every version, for the user to peek back) and `publishedWith`, the
+  versions it rendered with when you published it.
+- A chain that loops back on itself is refused at publish. An unknown slug
+  renders as an empty placeholder, not silently dropped.
 
 ## Editing one surface
 

@@ -635,6 +635,27 @@ a {
   text-decoration: line-through;
   text-decoration-color: var(--t5);
 }
+.embeds-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.embed-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.embed-pick a {
+  color: var(--t2);
+  text-decoration: underline;
+  text-decoration-color: var(--t5);
+  text-underline-offset: 3px;
+}
+.embed-pinned {
+  color: var(--t5);
+}
 .dropped-fold {
   font-size: 12px;
   color: var(--t4);

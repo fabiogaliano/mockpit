@@ -6,6 +6,7 @@ import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
 import {
   isSandboxedSurfaceKind,
   draftedCount,
+  type Embed,
   isLive,
   type KnobValue,
   type Mock,
@@ -58,6 +59,16 @@ export interface VariantViewOptions {
   body?: boolean;
   // Version rows, newest first, current version included.
   history?: boolean;
+  // What each post's embeds resolve to now, by post id.
+  embeds?: Map<string, EmbedView>;
+}
+
+// A variant's embeds as they render now (nested ones included): each with the
+// component's latest version and every version it has, for peeking back; and
+// the key that changes whenever any of them does.
+export interface EmbedView {
+  key: string;
+  list: (Embed & { latest: number; versions: number[] })[];
 }
 
 export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
@@ -79,8 +90,12 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
     : {}),
   ...(slotsInSurfaces(post.surfaces).length ? { slots: slotsInSurfaces(post.surfaces) } : {}),
   ...(post.note ? { note: post.note } : {}),
-  // Component mocks embedded in a page (server/embeds.ts).
-  ...(post.embeds.length ? { embeds: post.embeds } : {}),
+  // Embedded components as they render now (server/embeds.ts); `publishedWith`
+  // is what this version rendered with when it was published.
+  ...(opts.embeds?.get(post.id)
+    ? { embeds: opts.embeds.get(post.id)!.list, embedsKey: opts.embeds.get(post.id)!.key }
+    : {}),
+  ...(post.embeds.length ? { publishedWith: post.embeds } : {}),
   ...(post.forkedFrom ? { forkedFrom: post.forkedFrom } : {}),
   // The part names this variant's own markup marks, so the viewer can tell
   // which looks render a part (Mix) without the html bodies.

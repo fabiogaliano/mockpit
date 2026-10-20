@@ -460,6 +460,8 @@ export interface Embed {
   slug: string;
   variant: string;
   version: number;
+  // The tag named this version; otherwise it was the latest when rendered.
+  pinned?: true;
 }
 
 export interface PostVersion {
@@ -499,7 +501,8 @@ export interface Post {
   // A line or two on what this variant is, shown beside it so the design itself
   // carries no captions. Stays across versions until replaced.
   note?: string;
-  // Component mocks a page embeds, pinned at publish (embeds.ts).
+  // The component versions this version rendered with when published, nested
+  // ones included (embeds.ts); rendering follows the latest unless pinned.
   embeds: Embed[];
   // The variant (in the same state) and version this one was forked from: the
   // lineage tree. Absent on a variant started from scratch.

@@ -169,6 +169,9 @@ export function createMockScreen(project: string, slug: string) {
   }
   const [viewVersion, setViewVersion] = createSignal<number | null>(null);
   const [versionsOpen, setVersionsOpen] = createSignal(false);
+  // Older component versions shown on the stage instead of the latest, slug →
+  // version: a look back, never saved.
+  const [embedPeek, setEmbedPeek] = createSignal<Record<string, number>>({});
   const [sent, setSent] = createSignal(false);
   // The reply the last Send stored, and whether a beat has passed since: an
   // undelivered reply after that beat earns the "tell your agent" hint.
@@ -1560,6 +1563,8 @@ export function createMockScreen(project: string, slug: string) {
     viewNewVersion,
     versionsOpen,
     setVersionsOpen,
+    embedPeek,
+    setEmbedPeek,
     sent,
     sentDelivered,
     nudgeAgent,

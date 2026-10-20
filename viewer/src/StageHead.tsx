@@ -5,6 +5,7 @@ import { createEffect, For, on, onCleanup, onMount, Show } from "solid-js";
 import { readonly } from "./host.ts";
 import { DEVICE_WIDTHS, type Zoom } from "./logic.ts";
 import { ReactionBar } from "./Reactions.tsx";
+import { mockPath, navigate } from "./route.ts";
 import type { MockScreenState } from "./state.ts";
 
 export function StageHead(props: {
@@ -22,6 +23,18 @@ export function StageHead(props: {
     s
       .variants()
       .filter((x) => x.state === s.activeState() && (x.status !== "dropped" || x === v()));
+  // One entry per embedded component, the first occurrence's.
+  const components = () => {
+    const seen = new Set<string>();
+    return (v()?.embeds ?? []).filter((e) => !seen.has(e.slug) && !!seen.add(e.slug));
+  };
+  const peek = (slug: string, version: number, latest: number) =>
+    s.setEmbedPeek((p) => {
+      const next = { ...p };
+      if (version === latest) delete next[slug];
+      else next[slug] = version;
+      return next;
+    });
   const dropped = () =>
     s.variants().filter((x) => x.state === s.activeState() && x.status === "dropped");
   const pct = () => Math.round(props.scale * 100);
@@ -132,6 +145,41 @@ export function StageHead(props: {
             )}
           </For>
         </details>
+      </Show>
+      <Show when={components().length}>
+        <div class="embeds-row" role="group" aria-label="Components">
+          <For each={components()}>
+            {(e) => (
+              <span class="embed-pick">
+                <a
+                  href={mockPath(s.mock()?.project ?? "", e.slug)}
+                  onClick={(ev) => {
+                    ev.preventDefault();
+                    navigate(mockPath(s.mock()?.project ?? "", e.slug));
+                  }}
+                >
+                  {e.slug}
+                </a>
+                <Show
+                  when={!e.pinned}
+                  fallback={<span class="embed-pinned">{`pinned v${e.version}`}</span>}
+                >
+                  <select
+                    aria-label={`${e.slug} version`}
+                    value={s.embedPeek()[e.slug] ?? e.latest}
+                    onChange={(ev) => peek(e.slug, Number(ev.currentTarget.value), e.latest)}
+                  >
+                    <For each={e.versions}>
+                      {(n) => (
+                        <option value={n}>{n === e.latest ? `v${n} latest` : `v${n}`}</option>
+                      )}
+                    </For>
+                  </select>
+                </Show>
+              </span>
+            )}
+          </For>
+        </div>
       </Show>
       {/* With one variant, Accept / Revise / Drop already say this. */}
       <Show when={!readonly() && siblings().length > 1 && v()}>

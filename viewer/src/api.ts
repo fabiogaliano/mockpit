@@ -120,12 +120,22 @@ export const api = {
 export function surfaceUrl(
   postId: string,
   surface: number,
-  opts: { version?: number; mode?: string; knobs?: Record<string, KnobValue> } = {},
+  opts: {
+    version?: number;
+    mode?: string;
+    knobs?: Record<string, KnobValue>;
+    // The variant's embedsKey: a component's new version is a new URL.
+    e?: string;
+    // Older component versions to show instead of the latest, slug → version.
+    embed?: Record<string, number>;
+  } = {},
 ): string {
   const q = new URLSearchParams({ surface: String(surface) });
   if (opts.version) q.set("ver", String(opts.version));
   if (opts.mode) q.set("mode", opts.mode);
   if (opts.knobs && Object.keys(opts.knobs).length) q.set("k", JSON.stringify(opts.knobs));
+  if (opts.e) q.set("e", opts.e);
+  if (opts.embed && Object.keys(opts.embed).length) q.set("embed", JSON.stringify(opts.embed));
   return url(`/s/${encodeURIComponent(postId)}?${q}`);
 }
 

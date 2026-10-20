@@ -5,7 +5,13 @@ import { streamSSE } from "hono/streaming";
 import { ICON_SIZES, ICON_SVG, themeColor, webManifest } from "./appIcon.ts";
 import { ICON_PNG_BASE64 } from "./appIconPng.ts";
 import { decodeBase64 } from "./base64.ts";
-import { mockDetailView, mockSummaryView, sessionRowView, surfaceRef } from "./apiViews.ts";
+import {
+  type EmbedView,
+  mockDetailView,
+  mockSummaryView,
+  sessionRowView,
+  surfaceRef,
+} from "./apiViews.ts";
 import { askNudges } from "./askNudges.ts";
 import { EventBus, type FeedEvent } from "./events.ts";
 import {
@@ -46,7 +52,14 @@ import {
   removeHook,
   vapidKeys,
 } from "./push.ts";
-import { expandEmbeds, parseEmbedTags } from "./embeds.ts";
+import {
+  type EmbedResolver,
+  embedsKey,
+  type Expanded,
+  expandHtml,
+  hasEmbedTags,
+  parseEmbedTags,
+} from "./embeds.ts";
 import { type McpFlows, registerMcp } from "./mcpHttp.ts";
 import { createRunFlow, DEFAULT_RUN_LIMITS, type Executor, type RunLimits } from "./run.ts";
 import { type LogSink, logMiddleware, writeLog } from "./eventLog.ts";
@@ -953,56 +966,122 @@ export function createApp({
     return null;
   }
 
-  // A page's embed list, with each missing version pinned to the referenced
-  // component's current one (snapshot semantics).
-  async function pageEmbeds(project: string, surfaces: Surface[]): Promise<Embed[]> {
-    const html = surfaces.find((s) => s.kind === "html");
-    if (!html || html.kind !== "html") return [];
-    const embeds: Embed[] = [];
-    for (const tag of parseEmbedTags(html.html)) {
-      let version = tag.version;
-      if (version == null)
-        version = (await embedTarget(project, tag.slug, tag.variant))?.version ?? null;
-      if (version != null) embeds.push({ slug: tag.slug, variant: tag.variant, version });
-    }
-    return embeds;
-  }
-
-  // An embed names a component mock by slug; it renders that mock's first state.
-  async function embedTarget(project: string, slug: string, variant: string) {
+  // The component post an embed shows: the named variant of its first state,
+  // else the accepted one there, else "default", else the first live one.
+  async function embedTarget(
+    project: string,
+    slug: string,
+    variant: string | null,
+  ): Promise<Post | null> {
     const mock = await store.findMock(project, slug);
     if (!mock) return null;
-    return store.findPost(mock.id, mock.states[0] ?? null, variant);
+    const state = mock.states[0] ?? null;
+    if (variant) return store.findPost(mock.id, state, variant);
+    const inState = (await store.listPosts({ mockId: mock.id })).filter((p) => p.state === state);
+    return (
+      inState.find((p) => p.status === "accepted") ??
+      inState.find((p) => p.variant === DEFAULT_VARIANT && isLive(p.status)) ??
+      inState.find((p) => isLive(p.status)) ??
+      inState[0] ??
+      null
+    );
   }
 
-  // Inline each `<mockpit-embed>` with the referenced variant version's first
-  // html surface body. The stored `embeds` list (resolved at publish) wins over
-  // a bare tag, so a page keeps rendering the versions it was composed from.
-  async function expandPageHtml(project: string, post: Post, html: string): Promise<string> {
-    const pinned = new Map(post.embeds.map((s) => [`${s.slug}::${s.variant}`, s.version]));
-    const bodies = new Map<string, string | null>();
-    for (const tag of parseEmbedTags(html)) {
-      const key = `${tag.slug}::${tag.variant}`;
-      const version = tag.version ?? pinned.get(key) ?? null;
-      const cacheKey = `${key}::${version}`;
-      if (bodies.has(cacheKey)) continue;
-      const target = await embedTarget(project, tag.slug, tag.variant);
-      if (!target) {
-        bodies.set(cacheKey, null);
-        continue;
-      }
+  // Resolves tags to bodies: the tag's version if it pins one, else a peek
+  // (`overrides`, slug → version) the viewer asked for, else the latest.
+  function embedResolver(project: string, overrides: Record<string, number> = {}): EmbedResolver {
+    return async (tag) => {
+      const post = await embedTarget(project, tag.slug, tag.variant);
+      if (!post) return null;
+      const version = tag.version ?? overrides[tag.slug] ?? post.version;
       const surfaces =
-        version == null || version === target.version
-          ? target.surfaces
-          : (target.history.find((h) => h.version === version)?.surfaces ?? null);
-      const body = surfaces?.find((s) => s.kind === "html");
-      bodies.set(cacheKey, body && body.kind === "html" ? body.html : null);
+        version === post.version
+          ? post.surfaces
+          : post.history.find((h) => h.version === version)?.surfaces;
+      const body = surfaces?.find((x) => x.kind === "html");
+      return body && body.kind === "html"
+        ? { variant: post.variant, version, html: body.html }
+        : null;
+    };
+  }
+
+  // A surface's html with its embeds expanded, and what they resolved to.
+  async function composedHtml(
+    project: string,
+    slug: string,
+    html: string,
+    overrides?: Record<string, number>,
+  ): Promise<Expanded> {
+    if (!hasEmbedTags(html)) return { html, used: [], cycle: null };
+    return expandHtml(html, embedResolver(project, overrides), [slug]);
+  }
+
+  // The component versions a publish renders with, recorded on the version;
+  // an embed chain that loops back to this mock is refused.
+  async function publishEmbeds(
+    project: string,
+    slug: string,
+    surfaces: Surface[],
+  ): Promise<Embed[] | FlowResult> {
+    const html = surfaces.find((x) => x.kind === "html");
+    if (!html || html.kind !== "html") return [];
+    const { used, cycle } = await composedHtml(project, slug, html.html);
+    if (cycle) {
+      return fail(400, `embeds loop back on themselves: ${cycle.join(" → ")}`, { cycle });
     }
-    return expandEmbeds(html, ({ slug, variant, version }) => {
-      const key = `${slug}::${variant}`;
-      const pinnedVersion = version ?? pinned.get(key) ?? null;
-      return bodies.get(`${key}::${pinnedVersion}`) ?? null;
-    });
+    return used;
+  }
+
+  // What the variants of a mock show through their embeds now: per post, the
+  // resolved list (nested included) with each component's versions, and the
+  // key that changes when any of them does.
+  async function embedViews(mock: Mock, posts: Post[]): Promise<Map<string, EmbedView>> {
+    const out = new Map<string, EmbedView>();
+    for (const post of posts) {
+      const html = post.surfaces.find((x) => x.kind === "html");
+      if (!html || html.kind !== "html" || !hasEmbedTags(html.html)) continue;
+      const { used } = await composedHtml(mock.project, mock.slug, html.html);
+      const list = [];
+      for (const e of used) {
+        const target = await embedTarget(mock.project, e.slug, e.variant);
+        const versions = target
+          ? [target.version, ...target.history.map((h) => h.version)].sort((a, b) => b - a)
+          : [e.version];
+        list.push({ ...e, latest: target?.version ?? e.version, versions });
+      }
+      out.set(post.id, { key: embedsKey(used), list });
+    }
+    return out;
+  }
+
+  // The mocks whose html embeds this slug, directly or through other
+  // components: they render differently once it changes.
+  async function embeddersOf(project: string, slug: string): Promise<Mock[]> {
+    const mocks = await store.listMocks(project);
+    const tagsOf = new Map<string, Set<string>>();
+    for (const m of mocks) {
+      const slugs = new Set<string>();
+      for (const p of await store.listPosts({ mockId: m.id })) {
+        for (const x of p.surfaces) {
+          if (x.kind === "html") for (const t of parseEmbedTags(x.html)) slugs.add(t.slug);
+        }
+      }
+      tagsOf.set(m.id, slugs);
+    }
+    const reached = new Set<string>([slug]);
+    const out: Mock[] = [];
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const m of mocks) {
+        if (reached.has(m.slug)) continue;
+        if ([...(tagsOf.get(m.id) ?? [])].some((s) => reached.has(s))) {
+          reached.add(m.slug);
+          out.push(m);
+          grew = true;
+        }
+      }
+    }
+    return out;
   }
 
   // Knobs with a handful of discrete choices are usually decisions dressed as
@@ -1184,6 +1263,15 @@ export function createApp({
       by,
     });
     warmPost(post, mock);
+    void announceEmbedders(mock).catch((err) => console.warn("[mockpit] embedders", err));
+  }
+
+  // A component's new version changes every mock that shows it: their views
+  // carry a new embeds key, so open viewers refetch and reload those frames.
+  async function announceEmbedders(mock: Mock): Promise<void> {
+    for (const m of await embeddersOf(mock.project, mock.slug)) {
+      bus.broadcast({ type: "mock-updated", id: m.id, project: m.project });
+    }
   }
 
   // The one write: publish one variant of one state of a mock. An existing
@@ -1338,6 +1426,8 @@ export function createApp({
     const bad = checkSurfaces(surfaces);
     if (bad) return bad;
     const nudges = knobNudges({ ...knobs.value, ...variantKnobs.value });
+    const embeds = await publishEmbeds(project, slug, surfaces);
+    if (isResult(embeds)) return embeds;
 
     if (!target) {
       // A new variant: carried by the session the agent is writing from.
@@ -1363,8 +1453,6 @@ export function createApp({
         });
         bus.broadcast({ type: "mock-created", id: mock.id, project });
       }
-      const embeds =
-        mock.kind === "page" || kind === "page" ? await pageEmbeds(project, surfaces) : [];
       const created = await store.createPost({
         sessionId: session.id,
         mock: mock.id,
@@ -1402,7 +1490,6 @@ export function createApp({
     // A new version is written by whoever writes it; without an explicit
     // session the variant's own session carries it.
     session ??= await store.getSession(target.sessionId);
-    const embeds = mock.kind === "page" ? await pageEmbeds(project, surfaces) : undefined;
     const updated = await store.updatePost(target.id, {
       surfaces,
       title,
@@ -1557,6 +1644,7 @@ export function createApp({
         body: query.body,
         history: query.history,
         settled: settledValues(await replyPayloads(mock.id), mock, posts),
+        embeds: await embedViews(mock, posts),
       }),
       pending: pendingOf(mock, posts),
     });
@@ -3665,7 +3753,9 @@ export function createApp({
     mode?: Mode;
     origin: string;
     knobs?: string;
-  }) => `${o.postId}:${o.idx}:${o.version}:${o.mode ?? "os"}:${o.origin}:${o.knobs ?? ""}`;
+    embeds?: string;
+  }) =>
+    `${o.postId}:${o.idx}:${o.version}:${o.mode ?? "os"}:${o.origin}:${o.knobs ?? ""}:${o.embeds ?? ""}`;
 
   // The document itself. Shared by the GET below and the publish-time pre-warm,
   // so both produce byte-identical output for one key.
@@ -3679,18 +3769,16 @@ export function createApp({
     origin: string;
     design: DesignSettings | null;
     knobs?: Record<string, KnobValue>;
+    composed?: string;
   }): Promise<string> {
     const { surface, mode, origin } = args;
     const theme = themeById(DEFAULT_THEME_ID);
     const themeId = theme.id;
     if (surface.kind === "html") {
-      // A page mock composes published components by reference; the tags
-      // are expanded here, server-side, so the whole page is still ONE
-      // sandboxed document rather than nested frames.
-      const html =
-        args.mock?.kind === "page"
-          ? await expandPageHtml(args.mock.project, args.post, surface.html)
-          : surface.html;
+      // Embedded components are expanded server-side (the caller passes the
+      // expansion), so the whole page is still ONE sandboxed document rather
+      // than nested frames.
+      const html = args.composed ?? surface.html;
       return renderHtmlPage({
         title: args.title,
         html,
@@ -3755,8 +3843,19 @@ export function createApp({
         if (warmed >= PREWARM_SURFACE_LIMIT) break;
         if (!isSandboxedSurfaceKind(surface.kind)) continue;
         warmed++;
+        const composed =
+          surface.kind === "html" && hasEmbedTags(surface.html)
+            ? await composedHtml(mock.project, mock.slug, surface.html)
+            : null;
         for (const mode of ["light", "dark"] as const) {
-          const key = renderKey({ postId: post.id, idx, version: post.version, mode, origin });
+          const key = renderKey({
+            postId: post.id,
+            idx,
+            version: post.version,
+            mode,
+            origin,
+            embeds: composed ? embedsKey(composed.used) : undefined,
+          });
           if (renderCache.has(key)) continue;
           await cachedRender(key, () =>
             buildSurfaceDoc({
@@ -3768,6 +3867,7 @@ export function createApp({
               mode,
               origin,
               design,
+              composed: composed?.html,
             }),
           );
         }
@@ -3785,6 +3885,10 @@ export function createApp({
     const mode: Mode | undefined =
       modeParam === "light" || modeParam === "dark" ? modeParam : undefined;
     const kParam: string | undefined = c.req.query("k");
+    // `e`: the embeds key the caller saw (cache identity); `embed`: a peek at
+    // older component versions, JSON {slug: version}.
+    const eParam: string | undefined = c.req.query("e");
+    const embedParam: string | undefined = c.req.query("embed");
     const origin = requestOrigin(c.req.raw);
 
     // Cache-first. A hit needs nothing from the post row, and the row is the
@@ -3794,7 +3898,9 @@ export function createApp({
     // request never does: its values are checked against the mock's knobs,
     // which can change under a pinned version.
     const pinned = Number(ver);
-    if (Number.isInteger(pinned) && pinned > 0 && kParam === undefined) {
+    // A document with embeds is stored only under the key its resolved embeds
+    // give, so a hit here was rendered with exactly the `e` this URL names.
+    if (Number.isInteger(pinned) && pinned > 0 && kParam === undefined && !embedParam) {
       const hit = renderCacheHit(
         renderKey({
           postId: c.req.param("id"),
@@ -3802,6 +3908,7 @@ export function createApp({
           version: pinned,
           mode,
           origin,
+          embeds: eParam,
         }),
       );
       if (hit !== undefined) {
@@ -3856,18 +3963,61 @@ export function createApp({
         knobsKey = JSON.stringify(knobs);
       }
     }
+    let composed: Expanded | null = null;
+    if (surface.kind === "html" && hasEmbedTags(surface.html) && mock) {
+      let overrides: Record<string, number> | undefined;
+      if (embedParam !== undefined) {
+        let raw: unknown;
+        try {
+          raw = JSON.parse(embedParam);
+        } catch {
+          raw = null;
+        }
+        const ok =
+          raw !== null &&
+          typeof raw === "object" &&
+          !Array.isArray(raw) &&
+          Object.values(raw).every((v) => Number.isInteger(v) && (v as number) > 0);
+        if (!ok || embedParam.length > MAX_KNOB_QUERY) {
+          surfaceDocHeaders(c, false);
+          return c.text("embed must be URL-encoded JSON of {slug: version}", 400);
+        }
+        overrides = raw as Record<string, number>;
+      }
+      composed = await composedHtml(mock.project, mock.slug, surface.html, overrides);
+    }
+    const eKey = composed ? embedsKey(composed.used) : undefined;
     // Every input is in the URL (the palette is fixed, the mode is a query
-    // param), so a version-pinned document never changes.
-    surfaceDocHeaders(c, ver != null);
+    // param), so a version-pinned document never changes, unless it follows a
+    // component's latest version and the URL does not name that state (`e`).
+    surfaceDocHeaders(c, ver != null && (eKey === undefined || eKey === eParam));
 
     // Cache the finished document under the same key the pre-warm uses; the
-    // resolved `version` makes it immutable, so a hit is always correct.
-    // A page's embeds are pinned at publish, so they are a function of
-    // (id, version) too and need no separate key component.
-    const cacheKey = renderKey({ postId: post.id, idx, version, mode, origin, knobs: knobsKey });
+    // resolved `version` and embeds key make it immutable, so a hit is always
+    // correct.
+    const cacheKey = renderKey({
+      postId: post.id,
+      idx,
+      version,
+      mode,
+      origin,
+      knobs: knobsKey,
+      embeds: eKey,
+    });
     const design = mock ? await designFor(mock.project) : null;
     const doc = await cachedRender(cacheKey, async () =>
-      buildSurfaceDoc({ post, mock, surface, title, version, mode, origin, design, knobs }),
+      buildSurfaceDoc({
+        post,
+        mock,
+        surface,
+        title,
+        version,
+        mode,
+        origin,
+        design,
+        knobs,
+        composed: composed?.html,
+      }),
     );
     return c.html(doc);
   };

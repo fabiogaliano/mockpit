@@ -689,6 +689,7 @@ function Board(props: {
       version: s.frameVersionOf(props.variant),
       mode: theme(),
       knobs,
+      e: props.variant.embedsKey,
     });
   };
   const onMessage = (e: MessageEvent) => {
@@ -921,6 +922,8 @@ function VariantFrame(props: {
                 surfaceUrl(props.variant.postId, i(), {
                   version: version(),
                   mode: theme(),
+                  e: props.variant.embedsKey,
+                  embed: props.variant === s.activeVariant() ? s.embedPeek() : undefined,
                   knobs: isPrimary
                     ? untrack(() => {
                         const m = s.mock();

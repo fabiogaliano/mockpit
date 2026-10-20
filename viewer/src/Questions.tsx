@@ -490,7 +490,11 @@ function optionPicture(
     const idx = html(v);
     if (!v || idx < 0) return null;
     return {
-      src: surfaceUrl(v.postId, idx, { version: s.frameVersionOf(v), mode: theme() }),
+      src: surfaceUrl(v.postId, idx, {
+        version: s.frameVersionOf(v),
+        mode: theme(),
+        e: v.embedsKey,
+      }),
       knobs: draftValues(s, v),
       variant: v,
       state,
@@ -507,6 +511,7 @@ function optionPicture(
         version: s.frameVersionOf(v),
         mode: theme(),
         knobs: o.set,
+        e: v.embedsKey,
       }),
       knobs: { ...draftValues(s, v), ...o.set },
       variant: v,
@@ -949,7 +954,11 @@ function MixBlock(props: { s: MockScreenState; index: number }) {
     const v = variantOf(variant, state);
     const idx = v ? v.surfaces.findIndex((x) => x.kind === "html") : -1;
     if (!v || idx < 0) return null;
-    return surfaceUrl(v.postId, idx, { version: s.frameVersionOf(v), mode: theme() });
+    return surfaceUrl(v.postId, idx, {
+      version: s.frameVersionOf(v),
+      mode: theme(),
+      e: v.embedsKey,
+    });
   };
   const knobsOf = (variant: string, state: string | null) => {
     const v = variantOf(variant, state);
