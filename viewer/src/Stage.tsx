@@ -1022,6 +1022,12 @@ function VariantFrame(props: {
           }}
         </For>
       </div>
+      {/* Without html there is no overlay, and a touch on a page's frame would
+          go to the page (iOS Safari scrolls a frame itself, pointer-events or
+          not): a cover of our own takes it for the canvas's pan and pinch. */}
+      <Show when={primary() < 0 && !props.passthrough}>
+        <div class="frame-cover" />
+      </Show>
       <Show when={props.active && primary() >= 0}>
         <Overlay
           s={s}

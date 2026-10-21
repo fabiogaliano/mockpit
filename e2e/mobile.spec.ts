@@ -65,9 +65,11 @@ const onCanvas = async (page: Page) => {
 };
 async function pickWidth(page: Page, w: string) {
   if (!(await onCanvas(page))) return page.locator(".widthpick select").selectOption(w);
-  const chip = page.locator(`.chead-seg button[title="${w} px"]`);
-  if (await chip.count()) await chip.tap();
-  else await page.locator(".chead-widths select").selectOption(w);
+  if (!(await page.locator(".chead-device").count()))
+    return page.locator(".chead-widths select").selectOption(w);
+  await page.locator(".chead-device").tap();
+  const row = page.locator(`.width-menu button[data-w="${w}"]`);
+  await row.tap();
 }
 async function openThread(page: Page) {
   if (!(await onCanvas(page))) return page.locator('[data-mode="thread"]').tap();
@@ -148,7 +150,7 @@ test("touch targets take a 44px tap", async ({ page, server }) => {
       ".inspectbtn",
       ".morebtn",
       ".widthpick select",
-      ".chead-seg button",
+      ".chead-device",
       ".chead-widths select",
       ".chead .zoomval",
       ".strip > button",

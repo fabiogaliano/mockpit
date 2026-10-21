@@ -119,6 +119,17 @@ a {
   /* dvh: the toolbar-aware height on iOS, where 100% can sit under Safari's bar */
   height: 100dvh;
 }
+/* On the canvas the document must have nothing to scroll: a swipe that
+   reaches it (one on the header) would carry the header away while the
+   canvas, fixed, stays put. */
+.mock-screen.on-canvas {
+  position: fixed;
+  inset: 0 0 auto;
+}
+html:has(.mock-screen.on-canvas) {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
 .home {
   overflow: auto;
 }
@@ -2191,9 +2202,21 @@ a {
 .chead .crumb {
   font-size: 15px;
 }
+/* Icons alone here, at a size a finger finds without reading. */
 .chead .trybtn,
-.chead .markbtn {
-  gap: 6px;
+.chead .markbtn,
+.chead .morebtn {
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 10px;
+}
+.chead .trybtn svg,
+.chead .markbtn svg,
+.chead .morebtn svg {
+  width: 22px;
+  height: 22px;
 }
 .chead-look {
   flex: 1 1 0;
@@ -2222,25 +2245,36 @@ a {
   align-items: center;
   gap: 4px;
 }
-.chead-seg {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 9px;
-  background: var(--row);
-}
-.chead-seg button {
+.chead-device {
   position: relative;
-  height: 32px;
-  padding: 0 10px;
-  border-radius: 7px;
-  color: var(--t4);
-  font-size: 12px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--row);
+  color: var(--t2);
 }
-.chead-seg button.on {
+.chead-device.on {
   background: var(--fill);
   color: var(--t1);
+}
+.chead-device svg {
+  width: 22px;
+  height: 22px;
+}
+.width-menu > button svg {
+  width: 20px;
+  height: 20px;
+}
+.width-menu small {
+  font-variant-numeric: tabular-nums;
+}
+.width-menu > button[aria-checked="true"] {
+  background: var(--fill);
+  color: var(--t1);
+  font-weight: 600;
 }
 .chead-pick {
   position: relative;
@@ -2270,7 +2304,7 @@ a {
 .chead .zoomval {
   position: relative;
   min-width: 48px;
-  height: 32px;
+  height: 36px;
   margin: 0;
   border-radius: 8px;
   text-align: center;
@@ -2381,6 +2415,14 @@ a {
    code…) would swallow the pan and pinch. Try hands the page its touches. */
 .stagewrap.canvas .frame:not(.trying) .surface iframe {
   pointer-events: none;
+}
+.frame-cover {
+  display: none;
+}
+.stagewrap.canvas .frame-cover {
+  display: block;
+  position: absolute;
+  inset: 0;
 }
 .stagewrap.canvas .surface-image img {
   -webkit-user-drag: none;
@@ -3223,7 +3265,7 @@ html.theming *:not(iframe) {
      tap. Neighbours sit at least 44px apart center to center, so these never
      overlap. */
   .pin::after,
-  .chead-seg button::after,
+  .chead-device::after,
   .chead .zoomval::after,
   .vbtn::after,
   .trybtn::after,

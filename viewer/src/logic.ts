@@ -1358,6 +1358,18 @@ export function readDeviceWidth(raw: string | null, declared: number[] = []): nu
   return DEVICE_WIDTHS.some((d) => d.w === n) || declared.includes(n) ? n : null;
 }
 
+// The kind of screen a width is drawn for, by the same breakpoints the
+// default width is picked by.
+export type WidthKind = "phone" | "tablet" | "desktop";
+export const widthKind = (w: number): WidthKind =>
+  w <= PHONE_MAX ? "phone" : w < DESKTOP_W ? "tablet" : "desktop";
+
+// The widest of two or more desktop widths: Wide, not a second Desktop.
+export function wideWidth(widths: readonly number[]): number | null {
+  const desktop = widths.filter((w) => widthKind(w) === "desktop");
+  return desktop.length > 1 ? Math.max(...desktop) : null;
+}
+
 // A device width by name where it is one we know ("Phone 390"), else its px.
 export const widthLabel = (w: number): string => {
   const d = DEVICE_WIDTHS.find((x) => x.w === w);

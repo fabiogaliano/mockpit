@@ -168,7 +168,9 @@ blockquote {
   color: var(--muted);
 }
 table { border-collapse: collapse; font-size: 13px; }
-th, td { border: 0.5px solid var(--border); padding: 4px 8px; text-align: left; }
+/* break-word, not the body's anywhere: anywhere lets a column shrink to one
+   letter, so a long cell beside it squeezes "Topic" into "Top/ic". */
+th, td { border: 0.5px solid var(--border); padding: 4px 8px; text-align: left; overflow-wrap: break-word; }
 th { background: var(--hover); }
 img { max-width: 100%; height: auto; border-radius: 6px; }
 hr { border: none; border-top: 0.5px solid var(--border); margin: 1em 0; }

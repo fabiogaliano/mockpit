@@ -5,12 +5,13 @@
 // and the widths it is judged at.
 
 import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
-import { readonly, root } from "./host.ts";
-import { DEVICE_WIDTHS, MAX_ZOOM, widthLabel, type Zoom } from "./logic.ts";
+import { host, readonly, root } from "./host.ts";
+import { DEVICE_WIDTHS, MAX_ZOOM, wideWidth, widthKind, widthLabel, type Zoom } from "./logic.ts";
 import { bell, toggleBell } from "./notify.ts";
 import { ReactionBar } from "./Reactions.tsx";
 import { linkClick, projectPath } from "./route.ts";
 import type { MockScreenState } from "./state.ts";
+import { Icon, type IconName } from "./icons.tsx";
 import { TryButton } from "./TryButton.tsx";
 import { theme, toggleTheme } from "./theme.ts";
 import { useThreadRows } from "./Thread.tsx";
@@ -58,11 +59,19 @@ export function CanvasHead(props: { s: MockScreenState; project: string; right?:
   const rows = useThreadRows(s);
   let head!: HTMLElement;
   let vbtn: HTMLButtonElement | undefined;
+  // The border box: the header's top padding is the safe-area inset, which
+  // Safari changes as its own bars come and go without the content box moving,
+  // and a content-box observer would leave the canvas over the second row.
   onMount(() => {
-    const ro = new ResizeObserver(() => setCanvasTop(head.getBoundingClientRect().bottom));
-    ro.observe(head);
-    setCanvasTop(head.getBoundingClientRect().bottom);
-    onCleanup(() => ro.disconnect());
+    const measure = () => setCanvasTop(head.getBoundingClientRect().bottom);
+    const ro = new ResizeObserver(measure);
+    ro.observe(head, { box: "border-box" });
+    host().window.addEventListener("resize", measure);
+    measure();
+    onCleanup(() => {
+      ro.disconnect();
+      host().window.removeEventListener("resize", measure);
+    });
   });
 
   const v = () => s.activeVariant();
@@ -80,6 +89,18 @@ export function CanvasHead(props: { s: MockScreenState; project: string; right?:
     s.setZoom("fit");
   };
   const onWidth = (w: number) => s.frameW() === w && s.zoom() !== "all";
+  // The widest of two or more desktop widths reads as Wide, not a second Desktop.
+  const wide = () => wideWidth(widths());
+  const iconOf = (w: number): IconName => (w === wide() ? "wide" : widthKind(w));
+  const current = (): { icon: IconName; label: string } => {
+    if (s.zoom() === "all") return { icon: "all", label: "All widths" };
+    const w = s.frameW();
+    return { icon: iconOf(w), label: `${widthLabel(w)} · ${w}px` };
+  };
+  const choose = (w: number) => {
+    pick(w);
+    pop.close();
+  };
   // Only the steps the stage can reach: a phone's page never zooms out past
   // its width, so a step below that would only show the floor again.
   const zoomSteps = () => ZOOM_STEPS.filter((z) => z >= s.zoomMin() - 0.005);
@@ -100,7 +121,7 @@ export function CanvasHead(props: { s: MockScreenState; project: string; right?:
         </div>
         <span class="grow" />
         {props.right}
-        <TryButton s={s} label={!phone()} />
+        <TryButton s={s} label={false} />
         <Show when={!readonly()}>
           <button
             type="button"
@@ -108,23 +129,10 @@ export function CanvasHead(props: { s: MockScreenState; project: string; right?:
             classList={{ on: s.marking() }}
             aria-pressed={s.marking()}
             title="Mark: tap the design to leave a comment there"
+            aria-label="Mark"
             onClick={() => s.setMarking(!s.marking())}
           >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M12 21s-6-5.6-6-11a6 6 0 0 1 12 0c0 5.4-6 11-6 11Z" />
-              <circle cx="12" cy="10" r="2" />
-            </svg>
-            <Show when={!phone()}>
-              <span>Mark</span>
-            </Show>
+            <Icon name="mark" />
           </button>
         </Show>
         <button
@@ -278,31 +286,18 @@ export function CanvasHead(props: { s: MockScreenState; project: string; right?:
               </label>
             }
           >
-            <div class="chead-seg" role="group" aria-label="Width">
-              <For each={widths()}>
-                {(w) => (
-                  <button
-                    type="button"
-                    classList={{ on: onWidth(w) }}
-                    aria-pressed={onWidth(w)}
-                    title={`${w} px`}
-                    onClick={() => pick(w)}
-                  >
-                    {widthLabel(w)}
-                  </button>
-                )}
-              </For>
-              <Show when={all()}>
-                <button
-                  type="button"
-                  classList={{ on: s.zoom() === "all" }}
-                  aria-pressed={s.zoom() === "all"}
-                  onClick={() => s.setZoom("all")}
-                >
-                  All
-                </button>
-              </Show>
-            </div>
+            <button
+              type="button"
+              class="chead-device"
+              classList={{ on: pop.open() === "width" }}
+              aria-haspopup="menu"
+              aria-expanded={pop.open() === "width"}
+              aria-label={`Width: ${current().label}`}
+              title={current().label}
+              onClick={(e) => pop.toggle("width", e.currentTarget)}
+            >
+              <Icon name={current().icon} />
+            </button>
           </Show>
           <button
             type="button"
@@ -338,6 +333,40 @@ export function CanvasHead(props: { s: MockScreenState; project: string; right?:
                 </button>
               )}
             </For>
+          </div>
+        </Show>
+        <Show when={pop.open() === "width"}>
+          <div class="chead-menu width-menu" ref={pop.ref} role="menu" aria-label="Width">
+            <For each={widths()}>
+              {(w) => (
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={onWidth(w)}
+                  data-w={w}
+                  onClick={() => choose(w)}
+                >
+                  <Icon name={iconOf(w)} />
+                  {widthLabel(w)}
+                  <small>{w}</small>
+                </button>
+              )}
+            </For>
+            <Show when={all()}>
+              <button
+                type="button"
+                role="menuitemradio"
+                aria-checked={s.zoom() === "all"}
+                data-w="all"
+                onClick={() => {
+                  s.setZoom("all");
+                  pop.close();
+                }}
+              >
+                <Icon name="all" />
+                All widths
+              </button>
+            </Show>
           </div>
         </Show>
         <Show when={s.versionsOpen()}>
