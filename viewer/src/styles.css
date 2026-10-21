@@ -2376,6 +2376,17 @@ a {
 .stagewrap.canvas .board {
   touch-action: none;
 }
+/* A touch on a page's frame goes to that page, never reaching the canvas: only
+   html has an overlay above its frame, so every other kind (markdown, mermaid,
+   code…) would swallow the pan and pinch. Try hands the page its touches. */
+.stagewrap.canvas .frame:not(.trying) .surface iframe {
+  pointer-events: none;
+}
+.stagewrap.canvas .surface-image img {
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
 .stagewrap.canvas .banner {
   position: absolute;
   top: 8px;
@@ -2403,13 +2414,13 @@ a {
   overflow: hidden;
   background: var(--frame);
 }
+/* An artboard is a page whatever the kind: a markdown or mermaid page has no
+   background of its own and would show the canvas's dots through its text. */
+.stagewrap.canvas .frame.on {
+  background: var(--frame);
+}
 .board iframe {
-  position: absolute;
-  top: 0;
-  left: 0;
-  border: 0;
   pointer-events: none;
-  transform-origin: 0 0;
 }
 .board-label {
   position: absolute;

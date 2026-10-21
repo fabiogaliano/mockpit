@@ -649,8 +649,8 @@ export function Stage(props: { s: MockScreenState }) {
 }
 
 // Another width of the variant on stage, beside the live one on the canvas: a
-// picture only (no parts, marks or hits), with the draft's knob values baked
-// into its URL so it shows what the live frame shows.
+// picture only (no parts, marks or hits) of every surface the live frame shows,
+// with the draft's knob values baked into its html's URL so it matches.
 function Board(props: {
   s: MockScreenState;
   variant: VariantView;
@@ -659,37 +659,50 @@ function Board(props: {
   x: number;
   y: number;
   height: number;
-  // The tallest it is drawn, in page px; a longer page scrolls inside.
+  // The tallest it is drawn, in page px; a longer page is cut off.
   cap: number;
   onHeight: (h: number) => void;
 }) {
   const s = props.s;
-  let frameEl: HTMLIFrameElement | undefined;
+  const [heights, setHeights] = createStore<Record<number, number>>({});
+  const frames = new Map<HTMLIFrameElement, number>();
+  let column!: HTMLDivElement;
   const shownH = () => Math.min(props.height, props.cap);
-  const index = () => props.variant.surfaces.findIndex((x) => x.kind === "html");
-  const src = () => {
+  const version = () => s.frameVersionOf(props.variant);
+  const current = () => version() === props.variant.version;
+  const kinds = () =>
+    historyRow(props.variant, version())?.surfaceKinds ?? props.variant.surfaces.map((x) => x.kind);
+  const primary = () => kinds().indexOf("html");
+  const src = (index: number) => {
     const m = s.mock();
-    if (!m || index() < 0) return "";
-    const knobs = {
-      ...draftKnobValues(m, props.variant.knobs, s.draft()),
-      ...s.preview()?.knobs,
-    };
-    return surfaceUrl(props.variant.postId, index(), {
-      version: s.frameVersionOf(props.variant),
+    if (!m) return "";
+    const knobs =
+      index === primary()
+        ? { ...draftKnobValues(m, props.variant.knobs, s.draft()), ...s.preview()?.knobs }
+        : undefined;
+    return surfaceUrl(props.variant.postId, index, {
+      version: version(),
       mode: theme(),
       knobs,
       e: props.variant.embedsKey,
     });
   };
   const onMessage = (e: MessageEvent) => {
-    if (!frameEl || e.source !== frameEl.contentWindow) return;
     const d = e.data as Record<string, unknown> | null;
     if (!d || d.__mockpit !== true || d.type !== "resize") return;
-    const h = num(d.height);
-    if (h > 0) props.onHeight(Math.min(h, 20000));
+    for (const [el, index] of frames) {
+      if (e.source !== el.contentWindow) continue;
+      const h = num(d.height);
+      if (h > 0) setHeights(index, Math.min(h, 20000));
+    }
   };
   host().window.addEventListener("message", onMessage);
   onCleanup(() => host().window.removeEventListener("message", onMessage));
+  onMount(() => {
+    const ro = new ResizeObserver(() => props.onHeight(column.offsetHeight));
+    ro.observe(column);
+    onCleanup(() => ro.disconnect());
+  });
   return (
     <div
       class="board"
@@ -700,23 +713,74 @@ function Board(props: {
         height: `${shownH() * props.scale}px`,
       }}
     >
-      <Show when={src()} keyed>
-        {(url) => (
-          <iframe
-            ref={(el) => (frameEl = el)}
-            src={url}
-            sandbox="allow-scripts"
-            tabIndex={-1}
-            aria-hidden="true"
-            title={`${props.variant.variant} at ${props.w}`}
-            width={props.w}
-            height={shownH()}
-            style={{ transform: `scale(${props.scale})` }}
-          />
-        )}
-      </Show>
+      <div
+        class="frame-scale"
+        ref={(el) => (column = el)}
+        style={{ width: `${props.w}px`, transform: `scale(${props.scale})` }}
+      >
+        <For each={kinds()}>
+          {(kind, i) => {
+            if (!isSandboxedSurfaceKind(kind)) {
+              return (
+                <NativeSurface
+                  kind={kind}
+                  surface={
+                    current() ? (props.variant.surfaces[i()] as Surface | undefined) : undefined
+                  }
+                  version={version()}
+                />
+              );
+            }
+            return (
+              <div class="surface">
+                <Show when={src(i())} keyed>
+                  {(url) => (
+                    <iframe
+                      ref={(el) => {
+                        frames.set(el, i());
+                        onCleanup(() => frames.delete(el));
+                      }}
+                      src={url}
+                      sandbox="allow-scripts"
+                      tabIndex={-1}
+                      aria-hidden="true"
+                      title={`${props.variant.variant} ${kind} at ${props.w}`}
+                      width={props.w}
+                      height={heights[i()] ?? (i() === primary() ? 640 : 160)}
+                    />
+                  )}
+                </Show>
+              </div>
+            );
+          }}
+        </For>
+      </div>
     </div>
   );
+}
+
+// Image and json arrive whole and render as data, never as markup; an older
+// version's body is not sent, so it shows as a placeholder.
+function NativeSurface(props: { kind: unknown; surface: Surface | undefined; version: number }) {
+  const sf = props.surface;
+  if (sf?.kind === "image") {
+    return (
+      <figure class="surface surface-image">
+        <img src={assetUrl(sf.assetId)} alt={sf.alt ?? ""} />
+        <Show when={sf.caption}>
+          <figcaption>{sf.caption}</figcaption>
+        </Show>
+      </figure>
+    );
+  }
+  if (sf?.kind === "json") {
+    return (
+      <div class="surface surface-json">
+        <JsonTree data={sf.data} />
+      </div>
+    );
+  }
+  return <div class="surface surface-gone">{`${String(props.kind)} (v${props.version})`}</div>;
 }
 
 // Mock- and state-wide questions pin to the stage's top-left corner, in a row
@@ -948,26 +1012,13 @@ function VariantFrame(props: {
                 </div>
               );
             }
-            // Native kinds arrive whole (only sandboxed kinds drop their body).
-            const sf = surface() as Surface | undefined;
-            if (kind === "image" && current() && sf?.kind === "image") {
-              return (
-                <figure class="surface surface-image">
-                  <img src={assetUrl(sf.assetId)} alt={sf.alt ?? ""} />
-                  <Show when={sf.caption}>
-                    <figcaption>{sf.caption}</figcaption>
-                  </Show>
-                </figure>
-              );
-            }
-            if (kind === "json" && current() && sf?.kind === "json") {
-              return (
-                <div class="surface surface-json">
-                  <JsonTree data={sf.data} />
-                </div>
-              );
-            }
-            return <div class="surface surface-gone">{`${kind} (v${version()})`}</div>;
+            return (
+              <NativeSurface
+                kind={kind}
+                surface={current() ? (surface() as Surface | undefined) : undefined}
+                version={version()}
+              />
+            );
           }}
         </For>
       </div>
