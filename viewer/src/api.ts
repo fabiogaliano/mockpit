@@ -18,7 +18,7 @@ import type {
   ProjectSummary,
   ReplyDecision,
 } from "../../server/types.ts";
-import { basePath, host } from "./host.ts";
+import { basePath, host, renderRev } from "./host.ts";
 
 export type MockSummary = ReturnType<typeof mockSummaryView>;
 export type MockDetail = ReturnType<typeof mockDetailView>;
@@ -61,10 +61,17 @@ export class ApiError extends Error {
 
 const url = (path: string) => `${basePath()}${path}`;
 
+// Names this page as the viewer to the server (server/viewerRequest.ts): a
+// custom header no cross-origin page or sandboxed surface can send.
+const VIEWER = { "x-mockpit-client": "viewer" };
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url(path), {
     ...init,
-    headers: init?.headers ?? (init?.body ? { "content-type": "application/json" } : undefined),
+    headers: {
+      ...VIEWER,
+      ...(init?.headers ?? (init?.body ? { "content-type": "application/json" } : undefined)),
+    },
   });
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new ApiError(res.status, body?.error ?? res.statusText);
@@ -127,7 +134,7 @@ export const api = {
   attach: (mockId: string, image: Blob, filename: string) =>
     call<{ id: string }>(
       `/api/assets?mock=${encodeURIComponent(mockId)}&kind=image&filename=${encodeURIComponent(filename)}`,
-      { method: "POST", body: image, headers: { "content-type": image.type } },
+      { method: "POST", body: image, headers: { ...VIEWER, "content-type": image.type } },
     ),
   theme: () => call<{ mode: "dark" | "light" }>("/api/theme"),
   putTheme: (mode: "dark" | "light") => call<{ mode: string }>("/api/theme", json("PUT", { mode })),
@@ -154,6 +161,9 @@ export function surfaceUrl(
   if (opts.knobs && Object.keys(opts.knobs).length) q.set("k", JSON.stringify(opts.knobs));
   if (opts.e) q.set("e", opts.e);
   if (opts.embed && Object.keys(opts.embed).length) q.set("embed", JSON.stringify(opts.embed));
+  // The renderer's revision: a new one is a new URL, past the browser's cache.
+  const r = renderRev();
+  if (r) q.set("r", r);
   return url(`/s/${encodeURIComponent(postId)}?${q}`);
 }
 

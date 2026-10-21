@@ -133,6 +133,7 @@ import {
   type SurfaceValidationFailure,
   validateSurfaces,
 } from "./postSurfaces.ts";
+import { isViewerRequest } from "./viewerRequest.ts";
 
 export type { FeedEvent } from "./events.ts";
 export type { FeedbackBatch } from "./feedbackBatch.ts";
@@ -256,6 +257,11 @@ export interface AppOptions {
   // reports nothing and the viewer shows no notice.
   version?: string;
   upgradeCommand?: string;
+  // Identifies what renders /s/:id documents (this server's code, its
+  // libraries). The viewer names it in every document URL (`r`), and only a
+  // URL naming the current one is cached as immutable, so a renderer change
+  // reaches a browser that already holds a version's old document.
+  renderRev?: string;
   // Test seam: replaces the npm-registry/GitHub lookup for the latest release.
   fetchLatestRelease?: () => Promise<LatestRelease | null>;
   // Optional live-feed tap for hosts that provide their own transport (for
@@ -412,6 +418,7 @@ export function createApp({
   screenshots,
   version,
   upgradeCommand,
+  renderRev,
   fetchLatestRelease,
   onEvent,
   maxHoldConnections = DEFAULT_MAX_HOLD_CONNECTIONS,
@@ -523,9 +530,10 @@ export function createApp({
   function surfaceDocHeaders(c: Context, immutable: boolean): void {
     c.header("X-Content-Type-Options", "nosniff");
     c.header("Content-Security-Policy", "sandbox allow-scripts");
+    const current = !renderRev || c.req.query("r") === renderRev;
     c.header(
       "Cache-Control",
-      immutable ? "public, max-age=31536000, immutable" : "private, no-cache",
+      immutable && current ? "public, max-age=31536000, immutable" : "private, no-cache",
     );
   }
 
@@ -3089,6 +3097,7 @@ export function createApp({
         ? `window.__MOCKPIT_PUBLIC_READ__=${JSON.stringify(publicRead)};`
         : "",
       screenshots ? "window.__MOCKPIT_SCREENSHOTS__=true;" : "",
+      renderRev ? `window.__MOCKPIT_RENDER_REV__=${JSON.stringify(renderRev)};` : "",
     ].join("");
     return injectHead(text, `<script>${config}</script>`);
   };
@@ -3240,9 +3249,9 @@ export function createApp({
 
   const flowCtx = (c: Context, strict = true): FlowContext => ({
     base: `${requestOrigin(c.req.raw)}${requestBasePath(c.req.raw)}`,
-    // The browser sets Fetch Metadata on same-origin requests; only the trusted
-    // viewer may act as the user (drafts, replies, user-authored comments).
-    viewer: c.req.header("sec-fetch-site") === "same-origin",
+    // Only the trusted viewer may act as the user (drafts, replies,
+    // user-authored comments); server/viewerRequest.ts says how it is known.
+    viewer: isViewerRequest(c.req.raw),
     strict,
     request: c.req.raw,
     signal: c.req.raw.signal,

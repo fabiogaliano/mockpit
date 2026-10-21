@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
-import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,6 +29,18 @@ const [viewerHtml, setupText, topicTexts, pkgJson] = await Promise.all([
   readFile(join(root, "package.json"), "utf8"),
 ]);
 const topics = Object.fromEntries(GUIDE_TOPICS.map((id, i) => [id, topicTexts[i]]));
+
+// What renders surface documents: this server's own files and the locked
+// library versions. Hashed whole rather than picked apart, so an edit in dev or
+// an upgrade both reach browsers holding an old document; a change elsewhere
+// in the server only costs one re-fetch per document.
+const serverDir = dirname(fileURLToPath(import.meta.url));
+const renderHash = createHash("sha256");
+for (const name of (await readdir(serverDir)).sort()) {
+  if (/\.(ts|js)$/.test(name)) renderHash.update(await readFile(join(serverDir, name)));
+}
+renderHash.update(await readFile(join(root, "package-lock.json")).catch(() => pkgJson));
+const renderRev = renderHash.digest("hex").slice(0, 10);
 
 const pr = process.env.MOCKPIT_PUBLIC_READ;
 const publicRead = pr === "session" || pr === "full" ? pr : undefined;
@@ -62,6 +75,7 @@ const app = createApp({
   // notice); set it to the empty string to disable the update check
   version: process.env.MOCKPIT_VERSION ?? (JSON.parse(pkgJson) as { version: string }).version,
   upgradeCommand: "npm install -g mockpit",
+  renderRev,
   // `run` scripts execute in QuickJS inside a worker thread per run.
   executor: createNodeExecutor(),
   log: logPath ? createFileLog(logPath) : undefined,

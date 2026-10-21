@@ -48,6 +48,8 @@ export class MockpitBoard extends DurableObject<Env> {
       screenshots: true,
       version: pkg.version,
       upgradeCommand: "git pull && npm run deploy",
+      // A deploy that changes the renderer bumps the version with it.
+      renderRev: pkg.version,
       // No executor: the Worker has no script sandbox, so /api/run and the
       // MCP run tool answer that run is unavailable here.
       // The event log goes to Workers Logs (observability is on in

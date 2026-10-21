@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { unstable_dev, type Unstable_DevWorker } from "wrangler";
+import pkg from "../package.json" with { type: "json" };
 
 const TOKEN = "worker-integration-token";
 const AUTH = { authorization: `Bearer ${TOKEN}` };
@@ -213,9 +214,13 @@ test(
       await eventReader.cancel();
     }
 
-    const rendered = await worker.fetch(`/s/${post.id}?surface=0&ver=1&mode=dark`, {
-      headers: AUTH,
-    });
+    // `r` names the Worker's render revision, its package version.
+    const rendered = await worker.fetch(
+      `/s/${post.id}?surface=0&ver=1&mode=dark&r=${pkg.version}`,
+      {
+        headers: AUTH,
+      },
+    );
     assert.equal(rendered.status, 200);
     const renderedHtml = await rendered.text();
     assert.match(renderedHtml, /worker-marker/);

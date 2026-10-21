@@ -32,8 +32,10 @@ declare global {
   interface Window {
     __MOCKPIT_BASE_PATH__?: string;
     __MOCKPIT_READONLY__?: boolean;
+    __MOCKPIT_RENDER_REV__?: string;
   }
 }
 
 export const basePath = (): string => host().window.__MOCKPIT_BASE_PATH__ ?? "";
 export const readonly = (): boolean => host().window.__MOCKPIT_READONLY__ === true;
+export const renderRev = (): string | undefined => host().window.__MOCKPIT_RENDER_REV__;
