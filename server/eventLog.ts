@@ -6,6 +6,7 @@
 // copied it would be a second, unbounded store. `scripts/inspect.ts` reads it.
 
 import type { Context, MiddlewareHandler } from "hono";
+import { isViewerRequest } from "./viewerRequest.ts";
 
 export interface LogEntry {
   t: string;
@@ -152,7 +153,7 @@ export function logMiddleware(sink: LogSink): MiddlewareHandler {
   return async (c, next) => {
     const start = Date.now();
     await next();
-    const viewer = c.req.header("sec-fetch-site") === "same-origin";
+    const viewer = isViewerRequest(c.req.raw);
     if (!loggable(c, viewer)) return;
     try {
       const url = new URL(c.req.url);
