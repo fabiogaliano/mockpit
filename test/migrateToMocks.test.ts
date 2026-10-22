@@ -189,6 +189,8 @@ test("a pre-rebuild workspace is lifted into mocks in place", async () => {
   );
   const p1 = cardPosts[0];
   assert.equal(p1.version, 2);
+  assert.equal(p1.acceptedVersion, 2, "accepted meant its latest: that version is now in use");
+  assert.equal(cardPosts[1].acceptedVersion, undefined);
   assert.equal(p1.prompt, "tighter");
   assert.deepEqual(
     p1.history.map((h) => [h.version, h.author]),
@@ -268,4 +270,34 @@ test("reopening a migrated workspace changes nothing", async () => {
   const before = await snapshot(first);
   const after = await snapshot(new SqlStore(createSqliteStorage(path)));
   assert.deepEqual(after, before);
+});
+
+test("a workspace from before the pin keeps each accepted variant at its latest", async () => {
+  const path = tmpDb();
+  const store = new SqlStore(createSqliteStorage(path));
+  const session = await store.createSession({ agent: "pi" });
+  const mock = await store.createMock({ project: "demo", slug: "card", sessionId: session.id });
+  const html = (body: string) => [{ id: "s", kind: "html" as const, html: body }];
+  const chosen = await store.createPost({
+    sessionId: session.id,
+    mock: mock.id,
+    state: null,
+    variant: "a",
+    surfaces: html("<p>a1</p>"),
+  });
+  const other = await store.createPost({
+    sessionId: session.id,
+    mock: mock.id,
+    state: null,
+    variant: "b",
+    surfaces: html("<p>b1</p>"),
+  });
+  assert.ok(chosen && other);
+  await store.updatePost(chosen.id, { surfaces: html("<p>a2</p>") });
+  await store.setPostStatus(chosen.id, "accepted");
+  // The schema the previous release left: no acceptedVersion column.
+  createSqliteStorage(path).exec("ALTER TABLE posts DROP COLUMN acceptedVersion");
+  const reopened = new SqlStore(createSqliteStorage(path));
+  assert.equal((await reopened.getPost(chosen.id))?.acceptedVersion, 2);
+  assert.equal((await reopened.getPost(other.id))?.acceptedVersion, undefined);
 });

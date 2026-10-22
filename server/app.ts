@@ -103,6 +103,7 @@ import {
   ATTACHABLE_IMAGE_TYPES,
   MAX_ASK_IMAGES,
   MAX_ASSET_BYTES,
+  inUseVersion,
   isLive,
   type Mock,
   type MockKind,
@@ -116,6 +117,8 @@ import {
   REACTIONS,
   projectFromCwd,
   type Reply,
+  postAtVersion,
+  versionAt,
   type ReplyDecision,
   reservedAgent,
   type Session,
@@ -1005,7 +1008,7 @@ export function createApp({
     return async (tag) => {
       const post = await embedTarget(project, tag.slug, tag.variant);
       if (!post) return null;
-      const version = tag.version ?? overrides[tag.slug] ?? post.version;
+      const version = tag.version ?? overrides[tag.slug] ?? inUseVersion(post);
       const surfaces =
         version === post.version
           ? post.surfaces
@@ -1735,13 +1738,14 @@ export function createApp({
     const entries = [];
     for (const state of states) {
       const inState = posts.filter((p) => p.state === state);
-      const post =
+      const found =
         (wantedVariant && inState.find((p) => p.variant === wantedVariant)) ||
         inState.find((p) => p.status === "accepted") ||
         inState.find((p) => p.status === "open") ||
         inState[0];
-      if (!post) continue;
-      if (wantedVariant && post.variant !== wantedVariant) continue;
+      if (!found) continue;
+      if (wantedVariant && found.variant !== wantedVariant) continue;
+      const post = postAtVersion(found, inUseVersion(found)) ?? found;
       const html = post.surfaces.find((s) => s.kind === "html");
       // With slots, the screen as decided: only the chosen fills, by every
       // value sent so far (defaults before any reply). The authored markup with
@@ -1754,6 +1758,8 @@ export function createApp({
         variant: post.variant,
         postId: post.id,
         version: post.version,
+        // The agent's newer versions wait until the user puts one in use.
+        ...(found.version !== post.version ? { latest: found.version } : {}),
         status: post.status,
         html: composed,
         ...(slots.length ? { source: raw } : {}),
@@ -1762,7 +1768,7 @@ export function createApp({
           assetBase: ctx.base,
         }),
         history: [
-          ...[...post.history]
+          ...[...found.history]
             .sort((a, b) => a.version - b.version)
             .map((h) => ({
               version: h.version,
@@ -1771,10 +1777,10 @@ export function createApp({
               prompt: h.prompt ?? "",
             })),
           {
-            version: post.version,
-            at: post.updatedAt,
-            from: post.from ?? null,
-            prompt: post.prompt ?? "",
+            version: found.version,
+            at: found.updatedAt,
+            from: found.from ?? null,
+            prompt: found.prompt ?? "",
           },
         ],
         screenshotUrl: screenshots ? `${ctx.base}/s/${post.id}.png?v=${post.version}` : null,
@@ -2232,20 +2238,23 @@ export function createApp({
   // Which variants a reply accepts and archives. A variant-bound answer accepts
   // the chosen variant(s) in every state the ask covers and archives their
   // siblings there; a part-scoped pick is a mix, not a verdict. The built-in
-  // variant asks flip the same way, per state.
+  // variant asks flip the same way, per state. Each accepted variant is put in
+  // use at the version the reply was made on (`version`, a mock version), not
+  // whatever the agent published since.
   function replyFlips(
     mock: Mock,
     posts: Post[],
     answers: Record<string, AskAnswer>,
     decision: ReplyDecision | undefined,
-  ): { accept: Set<string>; archive: Set<string>; drop: Set<string> } {
-    const accept = new Set<string>();
+    version: number,
+  ): { accept: Map<string, number>; archive: Set<string>; drop: Set<string> } {
+    const accept = new Map<string, number>();
     const archive = new Set<string>();
     const drop = new Set<string>();
     const settle = (inState: Post[], chosen: Set<string>) => {
       if (!inState.some((p) => chosen.has(p.variant))) return;
       for (const p of inState) {
-        if (chosen.has(p.variant)) accept.add(p.id);
+        if (chosen.has(p.variant)) accept.set(p.id, versionAt(p, version));
         else if (isLive(p.status)) archive.add(p.id);
       }
     };
@@ -2277,7 +2286,7 @@ export function createApp({
       const post = posts.find((p) => p.state === decision.state && p.variant === decision.variant);
       if (post) drop.add(post.id);
     }
-    for (const id of accept) {
+    for (const id of accept.keys()) {
       archive.delete(id);
       drop.delete(id);
     }
@@ -2350,17 +2359,23 @@ export function createApp({
       ...(draft.otherImages ? { otherImages: draft.otherImages } : {}),
       ...(draft.noteImages ? { noteImages: draft.noteImages } : {}),
       ...(text ? { text } : {}),
-      ...(decision ? { decision } : {}),
     };
     const asks = mock.asks.map((a) => sentAsk(a, draft));
-    const flips = replyFlips(mock, posts, draft.answers, decision);
+    const flips = replyFlips(mock, posts, draft.answers, decision, draft.version);
+    if (decision) {
+      const target = posts.find(
+        (p) => p.state === decision.state && p.variant === decision.variant,
+      );
+      const pinned = decision.kind === "accept" && target ? flips.accept.get(target.id) : undefined;
+      payload.decision = pinned === undefined ? decision : { ...decision, version: pinned };
+    }
     const comment = await store.commitReply({
       mockId: mock.id,
       sessionId,
       text: text ?? "",
       payload,
       asks,
-      accept: [...flips.accept],
+      accept: [...flips.accept].map(([id, version]) => ({ id, version })),
       archive: [...flips.archive],
       drop: [...flips.drop],
     });
@@ -2397,13 +2412,95 @@ export function createApp({
         reply: delivered,
         accepted: after
           .filter((p) => flips.accept.has(p.id))
-          .map((p) => ({ state: p.state, variant: p.variant })),
+          .map((p) => ({ state: p.state, variant: p.variant, version: inUseVersion(p) })),
         archived: after
           .filter((p) => flips.archive.has(p.id))
           .map((p) => ({ state: p.state, variant: p.variant })),
         dropped: after
           .filter((p) => flips.drop.has(p.id))
           .map((p) => ({ state: p.state, variant: p.variant })),
+      },
+      201,
+    );
+  }
+
+  // "Use this": the user puts one exact version of a variant in use. It is an
+  // accept, so it archives the variant's live siblings in that state and
+  // reaches the agent once, as a reply carrying the decision, through the same
+  // cursor as a Send; the user's unsent draft is left for their next Send.
+  async function useFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const mock = await resolveMock(ref);
+    if (isResult(mock)) return mock;
+    const posts = await store.listPosts({ mockId: mock.id });
+    const chosen = chooseVariant(mock, posts, stateArg(body?.state), str(body?.variant, MAX_LABEL));
+    if (isResult(chosen)) return chosen;
+    const version = Number(body?.version);
+    if (!Number.isInteger(version) || version < 1) {
+      return fail(400, '"version" must be a positive integer');
+    }
+    if (!postAtVersion(chosen, version)) {
+      return fail(404, `${chosen.variant} has no version ${version}`, {
+        versions: [chosen.version, ...chosen.history.map((h) => h.version)],
+      });
+    }
+    const inUse = { state: chosen.state, variant: chosen.variant, version };
+    if (chosen.status === "accepted" && chosen.acceptedVersion === version) {
+      return ok({ reply: null, inUse, archived: [] });
+    }
+    const latest = [...posts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+    const sessionId = mock.sessionId ?? latest?.sessionId;
+    if (!sessionId) return fail(409, `${mock.slug} has no agent session to reply to`);
+    const archive = posts.filter(
+      (p) => p.state === chosen.state && p.id !== chosen.id && isLive(p.status),
+    );
+    const comment = await store.commitReply({
+      mockId: mock.id,
+      sessionId,
+      text: "",
+      payload: {
+        mockId: mock.id,
+        version,
+        answers: {},
+        mix: {},
+        tuned: {},
+        comments: [],
+        decision: { kind: "accept", ...inUse },
+      },
+      asks: mock.asks,
+      accept: [{ id: chosen.id, version }],
+      archive: archive.map((p) => p.id),
+      keepDraft: true,
+    });
+    if (!comment) return fail(409, `${mock.slug} has no agent session to reply to`);
+    announceComment(comment);
+    bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
+    void announceEmbedders(mock).catch((err) => console.warn("[mockpit] embedders", err));
+    for (const p of [chosen, ...archive]) {
+      bus.broadcast({
+        type: "post-updated",
+        id: p.id,
+        mockId: mock.id,
+        sessionId: p.sessionId,
+        version: p.version,
+        by: "user",
+      });
+    }
+    fireNotify({
+      event: "decision",
+      project: mock.project,
+      slug: mock.slug,
+      variant: chosen.variant,
+      version,
+      text: "accept",
+      url: mockUrl(ctx.base, mock),
+    });
+    const [delivered] = await withDelivered([comment]);
+    return ok(
+      {
+        reply: delivered,
+        inUse,
+        archived: archive.map((p) => ({ state: p.state, variant: p.variant })),
       },
       201,
     );
@@ -3386,6 +3483,10 @@ export function createApp({
 
   app.post("/api/mocks/:id/reply", async (c) =>
     send(c, await replyFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+
+  app.post("/api/mocks/:id/use", async (c) =>
+    send(c, await useFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
 
   app.post("/api/mocks/:id/resolve", async (c) =>

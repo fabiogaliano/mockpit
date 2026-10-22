@@ -7,7 +7,14 @@
 
 import { type SlotInfo, slotsInSurfaces } from "./fills.ts";
 import { checkKnobValue, knobFor } from "./knobs.ts";
-import type { KnobValue, Mock, Post, Reply } from "./types.ts";
+import {
+  inUseVersion,
+  type KnobValue,
+  type Mock,
+  type Post,
+  postAtVersion,
+  type Reply,
+} from "./types.ts";
 
 export interface SlotDecision {
   fill: string;
@@ -77,14 +84,15 @@ export function chosenFills(
   return out;
 }
 
-// The post a state is decided by: the accepted look, else the open one.
+// The post a state is decided by: the accepted look at its version in use,
+// else the open one.
 export function postForState(posts: Post[], state: string | null): Post | undefined {
   const inState = posts.filter((p) => p.state === state);
-  return (
+  const post =
     inState.find((p) => p.status === "accepted") ??
     inState.find((p) => p.status === "open") ??
-    inState[0]
-  );
+    inState[0];
+  return post && (postAtVersion(post, inUseVersion(post)) ?? post);
 }
 
 function tree(

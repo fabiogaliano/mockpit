@@ -9,6 +9,7 @@ import {
   builtinAsk,
   type Comment,
   type CommentAnchor,
+  inUseVersion,
   DEFAULT_VARIANT,
   type Mock,
   OTHER_ID,
@@ -22,6 +23,11 @@ import {
 export interface VariantRef {
   state: string | null;
   variant: string;
+}
+
+// An accepted variant with the version the user put in use.
+export interface InUseRef extends VariantRef {
+  version: number;
 }
 
 export interface FeedbackComment {
@@ -84,7 +90,7 @@ export interface FeedbackBatch {
   reply: FeedbackReply | null;
   comments: FeedbackComment[];
   // The variants the reply left accepted / archived (restorable).
-  accepted: VariantRef[];
+  accepted: InUseRef[];
   archived: VariantRef[];
   // Dropped by the user: hidden from the viewer, restorable. Don't build on them.
   dropped: VariantRef[];
@@ -230,7 +236,9 @@ export function groupFeedback(
       };
       const decisions = mock ? decisionsFor(mock, mockPosts, c.payload) : null;
       if (decisions) batch.reply.decisions = decisions;
-      batch.accepted = mockPosts.filter((p) => p.status === "accepted").map(ref);
+      batch.accepted = mockPosts
+        .filter((p) => p.status === "accepted")
+        .map((p) => ({ ...ref(p), version: inUseVersion(p) }));
       batch.archived = mockPosts.filter((p) => p.status === "archived").map(ref);
       batch.dropped = mockPosts.filter((p) => p.status === "dropped").map(ref);
       continue;

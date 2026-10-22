@@ -1,8 +1,9 @@
 // Composition: `<mockpit-embed slug="…" variant="…" version="…">` tags in any
 // mock's html are expanded server-side by inlining the referenced variant
 // version's first html surface body, recursively, so a component can be built
-// from components. A tag without `version` follows the component's latest
-// version; one without `variant` follows the component's accepted variant.
+// from components. A tag without `version` follows the version in use when the
+// variant it resolves to is accepted, else its latest; one without `variant`
+// follows the component's accepted variant.
 // Publish records the versions it saw on the post (`Post.embeds`), so what a
 // version rendered with stays answerable.
 //
@@ -18,7 +19,7 @@ export interface EmbedTag {
   slug: string;
   // null: the component's accepted variant.
   variant: string | null;
-  // null: the component's latest version.
+  // null: the version in use if accepted, else the latest.
   version: number | null;
 }
 

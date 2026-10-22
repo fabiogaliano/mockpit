@@ -404,6 +404,22 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     ]);
   });
 
+  contract("the version in use outlives the history cap", async (store) => {
+    const session = await store.createSession({ agent: "pi" });
+    const p = await post(store, { sessionId: session.id, surfaces: [htmlSurface("<p>v1</p>")] });
+    assert.ok(p);
+    await store.updatePost(p.id, { surfaces: [htmlSurface("<p>v2</p>")] });
+    assert.equal((await store.setPostStatus(p.id, "accepted", 1))?.acceptedVersion, 1);
+    for (let i = 3; i <= HISTORY_LIMIT + 5; i++) {
+      await store.updatePost(p.id, { surfaces: [htmlSurface(`<p>v${i}</p>`)] });
+    }
+    const final = await store.getPost(p.id);
+    assert.equal(final?.acceptedVersion, 1);
+    assert.equal(final?.history[0].version, 1, "the pinned version is kept");
+    assert.equal(final?.history.length, HISTORY_LIMIT + 1);
+    assert.deepEqual(stripIds(final?.history[0].surfaces ?? []), [htmlSurface("<p>v1</p>")]);
+  });
+
   contract("concurrent updates do not lose revisions or duplicate history", async (store) => {
     const session = await store.createSession({ agent: "pi" });
     const surface = await post(store, {
@@ -1006,6 +1022,10 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     assert.ok(p);
     assert.equal((await store.setPostStatus(p.id, "archived"))?.status, "archived");
     assert.equal((await store.getPost(p.id))?.status, "archived");
+    assert.equal((await store.setPostStatus(p.id, "accepted"))?.acceptedVersion, 1);
+    assert.equal((await store.getPost(p.id))?.acceptedVersion, 1, "accepting pins the current");
+    await store.setPostStatus(p.id, "open");
+    assert.equal((await store.getPost(p.id))?.acceptedVersion, undefined, "only accepted pins");
     assert.equal(await store.setPostStatus("missing", "open"), null);
     assert.equal((await store.setPostStarred(p.id, true))?.starred, true);
     assert.equal((await store.getPost(p.id))?.starred, true);
@@ -1077,6 +1097,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
         surfaces: [htmlSurface("<p>d</p>")],
       });
       assert.ok(quiet && dark);
+      await store.updatePost(dark.id, { surfaces: [htmlSurface("<p>d2</p>")] });
       await store.putDraft(mock.id, {
         version: 1,
         answers: { look: "dark" },
@@ -1112,7 +1133,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
         text: "go dark",
         payload,
         asks,
-        accept: [dark.id],
+        accept: [{ id: dark.id, version: 1 }],
         archive: [quiet.id],
       });
       assert.ok(reply);
@@ -1123,7 +1144,13 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
       assert.equal(after?.draft, null);
       assert.equal(after?.asks[0].answer, "dark");
       assert.equal((await store.getPost(dark.id))?.status, "accepted");
+      assert.equal(
+        (await store.getPost(dark.id))?.acceptedVersion,
+        1,
+        "pinned to the version answered on, not the latest",
+      );
       assert.equal((await store.getPost(quiet.id))?.status, "archived");
+      assert.equal((await store.getPost(quiet.id))?.acceptedVersion, undefined);
       const listed = await store.listComments({ sessionId: session.id });
       assert.deepEqual(listed.at(-1)?.payload, payload, "the payload survives a read");
       await store.commitReply({
@@ -1137,6 +1164,30 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
         drop: [quiet.id],
       });
       assert.equal((await store.getPost(quiet.id))?.status, "dropped");
+      const draft = {
+        version: 2,
+        answers: {},
+        mix: {},
+        tuned: {},
+        comments: [{ part: null, state: null, text: "unsent" }],
+        updatedAt: "t",
+      };
+      await store.putDraft(mock.id, draft);
+      await store.commitReply({
+        mockId: mock.id,
+        sessionId: session.id,
+        text: "",
+        payload: {
+          ...payload,
+          decision: { kind: "accept", state: null, variant: "dark", version: 2 },
+        },
+        asks,
+        accept: [{ id: dark.id, version: 2 }],
+        archive: [],
+        keepDraft: true,
+      });
+      assert.equal((await store.getPost(dark.id))?.acceptedVersion, 2, "re-pinned");
+      assert.deepEqual((await store.getMock(mock.id))?.draft, draft, "keepDraft leaves it");
       assert.equal(
         await store.commitReply({
           mockId: "missing",

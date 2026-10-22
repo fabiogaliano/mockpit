@@ -51,7 +51,7 @@ It returns at once:
         "text": "close, go dark"
       },
       "comments": [],
-      "accepted": [{ "state": "Writing", "variant": "dark" }],
+      "accepted": [{ "state": "Writing", "variant": "dark", "version": 2 }],
       "archived": [{ "state": "Writing", "variant": "quiet" }]
     }
   ],
@@ -77,7 +77,10 @@ taking any feedback.
 
 1. `answers` and `asks` decide structure. A variant-bound answer has already
    accepted that variant and archived its siblings (`accepted`, `archived`).
-   Stop iterating on the archived ones. The ask `variant` (per state
+   Stop iterating on the archived ones. Each `accepted` entry is pinned at the
+   `version` the user put in use (`read` → `inUse`): `export` and embeds show
+   that one, not your newer publishes, until the user picks again.
+   The ask `variant` (per state
    `variant:<state>`) is the viewer's built-in Look ask, read like any
    other. A `chosen` entry with `other: true` is
    the user's own answer (its `label`), not one of your options; it flips no

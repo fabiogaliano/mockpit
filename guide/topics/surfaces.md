@@ -55,9 +55,9 @@ component's own embeds in turn (up to 6 levels), so build a page from
 sections and sections from components, each its own mock with its own
 variants and questions.
 
-- No `version`: the embed follows the component's latest version, so a new
-  version of the button shows in every page that uses it without republishing
-  them. `version="3"` pins it.
+- No `version`: the embed follows the component's version in use once the user
+  accepted one, else its latest, so a new version of the button shows in every
+  page that uses it without republishing them. `version="3"` pins it.
 - No `variant`: the component's accepted variant (else `default`). Name one to
   show a specific variant.
 - The component shows as decided: its slots keep only the fills the user

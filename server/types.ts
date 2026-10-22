@@ -312,6 +312,38 @@ export type PostStatus = "open" | "accepted" | "archived" | "dropped";
 // Still in the running: what the user can choose between.
 export const isLive = (status: PostStatus): boolean => status === "open" || status === "accepted";
 
+// The version a variant is resolved at when nothing names one: the version in
+// use when accepted, else its latest.
+export const inUseVersion = (post: Pick<Post, "status" | "version" | "acceptedVersion">): number =>
+  post.status === "accepted" ? (post.acceptedVersion ?? post.version) : post.version;
+
+// A variant as it stood at one of its versions (current or retained), or null
+// when that version is gone.
+export function postAtVersion(post: Post, version: number): Post | null {
+  if (version === post.version) return post;
+  const old = post.history.find((h) => h.version === version);
+  if (!old) return null;
+  const { from: _f, prompt: _p, author: _a, ...rest } = post;
+  return {
+    ...rest,
+    version: old.version,
+    title: old.title,
+    surfaces: old.surfaces,
+    updatedAt: old.at,
+    ...(old.from === undefined ? {} : { from: old.from }),
+    ...(old.prompt === undefined ? {} : { prompt: old.prompt }),
+    ...(old.author === undefined ? {} : { author: old.author }),
+  };
+}
+
+// The variant's newest version not after mock version `n` — what the stage
+// showed when a draft or reply was bound to n (the viewer's frameVersion).
+export function versionAt(post: Pick<Post, "version" | "history">, n: number): number {
+  const versions = [post.version, ...post.history.map((h) => h.version)];
+  const fit = versions.filter((v) => v <= n);
+  return fit.length ? Math.max(...fit) : Math.min(...versions);
+}
+
 export interface AskOption {
   id: string;
   label: string;
@@ -390,6 +422,8 @@ export interface ReplyDecision {
   kind: "accept" | "revise" | "drop";
   state: string | null;
   variant: string;
+  // On an accept: the version put in use, the one the user was looking at.
+  version?: number;
 }
 
 // The user's unsent picks, tuned values and comments for one mock. Lives
@@ -512,6 +546,10 @@ export interface Post {
   forkedFrom?: ForkRef;
   // The user's favourite: a mark, not a decision. Unrelated to status.
   starred?: true;
+  // Set only while accepted: the version the user put in use. The agent may
+  // publish newer ones; export and embeds keep showing this one until the user
+  // chooses again, so a decision never drifts under them.
+  acceptedVersion?: number;
   // Provenance of the CURRENT version — the same three fields a PostVersion
   // carries; on the next update they move into the history entry.
   from?: number;
@@ -793,11 +831,14 @@ export interface CommitReplyInput {
   text: string;
   payload: Reply;
   asks: Ask[];
-  accept: string[];
+  // Each accepted variant with the version put in use.
+  accept: { id: string; version: number }[];
   archive: string[];
   drop?: string[];
   // A resolution sets it (a reply leaves it as it is).
   resolvedAt?: string;
+  // A lone "use this version" is not a Send: the user's unsent draft stays.
+  keepDraft?: true;
 }
 
 export interface PostQuery {
@@ -851,7 +892,9 @@ export interface Store {
   createPost(input: CreatePostInput): Promise<Post | null>;
   updatePost(id: string, patch: UpdatePostInput): Promise<Post | null>;
   removePost(id: string): Promise<boolean>;
-  setPostStatus(id: string, status: PostStatus): Promise<Post | null>;
+  // Accepting pins `acceptedVersion` (default: the current version); any other
+  // status clears it.
+  setPostStatus(id: string, status: PostStatus, acceptedVersion?: number): Promise<Post | null>;
   setPostStarred(id: string, starred: boolean): Promise<Post | null>;
 
   listComments(query: CommentQuery): Promise<Comment[]>;

@@ -162,12 +162,19 @@ export class SqlStore implements Store {
       agentActiveAt: "TEXT",
     });
     this.addMissing("mocks", { widths: "TEXT NOT NULL DEFAULT '[]'", resolvedAt: "TEXT" });
+    if (legacy) this.migrateLegacy();
+    // After the legacy lift, which rebuilds posts from POST_COLUMNS alone.
+    const pinned = this.columns("posts").has("acceptedVersion");
     this.addMissing("posts", {
       note: "TEXT",
       forkedFrom: "TEXT",
       starred: "INTEGER NOT NULL DEFAULT 0",
+      acceptedVersion: "INTEGER",
     });
-    if (legacy) this.migrateLegacy();
+    // Before the pin, accepted meant "its latest": freeze that as the version in use.
+    if (!pinned) {
+      this.sql.exec("UPDATE posts SET acceptedVersion = version WHERE status = 'accepted'");
+    }
     this.createIndexes();
   }
 
@@ -576,6 +583,9 @@ export class SqlStore implements Store {
       embeds: parseJson<Embed[]>(r.slots, []),
       ...(r.forkedFrom == null ? {} : { forkedFrom: parseJson<ForkRef>(r.forkedFrom, null!) }),
       ...(r.starred ? { starred: true as const } : {}),
+      ...(r.status === "accepted" && r.acceptedVersion != null
+        ? { acceptedVersion: r.acceptedVersion as number }
+        : {}),
       ...(r.curFrom == null ? {} : { from: r.curFrom as number }),
       ...(r.curPrompt == null ? {} : { prompt: r.curPrompt as string }),
       ...(r.curAuthor == null ? {} : { author: r.curAuthor as string }),
@@ -1015,8 +1025,11 @@ export class SqlStore implements Store {
         ...(post.prompt === undefined ? {} : { prompt: post.prompt }),
         ...(post.author === undefined ? {} : { author: post.author }),
       };
+      // The version in use is kept past the limit: export and embeds resolve to it.
+      const pin = post.acceptedVersion ?? -1;
       const history = [...post.history, archived];
-      if (history.length > HISTORY_LIMIT) history.shift();
+      const prunable = history.filter((h) => h.version !== pin);
+      if (prunable.length > HISTORY_LIMIT) history.splice(history.indexOf(prunable[0]), 1);
       const title =
         patch.title !== undefined ? stripNul(patch.title).trim() || post.title : post.title;
       const surfaces =
@@ -1051,9 +1064,10 @@ export class SqlStore implements Store {
       if (affected > 0) {
         this.insertVersion(id, archived);
         this.sql.exec(
-          "DELETE FROM post_versions WHERE postId = ? AND version <= ?",
+          "DELETE FROM post_versions WHERE postId = ? AND version <= ? AND version != ?",
           id,
           version - 1 - HISTORY_LIMIT,
+          pin,
         );
         this.touch(post.sessionId);
         this.touchMock(post.mock, updatedAt);
@@ -1090,11 +1104,13 @@ export class SqlStore implements Store {
     return true;
   }
 
-  async setPostStatus(id: string, status: PostStatus) {
+  async setPostStatus(id: string, status: PostStatus, acceptedVersion?: number) {
     const post = await this.getPost(id);
     if (!post) return null;
-    this.sql.exec("UPDATE posts SET status = ? WHERE id = ?", status, id);
-    return { ...post, status };
+    const pin = status === "accepted" ? (acceptedVersion ?? post.version) : null;
+    this.sql.exec("UPDATE posts SET status = ?, acceptedVersion = ? WHERE id = ?", status, pin, id);
+    const { acceptedVersion: _, ...rest } = post;
+    return pin === null ? { ...rest, status } : { ...rest, status, acceptedVersion: pin };
   }
 
   async setPostStarred(id: string, starred: boolean) {
@@ -1206,7 +1222,9 @@ export class SqlStore implements Store {
         payload: input.payload,
       });
       this.sql.exec(
-        "UPDATE mocks SET asks = ?, draft = NULL WHERE id = ?",
+        input.keepDraft
+          ? "UPDATE mocks SET asks = ? WHERE id = ?"
+          : "UPDATE mocks SET asks = ?, draft = NULL WHERE id = ?",
         JSON.stringify(input.asks),
         input.mockId,
       );
@@ -1218,23 +1236,24 @@ export class SqlStore implements Store {
           input.mockId,
         );
       }
-      for (const id of input.accept) {
+      for (const { id, version } of input.accept) {
         this.sql.exec(
-          "UPDATE posts SET status = 'accepted' WHERE id = ? AND mockId = ?",
+          "UPDATE posts SET status = 'accepted', acceptedVersion = ? WHERE id = ? AND mockId = ?",
+          version,
           id,
           input.mockId,
         );
       }
       for (const id of input.archive) {
         this.sql.exec(
-          "UPDATE posts SET status = 'archived' WHERE id = ? AND mockId = ?",
+          "UPDATE posts SET status = 'archived', acceptedVersion = NULL WHERE id = ? AND mockId = ?",
           id,
           input.mockId,
         );
       }
       for (const id of input.drop ?? []) {
         this.sql.exec(
-          "UPDATE posts SET status = 'dropped' WHERE id = ? AND mockId = ?",
+          "UPDATE posts SET status = 'dropped', acceptedVersion = NULL WHERE id = ? AND mockId = ?",
           id,
           input.mockId,
         );

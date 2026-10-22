@@ -6,6 +6,7 @@ import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
 import {
   draftedCount,
   type Embed,
+  inUseVersion,
   isSandboxedSurfaceKind,
   isLive,
   type KnobValue,
@@ -98,6 +99,7 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
   ...(post.embeds.length ? { publishedWith: post.embeds } : {}),
   ...(post.forkedFrom ? { forkedFrom: post.forkedFrom } : {}),
   ...(post.starred ? { starred: true } : {}),
+  ...(post.acceptedVersion === undefined ? {} : { acceptedVersion: post.acceptedVersion }),
   // The part names this variant's own markup marks, so the viewer can tell
   // which looks render a part (Mix) without the html bodies.
   parts: partsInSurfaces(post.surfaces).map((p) => p.name),
@@ -121,6 +123,14 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
 });
 
 const stateOrder = (mock: Mock) => (mock.states.length ? mock.states : [null]);
+
+// What the user put in use, per state, in the mock's order; a state with
+// nothing accepted is absent. Export and embeds resolve to exactly these.
+export const inUseByState = (mock: Mock, posts: Post[]) =>
+  stateOrder(mock).flatMap((state) => {
+    const p = posts.find((x) => x.state === state && x.status === "accepted");
+    return p ? [{ state, variant: p.variant, version: inUseVersion(p) }] : [];
+  });
 
 export interface StateParts {
   state: string | null;
@@ -150,7 +160,7 @@ function thumbnail(mock: Mock, posts: Post[]) {
     posts[0];
   if (!pick) return null;
   const surface = pick.surfaces.findIndex((s) => isSandboxedSurfaceKind(s.kind));
-  return { postId: pick.id, surface: Math.max(surface, 0), version: pick.version };
+  return { postId: pick.id, surface: Math.max(surface, 0), version: inUseVersion(pick) };
 }
 
 export const mockSummaryView = (mock: Mock, posts: Post[]) => {
@@ -197,6 +207,7 @@ export const mockDetailView = (
   createdAt: mock.createdAt,
   updatedAt: mock.updatedAt,
   variants: posts.map((p) => variantView(p, opts)),
+  inUse: inUseByState(mock, posts),
   parts: partsByState(mock, posts),
   // Every knob value the user has sent (answers' sets and tuning, later replies
   // winning), never drafts. Later questions render on top of it.
@@ -229,6 +240,7 @@ export const treeNodeView = (
   settled: extra.settled,
   uses: extra.uses,
   usedIn: [] as string[],
+  inUse: inUseByState(mock, posts),
   variants: posts.map((p) => ({
     postId: p.id,
     state: p.state,
@@ -240,6 +252,7 @@ export const treeNodeView = (
     ...(p.note ? { note: p.note } : {}),
     ...(p.forkedFrom ? { forkedFrom: p.forkedFrom } : {}),
     ...(p.starred ? { starred: true } : {}),
+    ...(p.acceptedVersion === undefined ? {} : { acceptedVersion: p.acceptedVersion }),
     ...(extra.embeds.get(p.id) ? { embedsKey: extra.embeds.get(p.id)!.key } : {}),
   })),
 });

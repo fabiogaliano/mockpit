@@ -239,7 +239,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "export",
     description:
-      "The accepted (or current) html per state, version history, screenshot URL, knobs, the settled values and the last reply.",
+      "The html in use (else current) per state, version history, screenshot URL, knobs, the settled values and the last reply.",
     params: VARIANT_REF,
   },
   {
@@ -296,6 +296,7 @@ const nullStr = z.string().nullable();
 const strs = z.array(z.string());
 const bag = z.record(z.string(), z.unknown());
 const variantRef = o({ state: nullStr, variant: str });
+const inUseRef = o({ state: nullStr, variant: str, version: num });
 const partsByState = z.array(o({ state: nullStr, parts: z.array(o({ name: str })) }));
 
 const feedbackSchema = o({
@@ -316,7 +317,7 @@ const feedbackSchema = o({
     .nullable()
     .describe("The user's Send; null if only comments"),
   comments: z.array(o({ seq: num, text: str })),
-  accepted: z.array(variantRef),
+  accepted: z.array(inUseRef).describe("Accepted, each at the version put in use"),
   archived: z.array(variantRef),
   dropped: z.array(variantRef),
   resolved: z
@@ -383,14 +384,37 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
     mocks: z.array(o({ slug: str, states: strs, variants: num, open: num })).optional(),
     states: strs.optional(),
     asks: z.array(o({ id: str, text: str })).optional(),
-    variants: z.array(o({ state: nullStr, variant: str, status: str, version: num })).optional(),
+    variants: z
+      .array(
+        o({
+          state: nullStr,
+          variant: str,
+          status: str,
+          version: num,
+          acceptedVersion: num.optional().describe("Set when accepted: the version in use"),
+        }),
+      )
+      .optional(),
+    inUse: z
+      .array(inUseRef)
+      .optional()
+      .describe("Per state, the version the user put in use; export and embeds resolve to it"),
     knobs: bag.optional(),
     settled: bag.optional().describe("Every knob value the user has sent, later replies winning"),
     tree: z.array(bag).optional(),
     pending: z.union([z.array(pendingSchema), pendingSchema]),
   },
   export: {
-    states: z.array(o({ state: nullStr, variant: str, version: num, html: str, markdown: str })),
+    states: z.array(
+      o({
+        state: nullStr,
+        variant: str,
+        version: num,
+        latest: num.optional().describe("Your newer version, not in use yet"),
+        html: str,
+        markdown: str,
+      }),
+    ),
     settled: bag,
     reply: bag.nullable(),
   },
