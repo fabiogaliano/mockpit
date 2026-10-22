@@ -1032,6 +1032,21 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     assert.equal((await store.setPostStarred(p.id, false))?.starred, undefined);
   });
 
+  contract("a hidden version stays hidden across updates until restored", async (store) => {
+    const session = await store.createSession({ agent: "pi" });
+    const p = await post(store, { sessionId: session.id, surfaces: [htmlSurface("<p>v1</p>")] });
+    assert.ok(p);
+    await store.updatePost(p.id, { surfaces: [htmlSurface("<p>v2</p>")] });
+    assert.deepEqual((await store.setVersionHidden(p.id, 1, true))?.hiddenVersions, [1]);
+    await store.updatePost(p.id, { surfaces: [htmlSurface("<p>v3</p>")] });
+    const after = await store.getPost(p.id);
+    assert.deepEqual(after?.hiddenVersions, [1]);
+    assert.equal(after?.history.length, 2, "hiding keeps the version");
+    assert.equal((await store.setVersionHidden(p.id, 1, false))?.hiddenVersions, undefined);
+    assert.equal((await store.getPost(p.id))?.hiddenVersions, undefined);
+    assert.equal(await store.setVersionHidden("missing", 1, true), null);
+  });
+
   contract("a draft round-trips and clears", async (store) => {
     const mock = await store.createMock({ project: "demo", slug: "writer" });
     const draft: Draft = {

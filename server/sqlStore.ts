@@ -170,6 +170,7 @@ export class SqlStore implements Store {
       forkedFrom: "TEXT",
       starred: "INTEGER NOT NULL DEFAULT 0",
       acceptedVersion: "INTEGER",
+      hiddenVersions: "TEXT",
     });
     // Before the pin, accepted meant "its latest": freeze that as the version in use.
     if (!pinned) {
@@ -564,6 +565,7 @@ export class SqlStore implements Store {
 
   private rowToPost(r: Row, history: PostVersion[]): Post {
     const knobs = parseJson<Knobs | null>(r.knobs, null);
+    const hidden = parseJson<number[]>(r.hiddenVersions, []);
     return {
       id: r.id as string,
       sessionId: r.sessionId as string,
@@ -586,6 +588,7 @@ export class SqlStore implements Store {
       ...(r.status === "accepted" && r.acceptedVersion != null
         ? { acceptedVersion: r.acceptedVersion as number }
         : {}),
+      ...(hidden.length ? { hiddenVersions: hidden } : {}),
       ...(r.curFrom == null ? {} : { from: r.curFrom as number }),
       ...(r.curPrompt == null ? {} : { prompt: r.curPrompt as string }),
       ...(r.curAuthor == null ? {} : { author: r.curAuthor as string }),
@@ -1119,6 +1122,22 @@ export class SqlStore implements Store {
     this.sql.exec("UPDATE posts SET starred = ? WHERE id = ?", starred ? 1 : 0, id);
     const { starred: _, ...rest } = post;
     return starred ? { ...rest, starred: true as const } : rest;
+  }
+
+  async setVersionHidden(id: string, version: number, hidden: boolean): Promise<Post | null> {
+    const post = await this.getPost(id);
+    if (!post) return null;
+    const set = new Set(post.hiddenVersions ?? []);
+    if (hidden) set.add(version);
+    else set.delete(version);
+    const list = [...set].sort((a, b) => a - b);
+    this.sql.exec(
+      "UPDATE posts SET hiddenVersions = ? WHERE id = ?",
+      list.length ? JSON.stringify(list) : null,
+      id,
+    );
+    const { hiddenVersions: _, ...rest } = post;
+    return list.length ? { ...rest, hiddenVersions: list } : rest;
   }
 
   // --- comments ---

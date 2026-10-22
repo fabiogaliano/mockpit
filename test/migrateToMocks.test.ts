@@ -301,3 +301,23 @@ test("a workspace from before the pin keeps each accepted variant at its latest"
   assert.equal((await reopened.getPost(chosen.id))?.acceptedVersion, 2);
   assert.equal((await reopened.getPost(other.id))?.acceptedVersion, undefined);
 });
+
+test("a workspace from before hiding opens with no version hidden", async () => {
+  const path = tmpDb();
+  const store = new SqlStore(createSqliteStorage(path));
+  const session = await store.createSession({ agent: "pi" });
+  const mock = await store.createMock({ project: "demo", slug: "card", sessionId: session.id });
+  const p = await store.createPost({
+    sessionId: session.id,
+    mock: mock.id,
+    state: null,
+    variant: "a",
+    surfaces: [{ id: "s", kind: "html" as const, html: "<p>a1</p>" }],
+  });
+  assert.ok(p);
+  // The schema the previous release left: no hiddenVersions column.
+  createSqliteStorage(path).exec("ALTER TABLE posts DROP COLUMN hiddenVersions");
+  const reopened = new SqlStore(createSqliteStorage(path));
+  assert.equal((await reopened.getPost(p.id))?.hiddenVersions, undefined);
+  assert.deepEqual((await reopened.setVersionHidden(p.id, 1, true))?.hiddenVersions, [1]);
+});

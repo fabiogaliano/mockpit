@@ -117,7 +117,9 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
             ...(post.author === undefined ? {} : { author: post.author }),
           }),
           ...[...post.history].sort((a, b) => b.version - a.version).map(historyMetaView),
-        ],
+        ].map((row) =>
+          post.hiddenVersions?.includes(row.version) ? { ...row, hidden: true as const } : row,
+        ),
       }
     : {}),
 });

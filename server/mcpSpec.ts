@@ -392,6 +392,10 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
           status: str,
           version: num,
           acceptedVersion: num.optional().describe("Set when accepted: the version in use"),
+          history: z
+            .array(o({ version: num, hidden: z.boolean().optional() }))
+            .optional()
+            .describe("With history: version rows; hidden ones the user put away are flagged"),
         }),
       )
       .optional(),

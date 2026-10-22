@@ -79,7 +79,9 @@ taking any feedback.
    accepted that variant and archived its siblings (`accepted`, `archived`).
    Stop iterating on the archived ones. Each `accepted` entry is pinned at the
    `version` the user put in use (`read` → `inUse`): `export` and embeds show
-   that one, not your newer publishes, until the user picks again.
+   that one, not your newer publishes, until the user picks again. A version
+   the user hid (`read --history` flags it `hidden`) is one they put away:
+   don't build on it.
    The ask `variant` (per state
    `variant:<state>`) is the viewer's built-in Look ask, read like any
    other. A `chosen` entry with `other: true` is
@@ -101,9 +103,10 @@ taking any feedback.
    👍 keep it, 👎 rework it, "more like this" go further that way. A reaction
    without a part is about the whole variant; one may end with the user's
    note in quotes. Reactions never also appear in `comments`.
-5. `decision` (`{kind: accept|revise|drop, state, variant}`) comes instead of
-   answers when the mock has no asks and the user pressed Accept, Revise or
-   Drop. Drop hides that variant (`dropped`); archived ones stay in view,
+5. `decision` (`{kind: accept|revise|drop, state, variant}`) is a verdict on
+   one variant. `accept` is the user's Use this, with the `version` now in use;
+   `revise` is their New: publish another version of that variant (its `text`
+   says from which). A `dropped` variant is hidden; archived ones stay in view,
    muted. Build on neither unless the user restores one.
 6. `text` is the user's note on the Send.
 

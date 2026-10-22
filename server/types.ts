@@ -550,6 +550,9 @@ export interface Post {
   // publish newer ones; export and embeds keep showing this one until the user
   // chooses again, so a decision never drifts under them.
   acceptedVersion?: number;
+  // Versions the user hid from the history. Hidden, never removed: replies,
+  // embeds and the version in use may still point at one, so it still renders.
+  hiddenVersions?: number[];
   // Provenance of the CURRENT version — the same three fields a PostVersion
   // carries; on the next update they move into the history entry.
   from?: number;
@@ -896,6 +899,7 @@ export interface Store {
   // status clears it.
   setPostStatus(id: string, status: PostStatus, acceptedVersion?: number): Promise<Post | null>;
   setPostStarred(id: string, starred: boolean): Promise<Post | null>;
+  setVersionHidden(id: string, version: number, hidden: boolean): Promise<Post | null>;
 
   listComments(query: CommentQuery): Promise<Comment[]>;
   createComment(input: CreateCommentInput): Promise<Comment | null>;

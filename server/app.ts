@@ -1769,6 +1769,7 @@ export function createApp({
         }),
         history: [
           ...[...found.history]
+            .filter((h) => !(found.hiddenVersions ?? []).includes(h.version))
             .sort((a, b) => a.version - b.version)
             .map((h) => ({
               version: h.version,
@@ -2504,6 +2505,54 @@ export function createApp({
       },
       201,
     );
+  }
+
+  // The user hides one version of a variant from the history, or brings it
+  // back. Hidden, never removed: replies and embeds may point at it, so it still
+  // renders by URL. The version in use can't be hidden, nor a state's last.
+  async function hideFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const mock = await resolveMock(ref);
+    if (isResult(mock)) return mock;
+    if (typeof body?.hidden !== "boolean") return fail(400, '"hidden" must be true or false');
+    const posts = await store.listPosts({ mockId: mock.id });
+    const chosen = chooseVariant(mock, posts, stateArg(body?.state), str(body?.variant, MAX_LABEL));
+    if (isResult(chosen)) return chosen;
+    const version = Number(body?.version);
+    if (!Number.isInteger(version) || version < 1) {
+      return fail(400, '"version" must be a positive integer');
+    }
+    if (!postAtVersion(chosen, version)) {
+      return fail(404, `${chosen.variant} has no version ${version}`);
+    }
+    if (body.hidden) {
+      if (chosen.status === "accepted" && inUseVersion(chosen) === version) {
+        return fail(409, `v${version} of ${chosen.variant} is in use; use another version first`);
+      }
+      const visible = posts
+        .filter((p) => p.state === chosen.state)
+        .flatMap((p) => [p.version, ...p.history.map((h) => h.version)].map((v) => [p, v] as const))
+        .filter(([p, v]) => !(p.hiddenVersions ?? []).includes(v));
+      if (visible.length === 1 && visible[0][0].id === chosen.id && visible[0][1] === version) {
+        return fail(409, "the last visible version can't be hidden");
+      }
+    }
+    const updated = await store.setVersionHidden(chosen.id, version, body.hidden);
+    if (!updated) return fail(404, "variant not found");
+    bus.broadcast({
+      type: "post-updated",
+      id: updated.id,
+      mockId: mock.id,
+      sessionId: updated.sessionId,
+      version: updated.version,
+      by: "user",
+    });
+    return ok({
+      state: updated.state,
+      variant: updated.variant,
+      version,
+      hidden: body.hidden,
+    });
   }
 
   // The user closes a mock from the project list: its open asks are dismissed
@@ -3487,6 +3536,10 @@ export function createApp({
 
   app.post("/api/mocks/:id/use", async (c) =>
     send(c, await useFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+
+  app.post("/api/mocks/:id/hide", async (c) =>
+    send(c, await hideFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
 
   app.post("/api/mocks/:id/resolve", async (c) =>
