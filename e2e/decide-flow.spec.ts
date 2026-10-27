@@ -518,6 +518,80 @@ test("a plain mock offers New and Use this; both reach the agent, and Use this p
   );
 });
 
+test("an ask can offer two versions of one variant; the answer puts that version in use", async ({
+  page,
+  server,
+}) => {
+  const out = await agentCall(server.url, "/api/mocks", {
+    project: PROJECT,
+    mock: "memo",
+    title: "Memo",
+    agent: "e2e",
+    html: "<p>Memo one.</p>",
+  });
+  const mockId = out.mock.id;
+  for (const html of ["<p>Memo two.</p>", "<p>Memo three.</p>"]) {
+    await agentCall(server.url, "/api/mocks", { mock: mockId, session: out.sessionId, html });
+  }
+  const bad = await fetch(`${server.url}/api/mocks/${mockId}/asks`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      session: out.sessionId,
+      asks: [{ text: "Which?", options: [{ label: "Gone", version: 9 }] }],
+    }),
+  });
+  expect(bad.status).toBe(400);
+  expect((await bad.json()).error).toBe('option "Gone" names default v9; default has v1, v2, v3');
+  // The variant is left out: the state has only one.
+  await agentCall(server.url, `/api/mocks/${mockId}/asks`, {
+    session: out.sessionId,
+    asks: [
+      {
+        id: "which",
+        text: "Which memo?",
+        options: [
+          { label: "First", version: 1 },
+          { label: "Second", version: 2 },
+        ],
+      },
+    ],
+  });
+
+  await page.goto(`${server.url}/project/${PROJECT}/memo`);
+  await expect(question(page)).toHaveText("Which memo?");
+  await expect(option(page, "first").locator(".thumb iframe")).toHaveAttribute(
+    "src",
+    /[?&]ver=1\b/,
+  );
+  await expect(option(page, "second").locator(".thumb iframe")).toHaveAttribute(
+    "src",
+    /[?&]ver=2\b/,
+  );
+  await picturesSettled(page);
+  await pickAndWait(page, mockId, "second");
+  await expect(page.locator(".vlabel")).toHaveAttribute("aria-label", /^Version 2 of 3/);
+  await pickAndWait(page, mockId, "first");
+  await expect(page.locator(".vlabel")).toHaveAttribute("aria-label", /^Version 1 of 3/);
+  const reply = page.waitForResponse(
+    (r) => r.url().endsWith(`/api/mocks/${mockId}/reply`) && r.request().method() === "POST",
+  );
+  await sendBtn(page).click();
+  expect((await reply).status()).toBe(201);
+
+  const read = await agentCall(server.url, `/api/feedback?session=${out.sessionId}`);
+  expect(read.feedback).toHaveLength(1);
+  expect(read.feedback[0].accepted).toEqual([{ state: null, variant: "default", version: 1 }]);
+  expect(read.feedback[0].reply.asks).toEqual([
+    expect.objectContaining({
+      ask: "which",
+      chosen: [expect.objectContaining({ id: "first", variant: "default", version: 1 })],
+    }),
+  ]);
+  await expect(page.getByRole("button", { name: "In use", exact: true })).toBeVisible();
+  await expect(page.locator(".vlabel")).toHaveAttribute("aria-label", /^Version 1 of 3/);
+});
+
 test("the theme toggles dark ↔ light and persists across a reload", async ({ page, server }) => {
   await seedWriter(server.url);
   await page.goto(`${server.url}/project/${PROJECT}`);

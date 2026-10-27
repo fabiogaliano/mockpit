@@ -6,7 +6,7 @@
 // list, changed only through its "Change answer".
 
 import { createSignal, createUniqueId, For, type JSX, Show } from "solid-js";
-import type { Ask, AskOption, KnobValue } from "../../server/types.ts";
+import { type Ask, type AskOption, type KnobValue, optionState } from "../../server/types.ts";
 import { assetUrl, surfaceUrl, type VariantView } from "./api.ts";
 import { ACCEPT, filesOf, hasFiles } from "./attach.ts";
 import { readonly } from "./host.ts";
@@ -114,7 +114,7 @@ export function optionPicture(
 } | null {
   const m = s.mock();
   if (!m) return null;
-  const state = askState(ask, m, s.activeState());
+  const state = o.version ? optionState(ask, m) : askState(ask, m, s.activeState());
   const html = (v: VariantView | undefined) => {
     if (!v) return -1;
     return v.surfaces.findIndex((x) => x.kind === "html");
@@ -125,7 +125,7 @@ export function optionPicture(
     if (!v || idx < 0) return null;
     return {
       src: surfaceUrl(v.postId, idx, {
-        version: s.frameVersionOf(v),
+        version: o.version ?? s.frameVersionOf(v),
         mode: theme(),
         e: v.embedsKey,
       }),

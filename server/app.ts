@@ -105,6 +105,7 @@ import {
   MAX_ASSET_BYTES,
   inUseVersion,
   isLive,
+  optionState,
   type Mock,
   type MockKind,
   newId,
@@ -1955,6 +1956,12 @@ export function createApp({
         if (!checked.ok) return checked.error;
         set = checked.value;
       }
+      if (opt.version !== undefined) {
+        const pinned = versionOption(opt.version, label, variant, { scope, state }, mock, posts);
+        if (typeof pinned === "string") return pinned;
+        options.push({ id, label, ...pinned, ...(set ? { set } : {}) });
+        continue;
+      }
       options.push({ id, label, ...(variant ? { variant } : {}), ...(set ? { set } : {}) });
     }
     let id = slugify(str(raw.id, 64) ?? text).slice(0, 40);
@@ -1977,6 +1984,53 @@ export function createApp({
       ...(after ? { after } : {}),
       at: new Date().toISOString(),
     };
+  }
+
+  // A version option names one visible version of one variant in the ask's
+  // state (`optionState`); the variant may be left out when that state has
+  // only one, or one accepted.
+  function versionOption(
+    raw: unknown,
+    label: string,
+    variant: string | undefined,
+    ask: Pick<Ask, "scope" | "state">,
+    mock: Mock,
+    posts: Post[],
+  ): { variant: string; version: number } | string {
+    const version = Number(raw);
+    if (!Number.isInteger(version) || version < 1) {
+      return `option "${label}": version must be a positive integer`;
+    }
+    if (ask.scope === "part") {
+      return `option "${label}" names a version, which puts it in use: ask with scope "state" or "mock", not "part"`;
+    }
+    if (ask.state === undefined && mock.states.length > 1) {
+      return `option "${label}" names a version: give the ask a state (${mock.slug} has ${mock.states.map((x) => `"${x}"`).join(", ")})`;
+    }
+    const state = optionState(ask, mock);
+    const inState = posts.filter((p) => p.state === state);
+    const accepted = inState.filter((p) => p.status === "accepted");
+    const post = variant
+      ? inState.find((p) => p.variant === variant)
+      : inState.length === 1
+        ? inState[0]
+        : accepted.length === 1
+          ? accepted[0]
+          : undefined;
+    const where = state === null ? mock.slug : `"${state}"`;
+    if (!post) {
+      return variant
+        ? `option "${label}" names variant "${variant}", which ${where} does not have`
+        : `option "${label}" names version ${version} but ${where} has several variants (${inState.map((p) => p.variant).join(", ")}): name one`;
+    }
+    const hidden = new Set(post.hiddenVersions ?? []);
+    const visible = [post.version, ...post.history.map((h) => h.version)]
+      .filter((v) => !hidden.has(v))
+      .sort((a, b) => a - b);
+    if (!visible.includes(version)) {
+      return `option "${label}" names ${post.variant} v${version}${hidden.has(version) ? ", which is hidden" : ""}; ${post.variant} has ${visible.map((v) => `v${v}`).join(", ")}`;
+    }
+    return { variant: post.variant, version };
   }
 
   // Ask the user structured questions. An ask whose id matches an existing one
@@ -2345,7 +2399,7 @@ export function createApp({
   // siblings there; a part-scoped pick is a mix, not a verdict. The built-in
   // variant asks flip the same way, per state. Each accepted variant is put in
   // use at the version the reply was made on (`version`, a mock version), not
-  // whatever the agent published since.
+  // whatever the agent published since — or, for a version option, at its version.
   function replyFlips(
     mock: Mock,
     posts: Post[],
@@ -2356,11 +2410,20 @@ export function createApp({
     const accept = new Map<string, number>();
     const archive = new Set<string>();
     const drop = new Set<string>();
-    const settle = (inState: Post[], chosen: Set<string>) => {
+    const settle = (inState: Post[], chosen: Set<string>, pins?: Map<string, number>) => {
       if (!inState.some((p) => chosen.has(p.variant))) return;
       for (const p of inState) {
-        if (chosen.has(p.variant)) accept.set(p.id, versionAt(p, version));
-        else if (isLive(p.status)) archive.add(p.id);
+        if (!chosen.has(p.variant)) {
+          if (isLive(p.status)) archive.add(p.id);
+          continue;
+        }
+        const pin = pins?.get(p.variant);
+        // A version option outranks a looser pick of the same variant (the
+        // built-in Which one?, a Look) in the same reply.
+        if (pin === undefined && accept.has(p.id)) continue;
+        // A pinned version history retention has since dropped falls back to
+        // what the stage showed, rather than pinning one nothing can render.
+        accept.set(p.id, pin !== undefined && postAtVersion(p, pin) ? pin : versionAt(p, version));
       }
     };
     const builtins = Object.keys(answers)
@@ -2370,9 +2433,17 @@ export function createApp({
       const answer = answers[ask.id];
       if (answer === undefined || ask.scope === "part") continue;
       const ids = Array.isArray(answer) ? answer : [answer];
-      const chosen = new Set(
-        ask.options.filter((o) => ids.includes(o.id) && o.variant).map((o) => o.variant!),
-      );
+      const picked = ask.options.filter((o) => ids.includes(o.id) && o.variant);
+      const pinned = picked.filter((o) => o.version !== undefined);
+      if (pinned.length) {
+        const state = optionState(ask, mock);
+        settle(
+          posts.filter((p) => p.state === state),
+          new Set(pinned.map((o) => o.variant!)),
+          new Map(pinned.map((o) => [o.variant!, o.version!])),
+        );
+      }
+      const chosen = new Set(picked.filter((o) => o.version === undefined).map((o) => o.variant!));
       if (chosen.size === 0) continue;
       const states =
         ask.scope === "state" ? [ask.state ?? null] : mock.states.length ? mock.states : [null];

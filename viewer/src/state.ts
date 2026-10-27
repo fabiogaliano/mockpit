@@ -11,6 +11,7 @@ import {
   askAnswered,
   type KnobValue,
   MAX_ASK_IMAGES,
+  optionState,
   type PartCommentAnchor,
   type Reaction,
   type ReplyDecision,
@@ -103,6 +104,8 @@ export interface Stop {
 export interface Preview {
   key: string;
   variant?: string;
+  // A version option: exactly that version of the variant.
+  version?: number;
   state?: string | null;
   knobs?: Record<string, KnobValue>;
   // A Mix borrow: the part outlined on the donor look while it previews.
@@ -288,6 +291,21 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
 
   const inState = (state: string | null) => variants().filter((v) => v.state === state);
 
+  // The exact version a drafted answer picked on a state, when its option
+  // names one. Drafted only: once sent, it is the version in use.
+  function pickedVersion(state: string | null): VersionRef | null {
+    const m = mock();
+    const d = draft();
+    if (!m || !d) return null;
+    for (const a of asks()) {
+      if (a.scope === "part" || optionState(a, m) !== state) continue;
+      const ids = answerIds(d.answers[a.id]);
+      const o = a.options.find((x) => ids.includes(x.id) && x.variant && x.version);
+      if (o) return { variant: o.variant!, version: o.version! };
+    }
+    return null;
+  }
+
   // The variant on stage for a state: a hovered option, the drafted look, the
   // version the user stepped to, the accepted one, else the first still open.
   function variantFor(state: string | null, withPreview = true) {
@@ -298,6 +316,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     return (
       (p && (p.state === undefined || p.state === state) ? named(p.variant) : undefined) ??
       named(shown()[String(state)]?.variant) ??
+      named(pickedVersion(state)?.variant) ??
       named(lookPick()) ??
       named(chosenVariant()[String(state)]) ??
       list.find((v) => v.status === "accepted") ??
@@ -310,11 +329,18 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     const u = mock()?.inUse.find((x) => x.state === state);
     return u ? { variant: u.variant, version: u.version } : null;
   };
-  // The version of a variant the stage shows: the one stepped to, else the one
-  // in use, else the newest at the stage's mock version that isn't hidden.
+  // The version of a variant the stage shows: the one stepped to, else a
+  // version option previewed or picked, else the one in use, else the newest
+  // at the stage's mock version that isn't hidden.
   function versionOf(v: VariantView): number {
     const pick = shown()[String(v.state)];
     if (pick?.variant === v.variant) return pick.version;
+    const p = preview();
+    if (p?.version && p.variant === v.variant && (p.state === undefined || p.state === v.state)) {
+      return p.version;
+    }
+    const picked = pickedVersion(v.state);
+    if (picked?.variant === v.variant) return picked.version;
     const use = inUseOf(v.state);
     if (use?.variant === v.variant) return use.version;
     const n = frameVersion(v, stageVersion());
@@ -1301,6 +1327,9 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     const o = ask.options.find((x) => x.id === optionId);
     if (!m || !o) return null;
     const key = optionKey(ask, o.id);
+    if (o.variant && o.version) {
+      return { key, variant: o.variant, version: o.version, state: optionState(ask, m) };
+    }
     if (o.variant) return { key, variant: o.variant, state: askState(ask, m, activeState()) };
     return o.set ? { key, knobs: o.set } : null;
   }

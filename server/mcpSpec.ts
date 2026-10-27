@@ -99,6 +99,7 @@ const askSchema = z.object({
       id: z.string().optional(),
       label: z.string(),
       variant: z.string().optional().describe("Bind to a published variant"),
+      version: z.number().int().optional().describe("And one version of it"),
       set: z.record(z.string(), z.unknown()).optional().describe("Or to knob values {path: value}"),
     }),
   ),

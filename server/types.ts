@@ -349,11 +349,20 @@ export interface AskOption {
   label: string;
   // Picking this option means "this look": the variant it names is accepted.
   variant?: string;
+  // With a variant: "this exact version of it" — accepted pinned there, not at
+  // the version the reply was made on. Its state is `optionState`.
+  version?: number;
   // Picking this option means "these knob values".
   set?: Record<string, KnobValue>;
 }
 
 export type AskAnswer = string | string[];
+
+// The state a version option names a version in: the ask's state, else the
+// mock's first (`ask` accepts version options without a state only while the
+// mock has one).
+export const optionState = (ask: Pick<Ask, "state">, mock: { states: string[] }): string | null =>
+  ask.state ?? mock.states[0] ?? null;
 
 // A structured question from the agent. `scope` says what it decides: the whole
 // mock, one state, or one part.

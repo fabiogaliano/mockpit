@@ -69,7 +69,10 @@ Send.
 An option binds to one of:
 
 - a `variant`: picking it accepts that variant and archives its siblings in
-  that state.
+  that state. Add `version` to offer one version of it (`"version": 2`, CLI
+  `--option Before=quiet@2`): two options can be two versions of one variant,
+  and the picked one is put in use. It needs the ask's `state` when the mock
+  has several.
 - a knob `set`: picking it applies those values live.
 - nothing: a plain pill.
 

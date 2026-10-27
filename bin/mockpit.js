@@ -81,7 +81,7 @@ verbs:
   mockpit ask --mock <slug> "<question>" --option <label[=variant]> ...
                                           ask the user; bind options to variants
       --option <l[=v]>  an option (repeatable); "=variant" binds it to a variant,
-                        "=knob:path=value" sets one knob
+                        "=variant@3" to its version 3, "=knob:path=value" sets one knob
       --scope <s>       mock|state|part (default mock)
       --state <label>   the state a state-scoped ask is about
       --part <name>     the part a part-scoped ask is about
@@ -1029,6 +1029,7 @@ async function publishMock() {
 }
 
 // "Quiet" is an unbound option; "Quiet=quiet" binds it to the quiet variant;
+// "Before=quiet@2" to its version 2 ("=@2" names the state's only variant);
 // "Above=knob:trim.position=top" sets one knob. The value is JSON when it
 // parses (17, true), else a string, so slider and toggle values keep their type.
 function parseOption(raw) {
@@ -1047,7 +1048,11 @@ function parseOption(raw) {
   }
   const at = raw.lastIndexOf("=");
   if (at <= 0) return { label: raw };
-  return { label: raw.slice(0, at), variant: raw.slice(at + 1) };
+  const label = raw.slice(0, at);
+  const bound = raw.slice(at + 1);
+  const pin = /^(.*)@(\d+)$/.exec(bound);
+  if (!pin) return { label, variant: bound };
+  return { label, ...(pin[1] ? { variant: pin[1] } : {}), version: Number(pin[2]) };
 }
 
 // One feedback batch, one line — for a background monitor's notifications.
