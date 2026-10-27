@@ -38,6 +38,8 @@ const field = {
   prompt: "What prompted this version; usually omit",
   note: "What this variant is; shown beside it, never in the html",
   widths: "Widths it ships at, side by side: [390,1280]",
+  flow: "Flow this screen is a step of; alone, only places it",
+  step: "1-based place; 0 removes",
   kits: `Opt-in bundles: ${KIT_IDS.join("|")}`,
 } as const;
 
@@ -183,6 +185,8 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       prompt: { t: "string", d: field.prompt },
       note: { t: "string", d: field.note },
       widths: { t: "integers", d: field.widths },
+      flow: { t: "string", d: field.flow },
+      step: { t: "integer", d: field.step },
       session: P.session,
       sessionTitle: { t: "string", d: field.sessionTitle },
       agent: { t: "string", d: field.agent },
@@ -204,7 +208,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "read",
     description:
-      "Without mock: every mock (slug, states, variants, open asks) plus pending. With mock: its states, variants, asks with answers, parts, knobs and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
+      "Without mock: every mock (slug, states, variants, open asks), flows, plus pending. With mock: its states, variants, asks with answers, parts, knobs and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
     params: {
       mock: { t: "string", d: field.mock },
       project: P.project,
@@ -298,6 +302,7 @@ const bag = z.record(z.string(), z.unknown());
 const variantRef = o({ state: nullStr, variant: str });
 const inUseRef = o({ state: nullStr, variant: str, version: num });
 const partsByState = z.array(o({ state: nullStr, parts: z.array(o({ name: str })) }));
+const flowSchema = o({ name: str, steps: z.array(o({ mock: str, state: nullStr })) });
 
 const feedbackSchema = o({
   mock: nullStr,
@@ -347,6 +352,7 @@ const writeOutput = {
   partChanges: o({ vanished: strs, renamed: z.array(o({ from: str, to: str })) }).optional(),
   nudges: strs.optional(),
   suggestedAsk: bag.optional().describe("Send with ask when a nudge names it"),
+  flow: flowSchema.optional(),
   feedback: feedbackRide,
 };
 
@@ -406,6 +412,7 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
     knobs: bag.optional(),
     settled: bag.optional().describe("Every knob value the user has sent, later replies winning"),
     tree: z.array(bag).optional(),
+    flows: z.array(flowSchema).optional(),
     pending: z.union([z.array(pendingSchema), pendingSchema]),
   },
   export: {

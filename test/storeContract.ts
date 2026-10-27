@@ -1047,6 +1047,42 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     assert.equal(await store.setVersionHidden("missing", 1, true), null);
   });
 
+  contract("flows place, move and remove screens; a screen may be in two", async (store) => {
+    const steps = async (name: string) =>
+      (await store.listFlows("demo")).find((f) => f.name === name)?.steps;
+    const home = { mock: "home", state: "rest" };
+    const run = { mock: "home", state: "running" };
+    const food = { mock: "food", state: null };
+    assert.deepEqual((await store.placeFlowStep("demo", "Morning", home, 1))?.steps, [home]);
+    await store.placeFlowStep("demo", "Morning", food, 9);
+    await store.placeFlowStep("demo", "Morning", run, 2);
+    assert.deepEqual(await steps("Morning"), [home, run, food], "9 clamps to the end");
+    await store.placeFlowStep("demo", "Morning", food, 1);
+    assert.deepEqual(await steps("Morning"), [food, home, run], "moving keeps one copy");
+    await store.placeFlowStep("demo", "Evening", home, 1);
+    assert.deepEqual(
+      (await store.listFlows("demo")).map((f) => [f.name, f.steps.length]),
+      [
+        ["Morning", 3],
+        ["Evening", 1],
+      ],
+      "declared order; the same screen in both",
+    );
+    assert.deepEqual(await store.listFlows("other"), []);
+    await store.placeFlowStep("demo", "Morning", home, 0);
+    assert.deepEqual(await steps("Morning"), [food, run]);
+    assert.equal(await store.placeFlowStep("demo", "Evening", home, 0), null, "emptied: gone");
+    assert.equal(await store.placeFlowStep("demo", "Night", home, 0), null, "nothing to remove");
+    assert.deepEqual(
+      (await store.listFlows("demo")).map((f) => f.name),
+      ["Morning"],
+    );
+    // Removing a mock takes its screens out of every flow.
+    const mock = await store.createMock({ project: "demo", slug: "food" });
+    await store.removeMock(mock.id);
+    assert.deepEqual(await steps("Morning"), [run]);
+  });
+
   contract("a draft round-trips and clears", async (store) => {
     const mock = await store.createMock({ project: "demo", slug: "writer" });
     const draft: Draft = {

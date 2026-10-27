@@ -123,7 +123,10 @@ import {
   reservedAgent,
   type Session,
   type Embed,
+  type Flow,
+  type FlowStep,
   type ForkRef,
+  sameScreen,
   slugify,
   type Store,
   type Surface,
@@ -396,6 +399,8 @@ const str = (v: unknown, max: number): string | undefined =>
   typeof v === "string" && v.trim() ? v.trim().slice(0, max) : undefined;
 
 const MAX_LABEL = 120;
+const MAX_FLOWS = 50;
+const MAX_FLOW_STEPS = 100;
 const MAX_ASKS = 20;
 const MAX_OPTIONS = 20;
 const MAX_DRAFT_COMMENTS = 50;
@@ -1215,6 +1220,7 @@ export function createApp({
       nudges?: string[];
       status?: number;
       writer?: Session | null;
+      flow?: { name: string; steps: FlowStep[] };
     } = {},
   ): Promise<FlowResult> {
     const posts = await store.listPosts({ mockId: mock.id });
@@ -1279,6 +1285,7 @@ export function createApp({
         ...(unbound ? { suggestedAsk: unbound.ask } : {}),
         ...(slotAsks.length ? { suggestedSlotAsks: slotAsks } : {}),
         ...(warnings.length ? { warnings } : {}),
+        ...(extra.flow ? { flow: extra.flow } : {}),
         feedback,
       },
       extra.status ?? 200,
@@ -1317,7 +1324,11 @@ export function createApp({
     const given = ["html", "surfaces", "parts", "fills"].filter((k) => body[k] !== undefined);
     const forkIn = forkArg(body.fork);
     if (isResult(forkIn)) return forkIn;
-    if (given.length === 0 && !forkIn) {
+    const flowIn = flowArg(body);
+    if (isResult(flowIn)) return flowIn;
+    // `flow` alone places an existing screen in a flow without a new version.
+    const flowOnly = given.length === 0 && !forkIn && !!flowIn;
+    if (given.length === 0 && !forkIn && !flowIn) {
       return fail(400, 'provide "html", "surfaces", "parts" or "fills" (or "fork" alone)');
     }
     if (given.length > 1) {
@@ -1388,6 +1399,7 @@ export function createApp({
       if (inState.length === 0) variant = DEFAULT_VARIANT;
       else if (inState.length === 1) variant = inState[0].variant;
       else if (live.length === 1) variant = live[0].variant;
+      else if (flowOnly) variant = (live[0] ?? inState[0]).variant;
       else {
         return fail(400, `${slug} has several variants; pass variant`, {
           variants: inState.map(variantLabel),
@@ -1399,6 +1411,23 @@ export function createApp({
       fail(404, `${slug} has no variant "${variant}"${state === null ? "" : ` in "${state}"`}`, {
         variants: posts.map(variantLabel),
       });
+    const screen: FlowStep = { mock: slug, state };
+    if (flowIn) {
+      const full = await flowFull(project, flowIn.name, screen, flowIn.step);
+      if (full) return full;
+    }
+    if (flowOnly) {
+      if (!mock || inState.length === 0) {
+        return fail(
+          404,
+          `${slug} has no ${state === null ? "design" : `state "${state}"`} yet: publish it with "flow" to place it`,
+        );
+      }
+      if (!target) return missing();
+      const flow = await placeFlow(project, flowIn!.name, screen, flowIn!.step);
+      bus.broadcast({ type: "mock-updated", id: mock.id, project });
+      return writeResult(mock, target, ctx, { writer: session, flow });
+    }
     // A fork starts a new variant from a sibling's version: that version's
     // surfaces are what `parts`, `fills` and kept surface ids refer to.
     let fork: { ref: ForkRef; surfaces: Surface[]; knobs?: Knobs; note?: string } | null = null;
@@ -1513,9 +1542,10 @@ export function createApp({
         widths,
         session,
       });
+      const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
       announcePost(mock, created, true);
       if (prompt && ctx.request) notifyPublish(mock, created, prompt, ctx);
-      return writeResult(mock, created, ctx, { nudges, status: 201 });
+      return writeResult(mock, created, ctx, { nudges, status: 201, flow });
     }
 
     if (!mock) return missing();
@@ -1533,6 +1563,7 @@ export function createApp({
       author,
     });
     if (!updated) return fail(404, "variant not found");
+    const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
     mock = await updateMockAfterWrite(mock, { state, kind, knobs: knobs.value, widths, session });
     announcePost(mock, updated, false);
     if (prompt && ctx.request) notifyPublish(mock, updated, prompt, ctx);
@@ -1541,7 +1572,79 @@ export function createApp({
       applied,
       nudges,
       writer: session,
+      flow,
     });
+  }
+
+  // `flow` names a flow; `step` is the 1-based place of this screen in it
+  // (moving it if it is there already), 0 takes the screen out, and without
+  // `step` a screen not yet in the flow joins at its end.
+  function flowArg(body: any): { name: string; step?: number } | FlowResult | undefined {
+    const stepIn = body.step;
+    if (body.flow === undefined || body.flow === null) {
+      return stepIn === undefined || stepIn === null
+        ? undefined
+        : fail(400, '"step" needs "flow": the flow\'s name, e.g. "Morning"');
+    }
+    const name = str(body.flow, MAX_LABEL);
+    if (!name) return fail(400, '"flow" must be the flow\'s name, e.g. "Morning"');
+    if (stepIn === undefined || stepIn === null) return { name };
+    const step = Number(stepIn);
+    if (!Number.isInteger(step) || step < 0) {
+      return fail(400, '"step" must be the 1-based place in the flow, or 0 to take it out');
+    }
+    return { name, step };
+  }
+
+  // Checked before anything is written, so a full flow leaves no new version behind.
+  async function flowFull(
+    project: string,
+    name: string,
+    screen: FlowStep,
+    step: number | undefined,
+  ): Promise<FlowResult | null> {
+    if (step === 0) return null;
+    const flows = await store.listFlows(project);
+    const flow = flows.find((f) => f.name === name);
+    if (!flow && flows.length >= MAX_FLOWS) {
+      return fail(400, `${project} already has ${MAX_FLOWS} flows; reuse one`);
+    }
+    if (
+      flow &&
+      flow.steps.length >= MAX_FLOW_STEPS &&
+      !flow.steps.some((x) => sameScreen(x, screen))
+    ) {
+      return fail(400, `flow "${name}" already has ${MAX_FLOW_STEPS} steps`);
+    }
+    return null;
+  }
+
+  async function placeFlow(
+    project: string,
+    name: string,
+    screen: FlowStep,
+    step: number | undefined,
+  ): Promise<{ name: string; steps: FlowStep[] }> {
+    let at = step;
+    if (at === undefined) {
+      const flow = (await store.listFlows(project)).find((f) => f.name === name);
+      const i = flow ? flow.steps.findIndex((x) => sameScreen(x, screen)) : -1;
+      at = i >= 0 ? i + 1 : MAX_FLOW_STEPS + 1;
+    }
+    const flow = await store.placeFlowStep(project, name, screen, at);
+    return { name, steps: flow?.steps ?? [] };
+  }
+
+  // The project's flows as `read` returns them: only steps whose screen exists.
+  async function flowsView(project: string, mocks: Mock[]) {
+    const bySlug = new Map(mocks.map((m) => [m.slug, m]));
+    const exists = (x: FlowStep) => {
+      const m = bySlug.get(x.mock);
+      return !!m && (x.state === null ? m.states.length === 0 : m.states.includes(x.state));
+    };
+    return (await store.listFlows(project))
+      .map((f: Flow) => ({ name: f.name, steps: f.steps.filter(exists) }))
+      .filter((f) => f.steps.length > 0);
   }
 
   // `fork`: "variant" or "variant@N", the sibling version a new variant starts
@@ -1650,7 +1753,7 @@ export function createApp({
     }
     const open = rows.reduce((n, r) => n + r.open, 0);
     return ok({
-      ...(project ? { project } : {}),
+      ...(project ? { project, flows: await flowsView(project, mocks) } : {}),
       mocks: rows,
       open,
       openMocks: rows.filter((r) => r.open > 0).length,
@@ -1691,7 +1794,7 @@ export function createApp({
       n.uses = n.uses.filter((s) => bySlug.has(s));
       for (const s of n.uses) bySlug.get(s)!.usedIn.push(n.slug);
     }
-    return ok({ project, tree: nodes, pending });
+    return ok({ project, tree: nodes, flows: await flowsView(project, mocks), pending });
   }
 
   async function replyPayloads(mockId: string): Promise<Reply[]> {

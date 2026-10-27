@@ -39,12 +39,12 @@ type Feedback = {
 type Pending = { mock: string; viewerOpen: boolean; draft: null | { answered: number; of: number; comments: number; touchedAt: string } };
 declare const mockpit: {
   guide(topic?: "knobs" | "asks" | "surfaces" | "html" | "feedback" | "http" | "scripts"): Promise<string>;
-  /** No mock: every mock plus pending. With one: its states, variants, asks, parts, knobs. */
+  /** No mock: every mock, the flows, plus pending. With one: its states, variants, asks, parts, knobs. */
   read(mock?: string, opts?: { body?: boolean; history?: boolean }): Promise<unknown>;
   /** Creates or versions (mock, state, variant). One of: html; surfaces, the full ordered list
    * ({id} alone keeps that surface, a missing id is removed); parts {"name"|"name#key": outer html};
    * fills {"part#fill": outer html}, replacing or adding one alternative of a slot. */
-  publish(v: Ref & { title?: string; kind?: "component" | "page"; html?: string; surfaces?: (Surface | { id: string })[]; parts?: Record<string, string>; fills?: Record<string, string>; knobs?: Knobs; variantKnobs?: Knobs; from?: number; prompt?: string; note?: string; widths?: number[] }): Promise<Written>;
+  publish(v: Ref & { title?: string; kind?: "component" | "page"; html?: string; surfaces?: (Surface | { id: string })[]; parts?: Record<string, string>; fills?: Record<string, string>; knobs?: Knobs; variantKnobs?: Knobs; from?: number; prompt?: string; note?: string; widths?: number[]; flow?: string; step?: number }): Promise<Written>;
   ask(mock: string, asks: Ask[]): Promise<{ asks: { id: string; text: string }[]; url: string; nudges?: string[] }>;
   /** Never waits: what the user sent since you last heard, and what they are doing now. */
   feedback(): Promise<{ feedback: Feedback[]; pending: Pending[] }>;

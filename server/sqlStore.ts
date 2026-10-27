@@ -31,9 +31,12 @@ import {
   projectFromCwd,
   type Reply,
   reservedAgent,
+  sameScreen,
   selectEvictions,
   type Session,
   type Embed,
+  type Flow,
+  type FlowStep,
   type ForkRef,
   slugify,
   type SqlStorage,
@@ -153,6 +156,11 @@ export class SqlStore implements Store {
       );
       CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY, value TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS flows (
+        project TEXT NOT NULL, name TEXT NOT NULL, steps TEXT NOT NULL DEFAULT '[]',
+        createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL,
+        PRIMARY KEY (project, name)
       );
     `);
     this.addMissing("sessions", {
@@ -886,7 +894,8 @@ export class SqlStore implements Store {
   }
 
   async removeMock(id: string) {
-    if (!(await this.getMock(id))) return false;
+    const mock = await this.getMock(id);
+    if (!mock) return false;
     this.atomic(() => {
       this.sql.exec("DELETE FROM comments WHERE mockId = ?", id);
       this.sql.exec(
@@ -895,9 +904,69 @@ export class SqlStore implements Store {
       );
       this.sql.exec("DELETE FROM posts WHERE mockId = ?", id);
       this.sql.exec("DELETE FROM mocks WHERE id = ?", id);
+      for (const flow of this.flowsOf(mock.project)) {
+        const steps = flow.steps.filter((x) => x.mock !== mock.slug);
+        if (steps.length !== flow.steps.length) this.writeFlow(flow, steps);
+      }
     });
     this.invalidateAssetRefs();
     return true;
+  }
+
+  // --- flows ---
+
+  private flowsOf(project: string): Flow[] {
+    return this.sql
+      .exec("SELECT * FROM flows WHERE project = ? ORDER BY createdAt, rowid", project)
+      .toArray()
+      .map((r) => ({
+        project: r.project as string,
+        name: r.name as string,
+        steps: parseJson<FlowStep[]>(r.steps, []),
+        createdAt: r.createdAt as string,
+        updatedAt: r.updatedAt as string,
+      }));
+  }
+
+  // An emptied flow is deleted rather than kept as a name with nothing to walk.
+  private writeFlow(flow: Flow, steps: FlowStep[]): Flow | null {
+    if (steps.length === 0) {
+      this.sql.exec("DELETE FROM flows WHERE project = ? AND name = ?", flow.project, flow.name);
+      return null;
+    }
+    const next = { ...flow, steps, updatedAt: new Date().toISOString() };
+    this.sql.exec(
+      "INSERT INTO flows (project, name, steps, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project, name) DO UPDATE SET steps = excluded.steps, updatedAt = excluded.updatedAt",
+      next.project,
+      next.name,
+      JSON.stringify(next.steps),
+      next.createdAt,
+      next.updatedAt,
+    );
+    return next;
+  }
+
+  async listFlows(project: string) {
+    return this.flowsOf(project);
+  }
+
+  async placeFlowStep(project: string, name: string, screen: FlowStep, step: number) {
+    const clean = { mock: stripNul(screen.mock), state: stripNul(screen.state) };
+    const label = stripNul(name);
+    return this.atomic(() => {
+      const now = new Date().toISOString();
+      const flow = this.flowsOf(project).find((f) => f.name === label) ?? {
+        project,
+        name: label,
+        steps: [],
+        createdAt: now,
+        updatedAt: now,
+      };
+      const steps = flow.steps.filter((x) => !sameScreen(x, clean));
+      if (step > 0) steps.splice(Math.min(step, steps.length + 1) - 1, 0, clean);
+      if (steps.length === 0 && flow.steps.length === 0) return null;
+      return this.writeFlow(flow, steps);
+    });
   }
 
   async putDraft(mockId: string, draft: Draft | null) {

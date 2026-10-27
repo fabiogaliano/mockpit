@@ -283,6 +283,8 @@ Say what a variant is in \`--note "System font, thin bars; feels like a tool"\`;
 the viewer shows it on the variant and its option. Name the widths the user
 ships to once, \`--widths 390,1280\`, and the design is shown at each, side by
 side; without them the viewer picks one for the screen it is on.
+Screens the user moves between, even across mocks, are a flow: publish each
+with \`--flow Morning --step 2\` (\`--step 0\` takes it out); the viewer walks it.
 
 ## Build from components
 

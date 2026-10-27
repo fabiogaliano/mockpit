@@ -321,3 +321,16 @@ test("a workspace from before hiding opens with no version hidden", async () => 
   assert.equal((await reopened.getPost(p.id))?.hiddenVersions, undefined);
   assert.deepEqual((await reopened.setVersionHidden(p.id, 1, true))?.hiddenVersions, [1]);
 });
+
+test("a workspace from before flows opens with none and can declare one", async () => {
+  const path = tmpDb();
+  const store = new SqlStore(createSqliteStorage(path));
+  await store.createMock({ project: "demo", slug: "home", states: ["rest"] });
+  // The schema the previous release left: no flows table.
+  createSqliteStorage(path).exec("DROP TABLE flows");
+  const reopened = new SqlStore(createSqliteStorage(path));
+  assert.deepEqual(await reopened.listFlows("demo"), []);
+  const flow = await reopened.placeFlowStep("demo", "Morning", { mock: "home", state: "rest" }, 1);
+  assert.deepEqual(flow?.steps, [{ mock: "home", state: "rest" }]);
+  assert.equal((await reopened.findMock("demo", "home"))?.states[0], "rest");
+});

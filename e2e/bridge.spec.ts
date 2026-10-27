@@ -430,3 +430,68 @@ test("knobs: ?k= is baked on load, the knobs command applies live, invalid value
   expect(live.events.at(-1)).toEqual({ size: 14, face: "serif", label: "Draft <4>" });
   expect(live.events.at(-2)).toEqual(live.events.at(-1));
 });
+
+test("goto: a [data-goto] click reports only while the host has Try on", async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 640 });
+  const server = await boot(page);
+  const out = await api(server, "/api/mocks", {
+    project: "e2e",
+    mock: "home",
+    state: "rest",
+    html: `<main><button id="go" data-goto="food:Lunch">Log lunch</button>
+      <a id="ext" data-goto="next" href="https://example.com/">Next</a>
+      <p id="plain">plain</p></main>`,
+  });
+  await page.goto(`${server}${HOST_PATH}/blank.html`);
+  await page.evaluate((url) => {
+    document.body.textContent = "";
+    (window as any).__got = [];
+    window.addEventListener("message", (e) => {
+      const d = e.data;
+      if (d?.__mockpit === true && (d.type === "goto" || d.type === "open-link")) {
+        (window as any).__got.push({ type: d.type, to: d.to ?? d.url, version: d.version });
+      }
+    });
+    const f = document.createElement("iframe");
+    f.setAttribute("sandbox", "allow-scripts");
+    f.width = "820";
+    f.height = "400";
+    f.src = url;
+    document.body.appendChild(f);
+  }, `${server}/s/${out.post.id}?surface=0&ver=1&mode=light`);
+  await expect.poll(() => page.frames().length).toBe(2);
+  const frame = page.frames()[1];
+  await frame.waitForSelector("#go");
+  const got = () => page.evaluate(() => (window as any).__got);
+  const tryOn = (on: boolean) =>
+    page.evaluate((on) => {
+      document
+        .querySelector("iframe")!
+        .contentWindow!.postMessage({ __mockpit: true, type: "try", on }, "*");
+    }, on);
+  const outline = () =>
+    frame.evaluate(() => getComputedStyle(document.getElementById("go")!).outlineStyle);
+
+  // Off: a click is the page's own, and nothing is outlined.
+  await frame.click("#go");
+  await sleep(200);
+  expect(await got()).toEqual([]);
+  expect(await outline()).toBe("none");
+
+  await tryOn(true);
+  await expect.poll(outline).toBe("dashed");
+  await frame.click("#go");
+  await frame.click("#plain");
+  // A marked link moves through the flow; it never opens its href.
+  await frame.click("#ext");
+  await expect.poll(got).toEqual([
+    { type: "goto", to: "food:Lunch", version: 1 },
+    { type: "goto", to: "next", version: 1 },
+  ]);
+
+  await tryOn(false);
+  await expect.poll(outline).toBe("none");
+  await frame.click("#go");
+  await sleep(200);
+  expect((await got()).length).toBe(2);
+});

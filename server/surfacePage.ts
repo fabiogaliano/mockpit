@@ -394,6 +394,14 @@ export const HIT_TEST_JS = `
 //       50/150/400/1000ms timers, and on any layout-affecting change; never
 //       twice in a row with identical content.
 //   hit              {ref, part, key}            reply to hit; part = name|null
+//   goto             {version, to}               a click on [data-goto] while the host
+//                                                has Try on (PARTS_JS); to is the
+//                                                attribute as written ("next", "prev",
+//                                                "<mock>:<state>"), ≤200 chars. The host
+//                                                honours it only while Try is on, from
+//                                                the frame on stage at its version, and
+//                                                only to a screen of this project:
+//                                                never a URL
 //   tap              {x, y}                      a finger's tap in document px (PARTS_JS);
 //                                                a drag never reports
 //   ready            {version}                   the knob runtime is listening (KNOBS_JS,
@@ -416,6 +424,9 @@ export const HIT_TEST_JS = `
 //                               overlay, forwarded)
 //   knobs      {values}         {path: value}, merged into the current values
 //                               and applied exactly like the `?k=` preamble
+//   try        {on}             Try is on or off: while on, [data-goto] elements are
+//                               outlined and a click on one reports goto instead
+//                               of reaching the page; a new document starts off
 //
 // Knobs (`/s/:id?k=`, validated by the route against the mock's declared knobs,
 // and the `knobs` command): for each path, dots become "-" in names, and
@@ -588,6 +599,29 @@ export const PARTS_JS = `
     mo.takeRecords();
   }
 
+  // Try: the host lets the user click through the design; an element marked
+  // data-goto moves them to another screen. Only the host knows what that
+  // names, so the frame just reports it, and the click goes no further.
+  var trying = false;
+  function setTrying(on) {
+    trying = on;
+    document.documentElement.classList.toggle('mockpit-try', on);
+    mo.takeRecords();
+  }
+  window.addEventListener('click', function (e) {
+    if (!trying) return;
+    var t = e.target && e.target.closest ? e.target.closest('[data-goto]') : null;
+    if (!t) return;
+    e.preventDefault();
+    e.stopPropagation();
+    parent.postMessage({
+      __mockpit: true,
+      type: 'goto',
+      version: version,
+      to: text(t.getAttribute('data-goto')),
+    }, '*');
+  }, true);
+
   // A finger's tap, in document px, for a host that lets touches through to the
   // page (its canvas, where the page scrolls natively). A drag is a scroll: the
   // browser cancels the pointer or it moves too far. A mouse clicks the host's
@@ -655,6 +689,7 @@ export const PARTS_JS = `
     if (!d || d.__mockpit !== true) return;
     if (d.type === 'highlight') setHighlight(Array.isArray(d.parts) ? d.parts : []);
     else if (d.type === 'clear') setHighlight(null);
+    else if (d.type === 'try') setTrying(d.on === true);
     else if (d.type === 'scroll') window.scrollBy(Number(d.dx) || 0, Number(d.dy) || 0);
     else if (d.type === 'hit') {
       var el = document.elementFromPoint(
@@ -822,7 +857,7 @@ export function knobAttributes(knobs: Record<string, unknown> | undefined): {
 
 // Our own highlight, shipped in the base stylesheet so turning it on is a class
 // flip rather than a DOM insertion the parts observer would report.
-const PART_HIGHLIGHT_CSS = `.mockpit-part-hl{outline:2px solid #8b7bff !important;outline-offset:2px}`;
+const PART_HIGHLIGHT_CSS = `.mockpit-part-hl{outline:2px solid #8b7bff !important;outline-offset:2px}html.mockpit-try [data-goto]{outline:2px dashed #3fb27f !important;outline-offset:3px;cursor:pointer}`;
 
 // Tailwind's browser build, pinned to a major (jsdelivr is already on the CDN
 // allowlist, so this needs no CSP widening). Injected only when a project's

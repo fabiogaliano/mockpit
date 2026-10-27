@@ -560,6 +560,22 @@ export interface Post {
   author?: string;
 }
 
+// A screen is one state of one mock, by slug (state null for a single-state
+// mock). A flow is the screens the user moves between, in order; the same
+// screen may be a step of several flows.
+export interface FlowStep {
+  mock: string;
+  state: string | null;
+}
+export interface Flow {
+  project: string;
+  name: string;
+  steps: FlowStep[];
+  createdAt: string;
+  updatedAt: string;
+}
+export const sameScreen = (a: FlowStep, b: FlowStep) => a.mock === b.mock && a.state === b.state;
+
 export interface ProjectSummary {
   name: string;
   mocks: number;
@@ -882,8 +898,20 @@ export interface Store {
   findMock(project: string, slug: string): Promise<Mock | null>;
   createMock(input: CreateMockInput): Promise<Mock>;
   updateMock(id: string, patch: UpdateMockInput): Promise<Mock | null>;
-  // Cascades the mock's posts and comments.
+  // Cascades the mock's posts and comments, and takes its screens out of flows.
   removeMock(id: string): Promise<boolean>;
+
+  // One project's flows, in the order they were first declared.
+  listFlows(project: string): Promise<Flow[]>;
+  // Puts a screen at 1-based `step` of a flow (clamped to its end), creating
+  // the flow or moving the screen if it is already a step; step 0 takes it
+  // out. A flow left with no steps is gone: null.
+  placeFlowStep(
+    project: string,
+    name: string,
+    screen: FlowStep,
+    step: number,
+  ): Promise<Flow | null>;
   putDraft(mockId: string, draft: Draft | null): Promise<Mock | null>;
 
   // Oldest first.

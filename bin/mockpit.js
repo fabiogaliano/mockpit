@@ -71,6 +71,8 @@ verbs:
       --prompt <text>   what prompted this version
       --note <text>     one line on what this variant is, shown beside it
       --widths <list>   device widths to show it at, e.g. 390,1280
+      --flow <name> [--step <N>]  make this screen step N of a flow (0 takes
+                        it out); with no html it only places the screen
       --project <name>  project (default: git remote, else directory name)
       --kit <id>        opt the html surface into a kit (repeatable; see "mockpit kits")
       --md/--mermaid/--diff/--terminal/--data/--code/--image <file|->
@@ -183,6 +185,11 @@ mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
                      inside the design)
   --widths <list>    device widths the mock is judged at, side by side, e.g.
                      390,1280 (the ones the user ships to)
+  --flow <name>      a flow this screen is a step of: the screens the user moves
+                     between, in order, across mocks; without html it only
+                     places the existing screen
+  --step <N>         its 1-based place in the flow (moves it if it is there);
+                     0 takes it out; omitted, it joins at the end
   --project <name>   project (default: git remote, else directory name)
   --md/--mermaid/--diff/--terminal/--data/--code/--image <file>  more surfaces
   --json / --quiet
@@ -194,7 +201,7 @@ mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
   Ask the user. A choice is several variants plus one ask that binds them.
   Then tell the user where to look and end your turn.`,
   read: `mockpit read [slug] [--project <name>] [--body] [--history] [--tree]
-  No slug: one line per mock (states, variants, open asks) plus pending, what
+  No slug: one line per mock (states, variants, open asks), one per flow, plus pending, what
   the user is doing now. A slug: the mock's states, variants, asks with
   answers, parts, knobs and settled values, plus its pending, as JSON.
   --body includes surfaces, --history version rows. --tree (no slug): the
@@ -829,6 +836,7 @@ function printPublished(result, flags) {
     console.log(`parts${state ? ` (${state})` : ""}: ${parts.map((p) => p.name).join(", ")}`);
   }
   if (result.applied?.length) console.log(`applied: ${result.applied.join(", ")}`);
+  if (result.flow) console.log(flowLine(result.flow));
   const changes = result.partChanges;
   if (changes?.renamed?.length) {
     console.log(`renamed: ${changes.renamed.map((r) => `${r.from} → ${r.to}`).join(", ")}`);
@@ -839,6 +847,11 @@ function printPublished(result, flags) {
     console.log(`suggested: ${suggestedAskLine(mock.slug, result.suggestedAsk)}`);
   for (const warning of result.warnings ?? []) console.log(`warning: ${warning}`);
   printFeedback(result.feedback);
+}
+
+function flowLine(flow) {
+  const steps = flow.steps.map((x) => (x.state === null ? x.mock : `${x.mock}/${x.state}`));
+  return `flow ${flow.name}: ${steps.length ? steps.join(" → ") : "empty, removed"}`;
 }
 
 // Only speak when there IS feedback: an empty line per write is pure token
@@ -878,6 +891,8 @@ function parsePublishFlags() {
       prompt: { type: "string" },
       note: { type: "string" },
       widths: { type: "string" },
+      flow: { type: "string" },
+      step: { type: "string" },
       kit: { type: "string", multiple: true },
       layout: { type: "string" },
       md: { type: "string", multiple: true },
@@ -932,6 +947,13 @@ async function publishMock() {
   if (from !== undefined && !Number.isInteger(from)) {
     die(`--from must be a version number (got "${flags.from}")`, `mockpit read ${slug} --history`);
   }
+  const step = flags.step === undefined ? undefined : Number(flags.step);
+  if (step !== undefined && !(Number.isInteger(step) && step >= 0)) {
+    die(
+      `--step must be a place in the flow, 1 or more, or 0 (got "${flags.step}")`,
+      `mockpit read`,
+    );
+  }
   const file = flags.html ?? positionals[0];
   const composed =
     file !== undefined || tokens.some((t) => t.kind === "option" && SURFACE_FLAGS.has(t.name));
@@ -970,7 +992,7 @@ async function publishMock() {
     }
     surfaces.push(...(await surfacesFromFlags(flags, tokens, { session, layout: flags.layout })));
   }
-  if (!surfaces && !parts && !fills && !flags.fork)
+  if (!surfaces && !parts && !fills && !flags.fork && flags.flow === undefined)
     die(`no html for ${slug}`, `mockpit publish --mock ${slug} --html <file>`);
   const body = {
     session,
@@ -991,6 +1013,8 @@ async function publishMock() {
         .filter((w) => w.trim())
         .map((w) => Number(w)),
     }),
+    ...(flags.flow !== undefined && { flow: flags.flow }),
+    ...(step !== undefined && { step }),
     ...(surfaces && { surfaces }),
     ...(parts && { parts }),
     ...(fills && { fills }),
@@ -1509,6 +1533,7 @@ const commands = {
         `  ${m.slug} · ${m.kind} · ${states} · ${m.variants} variant${m.variants === 1 ? "" : "s"}${m.resolvedAt ? " · resolved" : m.open ? ` · ${m.open} open` : ""}`,
       );
     }
+    for (const flow of list.flows ?? []) console.log(`  ${flowLine(flow)}`);
     for (const line of pendingLines(list.pending)) console.log(line);
   },
   async export() {
