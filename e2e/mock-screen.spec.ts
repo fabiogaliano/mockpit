@@ -1,7 +1,8 @@
 import { expect, test } from "./fixtures.ts";
 
 // Smoke test of the mock screen: a 2-state mock in two looks with a Look ask and
-// a part ask — strip, picture options, draft write, Send, Thread, Home.
+// a part ask — flow bar, the question card's pictures, draft write, Send,
+// Thread, Home.
 
 const html = (state: string, look: string) => `<style>
 body{margin:0;font:16px system-ui;background:${look === "quiet" ? "#fbfaf7" : "#17181b"};color:${look === "quiet" ? "#222" : "#eee"}}
@@ -70,13 +71,15 @@ test("answer a mock's questions and send one reply", async ({ page, server }) =>
   const mockId = await seed(server.url);
   await page.goto(`${server.url}/project/e2e/card`);
 
-  await expect(page.locator(".strip > button")).toHaveCount(2);
-  await expect(page.locator(".qhd")).toContainText("Question 1 of");
-  const looks = page.locator('.opt:not([data-option="other"])');
+  // Two states: the flow bar steps between them.
+  await expect(page.locator(".flowbar .num")).toHaveText("1 of 2");
+  const card = page.locator(".qcard");
+  await expect(card.locator(".qt")).toHaveText("Which look?");
+  const looks = card.locator('.opt:not([data-option="other"])');
   await expect(looks).toHaveCount(2);
-  await expect(page.locator('.opt[data-option="other"]')).toHaveText("Other…");
-  await expect(page.locator(".opt .thumb iframe")).toHaveCount(2);
-  await expect(page.locator(".opt .thumb iframe").first()).toHaveAttribute(
+  await expect(card.locator('.opt[data-option="other"]')).toHaveText("Other…");
+  await expect(card.locator(".opt .thumb iframe")).toHaveCount(2);
+  await expect(card.locator(".opt .thumb iframe").first()).toHaveAttribute(
     "sandbox",
     "allow-scripts",
   );
@@ -88,31 +91,28 @@ test("answer a mock's questions and send one reply", async ({ page, server }) =>
   const written = await draftWrite;
   expect(written.ok()).toBe(true);
   expect((await written.json()).draft.answers).toEqual({ look: "quiet" });
+  await expect(looks.first()).toHaveAttribute("aria-pressed", "true");
 
-  // Hover devices move on to the next open question by themselves.
-  await expect(page.locator('.pin[data-question="1"]')).toHaveText("✓");
-  if (!(await page.evaluate(() => matchMedia("(hover: hover)").matches))) {
-    await page.getByRole("button", { name: "Next question" }).click();
-  }
-  await expect(page.locator(".nm")).toHaveText("Title");
-  await page.locator(".opt", { hasText: "Big" }).click();
-
-  // The last question (Mix, once a look is picked) carries Send.
-  const last = page.getByRole("button", { name: "Next question" });
-  while (await last.isEnabled()) await last.click();
-  const send = page.locator("button.send");
-  await expect(send).toBeVisible();
+  // Send moves on while a question is still owed, and sends after the last.
+  const send = card.locator(".qsend");
+  await expect(send).toHaveText("Next");
+  await send.click();
+  await expect(card.locator(".qt")).toHaveText("Title size?");
+  await card.locator(".opt", { hasText: "Big" }).click();
+  await expect(send).toHaveText("Send");
   const reply = page.waitForResponse(
     (r) => r.url().endsWith(`/api/mocks/${mockId}/reply`) && r.request().method() === "POST",
   );
   await send.click();
   expect((await reply).status()).toBe(201);
+  await expect(page.locator(".sentrow .pill")).toHaveText("Sent · Not seen yet");
 
+  await page.locator(".vlabel").click();
+  await page.getByRole("tab", { name: "Thread" }).click();
   const sent = page.locator(".trow.you");
   await expect(sent).toHaveCount(1);
   await expect(sent).toContainText("Sent · look quiet");
   await expect(sent.locator(".tdelivered")).toHaveText("✓Not seen yet");
-  await expect(page.locator(".top .pill")).toHaveText("Sent · Not seen yet");
 
   await page.goto(`${server.url}/project/e2e`);
   const row = page.locator(".home-row", { hasText: "Card" });
@@ -132,7 +132,7 @@ test("the agent's pending.viewerOpen follows the mock on screen", async ({ page,
   expect(await viewerOpen()).toBe(false);
 
   await row.click();
-  await expect(page.locator(".strip > button")).toHaveCount(2);
+  await expect(page.locator(".flowbar .num")).toHaveText("1 of 2");
   await expect.poll(viewerOpen).toBe(true);
 
   // Back to Home in the same tab: the feed stays up, but no longer names the mock.

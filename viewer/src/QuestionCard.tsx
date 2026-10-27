@@ -1,514 +1,157 @@
-// The questions over the canvas: a card that floats above the design instead
-// of a bottom sheet, so answering never means dragging a drawer open. Dragged
-// by its grip it follows the finger, the spots it can land on show as small
-// markers, and on release it glides into the one the finger is in (see
-// dock.ts). Carried to an edge, or minimised, it docks as a small handle on
-// that edge, saying only how many questions are open; a tap brings it back.
-// Tune and Thread, opened from the header's menu, take the card's place.
-// On a phone none of that: the card is a sheet fixed to the bottom, and a tap
-// or a swipe on its top folds it to one line so the page above can be read.
+// The agent's question, as one compact card floating above the bottom bar:
+// its words, the options in an even grid, and Send. A tap puts an option on
+// the stage as your pick; the same option again, or Send, moves on to the
+// next question still owed, or sends the reply when none is. × tucks it into
+// a tab on the canvas's edge, as does opening the history.
 
-import {
-  createEffect,
-  createSignal,
-  For,
-  Match,
-  on,
-  onCleanup,
-  onMount,
-  Show,
-  Switch,
-} from "solid-js";
-import {
-  type Area,
-  cardWidth,
-  type CardPlace,
-  DOCK_EDGE,
-  dockAt,
-  dockFor,
-  edgeDistance,
-  handleRect,
-  INSET,
-  isColumn,
-  OPEN_ZONE,
-  PLACE_KEY,
-  readPlace,
-  type Spot,
-  SPOTS,
-  spotAt,
-  spotForHandle,
-  spotRect,
-} from "./dock.ts";
-import { host } from "./host.ts";
-import { NextCard } from "./NextCard.tsx";
-import { Questions } from "./Questions.tsx";
+import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { hasFiles } from "./attach.ts";
+import { host, readonly } from "./host.ts";
+import { Icon } from "./icons.tsx";
+import { AskBody } from "./Questions.tsx";
 import type { MockScreenState } from "./state.ts";
-import { Thread } from "./Thread.tsx";
-import type { TuneState } from "./tune.ts";
-import { PartSelector, Tune } from "./Tune.tsx";
-import { canvasTop, NO_INSET, phoneLayout, setCardInset, win } from "./viewport.ts";
 
-// How long the card takes to glide into its spot or open from its line.
-const SNAP_MS = 220;
-const reducedMotion = () =>
-  host().window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-const MARK = { row: { w: 48, h: 22 }, col: { w: 22, h: 40 } };
-
-export function QuestionCard(props: { s: MockScreenState; t: TuneState }) {
+export function QuestionCard(props: { s: MockScreenState }) {
   const s = props.s;
-  const stored = (() => {
-    try {
-      return host().storage?.getItem(PLACE_KEY) ?? null;
-    } catch {
-      return null;
-    }
-  })();
-  const [place, setPlace] = createSignal<CardPlace>(readPlace(stored));
-  const phone = phoneLayout;
-  // Where the card rests now: a phone's sheet has one place, whatever an iPad
-  // left in storage.
-  const spot = (): CardPlace => (phone() ? { at: "bottom-center", docked: null } : place());
-  const [folded, setFolded] = createSignal(false);
-  const [carry, setCarry] = createSignal<{
-    dx: number;
-    dy: number;
-    hot: Spot;
-  } | null>(null);
-  const [content, setContent] = createSignal<HTMLElement>();
-
-  const area = (): Area => ({ top: canvasTop(), w: win().w, h: win().h - canvasTop() });
-  const save = (p: CardPlace) => {
-    setPlace(p);
-    try {
-      host().storage?.setItem(PLACE_KEY, JSON.stringify(p));
-    } catch {
-      // Storage denied: the place holds for this visit.
-    }
-  };
-  const col = () => isColumn(carry()?.hot ?? spot().at);
-  const width = () => cardWidth(spot().at, area());
-  const rect = () => spotRect(spot().at, width(), 0, area());
-
-  // A resting card takes its band of the canvas: a strip down a side, so the
-  // artboards fit beside it, or the space above or below it, so they shrink to
-  // fit the rest. Its height follows each question, so it is measured; while it
-  // is carried the artboards hold still.
-  let cardEl!: HTMLDivElement;
-  const [cardBox, setCardBox] = createSignal({ top: 0, bottom: 0 });
-  const measure = () => {
-    const r = cardEl?.getBoundingClientRect();
-    if (r) setCardBox({ top: r.top, bottom: r.bottom });
-  };
+  // The note opens from the card's foot; it stays open once it holds something.
+  const [noteFor, setNoteFor] = createSignal<string | null>(null);
+  // A file dropped beside a drop zone would make the browser open it and leave
+  // the page; files land only where a zone takes them.
   onMount(() => {
-    const ro = new ResizeObserver(measure);
-    ro.observe(cardEl);
-    onCleanup(() => ro.disconnect());
-  });
-  createEffect(
-    on([spot, folded, win, canvasTop], () => host().window.requestAnimationFrame(measure)),
-  );
-  createEffect(() => {
-    const p = spot();
-    if (carry()) return;
-    if (p.docked) return setCardInset(NO_INSET);
-    if (isColumn(p.at)) {
-      const inset = width() + 24;
-      return setCardInset(
-        p.at === "mid-left" ? { ...NO_INSET, left: inset } : { ...NO_INSET, right: inset },
-      );
-    }
-    const a = area();
-    const b = cardBox();
-    setCardInset(
-      p.at.startsWith("top")
-        ? { ...NO_INSET, top: Math.max(0, b.bottom - a.top) }
-        : { ...NO_INSET, bottom: Math.max(0, a.top + a.h - b.top) },
-    );
-  });
-  onCleanup(() => setCardInset(NO_INSET));
-  // Tune or Thread opened from the menu brings a docked card back.
-  createEffect(
-    on(
-      () => s.mode(),
-      (m) => {
-        if (m !== "questions" && spot().docked) save({ ...spot(), docked: null });
-        if (m !== "questions") setFolded(false);
-      },
-      { defer: true },
-    ),
-  );
-
-  const startCarry = (e: PointerEvent) => {
-    const onGrip = !!(e.target as Element).closest(".qcard-grip");
-    e.preventDefault();
-    const el = e.currentTarget as HTMLElement;
-    el.setPointerCapture(e.pointerId);
-    const x0 = e.clientX;
-    const y0 = e.clientY;
-    let moved = 0;
-    const move = (ev: PointerEvent) => {
-      moved = Math.max(moved, Math.hypot(ev.clientX - x0, ev.clientY - y0));
-      if (moved < 8) return;
-      if (moved > 40 && edgeDistance(ev.clientX, ev.clientY, area()) < DOCK_EDGE) {
-        end();
-        save({ ...spot(), docked: dockAt(ev.clientX, ev.clientY, area()) });
-        return;
-      }
-      setCarry({
-        dx: ev.clientX - x0,
-        dy: ev.clientY - y0,
-        hot: spotAt(ev.clientX, ev.clientY, area()),
-      });
+    const win = host().window;
+    const guard = (e: DragEvent) => {
+      if (hasFiles(e.dataTransfer)) e.preventDefault();
     };
-    const up = (ev: PointerEvent) => {
-      const c = carry();
-      const from = cardEl.getBoundingClientRect();
-      end();
-      // A press on the grip that never moved is a tap: it minimises.
-      if (moved < 8 && onGrip) return minimise();
-      if (!c || moved < 8) return;
-      save({ at: spotAt(ev.clientX, ev.clientY, area()), docked: null });
-      glideFrom(from);
-    };
-    const end = () => {
-      el.removeEventListener("pointermove", move);
-      el.removeEventListener("pointerup", up);
-      el.removeEventListener("pointercancel", up);
-      setCarry(null);
-    };
-    el.addEventListener("pointermove", move);
-    el.addEventListener("pointerup", up);
-    el.addEventListener("pointercancel", up);
-  };
-
-  // The handle: a tap opens the card at the spot nearest it; a drag moves it
-  // along the edges, or out into the canvas to open it there.
-  const [handleAt, setHandleAt] = createSignal<{ x: number; y: number } | null>(null);
-  const dragHandle = (e: PointerEvent) => {
-    e.preventDefault();
-    const el = e.currentTarget as HTMLElement;
-    el.setPointerCapture(e.pointerId);
-    const x0 = e.clientX;
-    const y0 = e.clientY;
-    let moved = 0;
-    const move = (ev: PointerEvent) => {
-      moved = Math.max(moved, Math.hypot(ev.clientX - x0, ev.clientY - y0));
-      if (moved > 10) setHandleAt({ x: ev.clientX, y: ev.clientY });
-    };
-    const up = (ev: PointerEvent) => {
-      el.removeEventListener("pointermove", move);
-      el.removeEventListener("pointerup", up);
-      el.removeEventListener("pointercancel", up);
-      setHandleAt(null);
-      const d = spot().docked;
-      if (!d) return;
-      if (moved <= 10) return openFrom(d);
-      if (edgeDistance(ev.clientX, ev.clientY, area()) < OPEN_ZONE) {
-        return save({ ...spot(), docked: dockAt(ev.clientX, ev.clientY, area()) });
-      }
-      save({ at: spotAt(ev.clientX, ev.clientY, area()), docked: null });
-    };
-    el.addEventListener("pointermove", move);
-    el.addEventListener("pointerup", up);
-    el.addEventListener("pointercancel", up);
-  };
-
-  // A vertical swipe on the sheet's top folds or unfolds it; a tap on the grip
-  // or the folded line toggles it through their own clicks. Followed on the
-  // window, not captured, so a tap still lands on the button it started on.
-  let swiped = false;
-  const startSwipe = (e: PointerEvent) => {
-    const y0 = e.clientY;
-    swiped = false;
-    const move = (ev: PointerEvent) => {
-      const dy = ev.clientY - y0;
-      if (Math.abs(dy) < 32 || dy > 0 === folded()) return;
-      swiped = true;
-      setFold(dy > 0);
-      end();
-    };
-    const end = () => {
-      host().window.removeEventListener("pointermove", move);
-      host().window.removeEventListener("pointerup", end);
-      host().window.removeEventListener("pointercancel", end);
-    };
-    host().window.addEventListener("pointermove", move);
-    host().window.addEventListener("pointerup", end);
-    host().window.addEventListener("pointercancel", end);
-  };
-  const toggle = (open: boolean) => {
-    if (swiped) {
-      swiped = false;
-      return;
-    }
-    setFold(!open);
-  };
-  // What the folded sheet still says: where you are and what is asked.
-  const peek = (): { k: string; t: string } => {
-    if (s.mode() === "tune") return { k: "Tune", t: "" };
-    if (s.mode() === "thread") return { k: "Thread", t: "" };
-    const qs = s.questions();
-    if (!s.asks().length) return { k: "Decide", t: s.mock()?.title ?? "" };
-    if (s.reviewing()) {
-      const n = s.owed().length;
-      return { k: "Review", t: n ? `${n} still open` : "Ready to send" };
-    }
-    if (!qs.length) {
-      const n = s.owed().length;
-      return { k: "Questions", t: n ? `${n} open on other states` : "Nothing open" };
-    }
-    const i = Math.min(s.cur(), qs.length - 1);
-    const q = qs[i];
-    return {
-      k: `${i + 1} of ${qs.length}`,
-      t: q.kind === "ask" ? q.ask.text : "Borrow a part from another look?",
-    };
-  };
-
-  // From where the card was to where it now rests, as one movement: the place
-  // changes at once and the card is drawn travelling there from the old one.
-  const glideFrom = (from: DOMRect) => {
-    if (reducedMotion()) return;
-    host().window.requestAnimationFrame(() => {
-      const to = cardEl.getBoundingClientRect();
-      cardEl.animate(
-        [{ translate: `${from.left - to.left}px ${from.top - to.top}px` }, { translate: "0 0" }],
-        { duration: SNAP_MS, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
-      );
+    win.addEventListener("dragover", guard);
+    win.addEventListener("drop", guard);
+    onCleanup(() => {
+      win.removeEventListener("dragover", guard);
+      win.removeEventListener("drop", guard);
     });
-  };
-  // The card and its handle as one object: minimised, the card shrinks into
-  // the handle's place on the edge and the handle slides out of it; opened,
-  // the reverse. Without motion it is simply swapped.
-  const shrinkTo = (r: { x: number; y: number; w: number; h: number }, opening: boolean) => {
-    const c = cardEl.getBoundingClientRect();
-    const dx = r.x + r.w / 2 - (c.left + c.width / 2);
-    const dy = r.y + r.h / 2 - (c.top + c.height / 2);
-    const small = { translate: `${dx}px ${dy}px`, scale: "0.12", opacity: 0 };
-    const whole = { translate: "0 0", scale: "1", opacity: 1 };
-    return cardEl.animate(opening ? [small, whole] : [whole, small], {
-      duration: SNAP_MS,
-      easing: opening ? "cubic-bezier(0.2, 0.8, 0.2, 1)" : "cubic-bezier(0.4, 0, 1, 1)",
-    });
-  };
-  const minimise = () => {
-    const d = dockFor(spot().at);
-    if (reducedMotion()) return save({ ...spot(), docked: d });
-    shrinkTo(handleRect(d, area()), false).finished.then(() => save({ ...spot(), docked: d }));
-  };
-  const openFrom = (d: { edge: string; anchor: string }) => {
-    const r = handleRect(d as Parameters<typeof handleRect>[0], area());
-    save({ at: spotForHandle(d as Parameters<typeof spotForHandle>[0]), docked: null });
-    if (reducedMotion()) return;
-    host().window.requestAnimationFrame(() => shrinkTo(r, true));
-  };
-  // Fold to the question's line, or open again; opening fades the questions in.
-  const setFold = (on: boolean) => {
-    setFolded(on);
-    if (on || reducedMotion()) return;
-    host().window.requestAnimationFrame(() =>
-      cardEl.querySelector(".qcard-body")?.animate(
-        [
-          { opacity: 0, transform: "translateY(6px)" },
-          { opacity: 1, transform: "none" },
-        ],
-        { duration: 160, easing: "ease-out" },
-      ),
-    );
-  };
-  const cardStyle = () => {
-    // The sheet is placed by CSS alone, so a stale window size can't move it.
-    if (phone()) return {};
-    const c = carry();
-    // Anchored by CSS to the edge it rests against, not placed from a measured
-    // height: the card grows and shrinks with each question, and WebKit may not
-    // report its first size at all.
-    const a = area();
-    const v = spot().at.split("-")[0];
-    return {
-      width: `${width()}px`,
-      "max-height": `${a.h - 2 * INSET}px`,
-      left: `${rect().x}px`,
-      top: v === "top" ? `${a.top + INSET}px` : v === "mid" ? `${a.top + a.h / 2}px` : "auto",
-      bottom: v === "bottom" ? `calc(${INSET}px + env(safe-area-inset-bottom))` : "auto",
-      // Carried, it follows the finger from where it rests, lifted a little.
-      transform:
-        [
-          c ? `translate3d(${c.dx}px, ${c.dy}px, 0) scale(0.97)` : "",
-          v === "mid" ? "translateY(-50%)" : "",
-        ]
-          .filter(Boolean)
-          .join(" ") || "none",
-    };
-  };
-  const owed = () => s.owed().length;
-
+  });
+  const shown = () => !s.cardMin() && !s.panel() && !s.mock()?.resolvedAt;
+  const total = () => s.questions().length;
+  const i = () => Math.min(s.cur(), total() - 1);
   return (
-    <>
-      <Show when={carry()}>
-        {(c) => (
-          <div class="qcard-marks" aria-hidden="true">
-            <For each={SPOTS}>
-              {(spot) => {
-                const m = () => (isColumn(spot) ? MARK.col : MARK.row);
-                const r = () => spotRect(spot, m().w, m().h, area());
-                return (
-                  <i
-                    classList={{ hot: c().hot === spot }}
-                    style={{
-                      left: `${r().x}px`,
-                      top: `${r().y}px`,
-                      width: `${m().w}px`,
-                      height: `${m().h}px`,
-                    }}
-                  />
-                );
-              }}
-            </For>
-          </div>
-        )}
-      </Show>
-      <div
-        ref={(el) => (cardEl = el)}
-        class="qcard"
-        classList={{
-          "qcard-col": col(),
-          carrying: !!carry(),
-          hidden: !!spot().docked && !carry(),
-          sheet: phone(),
-          folded: phone() && folded(),
-        }}
-        style={cardStyle()}
-        role="region"
-        aria-label="Questions"
-        // The grip and the question's header row carry the card; their buttons
-        // stay buttons.
-        onPointerDown={(e) => {
-          const t = e.target as Element;
-          if (phone()) {
-            if (t.closest(".qcard-grip, .qpeek, .qhd, .qcard-mode") && !t.closest(".qhd button"))
-              startSwipe(e);
-            return;
-          }
-          if (t.closest("button, a, input, textarea, select") && !t.closest(".qcard-grip")) return;
-          if (t.closest(".qcard-grip, .qhd, .qcard-mode")) startCarry(e);
-        }}
-      >
-        <Show
-          when={phone()}
-          fallback={
-            <button
-              type="button"
-              class="qcard-grip"
-              aria-label="Minimise questions"
-              title="Tap to minimise · drag to move"
-              // A pointer's tap is read from its press (startCarry); this is
-              // the keyboard's Enter or Space, whose click has no detail.
-              onClick={(e) => e.detail === 0 && minimise()}
-            >
-              <i aria-hidden="true" />
-            </button>
-          }
-        >
-          <button
-            type="button"
-            class="qcard-grip"
-            aria-expanded={!folded()}
-            aria-label={folded() ? "Show questions" : "Hide questions"}
-            onClick={() => toggle(folded())}
-          >
-            <i />
-          </button>
+    // Keyed by the question's id, not its object: the asks are rebuilt whenever
+    // a frame reports its parts, and remounting on that would drop the focus
+    // out of a note mid-typing.
+    <Show when={shown() ? s.curAsk()?.id : null} keyed>
+      {(id) => (
+        <Show when={s.curAsk()?.id === id ? s.curAsk() : null}>
+          {(current) => {
+            const ask = current;
+            return (
+              <section class="qcard" aria-label="Question" data-ask={ask().id}>
+                <div class="sr-only" aria-live="polite">
+                  {s.attachStatus()}
+                </div>
+                <div class="qhd">
+                  <div class="qtext">
+                    <Show when={total() > 1 || s.askSlot(ask())}>
+                      <span class="qs">
+                        <Show when={total() > 1}>
+                          <span class="qcount">{`${i() + 1} of ${total()}`}</span>
+                        </Show>
+                        <Show when={s.askSlot(ask())}>
+                          {(sl) => (
+                            <span class="slotchip">{`Slot · ${sl().label ?? sl().part}`}</span>
+                          )}
+                        </Show>
+                        <Show when={s.dormantOf(ask())}>
+                          <span class="flag">skipped</span>
+                        </Show>
+                        <Show when={s.flagged().includes(ask().id)}>
+                          <span class="flag">{`your pick is gone in v${s.latest()}`}</span>
+                        </Show>
+                      </span>
+                    </Show>
+                    <span class="qt">{ask().text}</span>
+                  </div>
+                  <button
+                    type="button"
+                    class="ib qx"
+                    aria-label="Minimise the question"
+                    onClick={() => s.setCardMin(true)}
+                  >
+                    <Icon name="close" />
+                  </button>
+                </div>
+                <AskBody s={s} ask={ask()} noteOpen={noteFor() === ask().id} />
+                <div class="qfoot">
+                  <Show when={!readonly()}>
+                    <button
+                      type="button"
+                      class="ib qnote"
+                      classList={{ on: noteFor() === ask().id || s.noteOf(ask()) !== undefined }}
+                      aria-label="Add a note for the agent"
+                      aria-expanded={noteFor() === ask().id || s.noteOf(ask()) !== undefined}
+                      title="Note for the agent"
+                      onClick={() => setNoteFor(noteFor() === ask().id ? null : ask().id)}
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-8l-4 3v-3H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
+                      </svg>
+                    </button>
+                  </Show>
+                  <Show when={s.flow().length > 1}>
+                    <button
+                      type="button"
+                      class="ib"
+                      aria-label="Previous question"
+                      disabled={!s.stepTarget(-1)}
+                      onClick={() => s.step(-1)}
+                    >
+                      <Icon name="prev" />
+                    </button>
+                    <button
+                      type="button"
+                      class="ib"
+                      aria-label="Next question"
+                      disabled={!s.stepTarget(1)}
+                      onClick={() => s.step(1)}
+                    >
+                      <Icon name="next" />
+                    </button>
+                  </Show>
+                  <span class="grow" />
+                  <Show when={!readonly()}>
+                    <button
+                      type="button"
+                      class="btn go qsend"
+                      disabled={!s.commitKind() || s.sending()}
+                      onClick={() => s.commit()}
+                    >
+                      {s.nextStop(i()) ? "Next" : "Send"}
+                    </button>
+                  </Show>
+                </div>
+              </section>
+            );
+          }}
         </Show>
-        <Show when={phone() && folded()}>
-          <button type="button" class="qpeek" onClick={() => toggle(true)}>
-            <span class="qpeek-k">{peek().k}</span>
-            <span class="qpeek-t">{peek().t}</span>
-            <span class="qpeek-go" aria-hidden="true">
-              ⌃
-            </span>
-          </button>
-        </Show>
-        <div class="qcard-body" ref={setContent}>
-          <Switch>
-            <Match when={s.mode() === "questions"}>
-              <NextCard s={s} />
-              <Questions s={s} compact />
-            </Match>
-            <Match when={s.mode() === "tune"}>
-              <ModeBack s={s} label="Tune" />
-              <PartSelector s={s} t={props.t} />
-              <Tune s={s} t={props.t} />
-            </Match>
-            <Match when={s.mode() === "thread"}>
-              <ModeBack s={s} label="Thread" />
-              <Thread s={s} scroller={content} />
-            </Match>
-          </Switch>
-        </div>
-      </div>
-      <Show when={carry() ? null : spot().docked}>
-        {(d) => {
-          const r = () => {
-            const at = handleAt();
-            const base = handleRect(d(), area());
-            return at ? { ...base, x: at.x - base.w / 2, y: at.y - base.h / 2 } : base;
-          };
-          return (
-            <button
-              type="button"
-              class={`qcard-handle ${d().edge}`}
-              ref={(el) => {
-                if (reducedMotion()) return;
-                const from = { left: "-100% 0", right: "100% 0", top: "0 -100%", bottom: "0 100%" }[
-                  d().edge
-                ];
-                host().window.requestAnimationFrame(() =>
-                  el.animate([{ translate: from }, { translate: "0 0" }], {
-                    duration: SNAP_MS,
-                    easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
-                  }),
-                );
-              }}
-              aria-label={owed() ? `Questions, ${owed()} open` : "Questions"}
-              style={{
-                left: `${r().x}px`,
-                top: `${r().y}px`,
-                width: `${r().w}px`,
-                height: `${r().h}px`,
-              }}
-              onPointerDown={dragHandle}
-            >
-              <svg class="qh-open" viewBox="0 0 16 16" aria-hidden="true">
-                <path
-                  d={
-                    {
-                      left: "M6 4l4 4-4 4",
-                      right: "M10 4l-4 4 4 4",
-                      top: "M4 6l4 4 4-4",
-                      bottom: "M4 10l4-4 4 4",
-                    }[d().edge]
-                  }
-                />
-              </svg>
-              <span class="qh-n" classList={{ done: !owed() }}>
-                {owed() ? String(owed()) : "✓"}
-              </span>
-            </button>
-          );
-        }}
-      </Show>
-    </>
+      )}
+    </Show>
   );
 }
 
-function ModeBack(props: { s: MockScreenState; label: string }) {
+// The question tucked away: a tab on the canvas's right edge with how many are
+// open; a tap brings the card back on the first still owed.
+export function QuestionTab(props: { s: MockScreenState }) {
+  const s = props.s;
+  const n = () => s.owed().length;
+  const hidden = () => s.cardMin() || !!s.panel() || !s.curAsk();
   return (
-    <div class="qcard-mode">
-      <button type="button" class="qcard-back" onClick={() => props.s.setMode("questions")}>
-        ‹ Questions
+    <Show when={hidden() && n() > 0 && !s.mock()?.resolvedAt}>
+      <button
+        type="button"
+        class="qtab"
+        aria-label={`Show the question, ${n()} open`}
+        onClick={() => s.goOwed()}
+      >
+        <b>{n()}</b>
+        {n() === 1 ? "Question" : "Questions"}
       </button>
-      <b>{props.label}</b>
-    </div>
+    </Show>
   );
 }

@@ -1,62 +1,22 @@
-// D3/D5/D6: questions answered in place. Options are pictures when the viewer
-// can render them (a variant that exists for the ask's state, or a knob set it
-// can apply), pills otherwise. Hover previews on the stage, click picks; on a
-// hover device a pick moves on to the next open question, on touch the first
-// tap previews and the second confirms (see `tapPicks`). Each state shows the
-// questions about it, and only open ones: sent answers fold into a read-only
-// Answered group, changed only through its "Change answer". The review after
-// the last question lists every answer above Send.
+// The pieces of a question answered in place, for the question card. Options
+// are pictures when the viewer can render them (a variant that exists for the
+// ask's state, or a knob set it can apply), pills otherwise. A mouse hovering
+// one previews it on the stage; a tap puts it on the stage as your pick, and
+// the same one again sends it on. Sent answers fold into a read-only Answered
+// list, changed only through its "Change answer".
 
-import {
-  createMemo,
-  createSignal,
-  createUniqueId,
-  For,
-  type JSX,
-  onCleanup,
-  onMount,
-  Show,
-} from "solid-js";
+import { createSignal, createUniqueId, For, type JSX, Show } from "solid-js";
 import type { Ask, AskOption, KnobValue } from "../../server/types.ts";
 import { assetUrl, surfaceUrl, type VariantView } from "./api.ts";
 import { ACCEPT, filesOf, hasFiles } from "./attach.ts";
-import { host, readonly } from "./host.ts";
-import {
-  answerIds,
-  askName,
-  askState,
-  draftKnobValues,
-  frameKey,
-  isLookAsk,
-  type MixOption,
-  partBox,
-  tapPicks,
-} from "./logic.ts";
-import type { AskField, MockScreenState, Primary } from "./state.ts";
+import { readonly } from "./host.ts";
+import { answerIds, askState, draftKnobValues, frameKey, isLookAsk, partBox } from "./logic.ts";
+import type { AskField, MockScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 
-const MIX_KEY = "mix";
-const hoverDevice = () => host().window.matchMedia?.("(hover: hover)").matches ?? true;
-
-// `compact`: no header row; the count, the arrows and the note share one
-// footer (the panel, the floating card and the phone's sheet all use it).
-export function Questions(props: { s: MockScreenState; compact?: boolean }) {
-  const s = props.s;
-  return (
-    <Show when={s.mock()}>
-      <Show when={s.mock()?.resolvedAt}>
-        <ResolvedNote s={s} />
-      </Show>
-      <Show when={s.asks().length} fallback={<Decide s={s} />}>
-        <QuestionView s={s} compact={props.compact} />
-      </Show>
-    </Show>
-  );
-}
-
 // A mock the user resolved from the project list: what that did, and the way back.
-function ResolvedNote(props: { s: MockScreenState }) {
+export function ResolvedNote(props: { s: MockScreenState }) {
   return (
     <div class="resolved-note" role="status">
       <span>Resolved. Questions still open were closed unanswered, and your agent was told.</span>
@@ -69,235 +29,9 @@ function ResolvedNote(props: { s: MockScreenState }) {
   );
 }
 
-// "Mobile · " before the count, when the mock has states to tell apart.
-const stateLead = (s: MockScreenState) =>
-  s.states().length > 1 && s.activeState() !== null ? `${s.activeState()} · ` : "";
-// The count is per state, so "1 of 1" alone would read as the last question
-// when other states still ask something.
-const openElsewhere = (s: MockScreenState) => {
-  const here = new Set(s.questions().flatMap((q) => (q.kind === "ask" ? [q.ask.id] : [])));
-  const n = s.owed().filter((a) => !here.has(a.id)).length;
-  return n ? ` · ${n} open on other ${n === 1 ? "state" : "states"}` : "";
-};
-
-function QuestionView(props: { s: MockScreenState; compact?: boolean }) {
-  const s = props.s;
-  // A file dropped beside a drop zone would make the browser open it and
-  // leave the page; files land only where a zone takes them.
-  onMount(() => {
-    const win = host().window;
-    const guard = (e: DragEvent) => {
-      if (hasFiles(e.dataTransfer)) e.preventDefault();
-    };
-    win.addEventListener("dragover", guard);
-    win.addEventListener("drop", guard);
-    onCleanup(() => {
-      win.removeEventListener("dragover", guard);
-      win.removeEventListener("drop", guard);
-    });
-  });
-  const total = () => s.questions().length;
-  const i = () => Math.min(s.cur(), total() - 1);
-  const q = () => s.questions()[i()];
-  const questionKey = createMemo(() => {
-    const x = q();
-    return x ? (x.kind === "mix" ? MIX_KEY : `ask:${x.ask.id}`) : null;
-  });
-
-  // The compact card's note opens from its footer button.
-  const [noteOpen, setNoteOpen] = createSignal<string | null>(null);
-  const curAsk = () => {
-    const x = q();
-    return x?.kind === "ask" ? x.ask : null;
-  };
-  // What the header row would have said beyond the count, kept for the compact
-  // card as one small line, and only when there is something to say.
-  const meta = () => {
-    if (s.reviewing()) return "";
-    if (!total()) return `${stateLead(s)}Nothing open`;
-    const a = curAsk();
-    const bits = [
-      s.states().length > 1 ? (s.activeState() ?? "") : "",
-      a && s.dormantOf(a) ? "skipped" : "",
-      a && s.flagged().includes(a.id) ? `your pick is gone in v${s.latest()}` : "",
-      openElsewhere(s).replace(/^ · /, ""),
-    ].filter(Boolean);
-    return bits.join(" · ");
-  };
-
-  return (
-    <div class="qview" classList={{ compact: !!props.compact }}>
-      <div class="sr-only" aria-live="polite">
-        {s.attachStatus()}
-      </div>
-      <Show when={props.compact && meta()}>
-        <div class="qmeta">{meta()}</div>
-      </Show>
-      <div class="qhd" classList={{ "sr-only": !!props.compact }}>
-        <Show
-          when={!s.reviewing()}
-          fallback={
-            <span>{`Review · ${s.reviewAsks().length} ${s.reviewAsks().length === 1 ? "question" : "questions"}`}</span>
-          }
-        >
-          <Show when={total()} fallback={<span>{`${stateLead(s)}Nothing open`}</span>}>
-            <Header s={s} index={i()} total={total()} />
-          </Show>
-        </Show>
-        <span class="grow" />
-        {/* The shortcuts are keyboard ones; a finger has the arrows beside it. */}
-        <Show when={hoverDevice()}>
-          <KeysHint s={s} />
-        </Show>
-        <Show when={!props.compact}>
-          <button
-            type="button"
-            class="nav"
-            aria-label="Previous question"
-            disabled={s.stepTarget(-1) === null}
-            onClick={() => s.step(-1)}
-          >
-            ‹
-          </button>
-          <button
-            type="button"
-            class="nav"
-            aria-label="Next question"
-            disabled={s.stepTarget(1) === null}
-            onClick={() => s.step(1)}
-          >
-            ›
-          </button>
-        </Show>
-      </div>
-      <Show when={s.keysOpen()}>
-        <KeysList />
-      </Show>
-      <Show when={!s.reviewing()} fallback={<Review s={s} />}>
-        <Show when={!total()}>
-          <NoneOpen s={s} />
-        </Show>
-        {/* Keyed by the question's id, not its object: the list is rebuilt
-            whenever a frame reports its parts, and remounting on that would
-            close an open note and drop the focus out of its field mid-typing. */}
-        <Show when={questionKey()} keyed>
-          {(key) => {
-            const ask = () => {
-              const x = q();
-              return x?.kind === "ask" ? x.ask : null;
-            };
-            return key === MIX_KEY ? (
-              <MixBlock s={s} index={i()} />
-            ) : (
-              <Show when={ask()}>
-                {(a) => (
-                  <AskBlock
-                    s={s}
-                    ask={a()}
-                    index={i()}
-                    compact={props.compact}
-                    noteOpen={noteOpen() === a().id}
-                  />
-                )}
-              </Show>
-            );
-          }}
-        </Show>
-      </Show>
-      <Show when={props.compact && (total() || s.reviewing())}>
-        <div class="qfoot">
-          <Show
-            when={!s.reviewing() && curAsk() && !readonly()}
-            fallback={<span class="qfoot-gap" />}
-          >
-            <button
-              type="button"
-              class="qfoot-note"
-              classList={{ on: noteOpen() === curAsk()?.id || s.noteOf(curAsk()!) !== undefined }}
-              aria-label="Add a note for the agent"
-              title="Note for the agent"
-              onClick={() => setNoteOpen(noteOpen() === curAsk()!.id ? null : curAsk()!.id)}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-8l-4 3v-3H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
-              </svg>
-            </button>
-          </Show>
-          <span class="qfoot-count" aria-hidden="true">
-            {s.reviewing() ? "Review" : `${i() + 1}/${total()}`}
-          </span>
-          <span class="qfoot-nav">
-            {/* The shortcuts are keyboard ones; a finger has the arrows. */}
-            <Show when={hoverDevice()}>
-              <KeysHint s={s} />
-            </Show>
-            <button
-              type="button"
-              class="nav"
-              aria-label="Previous question"
-              disabled={s.stepTarget(-1) === null}
-              onClick={() => s.step(-1)}
-            >
-              ‹
-            </button>
-            <button
-              type="button"
-              class="nav"
-              aria-label="Next question"
-              disabled={s.stepTarget(1) === null}
-              onClick={() => s.step(1)}
-            >
-              ›
-            </button>
-          </span>
-        </div>
-      </Show>
-      <Show when={s.error()}>
-        <div class="qerr" role="alert">
-          {s.error()}
-        </div>
-      </Show>
-      <Show when={s.primary()} keyed>
-        {(p) => (
-          <div class="qactions">
-            <button
-              type="button"
-              class="primary"
-              classList={{ send: p.kind === "send" }}
-              disabled={p.kind === "send" && s.sending()}
-              onClick={() => s.runPrimary()}
-            >
-              {primaryLabel(p, s.owed().length, s.activeState())}
-            </button>
-          </div>
-        )}
-      </Show>
-      <Answered s={s} scope={s.reviewing() ? "all" : "state"} />
-    </div>
-  );
-}
-
-// The state on stage has nothing open: why, in a line.
-function NoneOpen(props: { s: MockScreenState }) {
-  const s = props.s;
-  const text = () => {
-    if (s.mock()?.resolvedAt) return "Nothing open: resolving closed the rest.";
-    if (s.flow().length)
-      return s.states().length > 1
-        ? "Nothing open on this state. Other states still have questions."
-        : "Nothing open.";
-    return s.closedAsks("all").length ? "All answered. Your answers were sent." : "Nothing open.";
-  };
-  return (
-    <div class="qblock">
-      <div class="ask none-open">{text()}</div>
-    </div>
-  );
-}
-
 // Sent answers, folded: read-only, each with the answer it got. Changing one
 // is its own button, so a stray tap can't reopen it.
-function Answered(props: { s: MockScreenState; scope: "state" | "all" }) {
+export function Answered(props: { s: MockScreenState; scope: "state" | "all" }) {
   const s = props.s;
   const [open, setOpen] = createSignal(false);
   const id = createUniqueId();
@@ -358,193 +92,6 @@ function Answered(props: { s: MockScreenState; scope: "state" | "all" }) {
   );
 }
 
-function primaryLabel(p: NonNullable<Primary>, owed: number, here: string | null): string {
-  switch (p.kind) {
-    case "next":
-      return p.state !== here && p.state !== null ? `Next: ${p.state} ›` : "Next ›";
-    case "review":
-      return "Review ›";
-    case "back":
-      return "Back to review ›";
-    case "owed":
-      return owed === 1 ? "Answer the open question ›" : `Answer ${owed} open questions ›`;
-    case "send":
-      return `Send ${p.count}`;
-  }
-}
-
-// After the last question: every answer as a row, a tap reopens that question
-// and its pick comes back here.
-function Review(props: { s: MockScreenState }) {
-  const s = props.s;
-  const askAt = (index: number) => s.reviewAsks()[index] ?? null;
-  const picture = (index: number, option: string | null) => {
-    const ask = askAt(index);
-    const o = ask && option ? ask.options.find((x) => x.id === option) : undefined;
-    return ask && o ? optionPicture(s, ask, o) : null;
-  };
-  return (
-    <div class="qblock">
-      <div class="nm">Your answers</div>
-      <div class="ask">Check them, then send them in one reply.</div>
-      <ol class="review">
-        <For each={s.review()}>
-          {(r, k) => (
-            <li style={{ "margin-inline-start": `${r.depth * 14}px` }}>
-              <Show when={r.group !== null && r.group !== s.review()[k() - 1]?.group}>
-                <div class="review-group">{r.group}</div>
-              </Show>
-              <button
-                type="button"
-                class="review-row"
-                classList={{ owed: r.owed, dormant: r.dormant }}
-                data-review={r.index}
-                aria-label={`${r.name}: ${r.said.length ? r.said.join(", ") : r.owed ? "not answered" : "skipped"}. Change`}
-                onClick={() => {
-                  const a = askAt(r.index);
-                  if (a) s.goAsk(a.id, { fromReview: true });
-                }}
-              >
-                <Show when={picture(r.index, r.option)}>
-                  {(p) => (
-                    <Thumb
-                      width={s.frameW()}
-                      class="crop review-thumb"
-                      fit
-                      whole
-                      src={p().src}
-                      knobs={p().knobs}
-                    />
-                  )}
-                </Show>
-                <span class="review-text">
-                  <span class="review-name">
-                    {r.name}
-                    <Show when={r.optional}>
-                      <span class="qtag">Optional</span>
-                    </Show>
-                  </span>
-                  <span class="review-said">
-                    {r.said.length ? r.said.join(", ") : r.owed ? "Not answered" : "Skipped"}
-                    <Show when={r.dormant && r.said.length}>
-                      <span class="qtag">not sent</span>
-                    </Show>
-                  </span>
-                </span>
-                <span class="review-go" aria-hidden="true">
-                  {r.owed ? <i class="dot" /> : "›"}
-                </span>
-              </button>
-            </li>
-          )}
-        </For>
-      </ol>
-      <MixNotes s={s} />
-    </div>
-  );
-}
-
-// Borrows a later answer removed from Mix, each with the answer that did it.
-function MixNotes(props: { s: MockScreenState }) {
-  return (
-    <div class="mix-notes" role="status">
-      <For each={props.s.mixDropped()}>{(n) => <p class="mix-note">{n.note}</p>}</For>
-    </div>
-  );
-}
-
-// The shortcuts, behind a small "?" (and the ? key).
-function KeysHint(props: { s: MockScreenState }) {
-  const s = props.s;
-  return (
-    <button
-      type="button"
-      class="keys-btn"
-      aria-label="Shortcuts"
-      aria-expanded={s.keysOpen()}
-      title="Shortcuts (?)"
-      onClick={() => s.setKeysOpen(!s.keysOpen())}
-    >
-      ?
-    </button>
-  );
-}
-
-function KeysList() {
-  const rows: [string, string][] = [
-    ["1–9", "pick an option"],
-    ["← →", "previous / next question"],
-    ["Enter", "next, review, send"],
-    ["[ ]", "previous / next mock to answer"],
-    ["Esc", "clear the preview"],
-  ];
-  return (
-    <dl class="keys">
-      <For each={rows}>
-        {([k, what]) => (
-          <div class="keys-row">
-            <dt>
-              <kbd>{k}</kbd>
-            </dt>
-            <dd>{what}</dd>
-          </div>
-        )}
-      </For>
-    </dl>
-  );
-}
-
-function Header(props: { s: MockScreenState; index: number; total: number }) {
-  const s = props.s;
-  const q = () => s.questions()[props.index];
-  const ask = () => {
-    const x = q();
-    return x?.kind === "ask" ? x.ask : null;
-  };
-  const labels = createMemo(() => {
-    const a = ask();
-    if (!a) {
-      const mix = Object.entries(s.draft()?.mix ?? {}).map(([p, v]) => `${p} · ${v}'s`);
-      return s.mixAnswered() ? mix.join(", ") || "none" : null;
-    }
-    const said = answerIds(s.answerOf(a)).map(
-      (id) => a.options.find((o) => o.id === id)?.label ?? id,
-    );
-    const other = s.otherOf(a);
-    if (other !== undefined) said.push(`“${other}”`);
-    if (said.length) return said.join(", ");
-    return s.noteOf(a) !== undefined ? "a note" : null;
-  });
-  const flagged = () => {
-    const a = ask();
-    return a ? s.flagged().includes(a.id) : false;
-  };
-  return (
-    <Show
-      when={labels()}
-      fallback={
-        <span>
-          {`${stateLead(s)}Question ${props.index + 1} of ${props.total}`}
-          <Show when={ask() && s.dormantOf(ask()!)}>
-            <span class="flag">{" · skipped"}</span>
-          </Show>
-          <Show when={flagged()}>
-            <span class="flag">{` · your pick is gone in v${s.latest()}`}</span>
-          </Show>
-          {openElsewhere(s)}
-        </span>
-      }
-    >
-      <span>{`${stateLead(s)}${props.index + 1} of ${props.total} · `}</span>
-      <span class="picked">{`picked: ${labels()}`}</span>
-      <Show when={ask() && s.dormantOf(ask()!)}>
-        <span class="flag">{" · skipped"}</span>
-      </Show>
-      <span>{openElsewhere(s)}</span>
-    </Show>
-  );
-}
-
 // What a picture of this variant shows besides the option itself: the draft's
 // knob values (defaults, other answers, tuning), the same ones the stage shows.
 // A picture that ignored them would show a screen the user never chose.
@@ -555,7 +102,7 @@ function draftValues(s: MockScreenState, v: VariantView): Record<string, KnobVal
 
 // The option's picture source and the knob values it shows, or null when it can
 // only be a pill.
-function optionPicture(
+export function optionPicture(
   s: MockScreenState,
   ask: Ask,
   o: AskOption,
@@ -608,22 +155,17 @@ function optionPicture(
   return null;
 }
 
-function AskBlock(props: {
-  s: MockScreenState;
-  ask: Ask;
-  index: number;
-  compact?: boolean;
-  noteOpen?: boolean;
-}) {
+// One question's body on the card: why it waits or is skipped, its options,
+// and the write-in and note under them. The question's words are the card's head.
+export function AskBody(props: { s: MockScreenState; ask: Ask; noteOpen?: boolean }) {
   const s = props.s;
-  const m = () => s.mock()!;
   const picked = (o: AskOption) => answerIds(s.answerOf(props.ask)).includes(o.id);
   const keyOf = (o: AskOption) => s.optionKey(props.ask, o.id);
-
   const slot = () => s.askSlot(props.ask);
   const dormant = () => s.dormantOf(props.ask);
   // The region the pictures crop to: the slot the ask chooses, else its part.
   const region = () => slot()?.part ?? (props.ask.scope === "part" ? props.ask.part : undefined);
+  const askAt = (id: string) => s.questions().findIndex((q) => q.kind === "ask" && q.ask.id === id);
   const parentAsk = () => {
     const d = dormant();
     return d
@@ -632,23 +174,6 @@ function AskBlock(props: {
   };
   return (
     <div class="qblock">
-      {/* Plain: named only "Question", or for the state the header above
-          already names. */}
-      <div
-        class="nm"
-        classList={{
-          plain:
-            (askName(props.ask, m()) === "Question" ||
-              (stateLead(s) !== "" && askName(props.ask, m()) === s.activeState())) &&
-            !slot(),
-        }}
-      >
-        {askName(props.ask, m())}
-        <Show when={slot()}>
-          {(sl) => <span class="slotchip">{`Slot · ${sl().label ?? sl().part}`}</span>}
-        </Show>
-      </div>
-      <div class="ask">{props.ask.text}</div>
       <Show when={s.revisingOf(props.ask)}>
         <div class="revising" role="status">
           <span>{"Changing a sent answer. A new pick goes out with your next Send."}</span>
@@ -658,52 +183,38 @@ function AskBlock(props: {
         </div>
       </Show>
       <Show when={s.waitingOn(props.ask)}>
-        {(before) => {
-          const at = () =>
-            s.questions().findIndex((q) => q.kind === "ask" && q.ask.id === before().id);
-          return (
-            <div class="dormant" role="status">
-              {"Opens after "}
-              <b>{before().text}</b>
-              {" is answered: its pictures need that answer."}
-              <Show when={at() >= 0}>
-                <button type="button" class="lnk" onClick={() => s.goQuestion(at())}>
-                  {`Go to question ${at() + 1}`}
+        {(before) => (
+          <div class="dormant" role="status">
+            {"Opens after "}
+            <b>{before().text}</b>
+            <Show when={askAt(before().id) >= 0}>
+              <button type="button" class="lnk" onClick={() => s.goQuestion(askAt(before().id))}>
+                {`Go to question ${askAt(before().id) + 1}`}
+              </button>
+            </Show>
+          </div>
+        )}
+      </Show>
+      <Show when={s.shownWith(props.ask)}>
+        {(w) => (
+          <div class="qwith">
+            <span class="qwith-chip">
+              {`With ${w().labels}`}
+              <Show when={askAt(w().ask.id) >= 0}>
+                <button type="button" class="lnk" onClick={() => s.goQuestion(askAt(w().ask.id))}>
+                  change
                 </button>
               </Show>
-            </div>
-          );
-        }}
-      </Show>
-      <Show when={s.shownWith(props.ask) || s.changesOf(props.ask).length}>
-        <div class="qwith">
-          <Show when={s.shownWith(props.ask)}>
-            {(w) => {
-              const at = () =>
-                s.questions().findIndex((q) => q.kind === "ask" && q.ask.id === w().ask.id);
-              return (
-                <span class="qwith-chip">
-                  {`With ${w().labels}`}
-                  <Show when={at() >= 0}>
-                    <button type="button" class="lnk" onClick={() => s.goQuestion(at())}>
-                      change
-                    </button>
-                  </Show>
-                </span>
-              );
-            }}
-          </Show>
-          <Show when={s.changesOf(props.ask).length}>
-            <span class="qwith-changes">{`Changes: ${s.changesOf(props.ask).join(" · ")}`}</span>
-          </Show>
-        </div>
+            </span>
+          </div>
+        )}
       </Show>
       <Show when={dormant()}>
         {(d) => (
           <div class="dormant" role="status">
             {"Only for "}
             <b>{d().label}</b>
-            {". It doesn't apply to the fill you picked, so it is skipped and not sent."}
+            {": skipped and not sent while another fill is chosen."}
             <Show when={parentAsk() >= 0}>
               <button type="button" class="lnk" onClick={() => s.goQuestion(parentAsk())}>
                 {`Go to question ${parentAsk() + 1}`}
@@ -712,7 +223,12 @@ function AskBlock(props: {
           </div>
         )}
       </Show>
-      <div class="opts" classList={{ asleep: !!dormant(), waiting: !!s.waitingOn(props.ask) }}>
+      <div
+        class="opts"
+        role="group"
+        aria-label={props.ask.text}
+        classList={{ asleep: !!dormant(), waiting: !!s.waitingOn(props.ask) }}
+      >
         <For each={props.ask.options}>
           {(o, i) => {
             const pic = () => optionPicture(s, props.ask, o);
@@ -738,14 +254,13 @@ function AskBlock(props: {
                   ) : null
                 }
                 label={o.label}
-                note={o.variant ? pic()?.variant.note : undefined}
                 on={picked(o)}
                 previewing={s.preview()?.key === keyOf(o)}
                 data={o.id}
                 shortcut={i() < 9 ? String(i() + 1) : undefined}
                 onEnter={() => s.setPreview(s.previewOf(props.ask, o.id))}
                 onLeave={() => s.preview()?.key === keyOf(o) && s.setPreview(null)}
-                onChoose={() => s.choose(props.ask, o.id, hoverDevice())}
+                onChoose={() => s.choose(props.ask, o.id)}
               />
             );
             // D13: once the Look is sent its losers are archived; each stays restorable.
@@ -756,7 +271,7 @@ function AskBlock(props: {
                 ? mine.map((v) => v.state)
                 : [];
             };
-            // A dropped look is gone from the choice; the stage's Dropped fold restores it.
+            // A dropped look is gone from the choice.
             const dropped = () => {
               if (!o.variant) return false;
               const mine = s.variants().filter((v) => v.variant === o.variant);
@@ -809,29 +324,17 @@ function AskBlock(props: {
           onInput={(v) => s.setOther(props.ask, v)}
         />
       </Show>
-      <AskNote s={s} ask={props.ask} compact={props.compact} open={props.noteOpen} />
+      <AskNote s={s} ask={props.ask} open={props.noteOpen} />
     </div>
   );
 }
 
-// A quiet "Add a note" under each question: opt-in, and open on its own once
-// a note exists, so an unused one costs nothing.
-function AskNote(props: { s: MockScreenState; ask: Ask; compact?: boolean; open?: boolean }) {
+// A note on the question, opened from the card's note button; open on its own
+// once a note exists, so an unused one costs nothing.
+function AskNote(props: { s: MockScreenState; ask: Ask; open?: boolean }) {
   const s = props.s;
-  const [own, setOwn] = createSignal(false);
-  const open = () => own() || !!props.open;
-  const shown = () => open() || s.noteOf(props.ask) !== undefined;
   return (
-    <Show
-      when={shown()}
-      fallback={
-        <Show when={!readonly() && !props.compact}>
-          <button type="button" class="lnk addnote" onClick={() => setOwn(true)}>
-            Add a note
-          </button>
-        </Show>
-      }
-    >
+    <Show when={props.open || s.noteOf(props.ask) !== undefined}>
       <AskText
         s={s}
         ask={props.ask}
@@ -840,7 +343,7 @@ function AskNote(props: { s: MockScreenState; ask: Ask; compact?: boolean; open?
         label="Note"
         value={s.noteOf(props.ask) ?? ""}
         placeholder="e.g. Table on desktop, Cards on mobile"
-        focus={open() && s.noteOf(props.ask) === undefined}
+        focus={!!props.open && s.noteOf(props.ask) === undefined}
         onInput={(v) => s.setNote(props.ask, v)}
       />
     </Show>
@@ -1073,126 +576,6 @@ function XIcon() {
   );
 }
 
-function MixBlock(props: { s: MockScreenState; index: number }) {
-  const s = props.s;
-  const look = () => s.lookPick() ?? "";
-  // A borrowed part previews in the state that shows it, preferring this one.
-  const stateFor = (o: MixOption) => {
-    const has = (st: string | null) =>
-      s
-        .variants()
-        .some((v) => v.state === st && v.variant === o.variant && v.parts.includes(o.part));
-    return has(s.activeState()) ? s.activeState() : (s.states().find(has) ?? s.activeState());
-  };
-  const variantOf = (variant: string, state: string | null) =>
-    s.variants().find((x) => x.state === state && x.variant === variant);
-  const pictureOf = (variant: string, state: string | null) => {
-    const v = variantOf(variant, state);
-    const idx = v ? v.surfaces.findIndex((x) => x.kind === "html") : -1;
-    if (!v || idx < 0) return null;
-    return surfaceUrl(v.postId, idx, {
-      version: s.frameVersionOf(v),
-      mode: theme(),
-      e: v.embedsKey,
-    });
-  };
-  const knobsOf = (variant: string, state: string | null) => {
-    const v = variantOf(variant, state);
-    return v ? draftValues(s, v) : undefined;
-  };
-  function choose(key: string, on: boolean, apply: () => void, preview: () => void) {
-    if (readonly()) return;
-    const tap = {
-      hover: hoverDevice(),
-      previewing: s.preview()?.key === key,
-      canPreview: true,
-      unpicks: on,
-    };
-    if (!tapPicks(tap)) return preview();
-    apply();
-    s.setPreview(null);
-  }
-  const none = () => s.mixAnswered() && !Object.keys(s.draft()?.mix ?? {}).length;
-  return (
-    <div class="qblock">
-      <div class="nm">
-        Mix <span class="qtag">Optional · from mockpit</span>
-      </div>
-      <div class="ask">Borrow a part from another look?</div>
-      <div class="qhint">
-        {hoverDevice()
-          ? "Hover one to see it on the stage."
-          : "Tap one to see it on the stage, tap again to keep it."}
-      </div>
-      <MixNotes s={s} />
-      <div class="opts">
-        <OptionCard
-          picture={
-            pictureOf(look(), s.activeState()) ? (
-              <Thumb
-                width={s.frameW()}
-                class="crop"
-                fit
-                src={pictureOf(look(), s.activeState())!}
-                knobs={knobsOf(look(), s.activeState())}
-              />
-            ) : null
-          }
-          label={`No, all ${look()}`}
-          on={none()}
-          previewing={s.preview()?.key === "mix:none"}
-          data="none"
-          onEnter={() => s.setPreview(null)}
-          onLeave={() => {}}
-          onChoose={() =>
-            choose(
-              "mix:none",
-              none(),
-              () => s.toggleMix(null),
-              () => s.setPreview({ key: "mix:none" }),
-            )
-          }
-        />
-        <For each={s.mixOpts()}>
-          {(o) => {
-            const key = `mix:${o.part}:${o.variant}`;
-            const state = () => stateFor(o);
-            const preview = () =>
-              s.setPreview({ key, variant: o.variant, state: state(), part: o.part });
-            const src = () => pictureOf(o.variant, state());
-            const focus = () => partBox(s.reports[frameKey(state(), o.variant)], o.part) ?? null;
-            return (
-              <OptionCard
-                picture={
-                  src() ? (
-                    <Thumb
-                      width={s.frameW()}
-                      class="crop"
-                      fit
-                      src={src()!}
-                      knobs={knobsOf(o.variant, state())}
-                      focus={focus()}
-                    />
-                  ) : null
-                }
-                label={`${o.part} · ${o.variant}'s`}
-                on={s.draft()?.mix[o.part] === o.variant}
-                previewing={s.preview()?.key === key}
-                data={`${o.part}:${o.variant}`}
-                onEnter={preview}
-                onLeave={() => s.preview()?.key === key && s.setPreview(null)}
-                onChoose={() =>
-                  choose(key, s.draft()?.mix[o.part] === o.variant, () => s.toggleMix(o), preview)
-                }
-              />
-            );
-          }}
-        </For>
-      </div>
-    </div>
-  );
-}
-
 function OptionCard(props: {
   picture: JSX.Element | null;
   other?: boolean;
@@ -1233,72 +616,5 @@ function OptionCard(props: {
         <span class="tick">✓</span>
       </Show>
     </button>
-  );
-}
-
-// Nothing to ask, not even "Which one?" (no state has a choice left between
-// live variants): the plain verdict on the variant on stage, sent as one reply (Q13).
-function Decide(props: { s: MockScreenState }) {
-  const s = props.s;
-  const [note, setNote] = createSignal("");
-  const decide = (kind: "accept" | "revise" | "drop") => {
-    const v = s.activeVariant();
-    if (!v) return;
-    const text = note().trim();
-    void s.send({
-      decision: { kind, state: v.state, variant: v.variant },
-      ...(text ? { text } : {}),
-    });
-    setNote("");
-  };
-  return (
-    <div class="qblock">
-      <div class="nm">{s.mock()?.title}</div>
-      <div class="ask">
-        {`No questions on this one. Decide on ${s.activeVariant()?.variant ?? "it"}:`}
-      </div>
-      <Show when={!readonly()}>
-        <label class="up-text-row note">
-          <span class="up-text-label">Note</span>
-          <input
-            class="up-text-input"
-            placeholder="optional, for the agent"
-            value={note()}
-            onInput={(e) => setNote(e.currentTarget.value)}
-          />
-        </label>
-        <div class="decide">
-          <button
-            type="button"
-            class="primary"
-            disabled={s.sending()}
-            onClick={() => decide("accept")}
-          >
-            Accept
-          </button>
-          <button
-            type="button"
-            class="secondary"
-            disabled={s.sending()}
-            onClick={() => decide("revise")}
-          >
-            Revise
-          </button>
-          <button
-            type="button"
-            class="secondary"
-            disabled={s.sending()}
-            onClick={() => decide("drop")}
-          >
-            Drop
-          </button>
-        </div>
-      </Show>
-      <Show when={s.error()}>
-        <div class="qerr" role="alert">
-          {s.error()}
-        </div>
-      </Show>
-    </div>
   );
 }

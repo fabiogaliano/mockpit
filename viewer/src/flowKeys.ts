@@ -1,5 +1,6 @@
 // The mock screen's keyboard: flowKey (logic.ts) says what a key means, this
-// applies it. The Mark tool and the Versions popover own their keys while open.
+// applies it: number keys pick on the question card, ←/→ step through the
+// versions, Enter sends on. The Mark tool owns its keys while on.
 // Any key or press on the screen also keeps it from moving on by itself after
 // a Send: the user is reading or doing something here.
 
@@ -18,8 +19,8 @@ export function useFlowKeys(s: MockScreenState) {
     };
     const onKey = (e: KeyboardEvent) => {
       stay();
-      if (e.defaultPrevented || e.isComposing || s.marking() || s.versionsOpen()) return;
-      // Tune's controls live in a shadow root: the event's own target is
+      if (e.defaultPrevented || e.isComposing || s.marking()) return;
+      // tunekit's controls live in a shadow root: the event's own target is
       // retargeted to the host, the first node of its path is the real one.
       const el = e.composedPath()[0];
       const at = el instanceof Element ? el : null;
@@ -32,33 +33,25 @@ export function useFlowKeys(s: MockScreenState) {
         onControl: !!at?.closest(CONTROL),
       });
       if (!key) return;
-      const questions = s.mode() === "questions";
       switch (key.kind) {
         case "pick":
-          if (!questions || s.reviewing()) return;
           s.chooseNth(key.n);
           break;
         case "step":
-          if (!questions) return;
-          s.step(key.by);
+          s.stepVersion(key.by);
           break;
         case "primary":
           if (s.afterSend()?.next) s.goNext();
-          else if (questions && s.primary()) s.runPrimary();
+          else if (s.commitKind() && !s.cardMin() && !s.panel()) s.commit();
           else return;
           break;
         case "mock":
           void s.goOwedMock(key.by);
           break;
         case "clear":
-          if (!s.preview() && !s.afterSend()?.auto && !s.keysOpen()) return;
+          if (!s.preview() && !s.afterSend()?.auto) return;
           s.setPreview(null);
           s.stayHere();
-          s.setKeysOpen(false);
-          break;
-        case "help":
-          if (!questions) return;
-          s.setKeysOpen(!s.keysOpen());
           break;
       }
       e.preventDefault();

@@ -44,26 +44,6 @@ export const sendCount = (d: DraftInput): number =>
 export const answerIds = (a: AskAnswer | undefined): string[] =>
   a === undefined ? [] : Array.isArray(a) ? a : [a];
 
-// What an ask reads as now: the draft's pick and write-in when the draft
-// touched either, else what was sent. A note stands apart from both: a draft
-// note shows over the sent one.
-export interface AskPick {
-  ids: string[];
-  other: string | undefined;
-  note: string | undefined;
-}
-export function askPick(
-  ask: Pick<Ask, "id" | "answer" | "other" | "note">,
-  d: DraftInput | null,
-): AskPick {
-  const drafted = d && (d.answers[ask.id] !== undefined || d.others[ask.id] !== undefined);
-  return {
-    ids: answerIds(drafted ? d.answers[ask.id] : ask.answer),
-    other: drafted ? d.others[ask.id] : ask.other,
-    note: d?.notes[ask.id] ?? ask.note,
-  };
-}
-
 // A write-in or a note set to this text and these images. They stand
 // together: the field is present while either has something (an image alone
 // keeps its text as ""), and gone once both are empty.
@@ -120,17 +100,6 @@ export function pickInDraft(
   }
   return { draft: { ...d, answers, others, otherImages }, otherOpen: open };
 }
-
-// On touch the first tap previews and the second picks, so a look is seen
-// before it's chosen. A tap with nothing new to show picks at once: an option
-// with no preview would otherwise never be pickable, and taking back a pick
-// shouldn't cost two taps.
-export const tapPicks = (t: {
-  hover: boolean;
-  previewing: boolean;
-  canPreview: boolean;
-  unpicks: boolean;
-}): boolean => t.hover || t.previewing || !t.canPreview || t.unpicks;
 
 // The Look ask (Q9): mock-wide, its options bound to variants.
 export const isLookAsk = (ask: Ask): boolean =>
@@ -1212,80 +1181,12 @@ export function nextOwedMock<T extends QueueMock>(
   return null;
 }
 
-// One line of the review step: the question, what it reads as now, and the
-// option a picture can stand for.
-export interface ReviewRow {
-  index: number;
-  name: string;
-  said: string[];
-  // The first picked option, so the row can show its picture.
-  option: string | null;
-  owed: boolean;
-  optional: boolean;
-  // How deep the question's slot sits inside other fills, for indenting.
-  depth: number;
-  // The state the question belongs to, when the review groups by state.
-  group: string | null;
-  // A question inside a fill that isn't chosen: shown struck, not sent.
-  dormant: boolean;
-}
-
-export type FlowQuestion = { kind: "ask"; ask: Ask } | { kind: "mix" };
-
-export function reviewRows(
-  questions: FlowQuestion[],
-  read: {
-    name: (ask: Ask) => string;
-    pick: (ask: Ask) => AskPick;
-    owed: (ask: Ask) => boolean;
-    mix: Record<string, string>;
-    mixAnswered: boolean;
-    depth?: (ask: Ask) => number;
-    group?: (ask: Ask) => string | null;
-    dormant?: (ask: Ask) => boolean;
-  },
-): ReviewRow[] {
-  return questions.map((q, index) => {
-    if (q.kind === "mix") {
-      const borrowed = Object.entries(read.mix).map(([p, v]) => `${p} · ${v}'s`);
-      return {
-        index,
-        name: "Mix",
-        said: read.mixAnswered ? (borrowed.length ? borrowed : ["none"]) : [],
-        option: null,
-        owed: false,
-        optional: true,
-        depth: 0,
-        group: null,
-        dormant: false,
-      };
-    }
-    const { ids, other, note } = read.pick(q.ask);
-    const said = ids.map((id) => q.ask.options.find((o) => o.id === id)?.label ?? id);
-    // An image attached with no words is still a write-in, read as summarizeReply does.
-    if (other !== undefined) said.push(other ? `“${other}”` : "an image");
-    if (!said.length && note !== undefined) said.push("a note");
-    return {
-      index,
-      name: read.name(q.ask),
-      said,
-      option: ids[0] ?? null,
-      owed: read.owed(q.ask),
-      optional: false,
-      depth: read.depth?.(q.ask) ?? 0,
-      group: read.group?.(q.ask) ?? null,
-      dormant: read.dormant?.(q.ask) ?? false,
-    };
-  });
-}
-
 export type FlowKey =
   | { kind: "pick"; n: number }
   | { kind: "step"; by: 1 | -1 }
   | { kind: "primary" }
   | { kind: "mock"; by: 1 | -1 }
-  | { kind: "clear" }
-  | { kind: "help" };
+  | { kind: "clear" };
 
 // What a key does on the mock screen, or null when it isn't ours. Keys typed
 // into a field stay the field's; Enter on a focused button stays the button's
@@ -1311,8 +1212,6 @@ export function flowKey(e: {
       return { kind: "mock", by: -1 };
     case "Escape":
       return { kind: "clear" };
-    case "?":
-      return { kind: "help" };
     case "Enter":
       return e.onControl ? null : { kind: "primary" };
   }
@@ -1376,13 +1275,6 @@ export const widthLabel = (w: number): string => {
   return d ? d.label : `${w}`;
 };
 
-// The panel sits beside the stage only while the stage keeps a readable width
-// next to it; below that the stage is a canvas and the questions float over it.
-export const PANEL_W = 380;
-const PANEL_GUTTERS = 72;
-const MIN_STAGE_W = 480;
-export const panelBeside = (winW: number): boolean => winW >= PANEL_W + PANEL_GUTTERS + MIN_STAGE_W;
-
 // Inspect zooms between fitting the screen and twice the design's size; the
 // canvas also zooms out to "all", every width side by side.
 export type Zoom = "fit" | "all" | number;
@@ -1394,3 +1286,136 @@ export const clampZoom = (z: number, fit: number): number =>
 // `scroll` and `mid` are in the scroller's px at scale z0, the result at z1.
 export const zoomScroll = (scroll: number, mid: number, z0: number, z1: number): number =>
   Math.max(0, ((scroll + mid) * z1) / z0 - mid);
+
+// --- versions as the user counts them ---
+
+// One exact version of one variant: what the stage shows, what Use this puts
+// in use.
+export interface VersionRef {
+  variant: string;
+  version: number;
+}
+export const sameVersion = (a: VersionRef | null | undefined, b: VersionRef | null | undefined) =>
+  !!a && !!b && a.variant === b.variant && a.version === b.version;
+
+// A version as the screen numbers it: every version of every variant in a
+// state, in the order they were published, is v1…vM. The agent's own numbers
+// are per variant; the user only ever reads `n`.
+export interface VersionStep extends VersionRef {
+  n: number;
+  postId: string;
+  at: string;
+  prompt?: string;
+  hidden: boolean;
+  kinds: string[];
+  forkedFrom?: VersionRef;
+}
+
+type StepSource = Pick<
+  VariantView,
+  "postId" | "state" | "variant" | "version" | "updatedAt" | "history" | "surfaces" | "forkedFrom"
+>;
+
+export function versionSteps(variants: StepSource[], state: string | null): VersionStep[] {
+  const rows = variants
+    .filter((v) => v.state === state)
+    .flatMap((v, order) => {
+      const history = v.history?.length
+        ? v.history
+        : [{ version: v.version, at: v.updatedAt, surfaceKinds: v.surfaces.map((x) => x.kind) }];
+      return history.map((h) => ({
+        order,
+        step: {
+          n: 0,
+          variant: v.variant,
+          version: h.version,
+          postId: v.postId,
+          at: h.at,
+          ...("prompt" in h && h.prompt ? { prompt: h.prompt } : {}),
+          hidden: "hidden" in h && h.hidden === true,
+          kinds: h.surfaceKinds as string[],
+          ...(v.forkedFrom ? { forkedFrom: v.forkedFrom } : {}),
+        },
+      }));
+    });
+  rows.sort(
+    (a, b) =>
+      a.step.at.localeCompare(b.step.at) || a.order - b.order || a.step.version - b.step.version,
+  );
+  return rows.map((r, i) => ({ ...r.step, n: i + 1 }));
+}
+
+export const stepFor = (steps: VersionStep[], ref: VersionRef | null | undefined) =>
+  ref ? steps.find((x) => sameVersion(x, ref)) : undefined;
+
+// The next or previous version to show from `ref`, passing over hidden ones.
+export function neighbourStep(
+  steps: VersionStep[],
+  ref: VersionRef | null,
+  by: 1 | -1,
+): VersionStep | null {
+  const at = steps.findIndex((x) => sameVersion(x, ref));
+  for (let i = at + by; i >= 0 && i < steps.length; i += by) {
+    if (!steps[i].hidden) return steps[i];
+  }
+  return null;
+}
+
+// The versions a state's history draws: one line per variant, starting one
+// column right of the version it was forked from (or at the left), its
+// versions in order along it. Columns and rows are grid cells; edges join a
+// version to the next one shown on its line, and a line's first to its fork.
+export interface HistoryCell {
+  step: VersionStep;
+  col: number;
+  row: number;
+}
+export interface HistoryLayout {
+  cells: HistoryCell[];
+  edges: { from: HistoryCell; to: HistoryCell }[];
+  cols: number;
+  rows: number;
+}
+
+export function historyLayout(steps: VersionStep[]): HistoryLayout {
+  const lines = new Map<string, VersionStep[]>();
+  for (const st of [...steps].sort((a, b) => a.version - b.version)) {
+    const line = lines.get(st.variant) ?? [];
+    line.push(st);
+    lines.set(st.variant, line);
+  }
+  // Lines in the order their first version appears, so a fork comes after
+  // the line it branched from.
+  const order = [...lines.keys()].sort(
+    (a, b) => lines.get(a)![0].n - lines.get(b)![0].n || a.localeCompare(b),
+  );
+  const cells: HistoryCell[] = [];
+  const edges: HistoryLayout["edges"] = [];
+  const at = (ref: VersionRef) => cells.find((c) => sameVersion(c.step, ref));
+  order.forEach((variant, row) => {
+    const line = lines.get(variant)!;
+    const fork = line[0].forkedFrom;
+    // A fork from a version no longer shown starts beside the nearest one before it.
+    const parent = fork
+      ? (at(fork) ??
+        cells
+          .filter((c) => c.step.variant === fork.variant && c.step.version <= fork.version)
+          .at(-1))
+      : undefined;
+    let col = parent ? parent.col + 1 : 0;
+    let prev = parent;
+    for (const st of line) {
+      const cell = { step: st, col, row };
+      cells.push(cell);
+      if (prev) edges.push({ from: prev, to: cell });
+      prev = cell;
+      col++;
+    }
+  });
+  return {
+    cells,
+    edges,
+    cols: Math.max(0, ...cells.map((c) => c.col + 1)),
+    rows: order.length,
+  };
+}

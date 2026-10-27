@@ -1,5 +1,6 @@
-// The stage tools' icons: Hugeicons free (MIT, @hugeicons/core-free-icons),
-// copied as path data so the single-file viewer carries no icon package.
+// The mock screen's icons: the devices, Try and Mark are Hugeicons free (MIT,
+// @hugeicons/core-free-icons), the rest plain strokes on the same 24px grid;
+// path data, so the single-file viewer carries no icon package.
 
 import { For } from "solid-js";
 
@@ -32,6 +33,17 @@ const PATHS = {
     "M13.6177 21.367C13.1841 21.773 12.6044 22 12.0011 22C11.3978 22 10.8182 21.773 10.3845 21.367C6.41302 17.626 1.09076 13.4469 3.68627 7.37966C5.08963 4.09916 8.45834 2 12.0011 2C15.5439 2 18.9126 4.09916 20.316 7.37966C22.9082 13.4393 17.599 17.6389 13.6177 21.367Z",
     "M15.5 11C15.5 12.933 13.933 14.5 12 14.5C10.067 14.5 8.5 12.933 8.5 11C8.5 9.067 10.067 7.5 12 7.5C13.933 7.5 15.5 9.067 15.5 11Z",
   ],
+  back: ["M15 5l-7 7 7 7"],
+  prev: ["M14.5 6l-6 6 6 6"],
+  next: ["M9.5 6l6 6-6 6"],
+  down: ["M7 10l5 5 5-5"],
+  layers: ["M12 3l9 5-9 5-9-5 9-5z", "M3 13l9 5 9-5"],
+  spark: ["M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"],
+  check: ["M5 12.5l4.5 4.5L19 7"],
+  undo: ["M9 14L4 9l5-5", "M4 9h10.5a5.5 5.5 0 0 1 0 11H11"],
+  trash: ["M4 7h16", "M10 11v6M14 11v6", "M6 7l1 13h10l1-13", "M9 7V4h6v3"],
+  tune: ["M4 7h10M18 7h2M4 17h4M12 17h8", "M16 5v4M10 15v4"],
+  close: ["M6 6l12 12M18 6L6 18"],
 } as const;
 
 export type IconName = keyof typeof PATHS;

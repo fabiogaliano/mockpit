@@ -2,18 +2,16 @@ import { devices, type Page } from "@playwright/test";
 import { PROJECT, seedWriter } from "./decideSeed.ts";
 import { agentCall, expect, test } from "./fixtures.ts";
 
-// Answering from a phone: no hover, so a tap on an option that can preview
-// previews and a second tap picks, while a plain option (no variant, no knob
-// set) has nothing to preview and must pick on the first tap — otherwise its
-// question can never be answered and Send never shows.
+// Answering from a phone: a tap puts an option on the stage as the pick, the
+// same option again (or Send) moves on, and the last question sends the reply.
 
 // The device's browser type is the project's to choose, so both engines run it.
 const { defaultBrowserType: _engine, ...iPhone } = devices["iPhone 13 Pro"];
 test.use(iPhone);
 
 const mockPath = `/project/${PROJECT}/writer`;
-const header = (page: Page) => page.locator(".qhd");
-const option = (page: Page, id: string) => page.locator(`.opt[data-option="${id}"]`);
+const card = (page: Page) => page.locator(".qcard");
+const option = (page: Page, id: string) => page.locator(`.qcard .opt[data-option="${id}"]`);
 const onStage = (page: Page) => page.locator(".frame.on");
 
 async function tapAndSave(page: Page, mockId: string, id: string) {
@@ -24,52 +22,47 @@ async function tapAndSave(page: Page, mockId: string, id: string) {
   expect((await write).ok()).toBe(true);
 }
 
-test("on touch, plain options pick on one tap and the reply reaches the agent", async ({
+test("on touch, a tap picks, the same tap again moves on, and the reply reaches the agent", async ({
   page,
   server,
 }) => {
   const { mockId, session } = await seedWriter(server.url);
   await page.goto(`${server.url}${mockPath}`);
   expect(await page.evaluate(() => matchMedia("(hover: hover)").matches)).toBe(false);
-  const next = page.getByRole("button", { name: "Next question" });
 
-  // Q1, variant options: the first tap previews, the second picks. The
-  // questions are in view from the start: nothing to open first.
-  await expect(header(page)).toContainText("Question 1 of 2");
+  // Q1, variant options: a tap puts the look on the stage as the pick; the
+  // same option again moves on. The question is in view from the start.
+  await expect(card(page).locator(".qcount")).toHaveText("1 of 2");
   await expect(onStage(page)).toHaveAttribute("data-variant", "quiet");
-  await expect(page.locator(".opt.previewing")).toHaveCount(0);
-  await option(page, "dark").tap();
-  await expect(onStage(page)).toHaveAttribute("data-variant", "dark");
-  await expect(option(page, "dark")).toHaveAttribute("aria-pressed", "false");
   await tapAndSave(page, mockId, "dark");
+  await expect(onStage(page)).toHaveAttribute("data-variant", "dark");
   await expect(option(page, "dark")).toHaveAttribute("aria-pressed", "true");
-  await next.tap();
+  await option(page, "dark").tap();
 
-  // Q2, knob-set options: the same two taps.
-  await expect(header(page)).toContainText("Question 2 of 2");
-  await option(page, "inline").tap();
-  await expect(option(page, "inline")).toHaveAttribute("aria-pressed", "false");
+  // Q2, knob-set options: picked, then Send says Next.
+  await expect(card(page).locator(".qcount")).toHaveText("2 of 2");
   await tapAndSave(page, mockId, "inline");
   await expect(option(page, "inline")).toHaveAttribute("aria-pressed", "true");
-  await next.tap();
+  await expect(card(page).locator(".qsend")).toHaveText("Next");
+  await card(page).locator(".qsend").tap();
 
-  // Q3, plain options: nothing to preview, so one tap picks.
-  await expect(header(page)).toContainText("Question 3 of 3");
+  // Q3 is on Lab open: plain options pick the same way.
+  await expect(page.locator(".mcrumb b")).toHaveText("Lab open");
+  await expect(card(page).locator(".qcount")).toHaveText("3 of 3");
   await expect(option(page, "inside")).toHaveClass(/pill/);
   await tapAndSave(page, mockId, "inside");
   await expect(option(page, "inside")).toHaveAttribute("aria-pressed", "true");
 
-  // Every question answered: the review holds Send, and the reply is delivered.
-  await expect(header(page)).toContainText("3 of 3");
-  await page.getByRole("button", { name: "Review ›" }).tap();
-  await expect(header(page)).toContainText("Review");
-  const send = page.locator("button.send");
-  await expect(send).toHaveText("Send 3");
+  // The last question owed: Send sends, and the reply is delivered.
+  const send = card(page).locator(".qsend");
+  await expect(send).toHaveText("Send");
   const reply = page.waitForResponse(
     (r) => r.url().endsWith(`/api/mocks/${mockId}/reply`) && r.request().method() === "POST",
   );
   await send.tap();
   expect((await reply).status()).toBe(201);
+  await page.locator(".vlabel").tap();
+  await page.getByRole("tab", { name: "Thread" }).tap();
   await expect(page.locator(".trow.you")).toContainText(
     "look dark · versions inline · trim inside the lab",
   );
@@ -103,35 +96,33 @@ async function swipe(page: Page, selector: string, dx: number) {
   }, dx);
 }
 
-test("on touch, the arrows move between questions and on to the review; a swipe does not", async ({
+test("on touch, the card's arrows walk the questions; a swipe across the design moves a step", async ({
   page,
   server,
 }) => {
   await seedWriter(server.url);
   await page.goto(`${server.url}${mockPath}`);
-  await expect(header(page)).toContainText("Question 1 of 2");
-
-  // A sideways swipe is left to the page: it never steps questions.
-  await swipe(page, ".qblock .ask", -120);
-  await expect(header(page)).toContainText("Question 1 of 2");
-  await expect(page.getByRole("button", { name: "Shortcuts" })).toHaveCount(0);
+  await expect(card(page).locator(".qcount")).toHaveText("1 of 2");
+  await expect(page.locator(".flowbar .num")).toHaveText("1 of 4");
 
   // Each state shows its own questions: At rest has two, then Lab open adds
   // Trim, and going back stays on Lab open, where the shared ones show too.
   const next = page.getByRole("button", { name: "Next question" });
   await next.tap();
-  await expect(header(page)).toContainText("At rest · Question 2 of 2");
+  await expect(card(page).locator(".qcount")).toHaveText("2 of 2");
   await next.tap();
-  await expect(header(page)).toContainText("Lab open · Question 3 of 3");
+  await expect(page.locator(".mcrumb b")).toHaveText("Lab open");
+  await expect(card(page).locator(".qcount")).toHaveText("3 of 3");
   await page.getByRole("button", { name: "Previous question" }).tap();
-  await expect(header(page)).toContainText("Lab open · Question 2 of 3");
-  await next.tap();
-  await next.tap();
-  await expect(header(page)).toContainText("Review · 3 questions");
-  // The review's Send sits pinned at the bottom of the card, inside the screen.
-  const actions = page.locator(".qactions");
-  await expect(actions).toHaveCount(1);
-  const box = await actions.boundingBox();
-  const viewport = page.viewportSize()!;
-  expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
+  await expect(card(page).locator(".qcount")).toHaveText("2 of 3");
+  // The card's Send sits inside the screen.
+  const box = (await card(page).locator(".qsend").boundingBox())!;
+  expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+
+  // A sideways swipe across the design moves between the steps.
+  await swipe(page, ".frame.on .overlay", -140);
+  await expect(page.locator(".flowbar .num")).toHaveText("3 of 4");
+  await expect(page.locator(".mcrumb b")).toHaveText("Panel");
+  await swipe(page, ".frame.on .overlay", 140);
+  await expect(page.locator(".mcrumb b")).toHaveText("Lab open");
 });

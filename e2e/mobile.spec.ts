@@ -5,8 +5,8 @@ import { agentCall, expect, test } from "./fixtures.ts";
 // real WebKit): the viewer fits the screen, a finger scrolls a tall mock and
 // taps a part, fields don't trigger iOS zoom, targets are finger-sized, the
 // stage renders at a chosen device width, a design wider than that width is
-// shown whole, and Inspect pans at 100%. On the phone the design is one page
-// the browser scrolls, and the questions are a sheet fixed to the bottom.
+// shown whole, and the canvas pans and pinches. On the phone the design is one
+// page the browser scrolls, and the question card floats above the bottom bar.
 
 const ROWS = 30;
 const tall = `<style>body{margin:0;font:16px system-ui}section{padding:24px;border-bottom:1px solid #ddd}</style>
@@ -55,30 +55,18 @@ async function open(page: Page, server: string, more: object[] = []) {
   await expect(page.locator(".frame.on .overlay[data-doc-width]")).toBeVisible();
 }
 
-// On the canvas the widths are the header's chips (a menu on a phone); beside
-// the panel, the stage head's picker.
-// Which head the mock screen drew, once it has drawn one: asked before the
-// screen renders, the answer would always be "not a canvas".
-const onCanvas = async (page: Page) => {
-  await page.locator(".chead, .stage-head").first().waitFor();
-  return (await page.locator(".chead").count()) > 0;
-};
 async function pickWidth(page: Page, w: string) {
-  if (!(await onCanvas(page))) return page.locator(".widthpick select").selectOption(w);
-  if (!(await page.locator(".chead-device").count()))
-    return page.locator(".chead-widths select").selectOption(w);
-  await page.locator(".chead-device").tap();
-  const row = page.locator(`.width-menu button[data-w="${w}"]`);
-  await row.tap();
+  await page.locator('.mtop [aria-label^="Width"]').tap();
+  await page.locator(`.wmenu button[data-w="${w}"]`).tap();
 }
 async function openThread(page: Page) {
-  if (!(await onCanvas(page))) return page.locator('[data-mode="thread"]').tap();
-  await page.locator(".chead .morebtn").tap();
-  await page.locator(".chead-menu button", { hasText: "Thread" }).tap();
+  await page.locator(".vlabel").tap();
+  await page.getByRole("tab", { name: "Thread" }).tap();
 }
+const markTool = (page: Page) => page.getByRole("button", { name: "Mark", exact: true });
 
 // Too narrow for an artboard beside the design: one page and a bottom sheet.
-const onPhone = (page: Page) => page.viewportSize()!.width <= 600;
+const onPhone = (page: Page) => page.viewportSize()!.width <= 640;
 
 const noOverflow = (page: Page) =>
   page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
@@ -126,7 +114,7 @@ test("a tap on a part selects it", async ({ page, server }) => {
 test("fields are 16px, so iOS never zooms into them", async ({ page, server }) => {
   await open(page, server.url);
   await openThread(page);
-  await page.locator(".markbtn").tap();
+  await markTool(page).tap();
   const overlay = page.locator(".frame.on .overlay");
   const box = (await overlay.boundingBox())!;
   await page.touchscreen.tap(box.x + box.width / 2, box.y + 60);
@@ -143,22 +131,9 @@ test("fields are 16px, so iOS never zooms into them", async ({ page, server }) =
 test("touch targets take a 44px tap", async ({ page, server }) => {
   await open(page, server.url);
   const misses = await page.evaluate(() => {
-    const sel = [
-      ".pin",
-      ".vbtn",
-      ".markbtn",
-      ".inspectbtn",
-      ".morebtn",
-      ".widthpick select",
-      ".chead-device",
-      ".chead-widths select",
-      ".chead .zoomval",
-      ".strip > button",
-      ".up-mode",
-      ".sheet-handle",
-      ".crumb .home",
-      ".themebtn",
-    ];
+    // The bottom bar packs a phone's width and is left out; everything else
+    // a finger aims at is here.
+    const sel = [".pin", ".mtop .ib", ".flowbar .fnav", ".qcard .opt", ".qcard .qsend", ".qtab"];
     const out: string[] = [];
     for (const s of sel) {
       for (const el of document.querySelectorAll<HTMLElement>(s)) {
@@ -199,7 +174,7 @@ test("the width control renders the design at a device width", async ({ page, se
   }
 
   // A mark remembers the width it was placed at.
-  await page.locator(".markbtn").tap();
+  await markTool(page).tap();
   const box = (await overlay.boundingBox())!;
   await page.touchscreen.tap(box.x + box.width / 2, box.y + 60);
   await page.locator(".markfield input").fill("too tight");
@@ -217,46 +192,10 @@ test("the width control renders the design at a device width", async ({ page, se
   await expect(page.locator(".frame.on iframe")).toHaveAttribute("width", other);
 });
 
-test("Inspect, or the canvas, at 100% pans, and a pinch zooms", async ({ page, server }) => {
+test("the canvas pans with one finger and zooms with two", async ({ page, server }) => {
   await open(page, server.url);
   await pickWidth(page, "1280");
-  const canvas = await onCanvas(page);
-  if (canvas) {
-    // The canvas is Inspect already: the scale in the header opens its steps.
-    await page.locator(".chead .zoomval").tap();
-    await page.getByRole("menuitemradio", { name: "100%" }).tap();
-    await expect(page.locator(".chead .zoomval")).toHaveText("100%");
-  } else {
-    await page.locator(".inspectbtn").tap();
-    await expect(page.locator(".top")).toBeHidden();
-    await expect(page.locator(".up-shell")).toBeHidden();
-    await expect(page.locator(".donebtn")).toBeFocused();
-    await page.locator(".zoomseg button", { hasText: "100%" }).tap();
-  }
   const layers = page.locator(".layers");
-  await expect
-    .poll(() => layers.evaluate((l) => l.scrollWidth - l.clientWidth))
-    .toBeGreaterThan(100);
-  if (canvas) {
-    // A step is a finger-sized row; the one in force is marked, and Fit is one.
-    const zoomval = page.locator(".chead .zoomval");
-    await zoomval.tap();
-    const step = page.getByRole("menuitemradio", { name: "150%" });
-    await expect.poll(async () => (await step.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-    await step.tap();
-    await expect(zoomval).toHaveText("150%");
-    await expect(page.locator(".frame.on iframe")).toHaveAttribute("width", "1280");
-    await expect
-      .poll(async () => (await page.locator(".frame.on").boundingBox())!.width)
-      .toBeCloseTo(1280 * 1.5, 0);
-    await zoomval.tap();
-    await expect(step).toHaveAttribute("aria-checked", "true");
-    await page.getByRole("menuitemradio", { name: "Fit" }).tap();
-    await expect(page.getByRole("menu", { name: "Zoom" })).toHaveCount(0);
-    await expect(zoomval).not.toHaveText("150%");
-    await zoomval.tap();
-    await page.getByRole("menuitemradio", { name: "100%" }).tap();
-  }
   if (onPhone(page)) {
     // A phone's stage is the browser's to scroll, both ways, and never to zoom:
     // its pinch comes from touch events, which WebKit here can't synthesize.
@@ -270,9 +209,6 @@ test("Inspect, or the canvas, at 100% pans, and a pinch zooms", async ({ page, s
     ).toBe("pan-x pan-y");
     return;
   }
-
-  // One finger pans both axes (touch-action: none on the overlay hands the
-  // gesture to the viewer's own Pointer Events handling).
   const touch = (type: string, id: number, x: number, y: number) =>
     page.locator(".frame.on .overlay").evaluate(
       (el, a) =>
@@ -287,6 +223,24 @@ test("Inspect, or the canvas, at 100% pans, and a pinch zooms", async ({ page, s
         ),
       { type, id, x, y },
     );
+  // Two fingers apart: the design grows, at most to twice its size.
+  const fitted = (await page.locator(".frame.on").boundingBox())!.width;
+  await touch("pointerdown", 1, 200, 300);
+  await touch("pointerdown", 2, 300, 300);
+  await touch("pointermove", 2, 900, 300);
+  await touch("pointerup", 2, 900, 300);
+  await touch("pointerup", 1, 200, 300);
+  await expect
+    .poll(async () => (await page.locator(".frame.on").boundingBox())!.width)
+    .toBeGreaterThan(fitted * 1.5);
+  expect((await page.locator(".frame.on").boundingBox())!.width).toBeLessThanOrEqual(1280 * 2 + 1);
+  await expect
+    .poll(() => layers.evaluate((l) => l.scrollWidth - l.clientWidth))
+    .toBeGreaterThan(100);
+
+  // One finger pans both axes (touch-action: none on the overlay hands the
+  // gesture to the viewer's own Pointer Events handling).
+  await layers.evaluate((l) => l.scrollTo(200, 200));
   const before = await layers.evaluate((l) => ({ x: l.scrollLeft, y: l.scrollTop }));
   await touch("pointerdown", 1, 300, 400);
   await touch("pointermove", 1, 200, 300);
@@ -297,20 +251,6 @@ test("Inspect, or the canvas, at 100% pans, and a pinch zooms", async ({ page, s
   expect(
     await page.locator(".frame.on .overlay").evaluate((el) => getComputedStyle(el).touchAction),
   ).toBe("none");
-
-  // Two fingers apart: the zoom leaves 100% and shows its number, at most 200%.
-  await touch("pointerdown", 1, 200, 400);
-  await touch("pointerdown", 2, 300, 400);
-  await touch("pointermove", 2, 600, 400);
-  await touch("pointerup", 2, 600, 400);
-  await touch("pointerup", 1, 200, 400);
-  await expect(page.locator(".zoomval")).toHaveText("200%");
-
-  if (!canvas) {
-    await page.locator(".donebtn").tap();
-    await expect(page.locator(".top")).toBeVisible();
-    await expect(page.locator(".inspectbtn")).toBeFocused();
-  }
 });
 
 // A board laid out for a desktop (a 360px phone beside 300px of notes, 732px in
@@ -344,7 +284,7 @@ test("a design wider than its width steps up until it fits; a picked width holds
   await expect(page.locator(".frame.on iframe")).toHaveAttribute("width", "390");
 });
 
-test("without room for the panel: a two-row header, the questions in view, notes, artboards", async ({
+test("the question card floats above the bar, in view; the look's note; other widths beside", async ({
   page,
   server,
 }) => {
@@ -364,31 +304,23 @@ test("without room for the panel: a two-row header, the questions in view, notes
     widths: [390, 1280],
   });
   await page.reload();
-  if (!(await onCanvas(page))) {
-    await expect(page.locator(".pins .pin")).toHaveCount(1);
-    await expect(page.locator(".qcard")).toHaveCount(0);
-    return;
-  }
-  await expect(page.locator(".chead .crow")).toHaveCount(2);
-  // Answering never starts with a drag: the card is open and on screen.
+  // Answering never starts with a drag: the card is open, above the bar, on screen.
   const card = (await page.locator(".qcard").boundingBox())!;
-  expect(card.y + card.height).toBeLessThanOrEqual(page.viewportSize()!.height);
-  await expect(page.locator(".qcard .qhd")).toBeVisible();
-  await expect(page.locator(".pins .pin")).toHaveCount(0);
-  await expect(page.locator(".chead-note")).toContainText("Rows in one column");
+  const bar = (await page.locator(".vbar").boundingBox())!;
+  const vp = page.viewportSize()!;
+  expect(card.y + card.height).toBeLessThanOrEqual(bar.y);
+  expect(bar.y + bar.height).toBeLessThanOrEqual(vp.height);
+  await expect(page.locator(".qcard .qt")).toHaveText("Hero height?");
+  await expect(page.locator(".vlabel .note")).toContainText("Rows in one column");
+  // × tucks it into its tab; the tab brings it back.
+  await page.getByRole("button", { name: "Minimise the question" }).tap();
+  await expect(page.locator(".qcard")).toHaveCount(0);
+  await page.getByRole("button", { name: /^Show the question/ }).tap();
+  await expect(page.locator(".qcard .qt")).toHaveText("Hero height?");
   if (onPhone(page)) {
-    // One page, no artboards beside it; the questions are a sheet on the
-    // bottom edge that a tap folds to one line and opens again.
+    // One page, no artboards beside it; the card spans the screen.
     await expect(page.locator(".board")).toHaveCount(0);
-    const vp = page.viewportSize()!;
-    expect(card.x).toBe(0);
-    expect(card.width).toBe(vp.width);
-    expect(Math.round(card.y + card.height)).toBe(vp.height);
-    await page.locator(".qcard-grip").tap();
-    await expect(page.locator(".qcard .qhd")).toBeHidden();
-    await expect(page.locator(".qpeek")).toContainText("Hero height?");
-    await page.locator(".qpeek").tap();
-    await expect(page.locator(".qcard .qhd")).toBeVisible();
+    expect(card.width).toBeGreaterThanOrEqual(vp.width - 24);
     return;
   }
   // The mock's other width is a picture beside the live one.

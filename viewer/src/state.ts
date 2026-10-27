@@ -1,7 +1,7 @@
 // The mock screen's state: the mock as the server last sent it, the user's
-// draft, and the view (state on stage, question, mode, selection, preview,
-// version). Components read signals from here and call its actions; nothing
-// else talks to the API for this screen.
+// draft, and the view (state and version on stage, question, canvas tool,
+// selection, preview, drawers). Components read signals from here and call
+// its actions; nothing else talks to the API for this screen.
 
 import { batch, createEffect, createMemo, createSignal, on, onCleanup } from "solid-js";
 import { createStore } from "solid-js/store";
@@ -24,6 +24,7 @@ import {
   type MockDetail,
   type MockSummary,
   subscribe,
+  type VariantView,
   watchMock,
 } from "./api.ts";
 import { extensionOf, prepareImage, rejectReason } from "./attach.ts";
@@ -54,22 +55,28 @@ import {
   mockVersion,
   nextOwedMock,
   overflowWidth,
+  neighbourStep,
   type PartsReport,
+  sameVersion,
+  stepFor,
+  type VersionRef,
+  versionSteps,
   type Zoom,
   pickInDraft,
   readDeviceWidth,
-  reviewRows,
-  sendCount,
   setAskField,
-  tapPicks,
   tuneVisible,
   unanswered,
 } from "./logic.ts";
 import { mockPath, navigate } from "./route.ts";
 import { setTheme } from "./theme.ts";
-import { canvasLayout, coarse, win } from "./viewport.ts";
+import { coarse, win } from "./viewport.ts";
 
-export type Mode = "questions" | "tune" | "thread";
+// The canvas's tools: Try hands taps to the design, Mark leaves a comment
+// where you tap, Tune outlines the parts and opens one's knobs.
+export type Tool = "try" | "mark" | "tune";
+// The bottom panel, opened from the version label.
+export type PanelTab = "history" | "thread";
 export type AskField = "other" | "note";
 
 // An image on its way up (a local preview), or one that failed (with why).
@@ -102,15 +109,6 @@ export interface Preview {
   part?: string;
 }
 
-// What the primary button under the questions does now.
-export type Primary =
-  | ({ kind: "next" } & Stop)
-  | { kind: "review" }
-  | { kind: "back" }
-  | { kind: "send"; count: number }
-  | ({ kind: "owed" } & Stop)
-  | null;
-
 // Where Send leaves the user: the next mock still owing answers (null when none
 // does), and whether the screen is about to carry them there on its own.
 export interface AfterSend {
@@ -121,8 +119,6 @@ export interface AfterSend {
 const SAVE_MS = 300;
 // Long enough to read "Next: …" and press Stay, short enough to feel carried.
 const FORWARD_MS = 1600;
-// A pick on a hover device moves on after a beat, so the tick is seen landing.
-const ADVANCE_MS = 450;
 // Long enough for an agent that is watching to pick a reply up.
 const BEAT_MS = 4000;
 
@@ -138,22 +134,25 @@ export function createMockScreen(
   const [activeState, setActiveState] = createSignal<string | null>(null);
   const [chosenVariant, setChosenVariant] = createSignal<Record<string, string>>({});
   const [preview, setPreview] = createSignal<Preview | null>(null);
-  const [mode, setModeSignal] = createSignal<Mode>("questions");
   const [cur, setCur] = createSignal(0);
   // Sent answers the user chose to change ("Change answer"): back among the
   // open questions until the next Send. A sent answer is otherwise read-only.
   const [revising, setRevising] = createSignal<Record<string, true>>({});
-  // The review step after the last question: every answer as a row, and Send.
-  const [reviewing, setReviewing] = createSignal(false);
-  // A question opened from a review row: a pick there goes back to the review.
-  const [returning, setReturning] = createSignal(false);
   const [afterSend, setAfterSend] = createSignal<AfterSend | null>(null);
-  const [keysOpen, setKeysOpen] = createSignal(false);
-  // The part picked on the stage, shown in Tune; null is the page ("Look").
+  // The part picked on the stage, open in Built from's Tune; null is the page.
   const [selectedPart, setSelectedPart] = createSignal<string | null>(null);
   const [hoverPart, setHoverPart] = createSignal<string | null>(null);
-  // A part tapped on the canvas, where a tap must not swap the question card's
-  // mode; lit until the question or mode moves on.
+  // The part whose knobs are open in Built from (null is the page's own
+  // knobs), or false with none open.
+  const [tuneOpen, setTuneOpen] = createSignal<string | null | false>(false);
+  // The parts with knobs (or a borrow) to open, as Tune lists them (tune.ts).
+  const [tunable, setTunable] = createSignal<(string | null)[]>([]);
+  const openTune = (part: string | null | false) => {
+    if (part !== false) setSelectedPart(part);
+    setTuneOpen(part);
+  };
+  // A part tapped on the canvas, outlined and offered reactions until the
+  // question moves on.
   const [tapped, setTapped] = createSignal<string | null>(null);
   // The part an answer just changed, outlined on stage for a moment so a pick
   // never changes the screen out of sight. Armed by a pick or preview; the
@@ -172,11 +171,16 @@ export function createMockScreen(
     host().window.clearTimeout(flashTimer);
     flashTimer = host().window.setTimeout(() => setFlash(null), 1600);
   }
-  const [viewVersion, setViewVersion] = createSignal<number | null>(null);
-  const [versionsOpen, setVersionsOpen] = createSignal(false);
-  // Older component versions shown on the stage instead of the latest, slug →
-  // version: a look back, never saved.
-  const [embedPeek, setEmbedPeek] = createSignal<Record<string, number>>({});
+  // The exact version on stage per state (String(state) → ref), once the user
+  // steps to one; otherwise the stage shows the version in use, else the latest.
+  const [shown, setShown] = createSignal<Record<string, VersionRef>>({});
+  // Built from (the side drawer), the bottom panel and the question card's
+  // minimised tab.
+  const [drawer, setDrawerSignal] = createSignal(false);
+  const [panel, setPanelSignal] = createSignal<PanelTab | null>(null);
+  const [cardMin, setCardMin] = createSignal(false);
+  // The last thing done to a version, with its undo while it is offered.
+  const [toast, setToast] = createSignal<{ text: string; undo?: () => void } | null>(null);
   const [sent, setSent] = createSignal(false);
   // The reply the last Send stored, and whether a beat has passed since: an
   // undelivered reply after that beat earns the "tell your agent" hint.
@@ -206,19 +210,16 @@ export function createMockScreen(
   const [attachStatus, setAttachStatus] = createSignal("");
   // The last reaction tap, for a polite live region.
   const [reactStatus, setReactStatus] = createSignal("");
-  // The Mark tool (D11): while on, a click on the stage leaves a comment there.
-  const [marking, setMarkingSignal] = createSignal(false);
-  // Try: taps, scrolls and motion go to the design itself, as a prototype;
-  // nothing is selected or marked until it is off again.
-  const [trying, setTryingSignal] = createSignal(false);
-  const setMarking = (on: boolean) => {
-    if (on) setTryingSignal(false);
-    setMarkingSignal(on);
-  };
-  const setTrying = (on: boolean) => {
-    if (on) setMarkingSignal(false);
-    setTryingSignal(on);
-  };
+  // One canvas tool at a time. Mark (D11): a click on the stage leaves a
+  // comment there. Try: taps, scrolls and motion go to the design itself, as a
+  // prototype. Tune: the parts are outlined and a tap opens one's knobs.
+  const [tool, setTool] = createSignal<Tool | null>(null);
+  const marking = () => tool() === "mark";
+  const trying = () => tool() === "try";
+  const tuning = () => tool() === "tune";
+  const toggleTool = (t: Tool) => setTool(tool() === t ? null : t);
+  const setMarking = (on: boolean) => setTool(on ? "mark" : marking() ? null : tool());
+  const setTrying = (on: boolean) => setTool(on ? "try" : trying() ? null : tool());
   // Thread's comment field; a frame's sendPrompt fills it.
   const [threadText, setThreadText] = createSignal("");
   // Where Tune's knob controls mount: tunekit's pane is moved into it while Tune is open.
@@ -227,9 +228,7 @@ export function createMockScreen(
   const [frameW, setFrameWSignal] = createSignal(DESKTOP_W);
   // Only a width the user picked holds against a design that overflows it.
   const [widthPicked, setWidthPicked] = createSignal(false);
-  // Inspect: the stage alone, full screen, zoomable.
-  const [inspect, setInspect] = createSignal(false);
-  // The zoom of Inspect and of the canvas, and the scale the stage last drew at.
+  // The zoom of the canvas, and the scale the stage last drew at.
   const [zoom, setZoom] = createSignal<Zoom>("fit");
   const [stageScale, setStageScale] = createSignal(1);
   // The least scale a zoom can reach on the stage now, so the header offers
@@ -250,7 +249,7 @@ export function createMockScreen(
     const d = draft();
     return d && !draftIsEmpty(d) && d.version < latest() ? d.version : null;
   });
-  const stageVersion = createMemo(() => viewVersion() ?? boundVersion() ?? latest());
+  const stageVersion = createMemo(() => boundVersion() ?? latest());
   // The agent's asks plus the built-in "Which one?" where the agent left a
   // choice between variants unasked; everything below reads asks from here.
   const asks = createMemo<Ask[]>(() => {
@@ -294,7 +293,7 @@ export function createMockScreen(
   const inState = (state: string | null) => variants().filter((v) => v.state === state);
 
   // The variant on stage for a state: a hovered option, the drafted look, the
-  // switcher's choice, the accepted one, else the first still open.
+  // version the user stepped to, the accepted one, else the first still open.
   function variantFor(state: string | null, withPreview = true) {
     const list = inState(state);
     const named = (name: string | null | undefined) =>
@@ -302,12 +301,33 @@ export function createMockScreen(
     const p = withPreview ? preview() : null;
     return (
       (p && (p.state === undefined || p.state === state) ? named(p.variant) : undefined) ??
+      named(shown()[String(state)]?.variant) ??
       named(lookPick()) ??
       named(chosenVariant()[String(state)]) ??
       list.find((v) => v.status === "accepted") ??
       list.find((v) => v.status === "open") ??
       list[0]
     );
+  }
+  // What the user put in use on a state, if anything.
+  const inUseOf = (state: string | null): VersionRef | null => {
+    const u = mock()?.inUse.find((x) => x.state === state);
+    return u ? { variant: u.variant, version: u.version } : null;
+  };
+  // The version of a variant the stage shows: the one stepped to, else the one
+  // in use, else the newest at the stage's mock version that isn't hidden.
+  function versionOf(v: VariantView): number {
+    const pick = shown()[String(v.state)];
+    if (pick?.variant === v.variant) return pick.version;
+    const use = inUseOf(v.state);
+    if (use?.variant === v.variant) return use.version;
+    const n = frameVersion(v, stageVersion());
+    const hidden = new Set(
+      (v.history ?? []).filter((h) => "hidden" in h && h.hidden).map((h) => h.version),
+    );
+    if (!hidden.has(n)) return n;
+    const visible = (v.history ?? []).map((h) => h.version).filter((x) => x < n && !hidden.has(x));
+    return visible.length ? Math.max(...visible) : n;
   }
   const activeVariant = createMemo(() => variantFor(activeState()));
 
@@ -387,19 +407,6 @@ export function createMockScreen(
     const label = (name: string) =>
       m.parts.flatMap((s) => s.parts).find((p) => p.name === name)?.label ?? name;
     return [...names].map(label);
-  }
-  // How deep an ask's slot sits inside other fills (0 at the top of the screen).
-  function slotDepth(ask: Ask): number {
-    const m = mock();
-    let slot = askSlot(ask);
-    if (!m || !slot) return 0;
-    const slots = slotsIn(askState(ask, m, activeState()));
-    let depth = 0;
-    while (slot?.parent) {
-      depth++;
-      slot = slots.find((sl) => sl.part === slot!.parent!.part) ?? null;
-    }
-    return depth;
   }
 
   // What the user chose so far (sent, then drafted), so Mix can't contradict it.
@@ -490,11 +497,6 @@ export function createMockScreen(
   const questions = createMemo<Question[]>(() =>
     entriesIn(activeState()).map((e) => ({ kind: "ask", ask: e.ask })),
   );
-  // Each ask once, in the order the flow first meets it: what the review lists.
-  const reviewAsks = createMemo<Ask[]>(() => {
-    const seen = new Set<string>();
-    return flow().flatMap((e) => (seen.has(e.ask.id) ? [] : (seen.add(e.ask.id), [e.ask])));
-  });
   // Sent answers (and asks a resolution dismissed) on the state on stage, or on
   // every state: the folded, read-only Answered group.
   const closedAsks = (scope: "state" | "all") => {
@@ -531,10 +533,10 @@ export function createMockScreen(
       settled: m?.settled ?? {},
     };
   });
-  // The part the current question is about, while Questions is open: the slot
-  // it chooses a fill for, else the part it is scoped to.
+  // The part the current question is about: the slot it chooses a fill for,
+  // else the part it is scoped to.
   const focusPart = createMemo(() => {
-    if (mode() !== "questions") return null;
+    if (cardMin() || panel()) return null;
     const borrowing = preview()?.part;
     if (borrowing) return borrowing;
     const q = questions()[cur()];
@@ -543,9 +545,7 @@ export function createMockScreen(
   });
   // The part outlined on the stage. selectedPart outlives the question that set
   // it (Tune opens on it), so outside Tune the outline follows the question.
-  const stagePart = createMemo(() =>
-    mode() === "tune" ? selectedPart() : (tapped() ?? focusPart()),
-  );
+  const stagePart = createMemo(() => (tuning() ? selectedPart() : (tapped() ?? focusPart())));
   // A borrow made before the user chose that part's fate would contradict it.
   createEffect(() => {
     const mix = draft()?.mix ?? {};
@@ -682,13 +682,16 @@ export function createMockScreen(
     const m = mock();
     if (!m) return;
     // Open on the first question still owed, on the state it is about; a draft
-    // that already answers everything resumes on its review, one tap from Send.
+    // that already answers everything resumes on its first answer, one tap
+    // from Send.
+    // A pick made while this loaded keeps the user where they made it.
+    if (lastLocalWrite) return;
     const first = firstOwed();
-    if (!first && asks().length && !draftIsEmpty(draft())) {
-      goReview({ history: false });
-      return;
-    }
-    goQuestion(first?.to ?? 0, { history: false, ...(first ? { state: first.state } : {}) });
+    const resume = !first && !draftIsEmpty(draft()) ? flow()[0] : undefined;
+    const at =
+      first ??
+      (resume ? { state: resume.state, to: entriesIn(resume.state).indexOf(resume) } : null);
+    goQuestion(at?.to ?? 0, { history: false, ...(at ? { state: at.state } : {}) });
   }
 
   const refetch = coalesce({ mock: loadMock, draft: loadDraft, comments: loadComments });
@@ -748,24 +751,14 @@ export function createMockScreen(
 
   // --- navigation inside the screen ---
 
-  // Each question, mode and viewed version is a history step, so Back walks
-  // them; values (picks, tuning) are not.
+  // Each question is a history step, so Back walks them; values (picks,
+  // tuning, versions) are not.
   type Snap = {
     mockpit: "mock";
     state: string | null;
-    mode: Mode;
     cur: number;
-    review: boolean;
-    view: number | null;
   };
-  const snap = (): Snap => ({
-    mockpit: "mock",
-    state: activeState(),
-    mode: mode(),
-    cur: cur(),
-    review: reviewing(),
-    view: viewVersion(),
-  });
+  const snap = (): Snap => ({ mockpit: "mock", state: activeState(), cur: cur() });
   function record(replace: boolean) {
     const h = host().history;
     if (replace) h.replaceState(snap(), "");
@@ -774,48 +767,28 @@ export function createMockScreen(
   function restoreSnap(s: unknown) {
     if (!s || typeof s !== "object" || (s as Snap).mockpit !== "mock") return false;
     const v = s as Snap;
-    cancelAdvance();
     batch(() => {
       setActiveState(v.state);
-      setModeSignal(v.mode);
       setCur(v.cur);
-      setReviewing(!!v.review);
-      setReturning(false);
-      setViewVersion(v.view);
       setPreview(null);
-      setVersionsOpen(false);
     });
     return true;
   }
 
-  // A pick's move-on, pending for a beat. Any other move cancels it: the user
-  // has gone elsewhere, and coming back to the same question must not let the
-  // stale move fire then.
-  let advanceTimer = 0;
-  const cancelAdvance = () => host().window.clearTimeout(advanceTimer);
-  onCleanup(cancelAdvance);
   // Any move the user makes on this screen after a Send means they are still
-  // here: neither a pending move-on nor the carry to the next mock may fire.
-  const userMoved = () => {
-    cancelAdvance();
-    stayHere();
-  };
+  // here: the carry to the next mock must not fire.
+  const userMoved = () => stayHere();
 
   // The ith question on a state (the one on stage unless named), which comes
   // on stage with it.
-  function goQuestion(
-    i: number,
-    opts: { history?: boolean; fromReview?: boolean; state?: string | null } = {},
-  ) {
+  function goQuestion(i: number, opts: { history?: boolean; state?: string | null } = {}) {
     userMoved();
     const state = opts.state === undefined ? activeState() : opts.state;
     const ask = entriesIn(state)[i]?.ask;
     batch(() => {
       setActiveState(state);
       setCur(i);
-      setReviewing(false);
-      setReturning(!!opts.fromReview);
-      setModeSignal("questions");
+      setCardMin(false);
       setTapped(null);
       setPreview(null);
       if (ask?.scope === "part" && ask.part) setSelectedPart(ask.part);
@@ -824,16 +797,20 @@ export function createMockScreen(
     else record(true);
   }
   // An ask wherever it shows, on the state on stage when it shows there.
-  function goAsk(id: string, opts: { fromReview?: boolean } = {}) {
+  function goAsk(id: string) {
+    setPanelSignal(null);
     const here = entriesIn(activeState()).findIndex((e) => e.ask.id === id);
-    if (here >= 0) return goQuestion(here, opts);
+    if (here >= 0) return goQuestion(here);
     const e = flow().find((x) => x.ask.id === id);
-    if (e) goQuestion(entriesIn(e.state).indexOf(e), { ...opts, state: e.state });
+    if (e) goQuestion(entriesIn(e.state).indexOf(e), { state: e.state });
   }
+  // The question card back from its tab: on the first question still owed.
   function goOwed() {
+    setPanelSignal(null);
+    const here = questions().length > 0;
     const first = firstOwed();
-    if (first) goQuestion(first.to, { state: first.state });
-    else setMode("questions");
+    if (!here && first) goQuestion(first.to, { state: first.state });
+    else setCardMin(false);
   }
   // "Change answer" on a sent one: deliberate, so it alone reopens it.
   function changeAnswer(ask: Ask) {
@@ -872,29 +849,17 @@ export function createMockScreen(
       setError(e instanceof Error ? e.message : String(e));
     }
   }
-  function goReview(opts: { history?: boolean } = {}) {
+  // The drawers. The bottom panel tucks the question card to its tab.
+  const setDrawer = (on: boolean) => {
     userMoved();
-    batch(() => {
-      setReviewing(true);
-      setReturning(false);
-      setModeSignal("questions");
-      setTapped(null);
-      setPreview(null);
-    });
-    record(opts.history === false);
-  }
-  function setMode(next: Mode) {
-    if (next === "questions") return reviewing() ? goReview() : goQuestion(cur());
+    setDrawerSignal(on);
+  };
+  const setPanel = (tab: PanelTab | null) => {
     userMoved();
-    batch(() => {
-      setModeSignal(next);
-      setPreview(null);
-      setTapped(null);
-    });
-    record(false);
-  }
-  // A state picked on the strip brings its own questions: the first it still
-  // owes, else its first.
+    setPanelSignal(tab);
+  };
+  // A step of the flow brings its own questions: the first it still owes,
+  // else its first.
   function showState(state: string | null) {
     userMoved();
     const here = entriesIn(state);
@@ -902,10 +867,8 @@ export function createMockScreen(
     batch(() => {
       setActiveState(state);
       setPreview(null);
-      if (!reviewing()) {
-        setCur(Math.max(0, owedAt));
-        setReturning(false);
-      }
+      setTapped(null);
+      setCur(Math.max(0, owedAt));
     });
     record(true);
   }
@@ -913,19 +876,16 @@ export function createMockScreen(
     userMoved();
     setChosenVariant({ ...chosenVariant(), [String(activeState())]: variant });
   }
-  // On the canvas a tap on the design only marks the part: opening Tune there
-  // would cover the design the user is looking at. With no Tune to open,
-  // it marks the part too, so it can still take a reaction.
+  // A tap on a part outlines it and offers its reactions; with Tune on it
+  // opens that part's knobs in Built from instead.
   function selectPart(part: string | null) {
     setSelectedPart(part);
-    if (canvasLayout() || !tuneShown()) setTapped(part);
-    else if (part && mode() !== "tune") setMode("tune");
+    if (tuning()) {
+      if (part === null || !tunable().includes(part)) return;
+      setTuneOpen(part);
+      setDrawerSignal(true);
+    } else setTapped(part);
   }
-  // No Tune tab (nothing to tune): a Tune mode restored from history or set by
-  // a stray click lands on Questions instead.
-  createEffect(() => {
-    if (mode() === "tune" && mock() && !tuneShown()) setModeSignal("questions");
-  });
 
   const widthKey = (id: string) => `mockpit-width:${id}`;
   // Keyed by id alone: a refetch or a resize must not undo the user's choice.
@@ -1015,6 +975,8 @@ export function createMockScreen(
 
   // `null` is "Other…".
   function pick(ask: Ask, optionId: string | null) {
+    // Picking a look puts it on the stage, over a version stepped to before.
+    if (ask.options.find((o) => o.id === optionId)?.variant) setShown({});
     const wasOpen = otherTicked(ask);
     const typed = { text: otherOf(ask) ?? "", images: otherImagesOf(ask) };
     const kept = otherStash()[ask.id];
@@ -1172,8 +1134,8 @@ export function createMockScreen(
   // never straight to the agent.
   function prefill(text: string) {
     setThreadText(text);
-    setMarking(false);
-    if (mode() !== "thread") setMode("thread");
+    setTool(null);
+    setPanelSignal("thread");
   }
   async function postComment(text: string) {
     const m = mock();
@@ -1194,16 +1156,6 @@ export function createMockScreen(
     if (!m) return;
     try {
       for (const st of inStates) await api.restoreVariant(m.id, st, variant);
-      await loadMock();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-  async function starVariant(v: { state: string | null; variant: string }, starred: boolean) {
-    const m = mock();
-    if (!m) return;
-    try {
-      await api.star(m.id, v.state, v.variant, starred);
       await loadMock();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -1271,7 +1223,6 @@ export function createMockScreen(
         setSent(true);
         setSentId(reply.id);
         setBeat(false);
-        setModeSignal("thread");
         setPreview(null);
         setTapped(null);
       });
@@ -1281,8 +1232,6 @@ export function createMockScreen(
       setOtherStash({});
       setFoldedSignal({});
       setRevising({});
-      setReviewing(false);
-      setReturning(false);
       record(true);
       host().window.clearTimeout(beatTimer);
       beatTimer = host().window.setTimeout(() => setBeat(true), BEAT_MS);
@@ -1294,16 +1243,8 @@ export function createMockScreen(
     }
   }
 
-  // --- the flow: question → review → Send → the next mock ---
+  // --- the flow: question → Send → the next mock ---
 
-  // Once a question is answered: on to the next one owed, else the review. One
-  // opened from the review moves on too, so filling in what it showed open
-  // takes one pass.
-  function advance(from: number) {
-    const next = nextStop(from);
-    if (next !== null) goQuestion(next.to, { state: next.state });
-    else goReview();
-  }
   const goEntry = (e: FlowEntry) => goQuestion(entriesIn(e.state).indexOf(e), { state: e.state });
   // An ask's first entry: a mock-wide one met again on a later state is the
   // same question, so the arrows pass it by there unless they are already on
@@ -1314,88 +1255,44 @@ export function createMockScreen(
     return first;
   });
   const stops = (e: FlowEntry) => e.state === activeState() || firstEntry().get(e.ask.id) === e;
-  // Where ←/→ go from here: a question, the review after the last, or nowhere.
-  const stepTarget = (by: 1 | -1): FlowEntry | "review" | null => {
+  // The question the card's ‹ › go to from here, across the states, or null.
+  const stepTarget = (by: 1 | -1): FlowEntry | null => {
     const fl = flow();
-    if (reviewing()) {
-      if (by === 1) return null;
-      for (let j = fl.length - 1; j >= 0; j--)
-        if (firstEntry().get(fl[j].ask.id) === fl[j]) return fl[j];
-      return null;
-    }
     if (by === 1) {
       for (let j = Math.floor(flowAt()) + 1; j < fl.length; j++) if (stops(fl[j])) return fl[j];
-      return fl.length ? "review" : null;
+      return null;
     }
     for (let j = Math.ceil(flowAt()) - 1; j >= 0; j--) if (stops(fl[j])) return fl[j];
     return null;
   };
-  // ←/→ and the arrows: one question at a time across the states, the review
-  // after the last.
   function step(by: 1 | -1) {
-    if (mode() !== "questions") return;
     const to = stepTarget(by);
-    if (to === "review") goReview();
-    else if (to) goEntry(to);
+    if (to) goEntry(to);
   }
 
   const asked = (ask: Ask) =>
     answerOf(ask) !== undefined || otherOf(ask) !== undefined || noteOf(ask) !== undefined;
-  const primary = createMemo<Primary>(() => {
-    if (!asks().length || mode() !== "questions") return null;
-    if (reviewing()) {
-      if (readonly()) return null;
-      const to = firstOwed();
-      if (to) return { kind: "owed", ...to };
-      const count = sendCount(draft() ?? emptyDraft(0));
-      return count > 0 ? { kind: "send", count } : null;
-    }
+  // The question on the card now, if the state on stage has one.
+  const curAsk = createMemo<Ask | null>(() => {
     const qs = questions();
-    // Nothing open on this state: on to a state that still asks, else the
-    // review if there is anything to send.
-    if (!qs.length) {
-      const to = nextStop(-1);
-      if (to) return { kind: "next", ...to };
-      return draftIsEmpty(draft()) ? null : { kind: "review" };
-    }
-    const i = Math.min(cur(), qs.length - 1);
-    const q = qs[i];
-    const done = q.kind === "mix" ? mixAnswered() : asked(q.ask);
-    const to = done ? nextStop(i) : null;
-    if (returning()) return to ? { kind: "next", ...to } : { kind: "back" };
-    if (!done) return stepTarget(1) === "review" ? { kind: "review" } : null;
-    return to ? { kind: "next", ...to } : { kind: "review" };
+    if (!qs.length) return null;
+    const q = qs[Math.min(cur(), qs.length - 1)];
+    return q.kind === "ask" ? q.ask : null;
   });
-  function runPrimary() {
-    const p = primary();
-    if (!p) return;
-    if (p.kind === "next" || p.kind === "owed") goQuestion(p.to, { state: p.state });
-    else if (p.kind === "review" || p.kind === "back") goReview();
-    else void send();
+  // What the card's Send does: on to the next question still owed, else the
+  // reply. Null while the question on the card has no answer to carry.
+  const commitKind = createMemo<"next" | "send" | null>(() => {
+    const a = curAsk();
+    if (readonly() || !a || !asked(a)) return null;
+    return nextStop(Math.min(cur(), questions().length - 1)) ? "next" : "send";
+  });
+  function commit() {
+    const kind = commitKind();
+    if (!kind) return;
+    if (kind === "send") return void send();
+    const to = nextStop(Math.min(cur(), questions().length - 1));
+    if (to) goQuestion(to.to, { state: to.state });
   }
-  const review = createMemo(() => {
-    const m = mock();
-    if (!m) return [];
-    const multi = m.states.length > 1;
-    // An ask on one state is grouped under it; one on several, above them all.
-    const only = (a: Ask) => {
-      const on = [...new Set(flow().flatMap((e) => (e.ask.id === a.id ? [e.state] : [])))];
-      return on.length === 1 ? on[0] : null;
-    };
-    return reviewRows(
-      reviewAsks().map((ask) => ({ kind: "ask", ask })),
-      {
-        name: (a) => askName(a, m),
-        pick: (a) => ({ ids: answerIds(answerOf(a)), other: otherOf(a), note: noteOf(a) }),
-        owed: (a) => owed().some((o) => o.id === a.id),
-        mix: draft()?.mix ?? {},
-        mixAnswered: mixAnswered(),
-        depth: slotDepth,
-        group: (a) => (multi ? only(a) : null),
-        dormant: (a) => !!dormantOf(a),
-      },
-    );
-  });
 
   const optionKey = (ask: Ask, optionId: string) => `${ask.id}:${optionId}`;
   function previewOf(ask: Ask, optionId: string): Preview | null {
@@ -1406,12 +1303,11 @@ export function createMockScreen(
     if (o.variant) return { key, variant: o.variant, state: askState(ask, m, activeState()) };
     return o.set ? { key, knobs: o.set } : null;
   }
-  // A click, a tap or a number key on an option. On touch the first tap
-  // previews on the stage (tapPicks) and a second tap on it picks; a key acts as
-  // a click, having nothing to hover. A pick moves on, as a click does.
-  function choose(ask: Ask, optionId: string, hover: boolean) {
+  // A tap, a click or a number key on an option: the first puts it on the
+  // stage as your pick; the same option again sends it on (the next question,
+  // else the reply). On a multi-choice question a tap toggles, and Send moves on.
+  function choose(ask: Ask, optionId: string) {
     if (readonly()) return;
-    const index = cur();
     const p = previewOf(ask, optionId);
     if (p?.knobs) {
       // A slot ask names its part and fill; a part-scoped ask its part;
@@ -1424,34 +1320,21 @@ export function createMockScreen(
       } else if (ask.scope === "part" && ask.part) showFlash(ask.part);
       else armFlash();
     }
-    const tap = {
-      hover,
-      previewing: preview()?.key === optionKey(ask, optionId),
-      canPreview: p !== null,
-      unpicks: !!ask.multi && answerIds(answerOf(ask)).includes(optionId),
-    };
-    if (!tapPicks(tap)) {
-      setPreview(p);
-      return;
+    const picked = answerIds(answerOf(ask)).includes(optionId);
+    if (!ask.multi && picked && !otherTicked(ask)) {
+      setPreview(null);
+      return commit();
     }
     pick(ask, optionId);
     setPreview(null);
-    if (ask.multi) return;
-    cancelAdvance();
-    advanceTimer = host().window.setTimeout(() => {
-      if (mode() !== "questions" || reviewing() || cur() !== index) return;
-      if (!answerIds(answerOf(ask)).includes(optionId)) return;
-      advance(index);
-    }, ADVANCE_MS);
   }
-  // A number key: the nth option of the question on screen, "Other…" after them.
+  // A number key: the nth option of the question on the card, "Other…" after them.
   function chooseNth(n: number) {
-    if (mode() !== "questions" || reviewing()) return;
-    const q = questions()[cur()];
-    if (!q || q.kind !== "ask") return;
-    const o = q.ask.options[n];
-    if (o) choose(q.ask, o.id, true);
-    else if (n === q.ask.options.length && !readonly()) pick(q.ask, null);
+    const a = curAsk();
+    if (!a || cardMin() || panel()) return;
+    const o = a.options[n];
+    if (o) choose(a, o.id);
+    else if (n === a.options.length && !readonly()) pick(a, null);
   }
 
   async function owedMock(by: 1 | -1): Promise<MockSummary | null> {
@@ -1496,28 +1379,92 @@ export function createMockScreen(
 
   // --- versions ---
 
-  function viewOld(version: number) {
-    setVersionsOpen(false);
-    const next = version >= latest() ? null : version;
-    if (next === viewVersion()) return;
-    setViewVersion(next);
-    record(false);
-  }
-  function backToLatest() {
-    setViewVersion(null);
-    record(false);
-  }
-  async function restoreViewed() {
-    const m = mock();
+  // Every version of the state on stage as the user counts them (v1…vM).
+  const steps = createMemo(() => versionSteps(variants(), activeState()));
+  // The exact version on stage.
+  const onStage = createMemo<VersionRef | null>(() => {
     const v = activeVariant();
-    if (!m || !v) return;
-    try {
-      await api.restoreVersion(m.id, v.postId, frameVersion(v, stageVersion()));
-      backToLatest();
-      await loadMock();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+    return v ? { variant: v.variant, version: versionOf(v) } : null;
+  });
+  const stageStep = createMemo(() => stepFor(steps(), onStage()));
+  const inUse = createMemo(() => inUseOf(activeState()));
+  // Earlier versions the user put in use here, from the replies that did.
+  const usedBefore = createMemo(() => {
+    const out: VersionRef[] = [];
+    for (const c of comments()) {
+      const d = (c.payload as { decision?: ReplyDecision } | undefined)?.decision;
+      if (c.kind === "reply" && d?.kind === "accept" && d.version && d.state === activeState()) {
+        out.push({ variant: d.variant, version: d.version });
+      }
     }
+    return out.filter((r) => !sameVersion(r, inUse()));
+  });
+  function showVersion(ref: VersionRef) {
+    userMoved();
+    batch(() => {
+      setShown({ ...shown(), [String(activeState())]: ref });
+      setChosenVariant({ ...chosenVariant(), [String(activeState())]: ref.variant });
+      setPreview(null);
+    });
+  }
+  function stepVersion(by: 1 | -1) {
+    const to = neighbourStep(steps(), onStage(), by);
+    if (to) showVersion(to);
+  }
+  const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
+  // Use this: the version on stage goes in use, and the agent hears it once.
+  async function useThis() {
+    const m = mock();
+    const ref = onStage();
+    if (!m || !ref || readonly()) return;
+    try {
+      await api.use(m.id, { state: activeState(), ...ref });
+      await Promise.all([loadMock(), loadComments()]);
+      showVersion(ref);
+      setToast({ text: `v${stepFor(steps(), ref)?.n ?? ref.version} is in use` });
+    } catch (e) {
+      fail(e);
+    }
+  }
+  // Hidden from the history, never removed; Undo brings it back.
+  async function hideVersion(ref: VersionRef, hidden: boolean) {
+    const m = mock();
+    if (!m || readonly()) return;
+    const state = activeState();
+    const n = stepFor(steps(), ref)?.n ?? ref.version;
+    // Away from a version going out of sight: to the one before it, else after.
+    const away = hidden
+      ? (neighbourStep(steps(), ref, -1) ?? neighbourStep(steps(), ref, 1))
+      : null;
+    try {
+      await api.hide(m.id, { state, ...ref, hidden });
+      await loadMock();
+      if (away && sameVersion(onStage(), ref)) showVersion(away);
+      setToast(
+        hidden
+          ? {
+              text: `Hid v${n}`,
+              undo: () => {
+                setToast(null);
+                void hideVersion(ref, false).then(() => showVersion(ref));
+              },
+            }
+          : { text: `Restored v${n}` },
+      );
+    } catch (e) {
+      fail(e);
+    }
+  }
+  // New: ask the agent for another version of the one on stage, as a reply
+  // (with whatever the draft holds), so it arrives through the same cursor.
+  function askNew() {
+    const ref = onStage();
+    const n = stageStep()?.n;
+    if (!ref) return;
+    void send({
+      decision: { kind: "revise", state: activeState(), variant: ref.variant },
+      text: `New version, please, from ${ref.variant} v${ref.version}${n ? ` (v${n} here)` : ""}.`,
+    });
   }
   // The newer version a draft-bound stage is holding back.
   function viewNewVersion() {
@@ -1571,8 +1518,6 @@ export function createMockScreen(
     chooseVariant,
     preview,
     setPreview,
-    mode,
-    setMode,
     cur,
     goQuestion,
     goAsk,
@@ -1581,13 +1526,11 @@ export function createMockScreen(
     keepAnswer,
     revisingOf,
     reopen,
-    goReview,
-    reviewing,
-    returning,
-    review,
     step,
-    primary,
-    runPrimary,
+    stepTarget,
+    curAsk,
+    commitKind,
+    commit,
     choose,
     chooseNth,
     previewOf,
@@ -1596,13 +1539,9 @@ export function createMockScreen(
     goNext,
     stayHere,
     goOwedMock,
-    keysOpen,
-    setKeysOpen,
     nextStop,
     questions,
     flow,
-    stepTarget,
-    reviewAsks,
     closedAsks,
     asks,
     owed,
@@ -1626,15 +1565,29 @@ export function createMockScreen(
     showFlash,
     hoverPart,
     setHoverPart,
-    viewVersion,
-    viewOld,
-    backToLatest,
-    restoreViewed,
+    tuneOpen,
+    openTune,
+    tunable,
+    setTunable,
+    steps,
+    onStage,
+    stageStep,
+    inUse,
+    usedBefore,
+    showVersion,
+    stepVersion,
+    useThis,
+    hideVersion,
+    askNew,
     viewNewVersion,
-    versionsOpen,
-    setVersionsOpen,
-    embedPeek,
-    setEmbedPeek,
+    toast,
+    setToast,
+    drawer,
+    setDrawer,
+    panel,
+    setPanel,
+    cardMin,
+    setCardMin,
     sent,
     sentDelivered,
     nudgeAgent,
@@ -1648,27 +1601,28 @@ export function createMockScreen(
     react,
     reactionOn,
     reactStatus,
-    reactPart: () => (mode() === "tune" ? selectedPart() : tapped()),
+    reactPart: () => (tuning() ? null : tapped()),
     frameW,
     setFrameW,
-    inspect,
-    setInspect,
     zoom,
     setZoom,
     stageScale,
     setStageScale,
     zoomMin,
     setZoomMin,
+    tool,
+    setTool,
+    toggleTool,
     marking,
     setMarking,
     trying,
     setTrying,
+    tuning,
     threadText,
     setThreadText,
     prefill,
     postComment,
     restoreVariant,
-    starVariant,
     setTuned,
     replaceTuned,
     knobContext,
@@ -1677,7 +1631,7 @@ export function createMockScreen(
     setTuneHost,
     reports,
     setReports,
-    frameVersionOf: (v: Parameters<typeof frameVersion>[0]) => frameVersion(v, stageVersion()),
+    frameVersionOf: versionOf,
   };
 }
 

@@ -1,10 +1,9 @@
-// The window's size and input, for fitting the stage beside or above the panel.
-// Layout follows what fits (panelBeside) and input follows the pointer
-// (coarse), never a device guess: an iPad sends a desktop user agent.
+// The window's size and input, for fitting the canvas. Layout follows what
+// fits and input follows the pointer (coarse), never a device guess: an iPad
+// sends a desktop user agent.
 
 import { createRoot, createSignal } from "solid-js";
 import { host, root } from "./host.ts";
-import { panelBeside } from "./logic.ts";
 
 const size = () => ({ w: host().window.innerWidth, h: host().window.innerHeight });
 
@@ -26,24 +25,20 @@ function media(query: string) {
 // A finger, not a mouse: no hover, and the stage scrolls the page natively.
 export const coarse = media("(pointer: coarse)");
 
-// The panel does not fit beside the stage: the stage is a canvas and the
-// questions float over it.
-export const canvasLayout = () => !panelBeside(win().w);
-
-// Too narrow for the card to rest beside the design or a second artboard to
-// show: the design reads as one page fitted to the width, and the questions
-// are a sheet fixed to the bottom. One scroll and one zoom, so a finger never
+// Too narrow for anything to sit beside the design: it reads as one page
+// fitted to the width, the drawers are sheets from the bottom, and a swipe
+// across it moves between steps. One scroll and one zoom, so a finger never
 // has to guess which layer it moves.
-export const PHONE_W = 600;
-export const phoneLayout = () => canvasLayout() && win().w <= PHONE_W;
+export const PHONE_W = 640;
+export const phoneLayout = () => win().w <= PHONE_W;
 
-// Where the canvas starts: under its header, which measures itself.
+// Where the canvas starts: under the top bar and the flow bar, which measure themselves.
 const [canvasTopSignal, setCanvasTopSignal] = createRoot(() => createSignal(96));
 export const canvasTop = canvasTopSignal;
 export const setCanvasTop = setCanvasTopSignal;
 
-// The band of the canvas an open question card takes: a strip down a side, or
-// across the top or the bottom.
+// The bands of the canvas taken by what floats over it: the bottom bar and the
+// question card below, the neighbouring steps at the sides.
 export interface CardInset {
   left: number;
   right: number;

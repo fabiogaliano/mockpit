@@ -108,6 +108,17 @@ export const api = {
       `/api/mocks/${encodeURIComponent(id)}/variants/${encodeURIComponent(postId)}/restore`,
       json("POST", { version }),
     ),
+  // Use this: one exact version goes in use; the agent hears it as a reply.
+  use: (id: string, body: { state: string | null; variant: string; version: number }) =>
+    call<{ reply: CommentRow | null }>(
+      `/api/mocks/${encodeURIComponent(id)}/use`,
+      json("POST", body),
+    ),
+  // Hide a version from the history, or bring it back.
+  hide: (
+    id: string,
+    body: { state: string | null; variant: string; version: number; hidden: boolean },
+  ) => call<unknown>(`/api/mocks/${encodeURIComponent(id)}/hide`, json("POST", body)),
   // Close a mock from the project list: its open asks are dismissed unanswered
   // and the agent hears it once; reopen brings them back.
   resolve: (id: string) =>

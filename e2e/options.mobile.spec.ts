@@ -67,7 +67,7 @@ test("a tap reaches the stage before a slow stylesheet loads, then outlines what
   // First paint: the declared default, from the URL, with the stylesheet still held.
   await expect(doc).toHaveAttribute("data-k-pending", "filling");
 
-  // A first tap previews on touch; the stage follows while the stylesheet is held.
+  // A tap puts the pick on the stage while the stylesheet is still held.
   await page
     .getByRole("button", { name: /A skeleton card/ })
     .first()
@@ -133,8 +133,8 @@ test("a slot's question brings the slot into view at a readable size", async ({
 });
 
 // A select knob that the design reads as a `data-k-*` attribute, the way a
-// design reads a faceplate tone. On touch the first tap previews it on stage
-// and a second picks; the pick stays on stage past its question and a reload,
+// design reads a faceplate tone. A tap picks it onto the stage and the same
+// tap again moves on; the pick stays on stage past its question and a reload,
 // which only a draft answer does: a preview is held in memory alone.
 test("a tapped knob option reaches the stage and stays there once picked", async ({
   page,
@@ -181,12 +181,12 @@ test("a tapped knob option reaches the stage and stays there once picked", async
   const saved = page.waitForResponse(
     (r) => r.url().includes("/draft") && r.request().method() === "PUT",
   );
-  const graphite = page.locator('.opt[data-option="graphite"]');
-  await graphite.tap();
-  await expect(doc).toHaveAttribute("data-k-tone", "graphite");
+  const graphite = page.locator('.qcard .opt[data-option="graphite"]');
   await graphite.tap();
   await saved;
-  await expect(page.locator(".qhd").first()).toContainText("Question 2 of 2");
+  await expect(doc).toHaveAttribute("data-k-tone", "graphite");
+  await graphite.tap();
+  await expect(page.locator(".qcard .qcount")).toHaveText("2 of 2");
   await expect(doc).toHaveAttribute("data-k-tone", "graphite");
 
   await page.reload();
