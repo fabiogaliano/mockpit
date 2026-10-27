@@ -11,11 +11,11 @@ import { useFlowKeys } from "./flowKeys.ts";
 import { createFlowNav, type FlowNav } from "./flowNav.ts";
 import { host, root } from "./host.ts";
 import { Icon, type IconName } from "./icons.tsx";
-import { DEVICE_WIDTHS, wideWidth, widthKind, widthLabel } from "./logic.ts";
+import { boardWidths, DEVICE_WIDTHS, wideWidth, widthKind, widthLabel } from "./logic.ts";
 import { CarriedChip, NextCard } from "./NextCard.tsx";
 import { QuestionCard, QuestionTab } from "./QuestionCard.tsx";
 import { ResolvedNote } from "./Questions.tsx";
-import { linkClick, projectPath } from "./route.ts";
+import { homePath, linkClick } from "./route.ts";
 import { Stage } from "./Stage.tsx";
 import type { ScreenOpen } from "./route.ts";
 import { createMockScreen, type MockScreenState } from "./state.ts";
@@ -77,7 +77,12 @@ export function MockScreen(props: {
   // What floats over the canvas takes its bands: the bottom stack below, the
   // neighbouring steps at the sides.
   const walkable = () => nav.steps().length > 1 && nav.at() >= 0;
-  const ghosts = () => !phoneLayout() && walkable();
+  // Beside a row of artboards the neighbours would sit on the next one: they
+  // step aside while more than one width is on the canvas, and the flow bar
+  // walks the steps alone.
+  const oneBoard = () =>
+    boardWidths(s.mock()?.widths ?? [], s.frameW(), s.zoom(), phoneLayout()).length === 1;
+  const ghosts = () => !phoneLayout() && walkable() && oneBoard();
   createEffect(() => {
     const below = Math.max(0, win().h - bottomTop() + 8);
     const side = ghosts() ? GHOST_W : 0;
@@ -203,7 +208,7 @@ export function MockScreen(props: {
 // Back, where you are, then the width and Built from: nothing else up here.
 function TopRow(props: { s: MockScreenState; project: string; slug: string }) {
   const s = props.s;
-  const home = () => projectPath(props.project);
+  const home = () => homePath(props.project);
   const component = () => s.mock()?.kind === "component";
   return (
     <div class="mtop">

@@ -192,8 +192,8 @@ export const viewerSuite: Suite = {
       });
 
       // --- initial load -------------------------------------------------------
-      // Home lists one row per mock, each with a sandboxed thumbnail frame.
-      const cardSelector = ".home-row";
+      // Home shows each mock's screen as a sandboxed thumbnail frame.
+      const cardSelector = ".home-step";
       const projects = (await (await fetch(`${server.url}/api/projects`)).json()) as {
         name: string;
       }[];

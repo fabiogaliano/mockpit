@@ -1,23 +1,24 @@
 // URL ⇄ screen. Home is /project/:name, a mock is /project/:name/:slug; "/" is
-// the home of the most recently active project. On Home, `?view=library` lists
-// every mock's variants, `?view=picks` shows every accepted design and `?focus=<slug>` opens on that mock's place in the tree.
+// the home of the most recently active project. Home's tab is `?view=`: flows
+// (the default, and what any other value falls back to), pages or components.
 
 import { createSignal } from "solid-js";
 import { basePath, host } from "./host.ts";
+
+export type HomeView = "flows" | "pages" | "components";
 
 export type Route =
   | {
       screen: "home";
       project: string | null;
-      view: "tree" | "library" | "picks";
-      focus: string | null;
+      view: HomeView;
     }
   | {
       screen: "mock";
       project: string;
       slug: string;
-      // Open on this state, and this variant when named (a tile on the canvas,
-      // Picks, the tree; a step of a flow names the state alone).
+      // Open on this state, and this variant when named (a step of a flow or a
+      // screen on Home names the state alone).
       open: ScreenOpen | null;
       // The flow the user came through, which the flow bar keeps to.
       flow: string | null;
@@ -39,8 +40,8 @@ export function parseRoute(pathname: string, base = "", search = ""): Route {
   const home = (project: string | null): Route => ({
     screen: "home",
     project,
-    view: q.get("view") === "picks" ? "picks" : q.get("view") === "library" ? "library" : "tree",
-    focus: q.get("focus") || null,
+    view:
+      q.get("view") === "pages" ? "pages" : q.get("view") === "components" ? "components" : "flows",
   });
   if (seg[0] === "project" && seg[1]) {
     if (seg[2]) {
@@ -59,8 +60,8 @@ export function parseRoute(pathname: string, base = "", search = ""): Route {
   return home(null);
 }
 
-export const projectPath = (project: string) =>
-  `${basePath()}/project/${encodeURIComponent(project)}`;
+export const projectPath = (project: string, view: HomeView = "flows") =>
+  `${basePath()}/project/${encodeURIComponent(project)}${view === "flows" ? "" : `?view=${view}`}`;
 export const mockPath = (
   project: string,
   slug: string,
@@ -75,10 +76,10 @@ export const mockPath = (
   const qs = q.toString();
   return qs ? `${base}?${qs}` : base;
 };
-export const picksPath = (project: string) => `${projectPath(project)}?view=picks`;
-export const libraryPath = (project: string) => `${projectPath(project)}?view=library`;
-export const focusPath = (project: string, slug: string) =>
-  `${projectPath(project)}?focus=${encodeURIComponent(slug)}`;
+// The tab Home was last on, per project, so Back from a mock returns to it.
+const lastView = new Map<string, HomeView>();
+export const rememberHomeView = (project: string, view: HomeView) => lastView.set(project, view);
+export const homePath = (project: string) => projectPath(project, lastView.get(project));
 
 const key = (r: Route) => JSON.stringify(r);
 const read = () => parseRoute(host().location.pathname, basePath(), host().location.search);

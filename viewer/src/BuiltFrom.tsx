@@ -5,10 +5,9 @@
 
 import { createEffect, createMemo, createResource, For, Index, on, Show } from "solid-js";
 import { api, surfaceUrl, type TreeNode } from "./api.ts";
-import { designWidth } from "./canvasLayout.ts";
 import { host } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import { sameVersion } from "./logic.ts";
+import { designWidth, screenPicture } from "./logic.ts";
 import { linkClick, mockPath } from "./route.ts";
 import type { MockScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
@@ -16,16 +15,12 @@ import { Thumb } from "./Thumb.tsx";
 import type { TuneState } from "./tune.ts";
 import { phoneLayout } from "./viewport.ts";
 
-// A tree node's design in use (else its first live one), as a picture.
+// A tree node's design in use (else its newest live one), as a picture.
 function nodePicture(node: TreeNode): string | null {
-  const use = node.inUse[0];
-  const v =
-    (use && node.variants.find((x) => x.state === use.state && x.variant === use.variant)) ??
-    node.variants.find((x) => x.status === "accepted" || x.status === "open") ??
-    node.variants[0];
-  if (!v || v.surface < 0) return null;
-  const version = use && sameVersion(use, v) ? use.version : v.version;
-  return surfaceUrl(v.postId, v.surface, { version, mode: theme(), e: v.embedsKey });
+  const pic = screenPicture(node, node.inUse[0]?.state ?? node.states[0] ?? null);
+  return pic
+    ? surfaceUrl(pic.postId, pic.surface, { version: pic.version, mode: theme(), e: pic.embedsKey })
+    : null;
 }
 
 export function BuiltFrom(props: { s: MockScreenState; t: TuneState }) {

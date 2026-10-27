@@ -5,14 +5,14 @@
 
 import { onCleanup, Show } from "solid-js";
 import { carried, setCarried, useCarriedDelivery } from "./carry.ts";
-import { linkClick, mockPath, projectPath } from "./route.ts";
+import { homePath, linkClick, mockPath } from "./route.ts";
 import type { MockScreenState } from "./state.ts";
 
 const questions = (n: number) => (n === 1 ? "1 question" : `${n} questions`);
 
 export function NextCard(props: { s: MockScreenState }) {
   const s = props.s;
-  const home = () => projectPath(s.project);
+  const home = () => homePath(s.project);
   return (
     <Show when={s.afterSend()}>
       {(a) => (

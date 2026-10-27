@@ -198,8 +198,8 @@ async function gif() {
     // The agent publishes: a Look ask over three looks, and a part question.
     const asks = DEMO.asks.filter((a) => a.id !== "versions-layout");
     const { mockId, session } = await publishWriter(api, asks);
-    const homeRow = page.locator(`.home-row[data-mock="${DEMO.slug}"]`);
-    await homeRow.locator(".home-chip").waitFor();
+    const homeRow = page.locator(`.home-step[data-mock="${DEMO.slug}"]`).first();
+    await homeRow.waitFor();
     await sleep(1200);
     await click(homeRow);
     await page.locator('.opt[data-option="editorial"] iframe').waitFor();

@@ -2,9 +2,10 @@ import type { Page } from "@playwright/test";
 import { PROJECT, seedAsked } from "./decideSeed.ts";
 import { agentCall, expect, test } from "./fixtures.ts";
 
-// On a phone, Home rows swipe left to resolve a mock whose questions aren't
-// worth answering: it leaves the open list for a folded Resolved one, the agent
-// hears it once, and Undo or Reopen bring it back.
+// On a phone, the waiting mocks (Home's open count, tapped) swipe left to
+// resolve a mock whose questions aren't worth answering: it leaves the open
+// list for a folded Resolved one, the agent hears it once, and Undo or Reopen
+// bring it back.
 
 // A finger pulling a row sideways, as the Pointer Events a real swipe fires.
 async function swipeRow(page: Page, slug: string, dx: number) {
@@ -44,6 +45,7 @@ test("a swipe left resolves a mock; the agent hears it once; Undo and Reopen bri
   await page.goto(`${server.url}/project/${PROJECT}`);
   const lead = page.locator(".home-lead");
   await expect(lead).toContainText("2 open across 2 mocks");
+  await page.locator(".home-count").tap();
   const home = new RegExp(`/project/${PROJECT}$`);
 
   // A short pull springs back and opens nothing.

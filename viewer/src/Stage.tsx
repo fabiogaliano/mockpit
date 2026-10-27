@@ -30,10 +30,10 @@ import { host, readonly, root } from "./host.ts";
 import { useInspectGestures } from "./gestures.ts";
 import { JsonTree } from "./JsonTree.tsx";
 import {
+  boardWidths,
   changedPart,
   clampZoom,
   createHitRefs,
-  DEVICE_WIDTHS,
   draftKnobValues,
   frameKey,
   historyRow,
@@ -147,18 +147,7 @@ export function Stage(props: { s: MockScreenState; onGoto?: (to: string) => void
   // Above a phone's page, no label: only room for the tap area of a pin on its
   // very first line, which would otherwise sit under the header.
   const labelH = () => (phone() ? 12 : BOARD_LABEL);
-  // Every width on the canvas in the mock's order, the live one in its place
-  // (or first, when the user picked one the mock does not name). "All widths"
-  // on a mock that names none lays out the viewer's own.
-  const order = createMemo(() => {
-    const named = s.mock()?.widths ?? [];
-    const declared = phone()
-      ? []
-      : named.length || zoom() !== "all"
-        ? named
-        : DEVICE_WIDTHS.map((d) => d.w);
-    return declared.includes(frameW()) ? declared : [frameW(), ...declared];
-  });
+  const order = createMemo(() => boardWidths(s.mock()?.widths ?? [], frameW(), zoom(), phone()));
   const others = createMemo(() => order().filter((w) => w !== frameW()));
   // The whole screen inside its safe area, less what floats at its sides.
   const availW = createMemo(

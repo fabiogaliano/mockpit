@@ -92,7 +92,7 @@ try {
     }, theme);
     await call(url, "/api/theme", "PUT", { mode: theme });
     await page.goto(home);
-    await page.locator(".home-row").first().waitFor();
+    await page.locator(".home-step").first().waitFor();
     await shot(page, `home-${theme}`);
     await page.goto(screen);
     await page.locator(".opt").first().waitFor();

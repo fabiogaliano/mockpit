@@ -15,7 +15,14 @@ import {
   type Reply,
   sameScreen,
 } from "../../server/types.ts";
-import type { CommentRow, DraftInput, HistoryRow, MockDetail, VariantView } from "./api.ts";
+import type {
+  CommentRow,
+  DraftInput,
+  HistoryRow,
+  MockDetail,
+  TreeNode,
+  VariantView,
+} from "./api.ts";
 import { commentText, reactionWhere } from "./reactionRules.ts";
 
 type MockLike = Pick<MockDetail, "asks" | "states" | "title" | "knobs">;
@@ -1281,6 +1288,23 @@ export const widthLabel = (w: number): string => {
   return d ? d.label : `${w}`;
 };
 
+// Every width on the canvas in the mock's order, the live one in its place
+// (or first, when the user picked one the mock does not name). "All widths"
+// on a mock that names none lays out the viewer's own; a phone shows one page.
+export function boardWidths(
+  named: readonly number[],
+  frameW: number,
+  zoom: Zoom,
+  phone: boolean,
+): number[] {
+  const declared = phone
+    ? []
+    : named.length || zoom !== "all"
+      ? [...named]
+      : DEVICE_WIDTHS.map((d) => d.w);
+  return declared.includes(frameW) ? declared : [frameW, ...declared];
+}
+
 // Inspect zooms between fitting the screen and twice the design's size; the
 // canvas also zooms out to "all", every width side by side.
 export type Zoom = "fit" | "all" | number;
@@ -1457,4 +1481,41 @@ export function gotoTarget(
   if (colon < 0) return { mock, state: states[0] };
   const state = word.slice(colon + 1).trim();
   return states.includes(state) ? { mock, state } : null;
+}
+
+// The width a mock is designed at: its first declared one, else a desktop's.
+export const designWidth = (node: Pick<TreeNode, "widths">): number => node.widths[0] ?? 1280;
+
+export interface ScreenPicture {
+  postId: string;
+  surface: number;
+  version: number;
+  embedsKey?: string;
+  inUse: boolean;
+}
+
+// What a screen (one state of a mock) looks like now: the version in use, else
+// its newest live version, else its newest of any; null when it has nothing
+// that renders as a picture.
+export function screenPicture(
+  node: Pick<TreeNode, "inUse" | "variants">,
+  state: string | null,
+): ScreenPicture | null {
+  const inState = node.variants.filter((v) => v.state === state);
+  const use = node.inUse.find((u) => u.state === state);
+  const used = use && inState.find((v) => v.variant === use.variant);
+  const newest = (vs: typeof inState) =>
+    vs.reduce<(typeof inState)[number] | undefined>(
+      (a, b) => (!a || b.updatedAt > a.updatedAt ? b : a),
+      undefined,
+    );
+  const v = used ?? newest(inState.filter((x) => isLive(x.status))) ?? newest(inState);
+  if (!v || v.surface < 0) return null;
+  return {
+    postId: v.postId,
+    surface: v.surface,
+    version: used && use ? use.version : v.version,
+    ...(v.embedsKey ? { embedsKey: v.embedsKey } : {}),
+    inUse: !!used,
+  };
 }

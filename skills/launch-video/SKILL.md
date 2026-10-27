@@ -83,7 +83,7 @@ ffmpeg -y -i "$RAW" -vf "fps=30,format=yuv420p" \
   `sub`, `cmds`/`cmd` (+ `span.p` for the prompt `$`), `foot`.
 - Interact with the viewer through `page.frameLocator("#app")`. Useful
   selectors (the same ones `e2e/decide-flow.spec.ts` drives):
-  `.home-row[data-mock="<slug>"]` (Home rows), `.frame.on` (the frame on
+  `.home-step[data-mock="<slug>"]` (Home's screens), `.frame.on` (the frame on
   stage), `.strip [role="tab"]` (states), `.opt[data-option="<id>"]` (question
   options), `button.send`, `.themebtn` (dark/light).
 - Publish content via the HTTP API while recording: `POST /api/mocks`

@@ -1763,7 +1763,8 @@ export function createApp({
 
   // The project as a tree: every mock with its variants per state (status,
   // lineage, what its embeds resolve to) and the components it embeds and is
-  // embedded in. What the viewer's canvas and an agent's `read --tree` lay out.
+  // embedded in, and the declared flows. What the viewer's Home and an agent's
+  // `read --tree` lay out.
   async function treeFlow(query: { project?: string }): Promise<FlowResult> {
     const project = str(query.project, MAX_TITLE);
     if (!project) return fail(400, 'provide "project"');

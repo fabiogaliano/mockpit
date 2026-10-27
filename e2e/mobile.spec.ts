@@ -75,7 +75,7 @@ test("fits the screen without horizontal scrolling", async ({ page, server }) =>
   await open(page, server.url);
   expect(await noOverflow(page)).toBe(true);
   await page.goto(`${server.url}/project/m`);
-  await expect(page.locator(".home-row")).toBeVisible();
+  await expect(page.locator(".home-step").first()).toBeVisible();
   expect(await noOverflow(page)).toBe(true);
 });
 

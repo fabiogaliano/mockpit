@@ -160,8 +160,8 @@ await stage(
 );
 await sleep(900);
 const { mockId, session } = await publishWriter();
-const row = app.locator(`.home-row[data-mock="${DEMO.slug}"]`);
-await row.locator(".home-chip").waitFor();
+const row = app.locator(`.home-step[data-mock="${DEMO.slug}"]`).first();
+await row.waitFor();
 await sleep(1600);
 await row.click();
 await app.locator('.opt[data-option="editorial"] iframe').waitFor();

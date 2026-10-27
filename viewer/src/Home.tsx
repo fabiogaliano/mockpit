@@ -1,13 +1,12 @@
-// D10: the project's mocks, newest activity first — thumbnail · name · states ·
-// draft progress · open count · age — under one line that says what is waiting
-// and links the next mock to answer, in the agent's order (nextOwedMock).
-// A swipe left on a row (or its Resolve button) resolves the mock: its open
-// questions close unanswered and it moves to a folded Resolved list, where
-// Reopen brings it back.
-// With room for it (a wide screen and a mouse), the list is a sidebar beside
-// the project canvas (ProjectCanvas); each row's tree button finds its mock
-// there. On a phone the same button opens the tree one level at a time
-// (TreeDrill).
+// A project at a glance, in three tabs, each showing the design in use for
+// every screen (else its newest live version, unmarked): Flows, the declared
+// flows as rows of screens in order (with none declared, each page's own
+// states); Pages, each page with its states; Components, each with where it is
+// used. Above them, one line says what is waiting and links the next mock to
+// answer, in the agent's order (nextOwedMock). The count opens the waiting
+// mocks as rows; a swipe left on one (or its Resolve button) resolves it: its
+// open questions close unanswered and it moves to a folded Resolved list,
+// where Reopen brings it back.
 
 import {
   createEffect,
@@ -15,29 +14,48 @@ import {
   createResource,
   createSignal,
   For,
+  type JSX,
+  on,
   onCleanup,
   Show,
 } from "solid-js";
-import { api, type MockSummary, subscribe, surfaceUrl } from "./api.ts";
+import type { FlowStep } from "../../server/types.ts";
+import { api, type MockSummary, subscribe, surfaceUrl, type TreeNode } from "./api.ts";
 import { setCarried } from "./carry.ts";
 import { useSwipeAction } from "./gestures.ts";
 import { host, readonly } from "./host.ts";
-import { nextOwedMock, timeAgo } from "./logic.ts";
-import { type CanvasHandle, ProjectCanvas } from "./ProjectCanvas.tsx";
-import { Library } from "./Library.tsx";
-import { Picks } from "./Picks.tsx";
-import { TreeCards } from "./TreeCards.tsx";
-import { TreeDrill } from "./TreeDrill.tsx";
-import { libraryPath, linkClick, picksPath, mockPath, navigate, projectPath } from "./route.ts";
+import { Icon } from "./icons.tsx";
+import { designWidth, nextOwedMock, screenPicture, timeAgo } from "./logic.ts";
+import {
+  type HomeView,
+  linkClick,
+  mockPath,
+  navigate,
+  projectPath,
+  rememberHomeView,
+} from "./route.ts";
 import { setTheme, theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 import { TopBar } from "./TopBar.tsx";
+import { phoneLayout } from "./viewport.ts";
 
-export function Home(props: {
-  project: string | null;
-  view: "tree" | "library" | "picks";
-  focus: string | null;
-}) {
+const TABS: { view: HomeView; label: string }[] = [
+  { view: "flows", label: "Flows" },
+  { view: "pages", label: "Pages" },
+  { view: "components", label: "Components" },
+];
+
+// Where each tab was scrolled to, so coming back to it lands where it was.
+const scrolls = new Map<string, number>();
+
+interface Row {
+  name: string;
+  // The declared flow the row is, carried into the screens it opens.
+  flow: string | null;
+  steps: FlowStep[];
+}
+
+export function Home(props: { project: string | null; view: HomeView }) {
   // Home shows where every mock stands; a Send carried from a mock ends here.
   setCarried(null);
   const [projects, { refetch: refetchProjects }] = createResource(() => api.projects());
@@ -45,37 +63,28 @@ export function Home(props: {
   const [list, { refetch: refetchList }] = createResource(project, (p) => api.mocks(p));
   const [tree, { refetch: refetchTree }] = createResource(project, (p) => api.tree(p));
   const refetch = () => Promise.all([refetchList(), refetchTree()]);
-  const [viewport, setViewport] = createSignal(readViewport());
-  const onResize = () => setViewport(readViewport());
-  host().window.addEventListener("resize", onResize);
-  onCleanup(() => host().window.removeEventListener("resize", onResize));
-  // The tree fits the device: a mouse on a wide screen gets the list beside
-  // the canvas; a tablet held sideways, the mocks as grouped cards; a tablet
-  // upright, the canvas with the list as a drawer; a phone, the list.
-  const layout = createMemo(() => {
-    const w = viewport().w;
-    if (w < 700) return "phone";
-    if (w < 1000) return "tablet";
-    return viewport().fine ? "desktop" : "tablet-wide";
-  });
-  const withCanvas = () => layout() === "desktop" || layout() === "tablet";
-  const [drawer, setDrawer] = createSignal(true);
-  let canvas: CanvasHandle | undefined;
-  const [drill, setDrill] = createSignal<string | null>(null);
-  const showTree = (slug: string) => {
-    if (!withCanvas()) return setDrill(slug);
-    if (layout() === "tablet") setDrawer(false);
-    canvas?.locate(slug);
-  };
-  // `?focus=`: open on that mock's place in the tree, once it has loaded.
-  let focused = false;
   createEffect(() => {
-    const slug = props.focus;
-    const nodes = tree()?.tree;
-    if (focused || !slug || !nodes?.some((n) => n.slug === slug)) return;
-    focused = true;
-    showTree(slug);
+    const p = project();
+    if (p) rememberHomeView(p, props.view);
   });
+
+  const byAge = (a: TreeNode, b: TreeNode) => a.createdAt.localeCompare(b.createdAt);
+  const nodes = createMemo(() => [...(tree()?.tree ?? [])].sort(byAge));
+  const bySlug = createMemo(() => new Map(nodes().map((n) => [n.slug, n])));
+  const pages = createMemo(() => nodes().filter((n) => n.kind === "page"));
+  const components = createMemo(() => nodes().filter((n) => n.kind !== "page"));
+  // With no flow declared, each page's own states make a row; a project of
+  // components only shows those, so the first tab is never empty.
+  const rows = createMemo<Row[]>(() => {
+    const flows = tree()?.flows ?? [];
+    if (flows.length) return flows.map((f) => ({ name: f.name, flow: f.name, steps: f.steps }));
+    return (pages().length ? pages() : nodes()).map((n) => ({
+      name: n.title,
+      flow: null,
+      steps: n.states.map((state) => ({ mock: n.slug, state })),
+    }));
+  });
+
   // Resolved a moment ago, before the list catches up.
   const [leaving, setLeaving] = createSignal<Record<string, true>>({});
   const all = createMemo(() =>
@@ -90,30 +99,13 @@ export function Home(props: {
   // Rows are keyed by id, so a refetch mid-swipe updates a row in place
   // instead of remounting it out from under the finger.
   const byId = createMemo(() => Object.fromEntries(all().map((m) => [m.id, m])));
-  const [resolvedOpen, setResolvedOpen] = createSignal(false);
   const waiting = createMemo(() =>
     mocks()
       .filter((m) => m.open > 0)
       .map((m) => m.id),
   );
-  // Pages and components listed apart, each newest first; headed only when
-  // the project has both.
-  const groups = createMemo(() =>
-    [
-      {
-        title: "Pages",
-        ids: mocks()
-          .filter((m) => m.kind === "page")
-          .map((m) => m.id),
-      },
-      {
-        title: "Components",
-        ids: mocks()
-          .filter((m) => m.kind !== "page")
-          .map((m) => m.id),
-      },
-    ].filter((g) => g.ids.length),
-  );
+  const [listOpen, setListOpen] = createSignal(false);
+  const [resolvedOpen, setResolvedOpen] = createSignal(false);
   const open = () => list()?.open ?? 0;
   const next = createMemo(() => nextOwedMock(mocks(), null));
 
@@ -166,40 +158,51 @@ export function Home(props: {
   );
   onCleanup(stop);
 
-  const views = () => (
+  // Each tab keeps its own scroll; the screens' boxes are sized before their
+  // pictures load, so the place is right as soon as the tree is in.
+  let main!: HTMLElement;
+  const scrollKey = () => `${project() ?? ""}|${props.view}`;
+  createEffect(
+    on([scrollKey, () => !!tree()], ([key, loaded]) => {
+      if (!loaded) return;
+      host().window.requestAnimationFrame(() => {
+        if (main) main.scrollTop = scrolls.get(key) ?? 0;
+      });
+    }),
+  );
+
+  const tabs = () => (
     <Show when={project()}>
       {(p) => (
-        <nav class="home-views" aria-label="View">
-          <a
-            href={projectPath(p())}
-            aria-current={props.view === "tree" ? "page" : undefined}
-            onClick={(e) => linkClick(e, projectPath(p()))}
-          >
-            Tree
-          </a>
-          <a
-            href={libraryPath(p())}
-            aria-current={props.view === "library" ? "page" : undefined}
-            onClick={(e) => linkClick(e, libraryPath(p()))}
-          >
-            Library
-          </a>
-          <a
-            href={picksPath(p())}
-            aria-current={props.view === "picks" ? "page" : undefined}
-            onClick={(e) => linkClick(e, picksPath(p()))}
-          >
-            Picks
-          </a>
+        <nav class="home-tabs" aria-label="View">
+          <For each={TABS}>
+            {(t) => (
+              <a
+                href={projectPath(p(), t.view)}
+                aria-current={props.view === t.view ? "page" : undefined}
+                onClick={(e) => {
+                  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                  e.preventDefault();
+                  navigate(projectPath(p(), t.view), { replace: true });
+                }}
+              >
+                {t.label}
+              </a>
+            )}
+          </For>
         </nav>
       )}
     </Show>
   );
 
+  const screen = (n: TreeNode, state: string | null, flow: string | null, label: JSX.Element) => (
+    <Screen project={project()!} node={n} state={state} flow={flow} label={label} />
+  );
+
   return (
-    <div class="screen home" classList={{ "home-phone": layout() === "phone" }}>
+    <div class="screen home" classList={{ "home-phone": phoneLayout() }}>
       <TopBar
-        right={<Show when={layout() !== "phone"}>{views()}</Show>}
+        right={<Show when={!phoneLayout()}>{tabs()}</Show>}
         left={
           <>
             <span>mockpit</span>
@@ -209,7 +212,7 @@ export function Home(props: {
                 <select
                   aria-label="Project"
                   value={project() ?? ""}
-                  onChange={(e) => navigate(projectPath(e.currentTarget.value))}
+                  onChange={(e) => navigate(projectPath(e.currentTarget.value, props.view))}
                 >
                   <For each={projects()}>{(p) => <option value={p.name}>{p.name}</option>}</For>
                 </select>
@@ -221,129 +224,74 @@ export function Home(props: {
           </>
         }
       />
-      <Show when={layout() === "phone"}>
-        <div class="home-views-row">{views()}</div>
-      </Show>
-      <Show when={props.view === "library" && project()}>
-        {(p) => (
-          <main class="home-main">
-            <Library project={p()} nodes={tree()?.tree ?? []} onChanged={() => void refetch()} />
-          </main>
-        )}
-      </Show>
-      <Show when={props.view === "picks" && project()}>
-        {(p) => (
-          <main class="home-main">
-            <Picks project={p()} nodes={tree()?.tree ?? []} />
-          </main>
-        )}
-      </Show>
-      <Show when={props.view === "tree"}>
-        <main
-          class="home-main"
-          classList={{
-            "with-canvas": withCanvas() && !!project(),
-            "with-drawer": layout() === "tablet" && !!project(),
-            "drawer-open": layout() === "tablet" && drawer(),
-            cards: layout() === "tablet-wide",
-          }}
+      <main
+        class="home-main"
+        ref={(el) => (main = el)}
+        onScroll={() => scrolls.set(scrollKey(), main.scrollTop)}
+      >
+        <Show when={phoneLayout()}>
+          <div class="home-tabs-row">{tabs()}</div>
+        </Show>
+        <Show
+          when={project()}
+          fallback={
+            <Show when={!projects.loading}>
+              <p class="home-empty">
+                Nothing published yet. Agents publish with `mockpit publish`.
+              </p>
+            </Show>
+          }
         >
-          <Show when={layout() === "tablet" && project()}>
-            <button
-              type="button"
-              class="drawer-btn"
-              aria-expanded={drawer()}
-              aria-label={drawer() ? "Hide the mock list" : "Show the mock list"}
-              onClick={() => setDrawer(!drawer())}
-            >
-              {drawer() ? "✕" : "☰"}
-            </button>
-          </Show>
-          <div class="home-col">
+          <div class="home-lead">
             <Show
-              when={project()}
+              when={waiting().length || resolved().length}
               fallback={
-                <Show when={!projects.loading}>
-                  <p class="home-empty">
-                    Nothing published yet. Agents publish with `mockpit publish`.
-                  </p>
-                </Show>
+                <span class="home-count">
+                  <i class="dot ok" />0 open · all answered
+                </span>
               }
             >
-              <p class="home-lead">
-                <Show
-                  when={open() > 0}
-                  fallback={
-                    <>
-                      <i class="dot ok" />0 open · all answered
-                    </>
-                  }
-                >
-                  <i class="dot" />
-                  {`${open()} open across ${list()?.openMocks ?? 0} ${list()?.openMocks === 1 ? "mock" : "mocks"} ·`}
-                  <a
-                    class="home-next"
-                    href={mockPath(project()!, next()?.slug ?? "")}
-                    title={next()?.title}
-                    onClick={(e) => linkClick(e, mockPath(project()!, next()?.slug ?? ""))}
-                  >
-                    Answer next ›
-                  </a>
-                </Show>
-              </p>
-              <Show
-                when={layout() !== "tablet-wide"}
-                fallback={
-                  <>
-                    <Show when={waiting().length}>
-                      <h3 class="home-group">Waiting on you</h3>
-                      <ol class="home-list">
-                        <For each={waiting()}>
-                          {(id) => (
-                            <Show when={byId()[id]}>
-                              {(m) => (
-                                <MockRow
-                                  mock={m()}
-                                  project={project()!}
-                                  onTree={() => showTree(m().slug)}
-                                  {...(readonly() ? {} : { onResolve: () => void resolve(m()) })}
-                                />
-                              )}
-                            </Show>
-                          )}
-                        </For>
-                      </ol>
-                    </Show>
-                    <TreeCards nodes={tree()?.tree ?? []} onOpen={setDrill} />
-                  </>
-                }
+              <button
+                type="button"
+                class="home-count"
+                aria-expanded={listOpen()}
+                onClick={() => setListOpen(!listOpen())}
               >
-                <For each={groups()}>
-                  {(g) => (
-                    <>
-                      <Show when={groups().length > 1}>
-                        <h3 class="home-group">{g.title}</h3>
-                      </Show>
-                      <ol class="home-list">
-                        <For each={g.ids}>
-                          {(id) => (
-                            <Show when={byId()[id]}>
-                              {(m) => (
-                                <MockRow
-                                  mock={m()}
-                                  project={project()!}
-                                  onTree={() => showTree(m().slug)}
-                                  {...(readonly() ? {} : { onResolve: () => void resolve(m()) })}
-                                />
-                              )}
-                            </Show>
-                          )}
-                        </For>
-                      </ol>
-                    </>
+                <i class="dot" classList={{ ok: open() === 0 }} />
+                {open() > 0
+                  ? `${open()} open across ${list()?.openMocks ?? 0} ${list()?.openMocks === 1 ? "mock" : "mocks"}`
+                  : "0 open · all answered"}
+              </button>
+            </Show>
+            <Show when={open() > 0}>
+              <span class="sep">·</span>
+              <a
+                class="home-next"
+                href={mockPath(project()!, next()?.slug ?? "")}
+                title={next()?.title}
+                onClick={(e) => linkClick(e, mockPath(project()!, next()?.slug ?? ""))}
+              >
+                Answer next ›
+              </a>
+            </Show>
+          </div>
+          <Show when={listOpen() && (waiting().length || resolved().length)}>
+            <div class="home-waiting">
+              <ol class="home-list">
+                <For each={waiting()}>
+                  {(id) => (
+                    <Show when={byId()[id]}>
+                      {(m) => (
+                        <MockRow
+                          mock={m()}
+                          project={project()!}
+                          {...(readonly() ? {} : { onResolve: () => void resolve(m()) })}
+                        />
+                      )}
+                    </Show>
                   )}
                 </For>
-              </Show>
+              </ol>
               <Show when={resolved().length}>
                 <section class="home-resolved" aria-label="Resolved">
                   <button
@@ -376,24 +324,86 @@ export function Home(props: {
                   </Show>
                 </section>
               </Show>
-            </Show>
-          </div>
-          <Show when={withCanvas() && project()}>
-            {(p) => (
-              <ProjectCanvas project={p()} nodes={tree()?.tree ?? []} ref={(h) => (canvas = h)} />
-            )}
+            </div>
           </Show>
-        </main>
-      </Show>
-      <Show when={drill() && project()}>
-        <TreeDrill
-          project={project()!}
-          nodes={tree()?.tree ?? []}
-          start={drill()!}
-          onClose={() => setDrill(null)}
-          onChanged={() => void refetch()}
-        />
-      </Show>
+
+          <Show when={props.view === "flows"}>
+            <For each={rows()}>
+              {(row) => (
+                <section class="home-sec">
+                  <h2>
+                    {row.name}
+                    <Show when={row.flow}>
+                      <span>{`${row.steps.length} ${row.steps.length === 1 ? "step" : "steps"}`}</span>
+                    </Show>
+                  </h2>
+                  <div class="home-flow">
+                    <For each={row.steps}>
+                      {(x, i) => (
+                        <Show when={bySlug().get(x.mock)}>
+                          {(n) => (
+                            <>
+                              <Show when={i() > 0}>
+                                <span class="home-arrow" aria-hidden="true" />
+                              </Show>
+                              {screen(
+                                n(),
+                                x.state,
+                                row.flow,
+                                row.flow ? (
+                                  <>
+                                    <b>{n().title}</b>
+                                    {x.state === null ? "" : ` · ${x.state}`}
+                                  </>
+                                ) : (
+                                  (x.state ?? n().title)
+                                ),
+                              )}
+                            </>
+                          )}
+                        </Show>
+                      )}
+                    </For>
+                  </div>
+                </section>
+              )}
+            </For>
+          </Show>
+
+          <Show when={props.view === "pages"}>
+            <For each={pages()}>
+              {(n) => (
+                <section class="home-sec">
+                  <h2>{n.title}</h2>
+                  <div class="home-states">
+                    <For each={n.states}>{(state) => screen(n, state, null, state ?? n.title)}</For>
+                  </div>
+                </section>
+              )}
+            </For>
+          </Show>
+
+          <Show when={props.view === "components"}>
+            <div class="home-comps">
+              <For each={components()}>
+                {(n) =>
+                  screen(
+                    n,
+                    n.inUse[0]?.state ?? n.states[0] ?? null,
+                    null,
+                    <>
+                      <b>{n.title}</b>
+                      <Show when={n.usedIn.length}>
+                        {`in ${n.usedIn.length} ${n.usedIn.length === 1 ? "screen" : "screens"}`}
+                      </Show>
+                    </>,
+                  )
+                }
+              </For>
+            </div>
+          </Show>
+        </Show>
+      </main>
       <Show when={toast()}>
         {(t) => (
           <div class="home-toast" role="status">
@@ -412,9 +422,63 @@ export function Home(props: {
   );
 }
 
-function readViewport() {
-  const w = host().window;
-  return { w: w.innerWidth, fine: w.matchMedia?.("(pointer: fine)").matches ?? true };
+// One screen as a picture that opens it: the design in use carries the check
+// in its corner; anything else is shown unmarked.
+function Screen(props: {
+  project: string;
+  node: TreeNode;
+  state: string | null;
+  flow: string | null;
+  label: JSX.Element;
+}) {
+  const pic = createMemo(() => screenPicture(props.node, props.state));
+  const href = () =>
+    mockPath(
+      props.project,
+      props.node.slug,
+      props.state === null ? null : { state: props.state, variant: null },
+      props.flow,
+    );
+  const component = () => props.node.kind !== "page";
+  const phone = () => designWidth(props.node) < 700;
+  return (
+    <a
+      class="home-step"
+      classList={{ phone: phone() && !component(), comp: component() }}
+      href={href()}
+      onClick={(e) => linkClick(e, href())}
+      data-mock={props.node.slug}
+      data-state={props.state ?? ""}
+    >
+      <span class="home-pic">
+        <Show when={pic()}>
+          {(p) => (
+            <Thumb
+              src={surfaceUrl(p().postId, p().surface, {
+                version: p().version,
+                mode: theme(),
+                e: p().embedsKey,
+              })}
+              width={designWidth(props.node)}
+              fit={component()}
+              whole={component()}
+            />
+          )}
+        </Show>
+        <Show when={pic()?.inUse}>
+          <span class="mk cur" aria-hidden="true">
+            <Icon name="check" />
+          </span>
+        </Show>
+      </span>
+      <span class="home-lbl">
+        {props.label}
+        <Show when={pic()?.inUse}>
+          <span class="sr-only">, in use</span>
+        </Show>
+      </span>
+    </a>
+  );
 }
 
 const reducedMotion = () =>
@@ -425,7 +489,6 @@ function MockRow(props: {
   project: string;
   onResolve?: () => void;
   onReopen?: () => void;
-  onTree?: () => void;
 }) {
   const href = () => mockPath(props.project, props.mock.slug);
   const thumb = () => props.mock.thumbnail;
@@ -508,19 +571,6 @@ function MockRow(props: {
           </Show>
           <span class="home-ago">{timeAgo(props.mock.updatedAt)}</span>
         </a>
-        <Show when={props.onTree}>
-          <button
-            type="button"
-            class="home-tree"
-            aria-label={`Tree of ${props.mock.title}`}
-            title="Where it sits in the tree"
-            onClick={() => props.onTree?.()}
-          >
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M4 3v10M4 6h5M4 11h5M11 6h1M11 11h1" />
-            </svg>
-          </button>
-        </Show>
         <Show when={props.onResolve}>
           <button
             type="button"

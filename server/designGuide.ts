@@ -292,8 +292,8 @@ A screen made of reusable pieces (a button, a card, a header, a day strip) is
 built from them: publish each piece as its own mock (\`--kind component\`), and
 the screen (\`--kind page\`) embeds it with \`<mockpit-embed slug="card">\`.
 Vary a piece in its own mock, not by copying it into every page: the user
-sees every page it is in, a decision on it reaches all of them, and the
-viewer's canvas and Library show the tree. Topic \`surfaces\` has the details.
+sees every page it is in, a decision on it reaches all of them, and Home's
+Components tab counts the screens it is in. Topic \`surfaces\` has the details.
 
 ## Ask, slot or knob
 

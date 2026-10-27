@@ -115,9 +115,7 @@ test("answer a mock's questions and send one reply", async ({ page, server }) =>
   await expect(sent.locator(".tdelivered")).toHaveText("✓Not seen yet");
 
   await page.goto(`${server.url}/project/e2e`);
-  const row = page.locator(".home-row", { hasText: "Card" });
-  await expect(row).toContainText("2 states");
-  await expect(row.locator(".home-done")).toHaveText("✓");
+  await expect(page.locator('.home-step[data-mock="card"]')).toHaveCount(2);
   await expect(page.locator(".home-lead")).toContainText("0 open");
 });
 
@@ -127,7 +125,7 @@ test("the agent's pending.viewerOpen follows the mock on screen", async ({ page,
     (await (await fetch(`${server.url}/api/mocks/${mockId}`)).json()).pending.viewerOpen;
 
   await page.goto(`${server.url}/project/e2e`);
-  const row = page.locator(".home-row", { hasText: "Card" });
+  const row = page.locator('.home-step[data-mock="card"]').first();
   await expect(row).toBeVisible();
   expect(await viewerOpen()).toBe(false);
 

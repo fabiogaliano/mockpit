@@ -42,16 +42,18 @@ async function pickAndWait(page: Page, mockId: string, id: string) {
   expect((await write).ok()).toBe(true);
 }
 
-test("Home lists the mock with its open count and Answer next goes to it", async ({
+test("Home shows the mock's screens, its open count opens the waiting list, and Answer next goes to it", async ({
   page,
   server,
 }) => {
   await seedWriter(server.url);
   await page.goto(`${server.url}/project/${PROJECT}`);
+  await expect(page.locator('.home-step[data-mock="writer"]')).toHaveCount(4);
+  await expect(page.locator(".home-lead")).toContainText("3 open across 1 mock");
+  await page.locator(".home-count").click();
   const row = page.locator('.home-row[data-mock="writer"]');
   await expect(row).toContainText("Writer");
   await expect(row.locator(".home-chip")).toHaveText("3 open");
-  await expect(page.locator(".home-lead")).toContainText("3 open across 1 mock");
   await page.getByRole("link", { name: "Answer next ›" }).click();
   await expect(page).toHaveURL(new RegExp(`${mockPath}$`));
   await expect(count(page)).toHaveText("1 of 2");
@@ -570,7 +572,7 @@ test("every surface is a sandboxed /s/ frame; agent markup never enters the view
   await expect(page.locator("[srcdoc]")).toHaveCount(0);
 
   await page.goto(`${server.url}/project/${PROJECT}`);
-  await expect(page.locator(".home-row iframe")).toHaveCount(1);
+  await expect(page.locator(".home-step iframe")).toHaveCount(4);
   expect(await page.evaluate(() => document.documentElement.outerHTML)).not.toContain(MARKER);
   const thumbs = await page
     .locator("iframe")
@@ -987,7 +989,7 @@ test("keys pick, send on and step the versions; Send carries on to the next mock
   await expect(chip).toHaveText("Writer · Delivered");
   // Seen Delivered, it ends there: by way of Home and back, it is gone.
   await page.getByRole("link", { name: "Back" }).click();
-  await page.locator('.home-row[data-mock="card"]').click();
+  await page.locator('.home-step[data-mock="card"]').click();
   await expect(question(page)).toHaveText("Which tone?");
   await expect(chip).toHaveCount(0);
 
@@ -1073,21 +1075,63 @@ test("after Send, another agent conversation's mock is offered, never moved to",
   await expect(page).toHaveURL(/\/first$/);
 });
 
-test("Home: the canvas lays out each mock with its designs; a row finds its mock, a tile opens its variant", async ({
+test("Home: Flows, Pages and Components each show the design in use; a screen opens with its flow", async ({
   page,
   server,
 }) => {
-  await seedWriter(server.url);
+  const page1 = (title: string) => `<main data-part="body"><h1>${title}</h1></main>`;
+  const first = await agentCall(server.url, "/api/mocks", {
+    project: PROJECT,
+    agent: "e2e",
+    mock: "today",
+    kind: "page",
+    title: "Today",
+    state: "At rest",
+    widths: [390],
+    flow: "Morning",
+    step: 1,
+    html: page1("At rest"),
+  });
+  const session = first.sessionId as string;
+  const publish = (body: Record<string, unknown>) =>
+    agentCall(server.url, "/api/mocks", { project: PROJECT, session, ...body });
+  await publish({ mock: "today", state: "Running", flow: "Morning", step: 2, html: page1("Run") });
+  await publish({
+    mock: "food",
+    kind: "page",
+    title: "Food",
+    state: "Lunch",
+    widths: [390],
+    flow: "Morning",
+    step: 3,
+    html: `${page1("Lunch")}<mockpit-embed slug="chip"></mockpit-embed>`,
+  });
+  await publish({ mock: "chip", kind: "component", title: "Chip", html: "<b>chip</b>" });
   await page.goto(`${server.url}/project/${PROJECT}`);
-  const cluster = page.locator('.pc-cluster[data-cluster="writer"]');
-  await expect(cluster).toBeVisible();
-  await expect(page.locator('.pc-tile[data-variant="quiet"]')).toHaveCount(4);
-  await page.getByRole("button", { name: "Tree of Writer" }).click();
-  await expect(cluster).toHaveClass(/marked/);
-  // A tile opens its mock on that state and variant.
-  await page.locator('.pc-tile[data-variant="dark"]').first().click();
-  await expect(page).toHaveURL(/\/writer\?variant=dark&state=/);
-  await expect(onStage(page)).toHaveAttribute("data-variant", "dark");
+  const flows = page.locator(".home-sec", { hasText: "Morning" });
+  await expect(flows.locator(".home-step")).toHaveCount(3);
+  await expect(flows.locator(".home-step").nth(2)).toContainText("Food · Lunch");
+
+  await page.getByRole("link", { name: "Pages" }).click();
+  await expect(page).toHaveURL(/\?view=pages$/);
+  await expect(page.locator(".home-sec h2")).toHaveText(["Today", "Food"]);
+  await page.getByRole("link", { name: "Components" }).click();
+  await expect(page.locator('.home-step[data-mock="chip"]')).toContainText("in 1 screen");
+
+  // A screen opened from a flow walks that flow; Back returns to the tab it came from.
+  await page.getByRole("link", { name: "Flows" }).click();
+  await page.locator('.home-step[data-mock="food"]').click();
+  await expect(page).toHaveURL(/\/food\?state=Lunch&flow=Morning$/);
+  await expect(page.locator(".flowbar .flowname")).toHaveText("Morning");
+  await expect(page.locator(".flowbar .num")).toHaveText("3 of 3");
+  // Put it in use: back on Flows it alone carries the check.
+  await page.getByRole("button", { name: "Use this version" }).click();
+  await expect(page.getByRole("button", { name: "In use" })).toBeVisible();
+  await page.getByRole("link", { name: "Back" }).click();
+  await expect(page).toHaveURL(new RegExp(`/project/${PROJECT}$`));
+  await expect(flows.locator('.home-step[data-mock="food"] .mk.cur')).toBeVisible();
+  await expect(flows.locator(".mk.cur")).toHaveCount(1);
+  await expect(flows).toBeVisible();
 });
 
 test("Home: Answer next follows the agent's order, and a started mock shows its draft", async ({
@@ -1105,6 +1149,7 @@ test("Home: Answer next follows the agent's order, and a started mock shows its 
   expect((await write).ok()).toBe(true);
 
   await page.goto(`${server.url}/project/${PROJECT}`);
+  await page.locator(".home-count").click();
   await expect(page.locator('.home-row[data-mock="card"] .home-sub')).toHaveText(
     "1 state · draft 1/1",
   );
@@ -1289,12 +1334,13 @@ test("after a Send only new questions are open; a sent answer is folded and chan
   await expect(question(page)).toHaveText("Which size?");
 });
 
-test("Home: a row's Resolve button closes the mock; the mock says so and reopens", async ({
+test("Home: a waiting row's Resolve button closes the mock; the mock says so and reopens", async ({
   page,
   server,
 }) => {
   const card = await seedAsked(server.url, "card", "Card");
   await page.goto(`${server.url}/project/${PROJECT}`);
+  await page.locator(".home-count").click();
   const row = page.locator('.home-item:has([data-mock="card"])');
   await row.hover();
   await row.getByRole("button", { name: "Resolve Card" }).click();

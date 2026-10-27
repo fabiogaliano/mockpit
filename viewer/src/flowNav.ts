@@ -6,9 +6,9 @@
 
 import { createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js";
 import type { FlowStep } from "../../server/types.ts";
-import { api, subscribe, surfaceUrl, type TreeNode } from "./api.ts";
+import { api, subscribe, surfaceUrl } from "./api.ts";
 import { host } from "./host.ts";
-import { flowFor, gotoTarget } from "./logic.ts";
+import { flowFor, gotoTarget, screenPicture } from "./logic.ts";
 import { mockPath, navigate } from "./route.ts";
 import type { MockScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
@@ -94,7 +94,7 @@ export function createFlowNav(
     else s.setToast({ text: `No screen "${raw.slice(0, 60)}" in ${project}` });
   }
 
-  // A step's design in use (else its first live one), as a picture.
+  // A step's design in use (else its newest live one), as a picture.
   function picture(x: FlowStep): string | null {
     if (x.mock === slug) {
       const v = s.variantFor(x.state, false);
@@ -103,17 +103,15 @@ export function createFlowNav(
         ? surfaceUrl(v.postId, i, { version: s.frameVersionOf(v), mode: theme(), e: v.embedsKey })
         : null;
     }
-    const node: TreeNode | undefined = nodes().get(x.mock);
-    if (!node) return null;
-    const use = node.inUse.find((u) => u.state === x.state);
-    const inState = node.variants.filter((v) => v.state === x.state);
-    const v =
-      (use && inState.find((y) => y.variant === use.variant)) ??
-      inState.find((y) => y.status === "accepted" || y.status === "open") ??
-      inState[0];
-    if (!v || v.surface < 0) return null;
-    const version = use && use.variant === v.variant ? use.version : v.version;
-    return surfaceUrl(v.postId, v.surface, { version, mode: theme(), e: v.embedsKey });
+    const node = nodes().get(x.mock);
+    const pic = node && screenPicture(node, x.state);
+    return pic
+      ? surfaceUrl(pic.postId, pic.surface, {
+          version: pic.version,
+          mode: theme(),
+          e: pic.embedsKey,
+        })
+      : null;
   }
 
   // Whether a step still owes answers; known only for this mock's own steps.
