@@ -45,11 +45,7 @@ const MERMAID_PARSE_NEXT_STEPS = [
   "Reduce the diagram to a minimal valid form, then add statements back until the failing line is isolated.",
 ];
 
-const requiredString = (name: string) =>
-  z.string({
-    required_error: `requires string "${name}"`,
-    invalid_type_error: `requires string "${name}"`,
-  });
+const requiredString = (name: string) => z.string({ error: `requires string "${name}"` });
 const optionalLooseString = z.preprocess(
   (v) => (typeof v === "string" ? v : undefined),
   z.string().optional(),
@@ -65,14 +61,8 @@ const optionalLooseNumber = z.preprocess(
 
 const strictDiffFile = z.object({
   filename: requiredString("filename"),
-  before: z.string({
-    required_error: 'requires string "before" and "after"',
-    invalid_type_error: 'requires string "before" and "after"',
-  }),
-  after: z.string({
-    required_error: 'requires string "before" and "after"',
-    invalid_type_error: 'requires string "before" and "after"',
-  }),
+  before: z.string({ error: 'requires string "before" and "after"' }),
+  after: z.string({ error: 'requires string "before" and "after"' }),
   language: z.string().optional(),
 });
 
@@ -90,7 +80,7 @@ const looseDiffFile = z
     ...(language && { language }),
   }));
 
-const filteredArray = <T>(schema: z.ZodType<T, z.ZodTypeDef, any>) =>
+const filteredArray = <T>(schema: z.ZodType<T, any>) =>
   z.preprocess((raw) => {
     if (!Array.isArray(raw)) return raw;
     return raw.flatMap((item) => {
@@ -280,7 +270,7 @@ const strictSurfaceSchemas = {
   terminal: strictTerminalSurface,
   json: strictJsonSurface,
   code: strictCodeSurface,
-} satisfies Record<SurfaceKind, z.ZodType<Surface, z.ZodTypeDef, any>>;
+} satisfies Record<SurfaceKind, z.ZodType<Surface, any>>;
 
 // Runtime surface parser shared by REST and MCP. REST uses strict mode to
 // reject malformed input before it reaches storage; MCP uses tolerant mode so
@@ -496,7 +486,7 @@ async function parseStrictSurface(
     : { surface: kits.surface, errors: [] };
 }
 
-function schemaForKind(kind: unknown): z.ZodType<Surface, z.ZodTypeDef, any> | null {
+function schemaForKind(kind: unknown): z.ZodType<Surface, any> | null {
   return isSurfaceKind(kind) ? strictSurfaceSchemas[kind] : null;
 }
 
