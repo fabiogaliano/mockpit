@@ -62,7 +62,9 @@ test("a tap reaches the stage before a slow stylesheet loads, then outlines what
     ],
   });
 
-  await page.goto(`${server.url}/project/o/send`);
+  // The held stylesheet is inside the stage frame, and a frame that attaches
+  // before the viewer's own load holds that load back, so don't wait for it.
+  await page.goto(`${server.url}/project/o/send`, { waitUntil: "domcontentloaded" });
   const doc = page.frameLocator(".frame.on iframe").locator("html");
   // First paint: the declared default, from the URL, with the stylesheet still held.
   await expect(doc).toHaveAttribute("data-k-pending", "filling");
