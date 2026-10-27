@@ -13,6 +13,7 @@ import type {
   AskAnswer,
   Comment,
   Draft,
+  FlowStep,
   KnobValue,
   PartComment,
   ProjectSummary,
@@ -24,6 +25,8 @@ export type MockSummary = ReturnType<typeof mockSummaryView>;
 export type MockDetail = ReturnType<typeof mockDetailView>;
 export type TreeNode = ReturnType<typeof treeNodeView>;
 export type TreeVariant = TreeNode["variants"][number];
+// A declared flow as `read` returns it: only steps whose screen exists.
+export type FlowView = { name: string; steps: FlowStep[] };
 export type VariantView = ReturnType<typeof variantView>;
 export type HistoryRow = NonNullable<VariantView["history"]>[number];
 // `ownerGone`: undelivered, and a newer agent session in the project superseded
@@ -90,7 +93,7 @@ export const api = {
   allMocks: () => call<MockList>("/api/mocks"),
   // The project as a tree: what the canvas and the phone's drill-down lay out.
   tree: (project: string) =>
-    call<{ project: string; tree: TreeNode[] }>(
+    call<{ project: string; tree: TreeNode[]; flows: FlowView[] }>(
       `/api/projects/${encodeURIComponent(project)}/tree`,
     ),
   mock: (id: string) => call<MockDetail>(`/api/mocks/${encodeURIComponent(id)}?history=1`),

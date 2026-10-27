@@ -1908,12 +1908,12 @@ html.theming *:not(iframe) {
   background-image: none;
 }
 /* The stage is the one scroller: native, with momentum, sideways too once
-   zoomed. Frames take their full height and never take a touch, so a swipe
-   can't be caught by a page at its end; the overlay still answers taps. */
+   zoomed. Frames take their full height and take no touch outside Try, so a
+   swipe can't be caught by a page at its end; the overlay still answers taps. */
 .mock-screen.phone .stagewrap.canvas :is(.layers, .overlay) {
   touch-action: pan-x pan-y;
 }
-.mock-screen.phone .stagewrap.canvas .surface iframe {
+.mock-screen.phone .stagewrap.canvas .frame:not(.trying) .surface iframe {
   pointer-events: none;
 }
 /* A question's region scrolls to the top, short of the header, so the pin on

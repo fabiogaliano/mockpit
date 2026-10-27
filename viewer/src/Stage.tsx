@@ -121,7 +121,7 @@ const PIN = 22;
 const pinGap = () => (coarse() ? 44 - PIN : 6);
 const pinEdge = () => (coarse() ? (44 - PIN) / 2 : 2);
 
-export function Stage(props: { s: MockScreenState }) {
+export function Stage(props: { s: MockScreenState; onGoto?: (to: string) => void }) {
   const s = props.s;
   const { reports, setReports } = s;
   // Per frame, the version whose knob runtime has said it is listening.
@@ -262,6 +262,13 @@ export function Stage(props: { s: MockScreenState }) {
       if (kind === "hover") s.setHoverPart(part);
       else if (kind === "click") s.selectPart(part);
       else if (kind === "mark") updatePending(d.ref, { part });
+    } else if (d.type === "goto") {
+      // A click through the design names where to go; honoured only while the
+      // user is trying it, from the document on stage, and resolved by the
+      // host to a screen of this project, never followed as a URL.
+      if (info.primary && info.key === activeKey() && s.trying()) {
+        if (reportIsCurrent(info.version, d.version)) props.onGoto?.(text(d.to));
+      }
     } else if (d.type === "hit-test-result" && info.primary && info.key === activeKey()) {
       const r = Array.isArray(d.rect) ? d.rect.slice(0, 4).map((v) => num(v)) : [];
       updatePending(d.ref, {
@@ -798,6 +805,19 @@ function VariantFrame(props: {
     props.post({ type: "knobs", values });
   });
 
+  // Try outlines the design's data-goto elements and lets a click on one move
+  // the user; re-sent to each fresh document, which starts with Try off.
+  let lastTry = "";
+  createEffect(() => {
+    const reported = props.report?.version ?? props.ready;
+    if (reported === undefined) return;
+    const on = props.active && s.trying();
+    const k = `${reported}|${on}`;
+    if (k === lastTry || (!on && !lastTry.endsWith("|true"))) return;
+    lastTry = k;
+    props.post({ type: "try", on });
+  });
+
   const register = (el: HTMLIFrameElement, index: number) => {
     props.frames.set(el, { key: key(), index, primary: index === primary(), version: version() });
     // A new document at the same version (a theme switch) starts from the
@@ -805,6 +825,7 @@ function VariantFrame(props: {
     // old report so the knobs go out again when the new one reports in.
     if (index === primary()) {
       lastKnobs = "";
+      lastTry = "";
       props.onReload();
     }
     onCleanup(() => props.frames.delete(el));

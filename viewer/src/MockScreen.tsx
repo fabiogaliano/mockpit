@@ -1,14 +1,14 @@
 // The mock screen: a quiet top bar (back, where you are, the width, Built
-// from), the design on a canvas with the state's steps above it, and one bar
+// from), the design on a canvas with its flow's steps above it, and one bar
 // floating below it (New, the versions, Use this, Try / Mark / Tune). The
 // agent's question floats above that bar; the version label opens the history
 // and the thread as a bottom panel; Built from opens beside the canvas.
 
 import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
-import { surfaceUrl } from "./api.ts";
 import { BottomPanel } from "./BottomPanel.tsx";
 import { BuiltFrom } from "./BuiltFrom.tsx";
 import { useFlowKeys } from "./flowKeys.ts";
+import { createFlowNav, type FlowNav } from "./flowNav.ts";
 import { host, root } from "./host.ts";
 import { Icon, type IconName } from "./icons.tsx";
 import { DEVICE_WIDTHS, wideWidth, widthKind, widthLabel } from "./logic.ts";
@@ -17,8 +17,8 @@ import { QuestionCard, QuestionTab } from "./QuestionCard.tsx";
 import { ResolvedNote } from "./Questions.tsx";
 import { linkClick, projectPath } from "./route.ts";
 import { Stage } from "./Stage.tsx";
+import type { ScreenOpen } from "./route.ts";
 import { createMockScreen, type MockScreenState } from "./state.ts";
-import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 import { createTune } from "./tune.ts";
 import { VersionBar } from "./VersionBar.tsx";
@@ -31,9 +31,11 @@ const TOAST_MS = 2400;
 export function MockScreen(props: {
   project: string;
   slug: string;
-  open?: { state: string | null; variant: string } | null;
+  open?: ScreenOpen | null;
+  flow?: string | null;
 }) {
   const s = createMockScreen(props.project, props.slug, props.open ?? null);
+  const nav = createFlowNav(s, props.project, props.slug, props.flow ?? null);
   const t = createTune(s);
   useFlowKeys(s);
   createEffect(() =>
@@ -74,7 +76,8 @@ export function MockScreen(props: {
   );
   // What floats over the canvas takes its bands: the bottom stack below, the
   // neighbouring steps at the sides.
-  const ghosts = () => !phoneLayout() && s.states().length > 1;
+  const walkable = () => nav.steps().length > 1 && nav.at() >= 0;
+  const ghosts = () => !phoneLayout() && walkable();
   createEffect(() => {
     const below = Math.max(0, win().h - bottomTop() + 8);
     const side = ghosts() ? GHOST_W : 0;
@@ -113,7 +116,7 @@ export function MockScreen(props: {
       const dy = t0.clientY - start.y;
       start = null;
       if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx) * 0.6) return;
-      stepState(dx < 0 ? 1 : -1);
+      nav.step(dx < 0 ? 1 : -1);
     };
     const el = root().querySelector(".mock-screen");
     el?.addEventListener("touchstart", down as EventListener, { passive: true });
@@ -123,15 +126,6 @@ export function MockScreen(props: {
       el?.removeEventListener("touchend", up as EventListener);
     });
   });
-  const stateAt = (by: number) => {
-    const all = s.states();
-    return all[all.indexOf(s.activeState()) + by];
-  };
-  const stepState = (by: 1 | -1) => {
-    const to = stateAt(by);
-    if (to !== undefined) s.showState(to);
-  };
-
   // A toast that offers an Undo stays until it is answered or dismissed.
   createEffect(() => {
     const tst = s.toast();
@@ -147,8 +141,8 @@ export function MockScreen(props: {
     <div class="screen mock-screen" classList={{ phone: phoneLayout() }}>
       <header class="mhead" ref={(el) => (head = el)}>
         <TopRow s={s} project={props.project} slug={props.slug} />
-        <Show when={s.states().length > 1}>
-          <FlowBar s={s} onStep={stepState} />
+        <Show when={walkable()}>
+          <FlowBar s={s} nav={nav} />
         </Show>
       </header>
       <Show
@@ -160,10 +154,10 @@ export function MockScreen(props: {
         }
       >
         <Show when={s.mock()}>
-          <Stage s={s} />
+          <Stage s={s} onGoto={nav.follow} />
           <Show when={ghosts()}>
-            <Ghost s={s} by={-1} />
-            <Ghost s={s} by={1} />
+            <Ghost s={s} nav={nav} by={-1} />
+            <Ghost s={s} nav={nav} by={1} />
           </Show>
         </Show>
         <div
@@ -337,38 +331,44 @@ function WidthMenu(props: { s: MockScreenState }) {
   );
 }
 
-// The steps of the flow: until flows are declared, the mock's own states in
-// order. The current one is a short pill; a step still owing answers is marked.
-function FlowBar(props: { s: MockScreenState; onStep: (by: 1 | -1) => void }) {
-  const s = props.s;
-  const at = () => s.states().indexOf(s.activeState());
-  const n = () => s.states().length;
+// The steps of the flow: the declared one this screen is a step of, else the
+// mock's own states in order. The current one is a short pill; a step still
+// owing answers is marked.
+function FlowBar(props: { s: MockScreenState; nav: FlowNav }) {
+  const nav = props.nav;
+  const at = () => nav.at();
+  const n = () => nav.steps().length;
+  const prev = () => nav.near(-1);
+  const next = () => nav.near(1);
   return (
     <nav class="flowbar" aria-label="Steps">
       <button
         type="button"
         class="ib fnav"
-        disabled={at() <= 0}
-        aria-label={at() > 0 ? `Previous step: ${s.states()[at() - 1]}` : "Previous step"}
-        onClick={() => props.onStep(-1)}
+        disabled={!prev()}
+        aria-label={prev() ? `Previous step: ${nav.label(prev()!)}` : "Previous step"}
+        onClick={() => nav.step(-1)}
       >
         <Icon name="prev" />
       </button>
-      <b class="flowname">{s.mock()?.title}</b>
+      <b class="flowname">{nav.name()}</b>
       <span class="dots" aria-hidden="true">
-        <For each={s.states()}>
-          {(st, i) => <i classList={{ on: i() === at(), owe: s.owedIn(st) > 0 }} />}
+        <For each={nav.steps()}>
+          {(x, i) => <i classList={{ on: i() === at(), owe: nav.owes(x) }} />}
         </For>
       </span>
-      <span class="num" aria-label={`${s.activeState()}, step ${at() + 1} of ${n()}`}>
+      <span
+        class="num"
+        aria-label={`${nav.label(nav.steps()[at()] ?? { mock: "", state: props.s.activeState() })}, step ${at() + 1} of ${n()}`}
+      >
         {`${at() + 1} of ${n()}`}
       </span>
       <button
         type="button"
         class="ib fnav"
-        disabled={at() >= n() - 1}
-        aria-label={at() < n() - 1 ? `Next step: ${s.states()[at() + 1]}` : "Next step"}
-        onClick={() => props.onStep(1)}
+        disabled={!next()}
+        aria-label={next() ? `Next step: ${nav.label(next()!)}` : "Next step"}
+        onClick={() => nav.step(1)}
       >
         <Icon name="next" />
       </button>
@@ -376,44 +376,36 @@ function FlowBar(props: { s: MockScreenState; onStep: (by: 1 | -1) => void }) {
   );
 }
 
-// The previous or next step as a small dimmed picture at the canvas's edge.
-function Ghost(props: { s: MockScreenState; by: 1 | -1 }) {
+// The previous or next step as a small dimmed picture at the canvas's edge;
+// another mock's step shows the design in use there.
+function Ghost(props: { s: MockScreenState; nav: FlowNav; by: 1 | -1 }) {
   const s = props.s;
-  const state = () => {
-    const all = s.states();
-    return all[all.indexOf(s.activeState()) + props.by];
-  };
-  const src = () => {
-    const st = state();
-    if (st === undefined) return null;
-    const v = s.variantFor(st, false);
-    const i = v?.surfaces.findIndex((x) => x.kind === "html") ?? -1;
-    return v && i >= 0
-      ? surfaceUrl(v.postId, i, { version: s.frameVersionOf(v), mode: theme(), e: v.embedsKey })
-      : null;
-  };
+  const step = () => props.nav.near(props.by);
+  const label = () => (step() ? props.nav.label(step()!) : "");
   return (
-    <Show when={state() !== undefined}>
-      <button
-        type="button"
-        class="ghost"
-        classList={{ left: props.by < 0, right: props.by > 0 }}
-        aria-label={`${props.by < 0 ? "Previous" : "Next"} step: ${state()}`}
-        onClick={() => s.showState(state()!)}
-      >
-        <Show when={src()} fallback={<span class="ghost-blank" />}>
-          {(u) => (
-            <Thumb
-              src={u()}
-              width={s.frameW()}
-              class={s.frameW() > 600 ? "ghost-thumb flat" : "ghost-thumb"}
-              fit
-              whole
-            />
-          )}
-        </Show>
-        <span class="lbl">{props.by < 0 ? `‹ ${state()}` : `${state()} ›`}</span>
-      </button>
+    <Show when={step()}>
+      {(x) => (
+        <button
+          type="button"
+          class="ghost"
+          classList={{ left: props.by < 0, right: props.by > 0 }}
+          aria-label={`${props.by < 0 ? "Previous" : "Next"} step: ${label()}`}
+          onClick={() => props.nav.go(x())}
+        >
+          <Show when={props.nav.picture(x())} fallback={<span class="ghost-blank" />}>
+            {(u) => (
+              <Thumb
+                src={u()}
+                width={s.frameW()}
+                class={s.frameW() > 600 ? "ghost-thumb flat" : "ghost-thumb"}
+                fit
+                whole
+              />
+            )}
+          </Show>
+          <span class="lbl">{props.by < 0 ? `‹ ${label()}` : `${label()} ›`}</span>
+        </button>
+      )}
     </Show>
   );
 }

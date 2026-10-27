@@ -12,7 +12,9 @@ export function App() {
     <Switch>
       <Match when={route().screen === "mock" && route()} keyed>
         {(r) =>
-          r.screen === "mock" && <MockScreen project={r.project} slug={r.slug} open={r.open} />
+          r.screen === "mock" && (
+            <MockScreen project={r.project} slug={r.slug} open={r.open} flow={r.flow} />
+          )
         }
       </Match>
       <Match when={route().screen === "home" && route()} keyed>

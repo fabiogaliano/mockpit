@@ -16,9 +16,14 @@ export type Route =
       screen: "mock";
       project: string;
       slug: string;
-      // Open on this state and variant (a tile on the canvas, Picks, the tree).
-      open: { state: string | null; variant: string } | null;
+      // Open on this state, and this variant when named (a tile on the canvas,
+      // Picks, the tree; a step of a flow names the state alone).
+      open: ScreenOpen | null;
+      // The flow the user came through, which the flow bar keeps to.
+      flow: string | null;
     };
+
+export type ScreenOpen = { state: string | null; variant: string | null };
 
 export function parseRoute(pathname: string, base = "", search = ""): Route {
   const path = base && pathname.startsWith(base) ? pathname.slice(base.length) : pathname;
@@ -44,7 +49,9 @@ export function parseRoute(pathname: string, base = "", search = ""): Route {
         screen: "mock",
         project: dec(seg[1]),
         slug: dec(seg[2]),
-        open: variant ? { state: q.get("state"), variant } : null,
+        open:
+          variant || q.has("state") ? { state: q.get("state"), variant: variant || null } : null,
+        flow: q.get("flow") || null,
       };
     }
     return home(dec(seg[1]));
@@ -57,13 +64,16 @@ export const projectPath = (project: string) =>
 export const mockPath = (
   project: string,
   slug: string,
-  open?: { state: string | null; variant: string },
+  open?: ScreenOpen | null,
+  flow?: string | null,
 ) => {
   const base = `${projectPath(project)}/${encodeURIComponent(slug)}`;
-  if (!open) return base;
-  const q = new URLSearchParams({ variant: open.variant });
-  if (open.state !== null) q.set("state", open.state);
-  return `${base}?${q}`;
+  const q = new URLSearchParams();
+  if (open?.variant) q.set("variant", open.variant);
+  if (open && open.state !== null) q.set("state", open.state);
+  if (flow) q.set("flow", flow);
+  const qs = q.toString();
+  return qs ? `${base}?${qs}` : base;
 };
 export const picksPath = (project: string) => `${projectPath(project)}?view=picks`;
 export const libraryPath = (project: string) => `${projectPath(project)}?view=library`;

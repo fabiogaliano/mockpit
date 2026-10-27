@@ -6,12 +6,14 @@ import {
   type AskAnswer,
   askAnswered,
   BUILTIN_ASK_ID,
+  type FlowStep,
   isLive,
   type KnobConfig,
   type KnobValue,
   type Knobs,
   type PartComment,
   type Reply,
+  sameScreen,
 } from "../../server/types.ts";
 import type { CommentRow, DraftInput, HistoryRow, MockDetail, VariantView } from "./api.ts";
 import { commentText, reactionWhere } from "./reactionRules.ts";
@@ -683,24 +685,28 @@ export const commentWhere = (c: Pick<PartComment, "part" | "state">): string =>
 
 // The thread (D8): agent publishes (from version history) and the comment log,
 // oldest first. An agent's ask or reply right after a publish reads as one row:
-// "published v1 · asked 4", "published v3 · replied:".
+// "published v1 · asked 4", "published v3 · replied:". A version is numbered as
+// the version bar numbers it (versionSteps), with its state when there are several.
 export function threadRows(
   comments: CommentRow[],
-  variants: Pick<VariantView, "history" | "version" | "updatedAt">[],
+  variants: StepSource[],
   mock: Pick<MockDetail, "asks">,
 ): ThreadRow[] {
-  const published = new Map<number, string>();
-  for (const v of variants) {
-    for (const h of v.history ?? [{ version: v.version, at: v.updatedAt }]) {
-      const at = published.get(h.version);
-      if (!at || h.at < at) published.set(h.version, h.at);
-    }
-  }
+  const states = [...new Set(variants.map((v) => v.state))];
   type Event =
-    | { kind: "publish"; at: string; version: number }
+    | { kind: "publish"; at: string; label: string; id: string }
     | { kind: "comment"; at: string; c: CommentRow };
   const events: Event[] = [
-    ...[...published].map(([version, at]): Event => ({ kind: "publish", at, version })),
+    ...states.flatMap((state) =>
+      versionSteps(variants, state).map(
+        (st): Event => ({
+          kind: "publish",
+          at: st.at,
+          label: states.length > 1 && state !== null ? `${state} v${st.n}` : `v${st.n}`,
+          id: `${state ?? ""}:v${st.n}`,
+        }),
+      ),
+    ),
     ...comments.map((c): Event => ({ kind: "comment", at: c.createdAt, c })),
   ].sort((a, b) => a.at.localeCompare(b.at) || (a.kind === "publish" ? -1 : 1));
   const rows: ThreadRow[] = [];
@@ -710,8 +716,8 @@ export function threadRows(
       const row: ThreadRow = {
         who: "agent",
         at: e.at,
-        text: `published v${e.version}`,
-        id: `v${e.version}`,
+        text: `published ${e.label}`,
+        id: e.id,
       };
       rows.push(row);
       lastPublish = row;
@@ -1418,4 +1424,37 @@ export function historyLayout(steps: VersionStep[]): HistoryLayout {
     cols: Math.max(0, ...cells.map((c) => c.col + 1)),
     rows: order.length,
   };
+}
+
+// --- flows ---
+
+// The flow the bar walks on a screen: the one the user came through when the
+// screen is a step of it, else the first that has it.
+export function flowFor<F extends { name: string; steps: FlowStep[] }>(
+  flows: F[],
+  screen: FlowStep,
+  cameThrough: string | null,
+): F | null {
+  const has = (f: F) => f.steps.some((x) => sameScreen(x, screen));
+  return flows.find((f) => f.name === cameThrough && has(f)) ?? flows.find(has) ?? null;
+}
+
+// Where a design's data-goto points: "next" / "prev" along the steps, else
+// "<mock>:<state>" (or a bare "<mock>", its first state) of this project.
+// Anything else, a URL included, points nowhere.
+export function gotoTarget(
+  to: string,
+  steps: FlowStep[],
+  at: number,
+  statesOf: (slug: string) => (string | null)[] | undefined,
+): FlowStep | null {
+  const word = to.trim();
+  if (word === "next" || word === "prev") return steps[at + (word === "next" ? 1 : -1)] ?? null;
+  const colon = word.indexOf(":");
+  const mock = (colon < 0 ? word : word.slice(0, colon)).trim();
+  const states = mock ? statesOf(mock) : undefined;
+  if (!states?.length) return null;
+  if (colon < 0) return { mock, state: states[0] };
+  const state = word.slice(colon + 1).trim();
+  return states.includes(state) ? { mock, state } : null;
 }

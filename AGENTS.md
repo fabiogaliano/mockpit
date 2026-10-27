@@ -19,8 +19,8 @@ owning ordered **states**, **asks** and global **knobs**; a variant (a `Post`) i
 a parallel design of one state; versions are its history. A **part** is a
 `data-part` element in a render. The agent's nine verbs are `publish`, `ask`,
 `read`, `feedback`, `say`, `export`, `upload`, `guide` and `run` (the CLI adds
-`init` and `watch`); the user's is Send (or Accept / Revise / Drop on a mock
-whose state has one variant and no asks), which releases one **reply**.
+`init` and `watch`); the user's is Send (or Use this / New on a mock whose
+state has one variant and no asks), which releases one **reply**.
 
 Current product stances (deliberate choices, not accidents — revisit
 consciously, not as a side effect):
@@ -43,8 +43,8 @@ consciously, not as a side effect):
   regressed before.
 - Tiers, no modes: each thing the agent adds lights up its part of the viewer
   (variants → switcher and the built-in Look ask, asks → Questions, `data-part` → Tune parts and part
-  comments, `knobs` → Tune knobs, states → strip). A plain publish of any kind
-  still gets stage + Thread + Accept / Revise / Drop.
+  comments, `knobs` → Tune knobs, states and flows → the flow bar). A plain
+  publish of any kind still gets stage + Thread + Use this / New.
 - Self-hosted only; the embeddable viewer engine was dropped. Keep the
   `root()`/`host()` habit in `viewer/src` anyway.
 
@@ -117,7 +117,9 @@ consciously, not as a side effect):
   floating over it, snapping per `dock.ts`), `Stage` (frames, part overlay, pins,
   hit-testing through the bridge), `Panel` (`Questions` · `Tune` · `Thread`),
   `Versions`, `Thumb` (shrunk sandboxed frames for Home and option pictures);
-  `state.ts` (the mock screen's state and actions), `logic.ts` (pure rules),
+  `state.ts` (the mock screen's state and actions), `flowNav.ts` (the declared
+  flow around the screen: flow bar, neighbours across mocks, Try's `data-goto`),
+  `logic.ts` (pure rules),
   `tune.ts` (tunekit mounted via `initPane({ host })`),
   `presets.ts` (Tune presets in localStorage), `theme.ts`, `host.ts`.
 - `bin/mockpit.js` — CLI, Node built-ins only; `bin/demoData.js` — the Writer
