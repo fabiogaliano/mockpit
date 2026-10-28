@@ -2292,15 +2292,9 @@ html.theming *:not(iframe) {
     background: var(--fill);
     color: var(--t1);
   }
-  .home-act:not(.reopen) {
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity var(--ease);
-  }
-  .home-slide:hover .home-act,
-  .home-act:focus-visible {
-    opacity: 1;
-    pointer-events: auto;
+  /* Resolve sits over the row's end, so the row makes room for it. */
+  .home-slide:has(> .home-act:not(.reopen)) .home-row {
+    padding-inline-end: 112px;
   }
 }
 /* A finger swipes instead; the button stays for keyboards and screen readers. */
