@@ -917,7 +917,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
         slug: "writer",
         sessionId: session.id,
       });
-      assert.equal(mock.kind, "component");
+      assert.equal(mock.kind, "sketch");
       assert.deepEqual(mock.states, []);
       assert.deepEqual(mock.asks, []);
       assert.deepEqual(mock.knobs, {});

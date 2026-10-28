@@ -1063,6 +1063,7 @@ test("keys pick, send on and step the versions; Send carries on to the next mock
   await expect(chip).toHaveText("Writer · Delivered");
   // Seen Delivered, it ends there: by way of Home and back, it is gone.
   await page.getByRole("link", { name: "Back" }).click();
+  await page.getByRole("link", { name: "Sketches" }).click();
   await page.locator('.home-step[data-mock="card"]').click();
   await expect(question(page)).toHaveText("Which tone?");
   await expect(chip).toHaveCount(0);
@@ -1149,26 +1150,29 @@ test("after Send, another agent conversation's mock is offered, never moved to",
   await expect(page).toHaveURL(/\/first$/);
 });
 
-test("Home: Flows, Pages and Components each show the design in use; a screen opens with its flow", async ({
+test("Home: a tab per declared kind, each showing the design in use; a screen opens with its flow", async ({
   page,
   server,
 }) => {
-  const page1 = (title: string) => `<main data-part="body"><h1>${title}</h1></main>`;
   const first = await agentCall(server.url, "/api/mocks", {
     project: PROJECT,
     agent: "e2e",
-    mock: "today",
-    kind: "page",
-    title: "Today",
-    state: "At rest",
-    widths: [390],
-    flow: "Morning",
-    step: 1,
-    html: page1("At rest"),
+    mock: "notes",
+    title: "Notes",
+    html: "<p>an idea</p>",
   });
+  // A plain publish is a sketch: no structure is assumed, so no tabs.
+  await page.goto(`${server.url}/project/${PROJECT}`);
+  await expect(page.locator('.home-step[data-mock="notes"]')).toContainText("Notes");
+  await expect(page.locator(".home-tabs")).toHaveCount(0);
+
+  const page1 = (title: string) => `<main data-part="body"><h1>${title}</h1></main>`;
   const session = first.sessionId as string;
   const publish = (body: Record<string, unknown>) =>
     agentCall(server.url, "/api/mocks", { project: PROJECT, session, ...body });
+  await publish({ mock: "chip", title: "Chip", html: "<b>chip</b>" });
+  const today = { mock: "today", kind: "page", title: "Today", widths: [390], flow: "Morning" };
+  await publish({ ...today, state: "At rest", step: 1, html: page1("At rest") });
   await publish({ mock: "today", state: "Running", flow: "Morning", step: 2, html: page1("Run") });
   await publish({
     mock: "food",
@@ -1180,17 +1184,26 @@ test("Home: Flows, Pages and Components each show the design in use; a screen op
     step: 3,
     html: `${page1("Lunch")}<mockpit-embed slug="chip"></mockpit-embed>`,
   });
-  await publish({ mock: "chip", kind: "component", title: "Chip", html: "<b>chip</b>" });
   await page.goto(`${server.url}/project/${PROJECT}`);
+  await expect(page.locator(".home-tabs a")).toHaveText([
+    "Pages",
+    "Flows",
+    "Components",
+    "Sketches",
+  ]);
+  await expect(page.locator(".home-sec h2")).toHaveText(["Today", "Food"]);
+
+  await page.getByRole("link", { name: "Flows" }).click();
+  await expect(page).toHaveURL(/\?view=flows$/);
   const flows = page.locator(".home-sec", { hasText: "Morning" });
   await expect(flows.locator(".home-step")).toHaveCount(3);
   await expect(flows.locator(".home-step").nth(2)).toContainText("Food · Lunch");
-
-  await page.getByRole("link", { name: "Pages" }).click();
-  await expect(page).toHaveURL(/\?view=pages$/);
-  await expect(page.locator(".home-sec h2")).toHaveText(["Today", "Food"]);
+  // Embedding the chip made it a component.
   await page.getByRole("link", { name: "Components" }).click();
   await expect(page.locator('.home-step[data-mock="chip"]')).toContainText("in 1 screen");
+  await page.getByRole("link", { name: "Sketches" }).click();
+  await expect(page.locator(".home-step")).toHaveCount(1);
+  await expect(page.locator('.home-step[data-mock="notes"]')).toBeVisible();
 
   // A screen opened from a flow walks that flow; Back returns to the tab it came from.
   await page.getByRole("link", { name: "Flows" }).click();
@@ -1202,7 +1215,7 @@ test("Home: Flows, Pages and Components each show the design in use; a screen op
   await page.getByRole("button", { name: "Use this version" }).click();
   await expect(page.getByRole("button", { name: "In use" })).toBeVisible();
   await page.getByRole("link", { name: "Back" }).click();
-  await expect(page).toHaveURL(new RegExp(`/project/${PROJECT}$`));
+  await expect(page).toHaveURL(new RegExp(`/project/${PROJECT}\\?view=flows$`));
   await expect(flows.locator('.home-step[data-mock="food"] .mk.cur')).toBeVisible();
   await expect(flows.locator(".mk.cur")).toHaveCount(1);
   await expect(flows).toBeVisible();

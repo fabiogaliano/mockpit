@@ -76,6 +76,7 @@ async function publishWriter() {
         session: session.id,
         project: DEMO.project,
         mock: DEMO.slug,
+        kind: "page",
         title: DEMO.title,
         state: state.label,
         variant: variant.name,

@@ -115,7 +115,7 @@ test("answer a mock's questions and send one reply", async ({ page, server }) =>
   await expect(sent.locator(".tdelivered")).toHaveText("✓Not seen yet");
 
   await page.goto(`${server.url}/project/e2e`);
-  await expect(page.locator('.home-step[data-mock="card"]')).toHaveCount(2);
+  await expect(page.locator('.home-step[data-mock="card"]')).toHaveCount(1);
   await expect(page.locator(".home-lead")).toContainText("0 open");
 });
 

@@ -21,7 +21,7 @@ import {
   type Knobs,
   MAX_WORKSPACE_ASSET_BYTES,
   type Mock,
-  type MockKind,
+  isMockKind,
   newId,
   normalizeSurfaceIds,
   type Post,
@@ -130,7 +130,7 @@ export class SqlStore implements Store {
       );
       CREATE TABLE IF NOT EXISTS mocks (
         id TEXT PRIMARY KEY, project TEXT NOT NULL, slug TEXT NOT NULL, title TEXT NOT NULL,
-        kind TEXT NOT NULL DEFAULT 'component', states TEXT NOT NULL DEFAULT '[]',
+        kind TEXT NOT NULL DEFAULT 'sketch', states TEXT NOT NULL DEFAULT '[]',
         asks TEXT NOT NULL DEFAULT '[]', knobs TEXT NOT NULL DEFAULT '{}', draft TEXT,
         sessionId TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL,
         widths TEXT NOT NULL DEFAULT '[]'
@@ -184,6 +184,7 @@ export class SqlStore implements Store {
     if (!pinned) {
       this.sql.exec("UPDATE posts SET acceptedVersion = version WHERE status = 'accepted'");
     }
+    if (this.settingSync("sketchKind") !== "1") this.migrateToSketches();
     this.createIndexes();
   }
 
@@ -480,6 +481,32 @@ export class SqlStore implements Store {
     this.sql.exec("DELETE FROM comments WHERE draft = 1");
   }
 
+  // A mock no one declared used to be a component. Keep that only where it acts
+  // as one, embedded somewhere or a step of a flow; the rest become sketches.
+  private migrateToSketches() {
+    const projectOf = new Map<string, string>();
+    for (const r of this.sql.exec("SELECT id, project FROM mocks").toArray()) {
+      projectOf.set(r.id as string, r.project as string);
+    }
+    const used = new Set<string>();
+    for (const r of this.sql.exec("SELECT mockId, slots FROM posts").toArray()) {
+      const project = projectOf.get(r.mockId as string);
+      for (const e of parseJson<Embed[]>(r.slots, [])) used.add(`${project}\u0000${e.slug}`);
+    }
+    for (const r of this.sql.exec("SELECT project, steps FROM flows").toArray()) {
+      for (const x of parseJson<FlowStep[]>(r.steps, [])) {
+        used.add(`${r.project as string}\u0000${x.mock}`);
+      }
+    }
+    for (const r of this.sql
+      .exec("SELECT id, project, slug FROM mocks WHERE kind = 'component'")
+      .toArray()) {
+      if (used.has(`${r.project as string}\u0000${r.slug as string}`)) continue;
+      this.sql.exec("UPDATE mocks SET kind = 'sketch' WHERE id = ?", r.id as string);
+    }
+    this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('sketchKind', '1')");
+  }
+
   private settingSync(key: string): string | null {
     const rows = this.sql.exec("SELECT value FROM settings WHERE key = ?", key).toArray();
     return rows.length ? (rows[0].value as string) : null;
@@ -558,7 +585,7 @@ export class SqlStore implements Store {
       project: r.project as string,
       slug: r.slug as string,
       title: r.title as string,
-      kind: ((r.kind as string) === "page" ? "page" : "component") as MockKind,
+      kind: isMockKind(r.kind) ? r.kind : "sketch",
       states: parseJson<string[]>(r.states, []),
       asks: parseJson<Ask[]>(r.asks, []),
       knobs: parseJson<Knobs>(r.knobs, {}),
@@ -833,7 +860,7 @@ export class SqlStore implements Store {
       project: stripNul(input.project).trim() || DEFAULT_PROJECT,
       slug: slugify(stripNul(input.slug)),
       title: stripNul(input.title)?.trim() || input.slug,
-      kind: input.kind === "page" ? "page" : "component",
+      kind: isMockKind(input.kind) ? input.kind : "sketch",
       states: (input.states ?? []).map((s) => stripNul(s)),
       asks: [],
       knobs: input.knobs ?? {},

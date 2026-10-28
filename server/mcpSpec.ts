@@ -38,6 +38,7 @@ const field = {
   prompt: "What prompted this version; usually omit",
   note: "What this variant is; shown beside it, never in the html",
   widths: "Widths it ships at, side by side: [390,1280]",
+  kind: "Only when building the product's screens: page (a screen), component (a piece pages embed). Omit for sketches, diagrams and reviews",
   flow: "Flow this screen is a step of; alone, only places it",
   step: "1-based place; 0 removes",
   kits: `Opt-in bundles: ${KIT_IDS.join("|")}`,
@@ -168,7 +169,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
     params: {
       ...VARIANT_REF,
       title: { t: "string", d: field.title },
-      kind: { t: "enum", values: ["component", "page"] },
+      kind: { t: "enum", values: ["page", "component", "sketch"], d: field.kind },
       html: { t: "string", d: field.html },
       surfaces: {
         t: "surfaces",

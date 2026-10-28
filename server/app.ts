@@ -105,6 +105,7 @@ import {
   MAX_ASSET_BYTES,
   inUseVersion,
   isLive,
+  isMockKind,
   optionState,
   type Mock,
   type MockKind,
@@ -1069,6 +1070,17 @@ export function createApp({
     return used;
   }
 
+  // Being embedded is what makes a mock a component, so a sketch another mock
+  // embeds becomes one; a declared page stays a page.
+  async function promoteEmbedded(project: string, embeds: Embed[]) {
+    for (const slug of new Set(embeds.map((e) => e.slug))) {
+      const m = await store.findMock(project, slug);
+      if (m?.kind !== "sketch") continue;
+      const updated = await store.updateMock(m.id, { kind: "component" });
+      if (updated) bus.broadcast({ type: "mock-updated", id: updated.id, project });
+    }
+  }
+
   // What the variants of a mock show through their embeds now: per post, the
   // resolved list (nested included) with each component's versions, and the
   // key that changes when any of them does.
@@ -1348,8 +1360,7 @@ export function createApp({
     if (!variantKnobs.ok) return fail(400, variantKnobs.error);
     const stateIn = stateArg(body.state);
     const variantIn = str(body.variant, MAX_LABEL);
-    const kind: MockKind | undefined =
-      body.kind === "page" || body.kind === "component" ? body.kind : undefined;
+    const kind: MockKind | undefined = isMockKind(body.kind) ? body.kind : undefined;
     const title = str(body.title, MAX_TITLE);
     const fromN = Number(body.from);
     const from = Number.isInteger(fromN) && fromN > 0 ? fromN : undefined;
@@ -1490,6 +1501,7 @@ export function createApp({
     const nudges = knobNudges({ ...knobs.value, ...variantKnobs.value });
     const embeds = await publishEmbeds(project, slug, surfaces);
     if (isResult(embeds)) return embeds;
+    await promoteEmbedded(project, embeds);
 
     if (!target) {
       // A new variant: carried by the session the agent is writing from.
@@ -1507,7 +1519,7 @@ export function createApp({
           project,
           slug,
           title: title ?? titleFromSlug(slug),
-          kind: kind ?? "component",
+          kind: kind ?? "sketch",
           states: state === null ? [] : [state],
           knobs: knobs.value,
           ...(widths ? { widths } : {}),

@@ -21,9 +21,11 @@ The loop never waits for the user:
    user sees ("Home, idle"), never by your process ("Prototype", "v2"). The html is the UI alone:
    say what a variant is in `--note`, never in the design, and name the
    widths it ships at once with `--widths 390,1280`.
-   Build screens from components: each reusable piece is its own
-   `--kind component` mock, embedded in pages with
-   `<mockpit-embed slug="card">`, so one decision on it reaches every page.
+   Declare structure only when designing a product's screens: `--kind page`
+   for a screen, `--flow <name> --step N` for screens the user moves between,
+   and each reusable piece as its own mock embedded with
+   `<mockpit-embed slug="card">` (that makes it a component). Sketches,
+   diagrams and reviews stay plain.
 3. A choice is several variants plus one ask that binds them: `mockpit ask`
    with options bound to variants. A variant decides everything it differs on;
    don't re-ask it. Visual options carry a `variant` or knob `set`. One render

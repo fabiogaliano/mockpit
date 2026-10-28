@@ -303,7 +303,12 @@ export type KnobValue = number | boolean | string | PadValue | SpringKnob | Easi
 
 // --- project › mock › state › variant › version ---
 
-export type MockKind = "page" | "component";
+// Structure is declared, never assumed: a mock is a sketch until the agent
+// calls it a page (a screen of the product) or a component (a piece pages
+// embed; being embedded makes a sketch one). Home shows a tab per kind in use.
+export type MockKind = "page" | "component" | "sketch";
+export const isMockKind = (k: unknown): k is MockKind =>
+  k === "page" || k === "component" || k === "sketch";
 // A variant's review state. A variant-bound answer accepts the chosen variant
 // and archives its siblings in that state; archived variants stay in view,
 // muted. Drop hides one. Both are restorable.

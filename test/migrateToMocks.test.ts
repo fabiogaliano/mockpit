@@ -171,7 +171,8 @@ test("a pre-rebuild workspace is lifted into mocks in place", async () => {
   assert.deepEqual(mocks.map((m) => m.slug).sort(), ["card", "landing"]);
   const card = mocks.find((m) => m.slug === "card")!;
   const landing = mocks.find((m) => m.slug === "landing")!;
-  assert.equal(card.kind, "component");
+  // Nothing embeds the card or walks it in a flow, so it was never a component.
+  assert.equal(card.kind, "sketch");
   assert.equal(landing.kind, "page");
   assert.deepEqual(card.states, []);
   assert.equal(card.title, "Card");
@@ -333,4 +334,30 @@ test("a workspace from before flows opens with none and can declare one", async 
   const flow = await reopened.placeFlowStep("demo", "Morning", { mock: "home", state: "rest" }, 1);
   assert.deepEqual(flow?.steps, [{ mock: "home", state: "rest" }]);
   assert.equal((await reopened.findMock("demo", "home"))?.states[0], "rest");
+});
+
+test("a workspace from before sketches keeps only the components in use", async () => {
+  const path = tmpDb();
+  const store = new SqlStore(createSqliteStorage(path));
+  const session = await store.createSession({ agent: "pi" });
+  const mock = (slug: string, kind: "page" | "component") =>
+    store.createMock({ project: "demo", slug, kind, sessionId: session.id });
+  const page = await mock("home", "page");
+  await mock("chip", "component");
+  await mock("step", "component");
+  await mock("loose", "component");
+  await store.createPost({
+    sessionId: session.id,
+    mock: page.id,
+    state: null,
+    variant: "a",
+    surfaces: [{ id: "s", kind: "html" as const, html: '<mockpit-embed slug="chip">' }],
+    embeds: [{ slug: "chip", variant: "default", version: 1 }],
+  });
+  await store.placeFlowStep("demo", "Morning", { mock: "step", state: null }, 1);
+  // The state the previous release left: no marker, every undeclared mock a component.
+  createSqliteStorage(path).exec("DELETE FROM settings WHERE key = 'sketchKind'");
+  const reopened = new SqlStore(createSqliteStorage(path));
+  const kinds = Object.fromEntries((await reopened.listMocks("demo")).map((m) => [m.slug, m.kind]));
+  assert.deepEqual(kinds, { home: "page", chip: "component", step: "component", loose: "sketch" });
 });

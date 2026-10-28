@@ -69,6 +69,7 @@ export async function seedWriter(server: string): Promise<Seeded> {
       const out = await agentCall(server, "/api/mocks", {
         project: PROJECT,
         mock: "writer",
+        kind: "page",
         title: "Writer",
         state,
         variant: look,

@@ -241,7 +241,7 @@ instructions.
 ## Words
 
 project › mock › state › variant › version. A project is the repo; a mock is a
-page or component, by slug; a state is one moment of it in the user's words
+sketch, page or component, by slug; a state is one moment of it in the user's words
 ("Writing"), omitted for a single-state mock; a variant is a parallel design of
 a state; versions are its history. A part is an element marked \`data-part\`.
 The user answers asks, tunes knobs, presses Send once; you get one reply.
@@ -283,17 +283,27 @@ Say what a variant is in \`--note "System font, thin bars; feels like a tool"\`;
 the viewer shows it on the variant and its option. Name the widths the user
 ships to once, \`--widths 390,1280\`, and the design is shown at each, side by
 side; without them the viewer picks one for the screen it is on.
-Screens the user moves between, even across mocks, are a flow: publish each
-with \`--flow Morning --step 2\` (\`--step 0\` takes it out); the viewer walks it.
 
-## Build from components
+## Structure only when the work has it
 
-A screen made of reusable pieces (a button, a card, a header, a day strip) is
-built from them: publish each piece as its own mock (\`--kind component\`), and
-the screen (\`--kind page\`) embeds it with \`<mockpit-embed slug="card">\`.
-Vary a piece in its own mock, not by copying it into every page: the user
-sees every page it is in, a decision on it reaches all of them, and Home's
-Components tab counts the screens it is in. Topic \`surfaces\` has the details.
+A mock is a sketch unless you say otherwise: explorations, diagrams,
+explainers and reviews stay plain, and Home lists them as Sketches. Declare
+structure only when you are designing the screens of a product; each kind
+you use adds its tab to Home:
+
+- A screen of the product: \`--kind page\`.
+- Screens the user moves between, even across mocks, in order: a flow.
+  Publish each with \`--flow Morning --step 2\` (\`--step 0\` takes it out);
+  the viewer walks it.
+- A reusable piece of those screens (a button, a card, a header): its own
+  mock, embedded in pages with \`<mockpit-embed slug="card">\`. Being
+  embedded makes it a component (\`--kind component\` says so up front).
+  Vary a piece in its own mock, not by copying it into every page: a
+  decision on it reaches every page it is in. Topic \`surfaces\` has the
+  details.
+
+A sketch that becomes a screen is promoted by publishing it again with
+\`--kind page\` (and \`--flow\`).
 
 ## Ask, slot or knob
 

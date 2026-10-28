@@ -65,7 +65,7 @@ verbs:
       --fills <part#fill=file|->  instead: replace or add one fill of a slot in
                         the latest version (repeatable)
       --title <t>       mock title
-      --kind <k>        component|page (default component)
+      --kind <k>        page|component, only for an app's screens (default sketch)
       --knobs <json|file>  knobs in tunekit usePane shape, keyed by path
       --from <N>        branch from version N
       --prompt <text>   what prompted this version
@@ -174,7 +174,9 @@ mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
                      data-fill="fill" in the latest version, or add it after
                      that slot's other fills; the marks are added if missing
   --title <t>        mock title
-  --kind <k>         component|page (default component)
+  --kind <k>         page|component|sketch: page for a screen of the product,
+                     component for a piece pages embed (embedding makes one);
+                     omit for sketches, diagrams, reviews (default sketch)
   --knobs <json|file>  knobs in tunekit usePane shape
   --from <N>         branch from version N
   --fork <v[@N]>     start this new variant from sibling v (its version N, else
@@ -1729,6 +1731,7 @@ const commands = {
             session: session.id,
             project: DEMO.project,
             mock: DEMO.slug,
+            kind: "page",
             title: DEMO.title,
             state: state.label,
             variant: variant.name,

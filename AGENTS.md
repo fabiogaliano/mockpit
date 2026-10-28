@@ -43,7 +43,8 @@ consciously, not as a side effect):
   regressed before.
 - Tiers, no modes: each thing the agent adds lights up its part of the viewer
   (variants → switcher and the built-in Look ask, asks → Questions, `data-part` → Tune parts and part
-  comments, `knobs` → Tune knobs, states and flows → the flow bar). A plain
+  comments, `knobs` → Tune knobs, states and flows → the flow bar, `kind`
+  page/component and flows → Home's tabs; undeclared is a sketch). A plain
   publish of any kind still gets stage + Thread + Use this / New.
 - Self-hosted only; the embeddable viewer engine was dropped. Keep the
   `root()`/`host()` habit in `viewer/src` anyway.
@@ -102,10 +103,11 @@ consciously, not as a side effect):
   transports' schemas. `server/mcpHttp.ts` — stateless MCP at `/mcp`;
   `mcp/server.ts` — stdio MCP, a thin client over the HTTP API.
 - `viewer/` — Solid + TypeScript in `viewer/src/`, Vite-built into one
-  self-contained `viewer/dist/index.html`. `Home` (three tabs in the URL, `?view=flows|pages|components`, each showing
-  the design in use per screen from `GET /api/projects/:name/tree`: Flows, the
-  declared flows as rows of screens, opened with `?flow=`; Pages, each page's
-  states; Components, each with "in N screens"; above them the open count,
+  self-contained `viewer/dist/index.html`. `Home` (a tab per kind in use, in the URL as `?view=pages|flows|components|sketches`, each showing
+  the design in use per screen from `GET /api/projects/:name/tree`: Pages, each
+  page's states; Flows, the declared flows as rows of screens, opened with
+  `?flow=`; Components, each with "in N screens"; Sketches, every mock with no
+  declared kind; empty tabs are not shown, one alone gets no tab bar; above them the open count,
   which unfolds the waiting mocks to resolve, and Answer next), `MockScreen`
   (`TopBar`, `Stage` + `Strip`, `Panel` beside the stage; where the panel does
   not fit, `CanvasHead`, the stage as a pannable canvas with the mock's other

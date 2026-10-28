@@ -1,8 +1,9 @@
-// A project at a glance, in three tabs, each showing the design in use for
-// every screen (else its newest live version, unmarked): Flows, the declared
-// flows as rows of screens in order (with none declared, each page's own
-// states); Pages, each page with its states; Components, each with where it is
-// used. Above them, one line says what is waiting and links the next mock to
+// A project at a glance, in a tab per kind of structure the agent declared,
+// each showing the design in use for every screen (else its newest live
+// version, unmarked): Pages, each page with its states; Flows, the declared
+// flows as rows of screens in order; Components, each with where it is used;
+// Sketches, everything else. A tab with nothing in it is not shown, and one
+// alone needs no tab bar. Above them, one line says what is waiting and links the next mock to
 // answer, in the agent's order (nextOwedMock). The count opens the waiting
 // mocks as rows; a swipe left on one (or its Resolve button) resolves it: its
 // open questions close unanswered and it moves to a folded Resolved list,
@@ -40,9 +41,10 @@ import { TopBar } from "./TopBar.tsx";
 import { phoneLayout } from "./viewport.ts";
 
 const TABS: { view: HomeView; label: string }[] = [
-  { view: "flows", label: "Flows" },
   { view: "pages", label: "Pages" },
+  { view: "flows", label: "Flows" },
   { view: "components", label: "Components" },
+  { view: "sketches", label: "Sketches" },
 ];
 
 // Where each tab was scrolled to, so coming back to it lands where it was.
@@ -51,11 +53,11 @@ const scrolls = new Map<string, number>();
 interface Row {
   name: string;
   // The declared flow the row is, carried into the screens it opens.
-  flow: string | null;
+  flow: string;
   steps: FlowStep[];
 }
 
-export function Home(props: { project: string | null; view: HomeView }) {
+export function Home(props: { project: string | null; view: HomeView | null }) {
   // Home shows where every mock stands; a Send carried from a mock ends here.
   setCarried(null);
   const [projects, { refetch: refetchProjects }] = createResource(() => api.projects());
@@ -72,18 +74,23 @@ export function Home(props: { project: string | null; view: HomeView }) {
   const nodes = createMemo(() => [...(tree()?.tree ?? [])].sort(byAge));
   const bySlug = createMemo(() => new Map(nodes().map((n) => [n.slug, n])));
   const pages = createMemo(() => nodes().filter((n) => n.kind === "page"));
-  const components = createMemo(() => nodes().filter((n) => n.kind !== "page"));
-  // With no flow declared, each page's own states make a row; a project of
-  // components only shows those, so the first tab is never empty.
-  const rows = createMemo<Row[]>(() => {
-    const flows = tree()?.flows ?? [];
-    if (flows.length) return flows.map((f) => ({ name: f.name, flow: f.name, steps: f.steps }));
-    return (pages().length ? pages() : nodes()).map((n) => ({
-      name: n.title,
-      flow: null,
-      steps: n.states.map((state) => ({ mock: n.slug, state })),
-    }));
+  const components = createMemo(() => nodes().filter((n) => n.kind === "component"));
+  const sketches = createMemo(() => nodes().filter((n) => n.kind === "sketch"));
+  const rows = createMemo<Row[]>(() =>
+    (tree()?.flows ?? []).map((f) => ({ name: f.name, flow: f.name, steps: f.steps })),
+  );
+  const shown = createMemo(() => {
+    const count: Record<HomeView, number> = {
+      pages: pages().length,
+      flows: rows().length,
+      components: components().length,
+      sketches: sketches().length,
+    };
+    return TABS.filter((t) => count[t.view] > 0);
   });
+  const view = createMemo(() =>
+    shown().some((t) => t.view === props.view) ? props.view : (shown()[0]?.view ?? null),
+  );
 
   // Resolved a moment ago, before the list catches up.
   const [leaving, setLeaving] = createSignal<Record<string, true>>({});
@@ -161,7 +168,7 @@ export function Home(props: { project: string | null; view: HomeView }) {
   // Each tab keeps its own scroll; the screens' boxes are sized before their
   // pictures load, so the place is right as soon as the tree is in.
   let main!: HTMLElement;
-  const scrollKey = () => `${project() ?? ""}|${props.view}`;
+  const scrollKey = () => `${project() ?? ""}|${view()}`;
   createEffect(
     on([scrollKey, () => !!tree()], ([key, loaded]) => {
       if (!loaded) return;
@@ -172,14 +179,14 @@ export function Home(props: { project: string | null; view: HomeView }) {
   );
 
   const tabs = () => (
-    <Show when={project()}>
+    <Show when={shown().length > 1 && project()}>
       {(p) => (
         <nav class="home-tabs" aria-label="View">
-          <For each={TABS}>
+          <For each={shown()}>
             {(t) => (
               <a
                 href={projectPath(p(), t.view)}
-                aria-current={props.view === t.view ? "page" : undefined}
+                aria-current={view() === t.view ? "page" : undefined}
                 onClick={(e) => {
                   if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
                   e.preventDefault();
@@ -229,7 +236,7 @@ export function Home(props: { project: string | null; view: HomeView }) {
         ref={(el) => (main = el)}
         onScroll={() => scrolls.set(scrollKey(), main.scrollTop)}
       >
-        <Show when={phoneLayout()}>
+        <Show when={phoneLayout() && shown().length > 1}>
           <div class="home-tabs-row">{tabs()}</div>
         </Show>
         <Show
@@ -327,15 +334,13 @@ export function Home(props: { project: string | null; view: HomeView }) {
             </div>
           </Show>
 
-          <Show when={props.view === "flows"}>
+          <Show when={view() === "flows"}>
             <For each={rows()}>
               {(row) => (
                 <section class="home-sec">
                   <h2>
                     {row.name}
-                    <Show when={row.flow}>
-                      <span>{`${row.steps.length} ${row.steps.length === 1 ? "step" : "steps"}`}</span>
-                    </Show>
+                    <span>{`${row.steps.length} ${row.steps.length === 1 ? "step" : "steps"}`}</span>
                   </h2>
                   <div class="home-flow">
                     <For each={row.steps}>
@@ -350,14 +355,10 @@ export function Home(props: { project: string | null; view: HomeView }) {
                                 n(),
                                 x.state,
                                 row.flow,
-                                row.flow ? (
-                                  <>
-                                    <b>{n().title}</b>
-                                    {x.state === null ? "" : ` · ${x.state}`}
-                                  </>
-                                ) : (
-                                  (x.state ?? n().title)
-                                ),
+                                <>
+                                  <b>{n().title}</b>
+                                  {x.state === null ? "" : ` · ${x.state}`}
+                                </>,
                               )}
                             </>
                           )}
@@ -370,7 +371,7 @@ export function Home(props: { project: string | null; view: HomeView }) {
             </For>
           </Show>
 
-          <Show when={props.view === "pages"}>
+          <Show when={view() === "pages"}>
             <For each={pages()}>
               {(n) => (
                 <section class="home-sec">
@@ -383,7 +384,7 @@ export function Home(props: { project: string | null; view: HomeView }) {
             </For>
           </Show>
 
-          <Show when={props.view === "components"}>
+          <Show when={view() === "components"}>
             <div class="home-comps">
               <For each={components()}>
                 {(n) =>
@@ -399,6 +400,14 @@ export function Home(props: { project: string | null; view: HomeView }) {
                     </>,
                   )
                 }
+              </For>
+            </div>
+          </Show>
+
+          <Show when={view() === "sketches"}>
+            <div class="home-comps">
+              <For each={sketches()}>
+                {(n) => screen(n, n.inUse[0]?.state ?? n.states[0] ?? null, null, <b>{n.title}</b>)}
               </For>
             </div>
           </Show>
