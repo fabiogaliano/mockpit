@@ -11,6 +11,8 @@ import {
   type KnobConfig,
   type KnobValue,
   type Knobs,
+  type MockEdit,
+  type MockKind,
   type PartComment,
   type Reply,
   sameScreen,
@@ -735,9 +737,11 @@ export function threadRows(
       const reply = c.kind === "reply" ? c.payload : undefined;
       const text = reply?.resolved
         ? resolvedLine(reply.resolved.dismissed.length)
-        : reply
-          ? summarizeReply(reply, mock)
-          : c.text || "Sent";
+        : reply?.edited
+          ? editedLine(reply.edited)
+          : reply
+            ? summarizeReply(reply, mock)
+            : c.text || "Sent";
       const row: ThreadRow = {
         who: "you",
         at: c.createdAt,
@@ -804,6 +808,21 @@ export const openAsks = (mock: Pick<MockDetail, "asks">): Ask[] =>
   mock.asks.filter((a) => !askAnswered(a) && !a.dismissed);
 
 // A resolution in the thread: what it closed.
+const KIND_NAMES: Record<MockKind, string> = {
+  page: "Pages",
+  component: "Components",
+  sketch: "Sketches",
+};
+
+// A move made from Home, as the thread lists it.
+export const editedLine = (e: MockEdit): string =>
+  [
+    e.kind ? `Moved to ${KIND_NAMES[e.kind]}` : "",
+    e.area !== undefined ? (e.area ? `Area ${e.area}` : "No area") : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
 export const resolvedLine = (dismissed: number): string =>
   dismissed
     ? `Resolved · ${dismissed} ${dismissed === 1 ? "question" : "questions"} closed unanswered`
@@ -1173,12 +1192,24 @@ export interface AreaGroup<T> {
   rows: T[];
 }
 
-// Home's rows under the areas the project named, alphabetical, in their own
-// order within each. With no area anywhere there is one unheaded group, so a
-// project that never names one looks as it did before areas.
+// Areas in the project's order (`edit --area-order`), then the ones it leaves
+// out, alphabetical.
+export function orderAreas(names: Iterable<string>, order: string[]): string[] {
+  const rank = new Map(order.map((a, i) => [a, i]));
+  return [...new Set(names)].sort(
+    (a, b) =>
+      (rank.get(a) ?? Infinity) - (rank.get(b) ?? Infinity) ||
+      (rank.has(a) ? 0 : a.localeCompare(b)),
+  );
+}
+
+// Home's rows under the areas the project named, in its area order, in their
+// own order within each. With no area anywhere there is one unheaded group, so
+// a project that never names one looks as it did before areas.
 export function groupByArea<T>(
   rows: T[],
   areaOf: (row: T) => string | null | undefined,
+  order: string[] = [],
 ): AreaGroup<T>[] {
   const named = new Map<string, T[]>();
   const rest: T[] = [];
@@ -1189,10 +1220,56 @@ export function groupByArea<T>(
     else named.set(area, [row]);
   }
   if (named.size === 0) return [{ area: null, rows }];
-  const groups: AreaGroup<T>[] = [...named]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([area, list]) => ({ area, rows: list }));
+  const groups: AreaGroup<T>[] = orderAreas(named.keys(), order).map((area) => ({
+    area,
+    rows: named.get(area)!,
+  }));
   return rest.length ? [...groups, { area: null, rows: rest }] : groups;
+}
+
+// Where a mock stands, read off what mockpit already holds, for its card on
+// Home; null says nothing worth a word (one variant, nothing asked or chosen).
+// A resolved mock gets none: Home fades it instead.
+export type MockStatus =
+  | { kind: "open"; n: number }
+  | { kind: "changed" }
+  | { kind: "decided" }
+  | { kind: "exploring" };
+
+export function mockStatus(
+  node: Pick<TreeNode, "open" | "states" | "variants" | "inUse" | "resolvedAt">,
+): MockStatus | null {
+  if (node.resolvedAt) return null;
+  if (node.open > 0) return { kind: "open", n: node.open };
+  // A variant in use at an older version than its latest: the agent moved on
+  // from what the user chose, and the choice wants a look again.
+  const changed = node.variants.some(
+    (v) =>
+      v.status === "accepted" && v.acceptedVersion !== undefined && v.version > v.acceptedVersion,
+  );
+  if (changed) return { kind: "changed" };
+  if (node.states.every((st) => node.inUse.some((u) => u.state === st))) {
+    return { kind: "decided" };
+  }
+  // Several designs of one screen still in play.
+  const live = node.variants.filter((v) => isLive(v.status));
+  if (node.states.some((st) => live.filter((v) => v.state === st).length > 1)) {
+    return { kind: "exploring" };
+  }
+  return null;
+}
+
+// How far a mock has come, as one number: every variant's version summed, so
+// any publish (a new version or a new variant) raises it. Home's "new" dot
+// compares it against the last one this browser opened.
+export const versionStamp = (variants: { version: number }[]): number =>
+  variants.reduce((n, v) => n + v.version, 0);
+
+// A code path cut from the left to its last two segments, the end that says
+// which piece it is: "apps/onni/src/spaces/food" → "…/spaces/food".
+export function shortSource(path: string): string {
+  const parts = path.split("/").filter(Boolean);
+  return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : path;
 }
 
 // A flow's area is obvious only when every screen it walks is in the same one.

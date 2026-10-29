@@ -11,10 +11,20 @@ import { useFlowKeys } from "./flowKeys.ts";
 import { createFlowNav, type FlowNav } from "./flowNav.ts";
 import { host, root } from "./host.ts";
 import { Icon, type IconName } from "./icons.tsx";
-import { boardWidths, DEVICE_WIDTHS, wideWidth, widthKind, widthLabel } from "./logic.ts";
+import {
+  boardWidths,
+  DEVICE_WIDTHS,
+  shortSource,
+  versionStamp,
+  wideWidth,
+  widthKind,
+  widthLabel,
+} from "./logic.ts";
 import { CarriedChip, NextCard } from "./NextCard.tsx";
 import { QuestionCard, QuestionTab } from "./QuestionCard.tsx";
 import { ResolvedNote } from "./Questions.tsx";
+import { createRelated, Related, relatedOf, type RelatedState } from "./Related.tsx";
+import { markSeen } from "./seen.ts";
 import { homePath, linkClick, navigate, projectPath } from "./route.ts";
 import { Stage } from "./Stage.tsx";
 import type { ScreenOpen } from "./route.ts";
@@ -38,6 +48,19 @@ export function MockScreen(props: {
   const nav = createFlowNav(s, props.project, props.slug, props.flow ?? null);
   const t = createTune(s);
   useFlowKeys(s);
+  const related = createRelated(
+    () => s.mock()?.project ?? props.project,
+    () => {
+      const m = s.mock();
+      return m ? `${m.updatedAt}:${versionStamp(m.variants)}` : null;
+    },
+  );
+  const rel = relatedOf(related, props.slug);
+  // On screen is seen: Home's dot for this mock goes until a newer version.
+  createEffect(() => {
+    const m = s.mock();
+    if (m) markSeen(m.project, m.id, versionStamp(m.variants));
+  });
   // The agent renamed the mock or its project while it was open: the address
   // follows, so a reload or a shared link still finds it.
   createEffect(() => {
@@ -153,7 +176,13 @@ export function MockScreen(props: {
   return (
     <div class="screen mock-screen" classList={{ phone: phoneLayout() }}>
       <header class="mhead" ref={(el) => (head = el)}>
-        <TopRow s={s} project={props.project} slug={props.slug} />
+        <TopRow
+          s={s}
+          project={props.project}
+          slug={props.slug}
+          related={related}
+          hasRelated={rel.any()}
+        />
         <Show when={walkable()}>
           <FlowBar s={s} nav={nav} />
         </Show>
@@ -203,6 +232,9 @@ export function MockScreen(props: {
             <BottomPanel s={s} onHeight={setPanelH} />
           </Show>
           <BuiltFrom s={s} t={t} />
+          <Show when={rel.any()}>
+            <Related r={related} project={props.project} slug={props.slug} rel={rel} />
+          </Show>
         </Show>
       </Show>
       <Toast s={s} />
@@ -213,10 +245,18 @@ export function MockScreen(props: {
   );
 }
 
-// Back, where you are, then the width and Built from: nothing else up here.
-function TopRow(props: { s: MockScreenState; project: string; slug: string }) {
+// Back, where you are (project, area, mock, state), then the width, Related
+// and Built from: nothing else up here.
+function TopRow(props: {
+  s: MockScreenState;
+  project: string;
+  slug: string;
+  related: RelatedState;
+  hasRelated: boolean;
+}) {
   const s = props.s;
   const home = () => homePath(props.project);
+  const areaHome = (area: string) => projectPath(props.project, null, area);
   const component = () => s.mock()?.kind === "component";
   return (
     <div class="mtop">
@@ -226,6 +266,20 @@ function TopRow(props: { s: MockScreenState; project: string; slug: string }) {
       <div class="crumb mcrumb">
         <span class="crumb-far">{props.project}</span>
         <span class="crumb-far sep">/</span>
+        <Show when={s.mock()?.area}>
+          {(area) => (
+            <>
+              <a
+                class="crumb-far crumb-area"
+                href={areaHome(area())}
+                onClick={(e) => linkClick(e, areaHome(area()))}
+              >
+                {area()}
+              </a>
+              <span class="crumb-far sep">/</span>
+            </>
+          )}
+        </Show>
         <Show when={s.activeState() !== null} fallback={<b>{s.mock()?.title ?? props.slug}</b>}>
           <span class="crumb-far">{s.mock()?.title ?? props.slug}</span>
           <span class="crumb-far sep">/</span>
@@ -234,13 +288,26 @@ function TopRow(props: { s: MockScreenState; project: string; slug: string }) {
         <Show when={s.mock()?.source}>
           {(src) => (
             <span class="crumb-far msrc" title={src()}>
-              {src()}
+              {shortSource(src())}
             </span>
           )}
         </Show>
       </div>
       <span class="grow" />
       <WidthMenu s={s} />
+      <Show when={props.hasRelated}>
+        <button
+          type="button"
+          class="ib"
+          classList={{ on: props.related.open() }}
+          aria-label="Related"
+          title="Used in, uses, flows"
+          aria-expanded={props.related.open()}
+          onClick={() => props.related.setOpen(!props.related.open())}
+        >
+          <Icon name="related" />
+        </button>
+      </Show>
       <button
         type="button"
         class="ib"

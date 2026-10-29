@@ -120,6 +120,9 @@ import {
   REACTIONS,
   projectFromCwd,
   type Reply,
+  AREA_ORDER_SETTING,
+  type MockEdit,
+  stripNul,
   postAtVersion,
   versionAt,
   type ReplyDecision,
@@ -403,11 +406,23 @@ const str = (v: unknown, max: number): string | undefined =>
   typeof v === "string" && v.trim() ? v.trim().slice(0, max) : undefined;
 
 const MAX_LABEL = 120;
+const MAX_AREAS = 50;
 const MAX_FLOWS = 50;
 const MAX_FLOW_STEPS = 100;
 const MAX_ASKS = 20;
 const MAX_OPTIONS = 20;
 const MAX_DRAFT_COMMENTS = 50;
+
+// A title that names a step of the agent's process instead of what the mock
+// is: it reads as noise on Home, where titles are seen out of context.
+const PROCESS_TITLE = /^\s*(round\s*\d+|flow\s*\d+\s*[·:\-–—]|v\d+\b|prototype\b)/i;
+const titleNudges = (title: string | undefined): string[] =>
+  title && PROCESS_TITLE.test(title)
+    ? [
+        `title "${title}" names your process; title the mock by what it is ("Hold menu"), as states are named by what the user sees`,
+      ]
+    : [];
+
 const APP_FILES = new Set([
   "/manifest.webmanifest",
   "/icon.svg",
@@ -1505,7 +1520,10 @@ export function createApp({
     }
     const bad = checkSurfaces(surfaces);
     if (bad) return bad;
-    const nudges = knobNudges({ ...knobs.value, ...variantKnobs.value });
+    const nudges = [
+      ...knobNudges({ ...knobs.value, ...variantKnobs.value }),
+      ...titleNudges(title),
+    ];
     const embeds = await publishEmbeds(project, slug, surfaces);
     if (isResult(embeds)) return embeds;
     await promoteEmbedded(project, embeds);
@@ -1841,12 +1859,18 @@ export function createApp({
       n.uses = n.uses.filter((s) => bySlug.has(s));
       for (const s of n.uses) bySlug.get(s)!.usedIn.push(n.slug);
     }
-    return ok({ project, tree: nodes, flows: await flowsView(project, mocks), pending });
+    return ok({
+      project,
+      tree: nodes,
+      flows: await flowsView(project, mocks),
+      areaOrder: await areaOrderOf(project),
+      pending,
+    });
   }
 
   async function replyPayloads(mockId: string): Promise<Reply[]> {
     return (await store.listComments({ mockId }))
-      .filter((c) => c.kind === "reply" && c.payload)
+      .filter((c) => c.kind === "reply" && c.payload && !c.payload.edited)
       .map((c) => c.payload as Reply);
   }
 
@@ -2995,10 +3019,11 @@ export function createApp({
     }
     bus.broadcast({ type: "mock-updated", id: next.id, project: next.project });
     if (renaming) await announceEmbedders(next);
+    if (ctx.viewer) await tellAgentEdited(mock, next);
 
     // Flows are declared apart from kind, so a page that stops being one stays
     // in them until the agent takes it out.
-    const nudges: string[] = [];
+    const nudges: string[] = [...titleNudges(title)];
     if (kind !== undefined && kind !== "page" && mock.kind === "page") {
       for (const f of await store.listFlows(next.project)) {
         if (!f.steps.some((x) => x.mock === next.slug)) continue;
@@ -3024,31 +3049,109 @@ export function createApp({
     });
   }
 
+  // The user moved a mock from Home (another kind or area): the agent hears it
+  // once, through the same cursor as a Send, on the session driving the mock.
+  // Nothing to tell when no agent has written it.
+  async function tellAgentEdited(before: Mock, after: Mock): Promise<void> {
+    const edited: MockEdit = {
+      ...(after.kind !== before.kind ? { kind: after.kind } : {}),
+      ...(after.area !== before.area ? { area: after.area } : {}),
+    };
+    if (Object.keys(edited).length === 0) return;
+    const posts = await store.listPosts({ mockId: after.id });
+    const latest = [...posts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+    const sessionId = after.sessionId ?? latest?.sessionId;
+    if (!sessionId) return;
+    const comment = await store.commitReply({
+      mockId: after.id,
+      sessionId,
+      text: "",
+      payload: {
+        mockId: after.id,
+        version: Math.max(1, ...posts.map((p) => p.version)),
+        answers: {},
+        mix: {},
+        tuned: {},
+        comments: [],
+        edited,
+      },
+      asks: after.asks,
+      accept: [],
+      archive: [],
+      keepDraft: true,
+    });
+    if (comment) announceComment(comment);
+  }
+
+  const areaOrderOf = async (project: string): Promise<string[]> => {
+    const raw = await store.getSetting(`${AREA_ORDER_SETTING}:${project}`);
+    if (!raw) return [];
+    try {
+      const v: unknown = JSON.parse(raw);
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+    } catch {
+      return [];
+    }
+  };
+
+  // `areaOrder`: the areas in the order Home lists them; [] (or "") hands the
+  // order back to the alphabet.
+  function areaOrderArg(v: unknown): string[] | FlowResult {
+    const list: unknown = typeof v === "string" ? v.split(",") : v;
+    if (!Array.isArray(list) || list.some((x) => typeof x !== "string")) {
+      return fail(400, '"areaOrder" must be a list of area names, e.g. ["Shell", "Food"]');
+    }
+    const names = [...new Set((list as string[]).map((x) => stripNul(x).trim()).filter(Boolean))];
+    if (names.length > MAX_AREAS) return fail(400, `"areaOrder" takes at most ${MAX_AREAS} areas`);
+    if (names.some((x) => x.length > MAX_LABEL)) {
+      return fail(400, `an area name is at most ${MAX_LABEL} characters`);
+    }
+    return names;
+  }
+
   // `edit` on a project: a new name for it, carrying its mocks, sessions,
-  // flows and design settings. Refused onto a project that already has mocks.
-  async function renameProjectFlow(
-    name: unknown,
-    body: any,
-    ctx: FlowContext,
-  ): Promise<FlowResult> {
+  // flows and settings (refused onto a project that already has mocks), and
+  // the order Home lists its areas in.
+  async function editProjectFlow(name: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
     const from = str(name, MAX_TITLE);
-    if (!from) return fail(400, "provide the project to rename");
-    const to = str(body.name, MAX_TITLE);
-    if (!to) return fail(400, 'provide "name": the project\'s new name');
+    if (!from) return fail(400, "provide the project to edit");
+    if (body.name === undefined && body.areaOrder === undefined) {
+      return fail(400, 'provide "name" (the project\'s new name) or "areaOrder"');
+    }
+    const to = body.name === undefined ? undefined : str(body.name, MAX_TITLE);
+    if (body.name !== undefined && !to) return fail(400, '"name" must be the project\'s new name');
     if (to === from) return fail(400, `${from} already has that name`);
+    const order = body.areaOrder === undefined ? undefined : areaOrderArg(body.areaOrder);
+    if (isResult(order)) return order;
     const mocks = await store.listMocks(from);
     if (mocks.length === 0) return fail(404, `no project "${from}" with mocks`);
-    if (!(await store.renameProject(from, to))) {
-      return fail(409, `${to} already has mocks; pick another name`);
+    if (to !== undefined) {
+      if (!(await store.renameProject(from, to))) {
+        return fail(409, `${to} already has mocks; pick another name`);
+      }
+      clearRenderCache();
     }
-    clearRenderCache();
-    for (const m of mocks) bus.broadcast({ type: "mock-updated", id: m.id, project: to });
+    const project = to ?? from;
+    if (order !== undefined) {
+      await store.setSetting(`${AREA_ORDER_SETTING}:${project}`, JSON.stringify(order));
+    }
+    for (const m of mocks) bus.broadcast({ type: "mock-updated", id: m.id, project });
+    const named = new Set(mocks.flatMap((m) => (m.area ? [m.area] : [])));
+    const unnamed = (order ?? []).filter((a) => !named.has(a));
     return ok({
-      project: to,
-      renamed: { from, to },
+      project,
+      ...(to === undefined ? {} : { renamed: { from, to } }),
+      ...(order === undefined ? {} : { areaOrder: order }),
       mocks: mocks.length,
-      url: `${ctx.base}/project/${encodeURIComponent(to)}`,
+      url: `${ctx.base}/project/${encodeURIComponent(project)}`,
+      ...(unnamed.length
+        ? {
+            nudges: [
+              `no mock in ${project} has area ${unnamed.map((a) => `"${a}"`).join(", ")} yet; Home lists it once one does`,
+            ],
+          }
+        : {}),
       feedback: await feedbackFor(body.session, ctx.base),
     });
   }
@@ -4066,7 +4169,7 @@ export function createApp({
     send(c, await treeFlow({ project: c.req.param("name") })),
   );
   app.patch("/api/projects/:name", async (c) =>
-    send(c, await renameProjectFlow(c.req.param("name"), await jsonBody(c), flowCtx(c))),
+    send(c, await editProjectFlow(c.req.param("name"), await jsonBody(c), flowCtx(c))),
   );
   app.get("/api/projects/:name/design", async (c) => c.json(await designFor(c.req.param("name"))));
 
@@ -4852,7 +4955,7 @@ export function createApp({
     say: (ref, body, ctx) => sayFlow(ref, body, ctx),
     feedback: (query, ctx) => feedbackFlow(query, ctx),
     edit: (ref, body, ctx) => editMockFlow(ref, body, ctx),
-    renameProject: (name, body, ctx) => renameProjectFlow(name, body, ctx),
+    editProject: (name, body, ctx) => editProjectFlow(name, body, ctx),
   };
   const guide = (project: string, topic?: GuideTopic) =>
     topic ? (topics[topic] ?? "") : briefFor(project);

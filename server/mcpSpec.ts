@@ -113,7 +113,7 @@ const askSchema = z.object({
 type Param =
   | { t: "string" | "number" | "boolean" | "integer"; d?: string; req?: boolean }
   | { t: "enum"; values: readonly [string, ...string[]]; d?: string; req?: boolean }
-  | { t: "surfaces" | "asks" | "object" | "integers"; d?: string; req?: boolean };
+  | { t: "surfaces" | "asks" | "object" | "integers" | "strings"; d?: string; req?: boolean };
 
 function zodParam(p: Param): z.ZodType {
   let s: z.ZodType;
@@ -135,6 +135,9 @@ function zodParam(p: Param): z.ZodType {
       break;
     case "integers":
       s = z.array(z.number().int());
+      break;
+    case "strings":
+      s = z.array(z.string());
       break;
     default:
       s = p.t === "string" ? z.string() : p.t === "number" ? z.number() : z.boolean();
@@ -255,7 +258,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "edit",
     description:
-      "Change a mock without a new version; a new slug rewrites every reference to the old one. Without mock, rename renames the project. Returns feedback.",
+      "Change a mock without a new version; a new slug rewrites every reference to the old one. Without mock, rename renames the project and areaOrder orders its areas. Returns feedback.",
     params: {
       mock: { t: "string", d: field.mock },
       project: P.project,
@@ -265,6 +268,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       area: { t: "string" },
       source: { t: "string" },
       rename: { t: "string", d: "New project name" },
+      areaOrder: { t: "strings", d: "Without mock: Home's area order" },
       session: P.session,
     },
     httpOnly: ["session"],
@@ -356,6 +360,9 @@ const feedbackSchema = o({
     .array(o({ ask: str, text: str }))
     .optional()
     .describe("The asks the resolution closed; don't ask them again"),
+  edited: o({ kind: str.optional(), area: nullStr.optional() })
+    .optional()
+    .describe("The user moved the mock from Home: its kind or area now"),
 }).meta({ id: "Feedback" });
 // Typed once, on feedback: repeating it on every write would cost more than
 // the rest of the write's output schema.
@@ -411,6 +418,7 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
   say: { feedback: feedbackRide },
   edit: {
     renamed: o({ from: str, to: str }).optional(),
+    areaOrder: strs.optional(),
     url: str,
     nudges: strs.optional(),
     feedback: feedbackRide,

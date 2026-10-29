@@ -30,6 +30,7 @@ import {
   type PostVersion,
   projectFromCwd,
   type Reply,
+  AREA_ORDER_SETTING,
   reservedAgent,
   sameScreen,
   selectEvictions,
@@ -51,6 +52,9 @@ import {
 import { renameSlugRefs } from "./embeds.ts";
 
 type Row = Record<string, SqlStorageValue>;
+
+// The settings keyed `<prefix>:<project>`, which a project rename carries.
+const PROJECT_SETTINGS = ["design", AREA_ORDER_SETTING] as const;
 
 // An optional free-text label: blank means none.
 const label = (v: string | null | undefined): string | null => stripNul(v ?? "").trim() || null;
@@ -1040,15 +1044,16 @@ export class SqlStore implements Store {
       this.sql.exec("UPDATE mocks SET project = ? WHERE project = ?", target, from);
       this.sql.exec("UPDATE sessions SET project = ? WHERE project = ?", target, from);
       this.sql.exec("UPDATE flows SET project = ? WHERE project = ?", target, from);
-      const design = this.settingSync(`design:${from}`);
-      if (design !== null) {
+      for (const prefix of PROJECT_SETTINGS) {
+        const value = this.settingSync(`${prefix}:${from}`);
+        if (value === null) continue;
         this.sql.exec(
           "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-          `design:${target}`,
-          design,
+          `${prefix}:${target}`,
+          value,
         );
-        this.sql.exec("DELETE FROM settings WHERE key = ?", `design:${from}`);
-        this.invalidateAssetRefs();
+        this.sql.exec("DELETE FROM settings WHERE key = ?", `${prefix}:${from}`);
+        if (prefix === "design") this.invalidateAssetRefs();
       }
       return true;
     });

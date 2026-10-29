@@ -478,7 +478,19 @@ export interface Reply {
   // A resolution instead of an answer: the user closed the mock, and these
   // asks (stored or built-in ids) with it, unanswered.
   resolved?: { dismissed: string[] };
+  // Neither an answer nor a resolution: the user moved the mock from Home
+  // (another kind, another area; null area: none), which the agent must hear.
+  edited?: MockEdit;
 }
+
+export interface MockEdit {
+  kind?: MockKind;
+  area?: string | null;
+}
+
+// The settings key prefix of a project's area order (`areaOrder:<project>`): a
+// JSON array of area names, the order Home lists them in.
+export const AREA_ORDER_SETTING = "areaOrder";
 
 export interface Mock {
   id: string;

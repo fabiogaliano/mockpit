@@ -247,7 +247,9 @@ a state; versions are its history. A part is an element marked \`data-part\`.
 The user answers asks, tunes knobs, presses Send once; you get one reply.
 Name a state by what the user sees on that screen ("Home, idle", "Proposal
 shown"), never by where it is in your process ("Prototype", "v2", "Round 2"):
-the viewer lists states as the screens of the mock.
+the viewer lists states as the screens of the mock. Title a mock the same way,
+by what it is ("Hold menu"), never "Round 2 · Places" or "Flow 3 · Presence":
+titles are read out of context, on Home and in its areas.
 
 ## The loop
 
@@ -307,7 +309,9 @@ words) groups each Home tab by area, and \`--source apps/web/src/shell\` says
 which code implements the mock. A sketch that becomes a screen is promoted
 with \`mockpit edit --mock <slug> --kind page\` (no new version), and
 \`--slug\`, \`--title\`, \`--area\` and \`--source\` change the same way; a new
-slug rewrites every embed and flow step that names the old one.
+slug rewrites every embed and flow step that names the old one. Home lists
+areas alphabetically unless \`mockpit edit --project <p> --area-order
+"Shell,Food"\` sets the order (unlisted ones follow, alphabetical).
 
 ## Ask, slot or knob
 
@@ -345,6 +349,8 @@ A \`pending\` draft means the user is still answering. Send a nudge's
 \`suggestedAsk\` with \`ask\`. A batch with \`resolved: true\` (no reply) means
 the user closed the mock unanswered: its \`dismissed\` asks were not worth
 answering. Don't ask them again, under any id; \`ask\` skips a dismissed id.
+\`edited: {kind, area}\` means the user moved the mock from Home; it is done,
+so build on it and don't move it back.
 The viewer shows each state its own asks and only open ones; a sent answer is
 not shown again.
 

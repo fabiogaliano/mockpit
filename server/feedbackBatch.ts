@@ -12,6 +12,7 @@ import {
   inUseVersion,
   DEFAULT_VARIANT,
   type Mock,
+  type MockEdit,
   OTHER_ID,
   type PartComment,
   type Post,
@@ -100,6 +101,9 @@ export interface FeedbackBatch {
   // unanswered, as not worth answering. Don't ask them again.
   resolved?: true;
   dismissed?: { ask: string; text: string }[];
+  // The user moved the mock from Home: its kind or area as they left it
+  // (area null: none). Build on it; don't move it back.
+  edited?: MockEdit;
 }
 
 const ref = (p: Post): VariantRef => ({ state: p.state, variant: p.variant });
@@ -192,7 +196,9 @@ export function groupFeedback(
     const mock = c.mockId ? mocks.get(c.mockId) : undefined;
     const mockPosts = (c.mockId && posts.get(c.mockId)) || [];
     let batch = open.get(key);
-    if (!batch || (c.kind === "reply" && (batch.reply || batch.resolved))) {
+    // An edit says where the mock is now, so it joins whatever batch is open.
+    const edit = c.kind === "reply" ? c.payload?.edited : undefined;
+    if (!batch || (c.kind === "reply" && !edit && (batch.reply || batch.resolved))) {
       batch = {
         mockId: c.mockId,
         project: mock?.project ?? null,
@@ -206,6 +212,10 @@ export function groupFeedback(
       };
       open.set(key, batch);
       batches.push(batch);
+    }
+    if (edit) {
+      batch.edited = { ...batch.edited, ...edit };
+      continue;
     }
     if (c.kind === "reply" && c.payload?.resolved) {
       batch.resolved = true;

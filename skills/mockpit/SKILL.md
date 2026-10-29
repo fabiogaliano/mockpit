@@ -18,7 +18,8 @@ The loop never waits for the user:
 1. `mockpit init` once per repo; read the brief (`mockpit guide`).
 2. `mockpit publish --mock <slug> --state "<user's words>" --variant <v> --html f.html`,
    once per variant; mark parts with `data-part`. Name a state by what the
-   user sees ("Home, idle"), never by your process ("Prototype", "v2"). The html is the UI alone:
+   user sees ("Home, idle"), never by your process ("Prototype", "v2"); title
+   a mock by what it is ("Hold menu"), never "Round 2 · …". The html is the UI alone:
    say what a variant is in `--note`, never in the design, and name the
    widths it ships at once with `--widths 390,1280`.
    Declare structure only when designing a product's screens: `--kind page`
@@ -28,7 +29,9 @@ The loop never waits for the user:
    diagrams and reviews stay plain. `--area <name>` groups Home by the
    product's parts; `--source <path>` names the code that implements it.
    `mockpit edit --mock <slug>` changes slug, title, kind, area or source
-   without a new version.
+   without a new version; `mockpit edit --project <p> --area-order
+"Shell,Food"` orders Home's areas. A batch with `edited` is the user moving
+   a mock from Home (kind, area): build on it.
 3. A choice is several variants plus one ask that binds them: `mockpit ask`
    with options bound to variants. A variant decides everything it differs on;
    don't re-ask it. Visual options carry a `variant` or knob `set`. One render

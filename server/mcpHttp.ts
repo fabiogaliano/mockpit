@@ -37,7 +37,7 @@ export interface McpFlows {
   say: Flow<[ref: unknown, body: any, ctx: FlowContext]>;
   feedback: Flow<[query: { session?: unknown; project?: unknown }, ctx: FlowContext]>;
   edit: Flow<[ref: unknown, body: any, ctx: FlowContext]>;
-  renameProject: Flow<[name: unknown, body: any, ctx: FlowContext]>;
+  editProject: Flow<[name: unknown, body: any, ctx: FlowContext]>;
 }
 
 export interface McpDeps {
@@ -69,28 +69,35 @@ export function unwrap(result: FlowResult): unknown {
   return result.body;
 }
 
-// `edit` is one verb with two shapes: `rename` renames the project, anything
-// else edits the mock. Shared by both MCP transports' HTTP side and `run`.
+// `edit` is one verb with two shapes: `rename` or `areaOrder` edits the
+// project, anything else edits the mock. Shared by both MCP transports' HTTP
+// side and `run`.
 export function editCall(
-  flows: Pick<McpFlows, "edit" | "renameProject">,
+  flows: Pick<McpFlows, "edit" | "editProject">,
   args: any,
   ctx: FlowContext,
   project: string | undefined,
 ): Promise<FlowResult> {
-  if (args.rename === undefined) return flows.edit(args.mock, args, ctx);
+  if (args.rename === undefined && args.areaOrder === undefined) {
+    return flows.edit(args.mock, args, ctx);
+  }
   if (args.mock !== undefined) {
     return Promise.resolve({
       status: 400,
-      body: { error: '"rename" renames the project; edit the mock without it' },
+      body: { error: '"rename" and "areaOrder" edit the project; edit the mock without them' },
     });
   }
   if (!project) {
     return Promise.resolve({
       status: 400,
-      body: { error: 'provide "project": the project to rename' },
+      body: { error: 'provide "project": the project to edit' },
     });
   }
-  return flows.renameProject(project, { name: args.rename, session: args.session }, ctx);
+  return flows.editProject(
+    project,
+    { name: args.rename, areaOrder: args.areaOrder, session: args.session },
+    ctx,
+  );
 }
 
 export function registerMcp(app: Hono, deps: McpDeps) {

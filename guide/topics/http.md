@@ -13,6 +13,7 @@ None of them waits for the user.
 | `mockpit say`                | `say`                                       | `POST /api/mocks/:id/say`                        |
 | `mockpit edit --mock <slug>` | `edit`                                      | `PATCH /api/mocks/:id`                           |
 | `mockpit edit --rename <n>`  | `edit({ rename })`                          | `PATCH /api/projects/:name` `{name}`             |
+| `mockpit edit --area-order`  | `edit({ areaOrder })`                       | `PATCH /api/projects/:name` `{areaOrder}`        |
 | `mockpit export`             | `export`                                    | `GET /api/mocks/:id/export`                      |
 | `mockpit upload`             | `upload`                                    | `POST /api/assets`                               |
 | `mockpit guide`              | `guide`                                     | `GET /agent-howto?project=…`                     |

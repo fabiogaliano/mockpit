@@ -101,6 +101,8 @@ verbs:
                                           change a mock without a new version ("" clears)
   mockpit edit --project <name> --rename <new>
                                           rename a project
+  mockpit edit --project <name> --area-order "Shell,Food"
+                                          the order Home lists areas in
   mockpit export --mock <slug> [--state s] [--variant v] [--out <dir>]
                                           write the accepted html + history per state
                                           to .mockpit/accepted/<mock>/<state>/
@@ -231,12 +233,15 @@ mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
   edit: `mockpit edit --mock <slug> [--slug <new>] [--title <t>] [--kind page|component|sketch]
   [--area <name>|""] [--source <path>|""] [--project <name>]
 mockpit edit --project <name> --rename <new name>
+mockpit edit --project <name> --area-order "Shell,Food,Chat"
   Change a mock without publishing a new version; "" clears area or source. A new
   slug rewrites every embed, data-goto and flow step that names the old one, in
   every version. A mock still embedded somewhere stays a component, not a sketch.
   --rename moves the project's mocks, sessions, flows and design settings to the
   new name (refused if that project has mocks); pass --project <new> or set
-  MOCKPIT_PROJECT afterwards if the repo still resolves to the old name.`,
+  MOCKPIT_PROJECT afterwards if the repo still resolves to the old name.
+  --area-order lists the project's areas in the order Home shows them; areas it
+  leaves out follow alphabetically, "" goes back to alphabetical.`,
   run: `mockpit run <file|-> [--session <id>] [--project <name>] [--json]
   Run a script (the body of an async function, plain JavaScript) in the server's
   sandbox against the mockpit API; see mockpit guide --topic scripts. Prints each
@@ -1107,6 +1112,14 @@ function watchLines(batch) {
       `mockpit resolved ${name}: ${n ? `${n} question${n === 1 ? "" : "s"} dismissed unanswered (${batch.dismissed.map((d) => d.text || d.ask).join("; ")}); don't ask again` : "closed by the user"}`,
     );
   }
+  if (batch.edited) {
+    const e = batch.edited;
+    const bits = [
+      e.kind ? `now a ${e.kind}` : "",
+      e.area !== undefined ? (e.area ? `area ${e.area}` : "no area") : "",
+    ].filter(Boolean);
+    lines.push(`mockpit edited ${name}: the user moved it (${bits.join(", ")})`);
+  }
   if (batch.reply) {
     const r = batch.reply;
     const bits = [
@@ -1748,22 +1761,43 @@ const commands = {
         area: { type: "string" },
         source: { type: "string" },
         rename: { type: "string" },
+        "area-order": { type: "string" },
       },
     });
     const project = resolveProject(flags).name;
     const session = (await resolveSession(flags)) ?? undefined;
-    if (flags.rename !== undefined) {
+    const areaOrder = flags["area-order"];
+    if (flags.rename !== undefined || areaOrder !== undefined) {
       if (flags.mock) {
-        die("--rename renames the project; edit the mock without it", "mockpit edit --help");
+        die(
+          "--rename and --area-order edit the project; edit the mock without them",
+          "mockpit edit --help",
+        );
       }
-      if (!flags.rename.trim()) die("--rename needs the new name", `mockpit edit --rename <name>`);
+      if (flags.rename !== undefined && !flags.rename.trim()) {
+        die("--rename needs the new name", `mockpit edit --rename <name>`);
+      }
       const result = await api(
         projectPath(project),
-        { method: "PATCH", body: JSON.stringify({ name: flags.rename, session }) },
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            name: flags.rename,
+            ...(areaOrder === undefined ? {} : { areaOrder: areaOrder.split(",") }),
+            session,
+          }),
+        },
         { report: "die", fix: "mockpit read" },
       );
       if (flags.json) return out(result);
       if (flags.quiet) return;
+      if (result.areaOrder) {
+        console.log(
+          `area order ${result.areaOrder.length ? result.areaOrder.join(", ") : "alphabetical"} · ${result.url}`,
+        );
+      }
+      for (const nudge of result.nudges ?? []) console.log(`nudge: ${nudge}`);
+      if (!result.renamed) return printFeedback(result.feedback);
       console.log(
         `renamed project ${result.renamed.from} → ${result.renamed.to} · ${result.mocks} mock${result.mocks === 1 ? "" : "s"} · ${result.url}`,
       );
