@@ -201,6 +201,8 @@ Agents read one brief before their first publish, in layers. Higher wins:
 A rules file has `## Rules` (always followed) and `## Suggestions` (aimed for),
 and turns packs on with `packs: [design-craft]` in its frontmatter. `mockpit
 rules` sends the project's file to the server; `mockpit init` does it too.
+[`examples/rules.md`](examples/rules.md) is the maintainer's own, symlinked to
+`~/.mockpit/rules.md`.
 
 ## Run it anywhere
 
