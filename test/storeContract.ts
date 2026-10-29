@@ -1402,11 +1402,12 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     },
   );
 
-  contract("renaming a project carries its mocks, sessions, flows and design", async (store) => {
+  contract("renaming a project carries its mocks, sessions, flows and settings", async (store) => {
     const session = await store.createSession({ agent: "pi", project: "old" });
     const mock = await store.createMock({ project: "old", slug: "home", sessionId: session.id });
     await store.placeFlowStep("old", "Morning", { mock: "home", state: null }, 1);
     await store.setSetting("design:old", '{"kit":"none"}');
+    await store.setSetting("areaOrder:old", '["Shell","Food"]');
     await store.placeFlowStep("new", "Stale", { mock: "gone", state: null }, 1);
     const busy = await store.createMock({ project: "busy", slug: "x" });
 
@@ -1423,6 +1424,8 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     assert.deepEqual(await store.listFlows("old"), []);
     assert.equal(await store.getSetting("design:new"), '{"kit":"none"}');
     assert.equal(await store.getSetting("design:old"), null);
+    assert.equal(await store.getSetting("areaOrder:new"), '["Shell","Food"]');
+    assert.equal(await store.getSetting("areaOrder:old"), null);
     assert.equal((await store.getMock(busy.id))?.project, "busy");
   });
 

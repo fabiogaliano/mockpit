@@ -243,6 +243,14 @@ function feedbackLines(feedback) {
       if (reply.text) lines.push(`- ${prefix}${reply.text}`);
     }
     for (const c of batch.comments ?? []) lines.push(`- ${prefix}${c.text}`);
+    if (batch.edited) {
+      const e = batch.edited;
+      const moved = [
+        e.kind ? `now a ${e.kind}` : "",
+        e.area !== undefined ? (e.area ? `area ${e.area}` : "no area") : "",
+      ].filter(Boolean);
+      lines.push(`- ${prefix}the user moved it from Home (${moved.join(", ")})`);
+    }
   }
   return lines;
 }
@@ -585,7 +593,7 @@ export default function mockpitExtension(pi) {
     name: "mockpit_edit",
     label: "Mockpit Edit",
     description:
-      'Change a mock without a new version: slug, title, kind, area, source ("" clears). A new slug rewrites every embed, data-goto and flow step naming the old one. Or, with rename and no mock, rename the project. Returns feedback.',
+      'Change a mock without a new version: slug, title, kind, area, source ("" clears). A new slug rewrites every embed, data-goto and flow step naming the old one. Or, with no mock, rename the project (rename) or order its areas on Home (areaOrder). Returns feedback.',
     promptSnippet: "Rename, retitle or reclassify a mockpit mock, or rename the project.",
     promptGuidelines: [feedbackGuideline],
     parameters: {
@@ -599,27 +607,34 @@ export default function mockpitExtension(pi) {
         area: { type: "string", description: 'Area in the product; "" clears' },
         source: { type: "string", description: 'Code path that implements it; "" clears' },
         rename: { type: "string", description: "Without mock: the project's new name" },
+        areaOrder: {
+          type: "array",
+          items: { type: "string" },
+          description: "Without mock: Home's area order; unlisted areas follow alphabetically",
+        },
       },
     },
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const project = projectOf(params, ctx);
-      const { rename, ...fields } = params;
-      if (rename !== undefined && params.mock !== undefined) {
-        throw new Error('"rename" renames the project; edit the mock without it');
+      const { rename, areaOrder, ...fields } = params;
+      const onProject = rename !== undefined || areaOrder !== undefined;
+      if (onProject && params.mock !== undefined) {
+        throw new Error('"rename" and "areaOrder" edit the project; edit the mock without them');
       }
-      const result =
-        rename !== undefined
-          ? await requestJson(`/api/projects/${encodeURIComponent(project)}`, {
-              method: "PATCH",
-              body: JSON.stringify({ name: rename, session: state.sessionId }),
-            })
-          : await requestJson(mockPath(params.mock ?? ""), {
-              method: "PATCH",
-              body: JSON.stringify({ ...fields, project, session: state.sessionId }),
-            });
+      const result = onProject
+        ? await requestJson(`/api/projects/${encodeURIComponent(project)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ name: rename, areaOrder, session: state.sessionId }),
+          })
+        : await requestJson(mockPath(params.mock ?? ""), {
+            method: "PATCH",
+            body: JSON.stringify({ ...fields, project, session: state.sessionId }),
+          });
       const text = result.renamed
         ? `renamed ${result.renamed.from} → ${result.renamed.to} · ${result.url}`
-        : `edited ${result.mock.slug} · ${result.url}`;
+        : result.areaOrder
+          ? `area order ${result.areaOrder.join(", ") || "alphabetical"} · ${result.url}`
+          : `edited ${result.mock.slug} · ${result.url}`;
       return {
         content: [
           {

@@ -220,14 +220,18 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
   async edit(args) {
     const session = await ensureSession();
     const project = resolveProject(args.project);
-    if (args.rename !== undefined) {
+    if (args.rename !== undefined || args.areaOrder !== undefined) {
       if (args.mock !== undefined) {
-        throw new Error('"rename" renames the project; edit the mock without it');
+        throw new Error('"rename" and "areaOrder" edit the project; edit the mock without them');
       }
-      return post(`/api/projects/${enc(project)}`, { name: args.rename, session }, "PATCH");
+      return post(
+        `/api/projects/${enc(project)}`,
+        { name: args.rename, areaOrder: args.areaOrder, session },
+        "PATCH",
+      );
     }
     if (typeof args.mock !== "string" || !args.mock) {
-      throw new Error('provide "mock", or "rename" to rename the project');
+      throw new Error('provide "mock", or "rename" / "areaOrder" to edit the project');
     }
     return post(`/api/mocks/${enc(args.mock)}`, { ...args, project, session }, "PATCH");
   },

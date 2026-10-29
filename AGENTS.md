@@ -20,9 +20,12 @@ a parallel design of one state; versions are its history. A **part** is a
 `data-part` element in a render. The agent's ten verbs are `publish`, `ask`,
 `read`, `feedback`, `say`, `edit`, `export`, `upload`, `guide` and `run` (the
 CLI adds `init` and `watch`); `edit` changes a mock (slug, title, kind, area,
-source) without a new version, or renames a project. A mock may name its
-**area** (the project's own words, e.g. "Shell"; Home groups each tab by it)
-and its **source** (the code path that implements it). The user's is Send (or Use this / New on a mock whose
+source) without a new version, renames a project, or sets its area order. A
+mock may name its **area** (the project's own words, e.g. "Shell"; Home
+groups by it, in the project's `areaOrder` setting, then alphabetical) and its
+**source** (the code path that implements it). The user can move a mock too,
+from Home's ⋯ menu (kind, area, close); the agent hears a move as a feedback
+batch's `edited`, through the same cursor as a Send. The user's is Send (or Use this / New on a mock whose
 state has one variant and no asks), which releases one **reply**.
 
 Current product stances (deliberate choices, not accidents — revisit
@@ -108,15 +111,20 @@ consciously, not as a side effect):
   transports' schemas. `server/mcpHttp.ts` — stateless MCP at `/mcp`;
   `mcp/server.ts` — stdio MCP, a thin client over the HTTP API.
 - `viewer/` — Solid + TypeScript in `viewer/src/`, Vite-built into one
-  self-contained `viewer/dist/index.html`. `Home` (a tab per kind in use, in the URL as `?view=pages|flows|components|sketches`, each showing
+  self-contained `viewer/dist/index.html`. `Home` (a tab per kind in use, in the URL as `?view=all|pages|flows|components|sketches`, each showing
   the design in use per screen from `GET /api/projects/:name/tree`: Pages, each
   page's states; Flows, the declared flows as rows of screens, opened with
   `?flow=`; Components, each with "in N screens"; Sketches, every mock with no
-  declared kind; within a tab, rows sit under the areas the project named,
-  alphabetical, unnamed last, and a tab with no area looks as if areas did not
-  exist; empty tabs are not shown, one alone gets no tab bar; above them the open count,
+  declared kind; within a tab, rows sit under the areas the project named, in
+  its area order, "No area" last, and a project with no area looks as if areas
+  did not exist; once it names one, a rail (chips on a phone) picks an area
+  (`?area=`) and an All tab shows every kind of it at once; each card carries a
+  status derived from its data (`logic.ts` `mockStatus`), a dot for versions
+  this browser hasn't opened (`seen.ts`, localStorage) and a ⋯ menu
+  (`CardMenu`); empty tabs are not shown, one alone gets no tab bar; above them the open count,
   which unfolds the waiting mocks to resolve, and Answer next), `MockScreen`
-  (`TopBar`, `Stage` + `Strip`, `Panel` beside the stage; where the panel does
+  (`TopBar` with the area in its crumb and a Related toggle for `Related`, the
+  mock's used in / uses / flows; `Stage` + `Strip`, `Panel` beside the stage; where the panel does
   not fit, `CanvasHead`, the stage as a pannable canvas with the mock's other
   `widths` as picture-only artboards beside the live frame, and `QuestionCard`
   floating over it, snapping per `dock.ts`), `Stage` (frames, part overlay, pins,

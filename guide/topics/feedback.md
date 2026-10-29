@@ -139,6 +139,27 @@ on, and only bring the mock back if the user asks. A new ask with a new id does
 reopen the mock. If the user reopens it themselves, its dismissed asks are open
 again and their answers arrive as a normal Send.
 
+## Moved from Home
+
+The user can move a mock themselves from Home: another kind (page, component,
+sketch) or another area. You hear it once, as `edited` with the fields they
+changed, as they left them (`area: null` means none):
+
+```json
+{
+  "mock": "hold-menu",
+  "reply": null,
+  "edited": { "kind": "component", "area": "Shell" },
+  "comments": [],
+  "accepted": [],
+  "archived": [],
+  "dropped": []
+}
+```
+
+It is already done: don't edit it back, and publish under the new kind and area.
+It can ride in the same batch as a reply.
+
 ## Delivery
 
 Each Send is delivered exactly once. Whichever channel picks it up advances

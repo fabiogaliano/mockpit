@@ -23,7 +23,9 @@ export function App() {
           )
         }
       </Match>
-      <Match when={home()}>{(r) => <Home project={r().project} view={r().view} />}</Match>
+      <Match when={home()}>
+        {(r) => <Home project={r().project} view={r().view} area={r().area} />}
+      </Match>
     </Switch>
   );
 }

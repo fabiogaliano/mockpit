@@ -1,11 +1,12 @@
 // URL ⇄ screen. Home is /project/:name, a mock is /project/:name/:slug; "/" is
-// the home of the most recently active project. Home's tab is `?view=`: pages,
-// flows, components or sketches; absent, or a tab the project lacks, is its first.
+// the home of the most recently active project. Home's tab is `?view=`: all,
+// pages, flows, components or sketches; absent, or a tab the project lacks, is
+// its first. `?area=` narrows Home to one of the project's areas.
 
 import { createSignal } from "solid-js";
 import { basePath, host } from "./host.ts";
 
-export const HOME_VIEWS = ["pages", "flows", "components", "sketches"] as const;
+export const HOME_VIEWS = ["all", "pages", "flows", "components", "sketches"] as const;
 export type HomeView = (typeof HOME_VIEWS)[number];
 const isHomeView = (v: string | null): v is HomeView => HOME_VIEWS.includes(v as HomeView);
 
@@ -15,6 +16,8 @@ export type Route =
       project: string | null;
       // null: the first tab the project has.
       view: HomeView | null;
+      // null: every area.
+      area: string | null;
     }
   | {
       screen: "mock";
@@ -44,6 +47,7 @@ export function parseRoute(pathname: string, base = "", search = ""): Route {
     screen: "home",
     project,
     view: isHomeView(q.get("view")) ? (q.get("view") as HomeView) : null,
+    area: q.get("area") || null,
   });
   if (seg[0] === "project" && seg[1]) {
     if (seg[2]) {
@@ -62,8 +66,17 @@ export function parseRoute(pathname: string, base = "", search = ""): Route {
   return home(null);
 }
 
-export const projectPath = (project: string, view: HomeView | null = null) =>
-  `${basePath()}/project/${encodeURIComponent(project)}${view ? `?view=${view}` : ""}`;
+export const projectPath = (
+  project: string,
+  view: HomeView | null = null,
+  area: string | null = null,
+) => {
+  const q = new URLSearchParams();
+  if (view) q.set("view", view);
+  if (area) q.set("area", area);
+  const qs = q.toString();
+  return `${basePath()}/project/${encodeURIComponent(project)}${qs ? `?${qs}` : ""}`;
+};
 export const mockPath = (
   project: string,
   slug: string,
@@ -78,11 +91,12 @@ export const mockPath = (
   const qs = q.toString();
   return qs ? `${base}?${qs}` : base;
 };
-// The tab Home was last on, per project, so Back from a mock returns to it.
-const lastView = new Map<string, HomeView | null>();
-export const rememberHomeView = (project: string, view: HomeView | null) =>
-  lastView.set(project, view);
-export const homePath = (project: string) => projectPath(project, lastView.get(project));
+// The tab and area Home was last on, per project, so Back from a mock returns to it.
+const lastView = new Map<string, { view: HomeView | null; area: string | null }>();
+export const rememberHomeView = (project: string, view: HomeView | null, area: string | null) =>
+  lastView.set(project, { view, area });
+export const homePath = (project: string) =>
+  projectPath(project, lastView.get(project)?.view ?? null, lastView.get(project)?.area ?? null);
 
 const key = (r: Route) => JSON.stringify(r);
 const read = () => parseRoute(host().location.pathname, basePath(), host().location.search);

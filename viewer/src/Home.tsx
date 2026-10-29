@@ -3,7 +3,12 @@
 // version, unmarked): Pages, each page with its states; Flows, the declared
 // flows as rows of screens in order; Components, each with where it is used;
 // Sketches, everything else. A tab with nothing in it is not shown, and one
-// alone needs no tab bar. Above them, one line says what is waiting and links the next mock to
+// alone needs no tab bar. Once the project names areas, a rail beside the tabs
+// (a row of chips on a phone) picks one, in the project's area order, and an
+// All tab shows every kind at once; the two combine, both in the URL. Each
+// mock's card says where it stands (mockStatus), marks a version this browser
+// hasn't opened (seen.ts), and has a ⋯ menu to move or close it. Above them,
+// one line says what is waiting and links the next mock to
 // answer, in the agent's order (nextOwedMock). The count opens the waiting
 // mocks as rows; a swipe left on one (or its Resolve button) resolves it: its
 // open questions close unanswered and it moves to a folded Resolved list,
@@ -21,8 +26,9 @@ import {
   Show,
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import type { FlowStep } from "../../server/types.ts";
+import type { FlowStep, MockKind } from "../../server/types.ts";
 import { api, type MockSummary, subscribe, surfaceUrl, type TreeNode } from "./api.ts";
+import { CardMenu } from "./CardMenu.tsx";
 import { setCarried } from "./carry.ts";
 import { useSwipeAction } from "./gestures.ts";
 import { host, readonly } from "./host.ts";
@@ -32,9 +38,14 @@ import {
   designWidth,
   flowArea,
   groupByArea,
+  type MockStatus,
+  mockStatus,
   nextOwedMock,
+  orderAreas,
   screenPicture,
+  shortSource,
   timeAgo,
+  versionStamp,
 } from "./logic.ts";
 import {
   type HomeView,
@@ -44,6 +55,7 @@ import {
   projectPath,
   rememberHomeView,
 } from "./route.ts";
+import { unseen } from "./seen.ts";
 import { setTheme, theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 import { TopBar } from "./TopBar.tsx";
@@ -55,6 +67,7 @@ const TABS: { view: HomeView; label: string }[] = [
   { view: "components", label: "Components" },
   { view: "sketches", label: "Sketches" },
 ];
+const ALL_TAB = { view: "all" as const, label: "All" };
 
 // Where each tab was scrolled to, so coming back to it lands where it was.
 const scrolls = new Map<string, number>();
@@ -66,7 +79,19 @@ interface Row {
   steps: FlowStep[];
 }
 
-export function Home(props: { project: string | null; view: HomeView | null }) {
+// One area's (or the whole project's) mocks, by kind.
+interface Slice {
+  pages: TreeNode[];
+  rows: Row[];
+  components: TreeNode[];
+  sketches: TreeNode[];
+}
+
+export function Home(props: {
+  project: string | null;
+  view: HomeView | null;
+  area: string | null;
+}) {
   // Home shows where every mock stands; a Send carried from a mock ends here.
   setCarried(null);
   const [projects, { refetch: refetchProjects }] = createResource(() => api.projects());
@@ -74,39 +99,88 @@ export function Home(props: { project: string | null; view: HomeView | null }) {
   const [list, { refetch: refetchList }] = createResource(project, (p) => api.mocks(p));
   const [tree, { refetch: refetchTree }] = createResource(project, (p) => api.tree(p));
   const refetch = () => Promise.all([refetchList(), refetchTree()]);
-  createEffect(() => {
-    const p = project();
-    if (p) rememberHomeView(p, props.view);
-  });
 
-  const byAge = (a: TreeNode, b: TreeNode) => a.createdAt.localeCompare(b.createdAt);
+  // Oldest first, as the agent made them; a closed mock goes last in its group.
+  const byAge = (a: TreeNode, b: TreeNode) =>
+    Number(!!a.resolvedAt) - Number(!!b.resolvedAt) || a.createdAt.localeCompare(b.createdAt);
   const nodes = createMemo(() => [...(tree()?.tree ?? [])].sort(byAge));
   const bySlug = createMemo(() => new Map(nodes().map((n) => [n.slug, n])));
-  const pages = createMemo(() => nodes().filter((n) => n.kind === "page"));
-  const components = createMemo(() => nodes().filter((n) => n.kind === "component"));
-  const sketches = createMemo(() => nodes().filter((n) => n.kind === "sketch"));
-  const rows = createMemo<Row[]>(() =>
+  const areaOrder = createMemo(() => tree()?.areaOrder ?? []);
+  const areas = createMemo(() =>
+    orderAreas(
+      nodes().flatMap((n) => (n.area ? [n.area] : [])),
+      areaOrder(),
+    ),
+  );
+  const hasAreas = () => areas().length > 0;
+  // The area the rail picked; one the project no longer has is all of them.
+  const area = createMemo(() => (props.area && areas().includes(props.area) ? props.area : null));
+  createEffect(() => {
+    const p = project();
+    if (p) rememberHomeView(p, props.view, area());
+  });
+
+  const allRows = createMemo<Row[]>(() =>
     (tree()?.flows ?? []).map((f) => ({ name: f.name, flow: f.name, steps: f.steps })),
   );
   const areaOf = (n: TreeNode) => n.area;
-  const pageGroups = createMemo(() => groupByArea(pages(), areaOf));
-  const componentGroups = createMemo(() => groupByArea(components(), areaOf));
-  const sketchGroups = createMemo(() => groupByArea(sketches(), areaOf));
-  const flowGroups = createMemo(() =>
-    groupByArea(rows(), (r) => flowArea(r.steps, (slug) => bySlug().get(slug)?.area)),
-  );
-  const shown = createMemo(() => {
-    const count: Record<HomeView, number> = {
-      pages: pages().length,
-      flows: rows().length,
-      components: components().length,
-      sketches: sketches().length,
+  const rowArea = (r: Row) => flowArea(r.steps, (slug) => bySlug().get(slug)?.area);
+  // A flow belongs to every area one of its screens is in.
+  const rowIn = (r: Row, a: string | null) =>
+    a === null
+      ? !r.steps.some((x) => bySlug().get(x.mock)?.area)
+      : r.steps.some((x) => bySlug().get(x.mock)?.area === a);
+  const slice = (keep: (n: TreeNode) => boolean, rows: Row[]): Slice => {
+    const mine = nodes().filter(keep);
+    return {
+      pages: mine.filter((n) => n.kind === "page"),
+      rows,
+      components: mine.filter((n) => n.kind === "component"),
+      sketches: mine.filter((n) => n.kind === "sketch"),
     };
-    return TABS.filter((t) => count[t.view] > 0);
+  };
+  const whole = createMemo(() => slice(() => true, allRows()));
+  // What the rail leaves on screen: one area's mocks, or all of them.
+  const shownSlice = createMemo(() => {
+    const a = area();
+    return a === null
+      ? whole()
+      : slice(
+          (n) => n.area === a,
+          allRows().filter((r) => rowIn(r, a)),
+        );
+  });
+  const one = (rows: TreeNode[]): AreaGroup<TreeNode>[] => [{ area: null, rows }];
+  const grouped = (rows: TreeNode[]) =>
+    area() === null ? groupByArea(rows, areaOf, areaOrder()) : one(rows);
+  const flowGroups = createMemo(() =>
+    area() === null
+      ? groupByArea(allRows(), rowArea, areaOrder())
+      : [{ area: null, rows: shownSlice().rows }],
+  );
+  // The tabs count the whole project, so picking an area never moves them.
+  const shown = createMemo(() => {
+    const w = whole();
+    const count: Record<Exclude<HomeView, "all">, number> = {
+      pages: w.pages.length,
+      flows: w.rows.length,
+      components: w.components.length,
+      sketches: w.sketches.length,
+    };
+    const kinds = TABS.filter((t) => count[t.view as keyof typeof count] > 0);
+    return hasAreas() && kinds.length ? [ALL_TAB, ...kinds] : kinds;
   });
   const view = createMemo(() =>
     shown().some((t) => t.view === props.view) ? props.view : (shown()[0]?.view ?? null),
   );
+  const fresh = createMemo(() => {
+    const t = tree();
+    if (!t || t.project !== project()) return new Set<string>();
+    return unseen(
+      t.project,
+      t.tree.map((n) => ({ id: n.id, stamp: versionStamp(n.variants) })),
+    );
+  });
 
   // Resolved a moment ago, before the list catches up.
   const [leaving, setLeaving] = createSignal<Record<string, true>>({});
@@ -141,7 +215,7 @@ export function Home(props: { project: string | null; view: HomeView | null }) {
     toastTimer = host().window.setTimeout(() => setToast(null), 6000);
   };
   onCleanup(() => host().window.clearTimeout(toastTimer));
-  async function resolve(m: MockSummary) {
+  async function resolve(m: { id: string; title: string }) {
     setLeaving({ ...leaving(), [m.id]: true });
     try {
       await api.resolve(m.id);
@@ -184,7 +258,7 @@ export function Home(props: { project: string | null; view: HomeView | null }) {
   // Each tab keeps its own scroll; the screens' boxes are sized before their
   // pictures load, so the place is right as soon as the tree is in.
   let main!: HTMLElement;
-  const scrollKey = () => `${project() ?? ""}|${view()}`;
+  const scrollKey = () => `${project() ?? ""}|${view()}|${area() ?? ""}`;
   createEffect(
     on([scrollKey, () => !!tree()], ([key, loaded]) => {
       if (!loaded) return;
@@ -194,6 +268,13 @@ export function Home(props: { project: string | null; view: HomeView | null }) {
     }),
   );
 
+  // Plain clicks swap what Home shows in place; the history keeps one entry.
+  const swap = (e: MouseEvent, path: string) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    navigate(path, { replace: true });
+  };
+
   const tabs = () => (
     <Show when={shown().length > 1 && project()}>
       {(p) => (
@@ -201,13 +282,9 @@ export function Home(props: { project: string | null; view: HomeView | null }) {
           <For each={shown()}>
             {(t) => (
               <a
-                href={projectPath(p(), t.view)}
+                href={projectPath(p(), t.view, area())}
                 aria-current={view() === t.view ? "page" : undefined}
-                onClick={(e) => {
-                  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                  e.preventDefault();
-                  navigate(projectPath(p(), t.view), { replace: true });
-                }}
+                onClick={(e) => swap(e, projectPath(p(), t.view, area()))}
               >
                 {t.label}
               </a>
@@ -218,12 +295,240 @@ export function Home(props: { project: string | null; view: HomeView | null }) {
     </Show>
   );
 
+  const countIn = (a: string) => nodes().filter((n) => n.area === a).length;
+  const owesIn = (a: string) => nodes().some((n) => n.area === a && n.open > 0);
+  const rail = () => (
+    <Show when={hasAreas() && project()}>
+      {(p) => (
+        <nav
+          class="home-rail"
+          classList={{ chips: phoneLayout() }}
+          aria-label="Areas"
+          // A row of chips scrolls sideways: the picked one stays in view.
+          ref={(el) =>
+            createEffect(
+              on(
+                area,
+                () =>
+                  phoneLayout() &&
+                  host().window.requestAnimationFrame(() =>
+                    el
+                      .querySelector('[aria-current="page"]')
+                      ?.scrollIntoView({ block: "nearest", inline: "nearest" }),
+                  ),
+              ),
+            )
+          }
+        >
+          <a
+            href={projectPath(p(), props.view, null)}
+            aria-current={area() === null ? "page" : undefined}
+            onClick={(e) => swap(e, projectPath(p(), props.view, null))}
+          >
+            <span class="nm">All</span>
+            <span class="n">{nodes().length}</span>
+          </a>
+          <For each={areas()}>
+            {(a) => (
+              <a
+                href={projectPath(p(), props.view, a)}
+                aria-current={area() === a ? "page" : undefined}
+                data-area={a}
+                onClick={(e) => swap(e, projectPath(p(), props.view, a))}
+              >
+                <span class="nm">
+                  <Show when={owesIn(a)}>
+                    <i class="dot" aria-label="open questions" />
+                  </Show>
+                  {a}
+                </span>
+                <span class="n">{countIn(a)}</span>
+              </a>
+            )}
+          </For>
+        </nav>
+      )}
+    </Show>
+  );
+
+  const card = (n: TreeNode, label: JSX.Element) => (
+    <Card project={project()!} node={n} label={label} fresh={fresh().has(n.id)} menu={menuFor(n)} />
+  );
+  const menuFor = (n: TreeNode) =>
+    readonly() ? undefined : (
+      <CardMenu
+        mock={n}
+        areas={areas()}
+        onClose={() => void resolve(n)}
+        onReopen={() => void reopen(n.id)}
+        onEdited={() => void refetch()}
+      />
+    );
   const screen = (n: TreeNode, state: string | null, flow: string | null, label: JSX.Element) => (
     <Screen project={project()!} node={n} state={state} flow={flow} label={label} />
   );
+  const source = (n: TreeNode) => (
+    <Show when={n.source}>
+      {(src) => (
+        <span class="home-src" title={src()}>
+          {shortSource(src())}
+        </span>
+      )}
+    </Show>
+  );
+
+  // The renderers, one per kind, shared by the kind tabs and All.
+  const pagesOf = (groups: AreaGroup<TreeNode>[], level: 2 | 3 | 4) => (
+    <Areas groups={groups} level={level}>
+      {(n, h) => (
+        <section class="home-sec" classList={{ closed: !!n.resolvedAt }} data-page={n.slug}>
+          <Dynamic component={h} class="home-page-hd">
+            <Show when={fresh().has(n.id)}>
+              <i class="home-new" aria-label="new" />
+            </Show>
+            <span class="home-page-title">{n.title}</span>
+            {source(n)}
+            <StatusChip status={mockStatus(n)} />
+            {menuFor(n)}
+          </Dynamic>
+          <div class="home-states">
+            <For each={n.states}>{(state) => screen(n, state, null, state ?? n.title)}</For>
+          </div>
+        </section>
+      )}
+    </Areas>
+  );
+  // A flow no one area claims may still walk several: it is across them.
+  const restOfFlows = (groups: AreaGroup<Row>[]) =>
+    groups.some((g) => g.area === null && g.rows.some((r) => !rowIn(r, null)))
+      ? "Across areas"
+      : undefined;
+  const flowsOf = (groups: AreaGroup<Row>[], level: 2 | 3 | 4) => (
+    <Areas groups={groups} level={level} rest={restOfFlows(groups)}>
+      {(row, h) => (
+        <section class="home-sec">
+          <Dynamic component={h}>
+            {row.name}
+            <span>{`${row.steps.length} ${row.steps.length === 1 ? "step" : "steps"}`}</span>
+          </Dynamic>
+          <div class="home-flow">
+            <For each={row.steps}>
+              {(x, i) => (
+                <Show when={bySlug().get(x.mock)}>
+                  {(n) => (
+                    <>
+                      <Show when={i() > 0}>
+                        <span class="home-arrow" aria-hidden="true" />
+                      </Show>
+                      {screen(
+                        n(),
+                        x.state,
+                        row.flow,
+                        <>
+                          <b>{n().title}</b>
+                          {x.state === null ? "" : ` · ${x.state}`}
+                        </>,
+                      )}
+                    </>
+                  )}
+                </Show>
+              )}
+            </For>
+          </div>
+        </section>
+      )}
+    </Areas>
+  );
+  const componentsOf = (groups: AreaGroup<TreeNode>[], level: 2 | 3 | 4) => (
+    <Areas groups={groups} level={level} grid>
+      {(n) =>
+        card(
+          n,
+          <>
+            <span class="home-tl">
+              <b>{n.title}</b>
+              {source(n)}
+            </span>
+            <Show when={n.usedIn.length}>
+              {`in ${n.usedIn.length} ${n.usedIn.length === 1 ? "screen" : "screens"}`}
+            </Show>
+          </>,
+        )
+      }
+    </Areas>
+  );
+  const sketchesOf = (groups: AreaGroup<TreeNode>[], level: 2 | 3 | 4) => (
+    <Areas groups={groups} level={level} grid>
+      {(n) =>
+        card(
+          n,
+          <span class="home-tl">
+            <b>{n.title}</b>
+            {source(n)}
+          </span>,
+        )
+      }
+    </Areas>
+  );
+  // Every kind of one slice, in the order they are built: page, flows, the
+  // components they embed, then the sketches; each under a small kind label.
+  const kinds = (s: Slice, level: 2 | 3) => {
+    const sub = (level + 1) as 3 | 4;
+    const part = (label: string, count: number, body: () => JSX.Element) => (
+      <Show when={count}>
+        <section class="home-kind">
+          <Dynamic component={`h${level}`} class="home-kind-hd">
+            {label}
+          </Dynamic>
+          {body()}
+        </section>
+      </Show>
+    );
+    return (
+      <>
+        {part("Pages", s.pages.length, () => pagesOf(one(s.pages), sub))}
+        {part("Flows", s.rows.length, () => flowsOf([{ area: null, rows: s.rows }], sub))}
+        {part("Components", s.components.length, () => componentsOf(one(s.components), sub))}
+        {part("Sketches", s.sketches.length, () => sketchesOf(one(s.sketches), sub))}
+      </>
+    );
+  };
+  // All with every area: each area (in the project's order, the unnamed last)
+  // with its kinds.
+  const everyArea = createMemo(() => {
+    const groups = areas().map((a) => ({
+      area: a as string | null,
+      slice: slice(
+        (n) => n.area === a,
+        allRows().filter((r) => rowIn(r, a)),
+      ),
+    }));
+    const rest = slice(
+      (n) => !n.area,
+      allRows().filter((r) => rowIn(r, null)),
+    );
+    const empty = (s: Slice) =>
+      !s.pages.length && !s.rows.length && !s.components.length && !s.sketches.length;
+    return empty(rest) ? groups : [...groups, { area: null, slice: rest }];
+  });
+  const nothing = () => {
+    const s = shownSlice();
+    const n = {
+      all: s.pages.length + s.rows.length + s.components.length + s.sketches.length,
+      pages: s.pages.length,
+      flows: s.rows.length,
+      components: s.components.length,
+      sketches: s.sketches.length,
+    };
+    const v = view();
+    return !!tree() && area() !== null && v !== null && n[v] === 0;
+  };
 
   return (
-    <div class="screen home" classList={{ "home-phone": phoneLayout() }}>
+    <div
+      class="screen home"
+      classList={{ "home-phone": phoneLayout(), "has-rail": hasAreas() && !phoneLayout() }}
+    >
       <TopBar
         right={<Show when={!phoneLayout()}>{tabs()}</Show>}
         left={
@@ -252,192 +557,136 @@ export function Home(props: { project: string | null; view: HomeView | null }) {
         ref={(el) => (main = el)}
         onScroll={() => scrolls.set(scrollKey(), main.scrollTop)}
       >
+        <Show when={phoneLayout()}>{rail()}</Show>
         <Show when={phoneLayout() && shown().length > 1}>
           <div class="home-tabs-row">{tabs()}</div>
         </Show>
-        <Show
-          when={project()}
-          fallback={
-            <Show when={!projects.loading}>
-              <p class="home-empty">
-                Nothing published yet. Agents publish with `mockpit publish`.
-              </p>
-            </Show>
-          }
-        >
-          <div class="home-lead">
+        <div class="home-body">
+          <Show when={!phoneLayout()}>{rail()}</Show>
+          <div class="home-content">
             <Show
-              when={waiting().length || resolved().length}
+              when={project()}
               fallback={
-                <span class="home-count">
-                  <i class="dot ok" />0 open · all answered
-                </span>
+                <Show when={!projects.loading}>
+                  <p class="home-empty">
+                    Nothing published yet. Agents publish with `mockpit publish`.
+                  </p>
+                </Show>
               }
             >
-              <button
-                type="button"
-                class="home-count"
-                aria-expanded={listOpen()}
-                onClick={() => setListOpen(!listOpen())}
-              >
-                <i class="dot" classList={{ ok: open() === 0 }} />
-                {open() > 0
-                  ? `${open()} open across ${list()?.openMocks ?? 0} ${list()?.openMocks === 1 ? "mock" : "mocks"}`
-                  : "0 open · all answered"}
-              </button>
-            </Show>
-            <Show when={open() > 0}>
-              <span class="sep">·</span>
-              <a
-                class="home-next"
-                href={mockPath(project()!, next()?.slug ?? "")}
-                title={next()?.title}
-                onClick={(e) => linkClick(e, mockPath(project()!, next()?.slug ?? ""))}
-              >
-                Answer next ›
-              </a>
-            </Show>
-          </div>
-          <Show when={listOpen() && (waiting().length || resolved().length)}>
-            <div class="home-waiting">
-              <ol class="home-list">
-                <For each={waiting()}>
-                  {(id) => (
-                    <Show when={byId()[id]}>
-                      {(m) => (
-                        <MockRow
-                          mock={m()}
-                          project={project()!}
-                          {...(readonly() ? {} : { onResolve: () => void resolve(m()) })}
-                        />
-                      )}
-                    </Show>
-                  )}
-                </For>
-              </ol>
-              <Show when={resolved().length}>
-                <section class="home-resolved" aria-label="Resolved">
+              <div class="home-lead">
+                <Show
+                  when={waiting().length || resolved().length}
+                  fallback={
+                    <span class="home-count">
+                      <i class="dot ok" />0 open · all answered
+                    </span>
+                  }
+                >
                   <button
                     type="button"
-                    class="home-resolved-hd"
-                    aria-expanded={resolvedOpen()}
-                    onClick={() => setResolvedOpen(!resolvedOpen())}
+                    class="home-count"
+                    aria-expanded={listOpen()}
+                    onClick={() => setListOpen(!listOpen())}
                   >
-                    <span class="answered-chev" aria-hidden="true">
-                      ›
-                    </span>
-                    {`Resolved · ${resolved().length}`}
+                    <i class="dot" classList={{ ok: open() === 0 }} />
+                    {open() > 0
+                      ? `${open()} open across ${list()?.openMocks ?? 0} ${list()?.openMocks === 1 ? "mock" : "mocks"}`
+                      : "0 open · all answered"}
                   </button>
-                  <Show when={resolvedOpen()}>
-                    <ol class="home-list">
-                      <For each={resolved().map((m) => m.id)}>
-                        {(id) => (
-                          <Show when={byId()[id]}>
-                            {(m) => (
-                              <MockRow
-                                mock={m()}
-                                project={project()!}
-                                {...(readonly() ? {} : { onReopen: () => void reopen(id) })}
-                              />
-                            )}
-                          </Show>
-                        )}
-                      </For>
-                    </ol>
-                  </Show>
-                </section>
-              </Show>
-            </div>
-          </Show>
-
-          <Show when={view() === "flows"}>
-            <Areas groups={flowGroups()}>
-              {(row, h) => (
-                <section class="home-sec">
-                  <Dynamic component={h}>
-                    {row.name}
-                    <span>{`${row.steps.length} ${row.steps.length === 1 ? "step" : "steps"}`}</span>
-                  </Dynamic>
-                  <div class="home-flow">
-                    <For each={row.steps}>
-                      {(x, i) => (
-                        <Show when={bySlug().get(x.mock)}>
-                          {(n) => (
-                            <>
-                              <Show when={i() > 0}>
-                                <span class="home-arrow" aria-hidden="true" />
-                              </Show>
-                              {screen(
-                                n(),
-                                x.state,
-                                row.flow,
-                                <>
-                                  <b>{n().title}</b>
-                                  {x.state === null ? "" : ` · ${x.state}`}
-                                </>,
-                              )}
-                            </>
+                </Show>
+                <Show when={open() > 0}>
+                  <span class="sep">·</span>
+                  <a
+                    class="home-next"
+                    href={mockPath(project()!, next()?.slug ?? "")}
+                    title={next()?.title}
+                    onClick={(e) => linkClick(e, mockPath(project()!, next()?.slug ?? ""))}
+                  >
+                    Answer next ›
+                  </a>
+                </Show>
+              </div>
+              <Show when={listOpen() && (waiting().length || resolved().length)}>
+                <div class="home-waiting">
+                  <ol class="home-list">
+                    <For each={waiting()}>
+                      {(id) => (
+                        <Show when={byId()[id]}>
+                          {(m) => (
+                            <MockRow
+                              mock={m()}
+                              project={project()!}
+                              {...(readonly() ? {} : { onResolve: () => void resolve(m()) })}
+                            />
                           )}
                         </Show>
                       )}
                     </For>
-                  </div>
-                </section>
-              )}
-            </Areas>
-          </Show>
+                  </ol>
+                  <Show when={resolved().length}>
+                    <section class="home-resolved" aria-label="Resolved">
+                      <button
+                        type="button"
+                        class="home-resolved-hd"
+                        aria-expanded={resolvedOpen()}
+                        onClick={() => setResolvedOpen(!resolvedOpen())}
+                      >
+                        <span class="answered-chev" aria-hidden="true">
+                          ›
+                        </span>
+                        {`Resolved · ${resolved().length}`}
+                      </button>
+                      <Show when={resolvedOpen()}>
+                        <ol class="home-list">
+                          <For each={resolved().map((m) => m.id)}>
+                            {(id) => (
+                              <Show when={byId()[id]}>
+                                {(m) => (
+                                  <MockRow
+                                    mock={m()}
+                                    project={project()!}
+                                    {...(readonly() ? {} : { onReopen: () => void reopen(id) })}
+                                  />
+                                )}
+                              </Show>
+                            )}
+                          </For>
+                        </ol>
+                      </Show>
+                    </section>
+                  </Show>
+                </div>
+              </Show>
 
-          <Show when={view() === "pages"}>
-            <Areas groups={pageGroups()}>
-              {(n, h) => (
-                <section class="home-sec">
-                  <Dynamic component={h}>
-                    {n.title}
-                    <Show when={n.source}>{(src) => <span class="home-src">{src()}</span>}</Show>
-                  </Dynamic>
-                  <div class="home-states">
-                    <For each={n.states}>{(state) => screen(n, state, null, state ?? n.title)}</For>
-                  </div>
-                </section>
-              )}
-            </Areas>
-          </Show>
+              <Show when={nothing()}>
+                <p class="home-empty">{`Nothing here in ${area()}.`}</p>
+              </Show>
 
-          <Show when={view() === "components"}>
-            <Areas groups={componentGroups()} grid>
-              {(n) =>
-                screen(
-                  n,
-                  n.inUse[0]?.state ?? n.states[0] ?? null,
-                  null,
-                  <>
-                    <b>{n.title}</b>
-                    <Show when={n.usedIn.length}>
-                      {`in ${n.usedIn.length} ${n.usedIn.length === 1 ? "screen" : "screens"}`}
-                    </Show>
-                    <Show when={n.source}>{(src) => <span class="home-src">{src()}</span>}</Show>
-                  </>,
-                )
-              }
-            </Areas>
-          </Show>
+              <Show when={view() === "all"}>
+                <Show when={area() === null} fallback={kinds(shownSlice(), 2)}>
+                  <For each={everyArea()}>
+                    {(g) => (
+                      <section class="home-area">
+                        <h2 class="home-area-hd">{g.area ?? "No area"}</h2>
+                        {kinds(g.slice, 3)}
+                      </section>
+                    )}
+                  </For>
+                </Show>
+              </Show>
 
-          <Show when={view() === "sketches"}>
-            <Areas groups={sketchGroups()} grid>
-              {(n) =>
-                screen(
-                  n,
-                  n.inUse[0]?.state ?? n.states[0] ?? null,
-                  null,
-                  <>
-                    <b>{n.title}</b>
-                    <Show when={n.source}>{(src) => <span class="home-src">{src()}</span>}</Show>
-                  </>,
-                )
-              }
-            </Areas>
-          </Show>
-        </Show>
+              <Show when={view() === "flows"}>{flowsOf(flowGroups(), 2)}</Show>
+              <Show when={view() === "pages"}>{pagesOf(grouped(shownSlice().pages), 2)}</Show>
+              <Show when={view() === "components"}>
+                {componentsOf(grouped(shownSlice().components), 2)}
+              </Show>
+              <Show when={view() === "sketches"}>
+                {sketchesOf(grouped(shownSlice().sketches), 2)}
+              </Show>
+            </Show>
+          </div>
+        </div>
       </main>
       <Show when={toast()}>
         {(t) => (
@@ -457,50 +706,107 @@ export function Home(props: { project: string | null; view: HomeView | null }) {
   );
 }
 
-// A tab's rows under their area headings; with no area named, just the rows,
-// as before areas. `heading` is the level a row's own title takes under them.
+type Heading = "h2" | "h3" | "h4" | "h5";
+
+// A tab's rows under their area headings, the unnamed under "No area"; with no
+// area named, just the rows, as before areas. `level` is the heading level the
+// area takes; a row's own title takes the next one.
 function Areas<T>(props: {
   groups: AreaGroup<T>[];
+  level: 2 | 3 | 4;
+  // The heading of the rows no area claims.
+  rest?: string;
   // Rows laid out as a grid of pictures (components, sketches), one per area.
   grid?: boolean;
-  children: (row: T, heading: "h2" | "h3") => JSX.Element;
+  children: (row: T, heading: Heading) => JSX.Element;
 }) {
   const grouped = () => props.groups.some((g) => g.area !== null);
+  const own = (): Heading => `h${grouped() ? props.level + 1 : props.level}` as Heading;
   const rows = (g: AreaGroup<T>) => {
-    const list = <For each={g.rows}>{(row) => props.children(row, grouped() ? "h3" : "h2")}</For>;
+    const list = <For each={g.rows}>{(row) => props.children(row, own())}</For>;
     return props.grid ? <div class="home-comps">{list}</div> : list;
   };
   return (
-    <For each={props.groups}>
-      {(g) => (
-        <Show
-          when={g.area}
-          fallback={
-            <Show when={grouped()} fallback={rows(g)}>
-              <div class="home-area home-area-rest">{rows(g)}</div>
-            </Show>
-          }
-        >
-          {(area) => (
-            <section class="home-area">
-              <h2 class="home-area-hd">{area()}</h2>
-              {rows(g)}
-            </section>
-          )}
-        </Show>
-      )}
-    </For>
+    <Show when={grouped()} fallback={<For each={props.groups}>{(g) => rows(g)}</For>}>
+      <For each={props.groups}>
+        {(g) => (
+          <section class="home-area">
+            <Dynamic component={`h${props.level}`} class="home-area-hd">
+              {g.area ?? props.rest ?? "No area"}
+            </Dynamic>
+            {rows(g)}
+          </section>
+        )}
+      </For>
+    </Show>
   );
 }
 
-// One screen as a picture that opens it: the design in use carries the check
-// in its corner; anything else is shown unmarked.
+const STATUS_TEXT: Record<Exclude<MockStatus["kind"], "open">, string> = {
+  changed: "Changed",
+  decided: "Decided",
+  exploring: "Exploring",
+};
+
+// Where a mock stands, in one or two words (logic.ts mockStatus).
+function StatusChip(props: { status: MockStatus | null }) {
+  return (
+    <Show when={props.status}>
+      {(st) => (
+        <span class="home-status" data-status={st().kind}>
+          {st().kind === "open"
+            ? `${(st() as { n: number }).n} open`
+            : STATUS_TEXT[st().kind as Exclude<MockStatus["kind"], "open">]}
+        </span>
+      )}
+    </Show>
+  );
+}
+
+// A component or sketch as a card: its picture opens it; the status sits on
+// the picture, the ⋯ menu beside its name.
+function Card(props: {
+  project: string;
+  node: TreeNode;
+  label: JSX.Element;
+  fresh: boolean;
+  menu: JSX.Element | undefined;
+}) {
+  return (
+    <div
+      class="home-card"
+      classList={{ closed: !!props.node.resolvedAt, "with-menu": !!props.menu }}
+    >
+      <Screen
+        project={props.project}
+        node={props.node}
+        state={props.node.inUse[0]?.state ?? props.node.states[0] ?? null}
+        flow={null}
+        label={props.label}
+        card
+        fresh={props.fresh}
+      />
+      {props.menu}
+    </div>
+  );
+}
+
+// The picture a kind gets: a component fitted whole into a wide tile; a page
+// or a sketch shaped to the width it is designed at, as a phone or a screen.
+const tileOf = (kind: MockKind, width: number): "comp" | "phone" | "wide" =>
+  kind === "component" ? "comp" : width < 700 ? "phone" : "wide";
+
+// One screen as a picture that opens it. On a state of a page or a flow step,
+// the design in use carries the check in its corner; a card says where the
+// whole mock stands instead (StatusChip).
 function Screen(props: {
   project: string;
   node: TreeNode;
   state: string | null;
   flow: string | null;
   label: JSX.Element;
+  card?: boolean;
+  fresh?: boolean;
 }) {
   const pic = createMemo(() => screenPicture(props.node, props.state));
   const href = () =>
@@ -510,12 +816,16 @@ function Screen(props: {
       props.state === null ? null : { state: props.state, variant: null },
       props.flow,
     );
-  const component = () => props.node.kind !== "page";
-  const phone = () => designWidth(props.node) < 700;
+  const tile = () => tileOf(props.node.kind, designWidth(props.node));
+  const whole = () => tile() === "comp";
   return (
     <a
       class="home-step"
-      classList={{ phone: phone() && !component(), comp: component() }}
+      classList={{
+        phone: tile() === "phone",
+        comp: tile() === "comp",
+        card: !!props.card,
+      }}
       href={href()}
       onClick={(e) => linkClick(e, href())}
       data-mock={props.node.slug}
@@ -531,20 +841,30 @@ function Screen(props: {
                 e: p().embedsKey,
               })}
               width={designWidth(props.node)}
-              fit={component()}
-              whole={component()}
+              fit={whole()}
+              whole={whole()}
             />
           )}
         </Show>
-        <Show when={pic()?.inUse}>
-          <span class="mk cur" aria-hidden="true">
-            <Icon name="check" />
-          </span>
+        <Show
+          when={props.card}
+          fallback={
+            <Show when={pic()?.inUse}>
+              <span class="mk cur" aria-hidden="true">
+                <Icon name="check" />
+              </span>
+            </Show>
+          }
+        >
+          <StatusChip status={mockStatus(props.node)} />
+          <Show when={props.fresh}>
+            <i class="home-new" aria-label="new" />
+          </Show>
         </Show>
       </span>
       <span class="home-lbl">
         {props.label}
-        <Show when={pic()?.inUse}>
+        <Show when={!props.card && pic()?.inUse}>
           <span class="sr-only">, in use</span>
         </Show>
       </span>
@@ -620,7 +940,7 @@ function MockRow(props: {
             <div class="home-sub">
               {props.mock.stateCount === 1 ? "1 state" : `${props.mock.stateCount} states`}
               <Show when={props.mock.source}>
-                {(src) => <span class="home-src">{` · ${src()}`}</span>}
+                {(src) => <span class="home-src" title={src()}>{` · ${shortSource(src())}`}</span>}
               </Show>
               <Show when={props.mock.resolvedAt}>{(at) => ` · resolved ${timeAgo(at())}`}</Show>
               <Show when={props.mock.drafted !== undefined && props.mock.open > 0}>

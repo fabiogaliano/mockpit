@@ -1227,11 +1227,33 @@ test("Home: a tab per declared kind, each showing the design in use; a screen op
   await edit("food", { area: "Food", source: "apps/food/lunch" });
   await edit("chip", { slug: "badge", area: "Shell" });
   await page.getByRole("link", { name: "Pages" }).click();
-  await expect(page.locator(".home-area-hd")).toHaveText(["Food"]);
-  await expect(page.locator(".home-sec h3")).toHaveText([/^Food/, "Today"]);
+  await expect(page.locator(".home-area-hd")).toHaveText(["Food", "No area"]);
+  await expect(page.locator(".home-sec h3")).toHaveText([/^Food/, /^Today/]);
   await page.getByRole("link", { name: "Components" }).click();
   await expect(page.locator(".home-area-hd")).toHaveText(["Shell"]);
   await expect(page.locator('.home-step[data-mock="badge"]')).toContainText("in 1 screen");
+
+  // The rail narrows every tab to one area; All shows that area's kinds together.
+  await page.locator('.home-rail a[data-area="Food"]').click();
+  await expect(page).toHaveURL(/view=components&area=Food$/);
+  await expect(page.locator('.home-step[data-mock="badge"]')).toHaveCount(0);
+  await page.locator(".home-tabs a", { hasText: "All" }).click();
+  await expect(page.locator(".home-kind-hd")).toHaveText(["Pages", "Flows"]);
+  await expect(page.locator(".home-sec h3")).toHaveText([/^Food/, /^Morning/]);
+
+  // ⋯ moves a mock from Home, and the agent hears it in its next feedback.
+  await page.locator(".home-rail a", { hasText: "All" }).click();
+  await page.locator(".home-tabs a", { hasText: "Sketches" }).click();
+  const notes = page.locator(".home-card", { has: page.locator('[data-mock="notes"]') });
+  await notes.hover();
+  await notes.getByRole("button", { name: "More for Notes" }).click();
+  await page.getByRole("menuitemradio", { name: "Components" }).click();
+  await page.locator(".home-tabs a", { hasText: "Components" }).click();
+  await expect(page.locator('.home-step[data-mock="notes"]')).toBeVisible();
+  const heard = await agentCall(server.url, `/api/feedback?session=${session}`);
+  expect(heard.feedback).toContainEqual(
+    expect.objectContaining({ mock: "notes", edited: { kind: "component" } }),
+  );
 });
 
 test("Home: Answer next follows the agent's order, and a started mock shows its draft", async ({

@@ -38,9 +38,14 @@ and reviews stay plain; Home shows a tab only for the kinds in use.
 
 Name where each mock belongs in the product with `--area Shell` (the
 project's own words) and the code that implements it with `--source
-apps/web/src/shell`; Home groups by area. Rename, retitle or reclassify a mock
+apps/web/src/shell`; Home groups by area, in the order `mockpit edit --project
+
+<p> --area-order "Shell,Food"` sets. Rename, retitle or reclassify a mock
 without a new version with `mockpit edit --mock <slug> --slug <new>` (it
-rewrites every embed and flow step naming the old slug).
+rewrites every embed and flow step naming the old slug). Title a mock, like a
+state, by what the user sees ("Hold menu"), never by your process ("Round 2 ·
+…", "v2", "Prototype"). The user can move a mock themselves from Home (kind,
+area, close): you hear it in `feedback` as `edited`.
 
 Prefer the MCP tools when connected (`publish`, `ask`, `read`, `feedback`,
 `say`, `edit`, `export`, `upload`, `guide`); otherwise use the CLI.

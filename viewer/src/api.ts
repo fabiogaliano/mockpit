@@ -15,6 +15,7 @@ import type {
   Draft,
   FlowStep,
   KnobValue,
+  MockKind,
   PartComment,
   ProjectSummary,
   ReplyDecision,
@@ -92,7 +93,7 @@ export const api = {
   allMocks: () => call<MockList>("/api/mocks"),
   // The project as a tree: what the canvas and the phone's drill-down lay out.
   tree: (project: string) =>
-    call<{ project: string; tree: TreeNode[]; flows: FlowView[] }>(
+    call<{ project: string; tree: TreeNode[]; flows: FlowView[]; areaOrder: string[] }>(
       `/api/projects/${encodeURIComponent(project)}/tree`,
     ),
   mock: (id: string) => call<MockDetail>(`/api/mocks/${encodeURIComponent(id)}?history=1`),
@@ -127,6 +128,13 @@ export const api = {
     call<{ mock: MockSummary }>(`/api/mocks/${encodeURIComponent(id)}/resolve`, json("POST", {})),
   reopen: (id: string) =>
     call<{ mock: MockSummary }>(`/api/mocks/${encodeURIComponent(id)}/reopen`, json("POST", {})),
+  // The user moves a mock from Home: another kind or area (null: none). The
+  // agent hears it in its next feedback.
+  editMock: (id: string, body: { kind?: MockKind; area?: string | null }) =>
+    call<{ mock: { kind: MockKind; area?: string } }>(
+      `/api/mocks/${encodeURIComponent(id)}`,
+      json("PATCH", body),
+    ),
   // Un-archive one variant of one state (D13).
   restoreVariant: (id: string, state: string | null, variant: string) =>
     call<unknown>(`/api/mocks/${encodeURIComponent(id)}/restore`, json("POST", { state, variant })),

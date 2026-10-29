@@ -49,8 +49,8 @@ declare const mockpit: {
   /** Never waits: what the user sent since you last heard, and what they are doing now. */
   feedback(): Promise<{ feedback: Feedback[]; pending: Pending[] }>;
   say(v: Ref, message: string): Promise<void>;
-  /** No new version; "" clears. { rename } alone renames the project. */
-  edit(v: { mock?: string; slug?: string; title?: string; kind?: string; area?: string; source?: string; rename?: string }): Promise<{ url: string }>;
+  /** No new version; "" clears. { rename } or { areaOrder } without mock edits the project. */
+  edit(v: { mock?: string; slug?: string; title?: string; kind?: string; area?: string; source?: string; rename?: string; areaOrder?: string[] }): Promise<{ url: string }>;
   export(v: Ref): Promise<{ states: { state: string | null; variant: string; version: number; html: string }[]; reply: unknown }>;
   /** data: base64 bytes. Use id as an image surface's assetId. */
   upload(data: string, opts: { contentType: string; filename?: string; kind?: "image" | "file" }): Promise<{ id: string; url: string }>;
