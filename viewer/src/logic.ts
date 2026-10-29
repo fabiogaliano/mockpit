@@ -1314,6 +1314,7 @@ export type FlowKey =
   | { kind: "step"; by: 1 | -1 }
   | { kind: "primary" }
   | { kind: "mock"; by: 1 | -1 }
+  | { kind: "situation"; by: 1 | -1 }
   | { kind: "clear" };
 
 // What a key does on the mock screen, or null when it isn't ours. Keys typed
@@ -1334,6 +1335,10 @@ export function flowKey(e: {
       return { kind: "step", by: 1 };
     case "ArrowLeft":
       return { kind: "step", by: -1 };
+    case "ArrowDown":
+      return e.onControl ? null : { kind: "situation", by: 1 };
+    case "ArrowUp":
+      return e.onControl ? null : { kind: "situation", by: -1 };
     case "]":
       return { kind: "mock", by: 1 };
     case "[":

@@ -11,10 +11,14 @@ import {
   askAnswered,
   type KnobValue,
   MAX_ASK_IMAGES,
+  momentOf,
+  momentsOf,
+  NORMAL_SITUATION,
   optionState,
   type PartCommentAnchor,
   type Reaction,
   type ReplyDecision,
+  situationKey,
 } from "../../server/types.ts";
 import type { SlotInfo } from "../../server/fills.ts";
 import { reactionOf, reactionStatus, toggleReaction } from "./reactionRules.ts";
@@ -241,6 +245,31 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     const m = mock();
     return m && m.states.length ? m.states : [null];
   });
+  // A state's situations are states of their own; the flow steps through the
+  // moments, and the switch under the stage through the situations of one.
+  const situationMap = createMemo(() => mock()?.situations ?? {});
+  const moments = createMemo(() => {
+    const m = mock();
+    return m && m.states.length ? momentsOf(m.states, situationMap()) : [null];
+  });
+  const moment = createMemo(() => momentOf(situationMap(), activeState()));
+  const situations = createMemo<{ name: string; state: string }[]>(() => {
+    const at = moment();
+    const names = at === null ? [] : (situationMap()[at] ?? []);
+    if (at === null || names.length === 0) return [];
+    return [
+      { name: NORMAL_SITUATION, state: at },
+      ...names.map((name) => ({ name, state: situationKey(at, name) })),
+    ].filter((x) => states().includes(x.state));
+  });
+  // A moment and the states of its situations.
+  const withSituations = (at: string | null): (string | null)[] =>
+    at === null ? [null] : [at, ...(situationMap()[at] ?? []).map((n) => situationKey(at, n))];
+  const situation = createMemo(
+    () => situations().find((x) => x.state === activeState() && x.state !== moment())?.name ?? null,
+  );
+  // Every situation of the moment side by side, from the version bar.
+  const [allSituations, setAllSituations] = createSignal(false);
   const latest = createMemo(() => mockVersion(variants()));
   // Q6: a draft made on an older version keeps the stage on that version until
   // the user chooses to view the new one.
@@ -899,6 +928,14 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     });
     record(true);
   }
+  function stepSituation(by: 1 | -1): boolean {
+    const all = situations();
+    const i = all.findIndex((x) => x.state === activeState());
+    const to = all[i + by];
+    if (!to) return false;
+    showState(to.state);
+    return true;
+  }
   function chooseVariant(variant: string) {
     userMoved();
     setChosenVariant({ ...chosenVariant(), [String(activeState())]: variant });
@@ -1521,6 +1558,14 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     draft,
     variants,
     states,
+    moments,
+    moment,
+    situations,
+    situation,
+    withSituations,
+    stepSituation,
+    allSituations,
+    setAllSituations,
     latest,
     boundVersion,
     stageVersion,

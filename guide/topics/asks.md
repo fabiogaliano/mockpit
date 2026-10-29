@@ -12,6 +12,8 @@ mockpit ask --mock writer --asks asks.json
 ```
 
 `=knob:` sets one knob; for an option that sets several, use `--asks` JSON.
+`--recommend Quiet` (`"recommended": true` on one option) marks the one you
+would pick with a quiet dot; the user sees why on hover, in the variant's note.
 
 ## Shape
 

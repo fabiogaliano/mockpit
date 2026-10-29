@@ -11,6 +11,7 @@ import {
   isLive,
   type KnobValue,
   type Mock,
+  momentsOf,
   openCount,
   type Post,
   type PostVersion,
@@ -174,6 +175,11 @@ function thumbnail(mock: Mock, posts: Post[]) {
   return { postId: pick.id, surface: Math.max(surface, 0), version: inUseVersion(pick) };
 }
 
+// A mock's situations, only once it has any, so the views of mocks without
+// them are unchanged.
+const situationsOf = (mock: Mock) =>
+  Object.keys(mock.situations).length ? { situations: mock.situations } : {};
+
 export const mockSummaryView = (mock: Mock, posts: Post[]) => {
   const drafted = draftedCount(mock, posts);
   return {
@@ -184,7 +190,8 @@ export const mockSummaryView = (mock: Mock, posts: Post[]) => {
     kind: mock.kind,
     ...placeOf(mock),
     states: mock.states,
-    stateCount: Math.max(mock.states.length, 1),
+    ...situationsOf(mock),
+    stateCount: Math.max(momentsOf(mock.states, mock.situations).length, 1),
     variants: posts.length,
     open: openCount(mock, posts),
     // Only once the user has started one, so a list with no drafts costs nothing.
@@ -211,6 +218,7 @@ export const mockDetailView = (
   kind: mock.kind,
   ...placeOf(mock),
   states: mock.states,
+  ...situationsOf(mock),
   asks: mock.asks,
   open: openCount(mock, posts),
   knobs: mock.knobs,
@@ -246,7 +254,8 @@ export const treeNodeView = (
   kind: mock.kind,
   ...placeOf(mock),
   open: openCount(mock, posts),
-  states: mock.states.length ? mock.states : [null],
+  // Home shows a mock's states, never their situations.
+  states: mock.states.length ? momentsOf(mock.states, mock.situations) : [null],
   widths: mock.widths,
   createdAt: mock.createdAt,
   updatedAt: mock.updatedAt,

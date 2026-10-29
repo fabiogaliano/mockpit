@@ -115,6 +115,8 @@ import {
   inUseVersion,
   isLive,
   isMockKind,
+  momentOf,
+  NORMAL_SITUATION,
   optionState,
   type Mock,
   type MockKind,
@@ -141,6 +143,7 @@ import {
   type FlowStep,
   type ForkRef,
   sameScreen,
+  situationKey,
   slugify,
   type Store,
   type Surface,
@@ -1474,6 +1477,38 @@ export function createApp({
       }
       state = stateIn;
     }
+    const situationIn = str(body.situation, MAX_LABEL);
+    // A situation is another render of one state ("Couldn't save"); "Normal"
+    // names the state's own render.
+    let situation: { of: string; name: string } | undefined;
+    if (situationIn && situationIn.toLowerCase() !== NORMAL_SITUATION.toLowerCase()) {
+      if (state === null) {
+        return fail(400, '"situation" needs "state": the state it is another render of');
+      }
+      if (!mock || !mock.states.includes(state)) {
+        return fail(
+          404,
+          `${slug} has no state "${state}" yet: publish its normal render first, then its situations`,
+          mock ? { states: mock.states } : {},
+        );
+      }
+      const moment = momentOf(mock.situations, state);
+      // The key feedback names it by, passed back with its own situation.
+      if (moment !== state && moment !== null && situationKey(moment, situationIn) === state) {
+        state = moment;
+      } else if (moment !== state) {
+        return fail(400, `"${state}" is a situation; give "situation" the state it belongs to`);
+      }
+      const key = situationKey(state, situationIn);
+      if (mock.states.includes(key) && !(mock.situations[state] ?? []).includes(situationIn)) {
+        return fail(
+          409,
+          `${slug} already has a state named "${key}"; name the situation otherwise`,
+        );
+      }
+      situation = { of: state, name: situationIn };
+      state = key;
+    }
     const inState = posts.filter((p) => p.state === state);
     let variant = variantIn;
     if (!variant) {
@@ -1493,7 +1528,8 @@ export function createApp({
       fail(404, `${slug} has no variant "${variant}"${state === null ? "" : ` in "${state}"`}`, {
         variants: posts.map(variantLabel),
       });
-    const screen: FlowStep = { mock: slug, state };
+    // A flow steps through states; a situation's step is its state's.
+    const screen: FlowStep = { mock: slug, state: situation ? situation.of : state };
     if (flowIn) {
       const full = await flowFull(project, flowIn.name, screen, flowIn.step);
       if (full) return full;
@@ -1624,6 +1660,7 @@ export function createApp({
       if (!created) return fail(404, "session not found");
       mock = await updateMockAfterWrite(mock, {
         state,
+        situation,
         kind,
         title,
         knobs: knobs.value,
@@ -1656,6 +1693,7 @@ export function createApp({
     const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
     mock = await updateMockAfterWrite(mock, {
       state,
+      situation,
       kind,
       knobs: knobs.value,
       widths,
@@ -1814,6 +1852,7 @@ export function createApp({
     mock: Mock,
     w: {
       state: string | null;
+      situation?: { of: string; name: string };
       kind?: MockKind;
       title?: string;
       knobs: Knobs;
@@ -1823,11 +1862,27 @@ export function createApp({
       session: Session | null;
     },
   ): Promise<Mock> {
-    const states =
-      w.state !== null && !mock.states.includes(w.state) ? [...mock.states, w.state] : undefined;
+    let states: string[] | undefined;
+    let situations: Record<string, string[]> | undefined;
+    if (w.state !== null && !mock.states.includes(w.state)) {
+      if (w.situation) {
+        // After its state and that state's other situations, so the order of
+        // states reads moment by moment.
+        const { of, name } = w.situation;
+        const own = mock.situations[of] ?? [];
+        const last = [of, ...own.map((n) => situationKey(of, n))]
+          .map((st) => mock.states.indexOf(st))
+          .reduce((a, b) => Math.max(a, b), -1);
+        states = [...mock.states.slice(0, last + 1), w.state, ...mock.states.slice(last + 1)];
+        situations = { ...mock.situations, [of]: [...own, name] };
+      } else {
+        states = [...mock.states, w.state];
+      }
+    }
     const knobs = Object.keys(w.knobs).length ? { ...mock.knobs, ...w.knobs } : undefined;
     const updated = await store.updateMock(mock.id, {
       ...(states ? { states } : {}),
+      ...(situations ? { situations } : {}),
       ...(w.kind ? { kind: w.kind } : {}),
       ...(w.title ? { title: w.title } : {}),
       ...(knobs ? { knobs } : {}),
@@ -2053,6 +2108,11 @@ export function createApp({
     const options: AskOption[] = [];
     // Seeded with the viewer's write-in, so a label "Other" slugs to "other-2".
     const optionIds = new Set<string>([OTHER_ID]);
+    // The agent's own pick, shown as a quiet mark on its option: one per ask.
+    const picks = raw.options.filter(
+      (o: any) => o && typeof o === "object" && o.recommended === true,
+    ).length;
+    if (picks > 1) return `ask "${text}" recommends ${picks} options; recommend one`;
     for (const o of raw.options) {
       const opt = typeof o === "string" ? { label: o } : o;
       const label = str(opt?.label, 200);
@@ -2073,13 +2133,20 @@ export function createApp({
         if (!checked.ok) return checked.error;
         set = checked.value;
       }
+      const pick = opt.recommended === true ? { recommended: true as const } : {};
       if (opt.version !== undefined) {
         const pinned = versionOption(opt.version, label, variant, { scope, state }, mock, posts);
         if (typeof pinned === "string") return pinned;
-        options.push({ id, label, ...pinned, ...(set ? { set } : {}) });
+        options.push({ id, label, ...pinned, ...(set ? { set } : {}), ...pick });
         continue;
       }
-      options.push({ id, label, ...(variant ? { variant } : {}), ...(set ? { set } : {}) });
+      options.push({
+        id,
+        label,
+        ...(variant ? { variant } : {}),
+        ...(set ? { set } : {}),
+        ...pick,
+      });
     }
     let id = slugify(str(raw.id, 64) ?? text).slice(0, 40);
     if (!str(raw.id, 64))

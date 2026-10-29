@@ -359,6 +359,8 @@ export interface AskOption {
   version?: number;
   // Picking this option means "these knob values".
   set?: Record<string, KnobValue>;
+  // The one the agent would pick: a quiet mark on it, never a label.
+  recommended?: true;
 }
 
 export type AskAnswer = string | string[];
@@ -506,6 +508,10 @@ export interface Mock {
   source: string | null;
   // Ordered state labels; [] means a single-state mock whose posts carry state null.
   states: string[];
+  // A state's situations, by the state they are another render of, in order:
+  // each is also a state of its own (situationKey), so asks, comments, decisions
+  // and export reach it like any state. {} when none.
+  situations: Record<string, string[]>;
   asks: Ask[];
   knobs: Knobs;
   // The device widths the mock is judged at, side by side on a canvas; [] lets
@@ -521,6 +527,28 @@ export interface Mock {
   createdAt: string;
   updatedAt: string;
 }
+
+// The state's own render, when a state has situations.
+export const NORMAL_SITUATION = "Normal";
+
+// The state a situation is stored as: what feedback, decisions and export name.
+export const situationKey = (state: string, situation: string) => `${state} · ${situation}`;
+
+// The state a situation belongs to, or the state itself.
+export function momentOf(
+  situations: Record<string, string[]>,
+  state: string | null,
+): string | null {
+  if (state === null) return null;
+  for (const [moment, names] of Object.entries(situations)) {
+    if (names.some((n) => situationKey(moment, n) === state)) return moment;
+  }
+  return state;
+}
+
+// The states that are moments of the mock, not situations of one.
+export const momentsOf = (states: string[], situations: Record<string, string[]>) =>
+  states.filter((st) => momentOf(situations, st) === st);
 
 // One component included in a page, pinned to an exact version (snapshot
 // semantics: pulling a newer version is an explicit new page version). `slug`
@@ -819,6 +847,7 @@ export interface UpdateMockInput {
   area?: string | null;
   source?: string | null;
   states?: string[];
+  situations?: Record<string, string[]>;
   asks?: Ask[];
   knobs?: Knobs;
   widths?: number[];

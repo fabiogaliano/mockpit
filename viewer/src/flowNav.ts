@@ -47,14 +47,12 @@ export function createFlowNav(
   });
 
   const nodes = createMemo(() => new Map((data()?.tree ?? []).map((n) => [n.slug, n])));
-  const here = (): FlowStep => ({ mock: slug, state: s.activeState() });
+  const here = (): FlowStep => ({ mock: slug, state: s.moment() });
   const flow = createMemo(() => flowFor(data()?.flows ?? [], here(), cameThrough));
   const steps = createMemo<FlowStep[]>(
-    () => flow()?.steps ?? s.states().map((state) => ({ mock: slug, state })),
+    () => flow()?.steps ?? s.moments().map((state) => ({ mock: slug, state })),
   );
-  const at = createMemo(() =>
-    steps().findIndex((x) => x.mock === slug && x.state === s.activeState()),
-  );
+  const at = createMemo(() => steps().findIndex((x) => x.mock === slug && x.state === s.moment()));
   const near = (by: number): FlowStep | undefined => {
     const i = at();
     return i < 0 ? undefined : steps()[i + by];
@@ -65,7 +63,7 @@ export function createFlowNav(
 
   function go(to: FlowStep) {
     if (to.mock === slug) {
-      if (to.state !== s.activeState()) s.showState(to.state);
+      if (to.state !== s.moment()) s.showState(to.state);
       return;
     }
     const via = flow()?.name ?? null;
@@ -114,8 +112,10 @@ export function createFlowNav(
       : null;
   }
 
-  // Whether a step still owes answers; known only for this mock's own steps.
-  const owes = (x: FlowStep) => x.mock === slug && s.owedIn(x.state) > 0;
+  // Whether a step still owes answers, on it or its situations; known only for
+  // this mock's own steps.
+  const owes = (x: FlowStep) =>
+    x.mock === slug && s.withSituations(x.state).some((st) => s.owedIn(st) > 0);
 
   return { flow, steps, at, near, name, label, go, step, follow, picture, owes };
 }

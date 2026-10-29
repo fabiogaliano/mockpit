@@ -125,6 +125,19 @@ export function VersionBar(props: { s: MockScreenState }) {
       </Show>
       <span class="vsep" />
       <div class="tools">
+        <Show when={s.situations().length > 1}>
+          <button
+            type="button"
+            class="ib tool"
+            classList={{ on: s.allSituations() }}
+            aria-pressed={s.allSituations()}
+            aria-label="Every situation side by side"
+            title="Every situation side by side"
+            onClick={() => s.setAllSituations(!s.allSituations())}
+          >
+            <Icon name="grid" />
+          </button>
+        </Show>
         {tool("try", "Try", "Try: use the design as a prototype")}
         <Show when={!readonly()}>
           {tool("mark", "Mark", "Mark: tap the design to leave a comment there")}

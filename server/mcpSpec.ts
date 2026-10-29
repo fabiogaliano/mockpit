@@ -23,6 +23,8 @@ export const MCP_INSTRUCTIONS =
 const field = {
   mock: "Mock slug or id",
   state: "State label; omit if single-state",
+  situation:
+    'Another render of this state ("Couldn\'t save", "Loading"); publish the state itself first',
   variant: 'Variant label; default "default"',
   project: "Default: the session's project",
   title: "Mock title",
@@ -104,6 +106,7 @@ const askSchema = z.object({
       variant: z.string().optional().describe("Bind to a published variant"),
       version: z.number().int().optional().describe("And one version of it"),
       set: z.record(z.string(), z.unknown()).optional().describe("Or to knob values {path: value}"),
+      recommended: z.boolean().optional().describe("The one you would pick; one per ask"),
     }),
   ),
 });
@@ -173,6 +176,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       "Create or version one variant of one state of a mock. One of html, surfaces (the full ordered list), parts or fills (splice the latest version). Returns parts per state, nudges, feedback.",
     params: {
       ...VARIANT_REF,
+      situation: { t: "string", d: field.situation },
       title: { t: "string", d: field.title },
       kind: { t: "enum", values: ["page", "component", "sketch"], d: field.kind },
       area: { t: "string", d: field.area },

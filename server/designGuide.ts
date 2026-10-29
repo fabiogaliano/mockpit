@@ -301,6 +301,10 @@ you use adds its tab to Home:
 - Screens the user moves between, even across mocks, in order: a flow.
   Publish each with \`--flow Morning --step 2\` (\`--step 0\` takes it out);
   the viewer walks it.
+- Another render of one state (empty, many, an error, loading): its
+  \`--state\` plus \`--situation "Couldn't save"\`, once the state itself is
+  published. The viewer switches between them under the design; feedback
+  names it as the state \`"Writing · Couldn't save"\`.
 - A reusable piece of those screens (a button, a card, a header): its own
   mock, embedded in pages with \`<mockpit-embed slug="card">\`. Being
   embedded makes it a component (\`--kind component\` says so up front).

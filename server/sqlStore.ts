@@ -183,6 +183,7 @@ export class SqlStore implements Store {
       resolvedAt: "TEXT",
       area: "TEXT",
       source: "TEXT",
+      situations: "TEXT NOT NULL DEFAULT '{}'",
     });
     if (legacy) this.migrateLegacy();
     // After the legacy lift, which rebuilds posts from POST_COLUMNS alone.
@@ -603,6 +604,7 @@ export class SqlStore implements Store {
       area: (r.area as string) ?? null,
       source: (r.source as string) ?? null,
       states: parseJson<string[]>(r.states, []),
+      situations: parseJson<Record<string, string[]>>(r.situations, {}),
       asks: parseJson<Ask[]>(r.asks, []),
       knobs: parseJson<Knobs>(r.knobs, {}),
       widths: parseJson<number[]>(r.widths, []),
@@ -880,6 +882,7 @@ export class SqlStore implements Store {
       area: label(input.area),
       source: label(input.source),
       states: (input.states ?? []).map((s) => stripNul(s)),
+      situations: {},
       asks: [],
       knobs: input.knobs ?? {},
       widths: input.widths ?? [],
@@ -918,6 +921,7 @@ export class SqlStore implements Store {
       ...(patch.area !== undefined && { area: label(patch.area) }),
       ...(patch.source !== undefined && { source: label(patch.source) }),
       ...(patch.states !== undefined && { states: patch.states.map((s) => stripNul(s)) }),
+      ...(patch.situations !== undefined && { situations: patch.situations }),
       ...(patch.asks !== undefined && { asks: patch.asks }),
       ...(patch.knobs !== undefined && { knobs: patch.knobs }),
       ...(patch.widths !== undefined && { widths: patch.widths }),
@@ -926,12 +930,13 @@ export class SqlStore implements Store {
       updatedAt: new Date().toISOString(),
     };
     this.sql.exec(
-      "UPDATE mocks SET title = ?, kind = ?, area = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, resolvedAt = ?, updatedAt = ? WHERE id = ?",
+      "UPDATE mocks SET title = ?, kind = ?, area = ?, source = ?, states = ?, situations = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, resolvedAt = ?, updatedAt = ? WHERE id = ?",
       next.title,
       next.kind,
       next.area,
       next.source,
       JSON.stringify(next.states),
+      JSON.stringify(next.situations),
       JSON.stringify(next.asks),
       JSON.stringify(next.knobs),
       JSON.stringify(next.widths),

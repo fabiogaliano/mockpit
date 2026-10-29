@@ -1342,6 +1342,19 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     assert.equal((await store.createMock({ project: "demo", slug: "bare" })).area, null);
   });
 
+  contract("a mock's situations round-trip and survive other updates", async (store) => {
+    const mock = await store.createMock({ project: "demo", slug: "food", states: ["Lunch"] });
+    assert.deepEqual(mock.situations, {});
+    await store.updateMock(mock.id, {
+      states: ["Lunch", "Lunch · Couldn't save"],
+      situations: { Lunch: ["Couldn't save"] },
+    });
+    await store.updateMock(mock.id, { title: "Food" });
+    const read = await store.getMock(mock.id);
+    assert.deepEqual(read?.situations, { Lunch: ["Couldn't save"] });
+    assert.deepEqual(read?.states, ["Lunch", "Lunch · Couldn't save"]);
+  });
+
   contract(
     "renaming a mock rewrites every reference to its slug, history included",
     async (store) => {

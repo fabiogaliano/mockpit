@@ -383,10 +383,12 @@ export function Home(props: {
       {(n, h) => (
         <section class="home-sec" classList={{ closed: !!n.resolvedAt }} data-page={n.slug}>
           <Dynamic component={h} class="home-page-hd">
+            <span class="home-page-title">{n.title}</span>
+            {/* After the name, not before it: a leading dot reads as the
+                rail's open-question bullet. */}
             <Show when={fresh().has(n.id)}>
               <i class="home-new" aria-label="new" />
             </Show>
-            <span class="home-page-title">{n.title}</span>
             {source(n)}
             <StatusChip status={mockStatus(n)} />
             {menuFor(n)}
@@ -533,8 +535,8 @@ export function Home(props: {
         right={<Show when={!phoneLayout()}>{tabs()}</Show>}
         left={
           <>
-            <span>mockpit</span>
-            <span class="sep">·</span>
+            <span class="home-brand">mockpit</span>
+            <span class="sep home-brand">·</span>
             <Show when={(projects()?.length ?? 0) > 1} fallback={<b>{project() ?? ""}</b>}>
               <label class="home-project">
                 <select

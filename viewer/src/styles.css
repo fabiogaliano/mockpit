@@ -150,11 +150,16 @@ a {
   min-width: 0;
 }
 .crumb b {
+  min-width: 0;
   color: var(--t1);
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* The crumb gives way to the buttons, never the buttons to the crumb. */
+.top > .right {
+  flex: none;
 }
 .crumb .sep {
   color: var(--t5);
@@ -262,17 +267,29 @@ a {
   position: relative;
   display: inline-flex;
   align-items: center;
+  min-width: 0;
   color: var(--t1);
   font-weight: 600;
 }
 .home-project select {
+  min-width: 0;
+  max-width: 100%;
   appearance: none;
   background: transparent;
   border: 0;
   color: inherit;
   font-weight: 600;
   padding: 2px 22px 2px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: pointer;
+}
+/* A phone keeps the project's name, not the app's. */
+@media (max-width: 640px) {
+  .home-brand {
+    display: none;
+  }
 }
 .home-project select option {
   background: var(--panel);
@@ -654,6 +671,15 @@ button.home-count[aria-expanded="true"] {
   right: 6px;
   z-index: 2;
   backdrop-filter: blur(6px);
+}
+/* A phone-shaped picture's corner is round: in from it, clear of the edge. */
+.home-step.phone .home-pic .home-status {
+  top: 10px;
+  right: 10px;
+}
+.home-step.phone .home-pic .home-new {
+  top: 12px;
+  left: 12px;
 }
 /* A version this browser hasn't opened: a dot, nothing more. */
 .home-new {
@@ -1622,6 +1648,18 @@ button.home-count[aria-expanded="true"] {
   padding: 0 8px;
   font-weight: 500;
   color: var(--t3);
+}
+/* The agent's pick: a dot on the corner, ringed in the page so it reads on a picture. */
+.opt .pickdot {
+  position: absolute;
+  top: -4px;
+  right: 8px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--panel);
+  pointer-events: none;
 }
 .opt .tick {
   position: absolute;
@@ -3136,6 +3174,105 @@ html:has(.mock-screen) {
   height: 7px;
   border-radius: 50%;
   background: var(--keep);
+}
+/* A state's situations: one quiet row of renders under the design. */
+.sitswitch {
+  display: flex;
+  gap: 2px;
+  max-width: 100%;
+  padding: 3px;
+  overflow-x: auto;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  background: var(--panel);
+  scrollbar-width: none;
+}
+.sitswitch button {
+  flex: none;
+  padding: 4px 12px;
+  border-radius: 999px;
+  color: var(--t4);
+  font-size: 12px;
+  white-space: nowrap;
+  transition:
+    background var(--ease),
+    color var(--ease);
+}
+.sitswitch button.on {
+  background: var(--row);
+  color: var(--t1);
+}
+@media (hover: hover) {
+  .sitswitch button:not(.on):hover {
+    color: var(--t1);
+  }
+}
+.crumb-sit {
+  flex: none;
+  color: var(--t4);
+  white-space: nowrap;
+}
+/* Every situation of the state side by side, over the canvas. */
+.sitgrid {
+  position: fixed;
+  left: 0;
+  right: 0;
+  z-index: 25;
+  display: flex;
+  flex-wrap: wrap;
+  /* safe: rows taller than the box start at its top instead of overflowing it. */
+  align-content: safe center;
+  justify-content: center;
+  gap: 24px;
+  padding: 16px;
+  overflow: auto;
+  background: var(--page);
+}
+.sitcell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 14px;
+}
+.sitcell.on {
+  background: var(--row);
+}
+.sitthumb,
+.sitblank {
+  width: 180px;
+  height: 340px;
+  border-radius: 10px;
+  background: var(--frame);
+  box-shadow: 0 0 0 1px var(--edge);
+}
+.sitthumb.flat {
+  width: 300px;
+  height: 200px;
+}
+.sitcell .lbl {
+  color: var(--t2);
+  font-size: 13px;
+}
+@media (hover: hover) {
+  .sitcell:hover .lbl {
+    color: var(--t1);
+  }
+}
+@media (max-width: 640px) {
+  .sitgrid {
+    gap: 8px;
+  }
+  .sitthumb,
+  .sitblank {
+    width: 140px;
+    height: 264px;
+  }
+  .sitthumb.flat {
+    width: 150px;
+    height: 100px;
+  }
 }
 .modehint {
   padding: 5px 12px;

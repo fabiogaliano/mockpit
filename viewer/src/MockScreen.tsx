@@ -26,13 +26,14 @@ import { ResolvedNote } from "./Questions.tsx";
 import { createRelated, Related, relatedOf, type RelatedState } from "./Related.tsx";
 import { markSeen } from "./seen.ts";
 import { homePath, linkClick, navigate, projectPath } from "./route.ts";
+import { SituationGrid, SituationSwitch } from "./Situations.tsx";
 import { Stage } from "./Stage.tsx";
 import type { ScreenOpen } from "./route.ts";
 import { createMockScreen, type MockScreenState } from "./state.ts";
 import { Thumb } from "./Thumb.tsx";
 import { createTune } from "./tune.ts";
 import { VersionBar } from "./VersionBar.tsx";
-import { NO_INSET, phoneLayout, setCanvasTop, setCardInset, win } from "./viewport.ts";
+import { canvasTop, NO_INSET, phoneLayout, setCanvasTop, setCardInset, win } from "./viewport.ts";
 
 // The neighbouring steps beside the canvas, and the room they take.
 const GHOST_W = 112;
@@ -197,7 +198,8 @@ export function MockScreen(props: {
       >
         <Show when={s.mock()}>
           <Stage s={s} onGoto={nav.follow} />
-          <Show when={ghosts()}>
+          <SituationGrid s={s} top={canvasTop()} bottom={Math.max(0, win().h - bottomTop() + 8)} />
+          <Show when={ghosts() && !s.allSituations()}>
             <Ghost s={s} nav={nav} by={-1} />
             <Ghost s={s} nav={nav} by={1} />
           </Show>
@@ -222,6 +224,7 @@ export function MockScreen(props: {
           </Show>
           <SentNote s={s} project={props.project} slug={props.slug} />
           <Show when={s.mock()}>
+            <SituationSwitch s={s} />
             <QuestionCard s={s} />
             <VersionBar s={s} />
           </Show>
@@ -283,7 +286,10 @@ function TopRow(props: {
         <Show when={s.activeState() !== null} fallback={<b>{s.mock()?.title ?? props.slug}</b>}>
           <span class="crumb-far">{s.mock()?.title ?? props.slug}</span>
           <span class="crumb-far sep">/</span>
-          <b>{s.activeState()}</b>
+          <b>{s.moment()}</b>
+          <Show when={s.situation()}>
+            {(name) => <span class="crumb-sit">{` · ${name()}`}</span>}
+          </Show>
         </Show>
         <Show when={s.mock()?.source}>
           {(src) => (

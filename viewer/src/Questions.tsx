@@ -254,6 +254,8 @@ export function AskBody(props: { s: MockScreenState; ask: Ask; noteOpen?: boolea
                   ) : null
                 }
                 label={o.label}
+                pick={!!o.recommended}
+                why={pic()?.variant.note}
                 on={picked(o)}
                 previewing={s.preview()?.key === keyOf(o)}
                 data={o.id}
@@ -582,6 +584,9 @@ function OptionCard(props: {
   label: string;
   // What the look is, in the agent's words, under its name.
   note?: string;
+  // The agent's own pick: a dot in the corner, the why on hover.
+  pick?: boolean;
+  why?: string;
   on: boolean;
   previewing: boolean;
   data: string;
@@ -601,7 +606,13 @@ function OptionCard(props: {
         previewing: props.previewing,
       }}
       // The card truncates its label to one line; hover reads it whole.
-      title={props.note ? `${props.label}\n${props.note}` : props.label}
+      title={[
+        props.label,
+        props.note,
+        props.pick ? (props.why ? `Agent's pick: ${props.why}` : "Agent's pick") : null,
+      ]
+        .filter(Boolean)
+        .join("\n")}
       aria-pressed={props.on}
       aria-keyshortcuts={props.shortcut}
       data-option={props.data}
@@ -616,6 +627,10 @@ function OptionCard(props: {
       </Show>
       <Show when={props.on}>
         <span class="tick">✓</span>
+      </Show>
+      <Show when={props.pick}>
+        <span class="pickdot" aria-hidden="true" />
+        <span class="sr-only">, agent's pick</span>
       </Show>
     </button>
   );

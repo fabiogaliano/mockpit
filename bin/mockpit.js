@@ -56,6 +56,7 @@ verbs:
   mockpit publish --mock <slug> --html <file> [options]
                                           create or version one variant of one state
       --state <label>   state, in the user's words (omit for a single-state mock)
+      --situation <s>   another render of that state ("Couldn't save", "Loading")
       --variant <name>  variant label (default "default")
       --html <file|->   the html body (or a positional file)
       --surfaces <json|file>  instead: the full ordered surface list; {"id"}
@@ -84,6 +85,7 @@ verbs:
                                           ask the user; bind options to variants
       --option <l[=v]>  an option (repeatable); "=variant" binds it to a variant,
                         "=variant@3" to its version 3, "=knob:path=value" sets one knob
+      --recommend <l>   the option you would pick, by label; a quiet mark on it
       --scope <s>       mock|state|part (default mock)
       --state <label>   the state a state-scoped ask is about
       --part <name>     the part a part-scoped ask is about
@@ -184,6 +186,8 @@ mockpit publish --mock <slug> --parts <name=file|-> ... [options]
 mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
   Creates the mock, state or variant, or the next version of an existing one.
   --state <label>    state in the user's words (omit for a single-state mock)
+  --situation <s>    another render of that state ("Couldn't save", "Loading"),
+                     after the state itself is published
   --variant <name>   variant label (default "default")
   --surfaces <json|file>  the full ordered list: {"id"} alone keeps a surface,
                      a missing id removes it, order is the list order
@@ -220,7 +224,7 @@ mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
   Prints the parts found per state, parts that vanished or were renamed,
   nudges, a ready-to-run "mockpit ask" when variants have no ask, and feedback.`,
   ask: `mockpit ask --mock <slug> "<question>" --option <label[=variant]> ... [--scope mock|state|part]
-  [--state s] [--part p] [--multi] [--id id] [--after <ask id>]
+  [--state s] [--part p] [--multi] [--id id] [--after <ask id>] [--recommend <label>]
   mockpit ask --mock <slug> --asks <json|file>
   Ask the user. A choice is several variants plus one ask that binds them.
   Then tell the user where to look and end your turn.`,
@@ -915,6 +919,7 @@ function parsePublishFlags() {
     allowPositionals: true,
     options: {
       ...MOCK_FLAGS,
+      situation: { type: "string" },
       title: { type: "string" },
       kind: { type: "string" },
       area: { type: "string" },
@@ -1037,6 +1042,7 @@ async function publishMock() {
     project,
     mock: slug,
     state: flags.state,
+    situation: flags.situation,
     variant: flags.variant,
     title: flags.title,
     kind: flags.kind,
@@ -1512,6 +1518,7 @@ const commands = {
         project: { type: "string" },
         session: { type: "string" },
         option: { type: "string", multiple: true },
+        recommend: { type: "string" },
         scope: { type: "string" },
         state: { type: "string" },
         part: { type: "string" },
@@ -1545,6 +1552,17 @@ const commands = {
           "ask needs options",
           `mockpit ask --mock ${slug} "${text}" --option Quiet=quiet --option Dark=dark`,
         );
+      }
+      if (flags.recommend !== undefined) {
+        const pick = options.find(
+          (o) => o.label.toLowerCase() === flags.recommend.trim().toLowerCase(),
+        );
+        if (!pick)
+          die(
+            `--recommend "${flags.recommend}" names no option`,
+            `mockpit ask --mock ${slug} "${text}" --option Quiet=quiet --option Dark=dark --recommend Quiet`,
+          );
+        pick.recommended = true;
       }
       asks = [
         {
