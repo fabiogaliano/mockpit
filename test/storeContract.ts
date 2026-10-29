@@ -1323,6 +1323,109 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     assert.equal(await store.removeMock(mock.id), false);
   });
 
+  contract("a mock's area and source round-trip; blank or null clears them", async (store) => {
+    const mock = await store.createMock({
+      project: "demo",
+      slug: "orb",
+      area: " Shell ",
+      source: "apps/onni/src/shell",
+    });
+    assert.equal(mock.area, "Shell");
+    assert.deepEqual(await store.getMock(mock.id), mock);
+    const kept = await store.updateMock(mock.id, { title: "Orb" });
+    assert.equal(kept?.area, "Shell", "an update that omits them keeps them");
+    assert.equal(kept?.source, "apps/onni/src/shell");
+    await store.updateMock(mock.id, { area: "", source: null });
+    const cleared = await store.getMock(mock.id);
+    assert.equal(cleared?.area, null);
+    assert.equal(cleared?.source, null);
+    assert.equal((await store.createMock({ project: "demo", slug: "bare" })).area, null);
+  });
+
+  contract(
+    "renaming a mock rewrites every reference to its slug, history included",
+    async (store) => {
+      const session = await store.createSession({ agent: "pi" });
+      const orb = await store.createMock({ project: "demo", slug: "orb", states: ["Rest"] });
+      const page = await store.createMock({ project: "demo", slug: "home", kind: "page" });
+      const elsewhere = await store.createMock({ project: "other", slug: "home" });
+      const html = (n: number) =>
+        `<p>v${n}</p><mockpit-embed slug="orb" version="1"></mockpit-embed><mockpit-slot slug='orb'/><mockpit-embed slug="orbit"></mockpit-embed><a data-goto="orb:Rest">go</a><a data-goto="next">next</a>`;
+      const p = await store.createPost({
+        sessionId: session.id,
+        mock: page.id,
+        state: null,
+        surfaces: [htmlSurface(html(1)), { kind: "markdown", markdown: 'slug="orb"' }],
+        embeds: [{ slug: "orb", variant: "default", version: 1 }],
+      });
+      const other = await store.createPost({
+        sessionId: session.id,
+        mock: elsewhere.id,
+        state: null,
+        surfaces: [htmlSurface(html(1))],
+      });
+      assert.ok(p && other);
+      await store.updatePost(p.id, { surfaces: [htmlSurface(html(2))] });
+      await store.placeFlowStep("demo", "Morning", { mock: "orb", state: "Rest" }, 1);
+      await store.placeFlowStep("demo", "Morning", { mock: "home", state: null }, 2);
+
+      const renamed = await store.renameMock(orb.id, "Onni");
+      assert.equal(renamed?.slug, "onni");
+      assert.equal(await store.findMock("demo", "orb"), null);
+      assert.equal((await store.findMock("demo", "onni"))?.id, orb.id);
+      const want = (n: number) =>
+        `<p>v${n}</p><mockpit-embed slug="onni" version="1"></mockpit-embed><mockpit-slot slug="onni"/><mockpit-embed slug="orbit"></mockpit-embed><a data-goto="onni:Rest">go</a><a data-goto="next">next</a>`;
+      const after = await store.getPost(p.id);
+      assert.ok(after);
+      assert.equal((after.surfaces[0] as { html: string }).html, want(2));
+      assert.equal(
+        (after.history[0].surfaces[0] as { html: string }).html,
+        want(1),
+        "an older version still names the component it showed",
+      );
+      assert.deepEqual(after.history[0].surfaces[1], p.surfaces[1], "only html is rewritten");
+      assert.deepEqual(after.embeds, [{ slug: "onni", variant: "default", version: 1 }]);
+      assert.equal(after.version, 2, "a rename is not a new version");
+      assert.deepEqual((await store.listFlows("demo"))[0].steps, [
+        { mock: "onni", state: "Rest" },
+        { mock: "home", state: null },
+      ]);
+      assert.deepEqual(
+        (await store.getPost(other.id))?.surfaces,
+        other.surfaces,
+        "another project's references are its own",
+      );
+
+      assert.equal(await store.renameMock(orb.id, "home"), null, "a taken slug is refused");
+      assert.equal((await store.getMock(orb.id))?.slug, "onni");
+      assert.equal(await store.renameMock("missing", "x"), null);
+    },
+  );
+
+  contract("renaming a project carries its mocks, sessions, flows and design", async (store) => {
+    const session = await store.createSession({ agent: "pi", project: "old" });
+    const mock = await store.createMock({ project: "old", slug: "home", sessionId: session.id });
+    await store.placeFlowStep("old", "Morning", { mock: "home", state: null }, 1);
+    await store.setSetting("design:old", '{"kit":"none"}');
+    await store.placeFlowStep("new", "Stale", { mock: "gone", state: null }, 1);
+    const busy = await store.createMock({ project: "busy", slug: "x" });
+
+    assert.equal(await store.renameProject("old", "busy"), false, "a project with mocks is taken");
+    assert.equal((await store.getMock(mock.id))?.project, "old");
+
+    assert.equal(await store.renameProject("old", "new"), true);
+    assert.equal((await store.getMock(mock.id))?.project, "new");
+    assert.equal((await store.getSession(session.id))?.project, "new");
+    assert.deepEqual(
+      (await store.listFlows("new")).map((f) => f.name),
+      ["Morning"],
+    );
+    assert.deepEqual(await store.listFlows("old"), []);
+    assert.equal(await store.getSetting("design:new"), '{"kit":"none"}');
+    assert.equal(await store.getSetting("design:old"), null);
+    assert.equal((await store.getMock(busy.id))?.project, "busy");
+  });
+
   contract("listProjects summarizes mocks, open asks and sessions per project", async (store) => {
     const session = await store.createSession({ agent: "pi", project: "demo" });
     const mock = await store.createMock({ project: "demo", slug: "writer", sessionId: session.id });

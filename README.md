@@ -40,7 +40,7 @@ mockpit turns that into a design-decision loop:
 | Comments      | Text on a post                                     | Anchored on a **part** the agent marked with `data-part`, in a given state                                                     |
 | Feedback      | Each comment reaches the agent as it's written     | Picks, tuned values, mix and comments stay drafts until you **Send**, then go out as one reply                                 |
 | Design system | Built-in viewer themes                             | `mockpit init` detects the repo's tokens, fonts and kit so the agent's markup matches your codebase                            |
-| Agent verbs   | Post-level: `publish`, `update`, `wait`, `comment` | Mock-level, never blocking: `publish`, `ask`, `read`, `feedback`, `say`, `export`, `upload`, `guide`, `run`                    |
+| Agent verbs   | Post-level: `publish`, `update`, `wait`, `comment` | Mock-level, never blocking: `publish`, `ask`, `read`, `feedback`, `say`, `edit`, `export`, `upload`, `guide`, `run`            |
 
 ## The loop
 
@@ -138,21 +138,22 @@ There are also `terminal` (ANSI output), `image` (uploaded assets), `json`
 
 ## Agent verbs
 
-Nine verbs, the same on every tier with the same fields: a zero-dependency CLI
+Ten verbs, the same on every tier with the same fields: a zero-dependency CLI
 for agents with only a shell, MCP over stdio or streamable HTTP at `/mcp`, and
 plain HTTP. None of them waits for the user.
 
-| CLI                   | MCP                  | HTTP                                   |
-| --------------------- | -------------------- | -------------------------------------- |
-| `mockpit publish`     | `publish`            | `POST /api/mocks`                      |
-| `mockpit ask`         | `ask`                | `POST /api/mocks/:id/asks`             |
-| `mockpit read [slug]` | `read`               | `GET /api/mocks`, `GET /api/mocks/:id` |
-| `mockpit feedback`    | `feedback`           | `GET /api/feedback?session=…`          |
-| `mockpit say`         | `say`                | `POST /api/mocks/:id/say`              |
-| `mockpit export`      | `export`             | `GET /api/mocks/:id/export`            |
-| `mockpit upload`      | `upload`             | `POST /api/assets`                     |
-| `mockpit guide`       | `guide`              | `GET /agent-howto`                     |
-| `mockpit run`         | `run` (`?mode=code`) | `POST /api/run`                        |
+| CLI                   | MCP                  | HTTP                                                |
+| --------------------- | -------------------- | --------------------------------------------------- |
+| `mockpit publish`     | `publish`            | `POST /api/mocks`                                   |
+| `mockpit ask`         | `ask`                | `POST /api/mocks/:id/asks`                          |
+| `mockpit read [slug]` | `read`               | `GET /api/mocks`, `GET /api/mocks/:id`              |
+| `mockpit feedback`    | `feedback`           | `GET /api/feedback?session=…`                       |
+| `mockpit say`         | `say`                | `POST /api/mocks/:id/say`                           |
+| `mockpit edit`        | `edit`               | `PATCH /api/mocks/:id`, `PATCH /api/projects/:name` |
+| `mockpit export`      | `export`             | `GET /api/mocks/:id/export`                         |
+| `mockpit upload`      | `upload`             | `POST /api/assets`                                  |
+| `mockpit guide`       | `guide`              | `GET /agent-howto`                                  |
+| `mockpit run`         | `run` (`?mode=code`) | `POST /api/run`                                     |
 
 The CLI adds `mockpit init` (detect the repo's design system, once per repo)
 and `mockpit watch` (one line per Send, for a background monitor).

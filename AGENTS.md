@@ -17,9 +17,12 @@ The model is **project › mock › state › variant › version**: a project i
 (from the agent's cwd/git remote), a mock is a page or component by stable slug
 owning ordered **states**, **asks** and global **knobs**; a variant (a `Post`) is
 a parallel design of one state; versions are its history. A **part** is a
-`data-part` element in a render. The agent's nine verbs are `publish`, `ask`,
-`read`, `feedback`, `say`, `export`, `upload`, `guide` and `run` (the CLI adds
-`init` and `watch`); the user's is Send (or Use this / New on a mock whose
+`data-part` element in a render. The agent's ten verbs are `publish`, `ask`,
+`read`, `feedback`, `say`, `edit`, `export`, `upload`, `guide` and `run` (the
+CLI adds `init` and `watch`); `edit` changes a mock (slug, title, kind, area,
+source) without a new version, or renames a project. A mock may name its
+**area** (the project's own words, e.g. "Shell"; Home groups each tab by it)
+and its **source** (the code path that implements it). The user's is Send (or Use this / New on a mock whose
 state has one variant and no asks), which releases one **reply**.
 
 Current product stances (deliberate choices, not accidents — revisit
@@ -54,7 +57,9 @@ consciously, not as a side effect):
 - `server/app.ts` — runtime-agnostic Hono app: all routes (`/api/mocks…`,
   `/api/comments` long-poll, SSE `/api/events`, renderer `/s/:id`, assets
   `/api/assets` + `/a/:id`), and the flow functions REST and MCP share
-  (publish, asks, read, feedback, say, draft, reply, export).
+  (publish, asks, read, feedback, say, edit, draft, reply, export). A slug
+  rename rewrites every stored version's embeds in place (`SqlStore.renameMock`):
+  embeds resolve by slug at render time, so history must name the new one.
 - `server/types.ts` — data model + `Store` interface; no runtime imports.
   `Mock` (states, asks, knobs, draft), `Post` (one variant of one state: an
   ordered list of surfaces — `html` | `markdown` | `diff` | `terminal` | `image`
@@ -107,7 +112,9 @@ consciously, not as a side effect):
   the design in use per screen from `GET /api/projects/:name/tree`: Pages, each
   page's states; Flows, the declared flows as rows of screens, opened with
   `?flow=`; Components, each with "in N screens"; Sketches, every mock with no
-  declared kind; empty tabs are not shown, one alone gets no tab bar; above them the open count,
+  declared kind; within a tab, rows sit under the areas the project named,
+  alphabetical, unnamed last, and a tab with no area looks as if areas did not
+  exist; empty tabs are not shown, one alone gets no tab bar; above them the open count,
   which unfolds the waiting mocks to resolve, and Answer next), `MockScreen`
   (`TopBar`, `Stage` + `Strip`, `Panel` beside the stage; where the panel does
   not fit, `CanvasHead`, the stage as a pannable canvas with the mock's other

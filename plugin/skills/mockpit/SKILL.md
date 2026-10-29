@@ -36,8 +36,14 @@ reusable piece (button, card, header) as its own mock embedded with
 `<mockpit-embed slug="card">`, which makes it a component. Sketches, diagrams
 and reviews stay plain; Home shows a tab only for the kinds in use.
 
+Name where each mock belongs in the product with `--area Shell` (the
+project's own words) and the code that implements it with `--source
+apps/web/src/shell`; Home groups by area. Rename, retitle or reclassify a mock
+without a new version with `mockpit edit --mock <slug> --slug <new>` (it
+rewrites every embed and flow step naming the old slug).
+
 Prefer the MCP tools when connected (`publish`, `ask`, `read`, `feedback`,
-`say`, `export`, `upload`, `guide`); otherwise use the CLI.
+`say`, `edit`, `export`, `upload`, `guide`); otherwise use the CLI.
 
 ```sh
 mockpit publish --mock writer --state "Writing" --variant quiet --html quiet.html

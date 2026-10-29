@@ -36,6 +36,8 @@ export interface McpFlows {
   >;
   say: Flow<[ref: unknown, body: any, ctx: FlowContext]>;
   feedback: Flow<[query: { session?: unknown; project?: unknown }, ctx: FlowContext]>;
+  edit: Flow<[ref: unknown, body: any, ctx: FlowContext]>;
+  renameProject: Flow<[name: unknown, body: any, ctx: FlowContext]>;
 }
 
 export interface McpDeps {
@@ -67,6 +69,30 @@ export function unwrap(result: FlowResult): unknown {
   return result.body;
 }
 
+// `edit` is one verb with two shapes: `rename` renames the project, anything
+// else edits the mock. Shared by both MCP transports' HTTP side and `run`.
+export function editCall(
+  flows: Pick<McpFlows, "edit" | "renameProject">,
+  args: any,
+  ctx: FlowContext,
+  project: string | undefined,
+): Promise<FlowResult> {
+  if (args.rename === undefined) return flows.edit(args.mock, args, ctx);
+  if (args.mock !== undefined) {
+    return Promise.resolve({
+      status: 400,
+      body: { error: '"rename" renames the project; edit the mock without it' },
+    });
+  }
+  if (!project) {
+    return Promise.resolve({
+      status: 400,
+      body: { error: 'provide "project": the project to rename' },
+    });
+  }
+  return flows.renameProject(project, { name: args.rename, session: args.session }, ctx);
+}
+
 export function registerMcp(app: Hono, deps: McpDeps) {
   const { flows, store } = deps;
 
@@ -78,6 +104,14 @@ export function registerMcp(app: Hono, deps: McpDeps) {
     }
     const projects = await store.listProjects();
     return projects[0]?.name ?? "workspace";
+  }
+
+  // Only a project the call names, or its session's: a rename never falls back
+  // to whichever project happens to be first.
+  async function namedProject(args: any): Promise<string | undefined> {
+    if (typeof args.project === "string" && args.project) return args.project;
+    if (typeof args.session !== "string") return undefined;
+    return (await store.getSession(args.session))?.project ?? undefined;
   }
 
   async function loadImage(ref: { id: string }) {
@@ -109,6 +143,8 @@ export function registerMcp(app: Hono, deps: McpDeps) {
         return unwrap(await flows.say(args.mock, args, ctx));
       case "export":
         return unwrap(await flows.exportMock(args.mock, args, ctx));
+      case "edit":
+        return unwrap(await editCall(flows, args, ctx, await namedProject(args)));
       case "upload": {
         if (typeof args.data !== "string" || args.data.length === 0) {
           throw new Error("upload needs base64 `data`");

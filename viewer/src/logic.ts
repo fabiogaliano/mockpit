@@ -1167,6 +1167,44 @@ export const nextMark = (comments: PartComment[]): number =>
 
 // --- the decision flow: across mocks, review, keys and swipes ---
 
+export interface AreaGroup<T> {
+  // null: the rows no area claims, shown last under no heading.
+  area: string | null;
+  rows: T[];
+}
+
+// Home's rows under the areas the project named, alphabetical, in their own
+// order within each. With no area anywhere there is one unheaded group, so a
+// project that never names one looks as it did before areas.
+export function groupByArea<T>(
+  rows: T[],
+  areaOf: (row: T) => string | null | undefined,
+): AreaGroup<T>[] {
+  const named = new Map<string, T[]>();
+  const rest: T[] = [];
+  for (const row of rows) {
+    const area = areaOf(row);
+    if (!area) rest.push(row);
+    else if (named.has(area)) named.get(area)!.push(row);
+    else named.set(area, [row]);
+  }
+  if (named.size === 0) return [{ area: null, rows }];
+  const groups: AreaGroup<T>[] = [...named]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([area, list]) => ({ area, rows: list }));
+  return rest.length ? [...groups, { area: null, rows: rest }] : groups;
+}
+
+// A flow's area is obvious only when every screen it walks is in the same one.
+export function flowArea(
+  steps: FlowStep[],
+  areaOf: (slug: string) => string | null | undefined,
+): string | null {
+  const areas = new Set(steps.map((x) => areaOf(x.mock) ?? null));
+  const [only] = areas;
+  return areas.size === 1 ? (only ?? null) : null;
+}
+
 type QueueMock = { slug: string; open: number; createdAt: string };
 
 // An agent publishes mocks in the order it wants them answered, so the queue

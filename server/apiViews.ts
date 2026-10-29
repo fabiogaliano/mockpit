@@ -151,6 +151,15 @@ export function partsByState(mock: Mock, posts: Post[]): StateParts[] {
   }));
 }
 
+// Where a mock sits in the product and the code that implements it, only once
+// declared, so the views of a project that names neither cost nothing.
+export const placeOf = (
+  mock: Pick<Mock, "area" | "source">,
+): { area?: string; source?: string } => ({
+  ...(mock.area ? { area: mock.area } : {}),
+  ...(mock.source ? { source: mock.source } : {}),
+});
+
 // What Home shows for a mock: the first state's chosen (else first) variant.
 function thumbnail(mock: Mock, posts: Post[]) {
   const first = stateOrder(mock)[0];
@@ -173,6 +182,7 @@ export const mockSummaryView = (mock: Mock, posts: Post[]) => {
     slug: mock.slug,
     title: mock.title,
     kind: mock.kind,
+    ...placeOf(mock),
     states: mock.states,
     stateCount: Math.max(mock.states.length, 1),
     variants: posts.length,
@@ -199,6 +209,7 @@ export const mockDetailView = (
   slug: mock.slug,
   title: mock.title,
   kind: mock.kind,
+  ...placeOf(mock),
   states: mock.states,
   asks: mock.asks,
   open: openCount(mock, posts),
@@ -233,6 +244,7 @@ export const treeNodeView = (
   slug: mock.slug,
   title: mock.title,
   kind: mock.kind,
+  ...placeOf(mock),
   open: openCount(mock, posts),
   states: mock.states.length ? mock.states : [null],
   widths: mock.widths,

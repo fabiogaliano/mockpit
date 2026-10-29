@@ -12,7 +12,7 @@ import type { FlowContext, FlowResult } from "./app.ts";
 import { decodeBase64 } from "./base64.ts";
 import type { FeedbackBatch } from "./feedbackBatch.ts";
 import { type GuideTopic, isGuideTopic, unknownTopicMessage } from "./designGuide.ts";
-import { type McpFlows, unwrap } from "./mcpHttp.ts";
+import { editCall, type McpFlows, unwrap } from "./mcpHttp.ts";
 import { RUN_FUNCTIONS, type RunFunction } from "./runApi.ts";
 import type { Asset, AssetKind, Store } from "./types.ts";
 
@@ -275,6 +275,11 @@ export function createRunFlow(deps: RunDeps) {
         const r = plain(v);
         await take(flows.say(r.mock, { ...(await mine(r)), message }, flowCtx));
         return [null, String(r.mock ?? "?")];
+      },
+      async edit([v]) {
+        const r = await mine(plain(v));
+        const value = await take(editCall(flows, r, flowCtx, project));
+        return [value, value.renamed ? `${value.renamed.from} → ${value.renamed.to}` : "edited"];
       },
       async upload([data, opts]) {
         if (typeof data !== "string" || !data) throw new Error("upload needs base64 data");

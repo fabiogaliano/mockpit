@@ -217,6 +217,20 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
       message: args.message,
     });
   },
+  async edit(args) {
+    const session = await ensureSession();
+    const project = resolveProject(args.project);
+    if (args.rename !== undefined) {
+      if (args.mock !== undefined) {
+        throw new Error('"rename" renames the project; edit the mock without it');
+      }
+      return post(`/api/projects/${enc(project)}`, { name: args.rename, session }, "PATCH");
+    }
+    if (typeof args.mock !== "string" || !args.mock) {
+      throw new Error('provide "mock", or "rename" to rename the project');
+    }
+    return post(`/api/mocks/${enc(args.mock)}`, { ...args, project, session }, "PATCH");
+  },
   export: (args) =>
     json(
       `/api/mocks/${enc(args.mock)}/export${query({

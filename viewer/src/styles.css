@@ -365,7 +365,26 @@ button.home-count[aria-expanded="true"] {
 .home-sec {
   margin-bottom: 34px;
 }
-.home-sec h2 {
+/* An area the project named: a quiet label over its rows. */
+.home-area {
+  margin-bottom: 40px;
+}
+/* The rows no area claims: after the areas, set apart by the rule alone. */
+.home-area-rest {
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+.home-area-hd {
+  margin: 0 0 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--t4);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.home-sec :is(h2, h3) {
   display: flex;
   gap: 10px;
   align-items: baseline;
@@ -374,9 +393,24 @@ button.home-count[aria-expanded="true"] {
   font-weight: 500;
   color: var(--t1);
 }
-.home-sec h2 span {
+.home-sec :is(h2, h3) span {
+  min-width: 0;
   color: var(--t5);
   font: 400 12px var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The code path that implements a mock: there when asked for, never loud. */
+.home-src {
+  color: var(--t5);
+  font: 400 11px var(--mono);
+}
+.home-lbl .home-src {
+  display: block;
+  max-width: 232px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* A flow's screens in one row that scrolls sideways, the next one peeking in. */
 .home-flow {
@@ -2433,6 +2467,14 @@ html:has(.mock-screen) {
   font-size: 15px;
   white-space: nowrap;
   overflow: hidden;
+}
+.msrc {
+  min-width: 0;
+  margin-left: 6px;
+  color: var(--t5);
+  font: 400 12px var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ib {
   position: relative;

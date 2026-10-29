@@ -486,6 +486,12 @@ export interface Mock {
   slug: string;
   title: string;
   kind: MockKind;
+  // Where in the product it belongs, in the project's own words ("Shell",
+  // "Food"): Home groups each tab by it. null leaves it ungrouped.
+  area: string | null;
+  // The code path that implements it (e.g. "apps/web/src/shell"), shown as
+  // plain text; never checked against a filesystem.
+  source: string | null;
   // Ordered state labels; [] means a single-state mock whose posts carry state null.
   states: string[];
   asks: Ask[];
@@ -786,6 +792,8 @@ export interface CreateMockInput {
   slug: string;
   title?: string;
   kind?: MockKind;
+  area?: string | null;
+  source?: string | null;
   states?: string[];
   knobs?: Knobs;
   widths?: number[];
@@ -795,6 +803,9 @@ export interface CreateMockInput {
 export interface UpdateMockInput {
   title?: string;
   kind?: MockKind;
+  // undefined keeps, null clears.
+  area?: string | null;
+  source?: string | null;
   states?: string[];
   asks?: Ask[];
   knobs?: Knobs;
@@ -914,6 +925,14 @@ export interface Store {
   updateMock(id: string, patch: UpdateMockInput): Promise<Mock | null>;
   // Cascades the mock's posts and comments, and takes its screens out of flows.
   removeMock(id: string): Promise<boolean>;
+  // A new slug, and every reference to the old one in the project rewritten
+  // with it, atomically: embed tags and data-goto in every version of every
+  // variant (current and history), recorded embeds, flow steps. Null when the
+  // mock is missing or the slug is taken.
+  renameMock(id: string, slug: string): Promise<Mock | null>;
+  // Moves everything keyed by the project name (mocks, sessions, flows, the
+  // design settings) to `to`. False when `to` already has mocks.
+  renameProject(from: string, to: string): Promise<boolean>;
 
   // One project's flows, in the order they were first declared.
   listFlows(project: string): Promise<Flow[]>;

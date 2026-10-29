@@ -39,6 +39,8 @@ const field = {
   note: "What this variant is; shown beside it, never in the html",
   widths: "Widths it ships at, side by side: [390,1280]",
   kind: "Only when building the product's screens: page (a screen), component (a piece pages embed). Omit for sketches, diagrams and reviews",
+  area: 'Product area in the project\'s words; Home groups by it. "" clears',
+  source: 'Code path implementing it. "" clears',
   flow: "Flow this screen is a step of; alone, only places it",
   step: "1-based place; 0 removes",
   kits: `Opt-in bundles: ${KIT_IDS.join("|")}`,
@@ -170,6 +172,8 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       ...VARIANT_REF,
       title: { t: "string", d: field.title },
       kind: { t: "enum", values: ["page", "component", "sketch"], d: field.kind },
+      area: { t: "string", d: field.area },
+      source: { t: "string", d: field.source },
       html: { t: "string", d: field.html },
       surfaces: {
         t: "surfaces",
@@ -247,6 +251,23 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
     description:
       "The html in use (else current) per state, version history, screenshot URL, knobs, the settled values and the last reply.",
     params: VARIANT_REF,
+  },
+  {
+    name: "edit",
+    description:
+      "Change a mock without a new version; a new slug rewrites every reference to the old one. Without mock, rename renames the project. Returns feedback.",
+    params: {
+      mock: { t: "string", d: field.mock },
+      project: P.project,
+      slug: { t: "string" },
+      title: { t: "string" },
+      kind: { t: "enum", values: ["page", "component", "sketch"] },
+      area: { t: "string" },
+      source: { t: "string" },
+      rename: { t: "string", d: "New project name" },
+      session: P.session,
+    },
+    httpOnly: ["session"],
   },
   {
     name: "upload",
@@ -388,6 +409,12 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
     pending: z.array(pendingSchema),
   },
   say: { feedback: feedbackRide },
+  edit: {
+    renamed: o({ from: str, to: str }).optional(),
+    url: str,
+    nudges: strs.optional(),
+    feedback: feedbackRide,
+  },
   read: {
     mocks: z.array(o({ slug: str, states: strs, variants: num, open: num })).optional(),
     states: strs.optional(),

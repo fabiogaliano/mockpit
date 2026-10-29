@@ -1219,6 +1219,19 @@ test("Home: a tab per declared kind, each showing the design in use; a screen op
   await expect(flows.locator('.home-step[data-mock="food"] .mk.cur')).toBeVisible();
   await expect(flows.locator(".mk.cur")).toHaveCount(1);
   await expect(flows).toBeVisible();
+
+  // Once the project names areas, each tab groups by them, the rest last; the
+  // edit is no new version, and a renamed slug keeps the page's embed resolving.
+  const edit = (mock: string, body: Record<string, unknown>) =>
+    agentCall(server.url, `/api/mocks/${mock}`, { project: PROJECT, session, ...body }, "PATCH");
+  await edit("food", { area: "Food", source: "apps/food/lunch" });
+  await edit("chip", { slug: "badge", area: "Shell" });
+  await page.getByRole("link", { name: "Pages" }).click();
+  await expect(page.locator(".home-area-hd")).toHaveText(["Food"]);
+  await expect(page.locator(".home-sec h3")).toHaveText([/^Food/, "Today"]);
+  await page.getByRole("link", { name: "Components" }).click();
+  await expect(page.locator(".home-area-hd")).toHaveText(["Shell"]);
+  await expect(page.locator('.home-step[data-mock="badge"]')).toContainText("in 1 screen");
 });
 
 test("Home: Answer next follows the agent's order, and a started mock shows its draft", async ({

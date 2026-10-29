@@ -15,7 +15,7 @@ import { boardWidths, DEVICE_WIDTHS, wideWidth, widthKind, widthLabel } from "./
 import { CarriedChip, NextCard } from "./NextCard.tsx";
 import { QuestionCard, QuestionTab } from "./QuestionCard.tsx";
 import { ResolvedNote } from "./Questions.tsx";
-import { homePath, linkClick } from "./route.ts";
+import { homePath, linkClick, navigate, projectPath } from "./route.ts";
 import { Stage } from "./Stage.tsx";
 import type { ScreenOpen } from "./route.ts";
 import { createMockScreen, type MockScreenState } from "./state.ts";
@@ -38,6 +38,14 @@ export function MockScreen(props: {
   const nav = createFlowNav(s, props.project, props.slug, props.flow ?? null);
   const t = createTune(s);
   useFlowKeys(s);
+  // The agent renamed the mock or its project while it was open: the address
+  // follows, so a reload or a shared link still finds it.
+  createEffect(() => {
+    const m = s.mock();
+    if (!m || (m.slug === props.slug && m.project === props.project)) return;
+    const path = `${projectPath(m.project)}/${encodeURIComponent(m.slug)}`;
+    navigate(`${path}${host().location.search}`, { replace: true });
+  });
   createEffect(() =>
     s.setTunable(
       t
@@ -222,6 +230,13 @@ function TopRow(props: { s: MockScreenState; project: string; slug: string }) {
           <span class="crumb-far">{s.mock()?.title ?? props.slug}</span>
           <span class="crumb-far sep">/</span>
           <b>{s.activeState()}</b>
+        </Show>
+        <Show when={s.mock()?.source}>
+          {(src) => (
+            <span class="crumb-far msrc" title={src()}>
+              {src()}
+            </span>
+          )}
         </Show>
       </div>
       <span class="grow" />

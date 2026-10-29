@@ -77,6 +77,37 @@ export function parseEmbedTags(html: string): EmbedTag[] {
 
 export const hasEmbedTags = (html: string): boolean => /<mockpit-(?:embed|slot)\b/i.test(html);
 
+// The html with every reference to mock `from` pointed at `to`: the slug of
+// each embed tag naming it, and each data-goto naming it ("from" or
+// "from:<state>"). What a slug rename writes into every stored version, so
+// each version still renders the same component it did.
+export function renameSlugRefs(html: string, from: string, to: string): string {
+  if (!html.includes(from)) return html;
+  EMBED_TAG.lastIndex = 0;
+  return html
+    .replace(EMBED_TAG, (tag: string, raw: string = "") => {
+      if ((attributes(raw).slug ?? "") !== from) return tag;
+      const next = raw.replace(
+        /(^|\s)(slug\s*=\s*)(?:"[^"]*"|'[^']*'|[^\s"'>]+)/i,
+        (_m, lead: string, key: string) => `${lead}${key}"${to}"`,
+      );
+      return tag.replace(raw, () => next);
+    })
+    .replace(
+      /(\sdata-goto\s*=\s*)(?:"([^"]*)"|'([^']*)')/gi,
+      (m: string, key: string, dq?: string, sq?: string) => {
+        const value = dq ?? sq ?? "";
+        // "next" and "prev" are directions, never a mock.
+        if (value === "next" || value === "prev") return m;
+        const colon = value.indexOf(":");
+        const mock = (colon < 0 ? value : value.slice(0, colon)).trim();
+        if (mock !== from) return m;
+        const q = dq === undefined ? "'" : '"';
+        return `${key}${q}${to}${colon < 0 ? "" : value.slice(colon)}${q}`;
+      },
+    );
+}
+
 const escapeAttr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 
 export interface Expanded {

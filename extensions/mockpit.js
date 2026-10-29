@@ -358,6 +358,11 @@ export default function mockpitExtension(pi) {
         ...mockProps,
         title: { type: "string", description: "Mock title" },
         kind: { type: "string", enum: ["component", "page"], description: "Mock kind" },
+        area: {
+          type: "string",
+          description: 'Where in the product it belongs ("Shell"); Home groups by it. "" clears',
+        },
+        source: { type: "string", description: 'Code path that implements it. "" clears' },
         html: { type: "string", description: "HTML body fragment; mark parts with data-part" },
         path: { type: "string", description: "File to read the html from instead" },
         surfaces: surfacesSchema,
@@ -569,6 +574,57 @@ export default function mockpitExtension(pi) {
           {
             type: "text",
             text: `Said on ${params.mock}.${feedbackSummary(result.feedback)}`,
+          },
+        ],
+        details: { ...result, baseUrl: baseUrl() },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "mockpit_edit",
+    label: "Mockpit Edit",
+    description:
+      'Change a mock without a new version: slug, title, kind, area, source ("" clears). A new slug rewrites every embed, data-goto and flow step naming the old one. Or, with rename and no mock, rename the project. Returns feedback.',
+    promptSnippet: "Rename, retitle or reclassify a mockpit mock, or rename the project.",
+    promptGuidelines: [feedbackGuideline],
+    parameters: {
+      type: "object",
+      properties: {
+        mock: { type: "string", description: "Mock slug or id" },
+        project: { type: "string", description: "Project name; defaults to the repo" },
+        slug: { type: "string", description: "New slug" },
+        title: { type: "string", description: "Mock title" },
+        kind: { type: "string", enum: ["page", "component", "sketch"] },
+        area: { type: "string", description: 'Area in the product; "" clears' },
+        source: { type: "string", description: 'Code path that implements it; "" clears' },
+        rename: { type: "string", description: "Without mock: the project's new name" },
+      },
+    },
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const project = projectOf(params, ctx);
+      const { rename, ...fields } = params;
+      if (rename !== undefined && params.mock !== undefined) {
+        throw new Error('"rename" renames the project; edit the mock without it');
+      }
+      const result =
+        rename !== undefined
+          ? await requestJson(`/api/projects/${encodeURIComponent(project)}`, {
+              method: "PATCH",
+              body: JSON.stringify({ name: rename, session: state.sessionId }),
+            })
+          : await requestJson(mockPath(params.mock ?? ""), {
+              method: "PATCH",
+              body: JSON.stringify({ ...fields, project, session: state.sessionId }),
+            });
+      const text = result.renamed
+        ? `renamed ${result.renamed.from} → ${result.renamed.to} · ${result.url}`
+        : `edited ${result.mock.slug} · ${result.url}`;
+      return {
+        content: [
+          {
+            type: "text",
+            text: `${[text, ...(result.nudges ?? []).map((n) => `nudge: ${n}`)].join("\n")}${feedbackSummary(result.feedback)}`,
           },
         ],
         details: { ...result, baseUrl: baseUrl() },

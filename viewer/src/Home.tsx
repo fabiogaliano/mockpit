@@ -20,13 +20,22 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
+import { Dynamic } from "solid-js/web";
 import type { FlowStep } from "../../server/types.ts";
 import { api, type MockSummary, subscribe, surfaceUrl, type TreeNode } from "./api.ts";
 import { setCarried } from "./carry.ts";
 import { useSwipeAction } from "./gestures.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import { designWidth, nextOwedMock, screenPicture, timeAgo } from "./logic.ts";
+import {
+  type AreaGroup,
+  designWidth,
+  flowArea,
+  groupByArea,
+  nextOwedMock,
+  screenPicture,
+  timeAgo,
+} from "./logic.ts";
 import {
   type HomeView,
   linkClick,
@@ -78,6 +87,13 @@ export function Home(props: { project: string | null; view: HomeView | null }) {
   const sketches = createMemo(() => nodes().filter((n) => n.kind === "sketch"));
   const rows = createMemo<Row[]>(() =>
     (tree()?.flows ?? []).map((f) => ({ name: f.name, flow: f.name, steps: f.steps })),
+  );
+  const areaOf = (n: TreeNode) => n.area;
+  const pageGroups = createMemo(() => groupByArea(pages(), areaOf));
+  const componentGroups = createMemo(() => groupByArea(components(), areaOf));
+  const sketchGroups = createMemo(() => groupByArea(sketches(), areaOf));
+  const flowGroups = createMemo(() =>
+    groupByArea(rows(), (r) => flowArea(r.steps, (slug) => bySlug().get(slug)?.area)),
   );
   const shown = createMemo(() => {
     const count: Record<HomeView, number> = {
@@ -335,13 +351,13 @@ export function Home(props: { project: string | null; view: HomeView | null }) {
           </Show>
 
           <Show when={view() === "flows"}>
-            <For each={rows()}>
-              {(row) => (
+            <Areas groups={flowGroups()}>
+              {(row, h) => (
                 <section class="home-sec">
-                  <h2>
+                  <Dynamic component={h}>
                     {row.name}
                     <span>{`${row.steps.length} ${row.steps.length === 1 ? "step" : "steps"}`}</span>
-                  </h2>
+                  </Dynamic>
                   <div class="home-flow">
                     <For each={row.steps}>
                       {(x, i) => (
@@ -368,48 +384,58 @@ export function Home(props: { project: string | null; view: HomeView | null }) {
                   </div>
                 </section>
               )}
-            </For>
+            </Areas>
           </Show>
 
           <Show when={view() === "pages"}>
-            <For each={pages()}>
-              {(n) => (
+            <Areas groups={pageGroups()}>
+              {(n, h) => (
                 <section class="home-sec">
-                  <h2>{n.title}</h2>
+                  <Dynamic component={h}>
+                    {n.title}
+                    <Show when={n.source}>{(src) => <span class="home-src">{src()}</span>}</Show>
+                  </Dynamic>
                   <div class="home-states">
                     <For each={n.states}>{(state) => screen(n, state, null, state ?? n.title)}</For>
                   </div>
                 </section>
               )}
-            </For>
+            </Areas>
           </Show>
 
           <Show when={view() === "components"}>
-            <div class="home-comps">
-              <For each={components()}>
-                {(n) =>
-                  screen(
-                    n,
-                    n.inUse[0]?.state ?? n.states[0] ?? null,
-                    null,
-                    <>
-                      <b>{n.title}</b>
-                      <Show when={n.usedIn.length}>
-                        {`in ${n.usedIn.length} ${n.usedIn.length === 1 ? "screen" : "screens"}`}
-                      </Show>
-                    </>,
-                  )
-                }
-              </For>
-            </div>
+            <Areas groups={componentGroups()} grid>
+              {(n) =>
+                screen(
+                  n,
+                  n.inUse[0]?.state ?? n.states[0] ?? null,
+                  null,
+                  <>
+                    <b>{n.title}</b>
+                    <Show when={n.usedIn.length}>
+                      {`in ${n.usedIn.length} ${n.usedIn.length === 1 ? "screen" : "screens"}`}
+                    </Show>
+                    <Show when={n.source}>{(src) => <span class="home-src">{src()}</span>}</Show>
+                  </>,
+                )
+              }
+            </Areas>
           </Show>
 
           <Show when={view() === "sketches"}>
-            <div class="home-comps">
-              <For each={sketches()}>
-                {(n) => screen(n, n.inUse[0]?.state ?? n.states[0] ?? null, null, <b>{n.title}</b>)}
-              </For>
-            </div>
+            <Areas groups={sketchGroups()} grid>
+              {(n) =>
+                screen(
+                  n,
+                  n.inUse[0]?.state ?? n.states[0] ?? null,
+                  null,
+                  <>
+                    <b>{n.title}</b>
+                    <Show when={n.source}>{(src) => <span class="home-src">{src()}</span>}</Show>
+                  </>,
+                )
+              }
+            </Areas>
           </Show>
         </Show>
       </main>
@@ -428,6 +454,42 @@ export function Home(props: { project: string | null; view: HomeView | null }) {
         )}
       </Show>
     </div>
+  );
+}
+
+// A tab's rows under their area headings; with no area named, just the rows,
+// as before areas. `heading` is the level a row's own title takes under them.
+function Areas<T>(props: {
+  groups: AreaGroup<T>[];
+  // Rows laid out as a grid of pictures (components, sketches), one per area.
+  grid?: boolean;
+  children: (row: T, heading: "h2" | "h3") => JSX.Element;
+}) {
+  const grouped = () => props.groups.some((g) => g.area !== null);
+  const rows = (g: AreaGroup<T>) => {
+    const list = <For each={g.rows}>{(row) => props.children(row, grouped() ? "h3" : "h2")}</For>;
+    return props.grid ? <div class="home-comps">{list}</div> : list;
+  };
+  return (
+    <For each={props.groups}>
+      {(g) => (
+        <Show
+          when={g.area}
+          fallback={
+            <Show when={grouped()} fallback={rows(g)}>
+              <div class="home-area home-area-rest">{rows(g)}</div>
+            </Show>
+          }
+        >
+          {(area) => (
+            <section class="home-area">
+              <h2 class="home-area-hd">{area()}</h2>
+              {rows(g)}
+            </section>
+          )}
+        </Show>
+      )}
+    </For>
   );
 }
 
@@ -557,6 +619,9 @@ function MockRow(props: {
             <div class="home-name">{props.mock.title}</div>
             <div class="home-sub">
               {props.mock.stateCount === 1 ? "1 state" : `${props.mock.stateCount} states`}
+              <Show when={props.mock.source}>
+                {(src) => <span class="home-src">{` · ${src()}`}</span>}
+              </Show>
               <Show when={props.mock.resolvedAt}>{(at) => ` · resolved ${timeAgo(at())}`}</Show>
               <Show when={props.mock.drafted !== undefined && props.mock.open > 0}>
                 <span class="home-draft" title="Answered, not sent yet">

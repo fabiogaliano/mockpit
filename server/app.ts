@@ -10,6 +10,7 @@ import {
   mockDetailView,
   treeNodeView,
   mockSummaryView,
+  placeOf,
   sessionRowView,
   surfaceRef,
 } from "./apiViews.ts";
@@ -394,6 +395,7 @@ const fail = (status: number, error: string, extra: Record<string, unknown> = {}
 });
 
 const MAX_NOTE = 400;
+const MAX_SOURCE = 1024;
 const MAX_WIDTHS = 4;
 const MIN_WIDTH = 280;
 const MAX_WIDTH = 2560;
@@ -1276,6 +1278,7 @@ export function createApp({
           slug: mock.slug,
           title: mock.title,
           kind: mock.kind,
+          ...placeOf(mock),
           states: mock.states,
         },
         post: {
@@ -1369,6 +1372,10 @@ export function createApp({
     const note = body.note === undefined ? undefined : (str(body.note, MAX_NOTE) ?? "");
     const widths = widthsArg(body.widths);
     if (isResult(widths)) return widths;
+    const area = labelArg(body, "area", MAX_LABEL);
+    if (isResult(area)) return area;
+    const source = labelArg(body, "source", MAX_SOURCE);
+    if (isResult(source)) return source;
 
     // An existing mock is addressable by id before a session exists.
     let mock: Mock | null = null;
@@ -1520,6 +1527,8 @@ export function createApp({
           slug,
           title: title ?? titleFromSlug(slug),
           kind: kind ?? "sketch",
+          ...(area === undefined ? {} : { area }),
+          ...(source === undefined ? {} : { source }),
           states: state === null ? [] : [state],
           knobs: knobs.value,
           ...(widths ? { widths } : {}),
@@ -1553,6 +1562,8 @@ export function createApp({
         title,
         knobs: knobs.value,
         widths,
+        area,
+        source,
         session,
       });
       const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
@@ -1577,7 +1588,15 @@ export function createApp({
     });
     if (!updated) return fail(404, "variant not found");
     const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
-    mock = await updateMockAfterWrite(mock, { state, kind, knobs: knobs.value, widths, session });
+    mock = await updateMockAfterWrite(mock, {
+      state,
+      kind,
+      knobs: knobs.value,
+      widths,
+      area,
+      source,
+      session,
+    });
     announcePost(mock, updated, false);
     if (prompt && ctx.request) notifyPublish(mock, updated, prompt, ctx);
     return writeResult(mock, updated, ctx, {
@@ -1674,6 +1693,16 @@ export function createApp({
     return version === undefined ? { variant } : { variant, version };
   }
 
+  // An optional free-text field of the mock (`area`, `source`): absent keeps
+  // it, "" or null clears it.
+  function labelArg(body: any, key: string, max: number): string | null | undefined | FlowResult {
+    const v = body?.[key];
+    if (v === undefined) return undefined;
+    if (v === null) return null;
+    if (typeof v !== "string") return fail(400, `"${key}" must be a string; "" clears it`);
+    return str(v, max) ?? null;
+  }
+
   // `widths`: the device widths the mock is judged at, in the agent's order;
   // [] hands the choice back to the viewer.
   function widthsArg(v: unknown): number[] | FlowResult | undefined {
@@ -1723,6 +1752,8 @@ export function createApp({
       title?: string;
       knobs: Knobs;
       widths?: number[];
+      area?: string | null;
+      source?: string | null;
       session: Session | null;
     },
   ): Promise<Mock> {
@@ -1735,6 +1766,8 @@ export function createApp({
       ...(w.title ? { title: w.title } : {}),
       ...(knobs ? { knobs } : {}),
       ...(w.widths ? { widths: w.widths } : {}),
+      ...(w.area === undefined ? {} : { area: w.area }),
+      ...(w.source === undefined ? {} : { source: w.source }),
       ...(w.session ? { sessionId: w.session.id } : {}),
     });
     if (!updated) return mock;
@@ -2895,6 +2928,131 @@ export function createApp({
     return ok({ ok: true });
   }
 
+  // A write's feedback for the session that made it, when it named one: an
+  // edit needs no session, so without one there is no cursor to read from.
+  const feedbackFor = async (session: unknown, base: string): Promise<FeedbackBatch[]> =>
+    typeof session === "string" && session ? collectFeedback(session, base) : [];
+
+  // `edit`: a mock's own fields, without a new version. A new slug rewrites
+  // every reference to the old one in the project (store.renameMock), so pages
+  // keep showing it and flows keep walking it.
+  async function editMockFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
+    const given = ["slug", "title", "kind", "area", "source"].filter((k) => body[k] !== undefined);
+    if (given.length === 0) {
+      return fail(400, 'provide one of "slug", "title", "kind", "area" or "source"');
+    }
+    const mock = await resolveMock(ref, body.project, body.session);
+    if (isResult(mock)) return mock;
+    const slugIn = body.slug === undefined ? undefined : str(body.slug, MAX_TITLE);
+    if (body.slug !== undefined && !slugIn)
+      return fail(400, '"slug" must name the mock, e.g. "onni"');
+    const slug = slugIn === undefined ? undefined : slugify(slugIn);
+    const title = str(body.title, MAX_TITLE);
+    if (body.title !== undefined && !title) return fail(400, '"title" must be non-empty text');
+    if (body.kind !== undefined && !isMockKind(body.kind)) {
+      return fail(400, '"kind" must be page, component or sketch');
+    }
+    const kind: MockKind | undefined = body.kind;
+    const area = labelArg(body, "area", MAX_LABEL);
+    if (isResult(area)) return area;
+    const source = labelArg(body, "source", MAX_SOURCE);
+    if (isResult(source)) return source;
+
+    const renaming = slug !== undefined && slug !== mock.slug;
+    if (renaming && (await store.findMock(mock.project, slug))) {
+      return fail(409, `${mock.project} already has a mock "${slug}"; pick another slug`);
+    }
+    // Being embedded is what makes a mock a component: a sketch that is still
+    // embedded would be promoted back on its embedder's next publish.
+    if (kind === "sketch" && mock.kind !== "sketch") {
+      const embedders = await embeddersOf(mock.project, mock.slug);
+      if (embedders.length) {
+        return fail(
+          409,
+          `${mock.slug} is embedded in ${embedders.map((m) => m.slug).join(", ")}; being embedded makes it a component. Take the embeds out first`,
+          { embeddedIn: embedders.map((m) => m.slug) },
+        );
+      }
+    }
+
+    let next: Mock = mock;
+    // The rename goes first: it is the part that can still lose a race for the slug.
+    if (renaming) {
+      const renamed = await store.renameMock(mock.id, slug);
+      if (!renamed) return fail(409, `${mock.project} already has a mock "${slug}"`);
+      next = renamed;
+      clearRenderCache();
+    }
+    if (title !== undefined || kind !== undefined || area !== undefined || source !== undefined) {
+      next =
+        (await store.updateMock(mock.id, {
+          ...(title === undefined ? {} : { title }),
+          ...(kind === undefined ? {} : { kind }),
+          ...(area === undefined ? {} : { area }),
+          ...(source === undefined ? {} : { source }),
+        })) ?? next;
+    }
+    bus.broadcast({ type: "mock-updated", id: next.id, project: next.project });
+    if (renaming) await announceEmbedders(next);
+
+    // Flows are declared apart from kind, so a page that stops being one stays
+    // in them until the agent takes it out.
+    const nudges: string[] = [];
+    if (kind !== undefined && kind !== "page" && mock.kind === "page") {
+      for (const f of await store.listFlows(next.project)) {
+        if (!f.steps.some((x) => x.mock === next.slug)) continue;
+        nudges.push(
+          `${next.slug} is still a step of flow "${f.name}"; publish it with flow "${f.name}" and step 0 to take it out`,
+        );
+      }
+    }
+    return ok({
+      mock: {
+        id: next.id,
+        project: next.project,
+        slug: next.slug,
+        title: next.title,
+        kind: next.kind,
+        ...placeOf(next),
+        states: next.states,
+      },
+      ...(renaming ? { renamed: { from: mock.slug, to: next.slug } } : {}),
+      url: mockUrl(ctx.base, next),
+      ...(nudges.length ? { nudges } : {}),
+      feedback: await feedbackFor(body.session, ctx.base),
+    });
+  }
+
+  // `edit` on a project: a new name for it, carrying its mocks, sessions,
+  // flows and design settings. Refused onto a project that already has mocks.
+  async function renameProjectFlow(
+    name: unknown,
+    body: any,
+    ctx: FlowContext,
+  ): Promise<FlowResult> {
+    if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
+    const from = str(name, MAX_TITLE);
+    if (!from) return fail(400, "provide the project to rename");
+    const to = str(body.name, MAX_TITLE);
+    if (!to) return fail(400, 'provide "name": the project\'s new name');
+    if (to === from) return fail(400, `${from} already has that name`);
+    const mocks = await store.listMocks(from);
+    if (mocks.length === 0) return fail(404, `no project "${from}" with mocks`);
+    if (!(await store.renameProject(from, to))) {
+      return fail(409, `${to} already has mocks; pick another name`);
+    }
+    clearRenderCache();
+    for (const m of mocks) bus.broadcast({ type: "mock-updated", id: m.id, project: to });
+    return ok({
+      project: to,
+      renamed: { from, to },
+      mocks: mocks.length,
+      url: `${ctx.base}/project/${encodeURIComponent(to)}`,
+      feedback: await feedbackFor(body.session, ctx.base),
+    });
+  }
+
   // --- comments ---
 
   function numberInRange(value: unknown, min: number, max: number): number | null {
@@ -3699,6 +3857,17 @@ export function createApp({
     );
   });
 
+  app.patch("/api/mocks/:id", async (c) => {
+    const body = await jsonBody(c);
+    // A slug names its project in the body or, as on the reads, in the query.
+    const project = c.req.query("project");
+    const withProject =
+      body && typeof body === "object" && body.project === undefined && project
+        ? { ...body, project }
+        : body;
+    return send(c, await editMockFlow(c.req.param("id"), withProject, flowCtx(c)));
+  });
+
   app.delete("/api/mocks/:id", async (c) =>
     send(c, await removeMockFlow(c.req.param("id"), { project: c.req.query("project") })),
   );
@@ -3895,6 +4064,9 @@ export function createApp({
   // every html surface of the project (see renderHtmlPage).
   app.get("/api/projects/:name/tree", async (c) =>
     send(c, await treeFlow({ project: c.req.param("name") })),
+  );
+  app.patch("/api/projects/:name", async (c) =>
+    send(c, await renameProjectFlow(c.req.param("name"), await jsonBody(c), flowCtx(c))),
   );
   app.get("/api/projects/:name/design", async (c) => c.json(await designFor(c.req.param("name"))));
 
@@ -4679,6 +4851,8 @@ export function createApp({
     exportMock: (ref, query, ctx) => exportFlow(ref, query, ctx),
     say: (ref, body, ctx) => sayFlow(ref, body, ctx),
     feedback: (query, ctx) => feedbackFlow(query, ctx),
+    edit: (ref, body, ctx) => editMockFlow(ref, body, ctx),
+    renameProject: (name, body, ctx) => renameProjectFlow(name, body, ctx),
   };
   const guide = (project: string, topic?: GuideTopic) =>
     topic ? (topics[topic] ?? "") : briefFor(project);

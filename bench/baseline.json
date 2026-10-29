@@ -1343,15 +1343,15 @@
       "name": "MCP catalog chars (default)",
       "kind": "count",
       "unit": "count",
-      "value": 8690,
-      "note": "8 tools"
+      "value": 9702,
+      "note": "9 tools"
     },
     {
       "suite": "api",
       "name": "MCP catalog chars (mode=code)",
       "kind": "count",
       "unit": "count",
-      "value": 5274,
+      "value": 5548,
       "note": "1 tools"
     },
     {

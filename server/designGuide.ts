@@ -302,8 +302,12 @@ you use adds its tab to Home:
   decision on it reaches every page it is in. Topic \`surfaces\` has the
   details.
 
-A sketch that becomes a screen is promoted by publishing it again with
-\`--kind page\` (and \`--flow\`).
+A product with several parts names them: \`--area Shell\` (the project's own
+words) groups each Home tab by area, and \`--source apps/web/src/shell\` says
+which code implements the mock. A sketch that becomes a screen is promoted
+with \`mockpit edit --mock <slug> --kind page\` (no new version), and
+\`--slug\`, \`--title\`, \`--area\` and \`--source\` change the same way; a new
+slug rewrites every embed and flow step that names the old one.
 
 ## Ask, slot or knob
 

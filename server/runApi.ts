@@ -44,11 +44,13 @@ declare const mockpit: {
   /** Creates or versions (mock, state, variant). One of: html; surfaces, the full ordered list
    * ({id} alone keeps that surface, a missing id is removed); parts {"name"|"name#key": outer html};
    * fills {"part#fill": outer html}, replacing or adding one alternative of a slot. */
-  publish(v: Ref & { title?: string; kind?: "page" | "component" | "sketch"; html?: string; surfaces?: (Surface | { id: string })[]; parts?: Record<string, string>; fills?: Record<string, string>; knobs?: Knobs; variantKnobs?: Knobs; from?: number; prompt?: string; note?: string; widths?: number[]; flow?: string; step?: number }): Promise<Written>;
+  publish(v: Ref & { title?: string; kind?: "page" | "component" | "sketch"; area?: string; source?: string; html?: string; surfaces?: (Surface | { id: string })[]; parts?: Record<string, string>; fills?: Record<string, string>; knobs?: Knobs; variantKnobs?: Knobs; from?: number; prompt?: string; note?: string; widths?: number[]; flow?: string; step?: number }): Promise<Written>;
   ask(mock: string, asks: Ask[]): Promise<{ asks: { id: string; text: string }[]; url: string; nudges?: string[] }>;
   /** Never waits: what the user sent since you last heard, and what they are doing now. */
   feedback(): Promise<{ feedback: Feedback[]; pending: Pending[] }>;
   say(v: Ref, message: string): Promise<void>;
+  /** No new version; "" clears. { rename } alone renames the project. */
+  edit(v: { mock?: string; slug?: string; title?: string; kind?: string; area?: string; source?: string; rename?: string }): Promise<{ url: string }>;
   export(v: Ref): Promise<{ states: { state: string | null; variant: string; version: number; html: string }[]; reply: unknown }>;
   /** data: base64 bytes. Use id as an image surface's assetId. */
   upload(data: string, opts: { contentType: string; filename?: string; kind?: "image" | "file" }): Promise<{ id: string; url: string }>;
@@ -63,6 +65,7 @@ export const RUN_FUNCTIONS = [
   "ask",
   "feedback",
   "say",
+  "edit",
   "export",
   "upload",
 ] as const;

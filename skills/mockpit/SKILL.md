@@ -25,7 +25,10 @@ The loop never waits for the user:
    for a screen, `--flow <name> --step N` for screens the user moves between,
    and each reusable piece as its own mock embedded with
    `<mockpit-embed slug="card">` (that makes it a component). Sketches,
-   diagrams and reviews stay plain.
+   diagrams and reviews stay plain. `--area <name>` groups Home by the
+   product's parts; `--source <path>` names the code that implements it.
+   `mockpit edit --mock <slug>` changes slug, title, kind, area or source
+   without a new version.
 3. A choice is several variants plus one ask that binds them: `mockpit ask`
    with options bound to variants. A variant decides everything it differs on;
    don't re-ask it. Visual options carry a `variant` or knob `set`. One render

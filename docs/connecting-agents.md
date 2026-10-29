@@ -36,10 +36,10 @@ mockpit run loop.js                            # publish and ask in one script
 
 ## Pi extension
 
-Pi users can install the package directly. It adds the nine verbs as native
+Pi users can install the package directly. It adds the ten verbs as native
 tools (`mockpit_publish`, `mockpit_ask`, `mockpit_read`, `mockpit_feedback`,
-`mockpit_say`, `mockpit_export`, `mockpit_upload`, `mockpit_guide`,
-`mockpit_run`):
+`mockpit_say`, `mockpit_edit`, `mockpit_export`, `mockpit_upload`,
+`mockpit_guide`, `mockpit_run`):
 
 ```sh
 pi install npm:mockpit
@@ -49,8 +49,8 @@ pi -e npm:mockpit
 
 ## MCP
 
-Tools: `publish`, `ask`, `read`, `feedback`, `say`, `export`, `upload`,
-`guide`; the server name is the namespace. Connect over stdio or straight to
+Tools: `publish`, `ask`, `read`, `feedback`, `say`, `edit`, `export`,
+`upload`, `guide`; the server name is the namespace. Connect over stdio or straight to
 the server at `/mcp`:
 
 ```sh

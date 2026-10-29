@@ -336,6 +336,24 @@ test("a workspace from before flows opens with none and can declare one", async 
   assert.equal((await reopened.findMock("demo", "home"))?.states[0], "rest");
 });
 
+test("a workspace from before areas opens with none and can set them", async () => {
+  const path = tmpDb();
+  const store = new SqlStore(createSqliteStorage(path));
+  const mock = await store.createMock({ project: "demo", slug: "home", kind: "page" });
+  // The schema the previous release left: no area or source column.
+  const old = createSqliteStorage(path);
+  old.exec("ALTER TABLE mocks DROP COLUMN area");
+  old.exec("ALTER TABLE mocks DROP COLUMN source");
+  const reopened = new SqlStore(createSqliteStorage(path));
+  const read = await reopened.getMock(mock.id);
+  assert.equal(read?.area, null);
+  assert.equal(read?.source, null);
+  assert.equal(read?.kind, "page");
+  const set = await reopened.updateMock(mock.id, { area: "Shell", source: "apps/web/src" });
+  assert.equal(set?.area, "Shell");
+  assert.equal((await reopened.getMock(mock.id))?.source, "apps/web/src");
+});
+
 test("a workspace from before sketches keeps only the components in use", async () => {
   const path = tmpDb();
   const store = new SqlStore(createSqliteStorage(path));

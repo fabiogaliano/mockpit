@@ -66,6 +66,8 @@ verbs:
                         the latest version (repeatable)
       --title <t>       mock title
       --kind <k>        page|component, only for an app's screens (default sketch)
+      --area <name>     where in the product it belongs ("Shell"); Home groups by it
+      --source <path>   the code path that implements it
       --knobs <json|file>  knobs in tunekit usePane shape, keyed by path
       --from <N>        branch from version N
       --prompt <text>   what prompted this version
@@ -95,6 +97,10 @@ verbs:
                                           plus pending; returns at once
   mockpit say "<text>" --mock <slug> [--state s] [--variant v]
                                           a plain-text message in a mock's thread
+  mockpit edit --mock <slug> [--slug s] [--title t] [--kind k] [--area a] [--source p]
+                                          change a mock without a new version ("" clears)
+  mockpit edit --project <name> --rename <new>
+                                          rename a project
   mockpit export --mock <slug> [--state s] [--variant v] [--out <dir>]
                                           write the accepted html + history per state
                                           to .mockpit/accepted/<mock>/<state>/
@@ -177,6 +183,9 @@ mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
   --kind <k>         page|component|sketch: page for a screen of the product,
                      component for a piece pages embed (embedding makes one);
                      omit for sketches, diagrams, reviews (default sketch)
+  --area <name>      where in the product it belongs, in the project's words
+                     ("Shell", "Food"); Home groups each tab by it. "" clears
+  --source <path>    the code path that implements it (apps/web/src/shell). "" clears
   --knobs <json|file>  knobs in tunekit usePane shape
   --from <N>         branch from version N
   --fork <v[@N]>     start this new variant from sibling v (its version N, else
@@ -219,6 +228,15 @@ mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
   answered.`,
   say: `mockpit say "<text>" --mock <slug> [--state s] [--variant v]
   A plain-text message in the mock's thread, as your session's agent.`,
+  edit: `mockpit edit --mock <slug> [--slug <new>] [--title <t>] [--kind page|component|sketch]
+  [--area <name>|""] [--source <path>|""] [--project <name>]
+mockpit edit --project <name> --rename <new name>
+  Change a mock without publishing a new version; "" clears area or source. A new
+  slug rewrites every embed, data-goto and flow step that names the old one, in
+  every version. A mock still embedded somewhere stays a component, not a sketch.
+  --rename moves the project's mocks, sessions, flows and design settings to the
+  new name (refused if that project has mocks); pass --project <new> or set
+  MOCKPIT_PROJECT afterwards if the repo still resolves to the old name.`,
   run: `mockpit run <file|-> [--session <id>] [--project <name>] [--json]
   Run a script (the body of an async function, plain JavaScript) in the server's
   sandbox against the mockpit API; see mockpit guide --topic scripts. Prints each
@@ -883,6 +901,8 @@ function parsePublishFlags() {
       ...MOCK_FLAGS,
       title: { type: "string" },
       kind: { type: "string" },
+      area: { type: "string" },
+      source: { type: "string" },
       html: { type: "string" },
       surfaces: { type: "string" },
       parts: { type: "string", multiple: true },
@@ -1004,6 +1024,8 @@ async function publishMock() {
     variant: flags.variant,
     title: flags.title,
     kind: flags.kind,
+    area: flags.area,
+    source: flags.source,
     ...(flags.knobs !== undefined && { knobs: readJsonFlag("knobs", flags.knobs) }),
     ...(from !== undefined && { from }),
     ...(flags.fork !== undefined && { fork: flags.fork }),
@@ -1537,7 +1559,7 @@ const commands = {
     for (const m of mocks) {
       const states = m.states.length ? m.states.join(" / ") : "single state";
       console.log(
-        `  ${m.slug} · ${m.kind} · ${states} · ${m.variants} variant${m.variants === 1 ? "" : "s"}${m.resolvedAt ? " · resolved" : m.open ? ` · ${m.open} open` : ""}`,
+        `  ${m.slug} · ${m.kind}${m.area ? ` · ${m.area}` : ""} · ${states} · ${m.variants} variant${m.variants === 1 ? "" : "s"}${m.resolvedAt ? " · resolved" : m.open ? ` · ${m.open} open` : ""}`,
       );
     }
     for (const flow of list.flows ?? []) console.log(`  ${flowLine(flow)}`);
@@ -1712,6 +1734,81 @@ const commands = {
     if (flags.json) return out(result);
     if (flags.quiet) return;
     console.log(`said on ${slug}`);
+    printFeedback(result.feedback);
+  },
+  async edit() {
+    const { values: flags } = parse({
+      options: {
+        mock: { type: "string" },
+        project: { type: "string" },
+        session: { type: "string" },
+        slug: { type: "string" },
+        title: { type: "string" },
+        kind: { type: "string" },
+        area: { type: "string" },
+        source: { type: "string" },
+        rename: { type: "string" },
+      },
+    });
+    const project = resolveProject(flags).name;
+    const session = (await resolveSession(flags)) ?? undefined;
+    if (flags.rename !== undefined) {
+      if (flags.mock) {
+        die("--rename renames the project; edit the mock without it", "mockpit edit --help");
+      }
+      if (!flags.rename.trim()) die("--rename needs the new name", `mockpit edit --rename <name>`);
+      const result = await api(
+        projectPath(project),
+        { method: "PATCH", body: JSON.stringify({ name: flags.rename, session }) },
+        { report: "die", fix: "mockpit read" },
+      );
+      if (flags.json) return out(result);
+      if (flags.quiet) return;
+      console.log(
+        `renamed project ${result.renamed.from} → ${result.renamed.to} · ${result.mocks} mock${result.mocks === 1 ? "" : "s"} · ${result.url}`,
+      );
+      if (!flags.project && !process.env.MOCKPIT_PROJECT) {
+        console.log(
+          `note: this repo still resolves to "${project}"; pass --project ${shq(result.project)} or set MOCKPIT_PROJECT`,
+        );
+      }
+      printFeedback(result.feedback);
+      return;
+    }
+    const slug = requireMock(flags, "mockpit edit --mock writer --area Shell");
+    const fields = ["slug", "title", "kind", "area", "source"].filter(
+      (k) => flags[k] !== undefined,
+    );
+    if (!fields.length) {
+      die("edit needs --slug, --title, --kind, --area or --source", "mockpit edit --help");
+    }
+    const result = await api(
+      mockPath(slug),
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          project,
+          session,
+          ...Object.fromEntries(fields.map((k) => [k, flags[k]])),
+        }),
+      },
+      { report: "die", fix: `mockpit read ${slug}` },
+    );
+    if (flags.json) return out(result);
+    if (flags.quiet) return;
+    const m = result.mock;
+    console.log(
+      [
+        result.renamed ? `${result.renamed.from} → ${m.slug}` : m.slug,
+        m.kind,
+        m.area && `area ${m.area}`,
+        m.source && `source ${m.source}`,
+        result.url,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    );
+    for (const nudge of result.nudges ?? []) console.log(`nudge: ${nudge}`);
     printFeedback(result.feedback);
   },
   async demo() {

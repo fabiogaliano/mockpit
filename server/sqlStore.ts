@@ -48,8 +48,12 @@ import {
   type UpdateMockInput,
   type UpdatePostInput,
 } from "./types.ts";
+import { renameSlugRefs } from "./embeds.ts";
 
 type Row = Record<string, SqlStorageValue>;
+
+// An optional free-text label: blank means none.
+const label = (v: string | null | undefined): string | null => stripNul(v ?? "").trim() || null;
 
 function parseJson<T>(raw: SqlStorageValue, fallback: T): T {
   if (typeof raw !== "string" || !raw) return fallback;
@@ -169,7 +173,12 @@ export class SqlStore implements Store {
       key: "TEXT",
       agentActiveAt: "TEXT",
     });
-    this.addMissing("mocks", { widths: "TEXT NOT NULL DEFAULT '[]'", resolvedAt: "TEXT" });
+    this.addMissing("mocks", {
+      widths: "TEXT NOT NULL DEFAULT '[]'",
+      resolvedAt: "TEXT",
+      area: "TEXT",
+      source: "TEXT",
+    });
     if (legacy) this.migrateLegacy();
     // After the legacy lift, which rebuilds posts from POST_COLUMNS alone.
     const pinned = this.columns("posts").has("acceptedVersion");
@@ -586,6 +595,8 @@ export class SqlStore implements Store {
       slug: r.slug as string,
       title: r.title as string,
       kind: isMockKind(r.kind) ? r.kind : "sketch",
+      area: (r.area as string) ?? null,
+      source: (r.source as string) ?? null,
       states: parseJson<string[]>(r.states, []),
       asks: parseJson<Ask[]>(r.asks, []),
       knobs: parseJson<Knobs>(r.knobs, {}),
@@ -861,6 +872,8 @@ export class SqlStore implements Store {
       slug: slugify(stripNul(input.slug)),
       title: stripNul(input.title)?.trim() || input.slug,
       kind: isMockKind(input.kind) ? input.kind : "sketch",
+      area: label(input.area),
+      source: label(input.source),
       states: (input.states ?? []).map((s) => stripNul(s)),
       asks: [],
       knobs: input.knobs ?? {},
@@ -872,12 +885,14 @@ export class SqlStore implements Store {
       updatedAt: now,
     };
     this.sql.exec(
-      "INSERT INTO mocks (id, project, slug, title, kind, states, asks, knobs, widths, draft, sessionId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, '[]', ?, ?, NULL, ?, ?, ?)",
+      "INSERT INTO mocks (id, project, slug, title, kind, area, source, states, asks, knobs, widths, draft, sessionId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, NULL, ?, ?, ?)",
       mock.id,
       mock.project,
       mock.slug,
       mock.title,
       mock.kind,
+      mock.area,
+      mock.source,
       JSON.stringify(mock.states),
       JSON.stringify(mock.knobs),
       JSON.stringify(mock.widths),
@@ -895,6 +910,8 @@ export class SqlStore implements Store {
       ...mock,
       ...(patch.title !== undefined && { title: stripNul(patch.title).trim() || mock.title }),
       ...(patch.kind !== undefined && { kind: patch.kind }),
+      ...(patch.area !== undefined && { area: label(patch.area) }),
+      ...(patch.source !== undefined && { source: label(patch.source) }),
       ...(patch.states !== undefined && { states: patch.states.map((s) => stripNul(s)) }),
       ...(patch.asks !== undefined && { asks: patch.asks }),
       ...(patch.knobs !== undefined && { knobs: patch.knobs }),
@@ -904,9 +921,11 @@ export class SqlStore implements Store {
       updatedAt: new Date().toISOString(),
     };
     this.sql.exec(
-      "UPDATE mocks SET title = ?, kind = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, resolvedAt = ?, updatedAt = ? WHERE id = ?",
+      "UPDATE mocks SET title = ?, kind = ?, area = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, resolvedAt = ?, updatedAt = ? WHERE id = ?",
       next.title,
       next.kind,
+      next.area,
+      next.source,
       JSON.stringify(next.states),
       JSON.stringify(next.asks),
       JSON.stringify(next.knobs),
@@ -938,6 +957,101 @@ export class SqlStore implements Store {
     });
     this.invalidateAssetRefs();
     return true;
+  }
+
+  async renameMock(id: string, slug: string) {
+    const to = slugify(stripNul(slug));
+    return this.atomic(() => {
+      const rows = this.sql.exec("SELECT * FROM mocks WHERE id = ?", id).toArray();
+      if (rows.length === 0) return null;
+      const mock = this.rowToMock(rows[0]);
+      const from = mock.slug;
+      if (to === from) return mock;
+      const taken = this.sql
+        .exec("SELECT id FROM mocks WHERE project = ? AND slug = ?", mock.project, to)
+        .toArray();
+      if (taken.length > 0) return null;
+      const updatedAt = new Date().toISOString();
+      this.sql.exec("UPDATE mocks SET slug = ?, updatedAt = ? WHERE id = ?", to, updatedAt, id);
+      // History is rewritten too: embeds resolve by slug at render time, so an
+      // old version left naming the old slug would show its components missing.
+      const rewrite = (raw: SqlStorageValue): string | null => {
+        let changed = false;
+        const next = parseJson<Surface[]>(raw, []).map((x) => {
+          if (x.kind !== "html") return x;
+          const html = renameSlugRefs(x.html, from, to);
+          if (html === x.html) return x;
+          changed = true;
+          return { ...x, html };
+        });
+        return changed ? JSON.stringify(next) : null;
+      };
+      const posts = this.sql
+        .exec(
+          "SELECT id, surfaces, slots FROM posts WHERE mockId IN (SELECT id FROM mocks WHERE project = ?)",
+          mock.project,
+        )
+        .toArray();
+      for (const r of posts) {
+        const postId = r.id as string;
+        const surfaces = rewrite(r.surfaces);
+        if (surfaces) this.sql.exec("UPDATE posts SET surfaces = ? WHERE id = ?", surfaces, postId);
+        const embeds = parseJson<Embed[]>(r.slots, []);
+        if (embeds.some((e) => e.slug === from)) {
+          this.sql.exec(
+            "UPDATE posts SET slots = ? WHERE id = ?",
+            JSON.stringify(embeds.map((e) => (e.slug === from ? { ...e, slug: to } : e))),
+            postId,
+          );
+        }
+        for (const v of this.sql
+          .exec("SELECT version, surfaces FROM post_versions WHERE postId = ?", postId)
+          .toArray()) {
+          const old = rewrite(v.surfaces);
+          if (!old) continue;
+          this.sql.exec(
+            "UPDATE post_versions SET surfaces = ? WHERE postId = ? AND version = ?",
+            old,
+            postId,
+            v.version as number,
+          );
+        }
+      }
+      for (const flow of this.flowsOf(mock.project)) {
+        if (!flow.steps.some((x) => x.mock === from)) continue;
+        this.writeFlow(
+          flow,
+          flow.steps.map((x) => (x.mock === from ? { ...x, mock: to } : x)),
+        );
+      }
+      return { ...mock, slug: to, updatedAt };
+    });
+  }
+
+  async renameProject(from: string, to: string) {
+    const target = stripNul(to).trim();
+    return this.atomic(() => {
+      const occupied = this.sql
+        .exec("SELECT COUNT(*) AS n FROM mocks WHERE project = ?", target)
+        .one().n as number;
+      if (occupied > 0) return false;
+      // A project with no mocks has nothing a leftover flow could walk.
+      this.sql.exec("DELETE FROM flows WHERE project = ?", target);
+      this.sql.exec("UPDATE mocks SET project = ? WHERE project = ?", target, from);
+      this.sql.exec("UPDATE sessions SET project = ? WHERE project = ?", target, from);
+      this.sql.exec("UPDATE flows SET project = ? WHERE project = ?", target, from);
+      const design = this.settingSync(`design:${from}`);
+      if (design !== null) {
+        this.sql.exec(
+          "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+          `design:${target}`,
+          design,
+        );
+        this.sql.exec("DELETE FROM settings WHERE key = ?", `design:${from}`);
+        this.invalidateAssetRefs();
+      }
+      return true;
+    });
   }
 
   // --- flows ---
