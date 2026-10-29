@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { createApp } from "./app.ts";
 import { createNodeExecutor } from "./codeRunner.ts";
 import { GUIDE_TOPICS } from "./designGuide.ts";
+import { GUIDE_PACKS } from "./guidance.ts";
 import { createFileLog } from "./logFile.ts";
 import { SqlStore } from "./sqlStore.ts";
 import { createSqliteStorage } from "./sqliteStorage.ts";
@@ -17,7 +18,7 @@ import { createSqliteStorage } from "./sqliteStorage.ts";
 let root = join(dirname(fileURLToPath(import.meta.url)), "..");
 if (basename(root) === "dist") root = join(root, "..");
 
-const [viewerHtml, setupText, topicTexts, pkgJson] = await Promise.all([
+const [viewerHtml, setupText, topicTexts, packTexts, pkgJson] = await Promise.all([
   readFile(join(root, "viewer", "dist", "index.html"), "utf8").catch(() => {
     console.error("viewer build missing — run `npm run build:viewer` first");
     return process.exit(1);
@@ -26,9 +27,11 @@ const [viewerHtml, setupText, topicTexts, pkgJson] = await Promise.all([
   Promise.all(
     GUIDE_TOPICS.map((id) => readFile(join(root, "guide", "topics", `${id}.md`), "utf8")),
   ),
+  Promise.all(GUIDE_PACKS.map((id) => readFile(join(root, "guide", "packs", `${id}.md`), "utf8"))),
   readFile(join(root, "package.json"), "utf8"),
 ]);
 const topics = Object.fromEntries(GUIDE_TOPICS.map((id, i) => [id, topicTexts[i]]));
+const packs = Object.fromEntries(GUIDE_PACKS.map((id, i) => [id, packTexts[i]]));
 
 // What renders surface documents: this server's own files and the locked
 // library versions. Hashed whole rather than picked apart, so an edit in dev or
@@ -64,11 +67,18 @@ const logPath =
     : logSetting || (dbPath === ":memory:" ? undefined : join(dirname(dbPath), "events.jsonl"));
 if (logPath) console.log(`mockpit event log: ${logPath}`);
 
+// The user's own rules live next to the database, so a throwaway or test
+// database never picks up the real ones.
+const rulesPath = dbPath === ":memory:" ? undefined : join(dirname(dbPath), "rules.md");
+const userRules = rulesPath ? () => readFile(rulesPath, "utf8").catch(() => null) : undefined;
+
 const app = createApp({
   store,
   viewerHtml,
   setupText,
   topics,
+  packs,
+  userRules,
   authToken: process.env.MOCKPIT_TOKEN,
   publicRead,
   // MOCKPIT_VERSION fakes the running version (manual testing of the

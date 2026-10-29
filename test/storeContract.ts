@@ -1408,6 +1408,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     await store.placeFlowStep("old", "Morning", { mock: "home", state: null }, 1);
     await store.setSetting("design:old", '{"kit":"none"}');
     await store.setSetting("areaOrder:old", '["Shell","Food"]');
+    await store.setSetting("rules:old", "## Rules\n\n- Orange only means confirm.");
     await store.placeFlowStep("new", "Stale", { mock: "gone", state: null }, 1);
     const busy = await store.createMock({ project: "busy", slug: "x" });
 
@@ -1426,6 +1427,8 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     assert.equal(await store.getSetting("design:old"), null);
     assert.equal(await store.getSetting("areaOrder:new"), '["Shell","Food"]');
     assert.equal(await store.getSetting("areaOrder:old"), null);
+    assert.equal(await store.getSetting("rules:new"), "## Rules\n\n- Orange only means confirm.");
+    assert.equal(await store.getSetting("rules:old"), null);
     assert.equal((await store.getMock(busy.id))?.project, "busy");
   });
 

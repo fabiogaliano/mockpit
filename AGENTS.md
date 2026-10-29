@@ -139,6 +139,12 @@ consciously, not as a side effect):
   mock `mockpit demo` seeds.
 - `workers/index.ts` — Cloudflare entry; one Durable Object runs the whole app.
 - `skills/mockpit/`, `plugin/` + `guide/` — teach agents to use a running mockpit.
+  The brief (`server/designGuide.ts`) is core: how mockpit works, no taste.
+  `server/guidance.ts` layers on top, lowest first: the packs in
+  `guide/packs/` (off until a rules file names them), the user's `rules.md`
+  next to the DB (read live on Node; `userRules` setting on the Worker), the
+  project's `.mockpit/rules.md` (`rules:<project>`, sent by `mockpit rules` /
+  `init`). Design taste goes in a pack, never in core.
 - `scripts/record-demo.mjs` — regenerates the README gif.
 - `scripts/inspect.ts` — read-only diagnosis of real agent sessions (see
   Diagnosing agent sessions below).

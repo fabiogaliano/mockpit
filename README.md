@@ -187,6 +187,21 @@ script against the same verbs on the server, so publishing variants and asking
 take one call; `/mcp?mode=code` serves it as the only tool, for connectors
 without a codemode of their own.
 
+## Guidance
+
+Agents read one brief before their first publish, in layers. Higher wins:
+
+| Layer         | Where                           | Who gets it                           |
+| ------------- | ------------------------------- | ------------------------------------- |
+| Core          | built in                        | everyone: how mockpit works, no taste |
+| Packs         | built in, off by default        | whoever turns one on (`design-craft`) |
+| Your rules    | `~/.mockpit/rules.md`           | you, in every project                 |
+| Project rules | `.mockpit/rules.md` in the repo | anyone designing that repo            |
+
+A rules file has `## Rules` (always followed) and `## Suggestions` (aimed for),
+and turns packs on with `packs: [design-craft]` in its frontmatter. `mockpit
+rules` sends the project's file to the server; `mockpit init` does it too.
+
 ## Run it anywhere
 
 It runs locally as a small Node server (SQLite at `~/.mockpit/mockpit.db`), or on

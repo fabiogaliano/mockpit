@@ -9,7 +9,7 @@ import {
   writeFileSync,
   writeSync,
 } from "node:fs";
-import { tmpdir, userInfo } from "node:os";
+import { homedir, tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -109,6 +109,8 @@ verbs:
   mockpit upload <file> [--kind image|file]
                                           upload an asset, print its id and URL
   mockpit guide [--topic <id>]           the project-aware brief, or one reference topic
+  mockpit rules [--mine]                 send .mockpit/rules.md (or, with --mine, your
+                                          ~/.mockpit/rules.md) to the server for the brief
   mockpit run <file|->                   run a script against the mockpit API on the
                                           server (mockpit guide --topic scripts)
   mockpit watch [--session <id>]         stream user feedback, one line per Send
@@ -156,6 +158,15 @@ const COMMAND_HELP = {
   (gitignored). --kit makes a bundled or project kit the default for every html
   surface. --kit-url defines the project's own kit (id from --kit, else
   "project") and makes it the default; the doc is the cheat sheet the brief prints.`,
+  rules: `mockpit rules [--project <name>]
+mockpit rules --mine
+  Guidance on top of the core brief, highest first: the project's
+  .mockpit/rules.md (committed with the repo), your ~/.mockpit/rules.md, then
+  the packs either names (\`packs: [design-craft]\` in its frontmatter). A file
+  has "## Rules" (always followed) and "## Suggestions" (aimed for).
+  This sends the file as it is on disk; a missing file clears the stored copy.
+  init sends the project's too. A local server reads yours live, so --mine is
+  for a deployed one.`,
   kit: `mockpit kit add <id> --url <https url> --doc <file.md|text> [--script <url>]
 mockpit kit remove <id>
   A project kit is a stylesheet (and optional script) on the CDN allowlist plus a
@@ -1169,8 +1180,13 @@ async function apiSoft(path) {
   return res.json().catch(() => null);
 }
 
-// Keep the scratch directory out of the repo. Returns true when .gitignore was
-// touched, so init can report it.
+// Keep the scratch directory out of the repo, all but the project's rules
+// file, which is meant to be committed. Git can't re-include a file under an
+// ignored directory, so the ignore has to name the directory's contents, and
+// the `.mockpit/` line older versions wrote is upgraded in place. Returns true
+// when .gitignore was touched, so init can report it.
+const MOCKPIT_IGNORE = ".mockpit/*\n!.mockpit/rules.md";
+
 function ignoreMockpitDir() {
   const file = join(process.cwd(), ".gitignore");
   let current = "";
@@ -1179,12 +1195,54 @@ function ignoreMockpitDir() {
   } catch {
     // no .gitignore yet — create one
   }
-  if (/^\.mockpit\/?$/m.test(current)) return false;
+  if (/^\.mockpit\/\*$/m.test(current) && /^!\.mockpit\/rules\.md$/m.test(current)) return false;
+  if (/^\.mockpit\/?$/m.test(current)) {
+    writeFileSync(file, current.replace(/^\.mockpit\/?$/m, MOCKPIT_IGNORE));
+    return true;
+  }
+  const lines = /^\.mockpit\/\*$/m.test(current) ? "!.mockpit/rules.md" : MOCKPIT_IGNORE;
   writeFileSync(
     file,
-    current && !current.endsWith("\n") ? `${current}\n.mockpit/\n` : `${current}.mockpit/\n`,
+    current && !current.endsWith("\n") ? `${current}\n${lines}\n` : `${current}${lines}\n`,
   );
   return true;
+}
+
+function repoRoot() {
+  try {
+    const top = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (top) return top;
+  } catch {}
+  return process.cwd();
+}
+
+// Where `mockpit serve` reads the user's own rules: next to its database.
+const myRulesFile = () =>
+  join(dirname(process.env.MOCKPIT_DB ?? join(homedir(), ".mockpit", "mockpit.db")), "rules.md");
+
+// Sends a rules file as it is on disk: a missing file clears the stored copy,
+// so deleting the file and re-running is how rules are switched off.
+async function sendRules(file, path) {
+  const text = existsSync(file) ? readFileSync(file, "utf8") : "";
+  const result = await api(
+    path,
+    { method: "PUT", body: JSON.stringify({ text }) },
+    { report: "die", fix: "mockpit rules --help" },
+  );
+  return { ...result, missing: !text };
+}
+
+function rulesSummary(r) {
+  if (r.cleared) return "none (cleared)";
+  const bits = [
+    r.packs?.length ? `packs ${r.packs.join(", ")}` : null,
+    r.rules ? "own rules" : null,
+  ].filter(Boolean);
+  const unknown = r.unknown?.length ? ` · unknown pack ${r.unknown.join(", ")}` : "";
+  return `${bits.join(" · ") || "empty"}${unknown}`;
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -1433,7 +1491,11 @@ const commands = {
     mkdirSync(dirname(starter), { recursive: true });
     writeFileSync(starter, renderStarter({ ...design, kit }, iconSets));
     say("wrote:", ".mockpit/starter.html");
-    if (ignoreMockpitDir()) say("wrote:", ".gitignore (+ .mockpit/)");
+    if (ignoreMockpitDir()) say("wrote:", ".gitignore (+ .mockpit/, keeping .mockpit/rules.md)");
+    const rulesFile = join(repoRoot(), ".mockpit", "rules.md");
+    if (existsSync(rulesFile)) {
+      say("rules:", rulesSummary(await sendRules(rulesFile, `${projectPath(project)}/rules`)));
+    }
     say("next:", "mockpit guide");
     if (flags.json) out({ project, design: stored, starter });
   },
@@ -1992,6 +2054,24 @@ const commands = {
     });
     if (flags.topic !== undefined) return printTopic(flags.topic);
     return printBrief(flags);
+  },
+
+  // A rules file is the user's or the project's own guidance on top of the
+  // core brief; the brief prints it, so this only has to put it on the server.
+  async rules() {
+    const { values: flags } = parse({
+      options: { mine: { type: "boolean" }, project: { type: "string" } },
+    });
+    const mine = !!flags.mine;
+    const file = mine ? myRulesFile() : join(repoRoot(), ".mockpit", "rules.md");
+    const project = mine ? null : resolveProject(flags).name;
+    const result = await sendRules(file, mine ? "/api/rules" : `${projectPath(project)}/rules`);
+    if (flags.json) return out(result);
+    if (flags.quiet) return;
+    const where = mine ? "your rules" : `project ${project}`;
+    const from = result.missing ? `no ${file}` : file;
+    console.log(`${where}: ${rulesSummary(result)} (from ${from})`);
+    if (!result.missing) console.log("next:", "mockpit guide");
   },
 
   async setup() {

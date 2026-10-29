@@ -1,9 +1,9 @@
 # mockpit topic: html
 
 An `html` surface is a blank canvas. Custom SVG, bespoke layout, small
-interactions and animation are all fine. Below are the hard rules, the finish
-guardrails, and the vocabulary available inside the frame. `mockpit guide`
-prints this project's real palette, kit and icons.
+interactions and animation are all fine. Below are the hard rules and the
+vocabulary available inside the frame; how a design looks is the project's
+call. `mockpit guide` prints this project's real palette, kit, icons and rules.
 
 ## Contract
 
@@ -47,14 +47,8 @@ boxes, so never hard-code geometry for it. Knob values arrive as unitless
 The page must read before any web font or remote stylesheet loads: they are
 decoration, and a slow one delays the frame's layout.
 
-## Finish
+## Scope
 
-These keep mocks feeling native to the viewer. They shape the finish, not the
-idea.
-
-- Flat: no gradients, drop shadows or decorative effects.
-- Sentence case for headings and labels. No emoji.
-- Two font weights: 400 and 500.
 - For diagrams, `<svg width="100%" viewBox="0 0 680 H">` with the classes below.
 - One concept per mock. Publish several small mocks with their own slugs rather
   than one giant page.

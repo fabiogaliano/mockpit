@@ -24,6 +24,14 @@ import {
   unknownTopicMessage,
 } from "./designGuide.ts";
 import { buildFeedbackBatches, type FeedbackBatch } from "./feedbackBatch.ts";
+import {
+  type GuidePack,
+  guidanceSections,
+  MAX_RULES_CHARS,
+  parseRulesFile,
+  RULES_SETTING,
+  USER_RULES_SETTING,
+} from "./guidance.ts";
 import { HANDOFF_NOTE, handoffReady, supersedes } from "./handoff.ts";
 import {
   bundledIconSets,
@@ -238,6 +246,12 @@ export interface AppOptions {
   setupText: string;
   // The guide/topics/<id>.md bodies, read at boot like the viewer.
   topics?: Partial<Record<GuideTopic, string>>;
+  // The guide/packs/<id>.md bodies: guidance a rules file can switch on.
+  packs?: Partial<Record<GuidePack, string>>;
+  // The user's own rules file, read on every brief so an edit applies at once
+  // (Node: rules.md next to the database). Null when there is none; absent
+  // (the Worker), the copy `mockpit rules --mine` stored is used instead.
+  userRules?: () => Promise<string | null>;
   // When set (cloud deployments), this hook authorizes requests before any
   // app route runs. Return true to allow, false to use the default 401, or a
   // Response for custom denials. This is intentionally lower-level than
@@ -438,6 +452,8 @@ export function createApp({
   viewerHtml,
   setupText,
   topics = {},
+  packs = {},
+  userRules,
   authenticate,
   authToken,
   basePath,
@@ -810,11 +826,43 @@ export function createApp({
   async function briefFor(project: string | undefined): Promise<string> {
     try {
       const name = project ?? (await store.listProjects())[0]?.name ?? DEFAULT_PROJECT;
-      return renderBriefGuide(await designFor(name));
+      return renderBriefGuide(await designFor(name), await guidanceFor(name));
     } catch (err) {
       console.warn("[mockpit] project design unavailable for the brief", err);
       return renderBriefGuide(null);
     }
+  }
+
+  // The user's file wins over the stored copy when the host can read it: the
+  // copy exists for hosts that can't.
+  async function userRulesText(): Promise<string | null> {
+    const file = userRules ? await userRules().catch(() => null) : null;
+    return file ?? (await store.getSetting(USER_RULES_SETTING));
+  }
+
+  async function guidanceFor(project: string) {
+    return guidanceSections({
+      packs,
+      user: await userRulesText(),
+      project: await store.getSetting(`${RULES_SETTING}:${project}`),
+    });
+  }
+
+  // A rules file as sent by `mockpit rules`: stored whole, "" clears it. The
+  // answer says what the brief will make of it, so a mistyped pack name shows
+  // at once rather than as a quietly missing layer.
+  async function saveRules(key: string, body: any): Promise<FlowResult> {
+    if (!body || typeof body !== "object" || typeof body.text !== "string") {
+      return fail(400, 'provide "text", the rules file ("" clears it)');
+    }
+    const text = stripNul(body.text).trim();
+    if (text.length > MAX_RULES_CHARS) {
+      return fail(400, `a rules file is at most ${MAX_RULES_CHARS} characters`);
+    }
+    await store.setSetting(key, text);
+    const parsed = parseRulesFile(text);
+    const unknown = parsed.packs.filter((p) => !(p in packs));
+    return ok({ packs: parsed.packs, unknown, rules: parsed.body.length > 0, cleared: !text });
   }
 
   // Push + webhooks. Detached on purpose: a dead push endpoint must never fail
@@ -4172,6 +4220,18 @@ export function createApp({
     send(c, await editProjectFlow(c.req.param("name"), await jsonBody(c), flowCtx(c))),
   );
   app.get("/api/projects/:name/design", async (c) => c.json(await designFor(c.req.param("name"))));
+  // A project's rules file (.mockpit/rules.md, sent by `mockpit rules` and
+  // `mockpit init`) and the user's own (`mockpit rules --mine`).
+  app.get("/api/projects/:name/rules", async (c) =>
+    c.json({ text: (await store.getSetting(`${RULES_SETTING}:${c.req.param("name")}`)) ?? "" }),
+  );
+  app.put("/api/projects/:name/rules", async (c) =>
+    send(c, await saveRules(`${RULES_SETTING}:${c.req.param("name")}`, await jsonBody(c))),
+  );
+  app.get("/api/rules", async (c) => c.json({ text: (await userRulesText()) ?? "" }));
+  app.put("/api/rules", async (c) =>
+    send(c, await saveRules(USER_RULES_SETTING, await jsonBody(c))),
+  );
 
   app.put("/api/projects/:name/design", async (c) => {
     const body = await c.req.json().catch(() => null);

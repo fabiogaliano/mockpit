@@ -50,11 +50,12 @@ import {
   type UpdatePostInput,
 } from "./types.ts";
 import { renameSlugRefs } from "./embeds.ts";
+import { RULES_SETTING } from "./guidance.ts";
 
 type Row = Record<string, SqlStorageValue>;
 
 // The settings keyed `<prefix>:<project>`, which a project rename carries.
-const PROJECT_SETTINGS = ["design", AREA_ORDER_SETTING] as const;
+const PROJECT_SETTINGS = ["design", AREA_ORDER_SETTING, RULES_SETTING] as const;
 
 // An optional free-text label: blank means none.
 const label = (v: string | null | undefined): string | null => stripNul(v ?? "").trim() || null;

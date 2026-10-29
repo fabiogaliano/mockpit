@@ -7,9 +7,11 @@ import knobs from "../guide/topics/knobs.md";
 import feedback from "../guide/topics/feedback.md";
 import scripts from "../guide/topics/scripts.md";
 import surfaces from "../guide/topics/surfaces.md";
+import designCraft from "../guide/packs/design-craft.md";
 import pkg from "../package.json" with { type: "json" };
 import { createApp } from "../server/app.ts";
 import type { GuideTopic } from "../server/designGuide.ts";
+import type { GuidePack } from "../server/guidance.ts";
 import { SqlStore } from "../server/sqlStore.ts";
 import viewerHtml from "../viewer/dist/index.html";
 import { matchPostScreenshot, planPostScreenshot } from "./screenshot.ts";
@@ -41,6 +43,8 @@ export class MockpitBoard extends DurableObject<Env> {
         GuideTopic,
         string
       >,
+      // No home folder here: the user's rules are the copy `mockpit rules --mine` stored.
+      packs: { "design-craft": designCraft } satisfies Record<GuidePack, string>,
       authToken: env.MOCKPIT_TOKEN,
       publicRead,
       // This Worker deploys with the Browser Rendering binding (wrangler.jsonc),
