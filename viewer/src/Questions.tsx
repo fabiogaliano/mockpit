@@ -600,6 +600,8 @@ function OptionCard(props: {
         other: !!props.other,
         previewing: props.previewing,
       }}
+      // The card truncates its label to one line; hover reads it whole.
+      title={props.note ? `${props.label}\n${props.note}` : props.label}
       aria-pressed={props.on}
       aria-keyshortcuts={props.shortcut}
       data-option={props.data}
