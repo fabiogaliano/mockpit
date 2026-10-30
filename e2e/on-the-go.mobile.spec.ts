@@ -37,8 +37,8 @@ test("tap a part, 👍, Send: the agent's feedback has the reaction", async ({ p
   await expect(like).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator('[role="status"]', { hasText: "Liked Hero" })).toHaveCount(1);
 
-  // No asks on a single look: New sends the verdict, with the reaction in it.
-  await page.getByRole("button", { name: "New version" }).tap();
+  // No asks on a single look: Revise sends the verdict, with the reaction in it.
+  await page.getByRole("button", { name: "Revise" }).tap();
   await page.locator(".vlabel").tap();
   await page.getByRole("tab", { name: "Thread" }).tap();
   await expect(page.locator(".trow.you")).toBeVisible();

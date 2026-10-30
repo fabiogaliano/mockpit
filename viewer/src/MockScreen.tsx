@@ -307,7 +307,7 @@ function TopRow(props: {
           class="ib"
           classList={{ on: props.related.open() }}
           aria-label="Related"
-          title="Used in, uses, flows"
+          title="Appears in, built from, flows"
           aria-expanded={props.related.open()}
           onClick={() => props.related.setOpen(!props.related.open())}
         >
@@ -318,8 +318,8 @@ function TopRow(props: {
         type="button"
         class="ib"
         classList={{ on: s.drawer() }}
-        aria-label={component() ? "Used in" : "Built from"}
-        title={component() ? "Where it's used" : "What it's built from"}
+        aria-label={component() ? "Appears in" : "Built from"}
+        title={component() ? "Where it appears" : "What it's built from"}
         aria-expanded={s.drawer()}
         onClick={() => s.setDrawer(!s.drawer())}
       >

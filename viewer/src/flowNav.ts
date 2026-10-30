@@ -82,14 +82,14 @@ export function createFlowNav(
   };
 
   // A design's data-goto, reported by the frame on stage while Try is on: it
-  // only ever names a screen of this project, looked up here, never a URL.
+  // only ever names a state of this project, looked up here, never a URL.
   function follow(raw: string) {
     const statesOf = (m: string) => (m === slug ? s.states() : nodes().get(m)?.states);
     const to = gotoTarget(raw, steps(), at(), statesOf);
     if (to) go(to);
     else if (raw.trim() === "next") s.setToast({ text: "End of this flow" });
     else if (raw.trim() === "prev") s.setToast({ text: "Start of this flow" });
-    else s.setToast({ text: `No screen "${raw.slice(0, 60)}" in ${project}` });
+    else s.setToast({ text: `No state "${raw.slice(0, 60)}" in ${project}` });
   }
 
   // A step's design in use (else its newest live one), as a picture.

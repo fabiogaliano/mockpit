@@ -65,6 +65,7 @@ import {
   sameVersion,
   stepFor,
   type VersionRef,
+  versionName,
   versionSteps,
   type Zoom,
   pickInDraft,
@@ -278,7 +279,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     return d && !draftIsEmpty(d) && d.version < latest() ? d.version : null;
   });
   const stageVersion = createMemo(() => boundVersion() ?? latest());
-  // The agent's asks plus the built-in "Which one?" where the agent left a
+  // The agent's asks plus the built-in "Which variant?" where the agent left a
   // choice between variants unasked; everything below reads asks from here.
   const asks = createMemo<Ask[]>(() => {
     const m = mock();
@@ -381,6 +382,27 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     return visible.length ? Math.max(...visible) : n;
   }
   const activeVariant = createMemo(() => variantFor(activeState()));
+  // The version a bound stage is holding back and the one it stays on, named
+  // after the variant that moved: "Dark #3 arrived", "stay on Dark #2". The
+  // draft stays bound to the mock-wide number; only these labels name a variant.
+  const arrived = createMemo(() => {
+    const n = latest();
+    const at = variants().filter((v) => v.version === n);
+    const v =
+      at.find((x) => x.state === activeState() && x.variant === activeVariant()?.variant) ??
+      at.find((x) => x.state === activeState()) ??
+      at[0];
+    if (!v) return null;
+    const named = variants().filter((x) => x.state === v.state).length > 1;
+    const bound = boundVersion();
+    return {
+      name: versionName({ variant: v.variant, version: n }, named),
+      bound:
+        bound === null
+          ? null
+          : versionName({ variant: v.variant, version: frameVersion(v, bound) }, named),
+    };
+  });
 
   // --- slots (server/fills.ts): a part with alternative fills ---
 
@@ -1446,8 +1468,11 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
 
   // --- versions ---
 
-  // Every version of the state on stage as the user counts them (v1…vM).
+  // Every version of the state on stage, in the order they were published.
   const steps = createMemo(() => versionSteps(variants(), activeState()));
+  // "Dark #2", or "#2" while the state on stage has one variant.
+  const nameOf = (ref: VersionRef) =>
+    versionName(ref, variants().filter((v) => v.state === activeState()).length > 1);
   // The exact version on stage.
   const onStage = createMemo<VersionRef | null>(() => {
     const v = activeVariant();
@@ -1488,7 +1513,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
       await api.use(m.id, { state: activeState(), ...ref });
       await Promise.all([loadMock(), loadComments()]);
       showVersion(ref);
-      setToast({ text: `v${stepFor(steps(), ref)?.n ?? ref.version} is in use` });
+      setToast({ text: `${nameOf(ref)} is in use` });
     } catch (e) {
       fail(e);
     }
@@ -1498,7 +1523,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     const m = mock();
     if (!m || readonly()) return;
     const state = activeState();
-    const n = stepFor(steps(), ref)?.n ?? ref.version;
+    const name = nameOf(ref);
     // Away from a version going out of sight: to the one before it, else after.
     const away = hidden
       ? (neighbourStep(steps(), ref, -1) ?? neighbourStep(steps(), ref, 1))
@@ -1510,27 +1535,26 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
       setToast(
         hidden
           ? {
-              text: `Hid v${n}`,
+              text: `Hid ${name}`,
               undo: () => {
                 setToast(null);
                 void hideVersion(ref, false).then(() => showVersion(ref));
               },
             }
-          : { text: `Restored v${n}` },
+          : { text: `Restored ${name}` },
       );
     } catch (e) {
       fail(e);
     }
   }
-  // New: ask the agent for another version of the one on stage, as a reply
+  // Revise: ask the agent for another version of the one on stage, as a reply
   // (with whatever the draft holds), so it arrives through the same cursor.
   function askNew() {
     const ref = onStage();
-    const n = stageStep()?.n;
     if (!ref) return;
     void send({
       decision: { kind: "revise", state: activeState(), variant: ref.variant },
-      text: `New version, please, from ${ref.variant} v${ref.version}${n ? ` (v${n} here)` : ""}.`,
+      text: `New version, please, from ${nameOf(ref)}.`,
     });
   }
   // The newer version a draft-bound stage is holding back.
@@ -1568,6 +1592,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     setAllSituations,
     latest,
     boundVersion,
+    arrived,
     stageVersion,
     look,
     lookPick,
@@ -1647,6 +1672,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     steps,
     onStage,
     stageStep,
+    nameOf,
     inUse,
     usedBefore,
     showVersion,

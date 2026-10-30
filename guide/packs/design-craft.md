@@ -18,7 +18,7 @@
   into hierarchy, real data and visuals that carry meaning. Never bare by default.
 - Errors say what happened and what to do next. Nothing is cut off at the
   narrowest width.
-- Once a direction is chosen, add the other situations the screen has (empty,
+- Once a direction is chosen, add the other situations the state has (empty,
   many, error, loading) as situations of the state (`--situation`). Not in the
   first round.
 - Once the user has chosen, the next version is that design with the likely fix

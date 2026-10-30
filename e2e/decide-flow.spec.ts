@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 import { MARKER, PROJECT, revise, seedAsked, seedWriter, writerHtml } from "./decideSeed.ts";
 import { agentCall, expect, test } from "./fixtures.ts";
 
-// The flow end to end against the real server: Home → the question card (Look,
+// The flow end to end against the real server: Home → the question card (variant,
 // a part ask, a state-bound part ask) → Send → Thread ✓ → the agent reads it →
 // ✓✓; the history (stepping, hiding, Use this), mid-answer versions, New, the
 // theme, and the sandbox invariant.
@@ -66,7 +66,7 @@ test("questions: pictures, hover preview, pick, part focus, Borrow in Tune, Send
   const { mockId, session } = await seedWriter(server.url);
   await page.goto(`${server.url}${mockPath}`);
 
-  // Q1 Look: picture options, nothing to send yet.
+  // Q1 Variant: picture options, nothing to send yet.
   await expect(count(page)).toHaveText("1 of 2");
   await expect(question(page)).toHaveText("Which look should the Writer take?");
   for (const look of ["quiet", "dark", "editorial"]) {
@@ -140,7 +140,7 @@ test("questions: pictures, hover preview, pick, part focus, Borrow in Tune, Send
   await openThread(page);
   const row = page.locator(".trow.you");
   await expect(row).toHaveCount(1);
-  await expect(row).toContainText("Sent · look quiet · versions drawer · trim below the lab");
+  await expect(row).toContainText("Sent · variant quiet · versions drawer · trim below the lab");
   await expect(row.locator(".tdelivered")).toHaveText("✓Not seen yet");
   // Nobody has read it after a beat: the confirmation asks the user to say so.
   await expect(page.locator(".sentrow .sent-hint")).toHaveText("tell your agent you've answered");
@@ -152,7 +152,7 @@ test("questions: pictures, hover preview, pick, part focus, Borrow in Tune, Send
   await expect(pill).toHaveText("Sent · Delivered");
   await expect(page.locator(".sentrow .sent-hint")).toHaveCount(0);
 
-  // The draft is gone and the Look settled the variants.
+  // The draft is gone and the variant question settled the variants.
   expect(await viewerGet(page, `/api/mocks/${mockId}/draft`)).toEqual({ draft: null });
   const detail = await agentCall(server.url, `/api/mocks/${mockId}`);
   for (const v of detail.variants) {
@@ -345,10 +345,10 @@ test("history: step through every version of the state, view one, hide it and br
   // Every version of every variant in the state counts, in publish order: the
   // three first takes, then quiet's second.
   const label = page.locator(".vlabel");
-  await expect(label).toHaveAttribute("aria-label", /^Version 4 of 4, tighter title\./);
+  await expect(label).toHaveAttribute("aria-label", /^Version Quiet #2, tighter title\./);
   await expect(onStage(page)).toHaveAttribute("data-variant", "quiet");
   await page.getByRole("button", { name: "Previous version" }).click();
-  await expect(label).toHaveAttribute("aria-label", /^Version 3 of 4/);
+  await expect(label).toHaveAttribute("aria-label", /^Version Editorial #1\./);
   await expect(onStage(page)).toHaveAttribute("data-variant", "editorial");
   await page.getByRole("button", { name: "Next version" }).click();
   await expect(onStage(page)).toHaveAttribute("data-variant", "quiet");
@@ -359,13 +359,13 @@ test("history: step through every version of the state, view one, hide it and br
   await expect(thumbs).toHaveCount(4);
   await expect(page.locator(".htree .hcell")).toHaveCount(4);
   await page.locator('.hthumb[data-version="1"]').click();
-  await expect(label).toHaveAttribute("aria-label", /^Version 1 of 4/);
+  await expect(label).toHaveAttribute("aria-label", /^Version Quiet #1\./);
   await expect(onStage(page).locator("iframe").first()).toHaveAttribute("src", /ver=1/);
 
   // Hidden, never removed: the bin hides it, Undo stays until it's answered.
-  await page.getByRole("button", { name: "Hide v1" }).click();
+  await page.getByRole("button", { name: "Hide Quiet #1" }).click();
   const toast = page.locator(".toast.on");
-  await expect(toast).toContainText("Hid v1");
+  await expect(toast).toContainText("Hid Quiet #1");
   await expect(page.locator(".hcount")).toHaveText("3 versions");
   await expect(page.locator(".hidlink")).toHaveText("1 hidden");
   const read = await agentCall(server.url, `/api/mocks/${mockId}?history=1`);
@@ -378,7 +378,7 @@ test("history: step through every version of the state, view one, hide it and br
   await expect(page.locator(".hcount")).toHaveText("4 versions");
 
   // Hidden again, it folds away; "1 hidden" shows it dimmed, with Restore.
-  await page.getByRole("button", { name: "Hide v1" }).click();
+  await page.getByRole("button", { name: "Hide Quiet #1" }).click();
   await page.locator(".toast.on").getByRole("button", { name: "Dismiss" }).click();
   await expect(page.locator(".toast.on")).toHaveCount(0);
   await page.locator(".hidlink").click();
@@ -435,13 +435,13 @@ test("a version arriving mid-answer waits behind a banner, then carries picks ov
   });
 
   const banner = page.locator(".banner");
-  await expect(banner).toContainText("v3 arrived");
-  await expect(banner).toContainText("your answers stay on v2 until you do");
+  await expect(banner).toContainText("Quiet #3 arrived");
+  await expect(banner).toContainText("your answers stay on Quiet #2 until you do");
   await banner.getByRole("button", { name: "view" }).click();
   await expect(banner).toHaveCount(0);
 
   // Whether Mix joins depends on how the looks render, which this test is not about.
-  await expect(card(page).locator(".qs .flag")).toHaveText("your pick is gone in v3");
+  await expect(card(page).locator(".qs .flag")).toHaveText("your pick is gone in Quiet #3");
   await page.getByRole("button", { name: "Previous question" }).click();
   await expect(option(page, "dark")).toHaveAttribute("aria-pressed", "true");
   await expect
@@ -451,7 +451,7 @@ test("a version arriving mid-answer waits behind a banner, then carries picks ov
   expect(after.draft.answers.versions).toBeUndefined();
 });
 
-test("a plain mock offers New and Use this; both reach the agent, and Use this pins the version", async ({
+test("a plain mock offers Revise and Use this; both reach the agent, and Use this pins the version", async ({
   page,
   server,
 }) => {
@@ -469,28 +469,28 @@ test("a plain mock offers New and Use this; both reach the agent, and Use this p
   });
   const mockId = out.mock.id;
   await page.goto(`${server.url}/project/${PROJECT}/note`);
-  await expect(page.getByRole("button", { name: "New version" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Revise" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Use this version" })).toBeVisible();
   // Nothing to tune: no knobs, no marked parts, so no Tune tool at all.
   await expect(page.getByRole("button", { name: "Tune", exact: true })).toHaveCount(0);
 
-  // New asks for another version, as a reply through the same cursor.
+  // Revise asks for another version, as a reply through the same cursor.
   let reply = page.waitForResponse(
     (r) => r.url().endsWith(`/api/mocks/${mockId}/reply`) && r.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "New version" }).click();
+  await page.getByRole("button", { name: "Revise" }).click();
   expect((await reply).status()).toBe(201);
   let read = await agentCall(server.url, `/api/feedback?session=${out.sessionId}`);
   expect(read.feedback).toHaveLength(1);
   expect(read.feedback[0].reply.decision).toMatchObject({ kind: "revise", variant: "default" });
-  expect(JSON.stringify(read.feedback[0])).toContain("New version");
+  expect(JSON.stringify(read.feedback[0])).toContain("New version, please, from #2.");
   await openThread(page);
   await expect(page.locator(".trow.you .tdelivered")).toContainText("Delivered");
   await page.getByRole("button", { name: "Close history and thread" }).click();
 
   // Use this on the earlier version: it is in use, pinned, and the agent hears it.
   await page.getByRole("button", { name: "Previous version" }).click();
-  await expect(page.locator(".vlabel")).toHaveAttribute("aria-label", /^Version 1 of 2/);
+  await expect(page.locator(".vlabel")).toHaveAttribute("aria-label", /^Version #1[,.]/);
   const used = page.waitForResponse(
     (r) => r.url().endsWith(`/api/mocks/${mockId}/use`) && r.request().method() === "POST",
   );
@@ -507,7 +507,7 @@ test("a plain mock offers New and Use this; both reach the agent, and Use this p
   // Exploring never changes it; the way back is one tap.
   await page.getByRole("button", { name: "Next version" }).click();
   await expect(inUse).toHaveCount(0);
-  await page.getByRole("button", { name: "Back to v1, the version in use" }).click();
+  await page.getByRole("button", { name: "Back to #1, the version in use" }).click();
   await expect(inUse).toBeVisible();
   // The version in use can't be hidden.
   await page.locator(".vlabel").click();
@@ -570,9 +570,9 @@ test("an ask can offer two versions of one variant; the answer puts that version
   );
   await picturesSettled(page);
   await pickAndWait(page, mockId, "second");
-  await expect(page.locator(".vlabel")).toHaveAttribute("aria-label", /^Version 2 of 3/);
+  await expect(page.locator(".vlabel")).toHaveAttribute("aria-label", /^Version #2[,.]/);
   await pickAndWait(page, mockId, "first");
-  await expect(page.locator(".vlabel")).toHaveAttribute("aria-label", /^Version 1 of 3/);
+  await expect(page.locator(".vlabel")).toHaveAttribute("aria-label", /^Version #1[,.]/);
   const reply = page.waitForResponse(
     (r) => r.url().endsWith(`/api/mocks/${mockId}/reply`) && r.request().method() === "POST",
   );
@@ -589,7 +589,7 @@ test("an ask can offer two versions of one variant; the answer puts that version
     }),
   ]);
   await expect(page.getByRole("button", { name: "In use", exact: true })).toBeVisible();
-  await expect(page.locator(".vlabel")).toHaveAttribute("aria-label", /^Version 1 of 3/);
+  await expect(page.locator(".vlabel")).toHaveAttribute("aria-label", /^Version #1[,.]/);
 });
 
 test("the theme toggles dark ↔ light and persists across a reload", async ({ page, server }) => {
@@ -669,7 +669,7 @@ async function publishCard(server: string, variant?: string) {
   });
 }
 
-test("Mark: a pin on the stage, its comment and anchor in the reply, listed in Thread", async ({
+test("Comment: a pin on the stage, its comment and anchor in the reply, listed in Thread", async ({
   page,
   server,
 }) => {
@@ -682,12 +682,12 @@ test("Mark: a pin on the stage, its comment and anchor in the reply, listed in T
   await overlay.hover({ position: { x: 120, y: 70 } });
   await expect(overlay.locator('.box[data-part="title"]')).toHaveCount(1);
 
-  const markBtn = page.getByRole("button", { name: "Mark", exact: true });
+  const markBtn = page.getByRole("button", { name: "Comment", exact: true });
   await markBtn.click();
   await expect(markBtn).toHaveAttribute("aria-pressed", "true");
   await overlay.click({ position: { x: 120, y: 70 } });
   const field = page.locator(".markfield");
-  await expect(field.locator(".markfield-hd")).toHaveText("Mark 1 · title");
+  await expect(field.locator(".markfield-hd")).toHaveText("Comment 1 · title");
   const write = page.waitForResponse(
     (r) => r.url().endsWith(`/api/mocks/${mockId}/draft`) && r.request().method() === "PUT",
   );
@@ -717,7 +717,7 @@ test("Mark: a pin on the stage, its comment and anchor in the reply, listed in T
   const reply = page.waitForResponse(
     (r) => r.url().endsWith(`/api/mocks/${mockId}/reply`) && r.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "New version" }).click();
+  await page.getByRole("button", { name: "Revise" }).click();
   expect((await reply).status()).toBe(201);
   await openThread(page);
   const row = page.locator(".trow.you");
@@ -831,7 +831,7 @@ test("un-archive: a losing look is restored from the answered Look ask", async (
   }
 });
 
-test("un-archive: a variant archived by Which one? stays in the history and comes back with Use this", async ({
+test("un-archive: a variant archived by Which variant? stays in the history and comes back with Use this", async ({
   page,
   server,
 }) => {
@@ -854,7 +854,7 @@ test("un-archive: a variant archived by Which one? stays in the history and come
   await page.locator(".vlabel").click();
   await expect(page.locator(".hthumb")).toHaveCount(2);
   await expect(page.locator(".hthumb .mk.cur")).toHaveCount(1);
-  await page.getByRole("button", { name: /^v2, b/ }).click();
+  await page.getByRole("button", { name: /^B #1/ }).click();
   await expect(onStage(page)).toHaveAttribute("data-variant", "b");
   await page.getByRole("button", { name: "Close history and thread" }).click();
   await page.getByRole("button", { name: "Use this version" }).click();
@@ -869,7 +869,7 @@ test("un-archive: a variant archived by Which one? stays in the history and come
     .toEqual({ a: "archived", b: "accepted" });
 });
 
-test("two variants and no ask: the built-in Which one? decides in one Send", async ({
+test("two variants and no ask: the built-in Which variant? decides in one Send", async ({
   page,
   server,
 }) => {
@@ -883,7 +883,7 @@ test("two variants and no ask: the built-in Which one? decides in one Send", asy
   });
   await page.goto(`${server.url}/project/${PROJECT}/card`);
 
-  await expect(question(page)).toHaveText("Which one?");
+  await expect(question(page)).toHaveText("Which variant?");
   // The card is the decision while it is open: no Use this beside it.
   await expect(page.getByRole("button", { name: "Use this version" })).toHaveCount(0);
   const looks = page.locator('.qcard .opt:not([data-option="other"])');
@@ -914,7 +914,7 @@ test("two variants and no ask: the built-in Which one? decides in one Send", asy
   await expect(page.locator(".sentrow .pill")).toHaveText("Sent · Not seen yet");
   await openThread(page);
   const row = page.locator(".trow.you");
-  await expect(row).toContainText("Sent · look b");
+  await expect(row).toContainText("Sent · variant b");
   await expect(row.locator(".tdelivered")).toContainText("Not seen yet");
 
   // The reply flipped the variants; the choice is made, so the built-in ask is gone.
@@ -935,7 +935,10 @@ test("two variants and no ask: the built-in Which one? decides in one Send", asy
   await expect(page.locator(".sentrow .pill")).toHaveText("Sent · Delivered");
 });
 
-test("Which one? is asked per state when the variant names differ", async ({ page, server }) => {
+test("Which variant? is asked per state when the variant names differ", async ({
+  page,
+  server,
+}) => {
   const first = await agentCall(server.url, "/api/mocks", {
     project: PROJECT,
     mock: "flow",
@@ -961,7 +964,7 @@ test("Which one? is asked per state when the variant names differ", async ({ pag
   }
   await page.goto(`${server.url}/project/${PROJECT}/flow`);
   await expect(stateName(page)).toHaveText("Start");
-  await expect(question(page)).toHaveText("Which one?");
+  await expect(question(page)).toHaveText("Which variant?");
   await expect(page.locator('.qcard .opt:not([data-option="other"]) .lbl')).toHaveText(["a", "b"]);
   await page.getByRole("button", { name: "Next question" }).click();
   await expect(stateName(page)).toHaveText("End");
@@ -975,7 +978,8 @@ test("bridge: sendPrompt from the frame on stage prefills Thread's comment; othe
   const { session } = await seedWriter(server.url);
   await page.goto(`${server.url}${mockPath}`);
   await expect(onStage(page)).toHaveAttribute("data-variant", "quiet");
-  await expect(partPin(page, 2)).toHaveCount(0);
+  // The frame on stage has reported its parts, so its bridge is up.
+  await expect(partPin(page, 2)).toBeVisible();
   // By URL rather than contentFrame(): WebKit can hand back null for a frame
   // that is laid out but hidden. Retried, since a frame still settling (theme,
   // version) is replaced by a new element and the old one detaches.
@@ -1200,7 +1204,7 @@ test("Home: a tab per declared kind, each showing the design in use; a screen op
   await expect(flows.locator(".home-step").nth(2)).toContainText("Food · Lunch");
   // Embedding the chip made it a component.
   await page.getByRole("link", { name: "Components" }).click();
-  await expect(page.locator('.home-step[data-mock="chip"]')).toContainText("in 1 screen");
+  await expect(page.locator('.home-step[data-mock="chip"]')).toContainText("appears in 1 mock");
   await page.getByRole("link", { name: "Sketches" }).click();
   await expect(page.locator(".home-step")).toHaveCount(1);
   await expect(page.locator('.home-step[data-mock="notes"]')).toBeVisible();
@@ -1231,7 +1235,7 @@ test("Home: a tab per declared kind, each showing the design in use; a screen op
   await expect(page.locator(".home-sec h3")).toHaveText([/^Food/, /^Today/]);
   await page.getByRole("link", { name: "Components" }).click();
   await expect(page.locator(".home-area-hd")).toHaveText(["Shell"]);
-  await expect(page.locator('.home-step[data-mock="badge"]')).toContainText("in 1 screen");
+  await expect(page.locator('.home-step[data-mock="badge"]')).toContainText("appears in 1 mock");
 
   // The rail narrows every tab to one area; All shows that area's kinds together.
   await page.locator('.home-rail a[data-area="Food"]').click();
@@ -1307,7 +1311,7 @@ test("slots: a fill's own question applies only while that fill is chosen; the r
   await page.goto(`${server.url}/project/${PROJECT}/send`);
 
   // The question names its slot, and the stage shows only the chosen fill.
-  await expect(page.locator(".qcard .slotchip")).toHaveText("Slot · Entry");
+  await expect(page.locator(".qcard .slotchip")).toHaveText("Part · Entry");
   const doc = page.frameLocator(".frame.on iframe");
   await expect(doc.locator('[data-fill="dots"]')).toBeVisible();
   await expect(doc.locator('[data-fill="skeleton"]')).toBeHidden();
@@ -1317,14 +1321,14 @@ test("slots: a fill's own question applies only while that fill is chosen; the r
   await expect(doc.locator('[data-fill="skeleton"]')).toBeVisible();
   await sendBtn(page).click();
   await expect(count(page)).toHaveText("2 of 2");
-  await expect(page.locator(".qcard .slotchip")).toHaveText("Slot · Rows");
+  await expect(page.locator(".qcard .slotchip")).toHaveText("Part · Rows");
   await pickAndWait(page, mockId, "shimmer");
 
   // Back to typing dots: the rows question no longer applies and is not sent.
   await page.getByRole("button", { name: "Previous question" }).click();
   await pickAndWait(page, mockId, "typing-dots");
   await page.getByRole("button", { name: "Next question" }).click();
-  await expect(page.locator(".qcard .qs .flag")).toHaveText("skipped");
+  await expect(page.locator(".qcard .qs .flag")).toHaveText("inactive");
   await expect(page.locator(".dormant")).toContainText("Only for A skeleton card");
   await page.getByRole("button", { name: "Go to question 1" }).click();
   await expect(sendBtn(page)).toHaveText("Send");
@@ -1345,7 +1349,7 @@ test("slots: a fill's own question applies only while that fill is chosen; the r
   expect(exported.states[0].html).not.toContain("Logging");
 });
 
-// --- questions per state, open ones only, and Resolve ---
+// --- questions per state, open ones only, and Close ---
 
 test("a state's questions show on that state, and the flow bar marks what each still owes", async ({
   page,
@@ -1456,7 +1460,7 @@ test("after a Send only new questions are open; a sent answer is folded and chan
   await expect(question(page)).toHaveText("Which size?");
 });
 
-test("Home: a waiting row's Resolve button closes the mock; the mock says so and reopens", async ({
+test("Home: a waiting row's Close button closes the mock; the mock says so and reopens", async ({
   page,
   server,
 }) => {
@@ -1465,8 +1469,8 @@ test("Home: a waiting row's Resolve button closes the mock; the mock says so and
   await page.locator(".home-count").click();
   const row = page.locator('.home-item:has([data-mock="card"])');
   await row.hover();
-  await row.getByRole("button", { name: "Resolve Card" }).click();
-  await expect(page.locator(".home-toast")).toContainText("Resolved “Card”");
+  await row.getByRole("button", { name: "Close Card" }).click();
+  await expect(page.locator(".home-toast")).toContainText("Closed “Card”");
   await expect(page.locator(".home-lead")).toContainText("0 open");
   const read = await agentCall(server.url, `/api/feedback?session=${card.session}`);
   expect(read.feedback).toEqual([
@@ -1479,7 +1483,7 @@ test("Home: a waiting row's Resolve button closes the mock; the mock says so and
 
   await page.locator(".home-resolved-hd").click();
   await page.locator('.home-resolved .home-row[data-mock="card"]').click();
-  await expect(page.locator(".resolved-note")).toContainText("Resolved.");
+  await expect(page.locator(".resolved-note")).toContainText("Closed.");
   await expect(page.locator(".opt")).toHaveCount(0);
   await page.locator(".resolved-note").getByRole("button", { name: "Reopen" }).click();
   await expect(page.locator(".resolved-note")).toHaveCount(0);

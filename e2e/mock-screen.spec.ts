@@ -1,6 +1,6 @@
 import { expect, test } from "./fixtures.ts";
 
-// Smoke test of the mock screen: a 2-state mock in two looks with a Look ask and
+// Smoke test of the mock screen: a 2-state mock in two variants with a variant question and
 // a part ask — flow bar, the question card's pictures, draft write, Send,
 // Thread, Home.
 
@@ -111,7 +111,7 @@ test("answer a mock's questions and send one reply", async ({ page, server }) =>
   await page.getByRole("tab", { name: "Thread" }).click();
   const sent = page.locator(".trow.you");
   await expect(sent).toHaveCount(1);
-  await expect(sent).toContainText("Sent · look quiet");
+  await expect(sent).toContainText("Sent · variant quiet");
   await expect(sent.locator(".tdelivered")).toHaveText("✓Not seen yet");
 
   await page.goto(`${server.url}/project/e2e`);

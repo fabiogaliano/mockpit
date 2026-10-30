@@ -115,9 +115,11 @@ function HistoryHead(props: { s: MockScreenState }) {
                 classList={{ off: inUse() }}
                 aria-disabled={inUse()}
                 aria-label={
-                  inUse() ? `v${st().n} is in use and can't be hidden` : `Hide v${st().n}`
+                  inUse()
+                    ? `${s.nameOf(st())} is in use and can't be hidden`
+                    : `Hide ${s.nameOf(st())}`
                 }
-                title={inUse() ? "In use. Use another version first." : `Hide v${st().n}`}
+                title={inUse() ? "In use. Use another version first." : `Hide ${s.nameOf(st())}`}
                 onClick={() => !inUse() && void s.hideVersion(st(), true)}
               >
                 <Icon name="trash" />
@@ -238,7 +240,7 @@ function HistoryThumb(props: {
       class="hthumb"
       classList={{ on: on(), hid: props.step.hidden }}
       style={{ width: `${props.size.w}px`, height: `${props.size.h}px` }}
-      aria-label={`v${props.step.n}, ${props.step.variant}${current() ? ", in use" : ""}${props.step.hidden ? ", hidden" : ""}`}
+      aria-label={`${s.nameOf(props.step)}${current() ? ", in use" : ""}${props.step.hidden ? ", hidden" : ""}`}
       aria-pressed={on()}
       data-version={props.step.n}
       onClick={() => s.showVersion(props.step)}
@@ -254,7 +256,7 @@ function HistoryThumb(props: {
       <Show when={was()}>
         <span class="mk was" aria-hidden="true" />
       </Show>
-      <span class="n">{`v${props.step.n}`}</span>
+      <span class="n">{`#${props.step.version}`}</span>
     </button>
   );
 }

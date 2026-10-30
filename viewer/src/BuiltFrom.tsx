@@ -7,7 +7,7 @@ import { createEffect, createMemo, createResource, For, Index, on, Show } from "
 import { api, surfaceUrl, type TreeNode } from "./api.ts";
 import { host } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import { designWidth, screenPicture } from "./logic.ts";
+import { designWidth, screenPicture, versionName } from "./logic.ts";
 import { linkClick, mockPath } from "./route.ts";
 import type { MockScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
@@ -62,13 +62,13 @@ export function BuiltFrom(props: { s: MockScreenState; t: TuneState }) {
     <aside
       class="drawer"
       classList={{ open: s.drawer() }}
-      aria-label={component() ? "Used in" : "Built from"}
+      aria-label={component() ? "Appears in" : "Built from"}
       aria-hidden={!s.drawer()}
       inert={!s.drawer() || undefined}
       ref={(el) => (panel = el)}
     >
       <div class="dhead">
-        <h2>{component() ? "Used in" : "Built from"}</h2>
+        <h2>{component() ? "Appears in" : "Built from"}</h2>
         <button type="button" class="ib" aria-label="Close" onClick={close}>
           <Icon name="close" />
         </button>
@@ -77,7 +77,7 @@ export function BuiltFrom(props: { s: MockScreenState; t: TuneState }) {
         <section>
           <Show
             when={usedIn().length}
-            fallback={<p class="dnote">No screen embeds this component yet.</p>}
+            fallback={<p class="dnote">No mock embeds this component yet.</p>}
           >
             <div class="minis">
               <For each={usedIn()}>
@@ -116,7 +116,10 @@ export function BuiltFrom(props: { s: MockScreenState; t: TuneState }) {
                           <span class="nm">{n.title}</span>
                           <span class="sm">
                             {n.inUse[0]
-                              ? `v${n.inUse[0].version} in use`
+                              ? `${versionName(
+                                  n.inUse[0],
+                                  n.variants.filter((v) => v.state === n.inUse[0].state).length > 1,
+                                )} in use`
                               : `${n.variants.length} variants`}
                           </span>
                         </span>

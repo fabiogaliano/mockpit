@@ -249,9 +249,9 @@ sketch, page or component, by slug; a state is one moment of it in the user's wo
 ("Writing"), omitted for a single-state mock; a variant is a parallel design of
 a state; versions are its history. A part is an element marked \`data-part\`.
 The user answers asks, tunes knobs, presses Send once; you get one reply.
-Name a state by what the user sees on that screen ("Home, idle", "Proposal
+Name a state by what the user sees in it ("Home, idle", "Proposal
 shown"), never by where it is in your process ("Prototype", "v2", "Round 2"):
-the viewer lists states as the screens of the mock. Title a mock the same way,
+the viewer lists them as the mock's states. Title a mock the same way,
 by what it is ("Hold menu"), never "Round 2 · Places" or "Flow 3 · Presence":
 titles are read out of context, on Home and in its areas.
 

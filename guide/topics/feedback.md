@@ -186,10 +186,10 @@ mockpit read    writer                    # states, variants, asks and answers, 
 mockpit read    --tree                    # the project as a tree: variants, forkedFrom, uses / usedIn
 ```
 
-- A flow is the screens the user walks, in order, across mocks: `--flow
+- A flow is the states the user walks, in order, across mocks: `--flow
 Morning --step 2` (MCP/HTTP `flow`, `step`) puts this (mock, state) at step
   2, moving it if it is there; without `--step` it joins at the end, `--step 0`
-  takes it out. `flow` with no html places an existing screen without a new
+  takes it out. `flow` with no html places an existing state without a new
   version. `read` (no mock) and `read --tree` return `flows: [{name, steps:
 [{mock, state}]}]`. In the design, `data-goto="next"`, `"prev"` or
   `"<mock>:<state>"` on an element moves the user there while they try it.

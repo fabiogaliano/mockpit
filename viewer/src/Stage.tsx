@@ -474,12 +474,12 @@ export function Stage(props: { s: MockScreenState; onGoto?: (to: string) => void
       <div class="stage" classList={{ tuning: s.tuning() }}>
         <Show when={s.boundVersion() !== null}>
           <div class="banner" role="status">
-            <b>{`v${s.latest()} arrived`}</b>
+            <b>{`${s.arrived()?.name ?? "A new version"} arrived`}</b>
             <span class="sep">·</span>
             <button type="button" onClick={() => s.viewNewVersion()}>
               view
             </button>
-            <span class="banner-note">{`your answers stay on v${s.boundVersion()} until you do`}</span>
+            <span class="banner-note">{`your answers stay on ${s.arrived()?.bound ?? "this one"} until you do`}</span>
           </div>
         </Show>
         <div class="layers" ref={(el) => (layersEl = el)} style={{ height: `${availH()}px` }}>
@@ -693,7 +693,7 @@ function NativeSurface(props: { kind: unknown; surface: Surface | undefined; ver
       </div>
     );
   }
-  return <div class="surface surface-gone">{`${String(props.kind)} (v${props.version})`}</div>;
+  return <div class="surface surface-gone">{`${String(props.kind)} (#${props.version})`}</div>;
 }
 
 function Pin(props: { s: MockScreenState; index: number; style: JSX.CSSProperties }) {
@@ -1175,7 +1175,7 @@ function Overlay(props: {
                 title={`${m().part ?? "page"}: ${m().text}${m().moved ? " · may have moved" : ""}${
                   m().placedAt !== null ? ` · placed at ${m().placedAt}px wide` : ""
                 }`}
-                aria-label={`Mark ${m().n}${m().placedAt !== null ? `, placed at ${m().placedAt}px wide` : ""}`}
+                aria-label={`Comment ${m().n}${m().placedAt !== null ? `, placed at ${m().placedAt}px wide` : ""}`}
                 data-mark={m().n}
                 data-placed-at={m().placedAt ?? undefined}
                 onClick={(e) => {
@@ -1256,12 +1256,12 @@ function MarkField(props: {
         onPointerMove={(e) => e.stopPropagation()}
       >
         <div class="markfield-hd">
-          {props.where ? `Mark ${props.n} · ${props.where}` : `Mark ${props.n}`}
+          {props.where ? `Comment ${props.n} · ${props.where}` : `Comment ${props.n}`}
         </div>
         <input
           class="up-text-input"
           placeholder="Comment, for the agent…"
-          aria-label={`Comment for mark ${props.n}`}
+          aria-label={`Text of comment ${props.n}`}
           value={value()}
           ref={(el) => {
             input = el;

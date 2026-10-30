@@ -15,11 +15,11 @@ import type { AskField, MockScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 
-// A mock the user resolved from the project list: what that did, and the way back.
+// A mock the user closed from the project list: what that did, and the way back.
 export function ResolvedNote(props: { s: MockScreenState }) {
   return (
     <div class="resolved-note" role="status">
-      <span>Resolved. Questions still open were closed unanswered, and your agent was told.</span>
+      <span>Closed. Questions still open were left unanswered, and your agent was told.</span>
       <Show when={!readonly()}>
         <button type="button" class="secondary" onClick={() => void props.s.reopen()}>
           Reopen
@@ -214,7 +214,7 @@ export function AskBody(props: { s: MockScreenState; ask: Ask; noteOpen?: boolea
           <div class="dormant" role="status">
             {"Only for "}
             <b>{d().label}</b>
-            {": skipped and not sent while another fill is chosen."}
+            {": inactive, and not sent while that part shows something else."}
             <Show when={parentAsk() >= 0}>
               <button type="button" class="lnk" onClick={() => s.goQuestion(parentAsk())}>
                 {`Go to question ${parentAsk() + 1}`}

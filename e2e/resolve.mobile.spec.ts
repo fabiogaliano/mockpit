@@ -3,8 +3,8 @@ import { PROJECT, seedAsked } from "./decideSeed.ts";
 import { agentCall, expect, test } from "./fixtures.ts";
 
 // On a phone, the waiting mocks (Home's open count, tapped) swipe left to
-// resolve a mock whose questions aren't worth answering: it leaves the open
-// list for a folded Resolved one, the agent hears it once, and Undo or Reopen
+// close a mock whose questions aren't worth answering: it leaves the open
+// list for a folded Closed one, the agent hears it once, and Undo or Reopen
 // bring it back.
 
 // A finger pulling a row sideways, as the Pointer Events a real swipe fires.
@@ -36,7 +36,7 @@ async function swipeRow(page: Page, slug: string, dx: number) {
   }, dx);
 }
 
-test("a swipe left resolves a mock; the agent hears it once; Undo and Reopen bring it back", async ({
+test("a swipe left closes a mock; the agent hears it once; Undo and Reopen bring it back", async ({
   page,
   server,
 }) => {
@@ -53,12 +53,12 @@ test("a swipe left resolves a mock; the agent hears it once; Undo and Reopen bri
   await expect(page).toHaveURL(home);
   await expect(page.locator(".home-list .home-row")).toHaveCount(2);
 
-  // Past the threshold the row resolves, into the folded Resolved list.
+  // Past the threshold the row closes, into the folded Closed list.
   await swipeRow(page, "card", -240);
-  await expect(page.locator(".home-toast")).toContainText("Resolved “Card”");
+  await expect(page.locator(".home-toast")).toContainText("Closed “Card”");
   await expect(lead).toContainText("1 open across 1 mock");
   await expect(page.locator(".home-list .home-row")).toHaveCount(1);
-  await expect(page.locator(".home-resolved-hd")).toContainText("Resolved · 1");
+  await expect(page.locator(".home-resolved-hd")).toContainText("Closed · 1");
   await expect(page).toHaveURL(home);
   const read = await agentCall(server.url, `/api/feedback?session=${card.session}`);
   expect(read.feedback).toEqual([
@@ -76,9 +76,9 @@ test("a swipe left resolves a mock; the agent hears it once; Undo and Reopen bri
   await expect(lead).toContainText("2 open across 2 mocks");
   await expect(page.locator(".home-resolved")).toHaveCount(0);
 
-  // Reopen in the Resolved list does too, from a finger-sized button.
+  // Reopen in the Closed list does too, from a finger-sized button.
   await swipeRow(page, "list", -240);
-  await expect(page.locator(".home-resolved-hd")).toContainText("Resolved · 1");
+  await expect(page.locator(".home-resolved-hd")).toContainText("Closed · 1");
   await page.locator(".home-resolved-hd").tap();
   const reopen = page.getByRole("button", { name: "Reopen List" });
   const box = (await reopen.boundingBox())!;

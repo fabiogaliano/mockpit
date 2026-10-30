@@ -1,5 +1,5 @@
 // D8: the thread lives in the panel. Agent rows come from publishes and the
-// agent's comments; your Sends read "Not seen yet" once stored and "Delivered"
+// agent's messages; your Sends read "Not seen yet" once stored and "Delivered"
 // once the agent's feedback cursor has passed them (D5).
 
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
@@ -29,7 +29,9 @@ export function Thread(props: { s: MockScreenState; scroller: () => HTMLElement 
           {(r) => (
             <div class={`trow ${r.who}`} data-row={r.id}>
               <div class="tmeta">{`${r.who} · ${timeAgo(r.at)}`}</div>
-              <div class="ttext">{r.text}</div>
+              <Show when={r.text}>
+                <div class="ttext">{r.text}</div>
+              </Show>
               <Show when={r.comments?.length}>
                 <div class="clines">
                   <For each={r.comments}>
@@ -87,14 +89,14 @@ export function Thread(props: { s: MockScreenState; scroller: () => HTMLElement 
         </For>
       </Show>
       <Show when={!readonly()}>
-        <CommentField s={props.s} />
+        <MessageField s={props.s} />
       </Show>
     </div>
   );
 }
 
-// A plain comment to the agent, outside any reply; a frame's sendPrompt fills it.
-function CommentField(props: { s: MockScreenState }) {
+// A message to the agent, outside any reply; a frame's sendPrompt fills it.
+function MessageField(props: { s: MockScreenState }) {
   const s = props.s;
   const [busy, setBusy] = createSignal(false);
   const submit = async () => {
@@ -106,7 +108,7 @@ function CommentField(props: { s: MockScreenState }) {
   };
   return (
     <label class="up-text-row tcomment">
-      <span class="up-text-label">Comment</span>
+      <span class="up-text-label">Message</span>
       <input
         class="up-text-input"
         placeholder="to the agent…"

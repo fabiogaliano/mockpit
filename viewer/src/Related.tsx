@@ -1,6 +1,6 @@
 // Related: what sits around this mock in the project, as compact rows that
-// move sideways to it. Used in (the pages that embed it), Uses (what it
-// embeds), Flows (each flow it is a step of, with the step). Closed until the
+// move sideways to it. Appears in (the pages that embed it), Built from (what
+// it embeds), Flows (each flow it is a step of, with the step). Closed until the
 // top bar's toggle opens it; open or closed is remembered per browser. It
 // overlays the canvas from the left edge, a sheet from the bottom on a phone.
 
@@ -145,7 +145,7 @@ export function Related(props: {
         </div>
       </Show>
       {section(
-        "Used in",
+        "Appears in",
         () => (
           <For each={rel.usedIn()}>
             {(n) => row(n, null, mockPath(props.project, n.slug), states(n))}
@@ -154,7 +154,7 @@ export function Related(props: {
         () => rel.usedIn().length,
       )}
       {section(
-        "Uses",
+        "Built from",
         () => (
           <For each={rel.uses()}>
             {(n) => row(n, null, mockPath(props.project, n.slug), states(n))}

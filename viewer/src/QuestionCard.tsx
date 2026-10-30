@@ -55,14 +55,14 @@ export function QuestionCard(props: { s: MockScreenState }) {
                         </Show>
                         <Show when={s.askSlot(ask())}>
                           {(sl) => (
-                            <span class="slotchip">{`Slot · ${sl().label ?? sl().part}`}</span>
+                            <span class="slotchip">{`Part · ${sl().label ?? sl().part}`}</span>
                           )}
                         </Show>
                         <Show when={s.dormantOf(ask())}>
-                          <span class="flag">skipped</span>
+                          <span class="flag">inactive</span>
                         </Show>
                         <Show when={s.flagged().includes(ask().id)}>
-                          <span class="flag">{`your pick is gone in v${s.latest()}`}</span>
+                          <span class="flag">{`your pick is gone in ${s.arrived()?.name ?? "the new version"}`}</span>
                         </Show>
                       </span>
                     </Show>

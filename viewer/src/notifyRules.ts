@@ -2,8 +2,8 @@
 // you", what the notification says, and how a burst folds into one per mock.
 // notify.ts owns the permission, the timers and the Notification itself.
 
-import { DEFAULT_VARIANT } from "../../server/types.ts";
 import type { CommentRow, FeedEvent, VariantView } from "./api.ts";
+import { versionName } from "./logic.ts";
 
 export type Bell = "hidden" | "off" | "on" | "blocked";
 
@@ -60,13 +60,19 @@ export function noticeFromComment(row: CommentRow): Notice | null {
     const more = lines.length > 1 ? ` (+${lines.length - 1} more)` : "";
     return { kind: "ask", text: `New question: ${lines[0]}${more}` };
   }
-  return row.text.trim() ? { kind: "reply", text: `Agent replied: ${row.text}` } : null;
+  return row.text.trim() ? { kind: "reply", text: `Agent: ${row.text}` } : null;
 }
 
-export function noticeFromVariant(mockTitle: string, v: VariantView, version: number): Notice {
-  const where = [v.state, v.variant === DEFAULT_VARIANT ? null : v.variant].filter(Boolean);
-  where.push(`v${version}`);
-  return { kind: "version", text: `New version of ${mockTitle} (${where.join(", ")})` };
+// Named as the version bar names it: "New version of Writer: Writing, Dark #3".
+export function noticeFromVariant(
+  mockTitle: string,
+  v: VariantView,
+  version: number,
+  variants: Pick<VariantView, "state">[],
+): Notice {
+  const named = variants.filter((x) => x.state === v.state).length > 1;
+  const where = [v.state, versionName({ variant: v.variant, version }, named)].filter(Boolean);
+  return { kind: "version", text: `New version of ${mockTitle}: ${where.join(", ")}` };
 }
 
 // The loudest thing in a burst speaks for it: a question outranks a reply,

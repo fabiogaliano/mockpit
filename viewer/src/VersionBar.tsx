@@ -1,4 +1,4 @@
-// The one bar floating on the canvas: ask for a New version, step through the
+// The one bar floating on the canvas: Revise (ask for a new version), step through the
 // state's versions (the label opens the history and the thread), put the one
 // on stage in use, and the canvas tools.
 
@@ -11,9 +11,16 @@ import type { MockScreenState } from "./state.ts";
 export function VersionBar(props: { s: MockScreenState }) {
   const s = props.s;
   const step = () => s.stageStep();
-  const total = () => s.steps().length;
-  // What this version is: what prompted it, else the variant's own note, else its name.
-  const note = () => step()?.prompt ?? s.activeVariant()?.note ?? step()?.variant ?? "";
+  const name = () => {
+    const st = step();
+    return st ? s.nameOf(st) : "#1";
+  };
+  // What this version is: what prompted it, else the variant's own note, else
+  // its name when the label doesn't already say it.
+  const note = () =>
+    step()?.prompt ??
+    s.activeVariant()?.note ??
+    (name().startsWith("#") ? (step()?.variant ?? "") : "");
   const inUse = () => sameVersion(s.onStage(), s.inUse());
   const usedStep = () => stepFor(s.steps(), s.inUse());
   // The question card is the decision while it is open: no Use this beside it.
@@ -41,13 +48,13 @@ export function VersionBar(props: { s: MockScreenState }) {
         <button
           type="button"
           class="btn go vnew"
-          aria-label="New version"
+          aria-label="Revise"
           title="Ask your agent for a new version"
           disabled={s.sending() || !s.onStage()}
           onClick={() => s.askNew()}
         >
           <Icon name="spark" />
-          <span class="lbl">New</span>
+          <span class="lbl">Revise</span>
         </button>
         <span class="vsep" />
       </Show>
@@ -66,13 +73,10 @@ export function VersionBar(props: { s: MockScreenState }) {
           class="vlabel"
           classList={{ on: !!s.panel() }}
           aria-expanded={!!s.panel()}
-          aria-label={`Version ${step()?.n ?? 1} of ${total() || 1}${note() ? `, ${note()}` : ""}. Show history and thread`}
+          aria-label={`Version ${name()}${note() ? `, ${note()}` : ""}. Show history and thread`}
           onClick={() => s.setPanel(s.panel() ? null : "history")}
         >
-          <span class="v num">
-            {`v${step()?.n ?? 1}`}
-            <span class="of">{` of ${total() || 1}`}</span>
-          </span>
+          <span class="v num">{name()}</span>
           <Show when={note()}>
             <span class="note" title={note()}>
               {note()}
@@ -94,12 +98,12 @@ export function VersionBar(props: { s: MockScreenState }) {
           <button
             type="button"
             class="away"
-            aria-label={`Back to v${usedStep()!.n}, the version in use`}
-            title={`Back to v${usedStep()!.n}, in use`}
+            aria-label={`Back to ${s.nameOf(usedStep()!)}, the version in use`}
+            title={`Back to ${s.nameOf(usedStep()!)}, in use`}
             onClick={() => s.showVersion(s.inUse()!)}
           >
             <Icon name="undo" />
-            {`v${usedStep()!.n}`}
+            {s.nameOf(usedStep()!)}
           </button>
         </Show>
         <Show
@@ -140,7 +144,7 @@ export function VersionBar(props: { s: MockScreenState }) {
         </Show>
         {tool("try", "Try", "Try: use the design as a prototype")}
         <Show when={!readonly()}>
-          {tool("mark", "Mark", "Mark: tap the design to leave a comment there")}
+          {tool("mark", "Comment", "Comment: tap the design to leave a comment there")}
         </Show>
         <Show when={s.tunable().length}>
           {tool("tune", "Tune", "Tune: tap a part to adjust it")}

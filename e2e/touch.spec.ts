@@ -64,7 +64,7 @@ test("on touch, a tap picks, the same tap again moves on, and the reply reaches 
   await page.locator(".vlabel").tap();
   await page.getByRole("tab", { name: "Thread" }).tap();
   await expect(page.locator(".trow.you")).toContainText(
-    "look dark · versions inline · trim inside the lab",
+    "variant dark · versions inline · trim inside the lab",
   );
 
   const read = await agentCall(server.url, `/api/feedback?session=${session}`);

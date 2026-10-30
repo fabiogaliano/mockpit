@@ -81,7 +81,7 @@ async function deliver(mockId: string, items: Candidate[]) {
       return n ? [n] : [];
     }
     const v = mock.variants.find((x) => x.postId === c.postId);
-    return v ? [noticeFromVariant(mock.title, v, c.version)] : [];
+    return v ? [noticeFromVariant(mock.title, v, c.version, mock.variants)] : [];
   });
   const notice = mergeNotices(notices);
   // Re-checked after the fetch: the user may have come back meanwhile.

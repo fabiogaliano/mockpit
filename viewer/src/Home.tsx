@@ -10,8 +10,8 @@
 // hasn't opened (seen.ts), and has a ⋯ menu to move or close it. Above them,
 // one line says what is waiting and links the next mock to
 // answer, in the agent's order (nextOwedMock). The count opens the waiting
-// mocks as rows; a swipe left on one (or its Resolve button) resolves it: its
-// open questions close unanswered and it moves to a folded Resolved list,
+// mocks as rows; a swipe left on one (or its Close button) closes it: its
+// open questions close unanswered and it moves to a folded Closed list,
 // where Reopen brings it back.
 
 import {
@@ -220,9 +220,9 @@ export function Home(props: {
     try {
       await api.resolve(m.id);
       await refetch();
-      say({ text: `Resolved “${m.title}”`, undo: m.id });
+      say({ text: `Closed “${m.title}”`, undo: m.id });
     } catch (e) {
-      say({ text: `Couldn't resolve “${m.title}”: ${e instanceof Error ? e.message : e}` });
+      say({ text: `Couldn't close “${m.title}”: ${e instanceof Error ? e.message : e}` });
     } finally {
       const { [m.id]: _, ...rest } = leaving();
       setLeaving(rest);
@@ -452,7 +452,7 @@ export function Home(props: {
               {source(n)}
             </span>
             <Show when={n.usedIn.length}>
-              {`in ${n.usedIn.length} ${n.usedIn.length === 1 ? "screen" : "screens"}`}
+              {`appears in ${n.usedIn.length} ${n.usedIn.length === 1 ? "mock" : "mocks"}`}
             </Show>
           </>,
         )
@@ -627,7 +627,7 @@ export function Home(props: {
                     </For>
                   </ol>
                   <Show when={resolved().length}>
-                    <section class="home-resolved" aria-label="Resolved">
+                    <section class="home-resolved" aria-label="Closed">
                       <button
                         type="button"
                         class="home-resolved-hd"
@@ -637,7 +637,7 @@ export function Home(props: {
                         <span class="answered-chev" aria-hidden="true">
                           ›
                         </span>
-                        {`Resolved · ${resolved().length}`}
+                        {`Closed · ${resolved().length}`}
                       </button>
                       <Show when={resolvedOpen()}>
                         <ol class="home-list">
@@ -910,7 +910,7 @@ function MockRow(props: {
           <svg viewBox="0 0 16 16">
             <path d="M3.5 8.5l3 3 6-7" />
           </svg>
-          Resolve
+          Close
         </div>
       </Show>
       <div
@@ -944,7 +944,7 @@ function MockRow(props: {
               <Show when={props.mock.source}>
                 {(src) => <span class="home-src" title={src()}>{` · ${shortSource(src())}`}</span>}
               </Show>
-              <Show when={props.mock.resolvedAt}>{(at) => ` · resolved ${timeAgo(at())}`}</Show>
+              <Show when={props.mock.resolvedAt}>{(at) => ` · closed ${timeAgo(at())}`}</Show>
               <Show when={props.mock.drafted !== undefined && props.mock.open > 0}>
                 <span class="home-draft" title="Answered, not sent yet">
                   {` · draft ${props.mock.drafted}/${props.mock.open}`}
@@ -971,11 +971,11 @@ function MockRow(props: {
           <button
             type="button"
             class="home-act"
-            aria-label={`Resolve ${props.mock.title}`}
-            title="Resolve: close its open questions unanswered"
+            aria-label={`Close ${props.mock.title}`}
+            title="Close: leave its open questions unanswered"
             onClick={commit}
           >
-            Resolve
+            Close
           </button>
         </Show>
         <Show when={props.onReopen}>

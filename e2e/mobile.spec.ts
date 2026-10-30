@@ -63,7 +63,7 @@ async function openThread(page: Page) {
   await page.locator(".vlabel").tap();
   await page.getByRole("tab", { name: "Thread" }).tap();
 }
-const markTool = (page: Page) => page.getByRole("button", { name: "Mark", exact: true });
+const markTool = (page: Page) => page.getByRole("button", { name: "Comment", exact: true });
 
 // Too narrow for an artboard beside the design: one page and a bottom sheet.
 const onPhone = (page: Page) => page.viewportSize()!.width <= 640;

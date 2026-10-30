@@ -60,7 +60,7 @@ const BRIDGE = `
 const panelId = (mockId: string, c: TuneComponent) => `mockpit:${mockId}:${c.part ?? "look"}`;
 // Inside a part's panel a knob is named without its part ("body.size" → "size").
 const keyOf = (c: TuneComponent, path: string) =>
-  c.part === null ? path : path === c.part ? "fill" : path.slice(c.part.length + 1);
+  c.part === null ? path : path === c.part ? "shows" : path.slice(c.part.length + 1);
 
 // The control tunekit draws for a knob. An image knob becomes a select over its
 // option names: tunekit would load each option as an <img> here, in the trusted

@@ -119,7 +119,7 @@ export const isLookAsk = (ask: Ask): boolean =>
 export const lookAsk = (mock: Pick<MockDetail, "asks">): Ask | undefined =>
   mock.asks.find(isLookAsk);
 
-// --- the built-in "Which one?" ---
+// --- the built-in "Which variant?" ---
 
 type VariantRow = Pick<VariantView, "state" | "variant" | "status">;
 
@@ -160,7 +160,7 @@ export function builtinAsks(
   if (!needing.length) return [];
   const ask = (names: string[], state: string | null): Ask => ({
     id: state === null ? BUILTIN_ASK_ID : `${BUILTIN_ASK_ID}:${state}`,
-    text: "Which one?",
+    text: "Which variant?",
     scope: state === null ? "mock" : "state",
     ...(state === null ? {} : { state }),
     options: names.map((v) => ({ id: v, label: v, variant: v })),
@@ -241,9 +241,9 @@ export function partLabel(mock: Pick<MockDetail, "parts">, name: string): string
   return name;
 }
 
-// The question's heading in the panel ("Look", "Trim", "Versions open").
+// The question's heading in the panel ("Variant", "Trim", "Versions open").
 export function askName(ask: Ask, mock: Pick<MockDetail, "parts">): string {
-  if (isLookAsk(ask)) return "Look";
+  if (isLookAsk(ask)) return "Variant";
   if (ask.scope === "part" && ask.part) return partLabel(mock, ask.part);
   if (ask.scope === "state" && ask.state) return ask.state;
   return "Question";
@@ -251,7 +251,7 @@ export function askName(ask: Ask, mock: Pick<MockDetail, "parts">): string {
 
 // The same topic, lowercased, as the reply summary names it.
 function askTopic(ask: Ask): string {
-  if (isLookAsk(ask)) return "look";
+  if (isLookAsk(ask)) return "variant";
   if (ask.scope === "part" && ask.part) return ask.part;
   if (ask.scope === "state" && ask.state) return ask.state.toLowerCase();
   return "answer";
@@ -259,7 +259,7 @@ function askTopic(ask: Ask): string {
 
 // An answer to no stored ask is a built-in one, named like the ask it stood for.
 function builtinTopic(id: string): string {
-  if (id === BUILTIN_ASK_ID) return "look";
+  if (id === BUILTIN_ASK_ID) return "variant";
   if (id.startsWith(`${BUILTIN_ASK_ID}:`)) return id.slice(BUILTIN_ASK_ID.length + 1).toLowerCase();
   return id;
 }
@@ -694,8 +694,8 @@ export const commentWhere = (c: Pick<PartComment, "part" | "state">): string =>
 
 // The thread (D8): agent publishes (from version history) and the comment log,
 // oldest first. An agent's ask or reply right after a publish reads as one row:
-// "published v1 · asked 4", "published v3 · replied:". A version is numbered as
-// the version bar numbers it (versionSteps), with its state when there are several.
+// "published #1 · asked 4", or "published Dark #3" over the agent's message. A
+// version is named as the version bar names it, with its state when there are several.
 export function threadRows(
   comments: CommentRow[],
   variants: StepSource[],
@@ -706,16 +706,20 @@ export function threadRows(
     | { kind: "publish"; at: string; label: string; id: string }
     | { kind: "comment"; at: string; c: CommentRow };
   const events: Event[] = [
-    ...states.flatMap((state) =>
-      versionSteps(variants, state).map(
+    ...states.flatMap((state) => {
+      const named = variants.filter((v) => v.state === state).length > 1;
+      return versionSteps(variants, state).map(
         (st): Event => ({
           kind: "publish",
           at: st.at,
-          label: states.length > 1 && state !== null ? `${state} v${st.n}` : `v${st.n}`,
-          id: `${state ?? ""}:v${st.n}`,
+          label:
+            states.length > 1 && state !== null
+              ? `${state}, ${versionName(st, named)}`
+              : versionName(st, named),
+          id: `${state ?? ""}:${st.variant}@${st.version}`,
         }),
-      ),
-    ),
+      );
+    }),
     ...comments.map((c): Event => ({ kind: "comment", at: c.createdAt, c })),
   ].sort((a, b) => a.at.localeCompare(b.at) || (a.kind === "publish" ? -1 : 1));
   const rows: ThreadRow[] = [];
@@ -777,11 +781,11 @@ export function threadRows(
       lastPublish = null;
       continue;
     }
-    const suffix =
-      c.kind === "ask" ? `asked ${c.text.split("\n").filter(Boolean).length}` : "replied:";
+    // An agent's message needs no word of its own: the row already says "agent".
+    const suffix = c.kind === "ask" ? `asked ${c.text.split("\n").filter(Boolean).length}` : "";
     const quote = c.kind === "ask" ? undefined : c.text;
-    if (lastPublish && lastPublish === rows[rows.length - 1] && !lastPublish.text.includes(" · ")) {
-      lastPublish.text += ` · ${suffix}`;
+    if (lastPublish && lastPublish === rows[rows.length - 1]) {
+      if (suffix) lastPublish.text += ` · ${suffix}`;
       if (quote) lastPublish.quote = quote;
       lastPublish.at = c.createdAt;
     } else {
@@ -825,8 +829,8 @@ export const editedLine = (e: MockEdit): string =>
 
 export const resolvedLine = (dismissed: number): string =>
   dismissed
-    ? `Resolved · ${dismissed} ${dismissed === 1 ? "question" : "questions"} closed unanswered`
-    : "Resolved";
+    ? `Closed · ${dismissed} ${dismissed === 1 ? "question" : "questions"} left unanswered`
+    : "Closed";
 
 // A question the user still owes: open on the server and not answered in the
 // draft. A write-in with text or a note alone answers it.
@@ -976,7 +980,7 @@ export function tuneComponents(
   const paths = Object.keys(knobs);
   const partOf = (p: string) => (slots.includes(p) ? p : knobPart(p));
   const out: TuneComponent[] = [
-    { part: null, label: "Look", paths: paths.filter((p) => partOf(p) === null) },
+    { part: null, label: "Whole design", paths: paths.filter((p) => partOf(p) === null) },
   ];
   const names: string[] = [];
   for (const s of mock.parts)
@@ -1448,9 +1452,9 @@ export interface VersionRef {
 export const sameVersion = (a: VersionRef | null | undefined, b: VersionRef | null | undefined) =>
   !!a && !!b && a.variant === b.variant && a.version === b.version;
 
-// A version as the screen numbers it: every version of every variant in a
-// state, in the order they were published, is v1…vM. The agent's own numbers
-// are per variant; the user only ever reads `n`.
+// Every version of every variant in a state, in the order they were published:
+// `n` is its place in that timeline, which the version arrows walk. The user
+// never reads `n`, only the agent's own number (versionName).
 export interface VersionStep extends VersionRef {
   n: number;
   postId: string;
@@ -1494,6 +1498,13 @@ export function versionSteps(variants: StepSource[], state: string | null): Vers
   );
   return rows.map((r, i) => ({ ...r.step, n: i + 1 }));
 }
+
+// A version as the user reads it: the agent's own number, so "Dark #2" is the
+// agent's dark@2, with the variant's name in front when its state has others.
+export const versionName = (ref: VersionRef, named: boolean): string =>
+  named
+    ? `${ref.variant.charAt(0).toUpperCase()}${ref.variant.slice(1)} #${ref.version}`
+    : `#${ref.version}`;
 
 export const stepFor = (steps: VersionStep[], ref: VersionRef | null | undefined) =>
   ref ? steps.find((x) => sameVersion(x, ref)) : undefined;
