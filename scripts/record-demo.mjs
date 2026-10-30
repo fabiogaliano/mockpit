@@ -7,8 +7,8 @@
 //   node scripts/record-demo.mjs --stills   # stills only
 //   node scripts/record-demo.mjs --gif      # gif only
 //
-// The gif pass replays the decide loop live: the agent publishes three looks and
-// its asks → the user previews the looks on the stage and picks one → answers a
+// The gif pass replays the decide loop live: the agent publishes three variants and
+// its questions → the user previews the variants on the stage and picks one → answers a
 // part question → Send → Thread shows ✓, then ✓✓ once the agent's feedback
 // read takes it → the agent replies and publishes v2. ffmpeg turns the recorded webm into the
 // gif: mpdecimate drops held frames (keeping one every two seconds, so the
@@ -67,7 +67,7 @@ async function boot() {
 }
 
 // Publishes the Writer mock the way `mockpit demo` does: one session, one publish
-// per (state, look), then the asks.
+// per (state, variant), then the questions.
 async function publishWriter(api, asks = DEMO.asks) {
   const session = await api("/api/sessions", {
     agent: DEMO.agent,
@@ -196,7 +196,7 @@ async function gif() {
     await page.goto(`${base}/project/${encodeURIComponent(DEMO.project)}`);
     await sleep(900);
 
-    // The agent publishes: a Look ask over three looks, and a part question.
+    // The agent publishes: the variant question over three variants, and a part question.
     const asks = DEMO.asks.filter((a) => a.id !== "versions-layout");
     const { mockId, session } = await publishWriter(api, asks);
     const homeRow = page.locator(`.home-step[data-mock="${DEMO.slug}"]`).first();
@@ -207,7 +207,7 @@ async function gif() {
     await page.locator(".frame.on iframe").waitFor();
     await sleep(1600);
 
-    // Hovering a look previews it on the stage; picking one moves on.
+    // Hovering a variant previews it on the stage; picking one moves on.
     const option = (id) => page.locator(`.opt[data-option="${id}"]`);
     await hover(option("dark"), 18);
     await sleep(1100);
@@ -216,8 +216,8 @@ async function gif() {
     await click(option("quiet"));
     await sleep(1300);
 
-    // The part question: Trim, pinned on its part on the stage. If the looks
-    // differ enough for Mix to join, it comes last and "all quiet" closes it.
+    // The part question: Trim, pinned on its part on the stage. If the variants
+    // differ enough to borrow parts, that question comes last and "all quiet" closes it.
     await page.locator(".opt").first().waitFor();
     await click(page.locator(".opt").nth(1));
     await sleep(1100);
@@ -245,7 +245,7 @@ async function gif() {
     await row.locator(".tdelivered.ok").waitFor();
     await sleep(1300);
 
-    // The agent answers in the thread and publishes v2 of the picked look.
+    // The agent answers in the thread and publishes the next version of the picked variant.
     await api(`/api/mocks/${mockId}/say`, {
       session,
       message: "Quiet it is, with the trim below the page. v2 moves it.",

@@ -157,7 +157,7 @@ await stage("hideCard");
 await sleep(700);
 await stage(
   "caption",
-  `Agents publish a mock over <span class="hl">CLI, MCP, or plain HTTP</span> — every state, a few looks`,
+  `Agents publish a mock over <span class="hl">CLI, MCP, or plain HTTP</span> — every state, a few variants`,
 );
 await sleep(900);
 const { mockId, session } = await publishWriter();
@@ -168,7 +168,7 @@ await row.click();
 await app.locator('.opt[data-option="editorial"] iframe').waitFor();
 await sleep(2400);
 
-// 3. Questions: preview the looks on the stage, pick one, answer the rest.
+// 3. Questions: preview the variants on the stage, pick one, answer the rest.
 await stage(
   "caption",
   `The agent asks — <span class="hl">you answer from pictures</span> of each option`,

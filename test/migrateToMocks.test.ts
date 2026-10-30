@@ -379,3 +379,134 @@ test("a workspace from before sketches keeps only the components in use", async 
   const kinds = Object.fromEntries((await reopened.listMocks("demo")).map((m) => [m.slug, m.kind]));
   assert.deepEqual(kinds, { home: "page", chip: "component", step: "component", loose: "sketch" });
 });
+
+test("a workspace from before the contract renames reads in the new names", async () => {
+  const path = tmpDb();
+  const store = new SqlStore(createSqliteStorage(path));
+  const session = await store.createSession({ agent: "pi" });
+  const mock = await store.createMock({ project: "demo", slug: "card", sessionId: session.id });
+  const html = (body: string) => [{ id: "s", kind: "html" as const, html: body }];
+  const post = (variant: string, body: string) =>
+    store.createPost({
+      sessionId: session.id,
+      mock: mock.id,
+      state: null,
+      variant,
+      surfaces: html(body),
+    });
+  const kept = await post("kept", "<p>kept</p>");
+  const gone = await post("gone", "<p>gone</p>");
+  const page = await post("page", `<main><mockpit-slot slug="chip"></mockpit-slot></main>`);
+  assert.ok(kept && gone && page);
+  await store.updatePost(page.id, { surfaces: html(`<mockpit-SLOT slug='chip'/><p>v2</p>`) });
+  // A code surface may quote the tag as text; only html is markup.
+  const code = await store.createPost({
+    sessionId: session.id,
+    mock: mock.id,
+    state: null,
+    variant: "code",
+    surfaces: [{ id: "c", kind: "code", code: "<mockpit-slot slug='x'>" }],
+  });
+  assert.ok(code);
+  // Replies and a draft as the previous release stored them.
+  const reply = (payload: Record<string, unknown>) =>
+    store.createComment({
+      sessionId: session.id,
+      mockId: mock.id,
+      author: "user",
+      text: "",
+      kind: "reply",
+      payload: { mockId: mock.id, version: 1, answers: {}, tuned: {}, comments: [], ...payload },
+    } as never);
+  const accept = await reply({
+    mix: { body: "gone" },
+    decision: { kind: "accept", state: null, variant: "kept", version: 1 },
+  });
+  const revise = await reply({
+    mix: {},
+    decision: { kind: "revise", state: null, variant: "kept" },
+  });
+  const drop = await reply({ mix: {}, decision: { kind: "drop", state: null, variant: "gone" } });
+  const closed = await reply({ mix: {}, resolved: { dismissed: ["tone"] } });
+  const edited = await reply({ mix: {}, edited: { kind: "page" } });
+  assert.ok(accept && revise && drop && closed && edited);
+  await store.putDraft(mock.id, {
+    version: 1,
+    answers: {},
+    mix: { body: "kept" },
+    tuned: {},
+    comments: [],
+    updatedAt: "t",
+  } as never);
+  // The schema and values the previous release left.
+  const old = createSqliteStorage(path);
+  old.exec("ALTER TABLE mocks RENAME COLUMN closedAt TO resolvedAt");
+  old.exec("UPDATE mocks SET resolvedAt = '2026-10-01T00:00:00.000Z' WHERE id = ?", mock.id);
+  old.exec("UPDATE posts SET status = 'dropped' WHERE id = ?", gone.id);
+  old.exec("UPDATE posts SET status = 'accepted', acceptedVersion = 1 WHERE id = ?", kept.id);
+  old.exec("DELETE FROM settings WHERE key = 'contractTerms'");
+
+  const reopened = new SqlStore(createSqliteStorage(path));
+  const after = await reopened.getMock(mock.id);
+  assert.equal(after?.closedAt, "2026-10-01T00:00:00.000Z", "the close survives the rename");
+  assert.deepEqual(after?.draft?.borrowed, { body: "kept" });
+  assert.equal("mix" in (after?.draft ?? {}), false);
+  assert.equal((await reopened.getPost(gone.id))?.status, "archived", "dropped is archived");
+  assert.equal((await reopened.getPost(kept.id))?.status, "accepted");
+  assert.equal((await reopened.getPost(kept.id))?.acceptedVersion, 1);
+
+  const payloads = new Map(
+    (await reopened.listComments({ mockId: mock.id })).map((c) => [c.id, c.payload!]),
+  );
+  assert.deepEqual(payloads.get(accept.id), {
+    mockId: mock.id,
+    version: 1,
+    answers: {},
+    tuned: {},
+    comments: [],
+    borrowed: { body: "gone" },
+    verdict: { kind: "use", state: null, variant: "kept", version: 1 },
+  });
+  assert.deepEqual(payloads.get(revise.id)?.verdict, {
+    kind: "revise",
+    state: null,
+    variant: "kept",
+  });
+  const dropped = payloads.get(drop.id)!;
+  assert.equal("verdict" in dropped || "decision" in dropped, false, "a drop keeps no verdict");
+  assert.deepEqual(payloads.get(closed.id)?.closed, { dismissed: ["tone"] });
+  assert.equal("resolved" in payloads.get(closed.id)!, false);
+  assert.deepEqual(payloads.get(edited.id)?.edited, { kind: "page" });
+  for (const p of payloads.values()) assert.equal("mix" in p, false);
+
+  const current = (await reopened.getPost(page.id))!;
+  assert.equal(
+    (current.surfaces[0] as { html: string }).html,
+    `<mockpit-embed slug='chip'/><p>v2</p>`,
+  );
+  assert.equal(
+    (current.history[0].surfaces[0] as { html: string }).html,
+    `<main><mockpit-embed slug="chip"></mockpit-embed></main>`,
+    "every stored version still names its embeds",
+  );
+  assert.equal(
+    ((await reopened.getPost(code.id))!.surfaces[0] as { code: string }).code,
+    "<mockpit-slot slug='x'>",
+  );
+
+  // Once only: reopening the lifted workspace changes nothing.
+  const snapshot = {
+    mock: await reopened.getMock(mock.id),
+    posts: await reopened.listPosts({ mockId: mock.id }),
+    comments: await reopened.listComments({ mockId: mock.id }),
+  };
+  const again = new SqlStore(createSqliteStorage(path));
+  assert.deepEqual(
+    {
+      mock: await again.getMock(mock.id),
+      posts: await again.listPosts({ mockId: mock.id }),
+      comments: await again.listComments({ mockId: mock.id }),
+    },
+    snapshot,
+  );
+});

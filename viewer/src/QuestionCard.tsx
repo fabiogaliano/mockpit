@@ -29,7 +29,7 @@ export function QuestionCard(props: { s: MockScreenState }) {
       win.removeEventListener("drop", guard);
     });
   });
-  const shown = () => !s.cardMin() && !s.panel() && !s.mock()?.resolvedAt;
+  const shown = () => !s.cardMin() && !s.panel() && !s.mock()?.closedAt;
   const total = () => s.questions().length;
   const i = () => Math.min(s.cur(), total() - 1);
   return (
@@ -142,7 +142,7 @@ export function QuestionTab(props: { s: MockScreenState }) {
   const n = () => s.owed().length;
   const hidden = () => s.cardMin() || !!s.panel() || !s.curAsk();
   return (
-    <Show when={hidden() && n() > 0 && !s.mock()?.resolvedAt}>
+    <Show when={hidden() && n() > 0 && !s.mock()?.closedAt}>
       <button
         type="button"
         class="qtab"

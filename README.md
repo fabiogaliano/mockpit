@@ -3,9 +3,9 @@
 **A design-decision loop for terminal coding agents.**
 
 Your agent publishes a mock (a page or a component) in each of its UI states and
-in a few parallel looks. It shows up live in your browser with the agent's
-questions beside it: pick a look from pictures, tune the knobs it exposed, leave
-comments on the parts it marked, then press **Send**, at your own pace. Nothing
+in a few parallel variants. It shows up live in your browser with the agent's
+questions beside it: pick a variant from pictures, tune the knobs it exposed, leave
+comments on the parts it declared, then press **Send**, at your own pace. Nothing
 the agent calls waits for you: it gets the whole batch once and revises.
 
 <table>
@@ -13,11 +13,11 @@ the agent calls waits for you: it gets the whole batch once and revises.
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/mockpit-dark.png">
-        <img width="100%" alt="The Writer mock on its first question, Look: the Writing state on the stage with a numbered question pin, the strip of four UI states below it, and the panel offering three looks (Quiet, Dark, Editorial) as picture options" src="docs/mockpit-light.png">
+        <img width="100%" alt="The Writer mock on its first question, Which variant?: the Writing state on the stage with a numbered question pin, the row of four UI states below it, and the panel offering three variants (Quiet, Dark, Editorial) as picture options" src="docs/mockpit-light.png">
       </picture>
     </td>
     <td width="50%" valign="top">
-      <img width="100%" alt="Animated demo: the agent publishes the Writer mock; the user previews the three looks on the stage, picks Quiet, answers where the trim goes, keeps a part from another look and presses Send; the top bar reads Sent, Not seen yet, then Delivered once the agent reads the feedback; the agent replies and publishes v2" src="docs/mockpit-demo.gif">
+      <img width="100%" alt="Animated demo: the agent publishes the Writer mock; the user previews the three variants on the stage, picks Quiet, answers where the trim goes, borrows a part from another variant and presses Send; the top bar reads Sent, Not seen yet, then Delivered once the agent reads the feedback; the agent replies and publishes its next version" src="docs/mockpit-demo.gif">
     </td>
   </tr>
 </table>
@@ -34,42 +34,43 @@ mockpit turns that into a design-decision loop:
 
 |               | sideshow                                           | mockpit                                                                                                                        |
 | ------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Structure     | A stream of posts per session                      | **project › mock › state › variant › version**: a repo, a page or component by slug, its UI states, parallel looks, history    |
+| Structure     | A stream of posts per session                      | **project › mock › state › variant › version**: a repo, a page or component by slug, its UI states, parallel variants, history |
 | Questions     | Free-text comments                                 | The agent asks; you answer in place, picking from pictures of each option                                                      |
 | Tuning        | —                                                  | Knobs the agent declares (sliders, colours, springs…) on [tunekit](https://github.com/fabiogaliano/tunekit), live on the stage |
-| Comments      | Text on a post                                     | Anchored on a **part** the agent marked with `data-part`, in a given state                                                     |
-| Feedback      | Each comment reaches the agent as it's written     | Picks, tuned values, mix and comments stay drafts until you **Send**, then go out as one reply                                 |
+| Comments      | Text on a post                                     | Anchored on a **part** the agent declared with `data-part`, in a given state                                                   |
+| Feedback      | Each comment reaches the agent as it's written     | Picks, tuned values, borrowed parts and comments stay drafts until you **Send**, then go out as one reply                      |
 | Design system | Built-in viewer themes                             | `mockpit init` detects the repo's tokens, fonts and kit so the agent's markup matches your codebase                            |
 | Agent verbs   | Post-level: `publish`, `update`, `wait`, `comment` | Mock-level, never blocking: `publish`, `ask`, `read`, `feedback`, `say`, `edit`, `export`, `upload`, `guide`, `run`            |
 
 ## The loop
 
 1. **Publish.** The agent publishes each state of the mock ("Writing", "Lab
-   open") in one or more variants ("quiet", "dark"). One stage shows the mock;
-   the strip under it switches states.
-2. **Ask.** The agent asks what it can't decide alone: which look, where a
+   open") in one or more variants ("quiet", "dark"). One stage shows the mock,
+   one state at a time.
+2. **Ask.** The agent asks what it can't decide alone: which variant, where a
    panel goes, which of two layouts. The question lives in the mock, not in
    chat; the agent tells you where to look and ends its turn. Options bound to
    a variant or to knob values render as pictures; hovering one previews it on
    the stage, clicking picks it, and the part it changed is outlined. A
-   region the agent drew several ways (a slot: one `data-part`, a `data-fill`
-   per alternative) is asked about once; a slot inside a fill is asked only
-   while that fill is chosen. Variants the agent forgot to ask about get a
-   built-in **Which one?**.
-3. **Tune.** Parts the agent marked are selectable on the stage. Tune lists
+   region the agent drew several ways (a part with fills: one `data-part`, a
+   `data-fill` per alternative) is asked about once; a part inside a fill is
+   asked only while that fill is chosen. Variants the agent forgot to ask about
+   get a built-in **Which variant?**.
+3. **Tune.** Parts the agent declared are selectable on the stage. Tune lists
    them with the knobs it declared for each, a **Borrow** line for a part
-   another look draws differently, plus a comment field. Presets
+   another variant draws differently, plus a comment field. Presets
    save a set of tuned values in your browser.
 4. **Send.** Everything above is a draft (it survives a reload) until one
-   **Send**. A mock with a single variant and no questions gets **Accept /
-   Revise / Drop** instead. The Send lands in the Thread as **Not seen yet**,
+   **Send**. A mock with a single variant and no questions gets **Use this /
+   Revise** instead. The Send lands in the Thread as **Not seen yet**,
    then **Delivered** once the agent has it. If it isn't picked up, tell your
    agent you've answered.
-5. **Revise.** The agent gets one reply (answers, tuned values, mix, comments)
+5. **Revise.** The agent gets one reply (answers, tuned values, borrowed parts, comments)
    on its next write, its next `feedback` call, or from `mockpit watch` under a
-   background monitor. It publishes the next version; the frame header's `v3 ▾` lists the history,
-   and an older version opens under a banner with "restore as vN". Looks that
-   lost are archived, not deleted.
+   background monitor. It publishes the next version. Versions are named by
+   their variant's own number ("Dark #2"); the version bar walks the history,
+   and **Use this** puts an older one back in use. Variants that lost are
+   archived, not deleted.
 
 **Home** lists the project's mocks with a thumbnail, their states and how many
 questions are open, with "Answer next ›" to jump to the first one. Dark and
@@ -99,7 +100,7 @@ curl -s http://localhost:8228/setup >> AGENTS.md
 
 Then run `mockpit init` once per repo and ask the agent to "mock this up on
 mockpit". No agent handy? `mockpit demo` seeds the Writer: one mock in four
-states and three looks, with questions, knobs and marked parts.
+states and three variants, with questions, knobs and declared parts.
 
 MCP, the Pi extension and the Claude Code plugin are covered in
 **[docs/connecting-agents.md](docs/connecting-agents.md)**.
@@ -161,27 +162,27 @@ and `mockpit watch` (one line per Send, for a background monitor).
 - **`publish` is the one write.** It creates the mock, state or variant, or the
   next version of an existing one. Send `html`, the full ordered `surfaces`
   list (an entry that is only `{id}` keeps that surface), or `parts` to replace
-  just the marked elements.
+  just the declared elements.
 - **`feedback` returns at once** with what the user sent since the agent last
   heard, plus `pending`: whether each mock is open in the viewer and how far the user's
   draft has got (`2 of 3 answered`). Every write returns `feedback` too, and
   each Send is delivered exactly once across all of them.
-- **Asks are nudged.** A publish that leaves several variants with no ask
-  binding them returns a nudge and a ready `suggestedAsk`.
+- **Questions are nudged.** A publish that leaves several variants with no
+  question binding them returns a nudge and a ready `suggestedAsk`.
 
 A typical turn:
 
 ```sh
 mockpit publish --mock writer --state "Writing" --variant quiet --html quiet.html
 mockpit publish --mock writer --state "Writing" --variant dark  --html dark.html
-mockpit ask     --mock writer "Which look?" --option Quiet=quiet --option Dark=dark
+mockpit ask     --mock writer "Quiet or dark?" --option Quiet=quiet --option Dark=dark
 # the agent says where to look and ends its turn; once you've answered:
 mockpit feedback
 ```
 
 The running server serves the brief at `/agent-howto`: one short, project-aware
 document an agent reads before its first publish. Reference topics (`knobs`,
-`asks`, `surfaces`, `html`, `reply`, `http`, `scripts`) are at
+`asks`, `surfaces`, `html`, `feedback`, `http`, `scripts`) are at
 `/agent-howto?topic=<id>`; `/guide` is the `html` topic. `run` executes one
 script against the same verbs on the server, so publishing variants and asking
 take one call; `/mcp?mode=code` serves it as the only tool, for connectors

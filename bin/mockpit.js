@@ -29,23 +29,23 @@ const HEADERS = {
 const HELP = `mockpit — a live visual surface for terminal coding agents
 
 vocabulary: project › mock › state › variant › version. A project is a repo; a
-mock is the page or component on stage; a state is one moment of it ("Lab
+mock is a sketch, page or component, by slug; a state is one thing the user sees in it ("Lab
 open"); a variant is a parallel design of a state; a version is its history.
-Mark the parts you want feedback on with data-part="name" in the html.
+Declare the parts you want feedback on with data-part="name" in the html.
 
 the loop (never blocks on the user):
   1. mockpit init once per repo; read the brief (mockpit guide).
-  2. mockpit publish once per variant; mark parts with data-part.
-  3. A choice is several variants plus one ask that binds them: mockpit ask
+  2. mockpit publish once per variant; declare parts with data-part.
+  3. A choice is several variants plus one question that binds them: mockpit ask
      with options bound to variants. A variant decides everything it differs
      on; don't re-ask it. Visual options carry a variant or knob set. One
      render plus a control: --knobs.
   4. Tell the user in one line where to look, then end your turn. The question
-     itself lives in the mock (ask), never in chat. The user answers in the
+     itself lives in the mock, never in chat. The user answers in the
      browser at their own pace. Never poll.
   5. When the user says they answered (or a mockpit watch line wakes you), run
      mockpit feedback. Every write also returns feedback; read it.
-  6. mockpit publish the revision; mockpit export once a variant is accepted.
+  6. mockpit publish the revision; mockpit export once a variant is in use.
   In Claude Code, arm mockpit watch under Monitor after asking, then end the
   turn; elsewhere the user's next message is the wake-up.
 
@@ -63,7 +63,7 @@ verbs:
                         alone keeps a surface, a missing id removes it
       --parts <name=file|->  instead: replace just that data-part's element in
                         the latest version (repeatable; name#key targets one instance)
-      --fills <part#fill=file|->  instead: replace or add one fill of a slot in
+      --fills <part#fill=file|->  instead: replace or add one fill of a part in
                         the latest version (repeatable)
       --title <t>       mock title
       --kind <k>        page|component, only for an app's screens (default sketch)
@@ -74,8 +74,8 @@ verbs:
       --prompt <text>   what prompted this version
       --note <text>     one line on what this variant is, shown beside it
       --widths <list>   device widths to show it at, e.g. 390,1280
-      --flow <name> [--step <N>]  make this screen step N of a flow (0 takes
-                        it out); with no html it only places the screen
+      --flow <name> [--step <N>]  make this state step N of a flow (0 takes
+                        it out); with no html it only places the state
       --project <name>  project (default: git remote, else directory name)
       --kit <id>        opt the html surface into a kit (repeatable; see "mockpit kits")
       --md/--mermaid/--diff/--terminal/--data/--code/--image <file|->
@@ -87,11 +87,11 @@ verbs:
                         "=variant@3" to its version 3, "=knob:path=value" sets one knob
       --recommend <l>   the option you would pick, by label; a quiet mark on it
       --scope <s>       mock|state|part (default mock)
-      --state <label>   the state a state-scoped ask is about
-      --part <name>     the part a part-scoped ask is about
+      --state <label>   the state a state-scoped question is about
+      --part <name>     the part a part-scoped question is about
       --multi           allow several answers
-      --id <id>         stable id; reusing one replaces that ask
-      --asks <json|file>  several asks at once, full shape
+      --id <id>         stable id; reusing one replaces that question
+      --asks <json|file>  several questions at once, full shape
   mockpit read [slug] [--body] [--history]
                                           no slug: every mock plus what the user
                                           is doing now; a slug: that mock
@@ -106,7 +106,7 @@ verbs:
   mockpit edit --project <name> --area-order "Shell,Food"
                                           the order Home lists areas in
   mockpit export --mock <slug> [--state s] [--variant v] [--out <dir>]
-                                          write the accepted html + history per state
+                                          write the html in use + history per state
                                           to .mockpit/accepted/<mock>/<state>/
   mockpit upload <file> [--kind image|file]
                                           upload an asset, print its id and URL
@@ -195,7 +195,7 @@ mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
                      (name#key for one instance) in the latest version; repeatable
   --fills <part#fill=file|->  replace the element carrying data-part="part"
                      data-fill="fill" in the latest version, or add it after
-                     that slot's other fills; the marks are added if missing
+                     that part's other fills; the marks are added if missing
   --title <t>        mock title
   --kind <k>         page|component|sketch: page for a screen of the product,
                      component for a piece pages embed (embedding makes one);
@@ -213,32 +213,32 @@ mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
                      inside the design)
   --widths <list>    device widths the mock is judged at, side by side, e.g.
                      390,1280 (the ones the user ships to)
-  --flow <name>      a flow this screen is a step of: the screens the user moves
+  --flow <name>      a flow this state is a step of: the states the user moves
                      between, in order, across mocks; without html it only
-                     places the existing screen
+                     places the existing state
   --step <N>         its 1-based place in the flow (moves it if it is there);
                      0 takes it out; omitted, it joins at the end
   --project <name>   project (default: git remote, else directory name)
   --md/--mermaid/--diff/--terminal/--data/--code/--image <file>  more surfaces
   --json / --quiet
   Prints the parts found per state, parts that vanished or were renamed,
-  nudges, a ready-to-run "mockpit ask" when variants have no ask, and feedback.`,
+  nudges, a ready-to-run "mockpit ask" when variants have no question, and feedback.`,
   ask: `mockpit ask --mock <slug> "<question>" --option <label[=variant]> ... [--scope mock|state|part]
   [--state s] [--part p] [--multi] [--id id] [--after <ask id>] [--recommend <label>]
   mockpit ask --mock <slug> --asks <json|file>
-  Ask the user. A choice is several variants plus one ask that binds them.
+  Ask the user. A choice is several variants plus one question that binds them.
   Then tell the user where to look and end your turn.`,
   read: `mockpit read [slug] [--project <name>] [--body] [--history] [--tree]
-  No slug: one line per mock (states, variants, open asks), one per flow, plus pending, what
-  the user is doing now. A slug: the mock's states, variants, asks with
+  No slug: one line per mock (states, variants, open questions), one per flow, plus pending, what
+  the user is doing now. A slug: the mock's states, variants, questions with
   answers, parts, knobs and settled values, plus its pending, as JSON.
   --body includes surfaces, --history version rows. --tree (no slug): the
   project as a tree, each mock's variants with status and forkedFrom, and the
-  mocks it uses and is used in, as JSON. Never consumes feedback.`,
+  mocks it embeds and is embedded in, as JSON. Never consumes feedback.`,
   feedback: `mockpit feedback [--project <name>] [--session <id>]
   Returns at once with {feedback, pending} as JSON: one batch per mock the user
-  sent since you last heard ({mock, reply: {asks, mix, tuned, comments},
-  comments, accepted, archived, dropped}, or {mock, resolved: true, dismissed} when the
+  sent since you last heard ({mock, reply: {asks, borrowed, tuned, comments,
+  verdict}, messages, inUse, archived}, or {mock, closed: true, dismissed} when the
   user closed it unanswered), delivered once across feedback, watch and
   every write; and pending ({mock, viewerOpen, draft}) so you can tell the
   user "take your time" or "2 of 3 answered". Run it when the user says they
@@ -269,11 +269,11 @@ mockpit edit --project <name> --area-order "Shell,Food,Chat"
   Delivery is shared with feedback and every write: each Send arrives once.`,
   export: `mockpit export --mock <slug> [--state s] [--variant v] [--out <dir>]
   Write index.html + history.json per state to .mockpit/accepted/<mock>/<state>/;
-  with slots, index.html is the chosen screen, plus source.html and decisions.json.`,
+  with fills, index.html is the chosen state, plus all-fills.html and decisions.json.`,
   upload: `mockpit upload <file> [--kind image|file] [--session <id>]
   Upload an asset; prints its id and URL. Use the id as an image surface's assetId.`,
   guide: `mockpit guide [--topic <id>] [--project <name>]
-  No flag prints the brief: the loop, parts, asks and knobs, feedback, and
+  No flag prints the brief: the loop, parts, questions and knobs, feedback, and
   this project's palette, kit and icons. --topic prints one reference topic
   (knobs, asks, surfaces, html, feedback, http, scripts).`,
 };
@@ -954,7 +954,7 @@ function parsePublishFlags() {
 
 // `--parts name=file` (repeatable; `name#key` targets one instance): the new
 // outer html of one part, spliced server-side into the latest version.
-// `--fills part#fill=file` is the same for one alternative of a slot.
+// `--fills part#fill=file` is the same for one fill of a part.
 function readPartFlags(values, slug, flag = "parts") {
   if (!values?.length) return undefined;
   const example =
@@ -1123,10 +1123,10 @@ function watchLines(batch) {
   const lines = [];
   const name = batch.mock ?? "a mock";
   if (batch.handoff) lines.push(`mockpit handoff on ${name}: ${batch.handoff}`);
-  if (batch.resolved) {
+  if (batch.closed) {
     const n = batch.dismissed?.length ?? 0;
     lines.push(
-      `mockpit resolved ${name}: ${n ? `${n} question${n === 1 ? "" : "s"} dismissed unanswered (${batch.dismissed.map((d) => d.text || d.ask).join("; ")}); don't ask again` : "closed by the user"}`,
+      `mockpit closed ${name}: ${n ? `${n} question${n === 1 ? "" : "s"} dismissed unanswered (${batch.dismissed.map((d) => d.text || d.ask).join("; ")}); don't ask again` : "closed by the user"}`,
     );
   }
   if (batch.edited) {
@@ -1149,21 +1149,21 @@ function watchLines(batch) {
             .join("; ")
         : "",
       Object.keys(r.tuned ?? {}).length ? `${Object.keys(r.tuned).length} tuned` : "",
-      Object.keys(r.mix ?? {}).length
-        ? `mix ${Object.entries(r.mix)
+      Object.keys(r.borrowed ?? {}).length
+        ? `borrowed ${Object.entries(r.borrowed)
             .map(([p, v]) => `${p}←${v}`)
             .join(", ")}`
         : "",
       r.comments?.length ? `${r.comments.length} comment${r.comments.length === 1 ? "" : "s"}` : "",
       r.reactions?.length ? r.reactions.join(", ") : "",
-      r.decision ? r.decision.kind : "",
+      r.verdict ? `${r.verdict.kind} ${r.verdict.variant}` : "",
       r.text ?? "",
     ].filter(Boolean);
     lines.push(`mockpit reply on ${name}: ${bits.join(" · ").replace(/\s+/g, " ")}`);
   }
-  for (const c of batch.comments ?? []) {
+  for (const c of batch.messages ?? []) {
     lines.push(
-      `mockpit comment on ${name}: “${String(c.text ?? "")
+      `mockpit message on ${name}: “${String(c.text ?? "")
         .replace(/\s+/g, " ")
         .trim()}”`,
     );
@@ -1528,7 +1528,10 @@ const commands = {
         asks: { type: "string" },
       },
     });
-    const slug = requireMock(flags, 'mockpit ask --mock writer "Which look?" --option Quiet=quiet');
+    const slug = requireMock(
+      flags,
+      'mockpit ask --mock writer "Quiet or dark?" --option Quiet=quiet',
+    );
     let asks;
     if (flags.asks !== undefined) {
       if (positionals.length > 0) {
@@ -1544,7 +1547,7 @@ const commands = {
       if (!text)
         die(
           "ask needs a question",
-          `mockpit ask --mock ${slug} "Which look?" --option Quiet=quiet`,
+          `mockpit ask --mock ${slug} "Quiet or dark?" --option Quiet=quiet`,
         );
       const options = (flags.option ?? []).map(parseOption);
       if (options.length === 0) {
@@ -1646,13 +1649,13 @@ const commands = {
     console.log(
       `${project} · ${mocks.length} mock${mocks.length === 1 ? "" : "s"}` +
         (list.open
-          ? ` · ${list.open} open ask${list.open === 1 ? "" : "s"}`
+          ? ` · ${list.open} open question${list.open === 1 ? "" : "s"}`
           : " · nothing waiting on the user"),
     );
     for (const m of mocks) {
       const states = m.states.length ? m.states.join(" / ") : "single state";
       console.log(
-        `  ${m.slug} · ${m.kind}${m.area ? ` · ${m.area}` : ""} · ${states} · ${m.variants} variant${m.variants === 1 ? "" : "s"}${m.resolvedAt ? " · resolved" : m.open ? ` · ${m.open} open` : ""}`,
+        `  ${m.slug} · ${m.kind}${m.area ? ` · ${m.area}` : ""} · ${states} · ${m.variants} variant${m.variants === 1 ? "" : "s"}${m.closedAt ? " · closed" : m.open ? ` · ${m.open} open` : ""}`,
       );
     }
     for (const flow of list.flows ?? []) console.log(`  ${flowLine(flow)}`);
@@ -1681,8 +1684,8 @@ const commands = {
       const dir = join(root, entry.state === null ? "default" : slugify(entry.state));
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, "index.html"), entry.html ?? "");
-      // The screen with every fill, when index.html is the composed choice.
-      if (entry.source) writeFileSync(join(dir, "source.html"), entry.source);
+      // The state with every fill, when index.html is the composed choice.
+      if (entry.allFills) writeFileSync(join(dir, "all-fills.html"), entry.allFills);
       const decided = data.decisions?.states?.[entry.state ?? ""];
       if (decided) {
         writeFileSync(

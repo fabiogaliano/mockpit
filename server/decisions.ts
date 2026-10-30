@@ -1,6 +1,7 @@
-// What a reply decided, as the screen is built: per state, the look and each
-// slot's chosen fill, with the slots inside a fill listed under it only when
-// that fill was chosen; plus every other knob value the reply set. The agent
+// What a reply decided, as the state is built: per state, the variant and the
+// chosen fill of each part with fills, with the parts inside a fill listed
+// under it only when that fill was chosen; plus every other knob value the
+// reply set. The agent
 // reads "entry → skeleton → rows → shimmer" instead of reassembling it from
 // option ids, and `export` composes the same choice into one screen.
 // Runtime-agnostic (no node imports).
@@ -16,23 +17,24 @@ import {
   type Reply,
 } from "./types.ts";
 
-export interface SlotDecision {
+export interface FillDecision {
   fill: string;
   label?: string;
-  // Set when Mix took this part from another look.
-  from?: string;
-  slots?: Record<string, SlotDecision>;
+  // Set when the user borrowed this part from another variant.
+  borrowedFrom?: string;
+  parts?: Record<string, FillDecision>;
 }
 
 export interface StateDecision {
   variant: string;
-  slots: Record<string, SlotDecision>;
+  // Each part with fills, by part name.
+  parts: Record<string, FillDecision>;
 }
 
 export interface Decisions {
   // Keyed by state label; a single-state mock uses "".
   states: Record<string, StateDecision>;
-  // Values the reply set (answers' knob sets, then tuning) that are not slots.
+  // Values the reply set (answers' knob sets, then tuning) that pick no fill.
   knobs: Record<string, KnobValue>;
 }
 
@@ -99,9 +101,9 @@ function tree(
   slots: SlotInfo[],
   chosen: Record<string, string>,
   parent: SlotInfo["parent"],
-  mix: Record<string, string>,
-): Record<string, SlotDecision> {
-  const out: Record<string, SlotDecision> = {};
+  borrowed: Record<string, string>,
+): Record<string, FillDecision> {
+  const out: Record<string, FillDecision> = {};
   for (const s of slots) {
     const same = parent
       ? s.parent?.part === parent.part && s.parent.fill === parent.fill
@@ -109,23 +111,23 @@ function tree(
     if (!same) continue;
     const fill = chosen[s.part];
     const label = s.fills.find((f) => f.name === fill)?.label;
-    const inner = tree(slots, chosen, { part: s.part, fill }, mix);
+    const inner = tree(slots, chosen, { part: s.part, fill }, borrowed);
     out[s.part] = {
       fill,
       ...(label ? { label } : {}),
-      ...(mix[s.part] ? { from: mix[s.part] } : {}),
-      ...(Object.keys(inner).length ? { slots: inner } : {}),
+      ...(borrowed[s.part] ? { borrowedFrom: borrowed[s.part] } : {}),
+      ...(Object.keys(inner).length ? { parts: inner } : {}),
     };
   }
   return out;
 }
 
-// Null when the mock has no slots and the reply set no knobs: then the
+// Null when the mock has no fills and the reply set no knobs: then the
 // answered asks already say everything.
 export function decisionsFor(
   mock: Mock,
   posts: Post[],
-  reply: Pick<Reply, "answers" | "tuned" | "mix">,
+  reply: Pick<Reply, "answers" | "tuned" | "borrowed">,
 ): Decisions | null {
   const values = replyValues(reply, mock);
   const states: Record<string, StateDecision> = {};
@@ -137,7 +139,7 @@ export function decisionsFor(
     for (const s of slots) slotPaths.add(s.part);
     states[state ?? ""] = {
       variant: post.variant,
-      slots: tree(slots, chosenFills(slots, values), null, reply.mix ?? {}),
+      parts: tree(slots, chosenFills(slots, values), null, reply.borrowed ?? {}),
     };
   }
   const knobs = Object.fromEntries(Object.entries(values).filter(([p]) => !slotPaths.has(p)));

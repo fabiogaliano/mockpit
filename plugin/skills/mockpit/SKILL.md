@@ -5,9 +5,9 @@ description: Publish live design work — UI mocks with states and variants, dia
 
 # mockpit (plugin)
 
-The user keeps mockpit open in a browser. You publish a **mock** (a page or
+The user keeps mockpit open in a browser. You publish a **mock** (a sketch, page or
 component by slug) with **states** named in the user's words, **variants** as
-parallel designs and numbered **versions**. Mark the **parts** you want
+parallel designs and numbered **versions**. Declare the **parts** you want
 feedback on with `data-part`. The user answers your questions, tunes knobs and
 comments on parts, then presses **Send** once.
 
@@ -31,7 +31,7 @@ line where to look, then end your turn. The question itself lives in the mock
 Never poll.
 
 Declare structure only when designing a product's screens: `--kind page` for a
-screen, `--flow <name> --step N` for screens the user moves between, and each
+screen, `--flow <name> --step N` for states the user moves between, and each
 reusable piece (button, card, header) as its own mock embedded with
 `<mockpit-embed slug="card">`, which makes it a component. Sketches, diagrams
 and reviews stay plain; Home shows a tab only for the kinds in use.
@@ -53,7 +53,7 @@ Prefer the MCP tools when connected (`publish`, `ask`, `read`, `feedback`,
 ```sh
 mockpit publish --mock writer --state "Writing" --variant quiet --html quiet.html
 mockpit publish --mock writer --state "Writing" --variant dark  --html dark.html
-mockpit ask     --mock writer "Which look?" --option Quiet=quiet --option Dark=dark
+mockpit ask     --mock writer "Quiet or dark?" --option Quiet=quiet --option Dark=dark
 mockpit export  --mock writer
 ```
 
@@ -63,7 +63,7 @@ The plugin's monitor runs `mockpit watch` for the whole session, so don't arm
 another. Each Send arrives as one notification on your next turn, for example:
 
 ```
-mockpit reply on writer: Which look?: Dark · 1 tuned · mix body←quiet · 1 comment
+mockpit reply on writer: Quiet or dark?: Dark · 1 tuned · borrowed body←quiet · 1 comment
 ```
 
 Treat it as a message from the user and run `feedback` (`mockpit feedback`)
@@ -73,8 +73,8 @@ values and comments are drafts and never delivered before Send. Each Send is
 delivered exactly once across the monitor, `feedback` and the `feedback` field
 on every write.
 
-A `mockpit resolved on <mock>: …` line (a batch with `resolved: true` and
-`dismissed` asks) means the user closed that mock unanswered. Its dismissed
+A `mockpit closed <mock>: …` line (a batch with `closed: true` and
+`dismissed` questions) means the user closed that mock unanswered. Those
 questions were not worth answering: don't ask them again, in any wording.
 
 Respond by publishing the next version (`publish`, or `--parts name=file` for
@@ -84,7 +84,7 @@ Rules of thumb:
 
 - One mock per concept, with a stable kebab-case slug; publishing the same
   (mock, state, variant) again makes a new version.
-- A choice is several variants plus one ask that binds them. A variant decides
+- A choice is several variants plus one question that binds them. A variant decides
   everything it differs on; don't re-ask it. Visual options carry a `variant`
   or knob `set`. One render plus a control → declare a knob; declare knobs for
   what is worth fine-tuning even unasked. When a publish result nudges, send

@@ -508,7 +508,7 @@ function SentNote(props: { s: MockScreenState; project: string; slug: string }) 
   const s = props.s;
   return (
     <div class="sentnote">
-      <Show when={s.mock()?.resolvedAt}>
+      <Show when={s.mock()?.closedAt}>
         <ResolvedNote s={s} />
       </Show>
       <Show when={s.sent()} fallback={<CarriedChip project={props.project} slug={props.slug} />}>

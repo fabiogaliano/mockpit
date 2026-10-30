@@ -14,8 +14,8 @@ const SURFACE_KIND_ENUM = [...SURFACE_KINDS] as [SurfaceKind, ...SurfaceKind[]];
 
 export const MCP_INSTRUCTIONS =
   "Mockpit shows design work to the user: project > mock > state > variant > version. publish " +
-  "each variant (name states in the user's words; mark parts with data-part); publish again to " +
-  "revise. A choice is several variants plus one ask that binds them. One render plus a " +
+  "each variant (name states in the user's words; declare parts with data-part); publish again to " +
+  "revise. A choice is several variants plus one question that binds them (ask). One render plus a " +
   "control: declare a knob. Say where to look, then end your turn; nothing waits. When the " +
   "user says they answered, call feedback. Writes return feedback too; it is delivered once. " +
   "Fetch guide before html.";
@@ -43,7 +43,7 @@ const field = {
   kind: "Only when building the product's screens: page (a screen), component (a piece pages embed). Omit for sketches, diagrams and reviews",
   area: 'Product area in the project\'s words; Home groups by it. "" clears',
   source: 'Code path implementing it. "" clears',
-  flow: "Flow this screen is a step of; alone, only places it",
+  flow: "Flow this state is a step of; alone, only places it",
   step: "1-based place; 0 removes",
   kits: `Opt-in bundles: ${KIT_IDS.join("|")}`,
 } as const;
@@ -89,7 +89,7 @@ export const mcpSurfaceSchema = z
   });
 
 const askSchema = z.object({
-  id: z.string().optional().describe("Stable id; reusing one replaces that ask"),
+  id: z.string().optional().describe("Stable id; reusing one replaces that question"),
   text: z.string().describe("The question, one sentence"),
   scope: z.enum(["mock", "state", "part"]).optional(),
   state: z.string().optional(),
@@ -186,10 +186,10 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
         t: "surfaces",
         d: "Full ordered list: {id} keeps a surface, a missing id removes it",
       },
-      parts: { t: "object", d: '{"name"|"name#key": outer html}; splices marked parts' },
+      parts: { t: "object", d: '{"name"|"name#key": outer html}; splices declared parts' },
       fills: {
         t: "object",
-        d: '{"part#fill": outer html}; replaces that fill of a slot, or adds it after the others',
+        d: '{"part#fill": outer html}; replaces that fill of a part, or adds it after its others',
       },
       knobs: { t: "object", d: field.knobs },
       variantKnobs: { t: "object", d: field.variantKnobs },
@@ -209,7 +209,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "ask",
     description:
-      "Ask structured questions on a mock. A choice is several variants plus one ask that binds them; options may also set knob values. Reusing an ask id replaces it.",
+      "Ask structured questions on a mock. A choice is several variants plus one question that binds them; options may also set knob values. Reusing a question id replaces it.",
     params: {
       mock: P.mock,
       project: P.project,
@@ -221,7 +221,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "read",
     description:
-      "Without mock: every mock (slug, states, variants, open asks), flows, plus pending. With mock: its states, variants, asks with answers, parts, knobs and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
+      "Without mock: every mock (slug, states, variants, open questions), flows, plus pending. With mock: its states, variants, questions with answers, parts, knobs and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
     params: {
       mock: { t: "string", d: field.mock },
       project: P.project,
@@ -229,14 +229,14 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       history: { t: "boolean", d: "Include version rows" },
       tree: {
         t: "boolean",
-        d: "Without mock: the project as a tree (each mock's variants with status and forkedFrom, the mocks it uses and is used in)",
+        d: "Without mock: the project as a tree (each mock's variants with status and forkedFrom, the mocks it embeds and is embedded in)",
       },
     },
   },
   {
     name: "feedback",
     description:
-      "Returns at once: what the user sent since you last heard (one batch per mock: reply answers, mix, tuned knobs, part comments, comments, accepted/archived/dropped, or resolved with the asks it dismissed), delivered once, plus pending (viewer open, draft progress).",
+      "Returns at once: what the user sent since you last heard (one batch per mock: reply answers, borrowed parts, tuned knobs, part comments, verdict; thread messages; inUse/archived; or closed with the questions it dismissed), delivered once, plus pending (viewer open, draft progress).",
     params: {
       project: P.project,
       session: { t: "string", d: "Session id returned by publish", req: true },
@@ -345,25 +345,27 @@ const feedbackSchema = o({
         note: str.optional(),
       }),
     ),
-    mix: bag,
+    borrowed: bag.describe("Part → the variant to take it from"),
     tuned: bag,
     comments: z.array(o({ part: nullStr, text: str })),
     reactions: strs.optional().describe('One-tap reactions, e.g. 👍 part "hero" (variant B)'),
+    verdict: o({ kind: z.enum(["use", "revise"]), state: nullStr, variant: str })
+      .optional()
+      .describe("Use this or Revise on one variant"),
   })
     .nullable()
-    .describe("The user's Send; null if only comments"),
-  comments: z.array(o({ seq: num, text: str })),
-  accepted: z.array(inUseRef).describe("Accepted, each at the version put in use"),
+    .describe("The user's Send; null if only messages"),
+  messages: z.array(o({ seq: num, text: str })).describe("What the user wrote in the thread"),
+  inUse: z.array(inUseRef).describe("In use, each at the version the user put in use"),
   archived: z.array(variantRef),
-  dropped: z.array(variantRef),
-  resolved: z
+  closed: z
     .literal(true)
     .optional()
-    .describe("The user resolved the mock: its open asks were closed unanswered"),
+    .describe("The user closed the mock: its open questions were closed unanswered"),
   dismissed: z
     .array(o({ ask: str, text: str }))
     .optional()
-    .describe("The asks the resolution closed; don't ask them again"),
+    .describe("The questions the close dismissed; don't ask them again"),
   edited: o({ kind: str.optional(), area: nullStr.optional() })
     .optional()
     .describe("The user moved the mock from Home: its kind or area now"),
@@ -373,7 +375,7 @@ const feedbackSchema = o({
 const feedbackRide = z.array(bag).describe("Feedback batches as the feedback tool returns");
 const pendingSchema = o({
   mock: str,
-  resolved: z.literal(true).optional(),
+  closed: z.literal(true).optional(),
   viewerOpen: z.boolean(),
   draft: o({ answered: num, of: num, comments: num, touchedAt: str }).nullable(),
 }).meta({ id: "Pending" });
@@ -386,6 +388,10 @@ const writeOutput = {
   partChanges: o({ vanished: strs, renamed: z.array(o({ from: str, to: str })) }).optional(),
   nudges: strs.optional(),
   suggestedAsk: bag.optional().describe("Send with ask when a nudge names it"),
+  suggestedFillAsks: z
+    .array(bag)
+    .optional()
+    .describe("A question per part with fills that none sets; send with ask"),
   flow: flowSchema.optional(),
   feedback: feedbackRide,
 };
@@ -436,9 +442,9 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
         o({
           state: nullStr,
           variant: str,
-          status: str,
+          status: z.enum(["open", "inUse", "archived"]),
           version: num,
-          acceptedVersion: num.optional().describe("Set when accepted: the version in use"),
+          inUseVersion: num.optional().describe("Set while in use: the version in use"),
           history: z
             .array(o({ version: num, hidden: z.boolean().optional() }))
             .optional()
@@ -463,7 +469,8 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
         variant: str,
         version: num,
         latest: num.optional().describe("Your newer version, not in use yet"),
-        html: str,
+        html: str.describe("With fills: only the chosen ones"),
+        allFills: str.optional().describe("With fills: the html with every fill"),
         markdown: str,
       }),
     ),

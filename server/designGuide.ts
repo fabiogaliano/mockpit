@@ -40,7 +40,7 @@ export function iconsLine(design: DesignSettings | null): string {
 
 const TOPIC_SUMMARY: Record<GuideTopic, string> = {
   knobs: "every knob shape, how values reach html",
-  asks: "the ask JSON, scopes, slots (data-fill), the Look ask, multi",
+  asks: "the question JSON, scopes, parts with fills (data-fill), the variant question, multi",
   surfaces: "markdown, diff, mermaid, code, terminal, json, image; uploads",
   html: "the contract, tokens, kits, Tailwind, icons",
   feedback: "the feedback JSON, pending, delivery, export",
@@ -245,10 +245,11 @@ instructions.
 ## Words
 
 project › mock › state › variant › version. A project is the repo; a mock is a
-sketch, page or component, by slug; a state is one moment of it in the user's words
-("Writing"), omitted for a single-state mock; a variant is a parallel design of
-a state; versions are its history. A part is an element marked \`data-part\`.
-The user answers asks, tunes knobs, presses Send once; you get one reply.
+sketch, page or component, by slug; a state is one thing the user sees in it, in
+their words ("Writing"), omitted for a single-state mock; a variant is a parallel
+design of a state; versions are its history. A part is an element declared with
+\`data-part\`. The user answers your questions (\`ask\`), tunes knobs, presses
+Send once; you get one reply. To the user, say "question", never "ask".
 Name a state by what the user sees in it ("Home, idle", "Proposal
 shown"), never by where it is in your process ("Prototype", "v2", "Round 2"):
 the viewer lists them as the mock's states. Title a mock the same way,
@@ -264,7 +265,7 @@ the question lives in the mock, never in chat. Never poll.
 mockpit init                    # once per repo: design system, icons, starter
 mockpit publish --mock writer --state "Writing" --variant quiet --html quiet.html
 mockpit publish --mock writer --state "Writing" --variant dark --html dark.html
-mockpit ask     --mock writer "Which look?" --option Quiet=quiet --option Dark=dark
+mockpit ask     --mock writer "Quiet or dark?" --option Quiet=quiet --option Dark=dark
 mockpit feedback                # after the user says they answered
 mockpit publish --mock writer --state "Writing" --variant dark --parts body=b.html  # v2, one part
 mockpit publish --mock writer --state "Writing" --variant dark --fills bar#tabs=t.html
@@ -276,14 +277,14 @@ MCP tools share the verb names.
 
 ## Parts
 
-\`<article data-part="body" data-part-label="Body">\`. Mark only what you want
+\`<article data-part="body" data-part-label="Body">\`. Declare only what you want
 feedback on. The same name in two states is the same part. \`data-part-key\`
 tells list items apart and keeps comments anchored across a rename. Never
 declare geometry; the viewer measures it.
 
 ## The design is the UI
 
-Publish the screen alone, laid out for the width it ships at: no captions,
+Publish the design alone, laid out for the width it ships at: no captions,
 side notes, labels or rationale beside it (they shrink the design on a phone).
 Say what a variant is in \`--note "System font, thin bars; feels like a tool"\`;
 the viewer shows it on the variant and its option. Name the widths the user
@@ -298,14 +299,14 @@ structure only when you are designing the screens of a product; each kind
 you use adds its tab to Home:
 
 - A screen of the product: \`--kind page\`.
-- Screens the user moves between, even across mocks, in order: a flow.
+- States the user moves between, even across mocks, in order: a flow.
   Publish each with \`--flow Morning --step 2\` (\`--step 0\` takes it out);
   the viewer walks it.
 - Another render of one state (empty, many, an error, loading): its
   \`--state\` plus \`--situation "Couldn't save"\`, once the state itself is
   published. The viewer switches between them under the design; feedback
   names it as the state \`"Writing · Couldn't save"\`.
-- A reusable piece of those screens (a button, a card, a header): its own
+- A reusable piece of those pages (a button, a card, a header): its own
   mock, embedded in pages with \`<mockpit-embed slug="card">\`. Being
   embedded makes it a component (\`--kind component\` says so up front).
   Vary a piece in its own mock, not by copying it into every page: a
@@ -321,13 +322,14 @@ slug rewrites every embed and flow step that names the old one. Home lists
 areas alphabetically unless \`mockpit edit --project <p> --area-order
 "Shell,Food"\` sets the order (unlisted ones follow, alphabetical).
 
-## Ask, slot or knob
+## Question, fills or knob
 
-Answers drive the screen. A choice is several variants plus one ask that binds
-them (ask it first), or a slot: one region's alternatives in one html, sharing
-\`data-part\`, each its own \`data-fill\` (\`<nav data-part="bar" data-fill="thin">\`).
-The viewer shows the chosen fill. A fill may hold slots, asked only while it is
-chosen. Send publish's \`suggestedSlotAsks\` (\`set: {"bar": "tabs"}\`). A variant
+Answers drive the design. A choice is several variants plus one question that
+binds them (ask it first), or a part with fills: one region's alternatives in
+one html, sharing \`data-part\`, each its own \`data-fill\`
+(\`<nav data-part="bar" data-fill="thin">\`). The viewer shows the chosen fill.
+A fill may hold parts with fills, asked only while it is chosen. Send
+publish's \`suggestedFillAsks\` (\`set: {"bar": "tabs"}\`). A variant
 decides all it differs on; don't re-ask it. Visual options carry a \`variant\`
 or knob \`set\`. One render plus a control: a knob,
 \`--knobs '{...}'\`. Declare knobs for what is worth fine-tuning (size,
@@ -346,21 +348,23 @@ Values reach the html unitless: \`calc(var(--k-body-size, 17) * 1px)\`, and as
 ## Feedback
 
 \`feedback\` returns \`{feedback, pending}\`. A batch is \`{mock, reply: {asks, tuned,
-mix, comments, reactions, decision, text}, accepted, archived}\`. In order: answers
-decide structure (a variant answer already accepted it); tuned values become
-defaults; mix names a part to take from another variant (if it conflicts with an
-answer, the answer wins); address each comment and reaction on its part; decision
-(accept, revise, drop) replaces answers when there were no asks; \`decisions\` is
-the screen as chosen, per state: variant, then each slot's fill, nested. Each Send arrives exactly once: in a write's
-\`feedback\`, \`mockpit feedback\` or a \`mockpit watch\` line.
+borrowed, comments, reactions, verdict, text}, messages, inUse, archived}\`. In
+order: answers decide structure (a variant answer already put it in use); tuned
+values become defaults; \`borrowed\` names a part to take from another variant
+(if it conflicts with an answer, the answer wins); address each comment and
+reaction on its part; \`verdict\` (use, revise) replaces answers when there were
+no questions; \`decisions\` is the state as chosen: variant, then each part's
+fill, nested; \`messages\` are what the user wrote in the thread. Each Send
+arrives exactly once: in a write's \`feedback\`, \`mockpit feedback\` or a
+\`mockpit watch\` line.
 A \`pending\` draft means the user is still answering. Send a nudge's
-\`suggestedAsk\` with \`ask\`. A batch with \`resolved: true\` (no reply) means
-the user closed the mock unanswered: its \`dismissed\` asks were not worth
+\`suggestedAsk\` with \`ask\`. A batch with \`closed: true\` (no reply) means
+the user closed the mock unanswered: its \`dismissed\` questions were not worth
 answering. Don't ask them again, under any id; \`ask\` skips a dismissed id.
 \`edited: {kind, area}\` means the user moved the mock from Home; it is done,
 so build on it and don't move it back.
-The viewer shows each state its own asks and only open ones; a sent answer is
-not shown again.
+The viewer shows each state its own questions and only open ones; a sent
+answer is not shown again.
 
 ## HTML
 

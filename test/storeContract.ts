@@ -818,7 +818,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
       const draft: Draft = {
         version: 1,
         answers: {},
-        mix: {},
+        borrowed: {},
         tuned: {},
         comments: [],
         notes: { look: "" },
@@ -838,7 +838,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
           mockId: mock.id,
           version: 1,
           answers: {},
-          mix: {},
+          borrowed: {},
           tuned: {},
           comments: [],
           notes: { look: "" },
@@ -1088,7 +1088,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     const draft: Draft = {
       version: 2,
       answers: { look: "dark", parts: ["a", "b"] },
-      mix: { versions: "editorial" },
+      borrowed: { versions: "editorial" },
       tuned: { "body.size": 19, "toast.show": false, pad: { x: 0.2, y: 0.4 } },
       comments: [
         { part: "title", state: "Writing", text: "bigger", anchor: { offset: [0.1, 0.2] } },
@@ -1152,7 +1152,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
       await store.putDraft(mock.id, {
         version: 1,
         answers: { look: "dark" },
-        mix: {},
+        borrowed: {},
         tuned: {},
         comments: [],
         updatedAt: "t",
@@ -1161,7 +1161,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
         mockId: mock.id,
         version: 1,
         answers: { look: "dark" },
-        mix: {},
+        borrowed: {},
         tuned: { size: 3 },
         comments: [{ part: "title", state: null, text: "bigger" }],
         others: { lang: "Both" },
@@ -1204,21 +1204,10 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
       assert.equal((await store.getPost(quiet.id))?.acceptedVersion, undefined);
       const listed = await store.listComments({ sessionId: session.id });
       assert.deepEqual(listed.at(-1)?.payload, payload, "the payload survives a read");
-      await store.commitReply({
-        mockId: mock.id,
-        sessionId: session.id,
-        text: "",
-        payload,
-        asks,
-        accept: [],
-        archive: [],
-        drop: [quiet.id],
-      });
-      assert.equal((await store.getPost(quiet.id))?.status, "dropped");
       const draft = {
         version: 2,
         answers: {},
-        mix: {},
+        borrowed: {},
         tuned: {},
         comments: [{ part: null, state: null, text: "unsent" }],
         updatedAt: "t",
@@ -1230,7 +1219,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
         text: "",
         payload: {
           ...payload,
-          decision: { kind: "accept", state: null, variant: "dark", version: 2 },
+          verdict: { kind: "use", state: null, variant: "dark", version: 2 },
         },
         asks,
         accept: [{ id: dark.id, version: 2 }],
@@ -1254,49 +1243,46 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
     },
   );
 
-  contract(
-    "a resolution stores resolvedAt with the dismissed asks; reopen clears it",
-    async (store) => {
-      const session = await store.createSession({ agent: "pi" });
-      const mock = await store.createMock({ project: "demo", slug: "card", sessionId: session.id });
-      assert.equal(mock.resolvedAt, null);
-      const asks = [
-        {
-          id: "tone",
-          text: "?",
-          scope: "mock" as const,
-          options: [],
-          dismissed: true as const,
-          at: "t",
-        },
-      ];
-      const at = "2026-10-19T10:00:00.000Z";
-      const comment = await store.commitReply({
+  contract("a close stores closedAt with the dismissed asks; reopen clears it", async (store) => {
+    const session = await store.createSession({ agent: "pi" });
+    const mock = await store.createMock({ project: "demo", slug: "card", sessionId: session.id });
+    assert.equal(mock.closedAt, null);
+    const asks = [
+      {
+        id: "tone",
+        text: "?",
+        scope: "mock" as const,
+        options: [],
+        dismissed: true as const,
+        at: "t",
+      },
+    ];
+    const at = "2026-10-19T10:00:00.000Z";
+    const comment = await store.commitReply({
+      mockId: mock.id,
+      sessionId: session.id,
+      text: "",
+      payload: {
         mockId: mock.id,
-        sessionId: session.id,
-        text: "",
-        payload: {
-          mockId: mock.id,
-          version: 1,
-          answers: {},
-          mix: {},
-          tuned: {},
-          comments: [],
-          resolved: { dismissed: ["tone"] },
-        },
-        asks,
-        accept: [],
-        archive: [],
-        resolvedAt: at,
-      });
-      assert.deepEqual(comment?.payload?.resolved, { dismissed: ["tone"] });
-      const after = await store.getMock(mock.id);
-      assert.equal(after?.resolvedAt, at);
-      assert.equal(after?.asks[0].dismissed, true);
-      assert.equal((await store.updateMock(mock.id, { resolvedAt: null }))?.resolvedAt, null);
-      assert.equal((await store.getMock(mock.id))?.resolvedAt, null);
-    },
-  );
+        version: 1,
+        answers: {},
+        borrowed: {},
+        tuned: {},
+        comments: [],
+        closed: { dismissed: ["tone"] },
+      },
+      asks,
+      accept: [],
+      archive: [],
+      closedAt: at,
+    });
+    assert.deepEqual(comment?.payload?.closed, { dismissed: ["tone"] });
+    const after = await store.getMock(mock.id);
+    assert.equal(after?.closedAt, at);
+    assert.equal(after?.asks[0].dismissed, true);
+    assert.equal((await store.updateMock(mock.id, { closedAt: null }))?.closedAt, null);
+    assert.equal((await store.getMock(mock.id))?.closedAt, null);
+  });
 
   contract("removing a mock cascades to its variants and comments", async (store) => {
     const session = await store.createSession({ agent: "pi" });
@@ -1363,7 +1349,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
       const page = await store.createMock({ project: "demo", slug: "home", kind: "page" });
       const elsewhere = await store.createMock({ project: "other", slug: "home" });
       const html = (n: number) =>
-        `<p>v${n}</p><mockpit-embed slug="orb" version="1"></mockpit-embed><mockpit-slot slug='orb'/><mockpit-embed slug="orbit"></mockpit-embed><a data-goto="orb:Rest">go</a><a data-goto="next">next</a>`;
+        `<p>v${n}</p><mockpit-embed slug="orb" version="1"></mockpit-embed><mockpit-embed slug='orb'/><mockpit-embed slug="orbit"></mockpit-embed><a data-goto="orb:Rest">go</a><a data-goto="next">next</a>`;
       const p = await store.createPost({
         sessionId: session.id,
         mock: page.id,
@@ -1387,7 +1373,7 @@ export function runStoreContract(name: string, makeStore: () => Store | Promise<
       assert.equal(await store.findMock("demo", "orb"), null);
       assert.equal((await store.findMock("demo", "onni"))?.id, orb.id);
       const want = (n: number) =>
-        `<p>v${n}</p><mockpit-embed slug="onni" version="1"></mockpit-embed><mockpit-slot slug="onni"/><mockpit-embed slug="orbit"></mockpit-embed><a data-goto="onni:Rest">go</a><a data-goto="next">next</a>`;
+        `<p>v${n}</p><mockpit-embed slug="onni" version="1"></mockpit-embed><mockpit-embed slug="onni"/><mockpit-embed slug="orbit"></mockpit-embed><a data-goto="onni:Rest">go</a><a data-goto="next">next</a>`;
       const after = await store.getPost(p.id);
       assert.ok(after);
       assert.equal((after.surfaces[0] as { html: string }).html, want(2));

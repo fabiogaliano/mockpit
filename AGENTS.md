@@ -25,7 +25,7 @@ mock may name its **area** (the project's own words, e.g. "Shell"; Home
 groups by it, in the project's `areaOrder` setting, then alphabetical) and its
 **source** (the code path that implements it). The user can move a mock too,
 from Home's ⋯ menu (kind, area, close); the agent hears a move as a feedback
-batch's `edited`, through the same cursor as a Send. The user's is Send (or Use this / New on a mock whose
+batch's `edited`, through the same cursor as a Send. The user's is Send (or Use this / Revise on a mock whose
 state has one variant and no asks), which releases one **reply**.
 
 Current product stances (deliberate choices, not accidents — revisit
@@ -48,10 +48,10 @@ consciously, not as a side effect):
   a background `mockpit watch`). Guard this hardest — both halves have
   regressed before.
 - Tiers, no modes: each thing the agent adds lights up its part of the viewer
-  (variants → switcher and the built-in Look ask, asks → Questions, `data-part` → Tune parts and part
+  (variants → switcher and the built-in Which variant? question, asks → Questions, `data-part` → Tune parts and part
   comments, `knobs` → Tune knobs, states and flows → the flow bar, `kind`
   page/component and flows → Home's tabs; undeclared is a sketch). A plain
-  publish of any kind still gets stage + Thread + Use this / New.
+  publish of any kind still gets stage + Thread + Use this / Revise.
 - Self-hosted only; the embeddable viewer engine was dropped. Keep the
   `root()`/`host()` habit in `viewer/src` anyway.
 
@@ -88,7 +88,9 @@ consciously, not as a side effect):
   (the narrow SQL surface in `types.ts`), so the SAME store runs on the Durable
   Object (`ctx.storage.sql`) and on Node via `server/sqliteStorage.ts`'s
   `node:sqlite` adapter. Its constructor migrates any older workspace in place
-  (items → single-state mocks, draft comments → mock drafts, traces dropped).
+  (items → single-state mocks, draft comments → mock drafts, traces dropped,
+  `resolvedAt` → `closedAt`, the 2.0 contract words in stored replies, drafts
+  and html).
 - `server/kits.ts` — opt-in style/behavior bundles for html surfaces; listed at
   `/api/kits`, allowlisted in `server/postSurfaces.ts`. Adding a kit is a
   registry entry + a guide bullet. A reference kit (`href`/`script`, e.g.
@@ -124,7 +126,7 @@ consciously, not as a side effect):
   (`CardMenu`); empty tabs are not shown, one alone gets no tab bar; above them the open count,
   which unfolds the waiting mocks to resolve, and Answer next), `MockScreen`
   (`TopBar` with the area in its crumb and a Related toggle for `Related`, the
-  mock's used in / uses / flows; `Stage` + `Strip`, `Panel` beside the stage; where the panel does
+  mock's Appears in / Built from / flows; `Stage` + `Strip`, `Panel` beside the stage; where the panel does
   not fit, `CanvasHead`, the stage as a pannable canvas with the mock's other
   `widths` as picture-only artboards beside the live frame, and `QuestionCard`
   floating over it, snapping per `dock.ts`), `Stage` (frames, part overlay, pins,
@@ -216,12 +218,13 @@ consciously, not as a side effect):
   from it when no explicit `after` is given — clients keep no cursor of their
   own, so CLI, MCP, `run` and piggyback share one stream. The viewer's unfiltered reads never touch it.
   Delivery is exactly-once by design, across channels.
-- Drafts (Q13): the user's picks, tuned values, mix and part comments are a
+- Drafts (Q13): the user's picks, tuned values, borrowed parts and part comments are a
   server-side draft per mock — they survive reload, stay bound to the version
   they were made on, are never delivered before Send, and are cleared by it.
   The reply is one `kind: "reply"` comment through the same cursor; a
-  variant-bound answer flips accepted/archived in the same transaction.
-- Borrow (Tune, per part) offers a part from another look only when that look's frame reports it
+  variant-bound answer puts one variant in use and archives its siblings in
+  the same transaction (stored as `accepted`, read as `inUse`).
+- Borrow (Tune, per part) offers a part from another variant only when that variant's frame reports it
   differently (count, labels, rounded sizes, visibility); a pure restyle at
   equal size is not offered.
 - tunekit is a second renderer (Preact) in a Solid page: it stays in its own
@@ -339,10 +342,15 @@ the finding needs.
 
 - **Naming.** project › mock › state › variant › version; part, ask, knob,
   reply, draft. A variant is stored as a `Post` (an ordered list of
-  **surfaces**); the tenant DB is a **workspace**. Retired words — item, group,
-  snippet, board, stream, `part` for a surface, trace — appear nowhere in new
-  code, routes, tools or docs. There is no back-compat beyond `SqlStore`'s
-  in-place migration: no legacy routes, aliases or query keys.
+  **surfaces**); the tenant DB is a **workspace**. To agents and users an ask
+  is a "question" (`ask` stays the tool and key name), a part with
+  alternatives is "a part with fills", and a variant the user picked is "in
+  use". Retired words — item, group, snippet, board, stream, `part` for a
+  surface, trace, look (for a variant), slot, mix (now borrow), resolve (now
+  close), screen for a state (screen only glosses `page`), moment, accepted
+  and dropped in anything an agent reads — appear nowhere in new code, routes,
+  tools or docs. There is no back-compat beyond `SqlStore`'s in-place
+  migration: no legacy routes, aliases or query keys.
 - Conventional Commits: `type(scope): description`.
 - Changesets drive release notes. For user-visible changes run
   `npm run changeset` and select `patch`/`minor`/`major`; for maintenance-only

@@ -158,7 +158,7 @@ test("questions: pictures, hover preview, pick, part focus, Borrow in Tune, Send
   for (const v of detail.variants) {
     expect([v.variant, v.status]).toEqual([
       v.variant,
-      v.variant === "quiet" ? "accepted" : "archived",
+      v.variant === "quiet" ? "inUse" : "archived",
     ]);
   }
 });
@@ -482,7 +482,7 @@ test("a plain mock offers Revise and Use this; both reach the agent, and Use thi
   expect((await reply).status()).toBe(201);
   let read = await agentCall(server.url, `/api/feedback?session=${out.sessionId}`);
   expect(read.feedback).toHaveLength(1);
-  expect(read.feedback[0].reply.decision).toMatchObject({ kind: "revise", variant: "default" });
+  expect(read.feedback[0].reply.verdict).toMatchObject({ kind: "revise", variant: "default" });
   expect(JSON.stringify(read.feedback[0])).toContain("New version, please, from #2.");
   await openThread(page);
   await expect(page.locator(".trow.you .tdelivered")).toContainText("Delivered");
@@ -502,7 +502,7 @@ test("a plain mock offers Revise and Use this; both reach the agent, and Use thi
   expect(detail.inUse).toEqual([{ state: null, variant: "default", version: 1 }]);
   read = await agentCall(server.url, `/api/feedback?session=${out.sessionId}`);
   expect(read.feedback).toHaveLength(1);
-  expect(read.feedback[0].accepted).toEqual([{ state: null, variant: "default", version: 1 }]);
+  expect(read.feedback[0].inUse).toEqual([{ state: null, variant: "default", version: 1 }]);
 
   // Exploring never changes it; the way back is one tap.
   await page.getByRole("button", { name: "Next version" }).click();
@@ -581,7 +581,7 @@ test("an ask can offer two versions of one variant; the answer puts that version
 
   const read = await agentCall(server.url, `/api/feedback?session=${out.sessionId}`);
   expect(read.feedback).toHaveLength(1);
-  expect(read.feedback[0].accepted).toEqual([{ state: null, variant: "default", version: 1 }]);
+  expect(read.feedback[0].inUse).toEqual([{ state: null, variant: "default", version: 1 }]);
   expect(read.feedback[0].reply.asks).toEqual([
     expect.objectContaining({
       ask: "which",
@@ -745,7 +745,7 @@ test("a sent answer stays in force on the stage and under later questions", asyn
       body: JSON.stringify({
         version: 1,
         answers: { versions: "inline" },
-        mix: {},
+        borrowed: {},
         tuned: {},
         comments: [],
       }),
@@ -779,7 +779,7 @@ test("a sent answer stays in force on the stage and under later questions", asyn
   await expect(stage).toHaveAttribute("data-k-versions-layout", "inline");
 });
 
-test("un-archive: a losing look is restored from the answered Look ask", async ({
+test("un-archive: a losing variant is restored from its answered question", async ({
   page,
   server,
 }) => {
@@ -793,7 +793,7 @@ test("un-archive: a losing look is restored from the answered Look ask", async (
       body: JSON.stringify({
         version: 1,
         answers: { look: "quiet", versions: "drawer", trim: "below" },
-        mix: {},
+        borrowed: {},
         tuned: {},
         comments: [],
       }),
@@ -826,7 +826,7 @@ test("un-archive: a losing look is restored from the answered Look ask", async (
   await expect(page.locator('.opt-arch[data-archived="editorial"]')).toHaveCount(1);
   const detail = await agentCall(server.url, `/api/mocks/${mockId}`);
   for (const v of detail.variants) {
-    const want = { quiet: "accepted", dark: "open", editorial: "archived" }[v.variant as string];
+    const want = { quiet: "inUse", dark: "open", editorial: "archived" }[v.variant as string];
     expect([v.state, v.variant, v.status]).toEqual([v.state, v.variant, want]);
   }
 });
@@ -866,7 +866,7 @@ test("un-archive: a variant archived by Which variant? stays in the history and 
         detail.variants.map((v: { variant: string; status: string }) => [v.variant, v.status]),
       );
     })
-    .toEqual({ a: "archived", b: "accepted" });
+    .toEqual({ a: "archived", b: "inUse" });
 });
 
 test("two variants and no ask: the built-in Which variant? decides in one Send", async ({
@@ -922,7 +922,7 @@ test("two variants and no ask: the built-in Which variant? decides in one Send",
   const statuses = Object.fromEntries(
     detail.variants.map((v: { variant: string; status: string }) => [v.variant, v.status]),
   );
-  expect(statuses).toEqual({ a: "archived", b: "accepted" });
+  expect(statuses).toEqual({ a: "archived", b: "inUse" });
   await page.getByRole("button", { name: "Close history and thread" }).click();
   await expect(card(page)).toHaveCount(0);
   await expect(page.getByRole("button", { name: "In use", exact: true })).toBeVisible();
@@ -1284,7 +1284,7 @@ test("Home: Answer next follows the agent's order, and a started mock shows its 
   await expect(page).toHaveURL(new RegExp(`${mockPath}$`));
 });
 
-test("slots: a fill's own question applies only while that fill is chosen; the reply carries the decisions", async ({
+test("fills: a fill's own question applies only while that fill is chosen; the reply carries the decisions", async ({
   page,
   server,
 }) => {
@@ -1302,21 +1302,21 @@ test("slots: a fill's own question applies only while that fill is chosen; the r
     agent: "e2e",
     html,
   });
-  expect(pub.slots.map((s: { part: string }) => s.part)).toEqual(["entry", "rows"]);
+  expect(pub.fills.map((s: { part: string }) => s.part)).toEqual(["entry", "rows"]);
   await agentCall(server.url, `/api/mocks/${pub.mock.id}/asks`, {
     session: pub.sessionId,
-    asks: pub.suggestedSlotAsks,
+    asks: pub.suggestedFillAsks,
   });
   const mockId = pub.mock.id;
   await page.goto(`${server.url}/project/${PROJECT}/send`);
 
-  // The question names its slot, and the stage shows only the chosen fill.
+  // The question names its part, and the stage shows only the chosen fill.
   await expect(page.locator(".qcard .slotchip")).toHaveText("Part · Entry");
   const doc = page.frameLocator(".frame.on iframe");
   await expect(doc.locator('[data-fill="dots"]')).toBeVisible();
   await expect(doc.locator('[data-fill="skeleton"]')).toBeHidden();
 
-  // The skeleton fill holds a slot of its own: its question comes next.
+  // The skeleton fill holds a part with fills of its own: its question comes next.
   await pickAndWait(page, mockId, "a-skeleton-card");
   await expect(doc.locator('[data-fill="skeleton"]')).toBeVisible();
   await sendBtn(page).click();
@@ -1341,7 +1341,7 @@ test("slots: a fill's own question applies only while that fill is chosen; the r
   const read = await agentCall(server.url, `/api/feedback?session=${pub.sessionId}`);
   const sent = read.feedback[0].reply;
   expect(Object.keys(sent.answers)).toEqual(["entry"]);
-  expect(sent.decisions.states[""].slots).toEqual({
+  expect(sent.decisions.states[""].parts).toEqual({
     entry: { fill: "dots", label: "Typing dots" },
   });
   const exported = await agentCall(server.url, `/api/mocks/${mockId}/export`);
@@ -1476,7 +1476,7 @@ test("Home: a waiting row's Close button closes the mock; the mock says so and r
   expect(read.feedback).toEqual([
     expect.objectContaining({
       mock: "card",
-      resolved: true,
+      closed: true,
       dismissed: [{ ask: "tone", text: "Which tone?" }],
     }),
   ]);

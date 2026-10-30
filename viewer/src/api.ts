@@ -18,7 +18,7 @@ import type {
   MockKind,
   PartComment,
   ProjectSummary,
-  ReplyDecision,
+  ReplyVerdict,
 } from "../../server/types.ts";
 import { basePath, host, renderRev } from "./host.ts";
 
@@ -38,7 +38,7 @@ export type { FeedEvent, ProjectSummary };
 export interface DraftInput {
   version: number;
   answers: Record<string, AskAnswer>;
-  mix: Record<string, string>;
+  borrowed: Record<string, string>;
   tuned: Record<string, KnobValue>;
   comments: PartComment[];
   others: Record<string, string>;
@@ -103,7 +103,7 @@ export const api = {
     call<{ draft: Draft | null }>(`/api/mocks/${encodeURIComponent(id)}/draft`),
   putDraft: (id: string, draft: DraftInput) =>
     call<{ draft: Draft }>(`/api/mocks/${encodeURIComponent(id)}/draft`, json("PUT", draft)),
-  reply: (id: string, body: DraftInput & { text?: string; decision?: ReplyDecision }) =>
+  reply: (id: string, body: DraftInput & { text?: string; verdict?: ReplyVerdict }) =>
     call<{ reply: CommentRow }>(`/api/mocks/${encodeURIComponent(id)}/reply`, json("POST", body)),
   // A new version of the variant made from an older one ("restore as vN").
   restoreVersion: (id: string, postId: string, version: number) =>
@@ -124,8 +124,8 @@ export const api = {
   ) => call<unknown>(`/api/mocks/${encodeURIComponent(id)}/hide`, json("POST", body)),
   // Close a mock from the project list: its open asks are dismissed unanswered
   // and the agent hears it once; reopen brings them back.
-  resolve: (id: string) =>
-    call<{ mock: MockSummary }>(`/api/mocks/${encodeURIComponent(id)}/resolve`, json("POST", {})),
+  close: (id: string) =>
+    call<{ mock: MockSummary }>(`/api/mocks/${encodeURIComponent(id)}/close`, json("POST", {})),
   reopen: (id: string) =>
     call<{ mock: MockSummary }>(`/api/mocks/${encodeURIComponent(id)}/reopen`, json("POST", {})),
   // The user moves a mock from Home: another kind or area (null: none). The

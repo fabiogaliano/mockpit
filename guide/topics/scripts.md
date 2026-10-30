@@ -44,8 +44,8 @@ await mockpit.publish({ mock: "writer", title: "Writer", variant: "calm", html: 
 await mockpit.publish({ mock: "writer", variant: "bold", html: card("bold") });
 const { url } = await mockpit.ask("writer", [
   {
-    id: "look",
-    text: "Which look?",
+    id: "tone",
+    text: "Calm or bold?",
     options: [
       { label: "Calm", variant: "calm" },
       { label: "Bold", variant: "bold" },

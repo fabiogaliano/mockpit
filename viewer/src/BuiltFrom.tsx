@@ -35,8 +35,8 @@ export function BuiltFrom(props: { s: MockScreenState; t: TuneState }) {
   const bySlug = createMemo(() => new Map((tree() ?? []).map((n) => [n.slug, n])));
   const me = () => bySlug().get(s.slug);
   const component = () => s.mock()?.kind === "component";
-  const uses = () => (me()?.uses ?? []).flatMap((slug) => bySlug().get(slug) ?? []);
-  const usedIn = () => (me()?.usedIn ?? []).flatMap((slug) => bySlug().get(slug) ?? []);
+  const uses = () => (me()?.embeds ?? []).flatMap((slug) => bySlug().get(slug) ?? []);
+  const usedIn = () => (me()?.embeddedIn ?? []).flatMap((slug) => bySlug().get(slug) ?? []);
   const parts = () =>
     t.components().filter((c) => c.paths.length || s.mixOpts().some((o) => o.part === c.part));
   const tuned = () => Object.keys(s.draft()?.tuned ?? {}).length;
@@ -249,7 +249,7 @@ function PartKnobs(props: { s: MockScreenState; part: string | null }) {
           row remounted under the pointer would lose its hover. */}
       <Index each={borrow()}>
         {(o) => {
-          const on = () => s.draft()?.mix[o().part] === o().variant;
+          const on = () => s.draft()?.borrowed[o().part] === o().variant;
           return (
             <button
               type="button"
@@ -258,7 +258,7 @@ function PartKnobs(props: { s: MockScreenState; part: string | null }) {
               aria-pressed={on()}
               onMouseEnter={() =>
                 s.setPreview({
-                  key: `mix:${o().part}:${o().variant}`,
+                  key: `borrow:${o().part}:${o().variant}`,
                   variant: o().variant,
                   part: o().part,
                 })

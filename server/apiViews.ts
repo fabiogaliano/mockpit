@@ -18,6 +18,7 @@ import {
   type Session,
   SURFACE_CONTENT_FIELDS,
   type Surface,
+  variantStatus,
 } from "./types.ts";
 
 export const surfaceRef = (surface: Pick<Surface, "id" | "kind">, index: number) => ({
@@ -77,7 +78,7 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
   postId: post.id,
   state: post.state,
   variant: post.variant,
-  status: post.status,
+  status: variantStatus(post.status),
   version: post.version,
   title: post.title,
   sessionId: post.sessionId,
@@ -86,11 +87,11 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
   ...(post.from === undefined ? {} : { from: post.from }),
   ...(post.prompt ? { prompt: post.prompt } : {}),
   ...(post.author === undefined ? {} : { author: post.author }),
-  // A slot is a select knob on its part (fills.ts); declared knobs win.
+  // A part with fills is a select knob on its part (fills.ts); declared knobs win.
   ...(slotsInSurfaces(post.surfaces).length || post.knobs
     ? { knobs: { ...slotKnobs(slotsInSurfaces(post.surfaces)), ...post.knobs } }
     : {}),
-  ...(slotsInSurfaces(post.surfaces).length ? { slots: slotsInSurfaces(post.surfaces) } : {}),
+  ...(slotsInSurfaces(post.surfaces).length ? { fills: slotsInSurfaces(post.surfaces) } : {}),
   ...(post.note ? { note: post.note } : {}),
   // Embedded components as they render now (server/embeds.ts); `publishedWith`
   // is what this version rendered with when it was published.
@@ -100,9 +101,9 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
   ...(post.embeds.length ? { publishedWith: post.embeds } : {}),
   ...(post.forkedFrom ? { forkedFrom: post.forkedFrom } : {}),
   ...(post.starred ? { starred: true } : {}),
-  ...(post.acceptedVersion === undefined ? {} : { acceptedVersion: post.acceptedVersion }),
+  ...(post.acceptedVersion === undefined ? {} : { inUseVersion: post.acceptedVersion }),
   // The part names this variant's own markup marks, so the viewer can tell
-  // which looks render a part (Mix) without the html bodies.
+  // which variants render a part (Borrow) without the html bodies.
   parts: partsInSurfaces(post.surfaces).map((p) => p.name),
   surfaces: post.surfaces.map(opts.body ? fullSurfaceView : hydratedSurfaceView),
   ...(opts.history
@@ -197,7 +198,7 @@ export const mockSummaryView = (mock: Mock, posts: Post[]) => {
     // Only once the user has started one, so a list with no drafts costs nothing.
     ...(drafted === null ? {} : { drafted }),
     sessionId: mock.sessionId,
-    resolvedAt: mock.resolvedAt,
+    closedAt: mock.closedAt,
     createdAt: mock.createdAt,
     updatedAt: mock.updatedAt,
     thumbnail: thumbnail(mock, posts),
@@ -224,7 +225,7 @@ export const mockDetailView = (
   knobs: mock.knobs,
   widths: mock.widths,
   sessionId: mock.sessionId,
-  resolvedAt: mock.resolvedAt,
+  closedAt: mock.closedAt,
   createdAt: mock.createdAt,
   updatedAt: mock.updatedAt,
   variants: posts.map((p) => variantView(p, opts)),
@@ -241,12 +242,16 @@ export const sessionRowView = (session: Session, postCount: number) => ({
 });
 
 // One mock as a node of the project tree (GET /api/projects/:name/tree): its
-// variants per state with status and lineage, and the mocks it embeds (`uses`);
-// `usedIn` is filled in once every node is known.
+// variants per state with status and lineage, and the mocks it embeds (`embeds`);
+// `embeddedIn` is filled in once every node is known.
 export const treeNodeView = (
   mock: Mock,
   posts: Post[],
-  extra: { settled: Record<string, KnobValue>; uses: string[]; embeds: Map<string, EmbedView> },
+  extra: {
+    settled: Record<string, KnobValue>;
+    embeds: string[];
+    embedViews: Map<string, EmbedView>;
+  },
 ) => ({
   id: mock.id,
   slug: mock.slug,
@@ -259,23 +264,23 @@ export const treeNodeView = (
   widths: mock.widths,
   createdAt: mock.createdAt,
   updatedAt: mock.updatedAt,
-  resolvedAt: mock.resolvedAt,
+  closedAt: mock.closedAt,
   settled: extra.settled,
-  uses: extra.uses,
-  usedIn: [] as string[],
+  embeds: extra.embeds,
+  embeddedIn: [] as string[],
   inUse: inUseByState(mock, posts),
   variants: posts.map((p) => ({
     postId: p.id,
     state: p.state,
     variant: p.variant,
-    status: p.status,
+    status: variantStatus(p.status),
     version: p.version,
     updatedAt: p.updatedAt,
     surface: p.surfaces.findIndex((x) => isSandboxedSurfaceKind(x.kind)),
     ...(p.note ? { note: p.note } : {}),
     ...(p.forkedFrom ? { forkedFrom: p.forkedFrom } : {}),
     ...(p.starred ? { starred: true } : {}),
-    ...(p.acceptedVersion === undefined ? {} : { acceptedVersion: p.acceptedVersion }),
-    ...(extra.embeds.get(p.id) ? { embedsKey: extra.embeds.get(p.id)!.key } : {}),
+    ...(p.acceptedVersion === undefined ? {} : { inUseVersion: p.acceptedVersion }),
+    ...(extra.embedViews.get(p.id) ? { embedsKey: extra.embedViews.get(p.id)!.key } : {}),
   })),
 });

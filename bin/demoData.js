@@ -1,5 +1,5 @@
 // Seed content for `mockpit demo`: the Writer mock — four states of one
-// writing app, each drawn in three looks, with its parts marked so the viewer
+// writing app, each drawn in three variants, with its parts marked so the viewer
 // can show questions, tuning and part comments. Dependency-free like the CLI.
 
 const LOOKS = {
@@ -101,8 +101,8 @@ export const DEMO = {
   },
   asks: [
     {
-      id: "look",
-      text: "Which look?",
+      id: "tone",
+      text: "Quiet, dark or editorial?",
       scope: "mock",
       options: [
         { label: "Quiet", variant: "quiet" },

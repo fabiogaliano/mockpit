@@ -102,7 +102,7 @@ export function Home(props: {
 
   // Oldest first, as the agent made them; a closed mock goes last in its group.
   const byAge = (a: TreeNode, b: TreeNode) =>
-    Number(!!a.resolvedAt) - Number(!!b.resolvedAt) || a.createdAt.localeCompare(b.createdAt);
+    Number(!!a.closedAt) - Number(!!b.closedAt) || a.createdAt.localeCompare(b.createdAt);
   const nodes = createMemo(() => [...(tree()?.tree ?? [])].sort(byAge));
   const bySlug = createMemo(() => new Map(nodes().map((n) => [n.slug, n])));
   const areaOrder = createMemo(() => tree()?.areaOrder ?? []);
@@ -187,11 +187,11 @@ export function Home(props: {
   const all = createMemo(() =>
     [...(list()?.mocks ?? [])].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
   );
-  const mocks = createMemo(() => all().filter((m) => !m.resolvedAt && !leaving()[m.id]));
+  const mocks = createMemo(() => all().filter((m) => !m.closedAt && !leaving()[m.id]));
   const resolved = createMemo(() =>
     all()
-      .filter((m) => m.resolvedAt)
-      .sort((a, b) => (b.resolvedAt ?? "").localeCompare(a.resolvedAt ?? "")),
+      .filter((m) => m.closedAt)
+      .sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? "")),
   );
   // Rows are keyed by id, so a refetch mid-swipe updates a row in place
   // instead of remounting it out from under the finger.
@@ -218,7 +218,7 @@ export function Home(props: {
   async function resolve(m: { id: string; title: string }) {
     setLeaving({ ...leaving(), [m.id]: true });
     try {
-      await api.resolve(m.id);
+      await api.close(m.id);
       await refetch();
       say({ text: `Closed “${m.title}”`, undo: m.id });
     } catch (e) {
@@ -381,7 +381,7 @@ export function Home(props: {
   const pagesOf = (groups: AreaGroup<TreeNode>[], level: 2 | 3 | 4) => (
     <Areas groups={groups} level={level}>
       {(n, h) => (
-        <section class="home-sec" classList={{ closed: !!n.resolvedAt }} data-page={n.slug}>
+        <section class="home-sec" classList={{ closed: !!n.closedAt }} data-page={n.slug}>
           <Dynamic component={h} class="home-page-hd">
             <span class="home-page-title">{n.title}</span>
             {/* After the name, not before it: a leading dot reads as the
@@ -451,8 +451,8 @@ export function Home(props: {
               <b>{n.title}</b>
               {source(n)}
             </span>
-            <Show when={n.usedIn.length}>
-              {`appears in ${n.usedIn.length} ${n.usedIn.length === 1 ? "mock" : "mocks"}`}
+            <Show when={n.embeddedIn.length}>
+              {`appears in ${n.embeddedIn.length} ${n.embeddedIn.length === 1 ? "mock" : "mocks"}`}
             </Show>
           </>,
         )
@@ -775,10 +775,7 @@ function Card(props: {
   menu: JSX.Element | undefined;
 }) {
   return (
-    <div
-      class="home-card"
-      classList={{ closed: !!props.node.resolvedAt, "with-menu": !!props.menu }}
-    >
+    <div class="home-card" classList={{ closed: !!props.node.closedAt, "with-menu": !!props.menu }}>
       <Screen
         project={props.project}
         node={props.node}
@@ -944,7 +941,7 @@ function MockRow(props: {
               <Show when={props.mock.source}>
                 {(src) => <span class="home-src" title={src()}>{` · ${shortSource(src())}`}</span>}
               </Show>
-              <Show when={props.mock.resolvedAt}>{(at) => ` · closed ${timeAgo(at())}`}</Show>
+              <Show when={props.mock.closedAt}>{(at) => ` · closed ${timeAgo(at())}`}</Show>
               <Show when={props.mock.drafted !== undefined && props.mock.open > 0}>
                 <span class="home-draft" title="Answered, not sent yet">
                   {` · draft ${props.mock.drafted}/${props.mock.open}`}

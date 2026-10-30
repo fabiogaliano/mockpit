@@ -64,7 +64,7 @@ test("a swipe left closes a mock; the agent hears it once; Undo and Reopen bring
   expect(read.feedback).toEqual([
     expect.objectContaining({
       mock: "card",
-      resolved: true,
+      closed: true,
       dismissed: [{ ask: "tone", text: "Which tone?" }],
     }),
   ]);

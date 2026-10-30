@@ -10,8 +10,6 @@
 // Runtime-agnostic (no node imports) and string-only: the result is handed to
 // renderHtmlPage, which serves it from /s/:id under the sandbox CSP header, so
 // an inlined component body is exactly as contained as the page's own markup.
-// `<mockpit-slot>`, the tag's first name, is still read: "slot" now means a
-// part with alternative fills (fills.ts).
 
 import type { Embed } from "./types.ts";
 
@@ -41,7 +39,7 @@ export type EmbedResolver = (tag: EmbedTag) => Promise<ResolvedEmbed | null>;
 // almost certainly a mistake and costs a render each time.
 export const MAX_EMBED_DEPTH = 6;
 
-const EMBED_TAG = /<mockpit-(?:embed|slot)\b([^>]*?)(?:\/>|>\s*<\/mockpit-(?:embed|slot)\s*>|>)/gi;
+const EMBED_TAG = /<mockpit-embed\b([^>]*?)(?:\/>|>\s*<\/mockpit-embed\s*>|>)/gi;
 const ATTR = /([a-z-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/gi;
 
 function attributes(raw: string): Record<string, string> {
@@ -75,7 +73,7 @@ export function parseEmbedTags(html: string): EmbedTag[] {
   return tags;
 }
 
-export const hasEmbedTags = (html: string): boolean => /<mockpit-(?:embed|slot)\b/i.test(html);
+export const hasEmbedTags = (html: string): boolean => /<mockpit-embed\b/i.test(html);
 
 // The html with every reference to mock `from` pointed at `to`: the slug of
 // each embed tag naming it, and each data-goto naming it ("from" or

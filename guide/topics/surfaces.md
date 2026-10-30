@@ -48,19 +48,18 @@ from data, so send data, never markup.
 ## Composition: embeds
 
 Any mock can embed another mock of the project in its html with
-`<mockpit-embed slug="button"></mockpit-embed>` (`<mockpit-slot>` still works;
-a slot is now a region with fills, topic `asks`). The server inlines that
+`<mockpit-embed slug="button"></mockpit-embed>`. The server inlines that
 mock's html body in place, inside the embedding frame, and expands the
 component's own embeds in turn (up to 6 levels), so build a page from
 sections and sections from components, each its own mock with its own
 variants and questions.
 
-- No `version`: the embed follows the component's version in use once the user
-  accepted one, else its latest, so a new version of the button shows in every
-  page that uses it without republishing them. `version="3"` pins it.
-- No `variant`: the component's accepted variant (else `default`). Name one to
+- No `version`: the embed follows the component's version in use, else its
+  latest, so a new version of the button shows in every
+  page that embeds it without republishing them. `version="3"` pins it.
+- No `variant`: the component's variant in use (else `default`). Name one to
   show a specific variant.
-- The component shows as decided: its slots keep only the fills the user
+- The component shows as decided: its parts with fills keep only the fills the user
   settled on, and its other settled knob values ride on the embed's wrapper
   (`data-k-<path>` and `--k-<path>`), so write its knob CSS as
   `[data-k-tone="loud"] .chip`, not `html[data-k-tone=…]`.
@@ -108,9 +107,9 @@ Each thing you add lights up its part of the viewer.
 
 | you publish            | the user gets                                        |
 | ---------------------- | ---------------------------------------------------- |
-| a plain mock, any kind | the stage and Thread, with Accept / Revise / Drop    |
-| several variants       | a switcher, plus a built-in Look ask until you ask   |
-| asks                   | Questions: picture options on the stage, then Send   |
+| a plain mock, any kind | the stage and Thread, with Use this / Revise         |
+| several variants       | a switcher, plus a built-in variant question         |
+| questions (`ask`)      | Questions: picture options on the stage, then Send   |
 | `data-part`            | Tune's component list and comments anchored on parts |
 | `knobs`                | Tune's controls, live on the stage                   |
 | several states         | the state strip under the stage                      |

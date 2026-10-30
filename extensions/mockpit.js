@@ -28,8 +28,8 @@ const feedbackGuideline =
 // The never-block loop, in the words of every other tier: nothing waits for
 // the user, so the agent ends its turn and reads feedback when told.
 const loopGuidelines = [
-  "Publish each variant with mockpit_publish (name states in the user's words; mark parts with data-part); publish again to revise.",
-  "A choice is several variants plus one ask that binds them: mockpit_ask with options bound to the variants. One render plus a control: declare a knob.",
+  "Publish each variant with mockpit_publish (name states in the user's words; declare parts with data-part); publish again to revise.",
+  "A choice is several variants plus one question that binds them: mockpit_ask with options bound to the variants. One render plus a control: declare a knob.",
   "Tell the user in one line where to look, then end your turn. The question lives in the mock, never in chat. Never poll.",
   "When the user says they answered, call mockpit_feedback. Every write also returns feedback; read it.",
 ];
@@ -213,14 +213,20 @@ function rememberSession(state, sessionId) {
   if (typeof sessionId === "string" && sessionId) state.sessionId = sessionId;
 }
 
-// `feedback` is one batch per mock: the user's reply (answers, mix, tuned
-// knob values, part comments) plus any plain comments. Rendered one line per
-// thing the user said, so nothing is summarized away.
+// `feedback` is one batch per mock: the user's reply (answers, borrowed parts,
+// tuned knob values, part comments, verdict) plus any thread messages.
+// Rendered one line per thing the user said, so nothing is summarized away.
 function feedbackLines(feedback) {
   const lines = [];
   for (const batch of feedback ?? []) {
     const prefix = batch.mock ? `${batch.mock}: ` : "";
     if (batch.handoff) lines.push(`- ${prefix}${batch.handoff}`);
+    if (batch.closed) {
+      const asks = (batch.dismissed ?? []).map((d) => d.text || d.ask).join("; ");
+      lines.push(
+        `- ${prefix}closed by the user${asks ? `, unanswered: ${asks}; don't ask again` : ""}`,
+      );
+    }
     const reply = batch.reply;
     if (reply) {
       for (const a of reply.asks ?? []) {
@@ -228,8 +234,8 @@ function feedbackLines(feedback) {
         lines.push(`- ${prefix}${a.text || a.ask} → ${chosen || "(no pick)"}`);
         if (a.note) lines.push(`  note: ${a.note}`);
       }
-      for (const [part, variant] of Object.entries(reply.mix ?? {})) {
-        lines.push(`- ${prefix}use ${variant}'s ${part}`);
+      for (const [part, variant] of Object.entries(reply.borrowed ?? {})) {
+        lines.push(`- ${prefix}borrow ${part} from ${variant}`);
       }
       for (const [path, value] of Object.entries(reply.tuned ?? {})) {
         lines.push(`- ${prefix}tuned ${path} = ${JSON.stringify(value)}`);
@@ -239,10 +245,10 @@ function feedbackLines(feedback) {
           `- ${prefix}${c.part ? `[${c.part}${c.state ? ` · ${c.state}` : ""}] ` : ""}${c.text}`,
         );
       }
-      if (reply.decision) lines.push(`- ${prefix}${reply.decision.kind} ${reply.decision.variant}`);
+      if (reply.verdict) lines.push(`- ${prefix}${reply.verdict.kind} ${reply.verdict.variant}`);
       if (reply.text) lines.push(`- ${prefix}${reply.text}`);
     }
-    for (const c of batch.comments ?? []) lines.push(`- ${prefix}${c.text}`);
+    for (const c of batch.messages ?? []) lines.push(`- ${prefix}${c.text}`);
     if (batch.edited) {
       const e = batch.edited;
       const moved = [
@@ -371,13 +377,13 @@ export default function mockpitExtension(pi) {
           description: 'Where in the product it belongs ("Shell"); Home groups by it. "" clears',
         },
         source: { type: "string", description: 'Code path that implements it. "" clears' },
-        html: { type: "string", description: "HTML body fragment; mark parts with data-part" },
+        html: { type: "string", description: "HTML body fragment; declare parts with data-part" },
         path: { type: "string", description: "File to read the html from instead" },
         surfaces: surfacesSchema,
         parts: {
           type: "object",
           description:
-            '{"name"|"name#key": outer html}; splices marked parts of the latest version',
+            '{"name"|"name#key": outer html}; splices declared parts of the latest version',
         },
         knobs: { type: "object", description: "Knobs in tunekit usePane shape, keyed by path" },
         variantKnobs: { type: "object", description: "Knobs this variant alone has" },
@@ -437,7 +443,7 @@ export default function mockpitExtension(pi) {
     name: "mockpit_ask",
     label: "Mockpit Ask",
     description:
-      "Ask structured questions on a mock. A choice is several variants plus one ask that binds them ({label, variant}); options may also set knob values ({label, set}). Reusing an ask id replaces it.",
+      "Ask structured questions on a mock. A choice is several variants plus one question that binds them ({label, variant}); options may also set knob values ({label, set}). Reusing a question id replaces it.",
     promptSnippet: "Ask the user to choose between mockpit variants.",
     promptGuidelines: [
       "Use mockpit_ask once the variants are published, tell the user where to look, then end your turn.",
@@ -528,7 +534,7 @@ export default function mockpitExtension(pi) {
     name: "mockpit_feedback",
     label: "Mockpit Feedback",
     description:
-      "Returns at once: what the user sent since you last heard (one batch per mock: answers, mix, tuned knobs, part comments, comments, accepted/archived), delivered once, plus pending (viewer open, draft progress).",
+      "Returns at once: what the user sent since you last heard (one batch per mock: answers, borrowed parts, tuned knobs, part comments, verdict; thread messages; inUse/archived; or closed with the questions it dismissed), delivered once, plus pending (viewer open, draft progress).",
     promptSnippet: "Read the user's mockpit reply when they say they answered.",
     promptGuidelines: [
       "Call mockpit_feedback when the user says they answered; it returns at once, so do not call it in a loop.",
@@ -651,8 +657,8 @@ export default function mockpitExtension(pi) {
     name: "mockpit_export",
     label: "Mockpit Export",
     description:
-      "The accepted (or current) html per state, version history, and the last reply's tuned values.",
-    promptSnippet: "Export an accepted mockpit mock.",
+      "The html in use (else current) per state, version history, and the last reply's tuned values.",
+    promptSnippet: "Export the design in use from a mockpit mock.",
     parameters: { type: "object", properties: mockProps, required: ["mock"] },
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const query = new URLSearchParams({ project: projectOf(params, ctx) });

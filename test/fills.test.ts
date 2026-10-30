@@ -137,12 +137,16 @@ test("decisions follow the chosen fill down, and list only the knobs that are no
     status: "open",
     surfaces: html(PAGE),
   } as unknown as Post;
-  const d = decisionsFor(mock, [post], { answers: { entry: "a" }, tuned: { gap: 8 }, mix: {} });
+  const d = decisionsFor(mock, [post], {
+    answers: { entry: "a" },
+    tuned: { gap: 8 },
+    borrowed: {},
+  });
   assert.deepEqual(d, {
     states: {
       "": {
         variant: "default",
-        slots: { entry: { fill: "skeleton", slots: { rows: { fill: "shimmer" } } } },
+        parts: { entry: { fill: "skeleton", parts: { rows: { fill: "shimmer" } } } },
       },
     },
     knobs: { gap: 8 },

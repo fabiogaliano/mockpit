@@ -135,7 +135,8 @@ import {
   stripNul,
   postAtVersion,
   versionAt,
-  type ReplyDecision,
+  type ReplyVerdict,
+  variantStatus,
   reservedAgent,
   type Session,
   type Embed,
@@ -1242,7 +1243,7 @@ export function createApp({
     const states = mock.states.length ? mock.states : [null];
     const wide = states.every((s) => key(live(s)) === key(names));
     // An ask that already picks between some of these variants is the question:
-    // a second, generic "Which one?" would make the user choose the look twice.
+    // a second, generic "Which variant?" would make the user choose twice.
     // A mock-wide one only fits while every state has the same variants; else a
     // variant only some states have would leave the others no real choice.
     const existing = mock.asks.find(
@@ -1268,7 +1269,7 @@ export function createApp({
         ],
       };
       return {
-        nudge: `${where}: bind ${missing.map((m) => `"${m}"`).join(", ")} to your existing ask "${existing.id}": call ask with suggestedAsk. Never ask in chat.`,
+        nudge: `${where}: bind ${missing.map((m) => `"${m}"`).join(", ")} to your existing question "${existing.id}": call ask with suggestedAsk. Never ask in chat.`,
         ask,
       };
     }
@@ -1276,14 +1277,14 @@ export function createApp({
     // Not the built-in's reserved id: a stored ask under it would collide with the
     // built-in the viewer synthesizes once a new variant goes unbound. Nor any id
     // already taken, which sending this would silently replace.
-    const base = wide ? "look" : `look-${slugify(state ?? "")}`;
+    const base = wide ? "choice" : `choice-${slugify(state ?? "")}`;
     let id = base;
     for (let n = 2; mock.asks.some((a) => a.id === id); n++) id = `${base}-${n}`;
     const ask = wide
-      ? { id, text: "Which one?", scope: "mock", options }
-      : { id, text: "Which one?", scope: "state", state, options };
+      ? { id, text: "Which variant?", scope: "mock", options }
+      : { id, text: "Which variant?", scope: "state", state, options };
     return {
-      nudge: `${where} has ${names.length} variants and no ask binds them: call ask with suggestedAsk. Never ask in chat.`,
+      nudge: `${where} has ${names.length} variants and no question binds them: call ask with suggestedAsk. Never ask in chat.`,
       ask,
     };
   }
@@ -1307,7 +1308,7 @@ export function createApp({
     const posts = await store.listPosts({ mockId: mock.id });
     const detail = mockDetailView(mock, posts);
     const unbound = unboundVariants(mock, posts, post.state);
-    // A slot no ask sets is a decision nobody was asked; hand over the ask.
+    // A part with fills that no ask sets is a decision nobody was asked; hand over the ask.
     const slots = slotsInSurfaces(post.surfaces);
     const setPaths = new Set(
       mock.asks.flatMap((a) => a.options.flatMap((o) => Object.keys(o.set ?? {}))),
@@ -1326,7 +1327,7 @@ export function createApp({
       ...(unbound ? [unbound.nudge] : []),
       ...(slotAsks.length
         ? [
-            `${slotAsks.map((a) => `slot "${a.part}"`).join(", ")} ${slotAsks.length === 1 ? "has" : "have"} fills and no ask sets ${slotAsks.length === 1 ? "it" : "them"}: send suggestedSlotAsks with ask (reword the text in the user's terms)`,
+            `${slotAsks.map((a) => `part "${a.part}"`).join(", ")} ${slotAsks.length === 1 ? "has" : "have"} fills and no question sets ${slotAsks.length === 1 ? "it" : "them"}: send suggestedFillAsks with ask (reword the text in the user's terms)`,
           ]
         : []),
     ];
@@ -1352,20 +1353,20 @@ export function createApp({
           state: post.state,
           variant: post.variant,
           version: post.version,
-          status: post.status,
+          status: variantStatus(post.status),
           surfaces: post.surfaces.map(surfaceRef),
         },
         sessionId: post.sessionId,
         url: mockUrl(ctx.base, mock, post),
         parts: detail.parts,
-        ...(slots.length ? { slots } : {}),
+        ...(slots.length ? { fills: slots } : {}),
         ...(extra.applied ? { applied: extra.applied } : {}),
         ...(partChanges && (partChanges.vanished.length || partChanges.renamed.length)
           ? { partChanges }
           : {}),
         ...(nudges.length ? { nudges } : {}),
         ...(unbound ? { suggestedAsk: unbound.ask } : {}),
-        ...(slotAsks.length ? { suggestedSlotAsks: slotAsks } : {}),
+        ...(slotAsks.length ? { suggestedFillAsks: slotAsks } : {}),
         ...(warnings.length ? { warnings } : {}),
         ...(extra.flow ? { flow: extra.flow } : {}),
         feedback,
@@ -1940,27 +1941,27 @@ export function createApp({
     const pending = [];
     for (const m of mocks) {
       const posts = await store.listPosts({ mockId: m.id });
-      const embeds = await embedViews(m, posts);
-      const uses = new Set<string>();
+      const views = await embedViews(m, posts);
+      const embeds = new Set<string>();
       for (const p of posts) {
         if (!isLive(p.status)) continue;
         for (const x of p.surfaces) {
-          if (x.kind === "html") for (const t of parseEmbedTags(x.html)) uses.add(t.slug);
+          if (x.kind === "html") for (const t of parseEmbedTags(x.html)) embeds.add(t.slug);
         }
       }
       nodes.push(
         treeNodeView(m, posts, {
           settled: settledValues(await replyPayloads(m.id), m, posts),
-          uses: [...uses],
-          embeds,
+          embeds: [...embeds],
+          embedViews: views,
         }),
       );
       pending.push(pendingOf(m, posts));
     }
     const bySlug = new Map(nodes.map((n) => [n.slug, n]));
     for (const n of nodes) {
-      n.uses = n.uses.filter((s) => bySlug.has(s));
-      for (const s of n.uses) bySlug.get(s)!.usedIn.push(n.slug);
+      n.embeds = n.embeds.filter((s) => bySlug.has(s));
+      for (const s of n.embeds) bySlug.get(s)!.embeddedIn.push(n.slug);
     }
     return ok({
       project,
@@ -2024,9 +2025,9 @@ export function createApp({
       if (wantedVariant && found.variant !== wantedVariant) continue;
       const post = postAtVersion(found, inUseVersion(found)) ?? found;
       const html = post.surfaces.find((s) => s.kind === "html");
-      // With slots, the screen as decided: only the chosen fills, by every
+      // With fills, the state as decided: only the chosen fills, by every
       // value sent so far (defaults before any reply). The authored markup with
-      // every fill stays available as `source`.
+      // every fill stays available as `allFills`.
       const slots = slotsInSurfaces(post.surfaces);
       const raw = html && html.kind === "html" ? html.html : "";
       const composed = slots.length ? composeFills(raw, chosenFills(slots, settled)) : raw;
@@ -2037,9 +2038,9 @@ export function createApp({
         version: post.version,
         // The agent's newer versions wait until the user puts one in use.
         ...(found.version !== post.version ? { latest: found.version } : {}),
-        status: post.status,
+        status: variantStatus(post.status),
         html: composed,
-        ...(slots.length ? { source: raw } : {}),
+        ...(slots.length ? { allFills: raw } : {}),
         markdown: postToMarkdown(post, {
           postUrl: `${ctx.base}/s/${post.id}`,
           assetBase: ctx.base,
@@ -2237,7 +2238,7 @@ export function createApp({
       if (typeof ask === "string") return fail(400, ask);
       const at = asks.findIndex((a) => a.id === ask.id);
       // The user closed this one as not worth answering; asking it again is
-      // exactly the noise they resolved away. Only their Reopen revives it.
+      // exactly the noise they closed away. Only their Reopen revives it.
       if (at >= 0 && asks[at].dismissed) {
         skipped.push(ask.id);
         continue;
@@ -2249,7 +2250,7 @@ export function createApp({
     }
     const skippedNudges = skipped.map(
       (id) =>
-        `ask "${id}": the user dismissed it when they resolved ${mock.slug}; not asked again. Don't re-ask it.`,
+        `ask "${id}": the user dismissed it when they closed ${mock.slug}; not asked again. Don't re-ask it.`,
     );
     if (!added.length) {
       return ok({
@@ -2268,12 +2269,12 @@ export function createApp({
     if (typeof body.session === "string" && (await store.getSession(body.session))) {
       sessionId = body.session;
     }
-    // A new question on a resolved mock brings it back to the open list, or it
+    // A new question on a closed mock brings it back to the open list, or it
     // would wait where the user no longer looks.
     const updated = await store.updateMock(mock.id, {
       asks,
       sessionId,
-      ...(mock.resolvedAt ? { resolvedAt: null } : {}),
+      ...(mock.closedAt ? { closedAt: null } : {}),
     });
     if (!updated) return fail(404, "mock not found");
     mock = updated;
@@ -2467,15 +2468,15 @@ export function createApp({
     return out;
   }
 
-  function sanitizeMix(raw: unknown, posts: Post[]): Record<string, string> | string {
+  function sanitizeBorrowed(raw: unknown, posts: Post[]): Record<string, string> | string {
     if (raw === undefined || raw === null) return {};
-    if (typeof raw !== "object" || Array.isArray(raw)) return '"mix" must be an object';
+    if (typeof raw !== "object" || Array.isArray(raw)) return '"borrowed" must be an object';
     const variants = new Set(posts.map((p) => p.variant));
     const out: Record<string, string> = {};
     for (const [part, variant] of Object.entries(raw as Record<string, unknown>)) {
-      if (!part || part.length > 200) return "mix keys are part names";
+      if (!part || part.length > 200) return "borrowed keys are part names";
       if (typeof variant !== "string" || !variants.has(variant)) {
-        return `mix "${part}" names a variant that does not exist`;
+        return `borrowed "${part}" names a variant that does not exist`;
       }
       out[part] = variant;
     }
@@ -2493,8 +2494,8 @@ export function createApp({
     const pick = (key: keyof Draft) => (raw?.[key] !== undefined ? raw[key] : base?.[key]);
     const answers = sanitizeAnswers(pick("answers"), mock, posts);
     if (typeof answers === "string") return answers;
-    const mix = sanitizeMix(pick("mix"), posts);
-    if (typeof mix === "string") return mix;
+    const borrowed = sanitizeBorrowed(pick("borrowed"), posts);
+    if (typeof borrowed === "string") return borrowed;
     const tuned = checkKnobValues(pick("tuned"), mock, posts, "tuned");
     if (!tuned.ok) return tuned.error;
     const comments = sanitizePartComments(pick("comments"), mock, posts);
@@ -2521,7 +2522,7 @@ export function createApp({
     return {
       version,
       answers,
-      mix,
+      borrowed,
       tuned: tuned.value,
       comments,
       others,
@@ -2563,37 +2564,30 @@ export function createApp({
     return ok({ draft: null });
   }
 
-  function sanitizeDecision(
-    raw: any,
-    mock: Mock,
-    posts: Post[],
-  ): ReplyDecision | string | undefined {
+  function sanitizeVerdict(raw: any, mock: Mock, posts: Post[]): ReplyVerdict | string | undefined {
     if (raw === undefined || raw === null) return undefined;
     const kind = raw.kind;
-    if (kind !== "accept" && kind !== "revise" && kind !== "drop") {
-      return 'decision.kind must be "accept", "revise" or "drop"';
-    }
+    if (kind !== "use" && kind !== "revise") return 'verdict.kind must be "use" or "revise"';
     const chosen = chooseVariant(mock, posts, stateArg(raw.state), str(raw.variant, MAX_LABEL));
     if (isResult(chosen)) return chosen.body.error as string;
     return { kind, state: chosen.state, variant: chosen.variant };
   }
 
-  // Which variants a reply accepts and archives. A variant-bound answer accepts
-  // the chosen variant(s) in every state the ask covers and archives their
-  // siblings there; a part-scoped pick is a mix, not a verdict. The built-in
-  // variant asks flip the same way, per state. Each accepted variant is put in
-  // use at the version the reply was made on (`version`, a mock version), not
+  // Which variants a reply puts in use and archives. A variant-bound answer puts
+  // the chosen variant(s) in use in every state the ask covers and archives
+  // their siblings there; a part-scoped pick is a borrow, not a verdict. The
+  // built-in variant questions flip the same way, per state. Each variant is put
+  // in use at the version the reply was made on (`version`, a mock version), not
   // whatever the agent published since — or, for a version option, at its version.
   function replyFlips(
     mock: Mock,
     posts: Post[],
     answers: Record<string, AskAnswer>,
-    decision: ReplyDecision | undefined,
+    verdict: ReplyVerdict | undefined,
     version: number,
-  ): { accept: Map<string, number>; archive: Set<string>; drop: Set<string> } {
+  ): { accept: Map<string, number>; archive: Set<string> } {
     const accept = new Map<string, number>();
     const archive = new Set<string>();
-    const drop = new Set<string>();
     const settle = (inState: Post[], chosen: Set<string>, pins?: Map<string, number>) => {
       if (!inState.some((p) => chosen.has(p.variant))) return;
       for (const p of inState) {
@@ -2603,7 +2597,8 @@ export function createApp({
         }
         const pin = pins?.get(p.variant);
         // A version option outranks a looser pick of the same variant (the
-        // built-in Which one?, a Look) in the same reply.
+        // built-in Which variant?, or the agent's own variant question) in the
+        // same reply.
         if (pin === undefined && accept.has(p.id)) continue;
         // A pinned version history retention has since dropped falls back to
         // what the stage showed, rather than pinning one nothing can render.
@@ -2637,21 +2632,14 @@ export function createApp({
           chosen,
         );
     }
-    if (decision?.kind === "accept") {
+    if (verdict?.kind === "use") {
       settle(
-        posts.filter((p) => p.state === decision.state),
-        new Set([decision.variant]),
+        posts.filter((p) => p.state === verdict.state),
+        new Set([verdict.variant]),
       );
-    } else if (decision?.kind === "drop") {
-      const post = posts.find((p) => p.state === decision.state && p.variant === decision.variant);
-      if (post) drop.add(post.id);
     }
-    for (const id of accept.keys()) {
-      archive.delete(id);
-      drop.delete(id);
-    }
-    for (const id of drop) archive.delete(id);
-    return { accept, archive, drop };
+    for (const id of accept.keys()) archive.delete(id);
+    return { accept, archive };
   }
 
   // An ask as a reply leaves it. A pick or a write-in replaces whatever was
@@ -2692,13 +2680,13 @@ export function createApp({
     const draft = await sanitizeDraft(body ?? {}, mock, posts, mock.draft);
     if (typeof draft === "string") return fail(400, draft);
     const text = str(body?.text, MAX_COMMENT_TEXT);
-    const decision = sanitizeDecision(body?.decision, mock, posts);
-    if (typeof decision === "string") return fail(400, decision);
+    const verdict = sanitizeVerdict(body?.verdict, mock, posts);
+    if (typeof verdict === "string") return fail(400, verdict);
     const empty =
       !text &&
-      !decision &&
+      !verdict &&
       !Object.keys(draft.answers).length &&
-      !Object.keys(draft.mix).length &&
+      !Object.keys(draft.borrowed).length &&
       !Object.keys(draft.tuned).length &&
       !draft.comments.length &&
       !Object.keys(draft.others ?? {}).length &&
@@ -2711,7 +2699,7 @@ export function createApp({
       mockId: mock.id,
       version: draft.version,
       answers: draft.answers,
-      mix: draft.mix,
+      borrowed: draft.borrowed,
       tuned: draft.tuned,
       comments: draft.comments,
       ...(Object.keys(draft.others ?? {}).length ? { others: draft.others } : {}),
@@ -2721,13 +2709,11 @@ export function createApp({
       ...(text ? { text } : {}),
     };
     const asks = mock.asks.map((a) => sentAsk(a, draft));
-    const flips = replyFlips(mock, posts, draft.answers, decision, draft.version);
-    if (decision) {
-      const target = posts.find(
-        (p) => p.state === decision.state && p.variant === decision.variant,
-      );
-      const pinned = decision.kind === "accept" && target ? flips.accept.get(target.id) : undefined;
-      payload.decision = pinned === undefined ? decision : { ...decision, version: pinned };
+    const flips = replyFlips(mock, posts, draft.answers, verdict, draft.version);
+    if (verdict) {
+      const target = posts.find((p) => p.state === verdict.state && p.variant === verdict.variant);
+      const pinned = verdict.kind === "use" && target ? flips.accept.get(target.id) : undefined;
+      payload.verdict = pinned === undefined ? verdict : { ...verdict, version: pinned };
     }
     const comment = await store.commitReply({
       mockId: mock.id,
@@ -2737,7 +2723,6 @@ export function createApp({
       asks,
       accept: [...flips.accept].map(([id, version]) => ({ id, version })),
       archive: [...flips.archive],
-      drop: [...flips.drop],
     });
     if (!comment) return fail(409, `${mock.slug} has no agent session to reply to`);
     announceComment(comment);
@@ -2746,7 +2731,7 @@ export function createApp({
     void announceEmbedders(mock).catch((err) => console.warn("[mockpit] embedders", err));
     const after = await store.listPosts({ mockId: mock.id });
     for (const p of after) {
-      if (flips.accept.has(p.id) || flips.archive.has(p.id) || flips.drop.has(p.id)) {
+      if (flips.accept.has(p.id) || flips.archive.has(p.id)) {
         bus.broadcast({
           type: "post-updated",
           id: p.id,
@@ -2761,33 +2746,30 @@ export function createApp({
       event: "decision",
       project: mock.project,
       slug: mock.slug,
-      variant: decision?.variant ?? "",
+      variant: verdict?.variant ?? "",
       version: draft.version,
-      text: text || decision?.kind || "reply",
+      text: text || verdict?.kind || "reply",
       url: mockUrl(ctx.base, mock),
     });
     const [delivered] = await withDelivered([comment]);
     return ok(
       {
         reply: delivered,
-        accepted: after
+        inUse: after
           .filter((p) => flips.accept.has(p.id))
           .map((p) => ({ state: p.state, variant: p.variant, version: inUseVersion(p) })),
         archived: after
           .filter((p) => flips.archive.has(p.id))
-          .map((p) => ({ state: p.state, variant: p.variant })),
-        dropped: after
-          .filter((p) => flips.drop.has(p.id))
           .map((p) => ({ state: p.state, variant: p.variant })),
       },
       201,
     );
   }
 
-  // "Use this": the user puts one exact version of a variant in use. It is an
-  // accept, so it archives the variant's live siblings in that state and
-  // reaches the agent once, as a reply carrying the decision, through the same
-  // cursor as a Send; the user's unsent draft is left for their next Send.
+  // "Use this": the user puts one exact version of a variant in use. It
+  // archives the variant's live siblings in that state and reaches the agent
+  // once, as a reply carrying the verdict, through the same cursor as a Send;
+  // the user's unsent draft is left for their next Send.
   async function useFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
     const mock = await resolveMock(ref);
@@ -2822,10 +2804,10 @@ export function createApp({
         mockId: mock.id,
         version,
         answers: {},
-        mix: {},
+        borrowed: {},
         tuned: {},
         comments: [],
-        decision: { kind: "accept", ...inUse },
+        verdict: { kind: "use", ...inUse },
       },
       asks: mock.asks,
       accept: [{ id: chosen.id, version }],
@@ -2852,7 +2834,7 @@ export function createApp({
       slug: mock.slug,
       variant: chosen.variant,
       version,
-      text: "accept",
+      text: "use",
       url: mockUrl(ctx.base, mock),
     });
     const [delivered] = await withDelivered([comment]);
@@ -2916,13 +2898,13 @@ export function createApp({
 
   // The user closes a mock from the project list: its open asks are dismissed
   // unanswered, an unsent draft goes with them, and the agent hears it once,
-  // as a resolution through the same cursor as a Send.
-  async function resolveFlow(ref: unknown, ctx: FlowContext): Promise<FlowResult> {
+  // as a close through the same cursor as a Send.
+  async function closeFlow(ref: unknown, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
     const mock = await resolveMock(ref);
     if (isResult(mock)) return mock;
     const posts = await store.listPosts({ mockId: mock.id });
-    if (mock.resolvedAt) return ok({ mock: mockSummaryView(mock, posts), dismissed: [] });
+    if (mock.closedAt) return ok({ mock: mockSummaryView(mock, posts), dismissed: [] });
     const dismissed = [...openAsks(mock).map((a) => a.id), ...builtinAskIds(mock, posts, mock.id)];
     const asks = mock.asks.map((a): Ask => (askAnswered(a) ? a : { ...a, dismissed: true }));
     const at = new Date().toISOString();
@@ -2938,21 +2920,21 @@ export function createApp({
             mockId: mock.id,
             version: Math.max(1, ...posts.map((p) => p.version)),
             answers: {},
-            mix: {},
+            borrowed: {},
             tuned: {},
             comments: [],
-            resolved: { dismissed },
+            closed: { dismissed },
           },
           asks,
           accept: [],
           archive: [],
-          resolvedAt: at,
+          closedAt: at,
         })
       : null;
     if (comment) announceComment(comment);
     else {
       // No agent to tell: the mock still leaves the open list.
-      await store.updateMock(mock.id, { asks, resolvedAt: at });
+      await store.updateMock(mock.id, { asks, closedAt: at });
       await store.putDraft(mock.id, null);
     }
     bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
@@ -2961,16 +2943,16 @@ export function createApp({
     return ok({ mock: mockSummaryView(after, posts), dismissed });
   }
 
-  // Back from Resolved: the asks it dismissed are open again. The agent was
+  // Back from Closed: the asks it dismissed are open again. The agent was
   // told they were dismissed; answers given now reach it as a normal Send.
   async function reopenFlow(ref: unknown, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
     const mock = await resolveMock(ref);
     if (isResult(mock)) return mock;
     const posts = await store.listPosts({ mockId: mock.id });
-    if (!mock.resolvedAt) return ok({ mock: mockSummaryView(mock, posts) });
+    if (!mock.closedAt) return ok({ mock: mockSummaryView(mock, posts) });
     const asks = mock.asks.map(({ dismissed: _, ...a }) => a);
-    const updated = await store.updateMock(mock.id, { asks, resolvedAt: null });
+    const updated = await store.updateMock(mock.id, { asks, closedAt: null });
     if (!updated) return fail(404, "mock not found");
     bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
     return ok({ mock: mockSummaryView(updated, posts) });
@@ -2992,7 +2974,11 @@ export function createApp({
       version: updated.version,
       by: "user",
     });
-    return ok({ state: updated.state, variant: updated.variant, status: updated.status });
+    return ok({
+      state: updated.state,
+      variant: updated.variant,
+      status: variantStatus(updated.status),
+    });
   }
 
   // The user stars (or unstars) a variant: a favourite to come back to, which
@@ -3185,7 +3171,7 @@ export function createApp({
         mockId: after.id,
         version: Math.max(1, ...posts.map((p) => p.version)),
         answers: {},
-        mix: {},
+        borrowed: {},
         tuned: {},
         comments: [],
         edited,
@@ -3595,7 +3581,7 @@ export function createApp({
   const pendingOf = (mock: Mock, posts: Post[]) => ({
     mock: mock.slug,
     // Closed by the user: nothing there is waiting on them, or on you.
-    ...(mock.resolvedAt ? { resolved: true } : {}),
+    ...(mock.closedAt ? { closed: true } : {}),
     viewerOpen: viewing.has(mock.id),
     draft: mock.draft
       ? {
@@ -4116,8 +4102,8 @@ export function createApp({
     send(c, await hideFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
 
-  app.post("/api/mocks/:id/resolve", async (c) =>
-    send(c, await resolveFlow(c.req.param("id"), flowCtx(c))),
+  app.post("/api/mocks/:id/close", async (c) =>
+    send(c, await closeFlow(c.req.param("id"), flowCtx(c))),
   );
   app.post("/api/mocks/:id/reopen", async (c) =>
     send(c, await reopenFlow(c.req.param("id"), flowCtx(c))),

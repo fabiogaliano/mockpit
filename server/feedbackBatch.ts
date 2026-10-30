@@ -26,12 +26,12 @@ export interface VariantRef {
   variant: string;
 }
 
-// An accepted variant with the version the user put in use.
+// A variant in use, with the version the user put in use.
 export interface InUseRef extends VariantRef {
   version: number;
 }
 
-export interface FeedbackComment {
+export interface FeedbackMessage {
   seq: number;
   text: string;
   state: string | null;
@@ -58,7 +58,7 @@ export interface OtherChoice {
 }
 
 // An answered ask, resolved to the options the user chose, so the agent reads
-// "Look → dark" without cross-referencing ids. `note` qualifies the answer.
+// "Which variant? → dark" without cross-referencing ids. `note` qualifies the answer.
 export interface AnsweredAsk {
   ask: string;
   text: string;
@@ -78,8 +78,8 @@ export interface FeedbackReply extends Omit<
   // One-tap reactions as one line each (`👍 part "hero" (variant B)`); they are
   // left out of `comments`, which keeps only what the user typed.
   reactions?: string[];
-  // The screen as decided: per state the look and each slot's fill, nested
-  // under the fill that holds it, plus the knob values set (decisions.ts).
+  // The state as decided: per state the variant and each part's chosen fill,
+  // nested under the fill that holds it, plus the knob values set (decisions.ts).
   decisions?: Decisions;
 }
 
@@ -89,17 +89,16 @@ export interface FeedbackBatch {
   mock: string | null;
   title: string | null;
   reply: FeedbackReply | null;
-  comments: FeedbackComment[];
-  // The variants the reply left accepted / archived (restorable).
-  accepted: InUseRef[];
+  // What the user wrote in the thread, outside any Send.
+  messages: FeedbackMessage[];
+  // The variants the reply left in use / archived (restorable).
+  inUse: InUseRef[];
   archived: VariantRef[];
-  // Dropped by the user: hidden from the viewer, restorable. Don't build on them.
-  dropped: VariantRef[];
   // Set when this batch was sent to an earlier, now quiet session (handoff.ts).
   handoff?: string;
-  // The user resolved the mock instead of answering: these asks were closed
+  // The user closed the mock instead of answering: these asks were closed
   // unanswered, as not worth answering. Don't ask them again.
-  resolved?: true;
+  closed?: true;
   dismissed?: { ask: string; text: string }[];
   // The user moved the mock from Home: its kind or area as they left it
   // (area null: none). Build on it; don't move it back.
@@ -198,17 +197,16 @@ export function groupFeedback(
     let batch = open.get(key);
     // An edit says where the mock is now, so it joins whatever batch is open.
     const edit = c.kind === "reply" ? c.payload?.edited : undefined;
-    if (!batch || (c.kind === "reply" && !edit && (batch.reply || batch.resolved))) {
+    if (!batch || (c.kind === "reply" && !edit && (batch.reply || batch.closed))) {
       batch = {
         mockId: c.mockId,
         project: mock?.project ?? null,
         mock: mock?.slug ?? null,
         title: mock?.title ?? null,
         reply: null,
-        comments: [],
-        accepted: [],
+        messages: [],
+        inUse: [],
         archived: [],
-        dropped: [],
       };
       open.set(key, batch);
       batches.push(batch);
@@ -217,9 +215,9 @@ export function groupFeedback(
       batch.edited = { ...batch.edited, ...edit };
       continue;
     }
-    if (c.kind === "reply" && c.payload?.resolved) {
-      batch.resolved = true;
-      batch.dismissed = c.payload.resolved.dismissed.map((id) => ({
+    if (c.kind === "reply" && c.payload?.closed) {
+      batch.closed = true;
+      batch.dismissed = c.payload.closed.dismissed.map((id) => ({
         ask: id,
         text:
           (mock?.asks.find((a) => a.id === id) ?? (mock && builtinAsk(mock, mockPosts, id)))
@@ -246,15 +244,14 @@ export function groupFeedback(
       };
       const decisions = mock ? decisionsFor(mock, mockPosts, c.payload) : null;
       if (decisions) batch.reply.decisions = decisions;
-      batch.accepted = mockPosts
+      batch.inUse = mockPosts
         .filter((p) => p.status === "accepted")
         .map((p) => ({ ...ref(p), version: inUseVersion(p) }));
       batch.archived = mockPosts.filter((p) => p.status === "archived").map(ref);
-      batch.dropped = mockPosts.filter((p) => p.status === "dropped").map(ref);
       continue;
     }
     const post = c.postId ? mockPosts.find((p) => p.id === c.postId) : undefined;
-    batch.comments.push({
+    batch.messages.push({
       seq: c.seq,
       text: c.text,
       state: post?.state ?? null,

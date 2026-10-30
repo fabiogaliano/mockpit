@@ -17,7 +17,7 @@ import {
   optionState,
   type PartCommentAnchor,
   type Reaction,
-  type ReplyDecision,
+  type ReplyVerdict,
   situationKey,
 } from "../../server/types.ts";
 import type { SlotInfo } from "../../server/fills.ts";
@@ -311,7 +311,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     field === "other" ? otherImagesOf(ask) : noteImagesOf(ask);
   const pendingOf = (ask: Ask, field: AskField) => uploads()[`${field}:${ask.id}`] ?? [];
 
-  // The variant the Look ask settled on, drafted or sent.
+  // The variant the variant question settled on, drafted or sent.
   const lookPick = createMemo(() => {
     const ask = look();
     if (!ask) return null;
@@ -349,7 +349,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
       named(pickedVersion(state)?.variant) ??
       named(lookPick()) ??
       named(chosenVariant()[String(state)]) ??
-      list.find((v) => v.status === "accepted") ??
+      list.find((v) => v.status === "inUse") ??
       list.find((v) => v.status === "open") ??
       list[0]
     );
@@ -408,7 +408,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
 
   // The slots of the look on stage for a state, never a hovered one: a preview
   // must not make questions appear and vanish under the pointer.
-  const slotsIn = (state: string | null): SlotInfo[] => variantFor(state, false)?.slots ?? [];
+  const slotsIn = (state: string | null): SlotInfo[] => variantFor(state, false)?.fills ?? [];
   // The slot an ask chooses: every option sets exactly that one slot's path.
   function askSlot(ask: Ask): SlotInfo | null {
     const m = mock();
@@ -621,7 +621,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
   const stagePart = createMemo(() => (tuning() ? selectedPart() : (tapped() ?? focusPart())));
   // A borrow made before the user chose that part's fate would contradict it.
   createEffect(() => {
-    const mix = draft()?.mix ?? {};
+    const mix = draft()?.borrowed ?? {};
     const kept = allowedMix(mix);
     if (Object.keys(kept).length === Object.keys(mix).length) return;
     const m = mock();
@@ -642,7 +642,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
       ...prev.filter((x) => !notes.some((n) => n.part === x.part)),
       ...notes,
     ]);
-    writeDraft((d) => ({ ...d, mix: kept }));
+    writeDraft((d) => ({ ...d, borrowed: kept }));
   });
 
   // --- draft writes: local at once, server after a short pause ---
@@ -667,7 +667,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     const next = fn({
       ...base,
       answers: { ...base.answers },
-      mix: { ...base.mix },
+      borrowed: { ...base.borrowed },
       tuned: { ...base.tuned },
       comments: [...base.comments],
       others: { ...base.others },
@@ -736,7 +736,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
         ? {
             version: d.version,
             answers: d.answers,
-            mix: d.mix,
+            borrowed: d.borrowed,
             tuned: d.tuned,
             comments: d.comments,
             others: d.others ?? {},
@@ -1075,7 +1075,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
       if (optionId !== null && look()?.id === ask.id) {
         // A borrow from the look just picked is no longer a borrow.
         const chosen = ask.options.find((o) => o.id === optionId)?.variant;
-        for (const p of Object.keys(d.mix)) if (d.mix[p] === chosen) delete d.mix[p];
+        for (const p of Object.keys(d.borrowed)) if (d.borrowed[p] === chosen) delete d.borrowed[p];
       }
       return d;
     });
@@ -1175,16 +1175,16 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
   // `null` is "No, all <look>": clears every borrow.
   function toggleMix(opt: { part: string; variant: string } | null) {
     writeDraft((d) => {
-      if (!opt) d.mix = {};
-      else if (d.mix[opt.part] === opt.variant) delete d.mix[opt.part];
-      else d.mix[opt.part] = opt.variant;
+      if (!opt) d.borrowed = {};
+      else if (d.borrowed[opt.part] === opt.variant) delete d.borrowed[opt.part];
+      else d.borrowed[opt.part] = opt.variant;
       return d;
     });
     setMixTouched(true);
     // A fresh Mix choice answers the notice; it has nothing left to explain.
     setMixDropped([]);
   }
-  const mixAnswered = () => mixTouched() || Object.keys(draft()?.mix ?? {}).length > 0;
+  const mixAnswered = () => mixTouched() || Object.keys(draft()?.borrowed ?? {}).length > 0;
   function addComment(
     part: string | null,
     state: string | null,
@@ -1274,7 +1274,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
   let beatTimer = 0;
   onCleanup(() => host().window.clearTimeout(beatTimer));
 
-  async function send(extra: { decision?: ReplyDecision; text?: string } = {}) {
+  async function send(extra: { verdict?: ReplyVerdict; text?: string } = {}) {
     const m = mock();
     if (!m || sending()) return;
     await flush();
@@ -1293,7 +1293,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
         ...d,
         answers: keep(d.answers),
         others: keep(d.others),
-        mix: allowedMix(d.mix),
+        borrowed: allowedMix(d.borrowed),
         ...extra,
       });
       // The draft holds the picks until the mock carrying them as sent answers
@@ -1484,8 +1484,8 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
   const usedBefore = createMemo(() => {
     const out: VersionRef[] = [];
     for (const c of comments()) {
-      const d = (c.payload as { decision?: ReplyDecision } | undefined)?.decision;
-      if (c.kind === "reply" && d?.kind === "accept" && d.version && d.state === activeState()) {
+      const d = (c.payload as { verdict?: ReplyVerdict } | undefined)?.verdict;
+      if (c.kind === "reply" && d?.kind === "use" && d.version && d.state === activeState()) {
         out.push({ variant: d.variant, version: d.version });
       }
     }
@@ -1553,7 +1553,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     const ref = onStage();
     if (!ref) return;
     void send({
-      decision: { kind: "revise", state: activeState(), variant: ref.variant },
+      verdict: { kind: "revise", state: activeState(), variant: ref.variant },
       text: `New version, please, from ${nameOf(ref)}.`,
     });
   }

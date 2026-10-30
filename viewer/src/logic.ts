@@ -32,7 +32,7 @@ type MockLike = Pick<MockDetail, "asks" | "states" | "title" | "knobs">;
 export const emptyDraft = (version: number): DraftInput => ({
   version,
   answers: {},
-  mix: {},
+  borrowed: {},
   tuned: {},
   comments: [],
   others: {},
@@ -50,7 +50,10 @@ export const draftIsEmpty = (d: DraftInput | null): boolean => !d || sendCount(d
 // Everything one Send carries, as the count on the button. A question counts
 // once however it was answered (pick, write-in, note, or a pick with a note).
 export const sendCount = (d: DraftInput): number =>
-  draftAsks(d).size + Object.keys(d.mix).length + Object.keys(d.tuned).length + d.comments.length;
+  draftAsks(d).size +
+  Object.keys(d.borrowed).length +
+  Object.keys(d.tuned).length +
+  d.comments.length;
 
 export const answerIds = (a: AskAnswer | undefined): string[] =>
   a === undefined ? [] : Array.isArray(a) ? a : [a];
@@ -112,7 +115,7 @@ export function pickInDraft(
   return { draft: { ...d, answers, others, otherImages }, otherOpen: open };
 }
 
-// The Look ask (Q9): mock-wide, its options bound to variants.
+// The variant question (Q9): mock-wide, its options bound to variants.
 export const isLookAsk = (ask: Ask): boolean =>
   ask.scope === "mock" && ask.options.some((o) => o.variant);
 
@@ -150,11 +153,11 @@ export function needsBuiltinAsk(
 // up, so the user answers once; one per needing state otherwise. Option ids
 // are variant names, as the server's reply handling expects.
 export function builtinAsks(
-  mock: Pick<MockDetail, "asks" | "states"> & { resolvedAt?: string | null },
+  mock: Pick<MockDetail, "asks" | "states"> & { closedAt?: string | null },
   variants: VariantRow[],
 ): Ask[] {
   // Resolving the mock closed its choices too (server/types.ts builtinAskIds).
-  if (mock.resolvedAt) return [];
+  if (mock.closedAt) return [];
   const states = mock.states.length ? mock.states : [null];
   const needing = states.filter((st) => needsBuiltinAsk(mock.asks, variants, st));
   if (!needing.length) return [];
@@ -280,7 +283,7 @@ export interface MixOption {
 //   any part and the viewer cannot see which, so it closes Mix in its scope
 //   (every state for a mock-wide ask).
 // A decided part is never offered, and a borrow made before the choice is
-// dropped (`pruneMix`). The Look ask is Mix's own input and counts for nothing.
+// dropped (`pruneMix`). The variant question is borrowing's own input and counts for nothing.
 export interface MixSettled {
   decided: { part: string; state: string | null }[];
   // States Mix is closed in; null closes every state.
@@ -440,11 +443,11 @@ function fmtValue(v: KnobValue): string {
   return String(v);
 }
 
-// One Send as a line in the thread: "Sent · look quiet · trim below · mix body · dark's".
+// One Send as a line in the thread: "Sent · Which variant? quiet · trim below · body from dark".
 export function summarizeReply(
   reply: Pick<
     Reply,
-    "answers" | "mix" | "tuned" | "comments" | "text" | "decision" | "others" | "notes"
+    "answers" | "borrowed" | "tuned" | "comments" | "text" | "verdict" | "others" | "notes"
   >,
   mock: Pick<MockDetail, "asks">,
 ): string {
@@ -463,15 +466,15 @@ export function summarizeReply(
     if (!mock.asks.some((a) => a.id === id))
       parts.push(`${builtinTopic(id)} ${answerIds(answer).join(" + ")}`);
   }
-  const mix = Object.entries(reply.mix).map(([part, variant]) => `${part} · ${variant}'s`);
-  if (mix.length) parts.push(`mix ${mix.join(", ")}`);
+  const borrowed = Object.entries(reply.borrowed).map(([part, v]) => `${part} from ${v}`);
+  if (borrowed.length) parts.push(borrowed.join(", "));
   const tuned = Object.entries(reply.tuned).map(([k, v]) => `${k} ${fmtValue(v)}`);
   if (tuned.length) parts.push(`tuned ${tuned.join(", ")}`);
   const reacted = reply.comments.filter((c) => c.reaction).length;
   const n = reply.comments.length - reacted;
   if (n) parts.push(`${n} comment${n === 1 ? "" : "s"}`);
   if (reacted) parts.push(`${reacted} reaction${reacted === 1 ? "" : "s"}`);
-  if (reply.decision) parts.push(`${reply.decision.kind} ${reply.decision.variant}`);
+  if (reply.verdict) parts.push(`${reply.verdict.kind} ${reply.verdict.variant}`);
   if (reply.text) parts.push(`“${reply.text}”`);
   return parts.length ? `Sent · ${parts.join(" · ")}` : "Sent";
 }
@@ -501,7 +504,7 @@ export function carryOver(
     else flagged.push(id);
   }
   const mix: Record<string, string> = {};
-  for (const [part, variant] of Object.entries(draft.mix)) {
+  for (const [part, variant] of Object.entries(draft.borrowed)) {
     if (variants.some((v) => v.variant === variant && v.parts.includes(part))) mix[part] = variant;
   }
   const paths = new Set([
@@ -518,7 +521,7 @@ export function carryOver(
     draft: {
       version: toVersion,
       answers,
-      mix,
+      borrowed: mix,
       tuned,
       comments,
       others: known(draft.others),
@@ -739,8 +742,8 @@ export function threadRows(
     const c = e.c;
     if (c.author === "user" || c.author === "surface") {
       const reply = c.kind === "reply" ? c.payload : undefined;
-      const text = reply?.resolved
-        ? resolvedLine(reply.resolved.dismissed.length)
+      const text = reply?.closed
+        ? closedLine(reply.closed.dismissed.length)
         : reply?.edited
           ? editedLine(reply.edited)
           : reply
@@ -827,7 +830,7 @@ export const editedLine = (e: MockEdit): string =>
     .filter(Boolean)
     .join(" · ");
 
-export const resolvedLine = (dismissed: number): string =>
+export const closedLine = (dismissed: number): string =>
   dismissed
     ? `Closed · ${dismissed} ${dismissed === 1 ? "question" : "questions"} left unanswered`
     : "Closed";
@@ -1241,15 +1244,14 @@ export type MockStatus =
   | { kind: "exploring" };
 
 export function mockStatus(
-  node: Pick<TreeNode, "open" | "states" | "variants" | "inUse" | "resolvedAt">,
+  node: Pick<TreeNode, "open" | "states" | "variants" | "inUse" | "closedAt">,
 ): MockStatus | null {
-  if (node.resolvedAt) return null;
+  if (node.closedAt) return null;
   if (node.open > 0) return { kind: "open", n: node.open };
   // A variant in use at an older version than its latest: the agent moved on
   // from what the user chose, and the choice wants a look again.
   const changed = node.variants.some(
-    (v) =>
-      v.status === "accepted" && v.acceptedVersion !== undefined && v.version > v.acceptedVersion,
+    (v) => v.status === "inUse" && v.inUseVersion !== undefined && v.version > v.inUseVersion,
   );
   if (changed) return { kind: "changed" };
   if (node.states.every((st) => node.inUse.some((u) => u.state === st))) {

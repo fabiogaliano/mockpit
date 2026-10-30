@@ -64,8 +64,8 @@ function nodePicture(node: TreeNode, state: string | null): string | null {
 export function relatedOf(r: RelatedState, slug: string) {
   const bySlug = createMemo(() => new Map((r.tree()?.tree ?? []).map((n) => [n.slug, n])));
   const me = () => bySlug().get(slug);
-  const usedIn = () => (me()?.usedIn ?? []).flatMap((s) => bySlug().get(s) ?? []);
-  const uses = () => (me()?.uses ?? []).flatMap((s) => bySlug().get(s) ?? []);
+  const usedIn = () => (me()?.embeddedIn ?? []).flatMap((s) => bySlug().get(s) ?? []);
+  const uses = () => (me()?.embeds ?? []).flatMap((s) => bySlug().get(s) ?? []);
   const flows = createMemo<FlowRow[]>(() =>
     (r.tree()?.flows ?? []).flatMap((f) =>
       f.steps.flatMap((x, i) =>

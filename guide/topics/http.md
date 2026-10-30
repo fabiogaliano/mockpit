@@ -49,16 +49,16 @@ curl -s -X POST $B/api/mocks/checkout/asks -H 'content-type: application/json' -
 
 # tell the user where to look and end your turn; once they say they answered:
 curl -s "$B/api/feedback?session=S"
-# → {"feedback":[{"mock":"checkout","reply":{…},"accepted":[…],"archived":[]}],
+# → {"feedback":[{"mock":"checkout","reply":{…},"messages":[],"inUse":[…],"archived":[]}],
 #    "pending":[{"mock":"checkout","viewerOpen":true,"draft":null}]}
 
 curl -s -X POST $B/api/mocks/checkout/say -H 'content-type: application/json' -d '{
-  "session": "S", "project": "demo", "message": "Accepted; wiring it up"}'
+  "session": "S", "project": "demo", "message": "In use; wiring it up"}'
 
 curl -s "$B/api/mocks/checkout/export?project=demo"
 ```
 
-A publish that leaves two or more variants with no ask binding them adds
+A publish that leaves two or more variants with no question binding them adds
 `nudges` and a ready `suggestedAsk`; POST it to `/asks` as `{"asks": [...]}`.
 
 ## Errors

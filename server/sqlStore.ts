@@ -69,6 +69,33 @@ function parseJson<T>(raw: SqlStorageValue, fallback: T): T {
   }
 }
 
+// A stored reply in the current names, or null when it already uses them.
+function contractReply(payload: Record<string, unknown>): Record<string, unknown> | null {
+  if (!("mix" in payload) && !("decision" in payload) && !("resolved" in payload)) return null;
+  const { mix, decision, resolved, ...rest } = payload;
+  const out: Record<string, unknown> = { ...rest };
+  if (mix !== undefined) out.borrowed = mix;
+  const kind = (decision as { kind?: unknown } | undefined)?.kind;
+  if (kind === "accept" || kind === "revise") {
+    out.verdict = { ...(decision as object), kind: kind === "accept" ? "use" : "revise" };
+  }
+  if (resolved !== undefined) out.closed = resolved;
+  return out;
+}
+
+// `surfaces` with every `<mockpit-slot>` tag spelled `<mockpit-embed>`, or null
+// when none has one. Only html is markup; a code or markdown surface may quote
+// the tag as text.
+function slotTagsToEmbed(surfaces: Surface[]): Surface[] | null {
+  let changed = false;
+  const out = surfaces.map((s) => {
+    if (s.kind !== "html" || !/<\/?mockpit-slot\b/i.test(s.html)) return s;
+    changed = true;
+    return { ...s, html: s.html.replace(/<(\/?)mockpit-slot\b/gi, "<$1mockpit-embed") };
+  });
+  return changed ? out : null;
+}
+
 const POST_COLUMNS = `
   id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, mockId TEXT NOT NULL, state TEXT,
   variant TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', title TEXT NOT NULL,
@@ -178,9 +205,14 @@ export class SqlStore implements Store {
       key: "TEXT",
       agentActiveAt: "TEXT",
     });
+    // The close column's first name.
+    const mockCols = this.columns("mocks");
+    if (mockCols.has("resolvedAt") && !mockCols.has("closedAt")) {
+      this.sql.exec("ALTER TABLE mocks RENAME COLUMN resolvedAt TO closedAt");
+    }
     this.addMissing("mocks", {
       widths: "TEXT NOT NULL DEFAULT '[]'",
-      resolvedAt: "TEXT",
+      closedAt: "TEXT",
       area: "TEXT",
       source: "TEXT",
       situations: "TEXT NOT NULL DEFAULT '{}'",
@@ -200,7 +232,70 @@ export class SqlStore implements Store {
       this.sql.exec("UPDATE posts SET acceptedVersion = version WHERE status = 'accepted'");
     }
     if (this.settingSync("sketchKind") !== "1") this.migrateToSketches();
+    if (this.settingSync("contractTerms") !== "1") this.migrateToContractTerms();
     this.createIndexes();
+  }
+
+  // The agent contract renamed what replies and drafts store (mix → borrowed,
+  // decision → verdict with accept → use, resolved → closed) and retired drop
+  // and the `<mockpit-slot>` embed alias. Stored data is rewritten once, here,
+  // so nothing past the store reads an old name: a dropped variant is archived
+  // (both were hidden from the choice and restorable), a drop verdict loses its
+  // verdict (the variant's archived status says the rest), and every stored
+  // version spells its embeds `<mockpit-embed>` so it still renders them.
+  private migrateToContractTerms() {
+    this.sql.exec(
+      "UPDATE posts SET status = 'archived', acceptedVersion = NULL WHERE status = 'dropped'",
+    );
+    for (const r of this.sql
+      .exec("SELECT seq, payload FROM comments WHERE kind = 'reply' AND payload IS NOT NULL")
+      .toArray()) {
+      const payload = parseJson<Record<string, unknown> | null>(r.payload, null);
+      const next = payload && contractReply(payload);
+      if (next) {
+        this.sql.exec("UPDATE comments SET payload = ? WHERE seq = ?", JSON.stringify(next), r.seq);
+      }
+    }
+    for (const r of this.sql
+      .exec("SELECT id, draft FROM mocks WHERE draft IS NOT NULL")
+      .toArray()) {
+      const draft = parseJson<Record<string, unknown> | null>(r.draft, null);
+      if (!draft || !("mix" in draft)) continue;
+      const { mix, ...rest } = draft;
+      this.sql.exec(
+        "UPDATE mocks SET draft = ? WHERE id = ?",
+        JSON.stringify({ ...rest, borrowed: mix ?? {} }),
+        r.id as string,
+      );
+    }
+    for (const r of this.sql
+      .exec("SELECT id, surfaces FROM posts WHERE surfaces LIKE '%mockpit-slot%'")
+      .toArray()) {
+      const surfaces = slotTagsToEmbed(parseJson<Surface[]>(r.surfaces, []));
+      if (surfaces) {
+        this.sql.exec(
+          "UPDATE posts SET surfaces = ? WHERE id = ?",
+          JSON.stringify(surfaces),
+          r.id as string,
+        );
+      }
+    }
+    for (const r of this.sql
+      .exec(
+        "SELECT postId, version, surfaces FROM post_versions WHERE surfaces LIKE '%mockpit-slot%'",
+      )
+      .toArray()) {
+      const surfaces = slotTagsToEmbed(parseJson<Surface[]>(r.surfaces, []));
+      if (surfaces) {
+        this.sql.exec(
+          "UPDATE post_versions SET surfaces = ? WHERE postId = ? AND version = ?",
+          JSON.stringify(surfaces),
+          r.postId as string,
+          r.version as number,
+        );
+      }
+    }
+    this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('contractTerms', '1')");
   }
 
   private createIndexes() {
@@ -479,7 +574,7 @@ export class SqlStore implements Store {
         draft = {
           version: 1,
           answers: {},
-          mix: {},
+          borrowed: {},
           tuned: {},
           comments: [],
           updatedAt: c.createdAt as string,
@@ -610,7 +705,7 @@ export class SqlStore implements Store {
       widths: parseJson<number[]>(r.widths, []),
       draft: parseJson<Draft | null>(r.draft, null),
       sessionId: (r.sessionId as string) ?? null,
-      resolvedAt: (r.resolvedAt as string) ?? null,
+      closedAt: (r.closedAt as string) ?? null,
       createdAt: r.createdAt as string,
       updatedAt: r.updatedAt as string,
     };
@@ -888,7 +983,7 @@ export class SqlStore implements Store {
       widths: input.widths ?? [],
       draft: null,
       sessionId: input.sessionId ?? null,
-      resolvedAt: null,
+      closedAt: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -926,11 +1021,11 @@ export class SqlStore implements Store {
       ...(patch.knobs !== undefined && { knobs: patch.knobs }),
       ...(patch.widths !== undefined && { widths: patch.widths }),
       ...(patch.sessionId !== undefined && { sessionId: patch.sessionId }),
-      ...(patch.resolvedAt !== undefined && { resolvedAt: patch.resolvedAt }),
+      ...(patch.closedAt !== undefined && { closedAt: patch.closedAt }),
       updatedAt: new Date().toISOString(),
     };
     this.sql.exec(
-      "UPDATE mocks SET title = ?, kind = ?, area = ?, source = ?, states = ?, situations = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, resolvedAt = ?, updatedAt = ? WHERE id = ?",
+      "UPDATE mocks SET title = ?, kind = ?, area = ?, source = ?, states = ?, situations = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, closedAt = ?, updatedAt = ? WHERE id = ?",
       next.title,
       next.kind,
       next.area,
@@ -941,7 +1036,7 @@ export class SqlStore implements Store {
       JSON.stringify(next.knobs),
       JSON.stringify(next.widths),
       next.sessionId,
-      next.resolvedAt,
+      next.closedAt,
       next.updatedAt,
       id,
     );
@@ -1468,11 +1563,11 @@ export class SqlStore implements Store {
         JSON.stringify(input.asks),
         input.mockId,
       );
-      if (input.resolvedAt !== undefined) {
+      if (input.closedAt !== undefined) {
         this.sql.exec(
-          "UPDATE mocks SET resolvedAt = ?, updatedAt = ? WHERE id = ?",
-          input.resolvedAt,
-          input.resolvedAt,
+          "UPDATE mocks SET closedAt = ?, updatedAt = ? WHERE id = ?",
+          input.closedAt,
+          input.closedAt,
           input.mockId,
         );
       }
@@ -1487,13 +1582,6 @@ export class SqlStore implements Store {
       for (const id of input.archive) {
         this.sql.exec(
           "UPDATE posts SET status = 'archived', acceptedVersion = NULL WHERE id = ? AND mockId = ?",
-          id,
-          input.mockId,
-        );
-      }
-      for (const id of input.drop ?? []) {
-        this.sql.exec(
-          "UPDATE posts SET status = 'dropped', acceptedVersion = NULL WHERE id = ? AND mockId = ?",
           id,
           input.mockId,
         );

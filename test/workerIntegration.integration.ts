@@ -18,8 +18,8 @@ type WriteResult = {
     surfaces: Array<{ id: string; kind: string }>;
   };
   sessionId: string;
-  // One batch per mock — a reply plus the comments released with it.
-  feedback: Array<{ mock: string | null; comments: Array<{ text: string }> }>;
+  // One batch per mock — a reply plus the thread messages released with it.
+  feedback: Array<{ mock: string | null; messages: Array<{ text: string }> }>;
 };
 
 type MockDetail = {
@@ -390,7 +390,7 @@ test(
       200,
     );
     assert.deepEqual(
-      piggybacked.feedback.flatMap((batch) => batch.comments.map((c) => c.text)),
+      piggybacked.feedback.flatMap((batch) => batch.messages.map((c) => c.text)),
       ["persist this feedback"],
     );
 
@@ -445,7 +445,7 @@ test(
       200,
     );
     assert.deepEqual(
-      afterRestart.feedback.flatMap((batch) => batch.comments.map((c) => c.text)),
+      afterRestart.feedback.flatMap((batch) => batch.messages.map((c) => c.text)),
       ["feedback after restart"],
     );
 

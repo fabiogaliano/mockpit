@@ -309,13 +309,18 @@ export type KnobValue = number | boolean | string | PadValue | SpringKnob | Easi
 export type MockKind = "page" | "component" | "sketch";
 export const isMockKind = (k: unknown): k is MockKind =>
   k === "page" || k === "component" || k === "sketch";
-// A variant's review state. A variant-bound answer accepts the chosen variant
-// and archives its siblings in that state; archived variants stay in view,
-// muted. Drop hides one. Both are restorable.
-export type PostStatus = "open" | "accepted" | "archived" | "dropped";
+// A variant's review state. A variant-bound answer puts the chosen variant in
+// use and archives its siblings in that state; archived variants stay in view,
+// muted, and are restorable. "accepted" is storage's word for in use; every
+// view says `inUse` (variantStatus).
+export type PostStatus = "open" | "accepted" | "archived";
+export type VariantStatus = "open" | "inUse" | "archived";
+export const variantStatus = (status: PostStatus): VariantStatus =>
+  status === "accepted" ? "inUse" : status;
 
 // Still in the running: what the user can choose between.
-export const isLive = (status: PostStatus): boolean => status === "open" || status === "accepted";
+export const isLive = (status: PostStatus | VariantStatus): boolean =>
+  status === "open" || status === "accepted" || status === "inUse";
 
 // The version a variant is resolved at when nothing names one: the version in
 // use when accepted, else its latest.
@@ -394,7 +399,7 @@ export interface Ask {
   // Asset ids of the images the user attached to the write-in / the note.
   otherImages?: string[];
   noteImages?: string[];
-  // Set when the user resolved the mock with this ask still open: closed
+  // Set when the user closed the mock with this ask still open: closed
   // unanswered, as not worth answering. Neither open nor answered.
   dismissed?: true;
   at: string;
@@ -432,13 +437,13 @@ export interface PartComment {
   variant?: string;
 }
 
-// What a reply decides about one variant outside the ask flow (the plain
-// Accept / Revise / Drop of a mock without asks).
-export interface ReplyDecision {
-  kind: "accept" | "revise" | "drop";
+// What a reply says about one variant outside the ask flow: the user's Use this
+// or Revise.
+export interface ReplyVerdict {
+  kind: "use" | "revise";
   state: string | null;
   variant: string;
-  // On an accept: the version put in use, the one the user was looking at.
+  // On a use: the version put in use, the one the user was looking at.
   version?: number;
 }
 
@@ -449,7 +454,8 @@ export interface Draft {
   // arriving mid-answer leaves the draft bound to this one.
   version: number;
   answers: Record<string, AskAnswer>;
-  mix: Record<string, string>;
+  // part → the variant the user borrowed it from.
+  borrowed: Record<string, string>;
   tuned: Record<string, KnobValue>;
   comments: PartComment[];
   // askId → the write-in under "Other…" / the note on that question. Optional
@@ -468,7 +474,7 @@ export interface Reply {
   mockId: string;
   version: number;
   answers: Record<string, AskAnswer>;
-  mix: Record<string, string>;
+  borrowed: Record<string, string>;
   tuned: Record<string, KnobValue>;
   comments: PartComment[];
   others?: Record<string, string>;
@@ -476,11 +482,11 @@ export interface Reply {
   otherImages?: Record<string, string[]>;
   noteImages?: Record<string, string[]>;
   text?: string;
-  decision?: ReplyDecision;
-  // A resolution instead of an answer: the user closed the mock, and these
-  // asks (stored or built-in ids) with it, unanswered.
-  resolved?: { dismissed: string[] };
-  // Neither an answer nor a resolution: the user moved the mock from Home
+  verdict?: ReplyVerdict;
+  // A close instead of an answer: the user closed the mock, and these asks
+  // (stored or built-in ids) with it, unanswered.
+  closed?: { dismissed: string[] };
+  // Neither an answer nor a close: the user moved the mock from Home
   // (another kind, another area; null area: none), which the agent must hear.
   edited?: MockEdit;
 }
@@ -521,9 +527,9 @@ export interface Mock {
   // The agent conversation currently driving this mock (its latest writer), so a
   // reply lands on the cursor of the session that is waiting for it.
   sessionId: string | null;
-  // When the user resolved it: off the open list, its open asks dismissed,
+  // When the user closed it: off the open list, its open asks dismissed,
   // until they reopen it. null while it is live.
-  resolvedAt: string | null;
+  closedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -852,7 +858,7 @@ export interface UpdateMockInput {
   knobs?: Knobs;
   widths?: number[];
   sessionId?: string | null;
-  resolvedAt?: string | null;
+  closedAt?: string | null;
 }
 
 export interface CreatePostInput {
@@ -916,12 +922,11 @@ export interface CommitReplyInput {
   text: string;
   payload: Reply;
   asks: Ask[];
-  // Each accepted variant with the version put in use.
+  // Each variant put in use, with the version.
   accept: { id: string; version: number }[];
   archive: string[];
-  drop?: string[];
-  // A resolution sets it (a reply leaves it as it is).
-  resolvedAt?: string;
+  // A close sets it (a reply leaves it as it is).
+  closedAt?: string;
   // A lone "use this version" is not a Send: the user's unsent draft stays.
   keepDraft?: true;
 }
@@ -1146,18 +1151,18 @@ export const askAnswered = (a: Pick<Ask, "answer" | "other" | "note">): boolean 
 export const openAsks = (mock: Pick<Mock, "asks">): Ask[] =>
   mock.asks.filter((a) => !askAnswered(a) && !a.dismissed);
 
-// How many built-in "Which one?" asks the viewer shows: one mock-wide when every
+// How many built-in "Which variant?" questions the viewer shows: one mock-wide when every
 // state needs one and the live names line up, else one per needing state. Same
 // rule as viewer/src/logic.ts builtinAsks, so Home, `read` and `pending` count
 // the question the user actually sees. Answering it archives the losers, which
 // is what makes it stop counting.
 export function builtinAskIds(
-  mock: Pick<Mock, "asks" | "states"> & { resolvedAt?: string | null },
+  mock: Pick<Mock, "asks" | "states"> & { closedAt?: string | null },
   posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
   mockId: string,
 ): string[] {
-  // Resolving closed the choice along with every other open question.
-  if (mock.resolvedAt) return [];
+  // Closing the mock closed the choice along with every other open question.
+  if (mock.closedAt) return [];
   const live = (state: string | null) =>
     posts
       .filter((p) => p.mock === mockId && p.state === state && isLive(p.status))
@@ -1182,13 +1187,13 @@ export function builtinAskIds(
 }
 
 export const builtinAskCount = (
-  mock: Pick<Mock, "asks" | "states"> & { resolvedAt?: string | null },
+  mock: Pick<Mock, "asks" | "states"> & { closedAt?: string | null },
   posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
   mockId: string,
 ): number => builtinAskIds(mock, posts, mockId).length;
 
 export const openCount = (
-  mock: Pick<Mock, "id" | "asks" | "states"> & { resolvedAt?: string | null },
+  mock: Pick<Mock, "id" | "asks" | "states"> & { closedAt?: string | null },
   posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
 ): number => openAsks(mock).length + builtinAskCount(mock, posts, mock.id);
 
@@ -1196,7 +1201,7 @@ export const openCount = (
 // pick, a write-in or a note), so Home can show a started mock as "draft 2/4";
 // null when there is no draft. A count only: the draft's content stays private.
 export function draftedCount(
-  mock: Pick<Mock, "id" | "asks" | "states" | "draft"> & { resolvedAt?: string | null },
+  mock: Pick<Mock, "id" | "asks" | "states" | "draft"> & { closedAt?: string | null },
   posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
 ): number | null {
   const d = mock.draft;
@@ -1210,7 +1215,7 @@ export function draftedCount(
   return open.filter(said).length;
 }
 
-// The viewer's built-in "Which one?" for variants no agent ask binds: `variant`
+// The viewer's built-in "Which variant?" for variants no agent ask binds: `variant`
 // mock-wide, `variant:<state>` per state. Never stored; synthesized from the
 // variants so a reply answering it validates, flips and reads like any ask. An
 // option's id is the variant name, so the viewer needs no id mapping.
@@ -1233,7 +1238,7 @@ export function builtinAsk(
   if (names.length === 0) return undefined;
   return {
     id,
-    text: "Which one?",
+    text: "Which variant?",
     scope: state === null ? "mock" : "state",
     ...(state === null ? {} : { state }),
     options: names.map((v) => ({ id: v, label: v, variant: v })),

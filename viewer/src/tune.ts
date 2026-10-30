@@ -89,7 +89,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 export function createTune(s: MockScreenState) {
   const components = createMemo(() => {
     const m = s.mock();
-    const slots = (s.activeVariant()?.slots ?? []).map((sl) => sl.part);
+    const slots = (s.activeVariant()?.fills ?? []).map((sl) => sl.part);
     const borrowable = s.mixOpts().map((o) => o.part);
     return m ? tuneComponents(m, s.knobContext().knobs, slots, borrowable) : [];
   });

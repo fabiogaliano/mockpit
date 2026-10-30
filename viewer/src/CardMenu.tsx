@@ -18,7 +18,7 @@ const KINDS: { kind: MockKind; label: string }[] = [
 const ERROR_MS = 5000;
 
 export function CardMenu(props: {
-  mock: { id: string; title: string; kind: MockKind; area?: string; resolvedAt: string | null };
+  mock: { id: string; title: string; kind: MockKind; area?: string; closedAt: string | null };
   // The project's areas, in its order, to pick from.
   areas: string[];
   onClose: () => void;
@@ -173,11 +173,11 @@ export function CardMenu(props: {
             role="menuitem"
             onClick={() => {
               shut();
-              if (props.mock.resolvedAt) props.onReopen();
+              if (props.mock.closedAt) props.onReopen();
               else props.onClose();
             }}
           >
-            {props.mock.resolvedAt ? "Reopen" : "Close"}
+            {props.mock.closedAt ? "Reopen" : "Close"}
           </button>
           <Show when={error()}>
             {(msg) => (

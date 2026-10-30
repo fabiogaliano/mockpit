@@ -1,7 +1,7 @@
 [
   {
     "name": "mockpit-comments",
-    "description": "Streams each mockpit reply the user sends from the browser (answers, tuned values, part comments, decisions) to Claude as it lands.",
+    "description": "Streams each mockpit reply the user sends from the browser (answers, tuned values, borrowed parts, part comments, verdicts), their thread messages and closed mocks to Claude as they land.",
     "command": "MOCKPIT_URL=\"${user_config.mockpitUrl}\" MOCKPIT_TOKEN=\"${user_config.apiToken}\" npx -y mockpit watch",
     "when": "always"
   }
