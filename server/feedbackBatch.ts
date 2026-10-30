@@ -116,7 +116,10 @@ const REACTION_LEAD: Record<Reaction, string> = {
 // `👍 part "hero" (variant B, state Mobile)`, `👎 variant B`, `more like this: the page`.
 export function reactionLine(c: PartComment & { reaction: Reaction }): string {
   // A mock published without variant names has only "default": naming it is noise.
-  const variant = c.variant && c.variant !== DEFAULT_VARIANT ? c.variant : null;
+  const named = c.variant && c.variant !== DEFAULT_VARIANT ? c.variant : null;
+  // A version is written as agents write it, dark@2.
+  const at = c.version ? `@${c.version}` : "";
+  const variant = named ? `${named}${at}` : at ? `${DEFAULT_VARIANT}${at}` : null;
   const where = [
     c.part !== null && variant ? `variant ${variant}` : "",
     c.state ? `state ${c.state}` : "",

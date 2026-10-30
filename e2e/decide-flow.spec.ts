@@ -110,8 +110,8 @@ test("questions: pictures, hover preview, pick, part focus, Borrow in Tune, Send
   await pickAndWait(page, mockId, "below");
   await expect(partPin(page, 3)).toHaveText("✓");
 
-  // Borrowing a part from another look is in Built from, per part.
-  await page.locator(".mtop [aria-expanded]").last().click();
+  // Borrowing a part from another variant is in Tune's drawer, per part.
+  await page.getByRole("button", { name: "Tune", exact: true }).click();
   const drawer = page.locator(".drawer.open");
   await drawer.getByRole("button", { name: "Tune title" }).click();
   const borrow = drawer.locator(".borrow-row", { hasText: "title as in editorial" });
@@ -1066,7 +1066,7 @@ test("keys pick, send on and step the versions; Send carries on to the next mock
   await agentCall(server.url, `/api/feedback?session=${session}`);
   await expect(chip).toHaveText("Writer · Delivered");
   // Seen Delivered, it ends there: by way of Home and back, it is gone.
-  await page.getByRole("link", { name: "Back" }).click();
+  await page.getByRole("navigation", { name: "Path" }).getByRole("link").first().click();
   await page.getByRole("link", { name: "Sketches" }).click();
   await page.locator('.home-step[data-mock="card"]').click();
   await expect(question(page)).toHaveText("Which tone?");
@@ -1218,7 +1218,7 @@ test("Home: a tab per declared kind, each showing the design in use; a screen op
   // Put it in use: back on Flows it alone carries the check.
   await page.getByRole("button", { name: "Use this version" }).click();
   await expect(page.getByRole("button", { name: "In use" })).toBeVisible();
-  await page.getByRole("link", { name: "Back" }).click();
+  await page.getByRole("navigation", { name: "Path" }).getByRole("link").first().click();
   await expect(page).toHaveURL(new RegExp(`/project/${PROJECT}\\?view=flows$`));
   await expect(flows.locator('.home-step[data-mock="food"] .mk.cur')).toBeVisible();
   await expect(flows.locator(".mk.cur")).toHaveCount(1);

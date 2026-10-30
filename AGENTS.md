@@ -125,8 +125,12 @@ consciously, not as a side effect):
   this browser hasn't opened (`seen.ts`, localStorage) and a ⋯ menu
   (`CardMenu`); empty tabs are not shown, one alone gets no tab bar; above them the open count,
   which unfolds the waiting mocks to resolve, and Answer next), `MockScreen`
-  (`TopBar` with the area in its crumb and a Related toggle for `Related`, the
-  mock's Appears in / Built from / flows; `Stage` + `Strip`, `Panel` beside the stage; where the panel does
+  (`TopRow`: the path is the way up, project and area as links, the mock's
+  name opening `About` (Appears in / Built from / flows / other states / code);
+  `BuiltFrom` is Tune's drawer, open while Tune is; `Studio`, the state zoomed
+  out with every variant side by side, entered from the dock's "N variants"
+  and remembered per mock, each steer its own reply (`steer`, `sendAlone`);
+  `Stage` + `Strip`, `Panel` beside the stage; where the panel does
   not fit, `CanvasHead`, the stage as a pannable canvas with the mock's other
   `widths` as picture-only artboards beside the live frame, and `QuestionCard`
   floating over it, snapping per `dock.ts`), `Stage` (frames, part overlay, pins,

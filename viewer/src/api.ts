@@ -136,6 +136,8 @@ export const api = {
       json("PATCH", body),
     ),
   // Un-archive one variant of one state (D13).
+  archiveVariant: (id: string, state: string | null, variant: string) =>
+    call<unknown>(`/api/mocks/${encodeURIComponent(id)}/archive`, json("POST", { state, variant })),
   restoreVariant: (id: string, state: string | null, variant: string) =>
     call<unknown>(`/api/mocks/${encodeURIComponent(id)}/restore`, json("POST", { state, variant })),
   // A plain comment from the user, outside a reply.

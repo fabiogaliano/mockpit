@@ -111,7 +111,7 @@ function HistoryHead(props: { s: MockScreenState }) {
             fallback={
               <button
                 type="button"
-                class="ib hbin"
+                class="ib hbin x-remove"
                 classList={{ off: inUse() }}
                 aria-disabled={inUse()}
                 aria-label={
@@ -122,7 +122,7 @@ function HistoryHead(props: { s: MockScreenState }) {
                 title={inUse() ? "In use. Use another version first." : `Hide ${s.nameOf(st())}`}
                 onClick={() => !inUse() && void s.hideVersion(st(), true)}
               >
-                <Icon name="trash" />
+                <Icon name="close" />
               </button>
             }
           >

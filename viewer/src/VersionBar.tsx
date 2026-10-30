@@ -1,4 +1,5 @@
-// The one bar floating on the canvas: Revise (ask for a new version), step through the
+// The one bar floating on the canvas: step out to every variant (Studio),
+// Revise (ask for a new version), step through the
 // state's versions (the label opens the history and the thread), put the one
 // on stage in use, and the canvas tools.
 
@@ -8,7 +9,7 @@ import { Icon } from "./icons.tsx";
 import { neighbourStep, sameVersion, stepFor } from "./logic.ts";
 import type { MockScreenState } from "./state.ts";
 
-export function VersionBar(props: { s: MockScreenState }) {
+export function VersionBar(props: { s: MockScreenState; variants: number; onStudio: () => void }) {
   const s = props.s;
   const step = () => s.stageStep();
   const name = () => {
@@ -44,6 +45,20 @@ export function VersionBar(props: { s: MockScreenState }) {
   );
   return (
     <div class="vbar" role="toolbar" aria-label="Versions and tools">
+      <Show when={props.variants > 1}>
+        <button
+          type="button"
+          class="btn vall"
+          aria-label={`${props.variants} variants`}
+          title="See every variant side by side"
+          onClick={() => props.onStudio()}
+        >
+          <Icon name="studio" />
+          <span>{props.variants}</span>
+          <span class="lbl">variants</span>
+        </button>
+        <span class="vsep" />
+      </Show>
       <Show when={!readonly()}>
         <button
           type="button"

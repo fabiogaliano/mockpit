@@ -1,7 +1,7 @@
-// Built from: the side drawer (a bottom sheet on a phone). What this state
-// embeds, each row opening that component; its parts, each opening its knobs
-// (tunekit, see tune.ts) with what is tuned riding in the next answer; and the
-// mock's other states. A component's screen says where it is used instead.
+// Tune's drawer (a bottom sheet on a phone), open while Tune is: the
+// components this state embeds and its own parts, each opening its knobs
+// (tunekit, see tune.ts) with what is tuned riding in the next answer. What
+// sits around the mock is in About, under its name.
 
 import { createEffect, createMemo, createResource, For, Index, on, Show } from "solid-js";
 import { api, surfaceUrl, type TreeNode } from "./api.ts";
@@ -13,7 +13,6 @@ import type { MockScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 import type { TuneState } from "./tune.ts";
-import { phoneLayout } from "./viewport.ts";
 
 // A tree node's design in use (else its newest live one), as a picture.
 function nodePicture(node: TreeNode): string | null {
@@ -34,13 +33,10 @@ export function BuiltFrom(props: { s: MockScreenState; t: TuneState }) {
   );
   const bySlug = createMemo(() => new Map((tree() ?? []).map((n) => [n.slug, n])));
   const me = () => bySlug().get(s.slug);
-  const component = () => s.mock()?.kind === "component";
   const uses = () => (me()?.embeds ?? []).flatMap((slug) => bySlug().get(slug) ?? []);
-  const usedIn = () => (me()?.embeddedIn ?? []).flatMap((slug) => bySlug().get(slug) ?? []);
   const parts = () =>
     t.components().filter((c) => c.paths.length || s.mixOpts().some((o) => o.part === c.part));
   const tuned = () => Object.keys(s.draft()?.tuned ?? {}).length;
-  const others = () => s.states().filter((st) => st !== s.activeState());
   let panel!: HTMLElement;
   // A part tapped with Tune on opens here, scrolled into view.
   createEffect(
@@ -56,46 +52,24 @@ export function BuiltFrom(props: { s: MockScreenState; t: TuneState }) {
       },
     ),
   );
-  const close = () => s.setDrawer(false);
+  // Closing the drawer puts Tune down with it.
+  const close = () => (s.tool() === "tune" ? s.toggleTool("tune") : s.setDrawer(false));
   const go = (slug: string) => mockPath(project(), slug);
   return (
     <aside
       class="drawer"
       classList={{ open: s.drawer() }}
-      aria-label={component() ? "Appears in" : "Built from"}
+      aria-label="Tune"
       aria-hidden={!s.drawer()}
       inert={!s.drawer() || undefined}
       ref={(el) => (panel = el)}
     >
       <div class="dhead">
-        <h2>{component() ? "Appears in" : "Built from"}</h2>
+        <h2>Tune</h2>
         <button type="button" class="ib" aria-label="Close" onClick={close}>
           <Icon name="close" />
         </button>
       </div>
-      <Show when={component()}>
-        <section>
-          <Show
-            when={usedIn().length}
-            fallback={<p class="dnote">No mock embeds this component yet.</p>}
-          >
-            <div class="minis">
-              <For each={usedIn()}>
-                {(n) => (
-                  <a class="mini" href={go(n.slug)} onClick={(e) => linkClick(e, go(n.slug))}>
-                    <Show when={nodePicture(n)}>
-                      {(u) => (
-                        <Thumb src={u()} width={designWidth(n)} class="mini-thumb" fit whole />
-                      )}
-                    </Show>
-                    <span>{n.title}</span>
-                  </a>
-                )}
-              </For>
-            </div>
-          </Show>
-        </section>
-      </Show>
       <Show when={uses().length}>
         <section>
           <h3>Components</h3>
@@ -175,43 +149,6 @@ export function BuiltFrom(props: { s: MockScreenState; t: TuneState }) {
                       <PartKnobs s={s} part={part} />
                     </Show>
                   </div>
-                );
-              }}
-            </For>
-          </div>
-        </section>
-      </Show>
-      <Show when={others().length}>
-        <section>
-          <h3>{`${s.mock()?.title ?? ""} · other states`}</h3>
-          <div class="minis">
-            <For each={others()}>
-              {(st) => {
-                const src = () => {
-                  const v = s.variantFor(st, false);
-                  const i = v?.surfaces.findIndex((x) => x.kind === "html") ?? -1;
-                  return v && i >= 0
-                    ? surfaceUrl(v.postId, i, {
-                        version: s.frameVersionOf(v),
-                        mode: theme(),
-                        e: v.embedsKey,
-                      })
-                    : null;
-                };
-                return (
-                  <button
-                    type="button"
-                    class="mini"
-                    onClick={() => {
-                      s.showState(st);
-                      if (phoneLayout()) close();
-                    }}
-                  >
-                    <Show when={src()} fallback={<span class="mini-blank" />}>
-                      {(u) => <Thumb src={u()} width={s.frameW()} class="mini-thumb" fit whole />}
-                    </Show>
-                    <span>{st}</span>
-                  </button>
                 );
               }}
             </For>

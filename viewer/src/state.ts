@@ -221,7 +221,12 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
   const marking = () => tool() === "mark";
   const trying = () => tool() === "try";
   const tuning = () => tool() === "tune";
-  const toggleTool = (t: Tool) => setTool(tool() === t ? null : t);
+  // Tune's parts live in the drawer, so it opens and closes with the tool.
+  const toggleTool = (t: Tool) => {
+    const next = tool() === t ? null : t;
+    if (t === "tune" || tool() === "tune") setDrawerSignal(next === "tune");
+    setTool(next);
+  };
   const setMarking = (on: boolean) => setTool(on ? "mark" : marking() ? null : tool());
   const setTrying = (on: boolean) => setTool(on ? "try" : trying() ? null : tool());
   // Thread's comment field; a frame's sendPrompt fills it.
@@ -1547,6 +1552,87 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
       fail(e);
     }
   }
+  // Studio has no Send to wait for: each steer (more like this, a comment, a
+  // borrow) is a reply of its own. It goes alone — never with the answers,
+  // tuning or notes the user is still composing on Stage, which a steer must
+  // not decide — and that draft is left as it was.
+  // True once the reply is stored, so a "sent" never shows for one that wasn't.
+  async function sendAlone(body: {
+    comments?: DraftInput["comments"];
+    text?: string;
+  }): Promise<boolean> {
+    const m = mock();
+    if (!m || readonly()) return false;
+    await flush();
+    const keep = draft();
+    try {
+      const { reply } = await api.reply(m.id, {
+        ...emptyDraft(boundVersion() ?? latest()),
+        comments: body.comments ?? [],
+        ...(body.text ? { text: body.text } : {}),
+      });
+      // Every reply clears the stored draft; put the user's back before the
+      // mock is fetched again, so the screen never shows it gone.
+      if (keep) await api.putDraft(m.id, keep);
+      const [next] = await Promise.all([
+        api.mock(m.id).catch(() => null),
+        loadComments().catch(() => {}),
+      ]);
+      batch(() => {
+        if (next) setMock(next);
+        setSent(true);
+        setSentId(reply.id);
+        setBeat(false);
+      });
+      host().window.clearTimeout(beatTimer);
+      beatTimer = host().window.setTimeout(() => setBeat(true), BEAT_MS);
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return false;
+    }
+  }
+  // A steer names the version, since Studio shows older ones side by side.
+  function steer(c: {
+    variant: string;
+    version: number;
+    reaction?: Reaction;
+    part?: string | null;
+    text?: string;
+  }) {
+    return sendAlone({
+      comments: [
+        {
+          part: c.part ?? null,
+          state: activeState(),
+          text: c.text ?? "",
+          variant: c.variant,
+          version: c.version,
+          ...(c.reaction ? { reaction: c.reaction } : {}),
+        },
+      ],
+    });
+  }
+  // Studio's ×. One version goes out of sight like any hidden version; the
+  // last one left takes its variant to Archived, where Restore brings it back.
+  async function archiveVariant(variant: string) {
+    const m = mock();
+    if (!m || readonly()) return;
+    const state = activeState();
+    try {
+      await api.archiveVariant(m.id, state, variant);
+      await loadMock();
+      setToast({
+        text: `Archived ${variant}`,
+        undo: () => {
+          setToast(null);
+          void restoreVariant(variant, [state]);
+        },
+      });
+    } catch (e) {
+      fail(e);
+    }
+  }
   // Revise: ask the agent for another version of the one on stage, as a reply
   // (with whatever the draft holds), so it arrives through the same cursor.
   function askNew() {
@@ -1724,6 +1810,8 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     prefill,
     postComment,
     restoreVariant,
+    steer,
+    archiveVariant,
     setTuned,
     replaceTuned,
     knobContext,

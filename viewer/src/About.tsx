@@ -1,42 +1,24 @@
-// Related: what sits around this mock in the project, as compact rows that
-// move sideways to it. Appears in (the pages that embed it), Built from (what
-// it embeds), Flows (each flow it is a step of, with the step). Closed until the
-// top bar's toggle opens it; open or closed is remembered per browser. It
-// overlays the canvas from the left edge, a sheet from the bottom on a phone.
+// About: what sits around this mock, opened from its own name in the path.
+// Appears in (the mocks that embed it), Built from (what it embeds), Flows
+// (each flow it is a step of), its other states and where its code lives.
+// Asking the name is the gesture, so no icon has to explain it; a bottom sheet
+// on a phone.
 
-import { createMemo, createResource, createSignal, For, type JSX, Show } from "solid-js";
+import { createMemo, createResource, For, type JSX, Show } from "solid-js";
 import { api, type FlowView, surfaceUrl, type TreeNode } from "./api.ts";
-import { host } from "./host.ts";
-import { Icon } from "./icons.tsx";
 import { designWidth, screenPicture } from "./logic.ts";
 import { linkClick, mockPath } from "./route.ts";
+import type { MockScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
-import { canvasTop, phoneLayout } from "./viewport.ts";
 
-const KEY = "mockpit:related";
-
-export interface RelatedState {
-  open: () => boolean;
-  setOpen: (on: boolean) => void;
+export interface AboutState {
   tree: () => { tree: TreeNode[]; flows: FlowView[] } | undefined;
 }
 
 // One per mock screen. The tree is fetched again whenever the mock changes, so
 // a new embed or flow step shows.
-export function createRelated(project: () => string, mockKey: () => string | null): RelatedState {
-  // A phone opens it only on purpose: a sheet over the design is not a default.
-  const [open, setOpenSignal] = createSignal(
-    !phoneLayout() && host().storage?.getItem(KEY) === "1",
-  );
-  const setOpen = (on: boolean) => {
-    setOpenSignal(on);
-    try {
-      if (!phoneLayout()) host().storage?.setItem(KEY, on ? "1" : "0");
-    } catch {
-      // Storage refused: it is just not remembered.
-    }
-  };
+export function createAbout(project: () => string, mockKey: () => string | null): AboutState {
   const [tree] = createResource(
     () => {
       const k = mockKey();
@@ -44,7 +26,7 @@ export function createRelated(project: () => string, mockKey: () => string | nul
     },
     () => api.tree(project()),
   );
-  return { open, setOpen, tree };
+  return { tree };
 }
 
 interface FlowRow {
@@ -61,11 +43,11 @@ function nodePicture(node: TreeNode, state: string | null): string | null {
     : null;
 }
 
-export function relatedOf(r: RelatedState, slug: string) {
+export function aboutOf(r: AboutState, slug: string) {
   const bySlug = createMemo(() => new Map((r.tree()?.tree ?? []).map((n) => [n.slug, n])));
   const me = () => bySlug().get(slug);
-  const usedIn = () => (me()?.embeddedIn ?? []).flatMap((s) => bySlug().get(s) ?? []);
-  const uses = () => (me()?.embeds ?? []).flatMap((s) => bySlug().get(s) ?? []);
+  const embeddedIn = () => (me()?.embeddedIn ?? []).flatMap((s) => bySlug().get(s) ?? []);
+  const embeds = () => (me()?.embeds ?? []).flatMap((s) => bySlug().get(s) ?? []);
   const flows = createMemo<FlowRow[]>(() =>
     (r.tree()?.flows ?? []).flatMap((f) =>
       f.steps.flatMap((x, i) =>
@@ -73,20 +55,23 @@ export function relatedOf(r: RelatedState, slug: string) {
       ),
     ),
   );
-  // Nothing around it: the toggle hides.
-  const any = () => usedIn().length + uses().length + flows().length > 0;
-  return { me, usedIn, uses, flows, any };
+  const loaded = () => r.tree() !== undefined;
+  return { me, embeddedIn, embeds, flows, loaded };
 }
 
-export function Related(props: {
-  r: RelatedState;
+export function About(props: {
+  s: MockScreenState;
+  r: AboutState;
   project: string;
   slug: string;
-  rel: ReturnType<typeof relatedOf>;
+  open: boolean;
+  onClose: () => void;
+  ref: (el: HTMLElement) => void;
 }) {
-  const rel = props.rel;
+  const s = props.s;
+  const rel = aboutOf(props.r, props.slug);
   const go = (path: string) => (e: MouseEvent) => {
-    if (phoneLayout()) props.r.setOpen(false);
+    props.onClose();
     linkClick(e, path);
   };
   const row = (
@@ -122,45 +107,41 @@ export function Related(props: {
       : n.kind === "component"
         ? "component"
         : "";
+  const others = () => s.states().filter((st) => st !== s.activeState());
+  const empty = () =>
+    rel.loaded() &&
+    !rel.embeddedIn().length &&
+    !rel.embeds().length &&
+    !rel.flows().length &&
+    !others().length &&
+    !s.mock()?.source;
   return (
-    <aside
-      class="related"
-      classList={{ open: props.r.open() }}
-      style={phoneLayout() ? {} : { top: `${canvasTop()}px` }}
-      aria-label="Related"
-      aria-hidden={!props.r.open()}
-      inert={!props.r.open() || undefined}
+    <div
+      class="about"
+      classList={{ open: props.open }}
+      role="dialog"
+      aria-label={s.mock()?.title ?? props.slug}
+      aria-hidden={!props.open}
+      inert={!props.open || undefined}
+      ref={props.ref}
     >
-      <Show when={phoneLayout()}>
-        <div class="dhead">
-          <h2>Related</h2>
-          <button
-            type="button"
-            class="ib"
-            aria-label="Close"
-            onClick={() => props.r.setOpen(false)}
-          >
-            <Icon name="close" />
-          </button>
-        </div>
-      </Show>
       {section(
         "Appears in",
         () => (
-          <For each={rel.usedIn()}>
+          <For each={rel.embeddedIn()}>
             {(n) => row(n, null, mockPath(props.project, n.slug), states(n))}
           </For>
         ),
-        () => rel.usedIn().length,
+        () => rel.embeddedIn().length,
       )}
       {section(
         "Built from",
         () => (
-          <For each={rel.uses()}>
+          <For each={rel.embeds()}>
             {(n) => row(n, null, mockPath(props.project, n.slug), states(n))}
           </For>
         ),
-        () => rel.uses().length,
+        () => rel.embeds().length,
       )}
       {section(
         "Flows",
@@ -190,6 +171,39 @@ export function Related(props: {
         ),
         () => rel.flows().length,
       )}
-    </aside>
+      {section(
+        "Other states",
+        () => (
+          <For each={others()}>
+            {(st) => (
+              <button
+                type="button"
+                class="rel-row"
+                onClick={() => {
+                  s.showState(st);
+                  props.onClose();
+                }}
+              >
+                <span class="rel-text">
+                  <span class="nm">{st}</span>
+                </span>
+              </button>
+            )}
+          </For>
+        ),
+        () => others().length,
+      )}
+      <Show when={s.mock()?.source}>
+        {(src) => (
+          <section>
+            <h3>Code</h3>
+            <p class="about-src">{src()}</p>
+          </section>
+        )}
+      </Show>
+      <Show when={empty()}>
+        <p class="about-none">Nothing around it yet.</p>
+      </Show>
+    </div>
   );
 }

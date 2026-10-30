@@ -2333,8 +2333,15 @@ export function createApp({
         return `${mock.slug} has no state "${state}"`;
       const part = str(c.part, 200) ?? null;
       const variant = str(c.variant, 200);
-      if (variant && !posts.some((p) => p.variant === variant && p.state === state))
+      const post = variant ? posts.find((p) => p.variant === variant && p.state === state) : null;
+      if (variant && !post)
         return `${mock.slug} has no variant "${variant}"${state ? ` in "${state}"` : ""}`;
+      const version = c.version;
+      if (
+        version !== undefined &&
+        (!post || !Number.isInteger(version) || version < 1 || version > post.version)
+      )
+        return `${mock.slug} has no version ${String(version)}${variant ? ` of "${variant}"` : ""}`;
       const a = c.anchor && typeof c.anchor === "object" ? c.anchor : null;
       const anchor = a ? sanitizePartAnchor(a) : undefined;
       const next: PartComment = {
@@ -2344,6 +2351,7 @@ export function createApp({
         ...(anchor ? { anchor } : {}),
         ...(reaction ? { reaction: reaction as Reaction } : {}),
         ...(variant ? { variant } : {}),
+        ...(version !== undefined ? { version: version as number } : {}),
       };
       // One reaction per target: a later tap on the same part replaces the earlier one.
       if (reaction) {
@@ -2352,7 +2360,8 @@ export function createApp({
             o.reaction &&
             o.part === part &&
             o.state === state &&
-            (o.variant ?? null) === (variant ?? null),
+            (o.variant ?? null) === (variant ?? null) &&
+            (o.version ?? null) === (version ?? null),
         );
         if (same >= 0) out.splice(same, 1);
       }
@@ -2965,6 +2974,35 @@ export function createApp({
     const chosen = chooseVariant(mock, posts, stateArg(body?.state), str(body?.variant, MAX_LABEL));
     if (isResult(chosen)) return chosen;
     const updated = await store.setPostStatus(chosen.id, "open");
+    if (!updated) return fail(404, "variant not found");
+    bus.broadcast({
+      type: "post-updated",
+      id: updated.id,
+      mockId: mock.id,
+      sessionId: updated.sessionId,
+      version: updated.version,
+      by: "user",
+    });
+    return ok({
+      state: updated.state,
+      variant: updated.variant,
+      status: variantStatus(updated.status),
+    });
+  }
+
+  // The user archives a variant they're done with, short of choosing another:
+  // Studio's × on its last version. Restore is the way back. The variant in
+  // use stays, because archiving it would leave the state with nothing chosen
+  // and no reply saying why.
+  async function archiveFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const mock = await resolveMock(ref);
+    if (isResult(mock)) return mock;
+    const posts = await store.listPosts({ mockId: mock.id });
+    const chosen = chooseVariant(mock, posts, stateArg(body?.state), str(body?.variant, MAX_LABEL));
+    if (isResult(chosen)) return chosen;
+    if (variantStatus(chosen.status) === "inUse") return fail(409, `${chosen.variant} is in use`);
+    const updated = await store.setPostStatus(chosen.id, "archived");
     if (!updated) return fail(404, "variant not found");
     bus.broadcast({
       type: "post-updated",
@@ -4111,6 +4149,9 @@ export function createApp({
 
   app.post("/api/mocks/:id/star", async (c) =>
     send(c, await starFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+  app.post("/api/mocks/:id/archive", async (c) =>
+    send(c, await archiveFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
   app.post("/api/mocks/:id/restore", async (c) =>
     send(c, await restoreFlow(c.req.param("id"), await jsonBody(c))),

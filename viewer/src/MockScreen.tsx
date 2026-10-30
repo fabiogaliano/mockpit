@@ -5,6 +5,8 @@
 // and the thread as a bottom panel; Built from opens beside the canvas.
 
 import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
+import { isLive } from "../../server/types.ts";
+import { About, type AboutState, createAbout } from "./About.tsx";
 import { BottomPanel } from "./BottomPanel.tsx";
 import { BuiltFrom } from "./BuiltFrom.tsx";
 import { useFlowKeys } from "./flowKeys.ts";
@@ -14,7 +16,7 @@ import { Icon, type IconName } from "./icons.tsx";
 import {
   boardWidths,
   DEVICE_WIDTHS,
-  shortSource,
+  isLookAsk,
   versionStamp,
   wideWidth,
   widthKind,
@@ -23,17 +25,19 @@ import {
 import { CarriedChip, NextCard } from "./NextCard.tsx";
 import { QuestionCard, QuestionTab } from "./QuestionCard.tsx";
 import { ResolvedNote } from "./Questions.tsx";
-import { createRelated, Related, relatedOf, type RelatedState } from "./Related.tsx";
 import { markSeen } from "./seen.ts";
 import { homePath, linkClick, navigate, projectPath } from "./route.ts";
 import { SituationGrid, SituationSwitch } from "./Situations.tsx";
 import { Stage } from "./Stage.tsx";
+import { Studio } from "./Studio.tsx";
 import type { ScreenOpen } from "./route.ts";
 import { createMockScreen, type MockScreenState } from "./state.ts";
 import { Thumb } from "./Thumb.tsx";
 import { createTune } from "./tune.ts";
 import { VersionBar } from "./VersionBar.tsx";
 import { canvasTop, NO_INSET, phoneLayout, setCanvasTop, setCardInset, win } from "./viewport.ts";
+
+type View = "stage" | "studio";
 
 // The neighbouring steps beside the canvas, and the room they take.
 const GHOST_W = 112;
@@ -46,17 +50,54 @@ export function MockScreen(props: {
   flow?: string | null;
 }) {
   const s = createMockScreen(props.project, props.slug, props.open ?? null);
+  // Stage or Studio: one version up close, or the state zoomed out. Stage
+  // first: an undeclared mock is stored as a sketch, so kind can't say who is
+  // exploring. A step out to Studio is remembered per mock in this browser,
+  // except while the state owes an answer, whose questions are on Stage
+  // (Which variant? doesn't count: Studio is the other way to compare
+  // variants). The URL's ?view= (a shared link) wins over all of it.
+  const asked = new URLSearchParams(host().window.location.search).get("view");
+  const [view, setViewSignal] = createSignal<View | null>(
+    asked === "studio" || asked === "stage" ? asked : null,
+  );
+  const viewKey = (id: string) => `mockpit-view:${id}`;
+  const remembered = (): View | null => {
+    const id = s.mock()?.id;
+    const v = id ? host().storage?.getItem(viewKey(id)) : null;
+    return v === "studio" || v === "stage" ? v : null;
+  };
+  const liveVariants = () =>
+    s.variants().filter((v) => v.state === s.activeState() && isLive(v.status)).length;
+  const owes = () =>
+    s
+      .questions()
+      .some(
+        (q) => q.kind === "ask" && !isLookAsk(q.ask) && s.owed().some((a) => a.id === q.ask.id),
+      );
+  const shownView = (): View => view() ?? (owes() ? "stage" : (remembered() ?? "stage"));
+  const setView = (v: View) => {
+    setViewSignal(v);
+    const w = host().window;
+    const id = s.mock()?.id;
+    try {
+      if (id) host().storage?.setItem(viewKey(id), v);
+    } catch {
+      // Storage refused: the URL still holds it for this visit.
+    }
+    const q = new URLSearchParams(w.location.search);
+    q.set("view", v);
+    w.history.replaceState(w.history.state, "", `${w.location.pathname}?${q}`);
+  };
   const nav = createFlowNav(s, props.project, props.slug, props.flow ?? null);
   const t = createTune(s);
   useFlowKeys(s);
-  const related = createRelated(
+  const about = createAbout(
     () => s.mock()?.project ?? props.project,
     () => {
       const m = s.mock();
       return m ? `${m.updatedAt}:${versionStamp(m.variants)}` : null;
     },
   );
-  const rel = relatedOf(related, props.slug);
   // On screen is seen: Home's dot for this mock goes until a newer version.
   createEffect(() => {
     const m = s.mock();
@@ -126,7 +167,7 @@ export function MockScreen(props: {
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
-      if (s.tool()) s.setTool(null);
+      if (s.tool()) s.toggleTool(s.tool()!);
       else if (s.drawer()) s.setDrawer(false);
       else if (s.panel()) s.setPanel(null);
       else return;
@@ -177,13 +218,7 @@ export function MockScreen(props: {
   return (
     <div class="screen mock-screen" classList={{ phone: phoneLayout() }}>
       <header class="mhead" ref={(el) => (head = el)}>
-        <TopRow
-          s={s}
-          project={props.project}
-          slug={props.slug}
-          related={related}
-          hasRelated={rel.any()}
-        />
+        <TopRow s={s} project={props.project} slug={props.slug} about={about} view={shownView()} />
         <Show when={walkable()}>
           <FlowBar s={s} nav={nav} />
         </Show>
@@ -197,11 +232,20 @@ export function MockScreen(props: {
         }
       >
         <Show when={s.mock()}>
-          <Stage s={s} onGoto={nav.follow} />
-          <SituationGrid s={s} top={canvasTop()} bottom={Math.max(0, win().h - bottomTop() + 8)} />
-          <Show when={ghosts() && !s.allSituations()}>
-            <Ghost s={s} nav={nav} by={-1} />
-            <Ghost s={s} nav={nav} by={1} />
+          <Show
+            when={shownView() === "stage"}
+            fallback={<Studio s={s} top={canvasTop()} onOpen={() => setView("stage")} />}
+          >
+            <Stage s={s} onGoto={nav.follow} />
+            <SituationGrid
+              s={s}
+              top={canvasTop()}
+              bottom={Math.max(0, win().h - bottomTop() + 8)}
+            />
+            <Show when={ghosts() && !s.allSituations()}>
+              <Ghost s={s} nav={nav} by={-1} />
+              <Ghost s={s} nav={nav} by={1} />
+            </Show>
           </Show>
         </Show>
         <div
@@ -223,21 +267,25 @@ export function MockScreen(props: {
             )}
           </Show>
           <SentNote s={s} project={props.project} slug={props.slug} />
-          <Show when={s.mock()}>
+          <Show when={s.mock() && shownView() === "stage"}>
             <SituationSwitch s={s} />
             <QuestionCard s={s} />
-            <VersionBar s={s} />
+            <VersionBar
+              s={s}
+              variants={liveVariants()}
+              onStudio={() => {
+                s.setDrawer(false);
+                setView("studio");
+              }}
+            />
           </Show>
         </div>
-        <Show when={s.mock()}>
+        <Show when={s.mock() && shownView() === "stage"}>
           <QuestionTab s={s} />
           <Show when={s.panel()}>
             <BottomPanel s={s} onHeight={setPanelH} />
           </Show>
           <BuiltFrom s={s} t={t} />
-          <Show when={rel.any()}>
-            <Related r={related} project={props.project} slug={props.slug} rel={rel} />
-          </Show>
         </Show>
       </Show>
       <Toast s={s} />
@@ -248,32 +296,72 @@ export function MockScreen(props: {
   );
 }
 
-// Back, where you are (project, area, mock, state), then the width, Related
-// and Built from: nothing else up here.
+// Where you are, as the way up: the project and the area are links, the mock's
+// name opens what's around it, then the state. A phone has room for the state
+// alone, so an arrow up to the area (else the project) stands in for the rest.
+// The width is the only tool up here, and only on Stage.
 function TopRow(props: {
   s: MockScreenState;
   project: string;
   slug: string;
-  related: RelatedState;
-  hasRelated: boolean;
+  about: AboutState;
+  view: View;
 }) {
   const s = props.s;
   const home = () => homePath(props.project);
   const areaHome = (area: string) => projectPath(props.project, null, area);
-  const component = () => s.mock()?.kind === "component";
+  const up = () => {
+    const area = s.mock()?.area;
+    return area ? { href: areaHome(area), name: area } : { href: home(), name: shortProject() };
+  };
+  // The owner is the same on every mock; the repo's own name is enough.
+  const shortProject = () => props.project.split("/").pop() ?? props.project;
+  const title = () => s.mock()?.title ?? props.slug;
+  const [open, setOpen] = createSignal(false);
+  let btn: HTMLButtonElement | undefined;
+  let pop: HTMLElement | undefined;
+  createEffect(() => {
+    if (!open()) return;
+    const doc = root();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      setOpen(false);
+      btn?.focus();
+    };
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (!pop?.contains(t) && !btn?.contains(t)) setOpen(false);
+    };
+    doc.addEventListener("keydown", onKey, true);
+    doc.addEventListener("pointerdown", onDown, true);
+    onCleanup(() => {
+      doc.removeEventListener("keydown", onKey, true);
+      doc.removeEventListener("pointerdown", onDown, true);
+    });
+  });
   return (
     <div class="mtop">
-      <a class="ib" href={home()} aria-label="Back" onClick={(e) => linkClick(e, home())}>
-        <Icon name="back" />
-      </a>
-      <div class="crumb mcrumb">
-        <span class="crumb-far">{props.project}</span>
+      <Show when={phoneLayout()}>
+        <a
+          class="ib"
+          href={up().href}
+          aria-label={`Up to ${up().name}`}
+          onClick={(e) => linkClick(e, up().href)}
+        >
+          <Icon name="back" />
+        </a>
+      </Show>
+      <nav class="crumb mcrumb" aria-label="Path">
+        <a class="crumb-far crumb-link" href={home()} onClick={(e) => linkClick(e, home())}>
+          {shortProject()}
+        </a>
         <span class="crumb-far sep">/</span>
         <Show when={s.mock()?.area}>
           {(area) => (
             <>
               <a
-                class="crumb-far crumb-area"
+                class="crumb-far crumb-link"
                 href={areaHome(area())}
                 onClick={(e) => linkClick(e, areaHome(area()))}
               >
@@ -283,48 +371,41 @@ function TopRow(props: {
             </>
           )}
         </Show>
-        <Show when={s.activeState() !== null} fallback={<b>{s.mock()?.title ?? props.slug}</b>}>
-          <span class="crumb-far">{s.mock()?.title ?? props.slug}</span>
+        <button
+          type="button"
+          class="crumb-me"
+          classList={{ "crumb-far": s.activeState() !== null }}
+          aria-expanded={open()}
+          aria-haspopup="dialog"
+          ref={(el) => (btn = el)}
+          onClick={() => setOpen(!open())}
+        >
+          <Show when={s.activeState() === null} fallback={<span>{title()}</span>}>
+            <b>{title()}</b>
+          </Show>
+          <Icon name="down" />
+        </button>
+        <Show when={s.activeState() !== null}>
           <span class="crumb-far sep">/</span>
           <b>{s.moment()}</b>
           <Show when={s.situation()}>
             {(name) => <span class="crumb-sit">{` · ${name()}`}</span>}
           </Show>
         </Show>
-        <Show when={s.mock()?.source}>
-          {(src) => (
-            <span class="crumb-far msrc" title={src()}>
-              {shortSource(src())}
-            </span>
-          )}
-        </Show>
-      </div>
+      </nav>
+      <About
+        s={s}
+        r={props.about}
+        project={props.project}
+        slug={props.slug}
+        open={open()}
+        onClose={() => setOpen(false)}
+        ref={(el) => (pop = el)}
+      />
       <span class="grow" />
-      <WidthMenu s={s} />
-      <Show when={props.hasRelated}>
-        <button
-          type="button"
-          class="ib"
-          classList={{ on: props.related.open() }}
-          aria-label="Related"
-          title="Appears in, built from, flows"
-          aria-expanded={props.related.open()}
-          onClick={() => props.related.setOpen(!props.related.open())}
-        >
-          <Icon name="related" />
-        </button>
+      <Show when={props.view === "stage"}>
+        <WidthMenu s={s} />
       </Show>
-      <button
-        type="button"
-        class="ib"
-        classList={{ on: s.drawer() }}
-        aria-label={component() ? "Appears in" : "Built from"}
-        title={component() ? "Where it appears" : "What it's built from"}
-        aria-expanded={s.drawer()}
-        onClick={() => s.setDrawer(!s.drawer())}
-      >
-        <Icon name="layers" />
-      </button>
     </div>
   );
 }

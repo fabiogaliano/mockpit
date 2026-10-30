@@ -435,6 +435,9 @@ export interface PartComment {
   reaction?: Reaction;
   // The variant on stage when the reaction was made: the same part differs by look.
   variant?: string;
+  // The version it is about, when that is not simply the latest: Studio
+  // shows every version side by side, so a reaction can point at an older one.
+  version?: number;
 }
 
 // What a reply says about one variant outside the ask flow: the user's Use this
