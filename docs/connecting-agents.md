@@ -47,6 +47,10 @@ pi install npm:mockpit
 pi -e npm:mockpit
 ```
 
+In an interactive (or RPC) pi session, a reply sent from the viewer arrives on
+its own as a mockpit message and starts a turn: an idle agent wakes, and a busy
+one gets it when it finishes. One-shot runs (`-p`, json) don't listen.
+
 ## MCP
 
 Tools: `publish`, `ask`, `read`, `feedback`, `say`, `edit`, `export`,

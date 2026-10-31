@@ -31,7 +31,7 @@ const loopGuidelines = [
   "Publish each variant with mockpit_publish (name states in the user's words; declare parts with data-part); publish again to revise.",
   "A choice is several variants plus one question that binds them: mockpit_ask with options bound to the variants. One render plus a control: declare a knob.",
   "Tell the user in one line where to look, then end your turn. The question lives in the mock, never in chat. Never poll.",
-  "When the user says they answered, call mockpit_feedback. Every write also returns feedback; read it.",
+  "A reply sent from the viewer arrives on its own as a mockpit message; act on it. If the user says they answered and none came, call mockpit_feedback. Every write also returns feedback; read it.",
 ];
 
 const surfaceSchema = {
@@ -312,6 +312,42 @@ function feedbackSummary(feedback) {
   return `\n\nUser feedback delivered with this result:\n${lines.join("\n")}`;
 }
 
+const pause = (ms, signal) =>
+  new Promise((done) => {
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", () => (clearTimeout(timer), done()), { once: true });
+  });
+
+// The user's reply wakes the idle agent, as the Claude Code plugin's monitor
+// does. Reading feedback advances the server's cursor, so the message carries
+// the whole reply: a nudge to call mockpit_feedback would come back empty.
+// followUp waits for a busy agent to finish rather than cutting into its work.
+async function watchReplies(pi, state, signal) {
+  while (!signal.aborted) {
+    if (!state.sessionId) {
+      await pause(2000, signal);
+      continue;
+    }
+    try {
+      const query = new URLSearchParams({ session: state.sessionId, author: "user", wait: "60" });
+      const result = await requestJson(`/api/comments?${query}`, { signal });
+      const lines = feedbackLines(result.feedback);
+      if (!lines.length || signal.aborted) continue;
+      pi.sendMessage(
+        {
+          customType: "mockpit-reply",
+          content: `The user replied in mockpit:\n${lines.join("\n")}`,
+          display: true,
+          details: { feedback: result.feedback },
+        },
+        { triggerTurn: true, deliverAs: "followUp" },
+      );
+    } catch {
+      await pause(2000, signal);
+    }
+  }
+}
+
 function reconstructSession(ctx) {
   let sessionId = process.env.MOCKPIT_SESSION || undefined;
   for (const entry of ctx.sessionManager.getBranch()) {
@@ -329,15 +365,29 @@ function reconstructSession(ctx) {
 
 export default function mockpitExtension(pi) {
   const state = { sessionId: process.env.MOCKPIT_SESSION || undefined };
+  let watching;
 
   pi.on("session_start", (_event, ctx) => {
     state.sessionId = reconstructSession(ctx);
+    watching?.abort();
+    watching = undefined;
+    // print and json runs end after one prompt; nobody is there to wake.
+    if (ctx.mode === "tui" || ctx.mode === "rpc") {
+      watching = new AbortController();
+      void watchReplies(pi, state, watching.signal);
+    }
     ctx.ui.setStatus(
       "mockpit",
       state.sessionId
         ? `mockpit ${state.sessionId}`
         : `mockpit ${baseUrl().replace(/^https?:\/\//, "")}`,
     );
+  });
+
+  // After shutdown pi refuses calls from this extension, so the loop stops first.
+  pi.on("session_shutdown", () => {
+    watching?.abort();
+    watching = undefined;
   });
 
   pi.registerCommand("mockpit", {
