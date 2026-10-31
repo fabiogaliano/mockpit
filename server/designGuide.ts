@@ -2,7 +2,7 @@
 // guide`, `GET /agent-howto` and MCP `guide` all return it. It is regenerated
 // from the project's STORED design settings, so the palette, kit and icons an agent is told about
 // are the ones actually injected into its frames. Budget: 6,000 characters with
-// a palette (pinned in test/designGuide.test.ts). Anything deeper belongs in a
+// a palette. Anything deeper belongs in a
 // topic under guide/topics/, which agents fetch only when they need it.
 //
 // Runtime-agnostic (no node imports): served from app.ts on the Worker too.

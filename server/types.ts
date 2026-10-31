@@ -34,9 +34,8 @@ export interface Session {
 // build their `kind` enums from it, so a kind can't be added to the model
 // without the MCP tier advertising it too (the gap that left `json`/`code`
 // publishable over CLI/REST but invisible to MCP). The per-kind FIELD schemas
-// in postSurfaces.ts and mcpSpec.ts are still hand-written; test/mcpSpec.test.ts
-// guards that every kind here round-trips through both the MCP schema and the
-// validator with its fields, so neither half can silently fall behind.
+// in postSurfaces.ts and mcpSpec.ts are still hand-written: a kind added here
+// needs its fields in both, or one half silently falls behind.
 export const SURFACE_KINDS = [
   "html",
   "diff",

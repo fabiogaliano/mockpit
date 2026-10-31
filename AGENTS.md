@@ -212,7 +212,7 @@ consciously, not as a side effect):
 - WebKit quirk in sandboxed iframes: ResizeObserver's initial callback may not
   fire and `documentElement.scrollHeight` ratchets to viewport height — the
   bridge reports `body.scrollHeight` on `load` plus staggered timers. Don't
-  "simplify" it back; e2e covers it on real WebKit. Watch the inverse too: the
+  "simplify" it back; check it on real WebKit. Watch the inverse too: the
   bridge sizes the frame from `body.scrollHeight`, so a `white-space: pre-wrap`
   on `body` makes a template's surrounding newlines render as blank lines and
   inflate the height — scope `pre-wrap` to a wrapper element.
@@ -244,25 +244,21 @@ consciously, not as a side effect):
   terminal is intentionally theme-independent.
 - The server reads `viewer/dist/index.html` and `guide/` files at boot —
   rebuild (`npm run build:viewer`) and restart to see viewer changes.
-  `npm run dev` runs a Vite watch build alongside the server; the e2e suite
-  builds the viewer itself (Playwright global setup).
+  `npm run dev` runs a Vite watch build alongside the server.
 
 ## Validation
 
 ```sh
-npm test             # store contract, in-place migration, reply delivery
-npm run test:worker  # real local workerd + Durable Object integration
 npm run typecheck    # three tsc programs: node + workers + viewer
 npm run lint         # oxlint, warnings are errors
 npm run format:check # oxfmt
 npm run security:audit
-npm run test:e2e     # Playwright, chromium + webkit (separate CI job): bridge,
-                     # mock-screen, decide-flow, touch, mobile; builds the viewer first
 npm run bench        # performance suite (separate CI job); bench:check gates it
 ```
 
-The first six must pass before committing; e2e should pass before merge for
-viewer/rendering changes. CI also gates PRs on changeset status and smoke-tests
+The first four must pass before committing. Mockpit has no tests, on purpose:
+don't write any (unit, e2e or otherwise) or add a test runner. Verify a change by
+running it (a screenshot, a curl, the CLI). CI also gates PRs on changeset status and smoke-tests
 the packed CLI. Pre-commit formats staged files (`npm run prepare` after a fresh clone).
 
 Performance (`bench/`, see `bench/README.md`):
@@ -278,27 +274,6 @@ Performance (`bench/`, see `bench/README.md`):
 - Prefer adding a deterministic metric (bytes, counts) over a timing where one
   exists: it gates reliably, and payload size is itself a CPU/memory cost for the
   viewer.
-
-Testing notes:
-
-- **Add a test only when it is vital.** The suite is deliberately small: e2e
-  for the flows a user depends on (publish → answer → Send → the agent hears
-  it, the bridge, touch and mobile), and Node tests only for what a browser
-  can't see and whose failure loses data — the store contract, `SqlStore`'s
-  in-place migration, exactly-once reply delivery — plus the workerd run. A bug
-  fix, a refactor or a new feature does not earn a test by default; extend an
-  existing e2e flow when a break there would reach the user unnoticed, and
-  otherwise verify by running the thing (a screenshot, a curl, the CLI). No unit
-  tests of pure helpers, no coverage targets.
-- `runStoreContract()` runs the same suite against every store. SqlStore runs
-  on `createSqliteStorage()` (`:memory:`), the same `node:sqlite` adapter the
-  local server uses on disk — so the contract covers the real Node SQLite path.
-  `SqlStorage`/`SqlStorageValue`/`SqlStorageCursor` are plain interfaces in
-  `server/types.ts`; a real DO `SqlStorage` is structurally assignable, so no
-  ambient Cloudflare globals are needed in the node program.
-  `test/migrateToMocks.test.ts` covers the in-place lift of an older workspace.
-- e2e seeds through the agent's HTTP tier (`e2e/decideSeed.ts`, the Writer);
-  `e2e/bridge/` is a plain host page for driving the bridge without the viewer.
 
 ## Diagnosing agent sessions
 

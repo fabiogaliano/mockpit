@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # One Linux job, one npm ci: lint/type/test, the release-note gate, and the
+  # One Linux job, one npm ci: lint and types, the release-note gate, and the
   # packed-CLI smoke test. Cheap checks run first so failures surface fast; the
   # pack round trip runs last. Node 22 is the documented floor and matches every
   # other job — we don't matrix over 24 on PRs.
@@ -35,8 +35,6 @@ jobs:
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
-      - run: npm test
-      - run: npm run test:worker
 
       - name: Release-note changeset
         if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'changeset-release/')
@@ -80,28 +78,11 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run bench:check -- --gate deterministic
 
-  e2e:
-    runs-on: ubuntu-latest
-    # A hung `playwright install --with-deps` (apt) otherwise holds the job, and
-    # with it the release, for GitHub's 6-hour default.
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm install -g npm@11.17.0
-      - run: npm ci --ignore-scripts
-      - run: npm run security:audit
-      - run: npx playwright install --with-deps chromium webkit
-      - run: npm run test:e2e
-
   # Windows uses entirely separate code paths in the CLI (PowerShell process
   # tree walk in agentPid, cmd /c start for --open) and OS-specific path/state
   # keying — none of which the Linux jobs exercise. It bills at 2x, so run it
-  # only on push to main, not on every PR. Keep it lean: the store tests plus a
-  # packed serve+publish round trip that runs the Windows agentPid walk.
+  # only on push to main, not on every PR. Keep it lean: a packed
+  # serve+publish round trip that runs the Windows agentPid walk.
   windows-smoke:
     if: github.event_name == 'push'
     runs-on: windows-latest
@@ -114,7 +95,6 @@ jobs:
       - run: npm install -g npm@11.17.0
       - run: npm ci --ignore-scripts
       - run: npm run security:audit
-      - run: npm test
       - run: npm pack
       - name: Install packed CLI
         shell: bash

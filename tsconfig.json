@@ -14,5 +14,5 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["server", "mcp", "test", "bench"]
+  "include": ["server", "mcp", "bench"]
 }

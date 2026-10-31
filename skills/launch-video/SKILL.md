@@ -82,7 +82,7 @@ ffmpeg -y -i "$RAW" -vf "fps=30,format=yuv420p" \
 - Card vocabulary: `badge`, `h1` (+ `span.ver` for the amber version),
   `sub`, `cmds`/`cmd` (+ `span.p` for the prompt `$`), `foot`.
 - Interact with the viewer through `page.frameLocator("#app")`. Useful
-  selectors (the same ones `e2e/decide-flow.spec.ts` drives):
+  selectors:
   `.home-step[data-mock="<slug>"]` (Home's screens), `.frame.on` (the frame on
   stage), `.strip [role="tab"]` (states), `.opt[data-option="<id>"]` (question
   options), `button.send`, `.themebtn` (dark/light).

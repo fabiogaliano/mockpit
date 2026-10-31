@@ -2,8 +2,8 @@
 // tool description, the scripts guide topic and `mockpit run --help`, so the
 // tiers cannot describe different APIs. Hand-shaped rather than generated from
 // mcpSpec: a generator repeats Surface per tool and the run-level params on
-// every function, roughly tripling the size. test/run.test.ts checks that every
-// host function named here exists and vice versa.
+// every function, roughly tripling the size. Every host function named here
+// must exist, and vice versa.
 
 export const RUN_API = `// The body of an async function, in plain JavaScript (no TypeScript syntax).
 // \`await mockpit.*\`, \`return\` a JSON value, print() adds an output line.

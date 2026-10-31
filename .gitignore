@@ -7,8 +7,6 @@ data/
 dist/
 viewer/dist-embed/
 .dev.vars
-test-results/
-playwright-report/
 coverage/
 .video-work/
 

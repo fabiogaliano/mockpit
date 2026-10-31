@@ -251,12 +251,9 @@ The server app is importable from `mockpit/server` (`createApp`, `SqlStore`,
 
 ```sh
 npm run dev          # server with watch + viewer watch build
-npm test             # Node unit/API/store tests + viewer unit tests
-npm run test:worker  # local workerd + Durable Object integration
 npm run typecheck    # node + workers + viewer
 npm run lint         # oxlint
 npm run format       # oxfmt
-npm run test:e2e     # Playwright, chromium + webkit (bridge, mock screen, decide flow)
 ```
 
 The architecture and contributor rules are in [AGENTS.md](AGENTS.md).

@@ -1,5 +1,4 @@
-// Pure rules behind the mock screen — no DOM, no signals — so each one is
-// unit-tested on its own (viewer/test/logic.test.ts).
+// Pure rules behind the mock screen — no DOM, no signals.
 
 import {
   type Ask,

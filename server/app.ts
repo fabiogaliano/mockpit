@@ -4758,9 +4758,9 @@ export function createApp({
     // The runtime's module cache makes every later call cheap, so there's no memo
     // here to keep in sync. On the Worker the module is already inside the
     // deployed bundle — the import defers evaluating it, not fetching it — so this
-    // needs no network at runtime. test/workerIntegration covers that on real
-    // workerd, because a dynamic import resolving differently there is exactly the
-    // way this optimization could break in production and nowhere else.
+    // needs no network at runtime. Check it on real workerd (`npm run dev:cloud`):
+    // a dynamic import resolving differently there is exactly the way this
+    // optimization could break in production and nowhere else.
     const { renderCode, renderDiff, renderMarkdown, renderTerminal } =
       await import("./richRender.ts");
     const rendered =
