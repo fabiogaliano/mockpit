@@ -1,5 +1,70 @@
 # Changelog
 
+## 2.0.0
+
+### Major Changes
+
+- 49143df: The agent contract speaks the viewer's words, with no aliases. Every tier changes together (HTTP, MCP, the stdio MCP server, the CLI, `run`, the pi extension, the guide and the skill). Old name → new name:
+  - `POST /api/mocks/:id/resolve` → `POST /api/mocks/:id/close` (`/reopen` is unchanged); a mock's `resolvedAt` → `closedAt`; the feedback batch's `resolved: true` → `closed: true` (`dismissed` is unchanged); `pending[].resolved` → `pending[].closed`.
+  - The feedback batch's `comments` (the user's thread messages) → `messages`; `mockpit watch` prints `mockpit message on <mock>` and `mockpit closed <mock>`.
+  - `reply.decision` `{kind: accept|revise|drop}` → `reply.verdict` `{kind: use|revise}`. Drop is gone: the reply body no longer takes it and no variant is ever `dropped`.
+  - `accepted` (feedback batch) → `inUse`; a variant's `status: "accepted"` → `status: "inUse"` and `acceptedVersion` → `inUseVersion` (in `read`, the tree, publish, export and restore). The feedback batch's `dropped` is gone.
+  - `reply.mix` and the draft's `mix` → `borrowed`; `decisions…from` → `decisions…borrowedFrom`.
+  - Publish's `slots` → `fills` and `suggestedSlotAsks` → `suggestedFillAsks`; `decisions.states[…].slots` and a fill's nested `slots` → `parts`. The `<mockpit-slot>` alias is gone: write `<mockpit-embed>`.
+  - `read --tree`: `uses` → `embeds`, `usedIn` → `embeddedIn`.
+  - `export`: `source` → `allFills`; the CLI writes `all-fills.html` instead of `source.html`.
+  - The suggested variant question publish offers is id `choice` (per state `choice-<state>`), "Which variant?", instead of `look`, "Which one?".
+  - Guide, skill and tool descriptions call an ask a question, a slot a part with fills, and a state a state (screen only glosses `page`).
+
+  An existing workspace migrates in place on the first start: the `resolvedAt` column becomes `closedAt`, `dropped` variants become `archived`, stored replies and drafts are rewritten into the new keys (`decision` accept/revise → `verdict` use/revise, a `drop` decision is removed, `mix` → `borrowed`, `resolved` → `closed`), and `<mockpit-slot>` tags in stored html, current and history, become `<mockpit-embed>`.
+
+### Minor Changes
+
+- c0fc2d0: A mock can name its area and its source, and a new `edit` verb changes a mock or a project without SQL.
+  - `--area Shell` (MCP/HTTP `area`) says where in the product a mock belongs, in the project's own words. Home groups every tab by area, alphabetically, with unnamed mocks last; a flow joins an area when all its screens are in it. A project that names no area looks as before.
+  - `--source apps/web/src/shell` (MCP/HTTP `source`) names the code that implements a mock. Read views return it, and the viewer shows it quietly on Home and in the mock's top bar.
+  - `mockpit edit --mock <slug>` (MCP `edit`, `PATCH /api/mocks/:id`) changes the slug, title, kind, area or source without a new version; `""` clears area or source. A new slug rewrites every `<mockpit-embed>`, `data-goto` and flow step that names the old one, in every version, so pages and their history keep rendering. A mock still embedded somewhere can't become a sketch, and a page that stops being one is nudged out of its flows rather than removed silently.
+  - `mockpit edit --project <name> --rename <new>` (MCP `edit({ rename })`, `PATCH /api/projects/:name`) moves a project's mocks, sessions, flows and design settings to a new name; it is refused when that name already has mocks.
+
+- a6fa8f8: Borrow in Studio sends a structured steer: the comment carries `borrow: { from: "felt@2", part? }`, and `watch`, `feedback` and pi print it as `borrow face from felt@2 into dark@3`. The guide now says "more like this" asks for 2–3 variants forked from that version.
+- 7760b38: Structure is now declared, never assumed. A mock published without `--kind` is a sketch instead of a component; embedding a sketch in another mock makes it a component. Home shows a tab only for the kinds in use, in the order Pages · Flows · Components · Sketches, and no tab bar when only one applies. The Flows tab lists only declared flows. Existing components that nothing embeds and no flow uses become sketches when the workspace opens.
+- 28c84e1: The brief takes guidance in layers, so design taste is opt-in rather than built in.
+  - Core stays how mockpit works. The html topic's finish rules (flat, no shadows, two weights, sentence case, no emoji) are gone from it.
+  - Packs ship with mockpit, off by default. The first, `design-craft`, covers asking before designing, variants that differ in one clear thing, real content, no filler, situations, and converging once the user has chosen.
+  - `~/.mockpit/rules.md` (next to the database) is the user's own guidance, read live by a local server; `.mockpit/rules.md` is the project's, committed with the repo and sent by the new `mockpit rules` (and by `mockpit init`). Either turns packs on with `packs: [design-craft]` in its frontmatter and has `## Rules` and `## Suggestions`. Higher wins: project, then the user's, then packs, then core. `mockpit rules --mine` stores the user's file on a deployed server, which has no home folder.
+  - The brief opens with a `Guidance:` line naming the layers that are on, and prints each under its own heading. With no rules file it is unchanged.
+  - `mockpit init` now ignores `.mockpit/*` but keeps `.mockpit/rules.md` trackable, upgrading the `.mockpit/` line it wrote before.
+
+- 6b672aa: Home is organised by area and says where each mock stands; the user can move mocks themselves.
+  - Once a project names areas, Home gets a rail of them (chips on a phone) with counts and a dot where questions are open, plus an All tab. Area and kind combine, both in the URL (`?view=…&area=…`): pick an area on All to see its pages, flows, components and sketches together. A project with no areas looks as before.
+  - Areas follow the project's own order: `mockpit edit --project <p> --area-order "Shell,Food"` (MCP `edit({ areaOrder })`, `PATCH /api/projects/:name` `{areaOrder}`). Areas it leaves out follow alphabetically, mocks with none sit last under "No area", and a project rename carries the order.
+  - Each card carries one quiet status, derived from what is already stored: `N open`, `Changed` (a newer version than the one in use), `Decided` or `Exploring`. Closed mocks are faded and sorted last. It replaces the unexplained check on cards.
+  - A dot marks mocks with versions this browser hasn't opened yet (per browser, no server state).
+  - A ⋯ menu on each card moves a mock to Pages, Components or Sketches, sets its area (an existing one or a new one), and closes or reopens it, with the edit verb's rules. The agent hears each move once, as `edited: {kind, area}` in its next feedback batch.
+  - Sketch thumbnails are shaped to their design width like pages instead of slivers in a wide tile; code paths are cut from the left (`…/spaces/food`), always right after the name, full on hover.
+  - The mock screen's crumb names its area (a link back to Home on that area), and a Related sidebar (toggled from the top bar, remembered per browser) lists the pages it is used in, what it uses and the flows it is a step of.
+  - The guide asks agents to title mocks by what they are, not by process ("Round 2 · …", "v2", "Prototype"), and publish nudges when a title does.
+
+- 532f7a3: The pi extension wakes the agent on a reply: in an interactive or RPC session, a reply sent from the viewer arrives as a mockpit message and starts a turn, or waits for a busy agent to finish.
+- a6fa8f8: A heavy page can carry a poster: a still the agent takes of it, sent as `poster` on the html surface (CLI `--poster shot.png`, MCP `poster`, an image path on stdio and in the pi extension, an asset id over HTTP and in `run`). Studio and Home show the picture instead of running the page, so a board of 3D sketches costs no live frames; Stage still runs the page. A version that changes the page without a new poster drops the old one, so a still never shows an older page. A new variant whose page draws on a `<canvas>` without a poster gets a nudge.
+- 8d6adca: Situations: another render of one state ("Couldn't save", "Loading", "12 items"), published with `--situation` beside `--state`. The flow still steps through states; a quiet switch under the design flips the state between its situations (↑/↓), and a grid button in the version bar shows them side by side. Each situation is a state of its own key (`"Writing · Couldn't save"`), so asks, comments, decisions and export reach it like any state.
+
+  An ask can mark the option the agent would pick (`"recommended": true`, `mockpit ask --recommend <label>`): a small dot on its corner, the why on hover.
+
+  Home: the project name gives way to the bell and theme buttons on a phone, a page's new dot sits after its name, and the status chip stays clear of a phone-shaped picture's round corner.
+
+- a6e0d68: Studio: a state zoomed out, every variant side by side with its newest version on top and a fork's first version hanging under the one it came from. The dock's "N variants" steps out, a card steps back in, and the choice is remembered per mock (a state that owes an answer still opens on Stage). Each steer goes as its own reply and leaves the draft alone: More like this, Comment (on a version or one of its parts) and Borrow. The × hides a version, or archives a variant from its last one, with Undo; archived variants wait in an Archived column with Restore. A reaction can name an older version, which agents read as `variant dark@2`.
+
+  A quieter mock screen: the path is the way up (project and area are links; a phone keeps one arrow, labelled with where it goes), the mock's name opens what's around it (Appears in, Built from, flows, other states, code path), and the Related panel and the layers button are gone. Tune's parts open with Tune. One × everywhere, engraved, with a soft glow on hover that warms to red where it removes.
+
+- a6fa8f8: One step-back: "N variants" opens Studio for a state with situations too, with a switch above the columns that names each situation and counts its variants. A variant not drawn in that situation keeps its column, with an empty "No Error yet" slot. A state with one variant and several situations steps back to every situation side by side ("N situations"); the version bar's grid button is gone. Comment's icon is a round speech bubble.
+- a4998ee: The viewer's words, one meaning each. A version is named by its variant's own number, "Dark #2" (or "#2" for a lone variant), the same number agents write as `dark@2`; "vN", which counted three different ways, is gone. Closing a mock says Close everywhere. The Thread's free text is a Message, and the part-pinning tool is Comment. The variant question reads "Which variant?", and Tune's whole-page entry is "Whole design". The button that asks the agent for another version says Revise. A component lists where it Appears in, a page what it is Built from. A question that waits on another answer is inactive. A state is called a state, never a screen, and a part's alternatives are named by the part.
+
+### Patch Changes
+
+- a6fa8f8: The Claude Code plugin's monitor runs again: current Claude Code refuses `${user_config.*}` in a monitor command, so it never started. A SessionStart hook now leaves the server and token for it. `mockpit watch` finds its conversation's own session by Claude Code's session id (`GET /api/sessions?key=`), so two agents in one repo no longer take each other's replies. The plugin uses an installed `mockpit` before `npx`.
+- 884c765: Home's Resolve button on a waiting mock is always visible on desktop instead of appearing only on hover.
+
 ## 1.3.0
 
 ### Minor Changes
