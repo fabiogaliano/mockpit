@@ -1599,6 +1599,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     reaction?: Reaction;
     part?: string | null;
     text?: string;
+    borrow?: { from: VersionRef; part?: string };
   }) {
     return sendAlone({
       comments: [
@@ -1609,6 +1610,14 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
           variant: c.variant,
           version: c.version,
           ...(c.reaction ? { reaction: c.reaction } : {}),
+          ...(c.borrow
+            ? {
+                borrow: {
+                  from: `${c.borrow.from.variant}@${c.borrow.from.version}`,
+                  ...(c.borrow.part ? { part: c.borrow.part } : {}),
+                },
+              }
+            : {}),
         },
       ],
     });

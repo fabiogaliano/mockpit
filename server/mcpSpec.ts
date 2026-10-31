@@ -46,6 +46,7 @@ const field = {
   flow: "Flow this state is a step of; alone, only places it",
   step: "1-based place; 0 removes",
   kits: `Opt-in bundles: ${KIT_IDS.join("|")}`,
+  poster: "Still of the page (asset id) shown instead of running it; resend when the page changes",
 } as const;
 
 const diffFileSchema = z.object({
@@ -66,6 +67,7 @@ export const mcpSurfaceSchema = z
     kind: z.enum(SURFACE_KIND_ENUM).optional(),
     html: z.string().optional().describe(field.html),
     kits: z.array(z.string()).optional().describe(field.kits),
+    poster: z.string().optional().describe(field.poster),
     markdown: z.string().optional().describe("Prose; raw HTML is escaped"),
     mermaid: z.string().optional().describe("Diagram source; do not set colors"),
     patch: z.string().optional().describe("Preferred over files"),
@@ -182,6 +184,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       area: { t: "string", d: field.area },
       source: { t: "string", d: field.source },
       html: { t: "string", d: field.html },
+      poster: { t: "string", d: field.poster },
       surfaces: {
         t: "surfaces",
         d: "Full ordered list: {id} keeps a surface, a missing id removes it",
@@ -493,7 +496,9 @@ function shapeFor(tool: ToolDef, transport: "http" | "stdio"): z.ZodRawShape {
     shape[key] =
       transport === "stdio" && key === "html" && tool.name === "publish"
         ? z.string().optional().describe(`${field.html}; or a file path`)
-        : zodParam(p);
+        : transport === "stdio" && key === "poster" && tool.name === "publish"
+          ? z.string().optional().describe(`${p.d}; or an image file path`)
+          : zodParam(p);
   }
   return shape;
 }

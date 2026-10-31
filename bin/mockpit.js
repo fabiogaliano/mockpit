@@ -78,6 +78,9 @@ verbs:
                         it out); with no html it only places the state
       --project <name>  project (default: git remote, else directory name)
       --kit <id>        opt the html surface into a kit (repeatable; see "mockpit kits")
+      --poster <file>   a still of the page (png, jpg); Studio and Home show it
+                        instead of running the page. Send one with every version
+                        that changes the page, or it goes
       --md/--mermaid/--diff/--terminal/--data/--code/--image <file|->
                         add a surface of that kind after the html (repeatable;
                         --data is a JSON tree)
@@ -219,6 +222,10 @@ mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
   --step <N>         its 1-based place in the flow (moves it if it is there);
                      0 takes it out; omitted, it joins at the end
   --project <name>   project (default: git remote, else directory name)
+  --poster <file>    a still of the page (png, jpg) that Studio and Home show
+                     instead of running it; with --parts or --fills it is the
+                     still of the spliced page. A version that changes the page
+                     without one drops the old still
   --md/--mermaid/--diff/--terminal/--data/--code/--image <file>  more surfaces
   --json / --quiet
   Prints the parts found per state, parts that vanished or were renamed,
@@ -460,6 +467,19 @@ async function resolveSession(flags, { create = false } = {}) {
   });
   writeState({ session: session.id, agent: agentName(flags) });
   return session.id;
+}
+
+// The harness's conversation id names exactly one session, where the cwd can
+// match several agents working in one repo; the watcher would then take a
+// sibling's replies. Never creates one: most conversations never use mockpit.
+async function resolveSessionByKey(key) {
+  try {
+    const res = await fetch(`${BASE}/api/sessions${query({ key })}`, { headers: HEADERS });
+    if (!res.ok) return null;
+    return (await res.json())[0]?.id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // A monitor process (e.g. the Claude Code plugin) may not share the local
@@ -925,6 +945,7 @@ function parsePublishFlags() {
       area: { type: "string" },
       source: { type: "string" },
       html: { type: "string" },
+      poster: { type: "string" },
       surfaces: { type: "string" },
       parts: { type: "string", multiple: true },
       fills: { type: "string", multiple: true },
@@ -1014,6 +1035,9 @@ async function publishMock() {
   }
   // Checked before the session exists so a typo'd path leaves nothing behind on the server.
   if (file && file !== "-" && !existsSync(file)) die(`cannot read ${file}`, `ls ${file}`);
+  if (flags.poster !== undefined && !existsSync(flags.poster)) {
+    die(`cannot read ${flags.poster}`, `ls ${flags.poster}`);
+  }
   const parts = readPartFlags(flags.parts, slug);
   const fills = readPartFlags(flags.fills, slug, "fills");
   let surfaces =
@@ -1037,6 +1061,8 @@ async function publishMock() {
   }
   if (!surfaces && !parts && !fills && !flags.fork && flags.flow === undefined)
     die(`no html for ${slug}`, `mockpit publish --mock ${slug} --html <file>`);
+  const poster =
+    flags.poster === undefined ? undefined : (await uploadFile(flags.poster, { session })).id;
   const body = {
     session,
     project,
@@ -1064,6 +1090,7 @@ async function publishMock() {
     ...(surfaces && { surfaces }),
     ...(parts && { parts }),
     ...(fills && { fills }),
+    ...(poster && { poster }),
   };
   const result = await api(
     "/api/mocks",
@@ -1154,7 +1181,16 @@ function watchLines(batch) {
             .map(([p, v]) => `${p}←${v}`)
             .join(", ")}`
         : "",
-      r.comments?.length ? `${r.comments.length} comment${r.comments.length === 1 ? "" : "s"}` : "",
+      ...(r.comments ?? [])
+        .filter((c) => c.borrow)
+        .map(
+          (c) =>
+            `borrow ${c.borrow.part ? `${c.borrow.part} ` : ""}from ${c.borrow.from} into ${c.variant}@${c.version}${c.text ? ` (“${c.text}”)` : ""}`,
+        ),
+      (() => {
+        const n = (r.comments ?? []).filter((c) => !c.borrow).length;
+        return n ? `${n} comment${n === 1 ? "" : "s"}` : "";
+      })(),
       r.reactions?.length ? r.reactions.join(", ") : "",
       r.verdict ? `${r.verdict.kind} ${r.verdict.variant}` : "",
       r.text ?? "",
@@ -1780,9 +1816,13 @@ const commands = {
     // feedback is delivered exactly once across watch, feedback, and piggyback.
     let firstAfter = flags.after;
     for (;;) {
-      const session = (await resolveSession(flags)) ?? (await resolveSessionByCwd());
+      const key = harnessKey();
+      const session =
+        (await resolveSession(flags)) ??
+        (key ? await resolveSessionByKey(key) : await resolveSessionByCwd());
       if (!session) {
-        await sleep(2000);
+        // A conversation that hasn't used mockpit yet may never; ask rarely.
+        await sleep(key ? 10_000 : 2000);
         continue;
       }
       let result;

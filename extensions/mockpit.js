@@ -209,6 +209,29 @@ async function requestText(path) {
   return text;
 }
 
+// A poster may name an image file: it goes up as an asset, and the publish
+// carries its id. Anything else is already an asset id.
+async function posterId(value, ctx) {
+  if (typeof value !== "string" || !value) return undefined;
+  const file = resolve(ctx.cwd, value);
+  let data;
+  try {
+    data = await readFile(file);
+  } catch {
+    return value;
+  }
+  const ext = file.split(".").pop()?.toLowerCase();
+  const asset = await requestJson("/api/assets", {
+    method: "POST",
+    body: JSON.stringify({
+      data: data.toString("base64"),
+      contentType: ext === "jpg" || ext === "jpeg" ? "image/jpeg" : `image/${ext}`,
+      filename: file.split(/[\\/]/).pop(),
+    }),
+  });
+  return asset.id;
+}
+
 function rememberSession(state, sessionId) {
   if (typeof sessionId === "string" && sessionId) state.sessionId = sessionId;
 }
@@ -241,6 +264,12 @@ function feedbackLines(feedback) {
         lines.push(`- ${prefix}tuned ${path} = ${JSON.stringify(value)}`);
       }
       for (const c of reply.comments ?? []) {
+        if (c.borrow) {
+          lines.push(
+            `- ${prefix}borrow ${c.borrow.part ? `${c.borrow.part} ` : ""}from ${c.borrow.from} into ${c.variant}@${c.version}${c.text ? `: ${c.text}` : ""}`,
+          );
+          continue;
+        }
         lines.push(
           `- ${prefix}${c.part ? `[${c.part}${c.state ? ` · ${c.state}` : ""}] ` : ""}${c.text}`,
         );
@@ -379,6 +408,11 @@ export default function mockpitExtension(pi) {
         source: { type: "string", description: 'Code path that implements it. "" clears' },
         html: { type: "string", description: "HTML body fragment; declare parts with data-part" },
         path: { type: "string", description: "File to read the html from instead" },
+        poster: {
+          type: "string",
+          description:
+            "A still of the page (image file path, or asset id) that Studio and Home show instead of running it; send one with every version that changes the page",
+        },
         surfaces: surfacesSchema,
         parts: {
           type: "object",
@@ -397,11 +431,13 @@ export default function mockpitExtension(pi) {
         ? await readFile(resolve(ctx.cwd, params.path), "utf8")
         : params.html;
       const { path: _path, ...rest } = params;
+      const poster = await posterId(params.poster, ctx);
       const result = await requestJson("/api/mocks", {
         method: "POST",
         body: JSON.stringify({
           ...rest,
           html,
+          ...(poster === undefined ? {} : { poster }),
           project: projectOf(params, ctx),
           session: state.sessionId,
           // Only used when this publish creates the session.

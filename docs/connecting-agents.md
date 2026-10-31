@@ -107,7 +107,10 @@ watcher:
 
 On install it asks for your **Mockpit URL** (default `http://localhost:8228`, or
 your deployed instance) and an optional token. The monitor runs `mockpit watch`
-against your workspace; each reply is delivered to the agent exactly once.
+for the conversation's own session, so two agents in one repo never take each
+other's replies, and a reply wakes the agent even while it sits idle. Each reply
+is delivered exactly once. An installed `mockpit` (global, or a checkout on your
+`PATH`) is used before `npx`.
 Requires Claude Code ≥ 2.1.105. The plugin lives in [`../plugin/`](../plugin/).
 
 ## The design contract

@@ -471,9 +471,11 @@ export function summarizeReply(
   const tuned = Object.entries(reply.tuned).map(([k, v]) => `${k} ${fmtValue(v)}`);
   if (tuned.length) parts.push(`tuned ${tuned.join(", ")}`);
   const reacted = reply.comments.filter((c) => c.reaction).length;
-  const n = reply.comments.length - reacted;
+  const borrows = reply.comments.filter((c) => c.borrow).length;
+  const n = reply.comments.length - reacted - borrows;
   if (n) parts.push(`${n} comment${n === 1 ? "" : "s"}`);
   if (reacted) parts.push(`${reacted} reaction${reacted === 1 ? "" : "s"}`);
+  if (borrows) parts.push(borrows === 1 ? "a borrow" : `${borrows} borrows`);
   if (reply.verdict) parts.push(`${reply.verdict.kind} ${reply.verdict.variant}`);
   if (reply.text) parts.push(`“${reply.text}”`);
   return parts.length ? `Sent · ${parts.join(" · ")}` : "Sent";
@@ -759,7 +761,7 @@ export function threadRows(
       };
       if (reply?.comments.length) {
         row.comments = reply.comments.map((x) => ({
-          where: x.reaction ? reactionWhere(x) : commentWhere(x),
+          where: x.reaction || x.borrow ? reactionWhere(x) : commentWhere(x),
           text: commentText(x),
         }));
       }
@@ -1464,6 +1466,8 @@ export interface VersionStep extends VersionRef {
   prompt?: string;
   hidden: boolean;
   kinds: string[];
+  // The still of this version's page, which overviews show instead of it.
+  poster?: string;
   forkedFrom?: VersionRef;
 }
 
@@ -1472,13 +1476,25 @@ type StepSource = Pick<
   "postId" | "state" | "variant" | "version" | "updatedAt" | "history" | "surfaces" | "forkedFrom"
 >;
 
+const posterOfSurfaces = (surfaces: readonly object[]) => {
+  const page = surfaces.find((s) => "kind" in s && s.kind === "html");
+  return page && "poster" in page && typeof page.poster === "string" ? { poster: page.poster } : {};
+};
+
 export function versionSteps(variants: StepSource[], state: string | null): VersionStep[] {
   const rows = variants
     .filter((v) => v.state === state)
     .flatMap((v, order) => {
       const history = v.history?.length
         ? v.history
-        : [{ version: v.version, at: v.updatedAt, surfaceKinds: v.surfaces.map((x) => x.kind) }];
+        : [
+            {
+              version: v.version,
+              at: v.updatedAt,
+              surfaceKinds: v.surfaces.map((x) => x.kind),
+              ...posterOfSurfaces(v.surfaces),
+            },
+          ];
       return history.map((h) => ({
         order,
         step: {
@@ -1490,6 +1506,7 @@ export function versionSteps(variants: StepSource[], state: string | null): Vers
           ...("prompt" in h && h.prompt ? { prompt: h.prompt } : {}),
           hidden: "hidden" in h && h.hidden === true,
           kinds: h.surfaceKinds as string[],
+          ...("poster" in h && typeof h.poster === "string" ? { poster: h.poster } : {}),
           ...(v.forkedFrom ? { forkedFrom: v.forkedFrom } : {}),
         },
       }));
@@ -1625,6 +1642,7 @@ export interface ScreenPicture {
   version: number;
   embedsKey?: string;
   inUse: boolean;
+  poster?: string;
 }
 
 // What a screen (one state of a mock) looks like now: the version in use, else
@@ -1644,10 +1662,13 @@ export function screenPicture(
     );
   const v = used ?? newest(inState.filter((x) => isLive(x.status))) ?? newest(inState);
   if (!v || v.surface < 0) return null;
+  const version = used && use ? use.version : v.version;
+  const poster = version === v.version ? v.poster : v.inUsePoster;
   return {
     postId: v.postId,
     surface: v.surface,
-    version: used && use ? use.version : v.version,
+    version,
+    ...(poster ? { poster } : {}),
     ...(v.embedsKey ? { embedsKey: v.embedsKey } : {}),
     inUse: !!used,
   };

@@ -1,5 +1,5 @@
-// The one bar floating on the canvas: step out to every variant (Studio),
-// Revise (ask for a new version), step through the
+// The one bar floating on the canvas: step out (to Studio, or to every
+// situation side by side when there is one variant), Revise (ask for a new version), step through the
 // state's versions (the label opens the history and the thread), put the one
 // on stage in use, and the canvas tools.
 
@@ -9,8 +9,14 @@ import { Icon } from "./icons.tsx";
 import { neighbourStep, sameVersion, stepFor } from "./logic.ts";
 import type { MockScreenState } from "./state.ts";
 
-export function VersionBar(props: { s: MockScreenState; variants: number; onStudio: () => void }) {
+export function VersionBar(props: {
+  s: MockScreenState;
+  variants: number;
+  studio: boolean;
+  onStudio: () => void;
+}) {
   const s = props.s;
+  const sits = () => s.situations().length;
   const step = () => s.stageStep();
   const name = () => {
     const st = step();
@@ -45,17 +51,37 @@ export function VersionBar(props: { s: MockScreenState; variants: number; onStud
   );
   return (
     <div class="vbar" role="toolbar" aria-label="Versions and tools">
-      <Show when={props.variants > 1}>
+      <Show
+        when={props.studio}
+        fallback={
+          <Show when={sits() > 1}>
+            <button
+              type="button"
+              class="btn vall"
+              classList={{ on: s.allSituations() }}
+              aria-pressed={s.allSituations()}
+              aria-label={`${sits()} situations`}
+              title="See every situation side by side"
+              onClick={() => s.setAllSituations(!s.allSituations())}
+            >
+              <Icon name="grid" />
+              <span>{sits()}</span>
+              <span class="lbl">situations</span>
+            </button>
+            <span class="vsep" />
+          </Show>
+        }
+      >
         <button
           type="button"
           class="btn vall"
-          aria-label={`${props.variants} variants`}
+          aria-label={`${props.variants} ${props.variants === 1 ? "variant" : "variants"}`}
           title="See every variant side by side"
           onClick={() => props.onStudio()}
         >
           <Icon name="studio" />
           <span>{props.variants}</span>
-          <span class="lbl">variants</span>
+          <span class="lbl">{props.variants === 1 ? "variant" : "variants"}</span>
         </button>
         <span class="vsep" />
       </Show>
@@ -144,19 +170,6 @@ export function VersionBar(props: { s: MockScreenState; variants: number; onStud
       </Show>
       <span class="vsep" />
       <div class="tools">
-        <Show when={s.situations().length > 1}>
-          <button
-            type="button"
-            class="ib tool"
-            classList={{ on: s.allSituations() }}
-            aria-pressed={s.allSituations()}
-            aria-label="Every situation side by side"
-            title="Every situation side by side"
-            onClick={() => s.setAllSituations(!s.allSituations())}
-          >
-            <Icon name="grid" />
-          </button>
-        </Show>
         {tool("try", "Try", "Try: use the design as a prototype")}
         <Show when={!readonly()}>
           {tool("mark", "Comment", "Comment: tap the design to leave a comment there")}

@@ -45,6 +45,32 @@ export const hydratedSurfaceView = (surface: Surface, index: number) => {
   return view;
 };
 
+// The still overviews show for a version: its html page's poster.
+const pagePoster = (surfaces: Surface[]) => {
+  const page = surfaces.find((s) => s.kind === "html");
+  return page?.kind === "html" ? page.poster : undefined;
+};
+const posterOf = (surfaces: Surface[]) => {
+  const poster = pagePoster(surfaces);
+  return poster ? { poster } : {};
+};
+
+// The poster of one version of a variant: what Home shows for it.
+const posterAt = (post: Post, version: number) =>
+  pagePoster(
+    (version === post.version
+      ? post.surfaces
+      : post.history.find((h) => h.version === version)?.surfaces) ?? [],
+  );
+
+// The in-use version's poster, when Home shows an older version than the
+// newest.
+const inUsePoster = (p: Post) => {
+  if (p.acceptedVersion === undefined || p.acceptedVersion === p.version) return {};
+  const poster = posterAt(p, p.acceptedVersion);
+  return poster ? { inUsePoster: poster } : {};
+};
+
 // One past version without its bodies: enough to list versions or pick one to
 // fetch, at a bounded cost.
 export const historyMetaView = (version: PostVersion) => ({
@@ -55,6 +81,7 @@ export const historyMetaView = (version: PostVersion) => ({
   ...(version.prompt ? { prompt: version.prompt } : {}),
   ...(version.author === undefined ? {} : { author: version.author }),
   surfaceKinds: version.surfaces.map((s) => s.kind),
+  ...posterOf(version.surfaces),
 });
 
 export interface VariantViewOptions {
@@ -173,7 +200,9 @@ function thumbnail(mock: Mock, posts: Post[]) {
     posts[0];
   if (!pick) return null;
   const surface = pick.surfaces.findIndex((s) => isSandboxedSurfaceKind(s.kind));
-  return { postId: pick.id, surface: Math.max(surface, 0), version: inUseVersion(pick) };
+  const version = inUseVersion(pick);
+  const poster = posterAt(pick, version);
+  return { postId: pick.id, surface: Math.max(surface, 0), version, ...(poster ? { poster } : {}) };
 }
 
 // A mock's situations, only once it has any, so the views of mocks without
@@ -277,6 +306,8 @@ export const treeNodeView = (
     version: p.version,
     updatedAt: p.updatedAt,
     surface: p.surfaces.findIndex((x) => isSandboxedSurfaceKind(x.kind)),
+    ...posterOf(p.surfaces),
+    ...inUsePoster(p),
     ...(p.note ? { note: p.note } : {}),
     ...(p.forkedFrom ? { forkedFrom: p.forkedFrom } : {}),
     ...(p.starred ? { starred: true } : {}),

@@ -2,11 +2,13 @@
 // version on top, for exploring before anything is in use. Opening a version
 // zooms back in to Stage. A fork with a single version hangs under the version
 // it came from (a riff) until it has a second, then it is a column of its own.
-// Each steer (more like this, a comment, a borrow) is its own reply.
+// Each steer (more like this, a comment, a borrow) is its own reply. A moment
+// with situations shows one at a time; a variant not drawn in that one keeps
+// its column, empty, so the columns never move under the switch.
 
 import { isLive } from "../../server/types.ts";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { surfaceUrl, type VariantView } from "./api.ts";
+import { assetUrl, surfaceUrl, type VariantView } from "./api.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { sameVersion, type VersionStep } from "./logic.ts";
@@ -18,7 +20,13 @@ import { Thumb } from "./Thumb.tsx";
 // version past the budget waits as a placeholder until it is pointed at.
 const LIVE_MAX = 16;
 
-// A poster image, when the version carries one, is cheaper than its page.
+// The agent's still of the page: an image costs no live frame, so it is
+// always shown and never counts against the budget.
+const Poster = (props: { id: string }) => (
+  <img class="sk-poster" src={assetUrl(props.id)} alt="" loading="lazy" decoding="async" />
+);
+
+// Without a poster, an image surface is still cheaper than the page.
 function pictureOf(st: VersionStep): string | null {
   const i = st.kinds.includes("image") ? st.kinds.indexOf("image") : st.kinds.indexOf("html");
   return i < 0 ? null : surfaceUrl(st.postId, i, { version: st.version, mode: theme() });
@@ -35,6 +43,31 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
       .filter((st) => st.variant === variant)
       .reverse();
   const live = (v: VariantView) => isLive(v.status);
+  const here = (v: VariantView) => v.state === s.activeState();
+  // One view per variant across the moment, in the order the situations name
+  // them, so a switch keeps every column in place.
+  const pool = createMemo(() => {
+    const sits = s.situations();
+    if (!sits.length) return inState();
+    const inMoment = (v: VariantView) => sits.some((x) => x.state === v.state);
+    const names = [
+      ...new Set(
+        s
+          .variants()
+          .filter(inMoment)
+          .map((v) => v.variant),
+      ),
+    ];
+    return names.flatMap((n) => {
+      const v =
+        inState().find((p) => p.variant === n) ??
+        s.variants().find((p) => p.variant === n && live(p) && inMoment(p));
+      return v ? [v] : [];
+    });
+  });
+  const countIn = (state: string) =>
+    s.variants().filter((v) => v.state === state && live(v)).length;
+  const situationName = () => s.situations().find((x) => x.state === s.activeState())?.name ?? "";
   const isRiff = (v: VariantView) =>
     !!v.forkedFrom &&
     live(v) &&
@@ -43,7 +76,9 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
   // Roots in the order they were made, each followed by the forks that grew
   // into columns of their own.
   const columns = createMemo(() => {
-    const vs = inState().filter((v) => live(v) && !isRiff(v) && versionsOf(v.variant).length);
+    const vs = pool().filter(
+      (v) => live(v) && !isRiff(v) && (!here(v) || versionsOf(v.variant).length),
+    );
     const out: VariantView[] = [];
     const visit = (v: VariantView) => {
       if (out.includes(v)) return;
@@ -179,6 +214,27 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
           </div>
         )}
       </Show>
+      <Show when={s.situations().length > 1}>
+        <div class="studio-sits" role="radiogroup" aria-label="Situation">
+          <For each={s.situations()}>
+            {(x) => (
+              <button
+                type="button"
+                role="radio"
+                aria-checked={x.state === s.activeState()}
+                onClick={() => {
+                  setBorrowFrom(null);
+                  setWriting(null);
+                  if (x.state !== s.activeState()) s.showState(x.state);
+                }}
+              >
+                {x.name}
+                <span class="n">{countIn(x.state)}</span>
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
       <div class="studio-cols">
         <For each={columns()}>
           {(v) => (
@@ -189,18 +245,23 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
                   {(f) => <span class="studio-from">{`from ${f().variant}`}</span>}
                 </Show>
               </header>
-              <For each={versionsOf(v.variant)}>
-                {(st) => (
-                  <>
-                    {card(st)}
-                    <Show when={riffsOf(st).length}>
-                      <div class="studio-riffs">
-                        <For each={riffsOf(st)}>{(r) => card(r, true)}</For>
-                      </div>
-                    </Show>
-                  </>
-                )}
-              </For>
+              <Show
+                when={here(v)}
+                fallback={<div class="studio-hole">{`No ${situationName()} yet`}</div>}
+              >
+                <For each={versionsOf(v.variant)}>
+                  {(st) => (
+                    <>
+                      {card(st)}
+                      <Show when={riffsOf(st).length}>
+                        <div class="studio-riffs">
+                          <For each={riffsOf(st)}>{(r) => card(r, true)}</For>
+                        </div>
+                      </Show>
+                    </>
+                  )}
+                </For>
+              </Show>
             </section>
           )}
         </For>
@@ -221,8 +282,15 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
                 return (
                   <div class="arch-row">
                     <span class="arch-th">
-                      <Show when={archivedOpen() && st() && pictureOf(st())}>
-                        {(u) => <Thumb src={u()} width={s.frameW()} fit whole />}
+                      <Show
+                        when={st()?.poster}
+                        fallback={
+                          <Show when={archivedOpen() && st() && pictureOf(st())}>
+                            {(u) => <Thumb src={u()} width={s.frameW()} fit whole />}
+                          </Show>
+                        }
+                      >
+                        {(p) => <Poster id={p()} />}
                       </Show>
                     </span>
                     <span class="arch-nm">{v.variant}</span>
@@ -302,8 +370,15 @@ function Sketch(props: {
         onClick={() => (props.borrowing ? props.act.pick(st()) : props.act.open(st()))}
         onFocus={() => !props.live && props.onWake()}
       >
-        <Show when={props.live && src()}>
-          {(u) => <Thumb src={u()} width={s.frameW()} fit whole />}
+        <Show
+          when={st().poster}
+          fallback={
+            <Show when={props.live && src()}>
+              {(u) => <Thumb src={u()} width={s.frameW()} fit whole />}
+            </Show>
+          }
+        >
+          {(p) => <Poster id={p()} />}
         </Show>
       </button>
       <Show when={!props.small}>
@@ -377,12 +452,15 @@ function NoteBox(props: { s: MockScreenState; draft: Draft; onDone: () => void }
     const f = from();
     const what = text().trim();
     if (!f && !what) return;
-    const body = f
-      ? `Borrow ${part() ? `the ${part()}` : what || "what works"} from ${s.nameOf(f)} into this.${part() && what ? ` ${what}` : ""}`
-      : what;
     const sent = f ? `Borrow into ${s.nameOf(to())}, sent` : `Comment on ${s.nameOf(to())}, sent`;
     void s
-      .steer({ variant: to().variant, version: to().version, part: f ? null : part(), text: body })
+      .steer({
+        variant: to().variant,
+        version: to().version,
+        part: f ? null : part(),
+        text: what,
+        ...(f ? { borrow: { from: f, ...(part() ? { part: part()! } : {}) } } : {}),
+      })
       .then((ok) => ok && s.setToast({ text: sent }));
     props.onDone();
   };

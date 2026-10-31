@@ -27,7 +27,7 @@ import {
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import type { FlowStep, MockKind } from "../../server/types.ts";
-import { api, type MockSummary, subscribe, surfaceUrl, type TreeNode } from "./api.ts";
+import { api, assetUrl, type MockSummary, subscribe, surfaceUrl, type TreeNode } from "./api.ts";
 import { CardMenu } from "./CardMenu.tsx";
 import { setCarried } from "./carry.ts";
 import { useSwipeAction } from "./gestures.ts";
@@ -833,16 +833,32 @@ function Screen(props: {
       <span class="home-pic">
         <Show when={pic()}>
           {(p) => (
-            <Thumb
-              src={surfaceUrl(p().postId, p().surface, {
-                version: p().version,
-                mode: theme(),
-                e: p().embedsKey,
-              })}
-              width={designWidth(props.node)}
-              fit={whole()}
-              whole={whole()}
-            />
+            <Show
+              when={p().poster}
+              fallback={
+                <Thumb
+                  src={surfaceUrl(p().postId, p().surface, {
+                    version: p().version,
+                    mode: theme(),
+                    e: p().embedsKey,
+                  })}
+                  width={designWidth(props.node)}
+                  fit={whole()}
+                  whole={whole()}
+                />
+              }
+            >
+              {(id) => (
+                <img
+                  class="home-poster"
+                  classList={{ whole: whole() }}
+                  src={assetUrl(id())}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                />
+              )}
+            </Show>
           )}
         </Show>
         <Show
@@ -928,9 +944,27 @@ function MockRow(props: {
           <div class="home-thumb">
             <Show when={thumb()}>
               {(t) => (
-                <Thumb
-                  src={surfaceUrl(t().postId, t().surface, { version: t().version, mode: theme() })}
-                />
+                <Show
+                  when={t().poster}
+                  fallback={
+                    <Thumb
+                      src={surfaceUrl(t().postId, t().surface, {
+                        version: t().version,
+                        mode: theme(),
+                      })}
+                    />
+                  }
+                >
+                  {(id) => (
+                    <img
+                      class="home-poster"
+                      src={assetUrl(id())}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  )}
+                </Show>
               )}
             </Show>
           </div>

@@ -79,7 +79,18 @@ const SHOWN: Record<Reaction, string> = { up: "👍", down: "👎", more: "More 
 
 // A comment as the thread lists it under a Send: a reaction reads as its mark.
 export const commentText = (c: PartComment): string =>
-  c.reaction ? `${SHOWN[c.reaction]}${c.text ? ` · ${c.text}` : ""}` : c.text;
+  c.reaction
+    ? `${SHOWN[c.reaction]}${c.text ? ` · ${c.text}` : ""}`
+    : c.borrow
+      ? `Borrow ${c.borrow.part ? `the ${c.borrow.part} ` : ""}from ${borrowSource(c.borrow.from)}${c.text ? ` · ${c.text}` : ""}`
+      : c.text;
+
+// "felt@2" as the viewer names a version: "Felt #2".
+const borrowSource = (from: string) => {
+  const at = from.lastIndexOf("@");
+  const variant = at > 0 ? from.slice(0, at) : from;
+  return `${variant.charAt(0).toUpperCase()}${variant.slice(1)}${at > 0 ? ` #${from.slice(at + 1)}` : ""}`;
+};
 
 // Where a reaction was left: its part (if any), the variant, the state.
 export const reactionWhere = (c: PartComment): string =>

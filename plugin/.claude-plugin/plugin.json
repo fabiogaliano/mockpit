@@ -3,7 +3,7 @@
   "name": "mockpit",
   "displayName": "mockpit",
   "version": "0.1.0",
-  "description": "Publish design mocks (states, variants, asks, knobs) to mockpit over MCP, and stream the user's batched replies back to Claude Code as notifications.",
+  "description": "Publish design mocks (states, variants, questions, knobs) to mockpit over MCP, and wake Claude Code the moment the user sends a reply from the browser.",
   "author": { "name": "Fábio Galiano" },
   "homepage": "https://github.com/fabiogaliano/mockpit",
   "repository": "https://github.com/fabiogaliano/mockpit",
@@ -12,8 +12,11 @@
   "skills": "./skills/",
   "mcpServers": {
     "mockpit": {
-      "command": "npx",
-      "args": ["-y", "mockpit", "mcp"],
+      "command": "sh",
+      "args": [
+        "-c",
+        "command -v mockpit >/dev/null 2>&1 && exec mockpit mcp || exec npx -y mockpit mcp"
+      ],
       "env": {
         "MOCKPIT_URL": "${user_config.mockpitUrl}",
         "MOCKPIT_TOKEN": "${user_config.apiToken}"

@@ -163,6 +163,24 @@ async function ensureSession(title?: string): Promise<string> {
   return sessionId;
 }
 
+// A poster may name an image file: it travels as an upload, never as bytes in
+// the model's context. Anything else goes through as the asset id it is.
+async function posterId(value: unknown, session: string): Promise<unknown> {
+  if (typeof value !== "string") return value;
+  try {
+    if (!statSync(value).isFile()) return value;
+  } catch {
+    return value;
+  }
+  const asset = await post("/api/assets", {
+    data: readFileSync(value, "base64"),
+    contentType: contentTypeForPath(value),
+    filename: value.split(/[\\/]/).pop(),
+    session,
+  });
+  return asset.id;
+}
+
 // Every tool is a pass-through to the REST route the CLI uses, mapped the way
 // server/mcpHttp.ts maps HTTP MCP: same request, same response, so the tiers
 // cannot drift. Only the session (one per conversation), the project (this
@@ -176,6 +194,7 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
       html,
       parts: readPartFiles(args.parts),
       fills: readPartFiles(args.fills),
+      poster: await posterId(args.poster, session),
       session,
       agent: AGENT,
       project: resolveProject(args.project),

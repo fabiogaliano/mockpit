@@ -511,6 +511,19 @@ button.home-count[aria-expanded="true"] {
   width: 100%;
   height: 100%;
 }
+/* A poster reads like the page's thumbnail: its top at the tile's width, or
+   the whole of it where the tile shows a component whole. */
+.home-poster {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+}
+.home-poster.whole {
+  object-fit: contain;
+  object-position: center;
+}
 .home-pic .mk {
   top: 6px;
   right: 6px;
@@ -4182,6 +4195,51 @@ html:has(.mock-screen) {
   overflow: auto;
   padding: 4px 20px 120px;
 }
+/* Sticky to the left edge so the switch stays put while the columns scroll. */
+.studio-sits {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  gap: 2px;
+  width: max-content;
+  margin: 8px 0 4px -10px;
+}
+.studio-sits button {
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: var(--t4);
+  font-size: 13px;
+  transition:
+    background var(--ease),
+    color var(--ease);
+}
+.studio-sits button[aria-checked="true"] {
+  background: var(--row);
+  color: var(--t1);
+}
+@media (hover: hover) {
+  .studio-sits button:hover {
+    color: var(--t1);
+  }
+}
+.studio-sits .n {
+  margin-inline-start: 6px;
+  color: var(--t5);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.studio-hole {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  padding: 0 18px;
+  border: 1px dashed var(--edge);
+  border-radius: 14px;
+  color: var(--t5);
+  font-size: 12px;
+  text-align: center;
+}
 .studio-cols {
   display: flex;
   gap: 20px;
@@ -4237,6 +4295,12 @@ html:has(.mock-screen) {
 .sk-art .thumb {
   width: 100%;
   height: 100%;
+}
+.sk-poster {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 .sk-foot {
   display: flex;

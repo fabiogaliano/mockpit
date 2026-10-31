@@ -7,7 +7,7 @@
     {
       "name": "mockpit",
       "source": "./plugin",
-      "description": "Publish design items and variants to mockpit over MCP (publish_item, revise_item, ask_user, list_items, get_item, export_item, wait_for_feedback, get_design_guide); stream the user's comments and decisions back to Claude Code as notifications.",
+      "description": "Publish design mocks (states, variants, questions, knobs) to mockpit over MCP, and wake Claude Code the moment the user sends a reply from the browser.",
       "category": "Integrations",
       "keywords": ["mockpit", "design", "visualization", "feedback", "mcp"]
     }

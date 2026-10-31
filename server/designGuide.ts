@@ -289,7 +289,10 @@ side notes, labels or rationale beside it (they shrink the design on a phone).
 Say what a variant is in \`--note "System font, thin bars; feels like a tool"\`;
 the viewer shows it on the variant and its option. Name the widths the user
 ships to once, \`--widths 390,1280\`, and the design is shown at each, side by
-side; without them the viewer picks one for the screen it is on.
+side; without them the viewer picks one for the screen it is on. A page that
+draws on a canvas (3D, WebGL) runs live in every overview card: send a still of
+it with each version, \`--poster shot.png\` (MCP \`poster\`), and Studio and Home
+show that instead.
 
 ## Structure only when the work has it
 
@@ -352,7 +355,9 @@ borrowed, comments, reactions, verdict, text}, messages, inUse, archived}\`. In
 order: answers decide structure (a variant answer already put it in use); tuned
 values become defaults; \`borrowed\` names a part to take from another variant
 (if it conflicts with an answer, the answer wins); address each comment and
-reaction on its part; \`verdict\` (use, revise) replaces answers when there were
+reaction on its part (a comment's \`borrow\` asks for a new version taking a part
+from another; "more like this" asks for 2–3 variants forked from it);
+\`verdict\` (use, revise) replaces answers when there were
 no questions; \`decisions\` is the state as chosen: variant, then each part's
 fill, nested; \`messages\` are what the user wrote in the thread. Each Send
 arrives exactly once: in a write's \`feedback\`, \`mockpit feedback\` or a

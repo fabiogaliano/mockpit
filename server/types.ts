@@ -115,6 +115,9 @@ export interface HtmlSurface {
   // Opt-in style/behavior bundles (see kits.ts). The sandbox doc gets each
   // listed kit's CSS/JS injected after the base kit; omit for plain html.
   kits?: string[];
+  // An uploaded still of this page, by asset id. Overviews (Studio, Home)
+  // show it instead of running the page; Stage always runs the page.
+  poster?: string;
 }
 
 // A markdown surface is prose — explanations, plans, tradeoff write-ups. The
@@ -438,6 +441,10 @@ export interface PartComment {
   // The version it is about, when that is not simply the latest: Studio
   // shows every version side by side, so a reaction can point at an older one.
   version?: number;
+  // A Studio steer: make a new version of this one (variant@version) that takes
+  // a part from another, `from` as agents write it ("felt@2"). `part` only when
+  // the user picked a declared one; otherwise `text` says what to take.
+  borrow?: { from: string; part?: string };
 }
 
 // What a reply says about one variant outside the ask flow: the user's Use this
@@ -1292,7 +1299,7 @@ export function summarizeProjects(
 export function surfacesByteLength(surfaces: Surface[]): number {
   let n = 0;
   for (const p of surfaces) {
-    if (p.kind === "html") n += p.html.length;
+    if (p.kind === "html") n += p.html.length + (p.poster?.length ?? 0);
     else if (p.kind === "diff") {
       n += p.patch?.length ?? 0;
       for (const f of p.files ?? []) n += f.before.length + f.after.length;
@@ -1314,13 +1321,15 @@ export function surfacesByteLength(surfaces: Surface[]): number {
   return n;
 }
 
-// Collect the asset ids an ordered surfaces list references (image surfaces).
+// Collect the asset ids an ordered surfaces list references (image surfaces
+// and html posters).
 // Used to keep referenced assets out of eviction's first wave. Assets embedded
 // by raw URL inside html markup are invisible here — touch-on-serve keeps those
 // warm instead.
 export function collectAssetIds(surfaces: Surface[], out: Set<string>): void {
   for (const p of surfaces) {
     if (p.kind === "image") out.add(p.assetId);
+    else if (p.kind === "html" && p.poster) out.add(p.poster);
   }
 }
 

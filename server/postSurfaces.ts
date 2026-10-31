@@ -96,17 +96,20 @@ const strictHtmlSurface = z.object({
   kind: z.literal("html"),
   html: requiredString("html"),
   kits: z.array(z.string()).optional(),
+  poster: z.string().min(1).optional(),
 });
 const looseHtmlSurface = z
   .object({
     kind: z.literal("html"),
     html: requiredString("html"),
     kits: z.unknown().optional(),
+    poster: optionalLooseString,
   })
   .transform((p) => ({
     kind: "html" as const,
     html: p.html,
     ...(Array.isArray(p.kits) ? { kits: p.kits.filter((k) => typeof k === "string") } : {}),
+    ...(p.poster ? { poster: p.poster } : {}),
   }));
 
 /** The project kit ids a write may name on top of the bundled ones. */

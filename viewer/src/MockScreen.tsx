@@ -68,6 +68,19 @@ export function MockScreen(props: {
   };
   const liveVariants = () =>
     s.variants().filter((v) => v.state === s.activeState() && isLive(v.status)).length;
+  // Studio shows the whole moment, so a variant drawn only in another of its
+  // situations still makes it worth stepping out to.
+  const momentVariants = () => {
+    const sits = s.situations();
+    const inMoment = (state: string | null) =>
+      sits.length ? sits.some((x) => x.state === state) : state === s.activeState();
+    return new Set(
+      s
+        .variants()
+        .filter((v) => inMoment(v.state) && isLive(v.status))
+        .map((v) => v.variant),
+    ).size;
+  };
   const owes = () =>
     s
       .questions()
@@ -273,6 +286,7 @@ export function MockScreen(props: {
             <VersionBar
               s={s}
               variants={liveVariants()}
+              studio={momentVariants() > 1}
               onStudio={() => {
                 s.setDrawer(false);
                 setView("studio");

@@ -434,6 +434,15 @@ const MAX_DRAFT_COMMENTS = 50;
 // A title that names a step of the agent's process instead of what the mock
 // is: it reads as noise on Home, where titles are seen out of context.
 const PROCESS_TITLE = /^\s*(round\s*\d+|flow\s*\d+\s*[·:\-–—]|v\d+\b|prototype\b)/i;
+// Once, on a variant's first version: a canvas page runs live in every
+// overview card, and a browser holds only about 16 WebGL contexts.
+const posterNudges = (surfaces: Surface[]): string[] =>
+  surfaces.some((s) => s.kind === "html" && !s.poster && /<canvas[\s>]/i.test(s.html))
+    ? [
+        "this page draws on a <canvas> and has no poster, so Studio and Home run it live; send a still of it as poster (upload the image, or CLI --poster shot.png) with each version",
+      ]
+    : [];
+
 const titleNudges = (title: string | undefined): string[] =>
   title && PROCESS_TITLE.test(title)
     ? [
@@ -1047,6 +1056,48 @@ export function createApp({
     issues: failure.issues,
   });
 
+  // A poster is a still of the html beside it. Carried over unchanged onto
+  // changed html (a parts or fills splice, a fork with edits) it would show an
+  // old page, so it goes unless the write brings one; `poster` names the still
+  // of the page this write produces.
+  async function withPoster(
+    surfaces: Surface[],
+    before: Surface[] | null,
+    poster: unknown,
+  ): Promise<Surface[] | FlowResult> {
+    const given = poster === undefined ? undefined : str(poster, MAX_LABEL);
+    if (poster !== undefined && !given) {
+      return fail(400, '"poster" must be the asset id of an uploaded image');
+    }
+    const pagesBefore = (before ?? []).filter((s) => s.kind === "html");
+    let ordinal = 0;
+    const out = surfaces.map((s) => {
+      if (s.kind !== "html") return s;
+      const old =
+        (s.id !== undefined && pagesBefore.find((b) => b.id === s.id)) || pagesBefore[ordinal];
+      let next: Surface = s;
+      if (s.poster && old?.kind === "html" && old.html !== s.html && old.poster === s.poster) {
+        const { poster: _stale, ...rest } = s;
+        next = rest;
+      }
+      if (ordinal === 0 && given) next = { ...next, poster: given };
+      ordinal++;
+      return next;
+    });
+    if (given && ordinal === 0)
+      return fail(400, '"poster" needs an html surface to be the still of');
+    for (const s of out) {
+      if (s.kind !== "html" || !s.poster) continue;
+      const asset = await store.getAsset(s.poster);
+      if (!asset)
+        return fail(404, `poster "${s.poster}" is not an uploaded asset; upload the image first`);
+      if (!asset.contentType.startsWith("image/")) {
+        return fail(400, `poster "${s.poster}" is ${asset.contentType}, not an image`);
+      }
+    }
+    return out;
+  }
+
   function checkSurfaces(surfaces: Surface[]): FlowResult | null {
     if (surfaces.length === 0) return fail(400, "a variant needs at least one surface");
     if (surfacesByteLength(surfaces) > MAX_SURFACE_BYTES) {
@@ -1603,11 +1654,16 @@ export function createApp({
       if (isResult(parsed)) return parsed;
       surfaces = parsed;
     }
+    const before = base();
+    const postered = await withPoster(surfaces, isResult(before) ? null : before, body.poster);
+    if (isResult(postered)) return postered;
+    surfaces = postered;
     const bad = checkSurfaces(surfaces);
     if (bad) return bad;
     const nudges = [
       ...knobNudges({ ...knobs.value, ...variantKnobs.value }),
       ...titleNudges(title),
+      ...(target ? [] : posterNudges(surfaces)),
     ];
     const embeds = await publishEmbeds(project, slug, surfaces);
     if (isResult(embeds)) return embeds;
@@ -2327,7 +2383,8 @@ export function createApp({
       if (reaction !== undefined && !(REACTIONS as readonly unknown[]).includes(reaction))
         return `reaction must be one of ${REACTIONS.join(", ")}`;
       const text = str(c?.text, MAX_COMMENT_TEXT);
-      if (!text && !reaction) return "every comment needs text";
+      const borrowIn = c?.borrow;
+      if (!text && !reaction && !borrowIn) return "every comment needs text";
       const state = stateArg(c.state) ?? null;
       if (state !== null && !mock.states.includes(state))
         return `${mock.slug} has no state "${state}"`;
@@ -2342,6 +2399,17 @@ export function createApp({
         (!post || !Number.isInteger(version) || version < 1 || version > post.version)
       )
         return `${mock.slug} has no version ${String(version)}${variant ? ` of "${variant}"` : ""}`;
+      let borrow: PartComment["borrow"];
+      if (borrowIn !== undefined) {
+        const from = str(borrowIn?.from, 240);
+        const at = from ? /^(.+)@(\d+)$/.exec(from) : null;
+        const source = at && posts.find((p) => p.variant === at[1] && p.state === state);
+        if (!at || !source || Number(at[2]) < 1 || Number(at[2]) > source.version)
+          return `borrow.from must be variant@version of "${mock.slug}"${state ? ` in "${state}"` : ""}`;
+        if (!post || version === undefined) return "a borrow names the version it goes into";
+        const borrowed = str(borrowIn?.part, 200);
+        borrow = { from: at[0], ...(borrowed ? { part: borrowed } : {}) };
+      }
       const a = c.anchor && typeof c.anchor === "object" ? c.anchor : null;
       const anchor = a ? sanitizePartAnchor(a) : undefined;
       const next: PartComment = {
@@ -2352,6 +2420,7 @@ export function createApp({
         ...(reaction ? { reaction: reaction as Reaction } : {}),
         ...(variant ? { variant } : {}),
         ...(version !== undefined ? { version: version as number } : {}),
+        ...(borrow ? { borrow } : {}),
       };
       // One reaction per target: a later tap on the same part replaces the earlier one.
       if (reaction) {
@@ -3996,6 +4065,16 @@ export function createApp({
   // --- sessions ---
 
   app.get("/api/sessions", async (c) => {
+    // A watcher started with every conversation finds that conversation's
+    // session without creating one, and never mistakes a sibling's in the same
+    // repo for its own.
+    const key = c.req.query("key");
+    if (key !== undefined) {
+      const session = key ? await store.getSessionByKey(key) : null;
+      if (!session) return c.json([]);
+      const posts = await store.listPosts({ sessionId: session.id });
+      return c.json([sessionRowView(session, posts.length)]);
+    }
     const [sessions, counts] = await Promise.all([
       store.listSessions(),
       store.countPostsBySession(),

@@ -5,6 +5,7 @@ A variant version is an ordered list of surfaces. Each has a `kind`:
 ```
 { "kind": "html", "html": "<p>...</p>" }
 { "kind": "html", "html": "<ul class=\"tree\">…</ul>", "kits": ["issues"] }
+{ "kind": "html", "html": "<canvas>…</canvas>", "poster": "<id from an upload>" }
 { "kind": "markdown", "markdown": "## Plan\n\n1. …" }
 { "kind": "mermaid", "mermaid": "flowchart TD; A[Start] --> B{Ok?}" }
 { "kind": "diff", "patch": "<unified or git diff text>", "layout": "split" }
@@ -100,6 +101,24 @@ An asset's id is the SHA-256 of its bytes. You can derive the URL locally
 upload finishes; the viewer waits briefly for an in-flight asset. Identical
 bytes dedupe. An asset lives as long as something references it. The limit is
 5 MB per asset.
+
+## Posters
+
+A heavy page (3D, WebGL, a running canvas) costs a live frame in every
+overview card, and a browser holds only about 16. Send a still of it as the
+html's `poster`, and Studio and Home show the picture; Stage still runs the
+page.
+
+```
+CLI  mockpit publish --mock onni --variant felt --html felt.html --poster felt.png
+MCP  publish { mock, variant, html, poster: "<asset id, or an image path on stdio>" }
+HTTP POST /api/mocks { …, "html": "…", "poster": "<asset id>" }
+```
+
+Render it yourself (a headless screenshot of the page) at the moment that
+shows the design best. A poster belongs to the html it was taken of: a
+version that changes the page without a new one (`--parts`, `--fills`, a fork
+with edits) drops it, so send one with each.
 
 ## What the user sees
 

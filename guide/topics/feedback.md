@@ -98,10 +98,15 @@ taking any feedback.
    that part from the other variant into the chosen one. If a borrow conflicts
    with an answer, the answer wins.
 4. `comments` are anchored on a part in a state (`part: null` means no part).
-   Address each one. `reactions` are one-tap verdicts, one line each:
-   👍 keep it, 👎 rework it, "more like this" go further that way. A reaction
-   without a part is about the whole variant; one may end with the user's
-   note in quotes. Reactions never also appear in `comments`.
+   Address each one. A comment naming a `variant` and `version` is a steer on
+   that version: publish a new version of that variant. One with `borrow`
+   (`{from: "felt@2", part?}`) asks for a new version of it that takes a part
+   from `from`: the declared `part`, else what its `text` says ("the face").
+   `reactions` are one-tap verdicts, one line each: 👍 keep it, 👎 rework it.
+   "more like this" asks you to explore around that version: publish 2–3 new
+   variants forked from it (`fork: "felt@2"`), each a different step the same
+   way. A reaction without a part is about the whole variant; one may end
+   with the user's note in quotes. Reactions never also appear in `comments`.
 5. `verdict` (`{kind: use|revise, state, variant}`) is the user's word on one
    variant outside any question. `use` is their Use this, with the `version`
    now in use; `revise` is their Revise: publish another version of that
