@@ -43,6 +43,10 @@ for (const name of (await readdir(serverDir)).sort()) {
   if (/\.(ts|js)$/.test(name)) renderHash.update(await readFile(join(serverDir, name)));
 }
 renderHash.update(await readFile(join(root, "package-lock.json")).catch(() => pkgJson));
+// Browsers keep a version's document for a year, so a version changed outside
+// the API (a direct store edit) stays stale in them; a new salt on restart
+// re-fetches every document without touching code.
+renderHash.update(process.env.MOCKPIT_RENDER_SALT ?? "");
 const renderRev = renderHash.digest("hex").slice(0, 10);
 
 const pr = process.env.MOCKPIT_PUBLIC_READ;
