@@ -80,6 +80,7 @@ export const historyMetaView = (version: PostVersion) => ({
   ...(version.from === undefined ? {} : { from: version.from }),
   ...(version.prompt ? { prompt: version.prompt } : {}),
   ...(version.author === undefined ? {} : { author: version.author }),
+  ...(version.amendedAt ? { amendedAt: version.amendedAt } : {}),
   surfaceKinds: version.surfaces.map((s) => s.kind),
   ...posterOf(version.surfaces),
 });
@@ -114,6 +115,9 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
   ...(post.from === undefined ? {} : { from: post.from }),
   ...(post.prompt ? { prompt: post.prompt } : {}),
   ...(post.author === undefined ? {} : { author: post.author }),
+  ...(post.amendedAt ? { amendedAt: post.amendedAt } : {}),
+  // Frame URLs carry it (`w`): an amended version keeps its number.
+  ...(post.rewrites ? { rewrites: post.rewrites } : {}),
   // A part with fills is a select knob on its part (fills.ts); declared knobs win.
   ...(slotsInSurfaces(post.surfaces).length || post.knobs
     ? { knobs: { ...slotKnobs(slotsInSurfaces(post.surfaces)), ...post.knobs } }
@@ -144,6 +148,7 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
             ...(post.from === undefined ? {} : { from: post.from }),
             ...(post.prompt === undefined ? {} : { prompt: post.prompt }),
             ...(post.author === undefined ? {} : { author: post.author }),
+            ...(post.amendedAt ? { amendedAt: post.amendedAt } : {}),
           }),
           ...[...post.history].sort((a, b) => b.version - a.version).map(historyMetaView),
         ].map((row) =>
@@ -202,7 +207,13 @@ function thumbnail(mock: Mock, posts: Post[]) {
   const surface = pick.surfaces.findIndex((s) => isSandboxedSurfaceKind(s.kind));
   const version = inUseVersion(pick);
   const poster = posterAt(pick, version);
-  return { postId: pick.id, surface: Math.max(surface, 0), version, ...(poster ? { poster } : {}) };
+  return {
+    postId: pick.id,
+    surface: Math.max(surface, 0),
+    version,
+    ...(poster ? { poster } : {}),
+    ...(pick.rewrites ? { rewrites: pick.rewrites } : {}),
+  };
 }
 
 // A mock's situations, only once it has any, so the views of mocks without
@@ -305,6 +316,7 @@ export const treeNodeView = (
     status: variantStatus(p.status),
     version: p.version,
     updatedAt: p.updatedAt,
+    ...(p.rewrites ? { rewrites: p.rewrites } : {}),
     surface: p.surfaces.findIndex((x) => isSandboxedSurfaceKind(x.kind)),
     ...posterOf(p.surfaces),
     ...inUsePoster(p),

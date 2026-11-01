@@ -71,6 +71,9 @@ verbs:
       --source <path>   the code path that implements it
       --knobs <json|file>  knobs in tunekit usePane shape, keyed by path
       --from <N>        branch from version N
+      --amend           replace the latest version in place: a fix before the
+                        user has acted on it (one request, one version)
+      --withdraw        take the latest version back, under the same rule
       --prompt <text>   what prompted this version
       --note <text>     one line on what this variant is, shown beside it
       --widths <list>   device widths to show it at, e.g. 390,1280
@@ -187,7 +190,16 @@ mockpit icons remove <set> [<set>...]
 mockpit publish --mock <slug> --surfaces <json|file> [options]
 mockpit publish --mock <slug> --parts <name=file|-> ... [options]
 mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
+mockpit publish --mock <slug> [--state s] [--variant v] --withdraw
   Creates the mock, state or variant, or the next version of an existing one.
+  One request gets one version: fixes to it before the user acts use --amend.
+  --amend            replace the variant's latest version in place (same number)
+                     instead of adding one. Only from the session that published
+                     it, and only while the user hasn't acted on it (no Send,
+                     comment, draft answer, not in use)
+  --withdraw         take the variant's latest version back under the same
+                     rule: the version before it is current again, and a
+                     variant with no other version goes
   --state <label>    state in the user's words (omit for a single-state mock)
   --situation <s>    another render of that state ("Couldn't save", "Loading"),
                      after the state itself is published
@@ -343,7 +355,11 @@ async function api(path, init = {}, { report, fix } = {}) {
       (body.error ?? `${res.status} ${res.statusText}`) +
       (Array.isArray(choices) ? ` (${choices.join(", ")})` : "");
     const extra = issue?.message ?? issue?.code;
-    bail(extra && !main.includes(extra) ? `${main}: ${extra}` : main);
+    // The server's own fix, when it names one, beats the caller's generic hint.
+    bail(
+      extra && !main.includes(extra) ? `${main}: ${extra}` : main,
+      typeof body.fix === "string" ? body.fix : undefined,
+    );
   }
   return body;
 }
@@ -888,8 +904,13 @@ function printPublished(result, flags) {
   if (flags.quiet) return;
   const { mock, post } = result;
   const branch = post.from !== undefined && post.from !== post.version - 1;
+  const how = result.withdrawn
+    ? ` (v${result.withdrawn.version} withdrawn)`
+    : flags.amend
+      ? " (amended)"
+      : "";
   console.log(
-    `${mock.slug}/${stateLabel(post.state)}${post.variant} v${post.version}${branch && post.from ? ` (from v${post.from})` : ""} · ${result.url}`,
+    `${mock.slug}/${stateLabel(post.state)}${post.variant} v${post.version}${branch && post.from ? ` (from v${post.from})` : ""}${how} · ${result.url}`,
   );
   for (const { state, parts } of result.parts ?? []) {
     if (parts.length === 0) continue;
@@ -906,6 +927,34 @@ function printPublished(result, flags) {
   if (result.suggestedAsk)
     console.log(`suggested: ${suggestedAskLine(mock.slug, result.suggestedAsk)}`);
   for (const warning of result.warnings ?? []) console.log(`warning: ${warning}`);
+  printFeedback(result.feedback);
+}
+
+async function withdrawVersion(flags, slug, project) {
+  const session = await resolveSession(flags);
+  if (!session) die(`no session has published ${slug} from here`, `mockpit read ${slug}`);
+  const result = await api(
+    "/api/mocks",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        session,
+        project,
+        mock: slug,
+        state: flags.state,
+        variant: flags.variant,
+        withdraw: true,
+      }),
+    },
+    { report: "die", fix: `mockpit read ${slug} --history` },
+  );
+  if (!result.removed) return printPublished(result, flags);
+  if (flags.json) return out(result);
+  if (flags.quiet) return;
+  const w = result.withdrawn;
+  console.log(
+    `${slug}/${stateLabel(w.state)}${w.variant} v${w.version} withdrawn, variant removed · ${result.url}`,
+  );
   printFeedback(result.feedback);
 }
 
@@ -969,6 +1018,8 @@ function parsePublishFlags() {
       "session-title": { type: "string" },
       agent: { type: "string" },
       "new-session": { type: "boolean" },
+      amend: { type: "boolean" },
+      withdraw: { type: "boolean" },
     },
   });
 }
@@ -1011,6 +1062,7 @@ async function publishMock() {
   if (from !== undefined && !Number.isInteger(from)) {
     die(`--from must be a version number (got "${flags.from}")`, `mockpit read ${slug} --history`);
   }
+  if (flags.withdraw) return withdrawVersion(flags, slug, project);
   const step = flags.step === undefined ? undefined : Number(flags.step);
   if (step !== undefined && !(Number.isInteger(step) && step >= 0)) {
     die(
@@ -1091,6 +1143,7 @@ async function publishMock() {
     ...(parts && { parts }),
     ...(fills && { fills }),
     ...(poster && { poster }),
+    ...(flags.amend && { amend: true }),
   };
   const result = await api(
     "/api/mocks",

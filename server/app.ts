@@ -94,6 +94,7 @@ import {
   type AssetKind,
   builtinAsk,
   builtinAskIds,
+  BUILTIN_ASK_ID,
   type CodeSurface,
   type Comment,
   type CommentAnchor,
@@ -416,6 +417,8 @@ const fail = (status: number, error: string, extra: Record<string, unknown> = {}
 });
 
 const MAX_NOTE = 400;
+// How soon a second version of the same variant reads as a fix to the first.
+const AMEND_WINDOW_MS = 5 * 60_000;
 const MAX_SOURCE = 1024;
 const MAX_WIDTHS = 4;
 const MIN_WIDTH = 280;
@@ -1158,7 +1161,14 @@ export function createApp({
         version,
         html: slots.length ? composeFills(body.html, chosenFills(slots, settled)) : body.html,
         attrs: knobAttributes(rest).attrs,
-        ...(Object.keys(settled).length ? { stamp: JSON.stringify(settled) } : {}),
+        // A rewritten component version keeps its number; its pages re-render on it.
+        ...(Object.keys(settled).length || post.rewrites
+          ? {
+              stamp:
+                (Object.keys(settled).length ? JSON.stringify(settled) : "") +
+                (post.rewrites ? `~${post.rewrites}` : ""),
+            }
+          : {}),
       };
     };
   }
@@ -1354,6 +1364,7 @@ export function createApp({
       status?: number;
       writer?: Session | null;
       flow?: { name: string; steps: FlowStep[] };
+      withdrawn?: number;
     } = {},
   ): Promise<FlowResult> {
     const posts = await store.listPosts({ mockId: mock.id });
@@ -1404,9 +1415,11 @@ export function createApp({
           state: post.state,
           variant: post.variant,
           version: post.version,
+          ...(post.amendedAt ? { amendedAt: post.amendedAt } : {}),
           status: variantStatus(post.status),
           surfaces: post.surfaces.map(surfaceRef),
         },
+        ...(extra.withdrawn ? { withdrawn: { version: extra.withdrawn } } : {}),
         sessionId: post.sessionId,
         url: mockUrl(ctx.base, mock, post),
         parts: detail.parts,
@@ -1453,6 +1466,8 @@ export function createApp({
   // `fills` spliced into the variant's latest (or `from`) version.
   async function publishFlow(body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
+    if (body.withdraw === true) return withdrawFlow(body, ctx);
+    const amend = body.amend === true;
     const slugIn = str(body.mock, MAX_TITLE);
     if (!slugIn) return fail(400, 'provide "mock": the mock slug, e.g. "writer"');
     const given = ["html", "surfaces", "parts", "fills"].filter((k) => body[k] !== undefined);
@@ -1469,6 +1484,14 @@ export function createApp({
       return fail(
         400,
         `pass one of "html", "surfaces", "parts" or "fills", not ${given.join(" and ")}`,
+      );
+    }
+    if (amend && (forkIn || given.length === 0)) {
+      return fail(
+        400,
+        forkIn
+          ? '"amend" replaces a variant\'s latest version; "fork" starts a new variant'
+          : '"amend" needs the new "html", "surfaces", "parts" or "fills"',
       );
     }
     const partEdits = editsArg(body, "parts");
@@ -1580,6 +1603,15 @@ export function createApp({
       fail(404, `${slug} has no variant "${variant}"${state === null ? "" : ` in "${state}"`}`, {
         variants: posts.map(variantLabel),
       });
+    if (amend) {
+      if (!mock || !target) {
+        return fail(404, `${slug} has no variant "${variant}" to amend`, {
+          fix: "publish without --amend to create it",
+        });
+      }
+      const refused = await rewriteRefusal(mock, target, session, "amend");
+      if (refused) return refused;
+    }
     // A flow steps through states; a situation's step is its state's.
     const screen: FlowStep = { mock: slug, state: situation ? situation.of : state };
     if (flowIn) {
@@ -1733,9 +1765,59 @@ export function createApp({
     }
 
     if (!mock) return missing();
+    if (amend) {
+      const amended = await store.amendPost(target.id, target.version, {
+        surfaces,
+        title,
+        ...(body.variantKnobs !== undefined ? { knobs: variantKnobs.value } : {}),
+        ...(note !== undefined ? { note } : {}),
+        embeds,
+        from,
+        prompt,
+        author,
+      });
+      if (!amended) {
+        return fail(409, `${variant} has a newer version than v${target.version}`, {
+          fix: `mockpit read ${slug} --history, then amend that one`,
+        });
+      }
+      dropPostRenders(amended.id);
+      const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
+      mock = await updateMockAfterWrite(mock, {
+        state,
+        situation,
+        kind,
+        knobs: knobs.value,
+        widths,
+        area,
+        source,
+        session,
+      });
+      announcePost(mock, amended, false);
+      return writeResult(mock, amended, ctx, {
+        previous: target.surfaces,
+        applied,
+        nudges,
+        writer: session,
+        flow,
+      });
+    }
     // A new version is written by whoever writes it; without an explicit
     // session the variant's own session carries it.
     session ??= await store.getSession(target.sessionId);
+    // A second version moments after the first, before the user did anything
+    // with it, is almost always the agent fixing its own mistake: the user
+    // would get two near-identical versions to tell apart.
+    if (
+      session &&
+      publisherOf(target) === session.id &&
+      Date.now() - Date.parse(target.updatedAt) < AMEND_WINDOW_MS &&
+      !(await touchedBy(mock, target))
+    ) {
+      nudges.push(
+        `v${target.version} of ${variant} was minutes old and untouched by the user: one request gets one version. Fix a version the user hasn't acted on with amend (CLI --amend) instead of adding one; withdraw takes this one back`,
+      );
+    }
     const updated = await store.updatePost(target.id, {
       surfaces,
       title,
@@ -1745,6 +1827,7 @@ export function createApp({
       from,
       prompt,
       author,
+      ...(session ? { publishedBy: session.id } : {}),
     });
     if (!updated) return fail(404, "variant not found");
     const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
@@ -1766,6 +1849,218 @@ export function createApp({
       nudges,
       writer: session,
       flow,
+    });
+  }
+
+  // Versions from before the publisher was kept count as the variant's own session's.
+  const publisherOf = (post: Post) => post.publishedBy ?? post.sessionId;
+
+  // Whether a reply's or a draft's content may be about `post`'s state. The
+  // variants of a state compete, so a word on any of them may have weighed
+  // this one; another state's questions, parts and comments did not. What
+  // can't be placed (free text, a close, a mock-wide question) counts.
+  function speaksToState(
+    r: Pick<Reply, "answers" | "borrowed" | "tuned" | "comments" | "others" | "notes"> &
+      Partial<Pick<Reply, "otherImages" | "noteImages" | "text" | "verdict" | "closed">>,
+    mock: Mock,
+    post: Post,
+    siblings: Post[],
+  ): boolean {
+    const state = post.state;
+    const parts = new Set(siblings.flatMap((p) => partsInSurfaces(p.surfaces).map((x) => x.name)));
+    const names = new Set(siblings.map((p) => p.variant));
+    const askAbout = (id: string) => {
+      if (id === BUILTIN_ASK_ID) return true;
+      if (id.startsWith(`${BUILTIN_ASK_ID}:`)) return id.slice(BUILTIN_ASK_ID.length + 1) === state;
+      const a = mock.asks.find((x) => x.id === id);
+      if (!a || a.scope === "mock") return true;
+      if (a.scope === "state") return a.state === state;
+      return a.state === undefined ? !!a.part && parts.has(a.part) : a.state === state;
+    };
+    const asked = [
+      ...Object.keys(r.answers),
+      ...Object.keys(r.others ?? {}),
+      ...Object.keys(r.notes ?? {}),
+      ...Object.keys(r.otherImages ?? {}),
+      ...Object.keys(r.noteImages ?? {}),
+    ];
+    return (
+      !!r.text ||
+      !!r.closed ||
+      r.verdict?.state === state ||
+      asked.some(askAbout) ||
+      Object.entries(r.borrowed).some(([part, from]) => parts.has(part) || names.has(from)) ||
+      Object.keys(r.tuned).length > 0 ||
+      r.comments.some((c) => c.state === state)
+    );
+  }
+
+  // What the user did with a variant's latest version, if anything: put it in
+  // use, hid it, made it (a restore), or, since it was published, sent,
+  // commented or started answering on its state, or on a mock that shows it.
+  // Null means untouched, so rewriting it loses no feedback.
+  async function touchedBy(mock: Mock, post: Post): Promise<string | null> {
+    const v = `v${post.version} of ${post.variant}`;
+    if (post.status === "accepted" && post.acceptedVersion === post.version)
+      return `${v} is in use`;
+    if (post.author === "user") return `the user made ${v}`;
+    if (post.hiddenVersions?.includes(post.version)) return `the user hid ${v}`;
+    const since = post.updatedAt;
+    const siblings = (await store.listPosts({ mockId: mock.id })).filter(
+      (p) => p.state === post.state,
+    );
+    const inState = new Set(siblings.map((p) => p.id));
+    const where = post.state === null ? "" : ` on "${post.state}"`;
+    for (const c of await store.listComments({ mockId: mock.id })) {
+      if (c.author !== "user" || c.createdAt < since) continue;
+      if (c.kind === "reply") {
+        if (c.payload && !c.payload.edited && speaksToState(c.payload, mock, post, siblings)) {
+          return `the user replied${where} after ${v} was published`;
+        }
+        continue;
+      }
+      const anchored = c.anchor?.kind === "part" ? c.anchor.state : undefined;
+      const elsewhere = c.postId
+        ? !inState.has(c.postId)
+        : anchored !== undefined && anchored !== post.state;
+      if (!elsewhere) return `the user commented${where} after ${v} was published`;
+    }
+    const d = mock.draft;
+    if (d && d.updatedAt >= since && speaksToState(d, mock, post, siblings)) {
+      return `the user is answering${where} since ${v} was published`;
+    }
+    // A page that shows this component can't say which of its parts a word
+    // was about, so anything the user said there counts.
+    for (const m of await embeddersOf(mock.project, mock.slug)) {
+      const said = (await store.listComments({ mockId: m.id })).some(
+        (c) => c.author === "user" && c.createdAt >= since && !c.payload?.edited,
+      );
+      const drafting = !!m.draft && m.draft.updatedAt >= since && draftHasContent(m.draft);
+      if (said || drafting) return `the user responded on ${m.slug}, which shows ${v}`;
+    }
+    return null;
+  }
+
+  // The viewer may keep a draft that holds nothing yet.
+  const draftHasContent = (d: Draft) =>
+    [d.answers, d.borrowed, d.tuned, d.others, d.notes, d.otherImages, d.noteImages].some(
+      (x) => x && Object.keys(x).length > 0,
+    ) || d.comments.length > 0;
+
+  // Amend and withdraw rewrite a version in place, so only its own session
+  // may, and only while the user hasn't acted on it.
+  async function rewriteRefusal(
+    mock: Mock,
+    post: Post,
+    session: Session | null,
+    verb: "amend" | "withdraw",
+  ): Promise<FlowResult | null> {
+    const fix =
+      verb === "amend"
+        ? "publish without --amend to add a version"
+        : "publish a new version instead";
+    const v = `v${post.version} of ${post.variant}`;
+    if (!session) {
+      return fail(400, `${verb} needs the session that published ${v}`, { fix: "pass session" });
+    }
+    if (publisherOf(post) !== session.id) {
+      return fail(403, `${v} was published by another session`, { fix });
+    }
+    const touched = await touchedBy(mock, post);
+    return touched ? fail(409, touched, { fix }) : null;
+  }
+
+  // `withdraw` takes back the latest version of a variant before the user did
+  // anything with it. Nobody answered it, so it is deleted rather than hidden:
+  // the version before it is current again (a hidden one would stay on stage
+  // and keep its number), and a variant with no other version goes.
+  async function withdrawFlow(body: any, ctx: FlowContext): Promise<FlowResult> {
+    const extra = ["html", "surfaces", "parts", "fills", "fork", "flow", "poster", "amend"].filter(
+      (k) => body[k] !== undefined && body[k] !== false,
+    );
+    if (extra.length) {
+      return fail(
+        400,
+        `"withdraw" takes a version back; drop ${extra.map((k) => `"${k}"`).join(", ")}`,
+      );
+    }
+    let session: Session | null = null;
+    if (typeof body.session === "string" && body.session) {
+      session = await store.getSession(body.session);
+      if (!session) return fail(404, `session "${body.session}" not found`);
+    }
+    const mock = await resolveMock(
+      body.mock,
+      str(body.project, MAX_TITLE) ?? session?.project,
+      body.session,
+    );
+    if (isResult(mock)) return mock;
+    const posts = await store.listPosts({ mockId: mock.id });
+    const post = chooseVariant(mock, posts, stateArg(body.state), str(body.variant, MAX_LABEL));
+    if (isResult(post)) return post;
+    const refused = await rewriteRefusal(mock, post, session, "withdraw");
+    if (refused) return refused;
+    const v = post.version;
+    // Its number is reused by the next publish, so nothing may still point at it.
+    const fork = posts.find(
+      (p) =>
+        p.state === post.state &&
+        p.forkedFrom?.variant === post.variant &&
+        p.forkedFrom.version === v,
+    );
+    if (fork) {
+      return fail(409, `${fork.variant} was forked from v${v} of ${post.variant}`, {
+        fix: `withdraw ${fork.variant} first`,
+      });
+    }
+    const previous = post.history.at(-1);
+    if (!previous) {
+      if (!posts.some((p) => p.id !== post.id && p.state === post.state)) {
+        return fail(409, `v1 of ${post.variant} is the only design of ${post.state ?? mock.slug}`, {
+          fix: "publish with --amend to replace it",
+        });
+      }
+      const binding = mock.asks.find(
+        (a) =>
+          (a.state === undefined || a.state === post.state) &&
+          a.options.some((o) => o.variant === post.variant),
+      );
+      if (binding) {
+        return fail(409, `question "${binding.id}" offers ${post.variant}`, {
+          fix: `ask "${binding.id}" again without it, then withdraw`,
+        });
+      }
+    }
+    const embeds = previous ? await publishEmbeds(mock.project, mock.slug, previous.surfaces) : [];
+    const result = await store.withdrawVersion(post.id, v, isResult(embeds) ? [] : embeds);
+    if (!result) {
+      return fail(409, `${post.variant} has a newer version than v${v}`, {
+        fix: `mockpit read ${mock.slug} --history`,
+      });
+    }
+    dropPostRenders(post.id);
+    if (!result.post) {
+      bus.broadcast({
+        type: "post-deleted",
+        id: post.id,
+        mockId: mock.id,
+        sessionId: post.sessionId,
+      });
+      bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
+      void announceEmbedders(mock).catch((err) => console.warn("[mockpit] embedders", err));
+      return ok({
+        withdrawn: { state: post.state, variant: post.variant, version: v },
+        removed: true,
+        url: mockUrl(ctx.base, mock),
+        feedback: await collectFeedback(session!.id, ctx.base),
+      });
+    }
+    const after = (await store.getMock(mock.id)) ?? mock;
+    announcePost(after, result.post, false);
+    return writeResult(after, result.post, ctx, {
+      previous: post.surfaces,
+      writer: session,
+      withdrawn: v,
     });
   }
 
@@ -4707,8 +5002,15 @@ export function createApp({
     origin: string;
     knobs?: string;
     embeds?: string;
+    rewrites?: number;
   }) =>
-    `${o.postId}:${o.idx}:${o.version}:${o.mode ?? "os"}:${o.origin}:${o.knobs ?? ""}:${o.embeds ?? ""}`;
+    `${o.postId}:${o.idx}:${o.version}:${o.mode ?? "os"}:${o.origin}:${o.knobs ?? ""}:${o.embeds ?? ""}${o.rewrites ? `:w${o.rewrites}` : ""}`;
+
+  // After a version is rewritten in place: a frame still naming the old `w`
+  // must miss the cache and get the version as it is now.
+  const dropPostRenders = (postId: string) => {
+    for (const key of renderCache.keys()) if (key.startsWith(`${postId}:`)) dropCacheEntry(key);
+  };
 
   // The document itself. Shared by the GET below and the publish-time pre-warm,
   // so both produce byte-identical output for one key.
@@ -4808,6 +5110,7 @@ export function createApp({
             mode,
             origin,
             embeds: composed ? embedsKey(composed) : undefined,
+            rewrites: post.rewrites,
           });
           if (renderCache.has(key)) continue;
           await cachedRender(key, () =>
@@ -4842,6 +5145,8 @@ export function createApp({
     // older component versions, JSON {slug: version}.
     const eParam: string | undefined = c.req.query("e");
     const embedParam: string | undefined = c.req.query("embed");
+    // `w`: the variant's rewrites the caller saw, since an amend keeps the number.
+    const wParam = Number(c.req.query("w") ?? 0) || 0;
     const origin = requestOrigin(c.req.raw);
 
     // Cache-first. A hit needs nothing from the post row, and the row is the
@@ -4862,6 +5167,7 @@ export function createApp({
           mode,
           origin,
           embeds: eParam,
+          rewrites: wParam,
         }),
       );
       if (hit !== undefined) {
@@ -4943,7 +5249,10 @@ export function createApp({
     // Every input is in the URL (the palette is fixed, the mode is a query
     // param), so a version-pinned document never changes, unless it follows a
     // component's latest version and the URL does not name that state (`e`).
-    surfaceDocHeaders(c, ver != null && (eKey === undefined || eKey === eParam));
+    surfaceDocHeaders(
+      c,
+      ver != null && (eKey === undefined || eKey === eParam) && wParam === (post.rewrites ?? 0),
+    );
 
     // Cache the finished document under the same key the pre-warm uses; the
     // resolved `version` and embeds key make it immutable, so a hit is always
@@ -4956,6 +5265,7 @@ export function createApp({
       origin,
       knobs: knobsKey,
       embeds: eKey,
+      rewrites: post.rewrites,
     });
     const design = mock ? await designFor(mock.project) : null;
     const doc = await cachedRender(cacheKey, async () =>

@@ -272,6 +272,13 @@ mockpit publish --mock writer --state "Writing" --variant dark --fills bar#tabs=
 mockpit export  --mock writer   # the chosen html per state
 \`\`\`
 
+One user request gets one version. Check your render before you publish; a
+fix to a version the user hasn't acted on yet (a wrong poster, a glitch, a
+change you didn't mean) replaces it in place with \`--amend\` (MCP \`amend\`,
+HTTP \`"amend": true\`), and \`--withdraw\` takes it back. Both refuse once the
+user has sent, commented or started answering on its state, or put it in use,
+and only the session that published it may: then publish a new version.
+
 Server: \`$MOCKPIT_URL\` (default http://localhost:8228; \`mockpit serve\`).
 MCP tools share the verb names.
 

@@ -232,7 +232,11 @@ function HistoryThumb(props: {
     const i = props.step.kinds.findIndex((k) => k === "html");
     return i < 0
       ? null
-      : surfaceUrl(props.step.postId, i, { version: props.step.version, mode: theme() });
+      : surfaceUrl(props.step.postId, i, {
+          version: props.step.version,
+          mode: theme(),
+          w: props.step.rewrites,
+        });
   };
   return (
     <button

@@ -40,7 +40,12 @@ export function SituationGrid(props: { s: MockScreenState; top: number; bottom: 
     const v = s.variantFor(state, false);
     const i = v?.surfaces.findIndex((y) => y.kind === "html") ?? -1;
     return v && i >= 0
-      ? surfaceUrl(v.postId, i, { version: s.frameVersionOf(v), mode: theme(), e: v.embedsKey })
+      ? surfaceUrl(v.postId, i, {
+          version: s.frameVersionOf(v),
+          mode: theme(),
+          e: v.embedsKey,
+          w: v.rewrites,
+        })
       : null;
   };
   return (

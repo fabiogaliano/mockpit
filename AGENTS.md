@@ -20,7 +20,10 @@ a parallel design of one state; versions are its history. A **part** is a
 `data-part` element in a render. The agent's ten verbs are `publish`, `ask`,
 `read`, `feedback`, `say`, `edit`, `export`, `upload`, `guide` and `run` (the
 CLI adds `init` and `watch`); `edit` changes a mock (slug, title, kind, area,
-source) without a new version, renames a project, or sets its area order. A
+source) without a new version, renames a project, or sets its area order;
+`publish` with `amend` replaces a variant's latest version in place and with
+`withdraw` deletes it, both only from the session that published it and only
+while the user hasn't acted on it (`touchedBy` in `server/app.ts`). A
 mock may name its **area** (the project's own words, e.g. "Shell"; Home
 groups by it, in the project's `areaOrder` setting, then alphabetical) and its
 **source** (the code path that implements it). The user can move a mock too,
@@ -199,7 +202,10 @@ consciously, not as a side effect):
   viewer. Version-pinned `/s/:id` responses are immutable, so they carry a
   long-lived `Cache-Control` and a per-`(id,surface,version,mode,knobs)`
   in-memory render cache (single-instance DO; swap for KV/Cache API if
-  multi-instance). `?k=` values are re-validated against the knobs declared
+  multi-instance). The one rewritable version is a variant's latest, before
+  the user acts on it: amend and withdraw bump `Post.rewrites`, which frame
+  URLs (`w`), render keys and embed stamps carry, since the number stays.
+  `?k=` values are re-validated against the knobs declared
   now on every request, so a `?k=` request never takes the early cache hit.
 - Parts bridge: identity is declared (`data-part`), geometry is measured inside
   the frame and reported as data (`parts` reports in document px, tagged with

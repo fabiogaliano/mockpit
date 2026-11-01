@@ -598,6 +598,7 @@ function Board(props: {
       mode: theme(),
       knobs,
       e: props.variant.embedsKey,
+      w: props.variant.rewrites,
     });
   };
   const onMessage = (e: MessageEvent) => {
@@ -876,6 +877,7 @@ function VariantFrame(props: {
                   version: version(),
                   mode: theme(),
                   e: props.variant.embedsKey,
+                  w: props.variant.rewrites,
                   knobs: isPrimary
                     ? untrack(() => {
                         const m = s.mock();

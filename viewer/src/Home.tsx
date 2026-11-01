@@ -841,6 +841,7 @@ function Screen(props: {
                     version: p().version,
                     mode: theme(),
                     e: p().embedsKey,
+                    w: p().rewrites,
                   })}
                   width={designWidth(props.node)}
                   fit={whole()}
@@ -951,6 +952,7 @@ function MockRow(props: {
                       src={surfaceUrl(t().postId, t().surface, {
                         version: t().version,
                         mode: theme(),
+                        w: t().rewrites,
                       })}
                     />
                   }

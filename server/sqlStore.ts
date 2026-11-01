@@ -48,6 +48,7 @@ import {
   type Surface,
   type UpdateMockInput,
   type UpdatePostInput,
+  type AmendPostInput,
 } from "./types.ts";
 import { renameSlugRefs } from "./embeds.ts";
 import { RULES_SETTING } from "./guidance.ts";
@@ -217,6 +218,8 @@ export class SqlStore implements Store {
       source: "TEXT",
       situations: "TEXT NOT NULL DEFAULT '{}'",
     });
+    // Before the legacy lift, whose history rows are written with every column.
+    this.addMissing("post_versions", { sessionId: "TEXT", amendedAt: "TEXT" });
     if (legacy) this.migrateLegacy();
     // After the legacy lift, which rebuilds posts from POST_COLUMNS alone.
     const pinned = this.columns("posts").has("acceptedVersion");
@@ -226,6 +229,9 @@ export class SqlStore implements Store {
       starred: "INTEGER NOT NULL DEFAULT 0",
       acceptedVersion: "INTEGER",
       hiddenVersions: "TEXT",
+      curSession: "TEXT",
+      amendedAt: "TEXT",
+      rewrites: "INTEGER NOT NULL DEFAULT 0",
     });
     // Before the pin, accepted meant "its latest": freeze that as the version in use.
     if (!pinned) {
@@ -626,7 +632,7 @@ export class SqlStore implements Store {
 
   private insertVersion(postId: string, v: PostVersion) {
     this.sql.exec(
-      "INSERT OR REPLACE INTO post_versions (postId, version, title, surfaces, at, fromVersion, prompt, author) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT OR REPLACE INTO post_versions (postId, version, title, surfaces, at, fromVersion, prompt, author, sessionId, amendedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       postId,
       v.version,
       v.title,
@@ -635,6 +641,8 @@ export class SqlStore implements Store {
       v.from ?? null,
       v.prompt ?? null,
       v.author ?? null,
+      v.publishedBy ?? null,
+      v.amendedAt ?? null,
     );
   }
 
@@ -648,6 +656,8 @@ export class SqlStore implements Store {
       ...(r.fromVersion == null ? {} : { from: r.fromVersion as number }),
       ...(r.prompt == null ? {} : { prompt: r.prompt as string }),
       ...(r.author == null ? {} : { author: r.author as string }),
+      ...(r.sessionId == null ? {} : { publishedBy: r.sessionId as string }),
+      ...(r.amendedAt == null ? {} : { amendedAt: r.amendedAt as string }),
     };
   }
 
@@ -740,6 +750,9 @@ export class SqlStore implements Store {
       ...(r.curFrom == null ? {} : { from: r.curFrom as number }),
       ...(r.curPrompt == null ? {} : { prompt: r.curPrompt as string }),
       ...(r.curAuthor == null ? {} : { author: r.curAuthor as string }),
+      ...(r.curSession == null ? {} : { publishedBy: r.curSession as string }),
+      ...(r.amendedAt == null ? {} : { amendedAt: r.amendedAt as string }),
+      ...(r.rewrites ? { rewrites: r.rewrites as number } : {}),
     };
   }
 
@@ -1303,9 +1316,10 @@ export class SqlStore implements Store {
       ...(input.from === undefined ? {} : { from: input.from }),
       ...(input.prompt === undefined ? {} : { prompt: stripNul(input.prompt) }),
       ...(input.author === undefined ? {} : { author: stripNul(input.author) }),
+      publishedBy: input.publishedBy ?? input.sessionId,
     };
     this.sql.exec(
-      "INSERT INTO posts (id, sessionId, mockId, state, variant, status, title, surfaces, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, note, forkedFrom) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
+      "INSERT INTO posts (id, sessionId, mockId, state, variant, status, title, surfaces, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, note, forkedFrom, curSession) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)",
       post.id,
       post.sessionId,
       post.mock,
@@ -1322,6 +1336,7 @@ export class SqlStore implements Store {
       post.author ?? null,
       post.note ?? null,
       post.forkedFrom ? JSON.stringify(post.forkedFrom) : null,
+      post.publishedBy ?? null,
     );
     this.touch(input.sessionId);
     this.touchMock(post.mock, now);
@@ -1343,6 +1358,8 @@ export class SqlStore implements Store {
         ...(post.from === undefined ? {} : { from: post.from }),
         ...(post.prompt === undefined ? {} : { prompt: post.prompt }),
         ...(post.author === undefined ? {} : { author: post.author }),
+        ...(post.publishedBy === undefined ? {} : { publishedBy: post.publishedBy }),
+        ...(post.amendedAt === undefined ? {} : { amendedAt: post.amendedAt }),
       };
       // The version in use is kept past the limit: export and embeds resolve to it.
       const pin = post.acceptedVersion ?? -1;
@@ -1363,8 +1380,9 @@ export class SqlStore implements Store {
       const from = patch.from ?? post.version;
       const prompt = stripNul(patch.prompt ?? "");
       const author = patch.author === undefined ? null : stripNul(patch.author);
+      const publishedBy = patch.publishedBy ?? null;
       this.sql.exec(
-        "UPDATE posts SET title = ?, surfaces = ?, knobs = ?, note = ?, slots = ?, state = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ? WHERE id = ? AND version = ?",
+        "UPDATE posts SET title = ?, surfaces = ?, knobs = ?, note = ?, slots = ?, state = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, curSession = ?, amendedAt = NULL WHERE id = ? AND version = ?",
         title,
         JSON.stringify(surfaces),
         knobs ? JSON.stringify(knobs) : null,
@@ -1376,6 +1394,7 @@ export class SqlStore implements Store {
         from,
         prompt,
         author,
+        publishedBy,
         id,
         post.version,
       );
@@ -1391,7 +1410,14 @@ export class SqlStore implements Store {
         this.touch(post.sessionId);
         this.touchMock(post.mock, updatedAt);
         if (patch.surfaces !== undefined) this.addAssetRefs(surfaces);
-        const { knobs: _knobs, note: _note, author: _author, ...rest } = post;
+        const {
+          knobs: _knobs,
+          note: _note,
+          author: _author,
+          publishedBy: _by,
+          amendedAt: _amended,
+          ...rest
+        } = post;
         return {
           ...rest,
           title,
@@ -1406,10 +1432,143 @@ export class SqlStore implements Store {
           from,
           prompt,
           ...(author === null ? {} : { author }),
+          ...(publishedBy === null ? {} : { publishedBy }),
         };
       }
     }
     return null;
+  }
+
+  async amendPost(id: string, version: number, patch: AmendPostInput) {
+    const post = await this.getPost(id);
+    if (!post || post.version !== version) return null;
+    const title =
+      patch.title !== undefined ? stripNul(patch.title).trim() || post.title : post.title;
+    const surfaces =
+      patch.surfaces !== undefined ? normalizeSurfaceIds(patch.surfaces) : post.surfaces;
+    const knobs = patch.knobs === undefined ? post.knobs : (patch.knobs ?? undefined);
+    const note = patch.note === undefined ? post.note : stripNul(patch.note).trim() || undefined;
+    const embeds = patch.embeds ?? post.embeds;
+    const from = patch.from ?? post.from;
+    const prompt = patch.prompt === undefined ? post.prompt : stripNul(patch.prompt);
+    const author = patch.author === undefined ? post.author : stripNul(patch.author);
+    const amendedAt = new Date().toISOString();
+    const rewrites = (post.rewrites ?? 0) + 1;
+    this.sql.exec(
+      "UPDATE posts SET title = ?, surfaces = ?, knobs = ?, note = ?, slots = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, amendedAt = ?, rewrites = ? WHERE id = ? AND version = ?",
+      title,
+      JSON.stringify(surfaces),
+      knobs ? JSON.stringify(knobs) : null,
+      note ?? null,
+      JSON.stringify(embeds),
+      from ?? null,
+      prompt ?? null,
+      author ?? null,
+      amendedAt,
+      rewrites,
+      id,
+      version,
+    );
+    if ((this.sql.exec("SELECT changes() AS n").one().n as number) === 0) return null;
+    this.touch(post.sessionId);
+    this.touchMock(post.mock, amendedAt);
+    // The surfaces it replaced may have held the only reference to an asset.
+    this.invalidateAssetRefs();
+    const {
+      knobs: _knobs,
+      note: _note,
+      from: _from,
+      prompt: _prompt,
+      author: _author,
+      ...rest
+    } = post;
+    return {
+      ...rest,
+      title,
+      surfaces,
+      ...(knobs ? { knobs } : {}),
+      ...(note ? { note } : {}),
+      embeds,
+      ...(from === undefined ? {} : { from }),
+      ...(prompt === undefined ? {} : { prompt }),
+      ...(author === undefined ? {} : { author }),
+      amendedAt,
+      rewrites,
+    };
+  }
+
+  async withdrawVersion(id: string, version: number, embeds: Embed[]) {
+    const post = await this.getPost(id);
+    if (!post || post.version !== version) return null;
+    const previous = post.history.at(-1);
+    const now = new Date().toISOString();
+    if (!previous) {
+      this.atomic(() => {
+        // Only the agent can have written on a version the user never touched;
+        // its messages stay in the mock's thread.
+        this.sql.exec("UPDATE comments SET postId = NULL WHERE postId = ?", id);
+        this.sql.exec("DELETE FROM post_versions WHERE postId = ?", id);
+        this.sql.exec("DELETE FROM posts WHERE id = ?", id);
+      });
+      this.touchMock(post.mock, now);
+      this.invalidateAssetRefs();
+      return { post: null };
+    }
+    const rewrites = (post.rewrites ?? 0) + 1;
+    const hidden = (post.hiddenVersions ?? []).filter((v) => v !== version);
+    this.atomic(() => {
+      this.sql.exec(
+        "UPDATE posts SET title = ?, surfaces = ?, slots = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, curSession = ?, amendedAt = ?, rewrites = ?, hiddenVersions = ? WHERE id = ? AND version = ?",
+        previous.title,
+        JSON.stringify(previous.surfaces),
+        JSON.stringify(embeds),
+        previous.at,
+        previous.version,
+        previous.from ?? null,
+        previous.prompt ?? null,
+        previous.author ?? null,
+        previous.publishedBy ?? null,
+        previous.amendedAt ?? null,
+        rewrites,
+        hidden.length ? JSON.stringify(hidden) : null,
+        id,
+        version,
+      );
+      this.sql.exec(
+        "DELETE FROM post_versions WHERE postId = ? AND version = ?",
+        id,
+        previous.version,
+      );
+    });
+    this.touchMock(post.mock, now);
+    this.invalidateAssetRefs();
+    const {
+      from: _from,
+      prompt: _prompt,
+      author: _author,
+      publishedBy: _by,
+      amendedAt: _amended,
+      hiddenVersions: _hidden,
+      ...rest
+    } = post;
+    return {
+      post: {
+        ...rest,
+        title: previous.title,
+        surfaces: previous.surfaces,
+        embeds,
+        updatedAt: previous.at,
+        version: previous.version,
+        history: post.history.slice(0, -1),
+        ...(previous.from === undefined ? {} : { from: previous.from }),
+        ...(previous.prompt === undefined ? {} : { prompt: previous.prompt }),
+        ...(previous.author === undefined ? {} : { author: previous.author }),
+        ...(previous.publishedBy === undefined ? {} : { publishedBy: previous.publishedBy }),
+        ...(previous.amendedAt === undefined ? {} : { amendedAt: previous.amendedAt }),
+        ...(hidden.length ? { hiddenVersions: hidden } : {}),
+        rewrites,
+      },
+    };
   }
 
   async removePost(id: string) {

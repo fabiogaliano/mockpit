@@ -18,6 +18,10 @@ look, then end your turn; the question lives in the mock, never in chat. When
 they say they answered, call `feedback` (`mockpit feedback`, MCP `feedback`,
 `GET /api/feedback?session=…`); every write returns `feedback` too. Never poll.
 
+One user request gets one version. To fix a version before the user has acted
+on it, replace it with `mockpit publish … --amend` (MCP `amend`, HTTP
+`"amend": true`) instead of publishing another; `--withdraw` takes it back.
+
 A connector without a codemode of its own (claude.ai, Desktop) can use
 `http://localhost:8228/mcp?mode=code` (stdio: `MOCKPIT_MCP_MODE=code`): one
 `run` tool that executes a script against the mockpit API.

@@ -587,6 +587,10 @@ export interface PostVersion {
   // What prompted this version. Empty for the initial version.
   prompt?: string;
   author?: string;
+  // The session that published it; absent on versions from before it was kept.
+  publishedBy?: string;
+  // Set when the agent replaced it in place before the user acted on it.
+  amendedAt?: string;
 }
 
 // A variant of one state of a mock.
@@ -628,11 +632,17 @@ export interface Post {
   // Versions the user hid from the history. Hidden, never removed: replies,
   // embeds and the version in use may still point at one, so it still renders.
   hiddenVersions?: number[];
-  // Provenance of the CURRENT version — the same three fields a PostVersion
+  // Provenance of the CURRENT version — the same fields a PostVersion
   // carries; on the next update they move into the history entry.
   from?: number;
   prompt?: string;
   author?: string;
+  publishedBy?: string;
+  amendedAt?: string;
+  // How often a version of this variant was rewritten in place (amended or
+  // withdrawn). A version number alone no longer names fixed content, so
+  // render caches and frame URLs carry this too.
+  rewrites?: number;
 }
 
 // A screen is one state of one mock, by slug (state null for a single-state
@@ -884,6 +894,7 @@ export interface CreatePostInput {
   from?: number;
   prompt?: string;
   author?: string;
+  publishedBy?: string;
 }
 
 export interface UpdatePostInput {
@@ -900,7 +911,12 @@ export interface UpdatePostInput {
   // Re-files the variant under another state (a single-state mock adopting its
   // first named state).
   state?: string | null;
+  publishedBy?: string;
 }
+
+// An in-place replacement of a variant's latest version: same number and
+// creation time. undefined keeps a field, as in UpdatePostInput.
+export type AmendPostInput = Omit<UpdatePostInput, "state" | "publishedBy">;
 
 export interface CreateCommentInput {
   sessionId: string;
@@ -1011,6 +1027,17 @@ export interface Store {
   createPost(input: CreatePostInput): Promise<Post | null>;
   updatePost(id: string, patch: UpdatePostInput): Promise<Post | null>;
   removePost(id: string): Promise<boolean>;
+  // Both rewrite the latest version, so both expect it to still be `version`
+  // (null otherwise, or when the post is missing). Amend replaces it in place;
+  // withdraw deletes it and makes the version before it current again, with
+  // `embeds` (what that version renders with now), or removes the variant
+  // when it had no other ({ post: null }). The variant's comments stay, on the mock.
+  amendPost(id: string, version: number, patch: AmendPostInput): Promise<Post | null>;
+  withdrawVersion(
+    id: string,
+    version: number,
+    embeds: Embed[],
+  ): Promise<{ post: Post | null } | null>;
   // Accepting pins `acceptedVersion` (default: the current version); any other
   // status clears it.
   setPostStatus(id: string, status: PostStatus, acceptedVersion?: number): Promise<Post | null>;

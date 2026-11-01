@@ -1468,11 +1468,20 @@ export interface VersionStep extends VersionRef {
   // The still of this version's page, which overviews show instead of it.
   poster?: string;
   forkedFrom?: VersionRef;
+  rewrites?: number;
 }
 
 type StepSource = Pick<
   VariantView,
-  "postId" | "state" | "variant" | "version" | "updatedAt" | "history" | "surfaces" | "forkedFrom"
+  | "postId"
+  | "state"
+  | "variant"
+  | "version"
+  | "updatedAt"
+  | "history"
+  | "surfaces"
+  | "forkedFrom"
+  | "rewrites"
 >;
 
 const posterOfSurfaces = (surfaces: readonly object[]) => {
@@ -1507,6 +1516,7 @@ export function versionSteps(variants: StepSource[], state: string | null): Vers
           kinds: h.surfaceKinds as string[],
           ...("poster" in h && typeof h.poster === "string" ? { poster: h.poster } : {}),
           ...(v.forkedFrom ? { forkedFrom: v.forkedFrom } : {}),
+          ...(v.rewrites ? { rewrites: v.rewrites } : {}),
         },
       }));
     });
@@ -1642,6 +1652,7 @@ export interface ScreenPicture {
   embedsKey?: string;
   inUse: boolean;
   poster?: string;
+  rewrites?: number;
 }
 
 // What a screen (one state of a mock) looks like now: the version in use, else
@@ -1669,6 +1680,7 @@ export function screenPicture(
     version,
     ...(poster ? { poster } : {}),
     ...(v.embedsKey ? { embedsKey: v.embedsKey } : {}),
+    ...(v.rewrites ? { rewrites: v.rewrites } : {}),
     inUse: !!used,
   };
 }

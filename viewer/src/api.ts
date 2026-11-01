@@ -170,6 +170,8 @@ export function surfaceUrl(
     e?: string;
     // Older component versions to show instead of the latest, slug → version.
     embed?: Record<string, number>;
+    // The variant's rewrites: an amended version keeps its number.
+    w?: number;
   } = {},
 ): string {
   const q = new URLSearchParams({ surface: String(surface) });
@@ -178,6 +180,7 @@ export function surfaceUrl(
   if (opts.knobs && Object.keys(opts.knobs).length) q.set("k", JSON.stringify(opts.knobs));
   if (opts.e) q.set("e", opts.e);
   if (opts.embed && Object.keys(opts.embed).length) q.set("embed", JSON.stringify(opts.embed));
+  if (opts.w) q.set("w", String(opts.w));
   // The renderer's revision: a new one is a new URL, past the browser's cache.
   const r = renderRev();
   if (r) q.set("r", r);

@@ -40,7 +40,9 @@ const Poster = (props: { id: string }) => (
 // Without a poster, an image surface is still cheaper than the page.
 function pictureOf(st: VersionStep): string | null {
   const i = st.kinds.includes("image") ? st.kinds.indexOf("image") : st.kinds.indexOf("html");
-  return i < 0 ? null : surfaceUrl(st.postId, i, { version: st.version, mode: theme() });
+  return i < 0
+    ? null
+    : surfaceUrl(st.postId, i, { version: st.version, mode: theme(), w: st.rewrites });
 }
 
 type Draft = { kind: "comment" | "borrow"; to: VersionStep; from?: VersionStep };

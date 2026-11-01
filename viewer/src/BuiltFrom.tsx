@@ -18,7 +18,12 @@ import type { TuneState } from "./tune.ts";
 function nodePicture(node: TreeNode): string | null {
   const pic = screenPicture(node, node.inUse[0]?.state ?? node.states[0] ?? null);
   return pic
-    ? surfaceUrl(pic.postId, pic.surface, { version: pic.version, mode: theme(), e: pic.embedsKey })
+    ? surfaceUrl(pic.postId, pic.surface, {
+        version: pic.version,
+        mode: theme(),
+        e: pic.embedsKey,
+        w: pic.rewrites,
+      })
     : null;
 }
 

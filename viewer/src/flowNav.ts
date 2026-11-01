@@ -98,7 +98,12 @@ export function createFlowNav(
       const v = s.variantFor(x.state, false);
       const i = v?.surfaces.findIndex((y) => y.kind === "html") ?? -1;
       return v && i >= 0
-        ? surfaceUrl(v.postId, i, { version: s.frameVersionOf(v), mode: theme(), e: v.embedsKey })
+        ? surfaceUrl(v.postId, i, {
+            version: s.frameVersionOf(v),
+            mode: theme(),
+            e: v.embedsKey,
+            w: v.rewrites,
+          })
         : null;
     }
     const node = nodes().get(x.mock);
@@ -108,6 +113,7 @@ export function createFlowNav(
           version: pic.version,
           mode: theme(),
           e: pic.embedsKey,
+          w: pic.rewrites,
         })
       : null;
   }

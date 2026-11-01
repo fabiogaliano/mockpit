@@ -39,7 +39,12 @@ interface FlowRow {
 function nodePicture(node: TreeNode, state: string | null): string | null {
   const pic = screenPicture(node, state ?? node.inUse[0]?.state ?? node.states[0] ?? null);
   return pic
-    ? surfaceUrl(pic.postId, pic.surface, { version: pic.version, mode: theme(), e: pic.embedsKey })
+    ? surfaceUrl(pic.postId, pic.surface, {
+        version: pic.version,
+        mode: theme(),
+        e: pic.embedsKey,
+        w: pic.rewrites,
+      })
     : null;
 }
 
