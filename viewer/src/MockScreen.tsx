@@ -4,6 +4,9 @@
 // agent's question floats above that bar; the version label opens the history
 // and the thread as a bottom panel; Built from opens beside the canvas.
 
+import type { Shortlist } from "./api.ts";
+import { createShortlists, type Shortlists } from "./shortlist.ts";
+import { ShortlistMenu } from "./ShortlistMenu.tsx";
 import {
   createEffect,
   createMemo,
@@ -21,7 +24,7 @@ import { BottomPanel } from "./BottomPanel.tsx";
 import { BuiltFrom } from "./BuiltFrom.tsx";
 import { useFlowKeys } from "./flowKeys.ts";
 import { createFlowNav, type FlowNav } from "./flowNav.ts";
-import { host, root } from "./host.ts";
+import { host, readonly, root } from "./host.ts";
 import { Icon, type IconName } from "./icons.tsx";
 import {
   boardWidths,
@@ -35,7 +38,15 @@ import { CarriedChip, NextCard } from "./NextCard.tsx";
 import { QuestionCard, QuestionTab } from "./QuestionCard.tsx";
 import { ResolvedNote } from "./Questions.tsx";
 import { markSeen } from "./seen.ts";
-import { homePath, linkClick, navigate, projectPath, replaceUrl, route } from "./route.ts";
+import {
+  homePath,
+  linkClick,
+  mockPath,
+  navigate,
+  projectPath,
+  replaceUrl,
+  route,
+} from "./route.ts";
 import { SituationGrid, SituationSwitch } from "./Situations.tsx";
 import { Stage } from "./Stage.tsx";
 import { Studio } from "./Studio.tsx";
@@ -60,6 +71,7 @@ export function MockScreen(props: {
 }) {
   const opening = new URLSearchParams(host().window.location.search);
   const s = createMockScreen(props.project, props.slug, props.open ?? null, opening.has("owed"));
+  const shortlists = createShortlists(props.project, s.setToast);
   // Stage or Studio: one version up close, or the state zoomed out. The URL's
   // ?view= wins and isn't remembered, so a link can't move your place. Else the
   // agent's unanswered question opens on Stage, where it is asked (a question
@@ -95,7 +107,8 @@ export function MockScreen(props: {
     if (before || !s.mock()) return before;
     return untrack(() => {
       if (s.waitsOnStage()) return "stage";
-      return momentVariants() > 1 ? (remembered() ?? "studio") : "stage";
+      // A shortlist is for comparing, and its Add candidate lives in Studio.
+      return momentVariants() > 1 || s.mock()?.shortlist ? (remembered() ?? "studio") : "stage";
     });
   }, null);
   const shownView = (): View => view() ?? opened() ?? "stage";
@@ -312,6 +325,7 @@ export function MockScreen(props: {
           about={about}
           view={shownView()}
           variants={momentVariants()}
+          shortlists={shortlists}
           onView={(v) => {
             if (v === shownView()) return;
             s.setDrawer(false);
@@ -333,7 +347,14 @@ export function MockScreen(props: {
         <Show when={s.mock()}>
           <Show
             when={shownView() === "stage"}
-            fallback={<Studio s={s} top={canvasTop()} onOpen={() => setView("stage")} />}
+            fallback={
+              <Studio
+                s={s}
+                top={canvasTop()}
+                shortlists={shortlists}
+                onOpen={() => setView("stage")}
+              />
+            }
           >
             <Stage s={s} onGoto={nav.follow} />
             <SituationGrid
@@ -401,9 +422,11 @@ function TopRow(props: {
   about: AboutState;
   view: View;
   variants: number;
+  shortlists: Shortlists;
   onView: (v: View) => void;
 }) {
   const s = props.s;
+  const sl = props.shortlists;
   const home = () => homePath(props.project);
   const areaHome = (area: string) => homePath(props.project, area);
   const up = () => {
@@ -523,6 +546,9 @@ function TopRow(props: {
         </button>
       </Show>
       <span class="grow" />
+      <Show when={!readonly() && !s.mock()?.shortlist && sl.current()}>
+        {(list) => <ShortlistPill sl={sl} list={list()} project={props.project} />}
+      </Show>
       <Show when={props.view === "stage"}>
         <WidthMenu s={s} />
       </Show>
@@ -550,6 +576,41 @@ function TopRow(props: {
             <span class="num">{props.variants}</span>
           </button>
         </div>
+      </Show>
+    </div>
+  );
+}
+
+// The list one click saves to, and the way into it.
+function ShortlistPill(props: { sl: Shortlists; list: Shortlist; project: string }) {
+  const href = () => mockPath(props.project, props.list.slug);
+  const [choosing, setChoosing] = createSignal(false);
+  let caret!: HTMLButtonElement;
+  return (
+    <div class="slpill">
+      <a href={href()} title={`Open ${props.list.title}`} onClick={(e) => linkClick(e, href())}>
+        <Icon name="bookmark" />
+        <span class="slpill-nm">{props.list.title}</span>
+        <span class="num">{props.list.candidates.length}</span>
+      </a>
+      <button
+        type="button"
+        class="ib"
+        ref={(el) => (caret = el)}
+        aria-label="Choose the shortlist to save to"
+        aria-haspopup="menu"
+        aria-expanded={choosing()}
+        onClick={() => setChoosing(!choosing())}
+      >
+        <Icon name="down" />
+      </button>
+      <Show when={choosing()}>
+        <ShortlistMenu
+          sl={props.sl}
+          anchor={caret}
+          item={null}
+          onClose={() => setChoosing(false)}
+        />
       </Show>
     </div>
   );

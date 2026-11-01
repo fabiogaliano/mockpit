@@ -94,6 +94,11 @@ consciously, not as a side effect):
   (items → single-state mocks, draft comments → mock drafts, traces dropped,
   `resolvedAt` → `closedAt`, the 2.0 contract words in stored replies, drafts
   and html).
+- A **shortlist** is a mock with `shortlist` set, gathered by the user from the
+  project's other mocks: a Studio bookmark (`viewer/src/shortlist.ts`,
+  `ShortlistMenu`) or `AddCandidates` copies one version as a variant with
+  `copiedFrom`, originals untouched. Until an agent writes to it, replies go to
+  the project's live agent (`replySessionId` in `server/app.ts`).
 - `server/kits.ts` — opt-in style/behavior bundles for html surfaces; listed at
   `/api/kits`, allowlisted in `server/postSurfaces.ts`. Adding a kit is a
   registry entry + a guide bullet. A reference kit (`href`/`script`, e.g.

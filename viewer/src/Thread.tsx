@@ -88,6 +88,11 @@ export function Thread(props: { s: MockScreenState; scroller: () => HTMLElement 
           )}
         </For>
       </Show>
+      <Show when={props.s.mock()?.repliesGoTo}>
+        {(agent) => (
+          <p class="treach">{`Replies go to ${agent()}, the agent last working in this project.`}</p>
+        )}
+      </Show>
       <Show when={!readonly()}>
         <MessageField s={props.s} />
       </Show>

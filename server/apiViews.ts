@@ -146,6 +146,7 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
     : {}),
   ...(post.embeds.length ? { publishedWith: post.embeds } : {}),
   ...(post.forkedFrom ? { forkedFrom: post.forkedFrom } : {}),
+  ...(post.copiedFrom ? { copiedFrom: post.copiedFrom } : {}),
   ...(post.starred ? { starred: true } : {}),
   ...(post.acceptedVersion === undefined ? {} : { inUseVersion: post.acceptedVersion }),
   // The part names this variant's own markup marks, so the viewer can tell
@@ -265,7 +266,7 @@ export const mockSummaryView = (mock: Mock, posts: PostHead[]) => {
 export const mockDetailView = (
   mock: Mock,
   posts: Post[],
-  opts: VariantViewOptions & { settled?: Record<string, KnobValue> } = {},
+  opts: VariantViewOptions & { settled?: Record<string, KnobValue>; repliesGoTo?: string } = {},
 ) => ({
   id: mock.id,
   project: mock.project,
@@ -273,6 +274,9 @@ export const mockDetailView = (
   title: mock.title,
   kind: mock.kind,
   ...placeOf(mock),
+  ...(mock.shortlist ? { shortlist: true } : {}),
+  // No agent has written to this shortlist yet: who its replies reach for now.
+  ...(opts.repliesGoTo ? { repliesGoTo: opts.repliesGoTo } : {}),
   states: mock.states,
   ...situationsOf(mock),
   asks: mock.asks,
@@ -313,6 +317,7 @@ export const treeNodeView = (
   title: mock.title,
   kind: mock.kind,
   ...placeOf(mock),
+  ...(mock.shortlist ? { shortlist: true } : {}),
   open: openCount(mock, posts),
   // Home shows a mock's states, never their situations.
   states: mock.states.length ? momentsOf(mock.states, mock.situations) : [null],

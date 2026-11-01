@@ -375,6 +375,10 @@ the user closed the mock unanswered: its \`dismissed\` questions were not worth
 answering. Don't ask them again, under any id; \`ask\` skips a dismissed id.
 \`edited: {kind, area}\` means the user moved the mock from Home; it is done,
 so build on it and don't move it back.
+A mock with \`shortlist: true\` is one the user gathered: its variants are
+copies (\`copiedFrom\` names each original) and its replies can reach you
+though you never wrote to it. Publish to those variants as usual; from then on
+its replies are yours.
 The viewer shows each state its own questions and only open ones; a sent
 answer is not shown again.
 

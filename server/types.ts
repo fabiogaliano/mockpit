@@ -536,6 +536,9 @@ export interface Mock {
   // The agent conversation currently driving this mock (its latest writer), so a
   // reply lands on the cursor of the session that is waiting for it.
   sessionId: string | null;
+  // A list the user gathers candidates into from across the project, rather
+  // than one an agent started. It has no session until an agent writes to it.
+  shortlist: boolean;
   // When the user closed it: off the open list, its open asks dismissed,
   // until they reopen it. null while it is live.
   closedAt: string | null;
@@ -599,6 +602,14 @@ export interface ForkRef {
   version: number;
 }
 
+// The version a shortlist candidate is a copy of, in another mock of the project.
+export interface CopyRef {
+  mock: string;
+  state: string | null;
+  variant: string;
+  version: number;
+}
+
 export interface Post {
   id: string;
   sessionId: string;
@@ -623,6 +634,8 @@ export interface Post {
   // The variant (in the same state) and version this one was forked from: the
   // lineage tree. Absent on a variant started from scratch.
   forkedFrom?: ForkRef;
+  // Set on a shortlist's candidates; stays across the versions an agent adds.
+  copiedFrom?: CopyRef;
   // The user's favourite: a mark, not a decision. Unrelated to status.
   starred?: true;
   // Set only while accepted: the version the user put in use. The agent may
@@ -863,6 +876,7 @@ export interface CreateMockInput {
   knobs?: Knobs;
   widths?: number[];
   sessionId?: string | null;
+  shortlist?: boolean;
 }
 
 export interface UpdateMockInput {
@@ -891,6 +905,7 @@ export interface CreatePostInput {
   note?: string;
   embeds?: Embed[];
   forkedFrom?: ForkRef;
+  copiedFrom?: CopyRef;
   from?: number;
   prompt?: string;
   author?: string;

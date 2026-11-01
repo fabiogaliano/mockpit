@@ -428,6 +428,7 @@ const str = (v: unknown, max: number): string | undefined =>
   typeof v === "string" && v.trim() ? v.trim().slice(0, max) : undefined;
 
 const MAX_LABEL = 120;
+const MAX_CANDIDATES = 50;
 const MAX_AREAS = 50;
 const MAX_FLOWS = 50;
 const MAX_FLOW_STEPS = 100;
@@ -669,6 +670,24 @@ export function createApp({
   // Sessions with an author=user long-poll held open right now: a waiting
   // `mockpit watch` is a live agent, whatever its agentActiveAt says.
   const listening = new Map<string, number>();
+
+  // Who hears the user on this mock: the agent driving it, or on a shortlist no
+  // agent has written to, the one working in the project right now. A session
+  // with `mockpit watch` open is live whatever its last call says.
+  async function projectAgent(project: string): Promise<Session | null> {
+    const sessions = await store.listSessions(project);
+    const when = (s: Session) => s.agentActiveAt ?? s.createdAt;
+    const newest = (list: Session[]) =>
+      list.reduce<Session | null>((a, b) => (a && when(a) >= when(b) ? a : b), null);
+    return newest(sessions.filter((s) => listening.has(s.id))) ?? newest(sessions);
+  }
+
+  async function replySessionId(mock: Mock, posts: Post[]): Promise<string | undefined> {
+    if (mock.sessionId) return mock.sessionId;
+    const agent = mock.shortlist ? await projectAgent(mock.project) : null;
+    if (agent) return agent.id;
+    return [...posts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]?.sessionId;
+  }
 
   // User comments the agent has not seen yet ride along on its next write, so
   // agents hear feedback without blocking on the long-poll. The cursor also
@@ -2384,9 +2403,16 @@ export function createApp({
         history: query.history,
         settled: settledValues(await replyPayloads(mock.id), mock, posts),
         embeds: await embedViews(mock, posts),
+        ...(await shortlistReach(mock)),
       }),
       pending: pendingOf(mock, posts),
     });
+  }
+
+  async function shortlistReach(mock: Mock): Promise<{ repliesGoTo?: string }> {
+    if (!mock.shortlist || mock.sessionId) return {};
+    const agent = await projectAgent(mock.project);
+    return agent ? { repliesGoTo: agent.title ?? agent.agent } : {};
   }
 
   async function exportFlow(
@@ -3107,8 +3133,7 @@ export function createApp({
       !Object.keys(draft.others ?? {}).length &&
       !Object.keys(draft.notes ?? {}).length;
     if (empty) return fail(400, "nothing to send");
-    const latest = [...posts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-    const sessionId = mock.sessionId ?? latest?.sessionId;
+    const sessionId = await replySessionId(mock, posts);
     if (!sessionId) return fail(409, `${mock.slug} has no agent session to reply to`);
     const payload: Reply = {
       mockId: mock.id,
@@ -3205,8 +3230,7 @@ export function createApp({
     if (chosen.status === "accepted" && chosen.acceptedVersion === version) {
       return ok({ reply: null, inUse, archived: [] });
     }
-    const latest = [...posts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-    const sessionId = mock.sessionId ?? latest?.sessionId;
+    const sessionId = await replySessionId(mock, posts);
     if (!sessionId) return fail(409, `${mock.slug} has no agent session to reply to`);
     const archive = posts.filter(
       (p) => p.state === chosen.state && p.id !== chosen.id && isLive(p.status),
@@ -3323,8 +3347,7 @@ export function createApp({
     const dismissed = [...openAsks(mock).map((a) => a.id), ...builtinAskIds(mock, posts, mock.id)];
     const asks = mock.asks.map((a): Ask => (askAnswered(a) ? a : { ...a, dismissed: true }));
     const at = new Date().toISOString();
-    const latest = [...posts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-    const sessionId = mock.sessionId ?? latest?.sessionId;
+    const sessionId = await replySessionId(mock, posts);
     const session = sessionId ? await store.getSession(sessionId) : null;
     const comment = session
       ? await store.commitReply({
@@ -3447,6 +3470,197 @@ export function createApp({
     });
     bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
     return ok({ state: updated.state, variant: updated.variant, starred: !!updated.starred });
+  }
+
+  // The user gathers candidates from across the project into a shortlist. Each
+  // is a copy of one version, so its original and that mock's decisions stay as
+  // they were, and an agent iterates on it like any other variant.
+  async function shortlistsFlow(project: string): Promise<FlowResult> {
+    const mocks = (await store.listMocks(project)).filter((m) => m.shortlist && !m.closedAt);
+    mocks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    // One mock at a time: every open mock screen calls this, and a project's
+    // heads are far more than its few shortlists need.
+    const shortlists = [];
+    for (const m of mocks) {
+      const posts = await store.listPosts({ mockId: m.id });
+      shortlists.push({
+        id: m.id,
+        slug: m.slug,
+        title: m.title,
+        candidates: posts
+          .filter((p) => isLive(p.status))
+          .map((p) => ({ variant: p.variant, copiedFrom: p.copiedFrom ?? null })),
+      });
+    }
+    return ok({ shortlists });
+  }
+
+  async function uniqueSlug(project: string, wanted: string): Promise<string> {
+    const base = slugify(wanted) || "shortlist";
+    let slug = base;
+    for (let n = 2; await store.findMock(project, slug); n++) slug = `${base}-${n}`;
+    return slug;
+  }
+
+  // Not announcePost: a shortlist embeds nothing new, and finding what embeds a
+  // mock reads every post in the project before the response can leave.
+  function announceCopy(list: Mock, post: Post, created: boolean) {
+    bus.broadcast({
+      type: created ? "post-created" : "post-updated",
+      id: post.id,
+      mockId: list.id,
+      sessionId: post.sessionId,
+      version: post.version,
+      by: "user",
+    });
+  }
+
+  // A copy's name, which must not take another candidate's. Two labs can share
+  // a name, and two versions of one variant are two candidates.
+  function candidateName(wanted: string, version: number, origin: Mock, taken: Set<string>) {
+    const tries = [wanted, `${wanted} #${version}`, `${wanted} (${origin.title})`];
+    const free = tries.find((t) => !taken.has(t));
+    if (free) return free;
+    let n = 2;
+    while (taken.has(`${tries[2]} ${n}`)) n++;
+    return `${tries[2]} ${n}`;
+  }
+
+  async function saveToShortlistFlow(body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const picks: any[] = Array.isArray(body?.candidates) ? body.candidates : [];
+    if (picks.length === 0) return fail(400, 'provide "candidates": the versions to save');
+    if (picks.length > MAX_CANDIDATES) {
+      return fail(400, `save at most ${MAX_CANDIDATES} candidates at once`);
+    }
+    const origins = [];
+    for (const pick of picks) {
+      const mock = await resolveMock(pick?.mock);
+      if (isResult(mock)) return mock;
+      if (mock.shortlist) return fail(400, `${mock.title} is a shortlist; save from the original`);
+      const posts = await store.listPosts({ mockId: mock.id });
+      const post = chooseVariant(mock, posts, stateArg(pick?.state), str(pick?.variant, MAX_LABEL));
+      if (isResult(post)) return post;
+      const version = Number.isInteger(pick?.version) ? (pick.version as number) : post.version;
+      const surfaces =
+        version === post.version
+          ? post.surfaces
+          : post.history.find((h) => h.version === version)?.surfaces;
+      if (!surfaces) return fail(404, `${post.variant} has no version ${version}`);
+      origins.push({ mock, post, version, surfaces });
+    }
+    const first = origins[0].mock;
+    const project = first.project;
+    if (origins.some((o) => o.mock.project !== project)) {
+      return fail(400, "a shortlist gathers from one project");
+    }
+
+    let list: Mock | undefined;
+    if (body.to !== undefined && body.to !== null) {
+      const named = await resolveMock(body.to, project);
+      if (isResult(named)) return named;
+      if (!named.shortlist) return fail(400, `${named.title} is not a shortlist`);
+      if (named.project !== project) return fail(400, "a shortlist gathers from one project");
+      list = named;
+    } else {
+      const title = str(body.title, MAX_LABEL)?.trim();
+      if (!title) return fail(400, 'provide "to" or "title": which shortlist');
+      // The same name again means the same list, not a second one beside it.
+      list = titledMocks(await store.listMocks(project), slugify(title)).find((m) => m.shortlist);
+      if (!list) {
+        list = await store.createMock({
+          project,
+          slug: await uniqueSlug(project, title),
+          title,
+          kind: "sketch",
+          area: first.area,
+          widths: first.widths,
+          shortlist: true,
+        });
+        bus.broadcast({ type: "mock-created", id: list.id, project });
+      }
+    }
+    if (list.closedAt) list = (await store.updateMock(list.id, { closedAt: null })) ?? list;
+
+    const posts = await store.listPosts({ mockId: list.id });
+    const taken = new Set(posts.map((p) => p.variant));
+    const saved: { variant: string; already: boolean }[] = [];
+    for (const { mock, post, version, surfaces } of origins) {
+      const same = posts.find(
+        (p) =>
+          p.copiedFrom?.mock === mock.id &&
+          p.copiedFrom.state === post.state &&
+          p.copiedFrom.variant === post.variant &&
+          p.copiedFrom.version === version,
+      );
+      if (same) {
+        saved.push({ variant: same.variant, already: isLive(same.status) });
+        if (isLive(same.status)) continue;
+        const back = await store.setPostStatus(same.id, "open");
+        if (back) announceCopy(list, back, false);
+        continue;
+      }
+      const knobs = { ...mock.knobs, ...post.knobs };
+      const embeds = await publishEmbeds(project, list.slug, surfaces);
+      const created = await store.createPost({
+        sessionId: post.sessionId,
+        mock: list.id,
+        state: null,
+        variant: candidateName(post.variant, version, mock, taken),
+        title: list.title,
+        surfaces,
+        ...(Object.keys(knobs).length ? { knobs } : {}),
+        ...(post.note ? { note: post.note } : {}),
+        embeds: isResult(embeds) ? [] : embeds,
+        copiedFrom: { mock: mock.id, state: post.state, variant: post.variant, version },
+      });
+      if (!created) return fail(409, `${post.variant} has no agent session to copy it under`);
+      posts.push(created);
+      taken.add(created.variant);
+      saved.push({ variant: created.variant, already: false });
+      announceCopy(list, created, true);
+    }
+    bus.broadcast({ type: "mock-updated", id: list.id, project });
+    return ok({ shortlist: { id: list.id, slug: list.slug, title: list.title }, saved });
+  }
+
+  // Undo, or taking a save back. A copy nobody acted on leaves no trace, and a
+  // list left with nothing and no thread goes with it; anything else archives,
+  // since a reply may still name it.
+  async function removeFromShortlistFlow(
+    ref: unknown,
+    body: any,
+    ctx: FlowContext,
+  ): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const mock = await resolveMock(ref);
+    if (isResult(mock)) return mock;
+    if (!mock.shortlist) return fail(400, `${mock.title} is not a shortlist`);
+    const posts = await store.listPosts({ mockId: mock.id });
+    const post = chooseVariant(mock, posts, null, str(body?.variant, MAX_LABEL));
+    if (isResult(post)) return post;
+    if (variantStatus(post.status) === "inUse") return fail(409, `${post.variant} is in use`);
+    const thread = await store.listComments({ mockId: mock.id });
+    if (post.history.length > 0 || mock.draft || thread.some((c) => c.author === "user")) {
+      return archiveFlow(mock.id, { state: null, variant: post.variant }, ctx);
+    }
+    const gone = await store.withdrawVersion(post.id, post.version, []);
+    if (!gone) return fail(409, `${post.variant} has a newer version`);
+    dropPostRenders(post.id);
+    bus.broadcast({
+      type: "post-deleted",
+      id: post.id,
+      mockId: mock.id,
+      sessionId: post.sessionId,
+    });
+    const empty = posts.length === 1 && thread.length === 0;
+    if (empty) {
+      await store.removeMock(mock.id);
+      bus.broadcast({ type: "mock-deleted", id: mock.id, project: mock.project });
+    } else {
+      bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
+    }
+    return ok({ removed: post.variant, shortlistGone: empty });
   }
 
   // D8 "restore as vN": the user brings an older version back as the newest
@@ -3604,8 +3818,7 @@ export function createApp({
     };
     if (Object.keys(edited).length === 0) return;
     const posts = await store.listPosts({ mockId: after.id });
-    const latest = [...posts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-    const sessionId = after.sessionId ?? latest?.sessionId;
+    const sessionId = await replySessionId(after, posts);
     if (!sessionId) return;
     const comment = await store.commitReply({
       mockId: after.id,
@@ -4563,6 +4776,15 @@ export function createApp({
     send(c, await reopenFlow(c.req.param("id"), flowCtx(c))),
   );
 
+  app.get("/api/projects/:name/shortlists", async (c) =>
+    send(c, await shortlistsFlow(c.req.param("name"))),
+  );
+  app.post("/api/shortlists", async (c) =>
+    send(c, await saveToShortlistFlow(await jsonBody(c), flowCtx(c))),
+  );
+  app.post("/api/shortlists/:id/remove", async (c) =>
+    send(c, await removeFromShortlistFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
   app.post("/api/mocks/:id/star", async (c) =>
     send(c, await starFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );

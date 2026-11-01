@@ -16,6 +16,7 @@ import {
   batch,
   createEffect,
   createMemo,
+  createResource,
   createSignal,
   For,
   mapArray,
@@ -24,7 +25,9 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import { assetUrl, surfaceUrl, type VariantView } from "./api.ts";
+import type { CopyRef } from "../../server/types.ts";
+import { AddCandidates } from "./AddCandidates.tsx";
+import { api, assetUrl, surfaceUrl, type VariantView } from "./api.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import {
@@ -38,6 +41,9 @@ import type { MockScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
 import { FullView } from "./FullView.tsx";
 import { Thumb } from "./Thumb.tsx";
+import { linkClick, mockPath } from "./route.ts";
+import type { Shortlists } from "./shortlist.ts";
+import { ShortlistMenu, type MenuFor } from "./ShortlistMenu.tsx";
 import { phoneLayout } from "./viewport.ts";
 
 // More canvas pages live than this and a browser drops the oldest one's WebGL
@@ -72,7 +78,11 @@ type Draft = { kind: "comment" | "borrow"; to: VersionStep; from?: VersionStep }
 type Acts = Record<
   "look" | "full" | "open" | "more" | "comment" | "borrow" | "pick" | "remove",
   (st: VersionStep) => void
->;
+> & {
+  // null where a version can't be saved: a shortlist's own candidates.
+  saved: (st: VersionStep) => boolean | null;
+  save: (st: VersionStep, from: HTMLElement) => void;
+};
 
 // What one state shows: its variants as columns, each down its versions.
 // Everything here reads the board's own state rather than the one on stage,
@@ -189,8 +199,25 @@ function boardOf(s: MockScreenState, moment: string | null, state: () => string 
 // which state goes on stage with it.
 type Entry = { b: Board; st: VersionStep };
 
-export function Studio(props: { s: MockScreenState; top: number; onOpen: () => void }) {
+export function Studio(props: {
+  s: MockScreenState;
+  top: number;
+  shortlists: Shortlists;
+  onOpen: () => void;
+}) {
   const s = props.s;
+  const sl = props.shortlists;
+  const isShortlist = () => !!s.mock()?.shortlist;
+  // The mocks a shortlist's candidates came from, to name and link them.
+  const [projectMocks] = createResource(
+    () => (isShortlist() ? s.mock()?.project : null),
+    (project) => api.mocks(project),
+  );
+  const [saving, setSaving] = createSignal<{
+    item: NonNullable<MenuFor>;
+    from: HTMLElement;
+  } | null>(null);
+  const [adding, setAdding] = createSignal(false);
   const boards = mapArray(s.moments, (m) =>
     boardOf(s, m, () => (s.moment() === m ? s.activeState() : m)),
   );
@@ -570,6 +597,24 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
         if (b.versionsOf(st.variant).length > 1) void s.hideVersion(st, true);
         else void s.archiveVariants([st.variant]);
       },
+      saved(st) {
+        const id = s.mock()?.id;
+        if (!id || isShortlist()) return null;
+        return sl.isSaved({ mock: id, state: b.state(), variant: st.variant, version: st.version });
+      },
+      // One click once a list is chosen. A version already saved, or no list
+      // yet, opens the menu: taking it back or naming one is a choice to see.
+      save(st, from) {
+        const id = s.mock()?.id;
+        if (!id) return;
+        const item = {
+          ref: { mock: id, state: b.state(), variant: st.variant, version: st.version },
+          name: b.nameOf(st),
+        };
+        const list = sl.current();
+        if (list && !sl.isSaved(item.ref)) void sl.save(item.ref, item.name, { to: list.id });
+        else setSaving(saving()?.from === from ? null : { item, from });
+      },
     };
   };
 
@@ -662,8 +707,16 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
                             <button
                               type="button"
                               class="ib x-remove col-x"
-                              aria-label={`Archive ${b.columnLabel(v)}`}
-                              title={`Archive ${b.columnLabel(v)}`}
+                              aria-label={
+                                isShortlist()
+                                  ? `Remove ${b.columnLabel(v)} from the shortlist`
+                                  : `Archive ${b.columnLabel(v)}`
+                              }
+                              title={
+                                isShortlist()
+                                  ? `Remove ${b.columnLabel(v)} from the shortlist`
+                                  : `Archive ${b.columnLabel(v)}`
+                              }
                               onClick={() => {
                                 if (b.state() !== s.activeState()) s.showState(b.state());
                                 void s.archiveVariants(b.columnOut(v), b.columnLabel(v));
@@ -673,6 +726,9 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
                             </button>
                           </Show>
                         </header>
+                        <Show when={v.copiedFrom}>
+                          {(c) => <Origin from={c()} mocks={projectMocks()?.mocks ?? []} />}
+                        </Show>
                         <Show
                           when={b.here(v)}
                           fallback={<div class="studio-hole">{`No ${b.situationName()} yet`}</div>}
@@ -693,12 +749,34 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
                       </section>
                     )}
                   </For>
+                  <Show when={isShortlist() && !readonly() && !borrowFrom()}>
+                    <button type="button" class="studio-add" onClick={() => setAdding(true)}>
+                      <Icon name="plus" />
+                      Add candidate
+                    </button>
+                  </Show>
                 </div>
               </section>
             );
           }}
         </For>
       </div>
+      <Show when={saving()} keyed>
+        {(m) => (
+          <ShortlistMenu sl={sl} anchor={m.from} item={m.item} onClose={() => setSaving(null)} />
+        )}
+      </Show>
+      <Show when={adding() && s.mock()}>
+        {(m) => (
+          <AddCandidates
+            sl={sl}
+            project={m().project}
+            list={{ id: m().id, title: m().title }}
+            onDone={(n) => s.setToast({ text: `Added ${n} to ${m().title}` })}
+            onClose={() => setAdding(false)}
+          />
+        )}
+      </Show>
       <Show when={active().aside().length}>
         <div class="studio-archived" ref={(el) => (corner = el)}>
           <section
@@ -890,6 +968,18 @@ function Sketch(props: {
                 <Icon name="borrow" />
               </button>
             </div>
+            <Show when={props.act.saved(st()) !== null}>
+              <button
+                type="button"
+                class="ib sk-save"
+                aria-pressed={!!props.act.saved(st())}
+                aria-label={`Save ${name()} to a shortlist`}
+                title={props.act.saved(st()) ? "Saved to a shortlist" : "Save to a shortlist"}
+                onClick={(e) => props.act.save(st(), e.currentTarget)}
+              >
+                <Icon name="bookmark" />
+              </button>
+            </Show>
           </Show>
           {/* Not a steer: read-only viewers get it too. */}
           <Show when={!props.borrowing && pageOf(st())}>
@@ -917,6 +1007,37 @@ function Sketch(props: {
         </button>
       </Show>
     </div>
+  );
+}
+
+// Where a shortlist's candidate came from, and the way back to it.
+function Origin(props: {
+  from: CopyRef;
+  mocks: { id: string; slug: string; title: string; project: string }[];
+}) {
+  const mock = () => props.mocks.find((m) => m.id === props.from.mock);
+  return (
+    <Show when={mock()}>
+      {(m) => {
+        const label = () => [m().title, props.from.state].filter(Boolean).join(" · ");
+        const href = () =>
+          mockPath(m().project, m().slug, {
+            state: props.from.state,
+            variant: props.from.variant,
+            version: props.from.version,
+          });
+        return (
+          <a
+            class="studio-origin"
+            href={href()}
+            title={`Open the original in ${label()}`}
+            onClick={(e) => linkClick(e, href())}
+          >
+            {label()}
+          </a>
+        );
+      }}
+    </Show>
   );
 }
 
@@ -1069,6 +1190,17 @@ function Look(props: {
             <Icon name="borrow" />
             Borrow
           </button>
+          <Show when={props.act.saved(st()) !== null}>
+            <button
+              type="button"
+              class="btn look-save"
+              aria-pressed={!!props.act.saved(st())}
+              onClick={(e) => props.act.save(st(), e.currentTarget)}
+            >
+              <Icon name="bookmark" />
+              {props.act.saved(st()) ? "Saved" : "Save"}
+            </button>
+          </Show>
           <Show when={!inUse()}>
             <button type="button" class="btn quiet" onClick={hide}>
               {props.last ? "Archive" : "Hide"}

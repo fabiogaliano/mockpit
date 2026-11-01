@@ -25,6 +25,7 @@ import {
   newId,
   normalizeSurfaceIds,
   type Post,
+  type CopyRef,
   type PostHead,
   type PostQuery,
   type PostStatus,
@@ -133,7 +134,7 @@ const SURFACE_HEADS_SQL = `CASE WHEN json_valid(surfaces) THEN (
 
 // Everything a head row needs, spelled out because `SELECT *` reads the bodies.
 const POST_HEAD_COLUMNS =
-  "id, sessionId, mockId, state, variant, status, title, head, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, note, forkedFrom, starred, acceptedVersion, hiddenVersions, curSession, amendedAt, rewrites";
+  "id, sessionId, mockId, state, variant, status, title, head, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, note, forkedFrom, copiedFrom, starred, acceptedVersion, hiddenVersions, curSession, amendedAt, rewrites";
 
 const POST_COLUMNS = `
   id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, mockId TEXT NOT NULL, state TEXT,
@@ -284,6 +285,7 @@ export class SqlStore implements Store {
       area: "TEXT",
       source: "TEXT",
       situations: "TEXT NOT NULL DEFAULT '{}'",
+      shortlist: "INTEGER NOT NULL DEFAULT 0",
     });
     // Before the legacy lift, whose history rows are written with every column.
     this.addMissing("post_versions", { sessionId: "TEXT", amendedAt: "TEXT" });
@@ -293,6 +295,7 @@ export class SqlStore implements Store {
     this.addMissing("posts", {
       note: "TEXT",
       forkedFrom: "TEXT",
+      copiedFrom: "TEXT",
       starred: "INTEGER NOT NULL DEFAULT 0",
       acceptedVersion: "INTEGER",
       hiddenVersions: "TEXT",
@@ -792,6 +795,7 @@ export class SqlStore implements Store {
       widths: parseJson<number[]>(r.widths, []),
       draft: parseJson<Draft | null>(r.draft, null),
       sessionId: (r.sessionId as string) ?? null,
+      shortlist: !!r.shortlist,
       closedAt: (r.closedAt as string) ?? null,
       createdAt: r.createdAt as string,
       updatedAt: r.updatedAt as string,
@@ -819,6 +823,7 @@ export class SqlStore implements Store {
       // The column keeps its first name, from when embeds were called slots.
       embeds: parseJson<Embed[]>(r.slots, []),
       ...(r.forkedFrom == null ? {} : { forkedFrom: parseJson<ForkRef>(r.forkedFrom, null!) }),
+      ...(r.copiedFrom == null ? {} : { copiedFrom: parseJson<CopyRef>(r.copiedFrom, null!) }),
       ...(r.starred ? { starred: true as const } : {}),
       ...(r.status === "accepted" && r.acceptedVersion != null
         ? { acceptedVersion: r.acceptedVersion as number }
@@ -1079,12 +1084,13 @@ export class SqlStore implements Store {
       widths: input.widths ?? [],
       draft: null,
       sessionId: input.sessionId ?? null,
+      shortlist: !!input.shortlist,
       closedAt: null,
       createdAt: now,
       updatedAt: now,
     };
     this.sql.exec(
-      "INSERT INTO mocks (id, project, slug, title, kind, area, source, states, asks, knobs, widths, draft, sessionId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, NULL, ?, ?, ?)",
+      "INSERT INTO mocks (id, project, slug, title, kind, area, source, states, asks, knobs, widths, draft, sessionId, shortlist, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, NULL, ?, ?, ?, ?)",
       mock.id,
       mock.project,
       mock.slug,
@@ -1096,6 +1102,7 @@ export class SqlStore implements Store {
       JSON.stringify(mock.knobs),
       JSON.stringify(mock.widths),
       mock.sessionId,
+      mock.shortlist ? 1 : 0,
       mock.createdAt,
       mock.updatedAt,
     );
@@ -1456,13 +1463,14 @@ export class SqlStore implements Store {
       ...(stripNul(input.note ?? "").trim() ? { note: stripNul(input.note ?? "").trim() } : {}),
       embeds: input.embeds ?? [],
       ...(input.forkedFrom ? { forkedFrom: input.forkedFrom } : {}),
+      ...(input.copiedFrom ? { copiedFrom: input.copiedFrom } : {}),
       ...(input.from === undefined ? {} : { from: input.from }),
       ...(input.prompt === undefined ? {} : { prompt: stripNul(input.prompt) }),
       ...(input.author === undefined ? {} : { author: stripNul(input.author) }),
       publishedBy: input.publishedBy ?? input.sessionId,
     };
     this.sql.exec(
-      "INSERT INTO posts (id, sessionId, mockId, state, variant, status, title, surfaces, head, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, note, forkedFrom, curSession) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO posts (id, sessionId, mockId, state, variant, status, title, surfaces, head, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, note, forkedFrom, copiedFrom, curSession) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)",
       post.id,
       post.sessionId,
       post.mock,
@@ -1480,6 +1488,7 @@ export class SqlStore implements Store {
       post.author ?? null,
       post.note ?? null,
       post.forkedFrom ? JSON.stringify(post.forkedFrom) : null,
+      post.copiedFrom ? JSON.stringify(post.copiedFrom) : null,
       post.publishedBy ?? null,
     );
     this.touch(input.sessionId);
