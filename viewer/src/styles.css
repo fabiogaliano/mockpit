@@ -4595,6 +4595,190 @@ html:has(.mock-screen) {
   justify-content: flex-end;
   gap: 8px;
 }
+/* A fork's name under its small picture: the newest work is what you name back. */
+.sk-name {
+  display: block;
+  overflow: hidden;
+  padding: 5px 8px 6px;
+  color: var(--t3);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Look closer: one version over the grid, below the top row, above everything
+   in Studio but a comment being written. */
+.look {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
+  background: var(--page);
+  outline: none;
+}
+.look-h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 6px 20px;
+}
+.look-h h2 {
+  margin: 0;
+  overflow: hidden;
+  color: var(--t1);
+  font: 600 15px var(--sans);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.look-at {
+  flex: none;
+  color: var(--t4);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.look-sp {
+  flex: 1;
+}
+.look-art {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) 56px;
+  align-items: center;
+  min-height: 0;
+  touch-action: none;
+}
+.look-frame {
+  height: 100%;
+  min-height: 0;
+  padding: 6px 0;
+}
+.look-frame .thumb,
+.look-frame .sk-poster {
+  width: 100%;
+  height: 100%;
+}
+.look-nav {
+  justify-self: center;
+  width: 44px;
+  height: 44px;
+}
+.look-nav svg {
+  width: 22px;
+  height: 22px;
+}
+.look-nav:disabled {
+  visibility: hidden;
+}
+.look-note {
+  max-width: 68ch;
+  margin: 4px auto 0;
+  padding: 0 20px;
+  color: var(--t2);
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: center;
+  text-wrap: pretty;
+}
+.look-acts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 16px 4px;
+}
+.look-acts .btn.quiet {
+  border-color: transparent;
+  background: none;
+  color: var(--t3);
+}
+.look-strip {
+  display: flex;
+  gap: 18px;
+  overflow-x: auto;
+  padding: 12px 20px calc(14px + env(safe-area-inset-bottom));
+  scrollbar-width: none;
+}
+.look-group {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 6px;
+}
+.look-gname {
+  color: var(--t4);
+  font-size: 11px;
+}
+.look-dots {
+  display: flex;
+  gap: 4px;
+  padding: 0 8px;
+}
+/* A 24px target around an 8px mark. */
+.look-dot {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: -8px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.look-dot::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--t5);
+  transition:
+    background 0.15s ease-out,
+    transform 0.15s ease-out;
+}
+.look-dot.on::before {
+  background: var(--t1);
+  transform: scale(1.35);
+}
+@media (hover: hover) {
+  .look-dot:hover::before {
+    background: var(--t2);
+  }
+}
+.look-dot:focus-visible {
+  outline: 2px solid var(--t1);
+  outline-offset: -4px;
+  border-radius: 50%;
+}
+/* A phone swipes instead of reaching for arrows, and keeps the note short. */
+@media (max-width: 640px), (hover: none) {
+  .look-art {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0 12px;
+  }
+  .look-nav {
+    display: none;
+  }
+}
+@media (max-width: 640px) {
+  .look-h {
+    padding-left: 14px;
+  }
+  .look-stage {
+    padding: 0 10px;
+    font-size: 13px;
+  }
+  .look-note {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    font-size: 13px;
+  }
+  .look-acts .btn {
+    padding: 0 10px;
+    font-size: 13px;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .ib::before,
   .sk,

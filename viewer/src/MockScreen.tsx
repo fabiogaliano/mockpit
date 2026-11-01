@@ -88,9 +88,18 @@ export function MockScreen(props: {
         (q) => q.kind === "ask" && !isLookAsk(q.ask) && s.owed().some((a) => a.id === q.ask.id),
       );
   const shownView = (): View => view() ?? (owes() ? "stage" : (remembered() ?? "stage"));
+  // Each step between Stage and Studio is its own history entry, so Back
+  // returns to the view you came from rather than leaving the mock.
   const setView = (v: View) => {
-    setViewSignal(v);
     const w = host().window;
+    const here = new URLSearchParams(w.location.search);
+    // The entry being left must name its view: without it, Back would fall to
+    // the remembered view, which this step is about to overwrite.
+    if (here.get("view") !== shownView()) {
+      here.set("view", shownView());
+      w.history.replaceState(w.history.state, "", `${w.location.pathname}?${here}`);
+    }
+    setViewSignal(v);
     const id = s.mock()?.id;
     try {
       if (id) host().storage?.setItem(viewKey(id), v);
@@ -99,8 +108,18 @@ export function MockScreen(props: {
     }
     const q = new URLSearchParams(w.location.search);
     q.set("view", v);
-    w.history.replaceState(w.history.state, "", `${w.location.pathname}?${q}`);
+    // A closer look belongs to the Studio entry it was opened on, where Back finds it.
+    q.delete("look");
+    w.history.pushState(w.history.state, "", `${w.location.pathname}?${q}`);
   };
+  // The route ignores ?view=, so Back between Stage and Studio keeps this
+  // screen mounted; the view follows the URL here.
+  const onPop = () => {
+    const v = new URLSearchParams(host().window.location.search).get("view");
+    setViewSignal(v === "studio" || v === "stage" ? v : null);
+  };
+  host().window.addEventListener("popstate", onPop);
+  onCleanup(() => host().window.removeEventListener("popstate", onPop));
   const nav = createFlowNav(s, props.project, props.slug, props.flow ?? null);
   const t = createTune(s);
   useFlowKeys(s);

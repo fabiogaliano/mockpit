@@ -1,13 +1,24 @@
 // Studio: the state zoomed out, every variant side by side with its newest
-// version on top, for exploring before anything is in use. Opening a version
-// zooms back in to Stage. A fork with a single version hangs under the version
-// it came from (a riff) until it has a second, then it is a column of its own.
+// version on top, for exploring before anything is in use. A click looks
+// closer without leaving: one version large, flipped through in reading order;
+// Stage, where answers are, is a deliberate step from there. A fork with a
+// single version hangs under the version it came from (a riff) until it has a
+// second, then it is a column of its own.
 // Each steer (more like this, a comment, a borrow) is its own reply. A moment
 // with situations shows one at a time; a variant not drawn in that one keeps
 // its column, empty, so the columns never move under the switch.
 
 import { isLive } from "../../server/types.ts";
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { assetUrl, surfaceUrl, type VariantView } from "./api.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
@@ -33,6 +44,10 @@ function pictureOf(st: VersionStep): string | null {
 }
 
 type Draft = { kind: "comment" | "borrow"; to: VersionStep; from?: VersionStep };
+type Acts = Record<
+  "look" | "open" | "more" | "comment" | "borrow" | "pick" | "remove",
+  (st: VersionStep) => void
+>;
 
 export function Studio(props: { s: MockScreenState; top: number; onOpen: () => void }) {
   const s = props.s;
@@ -98,6 +113,17 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
           isRiff(v) && v.forkedFrom?.variant === st.variant && v.forkedFrom.version === st.version,
       )
       .map((v) => versionsOf(v.variant)[0]);
+  // What Look closer flips through: the columns left to right, each down its
+  // versions, a version's forks right after it, as the eye reads the grid.
+  const runs = createMemo(() =>
+    columns()
+      .filter(here)
+      .map((v) => ({
+        variant: v.variant,
+        steps: versionsOf(v.variant).flatMap((st) => [st, ...riffsOf(st)]),
+      })),
+  );
+  const order = createMemo(() => runs().flatMap((r) => r.steps));
 
   // Archived variants are out of the exploration: a quiet count in the window's
   // corner, opened on purpose.
@@ -105,7 +131,75 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
   // Live frames: the versions in view, oldest sighting first, up to the budget.
   const [inView, setInView] = createSignal<string[]>([]);
   const key = (st: VersionStep) => `${st.variant}@${st.version}`;
+  // Look closer: in the URL (?look=), so Back on a phone closes it and Back
+  // from Stage reopens it where you were.
+  const readLook = () => new URLSearchParams(host().window.location.search).get("look");
+  const lookUrl = (k: string | null) => {
+    const w = host().window;
+    const q = new URLSearchParams(w.location.search);
+    if (k) q.set("look", k);
+    else q.delete("look");
+    return `${w.location.pathname}?${q}`;
+  };
+  const [lookKey, setLookKey] = createSignal<string | null>(readLook());
+  // Whether the entry under this one is Studio without a closer look, so
+  // closing can step back to it instead of stacking another.
+  let pushed = false;
+  const looking = () => {
+    const k = lookKey();
+    return k ? (order().find((st) => key(st) === k) ?? null) : null;
+  };
+  const look = (st: VersionStep) => {
+    const h = host().window.history;
+    if (lookKey()) h.replaceState(h.state, "", lookUrl(key(st)));
+    else {
+      h.pushState(h.state, "", lookUrl(key(st)));
+      pushed = true;
+    }
+    setLookKey(key(st));
+  };
+  const closeLook = () => {
+    if (!lookKey()) return;
+    if (pushed) {
+      pushed = false;
+      host().window.history.back();
+      return;
+    }
+    host().window.history.replaceState(host().window.history.state, "", lookUrl(null));
+    setLookKey(null);
+  };
+  const onPop = () => {
+    const k = readLook();
+    pushed = !!k;
+    setLookKey(k);
+  };
+  onMount(() => host().window.addEventListener("popstate", onPop));
+  onCleanup(() => host().window.removeEventListener("popstate", onPop));
+  // A version hidden or archived from under the closer look takes it away.
+  createEffect(() => {
+    if (lookKey() && order().length && !looking()) closeLook();
+  });
+  // Closing puts you back on the card you were looking at.
+  createEffect(
+    on(lookKey, (now, before) => {
+      if (now || !before) return;
+      queueMicrotask(() =>
+        scroller
+          ?.querySelector<HTMLElement>(`[data-key="${CSS.escape(before)}"] .sk-art`)
+          ?.focus({ preventScroll: false }),
+      );
+    }),
+  );
+  const step = (d: number) => {
+    const list = order();
+    const i = list.findIndex((st) => key(st) === lookKey());
+    const next = list[i + d];
+    if (i >= 0 && next) look(next);
+  };
+
   const inBudget = (st: VersionStep) => {
+    // The closer look covers the grid: its one live frame stands in for all of them.
+    if (lookKey()) return false;
     const i = inView().indexOf(key(st));
     return i >= 0 && i < LIVE_MAX - (archivedOpen() ? aside().length : 0);
   };
@@ -142,6 +236,18 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
   const [borrowFrom, setBorrowFrom] = createSignal<VersionStep | null>(null);
   const [writing, setWriting] = createSignal<Draft | null>(null);
   const onKey = (e: KeyboardEvent) => {
+    if (lookKey() && !writing()) {
+      const at = e.target as Element | null;
+      const typing = !!at?.closest?.("input, textarea, select, [contenteditable]");
+      // Space presses a focused button; anywhere else it closes, as Quick Look does.
+      const pressing = typing || !!at?.closest?.("button");
+      if (e.key === "ArrowRight" && !typing) step(1);
+      else if (e.key === "ArrowLeft" && !typing) step(-1);
+      else if (e.key === "Escape" || (e.key === " " && !pressing)) closeLook();
+      else return;
+      e.preventDefault();
+      return;
+    }
     if (e.key !== "Escape") return;
     if (writing()) setWriting(null);
     else if (borrowFrom()) setBorrowFrom(null);
@@ -157,6 +263,7 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
   onCleanup(() => host().window.removeEventListener("keydown", onKey));
 
   const act = {
+    look,
     open(st: VersionStep) {
       s.showVersion(st);
       props.onOpen();
@@ -172,6 +279,7 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
     },
     borrow(st: VersionStep) {
       setWriting(null);
+      closeLook();
       setBorrowFrom(st);
     },
     pick(st: VersionStep) {
@@ -321,6 +429,21 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
           </button>
         </div>
       </Show>
+      <Show when={looking()}>
+        {(st) => (
+          <Look
+            s={s}
+            st={st()}
+            top={props.top}
+            order={order()}
+            runs={runs()}
+            last={versionsOf(st().variant).length === 1}
+            onStep={step}
+            onClose={closeLook}
+            act={act}
+          />
+        )}
+      </Show>
       <Show when={writing()}>
         {(w) => <NoteBox s={s} draft={w()} onDone={() => setWriting(null)} />}
       </Show>
@@ -338,10 +461,7 @@ function Sketch(props: {
   last: boolean;
   ref: (el: HTMLElement) => void;
   onWake: () => void;
-  act: Record<
-    "open" | "more" | "comment" | "borrow" | "pick" | "remove",
-    (st: VersionStep) => void
-  >;
+  act: Acts;
 }) {
   const s = props.s;
   const st = () => props.st;
@@ -365,9 +485,11 @@ function Sketch(props: {
       <button
         type="button"
         class="sk-art"
-        aria-label={props.borrowing && !props.source ? `Borrow into ${label()}` : `Open ${label()}`}
+        aria-label={
+          props.borrowing && !props.source ? `Borrow into ${label()}` : `Look closer at ${label()}`
+        }
         title={st().prompt ?? ""}
-        onClick={() => (props.borrowing ? props.act.pick(st()) : props.act.open(st()))}
+        onClick={() => (props.borrowing ? props.act.pick(st()) : props.act.look(st()))}
         onFocus={() => !props.live && props.onWake()}
       >
         <Show
@@ -381,6 +503,11 @@ function Sketch(props: {
           {(p) => <Poster id={p()} />}
         </Show>
       </button>
+      <Show when={props.small}>
+        <span class="sk-name" title={st().variant}>
+          {st().variant}
+        </span>
+      </Show>
       <Show when={!props.small}>
         <div class="sk-foot">
           <span class="sk-n">{`#${st().version}`}</span>
@@ -431,6 +558,167 @@ function Sketch(props: {
           <Icon name="close" />
         </button>
       </Show>
+    </div>
+  );
+}
+
+// One version large over the grid. Arrows, the strip or a swipe flip through
+// Studio's reading order; Esc, Space or a swipe down go back to the card. The
+// steers are the card's, and Stage is one deliberate step away.
+function Look(props: {
+  s: MockScreenState;
+  st: VersionStep;
+  top: number;
+  order: VersionStep[];
+  runs: { variant: string; steps: VersionStep[] }[];
+  last: boolean;
+  onStep: (d: number) => void;
+  onClose: () => void;
+  act: Acts;
+}) {
+  const s = props.s;
+  const st = () => props.st;
+  const at = () => props.order.findIndex((x) => sameVersion(x, st()));
+  const name = () => s.nameOf(st());
+  const inUse = () => sameVersion(s.inUse(), st());
+  const note = () =>
+    s.variants().find((v) => v.state === s.activeState() && v.variant === st().variant)?.note;
+  const can = () => !readonly();
+  let box: HTMLDivElement | undefined;
+  onMount(() => box?.focus({ preventScroll: true }));
+  // A swipe across flips, a swipe down closes; a tap is left alone.
+  let start: { x: number; y: number; id: number } | null = null;
+  const down = (e: PointerEvent) => {
+    if (e.pointerType === "mouse") return;
+    start = { x: e.clientX, y: e.clientY, id: e.pointerId };
+  };
+  const up = (e: PointerEvent) => {
+    if (!start || e.pointerId !== start.id) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    start = null;
+    if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) props.onStep(dx < 0 ? 1 : -1);
+    else if (dy > 90 && dy > Math.abs(dx) * 1.5) props.onClose();
+  };
+  const hide = () => {
+    const list = props.order;
+    const next = list[at() + 1] ?? list[at() - 1];
+    const gone = st();
+    if (next) props.act.look(next);
+    else props.onClose();
+    props.act.remove(gone);
+  };
+  return (
+    <div
+      class="look"
+      ref={(el) => (box = el)}
+      tabIndex={-1}
+      role="dialog"
+      aria-label={`Look closer: ${name()}`}
+      style={{ top: `${props.top}px` }}
+    >
+      <header class="look-h">
+        <h2>{name()}</h2>
+        <Show when={inUse()}>
+          <span class="sk-tag">in use</span>
+        </Show>
+        <span class="look-at">{`${at() + 1} of ${props.order.length}`}</span>
+        <span class="look-sp" />
+        <button type="button" class="btn look-stage" onClick={() => props.act.open(st())}>
+          Open on Stage
+        </button>
+        <button
+          type="button"
+          class="ib"
+          aria-label="Back to Studio"
+          title="Back to Studio (Esc)"
+          onClick={props.onClose}
+        >
+          <Icon name="close" />
+        </button>
+      </header>
+      <div
+        class="look-art"
+        onPointerDown={down}
+        onPointerUp={up}
+        onPointerCancel={() => (start = null)}
+      >
+        <button
+          type="button"
+          class="ib look-nav"
+          aria-label="Previous"
+          disabled={at() <= 0}
+          onClick={() => props.onStep(-1)}
+        >
+          <Icon name="prev" />
+        </button>
+        <div class="look-frame">
+          <Show
+            when={pictureOf(st())}
+            keyed
+            fallback={<Show when={st().poster}>{(p) => <Poster id={p()} />}</Show>}
+          >
+            {(u) => <Thumb src={u} width={s.frameW()} fit whole title={name()} />}
+          </Show>
+        </div>
+        <button
+          type="button"
+          class="ib look-nav"
+          aria-label="Next"
+          disabled={at() >= props.order.length - 1}
+          onClick={() => props.onStep(1)}
+        >
+          <Icon name="next" />
+        </button>
+      </div>
+      <Show when={note()}>
+        <p class="look-note">{note()}</p>
+      </Show>
+      <Show when={can()}>
+        <div class="look-acts" role="group" aria-label={`Steer ${name()}`}>
+          <button type="button" class="btn" onClick={() => props.act.more(st())}>
+            <Icon name="spark" />
+            More like this
+          </button>
+          <button type="button" class="btn" onClick={() => props.act.comment(st())}>
+            <Icon name="mark" />
+            Comment
+          </button>
+          <button type="button" class="btn" onClick={() => props.act.borrow(st())}>
+            <Icon name="borrow" />
+            Borrow
+          </button>
+          <Show when={!inUse()}>
+            <button type="button" class="btn quiet" onClick={hide}>
+              {props.last ? "Archive" : "Hide"}
+            </button>
+          </Show>
+        </div>
+      </Show>
+      <nav class="look-strip" aria-label="Versions">
+        <For each={props.runs}>
+          {(run) => (
+            <div class="look-group">
+              <span class="look-gname">{run.variant}</span>
+              <div class="look-dots">
+                <For each={run.steps}>
+                  {(x) => (
+                    <button
+                      type="button"
+                      class="look-dot"
+                      classList={{ on: sameVersion(x, st()) }}
+                      aria-label={s.nameOf(x)}
+                      aria-current={sameVersion(x, st()) || undefined}
+                      title={s.nameOf(x)}
+                      onClick={() => props.act.look(x)}
+                    />
+                  )}
+                </For>
+              </div>
+            </div>
+          )}
+        </For>
+      </nav>
     </div>
   );
 }
