@@ -21,7 +21,7 @@ export const MCP_INSTRUCTIONS =
   "Fetch guide before html.";
 
 const field = {
-  mock: "Mock slug or id",
+  mock: "Mock slug, title or id",
   state: "State label; omit if single-state",
   situation:
     'Another render of this state ("Couldn\'t save", "Loading"); publish the state itself first',

@@ -461,6 +461,8 @@ const APP_FILES = new Set([
   ...ICON_SIZES.map((s) => `/icon-${s}.png`),
 ]);
 
+const titledMocks = (mocks: Mock[], slug: string) => mocks.filter((m) => slugify(m.title) === slug);
+
 const titleFromSlug = (slug: string) =>
   slug.replace(/-/g, " ").replace(/^./, (ch) => ch.toUpperCase());
 
@@ -902,9 +904,10 @@ export function createApp({
   const resolveProject = (project?: string, cwd?: string | null): string =>
     project?.trim() || projectFromCwd(cwd) || DEFAULT_PROJECT;
 
-  // A mock reference is its id, or its slug within a project. Without a
-  // project, a slug that names exactly one mock in the workspace still resolves —
-  // an agent rarely has more than one repo with the same mock name.
+  // A mock reference is its id, or its slug within a project, or its title: the
+  // name the user sees is the name they tell an agent. Without a project, a name
+  // that fits exactly one mock in the workspace still resolves — an agent rarely
+  // has more than one repo with the same mock name.
   async function resolveMock(
     ref: unknown,
     project?: unknown,
@@ -922,9 +925,18 @@ export function createApp({
     }
     if (proj) {
       const mock = await store.findMock(proj, slug);
-      return mock ?? fail(404, `${proj} has no mock "${slug}"`);
+      if (mock) return mock;
+      const titled = titledMocks(await store.listMocks(proj), slug);
+      if (titled.length === 1) return titled[0];
+      return titled.length
+        ? fail(400, `several mocks in ${proj} are titled "${name}"; pass a slug`, {
+            mocks: titled.map((m) => m.slug),
+          })
+        : fail(404, `${proj} has no mock "${slug}"`);
     }
-    const matches = (await store.listMocks()).filter((m) => m.slug === slug);
+    const all = await store.listMocks();
+    const bySlug = all.filter((m) => m.slug === slug);
+    const matches = bySlug.length ? bySlug : titledMocks(all, slug);
     if (matches.length === 1) return matches[0];
     if (matches.length === 0) return fail(404, `no mock "${slug}"`);
     return fail(400, `"${slug}" exists in several projects; pass project`, {
@@ -1534,8 +1546,17 @@ export function createApp({
         session?.project ||
         projectFromCwd(session?.cwd) ||
         resolveProject(undefined, str(body.cwd, 4096)));
-    const slug = mock?.slug ?? slugify(slugIn);
+    let slug = mock?.slug ?? slugify(slugIn);
     mock ??= await store.findMock(project, slug);
+    // Told a mock by its title, the agent means that mock, not a new one named
+    // after it. Only for what can't be a slug: a slug it chose stays a new mock.
+    if (!mock && slugIn !== slug) {
+      const titled = titledMocks(await store.listMocks(project), slug);
+      if (titled.length === 1) {
+        mock = titled[0];
+        slug = mock.slug;
+      }
+    }
 
     const posts = mock ? await store.listPosts({ mockId: mock.id }) : [];
     let state: string | null;
