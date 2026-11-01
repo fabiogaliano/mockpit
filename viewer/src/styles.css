@@ -4262,6 +4262,27 @@ html:has(.mock-screen) {
   padding: 8px 2px 6px;
   background: var(--page);
 }
+/* A column's own ×, beside its name: out of the way until the column is pointed at. */
+.col-x {
+  width: 26px;
+  height: 26px;
+  margin: -6px 0 -6px auto;
+  opacity: 0;
+  transition: opacity 0.15s ease-out;
+}
+.col-x svg {
+  width: 13px;
+  height: 13px;
+}
+.studio-col:hover .col-x,
+.col-x:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .col-x {
+    opacity: 1;
+  }
+}
 .studio-colh h2 {
   margin: 0;
   color: var(--t1);

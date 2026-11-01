@@ -1624,18 +1624,19 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
   }
   // Studio's ×. One version goes out of sight like any hidden version; the
   // last one left takes its variant to Archived, where Restore brings it back.
-  async function archiveVariant(variant: string) {
+  // A column's × takes the variant with the forks hanging in it, under one Undo.
+  async function archiveVariants(variants: string[], label = variants.join(", ")) {
     const m = mock();
-    if (!m || readonly()) return;
+    if (!m || readonly() || !variants.length) return;
     const state = activeState();
     try {
-      await api.archiveVariant(m.id, state, variant);
+      for (const v of variants) await api.archiveVariant(m.id, state, v);
       await loadMock();
       setToast({
-        text: `Archived ${variant}`,
+        text: `Archived ${label}`,
         undo: () => {
           setToast(null);
-          void restoreVariant(variant, [state]);
+          for (const v of variants) void restoreVariant(v, [state]);
         },
       });
     } catch (e) {
@@ -1820,7 +1821,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     postComment,
     restoreVariant,
     steer,
-    archiveVariant,
+    archiveVariants,
     setTuned,
     replaceTuned,
     knobContext,

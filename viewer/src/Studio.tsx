@@ -107,6 +107,17 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
     for (const v of vs) visit(v);
     return out;
   });
+  // A column goes as a whole: the variant and the forks hanging in it, except
+  // what is in use, which only a new choice moves.
+  const forksIn = (v: VariantView) =>
+    here(v) ? versionsOf(v.variant).flatMap((st) => riffsOf(st).map((r) => r.variant)) : [];
+  const isUsed = (variant: string) => s.inUse()?.variant === variant;
+  const columnOut = (v: VariantView) =>
+    isUsed(v.variant) ? [] : [v.variant, ...forksIn(v)].filter((n) => !isUsed(n));
+  const columnLabel = (v: VariantView) => {
+    const n = columnOut(v).length - 1;
+    return n > 0 ? `${v.variant} and ${n} fork${n === 1 ? "" : "s"}` : v.variant;
+  };
   const aside = createMemo(() => inState().filter((v) => !live(v) && versionsOf(v.variant).length));
   const riffsOf = (st: VersionStep) =>
     inState()
@@ -293,7 +304,7 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
     // The last version of a variant can't be hidden; it archives the variant.
     remove(st: VersionStep) {
       if (versionsOf(st.variant).length > 1) void s.hideVersion(st, true);
-      else void s.archiveVariant(st.variant);
+      else void s.archiveVariants([st.variant]);
     },
   };
 
@@ -353,6 +364,17 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
                 <h2>{v.variant}</h2>
                 <Show when={v.forkedFrom}>
                   {(f) => <span class="studio-from">{`from ${f().variant}`}</span>}
+                </Show>
+                <Show when={!readonly() && !borrowFrom() && columnOut(v).length}>
+                  <button
+                    type="button"
+                    class="ib x-remove col-x"
+                    aria-label={`Archive ${columnLabel(v)}`}
+                    title={`Archive ${columnLabel(v)}`}
+                    onClick={() => void s.archiveVariants(columnOut(v), columnLabel(v))}
+                  >
+                    <Icon name="close" />
+                  </button>
                 </Show>
               </header>
               <Show
