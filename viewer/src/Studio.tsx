@@ -211,8 +211,27 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
   // Archived variants are out of the exploration: a quiet count in the window's
   // corner, opened on purpose.
   const [archivedOpen, setArchivedOpen] = createSignal(false);
-  // Live frames: the versions in view, oldest sighting first, up to the budget.
+  // Live frames: the versions in view, up to the budget.
   const [inView, setInView] = createSignal<string[]>([]);
+  const [onScreen, setOnScreen] = createSignal<string[]>([]);
+  const [pointedAt, setPointedAt] = createSignal<string[]>([]);
+  const places = new Map<string, { top: number; left: number }>();
+  // Who gets the live frames: what was pointed at, then what the screen shows,
+  // then what sits just off it. Top rows first, so a budget that runs out takes
+  // older versions from every column rather than a whole column from the right.
+  const liveOrder = createMemo(() => {
+    const seen = new Set(onScreen());
+    const at = (k: string) => places.get(k) ?? { top: 0, left: 0 };
+    const rest = inView()
+      .filter((k) => !pointedAt().includes(k))
+      .sort(
+        (a, b) =>
+          Number(seen.has(b)) - Number(seen.has(a)) ||
+          at(a).top - at(b).top ||
+          at(a).left - at(b).left,
+      );
+    return [...pointedAt().filter((k) => inView().includes(k)), ...rest];
+  });
   const key = (st: VersionStep) => `${st.variant}@${st.version}`;
   // Variant names repeat across states, so a frame is told apart by both.
   const frameKey = (b: Board, st: VersionStep) => `${b.state() ?? ""}\n${key(st)}`;
@@ -339,39 +358,72 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
     // The closer look or full screen covers the grid: its one live frame
     // stands in for all of them.
     if (lookKey() || fullKey()) return false;
-    const i = inView().indexOf(frameKey(b, st));
+    const i = liveOrder().indexOf(frameKey(b, st));
     return i >= 0 && i < LIVE_MAX - (archivedOpen() ? active().aside().length : 0);
   };
   const bump = (b: Board, st: VersionStep) =>
-    setInView((l) => [frameKey(b, st), ...l.filter((k) => k !== frameKey(b, st))]);
+    setPointedAt((l) => [frameKey(b, st), ...l.filter((k) => k !== frameKey(b, st))]);
   let scroller: HTMLDivElement | undefined;
-  let io: IntersectionObserver | undefined;
+  const observers: IntersectionObserver[] = [];
+  const keyOf = (e: IntersectionObserverEntry) => {
+    const d = (e.target as HTMLElement).dataset;
+    return `${d.state}\n${d.key}`;
+  };
+  // Both lists follow the same rule: in on entering, out on leaving.
+  const track = (
+    set: (fn: (l: string[]) => string[]) => void,
+    entries: IntersectionObserverEntry[],
+  ) =>
+    set((l) => {
+      let next = l;
+      for (const e of entries) {
+        const k = keyOf(e);
+        next = e.isIntersecting
+          ? next.includes(k)
+            ? next
+            : [...next, k]
+          : next.filter((x) => x !== k);
+      }
+      return next;
+    });
   onMount(() => {
-    const obs = new IntersectionObserver(
-      (entries) => {
-        setInView((l) => {
-          let next = l;
+    const root = scroller ?? null;
+    observers.push(
+      new IntersectionObserver(
+        (entries) => {
+          // In the scroller's own coordinates, so places noted at different
+          // scroll positions still compare.
           for (const e of entries) {
-            const d = (e.target as HTMLElement).dataset;
-            const k = `${d.state}\n${d.key}`;
-            next = e.isIntersecting
-              ? next.includes(k)
-                ? next
-                : [...next, k]
-              : next.filter((x) => x !== k);
+            places.set(keyOf(e), {
+              top: e.boundingClientRect.top + (root?.scrollTop ?? 0),
+              left: e.boundingClientRect.left + (root?.scrollLeft ?? 0),
+            });
           }
-          return next;
-        });
-      },
-      { root: scroller ?? null, rootMargin: "200px" },
+          track(setInView, entries);
+          // Leaving the margin is the end of being pointed at.
+          setPointedAt((l) => {
+            const gone = entries.filter((e) => !e.isIntersecting).map(keyOf);
+            return gone.length ? l.filter((k) => !gone.includes(k)) : l;
+          });
+        },
+        { root, rootMargin: "200px" },
+      ),
+      new IntersectionObserver((entries) => track(setOnScreen, entries), { root }),
     );
-    io = obs;
-    for (const el of scroller?.querySelectorAll<HTMLElement>("[data-key]") ?? []) obs.observe(el);
+    for (const el of scroller?.querySelectorAll<HTMLElement>("[data-key]") ?? []) {
+      for (const o of observers) o.observe(el);
+    }
   });
-  onCleanup(() => io?.disconnect());
+  onCleanup(() => {
+    for (const o of observers) o.disconnect();
+  });
   const watch = (el: HTMLElement) => {
-    queueMicrotask(() => io?.observe(el));
-    onCleanup(() => io?.unobserve(el));
+    queueMicrotask(() => {
+      for (const o of observers) o.observe(el);
+    });
+    onCleanup(() => {
+      for (const o of observers) o.unobserve(el);
+    });
   };
 
   const [borrowFrom, setBorrowFrom] = createSignal<Entry | null>(null);
