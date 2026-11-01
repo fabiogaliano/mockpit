@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.1.0
+
+### Minor Changes
+
+- 7da6ed7: An agent can fix its own version before you see it twice: `publish --amend` (MCP `amend`, HTTP `"amend": true`) replaces a variant's latest version in place, keeping its number, and `publish --withdraw` takes it back. Both work only from the session that published the version and only while you haven't acted on it (no Send, comment or draft answer about that state, and not in use; a word on another state doesn't count); otherwise they refuse with a fix. Publishing the same variant twice within minutes, untouched, now nudges the agent to amend instead.
+- e8a89dd: Studio's Look closer: a click on a version shows it large without leaving Studio, with the agent's note and the steers. Arrows or a swipe step through every version in reading order; Esc, Space, a swipe down or Back return to the card. Open on Stage is a deliberate step from there, and Back from Stage returns to Studio. Forks in Studio now show their names.
+
+### Patch Changes
+
+- 4a56c20: `MOCKPIT_RENDER_SALT` on the Node server changes every surface document's URL on restart, so browsers re-fetch versions that were changed outside the API (a direct store edit) instead of keeping their year-long cached copy.
+- a40de6f: Studio: each column has its own × beside the variant's name, which archives the variant together with the forks hanging in it (never the one in use), under one Undo.
+
 ## 2.0.0
 
 ### Major Changes
