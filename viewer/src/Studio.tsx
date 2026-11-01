@@ -40,9 +40,10 @@ import { FullView } from "./FullView.tsx";
 import { Thumb } from "./Thumb.tsx";
 import { phoneLayout } from "./viewport.ts";
 
-// More live frames than this and a browser starts dropping WebGL contexts; a
-// version past the budget waits as a placeholder until it is pointed at.
-const LIVE_MAX = 16;
+// More canvas pages live than this and a browser drops the oldest one's WebGL
+// context; one past the budget waits as a placeholder until it is pointed at.
+// Any other page has no such limit and is live whenever it is near the screen.
+const CANVAS_MAX = 16;
 
 // The agent's still of the page: an image costs no live frame, so it is
 // always shown and never counts against the budget.
@@ -211,26 +212,26 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
   // Archived variants are out of the exploration: a quiet count in the window's
   // corner, opened on purpose.
   const [archivedOpen, setArchivedOpen] = createSignal(false);
-  // Live frames: the versions in view, up to the budget.
+  // Live frames: the versions in view; for canvas pages, up to the budget.
   const [inView, setInView] = createSignal<string[]>([]);
   const [onScreen, setOnScreen] = createSignal<string[]>([]);
   const [pointedAt, setPointedAt] = createSignal<string[]>([]);
-  const places = new Map<string, { top: number; left: number }>();
-  // Who gets the live frames: what was pointed at, then what the screen shows,
+  const places = new Map<string, { top: number; left: number; canvas: boolean }>();
+  // Who gets the canvas budget: what was pointed at, then what the screen shows,
   // then what sits just off it. Top rows first, so a budget that runs out takes
   // older versions from every column rather than a whole column from the right.
-  const liveOrder = createMemo(() => {
+  const canvasOrder = createMemo(() => {
     const seen = new Set(onScreen());
-    const at = (k: string) => places.get(k) ?? { top: 0, left: 0 };
+    const at = (k: string) => places.get(k) ?? { top: 0, left: 0, canvas: false };
     const rest = inView()
-      .filter((k) => !pointedAt().includes(k))
+      .filter((k) => at(k).canvas && !pointedAt().includes(k))
       .sort(
         (a, b) =>
           Number(seen.has(b)) - Number(seen.has(a)) ||
           at(a).top - at(b).top ||
           at(a).left - at(b).left,
       );
-    return [...pointedAt().filter((k) => inView().includes(k)), ...rest];
+    return [...pointedAt().filter((k) => inView().includes(k) && at(k).canvas), ...rest];
   });
   const key = (st: VersionStep) => `${st.variant}@${st.version}`;
   // Variant names repeat across states, so a frame is told apart by both.
@@ -358,8 +359,10 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
     // The closer look or full screen covers the grid: its one live frame
     // stands in for all of them.
     if (lookKey() || fullKey()) return false;
-    const i = liveOrder().indexOf(frameKey(b, st));
-    return i >= 0 && i < LIVE_MAX - (archivedOpen() ? active().aside().length : 0);
+    const key = frameKey(b, st);
+    if (!inView().includes(key)) return false;
+    if (!places.get(key)?.canvas) return true;
+    return canvasOrder().indexOf(key) < CANVAS_MAX - (archivedOpen() ? active().aside().length : 0);
   };
   const bump = (b: Board, st: VersionStep) =>
     setPointedAt((l) => [frameKey(b, st), ...l.filter((k) => k !== frameKey(b, st))]);
@@ -397,6 +400,7 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
             places.set(keyOf(e), {
               top: e.boundingClientRect.top + (root?.scrollTop ?? 0),
               left: e.boundingClientRect.left + (root?.scrollLeft ?? 0),
+              canvas: (e.target as HTMLElement).dataset.canvas !== undefined,
             });
           }
           track(setInView, entries);
@@ -819,6 +823,8 @@ function Sketch(props: {
       }}
       data-key={`${st().variant}@${st().version}`}
       data-state={props.b.state() ?? ""}
+      // A poster is an image: it holds no context, so it takes no budget.
+      data-canvas={st().canvas && !st().poster ? "" : undefined}
       ref={props.ref}
       onPointerEnter={() => !props.live && props.onWake()}
     >

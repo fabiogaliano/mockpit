@@ -1467,6 +1467,8 @@ export interface VersionStep extends VersionRef {
   kinds: string[];
   // The still of this version's page, which overviews show instead of it.
   poster?: string;
+  // The page draws on a canvas, so its live frame counts against the WebGL budget.
+  canvas?: boolean;
   forkedFrom?: VersionRef;
   rewrites?: number;
 }
@@ -1515,6 +1517,7 @@ export function versionSteps(variants: StepSource[], state: string | null): Vers
           hidden: "hidden" in h && h.hidden === true,
           kinds: h.surfaceKinds as string[],
           ...("poster" in h && typeof h.poster === "string" ? { poster: h.poster } : {}),
+          ...("canvas" in h && h.canvas === true ? { canvas: true } : {}),
           ...(v.forkedFrom ? { forkedFrom: v.forkedFrom } : {}),
           ...(v.rewrites ? { rewrites: v.rewrites } : {}),
         },

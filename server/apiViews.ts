@@ -70,6 +70,21 @@ const inUsePoster = (p: PostHead) => {
   return poster ? { inUsePoster: poster } : {};
 };
 
+// A page that draws on a canvas may hold a WebGL context, of which a browser
+// keeps about 16 and drops the oldest past that, so overviews ration these
+// frames and no others. Three.js and the like make their canvas from script.
+// Asked once per version: a read lists every version, with bodies up to 1 MB.
+const CANVAS_PAGE = /<canvas[\s>]|webgl|three(?:\.module|\.min|\.js|@)|['"]three['"]|pixi|babylon/i;
+const canvasPages = new WeakMap<Surface[], boolean>();
+const drawsOnCanvas = (surfaces: Surface[]): boolean => {
+  let hit = canvasPages.get(surfaces);
+  if (hit === undefined) {
+    hit = surfaces.some((s) => s.kind === "html" && CANVAS_PAGE.test(s.html));
+    canvasPages.set(surfaces, hit);
+  }
+  return hit;
+};
+
 // One past version without its bodies: enough to list versions or pick one to
 // fetch, at a bounded cost.
 export const historyMetaView = (version: PostVersion) => ({
@@ -82,6 +97,7 @@ export const historyMetaView = (version: PostVersion) => ({
   ...(version.amendedAt ? { amendedAt: version.amendedAt } : {}),
   surfaceKinds: version.surfaces.map((s) => s.kind),
   ...posterOf(version.surfaces),
+  ...(drawsOnCanvas(version.surfaces) ? { canvas: true } : {}),
 });
 
 export interface VariantViewOptions {
