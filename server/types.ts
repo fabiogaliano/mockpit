@@ -1020,6 +1020,8 @@ export interface Store {
 
   // Oldest first.
   listPosts(query?: PostQuery): Promise<Post[]>;
+  // Every variant of a project, or of the workspace, without its bodies; oldest first.
+  listPostHeads(project?: string): Promise<PostHead[]>;
   // Variants per session, without loading bodies or history.
   countPostsBySession(): Promise<Map<string, number>>;
   getPost(id: string): Promise<Post | null>;
@@ -1079,6 +1081,22 @@ export interface SqlStorage {
   // synchronous writes of one event as a unit, so its SqlStorage omits it.
   transactionSync?<T>(fn: () => T): T;
 }
+
+// A surface as overviews read it, stored beside its body so that listing a
+// project never reads the bodies, which hold nearly all of a workspace's bytes.
+// `marked` says the html has embeds or fills, the two things an overview must
+// read the body to resolve.
+export interface SurfaceHead {
+  kind: Surface["kind"];
+  poster?: string;
+  marked?: boolean;
+}
+
+// A variant as overviews read it; a full Post reads as one too.
+export type PostHead = Omit<Post, "surfaces" | "history"> & {
+  surfaces: SurfaceHead[];
+  history: { version: number; surfaces: SurfaceHead[] }[];
+};
 
 export const HISTORY_LIMIT = 20;
 

@@ -25,6 +25,7 @@ import {
   newId,
   normalizeSurfaceIds,
   type Post,
+  type PostHead,
   type PostQuery,
   type PostStatus,
   type PostVersion,
@@ -46,6 +47,7 @@ import {
   type Store,
   summarizeProjects,
   type Surface,
+  type SurfaceHead,
   type UpdateMockInput,
   type UpdatePostInput,
   type AmendPostInput,
@@ -97,9 +99,41 @@ function slotTagsToEmbed(surfaces: Surface[]): Surface[] | null {
   return changed ? out : null;
 }
 
-// What the post cache may hold unless told otherwise, in stored surface
-// characters: a Durable Object has 128 MB in all.
+// What the post cache may hold, in stored surface characters: a Durable Object
+// has 128 MB in all.
 const POST_CACHE_BYTES = 32 * 1024 * 1024;
+
+const surfaceHeads = (surfaces: Surface[]): string =>
+  JSON.stringify(
+    surfaces.map((s): SurfaceHead => {
+      if (s.kind !== "html") return { kind: s.kind };
+      return {
+        kind: s.kind,
+        ...(s.poster ? { poster: s.poster } : {}),
+        ...(/<mockpit-embed|data-fill/i.test(s.html) ? { marked: true } : {}),
+      };
+    }),
+  );
+
+// surfaceHeads in SQL, for the rows written before heads were: it runs without
+// bringing a workspace's bodies into memory, which a Durable Object can't hold.
+const SURFACE_HEADS_SQL = `CASE WHEN json_valid(surfaces) THEN (
+  SELECT json_group_array(json(h)) FROM (
+    SELECT '{"kind":' || json_quote(json_extract(value, '$.kind'))
+      || CASE WHEN json_extract(value, '$.kind') = 'html' AND json_extract(value, '$.poster') <> ''
+           THEN ',"poster":' || json_quote(json_extract(value, '$.poster')) ELSE '' END
+      || CASE WHEN json_extract(value, '$.kind') = 'html'
+             AND (json_extract(value, '$.html') LIKE '%<mockpit-embed%'
+               OR json_extract(value, '$.html') LIKE '%data-fill%')
+           THEN ',"marked":true' ELSE '' END
+      || '}' AS h
+    FROM json_each(surfaces) ORDER BY key
+  )
+) ELSE '[]' END`;
+
+// Everything a head row needs, spelled out because `SELECT *` reads the bodies.
+const POST_HEAD_COLUMNS =
+  "id, sessionId, mockId, state, variant, status, title, head, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, note, forkedFrom, starred, acceptedVersion, hiddenVersions, curSession, amendedAt, rewrites";
 
 const POST_COLUMNS = `
   id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, mockId TEXT NOT NULL, state TEXT,
@@ -120,17 +154,15 @@ export class SqlStore implements Store {
   // post's surfaces on each call. Stays correct because history is append-only:
   // an asset id once referenced stays referenced until its post is deleted.
   private assetRefCache: Set<string> | undefined;
-  // Parsed posts per mock, least recently used first. A mock's posts carry
-  // every surface and version body, and one Home load reads each of them many
-  // times over (every embed resolves its component again), so parsing them per
-  // read is what made it slow. Any statement that writes posts or versions
-  // drops all of it; the byte budget keeps a Durable Object's memory bounded.
+  // Parsed posts per mock, least recently used first. A component is read again
+  // for every embed that shows it, and parsing its bodies each time is what a
+  // page full of embeds would wait on. Any statement that writes posts or
+  // versions drops all of it; the byte budget keeps a Durable Object's memory
+  // bounded.
   private postCache = new Map<string, { posts: Post[]; bytes: number }>();
   private postCacheBytes = 0;
-  private postCacheLimit: number;
 
-  constructor(sql: SqlStorage, opts: { postCacheBytes?: number } = {}) {
-    this.postCacheLimit = opts.postCacheBytes ?? POST_CACHE_BYTES;
+  constructor(sql: SqlStorage) {
     const drop = () => {
       this.postCache.clear();
       this.postCacheBytes = 0;
@@ -271,6 +303,11 @@ export class SqlStore implements Store {
     // Before the pin, accepted meant "its latest": freeze that as the version in use.
     if (!pinned) {
       this.sql.exec("UPDATE posts SET acceptedVersion = version WHERE status = 'accepted'");
+    }
+    for (const table of ["posts", "post_versions"]) {
+      if (this.columns(table).has("head")) continue;
+      this.addMissing(table, { head: "TEXT" });
+      this.sql.exec(`UPDATE ${table} SET head = ${SURFACE_HEADS_SQL}`);
     }
     if (this.settingSync("sketchKind") !== "1") this.migrateToSketches();
     if (this.settingSync("contractTerms") !== "1") this.migrateToContractTerms();
@@ -667,11 +704,12 @@ export class SqlStore implements Store {
 
   private insertVersion(postId: string, v: PostVersion) {
     this.sql.exec(
-      "INSERT OR REPLACE INTO post_versions (postId, version, title, surfaces, at, fromVersion, prompt, author, sessionId, amendedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT OR REPLACE INTO post_versions (postId, version, title, surfaces, head, at, fromVersion, prompt, author, sessionId, amendedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       postId,
       v.version,
       v.title,
       JSON.stringify(v.surfaces ?? []),
+      surfaceHeads(v.surfaces ?? []),
       v.at,
       v.from ?? null,
       v.prompt ?? null,
@@ -1313,6 +1351,37 @@ export class SqlStore implements Store {
     return this.rowsToPosts(rows);
   }
 
+  async listPostHeads(project?: string) {
+    const scope =
+      project === undefined ? "" : "WHERE mockId IN (SELECT id FROM mocks WHERE project = ?)";
+    const args = project === undefined ? [] : [project];
+    const history = new Map<string, PostHead["history"]>();
+    for (const r of this.sql
+      .exec(
+        `SELECT postId, version, head FROM post_versions WHERE postId IN (SELECT id FROM posts ${scope}) ORDER BY version ASC`,
+        ...args,
+      )
+      .toArray()) {
+      const id = r.postId as string;
+      let list = history.get(id);
+      if (!list) history.set(id, (list = []));
+      list.push({ version: r.version as number, surfaces: parseJson<SurfaceHead[]>(r.head, []) });
+    }
+    return this.sql
+      .exec(
+        `SELECT ${POST_HEAD_COLUMNS} FROM posts ${scope} ORDER BY createdAt ASC, rowid ASC`,
+        ...args,
+      )
+      .toArray()
+      .map(
+        (r): PostHead => ({
+          ...this.rowToPost(r, []),
+          surfaces: parseJson<SurfaceHead[]>(r.head, []),
+          history: history.get(r.id as string) ?? [],
+        }),
+      );
+  }
+
   private postsOfMock(mockId: string): Post[] {
     const hit = this.postCache.get(mockId);
     if (hit) {
@@ -1326,11 +1395,11 @@ export class SqlStore implements Store {
     let bytes = 0;
     for (const r of rows) bytes += (r.surfaces as string).length;
     const posts = this.rowsToPosts(rows, (n) => (bytes += n));
-    if (bytes > this.postCacheLimit) return posts;
+    if (bytes > POST_CACHE_BYTES) return posts;
     this.postCache.set(mockId, { posts, bytes });
     this.postCacheBytes += bytes;
     for (const [id, entry] of this.postCache) {
-      if (this.postCacheBytes <= this.postCacheLimit) break;
+      if (this.postCacheBytes <= POST_CACHE_BYTES) break;
       this.postCache.delete(id);
       this.postCacheBytes -= entry.bytes;
     }
@@ -1393,7 +1462,7 @@ export class SqlStore implements Store {
       publishedBy: input.publishedBy ?? input.sessionId,
     };
     this.sql.exec(
-      "INSERT INTO posts (id, sessionId, mockId, state, variant, status, title, surfaces, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, note, forkedFrom, curSession) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO posts (id, sessionId, mockId, state, variant, status, title, surfaces, head, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, note, forkedFrom, curSession) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)",
       post.id,
       post.sessionId,
       post.mock,
@@ -1401,6 +1470,7 @@ export class SqlStore implements Store {
       post.variant,
       post.title,
       JSON.stringify(post.surfaces),
+      surfaceHeads(post.surfaces),
       post.knobs ? JSON.stringify(post.knobs) : null,
       JSON.stringify(post.embeds),
       post.createdAt,
@@ -1456,9 +1526,10 @@ export class SqlStore implements Store {
       const author = patch.author === undefined ? null : stripNul(patch.author);
       const publishedBy = patch.publishedBy ?? null;
       this.sql.exec(
-        "UPDATE posts SET title = ?, surfaces = ?, knobs = ?, note = ?, slots = ?, state = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, curSession = ?, amendedAt = NULL WHERE id = ? AND version = ?",
+        "UPDATE posts SET title = ?, surfaces = ?, head = ?, knobs = ?, note = ?, slots = ?, state = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, curSession = ?, amendedAt = NULL WHERE id = ? AND version = ?",
         title,
         JSON.stringify(surfaces),
+        surfaceHeads(surfaces),
         knobs ? JSON.stringify(knobs) : null,
         note ?? null,
         JSON.stringify(embeds),
@@ -1529,9 +1600,10 @@ export class SqlStore implements Store {
     const amendedAt = new Date().toISOString();
     const rewrites = (post.rewrites ?? 0) + 1;
     this.sql.exec(
-      "UPDATE posts SET title = ?, surfaces = ?, knobs = ?, note = ?, slots = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, amendedAt = ?, rewrites = ? WHERE id = ? AND version = ?",
+      "UPDATE posts SET title = ?, surfaces = ?, head = ?, knobs = ?, note = ?, slots = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, amendedAt = ?, rewrites = ? WHERE id = ? AND version = ?",
       title,
       JSON.stringify(surfaces),
+      surfaceHeads(surfaces),
       knobs ? JSON.stringify(knobs) : null,
       note ?? null,
       JSON.stringify(embeds),
@@ -1592,9 +1664,10 @@ export class SqlStore implements Store {
     const hidden = (post.hiddenVersions ?? []).filter((v) => v !== version);
     this.atomic(() => {
       this.sql.exec(
-        "UPDATE posts SET title = ?, surfaces = ?, slots = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, curSession = ?, amendedAt = ?, rewrites = ?, hiddenVersions = ? WHERE id = ? AND version = ?",
+        "UPDATE posts SET title = ?, surfaces = ?, head = ?, slots = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, curSession = ?, amendedAt = ?, rewrites = ?, hiddenVersions = ? WHERE id = ? AND version = ?",
         previous.title,
         JSON.stringify(previous.surfaces),
+        surfaceHeads(previous.surfaces),
         JSON.stringify(embeds),
         previous.at,
         previous.version,

@@ -14,10 +14,12 @@ import {
   momentsOf,
   openCount,
   type Post,
+  type PostHead,
   type PostVersion,
   type Session,
   SURFACE_CONTENT_FIELDS,
   type Surface,
+  type SurfaceHead,
   variantStatus,
 } from "./types.ts";
 
@@ -46,17 +48,14 @@ export const hydratedSurfaceView = (surface: Surface, index: number) => {
 };
 
 // The still overviews show for a version: its html page's poster.
-const pagePoster = (surfaces: Surface[]) => {
-  const page = surfaces.find((s) => s.kind === "html");
-  return page?.kind === "html" ? page.poster : undefined;
-};
-const posterOf = (surfaces: Surface[]) => {
+const pagePoster = (surfaces: SurfaceHead[]) => surfaces.find((s) => s.kind === "html")?.poster;
+const posterOf = (surfaces: SurfaceHead[]) => {
   const poster = pagePoster(surfaces);
   return poster ? { poster } : {};
 };
 
 // The poster of one version of a variant: what Home shows for it.
-const posterAt = (post: Post, version: number) =>
+const posterAt = (post: PostHead, version: number) =>
   pagePoster(
     (version === post.version
       ? post.surfaces
@@ -65,7 +64,7 @@ const posterAt = (post: Post, version: number) =>
 
 // The in-use version's poster, when Home shows an older version than the
 // newest.
-const inUsePoster = (p: Post) => {
+const inUsePoster = (p: PostHead) => {
   if (p.acceptedVersion === undefined || p.acceptedVersion === p.version) return {};
   const poster = posterAt(p, p.acceptedVersion);
   return poster ? { inUsePoster: poster } : {};
@@ -162,7 +161,7 @@ const stateOrder = (mock: Mock) => (mock.states.length ? mock.states : [null]);
 
 // What the user put in use, per state, in the mock's order; a state with
 // nothing accepted is absent. Export and embeds resolve to exactly these.
-export const inUseByState = (mock: Mock, posts: Post[]) =>
+export const inUseByState = (mock: Mock, posts: PostHead[]) =>
   stateOrder(mock).flatMap((state) => {
     const p = posts.find((x) => x.state === state && x.status === "accepted");
     return p ? [{ state, variant: p.variant, version: inUseVersion(p) }] : [];
@@ -195,7 +194,7 @@ export const placeOf = (
 });
 
 // What Home shows for a mock: the first state's chosen (else first) variant.
-function thumbnail(mock: Mock, posts: Post[]) {
+function thumbnail(mock: Mock, posts: PostHead[]) {
   const first = stateOrder(mock)[0];
   const inState = posts.filter((p) => p.state === first);
   const pick =
@@ -221,7 +220,7 @@ function thumbnail(mock: Mock, posts: Post[]) {
 const situationsOf = (mock: Mock) =>
   Object.keys(mock.situations).length ? { situations: mock.situations } : {};
 
-export const mockSummaryView = (mock: Mock, posts: Post[]) => {
+export const mockSummaryView = (mock: Mock, posts: PostHead[]) => {
   const drafted = draftedCount(mock, posts);
   return {
     id: mock.id,
@@ -286,7 +285,7 @@ export const sessionRowView = (session: Session, postCount: number) => ({
 // `embeddedIn` is filled in once every node is known.
 export const treeNodeView = (
   mock: Mock,
-  posts: Post[],
+  posts: PostHead[],
   extra: {
     settled: Record<string, KnobValue>;
     embeds: string[];

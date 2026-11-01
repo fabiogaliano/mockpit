@@ -668,6 +668,19 @@ export function Home(props: {
                 <p class="home-empty">{`Nothing here in ${area()}.`}</p>
               </Show>
 
+              {/* Empty tiles until the tree is in, so the page has its shape at once. */}
+              <Show when={tree.loading && !tree()}>
+                <div class="home-flow home-skeleton" aria-hidden="true">
+                  <For each={[0, 1, 2, 3, 4, 5]}>
+                    {() => (
+                      <span class="home-step">
+                        <span class="home-pic" />
+                      </span>
+                    )}
+                  </For>
+                </div>
+              </Show>
+
               <Show when={view() === "all"}>
                 <Show when={area() === null} fallback={kinds(shownSlice(), 2)}>
                   <For each={everyArea()}>

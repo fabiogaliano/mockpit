@@ -59,9 +59,7 @@ const publicRead = pr === "session" || pr === "full" ? pr : undefined;
 // default lives in ~/.mockpit/, a user-owned dir that survives reinstalls and
 // is writable however the package was installed.
 const dbPath = process.env.MOCKPIT_DB ?? join(homedir(), ".mockpit", "mockpit.db");
-// A local server can hold a whole workspace's parsed posts: re-reading them is
-// what a Home load waits on, and a Durable Object's memory cap doesn't apply.
-const store = new SqlStore(createSqliteStorage(dbPath), { postCacheBytes: 512 * 1024 * 1024 });
+const store = new SqlStore(createSqliteStorage(dbPath));
 console.log(`mockpit store: SQLite at ${dbPath}`);
 
 // The event log is on by default, next to the database, so a session can be

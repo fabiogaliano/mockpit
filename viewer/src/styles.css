@@ -441,6 +441,10 @@ button.home-count[aria-expanded="true"] {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.home-skeleton {
+  overflow: hidden;
+  opacity: 0.6;
+}
 /* A flow's screens in one row that scrolls sideways, the next one peeking in. */
 .home-flow {
   display: flex;

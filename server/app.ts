@@ -127,6 +127,7 @@ import {
   OTHER_ID,
   type PartComment,
   type Post,
+  type PostHead,
   type Reaction,
   REACTIONS,
   projectFromCwd,
@@ -2260,13 +2261,24 @@ export function createApp({
     });
   }
 
+  function headsByMock(heads: PostHead[]): Map<string, PostHead[]> {
+    const out = new Map<string, PostHead[]>();
+    for (const h of heads) {
+      const list = out.get(h.mock);
+      if (list) list.push(h);
+      else out.set(h.mock, [h]);
+    }
+    return out;
+  }
+
   async function listMocksFlow(query: { project?: string }): Promise<FlowResult> {
     const project = str(query.project, MAX_TITLE);
     const mocks = await store.listMocks(project);
+    const heads = headsByMock(await store.listPostHeads(project));
     const rows = [];
     const pending = [];
     for (const m of mocks) {
-      const posts = await store.listPosts({ mockId: m.id });
+      const posts = heads.get(m.id) ?? [];
       rows.push(mockSummaryView(m, posts));
       pending.push(pendingOf(m, posts));
     }
@@ -2288,26 +2300,35 @@ export function createApp({
     const project = str(query.project, MAX_TITLE);
     if (!project) return fail(400, 'provide "project"');
     const mocks = await store.listMocks(project);
+    const heads = headsByMock(await store.listPostHeads(project));
     const nodes = [];
     const pending = [];
     for (const m of mocks) {
-      const posts = await store.listPosts({ mockId: m.id });
-      const views = await embedViews(m, posts);
+      const mockHeads = heads.get(m.id) ?? [];
+      // Only embeds and fills need the html: most of a workspace's bytes are
+      // pages with neither, which this list has no reason to read.
+      const marked = mockHeads.some((p) => p.surfaces.some((x) => x.marked));
+      const posts = marked ? await store.listPosts({ mockId: m.id }) : null;
+      const views = posts ? await embedViews(m, posts) : new Map<string, EmbedView>();
       const embeds = new Set<string>();
-      for (const p of posts) {
+      for (const p of posts ?? []) {
         if (!isLive(p.status)) continue;
         for (const x of p.surfaces) {
           if (x.kind === "html") for (const t of parseEmbedTags(x.html)) embeds.add(t.slug);
         }
       }
       nodes.push(
-        treeNodeView(m, posts, {
-          settled: settledValues(await replyPayloads(m.id), m, posts),
+        treeNodeView(m, posts ?? mockHeads, {
+          settled: settledValues(
+            await replyPayloads(m.id),
+            m,
+            posts ?? mockHeads.map((p) => ({ knobs: p.knobs })),
+          ),
           embeds: [...embeds],
           embedViews: views,
         }),
       );
-      pending.push(pendingOf(m, posts));
+      pending.push(pendingOf(m, posts ?? mockHeads));
     }
     const bySlug = new Map(nodes.map((n) => [n.slug, n]));
     for (const n of nodes) {
@@ -3980,7 +4001,7 @@ export function createApp({
   // What the user is doing right now, per mock: derived from the SSE registry
   // and the server-side draft, never stored. It is why an empty `feedback` still
   // tells the agent something ("2 of 3 answered", or nobody is looking).
-  const pendingOf = (mock: Mock, posts: Post[]) => ({
+  const pendingOf = (mock: Mock, posts: PostHead[]) => ({
     mock: mock.slug,
     // Closed by the user: nothing there is waiting on them, or on you.
     ...(mock.closedAt ? { closed: true } : {}),
