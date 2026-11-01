@@ -1436,8 +1436,8 @@ export function boardWidths(
 // canvas also zooms out to "all", every width side by side.
 export type Zoom = "fit" | "all" | number;
 export const MAX_ZOOM = 2;
-export const clampZoom = (z: number, fit: number): number =>
-  Math.max(Math.min(fit, 1), Math.min(MAX_ZOOM, Number.isFinite(z) ? z : fit));
+export const clampZoom = (z: number, fit: number, max = MAX_ZOOM): number =>
+  Math.max(Math.min(fit, 1), Math.min(max, Number.isFinite(z) ? z : fit));
 
 // Keeps the point under the pinch's midpoint still while the scale changes:
 // `scroll` and `mid` are in the scroller's px at scale z0, the result at z1.

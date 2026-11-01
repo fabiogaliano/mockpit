@@ -209,13 +209,19 @@ export function MockScreen(props: {
     onCleanup(() => root().removeEventListener("keydown", onKey));
   });
 
-  // On a phone a swipe across the design moves between the steps.
+  // On a phone a swipe across the design moves between the steps. Only on
+  // Stage: Studio's strip and its closer look swipe through versions, and a
+  // step taken under the same swipe skips whatever the state had left to show.
   onMount(() => {
     let start: { x: number; y: number } | null = null;
     const down = (e: TouchEvent) => {
       const t0 = e.touches[0];
       start =
-        phoneLayout() && e.touches.length === 1 && !s.trying() && s.zoom() === "fit"
+        phoneLayout() &&
+        shownView() === "stage" &&
+        e.touches.length === 1 &&
+        !s.trying() &&
+        s.zoom() === "fit"
           ? { x: t0.clientX, y: t0.clientY }
           : null;
     };

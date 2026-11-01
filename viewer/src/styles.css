@@ -4252,6 +4252,53 @@ html:has(.mock-screen) {
   gap: 12px;
   width: 224px;
 }
+/* A grid of one state needs no wrappers; only the phone's strip groups its
+   columns by state. */
+.studio-state,
+.studio-run {
+  display: contents;
+}
+/* The phone's strip: every state's columns in one row, one card per swipe,
+   a card's width short of the screen so the next one shows there is more. */
+.studio.strip {
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 20px;
+  overscroll-behavior-x: contain;
+}
+.studio.strip .studio-cols {
+  gap: 32px;
+}
+.studio.strip .studio-state {
+  display: flex;
+  flex-direction: column;
+}
+.studio.strip .studio-run {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.studio.strip .studio-col {
+  width: min(calc(100vw - 72px), 420px);
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+/* The state's name rides at the left edge until its last card goes by. */
+.studio-sth {
+  position: sticky;
+  left: 0;
+  display: flex;
+  align-self: flex-start;
+  align-items: baseline;
+  gap: 6px;
+  margin: 6px 0 0;
+  color: var(--t3);
+  font: 600 12px var(--sans);
+}
+.studio-sth .n {
+  color: var(--t5);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
 .studio-colh {
   position: sticky;
   top: 0;
@@ -4369,9 +4416,29 @@ html:has(.mock-screen) {
   width: 13px;
   height: 13px;
 }
-.sk:hover :is(.sk-acts, .sk-x),
-.sk:focus-within :is(.sk-acts, .sk-x) {
+.sk-full {
+  width: 32px;
+  height: 32px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.15s ease-out;
+}
+.sk-acts + .sk-full {
+  margin-left: 0;
+}
+.sk-full svg {
+  width: 17px;
+  height: 17px;
+}
+.sk:hover :is(.sk-acts, .sk-x, .sk-full),
+.sk:focus-within :is(.sk-acts, .sk-x, .sk-full) {
   opacity: 1;
+}
+/* No hover to reveal them on a touch screen: they are always there. */
+@media (hover: none) {
+  .sk :is(.sk-acts, .sk-x, .sk-full) {
+    opacity: 1;
+  }
 }
 .sk.small {
   width: 96px;
@@ -4670,9 +4737,82 @@ html:has(.mock-screen) {
   touch-action: none;
 }
 .look-frame {
+  position: relative;
   height: 100%;
   min-height: 0;
   padding: 6px 0;
+}
+/* On the preview's corner, where a finger looks for "bigger". */
+.ib.look-full {
+  position: absolute;
+  right: 8px;
+  bottom: 14px;
+  z-index: 1;
+  border-radius: 50%;
+  background: var(--panel);
+  box-shadow:
+    0 0 0 1px var(--line),
+    var(--dd-shadow);
+  color: var(--t1);
+}
+/* Full screen: the page alone, above everything but a toast. */
+.full {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background: var(--page);
+}
+.full-scroll {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+  scrollbar-width: none;
+}
+/* Centred while it is smaller than the screen; auto margins give way to the
+   scroll once it is larger, so no edge is ever out of reach. */
+.full-sizer {
+  position: relative;
+  flex: none;
+  margin: auto;
+}
+.full-sizer iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  border: 0;
+  transform-origin: 0 0;
+}
+.full-bar {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 10px);
+  right: calc(env(safe-area-inset-right) + 10px);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.full-bar :is(.full-close, .full-zoom) {
+  height: 44px;
+  background: var(--panel);
+  box-shadow:
+    0 0 0 1px var(--line),
+    var(--dd-shadow);
+  color: var(--t1);
+}
+.ib.full-close {
+  width: 44px;
+  border-radius: 50%;
+}
+.full-zoom {
+  padding: 0 14px;
+  border: 0;
+  border-radius: 22px;
+  font: 500 13px var(--sans);
+  font-variant-numeric: tabular-nums;
 }
 .look-frame .thumb,
 .look-frame .sk-poster {

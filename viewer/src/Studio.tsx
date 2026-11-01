@@ -7,13 +7,18 @@
 // Each steer (more like this, a comment, a borrow) is its own reply. A moment
 // with situations shows one at a time; a variant not drawn in that one keeps
 // its column, empty, so the columns never move under the switch.
+// On a phone there is no room for a grid of one state: every state's columns
+// run as one strip, a card per swipe, and the state under the snap is the one
+// on stage, so the flow bar names where you are instead of paging.
 
 import { isLive } from "../../server/types.ts";
 import {
+  batch,
   createEffect,
   createMemo,
   createSignal,
   For,
+  mapArray,
   on,
   onCleanup,
   onMount,
@@ -22,10 +27,18 @@ import {
 import { assetUrl, surfaceUrl, type VariantView } from "./api.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import { sameVersion, type VersionStep } from "./logic.ts";
+import {
+  sameVersion,
+  versionName,
+  versionSteps,
+  type VersionRef,
+  type VersionStep,
+} from "./logic.ts";
 import type { MockScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
+import { FullView } from "./FullView.tsx";
 import { Thumb } from "./Thumb.tsx";
+import { phoneLayout } from "./viewport.ts";
 
 // More live frames than this and a browser starts dropping WebGL contexts; a
 // version past the budget waits as a placeholder until it is pointed at.
@@ -45,28 +58,42 @@ function pictureOf(st: VersionStep): string | null {
     : surfaceUrl(st.postId, i, { version: st.version, mode: theme(), w: st.rewrites });
 }
 
+// Full screen is the page itself, live, so the version's own html comes first;
+// an image surface is the next best thing.
+function pageOf(st: VersionStep): string | null {
+  const i = st.kinds.includes("html") ? st.kinds.indexOf("html") : st.kinds.indexOf("image");
+  return i < 0
+    ? null
+    : surfaceUrl(st.postId, i, { version: st.version, mode: theme(), w: st.rewrites });
+}
+
 type Draft = { kind: "comment" | "borrow"; to: VersionStep; from?: VersionStep };
 type Acts = Record<
-  "look" | "open" | "more" | "comment" | "borrow" | "pick" | "remove",
+  "look" | "full" | "open" | "more" | "comment" | "borrow" | "pick" | "remove",
   (st: VersionStep) => void
 >;
 
-export function Studio(props: { s: MockScreenState; top: number; onOpen: () => void }) {
-  const s = props.s;
-  const inState = createMemo(() => s.variants().filter((v) => v.state === s.activeState()));
-  const shown = createMemo(() => s.steps().filter((st) => !st.hidden));
+// What one state shows: its variants as columns, each down its versions.
+// Everything here reads the board's own state rather than the one on stage,
+// since a phone's strip draws every state at once.
+type Board = ReturnType<typeof boardOf>;
+function boardOf(s: MockScreenState, moment: string | null, state: () => string | null) {
+  const inState = createMemo(() => s.variants().filter((v) => v.state === state()));
+  const shown = createMemo(() => versionSteps(s.variants(), state()).filter((st) => !st.hidden));
   const versionsOf = (variant: string) =>
     shown()
       .filter((st) => st.variant === variant)
       .reverse();
   const live = (v: VariantView) => isLive(v.status);
-  const here = (v: VariantView) => v.state === s.activeState();
+  const here = (v: VariantView) => v.state === state();
+  // Only the moment on stage switches between its situations.
+  const sits = () => (s.moment() === moment ? s.situations() : []);
   // One view per variant across the moment, in the order the situations name
   // them, so a switch keeps every column in place.
   const pool = createMemo(() => {
-    const sits = s.situations();
-    if (!sits.length) return inState();
-    const inMoment = (v: VariantView) => sits.some((x) => x.state === v.state);
+    const all = sits();
+    if (!all.length) return inState();
+    const inMoment = (v: VariantView) => all.some((x) => x.state === v.state);
     const names = [
       ...new Set(
         s
@@ -82,9 +109,7 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
       return v ? [v] : [];
     });
   });
-  const countIn = (state: string) =>
-    s.variants().filter((v) => v.state === state && live(v)).length;
-  const situationName = () => s.situations().find((x) => x.state === s.activeState())?.name ?? "";
+  const situationName = () => sits().find((x) => x.state === state())?.name ?? "";
   const isRiff = (v: VariantView) =>
     !!v.forkedFrom &&
     live(v) &&
@@ -107,11 +132,17 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
     for (const v of vs) visit(v);
     return out;
   });
+  const inUse = (): VersionRef | null => {
+    const u = s.mock()?.inUse.find((x) => x.state === state());
+    return u ? { variant: u.variant, version: u.version } : null;
+  };
+  // "Dark #2", or "#2" while the state has one variant.
+  const nameOf = (ref: VersionRef) => versionName(ref, inState().length > 1);
   // A column goes as a whole: the variant and the forks hanging in it, except
   // what is in use, which only a new choice moves.
   const forksIn = (v: VariantView) =>
     here(v) ? versionsOf(v.variant).flatMap((st) => riffsOf(st).map((r) => r.variant)) : [];
-  const isUsed = (variant: string) => s.inUse()?.variant === variant;
+  const isUsed = (variant: string) => inUse()?.variant === variant;
   const columnOut = (v: VariantView) =>
     isUsed(v.variant) ? [] : [v.variant, ...forksIn(v)].filter((n) => !isUsed(n));
   const columnLabel = (v: VariantView) => {
@@ -136,6 +167,45 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
         steps: versionsOf(v.variant).flatMap((st) => [st, ...riffsOf(st)]),
       })),
   );
+  return {
+    moment,
+    state,
+    here,
+    columns,
+    columnOut,
+    columnLabel,
+    versionsOf,
+    riffsOf,
+    aside,
+    runs,
+    situationName,
+    inUse,
+    nameOf,
+  };
+}
+
+// A version as Look closer flips to it: which board it is drawn on decides
+// which state goes on stage with it.
+type Entry = { b: Board; st: VersionStep };
+
+export function Studio(props: { s: MockScreenState; top: number; onOpen: () => void }) {
+  const s = props.s;
+  const boards = mapArray(s.moments, (m) =>
+    boardOf(s, m, () => (s.moment() === m ? s.activeState() : m)),
+  );
+  const active = () => boards().find((b) => b.moment === s.moment()) ?? boards()[0];
+  const strip = phoneLayout;
+  const drawn = () => (strip() ? boards() : [active()]);
+  const countIn = (state: string | null) =>
+    s.variants().filter((v) => v.state === state && isLive(v.status)).length;
+  const runs = createMemo(() =>
+    drawn().flatMap((b) =>
+      b.runs().map((r) => ({
+        variant: r.variant,
+        steps: r.steps.map((st): Entry => ({ b, st })),
+      })),
+    ),
+  );
   const order = createMemo(() => runs().flatMap((r) => r.steps));
 
   // Archived variants are out of the exploration: a quiet count in the window's
@@ -144,47 +214,95 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
   // Live frames: the versions in view, oldest sighting first, up to the budget.
   const [inView, setInView] = createSignal<string[]>([]);
   const key = (st: VersionStep) => `${st.variant}@${st.version}`;
+  // Variant names repeat across states, so a frame is told apart by both.
+  const frameKey = (b: Board, st: VersionStep) => `${b.state() ?? ""}\n${key(st)}`;
   // Look closer: in the URL (?look=), so Back on a phone closes it and Back
-  // from Stage reopens it where you were.
-  const readLook = () => new URLSearchParams(host().window.location.search).get("look");
-  const lookUrl = (k: string | null) => {
+  // from Stage reopens it where you were. It names a version of the state on stage.
+  const readParam = (name: string) => new URLSearchParams(host().window.location.search).get(name);
+  const withParam = (name: string, k: string | null) => {
     const w = host().window;
     const q = new URLSearchParams(w.location.search);
-    if (k) q.set("look", k);
-    else q.delete("look");
+    if (k) q.set(name, k);
+    else q.delete(name);
     return `${w.location.pathname}?${q}`;
   };
+  const readLook = () => readParam("look");
+  const lookUrl = (k: string | null) => withParam("look", k);
   const [lookKey, setLookKey] = createSignal<string | null>(readLook());
   // Whether the entry under this one is Studio without a closer look, so
   // closing can step back to it instead of stacking another.
   let pushed = false;
+  let openedOn: string | null = null;
   const looking = () => {
     const k = lookKey();
-    return k ? (order().find((st) => key(st) === k) ?? null) : null;
+    return k
+      ? (order().find((e) => e.b.state() === s.activeState() && key(e.st) === k) ?? null)
+      : null;
   };
-  const look = (st: VersionStep) => {
+  const look = (e: Entry) => {
     const h = host().window.history;
-    if (lookKey()) h.replaceState(h.state, "", lookUrl(key(st)));
+    if (lookKey()) h.replaceState(h.state, "", lookUrl(key(e.st)));
     else {
-      h.pushState(h.state, "", lookUrl(key(st)));
+      h.pushState(h.state, "", lookUrl(key(e.st)));
       pushed = true;
+      openedOn = s.activeState();
     }
-    setLookKey(key(st));
+    // Together, or the look would find nothing on the state it left and close.
+    batch(() => {
+      if (e.b.state() !== s.activeState()) s.showState(e.b.state());
+      setLookKey(key(e.st));
+    });
   };
   const closeLook = () => {
     if (!lookKey()) return;
-    if (pushed) {
+    // Back would also put back the state the look was opened on; flipped into
+    // another since, closing stays there, on the card it was showing.
+    if (pushed && s.activeState() === openedOn) {
       pushed = false;
       host().window.history.back();
       return;
     }
+    pushed = false;
     host().window.history.replaceState(host().window.history.state, "", lookUrl(null));
     setLookKey(null);
+  };
+  // Full screen: in the URL too (?full=), over a closer look or the strip, so
+  // Back closes it. It names a version of the state on stage, as ?look= does.
+  const [fullKey, setFullKey] = createSignal<string | null>(readParam("full"));
+  let fullPushed = false;
+  const fullOn = () => {
+    const k = fullKey();
+    return k
+      ? (order().find((e) => e.b.state() === s.activeState() && key(e.st) === k) ?? null)
+      : null;
+  };
+  const openFull = (e: Entry) => {
+    const h = host().window.history;
+    h.pushState(h.state, "", withParam("full", key(e.st)));
+    fullPushed = true;
+    batch(() => {
+      if (e.b.state() !== s.activeState()) s.showState(e.b.state());
+      setFullKey(key(e.st));
+    });
+  };
+  const closeFull = () => {
+    if (!fullKey()) return;
+    if (fullPushed) {
+      fullPushed = false;
+      host().window.history.back();
+      return;
+    }
+    host().window.history.replaceState(host().window.history.state, "", withParam("full", null));
+    setFullKey(null);
   };
   const onPop = () => {
     const k = readLook();
     pushed = !!k;
-    setLookKey(k);
+    fullPushed = false;
+    batch(() => {
+      setLookKey(k);
+      setFullKey(readParam("full"));
+    });
   };
   onMount(() => host().window.addEventListener("popstate", onPop));
   onCleanup(() => host().window.removeEventListener("popstate", onPop));
@@ -192,31 +310,40 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
   createEffect(() => {
     if (lookKey() && order().length && !looking()) closeLook();
   });
+  createEffect(() => {
+    if (fullKey() && order().length && !fullOn()) closeFull();
+  });
+  const frameOf = (state: string | null, k: string, sel = "") =>
+    [...(scroller?.querySelectorAll<HTMLElement>(`[data-key]${sel}`) ?? [])].find(
+      (el) => el.dataset.key === k && el.dataset.state === (state ?? ""),
+    );
   // Closing puts you back on the card you were looking at.
   createEffect(
     on(lookKey, (now, before) => {
       if (now || !before) return;
       queueMicrotask(() =>
-        scroller
-          ?.querySelector<HTMLElement>(`[data-key="${CSS.escape(before)}"] .sk-art`)
+        frameOf(s.activeState(), before)
+          ?.querySelector<HTMLElement>(".sk-art")
           ?.focus({ preventScroll: false }),
       );
     }),
   );
   const step = (d: number) => {
     const list = order();
-    const i = list.findIndex((st) => key(st) === lookKey());
+    const i = list.findIndex((e) => e === looking());
     const next = list[i + d];
     if (i >= 0 && next) look(next);
   };
 
-  const inBudget = (st: VersionStep) => {
-    // The closer look covers the grid: its one live frame stands in for all of them.
-    if (lookKey()) return false;
-    const i = inView().indexOf(key(st));
-    return i >= 0 && i < LIVE_MAX - (archivedOpen() ? aside().length : 0);
+  const inBudget = (b: Board, st: VersionStep) => {
+    // The closer look or full screen covers the grid: its one live frame
+    // stands in for all of them.
+    if (lookKey() || fullKey()) return false;
+    const i = inView().indexOf(frameKey(b, st));
+    return i >= 0 && i < LIVE_MAX - (archivedOpen() ? active().aside().length : 0);
   };
-  const bump = (st: VersionStep) => setInView((l) => [key(st), ...l.filter((k) => k !== key(st))]);
+  const bump = (b: Board, st: VersionStep) =>
+    setInView((l) => [frameKey(b, st), ...l.filter((k) => k !== frameKey(b, st))]);
   let scroller: HTMLDivElement | undefined;
   let io: IntersectionObserver | undefined;
   onMount(() => {
@@ -225,7 +352,8 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
         setInView((l) => {
           let next = l;
           for (const e of entries) {
-            const k = (e.target as HTMLElement).dataset.key!;
+            const d = (e.target as HTMLElement).dataset;
+            const k = `${d.state}\n${d.key}`;
             next = e.isIntersecting
               ? next.includes(k)
                 ? next
@@ -246,9 +374,76 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
     onCleanup(() => io?.unobserve(el));
   };
 
-  const [borrowFrom, setBorrowFrom] = createSignal<VersionStep | null>(null);
+  const [borrowFrom, setBorrowFrom] = createSignal<Entry | null>(null);
   const [writing, setWriting] = createSignal<Draft | null>(null);
+
+  // The strip: the state whose card sits at the snap goes on stage once a
+  // swipe settles, and a state put on stage from elsewhere (the flow bar, the
+  // situation switch) brings its first card to the snap.
+  let followed: string | null | undefined;
+  let settle = 0;
+  const snapPad = () =>
+    scroller ? parseFloat(getComputedStyle(scroller).scrollPaddingLeft) || 0 : 0;
+  const atSnap = () => {
+    if (!scroller) return null;
+    const x = scroller.getBoundingClientRect().left + snapPad();
+    let best: HTMLElement | null = null;
+    let gap = Infinity;
+    for (const col of scroller.querySelectorAll<HTMLElement>(".studio-col")) {
+      const d = Math.abs(col.getBoundingClientRect().left - x);
+      if (d < gap) [best, gap] = [col, d];
+    }
+    const i = Number(best?.closest<HTMLElement>("[data-board]")?.dataset.board);
+    return Number.isInteger(i) ? (drawn()[i] ?? null) : null;
+  };
+  const follow = () => {
+    host().window.clearTimeout(settle);
+    if (!strip() || lookKey() || writing()) return;
+    // Mid-swipe the snap hasn't landed: naming every state passed on the way
+    // would make the flow bar flicker.
+    settle = host().window.setTimeout(() => {
+      if (lookKey() || writing()) return;
+      const b = atSnap();
+      if (!b || b.state() === s.activeState()) return;
+      followed = b.state();
+      s.showState(b.state());
+    }, 120);
+  };
+  onCleanup(() => host().window.clearTimeout(settle));
+  createEffect(
+    on([strip, s.activeState] as const, ([phone, st]) => {
+      if (!phone || st === followed) return;
+      const first = followed === undefined;
+      followed = st;
+      host().window.requestAnimationFrame(() => {
+        const sec = [...(scroller?.querySelectorAll<HTMLElement>("[data-board]") ?? [])].find(
+          (el) => el.dataset.state === (st ?? ""),
+        );
+        // A closer look flipped across states: the strip waits under it on that card.
+        const k = lookKey();
+        const col =
+          (k && frameOf(st, k)?.closest<HTMLElement>(".studio-col")) ||
+          sec?.querySelector<HTMLElement>(".studio-col");
+        if (!scroller || !col) return;
+        const left =
+          scroller.scrollLeft +
+          col.getBoundingClientRect().left -
+          scroller.getBoundingClientRect().left -
+          snapPad();
+        const still = host().window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+        scroller.scrollTo({ left, behavior: first || still ? "instant" : "smooth" });
+      });
+    }),
+  );
+
   const onKey = (e: KeyboardEvent) => {
+    // Full screen is over everything: Esc closes it, and nothing under it moves.
+    if (fullKey()) {
+      if (e.key !== "Escape") return;
+      closeFull();
+      e.preventDefault();
+      return;
+    }
     if (lookKey() && !writing()) {
       const at = e.target as Element | null;
       const typing = !!at?.closest?.("input, textarea, select, [contenteditable]");
@@ -275,60 +470,85 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
   onMount(() => host().window.addEventListener("keydown", onKey));
   onCleanup(() => host().window.removeEventListener("keydown", onKey));
 
-  const act = {
-    look,
-    open(st: VersionStep) {
-      s.showVersion(st);
-      props.onOpen();
-    },
-    more(st: VersionStep) {
-      void s
-        .steer({ variant: st.variant, version: st.version, reaction: "more" })
-        .then((ok) => ok && s.setToast({ text: `More like ${s.nameOf(st)}, sent` }));
-    },
-    comment(st: VersionStep) {
-      setBorrowFrom(null);
-      setWriting({ kind: "comment", to: st });
-    },
-    borrow(st: VersionStep) {
-      setWriting(null);
-      closeLook();
-      setBorrowFrom(st);
-    },
-    pick(st: VersionStep) {
-      const from = borrowFrom();
-      if (!from || sameVersion(from, st)) return;
-      setBorrowFrom(null);
-      setWriting({ kind: "borrow", to: st, from });
-    },
-    // The last version of a variant can't be hidden; it archives the variant.
-    remove(st: VersionStep) {
-      if (versionsOf(st.variant).length > 1) void s.hideVersion(st, true);
-      else void s.archiveVariants([st.variant]);
-    },
+  // A board's steers: each acts on the state on stage, so the board's own
+  // state goes on stage first.
+  const actsFor = (b: Board): Acts => {
+    const here = () => {
+      if (b.state() !== s.activeState()) s.showState(b.state());
+    };
+    return {
+      look: (st) => look({ b, st }),
+      full: (st) => openFull({ b, st }),
+      open(st) {
+        here();
+        s.showVersion(st);
+        props.onOpen();
+      },
+      more(st) {
+        here();
+        void s
+          .steer({ variant: st.variant, version: st.version, reaction: "more" })
+          .then((ok) => ok && s.setToast({ text: `More like ${b.nameOf(st)}, sent` }));
+      },
+      comment(st) {
+        here();
+        setBorrowFrom(null);
+        setWriting({ kind: "comment", to: st });
+      },
+      borrow(st) {
+        here();
+        setWriting(null);
+        closeLook();
+        setBorrowFrom({ b, st });
+      },
+      pick(st) {
+        const from = borrowFrom();
+        if (!from || from.b !== b || sameVersion(from.st, st)) return;
+        here();
+        setBorrowFrom(null);
+        setWriting({ kind: "borrow", to: st, from: from.st });
+      },
+      // The last version of a variant can't be hidden; it archives the variant.
+      remove(st) {
+        here();
+        if (b.versionsOf(st.variant).length > 1) void s.hideVersion(st, true);
+        else void s.archiveVariants([st.variant]);
+      },
+    };
   };
 
-  const card = (st: VersionStep, small = false) => (
-    <Sketch
-      s={s}
-      st={st}
-      small={small}
-      live={inBudget(st)}
-      borrowing={!!borrowFrom()}
-      source={sameVersion(borrowFrom(), st)}
-      last={versionsOf(st.variant).length === 1}
-      ref={watch}
-      onWake={() => bump(st)}
-      act={act}
-    />
-  );
+  const card = (b: Board, act: Acts, st: VersionStep, small = false) => {
+    // A borrow goes between versions of one state.
+    const borrowing = () => borrowFrom()?.b === b;
+    return (
+      <Sketch
+        s={s}
+        b={b}
+        st={st}
+        small={small}
+        live={inBudget(b, st)}
+        borrowing={borrowing()}
+        source={borrowing() && sameVersion(borrowFrom()?.st, st)}
+        last={b.versionsOf(st.variant).length === 1}
+        ref={watch}
+        onWake={() => bump(b, st)}
+        act={act}
+      />
+    );
+  };
 
   return (
-    <div class="studio" ref={(el) => (scroller = el)} style={{ top: `${props.top}px` }}>
+    <div
+      class="studio"
+      classList={{ strip: strip() }}
+      ref={(el) => (scroller = el)}
+      style={{ top: `${props.top}px` }}
+      onScroll={follow}
+    >
       <Show when={borrowFrom()}>
         {(from) => (
           <div class="studio-banner" role="status">
-            <span>{`Borrow from ${s.nameOf(from())}: pick where it goes`}</span>
+            <span>{`Borrow from ${from().b.nameOf(from().st)}: pick where it goes`}</span>
             <button type="button" class="btn" onClick={() => setBorrowFrom(null)}>
               Cancel
             </button>
@@ -357,48 +577,73 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
         </div>
       </Show>
       <div class="studio-cols">
-        <For each={columns()}>
-          {(v) => (
-            <section class="studio-col" aria-label={v.variant}>
-              <header class="studio-colh">
-                <h2>{v.variant}</h2>
-                <Show when={v.forkedFrom}>
-                  {(f) => <span class="studio-from">{`from ${f().variant}`}</span>}
-                </Show>
-                <Show when={!readonly() && !borrowFrom() && columnOut(v).length}>
-                  <button
-                    type="button"
-                    class="ib x-remove col-x"
-                    aria-label={`Archive ${columnLabel(v)}`}
-                    title={`Archive ${columnLabel(v)}`}
-                    onClick={() => void s.archiveVariants(columnOut(v), columnLabel(v))}
-                  >
-                    <Icon name="close" />
-                  </button>
-                </Show>
-              </header>
-              <Show
-                when={here(v)}
-                fallback={<div class="studio-hole">{`No ${situationName()} yet`}</div>}
+        <For each={drawn()}>
+          {(b, i) => {
+            const act = actsFor(b);
+            return (
+              <section
+                class="studio-state"
+                data-board={i()}
+                data-state={b.state() ?? ""}
+                aria-label={strip() ? (b.moment ?? undefined) : undefined}
               >
-                <For each={versionsOf(v.variant)}>
-                  {(st) => (
-                    <>
-                      {card(st)}
-                      <Show when={riffsOf(st).length}>
-                        <div class="studio-riffs">
-                          <For each={riffsOf(st)}>{(r) => card(r, true)}</For>
-                        </div>
-                      </Show>
-                    </>
-                  )}
-                </For>
-              </Show>
-            </section>
-          )}
+                <Show when={strip() && drawn().length > 1}>
+                  <h2 class="studio-sth">
+                    {b.moment}
+                    <span class="n">{countIn(b.state())}</span>
+                  </h2>
+                </Show>
+                <div class="studio-run">
+                  <For each={b.columns()}>
+                    {(v) => (
+                      <section class="studio-col" aria-label={v.variant}>
+                        <header class="studio-colh">
+                          <h2>{v.variant}</h2>
+                          <Show when={v.forkedFrom}>
+                            {(f) => <span class="studio-from">{`from ${f().variant}`}</span>}
+                          </Show>
+                          <Show when={!readonly() && !borrowFrom() && b.columnOut(v).length}>
+                            <button
+                              type="button"
+                              class="ib x-remove col-x"
+                              aria-label={`Archive ${b.columnLabel(v)}`}
+                              title={`Archive ${b.columnLabel(v)}`}
+                              onClick={() => {
+                                if (b.state() !== s.activeState()) s.showState(b.state());
+                                void s.archiveVariants(b.columnOut(v), b.columnLabel(v));
+                              }}
+                            >
+                              <Icon name="close" />
+                            </button>
+                          </Show>
+                        </header>
+                        <Show
+                          when={b.here(v)}
+                          fallback={<div class="studio-hole">{`No ${b.situationName()} yet`}</div>}
+                        >
+                          <For each={b.versionsOf(v.variant)}>
+                            {(st) => (
+                              <>
+                                {card(b, act, st)}
+                                <Show when={b.riffsOf(st).length}>
+                                  <div class="studio-riffs">
+                                    <For each={b.riffsOf(st)}>{(r) => card(b, act, r, true)}</For>
+                                  </div>
+                                </Show>
+                              </>
+                            )}
+                          </For>
+                        </Show>
+                      </section>
+                    )}
+                  </For>
+                </div>
+              </section>
+            );
+          }}
         </For>
       </div>
-      <Show when={aside().length}>
+      <Show when={active().aside().length}>
         <div class="studio-archived" ref={(el) => (corner = el)}>
           <section
             class="arch-pop"
@@ -408,9 +653,9 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
             inert={!archivedOpen() || undefined}
           >
             <h3>Archived</h3>
-            <For each={aside()}>
+            <For each={active().aside()}>
               {(v) => {
-                const st = () => versionsOf(v.variant)[0];
+                const st = () => active().versionsOf(v.variant)[0];
                 return (
                   <div class="arch-row">
                     <span class="arch-th">
@@ -448,28 +693,45 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
             aria-expanded={archivedOpen()}
             onClick={() => setArchivedOpen(!archivedOpen())}
           >
-            {`${aside().length} archived`}
+            {`${active().aside().length} archived`}
             <Icon name="down" />
           </button>
         </div>
       </Show>
-      <Show when={looking()}>
-        {(st) => (
+      {/* Under full screen the closer look steps aside, so its frame isn't a
+          second live copy of the same page. */}
+      <Show when={!fullKey() && looking()}>
+        {(e) => (
           <Look
             s={s}
-            st={st()}
+            entry={e()}
             top={props.top}
             order={order()}
             runs={runs()}
-            last={versionsOf(st().variant).length === 1}
+            last={e().b.versionsOf(e().st.variant).length === 1}
             onStep={step}
+            onGo={look}
             onClose={closeLook}
-            act={act}
+            act={actsFor(e().b)}
           />
         )}
       </Show>
       <Show when={writing()}>
         {(w) => <NoteBox s={s} draft={w()} onDone={() => setWriting(null)} />}
+      </Show>
+      <Show when={fullOn()}>
+        {(e) => (
+          <Show when={pageOf(e().st)} keyed>
+            {(src) => (
+              <FullView
+                src={src}
+                width={s.frameW()}
+                title={e().b.nameOf(e().st)}
+                onClose={closeFull}
+              />
+            )}
+          </Show>
+        )}
       </Show>
     </div>
   );
@@ -477,6 +739,7 @@ export function Studio(props: { s: MockScreenState; top: number; onOpen: () => v
 
 function Sketch(props: {
   s: MockScreenState;
+  b: Board;
   st: VersionStep;
   small: boolean;
   live: boolean;
@@ -490,8 +753,8 @@ function Sketch(props: {
   const s = props.s;
   const st = () => props.st;
   const src = () => pictureOf(st());
-  const inUse = () => sameVersion(s.inUse(), st());
-  const name = () => s.nameOf(st());
+  const inUse = () => sameVersion(props.b.inUse(), st());
+  const name = () => props.b.nameOf(st());
   const label = () => `${name()}${inUse() ? ", in use" : ""}`;
   const can = () => !readonly() && !props.borrowing;
   return (
@@ -503,6 +766,7 @@ function Sketch(props: {
         target: props.borrowing && !props.source,
       }}
       data-key={`${st().variant}@${st().version}`}
+      data-state={props.b.state() ?? ""}
       ref={props.ref}
       onPointerEnter={() => !props.live && props.onWake()}
     >
@@ -569,6 +833,18 @@ function Sketch(props: {
               </button>
             </div>
           </Show>
+          {/* Not a steer: read-only viewers get it too. */}
+          <Show when={!props.borrowing && pageOf(st())}>
+            <button
+              type="button"
+              class="ib sk-full"
+              aria-label={`Full screen: ${name()}`}
+              title="Full screen"
+              onClick={() => props.act.full(st())}
+            >
+              <Icon name="expand" />
+            </button>
+          </Show>
         </div>
       </Show>
       <Show when={can() && !inUse()}>
@@ -591,18 +867,19 @@ function Sketch(props: {
 // steers are the card's, and Stage is one deliberate step away.
 function Look(props: {
   s: MockScreenState;
-  st: VersionStep;
+  entry: Entry;
   top: number;
-  order: VersionStep[];
-  runs: { variant: string; steps: VersionStep[] }[];
+  order: Entry[];
+  runs: { variant: string; steps: Entry[] }[];
   last: boolean;
   onStep: (d: number) => void;
+  onGo: (e: Entry) => void;
   onClose: () => void;
   act: Acts;
 }) {
   const s = props.s;
-  const st = () => props.st;
-  const at = () => props.order.findIndex((x) => sameVersion(x, st()));
+  const st = () => props.entry.st;
+  const at = () => props.order.indexOf(props.entry);
   const name = () => s.nameOf(st());
   const inUse = () => sameVersion(s.inUse(), st());
   const note = () =>
@@ -624,14 +901,25 @@ function Look(props: {
     if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) props.onStep(dx < 0 ? 1 : -1);
     else if (dy > 90 && dy > Math.abs(dx) * 1.5) props.onClose();
   };
+  // Removed while its state is still on stage: the next version may be on another.
   const hide = () => {
     const list = props.order;
     const next = list[at() + 1] ?? list[at() - 1];
-    const gone = st();
-    if (next) props.act.look(next);
+    props.act.remove(st());
+    if (next) props.onGo(next);
     else props.onClose();
-    props.act.remove(gone);
   };
+  let dots: HTMLElement | undefined;
+  // The strip can run longer than the screen; the version shown stays in it.
+  createEffect(
+    on(
+      () => props.entry,
+      () =>
+        dots
+          ?.querySelector<HTMLElement>(".look-dot.on")
+          ?.scrollIntoView({ block: "nearest", inline: "center" }),
+    ),
+  );
   return (
     <div
       class="look"
@@ -677,6 +965,17 @@ function Look(props: {
           <Icon name="prev" />
         </button>
         <div class="look-frame">
+          <Show when={pageOf(st())}>
+            <button
+              type="button"
+              class="ib look-full"
+              aria-label={`Full screen: ${name()}`}
+              title="Full screen"
+              onClick={() => props.act.full(st())}
+            >
+              <Icon name="expand" />
+            </button>
+          </Show>
           <Show
             when={pictureOf(st())}
             keyed
@@ -719,7 +1018,7 @@ function Look(props: {
           </Show>
         </div>
       </Show>
-      <nav class="look-strip" aria-label="Versions">
+      <nav class="look-strip" aria-label="Versions" ref={(el) => (dots = el)}>
         <For each={props.runs}>
           {(run) => (
             <div class="look-group">
@@ -730,11 +1029,11 @@ function Look(props: {
                     <button
                       type="button"
                       class="look-dot"
-                      classList={{ on: sameVersion(x, st()) }}
-                      aria-label={s.nameOf(x)}
-                      aria-current={sameVersion(x, st()) || undefined}
-                      title={s.nameOf(x)}
-                      onClick={() => props.act.look(x)}
+                      classList={{ on: x === props.entry }}
+                      aria-label={x.b.nameOf(x.st)}
+                      aria-current={x === props.entry || undefined}
+                      title={x.b.nameOf(x.st)}
+                      onClick={() => props.onGo(x)}
                     />
                   )}
                 </For>
