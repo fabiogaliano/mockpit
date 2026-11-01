@@ -11,7 +11,7 @@
 // renderHtmlPage, which serves it from /s/:id under the sandbox CSP header, so
 // an inlined component body is exactly as contained as the page's own markup.
 
-import type { Embed } from "./types.ts";
+import type { Embed, Surface } from "./types.ts";
 
 export interface EmbedTag {
   slug: string;
@@ -74,6 +74,18 @@ export function parseEmbedTags(html: string): EmbedTag[] {
 }
 
 export const hasEmbedTags = (html: string): boolean => /<mockpit-embed\b/i.test(html);
+
+// Whether a post's first html surface embeds anything, cached per surfaces array
+// (a stored post never mutates it): a mock's view asks on every read.
+const embedsBySurfaces = new WeakMap<Surface[], boolean>();
+export function firstHtmlEmbeds(surfaces: Surface[]): boolean {
+  const hit = embedsBySurfaces.get(surfaces);
+  if (hit !== undefined) return hit;
+  const html = surfaces.find((x) => x.kind === "html");
+  const found = !!html && html.kind === "html" && hasEmbedTags(html.html);
+  embedsBySurfaces.set(surfaces, found);
+  return found;
+}
 
 // The html with every reference to mock `from` pointed at `to`: the slug of
 // each embed tag naming it, and each data-goto naming it ("from" or

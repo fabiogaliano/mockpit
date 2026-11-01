@@ -116,6 +116,16 @@ export const api = {
       `/api/projects/${encodeURIComponent(project)}/tree`,
     ),
   mock: (id: string) => call<MockDetail>(`/api/mocks/${encodeURIComponent(id)}?history=1`),
+  mockIn: (project: string, slug: string) =>
+    call<MockDetail>(
+      `/api/mocks/${encodeURIComponent(slug)}?history=1&project=${encodeURIComponent(project)}`,
+    ),
+  // What the flow bar needs on every mock screen, far lighter than the tree.
+  flowOutline: (project: string) =>
+    call<{
+      flows: FlowView[];
+      mocks: { slug: string; title: string; states: (string | null)[] }[];
+    }>(`/api/projects/${encodeURIComponent(project)}/flows`),
   // The same view without version rows: enough to name a mock and its variants.
   mockHead: (id: string) => call<MockDetail>(`/api/mocks/${encodeURIComponent(id)}`),
   draft: (id: string) =>

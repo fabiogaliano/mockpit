@@ -36,6 +36,8 @@ import {
   versionSteps,
   type VersionRef,
   type VersionStep,
+  keepSame,
+  stepKey,
 } from "./logic.ts";
 import type { MockScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
@@ -90,7 +92,15 @@ type Acts = Record<
 type Board = ReturnType<typeof boardOf>;
 function boardOf(s: MockScreenState, moment: string | null, state: () => string | null) {
   const inState = createMemo(() => s.variants().filter((v) => v.state === state()));
-  const shown = createMemo(() => versionSteps(s.variants(), state()).filter((st) => !st.hidden));
+  const shown = createMemo<VersionStep[]>(
+    (was) =>
+      keepSame(
+        was,
+        versionSteps(s.variants(), state()).filter((st) => !st.hidden),
+        stepKey,
+      ),
+    [],
+  );
   const versionsOf = (variant: string) =>
     shown()
       .filter((st) => st.variant === variant)
@@ -968,32 +978,20 @@ function Sketch(props: {
                 <Icon name="borrow" />
               </button>
             </div>
-            <Show when={props.act.saved(st()) !== null}>
-              <button
-                type="button"
-                class="ib sk-save"
-                aria-pressed={!!props.act.saved(st())}
-                aria-label={`Save ${name()} to a shortlist`}
-                title={props.act.saved(st()) ? "Saved to a shortlist" : "Save to a shortlist"}
-                onClick={(e) => props.act.save(st(), e.currentTarget)}
-              >
-                <Icon name="bookmark" />
-              </button>
-            </Show>
-          </Show>
-          {/* Not a steer: read-only viewers get it too. */}
-          <Show when={!props.borrowing && pageOf(st())}>
-            <button
-              type="button"
-              class="ib sk-full"
-              aria-label={`Full screen: ${name()}`}
-              title="Full screen"
-              onClick={() => props.act.full(st())}
-            >
-              <Icon name="expand" />
-            </button>
           </Show>
         </div>
+      </Show>
+      <Show when={can() && props.act.saved(st()) !== null}>
+        <button
+          type="button"
+          class="ib sk-save"
+          aria-pressed={!!props.act.saved(st())}
+          aria-label={`Save ${name()} to a shortlist`}
+          title={props.act.saved(st()) ? "Saved to a shortlist" : "Save to a shortlist"}
+          onClick={(e) => props.act.save(st(), e.currentTarget)}
+        >
+          <Icon name="bookmark" />
+        </button>
       </Show>
       <Show when={can() && !inUse()}>
         <button
@@ -1084,9 +1082,13 @@ function Look(props: {
   const hide = () => {
     const list = props.order;
     const next = list[at() + 1] ?? list[at() - 1];
-    props.act.remove(st());
-    if (next) props.onGo(next);
-    else props.onClose();
+    // Together: an archive leaves at once, and the look closes on a version gone
+    // from under it.
+    batch(() => {
+      props.act.remove(st());
+      if (next) props.onGo(next);
+      else props.onClose();
+    });
   };
   let dots: HTMLElement | undefined;
   // The strip can run longer than the screen; the version shown stays in it.

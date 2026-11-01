@@ -27,7 +27,7 @@ export function createFlowNav(
   const [rev, setRev] = createSignal(0);
   const [data] = createResource(
     () => rev() + 1,
-    () => api.tree(project).catch(() => null),
+    () => api.flowOutline(project).catch(() => null),
   );
   onMount(() => {
     if (carryTry) s.setTool("try");
@@ -46,9 +46,15 @@ export function createFlowNav(
     });
   });
 
-  const nodes = createMemo(() => new Map((data()?.tree ?? []).map((n) => [n.slug, n])));
+  const nodes = createMemo(() => new Map((data()?.mocks ?? []).map((n) => [n.slug, n])));
   const here = (): FlowStep => ({ mock: slug, state: s.moment() });
   const flow = createMemo(() => flowFor(data()?.flows ?? [], here(), cameThrough));
+  // Only a step in another mock takes its picture from the tree.
+  const [tree] = createResource(
+    () => (flow()?.steps.some((x) => x.mock !== slug) ? rev() + 1 : null),
+    () => api.tree(project).catch(() => null),
+  );
+  const pictured = createMemo(() => new Map((tree()?.tree ?? []).map((n) => [n.slug, n])));
   const steps = createMemo<FlowStep[]>(
     () => flow()?.steps ?? s.moments().map((state) => ({ mock: slug, state })),
   );
@@ -105,7 +111,7 @@ export function createFlowNav(
           })
         : null;
     }
-    const node = nodes().get(x.mock);
+    const node = pictured().get(x.mock);
     const pic = node && screenPicture(node, x.state);
     return pic
       ? surfaceUrl(pic.postId, pic.surface, {

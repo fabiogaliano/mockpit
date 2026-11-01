@@ -67,6 +67,7 @@ import {
   embedsKey,
   type Expanded,
   expandHtml,
+  firstHtmlEmbeds,
   hasEmbedTags,
   parseEmbedTags,
 } from "./embeds.ts";
@@ -152,6 +153,7 @@ import {
   type Surface,
   surfacesByteLength,
   type TerminalSurface,
+  momentsOf,
 } from "./types.ts";
 import {
   coerceSurfaces,
@@ -1249,8 +1251,9 @@ export function createApp({
   async function embedViews(mock: Mock, posts: Post[]): Promise<Map<string, EmbedView>> {
     const out = new Map<string, EmbedView>();
     for (const post of posts) {
+      if (!firstHtmlEmbeds(post.surfaces)) continue;
       const html = post.surfaces.find((x) => x.kind === "html");
-      if (!html || html.kind !== "html" || !hasEmbedTags(html.html)) continue;
+      if (html?.kind !== "html") continue;
       const composed = await composedHtml(mock.project, mock.slug, html.html);
       const { used } = composed;
       const list = [];
@@ -1270,8 +1273,12 @@ export function createApp({
   // components: they render differently once it changes.
   async function embeddersOf(project: string, slug: string): Promise<Mock[]> {
     const mocks = await store.listMocks(project);
+    const heads = headsByMock(await store.listPostHeads(project));
     const tagsOf = new Map<string, Set<string>>();
     for (const m of mocks) {
+      // Every publish comes through here, and most of a project's bytes are
+      // designs with no embed.
+      if (!heads.get(m.id)?.some((p) => p.surfaces.some((x) => x.marked))) continue;
       const slugs = new Set<string>();
       for (const p of await store.listPosts({ mockId: m.id })) {
         for (const x of p.surfaces) {
@@ -2381,6 +2388,22 @@ export function createApp({
       flows: await flowsView(project, mocks),
       areaOrder: await areaOrderOf(project),
       pending,
+    });
+  }
+
+  // The flows and what names a step, without the tree's pictures and counts:
+  // every mock screen wants this much on open, few want the rest.
+  async function flowOutlineFlow(name: string): Promise<FlowResult> {
+    const project = str(name, MAX_TITLE);
+    if (!project) return fail(400, 'provide "project"');
+    const mocks = await store.listMocks(project);
+    return ok({
+      flows: await flowsView(project, mocks),
+      mocks: mocks.map((m) => ({
+        slug: m.slug,
+        title: m.title,
+        states: m.states.length ? momentsOf(m.states, m.situations) : [null],
+      })),
     });
   }
 
@@ -4947,6 +4970,9 @@ export function createApp({
   // every html surface of the project (see renderHtmlPage).
   app.get("/api/projects/:name/tree", async (c) =>
     send(c, await treeFlow({ project: c.req.param("name") })),
+  );
+  app.get("/api/projects/:name/flows", async (c) =>
+    send(c, await flowOutlineFlow(c.req.param("name"))),
   );
   app.patch("/api/projects/:name", async (c) =>
     send(c, await editProjectFlow(c.req.param("name"), await jsonBody(c), flowCtx(c))),

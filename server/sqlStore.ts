@@ -100,8 +100,8 @@ function slotTagsToEmbed(surfaces: Surface[]): Surface[] | null {
   return changed ? out : null;
 }
 
-// What the post cache may hold, in stored surface characters: a Durable Object
-// has 128 MB in all.
+// What the post cache may hold by default, in stored surface characters: a
+// Durable Object has 128 MB in all.
 const POST_CACHE_BYTES = 32 * 1024 * 1024;
 
 const surfaceHeads = (surfaces: Surface[]): string =>
@@ -157,14 +157,21 @@ export class SqlStore implements Store {
   private assetRefCache: Set<string> | undefined;
   // Parsed posts per mock, least recently used first. A component is read again
   // for every embed that shows it, and parsing its bodies each time is what a
-  // page full of embeds would wait on. Any statement that writes posts or
-  // versions drops all of it; the byte budget keeps a Durable Object's memory
-  // bounded.
+  // page full of embeds would wait on. A statement that writes posts or versions
+  // drops all of it unless `writingPosts` says which posts it touches; the byte
+  // budget keeps a Durable Object's memory bounded.
   private postCache = new Map<string, { posts: Post[]; bytes: number }>();
   private postCacheBytes = 0;
+  private postCacheLimit: number;
+  // Past the cache's drop, for a write that patches the cache itself.
+  private raw: SqlStorage;
+  private holdPostDrop = false;
 
-  constructor(sql: SqlStorage) {
+  constructor(sql: SqlStorage, opts: { postCacheBytes?: number } = {}) {
+    this.raw = sql;
+    this.postCacheLimit = opts.postCacheBytes ?? POST_CACHE_BYTES;
     const drop = () => {
+      if (this.holdPostDrop) return;
       this.postCache.clear();
       this.postCacheBytes = 0;
     };
@@ -1402,15 +1409,77 @@ export class SqlStore implements Store {
     let bytes = 0;
     for (const r of rows) bytes += (r.surfaces as string).length;
     const posts = this.rowsToPosts(rows, (n) => (bytes += n));
-    if (bytes > POST_CACHE_BYTES) return posts;
+    if (bytes > this.postCacheLimit) return posts;
     this.postCache.set(mockId, { posts, bytes });
     this.postCacheBytes += bytes;
+    this.trimPostCache();
+    return posts;
+  }
+
+  private trimPostCache(): void {
     for (const [id, entry] of this.postCache) {
-      if (this.postCacheBytes <= POST_CACHE_BYTES) break;
+      if (this.postCacheBytes <= this.postCacheLimit) break;
       this.postCache.delete(id);
       this.postCacheBytes -= entry.bytes;
     }
-    return posts;
+  }
+
+  // A synchronous write to these posts of one mock, re-reading just them after:
+  // a publish into a big lab would otherwise leave the viewer's next read parsing
+  // every design in it.
+  private writingPosts<T>(mockId: string, ids: string[], write: () => T): T {
+    this.holdPostDrop = true;
+    let out: T;
+    try {
+      out = write();
+    } catch (err) {
+      const entry = this.postCache.get(mockId);
+      if (entry) {
+        this.postCache.delete(mockId);
+        this.postCacheBytes -= entry.bytes;
+      }
+      throw err;
+    } finally {
+      this.holdPostDrop = false;
+    }
+    const entry = this.postCache.get(mockId);
+    if (entry) {
+      const weigh = (p: Post | null | undefined) =>
+        p
+          ? [p.surfaces, ...p.history.map((h) => h.surfaces)].reduce(
+              (n, x) => n + JSON.stringify(x).length,
+              0,
+            )
+          : 0;
+      for (const id of ids) {
+        const rows = this.sql.exec("SELECT * FROM posts WHERE id = ?", id).toArray();
+        const fresh = rows.length ? this.rowsToPosts(rows)[0] : null;
+        const stale = entry.posts.find((p) => p.id === id);
+        const change = weigh(fresh) - weigh(stale);
+        entry.bytes += change;
+        this.postCacheBytes += change;
+        if (!fresh) entry.posts = entry.posts.filter((p) => p.id !== id);
+        else if (stale) entry.posts = entry.posts.map((p) => (p.id === id ? fresh : p));
+        else entry.posts = [...entry.posts, fresh];
+      }
+      this.trimPostCache();
+    }
+    return out;
+  }
+
+  private cachedPost(id: string): Post | null {
+    for (const { posts } of this.postCache.values()) {
+      const hit = posts.find((p) => p.id === id);
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  // For a write that leaves the bodies alone, so the size stands. Archiving
+  // through a lab would otherwise re-read every design in it after each ×.
+  private recache(post: Post): void {
+    const entry = this.postCache.get(post.mock);
+    if (entry) entry.posts = entry.posts.map((p) => (p.id === post.id ? post : p));
   }
 
   async countPostsBySession() {
@@ -1469,27 +1538,29 @@ export class SqlStore implements Store {
       ...(input.author === undefined ? {} : { author: stripNul(input.author) }),
       publishedBy: input.publishedBy ?? input.sessionId,
     };
-    this.sql.exec(
-      "INSERT INTO posts (id, sessionId, mockId, state, variant, status, title, surfaces, head, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, note, forkedFrom, copiedFrom, curSession) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)",
-      post.id,
-      post.sessionId,
-      post.mock,
-      post.state,
-      post.variant,
-      post.title,
-      JSON.stringify(post.surfaces),
-      surfaceHeads(post.surfaces),
-      post.knobs ? JSON.stringify(post.knobs) : null,
-      JSON.stringify(post.embeds),
-      post.createdAt,
-      post.updatedAt,
-      post.from ?? null,
-      post.prompt ?? null,
-      post.author ?? null,
-      post.note ?? null,
-      post.forkedFrom ? JSON.stringify(post.forkedFrom) : null,
-      post.copiedFrom ? JSON.stringify(post.copiedFrom) : null,
-      post.publishedBy ?? null,
+    this.writingPosts(post.mock, [post.id], () =>
+      this.sql.exec(
+        "INSERT INTO posts (id, sessionId, mockId, state, variant, status, title, surfaces, head, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, note, forkedFrom, copiedFrom, curSession) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)",
+        post.id,
+        post.sessionId,
+        post.mock,
+        post.state,
+        post.variant,
+        post.title,
+        JSON.stringify(post.surfaces),
+        surfaceHeads(post.surfaces),
+        post.knobs ? JSON.stringify(post.knobs) : null,
+        JSON.stringify(post.embeds),
+        post.createdAt,
+        post.updatedAt,
+        post.from ?? null,
+        post.prompt ?? null,
+        post.author ?? null,
+        post.note ?? null,
+        post.forkedFrom ? JSON.stringify(post.forkedFrom) : null,
+        post.copiedFrom ? JSON.stringify(post.copiedFrom) : null,
+        post.publishedBy ?? null,
+      ),
     );
     this.touch(input.sessionId);
     this.touchMock(post.mock, now);
@@ -1534,26 +1605,26 @@ export class SqlStore implements Store {
       const prompt = stripNul(patch.prompt ?? "");
       const author = patch.author === undefined ? null : stripNul(patch.author);
       const publishedBy = patch.publishedBy ?? null;
-      this.sql.exec(
-        "UPDATE posts SET title = ?, surfaces = ?, head = ?, knobs = ?, note = ?, slots = ?, state = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, curSession = ?, amendedAt = NULL WHERE id = ? AND version = ?",
-        title,
-        JSON.stringify(surfaces),
-        surfaceHeads(surfaces),
-        knobs ? JSON.stringify(knobs) : null,
-        note ?? null,
-        JSON.stringify(embeds),
-        state,
-        updatedAt,
-        version,
-        from,
-        prompt,
-        author,
-        publishedBy,
-        id,
-        post.version,
-      );
-      const affected = this.sql.exec("SELECT changes() AS n").one().n as number;
-      if (affected > 0) {
+      const wrote = this.writingPosts(post.mock, [id], () => {
+        this.sql.exec(
+          "UPDATE posts SET title = ?, surfaces = ?, head = ?, knobs = ?, note = ?, slots = ?, state = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, curSession = ?, amendedAt = NULL WHERE id = ? AND version = ?",
+          title,
+          JSON.stringify(surfaces),
+          surfaceHeads(surfaces),
+          knobs ? JSON.stringify(knobs) : null,
+          note ?? null,
+          JSON.stringify(embeds),
+          state,
+          updatedAt,
+          version,
+          from,
+          prompt,
+          author,
+          publishedBy,
+          id,
+          post.version,
+        );
+        if ((this.sql.exec("SELECT changes() AS n").one().n as number) === 0) return false;
         this.insertVersion(id, archived);
         this.sql.exec(
           "DELETE FROM post_versions WHERE postId = ? AND version <= ? AND version != ?",
@@ -1561,6 +1632,9 @@ export class SqlStore implements Store {
           version - 1 - HISTORY_LIMIT,
           pin,
         );
+        return true;
+      });
+      if (wrote) {
         this.touch(post.sessionId);
         this.touchMock(post.mock, updatedAt);
         if (patch.surfaces !== undefined) this.addAssetRefs(surfaces);
@@ -1608,23 +1682,26 @@ export class SqlStore implements Store {
     const author = patch.author === undefined ? post.author : stripNul(patch.author);
     const amendedAt = new Date().toISOString();
     const rewrites = (post.rewrites ?? 0) + 1;
-    this.sql.exec(
-      "UPDATE posts SET title = ?, surfaces = ?, head = ?, knobs = ?, note = ?, slots = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, amendedAt = ?, rewrites = ? WHERE id = ? AND version = ?",
-      title,
-      JSON.stringify(surfaces),
-      surfaceHeads(surfaces),
-      knobs ? JSON.stringify(knobs) : null,
-      note ?? null,
-      JSON.stringify(embeds),
-      from ?? null,
-      prompt ?? null,
-      author ?? null,
-      amendedAt,
-      rewrites,
-      id,
-      version,
-    );
-    if ((this.sql.exec("SELECT changes() AS n").one().n as number) === 0) return null;
+    const wrote = this.writingPosts(post.mock, [id], () => {
+      this.sql.exec(
+        "UPDATE posts SET title = ?, surfaces = ?, head = ?, knobs = ?, note = ?, slots = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, amendedAt = ?, rewrites = ? WHERE id = ? AND version = ?",
+        title,
+        JSON.stringify(surfaces),
+        surfaceHeads(surfaces),
+        knobs ? JSON.stringify(knobs) : null,
+        note ?? null,
+        JSON.stringify(embeds),
+        from ?? null,
+        prompt ?? null,
+        author ?? null,
+        amendedAt,
+        rewrites,
+        id,
+        version,
+      );
+      return (this.sql.exec("SELECT changes() AS n").one().n as number) > 0;
+    });
+    if (!wrote) return null;
     this.touch(post.sessionId);
     this.touchMock(post.mock, amendedAt);
     // The surfaces it replaced may have held the only reference to an asset.
@@ -1658,44 +1735,48 @@ export class SqlStore implements Store {
     const previous = post.history.at(-1);
     const now = new Date().toISOString();
     if (!previous) {
-      this.atomic(() => {
-        // Only the agent can have written on a version the user never touched;
-        // its messages stay in the mock's thread.
-        this.sql.exec("UPDATE comments SET postId = NULL WHERE postId = ?", id);
-        this.sql.exec("DELETE FROM post_versions WHERE postId = ?", id);
-        this.sql.exec("DELETE FROM posts WHERE id = ?", id);
-      });
+      this.writingPosts(post.mock, [id], () =>
+        this.atomic(() => {
+          // Only the agent can have written on a version the user never touched;
+          // its messages stay in the mock's thread.
+          this.sql.exec("UPDATE comments SET postId = NULL WHERE postId = ?", id);
+          this.sql.exec("DELETE FROM post_versions WHERE postId = ?", id);
+          this.sql.exec("DELETE FROM posts WHERE id = ?", id);
+        }),
+      );
       this.touchMock(post.mock, now);
       this.invalidateAssetRefs();
       return { post: null };
     }
     const rewrites = (post.rewrites ?? 0) + 1;
     const hidden = (post.hiddenVersions ?? []).filter((v) => v !== version);
-    this.atomic(() => {
-      this.sql.exec(
-        "UPDATE posts SET title = ?, surfaces = ?, head = ?, slots = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, curSession = ?, amendedAt = ?, rewrites = ?, hiddenVersions = ? WHERE id = ? AND version = ?",
-        previous.title,
-        JSON.stringify(previous.surfaces),
-        surfaceHeads(previous.surfaces),
-        JSON.stringify(embeds),
-        previous.at,
-        previous.version,
-        previous.from ?? null,
-        previous.prompt ?? null,
-        previous.author ?? null,
-        previous.publishedBy ?? null,
-        previous.amendedAt ?? null,
-        rewrites,
-        hidden.length ? JSON.stringify(hidden) : null,
-        id,
-        version,
-      );
-      this.sql.exec(
-        "DELETE FROM post_versions WHERE postId = ? AND version = ?",
-        id,
-        previous.version,
-      );
-    });
+    this.writingPosts(post.mock, [id], () =>
+      this.atomic(() => {
+        this.sql.exec(
+          "UPDATE posts SET title = ?, surfaces = ?, head = ?, slots = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, curSession = ?, amendedAt = ?, rewrites = ?, hiddenVersions = ? WHERE id = ? AND version = ?",
+          previous.title,
+          JSON.stringify(previous.surfaces),
+          surfaceHeads(previous.surfaces),
+          JSON.stringify(embeds),
+          previous.at,
+          previous.version,
+          previous.from ?? null,
+          previous.prompt ?? null,
+          previous.author ?? null,
+          previous.publishedBy ?? null,
+          previous.amendedAt ?? null,
+          rewrites,
+          hidden.length ? JSON.stringify(hidden) : null,
+          id,
+          version,
+        );
+        this.sql.exec(
+          "DELETE FROM post_versions WHERE postId = ? AND version = ?",
+          id,
+          previous.version,
+        );
+      }),
+    );
     this.touchMock(post.mock, now);
     this.invalidateAssetRefs();
     const {
@@ -1739,12 +1820,15 @@ export class SqlStore implements Store {
   }
 
   async setPostStatus(id: string, status: PostStatus, acceptedVersion?: number) {
-    const post = await this.getPost(id);
+    const post = this.cachedPost(id) ?? (await this.getPost(id));
     if (!post) return null;
     const pin = status === "accepted" ? (acceptedVersion ?? post.version) : null;
-    this.sql.exec("UPDATE posts SET status = ?, acceptedVersion = ? WHERE id = ?", status, pin, id);
+    this.raw.exec("UPDATE posts SET status = ?, acceptedVersion = ? WHERE id = ?", status, pin, id);
     const { acceptedVersion: _, ...rest } = post;
-    return pin === null ? { ...rest, status } : { ...rest, status, acceptedVersion: pin };
+    const next: Post =
+      pin === null ? { ...rest, status } : { ...rest, status, acceptedVersion: pin };
+    this.recache(next);
+    return next;
   }
 
   async setPostStarred(id: string, starred: boolean) {
@@ -1756,19 +1840,21 @@ export class SqlStore implements Store {
   }
 
   async setVersionHidden(id: string, version: number, hidden: boolean): Promise<Post | null> {
-    const post = await this.getPost(id);
+    const post = this.cachedPost(id) ?? (await this.getPost(id));
     if (!post) return null;
     const set = new Set(post.hiddenVersions ?? []);
     if (hidden) set.add(version);
     else set.delete(version);
     const list = [...set].sort((a, b) => a - b);
-    this.sql.exec(
+    this.raw.exec(
       "UPDATE posts SET hiddenVersions = ? WHERE id = ?",
       list.length ? JSON.stringify(list) : null,
       id,
     );
     const { hiddenVersions: _, ...rest } = post;
-    return list.length ? { ...rest, hiddenVersions: list } : rest;
+    const next: Post = list.length ? { ...rest, hiddenVersions: list } : rest;
+    this.recache(next);
+    return next;
   }
 
   // --- comments ---
@@ -1861,49 +1947,52 @@ export class SqlStore implements Store {
   async commitReply(input: CommitReplyInput) {
     if (!(await this.getSession(input.sessionId))) return null;
     if (!(await this.getMock(input.mockId))) return null;
-    return this.atomic(() => {
-      const comment = this.insertComment({
-        sessionId: input.sessionId,
-        mockId: input.mockId,
-        author: "user",
-        text: input.text,
-        kind: "reply",
-        postVersion: input.payload.version,
-        payload: input.payload,
-      });
-      this.sql.exec(
-        input.keepDraft
-          ? "UPDATE mocks SET asks = ? WHERE id = ?"
-          : "UPDATE mocks SET asks = ?, draft = NULL WHERE id = ?",
-        JSON.stringify(input.asks),
-        input.mockId,
-      );
-      if (input.closedAt !== undefined) {
+    const moved = [...input.accept.map((x) => x.id), ...input.archive];
+    return this.writingPosts(input.mockId, moved, () =>
+      this.atomic(() => {
+        const comment = this.insertComment({
+          sessionId: input.sessionId,
+          mockId: input.mockId,
+          author: "user",
+          text: input.text,
+          kind: "reply",
+          postVersion: input.payload.version,
+          payload: input.payload,
+        });
         this.sql.exec(
-          "UPDATE mocks SET closedAt = ?, updatedAt = ? WHERE id = ?",
-          input.closedAt,
-          input.closedAt,
+          input.keepDraft
+            ? "UPDATE mocks SET asks = ? WHERE id = ?"
+            : "UPDATE mocks SET asks = ?, draft = NULL WHERE id = ?",
+          JSON.stringify(input.asks),
           input.mockId,
         );
-      }
-      for (const { id, version } of input.accept) {
-        this.sql.exec(
-          "UPDATE posts SET status = 'accepted', acceptedVersion = ? WHERE id = ? AND mockId = ?",
-          version,
-          id,
-          input.mockId,
-        );
-      }
-      for (const id of input.archive) {
-        this.sql.exec(
-          "UPDATE posts SET status = 'archived', acceptedVersion = NULL WHERE id = ? AND mockId = ?",
-          id,
-          input.mockId,
-        );
-      }
-      this.invalidateAssetRefs();
-      return comment;
-    });
+        if (input.closedAt !== undefined) {
+          this.sql.exec(
+            "UPDATE mocks SET closedAt = ?, updatedAt = ? WHERE id = ?",
+            input.closedAt,
+            input.closedAt,
+            input.mockId,
+          );
+        }
+        for (const { id, version } of input.accept) {
+          this.sql.exec(
+            "UPDATE posts SET status = 'accepted', acceptedVersion = ? WHERE id = ? AND mockId = ?",
+            version,
+            id,
+            input.mockId,
+          );
+        }
+        for (const id of input.archive) {
+          this.sql.exec(
+            "UPDATE posts SET status = 'archived', acceptedVersion = NULL WHERE id = ? AND mockId = ?",
+            id,
+            input.mockId,
+          );
+        }
+        this.invalidateAssetRefs();
+        return comment;
+      }),
+    );
   }
 
   // --- assets ---

@@ -4501,27 +4501,13 @@ html:has(.mock-screen) {
   width: 13px;
   height: 13px;
 }
-.sk-full {
-  width: 32px;
-  height: 32px;
-  margin-left: auto;
-  opacity: 0;
-  transition: opacity 0.15s ease-out;
-}
-.sk-acts + .sk-full {
-  margin-left: 0;
-}
-.sk-full svg {
-  width: 17px;
-  height: 17px;
-}
-.sk:hover :is(.sk-acts, .sk-x, .sk-full),
-.sk:focus-within :is(.sk-acts, .sk-x, .sk-full) {
+.sk:hover :is(.sk-acts, .sk-x),
+.sk:focus-within :is(.sk-acts, .sk-x) {
   opacity: 1;
 }
 /* No hover to reveal them on a touch screen: they are always there. */
 @media (hover: none) {
-  .sk :is(.sk-acts, .sk-x, .sk-full) {
+  .sk :is(.sk-acts, .sk-x) {
     opacity: 1;
   }
 }
@@ -5044,19 +5030,29 @@ html:has(.mock-screen) {
 }
 
 /* Shortlists: the bookmark, the list it saves to, a candidate's origin, and the
-   picker. A saved bookmark stays visible; the rest of a card's tools wait for hover. */
+   picker. A saved bookmark stays visible; the rest of a card's tools wait for hover.
+   It sits on the picture, so it needs its own ground: designs can be any colour. */
 .sk-save {
-  width: 32px;
-  height: 32px;
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--t2);
   opacity: 0;
   transition: opacity 0.15s ease-out;
 }
-.sk-acts + .sk-save + .sk-full {
-  margin-left: 0;
-}
 .sk-save svg {
-  width: 17px;
-  height: 17px;
+  width: 15px;
+  height: 15px;
+}
+.sk.small .sk-save {
+  top: 2px;
+  left: 2px;
+  width: 24px;
+  height: 24px;
 }
 .sk-save[aria-pressed="true"] {
   color: var(--t1);

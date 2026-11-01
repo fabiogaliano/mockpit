@@ -1499,6 +1499,18 @@ const posterOfSurfaces = (surfaces: readonly object[]) => {
   return page && "poster" in page && typeof page.poster === "string" ? { poster: page.poster } : {};
 };
 
+// The previous object for whatever a refetch returned unchanged: <For> keeps a
+// row by identity, so a fresh copy would rebuild its card and restart its frame.
+export function keepSame<T>(was: readonly T[], next: readonly T[], key: (x: T) => string): T[] {
+  const old = new Map(was.map((x) => [key(x), x]));
+  return next.map((x) => {
+    const prior = old.get(key(x));
+    return prior !== undefined && JSON.stringify(prior) === JSON.stringify(x) ? prior : x;
+  });
+}
+
+export const stepKey = (x: VersionRef): string => `${x.variant}@${x.version}`;
+
 export function versionSteps(variants: StepSource[], state: string | null): VersionStep[] {
   const rows = variants
     .filter((v) => v.state === state)

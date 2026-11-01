@@ -32,6 +32,7 @@ import {
   subscribe,
   type VariantView,
   watchMock,
+  ApiError,
 } from "./api.ts";
 import { extensionOf, prepareImage, rejectReason } from "./attach.ts";
 import { setCarried } from "./carry.ts";
@@ -76,6 +77,9 @@ import {
   setAskField,
   tuneVisible,
   unanswered,
+  keepSame,
+  stepKey,
+  type VersionStep,
 } from "./logic.ts";
 import { navigate, questionPath, type ScreenOpen } from "./route.ts";
 import { setTheme } from "./theme.ts";
@@ -152,7 +156,11 @@ export function createMockScreen(
   open: ScreenOpen | null = null,
   toOwed = false,
 ) {
-  const [mock, setMock] = createSignal<MockDetail | null>(null);
+  const [mock, putMock] = createSignal<MockDetail | null>(null);
+  const setMock = (m: MockDetail) =>
+    putMock((was) =>
+      was ? { ...m, variants: keepSame(was.variants, m.variants, (v) => v.postId) } : m,
+    );
   const [missing, setMissing] = createSignal(false);
   const [comments, setComments] = createSignal<CommentRow[]>([]);
   const [draft, setDraftSignal] = createSignal<DraftInput | null>(null);
@@ -267,7 +275,19 @@ export function createMockScreen(
   // The stage frames' latest parts reports, keyed by frameKey(state, variant).
   const [reports, setReports] = createStore<Record<string, PartsReport | undefined>>({});
 
-  const variants = createMemo(() => mock()?.variants ?? []);
+  // Archives on their way: a variant leaves the screen on the click rather than
+  // when the server has answered, and a read that crosses the write can't bring
+  // it back.
+  const [archiving, setArchiving] = createSignal<ReadonlySet<string>>(new Set());
+  const archiveKey = (state: string | null, variant: string) => JSON.stringify([state, variant]);
+  const variants = createMemo(() => {
+    const going = archiving();
+    const all = mock()?.variants ?? [];
+    if (!going.size) return all;
+    return all.map((v) =>
+      going.has(archiveKey(v.state, v.variant)) ? { ...v, status: "archived" as const } : v,
+    );
+  });
   const states = createMemo<(string | null)[]>(() => {
     const m = mock();
     return m && m.states.length ? m.states : [null];
@@ -729,20 +749,24 @@ export function createMockScreen(
   // What says where this screen opens: a link naming the place, or the memory.
   let heldBy: "link" | "place" | null = null;
   let placeRead = false;
-  async function resolveId(): Promise<string | null> {
-    if (mockId) return mockId;
-    const list = await api.mocks(project);
-    mockId = list.mocks.find((m) => m.slug === slug)?.id ?? null;
-    if (mockId && !disposed) unwatch = watchMock(mockId);
-    return mockId;
+  async function fetchMock(): Promise<MockDetail | null> {
+    if (mockId) return api.mock(mockId);
+    const m = await api.mockIn(project, slug).catch((e) => {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 400)) return null;
+      throw e;
+    });
+    // The route also answers to a title; this screen is only ever this slug.
+    if (!m || m.slug !== slug) return null;
+    mockId = m.id;
+    if (!disposed) unwatch = watchMock(mockId);
+    return m;
   }
   async function loadMock() {
-    const id = await resolveId();
-    if (!id) {
+    const m = await fetchMock();
+    if (!m) {
       setMissing(true);
       return;
     }
-    const m = await api.mock(id);
     batch(() => {
       setMock(m);
       setMissing(false);
@@ -781,7 +805,7 @@ export function createMockScreen(
     });
   }
   async function loadDraft() {
-    const id = await resolveId();
+    const id = mockId;
     if (!id) return;
     const { draft: d } = await api.draft(id).catch(() => ({ draft: null }));
     if (Date.now() - lastLocalWrite < 1500 || pending) return;
@@ -802,7 +826,7 @@ export function createMockScreen(
     );
   }
   async function loadComments() {
-    const id = await resolveId();
+    const id = mockId;
     if (!id) return;
     const { comments: list } = await api.comments(id);
     setComments(list);
@@ -1587,7 +1611,10 @@ export function createMockScreen(
   // --- versions ---
 
   // Every version of the state on stage, in the order they were published.
-  const steps = createMemo(() => versionSteps(variants(), activeState()));
+  const steps = createMemo<VersionStep[]>(
+    (was) => keepSame(was, versionSteps(variants(), activeState()), stepKey),
+    [],
+  );
   // "Dark #2", or "#2" while the state on stage has one variant.
   const nameOf = (ref: VersionRef) =>
     versionName(ref, variants().filter((v) => v.state === activeState()).length > 1);
@@ -1743,19 +1770,39 @@ export function createMockScreen(
     const m = mock();
     if (!m || readonly() || !variants.length) return;
     const state = activeState();
-    try {
-      for (const v of variants) await api.archiveVariant(m.id, state, v);
-      await loadMock();
-      setToast({
-        text: `Archived ${label}`,
-        undo: () => {
-          setToast(null);
-          for (const v of variants) void restoreVariant(v, [state]);
-        },
+    const keys = variants.map((v) => archiveKey(state, v));
+    const going = (on: boolean) =>
+      setArchiving((was) => {
+        const next = new Set(was);
+        for (const k of keys) {
+          if (on) next.add(k);
+          else next.delete(k);
+        }
+        return next;
       });
-    } catch (e) {
-      fail(e);
-    }
+    going(true);
+    const done = (async () => {
+      try {
+        for (const v of variants) await api.archiveVariant(m.id, state, v);
+        await loadMock();
+      } catch (e) {
+        await loadMock().catch(() => {});
+        fail(e);
+      } finally {
+        going(false);
+      }
+    })();
+    setToast({
+      text: `Archived ${label}`,
+      undo: () => {
+        setToast(null);
+        // After the archive lands, or the restore could be overtaken by it.
+        void done.then(() => {
+          for (const v of variants) void restoreVariant(v, [state]);
+        });
+      },
+    });
+    await done;
   }
   // Revise: ask the agent for another version of the one on stage, as a reply
   // (with whatever the draft holds), so it arrives through the same cursor.

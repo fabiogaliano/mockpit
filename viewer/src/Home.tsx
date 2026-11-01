@@ -46,6 +46,7 @@ import {
   shortSource,
   timeAgo,
   versionStamp,
+  keepSame,
 } from "./logic.ts";
 import {
   type HomeView,
@@ -100,11 +101,24 @@ export function Home(props: {
   const [list, { refetch: refetchList }] = createResource(project, (p) => api.mocks(p));
   const [tree, { refetch: refetchTree }] = createResource(project, (p) => api.tree(p));
   const refetch = () => Promise.all([refetchList(), refetchTree()]);
+  // An agent publishing a batch fires an event per variant; one read covers them.
+  let refetchTimer = 0;
+  const refetchSoon = () => {
+    if (refetchTimer) return;
+    refetchTimer = host().window.setTimeout(() => {
+      refetchTimer = 0;
+      void refetch();
+    }, 300);
+  };
+  onCleanup(() => host().window.clearTimeout(refetchTimer));
 
   // Oldest first, as the agent made them; a closed mock goes last in its group.
   const byAge = (a: TreeNode, b: TreeNode) =>
     Number(!!a.closedAt) - Number(!!b.closedAt) || a.createdAt.localeCompare(b.createdAt);
-  const nodes = createMemo(() => [...(tree()?.tree ?? [])].sort(byAge));
+  const nodes = createMemo<TreeNode[]>(
+    (was) => keepSame(was, [...(tree()?.tree ?? [])].sort(byAge), (n) => n.slug),
+    [],
+  );
   const bySlug = createMemo(() => new Map(nodes().map((n) => [n.slug, n])));
   const areaOrder = createMemo(() => tree()?.areaOrder ?? []);
   const areas = createMemo(() =>
@@ -121,8 +135,14 @@ export function Home(props: {
     if (p) rememberHomeView(p, props.view, area());
   });
 
-  const allRows = createMemo<Row[]>(() =>
-    (tree()?.flows ?? []).map((f) => ({ name: f.name, flow: f.name, steps: f.steps })),
+  const allRows = createMemo<Row[]>(
+    (was) =>
+      keepSame(
+        was,
+        (tree()?.flows ?? []).map((f) => ({ name: f.name, flow: f.name, steps: f.steps })),
+        (r) => r.name,
+      ),
+    [],
   );
   const areaOf = (n: TreeNode) => n.area;
   const rowArea = (r: Row) => flowArea(r.steps, (slug) => bySlug().get(slug)?.area);
@@ -248,7 +268,7 @@ export function Home(props: {
         e.type.startsWith("post-") ||
         e.type === "comment-created"
       ) {
-        void refetch();
+        refetchSoon();
         if (e.type === "mock-created" || e.type === "mock-deleted") void refetchProjects();
       }
     },
@@ -378,9 +398,11 @@ export function Home(props: {
     </Show>
   );
 
-  // The renderers, one per kind, shared by the kind tabs and All.
-  const pagesOf = (groups: AreaGroup<TreeNode>[], level: 2 | 3 | 4) => (
-    <Areas groups={groups} level={level}>
+  // The renderers, one per kind, shared by the kind tabs and All. They take the
+  // groups as an accessor: read where a tab draws them, each refetch would redraw
+  // every card and restart every picture.
+  const pagesOf = (groups: () => AreaGroup<TreeNode>[], level: 2 | 3 | 4) => (
+    <Areas groups={groups()} level={level}>
       {(n, h) => (
         <section class="home-sec" classList={{ closed: !!n.closedAt }} data-page={n.slug}>
           <Dynamic component={h} class="home-page-hd">
@@ -406,8 +428,8 @@ export function Home(props: {
     groups.some((g) => g.area === null && g.rows.some((r) => !rowIn(r, null)))
       ? "Across areas"
       : undefined;
-  const flowsOf = (groups: AreaGroup<Row>[], level: 2 | 3 | 4) => (
-    <Areas groups={groups} level={level} rest={restOfFlows(groups)}>
+  const flowsOf = (groups: () => AreaGroup<Row>[], level: 2 | 3 | 4) => (
+    <Areas groups={groups()} level={level} rest={restOfFlows(groups())}>
       {(row, h) => (
         <section class="home-sec">
           <Dynamic component={h}>
@@ -442,8 +464,8 @@ export function Home(props: {
       )}
     </Areas>
   );
-  const componentsOf = (groups: AreaGroup<TreeNode>[], level: 2 | 3 | 4) => (
-    <Areas groups={groups} level={level} grid>
+  const componentsOf = (groups: () => AreaGroup<TreeNode>[], level: 2 | 3 | 4) => (
+    <Areas groups={groups()} level={level} grid>
       {(n) =>
         card(
           n,
@@ -460,8 +482,8 @@ export function Home(props: {
       }
     </Areas>
   );
-  const sketchesOf = (groups: AreaGroup<TreeNode>[], level: 2 | 3 | 4) => (
-    <Areas groups={groups} level={level} grid>
+  const sketchesOf = (groups: () => AreaGroup<TreeNode>[], level: 2 | 3 | 4) => (
+    <Areas groups={groups()} level={level} grid>
       {(n) =>
         card(
           n,
@@ -475,10 +497,10 @@ export function Home(props: {
   );
   // Every kind of one slice, in the order they are built: page, flows, the
   // components they embed, then the sketches; each under a small kind label.
-  const kinds = (s: Slice, level: 2 | 3) => {
+  const kinds = (s: () => Slice | undefined, level: 2 | 3) => {
     const sub = (level + 1) as 3 | 4;
-    const part = (label: string, count: number, body: () => JSX.Element) => (
-      <Show when={count}>
+    const part = (label: string, count: () => number, body: () => JSX.Element) => (
+      <Show when={count()}>
         <section class="home-kind">
           <Dynamic component={`h${level}`} class="home-kind-hd">
             {label}
@@ -489,10 +511,26 @@ export function Home(props: {
     );
     return (
       <>
-        {part("Pages", s.pages.length, () => pagesOf(one(s.pages), sub))}
-        {part("Flows", s.rows.length, () => flowsOf([{ area: null, rows: s.rows }], sub))}
-        {part("Components", s.components.length, () => componentsOf(one(s.components), sub))}
-        {part("Sketches", s.sketches.length, () => sketchesOf(one(s.sketches), sub))}
+        {part(
+          "Pages",
+          () => s()?.pages.length ?? 0,
+          () => pagesOf(() => one(s()?.pages ?? []), sub),
+        )}
+        {part(
+          "Flows",
+          () => s()?.rows.length ?? 0,
+          () => flowsOf(() => [{ area: null, rows: s()?.rows ?? [] }], sub),
+        )}
+        {part(
+          "Components",
+          () => s()?.components.length ?? 0,
+          () => componentsOf(() => one(s()?.components ?? []), sub),
+        )}
+        {part(
+          "Sketches",
+          () => s()?.sketches.length ?? 0,
+          () => sketchesOf(() => one(s()?.sketches ?? []), sub),
+        )}
       </>
     );
   };
@@ -683,25 +721,25 @@ export function Home(props: {
               </Show>
 
               <Show when={view() === "all"}>
-                <Show when={area() === null} fallback={kinds(shownSlice(), 2)}>
-                  <For each={everyArea()}>
-                    {(g) => (
+                <Show when={area() === null} fallback={kinds(shownSlice, 2)}>
+                  <For each={everyArea().map((g) => g.area)}>
+                    {(a) => (
                       <section class="home-area">
-                        <h2 class="home-area-hd">{g.area ?? "No area"}</h2>
-                        {kinds(g.slice, 3)}
+                        <h2 class="home-area-hd">{a ?? "No area"}</h2>
+                        {kinds(() => everyArea().find((g) => g.area === a)?.slice, 3)}
                       </section>
                     )}
                   </For>
                 </Show>
               </Show>
 
-              <Show when={view() === "flows"}>{flowsOf(flowGroups(), 2)}</Show>
-              <Show when={view() === "pages"}>{pagesOf(grouped(shownSlice().pages), 2)}</Show>
+              <Show when={view() === "flows"}>{flowsOf(flowGroups, 2)}</Show>
+              <Show when={view() === "pages"}>{pagesOf(() => grouped(shownSlice().pages), 2)}</Show>
               <Show when={view() === "components"}>
-                {componentsOf(grouped(shownSlice().components), 2)}
+                {componentsOf(() => grouped(shownSlice().components), 2)}
               </Show>
               <Show when={view() === "sketches"}>
-                {sketchesOf(grouped(shownSlice().sketches), 2)}
+                {sketchesOf(() => grouped(shownSlice().sketches), 2)}
               </Show>
             </Show>
           </div>
@@ -741,19 +779,25 @@ function Areas<T>(props: {
 }) {
   const grouped = () => props.groups.some((g) => g.area !== null);
   const own = (): Heading => `h${grouped() ? props.level + 1 : props.level}` as Heading;
-  const rows = (g: AreaGroup<T>) => {
-    const list = <For each={g.rows}>{(row) => props.children(row, own())}</For>;
+  // By name: the groups are rebuilt on every refetch, the areas rarely change.
+  const names = createMemo(() => props.groups.map((g) => g.area));
+  const rows = (area: string | null) => {
+    const list = (
+      <For each={props.groups.find((g) => g.area === area)?.rows ?? []}>
+        {(row) => props.children(row, own())}
+      </For>
+    );
     return props.grid ? <div class="home-comps">{list}</div> : list;
   };
   return (
-    <Show when={grouped()} fallback={<For each={props.groups}>{(g) => rows(g)}</For>}>
-      <For each={props.groups}>
-        {(g) => (
+    <Show when={grouped()} fallback={<For each={names()}>{(area) => rows(area)}</For>}>
+      <For each={names()}>
+        {(area) => (
           <section class="home-area">
             <Dynamic component={`h${props.level}`} class="home-area-hd">
-              {g.area ?? props.rest ?? "No area"}
+              {area ?? props.rest ?? "No area"}
             </Dynamic>
-            {rows(g)}
+            {rows(area)}
           </section>
         )}
       </For>

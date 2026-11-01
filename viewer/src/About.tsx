@@ -4,7 +4,7 @@
 // Asking the name is the gesture, so no icon has to explain it; a bottom sheet
 // on a phone.
 
-import { createMemo, createResource, For, type JSX, Show } from "solid-js";
+import { createMemo, createResource, createSignal, For, type JSX, Show } from "solid-js";
 import { api, type FlowView, surfaceUrl, type TreeNode } from "./api.ts";
 import { designWidth, screenPicture } from "./logic.ts";
 import { linkClick, mockPath } from "./route.ts";
@@ -14,19 +14,22 @@ import { Thumb } from "./Thumb.tsx";
 
 export interface AboutState {
   tree: () => { tree: TreeNode[]; flows: FlowView[] } | undefined;
+  wake: () => void;
 }
 
 // One per mock screen. The tree is fetched again whenever the mock changes, so
 // a new embed or flow step shows.
 export function createAbout(project: () => string, mockKey: () => string | null): AboutState {
+  // Not before the name is first asked: most visits to a mock never do.
+  const [woken, setWoken] = createSignal(false);
   const [tree] = createResource(
     () => {
       const k = mockKey();
-      return k === null ? null : `${project()}\u0000${k}`;
+      return k === null || !woken() ? null : `${project()}\u0000${k}`;
     },
     () => api.tree(project()),
   );
-  return { tree };
+  return { tree, wake: () => setWoken(true) };
 }
 
 interface FlowRow {

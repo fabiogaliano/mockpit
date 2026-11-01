@@ -510,7 +510,10 @@ function TopRow(props: {
           aria-expanded={open()}
           aria-haspopup="dialog"
           ref={(el) => (btn = el)}
-          onClick={() => setOpen(!open())}
+          onClick={() => {
+            props.about.wake();
+            setOpen(!open());
+          }}
         >
           <Show when={s.activeState() === null} fallback={<span>{title()}</span>}>
             <b>{title()}</b>
