@@ -97,6 +97,10 @@ function slotTagsToEmbed(surfaces: Surface[]): Surface[] | null {
   return changed ? out : null;
 }
 
+// What the post cache may hold unless told otherwise, in stored surface
+// characters: a Durable Object has 128 MB in all.
+const POST_CACHE_BYTES = 32 * 1024 * 1024;
+
 const POST_COLUMNS = `
   id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, mockId TEXT NOT NULL, state TEXT,
   variant TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', title TEXT NOT NULL,
@@ -116,9 +120,40 @@ export class SqlStore implements Store {
   // post's surfaces on each call. Stays correct because history is append-only:
   // an asset id once referenced stays referenced until its post is deleted.
   private assetRefCache: Set<string> | undefined;
+  // Parsed posts per mock, least recently used first. A mock's posts carry
+  // every surface and version body, and one Home load reads each of them many
+  // times over (every embed resolves its component again), so parsing them per
+  // read is what made it slow. Any statement that writes posts or versions
+  // drops all of it; the byte budget keeps a Durable Object's memory bounded.
+  private postCache = new Map<string, { posts: Post[]; bytes: number }>();
+  private postCacheBytes = 0;
+  private postCacheLimit: number;
 
-  constructor(sql: SqlStorage) {
-    this.sql = sql;
+  constructor(sql: SqlStorage, opts: { postCacheBytes?: number } = {}) {
+    this.postCacheLimit = opts.postCacheBytes ?? POST_CACHE_BYTES;
+    const drop = () => {
+      this.postCache.clear();
+      this.postCacheBytes = 0;
+    };
+    this.sql = {
+      exec: (query, ...bindings) => {
+        if (!/^\s*SELECT\b/i.test(query) && /\bpost(s|_versions)\b/i.test(query)) drop();
+        return sql.exec(query, ...bindings);
+      },
+      ...(sql.transactionSync
+        ? {
+            transactionSync: <T>(fn: () => T): T => {
+              try {
+                return sql.transactionSync!(fn);
+              } catch (err) {
+                // Reads inside a rolled-back transaction may have cached its writes.
+                drop();
+                throw err;
+              }
+            },
+          }
+        : {}),
+    };
     this.atomic(() => this.migrate());
   }
 
@@ -661,7 +696,7 @@ export class SqlStore implements Store {
     };
   }
 
-  private historiesFor(ids: string[]): Map<string, PostVersion[]> {
+  private historiesFor(ids: string[], weigh?: (bytes: number) => void): Map<string, PostVersion[]> {
     const out = new Map<string, PostVersion[]>();
     if (ids.length === 0) return out;
     const rows = this.sql
@@ -674,13 +709,17 @@ export class SqlStore implements Store {
       const id = r.postId as string;
       let list = out.get(id);
       if (!list) out.set(id, (list = []));
+      weigh?.((r.surfaces as string).length);
       list.push(this.rowToVersion(r));
     }
     return out;
   }
 
-  private rowsToPosts(rows: Row[]): Post[] {
-    const histories = this.historiesFor(rows.map((r) => r.id as string));
+  private rowsToPosts(rows: Row[], weigh?: (bytes: number) => void): Post[] {
+    const histories = this.historiesFor(
+      rows.map((r) => r.id as string),
+      weigh,
+    );
     return rows.map((r) => this.rowToPost(r, histories.get(r.id as string) ?? []));
   }
 
@@ -947,11 +986,17 @@ export class SqlStore implements Store {
   // --- projects / mocks ---
 
   async listProjects() {
-    return summarizeProjects(
-      await this.listMocks(),
-      await this.listSessions(),
-      await this.listPosts(),
-    );
+    // Open counts need only where each variant sits, never its surfaces.
+    const posts = this.sql
+      .exec("SELECT mockId, state, variant, status FROM posts")
+      .toArray()
+      .map((r) => ({
+        mock: r.mockId as string,
+        state: (r.state as string) ?? null,
+        variant: r.variant as string,
+        status: ((r.status as string) || "open") as PostStatus,
+      }));
+    return summarizeProjects(await this.listMocks(), await this.listSessions(), posts);
   }
 
   async listMocks(project?: string) {
@@ -1248,6 +1293,9 @@ export class SqlStore implements Store {
   // --- posts ---
 
   async listPosts(query: PostQuery = {}) {
+    if (query.mockId !== undefined && query.sessionId === undefined) {
+      return this.postsOfMock(query.mockId).slice();
+    }
     const clauses: string[] = [];
     const params: SqlStorageValue[] = [];
     if (query.mockId !== undefined) {
@@ -1263,6 +1311,30 @@ export class SqlStore implements Store {
       .exec(`SELECT * FROM posts ${where} ORDER BY createdAt ASC, rowid ASC`, ...params)
       .toArray();
     return this.rowsToPosts(rows);
+  }
+
+  private postsOfMock(mockId: string): Post[] {
+    const hit = this.postCache.get(mockId);
+    if (hit) {
+      this.postCache.delete(mockId);
+      this.postCache.set(mockId, hit);
+      return hit.posts;
+    }
+    const rows = this.sql
+      .exec("SELECT * FROM posts WHERE mockId = ? ORDER BY createdAt ASC, rowid ASC", mockId)
+      .toArray();
+    let bytes = 0;
+    for (const r of rows) bytes += (r.surfaces as string).length;
+    const posts = this.rowsToPosts(rows, (n) => (bytes += n));
+    if (bytes > this.postCacheLimit) return posts;
+    this.postCache.set(mockId, { posts, bytes });
+    this.postCacheBytes += bytes;
+    for (const [id, entry] of this.postCache) {
+      if (this.postCacheBytes <= this.postCacheLimit) break;
+      this.postCache.delete(id);
+      this.postCacheBytes -= entry.bytes;
+    }
+    return posts;
   }
 
   async countPostsBySession() {
@@ -1281,6 +1353,8 @@ export class SqlStore implements Store {
   }
 
   async findPost(mockId: string, state: string | null, variant: string) {
+    const cached = this.postCache.get(mockId);
+    if (cached) return cached.posts.find((p) => p.state === state && p.variant === variant) ?? null;
     const rows = this.sql
       .exec(
         "SELECT * FROM posts WHERE mockId = ? AND state IS ? AND variant = ? ORDER BY createdAt ASC LIMIT 1",

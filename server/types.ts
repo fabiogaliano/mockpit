@@ -1287,7 +1287,7 @@ export function builtinAsk(
 export function summarizeProjects(
   mocks: Mock[],
   sessions: Session[],
-  posts: Post[] = [],
+  posts: Pick<Post, "mock" | "state" | "variant" | "status">[] = [],
 ): ProjectSummary[] {
   const byProject = new Map<string, Mock[]>();
   for (const m of mocks) {

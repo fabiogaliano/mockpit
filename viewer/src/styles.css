@@ -321,6 +321,7 @@ a {
 }
 .home-lead {
   margin: 0 0 30px;
+  min-height: 1lh;
   display: flex;
   flex-wrap: wrap;
   align-items: center;

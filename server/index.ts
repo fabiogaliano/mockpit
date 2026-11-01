@@ -1,4 +1,6 @@
 import { serve } from "@hono/node-server";
+import { Hono } from "hono";
+import { compress } from "hono/compress";
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -57,7 +59,9 @@ const publicRead = pr === "session" || pr === "full" ? pr : undefined;
 // default lives in ~/.mockpit/, a user-owned dir that survives reinstalls and
 // is writable however the package was installed.
 const dbPath = process.env.MOCKPIT_DB ?? join(homedir(), ".mockpit", "mockpit.db");
-const store = new SqlStore(createSqliteStorage(dbPath));
+// A local server can hold a whole workspace's parsed posts: re-reading them is
+// what a Home load waits on, and a Durable Object's memory cap doesn't apply.
+const store = new SqlStore(createSqliteStorage(dbPath), { postCacheBytes: 512 * 1024 * 1024 });
 console.log(`mockpit store: SQLite at ${dbPath}`);
 
 // The event log is on by default, next to the database, so a session can be
@@ -103,7 +107,14 @@ const port = Number(process.env.PORT ?? 8228);
 // is stronger than the token, which is a single shared secret by design.
 const hostname = process.env.MOCKPIT_HOST || undefined;
 
-serve({ fetch: app.fetch, port, hostname }, (info) => {
+// Cloudflare compresses at its edge; a Node server reached over a network
+// (a tailnet, a LAN) would otherwise send the viewer and every list uncompressed.
+// Hono's filter leaves SSE streams alone.
+const outer = new Hono();
+outer.use(compress());
+outer.all("*", (c) => app.fetch(c.req.raw, c.env));
+
+serve({ fetch: outer.fetch, port, hostname }, (info) => {
   // Report the address actually bound. Printing "localhost" unconditionally hid
   // the fact that the default listens on every interface.
   const shown = hostname ?? "localhost";

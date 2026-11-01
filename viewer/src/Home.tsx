@@ -577,36 +577,39 @@ export function Home(props: {
               }
             >
               <div class="home-lead">
-                <Show
-                  when={waiting().length || resolved().length}
-                  fallback={
-                    <span class="home-count">
-                      <i class="dot ok" />0 open · all answered
-                    </span>
-                  }
-                >
-                  <button
-                    type="button"
-                    class="home-count"
-                    aria-expanded={listOpen()}
-                    onClick={() => setListOpen(!listOpen())}
+                {/* Until the list arrives there is no count to tell, not zero of one. */}
+                <Show when={list()}>
+                  <Show
+                    when={waiting().length || resolved().length}
+                    fallback={
+                      <span class="home-count">
+                        <i class="dot ok" />0 open · all answered
+                      </span>
+                    }
                   >
-                    <i class="dot" classList={{ ok: open() === 0 }} />
-                    {open() > 0
-                      ? `${open()} open across ${list()?.openMocks ?? 0} ${list()?.openMocks === 1 ? "mock" : "mocks"}`
-                      : "0 open · all answered"}
-                  </button>
-                </Show>
-                <Show when={open() > 0}>
-                  <span class="sep">·</span>
-                  <a
-                    class="home-next"
-                    href={mockPath(project()!, next()?.slug ?? "")}
-                    title={next()?.title}
-                    onClick={(e) => linkClick(e, mockPath(project()!, next()?.slug ?? ""))}
-                  >
-                    Answer next ›
-                  </a>
+                    <button
+                      type="button"
+                      class="home-count"
+                      aria-expanded={listOpen()}
+                      onClick={() => setListOpen(!listOpen())}
+                    >
+                      <i class="dot" classList={{ ok: open() === 0 }} />
+                      {open() > 0
+                        ? `${open()} open across ${list()?.openMocks ?? 0} ${list()?.openMocks === 1 ? "mock" : "mocks"}`
+                        : "0 open · all answered"}
+                    </button>
+                  </Show>
+                  <Show when={open() > 0}>
+                    <span class="sep">·</span>
+                    <a
+                      class="home-next"
+                      href={mockPath(project()!, next()?.slug ?? "")}
+                      title={next()?.title}
+                      onClick={(e) => linkClick(e, mockPath(project()!, next()?.slug ?? ""))}
+                    >
+                      Answer next ›
+                    </a>
+                  </Show>
                 </Show>
               </div>
               <Show when={listOpen() && (waiting().length || resolved().length)}>
