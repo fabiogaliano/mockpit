@@ -123,6 +123,14 @@ export const lookAsk = (mock: Pick<MockDetail, "asks">): Ask | undefined =>
 
 // --- the built-in "Which variant?" ---
 
+// The viewer's own question, not one the agent asked: it says nothing is waiting.
+export const isBuiltinAsk = (ask: Pick<Ask, "id">): boolean =>
+  ask.id === BUILTIN_ASK_ID || ask.id.startsWith(`${BUILTIN_ASK_ID}:`);
+
+// Answered by comparing designs, which Studio does as well as Stage.
+export const picksVariant = (ask: Pick<Ask, "options">): boolean =>
+  ask.options.some((o) => o.variant);
+
 type VariantRow = Pick<VariantView, "state" | "variant" | "status">;
 
 // What the user can still choose between in a state: its live variants.

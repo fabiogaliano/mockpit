@@ -131,8 +131,8 @@ consciously, not as a side effect):
   (`TopRow`: the path is the way up, project and area as links, the mock's
   name opening `About` (Appears in / Built from / flows / other states / code);
   `BuiltFrom` is Tune's drawer, open while Tune is; `Studio`, the state zoomed
-  out with every variant side by side, entered from the dock's "N variants"
-  and remembered per mock, each steer its own reply (`steer`, `sendAlone`);
+  out with every variant side by side, entered from the top bar's Stage | Studio
+  switch and remembered per mock, each steer its own reply (`steer`, `sendAlone`);
   `Stage` + `Strip`, `Panel` beside the stage; where the panel does
   not fit, `CanvasHead`, the stage as a pannable canvas with the mock's other
   `widths` as picture-only artboards beside the live frame, and `QuestionCard`

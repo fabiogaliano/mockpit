@@ -3060,40 +3060,114 @@ html:has(.mock-screen) {
 .flowbar {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  height: 36px;
+  gap: 10px;
+  height: 40px;
+  padding: 0 12px;
   color: var(--t4);
   font-size: 13px;
 }
 .flowname {
+  flex: none;
+  max-width: 30%;
+  overflow: hidden;
   color: var(--t2);
   font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.flowbar .dots {
+.ftabs {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 5px;
+  flex: 1;
+  gap: 2px;
+  /* `safe`: centred when they fit, but an overflowing row must start at its first tab. */
+  justify-content: safe center;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
-.flowbar .dots i {
-  display: block;
+.ftabs::-webkit-scrollbar {
+  display: none;
+}
+.ftab {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--t4);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
+}
+.ftab span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ftab[aria-current] {
+  background: var(--row);
+  color: var(--t1);
+}
+@media (hover: hover) {
+  .ftab:not([aria-current]):hover {
+    color: var(--t1);
+  }
+}
+.ftab-q,
+.vswitch-q {
+  flex: none;
   width: 6px;
   height: 6px;
   border-radius: 3px;
-  background: var(--fill);
-}
-.flowbar .dots i.owe {
   background: var(--q);
-}
-.flowbar .dots i.on {
-  width: 16px;
-  background: var(--t1);
 }
 .num {
   font-variant-numeric: tabular-nums;
 }
-.flowbar .fnav {
-  display: none;
+.vswitch {
+  display: flex;
+  flex: none;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.vswitch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--t4);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
+}
+.vswitch button[aria-pressed="true"] {
+  background: var(--row);
+  color: var(--t1);
+}
+.vswitch .num {
+  color: var(--t4);
+  font-weight: 400;
+}
+@media (hover: hover) {
+  .vswitch button[aria-pressed="false"]:hover {
+    color: var(--t1);
+  }
 }
 /* The neighbouring steps at the canvas's edges. */
 .ghost {
@@ -3888,16 +3962,19 @@ html:has(.mock-screen) {
 }
 /* Under a finger the top bar's icons take a 44px tap. */
 @media (pointer: coarse) {
-  .mtop .ib,
-  .flowbar .fnav {
+  .mtop .ib {
     width: 44px;
     height: 44px;
+  }
+  .ftab,
+  .vswitch button {
+    min-height: 40px;
   }
   .qfoot .qsend {
     height: 44px;
   }
 }
-/* Phone: the crumb is the state, the flow moves to the arrows (and a swipe),
+/* Phone: the crumb is the mock's name, the tabs scroll (and a swipe walks them),
    the bar keeps one line, and the drawers are sheets from the bottom. */
 @media (max-width: 640px) {
   .mtop {
@@ -3909,9 +3986,7 @@ html:has(.mock-screen) {
   }
   .flowbar {
     height: 44px;
-  }
-  .flowbar .fnav {
-    display: grid;
+    padding: 0 6px;
   }
   .mbottom {
     width: calc(100% - 16px);
@@ -4142,6 +4217,11 @@ html:has(.mock-screen) {
   transition:
     color 150ms ease,
     background-color 150ms ease;
+}
+.crumb-me span,
+.crumb-me b {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .crumb-me svg {
   flex: none;

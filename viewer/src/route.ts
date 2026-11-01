@@ -1,7 +1,9 @@
 // URL ⇄ screen. Home is /project/:name, a mock is /project/:name/:slug; "/" is
 // the home of the most recently active project. Home's tab is `?view=`: all,
 // pages, flows, components or sketches; absent, or a tab the project lacks, is
-// its first. `?area=` narrows Home to one of the project's areas.
+// its first. `?area=` narrows Home to one of the project's areas. On a mock the
+// URL is the whole place: `?state=`, `?variant=`, `?version=`, `?view=`. The mock
+// screen keeps them current, so Back and a reload land where the entry was.
 
 import { createSignal } from "solid-js";
 import { basePath, host } from "./host.ts";
@@ -30,7 +32,8 @@ export type Route =
       flow: string | null;
     };
 
-export type ScreenOpen = { state: string | null; variant: string | null };
+export type ScreenOpen = { state: string | null; variant: string | null; version?: number | null };
+export type MockRoute = Extract<Route, { screen: "mock" }>;
 
 export function parseRoute(pathname: string, base = "", search = ""): Route {
   const path = base && pathname.startsWith(base) ? pathname.slice(base.length) : pathname;
@@ -52,12 +55,19 @@ export function parseRoute(pathname: string, base = "", search = ""): Route {
   if (seg[0] === "project" && seg[1]) {
     if (seg[2]) {
       const variant = q.get("variant");
+      const version = Number(q.get("version"));
       return {
         screen: "mock",
         project: dec(seg[1]),
         slug: dec(seg[2]),
         open:
-          variant || q.has("state") ? { state: q.get("state"), variant: variant || null } : null,
+          variant || q.has("state")
+            ? {
+                state: q.get("state"),
+                variant: variant || null,
+                version: Number.isInteger(version) && version > 0 ? version : null,
+              }
+            : null,
         flow: q.get("flow") || null,
       };
     }
@@ -82,21 +92,29 @@ export const mockPath = (
   slug: string,
   open?: ScreenOpen | null,
   flow?: string | null,
+  view?: string | null,
 ) => {
   const base = `${projectPath(project)}/${encodeURIComponent(slug)}`;
   const q = new URLSearchParams();
   if (open?.variant) q.set("variant", open.variant);
+  if (open?.version) q.set("version", String(open.version));
   if (open && open.state !== null) q.set("state", open.state);
   if (flow) q.set("flow", flow);
+  if (view) q.set("view", view);
   const qs = q.toString();
   return qs ? `${base}?${qs}` : base;
 };
-// The tab and area Home was last on, per project, so Back from a mock returns to it.
+// Straight to what a mock still asks: on Stage, on its first open question,
+// wherever this browser last left it.
+export const questionPath = (project: string, slug: string) =>
+  `${mockPath(project, slug)}?view=stage&owed=1`;
+// The tab and area Home was last on, per project, so going up from a mock keeps the tab.
 const lastView = new Map<string, { view: HomeView | null; area: string | null }>();
 export const rememberHomeView = (project: string, view: HomeView | null, area: string | null) =>
   lastView.set(project, { view, area });
-export const homePath = (project: string) =>
-  projectPath(project, lastView.get(project)?.view ?? null, lastView.get(project)?.area ?? null);
+// The project's crumb means the whole project, its area crumb that area, on the same tab.
+export const homePath = (project: string, area: string | null = null) =>
+  projectPath(project, lastView.get(project)?.view ?? null, area);
 
 const key = (r: Route) => JSON.stringify(r);
 const read = () => parseRoute(host().location.pathname, basePath(), host().location.search);
@@ -109,6 +127,12 @@ export function navigate(path: string, opts: { replace?: boolean } = {}) {
   const h = host().history;
   if (opts.replace) h.replaceState(null, "", path);
   else h.pushState(null, "", path);
+  setRoute(read());
+}
+
+// The current entry's address changes with no step in history.
+export function replaceUrl(path: string) {
+  host().history.replaceState(host().history.state, "", path);
   setRoute(read());
 }
 

@@ -53,6 +53,7 @@ import {
   mockPath,
   navigate,
   projectPath,
+  questionPath,
   rememberHomeView,
 } from "./route.ts";
 import { unseen } from "./seen.ts";
@@ -603,9 +604,9 @@ export function Home(props: {
                     <span class="sep">·</span>
                     <a
                       class="home-next"
-                      href={mockPath(project()!, next()?.slug ?? "")}
+                      href={questionPath(project()!, next()?.slug ?? "")}
                       title={next()?.title}
-                      onClick={(e) => linkClick(e, mockPath(project()!, next()?.slug ?? ""))}
+                      onClick={(e) => linkClick(e, questionPath(project()!, next()?.slug ?? ""))}
                     >
                       Answer next ›
                     </a>
@@ -824,11 +825,13 @@ function Screen(props: {
   fresh?: boolean;
 }) {
   const pic = createMemo(() => screenPicture(props.node, props.state));
+  // A card opens the mock, wherever you left it: its picture's state is only a
+  // picture. A state of a page or a flow step opens that state.
   const href = () =>
     mockPath(
       props.project,
       props.node.slug,
-      props.state === null ? null : { state: props.state, variant: null },
+      props.card || props.state === null ? null : { state: props.state, variant: null },
       props.flow,
     );
   const tile = () => tileOf(props.node.kind, designWidth(props.node));

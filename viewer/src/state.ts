@@ -9,6 +9,7 @@ import {
   type Ask,
   type AskAnswer,
   askAnswered,
+  isLive,
   type KnobValue,
   MAX_ASK_IMAGES,
   momentOf,
@@ -49,7 +50,9 @@ import {
   frameKey,
   frameVersion,
   type KnobContext,
+  isBuiltinAsk,
   lookAsk,
+  picksVariant,
   mixDropCause,
   mixOptions,
   mixSettled,
@@ -74,7 +77,7 @@ import {
   tuneVisible,
   unanswered,
 } from "./logic.ts";
-import { mockPath, navigate, type ScreenOpen } from "./route.ts";
+import { navigate, questionPath, type ScreenOpen } from "./route.ts";
 import { setTheme } from "./theme.ts";
 import { coarse, win } from "./viewport.ts";
 
@@ -130,7 +133,25 @@ const FORWARD_MS = 1600;
 // Long enough for an agent that is watching to pick a reply up.
 const BEAT_MS = 4000;
 
-export function createMockScreen(project: string, slug: string, open: ScreenOpen | null = null) {
+// Where this browser last left a mock. Versions stay out: a revision that
+// arrives while you are away must be what you come back to.
+type Place = { state: string | null; variants: Record<string, string> };
+const placeKey = (id: string) => `mockpit-place:${id}`;
+function readPlace(id: string): Place | null {
+  try {
+    const raw = host().storage?.getItem(placeKey(id));
+    return raw ? (JSON.parse(raw) as Place) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function createMockScreen(
+  project: string,
+  slug: string,
+  open: ScreenOpen | null = null,
+  toOwed = false,
+) {
   const [mock, setMock] = createSignal<MockDetail | null>(null);
   const [missing, setMissing] = createSignal(false);
   const [comments, setComments] = createSignal<CommentRow[]>([]);
@@ -594,6 +615,12 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
   const isOwed = (ask: Ask) => owed().some((a) => a.id === ask.id);
   // How many questions still owed are shown on a state, for its tab.
   const owedIn = (state: string | null) => entriesIn(state).filter((e) => isOwed(e.ask)).length;
+  // What marks a state's tab: only what the agent asked counts as waiting, not
+  // the built-in Which variant?, and a mock-wide question has no one state to mark.
+  const askedIn = (state: string | null) =>
+    entriesIn(state).filter((e) => isOwed(e.ask) && !isBuiltinAsk(e.ask) && e.ask.scope !== "mock")
+      .length;
+  const waitsOnStage = createMemo(() => owed().some((a) => !picksVariant(a)));
   // Tune is shown only with something to tune (tiers, no modes).
   const tuneShown = createMemo(() => {
     const m = mock();
@@ -699,6 +726,9 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
   let mockId: string | null = null;
   let disposed = false;
   let unwatch = () => {};
+  // What says where this screen opens: a link naming the place, or the memory.
+  let heldBy: "link" | "place" | null = null;
+  let placeRead = false;
   async function resolveId(): Promise<string | null> {
     if (mockId) return mockId;
     const list = await api.mocks(project);
@@ -724,10 +754,29 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
           (v) => v.state === at.state && (at.variant === null || v.variant === at.variant),
         )
       ) {
-        setActiveState(at.state);
-        if (at.variant !== null) setChosenVariant({ [String(at.state)]: at.variant });
+        landOn(at);
+        heldBy = "link";
         open = null;
+      } else if (!at && !toOwed && !placeRead) {
+        const place = readPlace(m.id);
+        if (place) {
+          const here = (state: string | null, variant: string) =>
+            m.variants.some((v) => v.state === state && v.variant === variant && isLive(v.status));
+          // A variant archived since falls to the one in use, else the newest live.
+          setChosenVariant(
+            Object.fromEntries(
+              Object.entries(place.variants ?? {}).filter(([state, variant]) =>
+                here(state === "null" ? null : state, variant),
+              ),
+            ),
+          );
+          if (states().includes(place.state)) {
+            setActiveState(place.state);
+            heldBy = "place";
+          }
+        }
       }
+      placeRead = true;
       if (!states().includes(activeState())) setActiveState(states()[0]);
     });
   }
@@ -769,12 +818,19 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     // from Send.
     // A pick made while this loaded keeps the user where they made it.
     if (lastLocalWrite) return;
-    const first = firstOwed();
+    // Only an agent's question outranks the memory; a link is never overruled.
+    const asked = firstOwed((a) => !isBuiltinAsk(a));
+    if (heldBy === "link" || (heldBy === "place" && !asked)) {
+      const owedHere = entriesIn(activeState()).findIndex((e) => isOwed(e.ask));
+      goQuestion(Math.max(0, owedHere), { quiet: true });
+      return;
+    }
+    const first = asked ?? firstOwed();
     const resume = !first && !draftIsEmpty(draft()) ? flow()[0] : undefined;
     const at =
       first ??
       (resume ? { state: resume.state, to: entriesIn(resume.state).indexOf(resume) } : null);
-    goQuestion(at?.to ?? 0, { history: false, ...(at ? { state: at.state } : {}) });
+    goQuestion(at?.to ?? 0, { quiet: true, ...(at ? { state: at.state } : {}) });
   }
 
   const refetch = coalesce({ mock: loadMock, draft: loadDraft, comments: loadComments });
@@ -834,19 +890,16 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
 
   // --- navigation inside the screen ---
 
-  // Each question is a history step, so Back walks them; values (picks,
-  // tuning, versions) are not.
+  // Back leaves for the place before this one: a question, a state or a version
+  // moves sideways, so it replaces the entry, which stays current for Back to
+  // restore when a step between Stage and Studio comes back to it.
   type Snap = {
     mockpit: "mock";
     state: string | null;
     cur: number;
   };
   const snap = (): Snap => ({ mockpit: "mock", state: activeState(), cur: cur() });
-  function record(replace: boolean) {
-    const h = host().history;
-    if (replace) h.replaceState(snap(), "");
-    else h.pushState(snap(), "");
-  }
+  const record = () => host().history.replaceState(snap(), "");
   function restoreSnap(s: unknown) {
     if (!s || typeof s !== "object" || (s as Snap).mockpit !== "mock") return false;
     const v = s as Snap;
@@ -858,14 +911,70 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     return true;
   }
 
+  // Only the user's own moves are remembered: a link someone sent shouldn't
+  // change where they left off.
+  function rememberPlace() {
+    const m = mock();
+    if (!m) return;
+    const variants = { ...chosenVariant() };
+    for (const [state, ref] of Object.entries(shown())) variants[state] = ref.variant;
+    const place: Place = { state: activeState(), variants };
+    try {
+      host().storage?.setItem(placeKey(m.id), JSON.stringify(place));
+    } catch {
+      // Storage refused: the URL still holds it for this visit.
+    }
+  }
+  // Onto a place the URL names, which is not a move of the user's: nothing is
+  // remembered or recorded, and landing where it already is does nothing.
+  function landOn(at: ScreenOpen) {
+    // Still loading: the first load lands there instead of on where it set out for.
+    if (!mock()) {
+      open = at;
+      return;
+    }
+    batch(() => {
+      if (at.state !== activeState()) {
+        setActiveState(at.state);
+        setPreview(null);
+        setTapped(null);
+      }
+      const key = String(at.state);
+      if (at.variant !== null && chosenVariant()[key] !== at.variant) {
+        setChosenVariant({ ...chosenVariant(), [key]: at.variant });
+      }
+      if (at.variant !== null && at.version) {
+        const ref = { variant: at.variant, version: at.version };
+        const had = shown()[key];
+        const exists = variants().some(
+          (v) =>
+            v.state === at.state &&
+            v.variant === ref.variant &&
+            (v.version === ref.version || v.history?.some((h) => h.version === ref.version)),
+        );
+        if (exists && !(had?.variant === ref.variant && had.version === ref.version)) {
+          setShown({ ...shown(), [key]: ref });
+        }
+      }
+    });
+  }
+  // The variant and version on stage when the user chose them; a default stays
+  // out of the URL, so it can move on when a new version arrives.
+  const stagePick = createMemo((): { variant: string; version: number | null } | null => {
+    const key = String(activeState());
+    const ref = shown()[key];
+    if (ref) return ref;
+    const variant = chosenVariant()[key];
+    return variant ? { variant, version: null } : null;
+  });
   // Any move the user makes on this screen after a Send means they are still
   // here: the carry to the next mock must not fire.
   const userMoved = () => stayHere();
 
   // The ith question on a state (the one on stage unless named), which comes
   // on stage with it.
-  function goQuestion(i: number, opts: { history?: boolean; state?: string | null } = {}) {
-    userMoved();
+  function goQuestion(i: number, opts: { quiet?: boolean; state?: string | null } = {}) {
+    if (!opts.quiet) userMoved();
     const state = opts.state === undefined ? activeState() : opts.state;
     const ask = entriesIn(state)[i]?.ask;
     batch(() => {
@@ -876,8 +985,8 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
       setPreview(null);
       if (ask?.scope === "part" && ask.part) setSelectedPart(ask.part);
     });
-    if (opts.history !== false) record(false);
-    else record(true);
+    record();
+    if (!opts.quiet) rememberPlace();
   }
   // An ask wherever it shows, on the state on stage when it shows there.
   function goAsk(id: string) {
@@ -953,7 +1062,8 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
       setTapped(null);
       setCur(Math.max(0, owedAt));
     });
-    record(true);
+    record();
+    rememberPlace();
   }
   function stepSituation(by: 1 | -1): boolean {
     const all = situations();
@@ -966,6 +1076,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
   function chooseVariant(variant: string) {
     userMoved();
     setChosenVariant({ ...chosenVariant(), [String(activeState())]: variant });
+    rememberPlace();
   }
   // A tap on a part outlines it and offers its reactions; with Tune on it
   // opens that part's knobs in Built from instead.
@@ -1040,12 +1151,14 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
   }
   // The first question still owed: on the state on stage if it has one, else
   // the first in the mock's order.
-  function firstOwed(): Stop | null {
+  function firstOwed(which: (ask: Ask) => boolean = () => true): Stop | null {
     const st = activeState();
-    const here = entriesIn(st).findIndex((e) => isOwed(e.ask));
+    const stops = (state: string | null) =>
+      entriesIn(state).findIndex((e) => isOwed(e.ask) && which(e.ask));
+    const here = stops(st);
     if (here >= 0) return { state: st, to: here };
     for (const other of states()) {
-      const j = entriesIn(other).findIndex((e) => isOwed(e.ask));
+      const j = stops(other);
       if (j >= 0) return { state: other, to: j };
     }
     return null;
@@ -1323,7 +1436,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
       setOtherStash({});
       setFoldedSignal({});
       setRevising({});
-      record(true);
+      record();
       host().window.clearTimeout(beatTimer);
       beatTimer = host().window.setTimeout(() => setBeat(true), BEAT_MS);
       void planNext();
@@ -1437,7 +1550,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
   }
   async function goOwedMock(by: 1 | -1) {
     const next = await owedMock(by);
-    if (next && !disposed) navigate(mockPath(project, next.slug));
+    if (next && !disposed) navigate(questionPath(project, next.slug));
   }
   let forwardTimer = 0;
   onCleanup(() => host().window.clearTimeout(forwardTimer));
@@ -1449,7 +1562,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     host().window.clearTimeout(forwardTimer);
     if (!a?.next || disposed) return;
     if (m && id) setCarried({ project, slug, title: m.title, replyId: id, mockId: m.id });
-    navigate(mockPath(project, a.next.slug));
+    navigate(questionPath(project, a.next.slug));
   }
   function stayHere() {
     host().window.clearTimeout(forwardTimer);
@@ -1503,6 +1616,7 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
       setChosenVariant({ ...chosenVariant(), [String(activeState())]: ref.variant });
       setPreview(null);
     });
+    rememberPlace();
   }
   function stepVersion(by: 1 | -1) {
     const to = neighbourStep(steps(), onStage(), by);
@@ -1742,6 +1856,10 @@ export function createMockScreen(project: string, slug: string, open: ScreenOpen
     asks,
     owed,
     owedIn,
+    askedIn,
+    waitsOnStage,
+    landOn,
+    stagePick,
     settled,
     mixOpts,
     mixAnswered,

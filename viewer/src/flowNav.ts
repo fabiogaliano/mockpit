@@ -67,14 +67,13 @@ export function createFlowNav(
       return;
     }
     const via = flow()?.name ?? null;
-    const h = host().history;
-    h.replaceState(
-      h.state,
-      "",
-      mockPath(project, slug, { state: s.activeState(), variant: null }, via),
-    );
+    const w = host().window;
+    const here = new URLSearchParams(w.location.search);
+    if (via) here.set("flow", via);
+    w.history.replaceState(w.history.state, "", `${w.location.pathname}?${here}`);
     carryTry = s.trying();
-    navigate(mockPath(project, to.mock, { state: to.state, variant: null }, via));
+    // Walking a flow keeps the view it is walked in.
+    navigate(mockPath(project, to.mock, { state: to.state, variant: null }, via, here.get("view")));
   }
   const step = (by: 1 | -1) => {
     const to = near(by);
@@ -118,10 +117,10 @@ export function createFlowNav(
       : null;
   }
 
-  // Whether a step still owes answers, on it or its situations; known only for
-  // this mock's own steps.
+  // Whether the agent still waits on a step, on it or its situations; known only
+  // for this mock's own steps.
   const owes = (x: FlowStep) =>
-    x.mock === slug && s.withSituations(x.state).some((st) => s.owedIn(st) > 0);
+    x.mock === slug && s.withSituations(x.state).some((st) => s.askedIn(st) > 0);
 
   return { flow, steps, at, near, name, label, go, step, follow, picture, owes };
 }

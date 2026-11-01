@@ -1,10 +1,20 @@
-// The mock screen: a quiet top bar (back, where you are, the width, Built
-// from), the design on a canvas with its flow's steps above it, and one bar
+// The mock screen: a quiet top bar (back, where you are, the width, Stage or
+// Studio), the design on a canvas with its states as tabs above it, and one bar
 // floating below it (New, the versions, Use this, Try / Mark / Tune). The
 // agent's question floats above that bar; the version label opens the history
 // and the thread as a bottom panel; Built from opens beside the canvas.
 
-import { createEffect, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+  untrack,
+} from "solid-js";
 import { isLive } from "../../server/types.ts";
 import { About, type AboutState, createAbout } from "./About.tsx";
 import { BottomPanel } from "./BottomPanel.tsx";
@@ -16,7 +26,6 @@ import { Icon, type IconName } from "./icons.tsx";
 import {
   boardWidths,
   DEVICE_WIDTHS,
-  isLookAsk,
   versionStamp,
   wideWidth,
   widthKind,
@@ -26,7 +35,7 @@ import { CarriedChip, NextCard } from "./NextCard.tsx";
 import { QuestionCard, QuestionTab } from "./QuestionCard.tsx";
 import { ResolvedNote } from "./Questions.tsx";
 import { markSeen } from "./seen.ts";
-import { homePath, linkClick, navigate, projectPath } from "./route.ts";
+import { homePath, linkClick, navigate, projectPath, replaceUrl, route } from "./route.ts";
 import { SituationGrid, SituationSwitch } from "./Situations.tsx";
 import { Stage } from "./Stage.tsx";
 import { Studio } from "./Studio.tsx";
@@ -49,14 +58,15 @@ export function MockScreen(props: {
   open?: ScreenOpen | null;
   flow?: string | null;
 }) {
-  const s = createMockScreen(props.project, props.slug, props.open ?? null);
-  // Stage or Studio: one version up close, or the state zoomed out. Stage
-  // first: an undeclared mock is stored as a sketch, so kind can't say who is
-  // exploring. A step out to Studio is remembered per mock in this browser,
-  // except while the state owes an answer, whose questions are on Stage
-  // (Which variant? doesn't count: Studio is the other way to compare
-  // variants). The URL's ?view= (a shared link) wins over all of it.
-  const asked = new URLSearchParams(host().window.location.search).get("view");
+  const opening = new URLSearchParams(host().window.location.search);
+  const s = createMockScreen(props.project, props.slug, props.open ?? null, opening.has("owed"));
+  // Stage or Studio: one version up close, or the state zoomed out. The URL's
+  // ?view= wins and isn't remembered, so a link can't move your place. Else the
+  // agent's unanswered question opens on Stage, where it is asked (a question
+  // that picks a variant doesn't count: Studio is the other way to compare
+  // them). Else the view last switched to in this browser, then Studio when
+  // there is a choice to look at.
+  const asked = opening.get("view");
   const [view, setViewSignal] = createSignal<View | null>(
     asked === "studio" || asked === "stage" ? asked : null,
   );
@@ -66,8 +76,6 @@ export function MockScreen(props: {
     const v = id ? host().storage?.getItem(viewKey(id)) : null;
     return v === "studio" || v === "stage" ? v : null;
   };
-  const liveVariants = () =>
-    s.variants().filter((v) => v.state === s.activeState() && isLive(v.status)).length;
   // Studio shows the whole moment, so a variant drawn only in another of its
   // situations still makes it worth stepping out to.
   const momentVariants = () => {
@@ -81,24 +89,27 @@ export function MockScreen(props: {
         .map((v) => v.variant),
     ).size;
   };
-  const owes = () =>
-    s
-      .questions()
-      .some(
-        (q) => q.kind === "ask" && !isLookAsk(q.ask) && s.owed().some((a) => a.id === q.ask.id),
-      );
-  const shownView = (): View => view() ?? (owes() ? "stage" : (remembered() ?? "stage"));
+  // Decided once per visit: answering the last question or moving to another
+  // state must not swap the view under you.
+  const opened = createMemo<View | null>((before) => {
+    if (before || !s.mock()) return before;
+    return untrack(() => {
+      if (s.waitsOnStage()) return "stage";
+      return momentVariants() > 1 ? (remembered() ?? "studio") : "stage";
+    });
+  }, null);
+  const shownView = (): View => view() ?? opened() ?? "stage";
   // Each step between Stage and Studio is its own history entry, so Back
   // returns to the view you came from rather than leaving the mock.
   const setView = (v: View) => {
     const w = host().window;
-    const here = new URLSearchParams(w.location.search);
-    // The entry being left must name its view: without it, Back would fall to
-    // the remembered view, which this step is about to overwrite.
-    if (here.get("view") !== shownView()) {
-      here.set("view", shownView());
-      w.history.replaceState(w.history.state, "", `${w.location.pathname}?${here}`);
-    }
+    const q = new URLSearchParams(w.location.search);
+    q.set("view", v);
+    // A closer look belongs to the Studio entry it was opened on, where Back finds it.
+    q.delete("look");
+    // Before the view changes: the URL's upkeep below writes to the current
+    // entry, and the one being left must keep naming the view it was.
+    w.history.pushState(w.history.state, "", `${w.location.pathname}?${q}`);
     setViewSignal(v);
     const id = s.mock()?.id;
     try {
@@ -106,11 +117,6 @@ export function MockScreen(props: {
     } catch {
       // Storage refused: the URL still holds it for this visit.
     }
-    const q = new URLSearchParams(w.location.search);
-    q.set("view", v);
-    // A closer look belongs to the Studio entry it was opened on, where Back finds it.
-    q.delete("look");
-    w.history.pushState(w.history.state, "", `${w.location.pathname}?${q}`);
   };
   // The route ignores ?view=, so Back between Stage and Studio keeps this
   // screen mounted; the view follows the URL here.
@@ -120,6 +126,49 @@ export function MockScreen(props: {
   };
   host().window.addEventListener("popstate", onPop);
   onCleanup(() => host().window.removeEventListener("popstate", onPop));
+  // The URL follows the place on screen. A tick later: Back runs several popstate
+  // listeners in turn, and writing between them would stamp the place being left
+  // onto the entry just arrived at.
+  let urlTimer = 0;
+  onCleanup(() => host().window.clearTimeout(urlTimer));
+  createEffect(() => {
+    if (!s.mock()) return;
+    shownView();
+    s.activeState();
+    s.stagePick();
+    host().window.clearTimeout(urlTimer);
+    urlTimer = host().window.setTimeout(() => {
+      const w = host().window;
+      const q = new URLSearchParams(w.location.search);
+      const put = (key: string, value: string | number | null | undefined) => {
+        if (value === null || value === undefined) q.delete(key);
+        else q.set(key, String(value));
+      };
+      const pick = s.stagePick();
+      put("state", s.activeState());
+      put("variant", pick?.variant);
+      put("version", pick?.version);
+      put("view", shownView());
+      q.delete("owed");
+      const next = `?${q}`;
+      if (next !== w.location.search) replaceUrl(`${w.location.pathname}${next}`);
+    }, 0);
+  });
+  // Back, Forward or a link to another place on this same mock: the screen stays
+  // mounted and moves there.
+  createEffect(
+    on(
+      () => {
+        const r = route();
+        return r.screen === "mock" ? JSON.stringify(r.open) : null;
+      },
+      () => {
+        const r = route();
+        if (r.screen === "mock" && r.open) s.landOn(r.open);
+      },
+      { defer: true },
+    ),
+  );
   const nav = createFlowNav(s, props.project, props.slug, props.flow ?? null);
   const t = createTune(s);
   useFlowKeys(s);
@@ -256,9 +305,21 @@ export function MockScreen(props: {
   return (
     <div class="screen mock-screen" classList={{ phone: phoneLayout() }}>
       <header class="mhead" ref={(el) => (head = el)}>
-        <TopRow s={s} project={props.project} slug={props.slug} about={about} view={shownView()} />
+        <TopRow
+          s={s}
+          project={props.project}
+          slug={props.slug}
+          about={about}
+          view={shownView()}
+          variants={momentVariants()}
+          onView={(v) => {
+            if (v === shownView()) return;
+            s.setDrawer(false);
+            setView(v);
+          }}
+        />
         <Show when={walkable()}>
-          <FlowBar s={s} nav={nav} />
+          <FlowBar nav={nav} />
         </Show>
       </header>
       <Show
@@ -308,15 +369,7 @@ export function MockScreen(props: {
           <Show when={s.mock() && shownView() === "stage"}>
             <SituationSwitch s={s} />
             <QuestionCard s={s} />
-            <VersionBar
-              s={s}
-              variants={liveVariants()}
-              studio={momentVariants() > 1}
-              onStudio={() => {
-                s.setDrawer(false);
-                setView("studio");
-              }}
-            />
+            <VersionBar s={s} studio={momentVariants() > 1} />
           </Show>
         </div>
         <Show when={s.mock() && shownView() === "stage"}>
@@ -336,19 +389,23 @@ export function MockScreen(props: {
 }
 
 // Where you are, as the way up: the project and the area are links, the mock's
-// name opens what's around it, then the state. A phone has room for the state
-// alone, so an arrow up to the area (else the project) stands in for the rest.
-// The width is the only tool up here, and only on Stage.
+// name opens what's around it, then the state. A phone has room for the name
+// alone (the tabs below it name the state), so an arrow up to the area (else the
+// project) stands in for the rest.
+// Beyond it: the name to tell an agent, the width on Stage, and Stage or Studio
+// when there is a choice to look at.
 function TopRow(props: {
   s: MockScreenState;
   project: string;
   slug: string;
   about: AboutState;
   view: View;
+  variants: number;
+  onView: (v: View) => void;
 }) {
   const s = props.s;
   const home = () => homePath(props.project);
-  const areaHome = (area: string) => projectPath(props.project, null, area);
+  const areaHome = (area: string) => homePath(props.project, area);
   const up = () => {
     const area = s.mock()?.area;
     return area ? { href: areaHome(area), name: area } : { href: home(), name: shortProject() };
@@ -356,6 +413,20 @@ function TopRow(props: {
   // The owner is the same on every mock; the repo's own name is enough.
   const shortProject = () => props.project.split("/").pop() ?? props.project;
   const title = () => s.mock()?.title ?? props.slug;
+  // The name an agent finds this by, as far down as the screen is looking.
+  const spoken = () => {
+    const step = props.view === "stage" ? s.stageStep() : null;
+    const named = step && (s.steps().length > 1 || !s.nameOf(step).startsWith("#"));
+    return [title(), s.activeState(), named ? s.nameOf(step) : null].filter(Boolean).join(", ");
+  };
+  const copyName = () => {
+    const name = spoken();
+    // Without a secure origin there is no clipboard: the toast still gives the name.
+    const failed = () => s.setToast({ text: `Couldn't copy. The name: ${name}` });
+    const copying = host().window.navigator.clipboard?.writeText(name);
+    if (!copying) return failed();
+    copying.then(() => s.setToast({ text: `Copied: ${name}` }), failed);
+  };
   const [open, setOpen] = createSignal(false);
   let btn: HTMLButtonElement | undefined;
   let pop: HTMLElement | undefined;
@@ -413,7 +484,6 @@ function TopRow(props: {
         <button
           type="button"
           class="crumb-me"
-          classList={{ "crumb-far": s.activeState() !== null }}
           aria-expanded={open()}
           aria-haspopup="dialog"
           ref={(el) => (btn = el)}
@@ -426,9 +496,9 @@ function TopRow(props: {
         </button>
         <Show when={s.activeState() !== null}>
           <span class="crumb-far sep">/</span>
-          <b>{s.moment()}</b>
+          <b class="crumb-far">{s.moment()}</b>
           <Show when={s.situation()}>
-            {(name) => <span class="crumb-sit">{` · ${name()}`}</span>}
+            {(name) => <span class="crumb-far crumb-sit">{` · ${name()}`}</span>}
           </Show>
         </Show>
       </nav>
@@ -441,9 +511,45 @@ function TopRow(props: {
         onClose={() => setOpen(false)}
         ref={(el) => (pop = el)}
       />
+      <Show when={!phoneLayout() && s.mock()}>
+        <button
+          type="button"
+          class="ib mcopy"
+          aria-label={`Copy name: ${spoken()}`}
+          title={`Copy name: ${spoken()}`}
+          onClick={copyName}
+        >
+          <Icon name="copy" />
+        </button>
+      </Show>
       <span class="grow" />
       <Show when={props.view === "stage"}>
         <WidthMenu s={s} />
+      </Show>
+      <Show when={props.variants > 1 || props.view === "studio"}>
+        <div class="vswitch" role="group" aria-label="View">
+          <button
+            type="button"
+            aria-pressed={props.view === "stage"}
+            aria-label={
+              props.view === "studio" && s.waitsOnStage() ? "Stage, a question is waiting" : "Stage"
+            }
+            onClick={() => props.onView("stage")}
+          >
+            Stage
+            <Show when={props.view === "studio" && s.waitsOnStage()}>
+              <i class="vswitch-q" aria-hidden="true" />
+            </Show>
+          </button>
+          <button
+            type="button"
+            aria-pressed={props.view === "studio"}
+            onClick={() => props.onView("studio")}
+          >
+            Studio
+            <span class="num">{props.variants}</span>
+          </button>
+        </div>
       </Show>
     </div>
   );
@@ -544,47 +650,40 @@ function WidthMenu(props: { s: MockScreenState }) {
   );
 }
 
-// The steps of the flow: the declared one this screen is a step of, else the
-// mock's own states in order. The current one is a short pill; a step still
-// owing answers is marked.
-function FlowBar(props: { s: MockScreenState; nav: FlowNav }) {
+// The steps by name: the declared flow this screen is a step of, else the mock's
+// own states in order. A step the agent still waits on is marked. The current
+// one stays in view however many there are, the next peeking past the edge.
+function FlowBar(props: { nav: FlowNav }) {
   const nav = props.nav;
-  const at = () => nav.at();
-  const n = () => nav.steps().length;
-  const prev = () => nav.near(-1);
-  const next = () => nav.near(1);
+  let list!: HTMLDivElement;
+  createEffect(() => {
+    const el = list.children[nav.at()] as HTMLElement | undefined;
+    if (el) list.scrollLeft = el.offsetLeft - (list.clientWidth - el.offsetWidth) / 2;
+  });
   return (
-    <nav class="flowbar" aria-label="Steps">
-      <button
-        type="button"
-        class="ib fnav"
-        disabled={!prev()}
-        aria-label={prev() ? `Previous step: ${nav.label(prev()!)}` : "Previous step"}
-        onClick={() => nav.step(-1)}
-      >
-        <Icon name="prev" />
-      </button>
-      <b class="flowname">{nav.name()}</b>
-      <span class="dots" aria-hidden="true">
+    <nav class="flowbar" aria-label={nav.flow() ? `Steps of ${nav.name()}` : "States"}>
+      <Show when={nav.flow()}>
+        <b class="flowname">{nav.name()}</b>
+      </Show>
+      <div class="ftabs" ref={(el) => (list = el)}>
         <For each={nav.steps()}>
-          {(x, i) => <i classList={{ on: i() === at(), owe: nav.owes(x) }} />}
+          {(x, i) => (
+            <button
+              type="button"
+              class="ftab"
+              aria-current={i() === nav.at() ? "step" : undefined}
+              aria-label={nav.owes(x) ? `${nav.label(x)}, a question is waiting` : nav.label(x)}
+              title={nav.label(x)}
+              onClick={() => nav.go(x)}
+            >
+              <span>{nav.label(x)}</span>
+              <Show when={nav.owes(x)}>
+                <i class="ftab-q" aria-hidden="true" />
+              </Show>
+            </button>
+          )}
         </For>
-      </span>
-      <span
-        class="num"
-        aria-label={`${nav.label(nav.steps()[at()] ?? { mock: "", state: props.s.activeState() })}, step ${at() + 1} of ${n()}`}
-      >
-        {`${at() + 1} of ${n()}`}
-      </span>
-      <button
-        type="button"
-        class="ib fnav"
-        disabled={!next()}
-        aria-label={next() ? `Next step: ${nav.label(next()!)}` : "Next step"}
-        onClick={() => nav.step(1)}
-      >
-        <Icon name="next" />
-      </button>
+      </div>
     </nav>
   );
 }
