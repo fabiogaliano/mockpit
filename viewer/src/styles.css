@@ -3075,6 +3075,19 @@ html:has(.mock-screen) {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.ftab-emptied {
+  flex: none;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--t4);
+  font: inherit;
+  cursor: pointer;
+}
+.ftab-emptied:hover {
+  color: var(--t2);
+}
 .ftabs {
   position: relative;
   display: flex;
@@ -4117,14 +4130,6 @@ html:has(.mock-screen) {
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-.about button.rel-row {
-  width: 100%;
-  border: 0;
-  background: none;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
 .about-src {
   margin: 0 6px;
   color: var(--t3);
@@ -4201,50 +4206,25 @@ html:has(.mock-screen) {
     color 150ms ease,
     background-color 150ms ease;
 }
-.crumb-me {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
+.crumb-name {
   min-width: 0;
-  margin: 0 -5px;
-  padding: 3px 4px 3px 5px;
-  border: 0;
-  border-radius: 7px;
-  background: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-  transition:
-    color 150ms ease,
-    background-color 150ms ease;
-}
-.crumb-me span,
-.crumb-me b {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.crumb-me svg {
+.mabout {
   flex: none;
-  width: 14px;
-  height: 14px;
-  color: var(--t4);
-  transition: transform 150ms ease;
 }
-.crumb-me[aria-expanded="true"] {
+.mabout[aria-expanded="true"] {
   background: var(--row);
-}
-.crumb-me[aria-expanded="true"] svg {
-  transform: rotate(180deg);
+  color: var(--t1);
 }
 @media (hover: hover) {
-  .crumb-link:hover,
-  .crumb-me:hover {
+  .crumb-link:hover {
     color: var(--t1);
     background: var(--row);
   }
 }
-.crumb-link:focus-visible,
-.crumb-me:focus-visible {
+.crumb-link:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 0;
 }
@@ -4264,8 +4244,7 @@ html:has(.mock-screen) {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .about,
-  .crumb-me svg {
+  .about {
     transform: none;
     transition-property: opacity;
   }
@@ -4903,14 +4882,45 @@ html:has(.mock-screen) {
   visibility: hidden;
 }
 .look-note {
-  max-width: 68ch;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: calc(68ch + 40px);
   margin: 4px auto 0;
   padding: 0 20px;
   color: var(--t2);
   font-size: 14px;
   line-height: 1.45;
-  text-align: center;
+}
+.look-note-tx {
+  min-width: 0;
+  overflow: hidden;
+  padding-block: 3px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.look-note-tx.more {
+  cursor: pointer;
+}
+.look-note.open .look-note-tx {
+  max-height: 30vh;
+  overflow-y: auto;
   text-wrap: pretty;
+  white-space: normal;
+}
+.look-note-more {
+  flex: none;
+  width: 27px;
+  height: 27px;
+}
+.look-note-more svg {
+  transition: rotate 150ms;
+}
+.look-note.open .look-note-more svg {
+  rotate: 180deg;
 }
 .look-acts {
   display: flex;
@@ -5000,10 +5010,6 @@ html:has(.mock-screen) {
     font-size: 13px;
   }
   .look-note {
-    display: -webkit-box;
-    overflow: hidden;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 3;
     font-size: 13px;
   }
   .look-acts .btn {
@@ -5084,7 +5090,7 @@ html:has(.mock-screen) {
   align-items: center;
   gap: 6px;
   height: 100%;
-  padding: 0 4px 0 9px;
+  padding: 0 9px;
   color: var(--t2);
   font-size: 13px;
   text-decoration: none;
@@ -5109,18 +5115,8 @@ html:has(.mock-screen) {
   color: var(--t4);
   font-variant-numeric: tabular-nums;
 }
-.slpill .ib {
-  width: 26px;
-  height: 30px;
-}
 .phone .slpill-nm {
   display: none;
-}
-.slmenu {
-  position: fixed;
-  top: auto;
-  z-index: 60;
-  width: 260px;
 }
 .slmenu-nm {
   min-width: 0;
@@ -5128,22 +5124,57 @@ html:has(.mock-screen) {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.slmenu .n,
+.save-row .n,
 .slpick-mocks .n {
   flex: none;
   color: var(--t5);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
-.slmenu-new {
-  display: flex;
-  gap: 6px;
-  padding: 4px;
+.save-find::placeholder,
+.save-new input::placeholder,
+.slpick-filter::placeholder {
+  color: var(--t5);
 }
-.slmenu-new input {
-  flex: 1;
-  min-width: 0;
+.save-find:focus,
+.slpick-filter:focus {
+  outline: none;
+  border-color: var(--t5);
+}
+/* Where a version lives. The list takes what height is left; the search above it
+   and the button below it stay put. */
+.savemenu {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  width: 320px;
+  padding: 10px 6px 6px;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--dd-shadow);
+  font-size: 13px;
+}
+.savemenu.phone {
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  max-height: 75dvh;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  border-width: 1px 0 0;
+  border-radius: 18px 18px 0 0;
+}
+.save-h {
+  padding: 0 8px 8px;
+  color: var(--t1);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.save-find {
+  flex: none;
   height: 32px;
+  margin: 0 4px 4px;
   padding: 0 8px;
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -5151,14 +5182,157 @@ html:has(.mock-screen) {
   color: var(--t1);
   font-size: 13px;
 }
-.slmenu-new input::placeholder,
-.slpick-filter::placeholder {
-  color: var(--t5);
+.save-list {
+  flex: 1 1 auto;
+  min-height: 72px;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
-.slmenu-new input:focus,
-.slpick-filter:focus {
+.save-sec {
+  padding: 8px 8px 2px;
+  color: var(--t5);
+  font-size: 11px;
+}
+.save-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 8px;
+  border-radius: 7px;
+  color: var(--t2);
+  text-align: start;
+  cursor: pointer;
+}
+.save-row.sub {
+  padding-inline-start: 31px;
+}
+.save-row input {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--t1);
+}
+.save-row svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--t4);
+}
+.save-row:has(input:checked) {
+  color: var(--t1);
+}
+.save-row:focus-visible,
+.save-row:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.save-nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.save-none {
+  margin: 8px;
+  color: var(--t4);
+}
+.save-new {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 8px;
+  color: var(--t4);
+}
+.save-new svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+}
+.save-new input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0;
+  border: 0;
   outline: none;
-  border-color: var(--t5);
+  background: transparent;
+  color: var(--t1);
+  font-size: 13px;
+}
+.save-foot {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 2px;
+  padding: 10px 6px 4px;
+  border-top: 1px solid var(--line);
+}
+.save-leave {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--t2);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.save-leave.off {
+  cursor: default;
+  opacity: 0.7;
+}
+.save-leave input {
+  flex: none;
+  width: 30px;
+  height: 18px;
+  margin: 0;
+  border-radius: 99px;
+  appearance: none;
+  background: var(--edge);
+  cursor: inherit;
+  transition: background-color 150ms ease;
+}
+.save-leave input::after {
+  content: "";
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: 2px;
+  border-radius: 50%;
+  background: var(--t1);
+  transition: transform 150ms ease;
+}
+.save-leave input:checked {
+  background: var(--t1);
+}
+.save-leave input:checked::after {
+  background: var(--page);
+}
+.save-leave input:checked::after {
+  transform: translateX(12px);
+}
+.save-leave input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.save-leave small {
+  display: block;
+  margin-top: 1px;
+  color: var(--t4);
+  font-size: 12px;
+}
+.save-leave small.warn {
+  color: var(--danger);
+}
+.save-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 .studio-origin {
   margin-top: -8px;

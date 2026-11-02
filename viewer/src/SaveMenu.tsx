@@ -1,0 +1,330 @@
+// Where a version lives: tick the shortlists, mocks and states it should be in,
+// and flip one switch to take it out of here. Nothing happens until the button,
+// which says what will: a move is two changes, and either alone would leave the
+// version in the wrong place. Fixed to the window, since Studio's scroller would
+// clip it; a sheet on a phone.
+
+import {
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
+import { isLive } from "../../server/types.ts";
+import { api, type SaveCandidate, type TreeNode } from "./api.ts";
+import { host, root } from "./host.ts";
+import { Icon } from "./icons.tsx";
+import type { Add, Drop, Shortlists } from "./shortlist.ts";
+import { phoneLayout } from "./viewport.ts";
+
+const WIDTH = 320;
+// Below this there is no room for the list under the anchor, so it opens above.
+const ROOM = 320;
+
+export type SaveItem = {
+  ref: SaveCandidate;
+  name: string;
+  // Where it is now, in the user's words.
+  here: string;
+  // What leaving does to it: the last version takes its variant along. Null
+  // while it is in use, since only a new choice moves that.
+  leaves: "archived" | "hidden" | null;
+  // Resolves to its undo, or to nothing if it stayed.
+  leave: () => Promise<(() => void) | undefined>;
+};
+
+type Place = { id: string; title: string; state: string | null };
+const keyOf = (id: string, state: string | null) => JSON.stringify([id, state]);
+const liveStates = (n: TreeNode) =>
+  n.states.filter((st) => n.variants.some((v) => v.state === st && isLive(v.status)));
+
+export function SaveMenu(props: {
+  sl: Shortlists;
+  project: string;
+  anchor: HTMLElement;
+  item: SaveItem;
+  onClose: () => void;
+}) {
+  const sl = props.sl;
+  const it = props.item;
+  let menu: HTMLDivElement | undefined;
+  const place = () => {
+    const r = props.anchor.getBoundingClientRect();
+    const w = host().window;
+    const left = Math.max(8, Math.min(r.right - WIDTH, w.innerWidth - WIDTH - 8));
+    const below = w.innerHeight - r.bottom - 12;
+    return below >= ROOM
+      ? { left: `${left}px`, top: `${r.bottom + 4}px`, "max-height": `${below}px` }
+      : {
+          left: `${left}px`,
+          bottom: `${w.innerHeight - r.top + 4}px`,
+          "max-height": `${Math.max(r.top - 12, ROOM)}px`,
+        };
+  };
+  const shut = (focus = false) => {
+    props.onClose();
+    if (focus) props.anchor.focus();
+  };
+  createEffect(() => {
+    const doc = root();
+    const win = host().window;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      shut(true);
+    };
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (!menu?.contains(t) && !props.anchor.contains(t)) shut();
+    };
+    // It is placed once, so it would float off its card as Studio scrolls; its
+    // own list scrolling is the menu in use.
+    const onScroll = (e: Event) => {
+      if (!menu?.contains(e.target as Node)) shut();
+    };
+    doc.addEventListener("keydown", onKey, true);
+    doc.addEventListener("pointerdown", onDown, true);
+    win.addEventListener("scroll", onScroll, true);
+    onCleanup(() => {
+      doc.removeEventListener("keydown", onKey, true);
+      doc.removeEventListener("pointerdown", onDown, true);
+      win.removeEventListener("scroll", onScroll, true);
+    });
+  });
+  // A phone's keyboard would cover the list it is meant to search.
+  onMount(() => {
+    if (!phoneLayout()) menu?.querySelector<HTMLElement>("input")?.focus({ preventScroll: true });
+  });
+
+  // Not before it opens: most visits save nothing.
+  const [tree] = createResource(() => api.tree(props.project).catch(() => null));
+  const nodes = () => tree()?.tree ?? [];
+  const had = sl.copiesOf(it.ref);
+  const [ticks, setTicks] = createSignal(new Set(had.map((c) => keyOf(c.mock, c.state))));
+  const [opened, setOpened] = createSignal(new Set<string>());
+  const [query, setQuery] = createSignal("");
+  const [fresh, setFresh] = createSignal("");
+  const [leaving, setLeaving] = createSignal(false);
+  const q = () => query().trim().toLowerCase();
+  const hit = (text: string | null) => !!text && text.toLowerCase().includes(q());
+
+  const toggle = <T,>(set: Set<T>, x: T) => {
+    const next = new Set(set);
+    if (!next.delete(x)) next.add(x);
+    return next;
+  };
+  const shortlists = createMemo(() =>
+    sl.lists().filter((l) => l.id !== it.ref.mock && hit(l.title)),
+  );
+  const hereNode = () => nodes().find((n) => n.id === it.ref.mock);
+  // Nearest first: the rest of the mock it is in, then the mocks of its area.
+  const mocks = createMemo(() => {
+    const area = hereNode()?.area;
+    const rank = (n: TreeNode) => (n.id === it.ref.mock ? 0 : area && n.area === area ? 1 : 2);
+    return nodes()
+      .filter((n) => !n.shortlist && !n.closedAt)
+      .map((n) => {
+        const all = liveStates(n).filter((st) => n.id !== it.ref.mock || st !== it.ref.state);
+        return { n, all, shown: hit(n.title) ? all : all.filter(hit) };
+      })
+      .filter((m) => m.shown.length)
+      .sort((a, b) => rank(a.n) - rank(b.n) || b.n.updatedAt.localeCompare(a.n.updatedAt));
+  });
+  const titleOf = (id: string) =>
+    sl.lists().find((l) => l.id === id)?.title ?? nodes().find((n) => n.id === id)?.title ?? "";
+  const places = createMemo<Place[]>(() =>
+    [...ticks()].map((k) => {
+      const [id, state] = JSON.parse(k) as [string, string | null];
+      return { id, state, title: state ?? titleOf(id) };
+    }),
+  );
+  const newTitle = () => fresh().trim();
+  const adds = (): Add[] => [
+    ...places()
+      .filter((p) => !had.some((c) => keyOf(c.mock, c.state) === keyOf(p.id, p.state)))
+      .map((p) => ({ to: p.id, state: p.state, label: p.title })),
+    ...(newTitle() ? [{ title: newTitle(), label: newTitle() }] : []),
+  ];
+  const drops = (): Drop[] =>
+    had
+      .filter((c) => !ticks().has(keyOf(c.mock, c.state)))
+      .map((c) => ({
+        id: c.mock,
+        state: c.state,
+        variant: c.variant,
+        // A shortlist left empty goes, so taking the removal back finds it by name.
+        title: sl.lists().some((l) => l.id === c.mock) ? titleOf(c.mock) : undefined,
+        label: c.state ?? titleOf(c.mock),
+      }));
+  const leaveVerb = () => (it.leaves === "hidden" ? "Hide" : "Archive");
+  const action = () => {
+    const a = adds();
+    const where = a.length === 1 ? a[0].label : `${a.length} places`;
+    if (a.length) return `${leaving() ? "Move" : "Save"} to ${where}`;
+    if (leaving()) return leaveVerb();
+    return drops().length ? "Remove" : "Done";
+  };
+  const idle = () => !adds().length && !drops().length && !leaving();
+  // What a page embedding this mock shows, which leaving would change: the rule
+  // is the server's embedTarget.
+  const showsIn = () => {
+    const n = hereNode();
+    if (!n?.embeddedIn.length || it.leaves !== "archived" || it.ref.state !== n.states[0])
+      return [];
+    const inState = n.variants.filter((v) => v.state === it.ref.state);
+    const shown =
+      inState.find((v) => v.status === "inUse") ??
+      inState.find((v) => v.variant === "default" && isLive(v.status)) ??
+      inState.find((v) => isLive(v.status));
+    if (shown?.variant !== it.ref.variant) return [];
+    return n.embeddedIn.map((slug) => nodes().find((x) => x.slug === slug)?.title ?? slug);
+  };
+  const leaveNote = () => {
+    if (!it.leaves) return "In use here, so it stays";
+    if (!leaving()) return "Stays here too";
+    const others = ticks().size + (newTitle() ? 1 : 0);
+    return others ? `Moves it: ${it.leaves} here` : `Nowhere else, so it is ${it.leaves}`;
+  };
+  const apply = () => {
+    if (idle()) return;
+    const leave = leaving()
+      ? { verb: it.leaves === "hidden" ? "Hid" : "Archived", run: it.leave }
+      : null;
+    const [a, d] = [adds(), drops()];
+    shut(true);
+    void sl.settle(it.ref, it.name, a, d, leave);
+  };
+
+  const tick = (id: string, state: string | null, title: string, small?: string) => (
+    <label class="save-row" classList={{ sub: state !== null }}>
+      <input
+        type="checkbox"
+        checked={ticks().has(keyOf(id, state))}
+        onChange={() => setTicks(toggle(ticks(), keyOf(id, state)))}
+      />
+      <span class="save-nm">{title}</span>
+      <Show when={small}>
+        <span class="n">{small}</span>
+      </Show>
+    </label>
+  );
+  const liveOf = (n: TreeNode) => n.variants.filter((v) => isLive(v.status)).length;
+  return (
+    <div
+      class="savemenu"
+      classList={{ phone: phoneLayout() }}
+      role="dialog"
+      aria-label={`Save ${it.name}`}
+      ref={(el) => (menu = el)}
+      style={phoneLayout() ? undefined : place()}
+    >
+      <div class="save-h">{`Save ${it.name} to`}</div>
+      <input
+        class="save-find"
+        type="search"
+        placeholder="Find a mock"
+        aria-label="Find a mock"
+        value={query()}
+        onInput={(e) => setQuery(e.currentTarget.value)}
+      />
+      <div class="save-list">
+        <Show when={shortlists().length}>
+          <div class="save-sec">Shortlists</div>
+          <For each={shortlists()}>
+            {(l) => tick(l.id, null, l.title, String(l.candidates.length))}
+          </For>
+        </Show>
+        <Show when={mocks().length}>
+          <div class="save-sec">Mocks</div>
+          <For each={mocks()}>
+            {(m) => {
+              const flat = () => m.all.length === 1 && m.all[0] === null;
+              const chosen = () => m.all.filter((st) => ticks().has(keyOf(m.n.id, st))).length;
+              // A search that found a state shows it; one that found the mock's
+              // name says nothing about which state is wanted.
+              const open = () => (!!q() && !hit(m.n.title)) || chosen() > 0 || opened().has(m.n.id);
+              return (
+                <Show when={!flat()} fallback={tick(m.n.id, null, m.n.title, String(liveOf(m.n)))}>
+                  <button
+                    type="button"
+                    class="save-row"
+                    aria-expanded={open()}
+                    onClick={() => setOpened(toggle(opened(), m.n.id))}
+                  >
+                    <Icon name={open() ? "down" : "next"} />
+                    <span class="save-nm">{m.n.title}</span>
+                    <span class="n">
+                      {chosen()
+                        ? `${chosen()} ticked`
+                        : `${m.all.length} ${m.all.length === 1 ? "state" : "states"}`}
+                    </span>
+                  </button>
+                  <Show when={open()}>
+                    <For each={m.shown}>{(st) => tick(m.n.id, st, st ?? m.n.title)}</For>
+                  </Show>
+                </Show>
+              );
+            }}
+          </For>
+        </Show>
+        <Show when={tree.loading}>
+          <p class="save-none">Loading mocks…</p>
+        </Show>
+        <Show when={tree() === null}>
+          <p class="save-none">Couldn't load the other mocks. Close this and try again.</p>
+        </Show>
+        <Show when={tree() && q() && !mocks().length && !shortlists().length}>
+          <p class="save-none">{`Nothing called "${query().trim()}"`}</p>
+        </Show>
+      </div>
+      <form
+        class="save-new"
+        onSubmit={(e) => {
+          e.preventDefault();
+          apply();
+        }}
+      >
+        <Icon name="plus" />
+        <input
+          type="text"
+          placeholder="New shortlist"
+          aria-label="New shortlist name"
+          maxLength={120}
+          value={fresh()}
+          onInput={(e) => setFresh(e.currentTarget.value)}
+        />
+      </form>
+      <div class="save-foot">
+        <label class="save-leave" classList={{ off: !it.leaves }}>
+          <input
+            type="checkbox"
+            role="switch"
+            disabled={!it.leaves}
+            checked={leaving()}
+            onChange={(e) => setLeaving(e.currentTarget.checked)}
+          />
+          <span>
+            {`Remove from ${it.here}`}
+            <small>{leaveNote()}</small>
+            <Show when={leaving() && showsIn().length}>
+              <small class="warn">{`${showsIn().join(", ")} will show another variant`}</small>
+            </Show>
+          </span>
+        </label>
+        <div class="save-btns">
+          <button type="button" class="btn" onClick={() => shut(true)}>
+            Cancel
+          </button>
+          <button type="button" class="btn go" disabled={idle()} onClick={apply}>
+            {action()}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

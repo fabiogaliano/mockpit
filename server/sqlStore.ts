@@ -26,6 +26,8 @@ import {
   normalizeSurfaceIds,
   type Post,
   type CopyRef,
+  isLive,
+  type LiveCopy,
   type PostHead,
   type PostQuery,
   type PostStatus,
@@ -392,6 +394,7 @@ export class SqlStore implements Store {
       CREATE INDEX IF NOT EXISTS mockpit_mocks_updated_at_idx ON mocks (updatedAt DESC);
       CREATE INDEX IF NOT EXISTS mockpit_posts_mock_idx ON posts (mockId, state, variant);
       CREATE INDEX IF NOT EXISTS mockpit_posts_session_created_at_idx ON posts (sessionId, createdAt);
+      CREATE INDEX IF NOT EXISTS mockpit_posts_copies_idx ON posts (mockId, state, variant, status, copiedFrom) WHERE copiedFrom IS NOT NULL;
       CREATE INDEX IF NOT EXISTS mockpit_comments_session_seq_idx ON comments (sessionId, seq);
       CREATE INDEX IF NOT EXISTS mockpit_comments_mock_seq_idx ON comments (mockId, seq);
       CREATE INDEX IF NOT EXISTS mockpit_comments_post_seq_idx ON comments (postId, seq);
@@ -1392,6 +1395,26 @@ export class SqlStore implements Store {
           ...this.rowToPost(r, []),
           surfaces: parseJson<SurfaceHead[]>(r.head, []),
           history: history.get(r.id as string) ?? [],
+        }),
+      );
+  }
+
+  // Every open mock screen asks, and a project's posts can be hundreds of MB:
+  // the index holds each column read here, so no row with a body is touched.
+  async listCopies(project: string) {
+    return this.sql
+      .exec(
+        "SELECT mockId, state, variant, status, copiedFrom FROM posts WHERE copiedFrom IS NOT NULL AND mockId IN (SELECT id FROM mocks WHERE project = ?)",
+        project,
+      )
+      .toArray()
+      .filter((r) => isLive(r.status as PostStatus))
+      .map(
+        (r): LiveCopy => ({
+          mock: r.mockId as string,
+          state: r.state as string | null,
+          variant: r.variant as string,
+          copiedFrom: parseJson<CopyRef>(r.copiedFrom, null!),
         }),
       );
   }

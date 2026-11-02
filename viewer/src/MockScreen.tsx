@@ -6,7 +6,6 @@
 
 import type { Shortlist } from "./api.ts";
 import { createShortlists, type Shortlists } from "./shortlist.ts";
-import { ShortlistMenu } from "./ShortlistMenu.tsx";
 import {
   createEffect,
   createMemo,
@@ -243,7 +242,7 @@ export function MockScreen(props: {
   );
   // What floats over the canvas takes its bands: the bottom stack below, the
   // neighbouring steps at the sides.
-  const walkable = () => nav.steps().length > 1 && nav.at() >= 0;
+  const walkable = () => (nav.steps().length > 1 || nav.emptied().length > 0) && nav.at() >= 0;
   // Beside a row of artboards the neighbours would sit on the next one: they
   // step aside while more than one width is on the canvas, and the flow bar
   // walks the steps alone.
@@ -325,6 +324,7 @@ export function MockScreen(props: {
           about={about}
           view={shownView()}
           variants={momentVariants()}
+          tabs={walkable()}
           shortlists={shortlists}
           onView={(v) => {
             if (v === shownView()) return;
@@ -422,6 +422,8 @@ function TopRow(props: {
   about: AboutState;
   view: View;
   variants: number;
+  // Whether the state tabs are showing, which name the state where it isn't.
+  tabs: boolean;
   shortlists: Shortlists;
   onView: (v: View) => void;
 }) {
@@ -504,30 +506,26 @@ function TopRow(props: {
             </>
           )}
         </Show>
-        <button
-          type="button"
-          class="crumb-me"
-          aria-expanded={open()}
-          aria-haspopup="dialog"
-          ref={(el) => (btn = el)}
-          onClick={() => {
-            props.about.wake();
-            setOpen(!open());
-          }}
-        >
-          <Show when={s.activeState() === null} fallback={<span>{title()}</span>}>
-            <b>{title()}</b>
-          </Show>
-          <Icon name="down" />
-        </button>
-        <Show when={s.activeState() !== null}>
-          <span class="crumb-far sep">/</span>
-          <b class="crumb-far">{s.moment()}</b>
-          <Show when={s.situation()}>
-            {(name) => <span class="crumb-far crumb-sit">{` · ${name()}`}</span>}
-          </Show>
+        <b class="crumb-name">{title()}</b>
+        <Show when={!props.tabs && s.moment()}>
+          {(state) => <span class="crumb-far crumb-sit">{`· ${state()}`}</span>}
         </Show>
       </nav>
+      <button
+        type="button"
+        class="ib mabout"
+        aria-label={`About ${title()}`}
+        title="About"
+        aria-expanded={open()}
+        aria-haspopup="dialog"
+        ref={(el) => (btn = el)}
+        onClick={() => {
+          props.about.wake();
+          setOpen(!open());
+        }}
+      >
+        <Icon name="info" />
+      </button>
       <About
         s={s}
         r={props.about}
@@ -550,7 +548,7 @@ function TopRow(props: {
       </Show>
       <span class="grow" />
       <Show when={!readonly() && !s.mock()?.shortlist && sl.current()}>
-        {(list) => <ShortlistPill sl={sl} list={list()} project={props.project} />}
+        {(list) => <ShortlistPill list={list()} project={props.project} />}
       </Show>
       <Show when={props.view === "stage"}>
         <WidthMenu s={s} />
@@ -584,11 +582,9 @@ function TopRow(props: {
   );
 }
 
-// The list one click saves to, and the way into it.
-function ShortlistPill(props: { sl: Shortlists; list: Shortlist; project: string }) {
+// The way back to the last shortlist saved to.
+function ShortlistPill(props: { list: Shortlist; project: string }) {
   const href = () => mockPath(props.project, props.list.slug);
-  const [choosing, setChoosing] = createSignal(false);
-  let caret!: HTMLButtonElement;
   return (
     <div class="slpill">
       <a href={href()} title={`Open ${props.list.title}`} onClick={(e) => linkClick(e, href())}>
@@ -596,25 +592,6 @@ function ShortlistPill(props: { sl: Shortlists; list: Shortlist; project: string
         <span class="slpill-nm">{props.list.title}</span>
         <span class="num">{props.list.candidates.length}</span>
       </a>
-      <button
-        type="button"
-        class="ib"
-        ref={(el) => (caret = el)}
-        aria-label="Choose the shortlist to save to"
-        aria-haspopup="menu"
-        aria-expanded={choosing()}
-        onClick={() => setChoosing(!choosing())}
-      >
-        <Icon name="down" />
-      </button>
-      <Show when={choosing()}>
-        <ShortlistMenu
-          sl={props.sl}
-          anchor={caret}
-          item={null}
-          onClose={() => setChoosing(false)}
-        />
-      </Show>
     </div>
   );
 }
@@ -748,6 +725,23 @@ function FlowBar(props: { nav: FlowNav }) {
           )}
         </For>
       </div>
+      {/* The way back to what they hold: each state's archive sits in its own Studio. */}
+      <Show when={nav.emptied().length}>
+        <select
+          class="ftab-emptied"
+          aria-label="States with everything archived"
+          title="States with everything archived"
+          value=""
+          onChange={(e) => {
+            const to = e.currentTarget.value;
+            e.currentTarget.value = "";
+            if (to) nav.go({ mock: nav.here().mock, state: to });
+          }}
+        >
+          <option value="">{`${nav.emptied().length} empty`}</option>
+          <For each={nav.emptied()}>{(m) => <option value={m ?? ""}>{m}</option>}</For>
+        </select>
+      </Show>
     </nav>
   );
 }

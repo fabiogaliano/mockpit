@@ -1,8 +1,7 @@
-// About: what sits around this mock, opened from its own name in the path.
+// About: what sits around this mock, opened from the info button beside its name.
 // Appears in (the mocks that embed it), Built from (what it embeds), Flows
-// (each flow it is a step of), its other states and where its code lives.
-// Asking the name is the gesture, so no icon has to explain it; a bottom sheet
-// on a phone.
+// (each flow it is a step of) and where its code lives. Its states are the tabs'
+// job. A bottom sheet on a phone.
 
 import { createMemo, createResource, createSignal, For, type JSX, Show } from "solid-js";
 import { api, type FlowView, surfaceUrl, type TreeNode } from "./api.ts";
@@ -20,7 +19,7 @@ export interface AboutState {
 // One per mock screen. The tree is fetched again whenever the mock changes, so
 // a new embed or flow step shows.
 export function createAbout(project: () => string, mockKey: () => string | null): AboutState {
-  // Not before the name is first asked: most visits to a mock never do.
+  // Not before it is first opened: most visits to a mock never do.
   const [woken, setWoken] = createSignal(false);
   const [tree] = createResource(
     () => {
@@ -115,13 +114,11 @@ export function About(props: {
       : n.kind === "component"
         ? "component"
         : "";
-  const others = () => s.states().filter((st) => st !== s.activeState());
   const empty = () =>
     rel.loaded() &&
     !rel.embeddedIn().length &&
     !rel.embeds().length &&
     !rel.flows().length &&
-    !others().length &&
     !s.mock()?.source;
   return (
     <div
@@ -178,28 +175,6 @@ export function About(props: {
           </For>
         ),
         () => rel.flows().length,
-      )}
-      {section(
-        "Other states",
-        () => (
-          <For each={others()}>
-            {(st) => (
-              <button
-                type="button"
-                class="rel-row"
-                onClick={() => {
-                  s.showState(st);
-                  props.onClose();
-                }}
-              >
-                <span class="rel-text">
-                  <span class="nm">{st}</span>
-                </span>
-              </button>
-            )}
-          </For>
-        ),
-        () => others().length,
       )}
       <Show when={s.mock()?.source}>
         {(src) => (

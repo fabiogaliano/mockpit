@@ -45,7 +45,7 @@ import { FullView } from "./FullView.tsx";
 import { Thumb } from "./Thumb.tsx";
 import { linkClick, mockPath } from "./route.ts";
 import type { Shortlists } from "./shortlist.ts";
-import { ShortlistMenu, type MenuFor } from "./ShortlistMenu.tsx";
+import { SaveMenu, type SaveItem } from "./SaveMenu.tsx";
 import { phoneLayout } from "./viewport.ts";
 
 // More canvas pages live than this and a browser drops the oldest one's WebGL
@@ -81,9 +81,10 @@ type Acts = Record<
   "look" | "full" | "open" | "more" | "comment" | "borrow" | "pick" | "remove",
   (st: VersionStep) => void
 > & {
-  // null where a version can't be saved: a shortlist's own candidates.
-  saved: (st: VersionStep) => boolean | null;
-  save: (st: VersionStep, from: HTMLElement) => void;
+  saved: (st: VersionStep) => boolean;
+  // `leave` is how it goes from here, for a view that has to step off it first.
+  save: (st: VersionStep, from: HTMLElement, leave?: SaveItem["leave"]) => void;
+  leave: (st: VersionStep) => ReturnType<SaveItem["leave"]>;
 };
 
 // What one state shows: its variants as columns, each down its versions.
@@ -223,17 +224,18 @@ export function Studio(props: {
     () => (isShortlist() ? s.mock()?.project : null),
     (project) => api.mocks(project),
   );
-  const [saving, setSaving] = createSignal<{
-    item: NonNullable<MenuFor>;
-    from: HTMLElement;
-  } | null>(null);
+  const [saving, setSaving] = createSignal<{ item: SaveItem; from: HTMLElement } | null>(null);
   const [adding, setAdding] = createSignal(false);
   const boards = mapArray(s.moments, (m) =>
     boardOf(s, m, () => (s.moment() === m ? s.activeState() : m)),
   );
   const active = () => boards().find((b) => b.moment === s.moment()) ?? boards()[0];
   const strip = phoneLayout;
-  const drawn = () => (strip() ? boards() : [active()]);
+  // The strip passes over a state with nothing left in it, as its tabs do.
+  const drawn = () =>
+    strip()
+      ? boards().filter((b) => b.moment === s.moment() || b.columns().length > 0)
+      : [active()];
   const countIn = (state: string | null) =>
     s.variants().filter((v) => v.state === state && isLive(v.status)).length;
   const runs = createMemo(() =>
@@ -385,6 +387,13 @@ export function Studio(props: {
       );
     }),
   );
+  // Where a closer look goes when its state has nothing left to flip through.
+  const firstOfNextState = (): Entry | undefined => {
+    const m = s.nextLiveMoment();
+    const b = boards().find((x) => x.moment === m);
+    const st = b?.runs()[0]?.steps[0];
+    return b && st ? { b, st } : undefined;
+  };
   const step = (d: number) => {
     const list = order();
     const i = list.findIndex((e) => e === looking());
@@ -569,6 +578,12 @@ export function Studio(props: {
     const here = () => {
       if (b.state() !== s.activeState()) s.showState(b.state());
     };
+    const goOut = (st: VersionStep) => {
+      here();
+      return b.versionsOf(st.variant).length > 1
+        ? s.hideVersion(st, true, true)
+        : s.archiveVariants([st.variant], undefined, true);
+    };
     return {
       look: (st) => look({ b, st }),
       full: (st) => openFull({ b, st }),
@@ -609,21 +624,27 @@ export function Studio(props: {
       },
       saved(st) {
         const id = s.mock()?.id;
-        if (!id || isShortlist()) return null;
+        if (!id) return false;
         return sl.isSaved({ mock: id, state: b.state(), variant: st.variant, version: st.version });
       },
-      // One click once a list is chosen. A version already saved, or no list
-      // yet, opens the menu: taking it back or naming one is a choice to see.
-      save(st, from) {
-        const id = s.mock()?.id;
-        if (!id) return;
-        const item = {
-          ref: { mock: id, state: b.state(), variant: st.variant, version: st.version },
+      leave: goOut,
+      save(st, from, leave) {
+        const m = s.mock();
+        if (!m) return;
+        if (saving()?.from === from) return setSaving(null);
+        const state = b.state();
+        const item: SaveItem = {
+          ref: { mock: m.id, state, variant: st.variant, version: st.version },
           name: b.nameOf(st),
+          here: state ? `${m.title} · ${state}` : m.title,
+          leaves: sameVersion(b.inUse(), st)
+            ? null
+            : b.versionsOf(st.variant).length > 1
+              ? "hidden"
+              : "archived",
+          leave: leave ?? (() => goOut(st)),
         };
-        const list = sl.current();
-        if (list && !sl.isSaved(item.ref)) void sl.save(item.ref, item.name, { to: list.id });
-        else setSaving(saving()?.from === from ? null : { item, from });
+        setSaving({ item, from });
       },
     };
   };
@@ -773,7 +794,13 @@ export function Studio(props: {
       </div>
       <Show when={saving()} keyed>
         {(m) => (
-          <ShortlistMenu sl={sl} anchor={m.from} item={m.item} onClose={() => setSaving(null)} />
+          <SaveMenu
+            sl={sl}
+            project={s.mock()?.project ?? ""}
+            anchor={m.from}
+            item={m.item}
+            onClose={() => setSaving(null)}
+          />
         )}
       </Show>
       <Show when={adding() && s.mock()}>
@@ -855,6 +882,7 @@ export function Studio(props: {
             last={e().b.versionsOf(e().st.variant).length === 1}
             onStep={step}
             onGo={look}
+            nextState={firstOfNextState}
             onClose={closeLook}
             act={actsFor(e().b)}
           />
@@ -981,13 +1009,13 @@ function Sketch(props: {
           </Show>
         </div>
       </Show>
-      <Show when={can() && props.act.saved(st()) !== null}>
+      <Show when={can()}>
         <button
           type="button"
           class="ib sk-save"
-          aria-pressed={!!props.act.saved(st())}
-          aria-label={`Save ${name()} to a shortlist`}
-          title={props.act.saved(st()) ? "Saved to a shortlist" : "Save to a shortlist"}
+          aria-pressed={props.act.saved(st())}
+          aria-label={`Save or move ${name()}`}
+          title={props.act.saved(st()) ? "Saved elsewhere too" : "Save or move"}
           onClick={(e) => props.act.save(st(), e.currentTarget)}
         >
           <Icon name="bookmark" />
@@ -1042,6 +1070,55 @@ function Origin(props: {
 // One version large over the grid. Arrows, the strip or a swipe flip through
 // Studio's reading order; Esc, Space or a swipe down go back to the card. The
 // steers are the card's, and Stage is one deliberate step away.
+// One line until asked for: an agent's note can run to a paragraph, and the
+// picture is what a closer look is for. Stays open while flipping, to read through.
+function LookNote(props: { text: string }) {
+  const [open, setOpen] = createSignal(false);
+  const [long, setLong] = createSignal(false);
+  let line: HTMLSpanElement | undefined;
+  const measure = () => {
+    if (!line) return;
+    setLong(
+      open()
+        ? line.offsetHeight > parseFloat(getComputedStyle(line).lineHeight) * 1.5
+        : line.scrollWidth > line.clientWidth,
+    );
+  };
+  createEffect(on(() => props.text, measure));
+  onMount(() => {
+    const seen = new ResizeObserver(measure);
+    if (line) seen.observe(line);
+    onCleanup(() => seen.disconnect());
+  });
+  return (
+    <p class="look-note" classList={{ open: open() }}>
+      {/* Only opens: open, the text stays selectable. */}
+      <span
+        ref={(el) => (line = el)}
+        class="look-note-tx"
+        classList={{ more: long() && !open() }}
+        onClick={() => {
+          if (long()) setOpen(true);
+        }}
+      >
+        {props.text}
+      </span>
+      <Show when={long()}>
+        <button
+          type="button"
+          class="ib look-note-more"
+          aria-expanded={open()}
+          aria-label={open() ? "Show less" : "Show all"}
+          title={open() ? "Show less" : "Show all"}
+          onClick={() => setOpen(!open())}
+        >
+          <Icon name="down" />
+        </button>
+      </Show>
+    </p>
+  );
+}
+
 function Look(props: {
   s: MockScreenState;
   entry: Entry;
@@ -1051,6 +1128,7 @@ function Look(props: {
   last: boolean;
   onStep: (d: number) => void;
   onGo: (e: Entry) => void;
+  nextState: () => Entry | undefined;
   onClose: () => void;
   act: Acts;
 }) {
@@ -1079,16 +1157,24 @@ function Look(props: {
     else if (dy > 90 && dy > Math.abs(dx) * 1.5) props.onClose();
   };
   // Removed while its state is still on stage: the next version may be on another.
-  const hide = () => {
+  const stepOff = (remove: () => void) => {
     const list = props.order;
-    const next = list[at() + 1] ?? list[at() - 1];
+    const next = list[at() + 1] ?? list[at() - 1] ?? props.nextState();
     // Together: an archive leaves at once, and the look closes on a version gone
     // from under it.
     batch(() => {
-      props.act.remove(st());
+      remove();
       if (next) props.onGo(next);
       else props.onClose();
     });
+  };
+  const hide = () => stepOff(() => props.act.remove(st()));
+  // The copies land first, and the look may have moved on by then.
+  const leave = (from: VersionStep): ReturnType<SaveItem["leave"]> => {
+    if (!sameVersion(st(), from)) return props.act.leave(from);
+    let out: ReturnType<SaveItem["leave"]> = Promise.resolve(undefined);
+    stepOff(() => (out = props.act.leave(from)));
+    return out;
   };
   let dots: HTMLElement | undefined;
   // The strip can run longer than the screen; the version shown stays in it.
@@ -1175,9 +1261,7 @@ function Look(props: {
           <Icon name="next" />
         </button>
       </div>
-      <Show when={note()}>
-        <p class="look-note">{note()}</p>
-      </Show>
+      <Show when={note()}>{(text) => <LookNote text={text()} />}</Show>
       <Show when={can()}>
         <div class="look-acts" role="group" aria-label={`Steer ${name()}`}>
           <button type="button" class="btn" onClick={() => props.act.more(st())}>
@@ -1192,17 +1276,18 @@ function Look(props: {
             <Icon name="borrow" />
             Borrow
           </button>
-          <Show when={props.act.saved(st()) !== null}>
-            <button
-              type="button"
-              class="btn look-save"
-              aria-pressed={!!props.act.saved(st())}
-              onClick={(e) => props.act.save(st(), e.currentTarget)}
-            >
-              <Icon name="bookmark" />
-              {props.act.saved(st()) ? "Saved" : "Save"}
-            </button>
-          </Show>
+          <button
+            type="button"
+            class="btn look-save"
+            aria-pressed={props.act.saved(st())}
+            onClick={(e) => {
+              const from = st();
+              props.act.save(from, e.currentTarget, () => leave(from));
+            }}
+          >
+            <Icon name="bookmark" />
+            {props.act.saved(st()) ? "Saved" : "Save"}
+          </button>
           <Show when={!inUse()}>
             <button type="button" class="btn quiet" onClick={hide}>
               {props.last ? "Archive" : "Hide"}

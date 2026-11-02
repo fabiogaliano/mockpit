@@ -98,7 +98,7 @@ export function AddCandidates(props: {
     setBusy(true);
     setError(null);
     try {
-      await api.saveToShortlist({ to: props.list.id, candidates: [...chosen().values()] });
+      await api.saveCopies({ to: props.list.id, candidates: [...chosen().values()] });
       await props.sl.load();
       props.onDone(chosen().size);
       dialog.close();

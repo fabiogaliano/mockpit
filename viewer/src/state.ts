@@ -749,6 +749,11 @@ export function createMockScreen(
   // What says where this screen opens: a link naming the place, or the memory.
   let heldBy: "link" | "place" | null = null;
   let placeRead = false;
+  // Not landed on: a state whose variants are all archived shows an empty Studio.
+  const holdsSomething = (m: MockDetail, state: string | null) => {
+    const inIt = m.variants.filter((v) => v.state === state);
+    return !inIt.length || inIt.some((v) => isLive(v.status));
+  };
   async function fetchMock(): Promise<MockDetail | null> {
     if (mockId) return api.mock(mockId);
     const m = await api.mockIn(project, slug).catch((e) => {
@@ -794,14 +799,16 @@ export function createMockScreen(
               ),
             ),
           );
-          if (states().includes(place.state)) {
+          if (states().includes(place.state) && holdsSomething(m, place.state)) {
             setActiveState(place.state);
             heldBy = "place";
           }
         }
       }
       placeRead = true;
-      if (!states().includes(activeState())) setActiveState(states()[0]);
+      if (!states().includes(activeState())) {
+        setActiveState(states().find((st) => holdsSomething(m, st)) ?? states()[0]);
+      }
     });
   }
   async function loadDraft() {
@@ -1665,7 +1672,13 @@ export function createMockScreen(
     }
   }
   // Hidden from the history, never removed; Undo brings it back.
-  async function hideVersion(ref: VersionRef, hidden: boolean) {
+  // Resolves to its undo, or to nothing if it stayed. Quiet for whoever tells it
+  // as part of something bigger.
+  async function hideVersion(
+    ref: VersionRef,
+    hidden: boolean,
+    quiet = false,
+  ): Promise<(() => void) | undefined> {
     const m = mock();
     if (!m || readonly()) return;
     const state = activeState();
@@ -1678,19 +1691,15 @@ export function createMockScreen(
       await api.hide(m.id, { state, ...ref, hidden });
       await loadMock();
       if (away && sameVersion(onStage(), ref)) showVersion(away);
-      setToast(
-        hidden
-          ? {
-              text: `Hid ${name}`,
-              undo: () => {
-                setToast(null);
-                void hideVersion(ref, false).then(() => showVersion(ref));
-              },
-            }
-          : { text: `Restored ${name}` },
-      );
+      const undo = () => {
+        setToast(null);
+        void hideVersion(ref, false).then(() => showVersion(ref));
+      };
+      if (!quiet) setToast(hidden ? { text: `Hid ${name}`, undo } : { text: `Restored ${name}` });
+      return undo;
     } catch (e) {
       fail(e);
+      return undefined;
     }
   }
   // Studio has no Send to wait for: each steer (more like this, a comment, a
@@ -1766,9 +1775,24 @@ export function createMockScreen(
   // Studio's ×. One version goes out of sight like any hidden version; the
   // last one left takes its variant to Archived, where Restore brings it back.
   // A column's × takes the variant with the forks hanging in it, under one Undo.
-  async function archiveVariants(variants: string[], label = variants.join(", ")) {
+  const liveIn = (m: string | null) =>
+    variants().some((v) => withSituations(m).includes(v.state) && isLive(v.status));
+  // Everything archived: such a state leaves the tabs and every list of states,
+  // unless a question still waits there.
+  const emptiedMoment = (m: string | null) =>
+    !liveIn(m) &&
+    !withSituations(m).some((st) => askedIn(st) > 0) &&
+    variants().some((v) => withSituations(m).includes(v.state));
+  // The closest state on with something left, else the closest back.
+  function nextLiveMoment(): string | null | undefined {
+    const all: (string | null)[] = moments();
+    const at = all.indexOf(moment());
+    return [...all.slice(at + 1), ...all.slice(0, at).reverse()].find(liveIn);
+  }
+  // Resolves to its undo, or to nothing if they stayed; quiet as hideVersion is.
+  async function archiveVariants(variants: string[], label = variants.join(", "), quiet = false) {
     const m = mock();
-    if (!m || readonly() || !variants.length) return;
+    if (!m || readonly() || !variants.length) return undefined;
     const state = activeState();
     const keys = variants.map((v) => archiveKey(state, v));
     const going = (on: boolean) =>
@@ -1781,28 +1805,33 @@ export function createMockScreen(
         return next;
       });
     going(true);
+    // The last one out empties the state and its tab goes, so on to the next.
+    const movedOn = liveIn(moment()) ? undefined : nextLiveMoment();
+    if (movedOn !== undefined) showState(movedOn);
+    let landed = true;
     const done = (async () => {
       try {
         for (const v of variants) await api.archiveVariant(m.id, state, v);
         await loadMock();
       } catch (e) {
+        landed = false;
         await loadMock().catch(() => {});
         fail(e);
       } finally {
         going(false);
       }
     })();
-    setToast({
-      text: `Archived ${label}`,
-      undo: () => {
-        setToast(null);
-        // After the archive lands, or the restore could be overtaken by it.
-        void done.then(() => {
-          for (const v of variants) void restoreVariant(v, [state]);
-        });
-      },
-    });
+    const undo = () => {
+      setToast(null);
+      if (movedOn !== undefined) showState(state);
+      // After the archive lands, or the restore could be overtaken by it.
+      void done.then(() => {
+        for (const v of variants) void restoreVariant(v, [state]);
+      });
+    };
+    if (!quiet) setToast({ text: `Archived ${label}`, undo });
     await done;
+    return landed ? undo : undefined;
   }
   // Revise: ask the agent for another version of the one on stage, as a reply
   // (with whatever the draft holds), so it arrives through the same cursor.
@@ -1987,6 +2016,8 @@ export function createMockScreen(
     restoreVariant,
     steer,
     archiveVariants,
+    nextLiveMoment,
+    emptiedMoment,
     setTuned,
     replaceTuned,
     knobContext,

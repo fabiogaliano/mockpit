@@ -13,6 +13,7 @@ import type {
   AskAnswer,
   Comment,
   CopyRef,
+  LiveCopy,
   Draft,
   FlowStep,
   KnobValue,
@@ -55,6 +56,7 @@ export interface Shortlist {
   candidates: { variant: string; copiedFrom: CopyRef | null }[];
 }
 export type SaveCandidate = CopyRef;
+export type { LiveCopy };
 
 export interface MockList {
   project?: string;
@@ -101,15 +103,26 @@ export const api = {
   // Every project's mocks: what the app badge counts.
   allMocks: () => call<MockList>("/api/mocks"),
   shortlists: (project: string) =>
-    call<{ shortlists: Shortlist[] }>(`/api/projects/${encodeURIComponent(project)}/shortlists`),
-  // Into the shortlist `to` names, or the one called `title`, made if need be.
-  saveToShortlist: (body: { to?: string; title?: string; candidates: SaveCandidate[] }) =>
+    call<{ shortlists: Shortlist[]; copies: LiveCopy[] }>(
+      `/api/projects/${encodeURIComponent(project)}/shortlists`,
+    ),
+  // Into the mock and state `to` names, or the shortlist called `title`, made if
+  // need be.
+  saveCopies: (body: {
+    to?: string;
+    state?: string | null;
+    title?: string;
+    candidates: SaveCandidate[];
+  }) =>
     call<{
-      shortlist: { id: string; slug: string; title: string };
-      saved: { variant: string; already: boolean }[];
-    }>("/api/shortlists", json("POST", body)),
-  removeFromShortlist: (id: string, variant: string) =>
-    call<unknown>(`/api/shortlists/${encodeURIComponent(id)}/remove`, json("POST", { variant })),
+      to: { id: string; slug: string; title: string; shortlist: boolean };
+      saved: { state: string | null; variant: string; already: boolean }[];
+    }>("/api/copies", json("POST", body)),
+  removeCopy: (mock: string, state: string | null, variant: string) =>
+    call<unknown>(
+      `/api/copies/${encodeURIComponent(mock)}/remove`,
+      json("POST", { state, variant }),
+    ),
   // The project as a tree: what the canvas and the phone's drill-down lay out.
   tree: (project: string) =>
     call<{ project: string; tree: TreeNode[]; flows: FlowView[]; areaOrder: string[] }>(

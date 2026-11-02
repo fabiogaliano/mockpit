@@ -1,28 +1,40 @@
-// The project's shortlists as a mock screen needs them: which versions are
-// saved where, and the one a bookmark saves to in one click. That one is this
-// browser's, per project; with none (or once it is gone) the next save asks.
+// The project's shortlists and copies as a mock screen needs them: where a
+// version was saved, and the last shortlist saved to, which the top bar links.
+// That one is this browser's, per project.
 
 import { createMemo, createSignal, onCleanup } from "solid-js";
-import { api, subscribe, type SaveCandidate, type Shortlist } from "./api.ts";
+import { api, subscribe, type LiveCopy, type SaveCandidate, type Shortlist } from "./api.ts";
 import { host } from "./host.ts";
 
 type Toast = { text: string; undo?: () => void } | null;
-export type Target = { to: string } | { title: string };
+export type Add = { label: string } & ({ to: string; state: string | null } | { title: string });
+export type Drop = {
+  id: string;
+  state: string | null;
+  variant: string;
+  title?: string;
+  label: string;
+};
+type Leave = { verb: string; run: () => Promise<(() => void) | undefined> };
 
 export function createShortlists(project: string, toast: (t: Toast) => void) {
   const key = `mockpit-shortlist:${project}`;
   const [lists, setLists] = createSignal<Shortlist[]>([]);
+  const [copies, setCopies] = createSignal<LiveCopy[]>([]);
   const [currentId, setCurrentId] = createSignal(host().storage?.getItem(key) ?? null);
   const load = () =>
     api.shortlists(project).then(
-      (r) => setLists(r.shortlists),
+      (r) => {
+        setLists(r.shortlists);
+        setCopies(r.copies);
+      },
       () => {},
     );
   void load();
   onCleanup(
     subscribe((e) => {
-      // Only what can change a list: agents publish all day in a busy project,
-      // and every open mock screen hears it.
+      // Only what can change a list or a copy: agents publish all day in a busy
+      // project, and every open mock screen hears it.
       if (e.type === "mock-created" || e.type === "mock-deleted") {
         if (e.project === project) void load();
       } else if (e.type === "mock-updated") {
@@ -32,7 +44,9 @@ export function createShortlists(project: string, toast: (t: Toast) => void) {
         e.type === "post-updated" ||
         e.type === "post-deleted"
       ) {
-        if (lists().some((l) => l.id === e.mockId)) void load();
+        if (lists().some((l) => l.id === e.mockId) || copies().some((c) => c.mock === e.mockId)) {
+          void load();
+        }
       }
     }, load),
   );
@@ -46,55 +60,75 @@ export function createShortlists(project: string, toast: (t: Toast) => void) {
       // Storage refused: it holds for this visit.
     }
   };
-  const copyIn = (list: Shortlist, ref: SaveCandidate) =>
-    list.candidates.find(
+  const copiesOf = (ref: SaveCandidate) =>
+    copies().filter(
       (c) =>
-        c.copiedFrom?.mock === ref.mock &&
+        c.copiedFrom.mock === ref.mock &&
         c.copiedFrom.state === ref.state &&
         c.copiedFrom.variant === ref.variant &&
         c.copiedFrom.version === ref.version,
     );
-  const has = (list: Shortlist, ref: SaveCandidate) => !!copyIn(list, ref);
-  const isSaved = (ref: SaveCandidate) => lists().some((l) => has(l, ref));
+  const isSaved = (ref: SaveCandidate) => copiesOf(ref).length > 0;
 
-  async function remove(list: { id: string; title: string }, variant: string, name: string) {
+  // The copies first: if one can't be made the version stays where it is, and
+  // nothing is half done.
+  async function settle(
+    ref: SaveCandidate,
+    name: string,
+    adds: Add[],
+    drops: Drop[],
+    leave: Leave | null,
+  ) {
+    const undos: (() => Promise<unknown>)[] = [];
+    const undoAll = async () => {
+      for (const undo of undos.reverse()) await undo();
+    };
     try {
-      await api.removeFromShortlist(list.id, variant);
-      toast({ text: `Removed ${name} from ${list.title}` });
+      for (const { label: _, ...target } of adds) {
+        const { to, saved } = await api.saveCopies({ ...target, candidates: [ref] });
+        if (to.shortlist) pick(to.id);
+        const copy = saved[0];
+        if (!copy.already) undos.push(() => api.removeCopy(to.id, copy.state, copy.variant));
+      }
+      for (const d of drops) {
+        await api.removeCopy(d.id, d.state, d.variant);
+        undos.push(() =>
+          api.saveCopies({
+            ...(d.title ? { title: d.title } : { to: d.id, state: d.state }),
+            candidates: [ref],
+          }),
+        );
+      }
     } catch (e) {
-      toast({ text: `Couldn't remove ${name}. ${e instanceof Error ? e.message : e}` });
-    }
-    await load();
-  }
-
-  async function save(ref: SaveCandidate, name: string, target: Target) {
-    try {
-      const { shortlist, saved } = await api.saveToShortlist({ ...target, candidates: [ref] });
-      pick(shortlist.id);
+      await undoAll().catch(() => {});
       await load();
-      const copy = saved[0];
-      toast(
-        copy.already
-          ? { text: `${name} is already in ${shortlist.title}` }
-          : {
-              text: `Saved ${name} to ${shortlist.title}`,
-              undo: () => {
-                toast(null);
-                void remove(shortlist, copy.variant, name);
-              },
-            },
-      );
-    } catch (e) {
       toast({ text: `Couldn't save ${name}. ${e instanceof Error ? e.message : e}` });
+      return;
     }
+    const undoLeave = leave ? await leave.run() : undefined;
+    await load();
+    const where = adds.length === 1 ? adds[0].label : `${adds.length} places`;
+    if (leave && !undoLeave) {
+      if (adds.length) toast({ text: `Saved ${name} to ${where}, but it is still here` });
+      return;
+    }
+    toast({
+      text: adds.length
+        ? `${leave ? "Moved" : "Saved"} ${name} to ${where}`
+        : leave
+          ? `${leave.verb} ${name}`
+          : `Removed ${name} from ${drops.length === 1 ? drops[0].label : `${drops.length} places`}`,
+      undo: () => {
+        toast(null);
+        undoLeave?.();
+        void undoAll()
+          .catch((e) => toast({ text: `Couldn't undo. ${e instanceof Error ? e.message : e}` }))
+          .then(load);
+      },
+    });
   }
 
-  const unsave = (list: Shortlist, ref: SaveCandidate, name: string) => {
-    const copy = copyIn(list, ref);
-    return copy ? remove(list, copy.variant, name) : Promise.resolve();
-  };
-
-  return { lists, current, pick, has, isSaved, save, unsave, load };
+  return { lists, current, pick, copiesOf, isSaved, settle, load };
 }
 
 export type Shortlists = ReturnType<typeof createShortlists>;

@@ -3495,9 +3495,10 @@ export function createApp({
     return ok({ state: updated.state, variant: updated.variant, starred: !!updated.starred });
   }
 
-  // The user gathers candidates from across the project into a shortlist. Each
-  // is a copy of one version, so its original and that mock's decisions stay as
-  // they were, and an agent iterates on it like any other variant.
+  // The user copies a version into a shortlist, or into any other mock or state
+  // of the project. It stays a copy of that one version, so its original and that
+  // mock's decisions stay as they were, and an agent iterates on it like any other
+  // variant.
   async function shortlistsFlow(project: string): Promise<FlowResult> {
     const mocks = (await store.listMocks(project)).filter((m) => m.shortlist && !m.closedAt);
     mocks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -3515,7 +3516,7 @@ export function createApp({
           .map((p) => ({ variant: p.variant, copiedFrom: p.copiedFrom ?? null })),
       });
     }
-    return ok({ shortlists });
+    return ok({ shortlists, copies: await store.listCopies(project) });
   }
 
   async function uniqueSlug(project: string, wanted: string): Promise<string> {
@@ -3541,7 +3542,10 @@ export function createApp({
   // A copy's name, which must not take another candidate's. Two labs can share
   // a name, and two versions of one variant are two candidates.
   function candidateName(wanted: string, version: number, origin: Mock, taken: Set<string>) {
-    const tries = [wanted, `${wanted} #${version}`, `${wanted} (${origin.title})`];
+    // A live "default" is what a component shows wherever it is embedded, so a copy
+    // must not take that name just by arriving first.
+    const name = wanted === DEFAULT_VARIANT ? origin.title : wanted;
+    const tries = [name, `${name} #${version}`, `${name} (${origin.title})`];
     const free = tries.find((t) => !taken.has(t));
     if (free) return free;
     let n = 2;
@@ -3549,7 +3553,7 @@ export function createApp({
     return `${tries[2]} ${n}`;
   }
 
-  async function saveToShortlistFlow(body: any, ctx: FlowContext): Promise<FlowResult> {
+  async function saveCopiesFlow(body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
     const picks: any[] = Array.isArray(body?.candidates) ? body.candidates : [];
     if (picks.length === 0) return fail(400, 'provide "candidates": the versions to save');
@@ -3560,7 +3564,6 @@ export function createApp({
     for (const pick of picks) {
       const mock = await resolveMock(pick?.mock);
       if (isResult(mock)) return mock;
-      if (mock.shortlist) return fail(400, `${mock.title} is a shortlist; save from the original`);
       const posts = await store.listPosts({ mockId: mock.id });
       const post = chooseVariant(mock, posts, stateArg(pick?.state), str(pick?.variant, MAX_LABEL));
       if (isResult(post)) return post;
@@ -3575,15 +3578,14 @@ export function createApp({
     const first = origins[0].mock;
     const project = first.project;
     if (origins.some((o) => o.mock.project !== project)) {
-      return fail(400, "a shortlist gathers from one project");
+      return fail(400, "copy within one project");
     }
 
     let list: Mock | undefined;
     if (body.to !== undefined && body.to !== null) {
       const named = await resolveMock(body.to, project);
       if (isResult(named)) return named;
-      if (!named.shortlist) return fail(400, `${named.title} is not a shortlist`);
-      if (named.project !== project) return fail(400, "a shortlist gathers from one project");
+      if (named.project !== project) return fail(400, "copy within one project");
       list = named;
     } else {
       const title = str(body.title, MAX_LABEL)?.trim();
@@ -3603,11 +3605,20 @@ export function createApp({
         bus.broadcast({ type: "mock-created", id: list.id, project });
       }
     }
+    // A shortlist is flat; anywhere else the copy lands in a state the mock has.
+    const state = list.shortlist ? null : (stateArg(body.state) ?? null);
+    if (state === null ? !list.shortlist && list.states.length > 0 : !list.states.includes(state)) {
+      return fail(400, `${list.slug} has no such state`, { states: list.states });
+    }
+    const target = list;
+    if (origins.some((o) => o.mock.id === target.id && o.post.state === state)) {
+      return fail(400, `already in ${target.title}`);
+    }
     if (list.closedAt) list = (await store.updateMock(list.id, { closedAt: null })) ?? list;
 
-    const posts = await store.listPosts({ mockId: list.id });
+    const posts = (await store.listPosts({ mockId: list.id })).filter((p) => p.state === state);
     const taken = new Set(posts.map((p) => p.variant));
-    const saved: { variant: string; already: boolean }[] = [];
+    const saved: { state: string | null; variant: string; already: boolean }[] = [];
     for (const { mock, post, version, surfaces } of origins) {
       const same = posts.find(
         (p) =>
@@ -3617,55 +3628,68 @@ export function createApp({
           p.copiedFrom.version === version,
       );
       if (same) {
-        saved.push({ variant: same.variant, already: isLive(same.status) });
+        saved.push({ state, variant: same.variant, already: isLive(same.status) });
         if (isLive(same.status)) continue;
         const back = await store.setPostStatus(same.id, "open");
         if (back) announceCopy(list, back, false);
         continue;
       }
       const knobs = { ...mock.knobs, ...post.knobs };
+      // A shortlist can't loop, since nothing embeds it. A real mock can.
       const embeds = await publishEmbeds(project, list.slug, surfaces);
+      if (isResult(embeds)) return embeds;
       const created = await store.createPost({
         sessionId: post.sessionId,
         mock: list.id,
-        state: null,
+        state,
         variant: candidateName(post.variant, version, mock, taken),
         title: list.title,
         surfaces,
         ...(Object.keys(knobs).length ? { knobs } : {}),
         ...(post.note ? { note: post.note } : {}),
-        embeds: isResult(embeds) ? [] : embeds,
+        embeds,
         copiedFrom: { mock: mock.id, state: post.state, variant: post.variant, version },
       });
       if (!created) return fail(409, `${post.variant} has no agent session to copy it under`);
       posts.push(created);
       taken.add(created.variant);
-      saved.push({ variant: created.variant, already: false });
-      announceCopy(list, created, true);
+      saved.push({ state, variant: created.variant, already: false });
+      if (list.shortlist) announceCopy(list, created, true);
+      else announcePost(list, created, true, "user");
     }
     bus.broadcast({ type: "mock-updated", id: list.id, project });
-    return ok({ shortlist: { id: list.id, slug: list.slug, title: list.title }, saved });
+    return ok({
+      to: { id: list.id, slug: list.slug, title: list.title, shortlist: list.shortlist },
+      saved,
+    });
   }
 
   // Undo, or taking a save back. A copy nobody acted on leaves no trace, and a
-  // list left with nothing and no thread goes with it; anything else archives,
-  // since a reply may still name it.
-  async function removeFromShortlistFlow(
-    ref: unknown,
-    body: any,
-    ctx: FlowContext,
-  ): Promise<FlowResult> {
+  // shortlist left with nothing and no thread goes with it; anything else archives,
+  // since a reply may still name it. Only ever a copy, or a shortlist's own: the
+  // originals of a mock leave through archive.
+  async function removeCopyFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
     const mock = await resolveMock(ref);
     if (isResult(mock)) return mock;
-    if (!mock.shortlist) return fail(400, `${mock.title} is not a shortlist`);
     const posts = await store.listPosts({ mockId: mock.id });
-    const post = chooseVariant(mock, posts, null, str(body?.variant, MAX_LABEL));
+    const post = chooseVariant(
+      mock,
+      posts,
+      stateArg(body?.state) ?? null,
+      str(body?.variant, MAX_LABEL),
+    );
     if (isResult(post)) return post;
+    if (!mock.shortlist && !post.copiedFrom) return fail(400, `${post.variant} is not a copy`);
     if (variantStatus(post.status) === "inUse") return fail(409, `${post.variant} is in use`);
     const thread = await store.listComments({ mockId: mock.id });
-    if (post.history.length > 0 || mock.draft || thread.some((c) => c.author === "user")) {
-      return archiveFlow(mock.id, { state: null, variant: post.variant }, ctx);
+    // A real mock's thread is about the rest of it too, so only what touched this
+    // copy keeps it.
+    const kept = mock.shortlist
+      ? mock.draft || thread.some((c) => c.author === "user")
+      : await touchedBy(mock, post);
+    if (post.history.length > 0 || kept) {
+      return archiveFlow(mock.id, { state: post.state, variant: post.variant }, ctx);
     }
     const gone = await store.withdrawVersion(post.id, post.version, []);
     if (!gone) return fail(409, `${post.variant} has a newer version`);
@@ -3676,12 +3700,13 @@ export function createApp({
       mockId: mock.id,
       sessionId: post.sessionId,
     });
-    const empty = posts.length === 1 && thread.length === 0;
+    const empty = mock.shortlist && posts.length === 1 && thread.length === 0;
     if (empty) {
       await store.removeMock(mock.id);
       bus.broadcast({ type: "mock-deleted", id: mock.id, project: mock.project });
     } else {
       bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
+      if (!mock.shortlist) await announceEmbedders(mock);
     }
     return ok({ removed: post.variant, shortlistGone: empty });
   }
@@ -4802,11 +4827,11 @@ export function createApp({
   app.get("/api/projects/:name/shortlists", async (c) =>
     send(c, await shortlistsFlow(c.req.param("name"))),
   );
-  app.post("/api/shortlists", async (c) =>
-    send(c, await saveToShortlistFlow(await jsonBody(c), flowCtx(c))),
+  app.post("/api/copies", async (c) =>
+    send(c, await saveCopiesFlow(await jsonBody(c), flowCtx(c))),
   );
-  app.post("/api/shortlists/:id/remove", async (c) =>
-    send(c, await removeFromShortlistFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  app.post("/api/copies/:mock/remove", async (c) =>
+    send(c, await removeCopyFlow(c.req.param("mock"), await jsonBody(c), flowCtx(c))),
   );
   app.post("/api/mocks/:id/star", async (c) =>
     send(c, await starFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),

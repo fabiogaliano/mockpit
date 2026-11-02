@@ -1037,6 +1037,8 @@ export interface Store {
   listPosts(query?: PostQuery): Promise<Post[]>;
   // Every variant of a project, or of the workspace, without its bodies; oldest first.
   listPostHeads(project?: string): Promise<PostHead[]>;
+  // Every live copy of a version in a project, without reading a body.
+  listCopies(project: string): Promise<LiveCopy[]>;
   // Variants per session, without loading bodies or history.
   countPostsBySession(): Promise<Map<string, number>>;
   getPost(id: string): Promise<Post | null>;
@@ -1112,6 +1114,14 @@ export type PostHead = Omit<Post, "surfaces" | "history"> & {
   surfaces: SurfaceHead[];
   history: { version: number; surfaces: SurfaceHead[] }[];
 };
+
+// Where a version was copied to.
+export interface LiveCopy {
+  mock: string;
+  state: string | null;
+  variant: string;
+  copiedFrom: CopyRef;
+}
 
 export const HISTORY_LIMIT = 20;
 

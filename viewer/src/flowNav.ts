@@ -55,8 +55,19 @@ export function createFlowNav(
     () => api.tree(project).catch(() => null),
   );
   const pictured = createMemo(() => new Map((tree()?.tree ?? []).map((n) => [n.slug, n])));
+  // A state with everything archived leaves the row while it is off stage; a
+  // declared flow keeps every step the agent named.
+  const emptied = createMemo(() => {
+    if (flow()) return [];
+    return s.moments().filter((m) => m !== s.moment() && s.emptiedMoment(m));
+  });
   const steps = createMemo<FlowStep[]>(
-    () => flow()?.steps ?? s.moments().map((state) => ({ mock: slug, state })),
+    () =>
+      flow()?.steps ??
+      s
+        .moments()
+        .filter((m) => !emptied().includes(m))
+        .map((state) => ({ mock: slug, state })),
   );
   const at = createMemo(() => steps().findIndex((x) => x.mock === slug && x.state === s.moment()));
   const near = (by: number): FlowStep | undefined => {
@@ -128,5 +139,5 @@ export function createFlowNav(
   const owes = (x: FlowStep) =>
     x.mock === slug && s.withSituations(x.state).some((st) => s.askedIn(st) > 0);
 
-  return { flow, steps, at, near, name, label, go, step, follow, picture, owes };
+  return { flow, steps, emptied, here, at, near, name, label, go, step, follow, picture, owes };
 }

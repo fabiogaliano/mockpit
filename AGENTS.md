@@ -95,9 +95,10 @@ consciously, not as a side effect):
   `resolvedAt` → `closedAt`, the 2.0 contract words in stored replies, drafts
   and html).
 - A **shortlist** is a mock with `shortlist` set, gathered by the user from the
-  project's other mocks: a Studio bookmark (`viewer/src/shortlist.ts`,
-  `ShortlistMenu`) or `AddCandidates` copies one version as a variant with
-  `copiedFrom`, originals untouched. Until an agent writes to it, replies go to
+  project's other mocks: `AddCandidates`, or a Studio bookmark (`SaveMenu`,
+  `viewer/src/shortlist.ts`), which can also copy into any other mock or state
+  and take the version out of where it is. Each is one version copied as a variant
+  with `copiedFrom`, originals untouched unless the user moves it. Until an agent writes to it, replies go to
   the project's live agent (`replySessionId` in `server/app.ts`).
 - `server/kits.ts` — opt-in style/behavior bundles for html surfaces; listed at
   `/api/kits`, allowlisted in `server/postSurfaces.ts`. Adding a kit is a
@@ -133,8 +134,9 @@ consciously, not as a side effect):
   this browser hasn't opened (`seen.ts`, localStorage) and a ⋯ menu
   (`CardMenu`); empty tabs are not shown, one alone gets no tab bar; above them the open count,
   which unfolds the waiting mocks to resolve, and Answer next), `MockScreen`
-  (`TopRow`: the path is the way up, project and area as links, the mock's
-  name opening `About` (Appears in / Built from / flows / other states / code);
+  (`TopRow`: the path is the way up, project and area as links, ending at the
+  mock's name, with an info button opening `About` (Appears in / Built from /
+  flows / code); the state tabs alone say which state;
   `BuiltFrom` is Tune's drawer, open while Tune is; `Studio`, the state zoomed
   out with every variant side by side, entered from the top bar's Stage | Studio
   switch and remembered per mock, each steer its own reply (`steer`, `sendAlone`);
