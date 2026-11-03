@@ -1,7 +1,8 @@
 // The pieces of a question answered in place, for the question card. Options
 // are pictures when the viewer can render them (a variant that exists for the
 // ask's state, or a knob set it can apply), pills otherwise. A mouse hovering
-// one previews it on the stage; a tap puts it on the stage as your pick, and
+// one previews it on the stage, or in the peek when its question is about another
+// state; a tap puts it on the stage as your pick, and
 // the same one again sends it on. Sent answers fold into a read-only Answered
 // list, changed only through its "Change answer".
 

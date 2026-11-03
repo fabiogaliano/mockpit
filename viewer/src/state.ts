@@ -4,7 +4,7 @@
 // its actions; nothing else talks to the API for this screen.
 
 import type { ToastLine } from "./toast.tsx";
-import { batch, createEffect, createMemo, createSignal, on, onCleanup } from "solid-js";
+import { batch, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js";
 import { createStore } from "solid-js/store";
 import {
   type Ask,
@@ -39,6 +39,7 @@ import { host, readonly } from "./host.ts";
 import {
   answerIds,
   askName,
+  askAbout,
   askState,
   askStates,
   builtinAsks,
@@ -124,6 +125,9 @@ export interface Preview {
   knobs?: Record<string, KnobValue>;
   // A Mix borrow: the part outlined on the donor look while it previews.
   part?: string;
+  // An option whose question is about another state: seen in the peek, because
+  // the stage would show nothing of it and moving it on a hover would jump the screen.
+  peek?: { ask: string; option: string };
 }
 
 // Where Send leaves the user: the next design still owing answers (null when none
@@ -176,6 +180,16 @@ export function createDesignScreen(
   const [activeState, setActiveState] = createSignal<string | null>(null);
   const [chosenVariant, setChosenVariant] = createSignal<Record<string, string>>({});
   const [preview, setPreview] = createSignal<Preview | null>(null);
+  // Where the stage came from when going to a question moved it.
+  const [stageBack, setStageBack] = createSignal<{
+    from: string | null;
+    to: string | null;
+  } | null>(null);
+  // A state picked by hand is the user's own place, with nothing to go back from.
+  createEffect(() => {
+    const on = activeState();
+    if (untrack(stageBack)?.to !== on) setStageBack(null);
+  });
   const [cur, setCur] = createSignal(0);
   // Sent answers the user chose to change ("Change answer"): back among the
   // open questions until the next Send. A sent answer is otherwise read-only.
@@ -859,7 +873,7 @@ export function createDesignScreen(
     const asked = firstOwed((a) => !isBuiltinAsk(a));
     if (heldBy === "link" || (heldBy === "place" && !asked)) {
       const owedHere = entriesIn(activeState()).findIndex((e) => isOwed(e.ask));
-      goQuestion(Math.max(0, owedHere), { quiet: true });
+      goQuestion(Math.max(0, owedHere), { quiet: true, stay: true });
       return;
     }
     const first = asked ?? firstOwed();
@@ -1014,13 +1028,36 @@ export function createDesignScreen(
 
   // The ith question on a state (the one on stage unless named), which comes
   // on stage with it.
-  function goQuestion(i: number, opts: { quiet?: boolean; state?: string | null } = {}) {
+  // Going to a question is asking to see it, so the stage goes to a state it
+  // declared; `stay` is for a place the user chose or linked to.
+  function goQuestion(
+    i: number,
+    opts: { quiet?: boolean; state?: string | null; stay?: boolean } = {},
+  ) {
     if (!opts.quiet) userMoved();
-    const state = opts.state === undefined ? activeState() : opts.state;
+    const from = activeState();
+    let state = opts.state === undefined ? from : opts.state;
+    let index = i;
+    const m = design();
     const ask = entriesIn(state)[i]?.ask;
+    if (ask && m && !opts.stay) {
+      const to = askState(ask, m, state);
+      const there = askAbout(ask, m).length
+        ? entriesIn(to).findIndex((e) => e.ask.id === ask.id)
+        : -1;
+      if (there >= 0) {
+        state = to;
+        index = there;
+      }
+    }
     batch(() => {
       setActiveState(state);
-      setCur(i);
+      setCur(index);
+      setStageBack(
+        !opts.quiet && !opts.stay && ask && m && askAbout(ask, m).length && state !== from
+          ? { from, to: state }
+          : null,
+      );
       setCardMin(false);
       setTapped(null);
       setPreview(null);
@@ -1028,6 +1065,36 @@ export function createDesignScreen(
     });
     record();
     if (!opts.quiet) rememberPlace();
+  }
+  // What the question's card offers about where the stage is: go to the state
+  // the question is about, or back to where the user was.
+  function stageOffer(ask: Ask): { show: string } | { back: string } | null {
+    const m = design();
+    const about = m ? askAbout(ask, m) : [];
+    if (!about.length) return null;
+    const on = activeState();
+    if (on === null || !about.includes(on)) return { show: about[0] };
+    const b = stageBack();
+    return b && b.to === on ? { back: b.from as string } : null;
+  }
+  function showAskState(ask: Ask) {
+    const m = design();
+    const from = activeState();
+    const to = m ? askAbout(ask, m)[0] : undefined;
+    if (to === undefined) return;
+    goQuestion(
+      entriesIn(to).findIndex((e) => e.ask.id === ask.id),
+      { state: to, stay: true },
+    );
+    setStageBack({ from, to });
+  }
+  function backFromAsk(ask: Ask) {
+    const b = stageBack();
+    if (!b) return;
+    goQuestion(
+      entriesIn(b.from).findIndex((e) => e.ask.id === ask.id),
+      { state: b.from, stay: true },
+    );
   }
   // An ask wherever it shows, on the state on stage when it shows there.
   function goAsk(id: string) {
@@ -1688,8 +1755,17 @@ export function createDesignScreen(
     if (o.variant && o.version) {
       return { key, variant: o.variant, version: o.version, state: optionState(ask, m) };
     }
-    if (o.variant) return { key, variant: o.variant, state: askState(ask, m, activeState()) };
-    return o.set ? { key, knobs: o.set } : null;
+    const about = askAbout(ask, m);
+    const on = activeState();
+    const peek =
+      about.length && (on === null || !about.includes(on))
+        ? { peek: { ask: ask.id, option: o.id } }
+        : {};
+    if (o.variant) {
+      return { key, variant: o.variant, state: askState(ask, m, activeState()), ...peek };
+    }
+    if (!o.set) return null;
+    return "peek" in peek ? { key, ...peek } : { key, knobs: o.set };
   }
   // A tap, a click or a number key on an option: the first puts it on the
   // stage as your pick; the same option again sends it on (the next question,
@@ -2154,6 +2230,9 @@ export function createDesignScreen(
     setPreview,
     cur,
     goQuestion,
+    stageOffer,
+    showAskState,
+    backFromAsk,
     goAsk,
     goOwed,
     changeAnswer,

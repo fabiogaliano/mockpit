@@ -94,6 +94,8 @@ verbs:
       --recommend <l>   the option you would pick, by label; a quiet mark on it
       --scope <s>       design|state|part (default design)
       --state <label>   the state a state-scoped question is about
+      --states <label>  a design-wide question: a state its answers can be seen
+                        on (repeatable, best first)
       --part <name>     the part a part-scoped question is about
       --multi           allow several answers
       --id <id>         stable id; reusing one replaces that question
@@ -244,7 +246,7 @@ mockpit publish --design <slug> [--state s] [--variant v] --withdraw
   Prints the parts found per state, parts that vanished or were renamed,
   nudges, a ready-to-run "mockpit ask" when variants have no question, and feedback.`,
   ask: `mockpit ask --design <slug> "<question>" --option <label[=variant]> ... [--scope design|state|part]
-  [--state s] [--part p] [--multi] [--id id] [--after <ask id>] [--recommend <label>]
+  [--state s] [--states s]... [--part p] [--multi] [--id id] [--after <ask id>] [--recommend <label>]
   mockpit ask --design <slug> --asks <json|file>
   Ask the user. A choice is several variants plus one question that binds them.
   Then tell the user where to look and end your turn.`,
@@ -1636,6 +1638,7 @@ const commands = {
         recommend: { type: "string" },
         scope: { type: "string" },
         state: { type: "string" },
+        states: { type: "string", multiple: true },
         part: { type: "string" },
         multi: { type: "boolean" },
         id: { type: "string" },
@@ -1689,6 +1692,7 @@ const commands = {
           ...(flags.id && { id: flags.id }),
           ...(flags.scope && { scope: flags.scope }),
           ...(flags.state && { state: flags.state }),
+          ...(flags.states && { states: flags.states }),
           ...(flags.part && { part: flags.part }),
           ...(flags.multi && { multi: true }),
           ...(flags.after && { after: flags.after }),

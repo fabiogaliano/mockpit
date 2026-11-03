@@ -54,6 +54,11 @@ The same JSON goes to `--asks`, MCP `ask` and `POST /api/designs/:id/asks`:
 
 ## Scope
 
+When a design-wide question's answers only show on some states, name them, best
+first: `"states": ["Food · try it", "Food, around lunch"]`. It still shows on
+every state, but going to it brings the stage to the first, and from anywhere
+else its answers preview beside the stage instead of doing nothing.
+
 `scope` says what a question decides: `design` (the default), `state` (add
 `state`) or `part` (add `part`, the `data-part` name). Scope also says where
 the user sees it: the viewer shows each state with its own questions. A

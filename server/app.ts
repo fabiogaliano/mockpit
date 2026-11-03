@@ -2787,6 +2787,20 @@ export function createApp({
     }
     const part = str(raw.part, 200);
     if (scope === "part" && !part) return `ask "${text}" has scope "part" but no part`;
+    const states: string[] = [];
+    if (raw.states !== undefined) {
+      if (!Array.isArray(raw.states)) return `ask "${text}": states must be a list of state names`;
+      if (scope !== "design") {
+        return `ask "${text}": states is for a design-wide question; a "${scope}" question already says where it is`;
+      }
+      for (const name of raw.states) {
+        const label = str(name, MAX_LABEL);
+        if (!label || !design.states.includes(label)) {
+          return `${design.slug} has no state "${String(name)}"`;
+        }
+        if (!states.includes(label)) states.push(label);
+      }
+    }
     if (!Array.isArray(raw.options) || raw.options.length === 0) {
       return `ask "${text}" needs options`;
     }
@@ -2850,6 +2864,7 @@ export function createApp({
       text,
       scope,
       ...(state ? { state } : {}),
+      ...(states.length ? { states } : {}),
       ...(part ? { part } : {}),
       options,
       ...(raw.multi === true ? { multi: true } : {}),

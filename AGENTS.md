@@ -202,7 +202,8 @@ consciously, not as a side effect):
   `marginLayout` in `logic.ts` turns one into a tab that floats over the canvas when
   it would take a design below 80%; a phone has none of this: `VersionBar`,
   `QuestionCard`, `BottomPanel` and the `BuiltFrom` sheet float over it instead),
-  `Stage` (frames, part overlay, pins, hit-testing through the bridge), `Thumb`
+  `Stage` (frames, part overlay, pins, hit-testing through the bridge), `AnswerPeek`
+  (an answer whose question declared other `states`, pictured beside the stage), `Thumb`
   (shrunk sandboxed frames for Home and option pictures);
   `state.ts` (the design screen's state and actions), `flowNav.ts` (the declared
   flow around the screen: flow bar, neighbours across designs, Try's `data-goto`),

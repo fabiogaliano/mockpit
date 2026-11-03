@@ -426,6 +426,9 @@ export interface Ask {
   text: string;
   scope: "design" | "state" | "part";
   state?: string;
+  // Design-wide only: the states where this question's answers can be seen,
+  // best first. It still shows on every state; these are where it takes the user.
+  states?: string[];
   part?: string;
   options: AskOption[];
   multi?: boolean;

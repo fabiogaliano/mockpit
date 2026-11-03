@@ -52,10 +52,35 @@ export function QuestionCard(props: {
                 </div>
                 <div class="qhd">
                   <div class="qtext">
-                    <Show when={counted(ask()) || s.askSlot(ask())}>
+                    <Show when={counted(ask()) || s.askSlot(ask()) || s.stageOffer(ask())}>
                       <span class="qs">
                         <Show when={counted(ask())}>
                           <span class="qcount">{`${i() + 1} of ${asked()}`}</span>
+                        </Show>
+                        <Show when={s.stageOffer(ask())} keyed>
+                          {(o) => {
+                            return "show" in o ? (
+                              <span class="qabout">
+                                {"About "}
+                                <b>{o.show}</b>
+                                <button
+                                  type="button"
+                                  class="lnk"
+                                  onClick={() => s.showAskState(ask())}
+                                >
+                                  Show
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                class="lnk qabout"
+                                onClick={() => s.backFromAsk(ask())}
+                              >
+                                {`Back to ${o.back}`}
+                              </button>
+                            );
+                          }}
                         </Show>
                         <Show when={s.askSlot(ask())}>
                           {(sl) => (

@@ -227,12 +227,20 @@ export function askStates(
   return all;
 }
 
-// The state an ask shows on: its own, else the first state holding its part.
+// The states a design-wide ask declared its answers can be seen on, without any
+// the design has since lost. Empty means it never said, so every state will do.
+export const askAbout = (ask: Ask, design: Pick<DesignDetail, "states">): string[] =>
+  (ask.states ?? []).filter((st) => design.states.includes(st));
+
+// The state an ask shows on: the one on stage if the ask is about it, else the
+// first it declared; its own, else the first state holding its part.
 export function askState(
   ask: Ask,
   design: Pick<DesignDetail, "states" | "parts">,
   active: string | null,
 ): string | null {
+  const about = askAbout(ask, design);
+  if (about.length) return active !== null && about.includes(active) ? active : about[0];
   if (ask.scope === "state" && ask.state !== undefined) return ask.state;
   if (ask.scope === "part" && ask.part) {
     const has = (s: string | null) =>

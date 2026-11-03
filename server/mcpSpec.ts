@@ -95,6 +95,10 @@ const askSchema = z.object({
   text: z.string().describe("The question, one sentence"),
   scope: z.enum(["design", "state", "part"]).optional(),
   state: z.string().optional(),
+  states: z
+    .array(z.string())
+    .optional()
+    .describe("Design-wide question: the states its answers can be seen on, best first"),
   part: z.string().optional().describe("data-part name, for scope part"),
   multi: z.boolean().optional(),
   after: z
