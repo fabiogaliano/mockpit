@@ -25,6 +25,7 @@ export interface McpFlows {
   publish: Flow<[body: any, ctx: FlowContext]>;
   list: Flow<[query: { project?: string }]>;
   tree: Flow<[query: { project?: string }]>;
+  decisions: Flow<[query: { project?: string }]>;
   get: Flow<[ref: unknown, query: { project?: unknown; body?: boolean; history?: boolean }]>;
   ask: Flow<[ref: unknown, body: any, ctx: FlowContext]>;
   exportMock: Flow<
@@ -134,6 +135,9 @@ export function registerMcp(app: Hono, deps: McpDeps) {
       case "ask":
         return unwrap(await flows.ask(args.mock, args, ctx));
       case "read":
+        if (args.decisions === true) {
+          return unwrap(await flows.decisions({ project: args.project }));
+        }
         if (args.mock === undefined && args.tree === true) {
           return unwrap(await flows.tree({ project: args.project }));
         }

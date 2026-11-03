@@ -282,6 +282,14 @@ and only the session that published it may: then publish a new version.
 Server: \`$MOCKPIT_URL\` (default http://localhost:8228; \`mockpit serve\`).
 MCP tools share the verb names.
 
+## What is already decided
+
+\`mockpit read\` first, in every new session. Its \`decisionList\` is what the user
+settled across the project, one line each, written by the server from their replies
+and edited by them. Treat each as settled unless they say otherwise: don't ask it
+again or design against it. If one seems wrong for this work, raise it in your
+question. \`closed\` marks a line from a closed mock, which may be older thinking.
+
 ## Parts
 
 \`<article data-part="body" data-part-label="Body">\`. Declare only what you want

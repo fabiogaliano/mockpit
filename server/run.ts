@@ -244,6 +244,10 @@ export function createRunFlow(deps: RunDeps) {
         return [await deps.guide("", topic), String(topic)];
       },
       async read([mock, opts]) {
+        if (plain(opts).decisions === true) {
+          const value = await take(flows.decisions({ project: await projectOf() }));
+          return [value, `${value.total} decisions`];
+        }
         if ((mock === undefined || mock === null) && plain(opts).tree === true) {
           const value = await take(flows.tree({ project: await projectOf() }));
           return [value, `${value.tree.length} mocks`];

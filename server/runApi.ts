@@ -40,8 +40,10 @@ type Feedback = {
 type Pending = { mock: string; closed?: true; viewerOpen: boolean; draft: null | { answered: number; of: number; comments: number; touchedAt: string } };
 declare const mockpit: {
   guide(topic?: "knobs" | "asks" | "surfaces" | "html" | "feedback" | "http" | "scripts"): Promise<string>;
-  /** No mock: every mock, the flows, plus pending. With one: its states, variants, asks, parts, knobs. */
-  read(mock?: string, opts?: { body?: boolean; history?: boolean }): Promise<unknown>;
+  /** Read first: decisionList is what the user already settled; it stands unless they say otherwise.
+   * No mock: every mock, the flows, plus pending. With one: its states, variants, asks, parts, knobs.
+   * opts.decisions: only the whole list, when a read cut it. */
+  read(mock?: string, opts?: { body?: boolean; history?: boolean; decisions?: boolean }): Promise<unknown>;
   /** Creates or versions (mock, state, variant). One of: html; surfaces, the full ordered list
    * ({id} alone keeps that surface, a missing id is removed); parts {"name"|"name#key": outer html};
    * fills {"part#fill": outer html}, replacing or adding one fill of a part. */

@@ -188,10 +188,21 @@ Never poll `feedback` in a loop; the user answers at their own pace.
 mockpit publish --mock writer --state "Writing" --variant dark --html dark-v2.html --prompt "bigger title"
 mockpit say "Went dark; body at 19px" --mock writer
 mockpit export  --mock writer             # .mockpit/accepted/writer/<state>/{index.html,history.json,…}
-mockpit read                              # one line per mock, plus pending
+mockpit read                              # one line per mock, plus pending, then what is already decided
 mockpit read    writer                    # states, variants, questions and answers, parts, knobs, settled
 mockpit read    --tree                    # the project as a tree: variants, forkedFrom, embeds / embeddedIn
+mockpit read    --decisions               # the whole decision list, when a read cut it
 ```
+
+- `decisionList` (`{total, lines: [{mock, text, here, edited, closed}], more}`) on
+  both reads is what the user already settled across the project: written by the
+  server from replies (what was asked, what was picked and left, their words, what
+  is in use) and edited by the user in the viewer, so a later reply replaces its
+  line. Read it first and treat it as settled unless they say otherwise. `here` marks
+  lines from the mock you read, which come first; `edited` is the user's own wording.
+  It leaves out questions they handed back ("I don't get this"), part comments and
+  anything not yet answered, so what it doesn't say is still open. `more` says lines
+  were cut to stay small: newest are kept.
 
 - A flow is the states the user walks, in order, across mocks: `--flow
 Morning --step 2` (MCP/HTTP `flow`, `step`) puts this (mock, state) at step

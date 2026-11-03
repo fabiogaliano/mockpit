@@ -75,6 +75,12 @@ consciously, not as a side effect):
   `Ask`/`AskOption`, the knob shapes (tunekit's `usePane` config as data),
   `Draft`, `Reply`. Assets are a separate entity; `selectEvictions` is the
   reference-aware LRU policy.
+- `server/decisionList.ts` — the project's decision list: plain lines derived from
+  what replies left on mocks (answered asks, variants in use), never summarised,
+  with the user's hand edits laid over them (`decisions:<project>` setting, each
+  edit bound to the answer it was made on, so a new answer outranks it). `read`
+  carries a bounded copy on every agent tier. Not `server/decisions.ts`, which is
+  what one reply chose, state by state.
 - `server/knobs.ts` — knob schema and value validation (Q3): every declared knob
   and every value (`?k=`, drafts, replies, ask `set`s) is checked here;
   `discreteChoices` drives the ask-not-knob nudge.
@@ -134,7 +140,8 @@ consciously, not as a side effect):
   (`?area=`) and an All tab shows every kind of it at once; each card carries a
   status derived from its data (`logic.ts` `mockStatus`), a dot for versions
   this browser hasn't opened (`seen.ts`, localStorage) and a ⋯ menu
-  (`CardMenu`); a mock with everything archived and no question waiting folds into an
+  (`CardMenu`); `Decisions` (`?view=decisions`, from the rail, else beside the count) lists
+  what the user settled, each line editable; a mock with everything archived and no question waiting folds into an
   Archived list at the bottom (`nothingLeft`); empty tabs are not shown, one alone gets no tab bar; above them the open count,
   which unfolds the waiting mocks to resolve, and Answer next), `MockScreen`
   (`TopRow`: the path is the way up, project and area as links, ending at the

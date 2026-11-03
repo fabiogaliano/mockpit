@@ -1,14 +1,14 @@
 // URL ⇄ screen. Home is /project/:name, a mock is /project/:name/:slug; "/" is
 // the home of the most recently active project. Home's tab is `?view=`: all,
 // pages, flows, components or sketches; absent, or a tab the project lacks, is
-// its first. `?area=` narrows Home to one of the project's areas. On a mock the
+// its first. `decisions` is the decision list in place of the tabs. `?area=` narrows Home to one of the project's areas. On a mock the
 // URL is the whole place: `?state=`, `?variant=`, `?version=`, `?view=`. The mock
 // screen keeps them current, so Back and a reload land where the entry was.
 
 import { createSignal } from "solid-js";
 import { basePath, host } from "./host.ts";
 
-export const HOME_VIEWS = ["all", "pages", "flows", "components", "sketches"] as const;
+export const HOME_VIEWS = ["all", "pages", "flows", "components", "sketches", "decisions"] as const;
 export type HomeView = (typeof HOME_VIEWS)[number];
 const isHomeView = (v: string | null): v is HomeView => HOME_VIEWS.includes(v as HomeView);
 

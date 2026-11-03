@@ -15,7 +15,8 @@ the question as one script. From a shell, `mockpit run loop.js` does the same.
 
 The loop never waits for the user:
 
-1. `mockpit init` once per repo; read the brief (`mockpit guide`).
+1. `mockpit init` once per repo; read the brief (`mockpit guide`). In a new session
+   `mockpit read` first: its decisions are settled unless the user says otherwise.
 2. `mockpit publish --mock <slug> --state "<user's words>" --variant <v> --html f.html`,
    once per variant; declare parts with `data-part`. Name a state by what the
    user sees ("Home, idle"), never by your process ("Prototype", "v2"); title

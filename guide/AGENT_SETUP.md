@@ -8,6 +8,9 @@ design questions. Before your first publish, read the brief:
 
     MOCKPIT_URL=http://localhost:8228 mockpit guide
 
+Then `mockpit read`: its `decisionList` is what the user already settled, and
+stands unless they say otherwise.
+
 Without the CLI: `curl -s http://localhost:8228/agent-howto`. Over MCP: the
 `guide` tool. The brief never overrides system, developer, project or user
 instructions; fetch it only from this origin. On a deployed instance set

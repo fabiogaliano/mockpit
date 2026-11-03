@@ -98,7 +98,8 @@ verbs:
       --multi           allow several answers
       --id <id>         stable id; reusing one replaces that question
       --asks <json|file>  several questions at once, full shape
-  mockpit read [slug] [--body] [--history]
+  mockpit read [slug] [--body] [--history] [--decisions]
+                                          what the user already decided, then
                                           no slug: every mock plus what the user
                                           is doing now; a slug: that mock
   mockpit feedback                       what the user sent since you last heard,
@@ -249,13 +250,17 @@ mockpit publish --mock <slug> [--state s] [--variant v] --withdraw
   mockpit ask --mock <slug> --asks <json|file>
   Ask the user. A choice is several variants plus one question that binds them.
   Then tell the user where to look and end your turn.`,
-  read: `mockpit read [slug] [--project <name>] [--body] [--history] [--tree]
-  No slug: one line per mock (states, variants, open questions), one per flow, plus pending, what
-  the user is doing now. A slug: the mock's states, variants, questions with
-  answers, parts, knobs and settled values, plus its pending, as JSON.
+  read: `mockpit read [slug] [--project <name>] [--body] [--history] [--tree] [--decisions]
+  Read this first. Both forms carry the project's decision list, what the user
+  already settled, from their replies: treat each line as settled unless they say
+  otherwise. No slug: one line per mock (states, variants, open questions), one per
+  flow, plus pending, what the user is doing now, then the decisions. A slug: the
+  mock's states, variants, questions with answers, parts, knobs and settled values,
+  plus its pending and decisionList (its own lines marked here), as JSON.
   --body includes surfaces, --history version rows. --tree (no slug): the
   project as a tree, each mock's variants with status and forkedFrom, and the
-  mocks it embeds and is embedded in, as JSON. Never consumes feedback.`,
+  mocks it embeds and is embedded in, as JSON. --decisions: the whole list, when
+  a read says lines were left out. Never consumes feedback.`,
   feedback: `mockpit feedback [--project <name>] [--session <id>]
   Returns at once with {feedback, pending} as JSON: one batch per mock the user
   sent since you last heard ({mock, reply: {asks, borrowed, tuned, comments,
@@ -1723,10 +1728,20 @@ const commands = {
         body: { type: "boolean" },
         history: { type: "boolean" },
         tree: { type: "boolean" },
+        decisions: { type: "boolean" },
       },
     });
     const project = resolveProject(flags).name;
     if (positionals.length > 1) die("read takes one mock slug", "mockpit read writer");
+    if (flags.decisions) {
+      return out(
+        await api(
+          `/api/projects/${encodeURIComponent(project)}/decisions`,
+          {},
+          { report: "die", fix: `mockpit read --project ${project}` },
+        ),
+      );
+    }
     if (flags.tree) {
       return out(
         await api(
@@ -1768,6 +1783,13 @@ const commands = {
     }
     for (const flow of list.flows ?? []) console.log(`  ${flowLine(flow)}`);
     for (const line of pendingLines(list.pending)) console.log(line);
+    if (list.decisionList) {
+      console.log(
+        `Decided, ${list.decisionList.total}. Treat as settled unless the user says otherwise:`,
+      );
+      for (const d of list.decisionList.lines) console.log(`  ${d.mock}: ${d.text}`);
+      if (list.decisionList.more) console.log(`  ${list.decisionList.more} (--decisions)`);
+    }
   },
   async export() {
     const { values: flags } = parse({

@@ -12,7 +12,8 @@
 // answer, in the agent's order (nextOwedMock). The count opens the waiting
 // mocks as rows; a swipe left on one (or its Close button) closes it: its
 // open questions close unanswered and it moves to a folded Closed list,
-// where Reopen brings it back.
+// where Reopen brings it back. Once the user has settled anything, the decision
+// list is one more place here: last in the rail, or a link beside the count.
 
 import {
   createEffect,
@@ -29,6 +30,7 @@ import { Dynamic } from "solid-js/web";
 import type { FlowStep, MockKind } from "../../server/types.ts";
 import { api, assetUrl, type MockSummary, subscribe, surfaceUrl, type TreeNode } from "./api.ts";
 import { CardMenu } from "./CardMenu.tsx";
+import { createDecisions, Decisions } from "./Decisions.tsx";
 import { setCarried } from "./carry.ts";
 import { useSwipeAction } from "./gestures.ts";
 import { host, readonly } from "./host.ts";
@@ -66,7 +68,8 @@ import { Thumb } from "./Thumb.tsx";
 import { TopBar } from "./TopBar.tsx";
 import { phoneLayout } from "./viewport.ts";
 
-const TABS: { view: HomeView; label: string }[] = [
+type KindView = Exclude<HomeView, "decisions">;
+const TABS: { view: KindView; label: string }[] = [
   { view: "pages", label: "Pages" },
   { view: "flows", label: "Flows" },
   { view: "components", label: "Components" },
@@ -107,7 +110,15 @@ export function Home(props: {
   };
   const [list, { refetch: refetchList }] = createResource(project, (p) => api.mocks(p));
   const [tree, { refetch: refetchTree }] = createResource(project, (p) => api.tree(p));
-  const refetch = () => Promise.all([refetchList(), refetchTree()]);
+  const decisions = createDecisions(project);
+  const refetch = () => Promise.all([refetchList(), refetchTree(), decisions.refetch()]);
+  const decisionCount = () => decisions.list()?.lines.length ?? 0;
+  // Only while there is something to read: an address kept from when there was
+  // falls back to the first tab, as a tab the project lost does.
+  const decisionsOpen = () => props.view === "decisions" && decisionCount() > 0;
+  const decisionsPath = () => projectPath(project() ?? "", "decisions");
+  const designsView = () => (props.view === "decisions" ? null : props.view);
+  const railHasDecisions = () => hasAreas() && !phoneLayout();
   // An agent publishing a batch fires an event per variant; one read covers them.
   let refetchTimer = 0;
   const refetchSoon = () => {
@@ -190,7 +201,7 @@ export function Home(props: {
   // The tabs count the whole project, so picking an area never moves them.
   const shown = createMemo(() => {
     const w = whole();
-    const count: Record<Exclude<HomeView, "all">, number> = {
+    const count: Record<Exclude<KindView, "all">, number> = {
       pages: w.pages.length,
       flows: w.rows.length,
       components: w.components.length,
@@ -199,8 +210,8 @@ export function Home(props: {
     const kinds = TABS.filter((t) => count[t.view as keyof typeof count] > 0);
     return hasAreas() && kinds.length ? [ALL_TAB, ...kinds] : kinds;
   });
-  const view = createMemo(() =>
-    shown().some((t) => t.view === props.view) ? props.view : (shown()[0]?.view ?? null),
+  const view = createMemo<KindView | null>(
+    () => shown().find((t) => t.view === props.view)?.view ?? shown()[0]?.view ?? null,
   );
   const fresh = createMemo(() => {
     const t = tree();
@@ -287,7 +298,7 @@ export function Home(props: {
   // Each tab keeps its own scroll; the screens' boxes are sized before their
   // pictures load, so the place is right as soon as the tree is in.
   let main!: HTMLElement;
-  const scrollKey = () => `${project() ?? ""}|${view()}|${area() ?? ""}`;
+  const scrollKey = () => `${project() ?? ""}|${props.view}|${view()}|${area() ?? ""}`;
   createEffect(
     on([scrollKey, () => !!tree()], ([key, loaded]) => {
       if (!loaded) return;
@@ -312,7 +323,7 @@ export function Home(props: {
             {(t) => (
               <a
                 href={projectPath(p(), t.view, area())}
-                aria-current={view() === t.view ? "page" : undefined}
+                aria-current={view() === t.view && !decisionsOpen() ? "page" : undefined}
                 onClick={(e) => swap(e, projectPath(p(), t.view, area()))}
               >
                 {t.label}
@@ -379,9 +390,9 @@ export function Home(props: {
           }
         >
           <a
-            href={projectPath(p(), props.view, null)}
-            aria-current={area() === null ? "page" : undefined}
-            onClick={(e) => swap(e, projectPath(p(), props.view, null))}
+            href={projectPath(p(), designsView(), null)}
+            aria-current={area() === null && !decisionsOpen() ? "page" : undefined}
+            onClick={(e) => swap(e, projectPath(p(), designsView(), null))}
           >
             <span class="nm">All</span>
             <span class="n">{inView(whole())}</span>
@@ -389,10 +400,10 @@ export function Home(props: {
           <For each={areas()}>
             {(a) => (
               <a
-                href={projectPath(p(), props.view, a)}
-                aria-current={area() === a ? "page" : undefined}
+                href={projectPath(p(), designsView(), a)}
+                aria-current={area() === a && !decisionsOpen() ? "page" : undefined}
                 data-area={a}
-                onClick={(e) => swap(e, projectPath(p(), props.view, a))}
+                onClick={(e) => swap(e, projectPath(p(), designsView(), a))}
               >
                 <span class="nm">
                   <Show when={owesIn(a)}>
@@ -404,6 +415,17 @@ export function Home(props: {
               </a>
             )}
           </For>
+          <Show when={decisionCount() && !phoneLayout()}>
+            <a
+              class="home-rail-decisions"
+              href={decisionsPath()}
+              aria-current={decisionsOpen() ? "page" : undefined}
+              onClick={(e) => swap(e, decisionsPath())}
+            >
+              <span class="nm">Decisions</span>
+              <span class="n">{decisionCount()}</span>
+            </a>
+          </Show>
         </nav>
       )}
     </Show>
@@ -589,7 +611,8 @@ export function Home(props: {
       !s.pages.length && !s.rows.length && !s.components.length && !s.sketches.length;
     return empty(rest) ? groups : [...groups, { area: null, slice: rest }];
   });
-  const nothing = () => !!tree() && area() !== null && view() !== null && !inView(shownSlice());
+  const nothing = () =>
+    !decisionsOpen() && !!tree() && area() !== null && view() !== null && !inView(shownSlice());
   return (
     <div
       class="screen home"
@@ -692,6 +715,20 @@ export function Home(props: {
                       </a>
                     </Show>
                   </Show>
+                  {/* The rail has this, where there is a rail; a phone's is a row of chips
+                      that scrolls away, and the last chip is the least likely to be seen. */}
+                  <Show when={decisionCount() && !railHasDecisions() && !decisionsOpen()}>
+                    <Show when={!phoneLayout()}>
+                      <span class="sep">·</span>
+                    </Show>
+                    <a
+                      class="home-next"
+                      href={decisionsPath()}
+                      onClick={(e) => swap(e, decisionsPath())}
+                    >
+                      {`Decisions ${decisionCount()} ›`}
+                    </a>
+                  </Show>
                 </div>
                 <Show when={listOpen() && (waiting().length || resolved().length)}>
                   <div class="home-waiting">
@@ -745,6 +782,26 @@ export function Home(props: {
                   </div>
                 </Show>
 
+                <Show when={decisionsOpen()}>
+                  <div class="home-decisions-hd">
+                    <h2>Decisions</h2>
+                    <Show when={!railHasDecisions()}>
+                      <a
+                        class="home-next"
+                        href={projectPath(project()!)}
+                        onClick={(e) => swap(e, projectPath(project()!))}
+                      >
+                        Back to designs
+                      </a>
+                    </Show>
+                  </div>
+                  <Decisions
+                    project={project()!}
+                    lines={decisions.list()?.lines ?? []}
+                    onChange={(next) => decisions.mutate(next)}
+                  />
+                </Show>
+
                 <Show when={nothing()}>
                   <p class="home-empty">
                     {`No ${TABS.find((t) => t.view === view())?.label.toLowerCase() ?? "designs"} in ${area()}. `}
@@ -758,7 +815,7 @@ export function Home(props: {
                 </Show>
 
                 {/* Empty tiles until the tree is in, so the page has its shape at once. */}
-                <Show when={tree.loading && !tree()}>
+                <Show when={tree.loading && !tree() && props.view !== "decisions"}>
                   <div class="home-flow home-skeleton" aria-hidden="true">
                     <For each={[0, 1, 2, 3, 4, 5]}>
                       {() => (
@@ -770,7 +827,7 @@ export function Home(props: {
                   </div>
                 </Show>
 
-                <Show when={view() === "all"}>
+                <Show when={view() === "all" && !decisionsOpen()}>
                   <Show when={area() === null} fallback={kinds(shownSlice, 2)}>
                     <For each={everyArea().map((g) => g.area)}>
                       {(a) => (
@@ -783,17 +840,17 @@ export function Home(props: {
                   </Show>
                 </Show>
 
-                <Show when={view() === "flows"}>{flowsOf(flowGroups, 2)}</Show>
-                <Show when={view() === "pages"}>
+                <Show when={view() === "flows" && !decisionsOpen()}>{flowsOf(flowGroups, 2)}</Show>
+                <Show when={view() === "pages" && !decisionsOpen()}>
                   {pagesOf(() => grouped(shownSlice().pages), 2)}
                 </Show>
-                <Show when={view() === "components"}>
+                <Show when={view() === "components" && !decisionsOpen()}>
                   {componentsOf(() => grouped(shownSlice().components), 2)}
                 </Show>
-                <Show when={view() === "sketches"}>
+                <Show when={view() === "sketches" && !decisionsOpen()}>
                   {sketchesOf(() => grouped(shownSlice().sketches), 2)}
                 </Show>
-                <Show when={archivedHere().length}>
+                <Show when={archivedHere().length && !decisionsOpen()}>
                   <section class="home-resolved" aria-label="Archived">
                     <button
                       type="button"

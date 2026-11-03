@@ -8,6 +8,7 @@ import type {
   treeNodeView,
   variantView,
 } from "../../server/apiViews.ts";
+import type { DecisionLine } from "../../server/decisionList.ts";
 import type { FeedEvent } from "../../server/events.ts";
 import type { VersionRef } from "./logic.ts";
 import type {
@@ -32,6 +33,7 @@ export type TreeNode = ReturnType<typeof treeNodeView>;
 export type FlowView = { name: string; steps: FlowStep[] };
 export type VariantView = ReturnType<typeof variantView>;
 export type HistoryRow = NonNullable<VariantView["history"]>[number];
+export type DecisionListView = { project: string; total: number; lines: DecisionLine[] };
 // `ownerGone`: undelivered, and a newer agent session in the project superseded
 // the one it was sent to, so the next agent there will get it.
 export type CommentRow = Comment & { delivered: boolean; ownerGone?: boolean };
@@ -182,6 +184,17 @@ export const api = {
     call<{ mock: MockSummary }>(`/api/mocks/${encodeURIComponent(id)}/close`, json("POST", {})),
   reopen: (id: string) =>
     call<{ mock: MockSummary }>(`/api/mocks/${encodeURIComponent(id)}/reopen`, json("POST", {})),
+  decisions: (project: string) =>
+    call<DecisionListView>(`/api/projects/${encodeURIComponent(project)}/decisions`),
+  // The user's hand on a line: reword it, remove it, or take that back.
+  editDecision: (
+    project: string,
+    body: { id: string } & ({ text: string } | { removed: true } | { reset: true }),
+  ) =>
+    call<DecisionListView>(
+      `/api/projects/${encodeURIComponent(project)}/decisions`,
+      json("PUT", body),
+    ),
   // The user moves a mock from Home: another kind or area (null: none). The
   // agent hears it in its next feedback.
   editMock: (id: string, body: { kind?: MockKind; area?: string | null }) =>

@@ -228,7 +228,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "read",
     description:
-      "Without mock: every mock (slug, states, variants, open questions), flows, plus pending. With mock: its states, variants, questions with answers, parts, knobs and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
+      "Read this first. Both forms carry decisionList: what the user already settled in this project; it stands unless they say otherwise. Without mock: every mock (slug, states, variants, open questions), flows, plus pending. With mock: its states, variants, questions with answers, parts, knobs and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
     params: {
       mock: { t: "string", d: field.mock },
       project: P.project,
@@ -237,6 +237,10 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       tree: {
         t: "boolean",
         d: "Without mock: the project as a tree (each mock's variants with status and forkedFrom, the mocks it embeds and is embedded in)",
+      },
+      decisions: {
+        t: "boolean",
+        d: "Only the whole decision list, when decisionList says it was cut",
       },
     },
   },
@@ -500,7 +504,22 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
     settled: bag.optional().describe("Every knob value the user has sent, later replies winning"),
     tree: z.array(bag).optional(),
     flows: z.array(flowSchema).optional(),
-    pending: z.union([z.array(pendingSchema), pendingSchema]),
+    decisionList: o({
+      total: num,
+      lines: z.array(
+        o({
+          mock: str,
+          text: str,
+          here: z.boolean().optional().describe("From the mock read"),
+          edited: z.boolean().optional(),
+          closed: z.boolean().optional(),
+        }),
+      ),
+      more: str.optional(),
+    }).optional(),
+    total: num.optional(),
+    lines: z.array(bag).optional(),
+    pending: z.union([z.array(pendingSchema), pendingSchema]).optional(),
   },
   export: {
     states: z.array(

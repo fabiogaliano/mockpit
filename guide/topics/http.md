@@ -9,6 +9,7 @@ None of them waits for the user.
 | `mockpit publish`            | `publish`                                   | `POST /api/mocks`                                |
 | `mockpit ask`                | `ask`                                       | `POST /api/mocks/:id/asks`                       |
 | `mockpit read [slug]`        | `read`                                      | `GET /api/mocks?project=…`, `GET /api/mocks/:id` |
+| `mockpit read --decisions`   | `read({decisions: true})`                   | `GET /api/projects/:name/decisions`              |
 | `mockpit feedback`           | `feedback`                                  | `GET /api/feedback?session=…`                    |
 | `mockpit say`                | `say`                                       | `POST /api/mocks/:id/say`                        |
 | `mockpit move`               | `move`                                      | `POST /api/mocks/:id/move`                       |

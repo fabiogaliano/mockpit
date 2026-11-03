@@ -45,6 +45,13 @@ import {
   resolverFor,
 } from "./icons.ts";
 import { checkProjectKit, KIT_IDS, kitSummaries } from "./kits.ts";
+import {
+  agentDecisionList,
+  applyDecisionEdits,
+  deriveDecisionLines,
+  fullAgentDecisionList,
+  parseDecisionEdits,
+} from "./decisionList.ts";
 import { chosenFills, decisionsFor, settledValues } from "./decisions.ts";
 import { composeFills, slotsInSurfaces, spliceFills } from "./fills.ts";
 import { checkKnobs, checkKnobValues, discreteChoices } from "./knobs.ts";
@@ -136,6 +143,7 @@ import {
   projectFromCwd,
   type Reply,
   AREA_ORDER_SETTING,
+  DECISION_EDITS_SETTING,
   type MockEdit,
   stripNul,
   postAtVersion,
@@ -184,6 +192,8 @@ const MAX_BODY_BYTES = 16 * 1024 * 1024;
 // the agent in feedback batches, re-sent on every poll — so cap them at the
 // edge to keep one oversize value from bloating the agent's context forever.
 const MAX_COMMENT_TEXT = 8000;
+// Room for any derived line to be edited: the question plus a whole write-in.
+const MAX_DECISION_TEXT = MAX_COMMENT_TEXT + 2000;
 const MAX_TITLE = 500;
 
 // Ceiling on concurrently-held SSE + long-poll connections. Both are GETs that
@@ -2321,7 +2331,67 @@ export function createApp({
     return out;
   }
 
-  async function listMocksFlow(query: { project?: string }): Promise<FlowResult> {
+  // --- the decision list ---
+
+  const derivedDecisions = async (project: string, mocks?: Mock[]) =>
+    deriveDecisionLines(
+      mocks ?? (await store.listMocks(project)),
+      await store.listDecisionSources(project),
+    );
+  const decisionEdits = async (project: string) =>
+    parseDecisionEdits(await store.getSetting(`${DECISION_EDITS_SETTING}:${project}`));
+  const decisionLines = async (project: string, mocks?: Mock[]) =>
+    applyDecisionEdits(await derivedDecisions(project, mocks), await decisionEdits(project));
+
+  // What every agent read carries, once the project has any: the first thing a
+  // new session needs is what it must not contradict. Omitted for the viewer,
+  // which shows it on its own, and for a session-scoped public read, which may
+  // see one mock and not the project around it.
+  async function decisionListField(project: string, here?: string, mocks?: Mock[]) {
+    const lines = await decisionLines(project, mocks);
+    return lines.length ? { decisionList: agentDecisionList(lines, here) } : {};
+  }
+
+  async function decisionsFlow(query: { project?: unknown }, ctx?: { viewer: boolean }) {
+    const project = str(query.project, MAX_TITLE);
+    if (!project) return fail(400, '"project" is required');
+    const lines = await decisionLines(project);
+    return ok(
+      ctx?.viewer
+        ? { project, total: lines.length, lines }
+        : { project, ...fullAgentDecisionList(lines) },
+    );
+  }
+
+  // The user's own hand on a line: reword it, remove it, or take that back. An
+  // agent never edits the list; the user's word is what makes it worth trusting.
+  async function editDecisionFlow(name: string, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const project = str(name, MAX_TITLE);
+    if (!project) return fail(400, '"project" is required');
+    const id = str(body?.id, 1000);
+    if (!id) return fail(400, '"id" is required');
+    const mocks = await store.listMocks(project);
+    const line = (await derivedDecisions(project, mocks)).find((l) => l.id === id);
+    if (!line) return fail(404, "no such line");
+    const edits = await decisionEdits(project);
+    if (body.reset === true) delete edits[id];
+    else if (body.removed === true) edits[id] = { basis: line.basis, removed: true };
+    else {
+      const text = str(body.text, MAX_DECISION_TEXT);
+      if (!text) return fail(400, 'provide "text", "removed" or "reset"');
+      edits[id] = { basis: line.basis, text };
+    }
+    await store.setSetting(`${DECISION_EDITS_SETTING}:${project}`, JSON.stringify(edits));
+    const mock = mocks.find((m) => m.slug === line.mock);
+    if (mock) bus.broadcast({ type: "mock-updated", id: mock.id, project });
+    return decisionsFlow({ project }, ctx);
+  }
+
+  async function listMocksFlow(query: {
+    project?: string;
+    noDecisions?: boolean;
+  }): Promise<FlowResult> {
     const project = str(query.project, MAX_TITLE);
     const mocks = await store.listMocks(project);
     const heads = headsByMock(await store.listPostHeads(project));
@@ -2335,6 +2405,7 @@ export function createApp({
     const open = rows.reduce((n, r) => n + r.open, 0);
     return ok({
       ...(project ? { project, flows: await flowsView(project, mocks) } : {}),
+      ...(project && !query.noDecisions ? await decisionListField(project, undefined, mocks) : {}),
       mocks: rows,
       open,
       openMocks: rows.filter((r) => r.open > 0).length,
@@ -2418,12 +2489,19 @@ export function createApp({
 
   async function getMockFlow(
     ref: unknown,
-    query: { project?: unknown; session?: unknown; body?: boolean; history?: boolean },
+    query: {
+      project?: unknown;
+      session?: unknown;
+      body?: boolean;
+      history?: boolean;
+      noDecisions?: boolean;
+    },
   ): Promise<FlowResult> {
     const mock = await resolveMock(ref, query.project, query.session);
     if (isResult(mock)) return mock;
     const posts = await store.listPosts({ mockId: mock.id });
     return ok({
+      ...(query.noDecisions ? {} : await decisionListField(mock.project, mock.slug)),
       ...mockDetailView(mock, posts, {
         body: query.body,
         history: query.history,
@@ -3126,6 +3204,9 @@ export function createApp({
       if (other !== undefined) next.other = other;
       const images = draft.otherImages?.[a.id];
       if (other !== undefined && images) next.otherImages = images;
+      // A note qualified the answer it was written on, not this one.
+      delete next.note;
+      delete next.noteImages;
     }
     if (note !== undefined) {
       next.note = note;
@@ -5036,8 +5117,13 @@ export function createApp({
 
   app.get("/api/projects", async (c) => c.json(await store.listProjects()));
 
+  const withoutDecisions = (c: Context) =>
+    isViewerRequest(c.req.raw) || isUnauthenticatedSessionRead(c);
   app.get("/api/mocks", async (c) =>
-    send(c, await listMocksFlow({ project: c.req.query("project") })),
+    send(
+      c,
+      await listMocksFlow({ project: c.req.query("project"), noDecisions: withoutDecisions(c) }),
+    ),
   );
 
   app.post("/api/mocks", async (c) => send(c, await publishFlow(await jsonBody(c), flowCtx(c))));
@@ -5059,6 +5145,7 @@ export function createApp({
         project: c.req.query("project"),
         body: flag(c, "body"),
         history: flag(c, "history"),
+        noDecisions: withoutDecisions(c),
       }),
     );
   });
@@ -5303,6 +5390,12 @@ export function createApp({
 
   // The project's design system, imported by `mockpit init` and injected into
   // every html surface of the project (see renderHtmlPage).
+  app.get("/api/projects/:name/decisions", async (c) =>
+    send(c, await decisionsFlow({ project: c.req.param("name") }, flowCtx(c))),
+  );
+  app.put("/api/projects/:name/decisions", async (c) =>
+    send(c, await editDecisionFlow(c.req.param("name"), await jsonBody(c), flowCtx(c))),
+  );
   app.get("/api/projects/:name/tree", async (c) =>
     send(c, await treeFlow({ project: c.req.param("name") })),
   );
@@ -6117,6 +6210,7 @@ export function createApp({
     publish: (body, ctx) => publishFlow(body, ctx),
     list: (query) => listMocksFlow(query),
     tree: (query) => treeFlow(query),
+    decisions: (query) => decisionsFlow(query),
     get: (ref, query) => getMockFlow(ref, query),
     ask: (ref, body, ctx) => askFlow(ref, body, ctx),
     exportMock: (ref, query, ctx) => exportFlow(ref, query, ctx),

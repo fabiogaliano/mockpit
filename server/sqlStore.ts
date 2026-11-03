@@ -35,6 +35,7 @@ import {
   projectFromCwd,
   type Reply,
   AREA_ORDER_SETTING,
+  DECISION_EDITS_SETTING,
   reservedAgent,
   sameScreen,
   selectEvictions,
@@ -54,6 +55,7 @@ import {
   type UpdateMockInput,
   type UpdatePostInput,
   type AmendPostInput,
+  type DecisionVariant,
 } from "./types.ts";
 import { renameSlugRefs } from "./embeds.ts";
 import { RULES_SETTING } from "./guidance.ts";
@@ -61,7 +63,12 @@ import { RULES_SETTING } from "./guidance.ts";
 type Row = Record<string, SqlStorageValue>;
 
 // The settings keyed `<prefix>:<project>`, which a project rename carries.
-const PROJECT_SETTINGS = ["design", AREA_ORDER_SETTING, RULES_SETTING] as const;
+const PROJECT_SETTINGS = [
+  "design",
+  AREA_ORDER_SETTING,
+  RULES_SETTING,
+  DECISION_EDITS_SETTING,
+] as const;
 
 // An optional free-text label: blank means none.
 const label = (v: string | null | undefined): string | null => stripNul(v ?? "").trim() || null;
@@ -2022,6 +2029,40 @@ export class SqlStore implements Store {
     if (comment.kind === "reply") this.invalidateAssetRefs();
     this.touch(comment.sessionId);
     return comment;
+  }
+
+  async listDecisionSources(project: string) {
+    const variants = this.sql
+      .exec(
+        "SELECT mockId, state, variant, status, version, acceptedVersion FROM posts WHERE mockId IN (SELECT id FROM mocks WHERE project = ?) ORDER BY createdAt ASC, rowid ASC",
+        project,
+      )
+      .toArray()
+      .map(
+        (r): DecisionVariant => ({
+          mockId: r.mockId as string,
+          state: (r.state as string | null) ?? null,
+          variant: r.variant as string,
+          status: r.status as PostStatus,
+          version: r.version as number,
+          acceptedVersion: (r.acceptedVersion as number | null) ?? null,
+        }),
+      );
+    // A close or a move from Home is a reply too, and decides nothing.
+    const decidedAt: Record<string, string> = {};
+    for (const r of this.sql
+      .exec(
+        `SELECT mockId, MAX(createdAt) AS at FROM comments
+         WHERE kind = 'reply' AND mockId IN (SELECT id FROM mocks WHERE project = ?)
+           AND json_extract(payload, '$.closed') IS NULL
+           AND json_extract(payload, '$.edited') IS NULL
+         GROUP BY mockId`,
+        project,
+      )
+      .toArray()) {
+      decidedAt[r.mockId as string] = r.at as string;
+    }
+    return { variants, decidedAt };
   }
 
   async commitReply(input: CommitReplyInput) {

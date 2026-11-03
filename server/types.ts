@@ -510,6 +510,8 @@ export interface MockEdit {
 // The settings key prefix of a project's area order (`areaOrder:<project>`): a
 // JSON array of area names, the order Home lists them in.
 export const AREA_ORDER_SETTING = "areaOrder";
+// The user's hand edits to a project's decision list (`decisions:<project>`).
+export const DECISION_EDITS_SETTING = "decisions";
 
 export interface Mock {
   id: string;
@@ -958,6 +960,21 @@ export interface CommentQuery {
 
 // Everything one Send writes. The store applies it atomically: the reply
 // comment, the answers recorded on the asks, the status flips, the cleared draft.
+// What the decision list needs beyond the mocks, without any variant's body.
+export interface DecisionVariant {
+  mockId: string;
+  state: string | null;
+  variant: string;
+  status: PostStatus;
+  version: number;
+  acceptedVersion: number | null;
+}
+export interface DecisionSources {
+  variants: DecisionVariant[];
+  // Per mock id, when its last reply that answered or chose anything was sent.
+  decidedAt: Record<string, string>;
+}
+
 export interface CommitReplyInput {
   mockId: string;
   sessionId: string;
@@ -1069,6 +1086,9 @@ export interface Store {
   setPostStatus(id: string, status: PostStatus, acceptedVersion?: number): Promise<Post | null>;
   setPostStarred(id: string, starred: boolean): Promise<Post | null>;
   setVersionHidden(id: string, version: number, hidden: boolean): Promise<Post | null>;
+
+  // One project's variant statuses and reply times, for the decision list.
+  listDecisionSources(project: string): Promise<DecisionSources>;
 
   listComments(query: CommentQuery): Promise<Comment[]>;
   createComment(input: CreateCommentInput): Promise<Comment | null>;
