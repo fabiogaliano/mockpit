@@ -8388,6 +8388,11 @@ body:has(.selp) .toast {
   opacity: 1;
   transform: none;
 }
+/* The neighbouring screens' previews sit at this edge, in a layer above the stage's. */
+body:has(.answer-peek.on) .ghost {
+  opacity: 0;
+  pointer-events: none;
+}
 .answer-peek-cap {
   display: flex;
   flex-direction: column;
