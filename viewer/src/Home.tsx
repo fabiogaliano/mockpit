@@ -19,7 +19,14 @@ import {
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import type { FlowStep } from "../../server/types.ts";
-import { api, type DesignSummary, type RestoreUndo, subscribe, type TreeNode } from "./api.ts";
+import {
+  api,
+  type DesignSummary,
+  readAt,
+  type RestoreUndo,
+  subscribe,
+  type TreeNode,
+} from "./api.ts";
 import { Album, DocRow, FlowStepTile } from "./Album.tsx";
 import {
   DATED_FROM,
@@ -42,6 +49,12 @@ import { DesignThumb, Recent } from "./Recent.tsx";
 import { setCarried } from "./carry.ts";
 import { useSwipeAction } from "./gestures.ts";
 import { AddCandidates } from "./AddCandidates.tsx";
+import {
+  readHomeProjects,
+  readHomeSnapshot,
+  saveHomeProjects,
+  saveHomeSnapshot,
+} from "./homeCache.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { openJump } from "./Jump.tsx";
@@ -98,22 +111,40 @@ export function Home(props: {
 }) {
   // Home shows where every design stands; a Send carried from a design ends here.
   setCarried(null);
-  const [projects, { refetch: refetchProjects }] = createResource(() => api.projects());
+  const [rawProjects, { refetch: refetchProjects }] = createResource(() => api.projects());
+  // What this browser last saw stands in until the server answers.
+  const rememberedProjects = readHomeProjects();
+  const projects = () => rawProjects() ?? rememberedProjects ?? undefined;
   const project = createMemo(() => props.project ?? projects()?.[0]?.name ?? null);
   const noSuchProject = () => {
-    const known = projects();
+    const known = rawProjects();
     return !!known && !!props.project && !known.some((p) => p.name === props.project);
   };
-  const [list, { refetch: refetchList }] = createResource(project, (p) => api.designs(p));
+  const remembered = createMemo(() => {
+    const p = project();
+    return p ? readHomeSnapshot(p) : null;
+  });
+  const [rawList, { refetch: refetchList }] = createResource(project, (p) =>
+    api.designs(p).then((data) => ({ project: p, data })),
+  );
   const [rawTree, { refetch: refetchTree }] = createResource(project, (p) => api.tree(p));
   // A resource keeps its last value while the next loads: the other project's
   // sections mustn't stand in for this one's.
-  const tree = () => {
+  const freshTree = () => {
     const t = rawTree();
     return t && t.project === project() ? t : undefined;
   };
+  const tree = () => freshTree() ?? remembered()?.tree;
+  const freshList = () => {
+    const l = rawList();
+    return l && l.project === project() ? l.data : undefined;
+  };
+  const list = () => freshList() ?? remembered()?.list;
   const decisions = createDecisions(project);
-  const decisionCount = () => decisions.list()?.lines.length ?? 0;
+  const decisionCount = () => {
+    const d = decisions.list();
+    return d && d.project === project() ? d.lines.length : (remembered()?.decisions ?? 0);
+  };
   // The switcher's glow speaks for every project, so any change may move it.
   const refetch = () =>
     Promise.all([refetchList(), refetchTree(), decisions.refetch(), refetchProjects()]);
@@ -127,6 +158,27 @@ export function Home(props: {
     }, 300);
   };
   onCleanup(() => host().window.clearTimeout(refetchTimer));
+
+  // After the page has what it needs: a save blocks, and a publishing agent
+  // refreshes this often.
+  let saveTimer = 0;
+  createEffect(() => {
+    const p = project();
+    const t = freshTree();
+    const l = freshList();
+    if (!p || !t || !l) return;
+    const count = decisionCount();
+    host().window.clearTimeout(saveTimer);
+    saveTimer = host().window.setTimeout(
+      () => saveHomeSnapshot(p, { tree: t, list: l, decisions: count }),
+      1000,
+    );
+  });
+  onCleanup(() => host().window.clearTimeout(saveTimer));
+  createEffect(() => {
+    const known = rawProjects.state === "ready" ? rawProjects() : undefined;
+    if (known) saveHomeProjects(known);
+  });
 
   // Oldest first, as the agent made them, for the declared shelves.
   const byAge = (a: TreeNode, b: TreeNode) => a.createdAt.localeCompare(b.createdAt);
@@ -319,25 +371,40 @@ export function Home(props: {
       (e) => setToast({ text: `Couldn't keep that: ${e instanceof Error ? e.message : e}` }),
     );
 
-  const stop = subscribe(
-    (e) => {
-      if (e.type === "theme-changed") setTheme(e.mode === "light" ? "light" : "dark");
-      else if (
-        e.type.startsWith("design-") ||
-        e.type.startsWith("post-") ||
-        e.type === "comment-created" ||
-        // A cover's word follows its last Send, and no other project's agent moves it.
-        ((e.type === "comment-delivered" || e.type === "agent-called") &&
-          nodes().some((n) => n.lastSend?.sessionId === e.sessionId)) ||
-        // Once, as a draft starts: a save per keystroke needn't reread a whole project.
-        (e.type === "draft-updated" && nodes().some((n) => n.id === e.designId && !n.drafting))
-      ) {
-        refetchSoon();
-      }
-    },
-    () => void refetch(),
-  );
+  const [feedAt, setFeedAt] = createSignal<number | null>(null);
+  const stop = subscribe((e) => {
+    if (e.type === "theme-changed") setTheme(e.mode === "light" ? "light" : "dark");
+    else if (
+      e.type.startsWith("design-") ||
+      e.type.startsWith("post-") ||
+      e.type === "comment-created" ||
+      // A cover's word follows its last Send, and no other project's agent moves it.
+      ((e.type === "comment-delivered" || e.type === "agent-called") &&
+        nodes().some((n) => n.lastSend?.sessionId === e.sessionId)) ||
+      // Once, as a draft starts: a save per keystroke needn't reread a whole project.
+      (e.type === "draft-updated" && nodes().some((n) => n.id === e.designId && !n.drafting))
+    ) {
+      refetchSoon();
+    }
+  }, setFeedAt);
   onCleanup(stop);
+
+  // The feed opens as the first reads are landing, and refetching then throws them
+  // away and pays for all of it twice. So wait for them, and read again only if they
+  // began before something the feed won't repeat.
+  createEffect(() => {
+    const at = feedAt();
+    if (at === null) return;
+    const reads = [rawProjects, rawList, rawTree, decisions.list];
+    if (reads.some((r) => r.loading)) return;
+    setFeedAt(null);
+    const missedNothing =
+      reads.every((r) => r.state === "ready") &&
+      [rawProjects(), rawList()?.data, rawTree(), decisions.list()].every(
+        (body) => readAt(body) >= at,
+      );
+    if (!missedNothing) void refetch();
+  });
 
   // Each place keeps its own scroll; the albums' boxes are sized before their
   // pictures load, so the place is right as soon as the tree is in.
@@ -604,7 +671,7 @@ export function Home(props: {
     return !!tree() && !!a && !!sec && inAreaCount(sec, a) === 0;
   };
   const nothingPublished = () =>
-    !projects.loading && (!project() || (!!tree() && nodes().length === 0));
+    !rawProjects.loading && (!project() || (!!tree() && nodes().length === 0));
 
   // No heading and nothing to say: a tiny project opens straight on its covers.
   // Beside a sidebar its Needs you row already says this; the Needs you page still
@@ -796,21 +863,6 @@ export function Home(props: {
                   </Show>
                 </div>
               </header>
-            </Show>
-
-            {/* Empty tiles until the tree is in, so the page has its shape at once. */}
-            <Show when={!tree() && !!project() && (shown() === null || shelfOn() !== null)}>
-              <div class="albums home-skeleton" aria-hidden="true">
-                <For each={[0, 1, 2, 3, 4, 5]}>
-                  {() => (
-                    <div class="alb" data-shape="wide">
-                      <span class="alb-cover">
-                        <span class="home-pic alb-art" />
-                      </span>
-                    </div>
-                  )}
-                </For>
-              </div>
             </Show>
 
             <Show when={tree()}>

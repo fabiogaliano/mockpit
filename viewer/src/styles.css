@@ -371,10 +371,6 @@ a.home-count {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.home-skeleton {
-  overflow: hidden;
-  opacity: 0.6;
-}
 /* A flow's screens in one row that scrolls sideways, the next one peeking in. */
 .home-flow {
   display: flex;
@@ -1540,9 +1536,6 @@ a.home-count {
   top: 4px;
   right: -6px;
   bottom: auto;
-}
-.home-skeleton {
-  opacity: 0.6;
 }
 .home-area-hd + .albums,
 .home-kind-hd + .albums {

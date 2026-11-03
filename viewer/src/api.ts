@@ -107,8 +107,15 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   });
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new ApiError(res.status, body?.error ?? res.statusText);
+  const rev = Number(res.headers.get("x-mockpit-rev"));
+  if (rev && body && typeof body === "object") readRevs.set(body as object, rev);
   return body as T;
 }
+
+// The workspace revision a response was read at, beside it rather than in it so
+// no response shape has to carry it.
+const readRevs = new WeakMap<object, number>();
+export const readAt = (body: object | null | undefined) => (body ? (readRevs.get(body) ?? 0) : 0);
 
 const json = (method: string, body: unknown): RequestInit => ({
   method,
@@ -308,7 +315,9 @@ export const assetUrl = (id: string) => url(`/a/${encodeURIComponent(id)}`);
 // browsers hold at most six HTTP/1.1 connections per origin across all tabs.
 // EventSource reconnects on its own; `onOpen` runs on each (re)connect so
 // callers refetch after a gap and nothing broadcast while disconnected is missed.
-type Listener = { onEvent: (e: FeedEvent) => void; onOpen?: () => void };
+// It is given the workspace's revision then, to compare with `readAt`.
+type OnOpen = (rev: number) => void;
+type Listener = { onEvent: (e: FeedEvent) => void; onOpen?: OnOpen };
 const listeners = new Set<Listener>();
 let feed: { close: () => void } | null = null;
 // The design this tab has on screen, sent as `?viewing=` so the agent's
@@ -330,13 +339,19 @@ function connect(): { close: () => void } | null {
     }
     for (const l of listeners) l.onEvent(event);
   };
-  es.addEventListener("hello", () => {
-    for (const l of listeners) l.onOpen?.();
+  es.addEventListener("hello", (m: MessageEvent<string>) => {
+    let rev = Infinity;
+    try {
+      rev = Number((JSON.parse(m.data) as { rev?: number }).rev ?? Infinity);
+    } catch {
+      // Unreadable reads as newer than anything held, so callers refetch.
+    }
+    for (const l of listeners) l.onOpen?.(rev);
   });
   return { close: () => es.close() };
 }
 
-export function subscribe(onEvent: (e: FeedEvent) => void, onOpen?: () => void): () => void {
+export function subscribe(onEvent: (e: FeedEvent) => void, onOpen?: OnOpen): () => void {
   const entry = { onEvent, onOpen };
   listeners.add(entry);
   feed ??= connect();

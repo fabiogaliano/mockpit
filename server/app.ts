@@ -547,6 +547,21 @@ export function createApp({
   });
   if (log) app.use("*", logMiddleware(log));
   const bus = new EventBus();
+  // Where the workspace's data stands: a read says the revision it began at, the
+  // feed's hello says the current one, and a read at least that new missed nothing,
+  // so a client can skip refetching on connect. Starting from the clock keeps it
+  // rising across restarts, when this memory is lost. A write counts even if it
+  // broadcasts nothing, since a reconnect is the only way a client would learn of it.
+  let revision = Date.now();
+  bus.subscribe(() => {
+    revision++;
+  });
+  app.use("*", async (c, next) => {
+    const isRead = c.req.method === "GET" || c.req.method === "HEAD";
+    if (isRead && c.req.path.startsWith("/api/")) c.header("x-mockpit-rev", String(revision));
+    await next();
+    if (!isRead) revision++;
+  });
   if (onEvent) {
     bus.subscribe((event) => {
       try {
@@ -6572,7 +6587,7 @@ export function createApp({
       stream.onAbort(close);
       c.req.raw.signal.addEventListener("abort", close, { once: true });
       try {
-        await stream.writeSSE({ event: "hello", data: "{}" });
+        await stream.writeSSE({ event: "hello", data: JSON.stringify({ rev: revision }) });
         while (open) {
           while (queue.length > 0) {
             await stream.writeSSE({ data: JSON.stringify(queue.shift()) });
