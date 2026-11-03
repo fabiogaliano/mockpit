@@ -149,6 +149,14 @@ const SURFACE_HEADS_SQL = `CASE WHEN json_valid(surfaces) THEN (
 const POST_HEAD_COLUMNS =
   "id, sessionId, designId, state, variant, status, title, head, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, description, forkedFrom, copiedFrom, starred, acceptedVersion, hiddenVersions, curSession, amendedAt, rewrites, archiveReason, stayedVersion, archivedAt";
 
+// Holding every column a head reads, so listing a project's variants never touches
+// a row with a body: those columns sit after `surfaces`, and reaching them through
+// the table walks the body's overflow pages. Any column added to the heads belongs
+// here too (it is built from them), under a new index name so the old one is replaced.
+const POST_HEADS_INDEX = `designId, ${POST_HEAD_COLUMNS.split(", ")
+  .filter((c) => c !== "designId")
+  .join(", ")}`;
+
 const POST_COLUMNS = `
   id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, designId TEXT NOT NULL, state TEXT,
   variant TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', title TEXT NOT NULL,
@@ -591,6 +599,8 @@ export class SqlStore implements Store {
       CREATE INDEX IF NOT EXISTS mockpit_posts_design_idx ON posts (designId, state, variant);
       CREATE INDEX IF NOT EXISTS mockpit_posts_session_created_at_idx ON posts (sessionId, createdAt);
       CREATE INDEX IF NOT EXISTS mockpit_posts_copies_idx ON posts (designId, state, variant, status, copiedFrom) WHERE copiedFrom IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS mockpit_posts_heads_idx ON posts (${POST_HEADS_INDEX});
+      CREATE INDEX IF NOT EXISTS mockpit_post_versions_heads_idx ON post_versions (postId, version, head);
       CREATE INDEX IF NOT EXISTS mockpit_comments_session_seq_idx ON comments (sessionId, seq);
       CREATE INDEX IF NOT EXISTS mockpit_comments_design_seq_idx ON comments (designId, seq);
       CREATE INDEX IF NOT EXISTS mockpit_comments_post_seq_idx ON comments (postId, seq);

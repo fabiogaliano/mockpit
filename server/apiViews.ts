@@ -350,6 +350,8 @@ export const treeNodeView = (
     embeds: string[];
     embedViews: Map<string, EmbedView>;
     lastReplyAt?: string;
+    // About half of a tree's bytes, and no screen of the viewer's reads them from one.
+    noDescriptions?: boolean;
     // The viewer's alone: where the last Send stands, and a draft waiting to go.
     lastSend?: { sessionId: string; at: string; delivered: boolean; calledAt?: string };
     drafting?: boolean;
@@ -397,7 +399,7 @@ export const treeNodeView = (
     ...posterOf(p.surfaces),
     ...inUsePoster(p),
     ...coverVersion(p),
-    ...(p.description ? { description: p.description } : {}),
+    ...(p.description && !extra.noDescriptions ? { description: p.description } : {}),
     ...(p.forkedFrom ? { forkedFrom: p.forkedFrom } : {}),
     ...(p.starred ? { starred: true } : {}),
     ...(p.acceptedVersion === undefined ? {} : { inUseVersion: p.acceptedVersion }),

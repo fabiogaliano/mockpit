@@ -2551,7 +2551,11 @@ export function createApp({
   // lineage, what its embeds resolve to) and the components it embeds and is
   // embedded in, and the declared flows. What the viewer's Home and an agent's
   // `read --tree` lay out.
-  async function treeFlow(query: { project?: string; live?: boolean }): Promise<FlowResult> {
+  async function treeFlow(query: {
+    project?: string;
+    live?: boolean;
+    noDescriptions?: boolean;
+  }): Promise<FlowResult> {
     const project = str(query.project, MAX_TITLE);
     if (!project) return fail(400, 'provide "project"');
     const designs = await store.listDesigns(project);
@@ -2589,6 +2593,7 @@ export function createApp({
           ),
           embeds: [...embeds],
           embedViews: views,
+          noDescriptions: query.noDescriptions,
           ...(lastReplyAt ? { lastReplyAt } : {}),
           ...(lastSend
             ? {
@@ -5785,6 +5790,7 @@ export function createApp({
       await treeFlow({
         project: c.req.param("name"),
         live: isViewerRequest(c.req.raw) && isAuthenticated(c),
+        noDescriptions: isViewerRequest(c.req.raw),
       }),
     ),
   );
