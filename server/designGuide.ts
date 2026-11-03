@@ -290,6 +290,13 @@ and edited by them. Treat each as settled unless they say otherwise: don't ask i
 again or design against it. If one seems wrong for this work, raise it in your
 question. \`closed\` marks a line from a closed mock, which may be older thinking.
 
+## Notes
+
+\`mockpit edit --mock <slug> --notes "..."\` drafts a short plain-text spec of a
+mock: what it's for, what must hold. \`read\` of the mock returns it as \`notes\`.
+Read them before changing the mock. The user can edit them by hand, and their
+words stand: a later draft isn't applied, and the result says so.
+
 ## Parts
 
 \`<article data-part="body" data-part-label="Body">\`. Declare only what you want
@@ -320,10 +327,12 @@ you use adds its tab to Home:
 - States the user moves between, even across mocks, in order: a flow.
   Publish each with \`--flow Morning --step 2\` (\`--step 0\` takes it out);
   the viewer walks it.
-- Another render of one state (empty, many, an error, loading): its
-  \`--state\` plus \`--situation "Couldn't save"\`, once the state itself is
-  published. The viewer switches between them under the design; feedback
-  names it as the state \`"Writing · Couldn't save"\`.
+- Another render of one screen (empty, many, an error, loading): a state like
+  any other, \`--state Empty\`. A declared page shows outlines for Empty, Loading
+  and Failed until each is drawn or the user says it doesn't apply
+  (\`stateOutlines\` in \`read\`).
+- A screen or component before it's drawn: \`--kind page\` with no html plans it,
+  with \`--flow\` if you like; your first publish to it draws it.
 - A reusable piece of those pages (a button, a card, a header): its own
   mock, embedded in pages with \`<mockpit-embed slug="card">\`. Being
   embedded makes it a component (\`--kind component\` says so up front).
@@ -389,7 +398,8 @@ arrives exactly once: in a write's \`feedback\`, \`mockpit feedback\` or a
 A \`pending\` draft means the user is still answering. Send a nudge's
 \`suggestedAsk\` with \`ask\`.
 \`edited: {kind, area}\` means the user moved the mock from Home; it is done,
-so build on it and don't move it back.
+so build on it and don't move it back. \`edited: {notes}\` is the user's correction
+of the mock's notes.
 \`read\` shows what the user took away, as information: a mock's \`closedAt\` and
 \`closeReason\`, a variant's \`archived\` status and \`archiveReason\`. A question
 you ask on a closed mock brings it back to their list.

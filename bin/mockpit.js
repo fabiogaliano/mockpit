@@ -56,7 +56,8 @@ verbs:
   mockpit publish --mock <slug> --html <file> [options]
                                           create or version one variant of one state
       --state <label>   state, in the user's words (omit for a single-state mock)
-      --situation <s>   another render of that state ("Couldn't save", "Loading")
+      --situation <s>   another render of that state ("Couldn't save"): its own state,
+                        "state · situation"
       --variant <name>  variant label (default "default")
       --html <file|->   the html body (or a positional file)
       --surfaces <json|file>  instead: the full ordered surface list; {"id"}
@@ -66,7 +67,8 @@ verbs:
       --fills <part#fill=file|->  instead: replace or add one fill of a part in
                         the latest version (repeatable)
       --title <t>       mock title
-      --kind <k>        page|component, only for an app's screens (default sketch)
+      --kind <k>        page|component, only for an app's screens (default sketch);
+                        with no html it plans one, drawn by a later publish
       --area <name>     where in the product it belongs ("Shell"); Home groups by it
       --source <path>   the code path that implements it
       --knobs <json|file>  knobs in tunekit usePane shape, keyed by path
@@ -204,8 +206,8 @@ mockpit publish --mock <slug> [--state s] [--variant v] --withdraw
                      rule: the version before it is current again, and a
                      variant with no other version goes
   --state <label>    state in the user's words (omit for a single-state mock)
-  --situation <s>    another render of that state ("Couldn't save", "Loading"),
-                     after the state itself is published
+  --situation <s>    another render of that state ("Couldn't save"): its own state,
+                     named "state · situation"
   --variant <name>   variant label (default "default")
   --surfaces <json|file>  the full ordered list: {"id"} alone keeps a surface,
                      a missing id removes it, order is the list order
@@ -277,13 +279,15 @@ mockpit publish --mock <slug> [--state s] [--variant v] --withdraw
   brings them back. Their group goes along; one in use stays and is reported.
   Never deletes. The thread says what happened, so the user can undo it.`,
   edit: `mockpit edit --mock <slug> [--slug <new>] [--title <t>] [--kind page|component|sketch]
-  [--first-state <name>]
+  [--first-state <name>] [--notes <text>|""]
   [--area <name>|""] [--source <path>|""] [--project <name>]
 mockpit edit --project <name> --rename <new name>
 mockpit edit --project <name> --area-order "Shell,Food,Chat"
   Change a mock without publishing a new version; "" clears area or source. A new
   slug rewrites every embed, data-goto and flow step that names the old one, in
   every version. A mock still embedded somewhere stays a component, not a sketch.
+  --notes drafts the mock's short plain-text spec, which read returns; the user's own
+  edit of it stands, so the draft is then not applied and the result says so.
   --first-state names a mock's one unnamed state, and every variant it holds goes
   there, so the mock can then have more states.
   --rename moves the project's mocks, sessions, flows and design settings to the
@@ -918,6 +922,13 @@ function printPublished(result, flags) {
   if (flags.json) return out(result);
   if (flags.quiet) return;
   const { mock, post } = result;
+  if (result.planned) {
+    console.log(`${mock.slug}: planned, nothing drawn yet · ${result.url}`);
+    if (result.flow) console.log(flowLine(result.flow));
+    for (const nudge of result.nudges ?? []) console.log(`nudge: ${nudge}`);
+    printFeedback(result.feedback);
+    return;
+  }
   const branch = post.from !== undefined && post.from !== post.version - 1;
   const how = result.withdrawn
     ? ` (v${result.withdrawn.version} withdrawn)`
@@ -1126,7 +1137,8 @@ async function publishMock() {
     }
     surfaces.push(...(await surfacesFromFlags(flags, tokens, { session, layout: flags.layout })));
   }
-  if (!surfaces && !parts && !fills && !flags.fork && flags.flow === undefined)
+  const declaring = flags.kind === "page" || flags.kind === "component";
+  if (!surfaces && !parts && !fills && !flags.fork && flags.flow === undefined && !declaring)
     die(`no html for ${slug}`, `mockpit publish --mock ${slug} --html <file>`);
   const poster =
     flags.poster === undefined ? undefined : (await uploadFile(flags.poster, { session })).id;
@@ -1225,6 +1237,13 @@ function watchLines(batch) {
       e.area !== undefined ? (e.area ? `area ${e.area}` : "no area") : "",
     ].filter(Boolean);
     if (bits.length) lines.push(`mockpit edited ${name}: the user moved it (${bits.join(", ")})`);
+    if (e.notes !== undefined) {
+      lines.push(
+        e.notes === null
+          ? `mockpit edited ${name}: the user cleared its notes`
+          : `mockpit edited ${name}: the user edited its notes: ${e.notes}`,
+      );
+    }
     for (const g of e.grouped ?? []) {
       const where = g.state === null ? "" : ` on ${g.state}`;
       lines.push(
@@ -1771,7 +1790,7 @@ const commands = {
     for (const m of mocks) {
       const states = m.states.length ? m.states.join(" / ") : "single state";
       console.log(
-        `  ${m.slug} · ${m.kind}${m.area ? ` · ${m.area}` : ""} · ${states} · ${m.variants} variant${m.variants === 1 ? "" : "s"}${m.closedAt ? " · closed" : m.open ? ` · ${m.open} open` : ""}`,
+        `  ${m.slug} · ${m.kind}${m.area ? ` · ${m.area}` : ""} · ${states} · ${m.variants} variant${m.variants === 1 ? "" : "s"}${m.planned ? " · planned" : ""}${m.closedAt ? " · closed" : m.open ? ` · ${m.open} open` : ""}`,
       );
     }
     for (const flow of list.flows ?? []) console.log(`  ${flowLine(flow)}`);
@@ -2011,6 +2030,7 @@ const commands = {
         area: { type: "string" },
         source: { type: "string" },
         "first-state": { type: "string" },
+        notes: { type: "string" },
         rename: { type: "string" },
         "area-order": { type: "string" },
       },
@@ -2061,12 +2081,12 @@ const commands = {
       return;
     }
     const slug = requireMock(flags, "mockpit edit --mock writer --area Shell");
-    const fields = ["slug", "title", "kind", "area", "source"].filter(
+    const fields = ["slug", "title", "kind", "area", "source", "notes"].filter(
       (k) => flags[k] !== undefined,
     );
     if (!fields.length && flags["first-state"] === undefined) {
       die(
-        "edit needs --slug, --title, --kind, --area, --source or --first-state",
+        "edit needs --slug, --title, --kind, --area, --source, --notes or --first-state",
         "mockpit edit --help",
       );
     }
@@ -2092,12 +2112,14 @@ const commands = {
         m.kind,
         m.area && `area ${m.area}`,
         m.source && `source ${m.source}`,
+        result.notes && (result.notes.applied ? "notes saved" : "notes NOT applied"),
         result.url,
       ]
         .filter(Boolean)
         .join(" · "),
     );
     for (const nudge of result.nudges ?? []) console.log(`nudge: ${nudge}`);
+    if (result.notes && !result.notes.applied) console.log(`notes: ${result.notes.text}`);
     printFeedback(result.feedback);
   },
   async demo() {

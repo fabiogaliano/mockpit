@@ -560,6 +560,8 @@ export interface Reply {
 export interface MockEdit {
   kind?: MockKind;
   area?: string | null;
+  // The notes as the user just wrote them; null when they cleared them.
+  notes?: string | null;
   // From when Studio could hang variants under a lead; stored rows still carry it.
   grouped?: { state: string | null; lead: string | null; variants: string[] }[];
 }
@@ -569,6 +571,23 @@ export interface MockEdit {
 export const AREA_ORDER_SETTING = "areaOrder";
 // The user's hand edits to a project's decision list (`decisions:<project>`).
 export const DECISION_EDITS_SETTING = "decisions";
+
+// A short spec of a mock: an agent drafts it, the user corrects it by hand, and later
+// agents read it. Whoever wrote it last is kept because a hand edit outranks a draft.
+export interface MockNotes {
+  text: string;
+  by: "agent" | "user";
+  at: string;
+}
+export const MAX_NOTES = 4000;
+
+// What the user said about a state a declared screen doesn't have yet.
+export type StateOutline = "dismissed" | "requested";
+
+// Declared and not drawn yet: a screen or component the agent planned, which its next
+// publish fills. An undeclared mock with nothing in it is no plan, only empty.
+export const isPlanned = (mock: { kind: MockKind }, variants: number): boolean =>
+  mock.kind !== "sketch" && variants === 0;
 
 export interface Mock {
   id: string;
@@ -584,10 +603,6 @@ export interface Mock {
   source: string | null;
   // Ordered state labels; [] means a single-state mock whose posts carry state null.
   states: string[];
-  // A state's situations, by the state they are another render of, in order:
-  // each is also a state of its own (situationKey), so asks, comments, decisions
-  // and export reach it like any state. {} when none.
-  situations: Record<string, string[]>;
   asks: Ask[];
   knobs: Knobs;
   // The device widths the mock is judged at, side by side on a canvas; [] lets
@@ -607,31 +622,13 @@ export interface Mock {
   // Why, if there is a why: their own line, or the note on what they last sent.
   // Kept as information; nothing reads it as an instruction.
   closeReason: string | null;
+  notes: MockNotes | null;
+  // By state name, only what the user has said; {} when nothing. Kept apart from
+  // `states` because a dismissed state isn't one of the mock's.
+  stateOutlines: Record<string, StateOutline>;
   createdAt: string;
   updatedAt: string;
 }
-
-// The state's own render, when a state has situations.
-export const NORMAL_SITUATION = "Normal";
-
-// The state a situation is stored as: what feedback, decisions and export name.
-export const situationKey = (state: string, situation: string) => `${state} · ${situation}`;
-
-// The state a situation belongs to, or the state itself.
-export function momentOf(
-  situations: Record<string, string[]>,
-  state: string | null,
-): string | null {
-  if (state === null) return null;
-  for (const [moment, names] of Object.entries(situations)) {
-    if (names.some((n) => situationKey(moment, n) === state)) return moment;
-  }
-  return state;
-}
-
-// The states that are moments of the mock, not situations of one.
-export const momentsOf = (states: string[], situations: Record<string, string[]>) =>
-  states.filter((st) => momentOf(situations, st) === st);
 
 // One component included in a page, pinned to an exact version (snapshot
 // semantics: pulling a newer version is an explicit new page version). `slug`
@@ -980,7 +977,6 @@ export interface UpdateMockInput {
   area?: string | null;
   source?: string | null;
   states?: string[];
-  situations?: Record<string, string[]>;
   asks?: Ask[];
   knobs?: Knobs;
   widths?: number[];
@@ -988,6 +984,9 @@ export interface UpdateMockInput {
   // null brings it back, and takes the reason with it.
   closedAt?: string | null;
   closeReason?: string | null;
+  // null clears.
+  notes?: MockNotes | null;
+  stateOutlines?: Record<string, StateOutline>;
 }
 
 export interface CreatePostInput {

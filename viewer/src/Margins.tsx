@@ -38,6 +38,8 @@ import {
   variantName,
   type VersionStep,
 } from "./logic.ts";
+import { Notes, notesShown } from "./Notes.tsx";
+import { OutlineRows } from "./Outlines.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
 import { Answered } from "./Questions.tsx";
 import { REACTION_LABEL } from "./reactionRules.ts";
@@ -49,7 +51,7 @@ import type { TuneState } from "./tune.ts";
 import { CanvasTools } from "./VersionBar.tsx";
 import { NO_BOX, safeX, setCanvasBox, win } from "./viewport.ts";
 
-export type Side = "talk" | "built" | "thread";
+export type Side = "talk" | "notes" | "built" | "thread";
 export type Margins = ReturnType<typeof createMargins>;
 
 // Past this many a list is names alone: every picture is a whole page loading, and
@@ -62,6 +64,8 @@ export function createMargins(
   active: () => boolean,
   // A reading column is what the margins have to leave room for, instead of artboards.
   columnW: () => number | null,
+  // A screen whose states can still grow lists them even with only the one so far.
+  outlining: () => boolean,
 ) {
   const [folded, setFolded] = createSignal(false);
   const [over, setOver] = createSignal(false);
@@ -69,7 +73,8 @@ export function createMargins(
   const [pinned, setPinned] = createSignal(false);
 
   const walkable = () => (nav.steps().length > 1 || nav.emptied().length > 0) && nav.at() >= 0;
-  const leftHas = () => walkable() || s.steps().length > 1;
+  const statesShown = () => walkable() || (outlining() && nav.at() >= 0);
+  const leftHas = () => statesShown() || s.steps().length > 1;
   const page = () => {
     const kinds: readonly string[] =
       s.stageStep()?.kinds ?? s.activeVariant()?.surfaces.map((x) => String(x.kind)) ?? [];
@@ -83,6 +88,7 @@ export function createMargins(
   const side = createMemo<Side | null>(() => {
     if (s.drawer()) return "built";
     if (s.panel() === "thread") return "thread";
+    if (s.panel() === "notes") return "notes";
     if (s.cardMin()) return null;
     return talkWants() || (pinned() && talkHas()) ? "talk" : null;
   });
@@ -159,7 +165,7 @@ export function createMargins(
     if (at === "built") {
       if (s.tool() === "tune") s.toggleTool("tune");
       else s.setDrawer(false);
-    } else if (at === "thread") s.setPanel(null);
+    } else if (at === "thread" || at === "notes") s.setPanel(null);
     else {
       setPinned(false);
       s.setCardMin(true);
@@ -170,10 +176,10 @@ export function createMargins(
     if (to === "built") {
       s.setPanel(null);
       s.setDrawer(true);
-    } else if (to === "thread") {
+    } else if (to === "thread" || to === "notes") {
       if (s.tool() === "tune") s.toggleTool("tune");
       s.setDrawer(false);
-      s.setPanel("thread");
+      s.setPanel(to);
     } else {
       s.showTalk();
       if (!s.curAsk() && s.flow().length) s.goOwed();
@@ -184,6 +190,8 @@ export function createMargins(
   return {
     active,
     walkable,
+    outlining,
+    statesShown,
     page,
     talkHas,
     builtHas,
@@ -236,7 +244,7 @@ export function ToolStrip(props: { s: MockScreenState; m: Margins }) {
 
 const PANELS: { id: Side; icon: IconName; label: string }[] = [
   { id: "talk", icon: "question", label: "On this design" },
-  // Notes takes its place here, second, once a mock has them.
+  { id: "notes", icon: "notes", label: "Notes" },
   { id: "built", icon: "layers", label: "Built from" },
   { id: "thread", icon: "thread", label: "Thread" },
 ];
@@ -247,7 +255,15 @@ export function PanelTabs(props: { s: MockScreenState; m: Margins }) {
   const s = props.s;
   const m = props.m;
   const shown = () =>
-    PANELS.filter((p) => (p.id === "talk" ? m.talkHas() : p.id === "built" ? m.builtHas() : true));
+    PANELS.filter((p) =>
+      p.id === "talk"
+        ? m.talkHas()
+        : p.id === "built"
+          ? m.builtHas()
+          : p.id === "notes"
+            ? notesShown(s)
+            : true,
+    );
   const asked = () =>
     new Set(s.flow().flatMap((e) => (isBuiltinAsk(e.ask) ? [] : [e.ask.id]))).size;
   const label = (p: (typeof PANELS)[number]) =>
@@ -294,8 +310,8 @@ export function LeftMargin(props: { s: MockScreenState; nav: FlowNav; m: Margins
         >
           <Icon name="close" />
         </button>
-        <Show when={m.walkable()}>
-          <StateList s={s} nav={props.nav} />
+        <Show when={m.statesShown()}>
+          <StateList s={s} nav={props.nav} outlining={m.outlining()} />
         </Show>
         <Show when={s.steps().length > 1}>
           <VersionList s={s} />
@@ -310,7 +326,7 @@ const sameList = (a: readonly string[], b: readonly string[]) =>
 
 // The steps, as the flow bar has them. By key, not object: the steps are rebuilt on
 // every read, and remounting a row would start its picture's page over.
-function StateList(props: { s: MockScreenState; nav: FlowNav }) {
+function StateList(props: { s: MockScreenState; nav: FlowNav; outlining: boolean }) {
   const s = props.s;
   const nav = props.nav;
   const keyOf = (x: { mock: string; state: string | null }) => JSON.stringify([x.mock, x.state]);
@@ -338,11 +354,17 @@ function StateList(props: { s: MockScreenState; nav: FlowNav }) {
               class="lm-row"
               classList={{ on: here() }}
               aria-current={here() ? "step" : undefined}
-              aria-label={nav.owes(x) ? `${nav.label(x)}, a question is waiting` : nav.label(x)}
+              aria-label={
+                nav.owes(x)
+                  ? `${nav.label(x)}, a question is waiting`
+                  : nav.planned(x)
+                    ? `${nav.label(x)}, planned`
+                    : nav.label(x)
+              }
               onClick={() => nav.go(x)}
             >
               <Show when={pictured()}>
-                <span class="lm-pic" classList={{ flat: flat() }}>
+                <span class="lm-pic" classList={{ flat: flat(), "lm-dash": nav.planned(x) }}>
                   <Show when={nav.picture(x)}>
                     {(u) => <Thumb src={u()} width={s.frameW()} fit whole />}
                   </Show>
@@ -350,6 +372,9 @@ function StateList(props: { s: MockScreenState; nav: FlowNav }) {
               </Show>
               <span class="lm-text">
                 <b>{nav.label(x)}</b>
+                <Show when={nav.planned(x)}>
+                  <small>Planned</small>
+                </Show>
               </span>
               <Show when={nav.owes(x)}>
                 <i class="ftab-q" aria-hidden="true" />
@@ -374,6 +399,9 @@ function StateList(props: { s: MockScreenState; nav: FlowNav }) {
           <option value="">{`${nav.emptied().length} empty`}</option>
           <For each={nav.emptied()}>{(m) => <option value={m ?? ""}>{m}</option>}</For>
         </select>
+      </Show>
+      <Show when={props.outlining}>
+        <OutlineRows s={s} />
       </Show>
     </section>
   );
@@ -538,6 +566,11 @@ export function RightMargin(props: { s: MockScreenState; t: TuneState; m: Margin
             <Switch>
               <Match when={side() === "talk"}>
                 <Talk s={s} m={m} />
+              </Match>
+              <Match when={side() === "notes"}>
+                <div class="rm-scroll">
+                  <Notes s={s} />
+                </div>
               </Match>
               <Match when={side() === "built"}>
                 <div class="rm-scroll">

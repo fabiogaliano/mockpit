@@ -4,9 +4,7 @@
 // Stage, where answers are, is a deliberate step from there. A hidden version stays
 // dimmed where it stands. A fork is a column of its own beside the one it came from,
 // saying so: the lineage is the agent's data, and nothing here is grouped by hand.
-// Each steer (more like this, a comment, a borrow) is its own reply. A moment
-// with situations shows one at a time; a variant not drawn in that one keeps
-// its column, empty, so the columns never move under the switch.
+// Each steer (more like this, a comment, a borrow) is its own reply.
 // On a phone there is no room for a grid of one state: every state's columns
 // run as one strip, a card per swipe, and the state under the snap is the one
 // on stage, so the flow bar names where you are instead of paging.
@@ -35,6 +33,7 @@ import { api, assetUrl, surfaceUrl, type VariantView } from "./api.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import {
+  CANVAS_MAX,
   foldText,
   sameVersion,
   versionName,
@@ -59,11 +58,6 @@ import { SaveMenu, type SaveFor } from "./SaveMenu.tsx";
 import { SelectBar } from "./SelectBar.tsx";
 import { coarse, phoneLayout, win } from "./viewport.ts";
 
-// More canvas pages live than this and a browser drops the oldest one's WebGL
-// context; one past the budget waits as a placeholder until it is pointed at.
-// Any other page has no such limit and is live whenever it is near the screen.
-const CANVAS_MAX = 16;
-
 // The agent's still of the page: an image costs no live frame, so it is
 // always shown and never counts against the budget.
 const Poster = (props: { id: string }) => (
@@ -72,7 +66,7 @@ const Poster = (props: { id: string }) => (
 
 // Without a poster, an image surface is still cheaper than the page. A document has
 // neither, and its text is the picture of it.
-function pictureOf(st: VersionStep): string | null {
+export function pictureOf(st: VersionStep): string | null {
   const picture = st.kinds.includes("image") ? st.kinds.indexOf("image") : st.kinds.indexOf("html");
   const i = picture >= 0 ? picture : st.kinds.findIndex(isSandboxedSurfaceKind);
   return i < 0
@@ -117,10 +111,10 @@ type Acts = Record<
 // Everything here reads the board's own state rather than the one on stage,
 // since a phone's strip draws every state at once.
 type Board = ReturnType<typeof boardOf>;
-function boardOf(s: MockScreenState, moment: string | null, state: () => string | null) {
-  const inState = createMemo(() => s.variants().filter((v) => v.state === state()));
+function boardOf(s: MockScreenState, state: string | null) {
+  const inState = createMemo(() => s.variants().filter((v) => v.state === state));
   const allSteps = createMemo<VersionStep[]>(
-    (was) => keepSame(was, versionSteps(s.variants(), state()), stepKey),
+    (was) => keepSame(was, versionSteps(s.variants(), state), stepKey),
     [],
   );
   // Everything a column draws, the hidden ones dimmed.
@@ -131,38 +125,13 @@ function boardOf(s: MockScreenState, moment: string | null, state: () => string 
   // What's still in play, which is what decides whether a × hides or archives.
   const versionsOf = (variant: string) => drawnOf(variant).filter((st) => !st.hidden);
   const live = (v: VariantView) => isLive(v.status);
-  const here = (v: VariantView) => v.state === state();
-  // Only the moment on stage switches between its situations.
-  const sits = () => (s.moment() === moment ? s.situations() : []);
-  // One view per variant across the moment, in the order the situations name
-  // them, so a switch keeps every column in place.
-  const pool = createMemo(() => {
-    const all = sits();
-    if (!all.length) return inState();
-    const inMoment = (v: VariantView) => all.some((x) => x.state === v.state);
-    const names = [
-      ...new Set(
-        s
-          .variants()
-          .filter(inMoment)
-          .map((v) => v.variant),
-      ),
-    ];
-    return names.flatMap((n) => {
-      const v =
-        inState().find((p) => p.variant === n) ??
-        s.variants().find((p) => p.variant === n && live(p) && inMoment(p));
-      return v ? [v] : [];
-    });
-  });
-  const situationName = () => sits().find((x) => x.state === state())?.name ?? "";
   const isFork = (v: VariantView) =>
     !!v.forkedFrom &&
     live(v) &&
     inState().some((p) => p.variant === v.forkedFrom?.variant && live(p));
   // Roots in the order they were made, each followed by its forks.
   const columns = createMemo(() => {
-    const vs = pool().filter((v) => live(v) && (!here(v) || drawnOf(v.variant).length));
+    const vs = inState().filter((v) => live(v) && drawnOf(v.variant).length);
     const out: VariantView[] = [];
     const visit = (v: VariantView) => {
       if (out.includes(v)) return;
@@ -175,7 +144,7 @@ function boardOf(s: MockScreenState, moment: string | null, state: () => string 
     return out;
   });
   const inUse = (): VersionRef | null => {
-    const u = s.mock()?.inUse.find((x) => x.state === state());
+    const u = s.mock()?.inUse.find((x) => x.state === state);
     return u ? { variant: u.variant, version: u.version } : null;
   };
   // "Dark #2", or "#2" while the state has one variant.
@@ -200,14 +169,10 @@ function boardOf(s: MockScreenState, moment: string | null, state: () => string 
   // What Look closer flips through: the columns left to right, each down its
   // versions, as the eye reads the grid.
   const runs = createMemo(() =>
-    columns()
-      .filter(here)
-      .map((v) => ({ variant: v.variant, steps: drawnOf(v.variant) })),
+    columns().map((v) => ({ variant: v.variant, steps: drawnOf(v.variant) })),
   );
   return {
-    moment,
     state,
-    here,
     columns,
     isUsed,
     drawnOf,
@@ -217,7 +182,6 @@ function boardOf(s: MockScreenState, moment: string | null, state: () => string 
     runs,
     hiddenSteps,
     isFork,
-    situationName,
     inUse,
     nameOf,
   };
@@ -266,10 +230,8 @@ export function Studio(props: {
     onDone?: () => void;
   } | null>(null);
   const [adding, setAdding] = createSignal(false);
-  const boards = mapArray(s.moments, (m) =>
-    boardOf(s, m, () => (s.moment() === m ? s.activeState() : m)),
-  );
-  const active = () => boards().find((b) => b.moment === s.moment()) ?? boards()[0];
+  const boards = mapArray(s.states, (st) => boardOf(s, st));
+  const active = () => boards().find((b) => b.state === s.activeState()) ?? boards()[0];
   const readParam = (name: string) => new URLSearchParams(host().window.location.search).get(name);
   const withParam = (name: string, k: string | null) => {
     const w = host().window;
@@ -280,7 +242,7 @@ export function Studio(props: {
   };
   const key = (st: VersionStep) => `${st.variant}@${st.version}`;
   // Variant names repeat across states, so a frame is told apart by both.
-  const frameKey = (b: Board, st: VersionStep) => `${b.state() ?? ""}\n${key(st)}`;
+  const frameKey = (b: Board, st: VersionStep) => `${b.state ?? ""}\n${key(st)}`;
 
   // The wall's filters live in the URL, so Back from Stage finds the wall as it was left.
   const sized = () => s.variants().length >= WALL_FROM;
@@ -290,7 +252,7 @@ export function Studio(props: {
   const [statePick, setStatePick] = createSignal(readParam("in"));
   const within = () => {
     const m = statePick();
-    return (s.moments() as (string | null)[]).includes(m) ? m : null;
+    return s.states().includes(m) ? m : null;
   };
   const [showPick, setShowPick] = createSignal(readParam("show"));
   // A lab with everything archived would otherwise open on nothing.
@@ -312,11 +274,11 @@ export function Studio(props: {
     if (!q) return all;
     return all.filter((st) =>
       wallText()
-        .get(`${b.state() ?? ""}\n${st.variant}`)
+        .get(`${b.state ?? ""}\n${st.variant}`)
         ?.includes(q),
     );
   };
-  const inWithin = (b: Board) => within() === null || b.moment === within();
+  const inWithin = (b: Board) => within() === null || b.state === within();
   const wallMap = createMemo(() =>
     wall()
       ? boards()
@@ -341,7 +303,7 @@ export function Studio(props: {
     wall()
       ? []
       : strip()
-        ? boards().filter((b) => b.moment === s.moment() || b.columns().length > 0)
+        ? boards().filter((b) => b.state === s.activeState() || b.columns().length > 0)
         : [active()];
   const countIn = (state: string | null) =>
     s.variants().filter((v) => v.state === state && isLive(v.status)).length;
@@ -410,7 +372,7 @@ export function Studio(props: {
   const selecting = () => chosen().length > 0;
   createEffect(on(s.activeState, () => setPicked([]), { defer: true }));
   const select = (b: Board, st: VersionStep, range: boolean) => {
-    if (b.state() !== s.activeState()) s.showState(b.state());
+    if (b.state !== s.activeState()) s.showState(b.state);
     const key = stepKey(st);
     // A hidden version dims in the run, and a range passes over it.
     const here = order()
@@ -435,7 +397,7 @@ export function Studio(props: {
       (v) => b.versionsOf(v).length === out.filter((st) => st.variant === v).length,
     );
   const leaveAll = async (b: Board, out: VersionStep[]) => {
-    if (b.state() !== s.activeState()) s.showState(b.state());
+    if (b.state !== s.activeState()) s.showState(b.state);
     const gone = variantsGone(b, out);
     const undos: (() => void)[] = [];
     for (const st of out) {
@@ -455,7 +417,7 @@ export function Studio(props: {
   const saveFor = (b: Board, steps: VersionStep[], leave?: SaveFor["leave"]): SaveFor | null => {
     const m = s.mock();
     if (!m) return null;
-    const state = b.state();
+    const state = b.state;
     const out = steps.filter((st) => !sameVersion(b.inUse(), st));
     const archives = variantsGone(b, out);
     return {
@@ -550,7 +512,7 @@ export function Studio(props: {
   const looking = () => {
     const k = lookKey();
     return k
-      ? (order().find((e) => e.b.state() === s.activeState() && key(e.st) === k) ?? null)
+      ? (order().find((e) => e.b.state === s.activeState() && key(e.st) === k) ?? null)
       : null;
   };
   const look = (e: Entry) => {
@@ -563,7 +525,7 @@ export function Studio(props: {
     }
     // Together, or the look would find nothing on the state it left and close.
     batch(() => {
-      if (e.b.state() !== s.activeState()) s.showState(e.b.state());
+      if (e.b.state !== s.activeState()) s.showState(e.b.state);
       setLookKey(key(e.st));
     });
   };
@@ -587,7 +549,7 @@ export function Studio(props: {
   const fullOn = () => {
     const k = fullKey();
     return k
-      ? (order().find((e) => e.b.state() === s.activeState() && key(e.st) === k) ?? null)
+      ? (order().find((e) => e.b.state === s.activeState() && key(e.st) === k) ?? null)
       : null;
   };
   const openFull = (e: Entry) => {
@@ -595,7 +557,7 @@ export function Studio(props: {
     h.pushState(h.state, "", withParam("full", key(e.st)));
     fullPushed = true;
     batch(() => {
-      if (e.b.state() !== s.activeState()) s.showState(e.b.state());
+      if (e.b.state !== s.activeState()) s.showState(e.b.state);
       setFullKey(key(e.st));
     });
   };
@@ -644,8 +606,8 @@ export function Studio(props: {
   );
   // Where a closer look goes when its state has nothing left to flip through.
   const firstOfNextState = (): Entry | undefined => {
-    const m = s.nextLiveMoment();
-    const b = boards().find((x) => x.moment === m);
+    const m = s.nextLiveState();
+    const b = boards().find((x) => x.state === m);
     const st = b?.runs()[0]?.steps[0];
     return b && st ? { b, st } : undefined;
   };
@@ -657,7 +619,7 @@ export function Studio(props: {
   };
   const peek = (e: Entry) => {
     setPeekKey(frameKey(e.b, e.st));
-    queueMicrotask(() => frameOf(e.b.state(), key(e.st))?.scrollIntoView({ block: "nearest" }));
+    queueMicrotask(() => frameOf(e.b.state, key(e.st))?.scrollIntoView({ block: "nearest" }));
   };
   const stepPeek = (d: number) => {
     const list = order();
@@ -667,7 +629,7 @@ export function Studio(props: {
   };
   const wallRows = () => {
     const at = peeked();
-    const grid = at && frameOf(at.b.state(), key(at.st))?.closest(".wall-grid");
+    const grid = at && frameOf(at.b.state, key(at.st))?.closest(".wall-grid");
     return grid ? getComputedStyle(grid).gridTemplateColumns.split(" ").length : 1;
   };
 
@@ -759,8 +721,8 @@ export function Studio(props: {
   const [writing, setWriting] = createSignal<Draft | null>(null);
 
   // The strip: the state whose card sits at the snap goes on stage once a
-  // swipe settles, and a state put on stage from elsewhere (the flow bar, the
-  // situation switch) brings its first card to the snap.
+  // swipe settles, and a state put on stage from elsewhere (the flow bar) brings its
+  // first card to the snap.
   let followed: string | null | undefined;
   let settle = 0;
   const snapPad = () =>
@@ -785,9 +747,9 @@ export function Studio(props: {
     settle = host().window.setTimeout(() => {
       if (lookKey() || writing()) return;
       const b = atSnap();
-      if (!b || b.state() === s.activeState()) return;
-      followed = b.state();
-      s.showState(b.state());
+      if (!b || b.state === s.activeState()) return;
+      followed = b.state;
+      s.showState(b.state);
     }, 120);
   };
   onCleanup(() => host().window.clearTimeout(settle));
@@ -876,7 +838,7 @@ export function Studio(props: {
   // state goes on stage first.
   const actsFor = (b: Board): Acts => {
     const here = () => {
-      if (b.state() !== s.activeState()) s.showState(b.state());
+      if (b.state !== s.activeState()) s.showState(b.state);
     };
     return {
       selecting,
@@ -889,7 +851,7 @@ export function Studio(props: {
         if (st.hidden) void s.hideVersion(st, false);
         else {
           void s
-            .restoreVariant(st.variant, [b.state()])
+            .restoreVariant(st.variant, [b.state])
             .then(() => s.setToast({ text: `Restored ${st.variant}` }));
         }
       },
@@ -932,7 +894,7 @@ export function Studio(props: {
       saved(st) {
         const id = s.mock()?.id;
         if (!id) return false;
-        return sl.isSaved({ mock: id, state: b.state(), variant: st.variant, version: st.version });
+        return sl.isSaved({ mock: id, state: b.state, variant: st.variant, version: st.version });
       },
       family: (st) => b.familyOf(st),
       leave: (st) =>
@@ -951,7 +913,7 @@ export function Studio(props: {
   // On the wall a card is one design among many, in no column: its name has to say
   // which version it is, and that it was forked from another.
   const wallCaption = (b: Board, st: VersionStep) => {
-    const v = s.variants().find((x) => x.state === b.state() && x.variant === st.variant);
+    const v = s.variants().find((x) => x.state === b.state && x.variant === st.variant);
     const name =
       st.hidden || b.versionsOf(st.variant).length > 1 ? versionName(st, true) : st.variant;
     return v && b.isFork(v) ? `↳ ${name}` : name;
@@ -1008,27 +970,6 @@ export function Studio(props: {
           </div>
         )}
       </Show>
-      <Show when={s.situations().length > 1}>
-        <div class="studio-sits" role="radiogroup" aria-label="Situation">
-          <For each={s.situations()}>
-            {(x) => (
-              <button
-                type="button"
-                role="radio"
-                aria-checked={x.state === s.activeState()}
-                onClick={() => {
-                  setBorrowFrom(null);
-                  setWriting(null);
-                  if (x.state !== s.activeState()) s.showState(x.state);
-                }}
-              >
-                {x.name}
-                <span class="n">{countIn(x.state)}</span>
-              </button>
-            )}
-          </For>
-        </div>
-      </Show>
       <Show when={wall()}>
         <WallBar
           query={query()}
@@ -1052,10 +993,10 @@ export function Studio(props: {
           {(b) => {
             const act = actsFor(b);
             return (
-              <section class="wall-state" aria-label={b.moment ?? undefined}>
+              <section class="wall-state" aria-label={b.state ?? undefined}>
                 <Show when={wallStates().length > 1}>
                   <h2 class="studio-sth">
-                    {b.moment}
+                    {b.state}
                     <span class="n">{stepsIn(b).length}</span>
                   </h2>
                 </Show>
@@ -1099,13 +1040,13 @@ export function Studio(props: {
               <section
                 class="studio-state"
                 data-board={i()}
-                data-state={b.state() ?? ""}
-                aria-label={strip() ? (b.moment ?? undefined) : undefined}
+                data-state={b.state ?? ""}
+                aria-label={strip() ? (b.state ?? undefined) : undefined}
               >
                 <Show when={strip() && drawn().length > 1}>
                   <h2 class="studio-sth">
-                    {b.moment}
-                    <span class="n">{countIn(b.state())}</span>
+                    {b.state}
+                    <span class="n">{countIn(b.state)}</span>
                   </h2>
                 </Show>
                 <div class="studio-run">
@@ -1132,7 +1073,7 @@ export function Studio(props: {
                                   : `Archive ${v.variant}`
                               }
                               onClick={() => {
-                                if (b.state() !== s.activeState()) s.showState(b.state());
+                                if (b.state !== s.activeState()) s.showState(b.state);
                                 void s.archiveVariants([v.variant]);
                               }}
                             >
@@ -1143,12 +1084,7 @@ export function Studio(props: {
                         <Show when={v.copiedFrom}>
                           {(c) => <Origin from={c()} mocks={projectMocks()?.mocks ?? []} />}
                         </Show>
-                        <Show
-                          when={b.here(v)}
-                          fallback={<div class="studio-hole">{`No ${b.situationName()} yet`}</div>}
-                        >
-                          <For each={b.drawnOf(v.variant)}>{(st) => card(b, act, st)}</For>
-                        </Show>
+                        <For each={b.drawnOf(v.variant)}>{(st) => card(b, act, st)}</For>
                       </section>
                     )}
                   </For>
@@ -1357,7 +1293,7 @@ function WallBar(props: {
   onAdd?: () => void;
   onColumns: () => void;
 }) {
-  const named = () => props.states.filter((b) => b.moment !== null);
+  const named = () => props.states.filter((b) => b.state !== null);
   return (
     <div class="wall-bar" classList={{ phone: phoneLayout() }}>
       <div class="wall-row">
@@ -1415,14 +1351,14 @@ function WallBar(props: {
           </button>
           <For each={named()}>
             {(b) => (
-              <Show when={props.countIn(b) > 0 || props.within === b.moment}>
+              <Show when={props.countIn(b) > 0 || props.within === b.state}>
                 <button
                   type="button"
                   role="radio"
-                  aria-checked={props.within === b.moment}
-                  onClick={() => props.onWithin(b.moment)}
+                  aria-checked={props.within === b.state}
+                  onClick={() => props.onWithin(b.state)}
                 >
-                  {b.moment}
+                  {b.state}
                   <span class="n">{props.countIn(b)}</span>
                 </button>
               </Show>
@@ -1476,7 +1412,7 @@ function Sketch(props: {
         hid: st().hidden,
       }}
       data-key={`${st().variant}@${st().version}`}
-      data-state={props.b.state() ?? ""}
+      data-state={props.b.state ?? ""}
       // A poster is an image: it holds no context, so it takes no budget.
       // On a wall any page counts: there can be a screenful of them with no canvas at all.
       data-canvas={(st().canvas || props.wall) && !st().poster ? "" : undefined}
@@ -1745,14 +1681,14 @@ function Look(props: {
   const name = () => b().nameOf(st());
   const inUse = () => sameVersion(b().inUse(), st());
   const note = () => {
-    const v = s.variants().find((x) => x.state === b().state() && x.variant === st().variant);
+    const v = s.variants().find((x) => x.state === b().state && x.variant === st().variant);
     return v?.archiveReason ? `Archived: ${v.archiveReason}` : v?.note;
   };
   const can = () => !readonly();
   const counter = () => {
     const among = props.perState ? props.order.filter((e) => e.b === b()) : props.order;
     const count = `${among.indexOf(props.entry) + 1} of ${among.length}`;
-    return (props.perState || props.wall) && b().moment ? `${b().moment}, ${count}` : count;
+    return (props.perState || props.wall) && b().state ? `${b().state}, ${count}` : count;
   };
   let box: HTMLDivElement | undefined;
   // A preview waits beside the wall: focus stays on the card or the filter.

@@ -14,6 +14,7 @@ None of them waits for the user.
 | `mockpit say`                | `say`                                       | `POST /api/mocks/:id/say`                        |
 | `mockpit move`               | `move`                                      | `POST /api/mocks/:id/move`                       |
 | `mockpit edit --mock <slug>` | `edit`                                      | `PATCH /api/mocks/:id`                           |
+| `mockpit edit --notes <t>`   | `edit({ notes })`                           | `PATCH /api/mocks/:id` `{notes}`                 |
 | `mockpit edit --rename <n>`  | `edit({ rename })`                          | `PATCH /api/projects/:name` `{name}`             |
 | `mockpit edit --area-order`  | `edit({ areaOrder })`                       | `PATCH /api/projects/:name` `{areaOrder}`        |
 | `mockpit export`             | `export`                                    | `GET /api/mocks/:id/export`                      |

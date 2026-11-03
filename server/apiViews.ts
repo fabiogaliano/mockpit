@@ -9,11 +9,11 @@ import {
   draftedCount,
   type Embed,
   inUseVersion,
+  isPlanned,
   isSandboxedSurfaceKind,
   isLive,
   type KnobValue,
   type Mock,
-  momentsOf,
   openCount,
   type Post,
   type PostHead,
@@ -248,10 +248,9 @@ function thumbnail(mock: Mock, posts: PostHead[]) {
   };
 }
 
-// A mock's situations, only once it has any, so the views of mocks without
-// them are unchanged.
-const situationsOf = (mock: Mock) =>
-  Object.keys(mock.situations).length ? { situations: mock.situations } : {};
+// Only a plan says so, so the views of everything drawn are unchanged.
+const plannedOf = (mock: Mock, variants: number) =>
+  isPlanned(mock, variants) ? { planned: true as const } : {};
 
 export const mockSummaryView = (mock: Mock, posts: PostHead[]) => {
   const drafted = draftedCount(mock);
@@ -262,9 +261,11 @@ export const mockSummaryView = (mock: Mock, posts: PostHead[]) => {
     title: mock.title,
     kind: mock.kind,
     ...placeOf(mock),
+    ...plannedOf(mock, posts.length),
+    // Text comes with a read of the mock; a list only says there is some to read.
+    ...(mock.notes ? { hasNotes: true as const } : {}),
     states: mock.states,
-    ...situationsOf(mock),
-    stateCount: Math.max(momentsOf(mock.states, mock.situations).length, 1),
+    stateCount: Math.max(mock.states.length, 1),
     variants: posts.length,
     open: openCount(mock),
     // Only once the user has started one, so a list with no drafts costs nothing.
@@ -293,8 +294,10 @@ export const mockDetailView = (
   ...(mock.shortlist ? { shortlist: true } : {}),
   // No agent has written to this shortlist yet: who its replies reach for now.
   ...(opts.repliesGoTo ? { repliesGoTo: opts.repliesGoTo } : {}),
+  ...plannedOf(mock, posts.length),
   states: mock.states,
-  ...situationsOf(mock),
+  ...(mock.notes ? { notes: mock.notes } : {}),
+  ...(Object.keys(mock.stateOutlines).length ? { stateOutlines: mock.stateOutlines } : {}),
   asks: mock.asks,
   open: openCount(mock),
   knobs: mock.knobs,
@@ -336,13 +339,13 @@ export const treeNodeView = (
   kind: mock.kind,
   ...placeOf(mock),
   ...(mock.shortlist ? { shortlist: true } : {}),
+  ...plannedOf(mock, posts.length),
   open: openCount(mock),
   // Any question ever asked, answered or not: it tells an idea from a document.
   ...(mock.asks.length ? { asked: mock.asks.length } : {}),
   // Later than every variant: the user has spoken and it is the agent's turn.
   ...(extra.lastReplyAt ? { lastReplyAt: extra.lastReplyAt } : {}),
-  // Home shows a mock's states, never their situations.
-  states: mock.states.length ? momentsOf(mock.states, mock.situations) : [null],
+  states: stateOrder(mock),
   widths: mock.widths,
   createdAt: mock.createdAt,
   updatedAt: mock.updatedAt,

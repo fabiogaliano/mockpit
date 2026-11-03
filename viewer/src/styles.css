@@ -4184,104 +4184,10 @@ html:has(.mock-screen) {
   border-radius: 50%;
   background: var(--keep);
 }
-/* A state's situations: one quiet row of renders under the design. */
-.sitswitch {
-  display: flex;
-  gap: 2px;
-  max-width: 100%;
-  padding: 3px;
-  overflow-x: auto;
-  border: 1px solid var(--edge);
-  border-radius: 999px;
-  background: var(--panel);
-  scrollbar-width: none;
-}
-.sitswitch button {
-  flex: none;
-  padding: 4px 12px;
-  border-radius: 999px;
-  color: var(--t4);
-  font-size: 12px;
-  white-space: nowrap;
-  transition:
-    background var(--ease),
-    color var(--ease);
-}
-.sitswitch button.on {
-  background: var(--row);
-  color: var(--t1);
-}
-@media (hover: hover) {
-  .sitswitch button:not(.on):hover {
-    color: var(--t1);
-  }
-}
 .crumb-sit {
   flex: none;
   color: var(--t4);
   white-space: nowrap;
-}
-/* Every situation of the state side by side, over the canvas. */
-.sitgrid {
-  position: fixed;
-  left: var(--canvas-l, 0px);
-  right: var(--canvas-r, 0px);
-  z-index: 25;
-  display: flex;
-  flex-wrap: wrap;
-  /* safe: rows taller than the box start at its top instead of overflowing it. */
-  align-content: safe center;
-  justify-content: center;
-  gap: 24px;
-  padding: 16px;
-  overflow: auto;
-  background: var(--page);
-}
-.sitcell {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
-  border-radius: 14px;
-}
-.sitcell.on {
-  background: var(--row);
-}
-.sitthumb,
-.sitblank {
-  width: 180px;
-  height: 340px;
-  border-radius: 10px;
-  background: var(--frame);
-  box-shadow: 0 0 0 1px var(--edge);
-}
-.sitthumb.flat {
-  width: 300px;
-  height: 200px;
-}
-.sitcell .lbl {
-  color: var(--t2);
-  font-size: 13px;
-}
-@media (hover: hover) {
-  .sitcell:hover .lbl {
-    color: var(--t1);
-  }
-}
-@media (max-width: 640px) {
-  .sitgrid {
-    gap: 8px;
-  }
-  .sitthumb,
-  .sitblank {
-    width: 140px;
-    height: 264px;
-  }
-  .sitthumb.flat {
-    width: 150px;
-    height: 100px;
-  }
 }
 .modehint {
   padding: 5px 12px;
@@ -5522,8 +5428,7 @@ html:has(.mock-screen) {
     justify-content: center;
   }
   .btn.vnew .lbl,
-  .btn.use .lbl,
-  .btn.vall .lbl {
+  .btn.use .lbl {
     display: none;
   }
   .btn.use .sh {
@@ -5748,51 +5653,6 @@ html:has(.mock-screen) {
   bottom: 0;
   overflow: auto;
   padding: 4px 20px 120px;
-}
-/* Sticky to the left edge so the switch stays put while the columns scroll. */
-.studio-sits {
-  position: sticky;
-  left: 0;
-  z-index: 3;
-  display: flex;
-  gap: 2px;
-  width: max-content;
-  margin: 8px 0 4px -10px;
-}
-.studio-sits button {
-  padding: 6px 10px;
-  border-radius: 8px;
-  color: var(--t4);
-  font-size: 13px;
-  transition:
-    background var(--ease),
-    color var(--ease);
-}
-.studio-sits button[aria-checked="true"] {
-  background: var(--row);
-  color: var(--t1);
-}
-@media (hover: hover) {
-  .studio-sits button:hover {
-    color: var(--t1);
-  }
-}
-.studio-sits .n {
-  margin-inline-start: 6px;
-  color: var(--t5);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.studio-hole {
-  display: grid;
-  place-items: center;
-  aspect-ratio: 4 / 3;
-  padding: 0 18px;
-  border: 1px dashed var(--edge);
-  border-radius: 14px;
-  color: var(--t5);
-  font-size: 12px;
-  text-align: center;
 }
 .studio-cols {
   display: flex;
@@ -6870,15 +6730,6 @@ body:has(.selp) .toast {
     transition: none;
   }
 }
-/* The dock's way out to Studio: the count says there is more to see. */
-.btn.vall {
-  gap: 6px;
-  color: var(--t3);
-}
-.btn.vall svg {
-  width: 16px;
-  height: 16px;
-}
 
 /* Shortlists: the bookmark, the list it saves to, a candidate's origin, and the
    picker. A saved bookmark stays visible; the rest of a card's tools wait for hover.
@@ -7720,4 +7571,362 @@ body:has(.selp) .toast {
   .look-acts {
     padding-bottom: max(12px, env(safe-area-inset-bottom));
   }
+}
+
+/* Declared and not drawn. One dashed edge says it everywhere: where the picture will go. */
+.lm-pic.lm-dash {
+  background: none;
+  box-shadow: none;
+  border: 1px dashed var(--t5);
+}
+.lm-outline .lm-row {
+  padding-right: 28px;
+  color: var(--t4);
+}
+.lm-new {
+  align-items: center;
+  margin-top: 2px;
+  font-size: 13px;
+}
+.lm-new svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+}
+.ftab.ftab-outline {
+  outline: 1px dashed var(--t5);
+  outline-offset: -3px;
+}
+.ftab.ftab-new {
+  gap: 4px;
+  color: var(--t4);
+}
+.ftab.ftab-new svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.stateask {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(360px, calc(100vw - 24px));
+  padding: 10px 12px 12px;
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+.stateask-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+.stateask-note {
+  color: var(--t4);
+  font-size: 12px;
+}
+.stateask-name,
+.stateask-detail {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--page);
+  color: var(--t1);
+  font: inherit;
+  font-size: 16px;
+}
+.stateask-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+@media (min-width: 641px) {
+  .stateask-name,
+  .stateask-detail {
+    font-size: 13px;
+  }
+}
+.planned-stage {
+  position: fixed;
+  top: var(--canvas-top, 0);
+  right: var(--canvas-r, 0);
+  bottom: 0;
+  left: var(--canvas-l, 0);
+  display: grid;
+  place-items: center;
+  overflow-y: auto;
+  padding: 24px;
+  padding-left: calc(24px + var(--strip, 0px) + env(safe-area-inset-left));
+  padding-right: calc(24px + env(safe-area-inset-right));
+  background: var(--page);
+}
+.planned-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  width: min(520px, 100%);
+  min-height: 280px;
+  padding: 24px;
+  border: 1px dashed var(--t5);
+  border-radius: 14px;
+}
+.planned-card.phone {
+  width: min(320px, 100%);
+  min-height: 460px;
+}
+.planned-card h2 {
+  margin: 0;
+  color: var(--t1);
+  font-size: 18px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.planned-card p {
+  margin: 0;
+  color: var(--t3);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.planned-tag {
+  color: var(--t4);
+  font-size: 12px;
+}
+.planned-card .planned-src {
+  color: var(--t4);
+  font: 400 12px var(--mono);
+  overflow-wrap: anywhere;
+}
+.planned-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 16px;
+}
+.alb-plan {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--t5);
+  border-radius: inherit;
+  background: var(--page);
+  color: var(--t4);
+  font-size: 13px;
+}
+.home-head-plan {
+  margin-left: 10px;
+}
+
+/* States by variants. The scroller is the whole view, so the names stay in sight both
+   ways, and a phone gets there by scrolling rather than by a smaller table. */
+.gridview {
+  position: fixed;
+  top: var(--canvas-top, 0);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  background: var(--page);
+  --gv-name: 128px;
+}
+.gv-head {
+  position: sticky;
+  left: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  width: min(100vw, 100%);
+  padding: 12px 16px;
+  color: var(--t4);
+  font-size: 13px;
+}
+.gv-count {
+  color: var(--t2);
+}
+.gv-used {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.gv-used a {
+  color: var(--t2);
+  text-decoration: underline;
+  text-decoration-color: var(--edge);
+  text-underline-offset: 3px;
+}
+.gv-cols-btn svg {
+  width: 15px;
+  height: 15px;
+}
+.gv-table {
+  display: grid;
+  grid-template-columns: var(--gv-name) repeat(var(--gv-cols), var(--gv-cell));
+  gap: 12px;
+  width: max-content;
+  padding: 0 16px 16px 0;
+}
+.gv-corner,
+.gv-col {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 6px 0;
+  background: var(--page);
+}
+.gv-corner {
+  left: 0;
+  z-index: 3;
+}
+.gv-col {
+  overflow: hidden;
+  color: var(--t2);
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gv-row {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  padding: 8px 8px 8px 16px;
+  background: var(--page);
+  color: var(--t2);
+  font-size: 13px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.gv-flat {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--gv-cell), 1fr));
+  gap: 16px;
+  padding: 4px 16px 16px;
+}
+.gv-cell {
+  min-width: 0;
+}
+.gv-tile {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  aspect-ratio: var(--gv-art);
+  border: 0;
+  border-radius: 10px;
+  background: var(--frame);
+  box-shadow: 0 0 0 1px var(--edge);
+  cursor: pointer;
+  transition: box-shadow var(--ease);
+}
+.gv-tile:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.gv-art,
+.gv-art .thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.gv-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.gv-tile.gv-missing {
+  display: grid;
+  place-items: center;
+  background: none;
+  border: 1px dashed var(--t5);
+  box-shadow: none;
+  color: var(--t4);
+  font-size: 12px;
+  cursor: default;
+}
+.gv-cap {
+  display: block;
+  margin-top: 6px;
+  overflow: hidden;
+  color: var(--t3);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (hover: hover) {
+  button.gv-tile:hover {
+    box-shadow: 0 0 0 1px var(--t4);
+  }
+}
+@media (max-width: 640px) {
+  .gridview {
+    --gv-name: 84px;
+  }
+  .gv-row {
+    padding-left: 10px;
+    padding-right: 4px;
+    font-size: 12px;
+  }
+}
+
+/* Notes: plain text, kept as written. */
+.notes {
+  padding-top: 4px;
+}
+.notes-text {
+  margin: 0;
+  color: var(--t2);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.notes-none {
+  margin: 0;
+  color: var(--t4);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.notes-by {
+  margin: 10px 0 0;
+  color: var(--t5);
+  font-size: 12px;
+}
+.notes-input {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--page);
+  color: var(--t1);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.45;
+  resize: vertical;
+}
+@media (min-width: 641px) {
+  .notes-input {
+    font-size: 13px;
+  }
+}
+.notes-acts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.notes-count {
+  color: var(--t4);
+  font-size: 12px;
 }

@@ -74,6 +74,12 @@ export function bothWidths(node: Pick<TreeNode, "widths">): { phone: number; wid
 }
 
 export function coverShape(node: TreeNode): CoverShape {
+  // Planned has no picture yet but it does have a shape: its outline is where the
+  // picture will go, and a wrong shape would jump when the first one comes.
+  if (node.planned) {
+    if (node.kind === "component") return "part";
+    return designWidth(node) < PHONE_MAX ? "phone" : "wide";
+  }
   const pic = albumPicture(node);
   if (!pic || sectionOf(node) === "documents") return "text";
   if (node.kind === "component") return "part";
@@ -94,12 +100,19 @@ export function stackDepth(node: Pick<TreeNode, "states" | "variants">): number 
   return Math.min(Math.max(pictures - 1, 0), 2);
 }
 
+// Named by the agent and with nothing in them yet.
+const undrawnStates = (node: Pick<TreeNode, "states" | "variants">) =>
+  node.states.filter((st) => st !== null && !node.variants.some((v) => v.state === st)).length;
+
 export function albumInside(node: TreeNode): string {
   const states = node.states.filter((s) => s !== null).length;
   const live = liveVariants(node);
   const parts: string[] = [];
+  if (node.planned) parts.push("Planned");
   if (node.shortlist) parts.push("Gathered");
   if (states > 1) parts.push(`${states} states`);
+  const notYet = node.planned ? 0 : undrawnStates(node);
+  if (notYet) parts.push(`${notYet} not drawn`);
   if (live > 1 && live !== states) parts.push(`${live} variants`);
   if (bothWidths(node)) parts.push("Phone and desktop");
   return parts.join(" · ");

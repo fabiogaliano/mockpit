@@ -19,6 +19,7 @@ import type {
   FlowStep,
   KnobValue,
   MockKind,
+  StateOutline,
   PartComment,
   ProjectSummary,
   ReplyVerdict,
@@ -205,10 +206,15 @@ export const api = {
     ),
   // The user moves a mock from Home: another kind or area (null: none). The
   // agent hears it in its next feedback.
-  editMock: (id: string, body: { kind?: MockKind; area?: string | null }) =>
+  editMock: (id: string, body: { kind?: MockKind; area?: string | null; notes?: string }) =>
     call<{ mock: { kind: MockKind; area?: string } }>(
       `/api/mocks/${encodeURIComponent(id)}`,
       json("PATCH", body),
+    ),
+  stateOutline: (id: string, body: { state: string; to: StateOutline | null }) =>
+    call<{ stateOutlines: Record<string, StateOutline> }>(
+      `/api/mocks/${encodeURIComponent(id)}/outlines`,
+      json("POST", body),
     ),
   // Un-archive one variant of one state (D13).
   archiveVariant: (id: string, state: string | null, variant: string) =>

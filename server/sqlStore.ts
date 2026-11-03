@@ -23,6 +23,8 @@ import {
   type Knobs,
   MAX_WORKSPACE_ASSET_BYTES,
   type Mock,
+  type MockNotes,
+  type StateOutline,
   isMockKind,
   newId,
   normalizeSurfaceIds,
@@ -303,9 +305,11 @@ export class SqlStore implements Store {
       closeReason: "TEXT",
       area: "TEXT",
       source: "TEXT",
-      situations: "TEXT NOT NULL DEFAULT '{}'",
       shortlist: "INTEGER NOT NULL DEFAULT 0",
+      notes: "TEXT",
+      stateOutlines: "TEXT NOT NULL DEFAULT '{}'",
     });
+    this.migrateSituations();
     // Before the legacy lift, whose history rows are written with every column.
     this.addMissing("post_versions", { sessionId: "TEXT", amendedAt: "TEXT" });
     if (legacy) this.migrateLegacy();
@@ -336,6 +340,32 @@ export class SqlStore implements Store {
     if (this.settingSync("sketchKind") !== "1") this.migrateToSketches();
     if (this.settingSync("contractTerms") !== "1") this.migrateToContractTerms();
     this.createIndexes();
+  }
+
+  // A situation was already a state of its own, filed in `states` under the name
+  // feedback gave it ("Writing · Couldn't save"), with its asks, comments and posts
+  // there too, so those keep that name and only the map that set it apart goes. The
+  // column itself stays on a workspace that has it, empty: nothing reads it any more,
+  // and new workspaces never get one.
+  private migrateSituations() {
+    if (!this.columns("mocks").has("situations")) return;
+    for (const r of this.sql
+      .exec("SELECT id, states, situations FROM mocks WHERE situations != '{}'")
+      .toArray()) {
+      const states = parseJson<string[]>(r.states, []);
+      const map = parseJson<Record<string, string[]>>(r.situations, {});
+      for (const [state, names] of Object.entries(map)) {
+        for (const name of names) {
+          const key = `${state} · ${name}`;
+          if (!states.includes(key)) states.push(key);
+        }
+      }
+      this.sql.exec(
+        "UPDATE mocks SET states = ?, situations = '{}' WHERE id = ?",
+        JSON.stringify(states),
+        r.id as string,
+      );
+    }
   }
 
   // The agent contract renamed what replies and drafts store (mix → borrowed,
@@ -811,7 +841,6 @@ export class SqlStore implements Store {
       area: (r.area as string) ?? null,
       source: (r.source as string) ?? null,
       states: parseJson<string[]>(r.states, []),
-      situations: parseJson<Record<string, string[]>>(r.situations, {}),
       asks: parseJson<Ask[]>(r.asks, []),
       knobs: parseJson<Knobs>(r.knobs, {}),
       widths: parseJson<number[]>(r.widths, []),
@@ -820,6 +849,8 @@ export class SqlStore implements Store {
       shortlist: !!r.shortlist,
       closedAt: (r.closedAt as string) ?? null,
       closeReason: (r.closeReason as string) ?? null,
+      notes: parseJson<MockNotes | null>(r.notes, null),
+      stateOutlines: parseJson<Record<string, StateOutline>>(r.stateOutlines, {}),
       createdAt: r.createdAt as string,
       updatedAt: r.updatedAt as string,
     };
@@ -971,12 +1002,24 @@ export class SqlStore implements Store {
         "DELETE FROM post_versions WHERE postId IN (SELECT id FROM posts WHERE sessionId = ?)",
         id,
       );
-      this.sql.exec("DELETE FROM posts WHERE sessionId = ?", id);
-      // A mock left with no variants has nothing to show.
-      this.sql.exec(
-        "DELETE FROM comments WHERE mockId IN (SELECT id FROM mocks WHERE id NOT IN (SELECT mockId FROM posts))",
+      const drawn = JSON.stringify(
+        this.sql
+          .exec("SELECT DISTINCT mockId FROM posts WHERE sessionId = ?", id)
+          .toArray()
+          .map((r) => r.mockId),
       );
-      this.sql.exec("DELETE FROM mocks WHERE id NOT IN (SELECT mockId FROM posts)");
+      this.sql.exec("DELETE FROM posts WHERE sessionId = ?", id);
+      // A mock left with no variants has nothing to show, unless it was declared ahead
+      // of being drawn, which only goes with the session that planned it. One this
+      // session drew is not a plan, whoever wrote to it last: it would come back as one.
+      const emptied =
+        "id NOT IN (SELECT mockId FROM posts) AND (kind = 'sketch' OR sessionId = ? OR id IN (SELECT value FROM json_each(?)))";
+      this.sql.exec(
+        `DELETE FROM comments WHERE mockId IN (SELECT id FROM mocks WHERE ${emptied})`,
+        id,
+        drawn,
+      );
+      this.sql.exec(`DELETE FROM mocks WHERE ${emptied}`, id, drawn);
       this.sql.exec("UPDATE mocks SET sessionId = NULL WHERE sessionId = ?", id);
       // Posts are gone, so the referenced set reflects survivors only: drop this
       // session's own assets except any a surviving surface still points at
@@ -1127,7 +1170,6 @@ export class SqlStore implements Store {
       area: label(input.area),
       source: label(input.source),
       states: (input.states ?? []).map((s) => stripNul(s)),
-      situations: {},
       asks: [],
       knobs: input.knobs ?? {},
       widths: input.widths ?? [],
@@ -1136,6 +1178,8 @@ export class SqlStore implements Store {
       shortlist: !!input.shortlist,
       closedAt: null,
       closeReason: null,
+      notes: null,
+      stateOutlines: {},
       createdAt: now,
       updatedAt: now,
     };
@@ -1169,7 +1213,6 @@ export class SqlStore implements Store {
       ...(patch.area !== undefined && { area: label(patch.area) }),
       ...(patch.source !== undefined && { source: label(patch.source) }),
       ...(patch.states !== undefined && { states: patch.states.map((s) => stripNul(s)) }),
-      ...(patch.situations !== undefined && { situations: patch.situations }),
       ...(patch.asks !== undefined && { asks: patch.asks }),
       ...(patch.knobs !== undefined && { knobs: patch.knobs }),
       ...(patch.widths !== undefined && { widths: patch.widths }),
@@ -1177,22 +1220,25 @@ export class SqlStore implements Store {
       ...(patch.closedAt !== undefined && { closedAt: patch.closedAt }),
       ...(patch.closedAt === null && { closeReason: null }),
       ...(patch.closeReason !== undefined && { closeReason: patch.closeReason }),
+      ...(patch.notes !== undefined && { notes: patch.notes }),
+      ...(patch.stateOutlines !== undefined && { stateOutlines: patch.stateOutlines }),
       updatedAt: new Date().toISOString(),
     };
     this.sql.exec(
-      "UPDATE mocks SET title = ?, kind = ?, area = ?, source = ?, states = ?, situations = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, closedAt = ?, closeReason = ?, updatedAt = ? WHERE id = ?",
+      "UPDATE mocks SET title = ?, kind = ?, area = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, closedAt = ?, closeReason = ?, notes = ?, stateOutlines = ?, updatedAt = ? WHERE id = ?",
       next.title,
       next.kind,
       next.area,
       next.source,
       JSON.stringify(next.states),
-      JSON.stringify(next.situations),
       JSON.stringify(next.asks),
       JSON.stringify(next.knobs),
       JSON.stringify(next.widths),
       next.sessionId,
       next.closedAt,
       next.closeReason,
+      next.notes ? JSON.stringify(next.notes) : null,
+      JSON.stringify(next.stateOutlines),
       next.updatedAt,
       id,
     );

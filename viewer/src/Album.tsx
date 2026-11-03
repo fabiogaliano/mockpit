@@ -91,8 +91,10 @@ export function Album(props: {
   menu: JSX.Element | undefined;
   // Words that only the shelf knows: where a component appears.
   extra?: string;
-  // Ideas end with a quiet × on the cover, as a design leaves Studio.
+  // Ideas end with a quiet × on the cover, as a design leaves Studio, and an outline
+  // nobody needs goes the same way.
   onEnd?: () => void;
+  endLabel?: string;
 }) {
   const n = () => props.node;
   const shape = createMemo(() => coverShape(n()));
@@ -121,10 +123,17 @@ export function Album(props: {
             <Show
               when={shape() !== "text" && pic()}
               fallback={
-                <span class="alb-text">
-                  <span class="alb-text-title">{n().title}</span>
-                  <span class="alb-text-date">{shortDate(lastWork(n()))}</span>
-                </span>
+                <Show
+                  when={n().planned}
+                  fallback={
+                    <span class="alb-text">
+                      <span class="alb-text-title">{n().title}</span>
+                      <span class="alb-text-date">{shortDate(lastWork(n()))}</span>
+                    </span>
+                  }
+                >
+                  <span class="alb-plan">Planned</span>
+                </Show>
               }
             >
               {(p) => (
@@ -148,8 +157,8 @@ export function Album(props: {
           <button
             type="button"
             class="ib x-remove alb-x"
-            aria-label={`End ${n().title}`}
-            title="End this idea"
+            aria-label={`${props.endLabel ?? "End"}: ${n().title}`}
+            title={props.endLabel ?? "End this idea"}
             onClick={() => props.onEnd?.()}
           >
             <Icon name="close" />
@@ -219,17 +228,21 @@ export function FlowStepTile(props: {
       props.flow,
     );
   const width = () => designWidth(props.node);
+  // Drawn with nothing to picture (an image, some json) isn't the same as not drawn.
+  const planned = () => !props.node.variants.some((v) => v.state === props.state);
   return (
     <a
       class="home-step"
-      classList={{ phone: width() < 700 }}
+      classList={{ phone: width() < 700, planned: planned() }}
       href={href()}
       onClick={(e) => linkClick(e, href())}
       data-mock={props.node.slug}
       data-state={props.state ?? ""}
     >
       <span class="home-pic">
-        <Show when={pic()}>{(p) => <Picture pic={p()} width={width()} whole={false} />}</Show>
+        <Show when={pic()} fallback={planned() ? <span class="alb-plan">Planned</span> : null}>
+          {(p) => <Picture pic={p()} width={width()} whole={false} />}
+        </Show>
         <Show when={pic()?.inUse}>
           <span class="mk cur" aria-hidden="true">
             <Icon name="check" />

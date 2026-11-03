@@ -148,7 +148,8 @@ changed, as they left them (`area: null` means none):
 ```
 
 It is already done: don't edit it back, and publish under the new kind and area.
-It can ride in the same batch as a reply.
+It can ride in the same batch as a reply. `edited.notes` is the mock's notes as the
+user just corrected them (`null` if they cleared them).
 
 ## Delivery
 
@@ -178,6 +179,13 @@ mockpit read    --tree                    # the project as a tree: variants, for
 mockpit read    --decisions               # the whole decision list, when a read cut it
 ```
 
+- `notes` (`{text, by, at}`) on a read of one mock is its short spec: drafted with
+  `mockpit edit --notes`, editable by the user, read it before changing the mock.
+  `by: "user"` means their words stand: your next draft isn't applied until they clear
+  them, and `edit` answers `notes: {applied: false, text}`. A list marks it `hasNotes`.
+- `planned: true` is a declared screen or component with nothing drawn yet; your first
+  publish to it draws it. `stateOutlines` says which missing states the user dismissed
+  or asked for by name (`{"Loading": "dismissed"}`).
 - `decisionList` (`{total, lines: [{mock, text, here, edited, closed}], more}`) on
   both reads is what the user already settled across the project: written by the
   server from replies (what was asked, what was picked and left, their words, what

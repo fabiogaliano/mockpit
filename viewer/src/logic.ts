@@ -837,12 +837,13 @@ const KIND_NAMES: Record<MockKind, string> = {
   sketch: "Sketches",
 };
 
-// A move made from Home, or a grouping from when Studio could make one, as the
-// thread lists it.
+// A move made from Home, the notes corrected by hand, or a grouping from when Studio
+// could make one, as the thread lists it.
 export const editedLine = (e: MockEdit): string =>
   [
     e.kind ? `Moved to ${KIND_NAMES[e.kind]}` : "",
     e.area !== undefined ? (e.area ? `Area ${e.area}` : "No area") : "",
+    e.notes !== undefined ? (e.notes === null ? "Notes cleared" : "Notes edited") : "",
     ...(e.grouped ?? []).map((g) =>
       g.lead
         ? `${g.variants.join(", ")} grouped under ${g.lead}`
@@ -1319,6 +1320,12 @@ export function paragraphPins(
 
 // --- the wall: a lab too big to compare side by side ---
 
+// More canvas pages live than this and a browser drops the oldest one's WebGL
+// context; one past the budget waits as a placeholder until it is pointed at.
+// Any other page has no such limit and is live whenever it is near the screen, except
+// on a wall or a grid, where a screenful of pages costs as much with no canvas at all.
+export const CANVAS_MAX = 16;
+
 // ia.md's "Inside a mock": 2 to 6 variants switch, 7 to 50 compare first (Studio),
 // 50+ filter. Counted across every state and archived too: pruning a lab mustn't
 // change the layout under the hand doing it, and a lab with everything archived is
@@ -1477,7 +1484,6 @@ export type FlowKey =
   | { kind: "step"; by: 1 | -1 }
   | { kind: "primary" }
   | { kind: "mock"; by: 1 | -1 }
-  | { kind: "situation"; by: 1 | -1 }
   | { kind: "clear" };
 
 // What a key does on the mock screen, or null when it isn't ours. Keys typed
@@ -1498,10 +1504,6 @@ export function flowKey(e: {
       return { kind: "step", by: 1 };
     case "ArrowLeft":
       return { kind: "step", by: -1 };
-    case "ArrowDown":
-      return e.onControl ? null : { kind: "situation", by: 1 };
-    case "ArrowUp":
-      return e.onControl ? null : { kind: "situation", by: -1 };
     case "]":
       return { kind: "mock", by: 1 };
     case "[":
@@ -1896,5 +1898,102 @@ export function screenPicture(
     ...(v.embedsKey ? { embedsKey: v.embedsKey } : {}),
     ...(v.rewrites ? { rewrites: v.rewrites } : {}),
     inUse: !!used,
+  };
+}
+
+// --- what a declared screen doesn't have yet ---
+
+// The standard states a screen is expected to have, and what already counts as each:
+// an agent that drew "Error" or "No results" has drawn it, whatever it called it.
+const STANDARD_STATES: { name: string; covered: RegExp }[] = [
+  { name: "Empty", covered: /\b(empty|blank|no (results|data|items))\b/i },
+  { name: "Loading", covered: /\b(loading|skeleton)\b/i },
+  { name: "Failed", covered: /\b(fail(ed|ure)?|errors?|offline|couldn.t)\b/i },
+];
+
+export interface StateOutlineRow {
+  name: string;
+  // Already asked for: it waits on the agent, not on the user.
+  requested: boolean;
+}
+
+// Only on a page with a drawn design: on an idea, a document or a component these would
+// be noise, and on a plan the whole screen is the outline. Once per screen, not per
+// state: seven states times three would be twenty-one frames of nothing.
+// Only a declared screen with a page drawn: an idea, a document or a component owes
+// nobody an empty state.
+export const canOutline = (
+  mock: Pick<MockDetail, "kind" | "closedAt">,
+  variants: { surfaces: { kind?: unknown }[] }[],
+): boolean =>
+  mock.kind === "page" &&
+  !mock.closedAt &&
+  variants.some((v) => v.surfaces.some((x) => x.kind === "html"));
+
+export function missingStates(
+  mock: Pick<MockDetail, "kind" | "states" | "closedAt" | "stateOutlines">,
+  variants: { surfaces: { kind?: unknown }[] }[],
+): StateOutlineRow[] {
+  if (!canOutline(mock, variants)) return [];
+  const said = mock.stateOutlines ?? {};
+  const has = (name: string) =>
+    mock.states.some((st) => st.toLowerCase().includes(name.toLowerCase()));
+  const standard = STANDARD_STATES.filter(
+    (x) => said[x.name] !== "dismissed" && !mock.states.some((st) => x.covered.test(st)),
+  ).map((x) => ({ name: x.name, requested: said[x.name] === "requested" }));
+  const asked = Object.entries(said)
+    .filter(
+      ([name, to]) =>
+        to === "requested" && !STANDARD_STATES.some((x) => x.name === name) && !has(name),
+    )
+    .map(([name]) => ({ name, requested: true }));
+  return [...standard, ...asked];
+}
+
+// --- the grid of variants and states ---
+
+const liveNames = (variants: Pick<VariantView, "variant" | "state" | "status">[]) => {
+  const out = new Map<string, Set<string | null>>();
+  for (const v of variants) {
+    if (!isLive(v.status)) continue;
+    const states = out.get(v.variant) ?? new Set();
+    states.add(v.state);
+    out.set(v.variant, states);
+  }
+  return out;
+};
+
+// Several variants, and at least one of them drawn in more than one state: the same set
+// across states, which reads whole only as a grid. 23 of the 48 multi-state mocks on the
+// real data. A lone name repeated across states is just a list of states.
+export function repeatsAcrossStates(
+  variants: Pick<VariantView, "variant" | "state" | "status">[],
+): boolean {
+  const names = liveNames(variants);
+  return names.size > 1 && [...names.values()].some((states) => states.size > 1);
+}
+
+// A component's variants are its forms, all kept, so they're compared in a grid even
+// with one state.
+export const gridComparesForms = (
+  kind: string,
+  variants: Pick<VariantView, "variant" | "state" | "status">[],
+): boolean => kind === "component" && liveNames(variants).size > 1;
+
+// Rows and columns: every name still in play, in the order they were made, against every
+// state that has one or hasn't been drawn yet, so a whole missing state shows too. A
+// state with everything archived has left the tabs and leaves here.
+export function gridAxes(
+  states: (string | null)[],
+  variants: Pick<VariantView, "variant" | "state" | "status">[],
+): { rows: string[]; cols: (string | null)[] } {
+  const names = liveNames(variants);
+  return {
+    rows: [...names.keys()],
+    cols: states.filter(
+      (st) =>
+        !variants.some((v) => v.state === st) ||
+        variants.some((v) => v.state === st && isLive(v.status)),
+    ),
   };
 }

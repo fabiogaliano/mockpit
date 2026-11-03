@@ -4,7 +4,7 @@ import { GUIDE_TOPICS } from "./designGuide.ts";
 import { type FeedbackBatch, feedbackImages, type ImageRef } from "./feedbackBatch.ts";
 import { KIT_IDS } from "./kits.ts";
 import { RUN_DESCRIPTION } from "./runApi.ts";
-import { SURFACE_KINDS, type SurfaceKind } from "./types.ts";
+import { MAX_NOTES, SURFACE_KINDS, type SurfaceKind } from "./types.ts";
 
 export const MCP_SERVER_INFO = { name: "mockpit", version: "0.2.0" };
 
@@ -23,8 +23,7 @@ export const MCP_INSTRUCTIONS =
 const field = {
   mock: "Mock slug, title or id",
   state: "State label; omit if single-state",
-  situation:
-    'Another render of this state ("Couldn\'t save", "Loading"); publish the state itself first',
+  situation: 'Another render of this state ("Couldn\'t save"): its own state, "state · situation"',
   variant: 'Variant label; default "default"',
   project: "Default: the session's project",
   title: "Mock title",
@@ -42,7 +41,7 @@ const field = {
   prompt: "What prompted this version; usually omit",
   note: "What this variant is; shown beside it, never in the html",
   widths: "Widths it ships at, side by side: [390,1280]",
-  kind: "Only when building the product's screens: page (a screen), component (a piece pages embed). Omit for sketches, diagrams and reviews",
+  kind: "Only when building the product's screens: page (a screen), component (a piece pages embed). With no html it plans one, drawn by a later publish. Omit for sketches, diagrams and reviews",
   area: 'Product area in the project\'s words; Home groups by it. "" clears',
   source: 'Code path implementing it. "" clears',
   flow: "Flow this state is a step of; alone, only places it",
@@ -177,7 +176,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "publish",
     description:
-      "Create or version one variant of one state of a mock. One of html, surfaces (the full ordered list), parts or fills (splice the latest version). Returns parts per state, nudges, feedback.",
+      "Create or version one variant of one state of a mock. One of html, surfaces (the full ordered list), parts or fills (splice the latest version); or kind page or component and none of them, to plan it. Returns parts per state, nudges, feedback.",
     params: {
       ...VARIANT_REF,
       situation: { t: "string", d: field.situation },
@@ -228,7 +227,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "read",
     description:
-      "Read this first. Both forms carry decisionList: what the user already settled in this project; it stands unless they say otherwise. Without mock: every mock (slug, states, variants, open questions), flows, plus pending. With mock: its states, variants, questions with answers, parts, knobs and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
+      "Read this first. Both forms carry decisionList: what the user already settled in this project; it stands unless they say otherwise. Without mock: every mock (slug, states, variants, open questions), flows, plus pending. With mock: its notes (a spec; the user's edits stand), states, variants, questions with answers, parts, knobs and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
     params: {
       mock: { t: "string", d: field.mock },
       project: P.project,
@@ -300,6 +299,10 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       area: { t: "string" },
       source: { t: "string" },
       firstState: { t: "string", d: "Names a mock's one unnamed state, so it can have more" },
+      notes: {
+        t: "string",
+        d: `A short plain-text spec, at most ${MAX_NOTES} characters; "" clears. Not applied over the user's own edit, and the result says so`,
+      },
       rename: { t: "string", d: "New project name" },
       areaOrder: { t: "strings", d: "Without mock: Home's area order" },
       session: P.session,
@@ -390,10 +393,11 @@ const feedbackSchema = o({
   edited: o({
     kind: str.optional(),
     area: nullStr.optional(),
+    notes: nullStr.optional(),
     grouped: z.array(o({ state: nullStr, lead: nullStr, variants: z.array(str) })).optional(),
   })
     .optional()
-    .describe("The user moved the mock from Home: its kind or area now"),
+    .describe("The user moved the mock from Home (its kind or area now) or edited its notes"),
 }).meta({ id: "Feedback" });
 // Typed once, on feedback: repeating it on every write would cost more than
 // the rest of the write's output schema.
@@ -406,10 +410,13 @@ const pendingSchema = o({
 }).meta({ id: "Pending" });
 
 const writeOutput = {
-  post: o({ state: nullStr, variant: str, version: num }),
+  post: o({ state: nullStr, variant: str, version: num })
+    .optional()
+    .describe("Absent when planned: nothing is drawn yet"),
+  planned: z.boolean().optional(),
   sessionId: str,
   url: str.describe("Viewer link for the user"),
-  parts: partsByState,
+  parts: partsByState.optional(),
   partChanges: o({ vanished: strs, renamed: z.array(o({ from: str, to: str })) }).optional(),
   nudges: strs.optional(),
   suggestedAsk: bag.optional().describe("Send with ask when a nudge names it"),

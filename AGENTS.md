@@ -22,7 +22,7 @@ a parallel design of one state; versions are its history. A **part** is a
 CLI adds `init` and `watch`); `move` takes variants to another mock or state,
 archives or restores them (never deletes, never touches one in use, and says so in
 the Thread); `edit` changes a mock (slug, title, kind, area,
-source, or the first name of its one unnamed state) without a new version, renames a project, or sets its area order;
+source, notes, or the first name of its one unnamed state) without a new version, renames a project, or sets its area order;
 `publish` with `amend` replaces a variant's latest version in place and with
 `withdraw` deletes it, both only from the session that published it and only
 while the user hasn't acted on it (`touchedBy` in `server/app.ts`). A
@@ -109,7 +109,17 @@ consciously, not as a side effect):
   `node:sqlite` adapter. Its constructor migrates any older workspace in place
   (items → single-state mocks, draft comments → mock drafts, traces dropped,
   `resolvedAt` → `closedAt`, the 2.0 contract words in stored replies, drafts
-  and html).
+  and html, situations → ordinary states named `state · situation`, leaving an inert
+  `situations` column).
+- A mock with a declared `kind` and no posts is **planned** (`isPlanned` in `types.ts`,
+  derived, never stored): `publish` with a kind and no body declares one, and the first
+  drawing fills it. `Mock.stateOutlines` holds per-mock answers to the outlines of
+  missing states (`dismissed`, `requested`; `POST /api/mocks/:id/outlines`, viewer only),
+  and only a declared page with html offers them (`canOutline` in `viewer/src/logic.ts`).
+- `Mock.notes` is a plain-text spec (`MAX_NOTES`): `edit` writes it, `read` returns it,
+  the viewer shows it in text nodes. A hand edit holds against agents until the user
+  clears it (`editMockFlow`), the agent is told when its draft didn't apply, and it
+  hears the user's edit as `edited.notes`.
 - A **gathered idea** is a mock with `shortlist` set (the stored name, which is also in
   `read`), gathered by the user from the project's other mocks: New idea on Home's
   shelves (`AddCandidates`), or a Studio bookmark (`SaveMenu`,
@@ -169,8 +179,12 @@ consciously, not as a side effect):
   (`TopRow`: the path is the way up, project and area as links, ending at the
   mock's name, with an info button opening `About` (Appears in / Built from /
   flows / code); the state tabs alone say which state;
-  `BuiltFrom` is Tune's drawer, open while Tune is; `Studio`, the state zoomed
-  out with every variant side by side, entered from the top bar's Stage | Studio
+  `BuiltFrom` is Tune's drawer, open while Tune is; `Grid`, states against variants
+  with what's missing shown (`?view=grid`, offered where names repeat across states, and
+  how a component with several forms opens unless it is wall-sized), sharing Studio's
+  live-frame limit; `Outlines` (missing states in the margin or flow bar, `StateAsk`,
+  `PlannedStage` where nothing is drawn); `Notes`; `Studio`, the state zoomed
+  out with every variant side by side, entered from the top bar's Stage | Studio | Grid
   switch and remembered per mock, each steer its own reply (`steer`, `sendAlone`), with `SelectBar` acting on
   several versions at once. A fork is a column of its own saying where it came from.
   Past Use this a newer version asks first (`changedTo`, `ChangedNote`: see it, use it,
@@ -183,7 +197,7 @@ consciously, not as a side effect):
   pins and comments built from the blocks they report;
   `Stage`, a pannable canvas whose mock's other `widths` spread out as
   picture-only artboards under "All widths", between the margins), `Margins` (states
-  and versions on the left, On this design, Built from and Thread on the right, Try,
+  and versions on the left, On this design, Notes, Built from and Thread on the right, Try,
   Comment and Tune in a strip by the design; each there only with content, and
   `marginLayout` in `logic.ts` turns one into a tab that floats over the canvas when
   it would take a design below 80%; a phone has none of this: `VersionBar`,

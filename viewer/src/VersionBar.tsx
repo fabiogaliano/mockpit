@@ -1,7 +1,6 @@
 // What acts on the version on stage: Revise (ask for a new one), stepping through
 // the state's versions, putting one in use, and the canvas tools. On a phone they
-// float together as one bar, with every situation side by side when there is one
-// variant to see them in; beside margins each sits where it belongs (Margins.tsx).
+// float together as one bar; beside margins each sits where it belongs (Margins.tsx).
 
 import { Show } from "solid-js";
 import { readonly } from "./host.ts";
@@ -162,34 +161,10 @@ export function CanvasTools(props: { s: MockScreenState; page: boolean }) {
   );
 }
 
-export function SituationsButton(props: { s: MockScreenState }) {
-  const s = props.s;
-  const sits = () => s.situations().length;
-  return (
-    <button
-      type="button"
-      class="btn vall"
-      classList={{ on: s.allSituations() }}
-      aria-pressed={s.allSituations()}
-      aria-label={`${sits()} situations`}
-      title="See every situation side by side"
-      onClick={() => s.setAllSituations(!s.allSituations())}
-    >
-      <Icon name="grid" />
-      <span>{sits()}</span>
-      <span class="lbl">situations</span>
-    </button>
-  );
-}
-
-export function VersionBar(props: { s: MockScreenState; studio: boolean; reading?: boolean }) {
+export function VersionBar(props: { s: MockScreenState; reading?: boolean }) {
   const s = props.s;
   return (
     <div class="vbar" role="toolbar" aria-label="Versions and tools">
-      <Show when={!props.studio && s.situations().length > 1}>
-        <SituationsButton s={s} />
-        <span class="vsep" />
-      </Show>
       <Show when={!readonly()}>
         <ReviseButton s={s} />
         <span class="vsep" />

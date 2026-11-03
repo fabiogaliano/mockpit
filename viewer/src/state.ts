@@ -14,14 +14,11 @@ import {
   recommendedVariant,
   type KnobValue,
   MAX_ASK_IMAGES,
-  momentOf,
-  momentsOf,
-  NORMAL_SITUATION,
   optionState,
   type PartCommentAnchor,
   type Reaction,
   type ReplyVerdict,
-  situationKey,
+  type StateOutline,
 } from "../../server/types.ts";
 import type { SlotInfo } from "../../server/fills.ts";
 import { reactionOf, reactionStatus, toggleReaction } from "./reactionRules.ts";
@@ -79,7 +76,9 @@ import {
   setAskField,
   tuneVisible,
   unanswered,
+  canOutline,
   keepSame,
+  missingStates,
   stepKey,
   type VersionStep,
 } from "./logic.ts";
@@ -91,7 +90,7 @@ import { coarse, phoneLayout, win } from "./viewport.ts";
 // where you tap, Tune outlines the parts and opens one's knobs.
 export type Tool = "try" | "mark" | "tune";
 // The bottom panel, opened from the version label.
-export type PanelTab = "history" | "thread";
+export type PanelTab = "history" | "thread" | "notes";
 export type AskField = "other" | "note";
 
 // An image on its way up (a local preview), or one that failed (with why).
@@ -319,31 +318,6 @@ export function createMockScreen(
     const m = mock();
     return m && m.states.length ? m.states : [null];
   });
-  // A state's situations are states of their own; the flow steps through the
-  // moments, and the switch under the stage through the situations of one.
-  const situationMap = createMemo(() => mock()?.situations ?? {});
-  const moments = createMemo(() => {
-    const m = mock();
-    return m && m.states.length ? momentsOf(m.states, situationMap()) : [null];
-  });
-  const moment = createMemo(() => momentOf(situationMap(), activeState()));
-  const situations = createMemo<{ name: string; state: string }[]>(() => {
-    const at = moment();
-    const names = at === null ? [] : (situationMap()[at] ?? []);
-    if (at === null || names.length === 0) return [];
-    return [
-      { name: NORMAL_SITUATION, state: at },
-      ...names.map((name) => ({ name, state: situationKey(at, name) })),
-    ].filter((x) => states().includes(x.state));
-  });
-  // A moment and the states of its situations.
-  const withSituations = (at: string | null): (string | null)[] =>
-    at === null ? [null] : [at, ...(situationMap()[at] ?? []).map((n) => situationKey(at, n))];
-  const situation = createMemo(
-    () => situations().find((x) => x.state === activeState() && x.state !== moment())?.name ?? null,
-  );
-  // Every situation of the moment side by side, from the version bar.
-  const [allSituations, setAllSituations] = createSignal(false);
   const latest = createMemo(() => mockVersion(variants()));
   // Q6: a draft made on an older version keeps the stage on that version until
   // the user chooses to view the new one.
@@ -1106,14 +1080,14 @@ export function createMockScreen(
   }
   // The × on an idea. The screen stays where it is, saying so, with the way back and a
   // place for the reason, so no question stands between the × and being done.
-  async function endMock() {
+  async function endMock(word: "Ended" | "Archived" = "Ended") {
     const m = mock();
     if (!m || readonly()) return;
     try {
       await api.close(m.id);
       await loadMock();
       setToast({
-        text: `Ended ${m.title}`,
+        text: `${word} ${m.title}`,
         undo: () => {
           setToast(null);
           void reopen();
@@ -1164,14 +1138,6 @@ export function createMockScreen(
     });
     record();
     rememberPlace();
-  }
-  function stepSituation(by: 1 | -1): boolean {
-    const all = situations();
-    const i = all.findIndex((x) => x.state === activeState());
-    const to = all[i + by];
-    if (!to) return false;
-    showState(to.state);
-    return true;
   }
   function chooseVariant(variant: string) {
     userMoved();
@@ -1887,22 +1853,19 @@ export function createMockScreen(
   }
   // Studio's ×. One version dims like any hidden version; the last one left takes
   // its variant to Archived, where Restore brings it back.
-  const liveIn = (m: string | null) =>
-    variants().some((v) => withSituations(m).includes(v.state) && isLive(v.status));
+  const liveIn = (state: string | null) =>
+    variants().some((v) => v.state === state && isLive(v.status));
   // Everything archived: such a state leaves the tabs and every list of states,
   // unless a question still waits there.
-  const emptiedMoment = (m: string | null) =>
-    !liveIn(m) &&
-    !withSituations(m).some((st) => askedIn(st) > 0) &&
-    variants().some((v) => withSituations(m).includes(v.state));
+  const emptiedState = (state: string | null) =>
+    !liveIn(state) && askedIn(state) === 0 && variants().some((v) => v.state === state);
   // Every design has left, once the last has really landed, and no question waits.
   const emptied = () =>
-    archiving().size === 0 &&
-    moments().every((m) => !liveIn(m) && !withSituations(m).some((st) => askedIn(st) > 0));
+    archiving().size === 0 && states().every((state) => !liveIn(state) && askedIn(state) === 0);
   // The closest state on with something left, else the closest back.
-  function nextLiveMoment(): string | null | undefined {
-    const all: (string | null)[] = moments();
-    const at = all.indexOf(moment());
+  function nextLiveState(): string | null | undefined {
+    const all = states();
+    const at = all.indexOf(activeState());
     return [...all.slice(at + 1), ...all.slice(0, at).reverse()].find(liveIn);
   }
   // Resolves to its undo, or to nothing if they stayed; quiet as hideVersion is.
@@ -1922,7 +1885,7 @@ export function createMockScreen(
       });
     going(true);
     // The last one out empties the state and its tab goes, so on to the next.
-    const movedOn = liveIn(moment()) ? undefined : nextLiveMoment();
+    const movedOn = liveIn(activeState()) ? undefined : nextLiveState();
     if (movedOn !== undefined) showState(movedOn);
     let landed = true;
     const done = (async () => {
@@ -1962,6 +1925,85 @@ export function createMockScreen(
     await done;
     return landed ? undo : undefined;
   }
+  // The states this screen could still have, and the one being asked for right now
+  // (an empty name is + New state, whose name is still to be typed).
+  const outlinable = createMemo(() => {
+    const m = mock();
+    return !!m && !readonly() && canOutline(m, variants());
+  });
+  const stateOutlines = createMemo(() => {
+    const m = mock();
+    return m && outlinable() ? missingStates(m, variants()) : [];
+  });
+  const [askingState, setAskingState] = createSignal<{ name: string } | null>(null);
+  function setOutline(state: string, to: StateOutline | null) {
+    const m = mock();
+    if (!m) return Promise.resolve(false);
+    return api.stateOutline(m.id, { state, to }).then(
+      async () => {
+        await loadMock();
+        return true;
+      },
+      (e) => {
+        fail(e);
+        return false;
+      },
+    );
+  }
+  async function dismissOutline(name: string) {
+    setAskingState(null);
+    if (!(await setOutline(name, "dismissed"))) return;
+    setToast({
+      text: `${name} doesn't apply here`,
+      undo: () => {
+        setToast(null);
+        void setOutline(name, null);
+      },
+    });
+  }
+  // A plan's own state: nothing is drawn, so once it's gone there is nothing to bring
+  // back, and the agent can plan it again.
+  async function dropPlannedState(name: string) {
+    if (!(await setOutline(name, "dismissed"))) return;
+    const left = states().find((st) => st !== name);
+    if (left !== undefined) showState(left);
+    setToast({ text: `${name} isn't needed` });
+  }
+  // A request is a reply like any other: it goes out now, whatever the draft holds, and
+  // nothing waits on it. The outline stays, marked, until a state of that name arrives.
+  async function askForState(name: string, detail: string) {
+    const said = detail.trim();
+    const sent = await sendAlone({
+      text: `New state, please: ${name}.${said ? ` ${said}` : ""}`,
+    });
+    if (!sent) return false;
+    setAskingState(null);
+    await setOutline(name, "requested");
+    return true;
+  }
+  function askToDraw() {
+    const m = mock();
+    if (!m) return Promise.resolve(false);
+    const state = activeState();
+    return sendAlone({ text: `Please draw ${m.title}${state ? `, ${state}` : ""}.` });
+  }
+  // What's being written stays while the panel shuts or another opens.
+  const [notesWriting, setNotesWriting] = createSignal<string | null>(null);
+  // A hand edit: what later agents read, and what an active one hears in its feedback.
+  function saveNotes(text: string) {
+    const m = mock();
+    if (!m || readonly()) return Promise.resolve(false);
+    return api.editMock(m.id, { notes: text }).then(
+      async () => {
+        await loadMock();
+        return true;
+      },
+      (e) => {
+        fail(e);
+        return false;
+      },
+    );
+  }
   // Revise: ask the agent for another version of the one on stage, as a reply
   // (with whatever the draft holds), so it arrives through the same cursor.
   function askNew() {
@@ -1997,15 +2039,7 @@ export function createMockScreen(
     draft,
     variants,
     states,
-    moments,
-    moment,
-    situations,
-    situation,
-    withSituations,
-    stepSituation,
-    allSituations,
     allWidths,
-    setAllSituations,
     latest,
     boundVersion,
     arrived,
@@ -2105,6 +2139,17 @@ export function createMockScreen(
     useThis,
     hideVersion,
     askNew,
+    outlinable,
+    stateOutlines,
+    notesWriting,
+    setNotesWriting,
+    askingState,
+    setAskingState,
+    dismissOutline,
+    dropPlannedState,
+    askForState,
+    askToDraw,
+    saveNotes,
     viewNewVersion,
     toast,
     setToast,
@@ -2158,8 +2203,8 @@ export function createMockScreen(
     steer,
     steerMany,
     archiveVariants,
-    nextLiveMoment,
-    emptiedMoment,
+    nextLiveState,
+    emptiedState,
     emptied,
     handToast,
     setTuned,

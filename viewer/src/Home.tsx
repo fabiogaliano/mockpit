@@ -143,7 +143,8 @@ export function Home(props: {
   const [leaving, setLeaving] = createSignal<Record<string, true>>({});
   // One way off the shelf, however it got there: ended by hand, or with every design
   // archived. Both are in the Archive, the ended ones first and newest first.
-  const inArchive = (n: TreeNode) => !!n.closedAt || nothingLeft(n);
+  // A plan has nothing live because nothing is drawn yet, which is not the same thing.
+  const inArchive = (n: TreeNode) => !!n.closedAt || (nothingLeft(n) && !n.planned);
   const onShow = createMemo(() => nodes().filter((n) => !inArchive(n) && !leaving()[n.id]));
   const archived = createMemo(() =>
     nodes()
@@ -397,7 +398,13 @@ export function Home(props: {
       fresh={fresh().has(n.id)}
       menu={menuFor(n)}
       extra={n.kind === "component" ? usedIn(n, (s) => bySlug().get(s)?.kind) : undefined}
-      {...(!readonly() && sectionOf(n) === "ideas" ? { onEnd: () => void end(n, "Ended") } : {})}
+      {...(readonly()
+        ? {}
+        : n.planned
+          ? { onEnd: () => void end(n, "Archived"), endLabel: "Not needed" }
+          : sectionOf(n) === "ideas"
+            ? { onEnd: () => void end(n, "Ended") }
+            : {})}
     />
   );
   const docRow = (n: TreeNode) => (
@@ -555,6 +562,12 @@ export function Home(props: {
               ? "Activity"
               : SECTION_LABEL[s];
     return a && shelfOn() ? `${label} in ${a}` : label;
+  };
+  // How much of the shelf is still only a plan.
+  const notDrawn = () => {
+    const sec = shelfOn();
+    if (sec !== "screens" && sec !== "components") return 0;
+    return inSection(sec, area()).filter((n) => n.planned).length;
   };
   const headingCount = () => {
     const s = shown();
@@ -714,6 +727,11 @@ export function Home(props: {
                       {title()}
                       <Show when={headingCount()}>
                         {(n) => <span class="home-head-n">{n()}</span>}
+                      </Show>
+                      <Show when={notDrawn()}>
+                        {(n) => (
+                          <span class="home-head-n home-head-plan">{`${n()} not drawn yet`}</span>
+                        )}
                       </Show>
                     </h1>
                   )}

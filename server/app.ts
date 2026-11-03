@@ -125,8 +125,8 @@ import {
   currentVersion,
   isLive,
   isMockKind,
-  momentOf,
-  NORMAL_SITUATION,
+  isPlanned,
+  MAX_NOTES,
   optionState,
   type Mock,
   type MockKind,
@@ -158,13 +158,12 @@ import {
   type FlowStep,
   type ForkRef,
   sameScreen,
-  situationKey,
   slugify,
+  type StateOutline,
   type Store,
   type Surface,
   surfacesByteLength,
   type TerminalSurface,
-  momentsOf,
 } from "./types.ts";
 import {
   coerceSurfaces,
@@ -445,6 +444,8 @@ const str = (v: unknown, max: number): string | undefined =>
 
 const MAX_LABEL = 120;
 const MAX_REASON = 280;
+// A screen has three standard states and whatever few the user asks for by name.
+const MAX_STATE_OUTLINES = 40;
 const MAX_CANDIDATES = 50;
 const MAX_AREAS = 50;
 const MAX_FLOWS = 50;
@@ -1532,9 +1533,11 @@ export function createApp({
     if (isResult(flowIn)) return flowIn;
     // `flow` alone places an existing screen in a flow without a new version.
     const flowOnly = given.length === 0 && !forkIn && !!flowIn;
-    if (given.length === 0 && !forkIn && !flowIn) {
-      return fail(400, 'provide "html", "surfaces", "parts" or "fills" (or "fork" alone)');
-    }
+    // With no body, a declared kind plans the screen or component instead of drawing it.
+    const declaring = body.kind === "page" || body.kind === "component";
+    const noBody =
+      'provide "html", "surfaces", "parts" or "fills" (or "fork" alone, or "kind" page or component to plan it)';
+    if (given.length === 0 && !forkIn && !flowIn && !declaring) return fail(400, noBody);
     if (given.length > 1) {
       return fail(
         400,
@@ -1557,7 +1560,7 @@ export function createApp({
     if (!knobs.ok) return fail(400, knobs.error);
     const variantKnobs = checkKnobs(body.variantKnobs);
     if (!variantKnobs.ok) return fail(400, variantKnobs.error);
-    const stateIn = stateArg(body.state);
+    const stateIn = namedState(stateArg(body.state), str(body.situation, MAX_LABEL));
     const variantIn = str(body.variant, MAX_LABEL);
     const kind: MockKind | undefined = isMockKind(body.kind) ? body.kind : undefined;
     const title = str(body.title, MAX_TITLE);
@@ -1616,39 +1619,87 @@ export function createApp({
       }
       state = stateIn;
     }
-    const situationIn = str(body.situation, MAX_LABEL);
-    // A situation is another render of one state ("Couldn't save"); "Normal"
-    // names the state's own render.
-    let situation: { of: string; name: string } | undefined;
-    if (situationIn && situationIn.toLowerCase() !== NORMAL_SITUATION.toLowerCase()) {
-      if (state === null) {
-        return fail(400, '"situation" needs "state": the state it is another render of');
-      }
-      if (!mock || !mock.states.includes(state)) {
-        return fail(
-          404,
-          `${slug} has no state "${state}" yet: publish its normal render first, then its situations`,
-          mock ? { states: mock.states } : {},
-        );
-      }
-      const moment = momentOf(mock.situations, state);
-      // The key feedback names it by, passed back with its own situation.
-      if (moment !== state && moment !== null && situationKey(moment, situationIn) === state) {
-        state = moment;
-      } else if (moment !== state) {
-        return fail(400, `"${state}" is a situation; give "situation" the state it belongs to`);
-      }
-      const key = situationKey(state, situationIn);
-      if (mock.states.includes(key) && !(mock.situations[state] ?? []).includes(situationIn)) {
-        return fail(
-          409,
-          `${slug} already has a state named "${key}"; name the situation otherwise`,
-        );
-      }
-      situation = { of: state, name: situationIn };
-      state = key;
-    }
     const inState = posts.filter((p) => p.state === state);
+    const screen: FlowStep = { mock: slug, state };
+    // Nothing to draw and nothing there yet: the plan itself is the write. A body-less
+    // publish naming a variant, or landing on what is already drawn, is a forgotten body.
+    const planning =
+      given.length === 0 &&
+      !forkIn &&
+      variantIn === undefined &&
+      inState.length === 0 &&
+      (declaring || (!!mock && isPlanned(mock, posts.length)));
+    if (planning) {
+      if (flowIn) {
+        const full = await flowFull(project, flowIn.name, screen, flowIn.step);
+        if (full) return full;
+      }
+      if (!session) {
+        session = await store.createSession({
+          agent: str(body.agent, MAX_TITLE) ?? "agent",
+          title: str(body.sessionTitle, MAX_TITLE),
+          cwd: str(body.cwd, 4096),
+          project,
+        });
+        bus.broadcast({ type: "session-created", id: session.id });
+      }
+      const created = !mock;
+      // As when drawing it: a plan with no state name takes its first, and the steps
+      // of any flow that planned it follow.
+      if (mock && state !== null && mock.states.length === 0 && posts.length === 0) {
+        mock = (await store.nameFirstState(mock.id, state)) ?? mock;
+      }
+      if (!mock) {
+        mock = await store.createMock({
+          project,
+          slug,
+          title: title ?? titleFromSlug(slug),
+          kind,
+          ...(area === undefined ? {} : { area }),
+          ...(source === undefined ? {} : { source }),
+          states: state === null ? [] : [state],
+          knobs: knobs.value,
+          ...(widths ? { widths } : {}),
+          sessionId: session.id,
+        });
+        bus.broadcast({ type: "mock-created", id: mock.id, project });
+      } else {
+        mock = await updateMockAfterWrite(mock, {
+          state,
+          kind,
+          title,
+          knobs: knobs.value,
+          widths,
+          area,
+          source,
+          session,
+        });
+      }
+      const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
+      if (flow) bus.broadcast({ type: "mock-updated", id: mock.id, project });
+      const nudges = titleNudges(title);
+      return ok(
+        {
+          mock: {
+            id: mock.id,
+            project: mock.project,
+            slug: mock.slug,
+            title: mock.title,
+            kind: mock.kind,
+            ...placeOf(mock),
+            states: mock.states,
+          },
+          planned: true,
+          sessionId: session.id,
+          url: mockUrl(ctx.base, mock),
+          ...(flow ? { flow } : {}),
+          ...(nudges.length ? { nudges } : {}),
+          feedback: await collectFeedback(session.id, ctx.base),
+        },
+        created ? 201 : 200,
+      );
+    }
+    if (given.length === 0 && !forkIn && !flowIn) return fail(400, noBody);
     let variant = variantIn;
     if (!variant) {
       const live = inState.filter((p) => isLive(p.status));
@@ -1676,8 +1727,6 @@ export function createApp({
       const refused = await rewriteRefusal(mock, target, session, "amend");
       if (refused) return refused;
     }
-    // A flow steps through states; a situation's step is its state's.
-    const screen: FlowStep = { mock: slug, state: situation ? situation.of : state };
     if (flowIn) {
       const full = await flowFull(project, flowIn.name, screen, flowIn.step);
       if (full) return full;
@@ -1776,6 +1825,11 @@ export function createApp({
         });
         bus.broadcast({ type: "session-created", id: session.id });
       }
+      // The first drawing of a plan with no state name yet gives it one, and the
+      // steps of any flow that planned it follow.
+      if (mock && state !== null && mock.states.length === 0 && posts.length === 0) {
+        mock = (await store.nameFirstState(mock.id, state)) ?? mock;
+      }
       if (!mock) {
         mock = await store.createMock({
           project,
@@ -1813,7 +1867,6 @@ export function createApp({
       if (!created) return fail(404, "session not found");
       mock = await updateMockAfterWrite(mock, {
         state,
-        situation,
         kind,
         title,
         knobs: knobs.value,
@@ -1849,7 +1902,6 @@ export function createApp({
       const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
       mock = await updateMockAfterWrite(mock, {
         state,
-        situation,
         kind,
         knobs: knobs.value,
         widths,
@@ -1897,7 +1949,6 @@ export function createApp({
     const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
     mock = await updateMockAfterWrite(mock, {
       state,
-      situation,
       kind,
       knobs: knobs.value,
       widths,
@@ -2127,6 +2178,21 @@ export function createApp({
     });
   }
 
+  // The `situation` parameter, until the contract release retires it: another render
+  // of a state is simply a state, named as feedback has always named it. Two screens'
+  // "Failed" stay apart because of the prefix. "Normal" was the state's own render, and
+  // passing back the name feedback gave is the same state again.
+  function namedState(
+    state: string | null | undefined,
+    situation: string | undefined,
+  ): string | null | undefined {
+    if (!situation || situation.toLowerCase() === "normal") return state;
+    if (!state) return situation;
+    return state.endsWith(` · ${situation}`)
+      ? state
+      : `${state} · ${situation}`.slice(0, MAX_LABEL);
+  }
+
   // `flow` names a flow; `step` is the 1-based place of this screen in it
   // (moving it if it is there already), 0 takes the screen out, and without
   // `step` a screen not yet in the flow joins at its end.
@@ -2267,7 +2333,6 @@ export function createApp({
     mock: Mock,
     w: {
       state: string | null;
-      situation?: { of: string; name: string };
       kind?: MockKind;
       title?: string;
       knobs: Knobs;
@@ -2277,27 +2342,11 @@ export function createApp({
       session: Session | null;
     },
   ): Promise<Mock> {
-    let states: string[] | undefined;
-    let situations: Record<string, string[]> | undefined;
-    if (w.state !== null && !mock.states.includes(w.state)) {
-      if (w.situation) {
-        // After its state and that state's other situations, so the order of
-        // states reads moment by moment.
-        const { of, name } = w.situation;
-        const own = mock.situations[of] ?? [];
-        const last = [of, ...own.map((n) => situationKey(of, n))]
-          .map((st) => mock.states.indexOf(st))
-          .reduce((a, b) => Math.max(a, b), -1);
-        states = [...mock.states.slice(0, last + 1), w.state, ...mock.states.slice(last + 1)];
-        situations = { ...mock.situations, [of]: [...own, name] };
-      } else {
-        states = [...mock.states, w.state];
-      }
-    }
+    const states =
+      w.state !== null && !mock.states.includes(w.state) ? [...mock.states, w.state] : undefined;
     const knobs = Object.keys(w.knobs).length ? { ...mock.knobs, ...w.knobs } : undefined;
     const updated = await store.updateMock(mock.id, {
       ...(states ? { states } : {}),
-      ...(situations ? { situations } : {}),
       ...(w.kind ? { kind: w.kind } : {}),
       ...(w.title ? { title: w.title } : {}),
       ...(knobs ? { knobs } : {}),
@@ -2481,7 +2530,7 @@ export function createApp({
       mocks: mocks.map((m) => ({
         slug: m.slug,
         title: m.title,
-        states: m.states.length ? momentsOf(m.states, m.situations) : [null],
+        states: m.states.length ? m.states : [null],
       })),
     });
   }
@@ -2598,6 +2647,7 @@ export function createApp({
       });
     }
     if (entries.length === 0) {
+      if (posts.length === 0) return fail(404, `${mock.slug} isn't drawn yet`);
       return fail(404, `${mock.slug} has no variant "${wantedVariant}"`, {
         variants: posts.map(variantLabel),
       });
@@ -3530,6 +3580,38 @@ export function createApp({
     return ok({ reason });
   }
 
+  // What the user says about a state a declared screen doesn't have: it doesn't apply,
+  // or they've asked for it (the asking itself is a normal reply). null takes that back.
+  // Dismissing a state only the agent planned also takes it out of the list, since
+  // nothing is drawn there to lose.
+  async function outlineFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const mock = await resolveMock(ref);
+    if (isResult(mock)) return mock;
+    const state = str(body?.state, MAX_LABEL);
+    if (!state) return fail(400, '"state" must name the state');
+    const to: unknown = body?.to;
+    if (to !== "dismissed" && to !== "requested" && to !== null) {
+      return fail(400, '"to" must be "dismissed", "requested" or null');
+    }
+    const { [state]: _, ...rest } = mock.stateOutlines;
+    if (to !== null && Object.keys(rest).length >= MAX_STATE_OUTLINES) {
+      return fail(400, `${mock.slug} already has ${MAX_STATE_OUTLINES} of these`);
+    }
+    const stateOutlines: Record<string, StateOutline> =
+      to === null ? rest : { ...rest, [state]: to };
+    const posts = await store.listPosts({ mockId: mock.id });
+    const undrawn =
+      to === "dismissed" && mock.states.includes(state) && !posts.some((p) => p.state === state);
+    const updated = await store.updateMock(mock.id, {
+      stateOutlines,
+      ...(undrawn ? { states: mock.states.filter((st) => st !== state) } : {}),
+    });
+    if (!updated) return fail(404, "mock not found");
+    bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
+    return ok({ stateOutlines });
+  }
+
   // The user looked at a newer version of what's in use and keeps what they have.
   // Nothing moves and nobody is told: it only stops asking until a newer one comes.
   async function stayFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
@@ -4107,11 +4189,14 @@ export function createApp({
   // keep showing it and flows keep walking it.
   async function editMockFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
-    const given = ["slug", "title", "kind", "area", "source", "firstState"].filter(
+    const given = ["slug", "title", "kind", "area", "source", "firstState", "notes"].filter(
       (k) => body[k] !== undefined,
     );
     if (given.length === 0) {
-      return fail(400, 'provide one of "slug", "title", "kind", "area", "source" or "firstState"');
+      return fail(
+        400,
+        'provide one of "slug", "title", "kind", "area", "source", "firstState" or "notes"',
+      );
     }
     const mock = await resolveMock(ref, body.project, body.session);
     if (isResult(mock)) return mock;
@@ -4129,6 +4214,24 @@ export function createApp({
     if (isResult(area)) return area;
     const source = labelArg(body, "source", MAX_SOURCE);
     if (isResult(source)) return source;
+
+    const notesIn = notesArg(body.notes);
+    if (isResult(notesIn)) return notesIn;
+    // The user's words stand until they clear them, so a later draft can't quietly
+    // undo a correction. The agent is told, and shown what stands.
+    const notesKept = notesIn !== undefined && !ctx.viewer && mock.notes?.by === "user";
+    // Saved as it was isn't an edit: it mustn't take an agent's draft for the user's.
+    const notesSame = notesIn === (mock.notes?.text ?? "");
+    const notes =
+      notesIn === undefined || notesKept || notesSame
+        ? undefined
+        : notesIn
+          ? {
+              text: notesIn,
+              by: ctx.viewer ? ("user" as const) : ("agent" as const),
+              at: new Date().toISOString(),
+            }
+          : null;
 
     const firstState = body.firstState === undefined ? undefined : str(body.firstState, MAX_LABEL);
     if (body.firstState !== undefined && !firstState) {
@@ -4163,13 +4266,20 @@ export function createApp({
       next = renamed;
       clearRenderCache();
     }
-    if (title !== undefined || kind !== undefined || area !== undefined || source !== undefined) {
+    if (
+      title !== undefined ||
+      kind !== undefined ||
+      area !== undefined ||
+      source !== undefined ||
+      notes !== undefined
+    ) {
       next =
         (await store.updateMock(mock.id, {
           ...(title === undefined ? {} : { title }),
           ...(kind === undefined ? {} : { kind }),
           ...(area === undefined ? {} : { area }),
           ...(source === undefined ? {} : { source }),
+          ...(notes === undefined ? {} : { notes }),
         })) ?? next;
     }
     if (firstState !== undefined) {
@@ -4182,6 +4292,11 @@ export function createApp({
     // Flows are declared apart from kind, so a page that stops being one stays
     // in them until the agent takes it out.
     const nudges: string[] = [...titleNudges(title)];
+    if (notesKept) {
+      nudges.push(
+        "The user edited these notes by hand, so your draft was not applied: work from theirs, in notes.text. They stand until the user clears them",
+      );
+    }
     if (kind !== undefined && kind !== "page" && mock.kind === "page") {
       for (const f of await store.listFlows(next.project)) {
         if (!f.steps.some((x) => x.mock === next.slug)) continue;
@@ -4201,19 +4316,39 @@ export function createApp({
         states: next.states,
       },
       ...(renaming ? { renamed: { from: mock.slug, to: next.slug } } : {}),
+      ...(notesIn === undefined
+        ? {}
+        : { notes: { applied: !notesKept, ...(notesKept ? { text: mock.notes?.text } : {}) } }),
       url: mockUrl(ctx.base, next),
       ...(nudges.length ? { nudges } : {}),
       feedback: await feedbackFor(body.session, ctx.base),
     });
   }
 
-  // The user moved a mock from Home (another kind or area): the agent hears it
-  // once, through the same cursor as a Send, on the session driving the mock.
-  // Nothing to tell when no agent has written it.
+  // `notes`: plain text and short, since agents read all of it on every read of the
+  // mock. Refused rather than cut: a spec missing its end reads as a complete one.
+  function notesArg(v: unknown): string | undefined | FlowResult {
+    if (v === undefined) return undefined;
+    if (typeof v !== "string") return fail(400, '"notes" must be plain text; "" clears them');
+    const text = stripNul(v).trim();
+    if (text.length > MAX_NOTES) {
+      return fail(
+        400,
+        `notes are a short spec: at most ${MAX_NOTES} characters, got ${text.length}`,
+      );
+    }
+    return text;
+  }
+
+  // The user moved a mock from Home (another kind or area), or corrected its notes:
+  // the agent hears it once, through the same cursor as a Send, on the session driving
+  // the mock. Nothing to tell when no agent has written it.
   async function tellAgentEdited(before: Mock, after: Mock): Promise<void> {
+    const notes = after.notes?.text ?? null;
     const edited: MockEdit = {
       ...(after.kind !== before.kind ? { kind: after.kind } : {}),
       ...(after.area !== before.area ? { area: after.area } : {}),
+      ...(notes !== (before.notes?.text ?? null) ? { notes } : {}),
     };
     if (Object.keys(edited).length === 0) return;
     await tellAgentEdit(after, edited);
@@ -5203,6 +5338,9 @@ export function createApp({
   );
   app.post("/api/mocks/:id/reason", async (c) =>
     send(c, await reasonFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+  app.post("/api/mocks/:id/outlines", async (c) =>
+    send(c, await outlineFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
   app.post("/api/mocks/:id/stay", async (c) =>
     send(c, await stayFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),

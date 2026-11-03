@@ -25,8 +25,8 @@ type Ask = {
   options: { id?: string; label: string; variant?: string; set?: Knobs; recommended?: boolean }[];
 };
 type Written = {
-  post: { state: string | null; variant: string; version: number }; url: string;
-  parts: { state: string | null; parts: { name: string }[] }[];
+  post?: { state: string | null; variant: string; version: number }; planned?: true; url: string;
+  parts?: { state: string | null; parts: { name: string }[] }[];
   partChanges?: { vanished: string[]; renamed: { from: string; to: string }[] };
   nudges?: string[]; suggestedAsk?: Ask; suggestedFillAsks?: Ask[]; // send with ask when nudged
 };
@@ -45,7 +45,8 @@ declare const mockpit: {
   read(mock?: string, opts?: { body?: boolean; history?: boolean; decisions?: boolean }): Promise<unknown>;
   /** Creates or versions (mock, state, variant). One of: html; surfaces, the full ordered list
    * ({id} alone keeps that surface, a missing id is removed); parts {"name"|"name#key": outer html};
-   * fills {"part#fill": outer html}, replacing or adding one fill of a part. */
+   * fills {"part#fill": outer html}, replacing or adding one fill of a part.
+   * None of them, with kind page or component: plans it, for a later publish to draw. */
   publish(v: Ref & { situation?: string; title?: string; kind?: "page" | "component" | "sketch"; area?: string; source?: string; html?: string; poster?: string; surfaces?: (Surface | { id: string })[]; parts?: Record<string, string>; fills?: Record<string, string>; knobs?: Knobs; variantKnobs?: Knobs; from?: number; prompt?: string; note?: string; widths?: number[]; flow?: string; step?: number }): Promise<Written>;
   ask(mock: string, asks: Ask[]): Promise<{ asks: { id: string; text: string }[]; url: string; nudges?: string[] }>;
   /** Never waits: what the user sent since you last heard, and what they are doing now. */
@@ -53,8 +54,9 @@ declare const mockpit: {
   say(v: Ref, message: string): Promise<void>;
   /** to or toState moves variants there; archive hides them; restore brings them back. */
   move(v: Ref & { variants: string[]; to?: string; toState?: string; archive?: boolean; restore?: boolean }): Promise<{ variants: { state: string | null; variant: string; status: string }[]; skipped: { variant: string; why: string }[]; url: string }>;
-  /** No new version; "" clears. { rename } or { areaOrder } without mock edits the project. */
-  edit(v: { mock?: string; slug?: string; title?: string; kind?: string; area?: string; source?: string; firstState?: string; rename?: string; areaOrder?: string[] }): Promise<{ url: string }>;
+  /** No new version; "" clears. { rename } or { areaOrder } without mock edits the project.
+   * notes: a short plain-text spec; not applied over the user's own edit (notes.applied says). */
+  edit(v: { mock?: string; slug?: string; title?: string; kind?: string; area?: string; source?: string; firstState?: string; notes?: string; rename?: string; areaOrder?: string[] }): Promise<{ url: string; notes?: { applied: boolean; text?: string } }>;
   export(v: Ref): Promise<{ states: { state: string | null; variant: string; version: number; html: string; allFills?: string }[]; reply: unknown }>;
   /** data: base64 bytes. Use id as an image surface's assetId. */
   upload(data: string, opts: { contentType: string; filename?: string; kind?: "image" | "file" }): Promise<{ id: string; url: string }>;

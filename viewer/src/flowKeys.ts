@@ -1,7 +1,6 @@
 // The mock screen's keyboard: flowKey (logic.ts) says what a key means, this
 // applies it: number keys pick on the question card, ←/→ step through the
-// versions, ↑/↓ through the situations of a state, Enter sends on. The Mark
-// tool owns its keys while on.
+// versions, Enter sends on. The Mark tool owns its keys while on.
 // Any key or press on the screen also keeps it from moving on by itself after
 // a Send: the user is reading or doing something here.
 
@@ -48,11 +47,6 @@ export function useFlowKeys(s: MockScreenState) {
           break;
         case "mock":
           void s.goOwedMock(key.by);
-          break;
-        // Only where there are situations to move through: otherwise the
-        // arrows still scroll.
-        case "situation":
-          if (!s.stepSituation(key.by)) return;
           break;
         case "clear":
           if (!s.preview() && !s.afterSend()?.auto) return;

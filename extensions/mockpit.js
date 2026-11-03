@@ -278,7 +278,14 @@ function feedbackLines(feedback) {
         e.kind ? `now a ${e.kind}` : "",
         e.area !== undefined ? (e.area ? `area ${e.area}` : "no area") : "",
       ].filter(Boolean);
-      lines.push(`- ${prefix}the user moved it from Home (${moved.join(", ")})`);
+      if (moved.length) lines.push(`- ${prefix}the user moved it from Home (${moved.join(", ")})`);
+      if (e.notes !== undefined) {
+        lines.push(
+          e.notes === null
+            ? `- ${prefix}the user cleared its notes`
+            : `- ${prefix}the user edited its notes: ${e.notes}`,
+        );
+      }
     }
   }
   return lines;
@@ -491,6 +498,17 @@ export default function mockpitExtension(pi) {
       });
       rememberSession(state, result.sessionId);
       const { post } = result;
+      if (result.planned) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `${result.mock.slug}: planned, nothing drawn yet · ${result.url}${feedbackSummary(result.feedback)}`,
+            },
+          ],
+          details: { ...result, baseUrl: baseUrl() },
+        };
+      }
       const parts = (result.parts ?? [])
         .filter((s) => s.parts.length)
         .map(
@@ -692,6 +710,11 @@ export default function mockpitExtension(pi) {
         kind: { type: "string", enum: ["page", "component", "sketch"] },
         area: { type: "string", description: 'Area in the product; "" clears' },
         source: { type: "string", description: 'Code path that implements it; "" clears' },
+        notes: {
+          type: "string",
+          description:
+            'A short plain-text spec; "" clears. Not applied over the user\'s own edit, and the result says so',
+        },
         rename: { type: "string", description: "Without mock: the project's new name" },
         areaOrder: {
           type: "array",
@@ -720,7 +743,7 @@ export default function mockpitExtension(pi) {
         ? `renamed ${result.renamed.from} → ${result.renamed.to} · ${result.url}`
         : result.areaOrder
           ? `area order ${result.areaOrder.join(", ") || "alphabetical"} · ${result.url}`
-          : `edited ${result.mock.slug} · ${result.url}`;
+          : `edited ${result.mock.slug} · ${result.url}${result.notes?.applied === false ? `\nnotes.text: ${result.notes.text}` : ""}`;
       return {
         content: [
           {

@@ -47,7 +47,7 @@ export function createFlowNav(
   });
 
   const nodes = createMemo(() => new Map((data()?.mocks ?? []).map((n) => [n.slug, n])));
-  const here = (): FlowStep => ({ mock: slug, state: s.moment() });
+  const here = (): FlowStep => ({ mock: slug, state: s.activeState() });
   const flow = createMemo(() => flowFor(data()?.flows ?? [], here(), cameThrough));
   // Only a step in another mock takes its picture from the tree.
   const [tree] = createResource(
@@ -59,17 +59,19 @@ export function createFlowNav(
   // declared flow keeps every step the agent named.
   const emptied = createMemo(() => {
     if (flow()) return [];
-    return s.moments().filter((m) => m !== s.moment() && s.emptiedMoment(m));
+    return s.states().filter((st) => st !== s.activeState() && s.emptiedState(st));
   });
   const steps = createMemo<FlowStep[]>(
     () =>
       flow()?.steps ??
       s
-        .moments()
-        .filter((m) => !emptied().includes(m))
+        .states()
+        .filter((st) => !emptied().includes(st))
         .map((state) => ({ mock: slug, state })),
   );
-  const at = createMemo(() => steps().findIndex((x) => x.mock === slug && x.state === s.moment()));
+  const at = createMemo(() =>
+    steps().findIndex((x) => x.mock === slug && x.state === s.activeState()),
+  );
   const near = (by: number): FlowStep | undefined => {
     const i = at();
     return i < 0 ? undefined : steps()[i + by];
@@ -80,7 +82,7 @@ export function createFlowNav(
 
   function go(to: FlowStep) {
     if (to.mock === slug) {
-      if (to.state !== s.moment()) s.showState(to.state);
+      if (to.state !== s.activeState()) s.showState(to.state);
       return;
     }
     const via = flow()?.name ?? null;
@@ -134,10 +136,28 @@ export function createFlowNav(
       : null;
   }
 
-  // Whether the agent still waits on a step, on it or its situations; known only
-  // for this mock's own steps.
-  const owes = (x: FlowStep) =>
-    x.mock === slug && s.withSituations(x.state).some((st) => s.askedIn(st) > 0);
+  // Whether the agent still waits on a step; known only for this mock's own steps.
+  const owes = (x: FlowStep) => x.mock === slug && s.askedIn(x.state) > 0;
+  // Declared, with nothing drawn there yet. Another mock's says so once the tree is in.
+  const planned = (x: FlowStep) =>
+    x.mock === slug
+      ? !s.variants().some((v) => v.state === x.state)
+      : !!pictured().get(x.mock)?.planned;
 
-  return { flow, steps, emptied, here, at, near, name, label, go, step, follow, picture, owes };
+  return {
+    flow,
+    steps,
+    emptied,
+    here,
+    at,
+    near,
+    name,
+    label,
+    go,
+    step,
+    follow,
+    picture,
+    owes,
+    planned,
+  };
 }

@@ -1,5 +1,5 @@
 // The mock screen: a quiet top bar (where you are, what acts on the version, the
-// width, Stage or Studio, the panels), the design on a canvas, states and versions
+// width, Stage, Studio or Grid, the panels), the design on a canvas, states and versions
 // in a margin on its left and what's said about it in one on its right, each there
 // only with something in it (Margins.tsx). A phone has no room beside the design:
 // its states are tabs above, one bar floats below (Revise, the versions, Use this,
@@ -18,7 +18,9 @@ import {
   on,
   onCleanup,
   onMount,
+  Match,
   Show,
+  Switch,
   untrack,
 } from "solid-js";
 import { isLive } from "../../server/types.ts";
@@ -28,15 +30,18 @@ import { hasFiles } from "./attach.ts";
 import { BuiltFrom } from "./BuiltFrom.tsx";
 import { useFlowKeys } from "./flowKeys.ts";
 import { createFlowNav, type FlowNav } from "./flowNav.ts";
+import { Grid } from "./Grid.tsx";
 import { host, readonly, root } from "./host.ts";
 import { Icon, type IconName } from "./icons.tsx";
 import {
   DEVICE_WIDTHS,
   GHOST_W,
+  gridComparesForms,
   historyRow,
   isBuiltinAsk,
   READING_W,
   readsAsDocument,
+  repeatsAcrossStates,
   sameVersion,
   versionStamp,
   WALL_FROM,
@@ -48,6 +53,7 @@ import { questions, sectionOf } from "./albums.ts";
 import { createMargins, LeftMargin, PanelTabs, RightMargin, ToolStrip } from "./Margins.tsx";
 import { CarriedChip, NextCard } from "./NextCard.tsx";
 import { NotFound } from "./NotFound.tsx";
+import { OutlineChips, PlannedStage, StateAsk } from "./Outlines.tsx";
 import { QuestionCard, QuestionTab } from "./QuestionCard.tsx";
 import { EndedNote } from "./Questions.tsx";
 import { Reader, ReaderSend } from "./Reader.tsx";
@@ -61,7 +67,6 @@ import {
   replaceUrl,
   route,
 } from "./route.ts";
-import { SituationGrid, SituationSwitch } from "./Situations.tsx";
 import { Stage } from "./Stage.tsx";
 import { Studio } from "./Studio.tsx";
 import type { ScreenOpen } from "./route.ts";
@@ -69,16 +74,12 @@ import { carryToast, Toast } from "./toast.tsx";
 import { createMockScreen, type MockScreenState } from "./state.ts";
 import { Thumb } from "./Thumb.tsx";
 import { createTune } from "./tune.ts";
-import {
-  ReviseButton,
-  SituationsButton,
-  UseThis,
-  VersionBar,
-  VersionStepper,
-} from "./VersionBar.tsx";
+import { ReviseButton, UseThis, VersionBar, VersionStepper } from "./VersionBar.tsx";
 import { canvasTop, NO_INSET, phoneLayout, setCanvasTop, setCardInset, win } from "./viewport.ts";
 
-type View = "stage" | "studio";
+type View = "stage" | "studio" | "grid";
+const isView = (v: string | null | undefined): v is View =>
+  v === "stage" || v === "studio" || v === "grid";
 
 export function MockScreen(props: {
   project: string;
@@ -89,35 +90,27 @@ export function MockScreen(props: {
   const opening = new URLSearchParams(host().window.location.search);
   const s = createMockScreen(props.project, props.slug, props.open ?? null, opening.has("owed"));
   const shortlists = createShortlists(props.project, s.setToast);
-  // Stage or Studio: one version up close, or the state zoomed out. The URL's
-  // ?view= wins and isn't remembered, so a link can't move your place. Else the
-  // agent's unanswered question opens on Stage, where it is asked (a question
-  // that picks a variant doesn't count: Studio is the other way to compare
-  // them). Else the view last switched to in this browser, then Studio when
-  // there is a choice to look at.
+  // Stage, Studio or Grid: one version up close, the state zoomed out, or every state
+  // against every variant. The URL's ?view= wins and isn't remembered, so a link can't
+  // move your place. Else the agent's unanswered question opens on Stage, where it is
+  // asked (a question that picks a variant doesn't count: Studio is the other way to
+  // compare them). Else the view last switched to in this browser, then Studio when
+  // there is a choice to look at, or Grid when those are a component's forms.
   const asked = opening.get("view");
-  const [view, setViewSignal] = createSignal<View | null>(
-    asked === "studio" || asked === "stage" ? asked : null,
-  );
+  const [view, setViewSignal] = createSignal<View | null>(isView(asked) ? asked : null);
   const viewKey = (id: string) => `mockpit-view:${id}`;
   const remembered = (): View | null => {
     const id = s.mock()?.id;
     const v = id ? host().storage?.getItem(viewKey(id)) : null;
-    return v === "studio" || v === "stage" ? v : null;
+    return isView(v) ? v : null;
   };
-  // Studio shows the whole moment, so a variant drawn only in another of its
-  // situations still makes it worth stepping out to.
-  const momentVariants = () => {
-    const sits = s.situations();
-    const inMoment = (state: string | null) =>
-      sits.length ? sits.some((x) => x.state === state) : state === s.activeState();
-    return new Set(
+  const stateVariants = () =>
+    new Set(
       s
         .variants()
-        .filter((v) => inMoment(v.state) && isLive(v.status))
+        .filter((v) => v.state === s.activeState() && isLive(v.status))
         .map((v) => v.variant),
     ).size;
-  };
   // What's on stage is written: it opens as a column instead of on the canvas. By the
   // version on stage, which can differ from its neighbours (markdown, then a page).
   const reading = createMemo(() => {
@@ -130,6 +123,11 @@ export function MockScreen(props: {
   });
   const wallSized = () => s.variants().length >= WALL_FROM;
   const [onWall, setOnWall] = createSignal(false);
+  const comparesForms = () => gridComparesForms(s.mock()?.kind ?? "sketch", s.variants());
+  const gridOffered = () => repeatsAcrossStates(s.variants()) || comparesForms();
+  // The grid stands in for Studio on a component. Not on a wall: a component with 85
+  // variants (onni's) is more than a table can show, and Studio's wall is how it's read.
+  const gridFirst = () => comparesForms() && !wallSized();
   // Decided once per visit: answering the last question or moving to another
   // state must not swap the view under you.
   const opened = createMemo<View | null>((before) => {
@@ -140,13 +138,22 @@ export function MockScreen(props: {
       if (wallSized()) return "studio";
       // A gathered idea stays for comparing, below, even if what it holds is written.
       if (reading() && !s.mock()?.shortlist) return "stage";
+      const was = remembered();
+      if (gridFirst()) return was === "stage" ? "stage" : "grid";
       // A gathered idea is for comparing, and its Add candidate lives in Studio.
-      return remembered() ?? (momentVariants() > 1 || s.mock()?.shortlist ? "studio" : "stage");
+      return was ?? (stateVariants() > 1 || s.mock()?.shortlist ? "studio" : "stage");
     });
   }, null);
-  const shownView = (): View => view() ?? opened() ?? "stage";
+  // A grid left by the last archive falls back rather than show an empty table.
+  const shownView = (): View => {
+    const v = view() ?? opened() ?? "stage";
+    return v === "grid" && !gridOffered() ? "stage" : v;
+  };
+  // On stage, in a state with nothing drawn: the plan stands where the design will.
+  const undrawn = () => !!s.mock() && !s.variants().some((v) => v.state === s.activeState());
+  const outlining = () => shownView() === "stage" && !reading() && s.outlinable();
   let openLooked: (() => void) | null = null;
-  // Each step between Stage and Studio is its own history entry, so Back
+  // Each step between the views is its own history entry, so Back
   // returns to the view you came from rather than leaving the mock.
   const setView = (v: View) => {
     const w = host().window;
@@ -165,11 +172,11 @@ export function MockScreen(props: {
       // Storage refused: the URL still holds it for this visit.
     }
   };
-  // The route ignores ?view=, so Back between Stage and Studio keeps this
-  // screen mounted; the view follows the URL here.
+  // The route ignores ?view=, so Back between the views keeps this screen mounted;
+  // the view follows the URL here.
   const onPop = () => {
     const v = new URLSearchParams(host().window.location.search).get("view");
-    setViewSignal(v === "studio" || v === "stage" ? v : null);
+    setViewSignal(isView(v) ? v : null);
   };
   host().window.addEventListener("popstate", onPop);
   onCleanup(() => host().window.removeEventListener("popstate", onPop));
@@ -223,6 +230,7 @@ export function MockScreen(props: {
     nav,
     () => !!s.mock() && !phoneLayout() && shownView() === "stage",
     () => (reading() ? READING_W : null),
+    outlining,
   );
   // The tools act on a page, and a document isn't one.
   createEffect(() => {
@@ -323,6 +331,7 @@ export function MockScreen(props: {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
       if (s.tool()) s.toggleTool(s.tool()!);
+      else if (s.askingState()) s.setAskingState(null);
       else if (m.leftFloats()) m.closeLeft();
       else if (s.drawer()) s.setDrawer(false);
       else if (s.panel()) s.setPanel(null);
@@ -401,12 +410,14 @@ export function MockScreen(props: {
           about={about}
           view={shownView()}
           reading={reading()}
-          variants={wallSized() ? s.variants().length : momentVariants()}
+          variants={wallSized() ? s.variants().length : stateVariants()}
           compare={s.variants().length > 1 || s.variants().some((v) => v.version > 1)}
-          tabs={m.walkable() || onWall()}
+          grid={gridOffered()}
+          studioHidden={gridFirst()}
+          tabs={m.statesShown() || onWall()}
           shortlists={shortlists}
           actions={
-            <Show when={m.active()}>
+            <Show when={m.active() && !undrawn()}>
               <div class="mact">
                 <Show when={s.steps().length > 1 && !m.leftDocked()}>
                   <VersionStepper
@@ -438,8 +449,12 @@ export function MockScreen(props: {
           }}
         />
         {/* Beside a docked left margin the same steps are its first list. */}
-        <Show when={m.walkable() && !m.leftDocked() && !onWall()}>
-          <FlowBar nav={nav} />
+        <Show when={m.statesShown() && !m.leftDocked() && !onWall() && shownView() !== "grid"}>
+          <FlowBar nav={nav}>
+            <Show when={outlining()}>
+              <OutlineChips s={s} />
+            </Show>
+          </FlowBar>
         </Show>
       </header>
       <Show
@@ -456,9 +471,20 @@ export function MockScreen(props: {
         }
       >
         <Show when={s.mock()}>
-          <Show
-            when={shownView() === "stage"}
-            fallback={
+          <Switch>
+            <Match when={shownView() === "stage" && undrawn()}>
+              <PlannedStage s={s} />
+            </Match>
+            <Match when={shownView() === "stage"}>
+              <Show when={!reading()} fallback={<Reader s={s} />}>
+                <Stage s={s} onGoto={nav.follow} />
+                <Show when={m.ghosts()}>
+                  <Ghost s={s} nav={nav} by={-1} />
+                  <Ghost s={s} nav={nav} by={1} />
+                </Show>
+              </Show>
+            </Match>
+            <Match when={shownView() === "studio"}>
               <Studio
                 s={s}
                 top={canvasTop()}
@@ -467,21 +493,22 @@ export function MockScreen(props: {
                 onLooking={(open) => (openLooked = open)}
                 onWall={setOnWall}
               />
-            }
-          >
-            <Show when={!reading()} fallback={<Reader s={s} />}>
-              <Stage s={s} onGoto={nav.follow} />
-              <Show when={m.ghosts() && !s.allSituations()}>
-                <Ghost s={s} nav={nav} by={-1} />
-                <Ghost s={s} nav={nav} by={1} />
-              </Show>
-            </Show>
-            <SituationGrid
-              s={s}
-              top={canvasTop()}
-              bottom={Math.max(0, win().h - bottomTop() + 8)}
-            />
-          </Show>
+            </Match>
+            <Match when={shownView() === "grid"}>
+              <Grid
+                s={s}
+                about={about}
+                project={props.project}
+                slug={props.slug}
+                onColumns={gridFirst() ? () => setView("studio") : undefined}
+                onOpen={(state, ref) => {
+                  s.showState(state);
+                  s.showVersion(ref);
+                  setView("stage");
+                }}
+              />
+            </Match>
+          </Switch>
         </Show>
         <div
           class="mbottom"
@@ -503,20 +530,15 @@ export function MockScreen(props: {
           </Show>
           <SentNote s={s} project={props.project} slug={props.slug} />
           <Show when={s.mock() && shownView() === "stage"}>
-            <SituationSwitch s={s} />
-            <Show
-              when={phoneLayout()}
-              fallback={
-                <Show when={momentVariants() <= 1 && s.situations().length > 1}>
-                  <SituationsButton s={s} />
-                </Show>
-              }
-            >
+            <StateAsk s={s} />
+            <Show when={phoneLayout()}>
               <Show when={reading()}>
                 <ReaderSend s={s} m={m} />
               </Show>
               <QuestionCard s={s} />
-              <VersionBar s={s} studio={momentVariants() > 1} reading={reading()} />
+              <Show when={!undrawn()}>
+                <VersionBar s={s} reading={reading()} />
+              </Show>
             </Show>
           </Show>
         </div>
@@ -551,8 +573,8 @@ export function MockScreen(props: {
 // name opens what's around it, then the state. A phone has room for the name
 // alone (the tabs below it name the state), so an arrow up to the area (else the
 // project) stands in for the rest.
-// Beyond it: the name to tell an agent, the width on Stage, and Stage or Studio
-// when there is a choice to look at.
+// Beyond it: the name to tell an agent, the width on Stage, and the views when there
+// is a choice to look at.
 function TopRow(props: {
   s: MockScreenState;
   project: string;
@@ -565,6 +587,10 @@ function TopRow(props: {
   // More than one design or version to compare, in any state, archived too: Studio is
   // where those are.
   compare: boolean;
+  // Variants repeat across states, or they're a component's forms.
+  grid: boolean;
+  // Where the grid is how this is compared, Studio is one step on from it instead.
+  studioHidden: boolean;
   // Whether the state tabs are showing, which name the state where it isn't.
   tabs: boolean;
   shortlists: Shortlists;
@@ -665,7 +691,7 @@ function TopRow(props: {
           )}
         </Show>
         <b class="crumb-name">{title()}</b>
-        <Show when={!props.tabs && s.moment()}>
+        <Show when={!props.tabs && s.activeState()}>
           {(state) => <span class="crumb-far crumb-sit">{`· ${state()}`}</span>}
         </Show>
       </nav>
@@ -729,7 +755,7 @@ function TopRow(props: {
       </Show>
       {/* A phone has no key to press, but a row already holding the view switch has
           no room for it either: Home is one step up from there. */}
-      <Show when={!phoneLayout() || !(props.compare || props.view === "studio")}>
+      <Show when={!phoneLayout() || !(props.compare || props.view !== "stage")}>
         <button
           type="button"
           class="ib msearch"
@@ -754,29 +780,40 @@ function TopRow(props: {
       <Show when={props.view === "stage" && !props.reading && s.mock()}>
         <WidthMenu s={s} />
       </Show>
-      <Show when={props.compare || props.view === "studio"}>
+      <Show when={props.compare || props.view !== "stage"}>
         <div class="vswitch" role="group" aria-label="View">
           <button
             type="button"
             aria-pressed={props.view === "stage"}
             aria-label={
-              props.view === "studio" && s.waitsOnStage() ? "Stage, a question is waiting" : "Stage"
+              props.view !== "stage" && s.waitsOnStage() ? "Stage, a question is waiting" : "Stage"
             }
             onClick={() => props.onView("stage")}
           >
             Stage
-            <Show when={props.view === "studio" && s.waitsOnStage()}>
+            <Show when={props.view !== "stage" && s.waitsOnStage()}>
               <i class="vswitch-q" aria-hidden="true" />
             </Show>
           </button>
-          <button
-            type="button"
-            aria-pressed={props.view === "studio"}
-            onClick={() => props.onView("studio")}
-          >
-            Studio
-            <span class="num">{props.variants}</span>
-          </button>
+          <Show when={!props.studioHidden || props.view === "studio"}>
+            <button
+              type="button"
+              aria-pressed={props.view === "studio"}
+              onClick={() => props.onView("studio")}
+            >
+              Studio
+              <span class="num">{props.variants}</span>
+            </button>
+          </Show>
+          <Show when={props.grid}>
+            <button
+              type="button"
+              aria-pressed={props.view === "grid"}
+              onClick={() => props.onView("grid")}
+            >
+              Grid
+            </button>
+          </Show>
         </div>
       </Show>
       {props.panels}
@@ -899,7 +936,7 @@ function WidthMenu(props: { s: MockScreenState }) {
 // The steps by name: the declared flow this screen is a step of, else the mock's
 // own states in order. A step the agent still waits on is marked. The current
 // one stays in view however many there are, the next peeking past the edge.
-function FlowBar(props: { nav: FlowNav }) {
+function FlowBar(props: { nav: FlowNav; children?: JSX.Element }) {
   const nav = props.nav;
   let list!: HTMLDivElement;
   createEffect(() => {
@@ -917,8 +954,15 @@ function FlowBar(props: { nav: FlowNav }) {
             <button
               type="button"
               class="ftab"
+              classList={{ "ftab-outline": nav.planned(x) }}
               aria-current={i() === nav.at() ? "step" : undefined}
-              aria-label={nav.owes(x) ? `${nav.label(x)}, a question is waiting` : nav.label(x)}
+              aria-label={
+                nav.owes(x)
+                  ? `${nav.label(x)}, a question is waiting`
+                  : nav.planned(x)
+                    ? `${nav.label(x)}, planned`
+                    : nav.label(x)
+              }
               title={nav.label(x)}
               onClick={() => nav.go(x)}
             >
@@ -929,6 +973,7 @@ function FlowBar(props: { nav: FlowNav }) {
             </button>
           )}
         </For>
+        {props.children}
       </div>
       {/* The way back to what they hold: each state's archive sits in its own Studio. */}
       <Show when={nav.emptied().length}>

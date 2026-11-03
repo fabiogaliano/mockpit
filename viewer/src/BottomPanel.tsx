@@ -1,8 +1,8 @@
 // A phone's bottom panel, opened from the version label: the state's History (one
-// line per variant, its versions along it, the one in use marked) and the
-// Thread with the agent.
+// line per variant, its versions along it, the one in use marked), the mock's Notes
+// where it has them, and the Thread with the agent.
 
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js";
 import { surfaceUrl } from "./api.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
@@ -14,6 +14,7 @@ import {
   type VersionStep,
   widthKind,
 } from "./logic.ts";
+import { Notes, notesShown } from "./Notes.tsx";
 import { Answered } from "./Questions.tsx";
 import type { MockScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
@@ -47,6 +48,17 @@ export function BottomPanel(props: { s: MockScreenState; onHeight: (h: number) =
           >
             History
           </button>
+          <Show when={notesShown(s)}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab() === "notes"}
+              classList={{ on: tab() === "notes" }}
+              onClick={() => s.setPanel("notes")}
+            >
+              Notes
+            </button>
+          </Show>
           <button
             type="button"
             role="tab"
@@ -71,17 +83,20 @@ export function BottomPanel(props: { s: MockScreenState; onHeight: (h: number) =
         </button>
       </div>
       <div class="bpbody" ref={setBody}>
-        <Show
-          when={tab() === "history"}
-          fallback={
+        <Switch>
+          <Match when={tab() === "history"}>
+            <History s={s} />
+          </Match>
+          <Match when={tab() === "notes"}>
+            <Notes s={s} />
+          </Match>
+          <Match when={tab() === "thread"}>
             <div class="bpthread">
               <Answered s={s} scope="all" />
               <Thread s={s} scroller={body} />
             </div>
-          }
-        >
-          <History s={s} />
-        </Show>
+          </Match>
+        </Switch>
       </div>
     </section>
   );
