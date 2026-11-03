@@ -34,6 +34,13 @@ export type TreeNode = ReturnType<typeof treeNodeView>;
 export type FlowView = { name: string; steps: FlowStep[] };
 export type VariantView = ReturnType<typeof variantView>;
 export type HistoryRow = NonNullable<VariantView["history"]>[number];
+// What a restore changed, sent back as it is by its Undo.
+export type RestoreUndo = {
+  closedAt: string | null;
+  closeReason: string | null;
+  dismissed: string[];
+  variants: { id: string; archivedAt: string; reason: string | null }[];
+};
 export type DecisionListView = { project: string; total: number; lines: DecisionLine[] };
 // `ownerGone`: undelivered, and a newer agent session in the project superseded
 // the one it was sent to, so the next agent there will get it. `listening`:
@@ -194,7 +201,15 @@ export const api = {
       json("POST", {}),
     ),
   reopen: (id: string) =>
-    call<{ mock: MockSummary }>(`/api/mocks/${encodeURIComponent(id)}/reopen`, json("POST", {})),
+    call<{ mock: MockSummary; undo?: RestoreUndo }>(
+      `/api/mocks/${encodeURIComponent(id)}/reopen`,
+      json("POST", {}),
+    ),
+  rearchive: (id: string, undo: RestoreUndo) =>
+    call<{ mock: MockSummary }>(
+      `/api/mocks/${encodeURIComponent(id)}/rearchive`,
+      json("POST", undo),
+    ),
   // Why an ended mock, or with `variant` an archived variant, went.
   reason: (
     id: string,

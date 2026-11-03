@@ -129,7 +129,7 @@ export type TurnKind = MockStatus["kind"] | "idle";
 
 const TURN_TEXT: Record<Exclude<TurnKind, "open">, string> = {
   draft: "Draft to send",
-  changed: "Changed",
+  changed: "New version",
   unseen: "Not seen yet",
   working: "Agent working",
   decided: "In use",
@@ -139,7 +139,8 @@ const TURN_TEXT: Record<Exclude<TurnKind, "open">, string> = {
   idle: "Nothing waiting",
 };
 
-export const questions = (n: number) => `${n} ${n === 1 ? "question" : "questions"}`;
+export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+export const questions = (n: number) => plural(n, "question");
 
 // Whose turn it is, in a word, on anything still on a shelf: an ended mock has left,
 // and its place in the Archive says so.
@@ -196,6 +197,46 @@ export const shortDate = (iso: string): string => {
   const d = new Date(iso);
   return `${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)}`;
 };
+
+// "Today", "Yesterday", then the date, in the viewer's own time.
+function dayLabel(d: Date, now: Date): string {
+  const midnight = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const daysAgo = Math.round((midnight(now) - midnight(d)) / 86_400_000);
+  if (daysAgo === 0) return "Today";
+  if (daysAgo === 1) return "Yesterday";
+  const year = d.getFullYear() === now.getFullYear() ? "" : ` ${d.getFullYear()}`;
+  return `${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)}${year}`;
+}
+
+// Rows under the day they happened, newest day and newest row first. A row with no
+// date can't be placed, so it goes last under its own heading rather than being lost.
+export function byDay<T>(
+  rows: readonly T[],
+  at: (row: T) => string | null | undefined,
+  id: (row: T) => string,
+  now = new Date(),
+): { key: string; label: string; rows: T[] }[] {
+  const days = new Map<string, { key: string; label: string; t: number; rows: T[] }>();
+  const sorted = [...rows].sort(
+    (a, b) => (at(b) ?? "").localeCompare(at(a) ?? "") || id(a).localeCompare(id(b)),
+  );
+  for (const row of sorted) {
+    const iso = at(row);
+    const d = iso ? new Date(iso) : null;
+    const key = d ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` : "undated";
+    const day = days.get(key);
+    if (day) day.rows.push(row);
+    else {
+      days.set(key, {
+        key,
+        label: d ? dayLabel(d, now) : "No date",
+        t: d ? d.getTime() : 0,
+        rows: [row],
+      });
+    }
+  }
+  return [...days.values()].sort((a, b) => b.t - a.t);
+}
 
 // From here a section gets headings by date; ia.md's threshold, an inference.
 export const DATED_FROM = 13;

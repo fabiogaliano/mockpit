@@ -34,7 +34,7 @@ export function App() {
           {(r) => <MockScreen project={r.project} slug={r.slug} open={r.open} flow={r.flow} />}
         </Match>
         <Match when={home()}>
-          {(r) => <Home project={r().project} sec={r().sec} area={r().area} />}
+          {(r) => <Home project={r().project} sec={r().sec} area={r().area} show={r().show} />}
         </Match>
         <Match when={route().screen === "missing"}>
           <NotFound title="Nothing at this address" href={rootPath()} back="Go to your projects" />

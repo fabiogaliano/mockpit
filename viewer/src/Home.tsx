@@ -19,12 +19,13 @@ import {
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import type { FlowStep } from "../../server/types.ts";
-import { api, assetUrl, type MockSummary, subscribe, surfaceUrl, type TreeNode } from "./api.ts";
+import { api, type MockSummary, type RestoreUndo, subscribe, type TreeNode } from "./api.ts";
 import { Album, DocRow, FlowStepTile } from "./Album.tsx";
 import {
   DATED_FROM,
   dateGroups,
   litSections,
+  lastWork,
   newestFirst,
   questions,
   type Section,
@@ -34,7 +35,9 @@ import {
   usedIn,
 } from "./albums.ts";
 import { CardMenu } from "./CardMenu.tsx";
-import { createDecisions, Decisions } from "./Decisions.tsx";
+import { Archive } from "./Archive.tsx";
+import { createDecisions } from "./Decisions.tsx";
+import { MockThumb, Recent } from "./Recent.tsx";
 import { setCarried } from "./carry.ts";
 import { useSwipeAction } from "./gestures.ts";
 import { AddCandidates } from "./AddCandidates.tsx";
@@ -60,17 +63,16 @@ import {
   navigate,
   projectPath,
   questionPath,
+  type RecentShow,
   rememberHomePlace,
   rootPath,
 } from "./route.ts";
 import { NotFound } from "./NotFound.tsx";
 import { ProjectSwitcher } from "./ProjectSwitcher.tsx";
-import { Reason } from "./Reason.tsx";
 import { createShortlists } from "./shortlist.ts";
 import { unseen } from "./seen.ts";
-import { setTheme, theme } from "./theme.ts";
+import { setTheme } from "./theme.ts";
 import { Sidebar } from "./Sidebar.tsx";
-import { Thumb } from "./Thumb.tsx";
 import { Toast, type ToastLine } from "./toast.tsx";
 import { TopBar } from "./TopBar.tsx";
 import { phoneLayout } from "./viewport.ts";
@@ -84,7 +86,6 @@ const folds = new Map<string, boolean>();
 const SIDEBAR_FROM = 3;
 // Up to this many mocks in a lone section, the sidebar lists them by name.
 const TREE_UP_TO = 12;
-const ACTIVITY_ROWS = 30;
 
 interface Row {
   name: string;
@@ -99,6 +100,7 @@ export function Home(props: {
   project: string | null;
   sec: HomePlace | null;
   area: string | null;
+  show: RecentShow | null;
 }) {
   // Home shows where every mock stands; a Send carried from a mock ends here.
   setCarried(null);
@@ -146,11 +148,7 @@ export function Home(props: {
   // A plan has nothing live because nothing is drawn yet, which is not the same thing.
   const inArchive = (n: TreeNode) => !!n.closedAt || (nothingLeft(n) && !n.planned);
   const onShow = createMemo(() => nodes().filter((n) => !inArchive(n) && !leaving()[n.id]));
-  const archived = createMemo(() =>
-    nodes()
-      .filter(inArchive)
-      .sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? "")),
-  );
+  const archived = createMemo(() => nodes().filter((n) => inArchive(n) && !leaving()[n.id]));
   const areaOrder = createMemo(() => tree()?.areaOrder ?? []);
   const areas = createMemo(() =>
     orderAreas(
@@ -224,11 +222,10 @@ export function Home(props: {
   const shown = createMemo<Shown | null>(() => {
     const sec = props.sec;
     const loaded = !!tree() && !!list();
-    if (sec === "decisions" && (decisions.list.loading || decisionCount() > 0)) return sec;
-    if (sec && !loaded && sec !== "decisions") return sec;
+    if (sec && !loaded) return sec;
     if (sec === "needs" && waiting().length) return sec;
     if (sec === "archive" && archived().length) return sec;
-    if (sec === "activity" && nodes().length) return sec;
+    if (sec === "recent" && nodes().length) return sec;
     if (tiny()) return loaded ? "tiny" : null;
     if (sec && isLit(sec)) return sec;
     if (area()) return "area";
@@ -237,7 +234,7 @@ export function Home(props: {
   });
   createEffect(() => {
     const p = project();
-    if (p) rememberHomePlace(p, props.sec, area());
+    if (p) rememberHomePlace(p, props.sec, area(), props.show);
   });
   const shelfOn = (): Section | null => {
     const s = shown();
@@ -293,6 +290,48 @@ export function Home(props: {
       setToast({ text: `Couldn't restore: ${e instanceof Error ? e.message : e}` });
     }
   }
+  // Out of the Archive, one or a whole day of it. Undo puts each back on the day it
+  // went, not today.
+  async function restore(list: TreeNode[]) {
+    setToast(null);
+    setLeaving({ ...leaving(), ...Object.fromEntries(list.map((n) => [n.id, true as const])) });
+    const done: { id: string; undo: RestoreUndo }[] = [];
+    try {
+      for (const n of list) {
+        const { undo } = await api.reopen(n.id);
+        if (undo) done.push({ id: n.id, undo });
+      }
+      await refetch();
+      setToast({
+        text: list.length === 1 ? `Restored “${list[0].title}”` : `Restored ${list.length}`,
+        undo: () => void rearchive(done),
+      });
+    } catch (e) {
+      await refetch();
+      setToast({ text: `Couldn't restore: ${e instanceof Error ? e.message : e}` });
+    } finally {
+      setLeaving(
+        Object.fromEntries(
+          Object.entries(leaving()).filter(([id]) => !list.some((n) => n.id === id)),
+        ) as Record<string, true>,
+      );
+    }
+  }
+  async function rearchive(done: { id: string; undo: RestoreUndo }[]) {
+    setToast(null);
+    try {
+      for (const { id, undo } of done) await api.rearchive(id, undo);
+      await refetch();
+    } catch (e) {
+      await refetch();
+      setToast({ text: `Couldn't put it back: ${e instanceof Error ? e.message : e}` });
+    }
+  }
+  const saveReasons = (list: TreeNode[], reason: string | null) =>
+    void Promise.all(list.map((n) => api.reason(n.id, { reason }))).then(
+      () => refetch(),
+      (e) => setToast({ text: `Couldn't keep that: ${e instanceof Error ? e.message : e}` }),
+    );
 
   const stop = subscribe(
     (e) => {
@@ -317,7 +356,8 @@ export function Home(props: {
   // Each place keeps its own scroll; the albums' boxes are sized before their
   // pictures load, so the place is right as soon as the tree is in.
   let main!: HTMLElement;
-  const scrollKey = () => `${project() ?? ""}|${props.sec}|${shown()}|${area() ?? ""}`;
+  const scrollKey = () =>
+    `${project() ?? ""}|${props.sec}|${shown()}|${area() ?? ""}|${props.show ?? ""}`;
   createEffect(
     on([scrollKey, () => !!tree()], ([key, loaded]) => {
       if (!loaded) return;
@@ -348,7 +388,6 @@ export function Home(props: {
     if (!phoneLayout()) setDrawer(false);
   });
 
-  const owesIn = (a: string) => onShow().some((n) => n.area === a && n.open > 0);
   const countIn = (a: string) => onShow().filter((n) => n.area === a).length;
   // The lone section, whose mocks the sidebar can list by name: there's no section
   // choice to make there, and the shelf beside it is the same few things larger. A
@@ -371,14 +410,12 @@ export function Home(props: {
       place={shown()}
       area={area()}
       open={open()}
-      rows={lit().rows.map((sec) => ({ sec, count: counts()[sec] }))}
-      foot={lit().foot ? { sec: lit().foot!, count: counts()[lit().foot!] } : null}
-      areas={areas().map((name) => ({ name, count: countIn(name), waits: owesIn(name) }))}
+      rows={lit().rows}
+      foot={lit().foot}
+      areas={areas()}
       tree={treeGroups()}
-      decisions={decisions.list() ?? null}
-      onDecisions={(n) => decisions.mutate(n)}
       archived={archived().length}
-      activity={nodes().length > 0}
+      recent={nodes().length > 0}
       go={swap}
       onNav={() => setDrawer(false)}
       drawer={inDrawer}
@@ -559,13 +596,11 @@ export function Home(props: {
     const label =
       s === "needs"
         ? "Needs you"
-        : s === "decisions"
-          ? "Decisions"
-          : s === "archive"
-            ? "Archive"
-            : s === "activity"
-              ? "Activity"
-              : SECTION_LABEL[s];
+        : s === "archive"
+          ? "Archive"
+          : s === "recent"
+            ? "Recent"
+            : SECTION_LABEL[s];
     return a && shelfOn() ? `${label} in ${a}` : label;
   };
   // How much of the shelf is still only a plan.
@@ -587,7 +622,6 @@ export function Home(props: {
     }
     if (s === "area" && a) return countIn(a);
     if (s === "archive") return archived().length;
-    if (s === "decisions") return decisionCount();
     return null;
   };
   // A place reached from a link, with no sidebar to leave by, brings its own way back.
@@ -601,42 +635,21 @@ export function Home(props: {
     !projects.loading && (!project() || (!!tree() && nodes().length === 0));
 
   // No heading and nothing to say: a tiny project opens straight on its covers.
-  const leadHasWords = () => open() > 0 || (tiny() && decisionCount() > 0);
+  // Beside a sidebar its Needs you row already says this; the Needs you page still
+  // offers the next one, and without a column in view this is the only place to.
+  const leadTellsOpen = () => open() > 0 && (!hasSidebar() || phoneLayout() || shown() === "needs");
+  const leadHasWords = () => leadTellsOpen() || (tiny() && decisionCount() > 0);
 
   const [archivedOpen, setArchivedOpen] = createSignal(false);
-  const archiveRow = (n: TreeNode) => {
-    const href = () => mockPath(project()!, n.slug);
-    return (
-      <li class="home-arch">
-        <a href={href()} onClick={(e) => linkClick(e, href())}>
-          {n.title}
-        </a>
-        <span class="home-arch-when">
-          {n.closedAt ? timeAgo(n.closedAt) : "every design archived"}
-        </span>
-        {/* Work can still land in something ended, and here is where it would wait. */}
-        <Show when={fresh().has(n.id)}>
-          <span class="alb-new">
-            <i aria-hidden="true" />
-            New
-          </span>
-        </Show>
-        <Show when={n.closedAt}>
-          <Reason value={n.closeReason} onSave={(r) => saveReason(n.id, r)} />
-          <Show when={!readonly()}>
-            <button
-              type="button"
-              class="btn home-arch-back"
-              aria-label={`Restore ${n.title}`}
-              onClick={() => void reopen(n.id)}
-            >
-              Restore
-            </button>
-          </Show>
-        </Show>
-      </li>
-    );
-  };
+  const archive = () => (
+    <Archive
+      project={project()!}
+      nodes={archived()}
+      fresh={fresh()}
+      onRestore={(list) => void restore(list)}
+      onReason={saveReasons}
+    />
+  );
   const [gathering, setGathering] = createSignal(false);
 
   const switcher = () => (
@@ -763,7 +776,7 @@ export function Home(props: {
                 <span class="grow" />
                 <div class="home-lead">
                   {/* Until the list arrives there is no count to tell, not zero of one. */}
-                  <Show when={open() > 0}>
+                  <Show when={leadTellsOpen()}>
                     <Show
                       when={shown() !== "needs"}
                       fallback={<span class="home-count">{questions(open())}</span>}
@@ -773,7 +786,6 @@ export function Home(props: {
                         href={projectPath(project()!, "needs")}
                         onClick={(e) => swap(e, projectPath(project()!, "needs"))}
                       >
-                        <i class="dot" aria-hidden="true" />
                         {questions(open())}
                       </a>
                     </Show>
@@ -788,14 +800,14 @@ export function Home(props: {
                     </a>
                   </Show>
                   {/* No sidebar to find these in. */}
-                  <Show when={tiny() && decisionCount() > 0 && shown() !== "decisions"}>
-                    <Show when={open() > 0}>
+                  <Show when={tiny() && decisionCount() > 0 && shown() !== "recent"}>
+                    <Show when={leadTellsOpen()}>
                       <span class="sep">·</span>
                     </Show>
                     <a
                       class="home-next"
-                      href={projectPath(project()!, "decisions")}
-                      onClick={(e) => swap(e, projectPath(project()!, "decisions"))}
+                      href={projectPath(project()!, "recent", null, "decisions")}
+                      onClick={(e) => swap(e, projectPath(project()!, "recent", null, "decisions"))}
                     >
                       {`Decisions ${decisionCount()} ›`}
                     </a>
@@ -859,11 +871,7 @@ export function Home(props: {
                       </span>
                       {`Archived · ${archived().length}`}
                     </button>
-                    <Show when={archivedOpen()}>
-                      <ul class="home-archived">
-                        <For each={archived()}>{archiveRow}</For>
-                      </ul>
-                    </Show>
+                    <Show when={archivedOpen()}>{archive()}</Show>
                   </section>
                 </Show>
               </Show>
@@ -873,11 +881,7 @@ export function Home(props: {
               <Show when={shown() === "components"}>{sectionShelf("components")}</Show>
               <Show when={shown() === "documents"}>{sectionShelf("documents")}</Show>
               <Show when={shown() === "flows"}>{flowsAll()}</Show>
-              <Show when={shown() === "archive"}>
-                <ul class="home-archived home-archive-page">
-                  <For each={archived()}>{archiveRow}</For>
-                </ul>
-              </Show>
+              <Show when={shown() === "archive"}>{archive()}</Show>
             </Show>
 
             <Show when={shown() === "needs"}>
@@ -905,29 +909,18 @@ export function Home(props: {
               </div>
             </Show>
 
-            <Show when={shown() === "activity"}>
-              <div class="home-waiting">
-                <ol class="home-list">
-                  <For
-                    each={all()
-                      .slice(0, ACTIVITY_ROWS)
-                      .map((m) => m.id)}
-                  >
-                    {(id) => (
-                      <Show when={byId()[id]}>
-                        {(m) => <MockRow mock={m()} project={project()!} plain />}
-                      </Show>
-                    )}
-                  </For>
-                </ol>
-              </div>
-            </Show>
-
-            <Show when={shown() === "decisions" && decisionCount() > 0}>
-              <Decisions
+            <Show when={shown() === "recent"}>
+              <Recent
                 project={project()!}
+                mocks={all()}
+                workedAt={(m) => {
+                  const node = bySlug().get(m.slug);
+                  return node ? lastWork(node) : m.updatedAt;
+                }}
                 lines={decisions.list()?.lines ?? []}
-                onChange={(n) => decisions.mutate(n)}
+                show={props.show}
+                go={swap}
+                onDecisions={(n) => decisions.mutate(n)}
               />
             </Show>
           </Show>
@@ -1019,7 +1012,6 @@ function MockRow(props: {
 }) {
   const endWord = () => (props.mock.kind === "sketch" ? "End" : "Archive");
   const href = () => mockPath(props.project, props.mock.slug);
-  const thumb = () => props.mock.thumbnail;
   // How far a finger has pulled the row left; null at rest.
   const [dx, setDx] = createSignal<number | null>(null);
   const [gone, setGone] = createSignal(false);
@@ -1061,32 +1053,7 @@ function MockRow(props: {
           data-mock={props.mock.slug}
         >
           <div class="home-thumb">
-            <Show when={thumb()}>
-              {(t) => (
-                <Show
-                  when={t().poster}
-                  fallback={
-                    <Thumb
-                      src={surfaceUrl(t().postId, t().surface, {
-                        version: t().version,
-                        mode: theme(),
-                        w: t().rewrites,
-                      })}
-                    />
-                  }
-                >
-                  {(id) => (
-                    <img
-                      class="home-poster"
-                      src={assetUrl(id())}
-                      alt=""
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  )}
-                </Show>
-              )}
-            </Show>
+            <MockThumb mock={props.mock} />
           </div>
           <div class="home-text">
             <div class="home-name">{props.mock.title}</div>

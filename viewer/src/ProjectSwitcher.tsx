@@ -1,7 +1,7 @@
 // The project name, and from it every project, each saying whether it waits on
-// the user. The name glows while any project does, since this is the one mark that
-// reaches past the project on screen; its number and the rows' words say it without
-// the colour. Recent first; a project with no work in 30 days folds under Older,
+// the user. Where there's no sidebar, the name carries a number, the one mark that
+// reaches past the project on screen. In the sidebar it would sit above that project's
+// own count and read as this project's, so there the menu says it. Recent first; a project with no work in 30 days folds under Older,
 // unless it waits on the user, which never folds away.
 
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
@@ -119,7 +119,6 @@ export function ProjectSwitcher(props: {
         <button
           type="button"
           class="proj-btn"
-          classList={{ glows: total() > 0 }}
           ref={(el) => (btn = el)}
           aria-haspopup="true"
           aria-expanded={open()}
@@ -131,9 +130,6 @@ export function ProjectSwitcher(props: {
           title={total() > 0 ? summary() : undefined}
           onClick={() => setOpen(!open())}
         >
-          <Show when={total() > 0}>
-            <i class="glow-dot" aria-hidden="true" />
-          </Show>
           <span class="proj-label">
             <Show when={props.known} fallback={<span class="proj-title">Choose a project</span>}>
               <Show when={props.stacked && owner()}>
@@ -142,7 +138,7 @@ export function ProjectSwitcher(props: {
               <span class="proj-title">{props.stacked ? shortName() : (props.current ?? "")}</span>
             </Show>
           </span>
-          <Show when={total() > 0}>
+          <Show when={total() > 0 && !props.stacked}>
             <span class="proj-total">{total()}</span>
           </Show>
           <Icon name="down" />

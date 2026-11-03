@@ -333,6 +333,15 @@ export const sessionRowView = (session: Session, postCount: number) => ({
 // One mock as a node of the project tree (GET /api/projects/:name/tree): its
 // variants per state with status and lineage, and the mocks it embeds (`embeds`);
 // `embeddedIn` is filled in once every node is known.
+// When it left the shelf: ended by hand, or with the last of its designs archived.
+// Designs archived before the date was kept fall back on the mock's last change.
+function archivedOf(mock: Mock, posts: PostHead[]): { archivedAt?: string } {
+  if (mock.closedAt) return { archivedAt: mock.closedAt };
+  if (!posts.length || posts.some((p) => isLive(p.status))) return {};
+  const last = posts.reduce((t, p) => (p.archivedAt && p.archivedAt > t ? p.archivedAt : t), "");
+  return { archivedAt: last || mock.updatedAt };
+}
+
 export const treeNodeView = (
   mock: Mock,
   posts: PostHead[],
@@ -365,6 +374,7 @@ export const treeNodeView = (
   createdAt: mock.createdAt,
   updatedAt: mock.updatedAt,
   closedAt: mock.closedAt,
+  ...archivedOf(mock, posts),
   ...(mock.closeReason ? { closeReason: mock.closeReason } : {}),
   settled: extra.settled,
   embeds: extra.embeds,

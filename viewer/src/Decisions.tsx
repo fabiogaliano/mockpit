@@ -1,18 +1,16 @@
-// The project's decision list: what the user settled, written by the server from
-// their replies and read first by every agent. The user has the last word on
-// every line, so each can be reworded or taken out here. Replies are untrusted:
-// everything below is text nodes and attributes, and a line's words stay plain
-// text however they read. It takes its lines and lays itself out in whatever
-// width it is given, so it can sit in a page or a sidebar.
+// One line of the project's decision list: what the user settled, written by the
+// server from their replies and read first by every agent. The user has the last
+// word on every line, so each can be reworded or taken out here. Replies are
+// untrusted: everything below is text nodes and attributes, and a line's words stay
+// plain text however they read.
 
-import { createResource, createSignal, For, onCleanup, Show } from "solid-js";
+import { createResource, createSignal, onCleanup, Show } from "solid-js";
 import type { DecisionLine } from "../../server/decisionList.ts";
 import { api, type DecisionListView } from "./api.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import { timeAgo } from "./logic.ts";
 import { linkClick, mockPath } from "./route.ts";
-import { Toast, type ToastLine } from "./toast.tsx";
+import type { ToastLine } from "./toast.tsx";
 
 // The list and how to refresh it, for whoever hosts the component and needs to
 // know whether there is anything to show at all.
@@ -24,29 +22,17 @@ export function createDecisions(project: () => string | null) {
   return { list, mutate, refetch };
 }
 
-export function Decisions(props: {
-  project: string;
-  lines: DecisionLine[];
-  onChange: (list: DecisionListView) => void;
-}) {
+// Rewording or removing a line, with the line its action leaves. Whoever shows the
+// rows shows that line too.
+export function createDecisionEdits(
+  project: () => string,
+  onChange: (list: DecisionListView) => void,
+) {
   const [toast, setToast] = createSignal<ToastLine | null>(null);
   const [editing, setEditing] = createSignal<string | null>(null);
-
-  // One heading per mock: consecutive lines share one, since the server keeps a
-  // mock's lines together.
-  const groups = () => {
-    const out: { mock: string; lines: DecisionLine[] }[] = [];
-    for (const line of props.lines) {
-      const last = out[out.length - 1];
-      if (last?.mock === line.mock) last.lines.push(line);
-      else out.push({ mock: line.mock, lines: [line] });
-    }
-    return out;
-  };
-
   async function change(body: Parameters<typeof api.editDecision>[1], failed: string) {
     try {
-      props.onChange(await api.editDecision(props.project, body));
+      onChange(await api.editDecision(project(), body));
       return true;
     } catch (e) {
       setToast({ text: `${failed}: ${e instanceof Error ? e.message : e}` });
@@ -64,59 +50,36 @@ export function Decisions(props: {
       });
     }
   }
+  return { toast, setToast, editing, setEditing, change, remove };
+}
 
+export function DecisionRow(props: {
+  project: string;
+  line: DecisionLine;
+  edits: ReturnType<typeof createDecisionEdits>;
+}) {
+  const e = props.edits;
   return (
-    <div class="decisions">
-      <p class="decisions-lead">
-        Written from your replies. Agents read this first, and treat it as settled.
-      </p>
-      <For each={groups()}>
-        {(group) => {
-          const head = () => group.lines[0];
-          const href = () => mockPath(props.project, group.mock);
-          return (
-            <section class="decisions-mock">
-              <h3>
-                <a href={href()} onClick={(e) => linkClick(e, href())}>
-                  {head().title}
-                </a>
-                <Show when={head().closed}>
-                  <span class="decisions-closed">Archived</span>
-                </Show>
-                <Show when={head().at}>{(at) => <time>{timeAgo(at())}</time>}</Show>
-              </h3>
-              <ul>
-                <For each={group.lines}>
-                  {(line) => (
-                    <Line
-                      line={line}
-                      href={mockPath(
-                        props.project,
-                        line.mock,
-                        line.state ? { state: line.state, variant: null } : null,
-                      )}
-                      editing={editing() === line.id}
-                      onEdit={() => setEditing(line.id)}
-                      onCancel={() => setEditing(null)}
-                      onSave={async (text) => {
-                        if (await change({ id: line.id, text }, "Couldn't save it"))
-                          setEditing(null);
-                      }}
-                      onReset={async () => {
-                        if (await change({ id: line.id, reset: true }, "Couldn't change it back"))
-                          setEditing(null);
-                      }}
-                      onRemove={() => void remove(line)}
-                    />
-                  )}
-                </For>
-              </ul>
-            </section>
-          );
-        }}
-      </For>
-      <Toast toast={toast()} onDismiss={() => setToast(null)} />
-    </div>
+    <Line
+      line={props.line}
+      href={mockPath(
+        props.project,
+        props.line.mock,
+        props.line.state ? { state: props.line.state, variant: null } : null,
+      )}
+      editing={e.editing() === props.line.id}
+      onEdit={() => e.setEditing(props.line.id)}
+      onCancel={() => e.setEditing(null)}
+      onSave={async (text) => {
+        if (await e.change({ id: props.line.id, text }, "Couldn't save it")) e.setEditing(null);
+      }}
+      onReset={async () => {
+        if (await e.change({ id: props.line.id, reset: true }, "Couldn't change it back")) {
+          e.setEditing(null);
+        }
+      }}
+      onRemove={() => void e.remove(props.line)}
+    />
   );
 }
 
@@ -131,7 +94,7 @@ function Line(props: {
   onRemove: () => void;
 }) {
   return (
-    <li class="decisions-line">
+    <div class="decisions-line">
       <Show
         when={props.editing}
         fallback={
@@ -206,7 +169,7 @@ function Line(props: {
           onReset={props.onReset}
         />
       </Show>
-    </li>
+    </div>
   );
 }
 

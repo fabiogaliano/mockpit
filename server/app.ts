@@ -3600,18 +3600,78 @@ export function createApp({
   }
 
   // Back from the archive: the asks it dismissed are open again, and an answer
-  // given now reaches the agent as a normal Send.
+  // given now reaches the agent as a normal Send. With every design archived, ending
+  // it isn't what keeps it off the shelf, so they all come back too. `undo` is what
+  // puts it exactly where it was, day included.
   async function reopenFlow(ref: unknown, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
     const mock = await resolveMock(ref);
     if (isResult(mock)) return mock;
     const posts = await store.listPosts({ mockId: mock.id });
-    if (!mock.closedAt) return ok({ mock: mockSummaryView(mock, posts) });
+    const nothingLive = posts.length > 0 && !posts.some((p) => isLive(p.status));
+    if (!mock.closedAt && !nothingLive) return ok({ mock: mockSummaryView(mock, posts) });
+    const undo = {
+      closedAt: mock.closedAt,
+      closeReason: mock.closeReason,
+      dismissed: mock.asks.filter((a) => a.dismissed).map((a) => a.id),
+      variants: nothingLive
+        ? posts.map((p) => ({
+            id: p.id,
+            archivedAt: p.archivedAt ?? mock.updatedAt,
+            reason: p.archiveReason ?? null,
+          }))
+        : [],
+    };
     const asks = mock.asks.map(({ dismissed: _, ...a }) => a);
     const updated = await store.updateMock(mock.id, { asks, closedAt: null });
     if (!updated) return fail(404, "mock not found");
+    if (nothingLive) for (const post of posts) await setStatus(mock, post, "open");
     bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
-    return ok({ mock: mockSummaryView(updated, posts) });
+    return ok({ mock: mockSummaryView(updated, await store.listPosts({ mockId: mock.id })), undo });
+  }
+
+  // The Undo of a restore: back to what reopenFlow's `undo` says it was. A design the
+  // agent has archived or removed since is left as it is.
+  async function rearchiveFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const mock = await resolveMock(ref);
+    if (isResult(mock)) return mock;
+    const when = (v: unknown) => {
+      const text = str(v, 40);
+      return text && !Number.isNaN(Date.parse(text)) ? text : null;
+    };
+    const posts = new Map(
+      (await store.listPosts({ mockId: mock.id })).map((p): [string, Post] => [p.id, p]),
+    );
+    const given: any[] = Array.isArray(body?.variants) ? body.variants : [];
+    for (const v of given) {
+      const post = posts.get(v?.id);
+      if (!post || !isLive(post.status)) continue;
+      const updated = await store.setPostArchived(
+        post.id,
+        when(v.archivedAt) ?? new Date().toISOString(),
+        str(v.reason, MAX_REASON) ?? null,
+      );
+      if (updated) {
+        bus.broadcast({
+          type: "post-updated",
+          id: updated.id,
+          mockId: mock.id,
+          sessionId: updated.sessionId,
+          version: updated.version,
+          by: "user",
+        });
+      }
+    }
+    const dismissed = new Set<unknown>(Array.isArray(body?.dismissed) ? body.dismissed : []);
+    const updated = await store.updateMock(mock.id, {
+      asks: mock.asks.map((a): Ask => (dismissed.has(a.id) ? { ...a, dismissed: true } : a)),
+      closedAt: when(body?.closedAt),
+      closeReason: str(body?.closeReason, MAX_REASON) ?? null,
+    });
+    if (!updated) return fail(404, "mock not found");
+    bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
+    return ok({ mock: mockSummaryView(updated, [...posts.values()]) });
   }
 
   // The user says why something went, or rewords it: on an ended mock, or with a
@@ -3622,7 +3682,10 @@ export function createApp({
     if (isResult(mock)) return mock;
     const reason = str(body?.reason, MAX_REASON) ?? null;
     if (body?.variant === undefined) {
-      if (!mock.closedAt) return fail(409, `${mock.slug} is not ended`);
+      // Every design archived is as gone as ended, and sits beside it in the Archive.
+      const posts = await store.listPosts({ mockId: mock.id });
+      const gone = mock.closedAt || (posts.length > 0 && !posts.some((p) => isLive(p.status)));
+      if (!gone) return fail(409, `${mock.slug} is not ended`);
       await store.updateMock(mock.id, { closeReason: reason });
       bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
       return ok({ reason });
@@ -5401,6 +5464,9 @@ export function createApp({
   );
   app.post("/api/mocks/:id/reopen", async (c) =>
     send(c, await reopenFlow(c.req.param("id"), flowCtx(c))),
+  );
+  app.post("/api/mocks/:id/rearchive", async (c) =>
+    send(c, await rearchiveFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
   app.post("/api/mocks/:id/reason", async (c) =>
     send(c, await reasonFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),

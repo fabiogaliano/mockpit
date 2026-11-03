@@ -147,7 +147,7 @@ const SURFACE_HEADS_SQL = `CASE WHEN json_valid(surfaces) THEN (
 
 // Everything a head row needs, spelled out because `SELECT *` reads the bodies.
 const POST_HEAD_COLUMNS =
-  "id, sessionId, mockId, state, variant, status, title, head, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, note, forkedFrom, copiedFrom, starred, acceptedVersion, hiddenVersions, curSession, amendedAt, rewrites, archiveReason, stayedVersion";
+  "id, sessionId, mockId, state, variant, status, title, head, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, note, forkedFrom, copiedFrom, starred, acceptedVersion, hiddenVersions, curSession, amendedAt, rewrites, archiveReason, stayedVersion, archivedAt";
 
 const POST_COLUMNS = `
   id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, mockId TEXT NOT NULL, state TEXT,
@@ -315,6 +315,7 @@ export class SqlStore implements Store {
     if (legacy) this.migrateLegacy();
     // After the legacy lift, which rebuilds posts from POST_COLUMNS alone.
     const pinned = this.columns("posts").has("acceptedVersion");
+    const dated = this.columns("posts").has("archivedAt");
     this.addMissing("posts", {
       note: "TEXT",
       forkedFrom: "TEXT",
@@ -327,6 +328,7 @@ export class SqlStore implements Store {
       rewrites: "INTEGER NOT NULL DEFAULT 0",
       archiveReason: "TEXT",
       stayedVersion: "INTEGER",
+      archivedAt: "TEXT",
     });
     // Before the pin, accepted meant "its latest": freeze that as the version in use.
     if (!pinned) {
@@ -339,6 +341,13 @@ export class SqlStore implements Store {
     }
     if (this.settingSync("sketchKind") !== "1") this.migrateToSketches();
     if (this.settingSync("contractTerms") !== "1") this.migrateToContractTerms();
+    // The day it went was never kept, and the mock's last change is the nearest thing.
+    // Frozen now, or the next reason or draft on the mock would move it to that day.
+    if (!dated) {
+      this.sql.exec(
+        "UPDATE posts SET archivedAt = (SELECT updatedAt FROM mocks WHERE mocks.id = posts.mockId) WHERE status = 'archived'",
+      );
+    }
     this.createIndexes();
   }
 
@@ -885,6 +894,7 @@ export class SqlStore implements Store {
       ...(hidden.length ? { hiddenVersions: hidden } : {}),
       ...(r.archiveReason == null ? {} : { archiveReason: r.archiveReason as string }),
       ...(r.stayedVersion == null ? {} : { stayedVersion: r.stayedVersion as number }),
+      ...(r.archivedAt == null ? {} : { archivedAt: r.archivedAt as string }),
       ...(r.curFrom == null ? {} : { from: r.curFrom as number }),
       ...(r.curPrompt == null ? {} : { prompt: r.curPrompt as string }),
       ...(r.curAuthor == null ? {} : { author: r.curAuthor as string }),
@@ -1990,18 +2000,51 @@ export class SqlStore implements Store {
     const pin = status === "accepted" ? (acceptedVersion ?? post.version) : null;
     // A reason says why it left, and a stay was about the version once in use.
     const reason = status === "archived" ? (post.archiveReason ?? null) : null;
+    // Archiving what's already archived keeps the day it went.
+    const archivedAt =
+      status === "archived"
+        ? ((post.status === "archived" ? post.archivedAt : undefined) ?? new Date().toISOString())
+        : null;
     this.raw.exec(
-      "UPDATE posts SET status = ?, acceptedVersion = ?, archiveReason = ?, stayedVersion = NULL WHERE id = ?",
+      "UPDATE posts SET status = ?, acceptedVersion = ?, archiveReason = ?, stayedVersion = NULL, archivedAt = ? WHERE id = ?",
       status,
       pin,
       reason,
+      archivedAt,
+      id,
+    );
+    const {
+      acceptedVersion: _,
+      archiveReason: _reason,
+      stayedVersion: _stayed,
+      archivedAt: _archivedAt,
+      ...rest
+    } = post;
+    const next: Post = {
+      ...rest,
+      status,
+      ...(pin === null ? {} : { acceptedVersion: pin }),
+      ...(reason === null ? {} : { archiveReason: reason }),
+      ...(archivedAt === null ? {} : { archivedAt }),
+    };
+    this.recache(next);
+    return next;
+  }
+
+  async setPostArchived(id: string, archivedAt: string, reason: string | null) {
+    const post = this.cachedPost(id) ?? (await this.getPost(id));
+    if (!post) return null;
+    this.raw.exec(
+      "UPDATE posts SET status = 'archived', acceptedVersion = NULL, archiveReason = ?, stayedVersion = NULL, archivedAt = ? WHERE id = ?",
+      reason,
+      archivedAt,
       id,
     );
     const { acceptedVersion: _, archiveReason: _reason, stayedVersion: _stayed, ...rest } = post;
     const next: Post = {
       ...rest,
-      status,
-      ...(pin === null ? {} : { acceptedVersion: pin }),
+      status: "archived",
+      archivedAt,
       ...(reason === null ? {} : { archiveReason: reason }),
     };
     this.recache(next);
@@ -2212,7 +2255,7 @@ export class SqlStore implements Store {
         );
         for (const { id, version } of input.accept) {
           this.sql.exec(
-            "UPDATE posts SET status = 'accepted', acceptedVersion = ?, archiveReason = NULL, stayedVersion = NULL WHERE id = ? AND mockId = ?",
+            "UPDATE posts SET status = 'accepted', acceptedVersion = ?, archiveReason = NULL, stayedVersion = NULL, archivedAt = NULL WHERE id = ? AND mockId = ?",
             version,
             id,
             input.mockId,
@@ -2220,7 +2263,8 @@ export class SqlStore implements Store {
         }
         for (const id of input.archive) {
           this.sql.exec(
-            "UPDATE posts SET status = 'archived', acceptedVersion = NULL WHERE id = ? AND mockId = ?",
+            "UPDATE posts SET status = 'archived', acceptedVersion = NULL, archivedAt = ? WHERE id = ? AND mockId = ?",
+            new Date().toISOString(),
             id,
             input.mockId,
           );

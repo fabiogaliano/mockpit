@@ -152,7 +152,7 @@ consciously, not as a side effect):
   `mcp/server.ts` — stdio MCP, a thin client over the HTTP API.
 - `viewer/` — Solid + TypeScript in `viewer/src/`, Vite-built into one
   self-contained `viewer/dist/index.html`. `Home` is a `Sidebar` beside one place,
-  named by `?sec=needs|ideas|screens|flows|components|documents|decisions|archive|activity`
+  named by `?sec=needs|ideas|screens|flows|components|documents|archive|recent`
   and `?area=` (absent: the first section lit). `albums.ts` holds the rules:
   `sectionOf` keeps declared screens and components and derives idea or document
   from what a mock contains (one render, nothing asked and no width is a document),

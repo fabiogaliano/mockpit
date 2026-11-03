@@ -7,6 +7,8 @@ import { readonly } from "./host.ts";
 
 export function Reason(props: {
   value: string | null | undefined;
+  // What invites one when none is written, where a reason speaks for several things.
+  empty?: string;
   onSave: (reason: string | null) => void;
 }) {
   const [said, setSaid] = createSignal(props.value ?? null);
@@ -36,7 +38,7 @@ export function Reason(props: {
             title={said() ? "Change the reason" : undefined}
             onClick={() => setWriting(true)}
           >
-            {said() ?? "Add a reason"}
+            {said() ?? props.empty ?? "Add a reason"}
           </button>
         </Show>
       }

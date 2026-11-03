@@ -304,7 +304,7 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: inherit;
+  color: var(--q);
   font: inherit;
 }
 a.home-count {
@@ -963,15 +963,61 @@ a.home-count {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.side-nm .answered-chev {
-  width: 8px;
-  margin-right: -2px;
-  color: var(--t5);
-  font-size: 14px;
+.side-nm svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
 }
-.side-nm .dot {
-  width: 6px;
-  height: 6px;
+.side-kind {
+  color: var(--t1);
+  font-weight: 500;
+}
+/* The project's words, in a shape of their own beside mockpit's rows. */
+.side-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 14px 4px 0;
+  border-top: 1px solid var(--line);
+}
+.side-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--t6);
+  border-radius: 99px;
+  color: var(--t2);
+  font-size: 13px;
+  text-decoration: none;
+  transition:
+    background var(--ease),
+    border-color var(--ease),
+    color var(--ease);
+}
+.side-chip[aria-current="page"] {
+  border-color: var(--t1);
+  background: var(--t1);
+  color: var(--panel);
+  font-weight: 500;
+}
+@media (hover: hover) {
+  .side-chip:not([aria-current]):hover {
+    border-color: var(--t4);
+    color: var(--t1);
+  }
+}
+.home-phone .side-chip {
+  min-height: 40px;
+  padding: 0 14px;
+}
+.side-foot .side-row {
+  min-height: 30px;
+  font-size: 13px;
+}
+.home-phone .side-foot .side-row {
+  min-height: 42px;
 }
 .side-n {
   flex: none;
@@ -989,56 +1035,6 @@ a.home-count {
   margin-bottom: 2px;
   color: var(--t1);
   font-weight: 500;
-}
-/* The decision list where it lives: narrow, so its words step down a size and each
-   line takes the whole width with its controls overhanging. */
-.side-decisions-body {
-  padding: 4px 4px 8px 10px;
-}
-@media (hover: hover) {
-  .side-decisions-body .decisions-line {
-    position: relative;
-  }
-  .side-decisions-body .decisions-acts {
-    position: absolute;
-    top: 2px;
-    right: 0;
-    margin: 0;
-    border-radius: 8px;
-    background: var(--panel);
-  }
-}
-.side-more {
-  display: block;
-  padding: 2px 0 8px;
-  color: var(--t2);
-  font-size: 12px;
-  font-weight: 500;
-  text-decoration: none;
-}
-@media (hover: hover) {
-  .side-more:hover {
-    text-decoration: underline;
-    text-underline-offset: 3px;
-  }
-}
-.side .decisions-lead {
-  margin-bottom: 12px;
-  font-size: 12px;
-}
-.side .decisions-mock {
-  margin-bottom: 16px;
-}
-.side .decisions-mock h3 {
-  font-size: 12px;
-}
-.side :is(.decisions-text, .decisions-mine, .decisions-words) {
-  font-size: 13px;
-  line-height: 1.4;
-}
-.side .decisions-line {
-  flex-wrap: wrap;
-  gap: 0;
 }
 .side-chrome {
   display: flex;
@@ -1100,16 +1096,6 @@ a.home-count {
   background: var(--q);
   box-shadow: 0 0 9px 2px color-mix(in srgb, var(--q) 60%, transparent);
 }
-@media (prefers-reduced-motion: no-preference) {
-  .proj-btn.glows .glow-dot {
-    animation: glow-breathe 3.2s ease-in-out infinite;
-  }
-}
-@keyframes glow-breathe {
-  50% {
-    box-shadow: 0 0 4px 1px color-mix(in srgb, var(--q) 35%, transparent);
-  }
-}
 
 /* The project switcher. */
 .proj {
@@ -1151,9 +1137,6 @@ a.home-count {
   .proj-btn:hover {
     background: var(--row);
   }
-}
-.proj-btn.glows .proj-title {
-  text-shadow: 0 0 14px color-mix(in srgb, var(--q) 55%, transparent);
 }
 .proj-btn svg {
   width: 16px;
@@ -1673,10 +1656,6 @@ a.home-count {
 .home-phone .home-doc .alb-words:empty {
   display: none;
 }
-.home-archive-page {
-  padding-left: 0;
-}
-
 /* Search to jump. */
 .jump-scrim {
   position: fixed;
@@ -3706,33 +3685,6 @@ html.theming *:not(iframe) {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.home-archived {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 0;
-  padding: 0 4px 8px 24px;
-  font-size: 14px;
-  list-style: none;
-}
-.home-arch {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 2px 12px;
-  min-height: 44px;
-}
-.home-arch-when {
-  color: var(--t4);
-  font-size: 12px;
-}
-.home-arch .reason {
-  flex: 1 1 200px;
-  min-width: 0;
-}
-.home-arch-back {
-  margin-left: auto;
-}
 .home-gather {
   gap: 6px;
 }
@@ -3740,18 +3692,270 @@ html.theming *:not(iframe) {
   width: 14px;
   height: 14px;
 }
-.home-archived a {
-  width: fit-content;
-  padding: 4px 0;
-  color: var(--t3);
-}
-@media (hover: hover) {
-  .home-archived a:hover {
-    color: var(--t1);
-  }
-}
 .home-archive {
   margin-top: 20px;
+}
+
+/* The Archive: a day is a batch, and each tile a picture of what went. */
+.arch-day {
+  padding-bottom: 26px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--edge);
+}
+.arch-day:last-child {
+  border-bottom: 0;
+}
+.arch-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 16px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.arch-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.arch-sum {
+  grid-column: 1;
+  margin: 0;
+  color: var(--t4);
+  font-size: 13px;
+}
+.arch-unopened i,
+.arch-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+}
+.arch-unopened i {
+  margin-right: 5px;
+}
+.arch-why {
+  grid-column: 1;
+  display: flex;
+  margin-top: 2px;
+}
+.arch-all {
+  grid-column: 2;
+  grid-row: 1 / 4;
+}
+.arch-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 14px;
+}
+.arch-tile {
+  --cover-h: 150px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 112px;
+  min-width: 0;
+}
+.arch-tile.wide {
+  width: 206px;
+}
+.arch-cover {
+  flex: none;
+  width: 100%;
+  height: var(--cover-h);
+  margin-bottom: 8px;
+}
+.arch-title {
+  color: var(--t1);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+.arch-dot {
+  margin-right: 5px;
+}
+.arch-inside {
+  color: var(--t4);
+  font-size: 12px;
+}
+.arch-said {
+  color: var(--t3);
+  font-size: 12px;
+  line-height: 1.3;
+}
+/* With a pointer Restore waits on the picture; a finger gets it under the words. */
+.arch-restore {
+  order: 1;
+  justify-content: center;
+  width: 100%;
+  margin-top: 8px;
+  padding-inline: 0;
+}
+@media (hover: hover) {
+  .arch-restore {
+    position: absolute;
+    top: calc(var(--cover-h) - 42px);
+    left: 6px;
+    width: calc(100% - 12px);
+    margin: 0;
+    background: var(--panel);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .arch-tile:hover .arch-restore,
+  .arch-tile:focus-within .arch-restore {
+    opacity: 1;
+  }
+  .arch-title:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+}
+@media (max-width: 760px) {
+  .arch-head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .arch-all {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
+    margin-top: 8px;
+  }
+  /* The next tile peeks past the edge, so a day that runs on says so. */
+  .arch-tiles {
+    flex-wrap: nowrap;
+    margin-inline: -16px;
+    padding-inline: 16px;
+    padding-bottom: 4px;
+    overflow-x: auto;
+    scroll-padding-inline: 16px;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+  .arch-tile {
+    --cover-h: 166px;
+    flex: none;
+    width: 124px;
+    scroll-snap-align: start;
+  }
+  .arch-tile.wide {
+    width: 228px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .arch-restore {
+    transition: none;
+  }
+}
+
+/* Recent: what happened, by day. */
+.recent {
+  max-width: 760px;
+}
+.recent-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+.recent-filter {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--edge);
+  border-radius: 99px;
+  color: var(--t3);
+  font-size: 13px;
+  text-decoration: none;
+}
+.recent-filter[aria-current="page"] {
+  border-color: var(--t1);
+  background: var(--t1);
+  color: var(--page);
+}
+@media (hover: hover) {
+  .recent-filter:not([aria-current="page"]):hover {
+    color: var(--t1);
+    background: var(--row);
+  }
+  .recent-name:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+}
+.recent-day {
+  margin-bottom: 22px;
+}
+.recent-day h2 {
+  margin: 0 0 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--edge);
+  font-size: 13px;
+  font-weight: 600;
+}
+.recent-day ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.recent-entry {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 7px 0;
+}
+.recent-entry > time {
+  color: var(--t4);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.recent-pic {
+  width: 56px;
+  height: 40px;
+  border-radius: 6px;
+}
+.recent-mark {
+  display: grid;
+  place-items: center;
+  background: var(--row);
+  color: var(--t3);
+}
+.recent-mark svg {
+  width: 16px;
+  height: 16px;
+}
+.recent-name {
+  color: var(--t1);
+  font-weight: 500;
+  text-decoration: none;
+}
+.recent-what,
+.recent-body .decisions-closed {
+  color: var(--t4);
+}
+.recent-chip {
+  margin-left: 8px;
+}
+.recent-body .decisions-line {
+  padding: 1px 0 0;
+  border: 0;
+}
+.recent-more {
+  min-height: 32px;
+  padding: 0 0 0 68px;
+  color: var(--t3);
+  font-size: 13px;
+  text-align: start;
+}
+@media (hover: hover) {
+  .recent-more:hover {
+    color: var(--t1);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .home-slide,

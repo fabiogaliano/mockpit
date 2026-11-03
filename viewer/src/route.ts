@@ -1,7 +1,8 @@
 // URL ⇄ screen. Home is /project/:name, a mock is /project/:name/:slug; "/" is
 // the home of the most recently active project. Home's place is `?sec=`: a
-// section (ideas, screens, flows, components, documents), or needs, decisions,
-// archive or activity; absent, or a section the project hasn't lit, is its first.
+// section (ideas, screens, flows, components, documents), or needs, archive or
+// recent; absent, or a section the project hasn't lit, is its first. `?show=` narrows
+// recent to its decisions or designs.
 // `?area=` alone is everything in one of the project's areas, and with `?sec=`
 // that section of it. On a mock the URL is the whole place: `?state=`,
 // `?variant=`, `?version=`, `?view=`. The mock screen keeps them current, so Back
@@ -17,12 +18,13 @@ export const HOME_PLACES = [
   "components",
   "documents",
   "needs",
-  "decisions",
   "archive",
-  "activity",
+  "recent",
 ] as const;
 export type HomePlace = (typeof HOME_PLACES)[number];
 const isHomePlace = (v: string | null): v is HomePlace => HOME_PLACES.includes(v as HomePlace);
+export type RecentShow = "decisions" | "designs";
+const isRecentShow = (v: string | null): v is RecentShow => v === "decisions" || v === "designs";
 
 export type Route =
   | {
@@ -32,6 +34,8 @@ export type Route =
       sec: HomePlace | null;
       // null: every area.
       area: string | null;
+      // null: all of recent.
+      show: RecentShow | null;
     }
   | {
       screen: "mock";
@@ -64,6 +68,7 @@ export function parseRoute(pathname: string, base = "", search = ""): Route {
     project,
     sec: isHomePlace(q.get("sec")) ? (q.get("sec") as HomePlace) : null,
     area: q.get("area") || null,
+    show: isRecentShow(q.get("show")) ? (q.get("show") as RecentShow) : null,
   });
   if (seg.length && (seg[0] !== "project" || !seg[1] || seg.length > 3)) {
     return { screen: "missing" };
@@ -96,10 +101,12 @@ export const projectPath = (
   project: string,
   sec: HomePlace | null = null,
   area: string | null = null,
+  show: RecentShow | null = null,
 ) => {
   const q = new URLSearchParams();
   if (sec) q.set("sec", sec);
   if (area) q.set("area", area);
+  if (show) q.set("show", show);
   const qs = q.toString();
   return `${basePath()}/project/${encodeURIComponent(project)}${qs ? `?${qs}` : ""}`;
 };
@@ -125,17 +132,29 @@ export const mockPath = (
 export const questionPath = (project: string, slug: string) =>
   `${mockPath(project, slug)}?view=stage&owed=1`;
 // The place on Home last shown, per project, so going up from a mock lands there.
-const lastPlace = new Map<string, { sec: HomePlace | null; area: string | null }>();
-export const rememberHomePlace = (project: string, sec: HomePlace | null, area: string | null) =>
-  lastPlace.set(project, { sec, area });
+const lastPlace = new Map<
+  string,
+  { sec: HomePlace | null; area: string | null; show: RecentShow | null }
+>();
+export const rememberHomePlace = (
+  project: string,
+  sec: HomePlace | null,
+  area: string | null,
+  show: RecentShow | null,
+) => lastPlace.set(project, { sec, area, show });
 export const rootPath = () => `${basePath()}/`;
 // The project's crumb means the whole project, in the section last open. An area
 // crumb means everything in that area, unless that's the area you came from: the
 // mock it names may not be in the section last open, which would land on nothing.
 export const homePath = (project: string, area: string | null = null) => {
   const last = lastPlace.get(project);
-  const sec = area === null || last?.area === area ? (last?.sec ?? null) : null;
-  return projectPath(project, sec, area);
+  const same = area === null || last?.area === area;
+  return projectPath(
+    project,
+    same ? (last?.sec ?? null) : null,
+    area,
+    same ? (last?.show ?? null) : null,
+  );
 };
 
 const key = (r: Route) => JSON.stringify(r);

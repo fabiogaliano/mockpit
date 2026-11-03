@@ -31,7 +31,7 @@ import { Thumb } from "./Thumb.tsx";
 
 // The picture of one version: its poster where the agent gave one, else the page
 // itself, shrunk in a sandboxed frame that starts only when near the screen.
-function Picture(props: { pic: ScreenPicture; width: number; whole: boolean }) {
+export function Picture(props: { pic: ScreenPicture; width: number; whole: boolean }) {
   return (
     <Show
       when={props.pic.poster}

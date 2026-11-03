@@ -709,6 +709,8 @@ export interface Post {
   hiddenVersions?: number[];
   // Why it was archived, if the user said. Goes when it comes back.
   archiveReason?: string;
+  // When it was archived. Absent on anything archived before this was kept.
+  archivedAt?: string;
   // While in use: the newest version the user looked at and chose not to take, so
   // it stops asking until a newer one comes.
   stayedVersion?: number;
@@ -1174,6 +1176,8 @@ export interface Store {
   // Accepting pins `acceptedVersion` (default: the current version); any other
   // status clears it.
   setPostStatus(id: string, status: PostStatus, acceptedVersion?: number): Promise<Post | null>;
+  // Archives it as it was before, date and reason included: the Undo of a restore.
+  setPostArchived(id: string, archivedAt: string, reason: string | null): Promise<Post | null>;
   setPostStarred(id: string, starred: boolean): Promise<Post | null>;
   setVersionHidden(id: string, version: number, hidden: boolean): Promise<Post | null>;
   setPostReason(id: string, reason: string | null): Promise<Post | null>;

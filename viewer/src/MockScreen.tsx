@@ -1067,26 +1067,26 @@ function Ghost(props: { s: MockScreenState; nav: FlowNav; by: 1 | -1 }) {
 function ChangedNote(props: { s: MockScreenState }) {
   const s = props.s;
   const looking = () => sameVersion(s.onStage(), s.changed()?.to);
+  // Beside each other the design is the same one, so only the number tells them apart.
+  const name = (ref: VersionRef) =>
+    ref.variant === s.changed()?.to.variant && ref.variant === s.changed()?.use.variant
+      ? `version ${ref.version}`
+      : s.nameOf(ref);
   return (
     <Show when={!readonly() && !s.mock()?.closedAt && s.changed()}>
       {(c) => (
         <div class="status-note changed-note" role="status">
-          <span>
-            <b class="alb-turn" data-turn="changed">
-              Changed
-            </b>
-            {` ${s.nameOf(c().to)} is newer than ${s.nameOf(c().use)}, which is in use.`}
-          </span>
+          <span>{`New version ready. You're using ${name(c().use)}.`}</span>
           <Show when={!looking()}>
             <button type="button" class="btn" onClick={() => s.showVersion(c().to)}>
-              {`See ${s.nameOf(c().to)}`}
+              See it
             </button>
           </Show>
           <button type="button" class="btn" onClick={() => void s.useThis(c().to)}>
-            {`Use ${s.nameOf(c().to)}`}
+            Use it
           </button>
           <button type="button" class="btn" onClick={s.stayOnUse}>
-            {`Stay on ${s.nameOf(c().use)}`}
+            {`Keep ${name(c().use)}`}
           </button>
         </div>
       )}
