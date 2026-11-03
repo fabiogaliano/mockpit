@@ -15,7 +15,14 @@ import { createEffect, createMemo, on, onCleanup, untrack } from "solid-js";
 import type { KnobConfig, KnobValue, Knobs } from "../../server/types.ts";
 import { initPane, type PaneConfig, type PaneValue, PaneStore } from "tunekit/core";
 import { root } from "./host.ts";
-import { resolveKnobs, safeColor, type TuneComponent, tuneComponents, tuneWrite } from "./logic.ts";
+import {
+  partLabel,
+  resolveKnobs,
+  safeColor,
+  type TuneComponent,
+  tuneComponents,
+  tuneWrite,
+} from "./logic.ts";
 import type { DesignScreenState } from "./state.ts";
 
 const BRIDGE = `
@@ -100,7 +107,9 @@ export function createTune(s: DesignScreenState) {
     const sel = s.selectedPart();
     return (
       list.find((c) => c.part === sel) ??
-      (sel !== null ? { part: sel, label: sel, paths: [] } : (list[0] ?? null))
+      (sel !== null
+        ? { part: sel, label: partLabel(s.design() ?? { parts: [] }, sel), paths: [] }
+        : (list[0] ?? null))
     );
   });
   const tunedIn = (c: TuneComponent) => c.paths.some((p) => p in s.knobContext().tuned);
@@ -111,6 +120,15 @@ export function createTune(s: DesignScreenState) {
   const sheet = root().createElement("style");
   sheet.textContent = BRIDGE;
   pane.firstElementChild?.shadowRoot?.append(sheet);
+  // tunekit closes its colour picker on Esc at the window, after the page's own Esc
+  // has already closed Tune around it. Claiming the key first keeps Esc to one step.
+  const onEsc = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && pane.firstElementChild?.shadowRoot?.querySelector(".up-cp-pop")) {
+      e.preventDefault();
+    }
+  };
+  root().addEventListener("keydown", onEsc, true);
+  onCleanup(() => root().removeEventListener("keydown", onEsc, true));
 
   // Tune's content is rebuilt each time the mode opens; the pane (and the
   // tunekit tree inside it) moves into the new spot instead of remounting.
@@ -166,6 +184,9 @@ export function createTune(s: DesignScreenState) {
       PaneStore.registerPanel(cfg.id, cfg.name, cfg.out);
       registered = cfg.id;
       untrack(() => push(cfg.id, cfg.c));
+      // tunekit's view takes the values at registering and hears a panel only once it
+      // has re-rendered, so a saved value written above would show as the default.
+      PaneStore.updatePanel(cfg.id, cfg.name, cfg.out);
       stopListening = PaneStore.subscribe(cfg.id, () => {
         const ctx = untrack(s.knobContext);
         const values = resolveKnobs(ctx);

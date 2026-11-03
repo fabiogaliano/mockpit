@@ -1351,6 +1351,7 @@ export function createDesignScreen(
     );
   }
   function detachImage(ask: Ask, field: AskField, id: string) {
+    const at = imagesOf(ask, field).indexOf(id);
     setField(
       ask,
       field,
@@ -1358,6 +1359,14 @@ export function createDesignScreen(
       imagesOf(ask, field).filter((x) => x !== id),
     );
     setAttachStatus("Image removed");
+    setToast({
+      text: "Image removed",
+      undo: () => {
+        setToast(null);
+        const now = imagesOf(ask, field);
+        setField(ask, field, textOf(ask, field), [...now.slice(0, at), id, ...now.slice(at)]);
+      },
+    });
   }
   function dismissPending(ask: Ask, field: AskField, key: string) {
     const p = pendingOf(ask, field).find((x) => x.key === key);
@@ -1489,6 +1498,18 @@ export function createDesignScreen(
     writeDraft((d) => {
       d.tuned = { ...values };
       return d;
+    });
+  }
+
+  function resetTuned() {
+    const before = { ...knobContext().tuned };
+    replaceTuned({});
+    setToast({
+      text: "Tuning reset",
+      undo: () => {
+        setToast(null);
+        replaceTuned(before);
+      },
     });
   }
 
@@ -2278,6 +2299,7 @@ export function createDesignScreen(
     handToast,
     setTuned,
     replaceTuned,
+    resetTuned,
     knobContext,
     send,
     tuneHost,

@@ -48,6 +48,7 @@ import {
   type PartsReport,
   reportIsCurrent,
   widthLabel,
+  spokenName,
 } from "./logic.ts";
 import { PartReactions } from "./Reactions.tsx";
 import type { DesignScreenState } from "./state.ts";
@@ -98,10 +99,12 @@ function readReport(d: Record<string, unknown>, frameW: number): PartsReport | n
       const b = (p.box ?? {}) as Record<string, unknown>;
       const name = text(p.name);
       if (!name) return [];
+      // The frame reports the bare name as the label when the agent set none.
+      const label = text(p.label);
       return [
         {
           name,
-          label: text(p.label) || name,
+          label: label && label !== name ? label : spokenName(name),
           box: { x: num(b.x), y: num(b.y), w: num(b.w), h: num(b.h) },
           visible: p.visible === true,
           depth: num(p.depth),

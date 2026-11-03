@@ -7,7 +7,7 @@ import { createEffect, createMemo, createResource, For, Index, on, Show } from "
 import { api, surfaceUrl, type TreeNode } from "./api.ts";
 import { host } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import { designWidth, screenPicture, versionName } from "./logic.ts";
+import { designWidth, partLabel, screenPicture, versionName } from "./logic.ts";
 import { linkClick, designPath } from "./route.ts";
 import type { DesignScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
@@ -130,7 +130,7 @@ export function BuiltFrom(props: {
           <Show when={tuned()}>
             <div class="tunedbar" role="status">
               <span>{`${tuned()} tuned · goes with your next answer`}</span>
-              <button type="button" onClick={() => s.replaceTuned({})}>
+              <button type="button" onClick={s.resetTuned}>
                 Reset
               </button>
             </div>
@@ -141,7 +141,11 @@ export function BuiltFrom(props: {
             <For each={parts().map((c) => c.part)}>
               {(part) => {
                 const c = () =>
-                  parts().find((x) => x.part === part) ?? { part, label: part ?? "", paths: [] };
+                  parts().find((x) => x.part === part) ?? {
+                    part,
+                    label: part ? partLabel(s.design() ?? { parts: [] }, part) : "",
+                    paths: [],
+                  };
                 return (
                   <div
                     class="crow"
@@ -215,7 +219,7 @@ function PartKnobs(props: { s: DesignScreenState; part: string | null }) {
               onMouseLeave={() => s.setPreview(null)}
               onClick={() => s.toggleMix(o())}
             >
-              <span>{`${o().part} as in ${o().variant}`}</span>
+              <span>{`${partLabel(s.design() ?? { parts: [] }, o().part)} as in ${o().variant}`}</span>
               <span class="borrow-act">{on() ? "Borrowed" : "Borrow"}</span>
             </button>
           );

@@ -9,7 +9,7 @@ import { createSignal, type JSX, Show } from "solid-js";
 import type { Ask } from "../../server/types.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import { isBuiltinAsk } from "./logic.ts";
+import { isBuiltinAsk, partLabel } from "./logic.ts";
 import { AskBody } from "./Questions.tsx";
 import type { DesignScreenState } from "./state.ts";
 
@@ -59,7 +59,7 @@ export function QuestionCard(props: {
                         </Show>
                         <Show when={s.askSlot(ask())}>
                           {(sl) => (
-                            <span class="slotchip">{`Part · ${sl().label ?? sl().part}`}</span>
+                            <span class="slotchip">{`Part · ${sl().label ?? partLabel(s.design() ?? { parts: [] }, sl().part)}`}</span>
                           )}
                         </Show>
                         <Show when={s.dormantOf(ask())}>

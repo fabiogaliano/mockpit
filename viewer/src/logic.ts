@@ -244,12 +244,22 @@ export function askState(
   return active ?? design.states[0] ?? null;
 }
 
+// A part's name is an identifier the agent chose; with no label of its own it still
+// has to read as a word to the person looking at it: hero-title is "Hero title".
+export const spokenName = (name: string): string => {
+  const words = name
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[-_.]+/g, " ")
+    .trim();
+  return words ? words[0]!.toUpperCase() + words.slice(1) : name;
+};
+
 export function partLabel(design: Pick<DesignDetail, "parts">, name: string): string {
   for (const s of design.parts) {
     const p = s.parts.find((x) => x.name === name);
-    if (p) return p.label ?? p.name;
+    if (p?.label) return p.label;
   }
-  return name;
+  return spokenName(name);
 }
 
 // The question's heading in the panel ("Variant", "Trim", "Versions open").
@@ -1024,7 +1034,7 @@ export function tuneComponents(
       .sort((a, b) => Number(b === name) - Number(a === name));
     const asked = design.asks.some((a) => a.scope === "part" && a.part === name);
     if (own.length || asked || borrowable.includes(name))
-      out.push({ part: name, label: name, paths: own });
+      out.push({ part: name, label: partLabel(design, name), paths: own });
   }
   return out;
 }
