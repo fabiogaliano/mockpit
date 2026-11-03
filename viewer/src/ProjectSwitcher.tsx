@@ -101,10 +101,7 @@ export function ProjectSwitcher(props: {
             </Show>
           }
         >
-          <span class="proj-row-waits">
-            <i class="glow-dot" aria-hidden="true" />
-            {questions(waitingOn(p))}
-          </span>
+          <span class="proj-row-waits">{questions(waitingOn(p))}</span>
         </Show>
       </a>
     );

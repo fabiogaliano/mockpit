@@ -1049,10 +1049,7 @@ function DesignRow(props: {
               </Show>
             }
           >
-            <span class="home-chip">
-              <i class="dot" />
-              {questions(props.design.open)}
-            </span>
+            <span class="home-chip">{questions(props.design.open)}</span>
           </Show>
           <span class="home-ago">{timeAgo(props.design.updatedAt)}</span>
         </a>

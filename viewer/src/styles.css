@@ -1087,16 +1087,6 @@ a.home-count {
 
 /* What needs the user. A glow is the colour and the softness together; the number
    or the word beside it says the same thing without either. */
-.glow-dot {
-  display: inline-block;
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--q);
-  box-shadow: 0 0 9px 2px color-mix(in srgb, var(--q) 60%, transparent);
-}
-
 /* The project switcher. */
 .proj {
   position: relative;
@@ -1242,10 +1232,7 @@ a.home-count {
   font-size: 12px;
 }
 .proj-row-waits {
-  display: inline-flex;
   flex: none;
-  align-items: center;
-  gap: 7px;
   color: var(--q);
   font-size: 12px;
   font-weight: 500;
@@ -1873,16 +1860,9 @@ a.home-count {
   color: var(--t4);
 }
 .home-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 10px;
-  border-radius: 999px;
   font-size: 13px;
   font-weight: 500;
   color: var(--q);
-  background: color-mix(in srgb, var(--q) 14%, transparent);
   white-space: nowrap;
 }
 .home-done {
@@ -5798,10 +5778,6 @@ button.mturn:focus-visible {
     margin-left: 6px;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-  /* Block, for the ellipsis, so the row's gap is gone. */
-  .mturn .glow-dot {
-    margin-right: 6px;
   }
   /* Three views have to fit beside the name; the count can wait for Studio itself. */
   .vswitch .num {

@@ -720,9 +720,6 @@ function TopRow(props: {
               when={opensThread(t().kind)}
               fallback={
                 <span class="mturn alb-turn" data-turn={t().kind}>
-                  <Show when={t().kind === "open" && !readonly()}>
-                    <i class="glow-dot" aria-hidden="true" />
-                  </Show>
                   {t().text}
                 </span>
               }

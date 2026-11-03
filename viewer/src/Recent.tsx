@@ -184,10 +184,7 @@ function DesignEntry(props: { project: string; design: DesignSummary; at: string
         </a>{" "}
         <span class="recent-what">updated</span>
         <Show when={props.design.open > 0}>
-          <span class="home-chip recent-chip">
-            <i class="dot" />
-            {questions(props.design.open)}
-          </span>
+          <span class="home-chip recent-chip">{questions(props.design.open)}</span>
         </Show>
       </div>
       <time>{timeAgo(props.at)}</time>
