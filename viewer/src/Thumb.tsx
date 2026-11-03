@@ -40,6 +40,9 @@ export function Thumb(props: {
   // and again whenever they change, so a picture follows the draft without
   // reloading. A value baked into src is only where the page starts.
   knobs?: Record<string, KnobValue>;
+  // What the user is deciding from: ahead of every other picture on the screen,
+  // however many the margins started before it.
+  first?: boolean;
 }) {
   let box!: HTMLDivElement;
   let frameEl: HTMLIFrameElement | undefined;
@@ -69,7 +72,7 @@ export function Thumb(props: {
       (entries) => {
         if (!entries.some((e) => e.isIntersecting)) return;
         near.disconnect();
-        endTurn = takeTurn(() => setStarted(true));
+        endTurn = takeTurn(() => setStarted(true), props.first);
       },
       { rootMargin: "300px", scrollMargin: "300px" } as IntersectionObserverInit,
     );

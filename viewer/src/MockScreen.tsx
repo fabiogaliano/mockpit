@@ -1130,19 +1130,21 @@ function SentNote(props: { s: MockScreenState; project: string; slug: string; vi
             }
           >
             {(a) => (
-              <Show
-                when={!looking(a())}
-                fallback={
-                  <span class="pill count">
+              <Show when={!sameVersion(s.changed()?.to, a())}>
+                <Show
+                  when={!looking(a())}
+                  fallback={
+                    <span class="pill count">
+                      <i class="dot ok" />
+                      <span>{`New version · ${s.nameOf(a())} is on stage`}</span>
+                    </span>
+                  }
+                >
+                  <button type="button" class="pill count" onClick={s.seeSinceSend}>
                     <i class="dot ok" />
-                    <span>{`New version · ${s.nameOf(a())} is on stage`}</span>
-                  </span>
-                }
-              >
-                <button type="button" class="pill count" onClick={s.seeSinceSend}>
-                  <i class="dot ok" />
-                  <span>{`New version · See ${s.nameOf(a())} ›`}</span>
-                </button>
+                    <span>{`New version · See ${s.nameOf(a())} ›`}</span>
+                  </button>
+                </Show>
               </Show>
             )}
           </Show>

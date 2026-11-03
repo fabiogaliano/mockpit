@@ -995,6 +995,19 @@ a.home-count {
 .side-decisions-body {
   padding: 4px 4px 8px 10px;
 }
+@media (hover: hover) {
+  .side-decisions-body .decisions-line {
+    position: relative;
+  }
+  .side-decisions-body .decisions-acts {
+    position: absolute;
+    top: 2px;
+    right: 0;
+    margin: 0;
+    border-radius: 8px;
+    background: var(--panel);
+  }
+}
 .side-more {
   display: block;
   padding: 2px 0 8px;
@@ -3563,7 +3576,8 @@ html.theming *:not(iframe) {
   font-size: 16px;
   transition: rotate 0.15s cubic-bezier(0, 0, 0.2, 1);
 }
-[aria-expanded="true"] > .answered-chev {
+[aria-expanded="true"] > .answered-chev,
+[aria-expanded="true"] > .side-nm > .answered-chev {
   rotate: 90deg;
 }
 .answered-list {
@@ -5560,6 +5574,23 @@ button.mturn:focus-visible {
     margin-left: 6px;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  /* Block, for the ellipsis, so the row's gap is gone. */
+  .mturn .glow-dot {
+    margin-right: 6px;
+  }
+  /* Three views have to fit beside the name; the count can wait for Studio itself. */
+  .vswitch .num {
+    display: none;
+  }
+  .vswitch button {
+    padding: 4px 8px;
+  }
+  /* The narrowest phones: a swipe on Home and its menu still end an idea. */
+  @media (max-width: 380px) {
+    .mend {
+      display: none;
+    }
   }
   .crumb-far {
     display: none;

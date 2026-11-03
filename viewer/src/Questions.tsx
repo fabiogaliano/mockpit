@@ -254,6 +254,7 @@ export function AskBody(props: {
                 picture={
                   pic() ? (
                     <Thumb
+                      first
                       width={s.frameW()}
                       class={s.frameW() > 600 ? "crop flat" : "crop"}
                       fit

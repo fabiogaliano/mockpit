@@ -13,9 +13,9 @@ const next = () => {
   while (loading < MAX_LOADING && waiting.length) waiting.shift()!();
 };
 
-// Runs `start` at this page's turn. The returned function ends the turn, or
-// gives up the place in line; calling it again does nothing.
-export function takeTurn(start: () => void): () => void {
+// Runs `start` at this page's turn; `first` goes ahead of the line. The returned
+// function ends the turn, or gives up the place in line; calling it again does nothing.
+export function takeTurn(start: () => void, first = false): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let state: "waiting" | "loading" | "done" = "waiting";
   const run = () => {
@@ -33,7 +33,8 @@ export function takeTurn(start: () => void): () => void {
     state = "done";
     next();
   };
-  waiting.push(run);
+  if (first) waiting.unshift(run);
+  else waiting.push(run);
   next();
   return end;
 }
