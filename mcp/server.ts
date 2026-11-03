@@ -236,6 +236,14 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
       message: args.message,
     });
   },
+  async move(args) {
+    const session = await ensureSession();
+    return post(`/api/mocks/${enc(args.mock)}/move`, {
+      ...args,
+      project: resolveProject(args.project),
+      session,
+    });
+  },
   async edit(args) {
     const session = await ensureSession();
     const project = resolveProject(args.project);

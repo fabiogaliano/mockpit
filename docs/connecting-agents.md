@@ -53,7 +53,7 @@ one gets it when it finishes. One-shot runs (`-p`, json) don't listen.
 
 ## MCP
 
-Tools: `publish`, `ask`, `read`, `feedback`, `say`, `edit`, `export`,
+Tools: `publish`, `ask`, `read`, `feedback`, `say`, `move`, `edit`, `export`,
 `upload`, `guide`; the server name is the namespace. Connect over stdio or straight to
 the server at `/mcp`:
 

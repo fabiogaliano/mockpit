@@ -17,10 +17,12 @@ The model is **project › mock › state › variant › version**: a project i
 (from the agent's cwd/git remote), a mock is a page or component by stable slug
 owning ordered **states**, **asks** and global **knobs**; a variant (a `Post`) is
 a parallel design of one state; versions are its history. A **part** is a
-`data-part` element in a render. The agent's ten verbs are `publish`, `ask`,
-`read`, `feedback`, `say`, `edit`, `export`, `upload`, `guide` and `run` (the
-CLI adds `init` and `watch`); `edit` changes a mock (slug, title, kind, area,
-source) without a new version, renames a project, or sets its area order;
+`data-part` element in a render. The agent's eleven verbs are `publish`, `ask`,
+`read`, `feedback`, `say`, `move`, `edit`, `export`, `upload`, `guide` and `run` (the
+CLI adds `init` and `watch`); `move` takes variants to another mock or state,
+archives or restores them (never deletes, never touches one in use, and says so in
+the Thread); `edit` changes a mock (slug, title, kind, area,
+source, or the first name of its one unnamed state) without a new version, renames a project, or sets its area order;
 `publish` with `amend` replaces a variant's latest version in place and with
 `withdraw` deletes it, both only from the session that published it and only
 while the user hasn't acted on it (`touchedBy` in `server/app.ts`). A
@@ -132,14 +134,17 @@ consciously, not as a side effect):
   (`?area=`) and an All tab shows every kind of it at once; each card carries a
   status derived from its data (`logic.ts` `mockStatus`), a dot for versions
   this browser hasn't opened (`seen.ts`, localStorage) and a ⋯ menu
-  (`CardMenu`); empty tabs are not shown, one alone gets no tab bar; above them the open count,
+  (`CardMenu`); a mock with everything archived and no question waiting folds into an
+  Archived list at the bottom (`nothingLeft`); empty tabs are not shown, one alone gets no tab bar; above them the open count,
   which unfolds the waiting mocks to resolve, and Answer next), `MockScreen`
   (`TopRow`: the path is the way up, project and area as links, ending at the
   mock's name, with an info button opening `About` (Appears in / Built from /
   flows / code); the state tabs alone say which state;
   `BuiltFrom` is Tune's drawer, open while Tune is; `Studio`, the state zoomed
   out with every variant side by side, entered from the top bar's Stage | Studio
-  switch and remembered per mock, each steer its own reply (`steer`, `sendAlone`);
+  switch and remembered per mock, each steer its own reply (`steer`, `sendAlone`), with `SelectBar` acting on
+  several versions at once, and Group hanging variants under a lead by setting
+  their `forkedFrom` (`setVariationsFlow`, which the agent hears as `edited.grouped`);
   `Stage` + `Strip`, `Panel` beside the stage; where the panel does
   not fit, `CanvasHead`, the stage as a pannable canvas with the mock's other
   `widths` as picture-only artboards beside the live frame, and `QuestionCard`

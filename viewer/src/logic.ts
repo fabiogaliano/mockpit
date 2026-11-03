@@ -830,11 +830,16 @@ const KIND_NAMES: Record<MockKind, string> = {
   sketch: "Sketches",
 };
 
-// A move made from Home, as the thread lists it.
+// A move made from Home or a grouping made in Studio, as the thread lists it.
 export const editedLine = (e: MockEdit): string =>
   [
     e.kind ? `Moved to ${KIND_NAMES[e.kind]}` : "",
     e.area !== undefined ? (e.area ? `Area ${e.area}` : "No area") : "",
+    ...(e.grouped ?? []).map((g) =>
+      g.lead
+        ? `${g.variants.join(", ")} grouped under ${g.lead}`
+        : `${g.variants.join(", ")} taken out of the group`,
+    ),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -1273,6 +1278,10 @@ export function mockStatus(
   }
   return null;
 }
+
+// Everything archived and no question waiting: nothing to look at on Home.
+export const nothingLeft = (node: Pick<TreeNode, "open" | "variants">): boolean =>
+  node.open === 0 && !node.variants.some((v) => isLive(v.status));
 
 // How far a mock has come, as one number: every variant's version summed, so
 // any publish (a new version or a new variant) raises it. Home's "new" dot

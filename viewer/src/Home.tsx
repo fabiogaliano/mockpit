@@ -34,6 +34,7 @@ import { useSwipeAction } from "./gestures.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import {
+  nothingLeft,
   type AreaGroup,
   designWidth,
   flowArea,
@@ -120,10 +121,11 @@ export function Home(props: {
     [],
   );
   const bySlug = createMemo(() => new Map(nodes().map((n) => [n.slug, n])));
+  const onShow = createMemo(() => nodes().filter((n) => !nothingLeft(n)));
   const areaOrder = createMemo(() => tree()?.areaOrder ?? []);
   const areas = createMemo(() =>
     orderAreas(
-      nodes().flatMap((n) => (n.area ? [n.area] : [])),
+      onShow().flatMap((n) => (n.area ? [n.area] : [])),
       areaOrder(),
     ),
   );
@@ -152,7 +154,7 @@ export function Home(props: {
       ? !r.steps.some((x) => bySlug().get(x.mock)?.area)
       : r.steps.some((x) => bySlug().get(x.mock)?.area === a);
   const slice = (keep: (n: TreeNode) => boolean, rows: Row[]): Slice => {
-    const mine = nodes().filter(keep);
+    const mine = onShow().filter(keep);
     return {
       pages: mine.filter((n) => n.kind === "page"),
       rows,
@@ -316,8 +318,24 @@ export function Home(props: {
     </Show>
   );
 
-  const countIn = (a: string) => nodes().filter((n) => n.area === a).length;
-  const owesIn = (a: string) => nodes().some((n) => n.area === a && n.open > 0);
+  const countIn = (a: string) => onShow().filter((n) => n.area === a).length;
+  const owesIn = (a: string) => onShow().some((n) => n.area === a && n.open > 0);
+  const [archivedOpen, setArchivedOpen] = createSignal(false);
+  const ARCHIVED_KIND: Partial<Record<HomeView, TreeNode["kind"]>> = {
+    pages: "page",
+    components: "component",
+    sketches: "sketch",
+  };
+  // What the tab and the rail leave on screen, as they do for the live ones. Flows are
+  // not mocks, so that tab has none.
+  const archivedHere = () => {
+    const v = view();
+    const kind = v ? ARCHIVED_KIND[v] : undefined;
+    if (v === "flows") return [];
+    return nodes().filter(
+      (n) => nothingLeft(n) && (area() === null || n.area === area()) && (!kind || n.kind === kind),
+    );
+  };
   const rail = () => (
     <Show when={hasAreas() && project()}>
       {(p) => (
@@ -347,7 +365,7 @@ export function Home(props: {
             onClick={(e) => swap(e, projectPath(p(), props.view, null))}
           >
             <span class="nm">All</span>
-            <span class="n">{nodes().length}</span>
+            <span class="n">{onShow().length}</span>
           </a>
           <For each={areas()}>
             {(a) => (
@@ -740,6 +758,35 @@ export function Home(props: {
               </Show>
               <Show when={view() === "sketches"}>
                 {sketchesOf(() => grouped(shownSlice().sketches), 2)}
+              </Show>
+              <Show when={archivedHere().length}>
+                <section class="home-resolved" aria-label="Archived">
+                  <button
+                    type="button"
+                    class="home-resolved-hd"
+                    aria-expanded={archivedOpen()}
+                    onClick={() => setArchivedOpen(!archivedOpen())}
+                  >
+                    <span class="answered-chev" aria-hidden="true">
+                      ›
+                    </span>
+                    {`Archived · ${archivedHere().length}`}
+                  </button>
+                  <Show when={archivedOpen()}>
+                    <div class="home-archived">
+                      <For each={archivedHere()}>
+                        {(n) => {
+                          const href = mockPath(project()!, n.slug);
+                          return (
+                            <a href={href} onClick={(e) => linkClick(e, href)}>
+                              {n.title}
+                            </a>
+                          );
+                        }}
+                      </For>
+                    </div>
+                  </Show>
+                </section>
               </Show>
             </Show>
           </div>

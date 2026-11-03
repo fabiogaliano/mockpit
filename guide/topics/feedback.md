@@ -171,7 +171,7 @@ It can ride in the same batch as a reply.
 Each Send is delivered exactly once. Whichever channel picks it up advances
 your session's cursor.
 
-1. Piggyback: every write (`publish`, `ask`, `say`, `edit`) returns `feedback` in the
+1. Piggyback: every write (`publish`, `ask`, `say`, `move`, `edit`) returns `feedback` in the
    same shape. Read it whenever it is not empty.
 2. On request: `feedback` when the user says they answered.
 3. Background watch: `mockpit watch` prints one line per Send

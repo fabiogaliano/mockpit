@@ -1177,6 +1177,59 @@ export class SqlStore implements Store {
     return true;
   }
 
+  async nameFirstState(id: string, state: string) {
+    const name = stripNul(state);
+    const mock = await this.getMock(id);
+    if (!mock || mock.states.length > 0) return null;
+    const updatedAt = new Date().toISOString();
+    this.atomic(() => {
+      this.sql.exec("UPDATE posts SET state = ? WHERE mockId = ? AND state IS NULL", name, id);
+      this.sql.exec(
+        "UPDATE mocks SET states = ?, updatedAt = ? WHERE id = ?",
+        JSON.stringify([name]),
+        updatedAt,
+        id,
+      );
+      for (const r of this.sql
+        .exec(
+          "SELECT id, copiedFrom FROM posts WHERE copiedFrom IS NOT NULL AND mockId IN (SELECT id FROM mocks WHERE project = ?)",
+          mock.project,
+        )
+        .toArray()) {
+        const from = parseJson<CopyRef>(r.copiedFrom, null!);
+        if (from?.mock !== id || from.state !== null) continue;
+        this.sql.exec(
+          "UPDATE posts SET copiedFrom = ? WHERE id = ?",
+          JSON.stringify({ ...from, state: name }),
+          r.id as string,
+        );
+      }
+      for (const flow of this.flowsOf(mock.project)) {
+        if (!flow.steps.some((x) => x.mock === mock.slug && x.state === null)) continue;
+        this.writeFlow(
+          flow,
+          flow.steps.map((x) =>
+            x.mock === mock.slug && x.state === null ? { ...x, state: name } : x,
+          ),
+        );
+      }
+      if (mock.draft) {
+        const comments = mock.draft.comments.map((c) =>
+          c.state === null ? { ...c, state: name } : c,
+        );
+        this.sql.exec(
+          "UPDATE mocks SET draft = ? WHERE id = ?",
+          JSON.stringify({ ...mock.draft, comments }),
+          id,
+        );
+      }
+    });
+    // Copies elsewhere changed too, so nothing cached can be patched one post at a time.
+    this.postCache.clear();
+    this.postCacheBytes = 0;
+    return this.getMock(id);
+  }
+
   async renameMock(id: string, slug: string) {
     const to = slugify(stripNul(slug));
     return this.atomic(() => {
@@ -1850,6 +1903,20 @@ export class SqlStore implements Store {
     const { acceptedVersion: _, ...rest } = post;
     const next: Post =
       pin === null ? { ...rest, status } : { ...rest, status, acceptedVersion: pin };
+    this.recache(next);
+    return next;
+  }
+
+  async setForkedFrom(id: string, from: ForkRef | null) {
+    const post = this.cachedPost(id) ?? (await this.getPost(id));
+    if (!post) return null;
+    this.raw.exec(
+      "UPDATE posts SET forkedFrom = ? WHERE id = ?",
+      from ? JSON.stringify(from) : null,
+      id,
+    );
+    const { forkedFrom: _, ...rest } = post;
+    const next: Post = from ? { ...rest, forkedFrom: from } : rest;
     this.recache(next);
     return next;
   }

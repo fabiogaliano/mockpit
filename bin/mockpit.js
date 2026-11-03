@@ -105,6 +105,8 @@ verbs:
                                           plus pending; returns at once
   mockpit say "<text>" --mock <slug> [--state s] [--variant v]
                                           a plain-text message in a mock's thread
+  mockpit move --mock <slug> --variant <v>... (--to <mock> [--to-state s] | --archive | --restore)
+                                          move variants elsewhere, archive or restore them
   mockpit edit --mock <slug> [--slug s] [--title t] [--kind k] [--area a] [--source p]
                                           change a mock without a new version ("" clears)
   mockpit edit --project <name> --rename <new>
@@ -264,13 +266,22 @@ mockpit publish --mock <slug> [--state s] [--variant v] --withdraw
   answered.`,
   say: `mockpit say "<text>" --mock <slug> [--state s] [--variant v]
   A plain-text message in the mock's thread, as your session's agent.`,
+  move: `mockpit move --mock <slug> [--state s] --variant <v> [--variant <v>...]
+  --to <mock> [--to-state <s>] | --to-state <s> | --archive | --restore
+  Tidy up. --to or --to-state moves them to another mock or tab (a new state is
+  created) and takes them out of here; --archive takes them out of sight; --restore
+  brings them back. Their group goes along; one in use stays and is reported.
+  Never deletes. The thread says what happened, so the user can undo it.`,
   edit: `mockpit edit --mock <slug> [--slug <new>] [--title <t>] [--kind page|component|sketch]
+  [--first-state <name>]
   [--area <name>|""] [--source <path>|""] [--project <name>]
 mockpit edit --project <name> --rename <new name>
 mockpit edit --project <name> --area-order "Shell,Food,Chat"
   Change a mock without publishing a new version; "" clears area or source. A new
   slug rewrites every embed, data-goto and flow step that names the old one, in
   every version. A mock still embedded somewhere stays a component, not a sketch.
+  --first-state names a mock's one unnamed state, and every variant it holds goes
+  there, so the mock can then have more states.
   --rename moves the project's mocks, sessions, flows and design settings to the
   new name (refused if that project has mocks); pass --project <new> or set
   MOCKPIT_PROJECT afterwards if the repo still resolves to the old name.
@@ -1215,7 +1226,15 @@ function watchLines(batch) {
       e.kind ? `now a ${e.kind}` : "",
       e.area !== undefined ? (e.area ? `area ${e.area}` : "no area") : "",
     ].filter(Boolean);
-    lines.push(`mockpit edited ${name}: the user moved it (${bits.join(", ")})`);
+    if (bits.length) lines.push(`mockpit edited ${name}: the user moved it (${bits.join(", ")})`);
+    for (const g of e.grouped ?? []) {
+      const where = g.state === null ? "" : ` on ${g.state}`;
+      lines.push(
+        g.lead === null
+          ? `mockpit edited ${name}: the user took ${g.variants.join(", ")} out of a group${where}`
+          : `mockpit edited ${name}: the user made ${g.variants.join(", ")} variations of ${g.lead}${where}`,
+      );
+    }
   }
   if (batch.reply) {
     const r = batch.reply;
@@ -1925,6 +1944,46 @@ const commands = {
     console.log(`said on ${slug}`);
     printFeedback(result.feedback);
   },
+  async move() {
+    const { values: flags } = parse({
+      options: {
+        ...MOCK_FLAGS,
+        variant: { type: "string", multiple: true },
+        to: { type: "string" },
+        "to-state": { type: "string" },
+        archive: { type: "boolean" },
+        restore: { type: "boolean" },
+      },
+    });
+    const example = "mockpit move --mock writer --variant quiet --archive";
+    const slug = requireMock(flags, example);
+    if (!flags.variant?.length) die("move needs --variant", example);
+    const session = await resolveSession(flags);
+    const result = await api(
+      `${mockPath(slug)}/move`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          state: flags.state,
+          variants: flags.variant,
+          to: flags.to,
+          toState: flags["to-state"],
+          archive: flags.archive,
+          restore: flags.restore,
+          project: resolveProject(flags).name,
+          session: session ?? undefined,
+        }),
+      },
+      { report: "die", fix: `mockpit read ${slug}` },
+    );
+    if (flags.json) return out(result);
+    if (flags.quiet) return;
+    const names = result.variants.map((v) => v.variant).join(", ") || "nothing";
+    const done = result.to ? `moved to ${result.to.mock}` : flags.restore ? "restored" : "archived";
+    console.log(`${done}: ${names}`);
+    for (const s of result.skipped) console.log(`stayed: ${s.variant} (${s.why})`);
+    printFeedback(result.feedback);
+  },
   async edit() {
     const { values: flags } = parse({
       options: {
@@ -1936,6 +1995,7 @@ const commands = {
         kind: { type: "string" },
         area: { type: "string" },
         source: { type: "string" },
+        "first-state": { type: "string" },
         rename: { type: "string" },
         "area-order": { type: "string" },
       },
@@ -1989,8 +2049,11 @@ const commands = {
     const fields = ["slug", "title", "kind", "area", "source"].filter(
       (k) => flags[k] !== undefined,
     );
-    if (!fields.length) {
-      die("edit needs --slug, --title, --kind, --area or --source", "mockpit edit --help");
+    if (!fields.length && flags["first-state"] === undefined) {
+      die(
+        "edit needs --slug, --title, --kind, --area, --source or --first-state",
+        "mockpit edit --help",
+      );
     }
     const result = await api(
       mockPath(slug),
@@ -2000,6 +2063,7 @@ const commands = {
           project,
           session,
           ...Object.fromEntries(fields.map((k) => [k, flags[k]])),
+          firstState: flags["first-state"],
         }),
       },
       { report: "die", fix: `mockpit read ${slug}` },

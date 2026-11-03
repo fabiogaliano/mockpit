@@ -45,7 +45,8 @@ import { FullView } from "./FullView.tsx";
 import { Thumb } from "./Thumb.tsx";
 import { linkClick, mockPath } from "./route.ts";
 import type { Shortlists } from "./shortlist.ts";
-import { SaveMenu, type SaveItem } from "./SaveMenu.tsx";
+import { SaveMenu, type SaveFor } from "./SaveMenu.tsx";
+import { SelectBar } from "./SelectBar.tsx";
 import { phoneLayout } from "./viewport.ts";
 
 // More canvas pages live than this and a browser drops the oldest one's WebGL
@@ -83,8 +84,12 @@ type Acts = Record<
 > & {
   saved: (st: VersionStep) => boolean;
   // `leave` is how it goes from here, for a view that has to step off it first.
-  save: (st: VersionStep, from: HTMLElement, leave?: SaveItem["leave"]) => void;
-  leave: (st: VersionStep) => ReturnType<SaveItem["leave"]>;
+  save: (st: VersionStep, from: HTMLElement, leave?: SaveFor["leave"]) => void;
+  leave: (st: VersionStep) => ReturnType<SaveFor["leave"]>;
+  family: (st: VersionStep) => VersionStep[];
+  selecting: () => boolean;
+  selected: (st: VersionStep) => boolean;
+  select: (st: VersionStep, e: MouseEvent) => void;
 };
 
 // What one state shows: its variants as columns, each down its versions.
@@ -179,6 +184,15 @@ function boardOf(s: MockScreenState, moment: string | null, state: () => string 
           isRiff(v) && v.forkedFrom?.variant === st.variant && v.forkedFrom.version === st.version,
       )
       .map((v) => versionsOf(v.variant)[0]);
+  // Whatever hangs from this version, a small card or grown into a column: a group
+  // travels together.
+  const familyOf = (st: VersionStep) =>
+    inState()
+      .filter(
+        (v) =>
+          live(v) && v.forkedFrom?.variant === st.variant && v.forkedFrom.version === st.version,
+      )
+      .flatMap((v) => versionsOf(v.variant));
   // What Look closer flips through: the columns left to right, each down its
   // versions, a version's forks right after it, as the eye reads the grid.
   const runs = createMemo(() =>
@@ -198,6 +212,7 @@ function boardOf(s: MockScreenState, moment: string | null, state: () => string 
     columnLabel,
     versionsOf,
     riffsOf,
+    familyOf,
     aside,
     runs,
     situationName,
@@ -212,6 +227,7 @@ type Entry = { b: Board; st: VersionStep };
 
 export function Studio(props: {
   s: MockScreenState;
+  onLooking: (openOnStage: (() => void) | null) => void;
   top: number;
   shortlists: Shortlists;
   onOpen: () => void;
@@ -224,7 +240,11 @@ export function Studio(props: {
     () => (isShortlist() ? s.mock()?.project : null),
     (project) => api.mocks(project),
   );
-  const [saving, setSaving] = createSignal<{ item: SaveItem; from: HTMLElement } | null>(null);
+  const [saving, setSaving] = createSignal<{
+    item: SaveFor;
+    from: HTMLElement;
+    onDone?: () => void;
+  } | null>(null);
   const [adding, setAdding] = createSignal(false);
   const boards = mapArray(s.moments, (m) =>
     boardOf(s, m, () => (s.moment() === m ? s.activeState() : m)),
@@ -247,6 +267,155 @@ export function Studio(props: {
     ),
   );
   const order = createMemo(() => runs().flatMap((r) => r.steps));
+
+  // A selection is of versions, since that is what a card is, in the state on
+  // show: leaving the state lets it go.
+  const [picked, setPicked] = createSignal<string[]>([]);
+  let pickedFrom: string | null = null;
+  const chosen = createMemo(() => {
+    const keys = new Set(picked());
+    return order()
+      .filter((e) => e.b === active() && keys.has(stepKey(e.st)))
+      .map((e) => e.st);
+  });
+  const selecting = () => chosen().length > 0;
+  createEffect(on(s.activeState, () => setPicked([]), { defer: true }));
+  const select = (b: Board, st: VersionStep, range: boolean) => {
+    if (b.state() !== s.activeState()) s.showState(b.state());
+    const key = stepKey(st);
+    const here = order()
+      .filter((e) => e.b === b)
+      .map((e) => e.st);
+    const keys = here.map(stepKey);
+    const from = pickedFrom ? keys.indexOf(pickedFrom) : -1;
+    const to = keys.indexOf(key);
+    pickedFrom = key;
+    const withFamily = (x: VersionStep) => [x, ...b.familyOf(x)].map(stepKey);
+    if (range && from >= 0 && to >= 0) {
+      const between = here.slice(Math.min(from, to), Math.max(from, to) + 1);
+      setPicked([...new Set([...picked(), ...between.flatMap(withFamily)])]);
+    } else if (picked().includes(key)) {
+      const out = new Set(withFamily(st));
+      setPicked(picked().filter((k) => !out.has(k)));
+    } else {
+      setPicked([...new Set([...picked(), ...withFamily(st)])]);
+    }
+  };
+  // A version goes out of sight; all of a variant's going takes it to Archived.
+  const variantsGone = (b: Board, out: VersionStep[]) =>
+    [...new Set(out.map((st) => st.variant))].filter(
+      (v) => b.versionsOf(v).length === out.filter((st) => st.variant === v).length,
+    );
+  const leaveAll = async (b: Board, out: VersionStep[]) => {
+    if (b.state() !== s.activeState()) s.showState(b.state());
+    const gone = variantsGone(b, out);
+    const undos: (() => void)[] = [];
+    for (const st of out) {
+      if (gone.includes(st.variant)) continue;
+      const undo = await s.hideVersion(st, true, true);
+      if (undo) undos.push(undo);
+    }
+    if (gone.length) {
+      const undo = await s.archiveVariants(gone, undefined, true);
+      if (undo) undos.push(undo);
+    }
+    if (!undos.length) return undefined;
+    return () => {
+      for (const undo of undos.reverse()) undo();
+    };
+  };
+  const saveFor = (b: Board, steps: VersionStep[], leave?: SaveFor["leave"]): SaveFor | null => {
+    const m = s.mock();
+    if (!m) return null;
+    const state = b.state();
+    const out = steps.filter((st) => !sameVersion(b.inUse(), st));
+    const archives = variantsGone(b, out);
+    return {
+      items: steps.map((st) => ({
+        ref: { mock: m.id, state, variant: st.variant, version: st.version },
+        name: b.nameOf(st),
+      })),
+      here: state ? `${m.title} · ${state}` : m.title,
+      leaves: !out.length ? null : archives.length ? "archived" : "hidden",
+      out: out.length,
+      archives,
+      leave: leave ?? (() => leaveAll(b, out)),
+    };
+  };
+  const archiveChosen = async () => {
+    const b = active();
+    const out = chosen().filter((st) => !sameVersion(b.inUse(), st));
+    const stays = chosen().length - out.length;
+    const gone = variantsGone(b, out);
+    const single = out.length === 1 ? b.nameOf(out[0]) : null;
+    setPicked([]);
+    const undo = await leaveAll(b, out);
+    if (!undo) return;
+    const hid = out.filter((st) => !gone.includes(st.variant)).length;
+    const parts = [
+      gone.length ? `Archived ${single ?? gone.length}` : "",
+      hid ? `${gone.length ? "hid" : "Hid"} ${single ?? hid}` : "",
+      stays ? `${stays} in use stays` : "",
+    ];
+    s.setToast({
+      text: parts.filter(Boolean).join(", "),
+      undo: () => {
+        s.setToast(null);
+        undo();
+      },
+    });
+  };
+  // Variations of a lead: the link a fork leaves, so they hang as forks do.
+  const setVariations = async (
+    body: { lead: VersionRef | null; variants: string[] },
+    text: string,
+  ) => {
+    const m = s.mock();
+    if (!m) return;
+    const state = active().state();
+    setPicked([]);
+    const fail = (e: unknown) =>
+      s.setToast({ text: `Couldn't group. ${e instanceof Error ? e.message : e}` });
+    try {
+      const { undo } = await api.setVariations(m.id, { state, ...body });
+      s.setToast({
+        text,
+        undo: () => {
+          s.setToast(null);
+          void api.setVariations(m.id, { state, restore: undo }).catch(fail);
+        },
+      });
+    } catch (e) {
+      fail(e);
+    }
+  };
+  const groupedChosen = () => {
+    const state = active().state();
+    const inState = s.variants().filter((v) => v.state === state);
+    return [...new Set(chosen().map((st) => st.variant))].filter((name) => {
+      const parent = inState.find((v) => v.variant === name)?.forkedFrom?.variant;
+      return inState.some((v) => v.variant === parent && isLive(v.status));
+    });
+  };
+  // The top bar's Stage, from a closer look, means the design being looked at.
+  createEffect(() => {
+    const e = looking();
+    props.onLooking(e ? () => actsFor(e.b).open(e.st) : null);
+  });
+  onCleanup(() => props.onLooking(null));
+  const barPic = (st: VersionStep, large = false) => (
+    <Show
+      when={st.poster}
+      fallback={
+        // A canvas page is a whole live context: one large, never a row of them.
+        <Show when={(large || !st.canvas) && pictureOf(st)}>
+          {(u) => <Thumb src={u()} width={s.frameW()} fit whole />}
+        </Show>
+      }
+    >
+      {(p) => <Poster id={p()} />}
+    </Show>
+  );
 
   // Archived variants are out of the exploration: a quiet count in the window's
   // corner, opened on purpose.
@@ -561,6 +730,7 @@ export function Studio(props: {
     if (e.key !== "Escape") return;
     if (writing()) setWriting(null);
     else if (borrowFrom()) setBorrowFrom(null);
+    else if (selecting()) setPicked([]);
     else if (archivedOpen()) setArchivedOpen(false);
   };
   let corner: HTMLElement | undefined;
@@ -578,13 +748,10 @@ export function Studio(props: {
     const here = () => {
       if (b.state() !== s.activeState()) s.showState(b.state());
     };
-    const goOut = (st: VersionStep) => {
-      here();
-      return b.versionsOf(st.variant).length > 1
-        ? s.hideVersion(st, true, true)
-        : s.archiveVariants([st.variant], undefined, true);
-    };
     return {
+      selecting,
+      selected: (st) => b === active() && picked().includes(stepKey(st)),
+      select: (st, e) => select(b, st, e.shiftKey),
       look: (st) => look({ b, st }),
       full: (st) => openFull({ b, st }),
       open(st) {
@@ -627,29 +794,21 @@ export function Studio(props: {
         if (!id) return false;
         return sl.isSaved({ mock: id, state: b.state(), variant: st.variant, version: st.version });
       },
-      leave: goOut,
+      family: (st) => b.familyOf(st),
+      leave: (st) =>
+        leaveAll(
+          b,
+          [st, ...b.familyOf(st)].filter((x) => !sameVersion(b.inUse(), x)),
+        ),
       save(st, from, leave) {
-        const m = s.mock();
-        if (!m) return;
         if (saving()?.from === from) return setSaving(null);
-        const state = b.state();
-        const item: SaveItem = {
-          ref: { mock: m.id, state, variant: st.variant, version: st.version },
-          name: b.nameOf(st),
-          here: state ? `${m.title} · ${state}` : m.title,
-          leaves: sameVersion(b.inUse(), st)
-            ? null
-            : b.versionsOf(st.variant).length > 1
-              ? "hidden"
-              : "archived",
-          leave: leave ?? (() => goOut(st)),
-        };
-        setSaving({ item, from });
+        const item = saveFor(b, [st, ...b.familyOf(st)], leave);
+        if (item) setSaving({ item, from });
       },
     };
   };
 
-  const card = (b: Board, act: Acts, st: VersionStep, small = false) => {
+  const card = (b: Board, act: Acts, st: VersionStep, small = false, lead?: string) => {
     // A borrow goes between versions of one state.
     const borrowing = () => borrowFrom()?.b === b;
     return (
@@ -658,6 +817,7 @@ export function Studio(props: {
         b={b}
         st={st}
         small={small}
+        lead={lead}
         live={inBudget(b, st)}
         borrowing={borrowing()}
         source={borrowing() && sameVersion(borrowFrom()?.st, st)}
@@ -672,7 +832,7 @@ export function Studio(props: {
   return (
     <div
       class="studio"
-      classList={{ strip: strip() }}
+      classList={{ strip: strip(), selecting: selecting() }}
       ref={(el) => (scroller = el)}
       style={{ top: `${props.top}px` }}
       onScroll={follow}
@@ -731,6 +891,13 @@ export function Studio(props: {
                       <section class="studio-col" aria-label={v.variant}>
                         <header class="studio-colh">
                           <h2>{v.variant}</h2>
+                          <Show when={b.versionsOf(v.variant).flatMap(b.riffsOf).length}>
+                            {(n) => (
+                              <span class="studio-from">
+                                {`${n()} ${n() === 1 ? "variation" : "variations"}`}
+                              </span>
+                            )}
+                          </Show>
                           <Show when={v.forkedFrom}>
                             {(f) => <span class="studio-from">{`from ${f().variant}`}</span>}
                           </Show>
@@ -770,7 +937,9 @@ export function Studio(props: {
                                 {card(b, act, st)}
                                 <Show when={b.riffsOf(st).length}>
                                   <div class="studio-riffs">
-                                    <For each={b.riffsOf(st)}>{(r) => card(b, act, r, true)}</For>
+                                    <For each={b.riffsOf(st)}>
+                                      {(r) => card(b, act, r, true, st.variant)}
+                                    </For>
                                   </div>
                                 </Show>
                               </>
@@ -800,8 +969,49 @@ export function Studio(props: {
             anchor={m.from}
             item={m.item}
             onClose={() => setSaving(null)}
+            onDone={m.onDone}
           />
         )}
+      </Show>
+      <Show when={selecting() && !readonly() && !borrowFrom()}>
+        <SelectBar
+          steps={chosen()}
+          total={order().filter((e) => e.b === active()).length}
+          name={(st) => active().nameOf(st)}
+          inUse={(st) => sameVersion(active().inUse(), st)}
+          pic={barPic}
+          grouped={groupedChosen()}
+          onAll={() =>
+            setPicked(
+              order()
+                .filter((e) => e.b === active())
+                .map((e) => stepKey(e.st)),
+            )
+          }
+          onClear={() => setPicked([])}
+          onSave={(from) => {
+            if (saving()?.from === from) return setSaving(null);
+            const item = saveFor(active(), chosen());
+            if (item) setSaving({ item, from, onDone: () => setPicked([]) });
+          }}
+          onArchive={() => void archiveChosen()}
+          onSend={(notes, text, sent) => {
+            setPicked([]);
+            void s.steerMany(notes, text).then((ok) => ok && s.setToast({ text: sent }));
+          }}
+          onGroup={(lead, variants) =>
+            void setVariations(
+              { lead: { variant: lead.variant, version: lead.version }, variants },
+              `Grouped ${variants.length} under ${lead.variant}`,
+            )
+          }
+          onUngroup={(variants) =>
+            void setVariations(
+              { lead: null, variants },
+              `Took ${variants.join(", ")} out of the group`,
+            )
+          }
+        />
       </Show>
       <Show when={adding() && s.mock()}>
         {(m) => (
@@ -914,6 +1124,7 @@ function Sketch(props: {
   b: Board;
   st: VersionStep;
   small: boolean;
+  lead?: string;
   live: boolean;
   borrowing: boolean;
   source: boolean;
@@ -933,6 +1144,7 @@ function Sketch(props: {
     <div
       class="sk"
       classList={{
+        on: props.act.selected(st()),
         small: props.small,
         source: props.source,
         target: props.borrowing && !props.source,
@@ -942,16 +1154,32 @@ function Sketch(props: {
       // A poster is an image: it holds no context, so it takes no budget.
       data-canvas={st().canvas && !st().poster ? "" : undefined}
       ref={props.ref}
+      // While selecting the whole card is the target, not only its picture and tick.
+      onClick={(e) => {
+        if (!can() || !props.act.selecting()) return;
+        if ((e.target as Element).closest("button, a, input, textarea")) return;
+        props.act.select(st(), e);
+      }}
       onPointerEnter={() => !props.live && props.onWake()}
     >
       <button
         type="button"
         class="sk-art"
         aria-label={
-          props.borrowing && !props.source ? `Borrow into ${label()}` : `Look closer at ${label()}`
+          props.borrowing && !props.source
+            ? `Borrow into ${label()}`
+            : props.act.selecting()
+              ? `Select ${label()}`
+              : `Look closer at ${label()}`
         }
         title={st().prompt ?? ""}
-        onClick={() => (props.borrowing ? props.act.pick(st()) : props.act.look(st()))}
+        onClick={(e) => {
+          if (props.borrowing) props.act.pick(st());
+          // Once one is ticked the whole picture is the target, not just the number.
+          else if (can() && (props.act.selecting() || e.shiftKey || e.metaKey || e.ctrlKey)) {
+            props.act.select(st(), e);
+          } else props.act.look(st());
+        }}
         onFocus={() => !props.live && props.onWake()}
       >
         <Show
@@ -965,14 +1193,43 @@ function Sketch(props: {
           {(p) => <Poster id={p()} />}
         </Show>
       </button>
+      <Show when={props.small && can()}>
+        <button
+          type="button"
+          class="sk-box sk-tick"
+          role="checkbox"
+          aria-checked={props.act.selected(st())}
+          aria-label={`Select ${name()}`}
+          onClick={(e) => props.act.select(st(), e)}
+        >
+          <Icon name="check" />
+        </button>
+      </Show>
       <Show when={props.small}>
         <span class="sk-name" title={st().variant}>
-          {st().variant}
+          {/* The lead's name sits above the group, and repeating it would cut off the part that differs. */}
+          {st().variant.startsWith(`${props.lead} · `)
+            ? st().variant.slice(`${props.lead} · `.length)
+            : st().variant}
         </span>
       </Show>
       <Show when={!props.small}>
         <div class="sk-foot">
-          <span class="sk-n">{`#${st().version}`}</span>
+          <Show when={can()} fallback={<span class="sk-n">{`#${st().version}`}</span>}>
+            <button
+              type="button"
+              class="sk-n sk-pick"
+              role="checkbox"
+              aria-checked={props.act.selected(st())}
+              aria-label={`Select ${name()}`}
+              onClick={(e) => props.act.select(st(), e)}
+            >
+              <span class="sk-box">
+                <Icon name="check" />
+              </span>
+              {`#${st().version}`}
+            </button>
+          </Show>
           <Show when={inUse()}>
             <span class="sk-tag">in use</span>
           </Show>
@@ -1014,11 +1271,11 @@ function Sketch(props: {
           type="button"
           class="ib sk-save"
           aria-pressed={props.act.saved(st())}
-          aria-label={`Save or move ${name()}`}
-          title={props.act.saved(st()) ? "Saved elsewhere too" : "Save or move"}
+          aria-label={`Move or save ${name()}`}
+          title={props.act.saved(st()) ? "Saved elsewhere too" : "Move or save"}
           onClick={(e) => props.act.save(st(), e.currentTarget)}
         >
-          <Icon name="bookmark" />
+          <Icon name="move" />
         </button>
       </Show>
       <Show when={can() && !inUse()}>
@@ -1157,9 +1414,12 @@ function Look(props: {
     else if (dy > 90 && dy > Math.abs(dx) * 1.5) props.onClose();
   };
   // Removed while its state is still on stage: the next version may be on another.
-  const stepOff = (remove: () => void) => {
-    const list = props.order;
-    const next = list[at() + 1] ?? list[at() - 1] ?? props.nextState();
+  const stepOff = (remove: () => void, going: VersionStep[] = []) => {
+    const stays = (e: Entry) => !going.some((g) => e.b === props.entry.b && sameVersion(g, e.st));
+    const next =
+      props.order.slice(at() + 1).find(stays) ??
+      props.order.slice(0, Math.max(at(), 0)).findLast(stays) ??
+      props.nextState();
     // Together: an archive leaves at once, and the look closes on a version gone
     // from under it.
     batch(() => {
@@ -1170,10 +1430,10 @@ function Look(props: {
   };
   const hide = () => stepOff(() => props.act.remove(st()));
   // The copies land first, and the look may have moved on by then.
-  const leave = (from: VersionStep): ReturnType<SaveItem["leave"]> => {
+  const leave = (from: VersionStep): ReturnType<SaveFor["leave"]> => {
     if (!sameVersion(st(), from)) return props.act.leave(from);
-    let out: ReturnType<SaveItem["leave"]> = Promise.resolve(undefined);
-    stepOff(() => (out = props.act.leave(from)));
+    let out: ReturnType<SaveFor["leave"]> = Promise.resolve(undefined);
+    stepOff(() => (out = props.act.leave(from)), props.act.family(from));
     return out;
   };
   let dots: HTMLElement | undefined;
@@ -1203,9 +1463,6 @@ function Look(props: {
         </Show>
         <span class="look-at">{`${at() + 1} of ${props.order.length}`}</span>
         <span class="look-sp" />
-        <button type="button" class="btn look-stage" onClick={() => props.act.open(st())}>
-          Open on Stage
-        </button>
         <button
           type="button"
           class="ib"
@@ -1285,8 +1542,8 @@ function Look(props: {
               props.act.save(from, e.currentTarget, () => leave(from));
             }}
           >
-            <Icon name="bookmark" />
-            {props.act.saved(st()) ? "Saved" : "Save"}
+            <Icon name="move" />
+            {props.act.saved(st()) ? "Saved" : "Move"}
           </button>
           <Show when={!inUse()}>
             <button type="button" class="btn quiet" onClick={hide}>

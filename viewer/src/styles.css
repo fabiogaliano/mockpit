@@ -2,6 +2,7 @@
    page chrome plus a light dialkit panel with the same radii and sizes. Ported
    from the prototype of record (docs/tmp/mockups/concepts/7-rethink/final). */
 :root {
+  --selbar-bottom: 32px;
   --page: #0f0f0f;
   --panel: #131313;
   --row: #1f1f1f;
@@ -2774,6 +2775,23 @@ html.theming *:not(iframe) {
 .home-item.is-resolved .home-thumb {
   opacity: 0.6;
 }
+.home-archived {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 4px 8px 24px;
+  font-size: 14px;
+}
+.home-archived a {
+  width: fit-content;
+  padding: 4px 0;
+  color: var(--t3);
+}
+@media (hover: hover) {
+  .home-archived a:hover {
+    color: var(--t1);
+  }
+}
 .home-resolved {
   margin-top: 20px;
 }
@@ -4402,6 +4420,7 @@ html:has(.mock-screen) {
 .studio-from {
   color: var(--t4);
   font-size: 11px;
+  line-height: 1;
   white-space: nowrap;
 }
 .sk {
@@ -4445,6 +4464,374 @@ html:has(.mock-screen) {
   color: var(--t2);
   font: 600 12px var(--sans);
   font-variant-numeric: tabular-nums;
+}
+/* The number is also the tick. It says so on hover, not at rest, so a board of
+   cards stays quiet; on a touch screen, and once one is ticked, it always shows. */
+.sk-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  margin-left: -6px;
+  padding: 0 6px;
+  border-radius: 7px;
+}
+.sk-box {
+  display: none;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid var(--t4);
+  border-radius: 4px;
+  color: var(--page);
+}
+.sk-box svg {
+  width: 11px;
+  height: 11px;
+  opacity: 0;
+}
+.sk:hover .sk-box,
+.sk:focus-within .sk-box,
+.studio.selecting .sk-box {
+  display: inline-flex;
+}
+.sk.on .sk-box {
+  border-color: var(--t1);
+  background: var(--t1);
+}
+.sk.on .sk-box svg {
+  opacity: 1;
+}
+@media (hover: hover) {
+  .sk-pick:hover {
+    background: var(--row);
+    color: var(--t1);
+  }
+}
+@media (hover: none) {
+  .sk .sk-box {
+    display: inline-flex;
+  }
+}
+.sk-pick:focus-visible,
+.sk-tick:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.sk-tick {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  border-color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+}
+.sk.on {
+  box-shadow: 0 0 0 2px var(--t1);
+}
+/* While selecting a stray click must not archive or save one card. */
+.studio.selecting :is(.sk-acts, .sk-x, .sk-save, .col-x) {
+  display: none;
+}
+.studio.selecting .sk {
+  cursor: pointer;
+}
+.selbar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--selbar-bottom) + env(safe-area-inset-bottom));
+  z-index: 50;
+  transform: translateX(-50%);
+}
+/* A sent reply's status sits at the same spot and has to stay in sight. */
+body:has(.sentrow) {
+  --selbar-bottom: 72px;
+}
+/* An Undo waits until dismissed, so a new selection can start under it: it stacks
+   above the bar, and leaves room for what the bar opens. */
+body:has(.selbar) .toast {
+  bottom: calc(var(--selbar-bottom) + 54px + env(safe-area-inset-bottom));
+}
+body:has(.selp) .toast {
+  visibility: hidden;
+}
+/* No transform here: it would make the sheet's fixed position relative to the bar. */
+.selbar.phone {
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  transform: none;
+}
+.selbar.phone .selbar-b {
+  width: 32px;
+}
+.selbar.phone .selbar-count {
+  padding: 0 6px;
+}
+.selbar-row {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 4px;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--dd-shadow);
+  white-space: nowrap;
+}
+.selbar-count {
+  padding: 0 10px 0 8px;
+  color: var(--t1);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.selbar-b {
+  position: relative;
+  width: 34px;
+  height: 34px;
+}
+.selbar-b svg {
+  width: 17px;
+  height: 17px;
+}
+.selbar-b[aria-expanded="true"] {
+  background: var(--row);
+  color: var(--t1);
+}
+.selbar-b:disabled {
+  cursor: default;
+}
+.selbar-b:disabled svg {
+  opacity: 0.35;
+}
+/* An icon-only bar lives on its names, and a native title takes a second to show. */
+.selbar-b::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  z-index: 2;
+  padding: 4px 8px;
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  background: var(--panel);
+  box-shadow: var(--dd-shadow);
+  color: var(--t1);
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition: opacity 60ms;
+}
+.selbar-b:focus-visible::after {
+  opacity: 1;
+}
+@media (hover: hover) {
+  .selbar-b:hover::after {
+    opacity: 1;
+  }
+}
+.selbar-n {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--t1);
+  color: var(--page);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.selbar-sep {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin: 0 3px;
+  background: var(--edge);
+}
+.selp {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  display: flex;
+  flex-direction: column;
+  width: 340px;
+  max-height: min(70vh, 560px);
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--dd-shadow);
+  font-size: 13px;
+}
+.selbar.phone .selp {
+  z-index: 1;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  max-height: 80dvh;
+  padding-bottom: env(safe-area-inset-bottom);
+  border-width: 1px 0 0;
+  border-radius: 18px 18px 0 0;
+}
+.selp-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px 8px;
+  color: var(--t1);
+  font-weight: 600;
+}
+.selp-seg {
+  display: flex;
+  gap: 1px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 400;
+}
+.selp-seg button {
+  padding: 2px 8px;
+  border-radius: 6px;
+  color: var(--t3);
+}
+.selp-seg button[aria-pressed="true"] {
+  background: var(--row);
+  color: var(--t1);
+}
+.selp-b {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 0 14px 10px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.selp-f {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--line);
+}
+.selp-lab {
+  color: var(--t4);
+  font-size: 12px;
+}
+.selp-say {
+  color: var(--t3);
+  font-size: 12px;
+}
+.selp-in {
+  flex: none;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--t1);
+  font-size: 13px;
+}
+.selp-in::placeholder {
+  color: var(--t5);
+}
+.selp-in:focus {
+  outline: none;
+  border-color: var(--t5);
+}
+.selp-line .selp-in {
+  flex: 1;
+}
+.selp-line {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+.selp-th {
+  display: block;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--row);
+}
+.selp-big {
+  flex: none;
+  height: 200px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--row);
+}
+.selp-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.selp-pick {
+  width: 60px;
+  color: var(--t3);
+  font-size: 11px;
+  text-align: center;
+}
+.selp-pick .selp-th {
+  width: 60px;
+  height: 60px;
+  border: 2px solid transparent;
+  opacity: 0.6;
+}
+.selp-pick[aria-checked="true"] {
+  color: var(--t1);
+}
+.selp-pick[aria-checked="true"] .selp-th {
+  border-color: var(--t1);
+  opacity: 1;
+}
+.selp-nm {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.selp-choice {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  color: var(--t1);
+  text-align: start;
+}
+.selp-choice small {
+  display: block;
+  color: var(--t4);
+  font-size: 12px;
+}
+@media (hover: hover) {
+  .selp-choice:hover {
+    background: var(--row);
+  }
 }
 .sk-tag {
   color: var(--keep-ink);
@@ -5005,10 +5392,6 @@ html:has(.mock-screen) {
   .look-h {
     padding-left: 14px;
   }
-  .look-stage {
-    padding: 0 10px;
-    font-size: 13px;
-  }
   .look-note {
     font-size: 13px;
   }
@@ -5064,9 +5447,11 @@ html:has(.mock-screen) {
   color: var(--t1);
   opacity: 1;
 }
-.sk-save[aria-pressed="true"] svg,
-.look-save[aria-pressed="true"] svg {
+/* A tint, not a solid fill: the arrow has to stay readable inside the folder. */
+.sk-save[aria-pressed="true"] svg path:first-child,
+.look-save[aria-pressed="true"] svg path:first-child {
   fill: currentColor;
+  fill-opacity: 0.3;
 }
 .sk:hover .sk-save,
 .sk:focus-within .sk-save {

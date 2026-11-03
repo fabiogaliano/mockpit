@@ -35,6 +35,7 @@ export interface McpFlows {
     ]
   >;
   say: Flow<[ref: unknown, body: any, ctx: FlowContext]>;
+  move: Flow<[ref: unknown, body: any, ctx: FlowContext]>;
   feedback: Flow<[query: { session?: unknown; project?: unknown }, ctx: FlowContext]>;
   edit: Flow<[ref: unknown, body: any, ctx: FlowContext]>;
   editProject: Flow<[name: unknown, body: any, ctx: FlowContext]>;
@@ -148,6 +149,8 @@ export function registerMcp(app: Hono, deps: McpDeps) {
         return unwrap(await flows.feedback({ session: args.session, project: args.project }, ctx));
       case "say":
         return unwrap(await flows.say(args.mock, args, ctx));
+      case "move":
+        return unwrap(await flows.move(args.mock, args, ctx));
       case "export":
         return unwrap(await flows.exportMock(args.mock, args, ctx));
       case "edit":

@@ -3,6 +3,7 @@
 // selection, preview, drawers). Components read signals from here and call
 // its actions; nothing else talks to the API for this screen.
 
+import type { ToastLine } from "./toast.tsx";
 import { batch, createEffect, createMemo, createSignal, on, onCleanup } from "solid-js";
 import { createStore } from "solid-js/store";
 import {
@@ -150,6 +151,15 @@ function readPlace(id: string): Place | null {
   }
 }
 
+export type SteerNote = {
+  variant: string;
+  version: number;
+  reaction?: Reaction;
+  part?: string | null;
+  text?: string;
+  borrow?: { from: VersionRef; part?: string };
+};
+
 export function createMockScreen(
   project: string,
   slug: string,
@@ -213,7 +223,15 @@ export function createMockScreen(
   const [panel, setPanelSignal] = createSignal<PanelTab | null>(null);
   const [cardMin, setCardMin] = createSignal(false);
   // The last thing done to a version, with its undo while it is offered.
-  const [toast, setToast] = createSignal<{ text: string; undo?: () => void } | null>(null);
+  const [toast, showToast] = createSignal<ToastLine | null>(null);
+  // Actions may finish after the screen is gone, and still have a line to leave.
+  let toastGoesTo: ((line: ToastLine | null) => void) | null = null;
+  const setToast = (line: ToastLine | null) => (toastGoesTo ?? showToast)(line);
+  const handToast = (to: (line: ToastLine | null) => void) => {
+    to(toast());
+    toastGoesTo = to;
+    showToast(null);
+  };
   const [sent, setSent] = createSignal(false);
   // The reply the last Send stored, and whether a beat has passed since: an
   // undelivered reply after that beat earns the "tell your agent" hint.
@@ -1211,7 +1229,11 @@ export function createMockScreen(
   // `null` is "Other…".
   function pick(ask: Ask, optionId: string | null) {
     // Picking a look puts it on the stage, over a version stepped to before.
-    if (ask.options.find((o) => o.id === optionId)?.variant) setShown({});
+    const picked = ask.options.find((o) => o.id === optionId)?.variant;
+    if (picked) setShown({});
+    // A look picked now means that look as it stands. Left on an older draft's
+    // version, Send would put a version nobody meant in use, on every page embedding it.
+    if (picked && boundVersion() !== null) viewNewVersion();
     const wasOpen = otherTicked(ask);
     const typed = { text: otherOf(ask) ?? "", images: otherImagesOf(ask) };
     const kept = otherStash()[ask.id];
@@ -1693,7 +1715,7 @@ export function createMockScreen(
       if (away && sameVersion(onStage(), ref)) showVersion(away);
       const undo = () => {
         setToast(null);
-        void hideVersion(ref, false).then(() => showVersion(ref));
+        void hideVersion(ref, false, quiet).then(() => showVersion(ref));
       };
       if (!quiet) setToast(hidden ? { text: `Hid ${name}`, undo } : { text: `Restored ${name}` });
       return undo;
@@ -1743,33 +1765,29 @@ export function createMockScreen(
     }
   }
   // A steer names the version, since Studio shows older ones side by side.
-  function steer(c: {
-    variant: string;
-    version: number;
-    reaction?: Reaction;
-    part?: string | null;
-    text?: string;
-    borrow?: { from: VersionRef; part?: string };
-  }) {
+  // Several go as one reply, with `text` for what is said about all of them.
+  function steer(c: SteerNote) {
+    return steerMany([c]);
+  }
+  function steerMany(notes: SteerNote[], text?: string) {
     return sendAlone({
-      comments: [
-        {
-          part: c.part ?? null,
-          state: activeState(),
-          text: c.text ?? "",
-          variant: c.variant,
-          version: c.version,
-          ...(c.reaction ? { reaction: c.reaction } : {}),
-          ...(c.borrow
-            ? {
-                borrow: {
-                  from: `${c.borrow.from.variant}@${c.borrow.from.version}`,
-                  ...(c.borrow.part ? { part: c.borrow.part } : {}),
-                },
-              }
-            : {}),
-        },
-      ],
+      ...(text ? { text } : {}),
+      comments: notes.map((c) => ({
+        part: c.part ?? null,
+        state: activeState(),
+        text: c.text ?? "",
+        variant: c.variant,
+        version: c.version,
+        ...(c.reaction ? { reaction: c.reaction } : {}),
+        ...(c.borrow
+          ? {
+              borrow: {
+                from: `${c.borrow.from.variant}@${c.borrow.from.version}`,
+                ...(c.borrow.part ? { part: c.borrow.part } : {}),
+              },
+            }
+          : {}),
+      })),
     });
   }
   // Studio's ×. One version goes out of sight like any hidden version; the
@@ -1783,6 +1801,10 @@ export function createMockScreen(
     !liveIn(m) &&
     !withSituations(m).some((st) => askedIn(st) > 0) &&
     variants().some((v) => withSituations(m).includes(v.state));
+  // Every design has left, once the last has really landed, and no question waits.
+  const emptied = () =>
+    archiving().size === 0 &&
+    moments().every((m) => !liveIn(m) && !withSituations(m).some((st) => askedIn(st) > 0));
   // The closest state on with something left, else the closest back.
   function nextLiveMoment(): string | null | undefined {
     const all: (string | null)[] = moments();
@@ -2015,9 +2037,12 @@ export function createMockScreen(
     postComment,
     restoreVariant,
     steer,
+    steerMany,
     archiveVariants,
     nextLiveMoment,
     emptiedMoment,
+    emptied,
+    handToast,
     setTuned,
     replaceTuned,
     knobContext,

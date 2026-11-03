@@ -503,6 +503,8 @@ export interface Reply {
 export interface MockEdit {
   kind?: MockKind;
   area?: string | null;
+  // Which variants the user hung under which lead; a null lead takes them out.
+  grouped?: { state: string | null; lead: string | null; variants: string[] }[];
 }
 
 // The settings key prefix of a project's area order (`areaOrder:<project>`): a
@@ -1016,6 +1018,10 @@ export interface Store {
   // variant (current and history), recorded embeds, flow steps. Null when the
   // mock is missing or the slug is taken.
   renameMock(id: string, slug: string): Promise<Mock | null>;
+  // Gives a mock with no states its first one, and everything it holds moves
+  // there: variants, flow steps, copies' origins, the draft's comments. Null when
+  // the mock is missing or already has states.
+  nameFirstState(id: string, state: string): Promise<Mock | null>;
   // Moves everything keyed by the project name (mocks, sessions, flows, the
   // design settings) to `to`. False when `to` already has mocks.
   renameProject(from: string, to: string): Promise<boolean>;
@@ -1042,6 +1048,7 @@ export interface Store {
   // Variants per session, without loading bodies or history.
   countPostsBySession(): Promise<Map<string, number>>;
   getPost(id: string): Promise<Post | null>;
+  setForkedFrom(id: string, from: ForkRef | null): Promise<Post | null>;
   findPost(mockId: string, state: string | null, variant: string): Promise<Post | null>;
   createPost(input: CreatePostInput): Promise<Post | null>;
   updatePost(id: string, patch: UpdatePostInput): Promise<Post | null>;

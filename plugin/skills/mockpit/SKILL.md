@@ -48,7 +48,7 @@ state, by what the user sees ("Hold menu"), never by your process ("Round 2 ·
 area, close): you hear it in `feedback` as `edited`.
 
 Prefer the MCP tools when connected (`publish`, `ask`, `read`, `feedback`,
-`say`, `edit`, `export`, `upload`, `guide`); otherwise use the CLI.
+`say`, `move`, `edit`, `export`, `upload`, `guide`); otherwise use the CLI.
 
 ```sh
 mockpit publish --mock writer --state "Writing" --variant quiet --html quiet.html

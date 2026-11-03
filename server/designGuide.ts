@@ -332,6 +332,13 @@ slug rewrites every embed and flow step that names the old one. Home lists
 areas alphabetically unless \`mockpit edit --project <p> --area-order
 "Shell,Food"\` sets the order (unlisted ones follow, alphabetical).
 
+Tidying up is yours too when the user asks: \`mockpit move --mock <slug> --variant
+<v> --to <mock> [--to-state <tab>]\` moves variants and takes them out of here,
+\`--archive\` takes them out of sight and \`--restore\` brings them back. Their group
+goes along, one in use stays, and nothing is deleted. Copying by publishing leaves the
+originals behind, so use this instead. A mock with no states takes tabs after
+\`mockpit edit --mock <slug> --first-state <name>\`, which names the one it has.
+
 ## Question, fills or knob
 
 Answers drive the design. A choice is several variants plus one question that
@@ -373,7 +380,7 @@ A \`pending\` draft means the user is still answering. Send a nudge's
 \`suggestedAsk\` with \`ask\`. A batch with \`closed: true\` (no reply) means
 the user closed the mock unanswered: its \`dismissed\` questions were not worth
 answering. Don't ask them again, under any id; \`ask\` skips a dismissed id.
-\`edited: {kind, area}\` means the user moved the mock from Home; it is done,
+\`edited: {kind, area, grouped}\` means the user moved the mock from Home, or (\`grouped\`) hung variants under a lead as its variations, or took them out with a null lead; it is done,
 so build on it and don't move it back.
 A mock with \`shortlist: true\` is one the user gathered: its variants are
 copies (\`copiedFrom\` names each original) and its replies can reach you

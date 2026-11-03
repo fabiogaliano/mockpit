@@ -215,7 +215,8 @@ export function groupFeedback(
       batches.push(batch);
     }
     if (edit) {
-      batch.edited = { ...batch.edited, ...edit };
+      const grouped = [...(batch.edited?.grouped ?? []), ...(edit.grouped ?? [])];
+      batch.edited = { ...batch.edited, ...edit, ...(grouped.length ? { grouped } : {}) };
       continue;
     }
     if (c.kind === "reply" && c.payload?.closed) {

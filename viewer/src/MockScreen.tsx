@@ -50,6 +50,7 @@ import { SituationGrid, SituationSwitch } from "./Situations.tsx";
 import { Stage } from "./Stage.tsx";
 import { Studio } from "./Studio.tsx";
 import type { ScreenOpen } from "./route.ts";
+import { carryToast, Toast } from "./toast.tsx";
 import { createMockScreen, type MockScreenState } from "./state.ts";
 import { Thumb } from "./Thumb.tsx";
 import { createTune } from "./tune.ts";
@@ -60,7 +61,6 @@ type View = "stage" | "studio";
 
 // The neighbouring steps beside the canvas, and the room they take.
 const GHOST_W = 112;
-const TOAST_MS = 2400;
 
 export function MockScreen(props: {
   project: string;
@@ -107,10 +107,11 @@ export function MockScreen(props: {
     return untrack(() => {
       if (s.waitsOnStage()) return "stage";
       // A shortlist is for comparing, and its Add candidate lives in Studio.
-      return momentVariants() > 1 || s.mock()?.shortlist ? (remembered() ?? "studio") : "stage";
+      return remembered() ?? (momentVariants() > 1 || s.mock()?.shortlist ? "studio" : "stage");
     });
   }, null);
   const shownView = (): View => view() ?? opened() ?? "stage";
+  let openLooked: (() => void) | null = null;
   // Each step between Stage and Studio is its own history entry, so Back
   // returns to the view you came from rather than leaving the mock.
   const setView = (v: View) => {
@@ -305,13 +306,18 @@ export function MockScreen(props: {
   });
   // A toast that offers an Undo stays until it is answered or dismissed.
   createEffect(() => {
-    const tst = s.toast();
-    if (!tst || tst.undo) return;
-    const timer = host().window.setTimeout(() => s.setToast(null), TOAST_MS);
-    onCleanup(() => host().window.clearTimeout(timer));
-  });
-  createEffect(() => {
     if (s.error()) s.setToast({ text: s.error()! });
+  });
+  // The last design gone leaves nothing to look at: up to where this mock lives. Not
+  // for a mock opened empty, whose Archived is what the user came for. Replaces, so
+  // Back doesn't return to the empty page.
+  let hadLive = false;
+  createEffect(() => {
+    if (s.variants().some((v) => isLive(v.status))) hadLive = true;
+    if (!hadLive || !s.emptied()) return;
+    const back = `${host().location.pathname}${host().location.search}`;
+    navigate(homePath(props.project, s.mock()?.area ?? null), { replace: true });
+    s.handToast((line) => carryToast(line, back));
   });
 
   return (
@@ -324,12 +330,14 @@ export function MockScreen(props: {
           about={about}
           view={shownView()}
           variants={momentVariants()}
+          compare={s.variants().length > 1 || s.variants().some((v) => v.version > 1)}
           tabs={walkable()}
           shortlists={shortlists}
           onView={(v) => {
             if (v === shownView()) return;
             s.setDrawer(false);
-            setView(v);
+            if (v === "stage" && openLooked) openLooked();
+            else setView(v);
           }}
         />
         <Show when={walkable()}>
@@ -353,6 +361,7 @@ export function MockScreen(props: {
                 top={canvasTop()}
                 shortlists={shortlists}
                 onOpen={() => setView("stage")}
+                onLooking={(open) => (openLooked = open)}
               />
             }
           >
@@ -401,7 +410,7 @@ export function MockScreen(props: {
           <BuiltFrom s={s} t={t} />
         </Show>
       </Show>
-      <Toast s={s} />
+      <Toast toast={s.toast()} onDismiss={() => s.setToast(null)} />
       <div class="sr-only" role="status">
         {s.reactStatus()}
       </div>
@@ -422,6 +431,9 @@ function TopRow(props: {
   about: AboutState;
   view: View;
   variants: number;
+  // More than one design or version to compare, in any state, archived too: Studio is
+  // where those are.
+  compare: boolean;
   // Whether the state tabs are showing, which name the state where it isn't.
   tabs: boolean;
   shortlists: Shortlists;
@@ -547,13 +559,19 @@ function TopRow(props: {
         </button>
       </Show>
       <span class="grow" />
-      <Show when={!readonly() && !s.mock()?.shortlist && sl.current()}>
+      <Show
+        when={
+          !readonly() && !s.mock()?.shortlist && sl.current()?.candidates.length
+            ? sl.current()
+            : null
+        }
+      >
         {(list) => <ShortlistPill list={list()} project={props.project} />}
       </Show>
       <Show when={props.view === "stage"}>
         <WidthMenu s={s} />
       </Show>
-      <Show when={props.variants > 1 || props.view === "studio"}>
+      <Show when={props.compare || props.view === "studio"}>
         <div class="vswitch" role="group" aria-label="View">
           <button
             type="button"
@@ -805,38 +823,6 @@ function SentNote(props: { s: MockScreenState; project: string; slug: string }) 
         </div>
       </Show>
       <NextCard s={s} />
-    </div>
-  );
-}
-
-function Toast(props: { s: MockScreenState }) {
-  const s = props.s;
-  return (
-    <div class="toast" classList={{ on: !!s.toast() }} role="status" aria-live="polite">
-      <Show when={s.toast()}>
-        {(tst) => (
-          <>
-            <span>{tst().text}</span>
-            <Show when={tst().undo}>
-              {(undo) => (
-                <>
-                  <button type="button" class="toast-undo" onClick={() => undo()()}>
-                    Undo
-                  </button>
-                  <button
-                    type="button"
-                    class="ib toast-x"
-                    aria-label="Dismiss"
-                    onClick={() => s.setToast(null)}
-                  >
-                    <Icon name="close" />
-                  </button>
-                </>
-              )}
-            </Show>
-          </>
-        )}
-      </Show>
     </div>
   );
 }

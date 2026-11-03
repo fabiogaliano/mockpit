@@ -4,6 +4,7 @@ import { Home } from "./Home.tsx";
 import { MockScreen } from "./MockScreen.tsx";
 import { startNotifier } from "./notify.ts";
 import { type MockRoute, route } from "./route.ts";
+import { CarriedToast } from "./toast.tsx";
 
 export function App() {
   startNotifier();
@@ -25,13 +26,16 @@ export function App() {
     { equals: (a, b) => a?.project === b?.project && a?.slug === b?.slug && a?.flow === b?.flow },
   );
   return (
-    <Switch>
-      <Match when={mock()} keyed>
-        {(r) => <MockScreen project={r.project} slug={r.slug} open={r.open} flow={r.flow} />}
-      </Match>
-      <Match when={home()}>
-        {(r) => <Home project={r().project} view={r().view} area={r().area} />}
-      </Match>
-    </Switch>
+    <>
+      <Switch>
+        <Match when={mock()} keyed>
+          {(r) => <MockScreen project={r.project} slug={r.slug} open={r.open} flow={r.flow} />}
+        </Match>
+        <Match when={home()}>
+          {(r) => <Home project={r().project} view={r().view} area={r().area} />}
+        </Match>
+      </Switch>
+      <CarriedToast />
+    </>
   );
 }

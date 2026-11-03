@@ -276,6 +276,11 @@ export function createRunFlow(deps: RunDeps) {
         await take(flows.say(r.mock, { ...(await mine(r)), message }, flowCtx));
         return [null, String(r.mock ?? "?")];
       },
+      async move([v]) {
+        const r = plain(v);
+        const value = await take(flows.move(r.mock, await mine(r), flowCtx));
+        return [value, `${value.variants.length} moved`];
+      },
       async edit([v]) {
         const r = await mine(plain(v));
         const value = await take(editCall(flows, r, flowCtx, project));

@@ -50,8 +50,10 @@ declare const mockpit: {
   /** Never waits: what the user sent since you last heard, and what they are doing now. */
   feedback(): Promise<{ feedback: Feedback[]; pending: Pending[] }>;
   say(v: Ref, message: string): Promise<void>;
+  /** to or toState moves variants there; archive hides them; restore brings them back. */
+  move(v: Ref & { variants: string[]; to?: string; toState?: string; archive?: boolean; restore?: boolean }): Promise<{ variants: { state: string | null; variant: string; status: string }[]; skipped: { variant: string; why: string }[]; url: string }>;
   /** No new version; "" clears. { rename } or { areaOrder } without mock edits the project. */
-  edit(v: { mock?: string; slug?: string; title?: string; kind?: string; area?: string; source?: string; rename?: string; areaOrder?: string[] }): Promise<{ url: string }>;
+  edit(v: { mock?: string; slug?: string; title?: string; kind?: string; area?: string; source?: string; firstState?: string; rename?: string; areaOrder?: string[] }): Promise<{ url: string }>;
   export(v: Ref): Promise<{ states: { state: string | null; variant: string; version: number; html: string; allFills?: string }[]; reply: unknown }>;
   /** data: base64 bytes. Use id as an image surface's assetId. */
   upload(data: string, opts: { contentType: string; filename?: string; kind?: "image" | "file" }): Promise<{ id: string; url: string }>;
@@ -66,6 +68,7 @@ export const RUN_FUNCTIONS = [
   "ask",
   "feedback",
   "say",
+  "move",
   "edit",
   "export",
   "upload",

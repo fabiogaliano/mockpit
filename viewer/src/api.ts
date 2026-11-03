@@ -9,6 +9,7 @@ import type {
   variantView,
 } from "../../server/apiViews.ts";
 import type { FeedEvent } from "../../server/events.ts";
+import type { VersionRef } from "./logic.ts";
 import type {
   AskAnswer,
   Comment,
@@ -56,6 +57,7 @@ export interface Shortlist {
   candidates: { variant: string; copiedFrom: CopyRef | null }[];
 }
 export type SaveCandidate = CopyRef;
+export type VariationUndo = { variant: string; from: VersionRef | null }[];
 export type { LiveCopy };
 
 export interface MockList {
@@ -118,6 +120,17 @@ export const api = {
       to: { id: string; slug: string; title: string; shortlist: boolean };
       saved: { state: string | null; variant: string; already: boolean }[];
     }>("/api/copies", json("POST", body)),
+  setVariations: (
+    mock: string,
+    body: { state: string | null } & (
+      | { lead: VersionRef | null; variants: string[] }
+      | { restore: VariationUndo }
+    ),
+  ) =>
+    call<{ undo: VariationUndo }>(
+      `/api/mocks/${encodeURIComponent(mock)}/variations`,
+      json("POST", body),
+    ),
   removeCopy: (mock: string, state: string | null, variant: string) =>
     call<unknown>(
       `/api/copies/${encodeURIComponent(mock)}/remove`,

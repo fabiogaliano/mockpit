@@ -11,6 +11,7 @@ None of them waits for the user.
 | `mockpit read [slug]`        | `read`                                      | `GET /api/mocks?project=…`, `GET /api/mocks/:id` |
 | `mockpit feedback`           | `feedback`                                  | `GET /api/feedback?session=…`                    |
 | `mockpit say`                | `say`                                       | `POST /api/mocks/:id/say`                        |
+| `mockpit move`               | `move`                                      | `POST /api/mocks/:id/move`                       |
 | `mockpit edit --mock <slug>` | `edit`                                      | `PATCH /api/mocks/:id`                           |
 | `mockpit edit --rename <n>`  | `edit({ rename })`                          | `PATCH /api/projects/:name` `{name}`             |
 | `mockpit edit --area-order`  | `edit({ areaOrder })`                       | `PATCH /api/projects/:name` `{areaOrder}`        |

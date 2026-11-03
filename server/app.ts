@@ -63,13 +63,14 @@ import {
   vapidKeys,
 } from "./push.ts";
 import {
-  type EmbedResolver,
+  dropRepeatedStyles,
   embedsKey,
-  type Expanded,
   expandHtml,
   firstHtmlEmbeds,
   hasEmbedTags,
   parseEmbedTags,
+  type EmbedResolver,
+  type Expanded,
 } from "./embeds.ts";
 import { type McpFlows, registerMcp } from "./mcpHttp.ts";
 import { createRunFlow, DEFAULT_RUN_LIMITS, type Executor, type RunLimits } from "./run.ts";
@@ -1215,7 +1216,8 @@ export function createApp({
     overrides?: Record<string, number>,
   ): Promise<Expanded> {
     if (!hasEmbedTags(html)) return { html, used: [], stamps: [], cycle: null };
-    return expandHtml(html, embedResolver(project, overrides), [slug]);
+    const expanded = await expandHtml(html, embedResolver(project, overrides), [slug]);
+    return { ...expanded, html: dropRepeatedStyles(expanded.html) };
   }
 
   // The component versions a publish renders with, recorded on the version;
@@ -1595,7 +1597,7 @@ export function createApp({
       if (mock && mock.states.length === 0 && posts.length > 0) {
         return fail(
           409,
-          `${slug} is a single-state mock; its variants have no state name. Publish a multi-state design as a new mock and name every state`,
+          `${slug} is a single-state mock; its variants have no state name. Name theirs first with edit firstState, or publish a multi-state design as a new mock`,
         );
       }
       state = stateIn;
@@ -3425,8 +3427,20 @@ export function createApp({
     const posts = await store.listPosts({ mockId: mock.id });
     const chosen = chooseVariant(mock, posts, stateArg(body?.state), str(body?.variant, MAX_LABEL));
     if (isResult(chosen)) return chosen;
-    const updated = await store.setPostStatus(chosen.id, "open");
+    const updated = await setStatus(mock, chosen, "open");
     if (!updated) return fail(404, "variant not found");
+    return ok({
+      state: updated.state,
+      variant: updated.variant,
+      status: variantStatus(updated.status),
+    });
+  }
+
+  // Not by "agent", even when an agent's move did it: that would notify once per
+  // design, and the move's one Thread line already says it.
+  async function setStatus(mock: Mock, post: Post, status: "open" | "archived") {
+    const updated = await store.setPostStatus(post.id, status);
+    if (!updated) return null;
     bus.broadcast({
       type: "post-updated",
       id: updated.id,
@@ -3435,11 +3449,48 @@ export function createApp({
       version: updated.version,
       by: "user",
     });
-    return ok({
-      state: updated.state,
-      variant: updated.variant,
-      status: variantStatus(updated.status),
-    });
+    return updated;
+  }
+
+  // A pick of a design that just left: it would hold the stage on the version the
+  // draft was made on, and Send would put in use something nobody can see. Only
+  // those picks go; whatever the user wrote stays.
+  async function dropStalePicks(mock: Mock): Promise<void> {
+    const draft = (await store.getMock(mock.id))?.draft;
+    if (!draft) return;
+    const posts = await store.listPosts({ mockId: mock.id });
+    const answers: Record<string, AskAnswer> = {};
+    for (const [askId, value] of Object.entries(draft.answers)) {
+      const ask = askById(mock, posts, askId);
+      const here = (variant: string) =>
+        posts.some(
+          (p) =>
+            p.variant === variant &&
+            isLive(p.status) &&
+            (ask?.state === undefined || p.state === ask.state),
+        );
+      const stays = (id: string) => {
+        const variant = ask?.options.find((o) => o.id === id)?.variant;
+        return !variant || here(variant);
+      };
+      if (Array.isArray(value)) {
+        const kept = value.filter(stays);
+        if (kept.length) answers[askId] = kept;
+      } else if (stays(value)) {
+        answers[askId] = value;
+      }
+    }
+    if (Object.keys(answers).length === Object.keys(draft.answers).length) return;
+    const next = { ...draft, answers, updatedAt: new Date().toISOString() };
+    const nothing =
+      Object.keys(answers).length === 0 &&
+      Object.keys(draft.borrowed).length === 0 &&
+      Object.keys(draft.tuned).length === 0 &&
+      draft.comments.length === 0 &&
+      Object.keys(draft.others ?? {}).length === 0 &&
+      Object.keys(draft.notes ?? {}).length === 0;
+    await store.putDraft(mock.id, nothing ? null : next);
+    bus.broadcast({ type: "draft-updated", mockId: mock.id });
   }
 
   // The user archives a variant they're done with, short of choosing another:
@@ -3454,16 +3505,9 @@ export function createApp({
     const chosen = chooseVariant(mock, posts, stateArg(body?.state), str(body?.variant, MAX_LABEL));
     if (isResult(chosen)) return chosen;
     if (variantStatus(chosen.status) === "inUse") return fail(409, `${chosen.variant} is in use`);
-    const updated = await store.setPostStatus(chosen.id, "archived");
+    const updated = await setStatus(mock, chosen, "archived");
     if (!updated) return fail(404, "variant not found");
-    bus.broadcast({
-      type: "post-updated",
-      id: updated.id,
-      mockId: mock.id,
-      sessionId: updated.sessionId,
-      version: updated.version,
-      by: "user",
-    });
+    await dropStalePicks(mock);
     return ok({
       state: updated.state,
       variant: updated.variant,
@@ -3555,6 +3599,10 @@ export function createApp({
 
   async function saveCopiesFlow(body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
+    return copyCandidates(body);
+  }
+
+  async function copyCandidates(body: any): Promise<FlowResult> {
     const picks: any[] = Array.isArray(body?.candidates) ? body.candidates : [];
     if (picks.length === 0) return fail(400, 'provide "candidates": the versions to save');
     if (picks.length > MAX_CANDIDATES) {
@@ -3607,6 +3655,12 @@ export function createApp({
     }
     // A shortlist is flat; anywhere else the copy lands in a state the mock has.
     const state = list.shortlist ? null : (stateArg(body.state) ?? null);
+    if (body.newState && state !== null && !list.shortlist && !list.states.includes(state)) {
+      // Named states would hide what a flat mock already holds under no name.
+      const flat = (await store.listPosts({ mockId: list.id })).some((p) => p.state === null);
+      if (flat) return fail(400, `${list.slug} has no states; move without "toState"`);
+      list = (await store.updateMock(list.id, { states: [...list.states, state] })) ?? list;
+    }
     if (state === null ? !list.shortlist && list.states.length > 0 : !list.states.includes(state)) {
       return fail(400, `${list.slug} has no such state`, { states: list.states });
     }
@@ -3619,7 +3673,9 @@ export function createApp({
     const posts = (await store.listPosts({ mockId: list.id })).filter((p) => p.state === state);
     const taken = new Set(posts.map((p) => p.variant));
     const saved: { state: string | null; variant: string; already: boolean }[] = [];
-    for (const { mock, post, version, surfaces } of origins) {
+    const copies: { from: (typeof origins)[number]; copy: Post }[] = [];
+    for (const origin of origins) {
+      const { mock, post, version, surfaces } = origin;
       const same = posts.find(
         (p) =>
           p.copiedFrom?.mock === mock.id &&
@@ -3628,10 +3684,14 @@ export function createApp({
           p.copiedFrom.version === version,
       );
       if (same) {
+        copies.push({ from: origin, copy: same });
         saved.push({ state, variant: same.variant, already: isLive(same.status) });
         if (isLive(same.status)) continue;
         const back = await store.setPostStatus(same.id, "open");
-        if (back) announceCopy(list, back, false);
+        if (back) {
+          posts[posts.indexOf(same)] = back;
+          announceCopy(list, back, false);
+        }
         continue;
       }
       const knobs = { ...mock.knobs, ...post.knobs };
@@ -3651,11 +3711,41 @@ export function createApp({
         copiedFrom: { mock: mock.id, state: post.state, variant: post.variant, version },
       });
       if (!created) return fail(409, `${post.variant} has no agent session to copy it under`);
+      copies.push({ from: origin, copy: created });
       posts.push(created);
       taken.add(created.variant);
       saved.push({ state, variant: created.variant, already: false });
       if (list.shortlist) announceCopy(list, created, true);
       else announcePost(list, created, true, "user");
+    }
+    // A group stays a group where it lands: a variation hangs under its lead's copy,
+    // whether that came along now or was saved here before.
+    for (const { from, copy } of copies) {
+      const lead = from.post.forkedFrom;
+      if (!lead || copy.forkedFrom) continue;
+      const under = posts.find(
+        (p) =>
+          isLive(p.status) &&
+          p.copiedFrom?.mock === from.mock.id &&
+          p.copiedFrom.state === from.post.state &&
+          p.copiedFrom.variant === lead.variant &&
+          p.copiedFrom.version === lead.version,
+      );
+      if (!under) continue;
+      const updated = await store.setForkedFrom(copy.id, {
+        variant: under.variant,
+        version: under.version,
+      });
+      if (updated) {
+        bus.broadcast({
+          type: "post-updated",
+          id: updated.id,
+          mockId: list.id,
+          sessionId: updated.sessionId,
+          version: updated.version,
+          by: "user",
+        });
+      }
     }
     bus.broadcast({ type: "mock-updated", id: list.id, project });
     return ok({
@@ -3709,6 +3799,198 @@ export function createApp({
       if (!mock.shortlist) await announceEmbedders(mock);
     }
     return ok({ removed: post.variant, shortlistGone: empty });
+  }
+
+  // The agent tidies up: variants go to another mock or tab, out of sight, or back.
+  // Nothing is destroyed, so the user can always undo it from Archived, and a variant
+  // in use stays, since which design is in use is the user's call. A group moves
+  // together, as it does when the user moves one.
+  async function moveFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
+    const given: unknown[] = Array.isArray(body.variants) ? body.variants : [];
+    const names = [...new Set(given.flatMap((v) => str(v, MAX_LABEL) ?? []))];
+    if (names.length === 0) return fail(400, 'provide "variants": which ones to move');
+    if (names.length > MAX_CANDIDATES) {
+      return fail(400, `move at most ${MAX_CANDIDATES} variants at once`);
+    }
+    const toState = stateArg(body.toState) ?? undefined;
+    const moving = (body.to !== undefined && body.to !== null) || toState !== undefined;
+    const actions = [moving, body.archive === true, body.restore === true];
+    if (actions.filter(Boolean).length !== 1) {
+      return fail(400, 'provide one of "to" or "toState", "archive" or "restore"');
+    }
+    const target = await commentTarget({
+      mock: ref,
+      project: body.project,
+      session: body.session,
+    });
+    if (isResult(target)) return target;
+    const { mock, session } = target;
+    const posts = await store.listPosts({ mockId: mock.id });
+    const named: Post[] = [];
+    for (const name of names) {
+      const post = chooseVariant(mock, posts, stateArg(body.state), name);
+      if (isResult(post)) return post;
+      named.push(post);
+    }
+
+    const skipped: { variant: string; why: string }[] = [];
+    const changing: Post[] = [];
+    const take = (post: Post) => {
+      if (changing.includes(post)) return;
+      if (body.restore === true ? isLive(post.status) : variantStatus(post.status) === "inUse") {
+        skipped.push({
+          variant: post.variant,
+          why: body.restore === true ? "not archived" : "in use",
+        });
+        return;
+      }
+      if (body.archive === true && !isLive(post.status)) {
+        skipped.push({ variant: post.variant, why: "already archived" });
+        return;
+      }
+      changing.push(post);
+      if (body.restore === true) return;
+      for (const p of posts) {
+        if (p.state === post.state && p.forkedFrom?.variant === post.variant && isLive(p.status)) {
+          take(p);
+        }
+      }
+    };
+    for (const post of named) take(post);
+
+    let to: { mock: string; title: string; state: string | null } | undefined;
+    let saved: unknown;
+    let moved: Mock = mock;
+    if (moving && changing.length) {
+      const copied = await copyCandidates({
+        candidates: changing.map((p) => ({ mock: mock.id, state: p.state, variant: p.variant })),
+        to: body.to ?? mock.id,
+        state: toState,
+        newState: true,
+      });
+      if (copied.status >= 400) return copied;
+      const { slug, title, id } = copied.body.to;
+      to = { mock: slug, title, state: copied.body.saved[0]?.state ?? null };
+      saved = copied.body.saved;
+      moved = (await store.getMock(id)) ?? mock;
+    }
+    const done: { state: string | null; variant: string; status: string }[] = [];
+    for (const post of changing) {
+      const updated = await setStatus(mock, post, body.restore === true ? "open" : "archived");
+      if (updated) {
+        done.push({
+          state: updated.state,
+          variant: updated.variant,
+          status: variantStatus(updated.status),
+        });
+      }
+    }
+    if (done.length) {
+      if (body.restore !== true) await dropStalePicks(mock);
+      void announceEmbedders(mock).catch((err) => console.warn("[mockpit] embedders", err));
+      const list = done.map((d) => d.variant).join(", ");
+      const where = to ? `${to.title}${to.state === null ? "" : ` · ${to.state}`}` : "";
+      const line = to
+        ? `Moved ${done.length} to ${where}: ${list}`
+        : `${body.restore === true ? "Restored" : "Archived"} ${done.length}: ${list}`;
+      const comment = await store.createComment({
+        sessionId: session.id,
+        mockId: mock.id,
+        postId: null,
+        author: reservedAgent(session.agent),
+        text: str(line, MAX_COMMENT_TEXT) ?? line,
+        kind: "comment",
+        anchors: [],
+        postVersion: null,
+        viewport: null,
+      });
+      if (comment) announceComment(comment);
+    }
+    return ok({
+      variants: done,
+      skipped,
+      ...(to ? { to, saved } : {}),
+      url: mockUrl(ctx.base, moved),
+      feedback: await feedbackFor(body.session, ctx.base),
+    });
+  }
+
+  // The user says these variants are variations of that one. It is the same link
+  // an agent's fork leaves, so Studio hangs them under it and agents read it as
+  // `forkedFrom`; here it can also mean "belongs under", not only "was made from".
+  // Returns what it replaced, which `restore` puts back.
+  async function setVariationsFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const mock = await resolveMock(ref);
+    if (isResult(mock)) return mock;
+    const state = stateArg(body?.state) ?? null;
+    const inState = (await store.listPosts({ mockId: mock.id })).filter((p) => p.state === state);
+    const named = (v: unknown) => inState.find((p) => p.variant === v);
+    const forkArgOf = (from: any): ForkRef | null | FlowResult => {
+      if (from === null) return null;
+      const post = named(from?.variant);
+      if (!post) return fail(404, `no variant "${from?.variant}" here`);
+      const has =
+        from.version === post.version || post.history.some((h) => h.version === from.version);
+      if (!has) return fail(404, `${post.variant} has no version ${from.version}`);
+      return { variant: post.variant, version: from.version };
+    };
+    const changes = new Map<Post, ForkRef | null>();
+    if (Array.isArray(body?.restore)) {
+      for (const r of body.restore) {
+        const post = named(r?.variant);
+        if (!post) return fail(404, `no variant "${r?.variant}" here`);
+        const from = forkArgOf(r?.from ?? null);
+        if (isResult(from)) return from;
+        changes.set(post, from);
+      }
+    } else {
+      const lead = forkArgOf(body?.lead ?? null);
+      if (isResult(lead)) return lead;
+      const names: unknown[] = Array.isArray(body?.variants) ? body.variants : [];
+      const wanted = [...new Set(names)].filter((v) => v !== lead?.variant);
+      const members = wanted.flatMap((v) => named(v) ?? []);
+      if (members.length === 0 || members.length !== wanted.length) {
+        return fail(400, 'provide "variants": variants of this state, other than the lead');
+      }
+      for (const m of members) changes.set(m, lead);
+      if (lead) {
+        // A small card can't hold cards of its own: what hung under a member comes
+        // along to the lead, and the lead itself stands at the top.
+        const out = new Set(members.map((m) => m.variant));
+        for (const p of inState) {
+          if (p.variant === lead.variant || changes.has(p)) continue;
+          if (p.forkedFrom && out.has(p.forkedFrom.variant)) changes.set(p, lead);
+        }
+        const top = named(lead.variant);
+        if (top?.forkedFrom) changes.set(top, null);
+      }
+    }
+    const undo = [...changes.keys()].map((p) => ({
+      variant: p.variant,
+      from: p.forkedFrom ?? null,
+    }));
+    const told = new Map<string | null, string[]>();
+    for (const [post, from] of changes) {
+      const updated = await store.setForkedFrom(post.id, from);
+      if (!updated) return fail(404, "variant not found");
+      bus.broadcast({
+        type: "post-updated",
+        id: updated.id,
+        mockId: mock.id,
+        sessionId: updated.sessionId,
+        version: updated.version,
+        by: "user",
+      });
+      told.set(from?.variant ?? null, [...(told.get(from?.variant ?? null) ?? []), post.variant]);
+    }
+    if (told.size) {
+      await tellAgentEdit(mock, {
+        grouped: [...told].map(([lead, variants]) => ({ state, lead, variants })),
+      });
+    }
+    return ok({ undo });
   }
 
   // D8 "restore as vN": the user brings an older version back as the newest
@@ -3769,9 +4051,11 @@ export function createApp({
   // keep showing it and flows keep walking it.
   async function editMockFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
-    const given = ["slug", "title", "kind", "area", "source"].filter((k) => body[k] !== undefined);
+    const given = ["slug", "title", "kind", "area", "source", "firstState"].filter(
+      (k) => body[k] !== undefined,
+    );
     if (given.length === 0) {
-      return fail(400, 'provide one of "slug", "title", "kind", "area" or "source"');
+      return fail(400, 'provide one of "slug", "title", "kind", "area", "source" or "firstState"');
     }
     const mock = await resolveMock(ref, body.project, body.session);
     if (isResult(mock)) return mock;
@@ -3789,6 +4073,14 @@ export function createApp({
     if (isResult(area)) return area;
     const source = labelArg(body, "source", MAX_SOURCE);
     if (isResult(source)) return source;
+
+    const firstState = body.firstState === undefined ? undefined : str(body.firstState, MAX_LABEL);
+    if (body.firstState !== undefined && !firstState) {
+      return fail(400, '"firstState" must name the state, e.g. "Moss ball"');
+    }
+    if (firstState !== undefined && mock.states.length > 0) {
+      return fail(409, `${mock.slug} already has states`, { states: mock.states });
+    }
 
     const renaming = slug !== undefined && slug !== mock.slug;
     if (renaming && (await store.findMock(mock.project, slug))) {
@@ -3823,6 +4115,9 @@ export function createApp({
           ...(area === undefined ? {} : { area }),
           ...(source === undefined ? {} : { source }),
         })) ?? next;
+    }
+    if (firstState !== undefined) {
+      next = (await store.nameFirstState(mock.id, firstState)) ?? next;
     }
     bus.broadcast({ type: "mock-updated", id: next.id, project: next.project });
     if (renaming) await announceEmbedders(next);
@@ -3865,6 +4160,10 @@ export function createApp({
       ...(after.area !== before.area ? { area: after.area } : {}),
     };
     if (Object.keys(edited).length === 0) return;
+    await tellAgentEdit(after, edited);
+  }
+
+  async function tellAgentEdit(after: Mock, edited: MockEdit): Promise<void> {
     const posts = await store.listPosts({ mockId: after.id });
     const sessionId = await replySessionId(after, posts);
     if (!sessionId) return;
@@ -4827,6 +5126,9 @@ export function createApp({
   app.get("/api/projects/:name/shortlists", async (c) =>
     send(c, await shortlistsFlow(c.req.param("name"))),
   );
+  app.post("/api/mocks/:ref/variations", async (c) =>
+    send(c, await setVariationsFlow(c.req.param("ref"), await jsonBody(c), flowCtx(c))),
+  );
   app.post("/api/copies", async (c) =>
     send(c, await saveCopiesFlow(await jsonBody(c), flowCtx(c))),
   );
@@ -4855,6 +5157,9 @@ export function createApp({
     ),
   );
 
+  app.post("/api/mocks/:id/move", async (c) =>
+    send(c, await moveFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
   app.post("/api/mocks/:id/say", async (c) =>
     send(c, await sayFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
@@ -5811,6 +6116,7 @@ export function createApp({
     ask: (ref, body, ctx) => askFlow(ref, body, ctx),
     exportMock: (ref, query, ctx) => exportFlow(ref, query, ctx),
     say: (ref, body, ctx) => sayFlow(ref, body, ctx),
+    move: (ref, body, ctx) => moveFlow(ref, body, ctx),
     feedback: (query, ctx) => feedbackFlow(query, ctx),
     edit: (ref, body, ctx) => editMockFlow(ref, body, ctx),
     editProject: (name, body, ctx) => editProjectFlow(name, body, ctx),

@@ -40,7 +40,7 @@ mockpit turns that into a design-decision loop:
 | Comments      | Text on a post                                     | Anchored on a **part** the agent declared with `data-part`, in a given state                                                   |
 | Feedback      | Each comment reaches the agent as it's written     | Picks, tuned values, borrowed parts and comments stay drafts until you **Send**, then go out as one reply                      |
 | Design system | Built-in viewer themes                             | `mockpit init` detects the repo's tokens, fonts and kit so the agent's markup matches your codebase                            |
-| Agent verbs   | Post-level: `publish`, `update`, `wait`, `comment` | Mock-level, never blocking: `publish`, `ask`, `read`, `feedback`, `say`, `edit`, `export`, `upload`, `guide`, `run`            |
+| Agent verbs   | Post-level: `publish`, `update`, `wait`, `comment` | Mock-level, never blocking: `publish`, `ask`, `read`, `feedback`, `say`, `move`, `edit`, `export`, `upload`, `guide`, `run`    |
 
 ## The loop
 
@@ -150,6 +150,7 @@ plain HTTP. None of them waits for the user.
 | `mockpit read [slug]` | `read`               | `GET /api/mocks`, `GET /api/mocks/:id`              |
 | `mockpit feedback`    | `feedback`           | `GET /api/feedback?session=…`                       |
 | `mockpit say`         | `say`                | `POST /api/mocks/:id/say`                           |
+| `mockpit move`        | `move`               | `POST /api/mocks/:id/move`                          |
 | `mockpit edit`        | `edit`               | `PATCH /api/mocks/:id`, `PATCH /api/projects/:name` |
 | `mockpit export`      | `export`             | `GET /api/mocks/:id/export`                         |
 | `mockpit upload`      | `upload`             | `POST /api/assets`                                  |
@@ -237,7 +238,7 @@ The server app is importable from `mockpit/server` (`createApp`, `SqlStore`,
   The JSON file is left untouched either way.
 - **`--item` is now `--mock`** (`mockpit publish --mock <slug> --state <s>
 --variant <v>`), and the MCP tools are named by verb (`publish`, `ask`,
-  `read`, `feedback`, `say`, `export`, `upload`, `guide`).
+  `read`, `feedback`, `say`, `move`, `export`, `upload`, `guide`).
 - **Removed:** the item, post, snippet and session-page routes
   (`/api/projects/:name/items`, `/api/posts`, `/api/surfaces`, `/api/snippets`,
   `/session/:id`, `/p/:id`), `?part=`, the item/post MCP tools and their

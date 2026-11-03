@@ -7,15 +7,23 @@ import { api, subscribe, type LiveCopy, type SaveCandidate, type Shortlist } fro
 import { host } from "./host.ts";
 
 type Toast = { text: string; undo?: () => void } | null;
-export type Add = { label: string } & ({ to: string; state: string | null } | { title: string });
+export type Add = { label: string; refs: SaveCandidate[] } & (
+  | { to: string; state: string | null }
+  | { title: string }
+);
 export type Drop = {
   id: string;
   state: string | null;
   variant: string;
+  ref: SaveCandidate;
   title?: string;
   label: string;
 };
-type Leave = { verb: string; run: () => Promise<(() => void) | undefined> };
+type Leave = {
+  verb: string;
+  stays: number;
+  run: () => Promise<(() => void) | undefined>;
+};
 
 export function createShortlists(project: string, toast: (t: Toast) => void) {
   const key = `mockpit-shortlist:${project}`;
@@ -70,32 +78,27 @@ export function createShortlists(project: string, toast: (t: Toast) => void) {
     );
   const isSaved = (ref: SaveCandidate) => copiesOf(ref).length > 0;
 
-  // The copies first: if one can't be made the version stays where it is, and
-  // nothing is half done.
-  async function settle(
-    ref: SaveCandidate,
-    name: string,
-    adds: Add[],
-    drops: Drop[],
-    leave: Leave | null,
-  ) {
+  // The copies first: if one can't be made nothing leaves here, and nothing is
+  // half done.
+  async function settle(name: string, adds: Add[], drops: Drop[], leave: Leave | null) {
     const undos: (() => Promise<unknown>)[] = [];
     const undoAll = async () => {
       for (const undo of undos.reverse()) await undo();
     };
     try {
-      for (const { label: _, ...target } of adds) {
-        const { to, saved } = await api.saveCopies({ ...target, candidates: [ref] });
+      for (const { label: _, refs, ...target } of adds) {
+        const { to, saved } = await api.saveCopies({ ...target, candidates: refs });
         if (to.shortlist) pick(to.id);
-        const copy = saved[0];
-        if (!copy.already) undos.push(() => api.removeCopy(to.id, copy.state, copy.variant));
+        for (const copy of saved) {
+          if (!copy.already) undos.push(() => api.removeCopy(to.id, copy.state, copy.variant));
+        }
       }
       for (const d of drops) {
         await api.removeCopy(d.id, d.state, d.variant);
         undos.push(() =>
           api.saveCopies({
             ...(d.title ? { title: d.title } : { to: d.id, state: d.state }),
-            candidates: [ref],
+            candidates: [d.ref],
           }),
         );
       }
@@ -108,16 +111,18 @@ export function createShortlists(project: string, toast: (t: Toast) => void) {
     const undoLeave = leave ? await leave.run() : undefined;
     await load();
     const where = adds.length === 1 ? adds[0].label : `${adds.length} places`;
+    const dropped = new Set(drops.map((d) => d.label));
     if (leave && !undoLeave) {
       if (adds.length) toast({ text: `Saved ${name} to ${where}, but it is still here` });
       return;
     }
+    const stays = leave?.stays ? `, ${leave.stays} in use stays` : "";
     toast({
       text: adds.length
-        ? `${leave ? "Moved" : "Saved"} ${name} to ${where}`
+        ? `${leave ? "Moved" : "Saved"} ${name} to ${where}${stays}`
         : leave
-          ? `${leave.verb} ${name}`
-          : `Removed ${name} from ${drops.length === 1 ? drops[0].label : `${drops.length} places`}`,
+          ? `${leave.verb} ${name}${stays}`
+          : `Removed ${name} from ${dropped.size === 1 ? [...dropped][0] : `${dropped.size} places`}`,
       undo: () => {
         toast(null);
         undoLeave?.();

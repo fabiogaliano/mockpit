@@ -261,6 +261,23 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
     httpOnly: ["session"],
   },
   {
+    name: "move",
+    description:
+      "Tidy up variants: to or toState moves them there and out of here; archive hides them; restore brings them back. Never deletes; a group goes along; one in use stays. Returns feedback.",
+    params: {
+      mock: P.mock,
+      state: P.state,
+      variants: { t: "strings", d: "Variant names", req: true },
+      to: { t: "string", d: "Target mock; default this one" },
+      toState: { t: "string", d: "Target state; created if new" },
+      archive: { t: "boolean" },
+      restore: { t: "boolean" },
+      project: P.project,
+      session: P.session,
+    },
+    httpOnly: ["session"],
+  },
+  {
     name: "export",
     description:
       "The html in use (else current) per state, version history, screenshot URL, knobs, the settled values and the last reply.",
@@ -278,6 +295,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       kind: { t: "enum", values: ["page", "component", "sketch"] },
       area: { t: "string" },
       source: { t: "string" },
+      firstState: { t: "string", d: "Names a mock's one unnamed state, so it can have more" },
       rename: { t: "string", d: "New project name" },
       areaOrder: { t: "strings", d: "Without mock: Home's area order" },
       session: P.session,
@@ -373,7 +391,11 @@ const feedbackSchema = o({
     .array(o({ ask: str, text: str }))
     .optional()
     .describe("The questions the close dismissed; don't ask them again"),
-  edited: o({ kind: str.optional(), area: nullStr.optional() })
+  edited: o({
+    kind: str.optional(),
+    area: nullStr.optional(),
+    grouped: z.array(o({ state: nullStr, lead: nullStr, variants: z.array(str) })).optional(),
+  })
     .optional()
     .describe("The user moved the mock from Home: its kind or area now"),
 }).meta({ id: "Feedback" });
@@ -433,6 +455,17 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
     pending: z.array(pendingSchema),
   },
   say: { feedback: feedbackRide },
+  move: {
+    variants: z.array(o({ state: str.nullable(), variant: str, status: str })),
+    skipped: z.array(o({ variant: str, why: str })),
+    to: o({ mock: str, title: str, state: str.nullable() }).optional(),
+    saved: z
+      .array(o({ state: str.nullable(), variant: str, already: z.boolean() }))
+      .optional()
+      .describe("What each is called there"),
+    url: str,
+    feedback: feedbackRide,
+  },
   edit: {
     renamed: o({ from: str, to: str }).optional(),
     areaOrder: strs.optional(),

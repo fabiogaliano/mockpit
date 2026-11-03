@@ -25,15 +25,17 @@ const WIDTH = 320;
 // Below this there is no room for the list under the anchor, so it opens above.
 const ROOM = 320;
 
-export type SaveItem = {
-  ref: SaveCandidate;
-  name: string;
-  // Where it is now, in the user's words.
+export type SaveFor = {
+  items: { ref: SaveCandidate; name: string }[];
+  // Where they are now, in the user's words.
   here: string;
-  // What leaving does to it: the last version takes its variant along. Null
-  // while it is in use, since only a new choice moves that.
+  // What leaving does: a last version takes its variant along. Null when none
+  // can leave, since only a new choice moves what is in use.
   leaves: "archived" | "hidden" | null;
-  // Resolves to its undo, or to nothing if it stayed.
+  // How many can leave, and the variants that would go entirely.
+  out: number;
+  archives: string[];
+  // Resolves to its undo, or to nothing if they stayed.
   leave: () => Promise<(() => void) | undefined>;
 };
 
@@ -46,8 +48,10 @@ export function SaveMenu(props: {
   sl: Shortlists;
   project: string;
   anchor: HTMLElement;
-  item: SaveItem;
+  item: SaveFor;
   onClose: () => void;
+  // Once a change is on its way.
+  onDone?: () => void;
 }) {
   const sl = props.sl;
   const it = props.item;
@@ -62,7 +66,8 @@ export function SaveMenu(props: {
       : {
           left: `${left}px`,
           bottom: `${w.innerHeight - r.top + 4}px`,
-          "max-height": `${Math.max(r.top - 12, ROOM)}px`,
+          // Short enough to stay clear of the top bar, which sits above it.
+          "max-height": `${Math.max(Math.min(r.top - 12, 460), ROOM)}px`,
         };
   };
   const shut = (focus = false) => {
@@ -104,32 +109,50 @@ export function SaveMenu(props: {
   // Not before it opens: most visits save nothing.
   const [tree] = createResource(() => api.tree(props.project).catch(() => null));
   const nodes = () => tree()?.tree ?? [];
-  const had = sl.copiesOf(it.ref);
-  const [ticks, setTicks] = createSignal(new Set(had.map((c) => keyOf(c.mock, c.state))));
+  const items = it.items;
+  const many = items.length > 1;
+  const first = items[0].ref;
+  const had = items.flatMap((item) => sl.copiesOf(item.ref).map((c) => ({ ...c, item })));
+  const holding = (k: string) => had.filter((c) => keyOf(c.mock, c.state) === k);
+  // Where every one of them is, none of them, or (as they stand) some of them.
+  const [ticks, setTicks] = createSignal(
+    new Map<string, "all" | "some">(
+      [...new Set(had.map((c) => keyOf(c.mock, c.state)))].map((k) => [
+        k,
+        holding(k).length === items.length ? "all" : "some",
+      ]),
+    ),
+  );
+  const flip = (k: string) => {
+    const next = new Map(ticks());
+    if (next.get(k) === "all") next.delete(k);
+    else next.set(k, "all");
+    setTicks(next);
+  };
   const [opened, setOpened] = createSignal(new Set<string>());
   const [query, setQuery] = createSignal("");
   const [fresh, setFresh] = createSignal("");
-  const [leaving, setLeaving] = createSignal(false);
+  // Moving is what this menu is mostly for, so the switch starts on. Left alone it only
+  // applies once a place is added: unticking a copy, or pressing on with nowhere
+  // picked, must not take the design away from here.
+  const [leaving, setLeaving] = createSignal(!!it.leaves);
+  const [switched, setSwitched] = createSignal(false);
+  const removes = () => leaving() && (switched() || adds().length > 0);
   const q = () => query().trim().toLowerCase();
   const hit = (text: string | null) => !!text && text.toLowerCase().includes(q());
 
-  const toggle = <T,>(set: Set<T>, x: T) => {
-    const next = new Set(set);
-    if (!next.delete(x)) next.add(x);
-    return next;
-  };
   const shortlists = createMemo(() =>
-    sl.lists().filter((l) => l.id !== it.ref.mock && hit(l.title)),
+    sl.lists().filter((l) => l.id !== first.mock && hit(l.title)),
   );
-  const hereNode = () => nodes().find((n) => n.id === it.ref.mock);
-  // Nearest first: the rest of the mock it is in, then the mocks of its area.
+  const hereNode = () => nodes().find((n) => n.id === first.mock);
+  // Nearest first: the rest of the mock they are in, then the mocks of its area.
   const mocks = createMemo(() => {
     const area = hereNode()?.area;
-    const rank = (n: TreeNode) => (n.id === it.ref.mock ? 0 : area && n.area === area ? 1 : 2);
+    const rank = (n: TreeNode) => (n.id === first.mock ? 0 : area && n.area === area ? 1 : 2);
     return nodes()
       .filter((n) => !n.shortlist && !n.closedAt)
       .map((n) => {
-        const all = liveStates(n).filter((st) => n.id !== it.ref.mock || st !== it.ref.state);
+        const all = liveStates(n).filter((st) => n.id !== first.mock || st !== first.state);
         return { n, all, shown: hit(n.title) ? all : all.filter(hit) };
       })
       .filter((m) => m.shown.length)
@@ -138,17 +161,21 @@ export function SaveMenu(props: {
   const titleOf = (id: string) =>
     sl.lists().find((l) => l.id === id)?.title ?? nodes().find((n) => n.id === id)?.title ?? "";
   const places = createMemo<Place[]>(() =>
-    [...ticks()].map((k) => {
+    [...ticks()].flatMap(([k, how]) => {
+      if (how !== "all") return [];
       const [id, state] = JSON.parse(k) as [string, string | null];
-      return { id, state, title: state ?? titleOf(id) };
+      return [{ id, state, title: state ?? titleOf(id) }];
     }),
   );
   const newTitle = () => fresh().trim();
+  const allRefs = items.map((x) => x.ref);
   const adds = (): Add[] => [
-    ...places()
-      .filter((p) => !had.some((c) => keyOf(c.mock, c.state) === keyOf(p.id, p.state)))
-      .map((p) => ({ to: p.id, state: p.state, label: p.title })),
-    ...(newTitle() ? [{ title: newTitle(), label: newTitle() }] : []),
+    ...places().flatMap((p) => {
+      const inThere = holding(keyOf(p.id, p.state));
+      const refs = items.filter((x) => !inThere.some((c) => c.item === x)).map((x) => x.ref);
+      return refs.length ? [{ to: p.id, state: p.state, label: p.title, refs }] : [];
+    }),
+    ...(newTitle() ? [{ title: newTitle(), label: newTitle(), refs: allRefs }] : []),
   ];
   const drops = (): Drop[] =>
     had
@@ -157,55 +184,69 @@ export function SaveMenu(props: {
         id: c.mock,
         state: c.state,
         variant: c.variant,
+        ref: c.item.ref,
         // A shortlist left empty goes, so taking the removal back finds it by name.
         title: sl.lists().some((l) => l.id === c.mock) ? titleOf(c.mock) : undefined,
         label: c.state ?? titleOf(c.mock),
       }));
+  const stays = items.length - it.out;
   const leaveVerb = () => (it.leaves === "hidden" ? "Hide" : "Archive");
+  const counted = many ? `${items.length} ` : "";
   const action = () => {
     const a = adds();
     const where = a.length === 1 ? a[0].label : `${a.length} places`;
-    if (a.length) return `${leaving() ? "Move" : "Save"} to ${where}`;
-    if (leaving()) return leaveVerb();
+    if (a.length) return `${leaving() ? "Move" : "Save"} ${counted}to ${where}`;
+    if (removes()) return `${leaveVerb()}${many ? ` ${it.out}` : ""}`;
     return drops().length ? "Remove" : "Done";
   };
-  const idle = () => !adds().length && !drops().length && !leaving();
+  const idle = () => !adds().length && !drops().length && !removes();
   // What a page embedding this mock shows, which leaving would change: the rule
   // is the server's embedTarget.
   const showsIn = () => {
     const n = hereNode();
-    if (!n?.embeddedIn.length || it.leaves !== "archived" || it.ref.state !== n.states[0])
-      return [];
-    const inState = n.variants.filter((v) => v.state === it.ref.state);
+    if (!n?.embeddedIn.length || first.state !== n.states[0]) return [];
+    const inState = n.variants.filter((v) => v.state === first.state);
     const shown =
       inState.find((v) => v.status === "inUse") ??
       inState.find((v) => v.variant === "default" && isLive(v.status)) ??
       inState.find((v) => isLive(v.status));
-    if (shown?.variant !== it.ref.variant) return [];
+    if (!shown || !it.archives.includes(shown.variant)) return [];
     return n.embeddedIn.map((slug) => nodes().find((x) => x.slug === slug)?.title ?? slug);
   };
   const leaveNote = () => {
-    if (!it.leaves) return "In use here, so it stays";
-    if (!leaving()) return "Stays here too";
-    const others = ticks().size + (newTitle() ? 1 : 0);
-    return others ? `Moves it: ${it.leaves} here` : `Nowhere else, so it is ${it.leaves}`;
+    const they = many ? "they" : "it";
+    if (!it.leaves) return `In use here, so ${they} ${many ? "stay" : "stays"}`;
+    if (!leaving()) return many ? "They stay here too" : "Stays here too";
+    if (!removes()) return "Pick where to move " + (many ? "them" : "it");
+    const left = stays ? `, ${stays} in use stays` : "";
+    const word = it.leaves === "hidden" ? "hidden" : "archived";
+    if (adds().length) {
+      return many ? `Moves ${it.out}${left}` : `Moves it: ${word} here`;
+    }
+    return many ? `Nowhere else, so ${it.out} go${left}` : `Nowhere else, so it is ${word}`;
   };
   const apply = () => {
     if (idle()) return;
-    const leave = leaving()
-      ? { verb: it.leaves === "hidden" ? "Hid" : "Archived", run: it.leave }
+    const leave = removes()
+      ? { verb: it.leaves === "hidden" ? "Hid" : "Archived", stays, run: it.leave }
       : null;
     const [a, d] = [adds(), drops()];
     shut(true);
-    void sl.settle(it.ref, it.name, a, d, leave);
+    props.onDone?.();
+    void sl.settle(many ? `${items.length} designs` : items[0].name, a, d, leave);
   };
 
   const tick = (id: string, state: string | null, title: string, small?: string) => (
     <label class="save-row" classList={{ sub: state !== null }}>
       <input
         type="checkbox"
-        checked={ticks().has(keyOf(id, state))}
-        onChange={() => setTicks(toggle(ticks(), keyOf(id, state)))}
+        checked={ticks().get(keyOf(id, state)) === "all"}
+        ref={(el) =>
+          createEffect(() => {
+            el.indeterminate = ticks().get(keyOf(id, state)) === "some";
+          })
+        }
+        onChange={() => flip(keyOf(id, state))}
       />
       <span class="save-nm">{title}</span>
       <Show when={small}>
@@ -219,11 +260,13 @@ export function SaveMenu(props: {
       class="savemenu"
       classList={{ phone: phoneLayout() }}
       role="dialog"
-      aria-label={`Save ${it.name}`}
+      aria-label={`${leaving() ? "Move" : "Save"} ${many ? `${items.length} designs` : items[0].name}`}
       ref={(el) => (menu = el)}
       style={phoneLayout() ? undefined : place()}
     >
-      <div class="save-h">{`Save ${it.name} to`}</div>
+      <div class="save-h">
+        {`${leaving() ? "Move" : "Save"} ${many ? `${items.length} designs` : items[0].name} to`}
+      </div>
       <input
         class="save-find"
         type="search"
@@ -254,7 +297,11 @@ export function SaveMenu(props: {
                     type="button"
                     class="save-row"
                     aria-expanded={open()}
-                    onClick={() => setOpened(toggle(opened(), m.n.id))}
+                    onClick={() => {
+                      const next = new Set(opened());
+                      if (!next.delete(m.n.id)) next.add(m.n.id);
+                      setOpened(next);
+                    }}
                   >
                     <Icon name={open() ? "down" : "next"} />
                     <span class="save-nm">{m.n.title}</span>
@@ -306,12 +353,15 @@ export function SaveMenu(props: {
             role="switch"
             disabled={!it.leaves}
             checked={leaving()}
-            onChange={(e) => setLeaving(e.currentTarget.checked)}
+            onChange={(e) => {
+              setSwitched(true);
+              setLeaving(e.currentTarget.checked);
+            }}
           />
           <span>
             {`Remove from ${it.here}`}
             <small>{leaveNote()}</small>
-            <Show when={leaving() && showsIn().length}>
+            <Show when={removes() && showsIn().length}>
               <small class="warn">{`${showsIn().join(", ")} will show another variant`}</small>
             </Show>
           </span>

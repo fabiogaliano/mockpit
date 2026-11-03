@@ -194,6 +194,20 @@ export async function expandHtml(
   return { html: out, used, stamps, cycle };
 }
 
+const STYLE_BLOCK = /<style\b[^>]*>[\s\S]*?<\/style\s*>/gi;
+
+// Components built on one kit each carry its stylesheet. A repeat would re-declare
+// the kit's rules after what an earlier component set over them and undo it, so
+// only the first copy stays.
+export function dropRepeatedStyles(html: string): string {
+  const seen = new Set<string>();
+  return html.replace(STYLE_BLOCK, (block) => {
+    if (seen.has(block)) return "";
+    seen.add(block);
+    return block;
+  });
+}
+
 // A short, stable key for what a document's embeds resolved to: part of the
 // render cache key and of the frame URL, so a component's new version reloads
 // every page that shows it and a stale document is never served as current.
