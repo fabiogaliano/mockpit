@@ -678,6 +678,30 @@ export interface Flow {
 }
 export const sameScreen = (a: FlowStep, b: FlowStep) => a.mock === b.mock && a.state === b.state;
 
+// What search reads: every name a mock goes by, and none of its surfaces.
+export interface JumpRows {
+  mocks: {
+    id: string;
+    project: string;
+    slug: string;
+    title: string;
+    kind: MockKind;
+    area: string | null;
+    states: string[];
+    asks: Ask[];
+    widths: number[];
+    closedAt: string | null;
+    updatedAt: string;
+  }[];
+  variants: {
+    mockId: string;
+    state: string | null;
+    variant: string;
+    note: string | null;
+    status: PostStatus;
+  }[];
+}
+
 export interface ProjectSummary {
   name: string;
   mocks: number;
@@ -1022,6 +1046,7 @@ export interface Store {
   setSetting(key: string, value: string): Promise<void>;
 
   listProjects(): Promise<ProjectSummary[]>;
+  listJumpRows(): Promise<JumpRows>;
   // Newest first; every project when `project` is omitted.
   listMocks(project?: string): Promise<Mock[]>;
   getMock(id: string): Promise<Mock | null>;

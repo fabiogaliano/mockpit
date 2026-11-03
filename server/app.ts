@@ -172,6 +172,7 @@ import {
   validateSurfaces,
 } from "./postSurfaces.ts";
 import { isViewerRequest } from "./viewerRequest.ts";
+import { jumpHits, recentHits } from "./jump.ts";
 
 export type { FeedEvent } from "./events.ts";
 export type { FeedbackBatch } from "./feedbackBatch.ts";
@@ -2438,15 +2439,18 @@ export function createApp({
           if (x.kind === "html") for (const t of parseEmbedTags(x.html)) embeds.add(t.slug);
         }
       }
+      const replies = await replyComments(m.id);
+      const lastReplyAt = replies[replies.length - 1]?.createdAt;
       nodes.push(
         treeNodeView(m, posts ?? mockHeads, {
           settled: settledValues(
-            await replyPayloads(m.id),
+            replies.map((c) => c.payload as Reply),
             m,
             posts ?? mockHeads.map((p) => ({ knobs: p.knobs })),
           ),
           embeds: [...embeds],
           embedViews: views,
+          ...(lastReplyAt ? { lastReplyAt } : {}),
         }),
       );
       pending.push(pendingOf(m));
@@ -2481,10 +2485,14 @@ export function createApp({
     });
   }
 
+  async function replyComments(mockId: string) {
+    return (await store.listComments({ mockId })).filter(
+      (c) => c.kind === "reply" && c.payload && !c.payload.edited,
+    );
+  }
+
   async function replyPayloads(mockId: string): Promise<Reply[]> {
-    return (await store.listComments({ mockId }))
-      .filter((c) => c.kind === "reply" && c.payload && !c.payload.edited)
-      .map((c) => c.payload as Reply);
+    return (await replyComments(mockId)).map((c) => c.payload as Reply);
   }
 
   async function getMockFlow(
@@ -5116,6 +5124,17 @@ export function createApp({
   // --- projects and mocks ---
 
   app.get("/api/projects", async (c) => c.json(await store.listProjects()));
+  // Named by nothing unguessable, so in "session" mode this stays private
+  // (isPublicReadAllowed) like the rest of the workspace's listings.
+  app.get("/api/search", async (c) => {
+    const rows = await store.listJumpRows();
+    const recent = c.req.query("recent");
+    if (recent !== undefined) {
+      return c.json({ hits: recentHits(rows, recent.split(",").filter(Boolean).slice(0, 20)) });
+    }
+    const q = str(c.req.query("q"), MAX_LABEL) ?? "";
+    return c.json({ hits: jumpHits(rows, q, str(c.req.query("project"), MAX_TITLE) ?? null) });
+  });
 
   const withoutDecisions = (c: Context) =>
     isViewerRequest(c.req.raw) || isUnauthenticatedSessionRead(c);

@@ -1,19 +1,10 @@
-// A project at a glance, in a tab per kind of structure the agent declared,
-// each showing the design in use for every screen (else its newest live
-// version, unmarked): Pages, each page with its states; Flows, the declared
-// flows as rows of screens in order; Components, each with where it is used;
-// Sketches, everything else. A tab with nothing in it is not shown, and one
-// alone needs no tab bar. Once the project names areas, a rail beside the tabs
-// (a row of chips on a phone) picks one, in the project's area order, and an
-// All tab shows every kind at once; the two combine, both in the URL. Each
-// mock's card says where it stands (mockStatus), marks a version this browser
-// hasn't opened (seen.ts), and has a ⋯ menu to move or close it. Above them,
-// one line says what is waiting and links the next mock to
-// answer, in the agent's order (nextOwedMock). The count opens the waiting
-// mocks as rows; a swipe left on one (or its Close button) closes it: its
-// open questions close unanswered and it moves to a folded Closed list,
-// where Reopen brings it back. Once the user has settled anything, the decision
-// list is one more place here: last in the rail, or a link beside the count.
+// A project at a glance: a sidebar of what it holds, and the shelf picked from it.
+// Sections light up by use: screens and components as declared, flows once one is,
+// and the rest as ideas or documents by what they contain (albums.ts). Albums that
+// wait on the user glow, and so does the project's name. A project of one or two
+// mocks has no sidebar and shows large covers; a phone gets the sidebar as a drawer.
+// Everything in this file is one address: `?sec=` and `?area=` (route.ts), and each
+// place keeps its own scroll.
 
 import {
   createEffect,
@@ -27,58 +18,69 @@ import {
   Show,
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import type { FlowStep, MockKind } from "../../server/types.ts";
+import type { FlowStep } from "../../server/types.ts";
 import { api, assetUrl, type MockSummary, subscribe, surfaceUrl, type TreeNode } from "./api.ts";
+import { Album, DocRow, FlowStepTile } from "./Album.tsx";
+import {
+  DATED_FROM,
+  dateGroups,
+  litSections,
+  newestFirst,
+  questions,
+  type Section,
+  SECTION_LABEL,
+  sectionOf,
+  type ShelfSection,
+  usedIn,
+} from "./albums.ts";
 import { CardMenu } from "./CardMenu.tsx";
 import { createDecisions, Decisions } from "./Decisions.tsx";
 import { setCarried } from "./carry.ts";
 import { useSwipeAction } from "./gestures.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
+import { openJump } from "./Jump.tsx";
 import {
   nothingLeft,
   type AreaGroup,
-  designWidth,
   flowArea,
   groupByArea,
-  type MockStatus,
-  mockStatus,
   nextOwedMock,
   orderAreas,
-  screenPicture,
   shortSource,
   timeAgo,
   versionStamp,
   keepSame,
 } from "./logic.ts";
 import {
+  type HomePlace,
   linkClick,
   mockPath,
   navigate,
   projectPath,
   questionPath,
-  rememberHomeView,
+  rememberHomePlace,
   rootPath,
-  type HomeView,
 } from "./route.ts";
 import { NotFound } from "./NotFound.tsx";
+import { ProjectSwitcher } from "./ProjectSwitcher.tsx";
 import { unseen } from "./seen.ts";
 import { setTheme, theme } from "./theme.ts";
+import { Sidebar } from "./Sidebar.tsx";
 import { Thumb } from "./Thumb.tsx";
 import { TopBar } from "./TopBar.tsx";
 import { phoneLayout } from "./viewport.ts";
 
-type KindView = Exclude<HomeView, "decisions">;
-const TABS: { view: KindView; label: string }[] = [
-  { view: "pages", label: "Pages" },
-  { view: "flows", label: "Flows" },
-  { view: "components", label: "Components" },
-  { view: "sketches", label: "Sketches" },
-];
-const ALL_TAB = { view: "all" as const, label: "All" };
-
-// Where each tab was scrolled to, so coming back to it lands where it was.
+// Where each place was scrolled to, so coming back to it lands where it was.
 const scrolls = new Map<string, number>();
+// Which date headings and folds the user opened or shut, for the same reason.
+const folds = new Map<string, boolean>();
+
+// A project this small is one or two things to look at, not a place to navigate.
+const SIDEBAR_FROM = 3;
+// Up to this many mocks in a lone section, the sidebar lists them by name.
+const TREE_UP_TO = 12;
+const ACTIVITY_ROWS = 30;
 
 interface Row {
   name: string;
@@ -87,17 +89,11 @@ interface Row {
   steps: FlowStep[];
 }
 
-// One area's (or the whole project's) mocks, by kind.
-interface Slice {
-  pages: TreeNode[];
-  rows: Row[];
-  components: TreeNode[];
-  sketches: TreeNode[];
-}
+type Shown = HomePlace | "area" | "tiny";
 
 export function Home(props: {
   project: string | null;
-  view: HomeView | null;
+  sec: HomePlace | null;
   area: string | null;
 }) {
   // Home shows where every mock stands; a Send carried from a mock ends here.
@@ -109,16 +105,18 @@ export function Home(props: {
     return !!known && !!props.project && !known.some((p) => p.name === props.project);
   };
   const [list, { refetch: refetchList }] = createResource(project, (p) => api.mocks(p));
-  const [tree, { refetch: refetchTree }] = createResource(project, (p) => api.tree(p));
+  const [rawTree, { refetch: refetchTree }] = createResource(project, (p) => api.tree(p));
+  // A resource keeps its last value while the next loads: the other project's
+  // sections mustn't stand in for this one's.
+  const tree = () => {
+    const t = rawTree();
+    return t && t.project === project() ? t : undefined;
+  };
   const decisions = createDecisions(project);
-  const refetch = () => Promise.all([refetchList(), refetchTree(), decisions.refetch()]);
   const decisionCount = () => decisions.list()?.lines.length ?? 0;
-  // Only while there is something to read: an address kept from when there was
-  // falls back to the first tab, as a tab the project lost does.
-  const decisionsOpen = () => props.view === "decisions" && decisionCount() > 0;
-  const decisionsPath = () => projectPath(project() ?? "", "decisions");
-  const designsView = () => (props.view === "decisions" ? null : props.view);
-  const railHasDecisions = () => hasAreas() && !phoneLayout();
+  // The switcher's glow speaks for every project, so any change may move it.
+  const refetch = () =>
+    Promise.all([refetchList(), refetchTree(), decisions.refetch(), refetchProjects()]);
   // An agent publishing a batch fires an event per variant; one read covers them.
   let refetchTimer = 0;
   const refetchSoon = () => {
@@ -130,15 +128,15 @@ export function Home(props: {
   };
   onCleanup(() => host().window.clearTimeout(refetchTimer));
 
-  // Oldest first, as the agent made them; a closed mock goes last in its group.
-  const byAge = (a: TreeNode, b: TreeNode) =>
-    Number(!!a.closedAt) - Number(!!b.closedAt) || a.createdAt.localeCompare(b.createdAt);
+  // Oldest first, as the agent made them, for the declared shelves.
+  const byAge = (a: TreeNode, b: TreeNode) => a.createdAt.localeCompare(b.createdAt);
   const nodes = createMemo<TreeNode[]>(
     (was) => keepSame(was, [...(tree()?.tree ?? [])].sort(byAge), (n) => n.slug),
     [],
   );
   const bySlug = createMemo(() => new Map(nodes().map((n) => [n.slug, n])));
   const onShow = createMemo(() => nodes().filter((n) => !nothingLeft(n)));
+  const archived = createMemo(() => nodes().filter((n) => nothingLeft(n)));
   const areaOrder = createMemo(() => tree()?.areaOrder ?? []);
   const areas = createMemo(() =>
     orderAreas(
@@ -146,13 +144,8 @@ export function Home(props: {
       areaOrder(),
     ),
   );
-  const hasAreas = () => areas().length > 0;
-  // The area the rail picked; one the project no longer has is all of them.
+  // An area the project no longer has is all of them.
   const area = createMemo(() => (props.area && areas().includes(props.area) ? props.area : null));
-  createEffect(() => {
-    const p = project();
-    if (p) rememberHomeView(p, props.view, area());
-  });
 
   const allRows = createMemo<Row[]>(
     (was) =>
@@ -163,64 +156,42 @@ export function Home(props: {
       ),
     [],
   );
-  const areaOf = (n: TreeNode) => n.area;
-  const rowArea = (r: Row) => flowArea(r.steps, (slug) => bySlug().get(slug)?.area);
   // A flow belongs to every area one of its screens is in.
   const rowIn = (r: Row, a: string | null) =>
     a === null
       ? !r.steps.some((x) => bySlug().get(x.mock)?.area)
       : r.steps.some((x) => bySlug().get(x.mock)?.area === a);
-  const slice = (keep: (n: TreeNode) => boolean, rows: Row[]): Slice => {
-    const mine = onShow().filter(keep);
-    return {
-      pages: mine.filter((n) => n.kind === "page"),
-      rows,
-      components: mine.filter((n) => n.kind === "component"),
-      sketches: mine.filter((n) => n.kind === "sketch"),
-    };
+  const rowArea = (r: Row) => flowArea(r.steps, (slug) => bySlug().get(slug)?.area);
+
+  const inSection = (sec: ShelfSection, a: string | null = null) =>
+    onShow().filter((n) => sectionOf(n) === sec && (a === null || n.area === a));
+  // What a count promises is what the place shows first: what's still going, and
+  // what's closed only once nothing else is left there.
+  const liveOr = (rows: TreeNode[]) => rows.filter((n) => !n.closedAt).length || rows.length;
+  const counts = createMemo<Record<Section, number>>(() => ({
+    ideas: liveOr(inSection("ideas")),
+    screens: liveOr(inSection("screens")),
+    components: liveOr(inSection("components")),
+    documents: liveOr(inSection("documents")),
+    flows: allRows().length,
+  }));
+  const lit = createMemo(() => litSections(counts()));
+  const landing = (): Section | null => lit().rows[0] ?? lit().foot;
+  const isLit = (s: HomePlace): s is Section =>
+    lit().rows.includes(s as Section) || lit().foot === s;
+
+  // How much the project holds, known as soon as the project list is: the shape of
+  // the page shouldn't wait for the tree.
+  const held = () =>
+    tree()?.tree.length ?? projects()?.find((p) => p.name === project())?.mocks ?? null;
+  const tiny = () => {
+    const n = held();
+    return n !== null && n < SIDEBAR_FROM;
   };
-  const areaSlice = (a: string) =>
-    slice(
-      (n) => n.area === a,
-      allRows().filter((r) => rowIn(r, a)),
-    );
-  const whole = createMemo(() => slice(() => true, allRows()));
-  // What the rail leaves on screen: one area's mocks, or all of them.
-  const shownSlice = createMemo(() => {
-    const a = area();
-    return a === null ? whole() : areaSlice(a);
-  });
-  const one = (rows: TreeNode[]): AreaGroup<TreeNode>[] => [{ area: null, rows }];
-  const grouped = (rows: TreeNode[]) =>
-    area() === null ? groupByArea(rows, areaOf, areaOrder()) : one(rows);
-  const flowGroups = createMemo(() =>
-    area() === null
-      ? groupByArea(allRows(), rowArea, areaOrder())
-      : [{ area: null, rows: shownSlice().rows }],
-  );
-  // The tabs count the whole project, so picking an area never moves them.
-  const shown = createMemo(() => {
-    const w = whole();
-    const count: Record<Exclude<KindView, "all">, number> = {
-      pages: w.pages.length,
-      flows: w.rows.length,
-      components: w.components.length,
-      sketches: w.sketches.length,
-    };
-    const kinds = TABS.filter((t) => count[t.view as keyof typeof count] > 0);
-    return hasAreas() && kinds.length ? [ALL_TAB, ...kinds] : kinds;
-  });
-  const view = createMemo<KindView | null>(
-    () => shown().find((t) => t.view === props.view)?.view ?? shown()[0]?.view ?? null,
-  );
-  const fresh = createMemo(() => {
-    const t = tree();
-    if (!t || t.project !== project()) return new Set<string>();
-    return unseen(
-      t.project,
-      t.tree.map((n) => ({ id: n.id, stamp: versionStamp(n.variants) })),
-    );
-  });
+  const hasSidebar = () => {
+    const n = held();
+    return n !== null && n >= SIDEBAR_FROM && !noSuchProject();
+  };
 
   // Resolved a moment ago, before the list catches up.
   const [leaving, setLeaving] = createSignal<Record<string, true>>({});
@@ -241,10 +212,48 @@ export function Home(props: {
       .filter((m) => m.open > 0)
       .map((m) => m.id),
   );
-  const [listOpen, setListOpen] = createSignal(false);
-  const [resolvedOpen, setResolvedOpen] = createSignal(false);
   const open = () => list()?.open ?? 0;
   const next = createMemo(() => nextOwedMock(mocks(), null));
+
+  // A place in the URL stands until the data says it's empty. Before then it isn't
+  // known to be wrong, and flashing the first section at a reload would be a lie.
+  const shown = createMemo<Shown | null>(() => {
+    const sec = props.sec;
+    const loaded = !!tree() && !!list();
+    if (sec === "decisions" && (decisions.list.loading || decisionCount() > 0)) return sec;
+    if (sec && !loaded && sec !== "decisions") return sec;
+    if (sec === "needs" && (waiting().length || resolved().length)) return sec;
+    if (sec === "archive" && archived().length) return sec;
+    if (sec === "activity" && nodes().length) return sec;
+    if (tiny()) return loaded ? "tiny" : null;
+    if (sec && isLit(sec)) return sec;
+    if (area()) return "area";
+    // Everything archived: that's all there is to show.
+    return landing() ?? (loaded && archived().length ? "archive" : null);
+  });
+  createEffect(() => {
+    const p = project();
+    if (p) rememberHomePlace(p, props.sec, area());
+  });
+  const shelfOn = (): Section | null => {
+    const s = shown();
+    return s === "ideas" ||
+      s === "screens" ||
+      s === "flows" ||
+      s === "components" ||
+      s === "documents"
+      ? s
+      : null;
+  };
+
+  const fresh = createMemo(() => {
+    const t = tree();
+    if (!t) return new Set<string>();
+    return unseen(
+      t.project,
+      t.tree.map((n) => ({ id: n.id, stamp: versionStamp(n.variants) })),
+    );
+  });
 
   // One line after a resolve, with Undo, since a swipe is easy to make by mistake.
   const [toast, setToast] = createSignal<{ text: string; undo?: string } | null>(null);
@@ -288,17 +297,16 @@ export function Home(props: {
         e.type === "comment-created"
       ) {
         refetchSoon();
-        if (e.type === "mock-created" || e.type === "mock-deleted") void refetchProjects();
       }
     },
     () => void refetch(),
   );
   onCleanup(stop);
 
-  // Each tab keeps its own scroll; the screens' boxes are sized before their
+  // Each place keeps its own scroll; the albums' boxes are sized before their
   // pictures load, so the place is right as soon as the tree is in.
   let main!: HTMLElement;
-  const scrollKey = () => `${project() ?? ""}|${props.view}|${view()}|${area() ?? ""}`;
+  const scrollKey = () => `${project() ?? ""}|${props.sec}|${shown()}|${area() ?? ""}`;
   createEffect(
     on([scrollKey, () => !!tree()], ([key, loaded]) => {
       if (!loaded) return;
@@ -315,125 +323,58 @@ export function Home(props: {
     navigate(path, { replace: true });
   };
 
-  const tabs = () => (
-    <Show when={shown().length > 1 && project()}>
-      {(p) => (
-        <nav class="home-tabs" aria-label="View">
-          <For each={shown()}>
-            {(t) => (
-              <a
-                href={projectPath(p(), t.view, area())}
-                aria-current={view() === t.view && !decisionsOpen() ? "page" : undefined}
-                onClick={(e) => swap(e, projectPath(p(), t.view, area()))}
-              >
-                {t.label}
-              </a>
-            )}
-          </For>
-        </nav>
-      )}
-    </Show>
-  );
-
-  // What the tab on screen holds of a slice: the number beside an area is what
-  // picking it would show, or the rail promises what the page then can't.
-  const inView = (s: Slice) => {
-    const n = {
-      all: s.pages.length + s.rows.length + s.components.length + s.sketches.length,
-      pages: s.pages.length,
-      flows: s.rows.length,
-      components: s.components.length,
-      sketches: s.sketches.length,
+  const [drawer, setDrawer] = createSignal(false);
+  createEffect(() => {
+    if (!drawer()) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDrawer(false);
     };
-    const v = view();
-    return v === null ? 0 : n[v];
-  };
-  const countIn = (a: string) => inView(areaSlice(a));
+    host().window.addEventListener("keydown", onKey);
+    onCleanup(() => host().window.removeEventListener("keydown", onKey));
+  });
+  // Nothing to fold away once the window is wide enough to show it.
+  createEffect(() => {
+    if (!phoneLayout()) setDrawer(false);
+  });
+
   const owesIn = (a: string) => onShow().some((n) => n.area === a && n.open > 0);
-  const [archivedOpen, setArchivedOpen] = createSignal(false);
-  const ARCHIVED_KIND: Partial<Record<HomeView, TreeNode["kind"]>> = {
-    pages: "page",
-    components: "component",
-    sketches: "sketch",
+  const countIn = (a: string) => liveOr(onShow().filter((n) => n.area === a));
+  // The lone section, whose mocks the sidebar can list by name: there's no section
+  // choice to make there, and the shelf beside it is the same few things larger. A
+  // dated list already is the names.
+  const treeGroups = () => {
+    const { rows, foot } = lit();
+    if (rows.length !== 1 || foot || rows[0] === "flows" || rows[0] === "documents") return null;
+    const only = inSection(rows[0] as ShelfSection);
+    if (only.length > TREE_UP_TO) return null;
+    return groupByArea(only, (n) => n.area, areaOrder()).map((g) => ({
+      area: g.area,
+      nodes: g.rows,
+    }));
   };
-  // What the tab and the rail leave on screen, as they do for the live ones. Flows are
-  // not mocks, so that tab has none.
-  const archivedHere = () => {
-    const v = view();
-    const kind = v ? ARCHIVED_KIND[v] : undefined;
-    if (v === "flows") return [];
-    return nodes().filter(
-      (n) => nothingLeft(n) && (area() === null || n.area === area()) && (!kind || n.kind === kind),
-    );
-  };
-  const rail = () => (
-    <Show when={hasAreas() && project()}>
-      {(p) => (
-        <nav
-          class="home-rail"
-          classList={{ chips: phoneLayout() }}
-          aria-label="Areas"
-          // A row of chips scrolls sideways: the picked one stays in view.
-          ref={(el) =>
-            createEffect(
-              on(
-                area,
-                () =>
-                  phoneLayout() &&
-                  host().window.requestAnimationFrame(() =>
-                    el
-                      .querySelector('[aria-current="page"]')
-                      ?.scrollIntoView({ block: "nearest", inline: "nearest" }),
-                  ),
-              ),
-            )
-          }
-        >
-          <a
-            href={projectPath(p(), designsView(), null)}
-            aria-current={area() === null && !decisionsOpen() ? "page" : undefined}
-            onClick={(e) => swap(e, projectPath(p(), designsView(), null))}
-          >
-            <span class="nm">All</span>
-            <span class="n">{inView(whole())}</span>
-          </a>
-          <For each={areas()}>
-            {(a) => (
-              <a
-                href={projectPath(p(), designsView(), a)}
-                aria-current={area() === a && !decisionsOpen() ? "page" : undefined}
-                data-area={a}
-                onClick={(e) => swap(e, projectPath(p(), designsView(), a))}
-              >
-                <span class="nm">
-                  <Show when={owesIn(a)}>
-                    <i class="dot" aria-label="open questions" />
-                  </Show>
-                  {a}
-                </span>
-                <span class="n">{countIn(a)}</span>
-              </a>
-            )}
-          </For>
-          <Show when={decisionCount() && !phoneLayout()}>
-            <a
-              class="home-rail-decisions"
-              href={decisionsPath()}
-              aria-current={decisionsOpen() ? "page" : undefined}
-              onClick={(e) => swap(e, decisionsPath())}
-            >
-              <span class="nm">Decisions</span>
-              <span class="n">{decisionCount()}</span>
-            </a>
-          </Show>
-        </nav>
-      )}
-    </Show>
+
+  const sidebar = (inDrawer: boolean) => (
+    <Sidebar
+      project={project() ?? ""}
+      projects={projects() ?? []}
+      place={shown()}
+      area={area()}
+      open={open()}
+      rows={lit().rows.map((sec) => ({ sec, count: counts()[sec] }))}
+      foot={lit().foot ? { sec: lit().foot!, count: counts()[lit().foot!] } : null}
+      areas={areas().map((name) => ({ name, count: countIn(name), waits: owesIn(name) }))}
+      tree={treeGroups()}
+      decisions={decisions.list() ?? null}
+      onDecisions={(n) => decisions.mutate(n)}
+      archived={archived().length}
+      activity={nodes().length > 0}
+      go={swap}
+      onNav={() => setDrawer(false)}
+      drawer={inDrawer}
+      inert={inDrawer && !drawer()}
+    />
   );
 
-  const card = (n: TreeNode, label: JSX.Element) => (
-    <Card project={project()!} node={n} label={label} fresh={fresh().has(n.id)} menu={menuFor(n)} />
-  );
   const menuFor = (n: TreeNode) =>
     readonly() ? undefined : (
       <CardMenu
@@ -444,208 +385,285 @@ export function Home(props: {
         onEdited={() => void refetch()}
       />
     );
-  const screen = (n: TreeNode, state: string | null, flow: string | null, label: JSX.Element) => (
-    <Screen project={project()!} node={n} state={state} flow={flow} label={label} />
+  const album = (n: TreeNode) => (
+    <Album
+      project={project()!}
+      node={n}
+      fresh={fresh().has(n.id)}
+      menu={menuFor(n)}
+      extra={n.kind === "component" ? usedIn(n, (s) => bySlug().get(s)?.kind) : undefined}
+    />
   );
-  const source = (n: TreeNode) => (
-    <Show when={n.source}>
-      {(src) => (
-        <span class="home-src" title={src()}>
-          {shortSource(src())}
-        </span>
-      )}
-    </Show>
+  const docRow = (n: TreeNode) => (
+    <DocRow project={project()!} node={n} fresh={fresh().has(n.id)} menu={menuFor(n)} />
   );
 
-  // The renderers, one per kind, shared by the kind tabs and All. They take the
-  // groups as an accessor: read where a tab draws them, each refetch would redraw
-  // every card and restart every picture.
-  const pagesOf = (groups: () => AreaGroup<TreeNode>[], level: 2 | 3 | 4) => (
-    <Areas groups={groups()} level={level}>
-      {(n, h) => (
-        <section class="home-sec" classList={{ closed: !!n.closedAt }} data-page={n.slug}>
-          <Dynamic component={h} class="home-page-hd">
-            <span class="home-page-title">{n.title}</span>
-            {/* After the name, not before it: a leading dot reads as the
-                rail's open-question bullet. */}
-            <Show when={fresh().has(n.id)}>
-              <i class="home-new" aria-label="new" />
-            </Show>
-            {source(n)}
-            <StatusChip status={mockStatus(n)} />
-            {menuFor(n)}
-          </Dynamic>
-          <div class="home-states">
-            <For each={n.states}>{(state) => screen(n, state, null, state ?? n.title)}</For>
-          </div>
-        </section>
-      )}
-    </Areas>
-  );
+  // A shelf is albums, or a dated list where they're written pages. Newest first
+  // where work comes in bursts; as the agent ordered them where it's a declared map.
+  const shelf = (
+    sec: ShelfSection,
+    rows: () => TreeNode[],
+    dated: () => boolean,
+    where: string,
+  ) => {
+    const newest = sec === "ideas" || sec === "documents";
+    const sorted = createMemo(() => (newest ? [...rows()].sort(newestFirst) : rows()));
+    const live = createMemo(() => sorted().filter((n) => !n.closedAt));
+    const closed = createMemo(() => sorted().filter((n) => n.closedAt));
+    const body = (list: () => TreeNode[]) =>
+      sec === "documents" ? (
+        <ul class="home-docs">
+          <For each={list()}>{docRow}</For>
+        </ul>
+      ) : (
+        <div class="albums">
+          <For each={list()}>{album}</For>
+        </div>
+      );
+    const groups = createMemo(() =>
+      dated() && live().length >= DATED_FROM ? dateGroups(live(), sec === "ideas") : null,
+    );
+    const groupKeys = createMemo(() => groups()?.map((g) => g.key) ?? []);
+    return (
+      <>
+        <Show when={groups()} fallback={<Show when={live().length}>{body(live)}</Show>}>
+          <For each={groupKeys()}>
+            {(key) => {
+              const group = () => groups()?.find((g) => g.key === key);
+              return (
+                <Fold
+                  id={`${project()}|${sec}|${where}|${key}`}
+                  label={() => `${group()?.label ?? ""} · ${group()?.rows.length ?? 0}`}
+                  startOpen={() => group()?.open ?? false}
+                  class="home-date"
+                >
+                  {body(() => group()?.rows ?? [])}
+                </Fold>
+              );
+            }}
+          </For>
+        </Show>
+        {/* Nothing else here: they're not an aside, they're what the place holds. */}
+        <Show when={closed().length && !live().length}>{body(closed)}</Show>
+        <Show when={closed().length && live().length}>
+          <Fold
+            id={`${project()}|${sec}|${where}|closed`}
+            label={() => `Closed · ${closed().length}`}
+            startOpen={() => false}
+          >
+            {body(closed)}
+          </Fold>
+        </Show>
+      </>
+    );
+  };
+
+  // A section of the project, under the areas it names, or one area of it.
+  const sectionShelf = (sec: ShelfSection) => {
+    // Headings by area or by date, not both: one level of them is enough to scan.
+    const noAreas = () => area() !== null || !areas().length;
+    return (
+      <Areas
+        groups={
+          noAreas()
+            ? [{ area: null, rows: inSection(sec, area()) }]
+            : groupByArea(inSection(sec), (n) => n.area, areaOrder())
+        }
+        level={2}
+      >
+        {(rows, name) => shelf(sec, rows, noAreas, name ?? area() ?? "")}
+      </Areas>
+    );
+  };
+
   // A flow no one area claims may still walk several: it is across them.
   const restOfFlows = (groups: AreaGroup<Row>[]) =>
     groups.some((g) => g.area === null && g.rows.some((r) => !rowIn(r, null)))
       ? "Across areas"
       : undefined;
-  const flowsOf = (groups: () => AreaGroup<Row>[], level: 2 | 3 | 4) => (
-    <Areas groups={groups()} level={level} rest={restOfFlows(groups())}>
-      {(row, h) => (
-        <section class="home-sec">
-          <Dynamic component={h}>
-            {row.name}
-            <span>{`${row.steps.length} ${row.steps.length === 1 ? "step" : "steps"}`}</span>
-          </Dynamic>
-          <div class="home-flow">
-            <For each={row.steps}>
-              {(x, i) => (
-                <Show when={bySlug().get(x.mock)}>
-                  {(n) => (
-                    <>
-                      <Show when={i() > 0}>
-                        <span class="home-arrow" aria-hidden="true" />
-                      </Show>
-                      {screen(
-                        n(),
-                        x.state,
-                        row.flow,
-                        <>
-                          <b>{n().title}</b>
-                          {x.state === null ? "" : ` · ${x.state}`}
-                        </>,
-                      )}
-                    </>
-                  )}
-                </Show>
+  const flowRow = (row: Row) => (
+    <section class="home-sec">
+      <h3>
+        {row.name}
+        <span>{`${row.steps.length} ${row.steps.length === 1 ? "step" : "steps"}`}</span>
+      </h3>
+      <div class="home-flow">
+        <For each={row.steps}>
+          {(x, i) => (
+            <Show when={bySlug().get(x.mock)}>
+              {(n) => (
+                <>
+                  <Show when={i() > 0}>
+                    <span class="home-arrow" aria-hidden="true" />
+                  </Show>
+                  <FlowStepTile project={project()!} node={n()} state={x.state} flow={row.flow} />
+                </>
               )}
-            </For>
-          </div>
-        </section>
-      )}
-    </Areas>
-  );
-  const componentsOf = (groups: () => AreaGroup<TreeNode>[], level: 2 | 3 | 4) => (
-    <Areas groups={groups()} level={level} grid>
-      {(n) =>
-        card(
-          n,
-          <>
-            <span class="home-tl">
-              <b>{n.title}</b>
-              {source(n)}
-            </span>
-            <Show when={n.embeddedIn.length}>
-              {`appears in ${n.embeddedIn.length} ${n.embeddedIn.length === 1 ? "mock" : "mocks"}`}
             </Show>
-          </>,
-        )
-      }
-    </Areas>
+          )}
+        </For>
+      </div>
+    </section>
   );
-  const sketchesOf = (groups: () => AreaGroup<TreeNode>[], level: 2 | 3 | 4) => (
-    <Areas groups={groups()} level={level} grid>
-      {(n) =>
-        card(
-          n,
-          <span class="home-tl">
-            <b>{n.title}</b>
-            {source(n)}
-          </span>,
-        )
-      }
-    </Areas>
-  );
-  // Every kind of one slice, in the order they are built: page, flows, the
-  // components they embed, then the sketches; each under a small kind label.
-  const kinds = (s: () => Slice | undefined, level: 2 | 3) => {
-    const sub = (level + 1) as 3 | 4;
-    const part = (label: string, count: () => number, body: () => JSX.Element) => (
-      <Show when={count()}>
-        <section class="home-kind">
-          <Dynamic component={`h${level}`} class="home-kind-hd">
-            {label}
-          </Dynamic>
-          {body()}
-        </section>
-      </Show>
-    );
+  const flowsAll = () => {
+    const groups = () =>
+      area() === null
+        ? groupByArea(allRows(), rowArea, areaOrder())
+        : [{ area: null, rows: allRows().filter((r) => rowIn(r, area())) }];
     return (
-      <>
-        {part(
-          "Pages",
-          () => s()?.pages.length ?? 0,
-          () => pagesOf(() => one(s()?.pages ?? []), sub),
-        )}
-        {part(
-          "Flows",
-          () => s()?.rows.length ?? 0,
-          () => flowsOf(() => [{ area: null, rows: s()?.rows ?? [] }], sub),
-        )}
-        {part(
-          "Components",
-          () => s()?.components.length ?? 0,
-          () => componentsOf(() => one(s()?.components ?? []), sub),
-        )}
-        {part(
-          "Sketches",
-          () => s()?.sketches.length ?? 0,
-          () => sketchesOf(() => one(s()?.sketches ?? []), sub),
-        )}
-      </>
+      <Areas groups={groups()} level={2} rest={restOfFlows(groups())}>
+        {(rows) => <For each={rows()}>{flowRow}</For>}
+      </Areas>
     );
   };
-  // All with every area: each area (in the project's order, the unnamed last)
-  // with its kinds.
-  const everyArea = createMemo(() => {
-    const groups = areas().map((a) => ({
-      area: a as string | null,
-      slice: slice(
-        (n) => n.area === a,
-        allRows().filter((r) => rowIn(r, a)),
-      ),
-    }));
-    const rest = slice(
-      (n) => !n.area,
-      allRows().filter((r) => rowIn(r, null)),
+
+  // Everything in one area, under the sections it spans; each heading narrows to it.
+  const SECTIONS_OF_AREA: Section[] = ["screens", "flows", "components", "ideas", "documents"];
+  const inAreaCount = (sec: Section, a: string) =>
+    sec === "flows" ? allRows().filter((r) => rowIn(r, a)).length : inSection(sec, a).length;
+  const wholeArea = () => (
+    <For each={SECTIONS_OF_AREA.filter((sec) => inAreaCount(sec, area() ?? "") > 0)}>
+      {(sec) => {
+        const path = () => projectPath(project()!, sec, area());
+        return (
+          <section class="home-kind">
+            <h2 class="home-kind-hd">
+              <a href={path()} onClick={(e) => swap(e, path())}>
+                {SECTION_LABEL[sec]}
+              </a>
+            </h2>
+            {sec === "flows"
+              ? flowsAll()
+              : shelf(
+                  sec,
+                  () => inSection(sec, area()),
+                  () => true,
+                  area() ?? "",
+                )}
+          </section>
+        );
+      }}
+    </For>
+  );
+
+  const heading = () => {
+    const s = shown();
+    const a = area();
+    if (s === "tiny" || s === null) return null;
+    if (s === "area") return a;
+    const label =
+      s === "needs"
+        ? "Needs you"
+        : s === "decisions"
+          ? "Decisions"
+          : s === "archive"
+            ? "Archive"
+            : s === "activity"
+              ? "Activity"
+              : SECTION_LABEL[s];
+    return a && shelfOn() ? `${label} in ${a}` : label;
+  };
+  const headingCount = () => {
+    const s = shown();
+    const a = area();
+    const sec = shelfOn();
+    if (sec) {
+      return a && sec !== "flows"
+        ? liveOr(inSection(sec, a))
+        : a
+          ? inAreaCount(sec, a)
+          : counts()[sec];
+    }
+    if (s === "area" && a) return countIn(a);
+    if (s === "archive") return archived().length;
+    if (s === "decisions") return decisionCount();
+    return null;
+  };
+  // A place reached from a link, with no sidebar to leave by, brings its own way back.
+  const noWayBack = () => tiny() && shown() !== "tiny" && shown() !== null;
+  const emptyInArea = () => {
+    const a = area();
+    const sec = shelfOn();
+    return !!tree() && !!a && !!sec && inAreaCount(sec, a) === 0;
+  };
+  const nothingPublished = () =>
+    !projects.loading && (!project() || (!!tree() && nodes().length === 0));
+
+  // No heading and nothing to say: a tiny project opens straight on its covers.
+  const leadHasWords = () =>
+    open() > 0 || (tiny() && (decisionCount() > 0 || resolved().length > 0));
+
+  const [archivedOpen, setArchivedOpen] = createSignal(false);
+  const archivedLink = (n: TreeNode) => {
+    const href = mockPath(project()!, n.slug);
+    return (
+      <a href={href} onClick={(e) => linkClick(e, href)}>
+        {n.title}
+      </a>
     );
-    const empty = (s: Slice) =>
-      !s.pages.length && !s.rows.length && !s.components.length && !s.sketches.length;
-    return empty(rest) ? groups : [...groups, { area: null, slice: rest }];
-  });
-  const nothing = () =>
-    !decisionsOpen() && !!tree() && area() !== null && view() !== null && !inView(shownSlice());
+  };
+
+  const switcher = () => (
+    <ProjectSwitcher
+      current={noSuchProject() ? null : project()}
+      known={!noSuchProject()}
+      projects={projects() ?? []}
+    />
+  );
+  const searchButton = () => (
+    <button
+      type="button"
+      class="themebtn"
+      aria-label="Search"
+      title="Search ( / or ⌘K )"
+      onClick={openJump}
+    >
+      <Icon name="search" />
+    </button>
+  );
+
   return (
     <div
       class="screen home"
-      classList={{ "home-phone": phoneLayout(), "has-rail": hasAreas() && !phoneLayout() }}
+      classList={{
+        "home-phone": phoneLayout(),
+        "has-side": hasSidebar() && !phoneLayout(),
+      }}
     >
-      <TopBar
-        right={<Show when={!phoneLayout()}>{tabs()}</Show>}
-        left={
-          <>
-            <span class="home-brand">mockpit</span>
-            <span class="sep home-brand">·</span>
-            <Show when={(projects()?.length ?? 0) > 1} fallback={<b>{project() ?? ""}</b>}>
-              <label class="home-project">
-                <select
-                  aria-label="Project"
-                  value={project() ?? ""}
-                  onChange={(e) => navigate(projectPath(e.currentTarget.value, props.view))}
+      <Show when={hasSidebar() && !phoneLayout()}>{sidebar(false)}</Show>
+      <Show when={hasSidebar() && phoneLayout()}>
+        <div
+          class="side-scrim"
+          classList={{ on: drawer() }}
+          aria-hidden="true"
+          onClick={() => setDrawer(false)}
+        />
+        {sidebar(true)}
+      </Show>
+      <Show when={!hasSidebar() || phoneLayout()}>
+        <TopBar
+          bare={hasSidebar()}
+          right={searchButton()}
+          left={
+            <>
+              <Show when={hasSidebar()}>
+                <button
+                  type="button"
+                  class="themebtn home-menu"
+                  aria-label="Open project menu"
+                  aria-expanded={drawer()}
+                  onClick={() => setDrawer(true)}
                 >
-                  <Show when={noSuchProject()}>
-                    <option value={project() ?? ""} disabled>
-                      Choose a project
-                    </option>
-                  </Show>
-                  <For each={projects()}>{(p) => <option value={p.name}>{p.name}</option>}</For>
-                </select>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                  <path d="M6 9.5L12 15.5L18 9.5" />
-                </svg>
-              </label>
-            </Show>
-          </>
-        }
-      />
+                  <Icon name="menu" />
+                </button>
+              </Show>
+              <span class="home-brand">mockpit</span>
+              <span class="sep home-brand">·</span>
+              {switcher()}
+            </>
+          }
+        />
+      </Show>
       <main
         class="home-main"
         ref={(el) => (main = el)}
@@ -662,195 +680,134 @@ export function Home(props: {
             />
           }
         >
-          <Show when={phoneLayout()}>{rail()}</Show>
-          <Show when={phoneLayout() && shown().length > 1}>
-            <div class="home-tabs-row">{tabs()}</div>
-          </Show>
-          <div class="home-body">
-            <Show when={!phoneLayout()}>{rail()}</Show>
-            <div class="home-content">
-              <Show
-                when={project()}
-                fallback={
-                  <Show when={!projects.loading}>
-                    <p class="home-empty">
-                      Nothing published yet. Agents publish with `mockpit publish`.
-                    </p>
-                  </Show>
-                }
-              >
+          <Show
+            when={!nothingPublished()}
+            fallback={
+              <p class="home-empty">
+                Nothing published yet. Agents publish with `mockpit publish`.
+              </p>
+            }
+          >
+            <Show when={heading() || leadHasWords()}>
+              <header class="home-head">
+                <Show when={heading()}>
+                  {(title) => (
+                    <h1>
+                      {title()}
+                      <Show when={headingCount()}>
+                        {(n) => <span class="home-head-n">{n()}</span>}
+                      </Show>
+                    </h1>
+                  )}
+                </Show>
+                {/* Narrowed by both: the way back to the whole of either is here. */}
+                <Show when={area() && shelfOn()}>
+                  <a
+                    class="home-next home-unfilter"
+                    href={projectPath(project()!, null, area())}
+                    onClick={(e) => swap(e, projectPath(project()!, null, area()))}
+                  >
+                    {`All of ${area()}`}
+                  </a>
+                </Show>
+                <Show when={noWayBack()}>
+                  <a
+                    class="home-next home-unfilter"
+                    href={projectPath(project()!)}
+                    onClick={(e) => swap(e, projectPath(project()!))}
+                  >
+                    Back to designs
+                  </a>
+                </Show>
+                <span class="grow" />
                 <div class="home-lead">
                   {/* Until the list arrives there is no count to tell, not zero of one. */}
-                  <Show when={list()}>
+                  <Show when={open() > 0}>
                     <Show
-                      when={waiting().length || resolved().length}
-                      fallback={
-                        <span class="home-count">
-                          <i class="dot ok" />
-                          Nothing open
-                        </span>
-                      }
+                      when={shown() !== "needs"}
+                      fallback={<span class="home-count">{questions(open())}</span>}
                     >
-                      <button
-                        type="button"
-                        class="home-count"
-                        aria-expanded={listOpen()}
-                        onClick={() => setListOpen(!listOpen())}
-                      >
-                        <i class="dot" classList={{ ok: open() === 0 }} />
-                        {open() > 0
-                          ? `${open()} open across ${list()?.openMocks ?? 0} ${list()?.openMocks === 1 ? "mock" : "mocks"}`
-                          : "Nothing open"}
-                      </button>
-                    </Show>
-                    <Show when={open() > 0}>
-                      <span class="sep">·</span>
                       <a
-                        class="home-next"
-                        href={questionPath(project()!, next()?.slug ?? "")}
-                        title={next()?.title}
-                        onClick={(e) => linkClick(e, questionPath(project()!, next()?.slug ?? ""))}
+                        class="home-count"
+                        href={projectPath(project()!, "needs")}
+                        onClick={(e) => swap(e, projectPath(project()!, "needs"))}
                       >
-                        Answer next ›
+                        <i class="dot" aria-hidden="true" />
+                        {questions(open())}
                       </a>
                     </Show>
+                    <span class="sep">·</span>
+                    <a
+                      class="home-next"
+                      href={questionPath(project()!, next()?.slug ?? "")}
+                      title={next()?.title}
+                      onClick={(e) => linkClick(e, questionPath(project()!, next()?.slug ?? ""))}
+                    >
+                      Answer next ›
+                    </a>
                   </Show>
-                  {/* The rail has this, where there is a rail; a phone's is a row of chips
-                      that scrolls away, and the last chip is the least likely to be seen. */}
-                  <Show when={decisionCount() && !railHasDecisions() && !decisionsOpen()}>
-                    <Show when={!phoneLayout()}>
+                  {/* No sidebar to find these in. */}
+                  <Show when={tiny() && decisionCount() > 0 && shown() !== "decisions"}>
+                    <Show when={open() > 0}>
                       <span class="sep">·</span>
                     </Show>
                     <a
                       class="home-next"
-                      href={decisionsPath()}
-                      onClick={(e) => swap(e, decisionsPath())}
+                      href={projectPath(project()!, "decisions")}
+                      onClick={(e) => swap(e, projectPath(project()!, "decisions"))}
                     >
                       {`Decisions ${decisionCount()} ›`}
                     </a>
                   </Show>
-                </div>
-                <Show when={listOpen() && (waiting().length || resolved().length)}>
-                  <div class="home-waiting">
-                    <ol class="home-list">
-                      <For each={waiting()}>
-                        {(id) => (
-                          <Show when={byId()[id]}>
-                            {(m) => (
-                              <MockRow
-                                mock={m()}
-                                project={project()!}
-                                {...(readonly() ? {} : { onResolve: () => void resolve(m()) })}
-                              />
-                            )}
-                          </Show>
-                        )}
-                      </For>
-                    </ol>
-                    <Show when={resolved().length}>
-                      <section class="home-resolved" aria-label="Closed">
-                        <button
-                          type="button"
-                          class="home-resolved-hd"
-                          aria-expanded={resolvedOpen()}
-                          onClick={() => setResolvedOpen(!resolvedOpen())}
-                        >
-                          <span class="answered-chev" aria-hidden="true">
-                            ›
-                          </span>
-                          {`Closed · ${resolved().length}`}
-                        </button>
-                        <Show when={resolvedOpen()}>
-                          <ol class="home-list">
-                            <For each={resolved().map((m) => m.id)}>
-                              {(id) => (
-                                <Show when={byId()[id]}>
-                                  {(m) => (
-                                    <MockRow
-                                      mock={m()}
-                                      project={project()!}
-                                      {...(readonly() ? {} : { onReopen: () => void reopen(id) })}
-                                    />
-                                  )}
-                                </Show>
-                              )}
-                            </For>
-                          </ol>
-                        </Show>
-                      </section>
+                  <Show when={tiny() && resolved().length > 0 && shown() !== "needs"}>
+                    <Show when={open() > 0 || decisionCount() > 0}>
+                      <span class="sep">·</span>
                     </Show>
-                  </div>
-                </Show>
-
-                <Show when={decisionsOpen()}>
-                  <div class="home-decisions-hd">
-                    <h2>Decisions</h2>
-                    <Show when={!railHasDecisions()}>
-                      <a
-                        class="home-next"
-                        href={projectPath(project()!)}
-                        onClick={(e) => swap(e, projectPath(project()!))}
-                      >
-                        Back to designs
-                      </a>
-                    </Show>
-                  </div>
-                  <Decisions
-                    project={project()!}
-                    lines={decisions.list()?.lines ?? []}
-                    onChange={(next) => decisions.mutate(next)}
-                  />
-                </Show>
-
-                <Show when={nothing()}>
-                  <p class="home-empty">
-                    {`No ${TABS.find((t) => t.view === view())?.label.toLowerCase() ?? "designs"} in ${area()}. `}
                     <a
-                      href={projectPath(project()!, "all", area())}
-                      onClick={(e) => swap(e, projectPath(project()!, "all", area()))}
+                      class="home-next"
+                      href={projectPath(project()!, "needs")}
+                      onClick={(e) => swap(e, projectPath(project()!, "needs"))}
                     >
-                      {`Show everything in ${area()}`}
+                      {`Closed ${resolved().length} ›`}
                     </a>
-                  </p>
-                </Show>
-
-                {/* Empty tiles until the tree is in, so the page has its shape at once. */}
-                <Show when={tree.loading && !tree() && props.view !== "decisions"}>
-                  <div class="home-flow home-skeleton" aria-hidden="true">
-                    <For each={[0, 1, 2, 3, 4, 5]}>
-                      {() => (
-                        <span class="home-step">
-                          <span class="home-pic" />
-                        </span>
-                      )}
-                    </For>
-                  </div>
-                </Show>
-
-                <Show when={view() === "all" && !decisionsOpen()}>
-                  <Show when={area() === null} fallback={kinds(shownSlice, 2)}>
-                    <For each={everyArea().map((g) => g.area)}>
-                      {(a) => (
-                        <section class="home-area">
-                          <h2 class="home-area-hd">{a ?? "No area"}</h2>
-                          {kinds(() => everyArea().find((g) => g.area === a)?.slice, 3)}
-                        </section>
-                      )}
-                    </For>
                   </Show>
-                </Show>
+                </div>
+              </header>
+            </Show>
 
-                <Show when={view() === "flows" && !decisionsOpen()}>{flowsOf(flowGroups, 2)}</Show>
-                <Show when={view() === "pages" && !decisionsOpen()}>
-                  {pagesOf(() => grouped(shownSlice().pages), 2)}
-                </Show>
-                <Show when={view() === "components" && !decisionsOpen()}>
-                  {componentsOf(() => grouped(shownSlice().components), 2)}
-                </Show>
-                <Show when={view() === "sketches" && !decisionsOpen()}>
-                  {sketchesOf(() => grouped(shownSlice().sketches), 2)}
-                </Show>
-                <Show when={archivedHere().length && !decisionsOpen()}>
+            {/* Empty tiles until the tree is in, so the page has its shape at once. */}
+            <Show when={!tree() && !!project() && (shown() === null || shelfOn() !== null)}>
+              <div class="albums home-skeleton" aria-hidden="true">
+                <For each={[0, 1, 2, 3, 4, 5]}>
+                  {() => (
+                    <div class="alb" data-shape="wide">
+                      <span class="alb-cover">
+                        <span class="home-pic alb-art" />
+                      </span>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+
+            <Show when={tree()}>
+              <Show when={emptyInArea()}>
+                <p class="home-empty">
+                  {`No ${(shelfOn() ? SECTION_LABEL[shelfOn()!] : "designs").toLowerCase()} in ${area()}. `}
+                  <a
+                    href={projectPath(project()!, null, area())}
+                    onClick={(e) => swap(e, projectPath(project()!, null, area()))}
+                  >
+                    {`Show everything in ${area()}`}
+                  </a>
+                </p>
+              </Show>
+              <Show when={shown() === "tiny"}>
+                <div class="albums large">
+                  <For each={[...onShow()].sort(newestFirst)}>{album}</For>
+                </div>
+                <Show when={allRows().length}>{flowsAll()}</Show>
+                <Show when={archived().length}>
                   <section class="home-resolved" aria-label="Archived">
                     <button
                       type="button"
@@ -861,27 +818,100 @@ export function Home(props: {
                       <span class="answered-chev" aria-hidden="true">
                         ›
                       </span>
-                      {`Archived · ${archivedHere().length}`}
+                      {`Archived · ${archived().length}`}
                     </button>
                     <Show when={archivedOpen()}>
                       <div class="home-archived">
-                        <For each={archivedHere()}>
-                          {(n) => {
-                            const href = mockPath(project()!, n.slug);
-                            return (
-                              <a href={href} onClick={(e) => linkClick(e, href)}>
-                                {n.title}
-                              </a>
-                            );
-                          }}
-                        </For>
+                        <For each={archived()}>{archivedLink}</For>
                       </div>
                     </Show>
                   </section>
                 </Show>
               </Show>
-            </div>
-          </div>
+              <Show when={shown() === "area"}>{wholeArea()}</Show>
+              <Show when={shown() === "ideas"}>{sectionShelf("ideas")}</Show>
+              <Show when={shown() === "screens"}>{sectionShelf("screens")}</Show>
+              <Show when={shown() === "components"}>{sectionShelf("components")}</Show>
+              <Show when={shown() === "documents"}>{sectionShelf("documents")}</Show>
+              <Show when={shown() === "flows"}>{flowsAll()}</Show>
+              <Show when={shown() === "archive"}>
+                <div class="home-archived home-archive-page">
+                  <For each={archived()}>{archivedLink}</For>
+                </div>
+              </Show>
+            </Show>
+
+            <Show when={shown() === "needs"}>
+              <div class="home-waiting">
+                <ol class="home-list">
+                  <For each={waiting()}>
+                    {(id) => (
+                      <Show when={byId()[id]}>
+                        {(m) => (
+                          <MockRow
+                            mock={m()}
+                            project={project()!}
+                            {...(readonly() ? {} : { onResolve: () => void resolve(m()) })}
+                          />
+                        )}
+                      </Show>
+                    )}
+                  </For>
+                </ol>
+                <Show when={resolved().length}>
+                  <section class="home-resolved" aria-label="Closed">
+                    <Fold
+                      id={`${project()}|closed-rows`}
+                      label={() => `Closed · ${resolved().length}`}
+                      startOpen={() => !waiting().length}
+                    >
+                      <ol class="home-list">
+                        <For each={resolved().map((m) => m.id)}>
+                          {(id) => (
+                            <Show when={byId()[id]}>
+                              {(m) => (
+                                <MockRow
+                                  mock={m()}
+                                  project={project()!}
+                                  {...(readonly() ? {} : { onReopen: () => void reopen(id) })}
+                                />
+                              )}
+                            </Show>
+                          )}
+                        </For>
+                      </ol>
+                    </Fold>
+                  </section>
+                </Show>
+              </div>
+            </Show>
+
+            <Show when={shown() === "activity"}>
+              <div class="home-waiting">
+                <ol class="home-list">
+                  <For
+                    each={all()
+                      .slice(0, ACTIVITY_ROWS)
+                      .map((m) => m.id)}
+                  >
+                    {(id) => (
+                      <Show when={byId()[id]}>
+                        {(m) => <MockRow mock={m()} project={project()!} plain />}
+                      </Show>
+                    )}
+                  </For>
+                </ol>
+              </div>
+            </Show>
+
+            <Show when={shown() === "decisions" && decisionCount() > 0}>
+              <Decisions
+                project={project()!}
+                lines={decisions.list()?.lines ?? []}
+                onChange={(n) => decisions.mutate(n)}
+              />
+            </Show>
+          </Show>
         </Show>
       </main>
       <Show when={toast()}>
@@ -902,191 +932,69 @@ export function Home(props: {
   );
 }
 
-type Heading = "h2" | "h3" | "h4" | "h5";
+// A heading that folds what's under it, and remembers for as long as the tab lives.
+function Fold(props: {
+  id: string;
+  label: () => string;
+  startOpen: () => boolean;
+  class?: string;
+  children: JSX.Element;
+}) {
+  const [touched, setTouched] = createSignal(folds.get(props.id));
+  const open = () => touched() ?? props.startOpen();
+  return (
+    <section class={`home-fold ${props.class ?? ""}`}>
+      <button
+        type="button"
+        class="home-resolved-hd"
+        aria-expanded={open()}
+        onClick={() => {
+          const next = !open();
+          folds.set(props.id, next);
+          setTouched(next);
+        }}
+      >
+        <span class="answered-chev" aria-hidden="true">
+          ›
+        </span>
+        {props.label()}
+      </button>
+      <Show when={open()}>{props.children}</Show>
+    </section>
+  );
+}
 
-// A tab's rows under their area headings, the unnamed under "No area"; with no
-// area named, just the rows, as before areas. `level` is the heading level the
-// area takes; a row's own title takes the next one.
+type Heading = "h2" | "h3" | "h4";
+
+// Rows under their area headings, the unnamed under "No area"; with no area named,
+// just the rows, as if areas didn't exist.
 function Areas<T>(props: {
   groups: AreaGroup<T>[];
-  level: 2 | 3 | 4;
+  level: 2 | 3;
   // The heading of the rows no area claims.
   rest?: string;
-  // Rows laid out as a grid of pictures (components, sketches), one per area.
-  grid?: boolean;
-  children: (row: T, heading: Heading) => JSX.Element;
+  children: (rows: () => T[], area: string | null) => JSX.Element;
 }) {
   const grouped = () => props.groups.some((g) => g.area !== null);
-  const own = (): Heading => `h${grouped() ? props.level + 1 : props.level}` as Heading;
-  // By name: the groups are rebuilt on every refetch, the areas rarely change.
+  // By name: the groups are rebuilt on every refetch, the areas rarely change, and
+  // a redraw would restart every picture.
   const names = createMemo(() => props.groups.map((g) => g.area));
-  const rows = (area: string | null) => {
-    const list = (
-      <For each={props.groups.find((g) => g.area === area)?.rows ?? []}>
-        {(row) => props.children(row, own())}
-      </For>
-    );
-    return props.grid ? <div class="home-comps">{list}</div> : list;
-  };
   return (
-    <Show when={grouped()} fallback={<For each={names()}>{(area) => rows(area)}</For>}>
-      <For each={names()}>
-        {(area) => (
-          <section class="home-area">
-            <Dynamic component={`h${props.level}`} class="home-area-hd">
-              {area ?? props.rest ?? "No area"}
-            </Dynamic>
-            {rows(area)}
-          </section>
-        )}
-      </For>
-    </Show>
-  );
-}
-
-const STATUS_TEXT: Record<Exclude<MockStatus["kind"], "open">, string> = {
-  changed: "Changed",
-  decided: "Decided",
-  exploring: "Exploring",
-};
-
-// Where a mock stands, in one or two words (logic.ts mockStatus).
-function StatusChip(props: { status: MockStatus | null }) {
-  return (
-    <Show when={props.status}>
-      {(st) => (
-        <span class="home-status" data-status={st().kind}>
-          {st().kind === "open"
-            ? `${(st() as { n: number }).n} open`
-            : STATUS_TEXT[st().kind as Exclude<MockStatus["kind"], "open">]}
-        </span>
-      )}
-    </Show>
-  );
-}
-
-// A component or sketch as a card: its picture opens it; the status sits on
-// the picture, the ⋯ menu beside its name.
-function Card(props: {
-  project: string;
-  node: TreeNode;
-  label: JSX.Element;
-  fresh: boolean;
-  menu: JSX.Element | undefined;
-}) {
-  return (
-    <div class="home-card" classList={{ closed: !!props.node.closedAt, "with-menu": !!props.menu }}>
-      <Screen
-        project={props.project}
-        node={props.node}
-        state={props.node.inUse[0]?.state ?? props.node.states[0] ?? null}
-        flow={null}
-        label={props.label}
-        card
-        fresh={props.fresh}
-      />
-      {props.menu}
-    </div>
-  );
-}
-
-// The picture a kind gets: a component fitted whole into a wide tile; a page
-// or a sketch shaped to the width it is designed at, as a phone or a screen.
-const tileOf = (kind: MockKind, width: number): "comp" | "phone" | "wide" =>
-  kind === "component" ? "comp" : width < 700 ? "phone" : "wide";
-
-// One screen as a picture that opens it. On a state of a page or a flow step,
-// the design in use carries the check in its corner; a card says where the
-// whole mock stands instead (StatusChip).
-function Screen(props: {
-  project: string;
-  node: TreeNode;
-  state: string | null;
-  flow: string | null;
-  label: JSX.Element;
-  card?: boolean;
-  fresh?: boolean;
-}) {
-  const pic = createMemo(() => screenPicture(props.node, props.state));
-  // A card opens the mock, wherever you left it: its picture's state is only a
-  // picture. A state of a page or a flow step opens that state.
-  const href = () =>
-    mockPath(
-      props.project,
-      props.node.slug,
-      props.card || props.state === null ? null : { state: props.state, variant: null },
-      props.flow,
-    );
-  const tile = () => tileOf(props.node.kind, designWidth(props.node));
-  const whole = () => tile() === "comp";
-  return (
-    <a
-      class="home-step"
-      classList={{
-        phone: tile() === "phone",
-        comp: tile() === "comp",
-        card: !!props.card,
-      }}
-      href={href()}
-      onClick={(e) => linkClick(e, href())}
-      data-mock={props.node.slug}
-      data-state={props.state ?? ""}
-    >
-      <span class="home-pic">
-        <Show when={pic()}>
-          {(p) => (
-            <Show
-              when={p().poster}
-              fallback={
-                <Thumb
-                  src={surfaceUrl(p().postId, p().surface, {
-                    version: p().version,
-                    mode: theme(),
-                    e: p().embedsKey,
-                    w: p().rewrites,
-                  })}
-                  width={designWidth(props.node)}
-                  fit={whole()}
-                  whole={whole()}
-                />
-              }
-            >
-              {(id) => (
-                <img
-                  class="home-poster"
-                  classList={{ whole: whole() }}
-                  src={assetUrl(id())}
-                  alt=""
-                  loading="lazy"
-                  decoding="async"
-                />
-              )}
-            </Show>
-          )}
-        </Show>
-        <Show
-          when={props.card}
-          fallback={
-            <Show when={pic()?.inUse}>
-              <span class="mk cur" aria-hidden="true">
-                <Icon name="check" />
-              </span>
-            </Show>
-          }
-        >
-          <StatusChip status={mockStatus(props.node)} />
-          <Show when={props.fresh}>
-            <i class="home-new" aria-label="new" />
+    <For each={names()}>
+      {(area) => {
+        const rows = () => props.groups.find((g) => g.area === area)?.rows ?? [];
+        return (
+          <Show when={grouped()} fallback={props.children(rows, area)}>
+            <section class="home-area">
+              <Dynamic component={`h${props.level}` as Heading} class="home-area-hd">
+                {area ?? props.rest ?? "No area"}
+              </Dynamic>
+              {props.children(rows, area)}
+            </section>
           </Show>
-        </Show>
-      </span>
-      <span class="home-lbl">
-        {props.label}
-        <Show when={!props.card && pic()?.inUse}>
-          <span class="sr-only">, in use</span>
-        </Show>
-      </span>
-    </a>
+        );
+      }}
+    </For>
   );
 }
 
@@ -1098,6 +1006,8 @@ function MockRow(props: {
   project: string;
   onResolve?: () => void;
   onReopen?: () => void;
+  // Only saying what changed when, not asking anything of the user.
+  plain?: boolean;
 }) {
   const href = () => mockPath(props.project, props.mock.slug);
   const thumb = () => props.mock.thumbnail;
@@ -1190,14 +1100,16 @@ function MockRow(props: {
           <Show
             when={props.mock.open > 0}
             fallback={
-              <span class="home-done" title="decided">
-                ✓
-              </span>
+              <Show when={!props.plain} fallback={<span />}>
+                <span class="home-done" title="decided">
+                  ✓
+                </span>
+              </Show>
             }
           >
             <span class="home-chip">
               <i class="dot" />
-              {`${props.mock.open} open`}
+              {questions(props.mock.open)}
             </span>
           </Show>
           <span class="home-ago">{timeAgo(props.mock.updatedAt)}</span>

@@ -1,4 +1,4 @@
-// A Home card's ⋯ menu: the user moves the mock themselves (another kind,
+// An album's ⋯ menu on Home: the user moves the mock themselves (another kind,
 // another area) or closes it. Moves go through the same edit the agent uses,
 // with its rules (a mock still embedded stays a component), and the agent
 // hears each one in its next feedback; a refusal shows here, briefly.
@@ -9,10 +9,12 @@ import { api } from "./api.ts";
 import { host, root } from "./host.ts";
 import { Icon } from "./icons.tsx";
 
+// A mock declared neither way is an idea or a document by what it holds, so the
+// user moves it out of the declared shelves, never between those two.
 const KINDS: { kind: MockKind; label: string }[] = [
-  { kind: "page", label: "Pages" },
+  { kind: "page", label: "Screens" },
   { kind: "component", label: "Components" },
-  { kind: "sketch", label: "Sketches" },
+  { kind: "sketch", label: "Ideas and documents" },
 ];
 
 const ERROR_MS = 5000;

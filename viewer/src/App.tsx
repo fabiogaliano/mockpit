@@ -1,6 +1,7 @@
 import { createMemo, Match, Switch } from "solid-js";
 import { startBadge } from "./badge.ts";
 import { Home } from "./Home.tsx";
+import { Jump } from "./Jump.tsx";
 import { MockScreen } from "./MockScreen.tsx";
 import { NotFound } from "./NotFound.tsx";
 import { startNotifier } from "./notify.ts";
@@ -10,8 +11,8 @@ import { CarriedToast } from "./toast.tsx";
 export function App() {
   startNotifier();
   startBadge();
-  // Home stays mounted across its tabs and projects, so a tab switch keeps
-  // what is loaded and only swaps what it shows.
+  // Home stays mounted across its sections and projects, so moving between them
+  // keeps what is loaded and only swaps what it shows.
   const home = createMemo(() => {
     const r = route();
     return r.screen === "home" ? r : null;
@@ -33,13 +34,14 @@ export function App() {
           {(r) => <MockScreen project={r.project} slug={r.slug} open={r.open} flow={r.flow} />}
         </Match>
         <Match when={home()}>
-          {(r) => <Home project={r().project} view={r().view} area={r().area} />}
+          {(r) => <Home project={r().project} sec={r().sec} area={r().area} />}
         </Match>
         <Match when={route().screen === "missing"}>
           <NotFound title="Nothing at this address" href={rootPath()} back="Go to your projects" />
         </Match>
       </Switch>
       <CarriedToast />
+      <Jump />
     </>
   );
 }

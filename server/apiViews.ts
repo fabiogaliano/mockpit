@@ -310,6 +310,7 @@ export const treeNodeView = (
     settled: Record<string, KnobValue>;
     embeds: string[];
     embedViews: Map<string, EmbedView>;
+    lastReplyAt?: string;
   },
 ) => ({
   id: mock.id,
@@ -319,6 +320,10 @@ export const treeNodeView = (
   ...placeOf(mock),
   ...(mock.shortlist ? { shortlist: true } : {}),
   open: openCount(mock),
+  // Any question ever asked, answered or not: it tells an idea from a document.
+  ...(mock.asks.length ? { asked: mock.asks.length } : {}),
+  // Later than every variant: the user has spoken and it is the agent's turn.
+  ...(extra.lastReplyAt ? { lastReplyAt: extra.lastReplyAt } : {}),
   // Home shows a mock's states, never their situations.
   states: mock.states.length ? momentsOf(mock.states, mock.situations) : [null],
   widths: mock.widths,

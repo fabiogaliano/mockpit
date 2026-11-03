@@ -1,0 +1,207 @@
+// How Home sorts and pictures a project, read off what each mock holds, so a
+// project gets structure by being used and an agent files nothing. Screens and
+// components stay as declared; the rest is an idea or a document by its contents.
+// Pure rules: Album.tsx and Home.tsx draw them.
+
+import { isLive } from "../../server/types.ts";
+import type { TreeNode } from "./api.ts";
+import { designWidth, mockStatus, screenPicture, type ScreenPicture } from "./logic.ts";
+
+export type Section = "ideas" | "screens" | "flows" | "components" | "documents";
+export type ShelfSection = Exclude<Section, "flows">;
+
+export const SECTION_LABEL: Record<Section, string> = {
+  ideas: "Ideas",
+  screens: "Screens",
+  flows: "Flows",
+  components: "Components",
+  documents: "Documents",
+};
+
+// One render, nothing asked and no design width is something to read. A declared
+// width means someone is designing for a device, however few pictures it has so
+// far; on the real data that keeps a lone phone sketch out of Documents.
+export function sectionOf(
+  node: Pick<TreeNode, "kind" | "shortlist" | "asked" | "states" | "variants" | "widths">,
+): ShelfSection {
+  if (node.kind === "page") return "screens";
+  if (node.kind === "component") return "components";
+  if (node.shortlist || node.asked || node.variants.length > 1) return "ideas";
+  if (node.states.filter((s) => s !== null).length > 1 || node.widths.length) return "ideas";
+  return "documents";
+}
+
+// The sections a project has lit, largest shelf first. Documents wait at the foot
+// of the sidebar unless they're most of what the project holds.
+export function litSections(count: Record<Section, number>): {
+  rows: Section[];
+  foot: Section | null;
+} {
+  const shelves: Section[] =
+    count.screens > count.ideas ? ["screens", "ideas"] : ["ideas", "screens"];
+  const rest = (["flows", "components"] as Section[]).filter((s) => count[s] > 0);
+  const main = [...shelves.filter((s) => count[s] > 0), ...rest];
+  if (!count.documents) return { rows: main, foot: null };
+  const mostly = main.every((s) => count.documents > count[s]);
+  return mostly ? { rows: ["documents", ...main], foot: null } : { rows: main, foot: "documents" };
+}
+
+export type CoverShape = "phone" | "wide" | "both" | "part" | "text";
+
+// The picture an album opens on: the design in use, else the first state with one.
+export function albumPicture(
+  node: Pick<TreeNode, "inUse" | "variants" | "states">,
+): ScreenPicture | null {
+  for (const state of [...node.inUse.map((u) => u.state), ...node.states]) {
+    const pic = screenPicture(node, state);
+    if (pic) return pic;
+  }
+  return null;
+}
+
+const PHONE_MAX = 700;
+
+// The two widths a design ships at when they read as different devices.
+export function bothWidths(node: Pick<TreeNode, "widths">): { phone: number; wide: number } | null {
+  const phone = Math.min(...node.widths);
+  const wide = Math.max(...node.widths);
+  return node.widths.length > 1 && phone < PHONE_MAX && wide >= PHONE_MAX ? { phone, wide } : null;
+}
+
+export function coverShape(node: TreeNode): CoverShape {
+  const pic = albumPicture(node);
+  if (!pic || sectionOf(node) === "documents") return "text";
+  if (node.kind === "component") return "part";
+  // A poster is one still at one width, with no second width to put beside it.
+  if (bothWidths(node) && !pic.poster) return "both";
+  return designWidth(node) < PHONE_MAX ? "phone" : "wide";
+}
+
+const liveVariants = (node: Pick<TreeNode, "variants">) =>
+  node.variants.filter((v) => isLive(v.status)).length;
+
+// How many sheets stack behind the cover: states, else attempts, else none. Plain
+// sheets rather than the pictures themselves: each of those would be a whole page
+// loading, and a stack is only saying there's more inside.
+export function stackDepth(node: Pick<TreeNode, "states" | "variants">): number {
+  const states = node.states.filter((s) => s !== null).length;
+  const pictures = states > 1 ? states : liveVariants(node);
+  return Math.min(Math.max(pictures - 1, 0), 2);
+}
+
+export function albumInside(node: TreeNode): string {
+  const states = node.states.filter((s) => s !== null).length;
+  const live = liveVariants(node);
+  const parts: string[] = [];
+  if (node.shortlist) parts.push("Shortlist");
+  if (states > 1) parts.push(`${states} states`);
+  if (live > 1 && live !== states) parts.push(`${live} variants`);
+  if (bothWidths(node)) parts.push("Phone and desktop");
+  return parts.join(" · ");
+}
+
+export type TurnKind = "open" | "changed" | "decided" | "sent" | "exploring" | "closed";
+
+const TURN_TEXT: Record<Exclude<TurnKind, "open">, string> = {
+  changed: "Changed",
+  decided: "In use",
+  sent: "Sent",
+  exploring: "Exploring",
+  closed: "Closed",
+};
+
+export const questions = (n: number) => `${n} ${n === 1 ? "question" : "questions"}`;
+
+// Whose turn it is, in one word, or nothing where it's nobody's.
+export function turnWord(node: Parameters<typeof mockStatus>[0]): {
+  kind: TurnKind;
+  text: string;
+} | null {
+  if (node.closedAt) return { kind: "closed", text: TURN_TEXT.closed };
+  const status = mockStatus(node);
+  if (!status) return null;
+  return status.kind === "open"
+    ? { kind: "open", text: questions(status.n) }
+    : { kind: status.kind, text: TURN_TEXT[status.kind] };
+}
+
+// Where a component appears. Hosts needn't be declared screens, and calling a
+// sketch a screen would make the count say something untrue.
+export function usedIn(node: TreeNode, kindOf: (slug: string) => string | undefined): string {
+  const n = node.embeddedIn.length;
+  if (!n) return "";
+  const screens = node.embeddedIn.every((s) => kindOf(s) === "page");
+  const word = screens ? "screen" : "design";
+  return `in ${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+// When a mock last had new work. Not the mock's own updatedAt, which a draft or a
+// close also moves: what's newest shouldn't reshuffle because of a click.
+export function lastWork(node: Pick<TreeNode, "variants" | "createdAt">): string {
+  return node.variants.reduce((t, v) => (v.updatedAt > t ? v.updatedAt : t), node.createdAt);
+}
+
+export const newestFirst = (a: TreeNode, b: TreeNode) => lastWork(b).localeCompare(lastWork(a));
+
+export interface DateGroup {
+  key: string;
+  label: string;
+  rows: TreeNode[];
+  open: boolean;
+}
+
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+export const shortDate = (iso: string): string => {
+  const d = new Date(iso);
+  return `${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)}`;
+};
+
+// From here a section gets headings by date; ia.md's threshold, an inference.
+export const DATED_FROM = 13;
+// Enough open to work with on arrival. Below this a project whose newest month is
+// sparse (`workspace`: 2 pages in September, 90 before) would land on almost nothing.
+const OPEN_UNTIL = 12;
+
+// Rows newest first under date headings, which give a burst of work a place. With
+// `byDay` the newest month goes by day; older months always go by month. Older
+// groups start folded, unless something in them waits on the user.
+export function dateGroups(rows: TreeNode[], byDay: boolean, now = new Date()): DateGroup[] {
+  const sorted = [...rows].sort(newestFirst);
+  const month = (d: Date) => d.getFullYear() * 12 + d.getMonth();
+  const newest = sorted.length ? month(new Date(lastWork(sorted[0]))) : 0;
+  const groups = new Map<string, DateGroup>();
+  for (const row of sorted) {
+    const d = new Date(lastWork(row));
+    const daily = byDay && month(d) === newest;
+    const key = daily
+      ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+      : `${d.getFullYear()}-${d.getMonth()}`;
+    const year = d.getFullYear() === now.getFullYear() ? "" : ` ${d.getFullYear()}`;
+    const label = daily
+      ? `${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)}${year}`
+      : `${MONTHS[d.getMonth()]}${year}`;
+    const group = groups.get(key);
+    if (group) group.rows.push(row);
+    else groups.set(key, { key, label, rows: [row], open: false });
+  }
+  let shown = 0;
+  for (const group of groups.values()) {
+    group.open = shown < OPEN_UNTIL || group.rows.some((r) => r.open > 0);
+    if (group.open) shown += group.rows.length;
+  }
+  return [...groups.values()];
+}

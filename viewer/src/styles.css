@@ -279,45 +279,11 @@ a {
 }
 
 /* ---------- home (D10) ---------- */
-.home-project {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-  color: var(--t1);
-  font-weight: 600;
-}
-.home-project select {
-  min-width: 0;
-  max-width: 100%;
-  appearance: none;
-  background: transparent;
-  border: 0;
-  color: inherit;
-  font-weight: 600;
-  padding: 2px 22px 2px 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-}
 /* A phone keeps the project's name, not the app's. */
 @media (max-width: 640px) {
   .home-brand {
     display: none;
   }
-}
-.home-project select option {
-  background: var(--panel);
-  color: var(--t1);
-}
-.home-project svg {
-  position: absolute;
-  right: 0;
-  width: 16px;
-  height: 16px;
-  pointer-events: none;
-  color: var(--t4);
 }
 .home-main {
   overflow: auto;
@@ -325,8 +291,6 @@ a {
   padding: 26px max(28px, env(safe-area-inset-right)) 60px max(28px, env(safe-area-inset-left));
 }
 .home-lead {
-  margin: 0 0 30px;
-  min-height: 1lh;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -344,57 +308,19 @@ a {
   color: inherit;
   font: inherit;
 }
-button.home-count {
+a.home-count {
   min-height: 32px;
+  text-decoration: none;
 }
 @media (hover: hover) {
-  button.home-count:hover {
+  a.home-count:hover {
     color: var(--t1);
     text-decoration: underline;
     text-underline-offset: 3px;
   }
 }
-button.home-count[aria-expanded="true"] {
-  color: var(--t1);
-}
 .home-waiting {
   max-width: 760px;
-  margin: -14px 0 34px;
-}
-/* The tabs: a segmented control in the top bar, or on its own row on a phone. */
-.home-tabs {
-  display: flex;
-  padding: 3px;
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  background: var(--panel);
-}
-.home-tabs a {
-  padding: 6px 13px;
-  border-radius: 8px;
-  color: var(--t4);
-  font-size: 13px;
-  font-weight: 500;
-  text-decoration: none;
-  white-space: nowrap;
-  transition:
-    background var(--ease),
-    color var(--ease);
-}
-.home-tabs a[aria-current="page"] {
-  background: var(--row);
-  color: var(--t1);
-}
-@media (hover: hover) {
-  .home-tabs a:not([aria-current]):hover {
-    color: var(--t1);
-  }
-}
-.home-tabs-row {
-  margin: -10px 0 22px;
-}
-.home-tabs-row .home-tabs {
-  width: fit-content;
 }
 .home-sec {
   margin-bottom: 34px;
@@ -480,13 +406,6 @@ button.home-count[aria-expanded="true"] {
   border: 4.5px solid transparent;
   border-left-color: var(--t6);
 }
-.home-states,
-.home-comps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 18px 22px;
-  padding-top: 6px;
-}
 .home-step {
   display: flex;
   flex: none;
@@ -511,11 +430,6 @@ button.home-count[aria-expanded="true"] {
   width: 116px;
   height: 240px;
   border-radius: 16px;
-}
-.home-step.comp .home-pic {
-  width: 232px;
-  height: 116px;
-  border-radius: 8px;
 }
 .home-pic .thumb {
   width: 100%;
@@ -563,115 +477,8 @@ button.home-count[aria-expanded="true"] {
   color: var(--t2);
   font-weight: 500;
 }
-.home-step.comp {
-  align-items: flex-start;
-}
-.home-step.comp .home-lbl b {
-  display: block;
-  color: var(--t1);
-  font-size: 14px;
-}
-/* The area rail: beside everything on Home, or a row of chips on a phone. */
-.home-body {
-  display: block;
-}
-.has-rail .home-body {
-  display: grid;
-  grid-template-columns: 168px minmax(0, 1fr);
-  gap: 36px;
-  align-items: start;
-}
-.home-rail {
-  position: sticky;
-  top: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.home-rail a {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 32px;
-  padding: 0 10px;
-  border-radius: 8px;
-  color: var(--t4);
-  font-size: 13px;
-  text-decoration: none;
-  transition:
-    background var(--ease),
-    color var(--ease);
-}
-.home-rail a[aria-current="page"] {
-  background: var(--row);
-  color: var(--t1);
-}
-@media (hover: hover) {
-  .home-rail a:not([aria-current]):hover {
-    color: var(--t1);
-  }
-}
-.home-rail .nm {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.home-rail .nm .dot {
-  width: 6px;
-  height: 6px;
-}
-.home-rail .n {
-  color: var(--t5);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.home-rail.chips {
-  position: static;
-  flex-direction: row;
-  gap: 6px;
-  margin: -4px -16px 14px;
-  padding: 0 16px 2px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  overscroll-behavior-x: contain;
-}
-.home-rail.chips::-webkit-scrollbar {
-  display: none;
-}
-.home-rail.chips a {
-  flex: none;
-  min-height: 32px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-}
-.home-rail.chips a[aria-current="page"] {
-  border-color: transparent;
-}
-.home-rail:not(.chips) .home-rail-decisions {
-  margin-top: 10px;
-}
 /* The decision list: a reading column, the answer heavier than its question. It
    carries no width of its own, so it can sit in a page or a narrower column. */
-.home-decisions-hd {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 4px 16px;
-  max-width: 760px;
-  margin-bottom: 6px;
-}
-.home-decisions-hd h2 {
-  margin: 0;
-  color: var(--t1);
-  font-size: 18px;
-  font-weight: 600;
-}
 .decisions {
   max-width: 760px;
 }
@@ -825,7 +632,7 @@ button.home-count[aria-expanded="true"] {
   font: inherit;
   font-size: 13px;
 }
-/* A kind inside an area (All): a small label over its rows, no rule. */
+/* A section inside an area: a small label over its albums, no rule. */
 .home-kind {
   margin-bottom: 26px;
 }
@@ -837,124 +644,6 @@ button.home-count[aria-expanded="true"] {
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-.home-page-hd {
-  position: relative;
-}
-.home-page-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* Where a mock stands: one quiet chip, on the picture or after a page's name. */
-.home-status {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  height: 20px;
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--panel) 88%, transparent);
-  color: var(--t4);
-  font: 500 12px/1 var(--sans);
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-}
-.home-status[data-status="open"] {
-  border-color: color-mix(in srgb, var(--q) 45%, transparent);
-  color: var(--q);
-}
-.home-status[data-status="changed"] {
-  border-color: color-mix(in srgb, var(--keep) 45%, transparent);
-  color: var(--keep-ink);
-}
-.home-pic .home-status {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  z-index: 2;
-  backdrop-filter: blur(6px);
-}
-/* A phone-shaped picture's corner is round: in from it, clear of the edge. */
-.home-step.phone .home-pic .home-status {
-  top: 10px;
-  right: 10px;
-}
-.home-step.phone .home-pic .home-new {
-  top: 12px;
-  left: 12px;
-}
-/* A version this browser hasn't opened: a dot, nothing more. */
-.home-new {
-  display: inline-block;
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-.home-pic .home-new {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 2;
-  box-shadow: 0 0 0 2px var(--page);
-}
-.home-page-hd .home-new {
-  align-self: center;
-}
-/* A closed mock: faded, last in its group. */
-.home-card.closed,
-.home-sec.closed {
-  opacity: 0.6;
-}
-/* A card: the picture link, and its ⋯ menu beside the name. */
-.home-card {
-  position: relative;
-  display: flex;
-}
-.home-card.with-menu .home-lbl {
-  padding-right: 30px;
-}
-.home-step.card {
-  align-items: flex-start;
-}
-.home-step.card:not(.comp) .home-lbl b {
-  color: var(--t1);
-  font-size: 13px;
-}
-/* A card is as wide as its picture; its name wraps to two lines at most. */
-.home-step.card {
-  width: 288px;
-}
-.home-step.card.phone {
-  width: 116px;
-}
-.home-step.card.comp {
-  width: 232px;
-}
-.home-step.card .home-lbl {
-  width: 100%;
-  white-space: normal;
-}
-/* A mock's code path, always right after its name, cut from the left. */
-.home-tl {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
-}
-.home-step .home-lbl .home-tl b {
-  display: inline;
-}
-.home-tl .home-src {
-  display: inline;
-  margin-left: 6px;
-  white-space: nowrap;
-}
 .home-more-wrap {
   position: absolute;
   right: -6px;
@@ -963,13 +652,6 @@ button.home-count[aria-expanded="true"] {
 }
 .home-more-wrap.open {
   z-index: 50;
-}
-.home-page-hd .home-more-wrap {
-  position: relative;
-  right: auto;
-  bottom: auto;
-  align-self: center;
-  margin-inline-start: -4px;
 }
 .home-more.ib {
   width: 30px;
@@ -992,7 +674,7 @@ button.home-count[aria-expanded="true"] {
     opacity: 0;
     transition: opacity var(--ease);
   }
-  :is(.home-card, .home-page-hd):hover .home-more,
+  :is(.alb, .home-doc):hover .home-more,
   .home-more:focus-visible {
     opacity: 1;
   }
@@ -1095,9 +777,6 @@ button.home-count[aria-expanded="true"] {
   margin-inline: -16px;
   padding-inline: 16px;
 }
-.home-phone .home-tabs a {
-  padding: 6px 11px;
-}
 .home-next {
   color: var(--t1);
   font-weight: 500;
@@ -1117,6 +796,948 @@ button.home-count[aria-expanded="true"] {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* ---------- the place a project is shown in: sidebar, heading, albums ---------- */
+.home.has-side {
+  grid-template-columns: 248px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+.home-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  margin-bottom: 26px;
+}
+.home-head h1 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  color: var(--t1);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.home-head-n {
+  color: var(--t5);
+  font-size: 14px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: normal;
+}
+.home-unfilter {
+  font-size: 13px;
+}
+.home-phone .home-head {
+  margin-bottom: 18px;
+}
+.home-phone .home-head .grow {
+  flex-basis: 100%;
+  height: 0;
+}
+
+/* The sidebar. The top and the foot hold still while what's between them scrolls,
+   so the way to another project or a search is never scrolled away. */
+.side {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+  font-size: 14px;
+}
+.side-top {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 10px 10px;
+}
+.side-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 10px 14px;
+}
+.side-foot {
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+}
+.side-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 34px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--t4);
+  font-size: 13px;
+  text-align: start;
+  transition:
+    border-color var(--ease),
+    color var(--ease);
+}
+.side-search svg {
+  width: 15px;
+  height: 15px;
+}
+.side-search span {
+  flex: 1;
+}
+.side-search kbd {
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: var(--row);
+  color: var(--t4);
+  font: 500 12px/1 var(--sans);
+}
+.home-phone .side-search kbd {
+  display: none;
+}
+.side-group {
+  margin-top: 14px;
+}
+.side-group:first-child {
+  margin-top: 0;
+}
+.side-hd {
+  margin: 0;
+  padding: 0 10px 4px;
+  color: var(--t5);
+  font-size: 12px;
+  font-weight: 500;
+}
+.side-group + .side-group .side-hd:first-child {
+  padding-top: 2px;
+}
+.side-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--t3);
+  font-size: 14px;
+  text-align: start;
+  text-decoration: none;
+  transition:
+    background var(--ease),
+    color var(--ease);
+}
+.side-row[aria-current="page"] {
+  background: var(--row);
+  color: var(--t1);
+  font-weight: 500;
+}
+@media (hover: hover) {
+  .side-row:not([aria-current]):hover {
+    background: var(--row);
+    color: var(--t1);
+  }
+  .side-search:hover {
+    border-color: var(--t6);
+    color: var(--t2);
+  }
+}
+.home-phone .side-row {
+  min-height: 42px;
+}
+.side-nm {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.side-nm .answered-chev {
+  width: 8px;
+  margin-right: -2px;
+  color: var(--t5);
+  font-size: 14px;
+}
+.side-nm .dot {
+  width: 6px;
+  height: 6px;
+}
+.side-n {
+  flex: none;
+  color: var(--t5);
+  font-size: 12px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.side-waits,
+.side-needs .side-n {
+  color: var(--q);
+  font-weight: 500;
+}
+.side-needs {
+  margin-bottom: 2px;
+  color: var(--t1);
+  font-weight: 500;
+}
+/* The decision list where it lives: narrow, so its words step down a size and each
+   line takes the whole width with its controls overhanging. */
+.side-decisions-body {
+  padding: 4px 4px 8px 10px;
+}
+.side-more {
+  display: block;
+  padding: 2px 0 8px;
+  color: var(--t2);
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+}
+@media (hover: hover) {
+  .side-more:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+}
+.side .decisions-lead {
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+.side .decisions-mock {
+  margin-bottom: 16px;
+}
+.side .decisions-mock h3 {
+  font-size: 12px;
+}
+.side :is(.decisions-text, .decisions-mine, .decisions-words) {
+  font-size: 13px;
+  line-height: 1.4;
+}
+.side .decisions-line {
+  flex-wrap: wrap;
+  gap: 0;
+}
+.side-chrome {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+  padding: 4px 0 0 10px;
+}
+.side-brand {
+  color: var(--t5);
+  font-size: 13px;
+}
+.side-drawer {
+  position: fixed;
+  z-index: 60;
+  inset: 0 auto 0 0;
+  width: min(304px, calc(100vw - 56px));
+  border-right: 1px solid var(--edge);
+  box-shadow: var(--shadow);
+  transform: translateX(-104%);
+  visibility: hidden;
+  transition:
+    transform 0.2s cubic-bezier(0, 0, 0.2, 1),
+    visibility 0.2s;
+}
+.side-drawer:not([inert]) {
+  /* none, not translateX(0): a fixed toast inside must not measure from this box. */
+  transform: none;
+  visibility: visible;
+}
+.side-scrim {
+  position: fixed;
+  z-index: 59;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.side-scrim.on {
+  opacity: 1;
+  pointer-events: auto;
+}
+.home-menu {
+  margin-left: -6px;
+}
+.home-phone .top .crumb {
+  gap: 4px;
+}
+
+/* What needs the user. A glow is the colour and the softness together; the number
+   or the word beside it says the same thing without either. */
+.glow-dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--q);
+  box-shadow: 0 0 9px 2px color-mix(in srgb, var(--q) 60%, transparent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .proj-btn.glows .glow-dot {
+    animation: glow-breathe 3.2s ease-in-out infinite;
+  }
+}
+@keyframes glow-breathe {
+  50% {
+    box-shadow: 0 0 4px 1px color-mix(in srgb, var(--q) 35%, transparent);
+  }
+}
+
+/* The project switcher. */
+.proj {
+  position: relative;
+  min-width: 0;
+}
+.proj-name {
+  display: block;
+  overflow: hidden;
+  color: var(--t1);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.proj.stacked .proj-name {
+  padding: 4px 10px;
+}
+.proj-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 34px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  color: var(--t1);
+  font-weight: 600;
+  text-align: start;
+  transition: background var(--ease);
+}
+.proj.stacked .proj-btn {
+  width: 100%;
+  padding: 4px 8px 4px 10px;
+}
+.proj-btn[aria-expanded="true"] {
+  background: var(--row);
+}
+@media (hover: hover) {
+  .proj-btn:hover {
+    background: var(--row);
+  }
+}
+.proj-btn.glows .proj-title {
+  text-shadow: 0 0 14px color-mix(in srgb, var(--q) 55%, transparent);
+}
+.proj-btn svg {
+  width: 16px;
+  height: 16px;
+  color: var(--t4);
+}
+.proj-label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+.proj-owner,
+.proj-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.proj-owner {
+  color: var(--t5);
+  font-size: 12px;
+  font-weight: 400;
+}
+.proj-total {
+  flex: none;
+  color: var(--q);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.proj-menu {
+  position: absolute;
+  z-index: 70;
+  top: calc(100% + 4px);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(340px, calc(100vw - 24px));
+  max-height: min(560px, calc(100dvh - 90px));
+  padding: 5px;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--dd-shadow);
+  font-size: 13px;
+}
+.proj-filter {
+  flex: none;
+  height: 32px;
+  margin-bottom: 4px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--t1);
+}
+.proj-filter:focus {
+  outline: none;
+  border-color: var(--t6);
+}
+.proj-filter::placeholder {
+  color: var(--t5);
+}
+.proj-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 0;
+  overflow-y: auto;
+}
+.proj-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--t2);
+  text-decoration: none;
+}
+.proj-row[aria-current="page"] {
+  background: var(--row);
+  color: var(--t1);
+  font-weight: 500;
+}
+@media (hover: hover) {
+  .proj-row:hover {
+    background: var(--row);
+    color: var(--t1);
+  }
+}
+.proj-row-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.proj-row-ago {
+  flex: none;
+  color: var(--t5);
+  font-size: 12px;
+}
+.proj-row-waits {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  color: var(--q);
+  font-size: 12px;
+  font-weight: 500;
+}
+.proj-older {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  color: var(--t4);
+  text-align: start;
+}
+.proj-none {
+  margin: 0;
+  padding: 8px 10px;
+  color: var(--t4);
+}
+
+/* Albums. Shapes share a grid, so a wide cover is two tracks and a phone one; each
+   album spans two rows of it (subgrid), so covers stand on one line and the titles
+   under them start level, however tall each one is. */
+.albums {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  column-gap: 26px;
+}
+.albums.large {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  column-gap: 32px;
+}
+.home-phone .albums,
+.home-phone .albums.large {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 16px;
+}
+.alb {
+  position: relative;
+  display: grid;
+  grid-row: span 2;
+  grid-template-rows: subgrid;
+  min-width: 0;
+  padding-bottom: 28px;
+}
+.alb:is([data-shape="wide"], [data-shape="both"], [data-shape="part"]) {
+  grid-column: span 2;
+}
+.alb.closed {
+  opacity: 0.6;
+}
+.alb-cover {
+  position: relative;
+  /* The sheets sit behind the cover without leaving it. */
+  isolation: isolate;
+  display: block;
+  align-self: end;
+  width: 100%;
+}
+.alb[data-shape="phone"] .alb-cover {
+  aspect-ratio: 390 / 780;
+}
+.alb[data-shape="wide"] .alb-cover,
+.alb[data-shape="both"] .alb-cover {
+  aspect-ratio: 16 / 10;
+}
+.alb[data-shape="part"] .alb-cover {
+  aspect-ratio: 2 / 1;
+}
+.alb[data-shape="text"] .alb-cover {
+  aspect-ratio: 3 / 4;
+}
+.alb .home-pic {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+}
+.alb[data-shape="phone"] .home-pic {
+  border-radius: 18px;
+}
+.alb-sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: 12px;
+  background: var(--row);
+  box-shadow: 0 0 0 1px var(--edge);
+  /* From the right edge, so scaling down never pulls a sheet back behind the cover. */
+  transform-origin: right center;
+  transform: translateX(calc(var(--i) * 7px)) scale(calc(1 - var(--i) * 0.045));
+  transition: transform 0.22s cubic-bezier(0, 0, 0.2, 1);
+}
+.alb[data-shape="phone"] .alb-sheet {
+  border-radius: 18px;
+}
+@media (hover: hover) {
+  .alb:hover .alb-sheet {
+    transform: translateX(calc(var(--i) * 9px)) rotate(calc(var(--i) * 1deg))
+      scale(calc(1 - var(--i) * 0.045));
+  }
+  .alb:hover .home-pic {
+    box-shadow: 0 0 0 1px var(--t6);
+  }
+  .alb-title:hover,
+  .alb:hover .alb-title {
+    color: var(--t1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .alb-sheet,
+  .side-drawer,
+  .side-scrim {
+    transition: none;
+  }
+}
+/* The cover waits on the user. The ring keeps its edge in either theme; the words
+   under the title say so without colour at all. */
+.alb.waiting .home-pic,
+.alb.waiting:hover .home-pic {
+  box-shadow:
+    0 0 0 2px var(--q),
+    0 0 26px color-mix(in srgb, var(--q) 38%, transparent);
+}
+.alb:has(.alb-title:focus-visible) .home-pic,
+.alb-cover:focus-visible .home-pic {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.alb-cover:focus-visible,
+.alb-title:focus-visible {
+  outline: none;
+}
+.alb-title:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* Both widths: the wide page, and the phone standing in front of its corner. */
+.alb-phone {
+  position: absolute;
+  z-index: 2;
+  right: 3%;
+  bottom: 6%;
+  width: 24%;
+  aspect-ratio: 390 / 760;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--frame);
+  box-shadow:
+    0 0 0 3px var(--page),
+    0 0 0 4px var(--edge),
+    0 8px 22px rgba(0, 0, 0, 0.35);
+}
+.alb-phone .thumb {
+  width: 100%;
+  height: 100%;
+}
+/* Something to read, set as a title page instead of a picture nobody could read. */
+.alb-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding: 16px 16px 14px;
+  background: var(--row);
+}
+.alb-text-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 7;
+  color: var(--t1);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.alb-text-date {
+  color: var(--t4);
+  font-size: 12px;
+}
+.albums.large .alb-text-title {
+  font-size: 20px;
+  -webkit-line-clamp: 9;
+}
+.alb-cap {
+  position: relative;
+  min-width: 0;
+  padding: 10px 26px 0 0;
+}
+.alb-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--t2);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+  text-wrap: pretty;
+}
+.alb-words {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  margin-top: 3px;
+  color: var(--t4);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.alb-turn {
+  font-weight: 500;
+}
+.alb-turn[data-turn="open"] {
+  color: var(--q);
+}
+.alb-turn[data-turn="changed"] {
+  color: var(--keep-ink);
+}
+.alb-turn[data-turn="decided"] {
+  color: var(--t2);
+}
+/* New work this browser hasn't opened: the word, with the mark it always had. */
+.alb-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--t1);
+  font-weight: 500;
+}
+.alb-new i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.alb-src {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.alb .home-more-wrap {
+  top: 4px;
+  right: -6px;
+  bottom: auto;
+}
+.home-skeleton {
+  opacity: 0.6;
+}
+.home-area-hd + .albums,
+.home-kind-hd + .albums {
+  margin-top: 2px;
+}
+.home-kind-hd a {
+  color: inherit;
+  text-decoration: none;
+}
+@media (hover: hover) {
+  .home-kind-hd a:hover {
+    color: var(--t1);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+}
+/* A heading that folds: a date, or what's closed. */
+.home-fold {
+  margin-bottom: 10px;
+}
+.home-fold > .home-resolved-hd {
+  margin-bottom: 8px;
+  padding-left: 0;
+}
+.home-date > .home-resolved-hd {
+  color: var(--t3);
+  font-size: 13px;
+}
+
+/* Written pages: a reading list rather than a wall of thumbnails too small to read. */
+.home-docs {
+  max-width: 760px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+.home-doc {
+  position: relative;
+  border-top: 1px solid var(--line);
+}
+.home-doc:last-child {
+  border-bottom: 1px solid var(--line);
+}
+.home-doc.closed {
+  opacity: 0.6;
+}
+.home-doc-link {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 2px 14px;
+  min-height: 44px;
+  padding: 11px 34px 11px 2px;
+  color: var(--t2);
+  font-size: 14px;
+  text-decoration: none;
+}
+.home-doc-title {
+  min-width: 0;
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+.home-doc .alb-words {
+  margin-top: 0;
+  justify-content: flex-end;
+}
+.home-doc time {
+  color: var(--t4);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+@media (hover: hover) {
+  .home-doc-link:hover {
+    color: var(--t1);
+  }
+  .home-doc-link:hover .home-doc-title {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-color: var(--t5);
+  }
+}
+.home-doc-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+.home-doc .home-more-wrap {
+  top: 7px;
+  right: -2px;
+  bottom: auto;
+}
+.home-phone .home-doc-link {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.home-phone .home-doc .alb-words {
+  grid-row: 2;
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+}
+.home-phone .home-doc .alb-words:empty {
+  display: none;
+}
+.home-archive-page {
+  padding-left: 0;
+}
+
+/* Search to jump. */
+.jump-scrim {
+  position: fixed;
+  z-index: 90;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: min(14vh, 120px) 16px 16px;
+  background: rgba(0, 0, 0, 0.45);
+}
+.jump {
+  display: flex;
+  flex-direction: column;
+  width: min(620px, 100%);
+  max-height: 100%;
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.jump-box {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 4px 4px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.jump-box > svg {
+  width: 18px;
+  height: 18px;
+  color: var(--t4);
+}
+.jump-box input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--t1);
+  /* 16px: below it iOS zooms the page in on focus. */
+  font-size: 16px;
+}
+.jump-box input::placeholder {
+  color: var(--t5);
+}
+.jump-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+}
+.jump-hd {
+  padding: 8px 10px 4px;
+  color: var(--t5);
+  font-size: 12px;
+  font-weight: 500;
+}
+.jump-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  color: var(--t2);
+  text-decoration: none;
+}
+.jump-row[aria-selected="true"] {
+  background: var(--row);
+  color: var(--t1);
+}
+.jump-row > svg {
+  width: 18px;
+  height: 18px;
+  color: var(--t4);
+}
+.jump-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.jump-title,
+.jump-where {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jump-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+.jump-where {
+  color: var(--t4);
+  font-size: 12px;
+}
+.jump-turn {
+  flex: none;
+  color: var(--t4);
+  font-size: 12px;
+}
+.jump-turn.waits {
+  color: var(--q);
+  font-weight: 500;
+}
+.jump-none {
+  margin: 0;
+  padding: 14px 10px;
+  color: var(--t4);
+  font-size: 14px;
+}
+.jump-none p {
+  margin: 0 0 10px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .jump-scrim {
+    padding: calc(8px + env(safe-area-inset-top)) 8px 8px;
+  }
+}
+
 .notfound {
   display: flex;
   flex-direction: column;

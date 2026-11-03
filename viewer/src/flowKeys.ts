@@ -10,7 +10,7 @@ import { root } from "./host.ts";
 import { flowKey } from "./logic.ts";
 import type { MockScreenState } from "./state.ts";
 
-const FIELD = "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
+export const FIELD = "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
 const CONTROL = "button, a[href], summary, [role='button'], [role='tab'], [role='option']";
 
 export function useFlowKeys(s: MockScreenState) {

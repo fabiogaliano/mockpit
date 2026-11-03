@@ -1,23 +1,35 @@
 // URL ⇄ screen. Home is /project/:name, a mock is /project/:name/:slug; "/" is
-// the home of the most recently active project. Home's tab is `?view=`: all,
-// pages, flows, components or sketches; absent, or a tab the project lacks, is
-// its first. `decisions` is the decision list in place of the tabs. `?area=` narrows Home to one of the project's areas. On a mock the
-// URL is the whole place: `?state=`, `?variant=`, `?version=`, `?view=`. The mock
-// screen keeps them current, so Back and a reload land where the entry was.
+// the home of the most recently active project. Home's place is `?sec=`: a
+// section (ideas, screens, flows, components, documents), or needs, decisions,
+// archive or activity; absent, or a section the project hasn't lit, is its first.
+// `?area=` alone is everything in one of the project's areas, and with `?sec=`
+// that section of it. On a mock the URL is the whole place: `?state=`,
+// `?variant=`, `?version=`, `?view=`. The mock screen keeps them current, so Back
+// and a reload land where the entry was.
 
 import { createSignal } from "solid-js";
 import { basePath, host } from "./host.ts";
 
-export const HOME_VIEWS = ["all", "pages", "flows", "components", "sketches", "decisions"] as const;
-export type HomeView = (typeof HOME_VIEWS)[number];
-const isHomeView = (v: string | null): v is HomeView => HOME_VIEWS.includes(v as HomeView);
+export const HOME_PLACES = [
+  "ideas",
+  "screens",
+  "flows",
+  "components",
+  "documents",
+  "needs",
+  "decisions",
+  "archive",
+  "activity",
+] as const;
+export type HomePlace = (typeof HOME_PLACES)[number];
+const isHomePlace = (v: string | null): v is HomePlace => HOME_PLACES.includes(v as HomePlace);
 
 export type Route =
   | {
       screen: "home";
       project: string | null;
-      // null: the first tab the project has.
-      view: HomeView | null;
+      // null: the first section the project has lit, or all of one area.
+      sec: HomePlace | null;
       // null: every area.
       area: string | null;
     }
@@ -50,7 +62,7 @@ export function parseRoute(pathname: string, base = "", search = ""): Route {
   const home = (project: string | null): Route => ({
     screen: "home",
     project,
-    view: isHomeView(q.get("view")) ? (q.get("view") as HomeView) : null,
+    sec: isHomePlace(q.get("sec")) ? (q.get("sec") as HomePlace) : null,
     area: q.get("area") || null,
   });
   if (seg.length && (seg[0] !== "project" || !seg[1] || seg.length > 3)) {
@@ -82,11 +94,11 @@ export function parseRoute(pathname: string, base = "", search = ""): Route {
 
 export const projectPath = (
   project: string,
-  view: HomeView | null = null,
+  sec: HomePlace | null = null,
   area: string | null = null,
 ) => {
   const q = new URLSearchParams();
-  if (view) q.set("view", view);
+  if (sec) q.set("sec", sec);
   if (area) q.set("area", area);
   const qs = q.toString();
   return `${basePath()}/project/${encodeURIComponent(project)}${qs ? `?${qs}` : ""}`;
@@ -112,14 +124,19 @@ export const mockPath = (
 // wherever this browser last left it.
 export const questionPath = (project: string, slug: string) =>
   `${mockPath(project, slug)}?view=stage&owed=1`;
-// The tab and area Home was last on, per project, so going up from a mock keeps the tab.
-const lastView = new Map<string, { view: HomeView | null; area: string | null }>();
-export const rememberHomeView = (project: string, view: HomeView | null, area: string | null) =>
-  lastView.set(project, { view, area });
-// The project's crumb means the whole project, its area crumb that area, on the same tab.
+// The place on Home last shown, per project, so going up from a mock lands there.
+const lastPlace = new Map<string, { sec: HomePlace | null; area: string | null }>();
+export const rememberHomePlace = (project: string, sec: HomePlace | null, area: string | null) =>
+  lastPlace.set(project, { sec, area });
 export const rootPath = () => `${basePath()}/`;
-export const homePath = (project: string, area: string | null = null) =>
-  projectPath(project, lastView.get(project)?.view ?? null, area);
+// The project's crumb means the whole project, in the section last open. An area
+// crumb means everything in that area, unless that's the area you came from: the
+// mock it names may not be in the section last open, which would land on nothing.
+export const homePath = (project: string, area: string | null = null) => {
+  const last = lastPlace.get(project);
+  const sec = area === null || last?.area === area ? (last?.sec ?? null) : null;
+  return projectPath(project, sec, area);
+};
 
 const key = (r: Route) => JSON.stringify(r);
 const read = () => parseRoute(host().location.pathname, basePath(), host().location.search);

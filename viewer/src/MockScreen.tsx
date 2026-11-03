@@ -5,6 +5,7 @@
 // and the thread as a bottom panel; Built from opens beside the canvas.
 
 import type { Shortlist } from "./api.ts";
+import { openJump, rememberRecent } from "./Jump.tsx";
 import { createShortlists, type Shortlists } from "./shortlist.ts";
 import {
   createEffect,
@@ -197,6 +198,10 @@ export function MockScreen(props: {
   createEffect(() => {
     const m = s.mock();
     if (m) markSeen(m.project, m.id, versionStamp(m.variants));
+  });
+  createEffect(() => {
+    const id = s.mock()?.id;
+    if (id) rememberRecent(id);
   });
   // The agent renamed the mock or its project while it was open: the address
   // follows, so a reload or a shared link still finds it.
@@ -564,6 +569,19 @@ function TopRow(props: {
           onClick={copyName}
         >
           <Icon name="copy" />
+        </button>
+      </Show>
+      {/* A phone has no key to press, but a row already holding the view switch has
+          no room for it either: Home is one step up from there. */}
+      <Show when={!phoneLayout() || !(props.compare || props.view === "studio")}>
+        <button
+          type="button"
+          class="ib msearch"
+          aria-label="Search"
+          title="Search ( / or ⌘K )"
+          onClick={openJump}
+        >
+          <Icon name="search" />
         </button>
       </Show>
       <span class="grow" />

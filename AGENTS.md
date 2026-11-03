@@ -55,8 +55,9 @@ consciously, not as a side effect):
 - Tiers, no modes: each thing the agent adds lights up its part of the viewer
   (variants → switcher and the built-in Which variant? question, which never counts as open, asks → Questions, `data-part` → Tune parts and part
   comments, `knobs` → Tune knobs, states and flows → the flow bar, `kind`
-  page/component and flows → Home's tabs; undeclared is a sketch). A plain
-  publish of any kind still gets stage + Thread + Use this / Revise.
+  page/component and flows → Home's sections; undeclared is an idea or a document,
+  by what it contains). A plain publish of any kind still gets stage + Thread + Use
+  this / Revise.
 - Self-hosted only; the embeddable viewer engine was dropped. Keep the
   `root()`/`host()` habit in `viewer/src` anyway.
 
@@ -84,6 +85,8 @@ consciously, not as a side effect):
 - `server/knobs.ts` — knob schema and value validation (Q3): every declared knob
   and every value (`?k=`, drafts, replies, ask `set`s) is checked here;
   `discreteChoices` drives the ask-not-knob nudge.
+- `server/jump.ts` — search to jump, over names, states, variants, notes,
+  questions and areas read by `SqlStore.listJumpRows`, never surfaces.
 - `server/parts.ts` — reads part identity (`data-part`, `-label`, `-key`) from
   html strings with a regex, and diffs versions into vanished/renamed. Never
   geometry: boxes are the bridge's job.
@@ -130,20 +133,28 @@ consciously, not as a side effect):
   transports' schemas. `server/mcpHttp.ts` — stateless MCP at `/mcp`;
   `mcp/server.ts` — stdio MCP, a thin client over the HTTP API.
 - `viewer/` — Solid + TypeScript in `viewer/src/`, Vite-built into one
-  self-contained `viewer/dist/index.html`. `Home` (a tab per kind in use, in the URL as `?view=all|pages|flows|components|sketches`, each showing
-  the design in use per screen from `GET /api/projects/:name/tree`: Pages, each
-  page's states; Flows, the declared flows as rows of screens, opened with
-  `?flow=`; Components, each with "in N screens"; Sketches, every mock with no
-  declared kind; within a tab, rows sit under the areas the project named, in
-  its area order, "No area" last, and a project with no area looks as if areas
-  did not exist; once it names one, a rail (chips on a phone) picks an area
-  (`?area=`) and an All tab shows every kind of it at once; each card carries a
-  status derived from its data (`logic.ts` `mockStatus`), a dot for versions
-  this browser hasn't opened (`seen.ts`, localStorage) and a ⋯ menu
-  (`CardMenu`); `Decisions` (`?view=decisions`, from the rail, else beside the count) lists
-  what the user settled, each line editable; a mock with everything archived and no question waiting folds into an
-  Archived list at the bottom (`nothingLeft`); empty tabs are not shown, one alone gets no tab bar; above them the open count,
-  which unfolds the waiting mocks to resolve, and Answer next), `MockScreen`
+  self-contained `viewer/dist/index.html`. `Home` is a `Sidebar` beside one place,
+  named by `?sec=needs|ideas|screens|flows|components|documents|decisions|archive|activity`
+  and `?area=` (absent: the first section lit). `albums.ts` holds the rules:
+  `sectionOf` keeps declared screens and components and derives idea or document
+  from what a mock contains (one render, nothing asked and no width is a document),
+  and only lit sections show. Ideas and Screens come first, larger first; Documents
+  sit at the sidebar's foot unless they're the largest. A project of 1 or 2 mocks
+  has no sidebar and large covers; one small section lists its mocks instead of
+  section rows; a phone gets the sidebar as a drawer. `Album` is one thing and all
+  its pictures: a cover by shape (phone, wide, both, part, or text for something to
+  read), sheets behind it for states else variants, and one turn word plus what's
+  inside under the title, never on the art (`turnWord`, `mockStatus`). Questions
+  waiting glow on the cover and on the project's name (`ProjectSwitcher`), in words
+  too, and `seen.ts` (localStorage) marks new work "New". Written pages are a dated
+  list (`DocRow`, `dateGroups`). Section rows sit above the areas a project names, a
+  project with none looks as if areas did not exist, and `?area=` alone shows all of
+  one area. Flows are rows of screens opened with `?flow=`. Components say "in N
+  screens". A mock with everything archived and no question waiting goes to Archive
+  (`nothingLeft`); a closed one folds under Closed in its section, and Needs you lists
+  the waiting ones to resolve, with Answer next above every place. `Jump` is search
+  from anywhere (`/` or ⌘K), through `GET /api/search` (`server/jump.ts`), which
+  never reads surfaces; results are text nodes. `MockScreen`
   (`TopRow`: the path is the way up, project and area as links, ending at the
   mock's name, with an info button opening `About` (Appears in / Built from /
   flows / code); the state tabs alone say which state;

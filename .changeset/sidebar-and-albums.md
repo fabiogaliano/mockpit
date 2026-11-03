@@ -1,0 +1,5 @@
+---
+"mockpit": minor
+---
+
+Home is now a sidebar and albums. An album holds one thing and all its pictures: states, else variants, else one flat picture. Covers follow the design's shape (phone, wide, both widths side by side, a part fitted whole), and written pages get a dated list or a text cover in place of thumbnails nobody could read. Under the title, one word says whose turn it is and another what's inside; nothing sits on the art any more. Sections replace the kind tabs and light up only when used: screens and components as declared, ideas and documents worked out from what a mock contains. A project of one or two mocks has no sidebar, and a phone gets it as a drawer. Albums waiting on you glow, and so does the project's name, whose switcher now says which projects have questions. Search from anywhere with `/` or ⌘K: titles, states, variants, notes, questions and areas, this project first (`GET /api/search`, which never reads surfaces). Home's address changes from `?view=` to `?sec=`. Decisions sit in the sidebar and still open as a page.

@@ -1,6 +1,8 @@
 import {
   type Anchor,
   type Ask,
+  type JumpRows,
+  type MockKind,
   type Asset,
   collectAssetIds,
   collectAttachedIds,
@@ -1047,6 +1049,40 @@ export class SqlStore implements Store {
 
   async listProjects() {
     return summarizeProjects(await this.listMocks(), await this.listSessions());
+  }
+
+  // Spelled out because `SELECT *` on posts reads the bodies, the very cost search avoids.
+  async listJumpRows(): Promise<JumpRows> {
+    return {
+      mocks: this.sql
+        .exec(
+          "SELECT id, project, slug, title, kind, area, states, asks, widths, closedAt, updatedAt FROM mocks",
+        )
+        .toArray()
+        .map((r) => ({
+          id: r.id as string,
+          project: r.project as string,
+          slug: r.slug as string,
+          title: r.title as string,
+          kind: r.kind as MockKind,
+          area: (r.area as string | null) ?? null,
+          states: parseJson<string[]>(r.states, []),
+          asks: parseJson<Ask[]>(r.asks, []),
+          widths: parseJson<number[]>(r.widths, []),
+          closedAt: (r.closedAt as string | null) ?? null,
+          updatedAt: r.updatedAt as string,
+        })),
+      variants: this.sql
+        .exec("SELECT mockId, state, variant, note, status FROM posts")
+        .toArray()
+        .map((r) => ({
+          mockId: r.mockId as string,
+          state: (r.state as string | null) ?? null,
+          variant: r.variant as string,
+          note: (r.note as string | null) ?? null,
+          status: r.status as PostStatus,
+        })),
+    };
   }
 
   async listMocks(project?: string) {

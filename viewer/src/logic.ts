@@ -1255,10 +1255,11 @@ export type MockStatus =
   | { kind: "open"; n: number }
   | { kind: "changed" }
   | { kind: "decided" }
+  | { kind: "sent" }
   | { kind: "exploring" };
 
 export function mockStatus(
-  node: Pick<TreeNode, "open" | "states" | "variants" | "inUse" | "closedAt">,
+  node: Pick<TreeNode, "open" | "states" | "variants" | "inUse" | "closedAt" | "lastReplyAt">,
 ): MockStatus | null {
   if (node.closedAt) return null;
   if (node.open > 0) return { kind: "open", n: node.open };
@@ -1271,6 +1272,9 @@ export function mockStatus(
   if (node.states.every((st) => node.inUse.some((u) => u.state === st))) {
     return { kind: "decided" };
   }
+  // The user spoke last and nothing has been published since: the agent's turn.
+  const reply = node.lastReplyAt;
+  if (reply && node.variants.every((v) => v.updatedAt < reply)) return { kind: "sent" };
   // Several designs of one screen still in play.
   const live = node.variants.filter((v) => isLive(v.status));
   if (node.states.some((st) => live.filter((v) => v.state === st).length > 1)) {

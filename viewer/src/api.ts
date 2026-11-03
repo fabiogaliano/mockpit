@@ -26,6 +26,7 @@ import type {
 } from "../../server/types.ts";
 import { basePath, host, renderRev } from "./host.ts";
 
+import type { JumpHit } from "../../server/jump.ts";
 export type MockSummary = ReturnType<typeof mockSummaryView>;
 export type MockDetail = ReturnType<typeof mockDetailView>;
 export type TreeNode = ReturnType<typeof treeNodeView>;
@@ -37,7 +38,7 @@ export type DecisionListView = { project: string; total: number; lines: Decision
 // `ownerGone`: undelivered, and a newer agent session in the project superseded
 // the one it was sent to, so the next agent there will get it.
 export type CommentRow = Comment & { delivered: boolean; ownerGone?: boolean };
-export type { FeedEvent, ProjectSummary };
+export type { FeedEvent, JumpHit, ProjectSummary };
 
 // What the viewer edits: a Draft minus the server's timestamp.
 export interface DraftInput {
@@ -103,6 +104,13 @@ const json = (method: string, body: unknown): RequestInit => ({
 
 export const api = {
   projects: () => call<ProjectSummary[]>("/api/projects"),
+  search: (q: string, project: string | null) =>
+    call<{ hits: JumpHit[] }>(
+      `/api/search?q=${encodeURIComponent(q)}${project ? `&project=${encodeURIComponent(project)}` : ""}`,
+    ),
+  // The mocks this browser opened last, as they are called now.
+  searchRecent: (ids: string[]) =>
+    call<{ hits: JumpHit[] }>(`/api/search?recent=${ids.map(encodeURIComponent).join(",")}`),
   mocks: (project: string) => call<MockList>(`/api/mocks?project=${encodeURIComponent(project)}`),
   // Every project's mocks: what the app badge counts.
   shortlists: (project: string) =>
