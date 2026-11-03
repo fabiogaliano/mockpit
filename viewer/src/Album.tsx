@@ -4,7 +4,7 @@
 // under the title and never on the art, which is the design's own. Something to
 // read has no useful picture at that size, so it gets a text cover or a dated row.
 
-import { createMemo, For, type JSX, Show } from "solid-js";
+import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import { assetUrl, surfaceUrl, type TreeNode } from "./api.ts";
 import {
   albumInside,
@@ -16,9 +16,15 @@ import {
   stackDepth,
   turnWord,
 } from "./albums.ts";
-import { readonly } from "./host.ts";
+import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import { designWidth, screenPicture, shortSource, type ScreenPicture } from "./logic.ts";
+import {
+  designWidth,
+  screenPicture,
+  shortSource,
+  type ScreenPicture,
+  type StatusNode,
+} from "./logic.ts";
 import { linkClick, mockPath } from "./route.ts";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
@@ -57,10 +63,26 @@ function Picture(props: { pic: ScreenPicture; width: number; whole: boolean }) {
   );
 }
 
+// "Agent working" lapses by itself, with no event to say so.
+const [turnClock, setTurnClock] = createSignal(Date.now());
+host().window.setInterval(() => setTurnClock(Date.now()), 30_000);
+export { turnClock };
+
+export function useTurn(node: () => StatusNode | null) {
+  return createMemo(
+    () => {
+      const n = node();
+      return n ? turnWord(n, turnClock()) : null;
+    },
+    undefined,
+    { equals: (a, b) => a?.kind === b?.kind && a?.text === b?.text },
+  );
+}
+
 // The words every album and row carries: whose turn, what's inside, and whether
 // there's work this browser hasn't opened (a word and a mark, not just a colour).
 export function AlbumWords(props: { node: TreeNode; fresh: boolean; extra?: string }) {
-  const turn = createMemo(() => turnWord(props.node));
+  const turn = useTurn(() => props.node);
   const inside = createMemo(() =>
     [albumInside(props.node), props.extra].filter(Boolean).join(" · "),
   );

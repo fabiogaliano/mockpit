@@ -90,14 +90,26 @@ for the user's reply (returns at once), `POST /api/mocks/:id/say`,
 
 ## Claude Code
 
-Claude Code users have two extra options.
+Claude Code users can have a Send wake the agent, with no prompt from them: the
+agent runs `mockpit watch` under the Monitor tool, and each line it prints arrives as
+a notification, even while the agent sits idle. `mockpit watch` never returns, so it
+only ever runs in the background; no tool, verb or HTTP call waits for the user.
+There are two ways to get this.
 
-**Skill.** Install the bundled skill. It tells the agent to arm `mockpit watch`
-under Monitor after asking, so your Send wakes it:
+**Skill.** Install the bundled skill. It tells the agent to arm the watch after
+asking, then end its turn:
 
 ```sh
 cp -r skills/mockpit ~/.claude/skills/
 ```
+
+```text
+Monitor({ command: "mockpit watch", description: "mockpit replies", timeout_ms: 1800000 })
+```
+
+A monitor expires after at most 30 minutes, with one notice; the agent re-arms it
+while it still expects a reply. An agent without the skill can be told the same thing
+in its instructions.
 
 **Plugin.** A plugin bundles all three integrations at once — the MCP server, the
 skill, and a **background monitor** that streams your replies from the browser to the
@@ -116,6 +128,16 @@ other's replies, and a reply wakes the agent even while it sits idle. Each reply
 is delivered exactly once. An installed `mockpit` (global, or a checkout on your
 `PATH`) is used before `npx`.
 Requires Claude Code ≥ 2.1.105. The plugin lives in [`../plugin/`](../plugin/).
+
+## Agents with nothing to wake them
+
+An agent with no background monitor hears a Send on its next call, in any write's
+`feedback` or the `feedback` verb, or when you tell it. After a Send, when the server
+sees no `mockpit watch` open for that agent's session, the viewer shows a line to copy
+and paste to it. It can't tell a stopped agent from a busy one, so it says only that no
+watcher is open. Where a harness can run a background command and notify the agent of
+its output, `mockpit watch` works there too: one line per Send on stdout. Pi's extension
+already does this.
 
 ## The design contract
 

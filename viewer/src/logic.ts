@@ -692,6 +692,9 @@ export interface ThreadRow {
   quote?: string;
   delivered?: boolean;
   ownerGone?: boolean;
+  listening?: boolean;
+  // A move from Home or a close: the agent hears it in passing, with nothing to wake for.
+  inPassing?: boolean;
   id: string;
   // A reply's comments, each with where it was left ("title · At rest").
   comments?: { where: string; text: string }[];
@@ -771,6 +774,8 @@ export function threadRows(
         text,
         delivered: c.delivered,
         ...(c.ownerGone ? { ownerGone: true } : {}),
+        ...(c.listening ? { listening: true } : {}),
+        ...(reply?.closed || reply?.edited ? { inPassing: true } : {}),
         id: c.id,
       };
       if (reply?.comments.length) {
@@ -1398,25 +1403,46 @@ export function groupByArea<T>(
 // A resolved mock gets none: Home fades it instead.
 export type MockStatus =
   | { kind: "open"; n: number }
+  | { kind: "draft" }
   | { kind: "changed" }
+  | { kind: "unseen" }
+  | { kind: "working" }
   | { kind: "decided" }
   | { kind: "sent" }
   | { kind: "exploring" };
 
-export function mockStatus(
-  node: Pick<TreeNode, "open" | "states" | "variants" | "inUse" | "closedAt" | "lastReplyAt">,
-): MockStatus | null {
+// How long after the agent's last call of its own "working" can still be said. A
+// guess at how long a design takes between calls: past it the word gets weaker, and
+// an agent still busy is under-reported, never the reverse.
+export const WORKING_MS = 5 * 60_000;
+
+export const stillWorking = (calledAt: string | undefined, now: number): boolean =>
+  !!calledAt && now - Date.parse(calledAt) < WORKING_MS;
+
+export type StatusNode = Pick<
+  TreeNode,
+  "open" | "states" | "inUse" | "closedAt" | "lastReplyAt" | "drafting" | "lastSend"
+> & {
+  variants: Pick<TreeNode["variants"][number], "state" | "status" | "updatedAt" | "changedTo">[];
+};
+
+export function mockStatus(node: StatusNode, now: number): MockStatus | null {
   if (node.closedAt) return null;
   if (node.open > 0) return { kind: "open", n: node.open };
+  if (node.drafting) return { kind: "draft" };
   // The agent moved on from what the user chose, and they haven't said whether to
   // take the new one or stay.
   if (node.variants.some((v) => v.changedTo !== undefined)) return { kind: "changed" };
-  if (node.states.every((st) => node.inUse.some((u) => u.state === st))) {
-    return { kind: "decided" };
-  }
+  // Ahead of In use: a Use this the agent hasn't heard is still on its way.
+  if (node.lastSend && !node.lastSend.delivered) return { kind: "unseen" };
   // The user spoke last and nothing has been published since: the agent's turn.
   const reply = node.lastReplyAt;
-  if (reply && node.variants.every((v) => v.updatedAt < reply)) return { kind: "sent" };
+  const quiet = !!reply && node.variants.every((v) => v.updatedAt < reply);
+  if (quiet && stillWorking(node.lastSend?.calledAt, now)) return { kind: "working" };
+  if (node.inUse.length && node.states.every((st) => node.inUse.some((u) => u.state === st))) {
+    return { kind: "decided" };
+  }
+  if (quiet) return { kind: "sent" };
   // Several designs of one screen still in play.
   const live = node.variants.filter((v) => isLive(v.status));
   if (node.states.some((st) => live.filter((v) => v.state === st).length > 1)) {

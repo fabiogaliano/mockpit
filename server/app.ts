@@ -7,6 +7,7 @@ import { ICON_PNG_BASE64 } from "./appIconPng.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
   type EmbedView,
+  draftHolds,
   mockDetailView,
   treeNodeView,
   mockSummaryView,
@@ -178,6 +179,9 @@ export type { FeedEvent } from "./events.ts";
 export type { FeedbackBatch } from "./feedbackBatch.ts";
 
 const MAX_SURFACE_BYTES = 2 * 1024 * 1024;
+// An agent at work makes many calls, and the viewer only needs to hear it's alive.
+// Short, because a call swallowed here is one the viewer doesn't hear until the next.
+const AGENT_CALL_EVENT_MS = 5_000;
 // A held long-poll (watch, the viewer) re-arms rather than pinning a socket
 // for good; proxies and serverless hosts drop longer requests anyway.
 const MAX_WAIT_SECONDS = 230;
@@ -324,6 +328,9 @@ export interface AppOptions {
   executor?: Executor;
   // Overrides for the run limits; tests shrink the deadline and budgets.
   runLimits?: Partial<RunLimits>;
+  // Where else this machine answers, for a viewer on loopback who wants a phone to
+  // open the page. Node supplies it; a Worker is never on loopback in production.
+  networkHosts?: () => { localOnly: boolean; hosts: string[] };
   // The event log (server/eventLog.ts): one entry per agent call, viewer write
   // and live-feed connection. The host decides where entries go (a JSONL file
   // on Node, Workers Logs on Cloudflare); absent, nothing is computed.
@@ -393,6 +400,14 @@ function isPublicReadAllowed(path: string, mode: PublicReadMode, query: URLSearc
   if (path === "/api/kits") return !query.has("project");
   return false;
 }
+
+// A comment as the viewer reads it: stored, plus what's derived about its delivery.
+type DeliveredComment = Comment & {
+  delivered: boolean;
+  ownerGone?: true;
+  listening?: true;
+  calledAt?: string;
+};
 
 export interface CommentWait {
   sessionId?: string;
@@ -505,6 +520,7 @@ export function createApp({
   maxHoldConnections = DEFAULT_MAX_HOLD_CONNECTIONS,
   executor,
   runLimits,
+  networkHosts,
   log,
 }: AppOptions) {
   const app = new Hono();
@@ -688,6 +704,20 @@ export function createApp({
   // Sessions with an author=user long-poll held open right now: a waiting
   // `mockpit watch` is a live agent, whatever its agentActiveAt says.
   const listening = new Map<string, number>();
+  // When each session last made a call of its own: a write or `feedback`, never a
+  // watch re-arming, which keeps agentActiveAt fresh all night with nobody working.
+  // That's what lets the viewer say "working" only when something is. Memory only:
+  // after a restart the viewer says less, which is still true.
+  const agentCalls = new Map<string, number>();
+  const agentCallEvents = new Map<string, number>();
+  const noteAgentCall = (sessionId: string) => {
+    const now = Date.now();
+    agentCalls.set(sessionId, now);
+    if (now - (agentCallEvents.get(sessionId) ?? 0) >= AGENT_CALL_EVENT_MS) {
+      agentCallEvents.set(sessionId, now);
+      bus.broadcast({ type: "agent-called", sessionId });
+    }
+  };
 
   // Who hears the user on this mock: the agent driving it, or on a shortlist no
   // agent has written to, the one working in the project right now. A session
@@ -716,6 +746,7 @@ export function createApp({
     await store.touchAgent(sessionId);
     const session = await store.getSession(sessionId);
     if (!session) return [];
+    noteAgentCall(sessionId);
     const handedOff = await takeOrphaned(session);
     const fresh = await store.listComments({ sessionId, afterSeq: session.agentSeq });
     if (fresh.length > 0) {
@@ -767,32 +798,48 @@ export function createApp({
   // Per-comment delivery state for the viewer: `delivered` once the session's
   // agentSeq has passed the comment. Computed, never stored. `ownerGone` marks
   // an undelivered user comment whose session a newer one already supersedes,
-  // so the Thread can say the next agent here will get it.
-  async function withDelivered(
-    comments: Comment[],
-  ): Promise<(Comment & { delivered: boolean; ownerGone?: true })[]> {
+  // so the Thread can say the next agent here will get it. With `live` (the signed-in
+  // viewer, not an agent or an anonymous reader), a user comment also says who could
+  // act on it: `listening`, undelivered with a `mockpit watch` held open that will
+  // take it; `calledAt`, delivered with a call of the agent's own since.
+  async function withDelivered(comments: Comment[], live = false): Promise<DeliveredComment[]> {
     const sessions = new Map<string, Session | null>();
     for (const c of comments) {
       if (!sessions.has(c.sessionId))
         sessions.set(c.sessionId, await store.getSession(c.sessionId));
     }
-    const gone = new Map<string, boolean>();
-    const ownerGone = async (owner: Session): Promise<boolean> => {
-      if (!gone.has(owner.id)) {
-        const peers = owner.project ? await store.listSessions(owner.project) : [];
-        gone.set(
-          owner.id,
-          peers.some((t) => supersedes(t, owner, listening.has(owner.id))),
-        );
+    const peers = new Map<string, Session[]>();
+    const peersOf = async (owner: Session): Promise<Session[]> => {
+      if (!peers.has(owner.id)) {
+        peers.set(owner.id, owner.project ? await store.listSessions(owner.project) : []);
       }
-      return gone.get(owner.id)!;
+      return peers.get(owner.id)!;
     };
-    const out: (Comment & { delivered: boolean; ownerGone?: true })[] = [];
+    const out: DeliveredComment[] = [];
     for (const c of comments) {
       const owner = sessions.get(c.sessionId);
       const delivered = c.seq <= (owner?.agentSeq ?? 0);
-      const waiting = !delivered && !!owner && c.author === "user" && (await ownerGone(owner));
-      out.push({ ...c, delivered, ...(waiting ? { ownerGone: true as const } : {}) });
+      const unread = !delivered && !!owner && c.author === "user";
+      const others = unread ? await peersOf(owner) : [];
+      const waiting = unread && others.some((t) => supersedes(t, owner, listening.has(owner.id)));
+      // A newer session's watch counts: handoff.ts gives it this reply after the grace.
+      const heard =
+        unread &&
+        (listening.has(owner.id) ||
+          others.some((t) => listening.has(t.id) && supersedes(t, owner, false)));
+      const called = agentCalls.get(c.sessionId);
+      const acted =
+        delivered &&
+        c.author === "user" &&
+        called !== undefined &&
+        called >= Date.parse(c.createdAt);
+      out.push({
+        ...c,
+        delivered,
+        ...(waiting ? { ownerGone: true as const } : {}),
+        ...(live && heard ? { listening: true as const } : {}),
+        ...(live && acted ? { calledAt: new Date(called).toISOString() } : {}),
+      });
     }
     return out;
   }
@@ -2468,7 +2515,7 @@ export function createApp({
   // lineage, what its embeds resolve to) and the components it embeds and is
   // embedded in, and the declared flows. What the viewer's Home and an agent's
   // `read --tree` lay out.
-  async function treeFlow(query: { project?: string }): Promise<FlowResult> {
+  async function treeFlow(query: { project?: string; live?: boolean }): Promise<FlowResult> {
     const project = str(query.project, MAX_TITLE);
     if (!project) return fail(400, 'provide "project"');
     const mocks = await store.listMocks(project);
@@ -2491,6 +2538,12 @@ export function createApp({
       }
       const replies = await replyComments(m.id);
       const lastReplyAt = replies[replies.length - 1]?.createdAt;
+      // Whose turn, for the viewer's covers. Not an agent's concern, and an ended
+      // mock's cover says nothing of the kind.
+      const sends = query.live && !m.closedAt ? replies.filter((c) => !c.payload?.closed) : [];
+      const lastSend = sends.length
+        ? (await withDelivered([sends[sends.length - 1]], true))[0]
+        : undefined;
       nodes.push(
         treeNodeView(m, posts ?? mockHeads, {
           settled: settledValues(
@@ -2501,6 +2554,17 @@ export function createApp({
           embeds: [...embeds],
           embedViews: views,
           ...(lastReplyAt ? { lastReplyAt } : {}),
+          ...(lastSend
+            ? {
+                lastSend: {
+                  sessionId: lastSend.sessionId,
+                  at: lastSend.createdAt,
+                  delivered: lastSend.delivered,
+                  ...(lastSend.calledAt ? { calledAt: lastSend.calledAt } : {}),
+                },
+              }
+            : {}),
+          ...(query.live && !m.closedAt && draftHolds(m.draft) ? { drafting: true } : {}),
         }),
       );
       pending.push(pendingOf(m));
@@ -4801,6 +4865,8 @@ export function createApp({
     }
     const session = await store.getSession(query.session);
     if (!session) return fail(404, `session "${query.session}" not found`);
+    // Before the read: delivering tells the viewer to look, and this should be there.
+    noteAgentCall(session.id);
     const { comments, handedOff } = await waitForComments({
       sessionId: session.id,
       author: "user",
@@ -5405,6 +5471,26 @@ export function createApp({
     return c.json({ ok: true });
   });
 
+  // What a phone opening this page would meet, for the QR code: how it gets in, and
+  // on a loopback viewer, the addresses that would reach this machine. Never the
+  // token, and the addresses only for someone signed in.
+  app.get("/api/reach", (c) => {
+    const net = isAuthenticated(c) ? networkHosts?.() : undefined;
+    return c.json({
+      hosts: net?.hosts ?? [],
+      localOnly: net?.localOnly ?? false,
+      // Session-level public read only opens what's addressed by id, which a link to a
+      // mock by name isn't: only full public read gets a phone in without the key.
+      access: authenticate
+        ? "unknown"
+        : !authToken
+          ? "open"
+          : publicRead === "full"
+            ? "read"
+            : "key",
+    });
+  });
+
   // The viewer's update notice: running version vs latest published release.
   app.get("/api/version", async (c) => {
     if (!version) return c.json({ current: null, latest: null, updateAvailable: false });
@@ -5459,7 +5545,8 @@ export function createApp({
     const respond = async (signal?: AbortSignal) => {
       if (isAgentRead) return send(c, await listenFlow(query, flowCtx(c).base, signal));
       const { handedOff: _none, ...result } = await waitForComments(query, signal);
-      return c.json({ ...result, comments: await withDelivered(result.comments) });
+      const live = isViewerRequest(c.req.raw) && isAuthenticated(c);
+      return c.json({ ...result, comments: await withDelivered(result.comments, live) });
     };
     if (waitSeconds <= 0) return respond();
     if (!acquireHold()) return c.json({ error: "too many concurrent connections" }, 503);
@@ -5525,7 +5612,13 @@ export function createApp({
     send(c, await editDecisionFlow(c.req.param("name"), await jsonBody(c), flowCtx(c))),
   );
   app.get("/api/projects/:name/tree", async (c) =>
-    send(c, await treeFlow({ project: c.req.param("name") })),
+    send(
+      c,
+      await treeFlow({
+        project: c.req.param("name"),
+        live: isViewerRequest(c.req.raw) && isAuthenticated(c),
+      }),
+    ),
   );
   app.get("/api/projects/:name/flows", async (c) =>
     send(c, await flowOutlineFlow(c.req.param("name"))),

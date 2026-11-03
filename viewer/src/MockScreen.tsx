@@ -43,15 +43,18 @@ import {
   readsAsDocument,
   repeatsAcrossStates,
   sameVersion,
+  stillWorking,
+  type VersionRef,
   versionStamp,
   WALL_FROM,
   wideWidth,
   widthKind,
   widthLabel,
 } from "./logic.ts";
-import { questions, sectionOf } from "./albums.ts";
+import { sectionOf } from "./albums.ts";
+import { turnClock, useTurn } from "./Album.tsx";
 import { createMargins, LeftMargin, PanelTabs, RightMargin, ToolStrip } from "./Margins.tsx";
-import { CarriedChip, NextCard } from "./NextCard.tsx";
+import { CarriedChip, NextCard, WakeLine } from "./NextCard.tsx";
 import { NotFound } from "./NotFound.tsx";
 import { OutlineChips, PlannedStage, StateAsk } from "./Outlines.tsx";
 import { QuestionCard, QuestionTab } from "./QuestionCard.tsx";
@@ -528,7 +531,7 @@ export function MockScreen(props: {
               </div>
             )}
           </Show>
-          <SentNote s={s} project={props.project} slug={props.slug} />
+          <SentNote s={s} project={props.project} slug={props.slug} view={shownView()} />
           <Show when={s.mock() && shownView() === "stage"}>
             <StateAsk s={s} />
             <Show when={phoneLayout()}>
@@ -631,13 +634,26 @@ function TopRow(props: {
     if (!copying) return failed();
     copying.then(() => s.setToast({ text: `Copied: ${name}` }), failed);
   };
-  // Whose turn it is, where it can be said from what this screen already holds.
-  const turn = () => {
-    if (s.mock()?.closedAt) return { kind: "closed", text: "Archived" };
-    const open = new Set(s.flow().flatMap((e) => (isBuiltinAsk(e.ask) ? [] : [e.ask.id]))).size;
-    if (open) return { kind: "open", text: questions(open) };
-    return s.sent() ? { kind: "sent", text: "Sent" } : null;
-  };
+  // Whose turn it is, by the rule the covers use, from what this screen already holds.
+  const shelved = useTurn(() => {
+    const m = s.mock();
+    if (!m) return null;
+    const send = s.lastSend();
+    return {
+      open: new Set(s.flow().flatMap((e) => (isBuiltinAsk(e.ask) ? [] : [e.ask.id]))).size,
+      states: m.states.length ? m.states : [null],
+      variants: m.variants,
+      inUse: m.inUse,
+      closedAt: m.closedAt,
+      drafting: s.sendable(),
+      ...(send ? { lastReplyAt: send.at, lastSend: send } : {}),
+    };
+  });
+  const turn = () =>
+    s.mock()?.closedAt ? { kind: "closed" as const, text: "Archived" } : shelved();
+  // The words about a Send have their detail in the Thread, which only Stage has.
+  const opensThread = (kind: string) =>
+    props.view === "stage" && (kind === "unseen" || kind === "working" || kind === "sent");
   const [open, setOpen] = createSignal(false);
   let btn: HTMLButtonElement | undefined;
   let pop: HTMLElement | undefined;
@@ -671,40 +687,57 @@ function TopRow(props: {
       >
         <Icon name="back" />
       </a>
-      <nav class="crumb mcrumb" aria-label="Path">
-        <a class="crumb-far crumb-link" href={home()} onClick={(e) => linkClick(e, home())}>
-          {shortProject()}
-        </a>
-        <span class="crumb-far sep">/</span>
-        <Show when={s.mock()?.area}>
-          {(area) => (
-            <>
-              <a
-                class="crumb-far crumb-link"
-                href={areaHome(area())}
-                onClick={(e) => linkClick(e, areaHome(area()))}
+      <div class="mname">
+        <nav class="crumb mcrumb" aria-label="Path">
+          <a class="crumb-far crumb-link" href={home()} onClick={(e) => linkClick(e, home())}>
+            {shortProject()}
+          </a>
+          <span class="crumb-far sep">/</span>
+          <Show when={s.mock()?.area}>
+            {(area) => (
+              <>
+                <a
+                  class="crumb-far crumb-link"
+                  href={areaHome(area())}
+                  onClick={(e) => linkClick(e, areaHome(area()))}
+                >
+                  {area()}
+                </a>
+                <span class="crumb-far sep">/</span>
+              </>
+            )}
+          </Show>
+          <b class="crumb-name">{title()}</b>
+          <Show when={!props.tabs && s.activeState()}>
+            {(state) => <span class="crumb-far crumb-sit">{`· ${state()}`}</span>}
+          </Show>
+        </nav>
+        <Show when={turn()}>
+          {(t) => (
+            <Show
+              when={opensThread(t().kind)}
+              fallback={
+                <span class="mturn alb-turn" data-turn={t().kind}>
+                  <Show when={t().kind === "open" && !readonly()}>
+                    <i class="glow-dot" aria-hidden="true" />
+                  </Show>
+                  {t().text}
+                </span>
+              }
+            >
+              <button
+                type="button"
+                class="mturn alb-turn"
+                data-turn={t().kind}
+                title="See it in the Thread"
+                onClick={() => s.setPanel("thread")}
               >
-                {area()}
-              </a>
-              <span class="crumb-far sep">/</span>
-            </>
+                {t().text}
+              </button>
+            </Show>
           )}
         </Show>
-        <b class="crumb-name">{title()}</b>
-        <Show when={!props.tabs && s.activeState()}>
-          {(state) => <span class="crumb-far crumb-sit">{`· ${state()}`}</span>}
-        </Show>
-      </nav>
-      <Show when={turn()}>
-        {(t) => (
-          <span class="mturn alb-turn" data-turn={t().kind}>
-            <Show when={t().kind === "open" && !readonly()}>
-              <i class="glow-dot" aria-hidden="true" />
-            </Show>
-            {t().text}
-          </span>
-        )}
-      </Show>
+      </div>
       <Show when={idea() && !s.mock()?.closedAt && !readonly()}>
         <button
           type="button"
@@ -1061,9 +1094,19 @@ function ChangedNote(props: { s: MockScreenState }) {
   );
 }
 
-// After a Send: whether it reached the agent, and where to go next.
-function SentNote(props: { s: MockScreenState; project: string; slug: string }) {
+// After a Send: how far it has come (not seen, delivered, the agent working, a new
+// version), and where to go next. With nothing left to answer this is what the screen
+// stays on, so it can't be a dead end.
+function SentNote(props: { s: MockScreenState; project: string; slug: string; view: View }) {
   const s = props.s;
+  const looking = (a: VersionRef & { state: string | null }) =>
+    s.activeState() === a.state && sameVersion(s.onStage(), a);
+  const progress = () => {
+    if (s.sentDelivered() === false) return "Not seen yet";
+    return stillWorking(s.sentReply()?.calledAt, turnClock())
+      ? "Delivered · Agent working"
+      : "Delivered";
+  };
   return (
     <div class="sentnote">
       <Show when={s.mock()?.closedAt}>
@@ -1072,19 +1115,51 @@ function SentNote(props: { s: MockScreenState; project: string; slug: string }) 
       <ChangedNote s={s} />
       <Show when={s.sent()} fallback={<CarriedChip project={props.project} slug={props.slug} />}>
         <div class="sentrow" role="status">
-          <button
-            type="button"
-            class="pill count"
-            classList={{ waiting: s.sentDelivered() === false }}
-            onClick={() => s.setPanel("thread")}
+          <Show
+            when={s.sinceSend()}
+            fallback={
+              <button
+                type="button"
+                class="pill count"
+                classList={{ waiting: s.sentDelivered() === false }}
+                onClick={() => s.setPanel("thread")}
+              >
+                <i class="dot" classList={{ ok: s.sentDelivered() !== false }} />
+                <span>{`Sent · ${progress()}`}</span>
+              </button>
+            }
           >
-            <i class="dot" classList={{ ok: s.sentDelivered() !== false }} />
-            <span>{`Sent · ${s.sentDelivered() === false ? "Not seen yet" : "Delivered"}`}</span>
-          </button>
-          <Show when={s.nudgeAgent()}>
-            <span class="sent-hint">tell your agent you've answered</span>
+            {(a) => (
+              <Show
+                when={!looking(a())}
+                fallback={
+                  <span class="pill count">
+                    <i class="dot ok" />
+                    <span>{`New version · ${s.nameOf(a())} is on stage`}</span>
+                  </span>
+                }
+              >
+                <button type="button" class="pill count" onClick={s.seeSinceSend}>
+                  <i class="dot ok" />
+                  <span>{`New version · See ${s.nameOf(a())} ›`}</span>
+                </button>
+              </Show>
+            )}
+          </Show>
+          <Show when={s.beatPassed() && s.agentListening()}>
+            <span class="sent-hint">your agent's watcher is open</span>
           </Show>
         </div>
+        {/* The Thread says this itself when it's open beside the design, on Stage alone. */}
+        <Show
+          when={
+            s.beatPassed() &&
+            !s.agentListening() &&
+            !(props.view === "stage" && s.panel() === "thread")
+          }
+        >
+          <WakeLine slug={props.slug} />
+        </Show>
       </Show>
       <NextCard s={s} />
     </div>

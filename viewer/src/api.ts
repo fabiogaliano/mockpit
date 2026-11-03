@@ -36,8 +36,15 @@ export type VariantView = ReturnType<typeof variantView>;
 export type HistoryRow = NonNullable<VariantView["history"]>[number];
 export type DecisionListView = { project: string; total: number; lines: DecisionLine[] };
 // `ownerGone`: undelivered, and a newer agent session in the project superseded
-// the one it was sent to, so the next agent there will get it.
-export type CommentRow = Comment & { delivered: boolean; ownerGone?: boolean };
+// the one it was sent to, so the next agent there will get it. `listening`:
+// undelivered, with a `mockpit watch` open that will take it. `calledAt`: delivered,
+// and the agent's last call of its own since.
+export type CommentRow = Comment & {
+  delivered: boolean;
+  ownerGone?: boolean;
+  listening?: boolean;
+  calledAt?: string;
+};
 export type { FeedEvent, JumpHit, ProjectSummary };
 
 // What the viewer edits: a Draft minus the server's timestamp.
@@ -137,6 +144,11 @@ export const api = {
   tree: (project: string) =>
     call<{ project: string; tree: TreeNode[]; flows: FlowView[]; areaOrder: string[] }>(
       `/api/projects/${encodeURIComponent(project)}/tree`,
+    ),
+  // What a phone opening this page would meet (the QR code).
+  reach: () =>
+    call<{ hosts: string[]; localOnly: boolean; access: "open" | "key" | "read" | "unknown" }>(
+      "/api/reach",
     ),
   mock: (id: string) => call<MockDetail>(`/api/mocks/${encodeURIComponent(id)}?history=1`),
   mockIn: (project: string, slug: string) =>

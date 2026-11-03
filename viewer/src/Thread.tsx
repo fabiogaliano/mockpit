@@ -6,6 +6,7 @@ import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { assetUrl } from "./api.ts";
 import { readonly } from "./host.ts";
 import { threadRows, timeAgo } from "./logic.ts";
+import { WakeLine } from "./NextCard.tsx";
 import type { MockScreenState } from "./state.ts";
 
 export function useThreadRows(s: MockScreenState) {
@@ -17,6 +18,12 @@ export function useThreadRows(s: MockScreenState) {
 
 export function Thread(props: { s: MockScreenState; scroller: () => HTMLElement | undefined }) {
   const rows = useThreadRows(props.s);
+  // Only under the newest thing said, or a thread of old Sends would repeat it. Here
+  // because the status under the design is gone after a reload, and this isn't.
+  const wakeRow = createMemo(() => {
+    const newest = [...rows()].reverse().find((r) => r.who === "you" && !r.inPassing);
+    return !readonly() && newest && !newest.delivered && !newest.listening ? newest.id : null;
+  });
   createEffect(() => {
     rows();
     const el = props.scroller();
@@ -83,6 +90,9 @@ export function Thread(props: { s: MockScreenState; scroller: () => HTMLElement 
                       ? "Waiting — the agent that asked restarted; the next agent in this project will get it"
                       : "Not seen yet"}
                 </div>
+              </Show>
+              <Show when={wakeRow() === r.id && props.s.mock()}>
+                {(m) => <WakeLine slug={m().slug} />}
               </Show>
             </div>
           )}

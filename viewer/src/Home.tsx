@@ -300,7 +300,12 @@ export function Home(props: {
       else if (
         e.type.startsWith("mock-") ||
         e.type.startsWith("post-") ||
-        e.type === "comment-created"
+        e.type === "comment-created" ||
+        // A cover's word follows its last Send, and no other project's agent moves it.
+        ((e.type === "comment-delivered" || e.type === "agent-called") &&
+          nodes().some((n) => n.lastSend?.sessionId === e.sessionId)) ||
+        // Once, as a draft starts: a save per keystroke needn't reread a whole project.
+        (e.type === "draft-updated" && nodes().some((n) => n.id === e.mockId && !n.drafting))
       ) {
         refetchSoon();
       }

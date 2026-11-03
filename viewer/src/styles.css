@@ -1502,8 +1502,35 @@ a.home-count {
 .alb-turn[data-turn="changed"] {
   color: var(--keep-ink);
 }
-.alb-turn[data-turn="decided"] {
+.alb-turn[data-turn="draft"] {
+  color: var(--q);
+}
+.alb-turn[data-turn="decided"],
+.alb-turn[data-turn="unseen"],
+.alb-turn[data-turn="working"] {
   color: var(--t2);
+}
+/* It moves only while a real call says the agent is at it. */
+.alb-turn[data-turn="working"]::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--ok);
+  vertical-align: 1px;
+  animation: turn-working 1.6s ease-in-out infinite;
+}
+@keyframes turn-working {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .alb-turn[data-turn="working"]::before {
+    animation: none;
+  }
 }
 /* New work this browser hasn't opened: the word, with the mark it always had. */
 .alb-new {
@@ -3263,6 +3290,47 @@ html.theming *:not(iframe) {
 .home-draft {
   color: var(--accent);
 }
+/* The line that wakes an agent nothing is listening for. */
+.wake {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 460px;
+  max-width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--edge);
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--t3);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.wake p {
+  margin: 0;
+  text-wrap: pretty;
+}
+.trow .wake {
+  width: auto;
+  margin-top: 8px;
+}
+.wake-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wake-line code {
+  flex: 1;
+  min-width: 0;
+  color: var(--t1);
+  font: 400 12px/1.4 var(--mono);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.copybtn {
+  flex: none;
+  min-width: 64px;
+  justify-content: center;
+}
 @media (prefers-reduced-motion: reduce) {
   .nextcard-bar {
     animation: none;
@@ -4782,15 +4850,93 @@ html:has(.mock-screen) {
 .mup {
   display: none;
 }
+/* The name and whose turn it is: side by side while the path is in the row, and the
+   word under the name once it isn't, so it's there at every width at no cost in height. */
+.mname {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
 .mturn {
   display: inline-flex;
   flex: none;
   align-items: center;
   gap: 6px;
   margin-left: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--t4);
+  font: inherit;
   font-size: 13px;
   white-space: nowrap;
+}
+button.mturn {
+  cursor: pointer;
+}
+button.mturn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+@media (hover: hover) {
+  button.mturn:hover {
+    color: var(--t1);
+  }
+}
+/* Over a margin floating beside the strip, which would otherwise cover the code. */
+.toolstrip:has(.qrpop) {
+  z-index: 36;
+}
+/* Absolute inside the strip: the strip's translate would make a fixed one relative to
+   it anyway, and this way it opens from the button that asked. */
+.qrtool {
+  display: flex;
+}
+.qrpop {
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 288px;
+  max-height: min(84dvh, 560px);
+  padding: 12px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--dd-shadow);
+  color: var(--t3);
+  font-size: 13px;
+  line-height: 1.4;
+  translate: 8px -50%;
+}
+.qrpop p {
+  margin: 0;
+  text-wrap: pretty;
+}
+.qr-head {
+  color: var(--t1);
+  font-weight: 600;
+}
+.qr-code {
+  display: block;
+  width: 100%;
+  border-radius: 8px;
+}
+.qr-hosts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font: 400 12px var(--mono);
 }
 .mact {
   display: flex;
@@ -5326,8 +5472,21 @@ html:has(.mock-screen) {
   .mup {
     display: grid;
   }
+  .mname {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    /* Room for the longest word, however little the row leaves the name. */
+    min-width: 108px;
+  }
+  .mname .mcrumb {
+    max-width: 100%;
+  }
   .mturn {
-    display: none;
+    /* Lines up with the name, inside the path's pads. */
+    margin-left: 10px;
+    font-size: 12px;
+    line-height: 15px;
   }
   .mact .btn.vnew {
     width: 36px;
@@ -5389,6 +5548,18 @@ html:has(.mock-screen) {
   .mtop {
     gap: 2px;
     padding: 0 4px;
+  }
+  /* The row can leave less than the longest word here: it would rather clip its last
+     letters than push the view switch off the screen. */
+  .mname {
+    min-width: 88px;
+  }
+  .mturn {
+    display: block;
+    max-width: 100%;
+    margin-left: 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .crumb-far {
     display: none;
@@ -5881,6 +6052,9 @@ html:has(.mock-screen) {
 /* A sent reply's status sits at the same spot and has to stay in sight. */
 body:has(.sentrow) {
   --selbar-bottom: 72px;
+}
+body:has(.sentnote .wake) {
+  --selbar-bottom: 184px;
 }
 /* An Undo waits until dismissed, so a new selection can start under it: it stacks
    above the bar, and leaves room for what the bar opens. */

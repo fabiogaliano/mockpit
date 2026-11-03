@@ -34,7 +34,7 @@ import {
   ApiError,
 } from "./api.ts";
 import { extensionOf, prepareImage, rejectReason } from "./attach.ts";
-import { setCarried } from "./carry.ts";
+import { BEAT_MS, setCarried } from "./carry.ts";
 import { host, readonly } from "./host.ts";
 import {
   answerIds,
@@ -135,8 +135,6 @@ export interface AfterSend {
 const SAVE_MS = 300;
 // Long enough to read "Next: …" and press Stay, short enough to feel carried.
 const FORWARD_MS = 1600;
-// Long enough for an agent that is watching to pick a reply up.
-const BEAT_MS = 4000;
 
 // Where this browser last left a mock. Versions stay out: a revision that
 // arrives while you are away must be what you come back to.
@@ -237,7 +235,7 @@ export function createMockScreen(
   };
   const [sent, setSent] = createSignal(false);
   // The reply the last Send stored, and whether a beat has passed since: an
-  // undelivered reply after that beat earns the "tell your agent" hint.
+  // undelivered reply after that beat, with no watcher, earns the line to wake the agent.
   const [sentId, setSentId] = createSignal<string | null>(null);
   const [beat, setBeat] = createSignal(false);
   const [sending, setSending] = createSignal(false);
@@ -895,6 +893,10 @@ export function createMockScreen(
           // A new session may supersede the one an undelivered Send waits on.
           if (comments().some((c) => !c.delivered)) refetch("comments");
           break;
+        case "agent-called":
+          // Only matters to a Send it could be working on.
+          if (lastSend()?.sessionId === e.sessionId) refetch("comments");
+          break;
         case "comment-deleted":
         case "comment-delivered":
           if (
@@ -1475,15 +1477,64 @@ export function createMockScreen(
     });
   }
 
-  // Whether an agent has the last Send yet; null when nothing was sent here.
-  const sentDelivered = createMemo(() => {
+  const sentReply = createMemo(() => {
     const id = sentId();
-    if (!sent() || !id) return null;
-    return comments().find((c) => c.id === id)?.delivered ?? false;
+    return (sent() && id && comments().find((c) => c.id === id)) || null;
   });
-  const nudgeAgent = () => beat() && sentDelivered() === false;
+  // Whether an agent has the last Send yet; null when nothing was sent here.
+  const sentDelivered = () => (sent() && sentId() ? (sentReply()?.delivered ?? false) : null);
+  const beatPassed = () => beat() && sentDelivered() === false;
+  const agentListening = () => !!sentReply()?.listening;
   let beatTimer = 0;
   onCleanup(() => host().window.clearTimeout(beatTimer));
+  // Read again at the beat: what was read straight after the Send may have caught a
+  // watcher between two polls, or one that has since gone.
+  function armBeat() {
+    setBeat(false);
+    host().window.clearTimeout(beatTimer);
+    beatTimer = host().window.setTimeout(() => {
+      setBeat(true);
+      void loadComments().catch(() => {});
+    }, BEAT_MS);
+  }
+  // The last thing the user sent that an agent owes an answer to, read from the same
+  // comments as the Thread, so the word and the Thread can't disagree. A move from
+  // Home or a close isn't one.
+  const lastSend = createMemo(() => {
+    const list = comments();
+    for (let i = list.length - 1; i >= 0; i--) {
+      const c = list[i];
+      if (c.kind !== "reply" || !c.payload || c.payload.edited || c.payload.closed) continue;
+      return {
+        sessionId: c.sessionId,
+        at: c.createdAt,
+        delivered: c.delivered,
+        ...(c.calledAt ? { calledAt: c.calledAt } : {}),
+      };
+    }
+    return null;
+  });
+  // The newest version published since the Send, in any state.
+  const sinceSend = createMemo(() => {
+    const since = sentReply()?.createdAt;
+    if (!since) return null;
+    let newest: (VersionStep & { state: string | null }) | null = null;
+    for (const state of states()) {
+      for (const step of versionSteps(variants(), state)) {
+        if (step.at > since && !step.hidden && (!newest || step.at > newest.at)) {
+          newest = { ...step, state };
+        }
+      }
+    }
+    return newest;
+  });
+  function seeSinceSend() {
+    const a = sinceSend();
+    if (!a) return;
+    userMoved();
+    landOn({ state: a.state, variant: a.variant, version: a.version });
+    rememberPlace();
+  }
 
   async function send(extra: { verdict?: ReplyVerdict; text?: string } = {}) {
     const m = mock();
@@ -1519,7 +1570,6 @@ export function createMockScreen(
         setDraftSignal(null);
         setSent(true);
         setSentId(reply.id);
-        setBeat(false);
         setPreview(null);
         setTapped(null);
       });
@@ -1530,8 +1580,7 @@ export function createMockScreen(
       setFoldedSignal({});
       setRevising({});
       record();
-      host().window.clearTimeout(beatTimer);
-      beatTimer = host().window.setTimeout(() => setBeat(true), BEAT_MS);
+      armBeat();
       void planNext();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -1815,10 +1864,8 @@ export function createMockScreen(
         if (next) setMock(next);
         setSent(true);
         setSentId(reply.id);
-        setBeat(false);
       });
-      host().window.clearTimeout(beatTimer);
-      beatTimer = host().window.setTimeout(() => setBeat(true), BEAT_MS);
+      armBeat();
       return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -2162,8 +2209,13 @@ export function createMockScreen(
     cardMin,
     setCardMin,
     sent,
+    sentReply,
     sentDelivered,
-    nudgeAgent,
+    beatPassed,
+    agentListening,
+    lastSend,
+    sinceSend,
+    seeSinceSend,
     sending,
     flagged,
     error,

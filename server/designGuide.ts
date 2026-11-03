@@ -394,7 +394,9 @@ it is about);
 no questions; \`decisions\` is the state as chosen: variant, then each part's
 fill, nested; \`messages\` are what the user wrote in the thread. Each Send
 arrives exactly once: in a write's \`feedback\`, \`mockpit feedback\` or a
-\`mockpit watch\` line.
+\`mockpit watch\` line. In Claude Code, arm \`mockpit watch\` under Monitor after
+asking, so a Send wakes you; it never returns, so never in the foreground. Elsewhere
+the user's next message is the wake-up.
 A \`pending\` draft means the user is still answering. Send a nudge's
 \`suggestedAsk\` with \`ask\`.
 \`edited: {kind, area}\` means the user moved the mock from Home; it is done,

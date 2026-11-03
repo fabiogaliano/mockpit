@@ -5,7 +5,14 @@
 
 import { isLive } from "../../server/types.ts";
 import type { TreeNode } from "./api.ts";
-import { designWidth, mockStatus, screenPicture, type ScreenPicture } from "./logic.ts";
+import {
+  designWidth,
+  mockStatus,
+  type MockStatus,
+  screenPicture,
+  type ScreenPicture,
+  type StatusNode,
+} from "./logic.ts";
 
 export type Section = "ideas" | "screens" | "flows" | "components" | "documents";
 export type ShelfSection = Exclude<Section, "flows">;
@@ -118,24 +125,28 @@ export function albumInside(node: TreeNode): string {
   return parts.join(" · ");
 }
 
-export type TurnKind = "open" | "changed" | "decided" | "sent" | "exploring";
+export type TurnKind = MockStatus["kind"] | "idle";
 
 const TURN_TEXT: Record<Exclude<TurnKind, "open">, string> = {
+  draft: "Draft to send",
   changed: "Changed",
+  unseen: "Not seen yet",
+  working: "Agent working",
   decided: "In use",
+  // Delivered, with no call from the agent since: all that can honestly be said.
   sent: "Sent",
   exploring: "Exploring",
+  idle: "Nothing waiting",
 };
 
 export const questions = (n: number) => `${n} ${n === 1 ? "question" : "questions"}`;
 
-// Whose turn it is, in one word, or nothing where it's nobody's.
-export function turnWord(node: Parameters<typeof mockStatus>[0]): {
-  kind: TurnKind;
-  text: string;
-} | null {
-  const status = mockStatus(node);
-  if (!status) return null;
+// Whose turn it is, in a word, on anything still on a shelf: an ended mock has left,
+// and its place in the Archive says so.
+export function turnWord(node: StatusNode, now: number): { kind: TurnKind; text: string } | null {
+  if (node.closedAt) return null;
+  const status = mockStatus(node, now);
+  if (!status) return { kind: "idle", text: TURN_TEXT.idle };
   return status.kind === "open"
     ? { kind: "open", text: questions(status.n) }
     : { kind: status.kind, text: TURN_TEXT[status.kind] };

@@ -49,7 +49,14 @@ The loop never waits for the user:
    `mockpit export` once a variant is in use.
 
 In Claude Code, arm `mockpit watch` under Monitor after asking, then end the
-turn, so Send wakes you. Elsewhere the user's next message is the wake-up.
+turn, so Send wakes you with no prompt from the user:
+`Monitor({ command: "mockpit watch", description: "mockpit replies", timeout_ms: 1800000 })`.
+A monitor expires (30 minutes at most) with one notice: re-arm it while you still
+expect a reply. Arm one per conversation, and never run `mockpit watch` in the
+foreground, since it never returns.
+
+With no such tool the user's next message is the wake-up. The viewer shows them a
+line to paste when no watcher is open; treat it as them saying they answered.
 
 Reference topics, fetched only when needed with `mockpit guide --topic <id>`:
 knobs, asks, surfaces, html, feedback, http, scripts.

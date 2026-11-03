@@ -66,6 +66,9 @@ another. Each Send arrives as one notification on your next turn, for example:
 mockpit reply on writer: Quiet or dark?: Dark · 1 tuned · borrowed body←quiet · 1 comment
 ```
 
+If the monitor isn't running, the viewer shows the user a line to paste to you,
+which means the same thing.
+
 Treat it as a message from the user and run `feedback` (`mockpit feedback`)
 for the full reply. It returns at once. Its `pending` says whether the user is
 still answering (`viewerOpen`, `draft {answered, of, comments}`). Picks, tuned

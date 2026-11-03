@@ -6,7 +6,9 @@ import { Show } from "solid-js";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { neighbourStep, sameVersion, stepFor } from "./logic.ts";
+import { QrTool } from "./QrTool.tsx";
 import type { MockScreenState } from "./state.ts";
+import { phoneLayout } from "./viewport.ts";
 
 export function ReviseButton(props: { s: MockScreenState }) {
   const s = props.s;
@@ -152,6 +154,10 @@ export function CanvasTools(props: { s: MockScreenState; page: boolean }) {
     <>
       <Show when={props.page}>
         {tool("try", "Try", "Try: use the design as a prototype")}
+        {/* A phone is already where this would send you. */}
+        <Show when={!phoneLayout()}>
+          <QrTool s={s} />
+        </Show>
         <Show when={!readonly()}>
           {tool("mark", "Comment", "Comment: tap the design to leave a comment there")}
         </Show>

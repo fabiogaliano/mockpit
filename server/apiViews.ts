@@ -252,6 +252,16 @@ function thumbnail(mock: Mock, posts: PostHead[]) {
 const plannedOf = (mock: Mock, variants: number) =>
   isPlanned(mock, variants) ? { planned: true as const } : {};
 
+// Anything the user has yet to send. A stored draft can be an emptied one, which
+// waits on nobody.
+export const draftHolds = (draft: Mock["draft"]): boolean =>
+  !!draft &&
+  (draft.comments.length > 0 ||
+    Object.values(draft.answers).some((a) => !Array.isArray(a) || a.length > 0) ||
+    [draft.borrowed, draft.tuned, draft.others ?? {}, draft.notes ?? {}].some(
+      (rec) => Object.keys(rec).length > 0,
+    ));
+
 export const mockSummaryView = (mock: Mock, posts: PostHead[]) => {
   const drafted = draftedCount(mock);
   return {
@@ -331,6 +341,9 @@ export const treeNodeView = (
     embeds: string[];
     embedViews: Map<string, EmbedView>;
     lastReplyAt?: string;
+    // The viewer's alone: where the last Send stands, and a draft waiting to go.
+    lastSend?: { sessionId: string; at: string; delivered: boolean; calledAt?: string };
+    drafting?: boolean;
   },
 ) => ({
   id: mock.id,
@@ -345,6 +358,8 @@ export const treeNodeView = (
   ...(mock.asks.length ? { asked: mock.asks.length } : {}),
   // Later than every variant: the user has spoken and it is the agent's turn.
   ...(extra.lastReplyAt ? { lastReplyAt: extra.lastReplyAt } : {}),
+  ...(extra.lastSend ? { lastSend: extra.lastSend } : {}),
+  ...(extra.drafting ? { drafting: true } : {}),
   states: stateOrder(mock),
   widths: mock.widths,
   createdAt: mock.createdAt,

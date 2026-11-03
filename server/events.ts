@@ -29,6 +29,9 @@ export type FeedEvent =
   | { type: "comment-deleted"; id: string; sessionId: string }
   // The session's agent cursor (agentSeq) moved: comments up to `seq` are delivered.
   | { type: "comment-delivered"; sessionId: string; seq: number }
+  // The session's agent made a call of its own, as opposed to a watch re-arming.
+  // At most one every few seconds per session.
+  | { type: "agent-called"; sessionId: string }
   // Workspace light/dark mode changed. Other open tabs re-theme.
   | { type: "theme-changed"; mode: Mode };
 

@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { compress } from "hono/compress";
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, networkInterfaces } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApp } from "./app.ts";
@@ -80,6 +80,29 @@ if (logPath) console.log(`mockpit event log: ${logPath}`);
 const rulesPath = dbPath === ":memory:" ? undefined : join(dirname(dbPath), "rules.md");
 const userRules = rulesPath ? () => readFile(rulesPath, "utf8").catch(() => null) : undefined;
 
+const port = Number(process.env.PORT ?? 8228);
+// MOCKPIT_HOST (or `serve --host`) restricts the listener to one address.
+// Unset keeps the previous behaviour — node's default, every interface — because
+// that is what a container or a LAN-shared instance needs. Set it to 127.0.0.1
+// when the server shares a host with anything you don't want reaching it; that
+// is stronger than the token, which is a single shared secret by design.
+const hostname = process.env.MOCKPIT_HOST || undefined;
+
+// The addresses a phone might open this server at. Read when asked, since a laptop
+// changes networks while it runs.
+const networkHosts = () => {
+  if (hostname === "127.0.0.1" || hostname === "::1" || hostname === "localhost") {
+    return { localOnly: true, hosts: [] };
+  }
+  if (hostname && hostname !== "0.0.0.0" && hostname !== "::") {
+    return { localOnly: false, hosts: [`${hostname}:${port}`] };
+  }
+  const hosts = Object.values(networkInterfaces())
+    .flat()
+    .flatMap((a) => (a && a.family === "IPv4" && !a.internal ? [`${a.address}:${port}`] : []));
+  return { localOnly: false, hosts: hosts.slice(0, 3) };
+};
+
 const app = createApp({
   store,
   viewerHtml,
@@ -96,16 +119,9 @@ const app = createApp({
   renderRev,
   // `run` scripts execute in QuickJS inside a worker thread per run.
   executor: createNodeExecutor(),
+  networkHosts,
   log: logPath ? createFileLog(logPath) : undefined,
 });
-
-const port = Number(process.env.PORT ?? 8228);
-// MOCKPIT_HOST (or `serve --host`) restricts the listener to one address.
-// Unset keeps the previous behaviour — node's default, every interface — because
-// that is what a container or a LAN-shared instance needs. Set it to 127.0.0.1
-// when the server shares a host with anything you don't want reaching it; that
-// is stronger than the token, which is a single shared secret by design.
-const hostname = process.env.MOCKPIT_HOST || undefined;
 
 // Cloudflare compresses at its edge; a Node server reached over a network
 // (a tailnet, a LAN) would otherwise send the viewer and every list uncompressed.

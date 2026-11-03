@@ -211,6 +211,9 @@ consciously, not as a side effect):
   `presets.ts` (Tune presets in localStorage), `theme.ts`, `host.ts`.
 - `bin/mockpit.js` — CLI, Node built-ins only; `bin/demoData.js` — the Writer
   mock `mockpit demo` seeds.
+- `viewer/src/qr.ts` + `QrTool.tsx` — the QR code beside Try: a local encoder, and
+  `GET /api/reach` for what a phone would meet (`networkHosts` from `server/index.ts`).
+  The code never holds the workspace key.
 - `workers/index.ts` — Cloudflare entry; one Durable Object runs the whole app.
 - `skills/mockpit/`, `plugin/` + `guide/` — teach agents to use a running mockpit.
   The brief (`server/designGuide.ts`) is core: how mockpit works, no taste.
@@ -292,7 +295,11 @@ consciously, not as a side effect):
   and `author=user` long-polls (`mockpit watch`) advance it, and they resume
   from it when no explicit `after` is given — clients keep no cursor of their
   own, so CLI, MCP, `run` and piggyback share one stream. The viewer's unfiltered reads never touch it.
-  Delivery is exactly-once by design, across channels.
+  Delivery is exactly-once by design, across channels. For the signed-in viewer alone,
+  a comment also says `listening` (undelivered, a watch held open will take it) and
+  `calledAt` (delivered, with a write or `feedback` from that session since; held in
+  memory, and a watch re-arming doesn't count). "Agent working" rests on `calledAt`
+  and nothing else: `agentActiveAt` can't back it, since a watch keeps that fresh.
 - Drafts (Q13): the user's picks, tuned values, borrowed parts and part comments are a
   server-side draft per mock — they survive reload, stay bound to the version
   they were made on, are never delivered before Send, and are cleared by it.

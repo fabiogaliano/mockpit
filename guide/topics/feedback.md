@@ -162,8 +162,12 @@ your session's cursor.
 3. Background watch: `mockpit watch` prints one line per Send
    (`mockpit reply on writer: Quiet or dark?: Dark · 1 tuned · 1 comment`) and
    one per thread message (`mockpit message on writer: “…”`). In Claude Code,
-   arm it under Monitor after asking, then end your turn, so a Send wakes you.
-   Elsewhere the user's next message is the wake-up.
+   arm it under Monitor after asking, then end your turn, so a Send wakes you:
+   `Monitor({ command: "mockpit watch", description: "mockpit replies", timeout_ms: 1800000 })`.
+   A monitor expires with one notice; re-arm it while you still expect a reply. The
+   plugin's monitor needs none of this. It never returns, so never run it in the
+   foreground. With no such tool the user's next message is the wake-up: when no
+   watcher is open, the viewer shows them a line to paste to you.
 
 Never poll `feedback` in a loop; the user answers at their own pace.
 
