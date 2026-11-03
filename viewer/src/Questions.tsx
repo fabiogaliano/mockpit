@@ -599,9 +599,7 @@ function OptionCard(props: {
         other: !!props.other,
         previewing: props.previewing,
       }}
-      // The card truncates its label to one line; hover reads it whole.
       title={[
-        props.label,
         props.note,
         props.pick ? (props.why ? `Agent's pick: ${props.why}` : "Agent's pick") : null,
       ]

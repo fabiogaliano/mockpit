@@ -1561,10 +1561,11 @@ export function versionSteps(variants: StepSource[], state: string | null): Vers
 
 // A version as the user reads it: the agent's own number, so "Dark #2" is the
 // agent's dark@2, with the variant's name in front when its state has others.
+export const variantName = (variant: string): string =>
+  `${variant.charAt(0).toUpperCase()}${variant.slice(1)}`;
+
 export const versionName = (ref: VersionRef, named: boolean): string =>
-  named
-    ? `${ref.variant.charAt(0).toUpperCase()}${ref.variant.slice(1)} #${ref.version}`
-    : `#${ref.version}`;
+  named ? `${variantName(ref.variant)} #${ref.version}` : `#${ref.version}`;
 
 export const stepFor = (steps: VersionStep[], ref: VersionRef | null | undefined) =>
   ref ? steps.find((x) => sameVersion(x, ref)) : undefined;

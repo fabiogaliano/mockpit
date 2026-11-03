@@ -125,6 +125,7 @@ import {
   type MockKind,
   newId,
   openAsks,
+  draftedCount,
   openCount,
   OTHER_ID,
   type PartComment,
@@ -2329,7 +2330,7 @@ export function createApp({
     for (const m of mocks) {
       const posts = heads.get(m.id) ?? [];
       rows.push(mockSummaryView(m, posts));
-      pending.push(pendingOf(m, posts));
+      pending.push(pendingOf(m));
     }
     const open = rows.reduce((n, r) => n + r.open, 0);
     return ok({
@@ -2377,7 +2378,7 @@ export function createApp({
           embedViews: views,
         }),
       );
-      pending.push(pendingOf(m, posts ?? mockHeads));
+      pending.push(pendingOf(m));
     }
     const bySlug = new Map(nodes.map((n) => [n.slug, n]));
     for (const n of nodes) {
@@ -2430,7 +2431,7 @@ export function createApp({
         embeds: await embedViews(mock, posts),
         ...(await shortlistReach(mock)),
       }),
-      pending: pendingOf(mock, posts),
+      pending: pendingOf(mock),
     });
   }
 
@@ -2703,7 +2704,7 @@ export function createApp({
         project: mock.project,
         asks: [],
         skipped,
-        open: openCount(mock, posts),
+        open: openCount(mock),
         url: mockUrl(ctx.base, mock),
         nudges: skippedNudges,
         feedback: mock.sessionId ? await collectFeedback(mock.sessionId, ctx.base) : [],
@@ -2752,7 +2753,7 @@ export function createApp({
       project: mock.project,
       asks: added,
       ...(skipped.length ? { skipped } : {}),
-      open: openCount(mock, posts),
+      open: openCount(mock),
       url: mockUrl(ctx.base, mock),
       ...(nudges.length ? { nudges } : {}),
       feedback,
@@ -4582,15 +4583,15 @@ export function createApp({
   // What the user is doing right now, per mock: derived from the SSE registry
   // and the server-side draft, never stored. It is why an empty `feedback` still
   // tells the agent something ("2 of 3 answered", or nobody is looking).
-  const pendingOf = (mock: Mock, posts: PostHead[]) => ({
+  const pendingOf = (mock: Mock) => ({
     mock: mock.slug,
     // Closed by the user: nothing there is waiting on them, or on you.
     ...(mock.closedAt ? { closed: true } : {}),
     viewerOpen: viewing.has(mock.id),
     draft: mock.draft
       ? {
-          answered: Object.keys(mock.draft.answers).length,
-          of: openCount(mock, posts),
+          answered: draftedCount(mock) ?? 0,
+          of: openCount(mock),
           comments: mock.draft.comments.length,
           touchedAt: mock.draft.updatedAt,
         }
@@ -4617,11 +4618,7 @@ export function createApp({
     const project = str(query.project, MAX_TITLE) ?? session.project ?? undefined;
     return ok({
       feedback: await feedbackWithHandoffs(comments, handedOff, ctx.base),
-      pending: await Promise.all(
-        (await store.listMocks(project)).map(async (m) =>
-          pendingOf(m, await store.listPosts({ mockId: m.id })),
-        ),
-      ),
+      pending: (await store.listMocks(project)).map(pendingOf),
     });
   }
 
@@ -4943,6 +4940,14 @@ export function createApp({
       }),
     );
   });
+
+  // Someone following a bad link gets the viewer's page with a way out; a client
+  // that isn't a browser keeps the plain 404.
+  app.notFound(async (c) =>
+    c.req.method === "GET" && c.req.header("accept")?.includes("text/html")
+      ? c.html(await configuredViewerHtml(c), 404)
+      : c.text("404 Not Found", 404),
+  );
 
   // --- REST plumbing for the shared flows ---
 

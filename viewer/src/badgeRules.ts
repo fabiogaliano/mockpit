@@ -11,7 +11,7 @@ export const countMayChange = (e: FeedEvent): boolean =>
 
 const COUNT = /^\(\d+\) /;
 
-// "(3) Writer" while 3 mocks owe answers, the bare title at 0.
+// "(3) Writer" while 3 questions wait, the bare title at 0.
 export function titleWithCount(title: string, n: number): string {
   const bare = title.replace(COUNT, "");
   return n > 0 ? `(${n}) ${bare}` : bare;

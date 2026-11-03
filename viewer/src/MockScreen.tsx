@@ -34,6 +34,7 @@ import {
   widthLabel,
 } from "./logic.ts";
 import { CarriedChip, NextCard } from "./NextCard.tsx";
+import { NotFound } from "./NotFound.tsx";
 import { QuestionCard, QuestionTab } from "./QuestionCard.tsx";
 import { ResolvedNote } from "./Questions.tsx";
 import { markSeen } from "./seen.ts";
@@ -348,7 +349,12 @@ export function MockScreen(props: {
         when={!s.missing()}
         fallback={
           <main class="main">
-            <p class="home-empty">{`No mock "${props.slug}" in ${props.project}.`}</p>
+            <NotFound
+              title={`“${props.slug}” isn't in ${props.project}`}
+              hint="It may have been renamed or moved."
+              href={projectPath(props.project)}
+              back={`Back to ${props.project}`}
+            />
           </main>
         }
       >
@@ -523,21 +529,23 @@ function TopRow(props: {
           {(state) => <span class="crumb-far crumb-sit">{`· ${state()}`}</span>}
         </Show>
       </nav>
-      <button
-        type="button"
-        class="ib mabout"
-        aria-label={`About ${title()}`}
-        title="About"
-        aria-expanded={open()}
-        aria-haspopup="dialog"
-        ref={(el) => (btn = el)}
-        onClick={() => {
-          props.about.wake();
-          setOpen(!open());
-        }}
-      >
-        <Icon name="info" />
-      </button>
+      <Show when={s.mock()}>
+        <button
+          type="button"
+          class="ib mabout"
+          aria-label={`About ${title()}`}
+          title="About"
+          aria-expanded={open()}
+          aria-haspopup="dialog"
+          ref={(el) => (btn = el)}
+          onClick={() => {
+            props.about.wake();
+            setOpen(!open());
+          }}
+        >
+          <Icon name="info" />
+        </button>
+      </Show>
       <About
         s={s}
         r={props.about}
@@ -568,7 +576,7 @@ function TopRow(props: {
       >
         {(list) => <ShortlistPill list={list()} project={props.project} />}
       </Show>
-      <Show when={props.view === "stage"}>
+      <Show when={props.view === "stage" && s.mock()}>
         <WidthMenu s={s} />
       </Show>
       <Show when={props.compare || props.view === "studio"}>

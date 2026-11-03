@@ -50,14 +50,16 @@ import {
   keepSame,
 } from "./logic.ts";
 import {
-  type HomeView,
   linkClick,
   mockPath,
   navigate,
   projectPath,
   questionPath,
   rememberHomeView,
+  rootPath,
+  type HomeView,
 } from "./route.ts";
+import { NotFound } from "./NotFound.tsx";
 import { unseen } from "./seen.ts";
 import { setTheme, theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
@@ -99,6 +101,10 @@ export function Home(props: {
   setCarried(null);
   const [projects, { refetch: refetchProjects }] = createResource(() => api.projects());
   const project = createMemo(() => props.project ?? projects()?.[0]?.name ?? null);
+  const noSuchProject = () => {
+    const known = projects();
+    return !!known && !!props.project && !known.some((p) => p.name === props.project);
+  };
   const [list, { refetch: refetchList }] = createResource(project, (p) => api.mocks(p));
   const [tree, { refetch: refetchTree }] = createResource(project, (p) => api.tree(p));
   const refetch = () => Promise.all([refetchList(), refetchTree()]);
@@ -162,16 +168,16 @@ export function Home(props: {
       sketches: mine.filter((n) => n.kind === "sketch"),
     };
   };
+  const areaSlice = (a: string) =>
+    slice(
+      (n) => n.area === a,
+      allRows().filter((r) => rowIn(r, a)),
+    );
   const whole = createMemo(() => slice(() => true, allRows()));
   // What the rail leaves on screen: one area's mocks, or all of them.
   const shownSlice = createMemo(() => {
     const a = area();
-    return a === null
-      ? whole()
-      : slice(
-          (n) => n.area === a,
-          allRows().filter((r) => rowIn(r, a)),
-        );
+    return a === null ? whole() : areaSlice(a);
   });
   const one = (rows: TreeNode[]): AreaGroup<TreeNode>[] => [{ area: null, rows }];
   const grouped = (rows: TreeNode[]) =>
@@ -318,7 +324,20 @@ export function Home(props: {
     </Show>
   );
 
-  const countIn = (a: string) => onShow().filter((n) => n.area === a).length;
+  // What the tab on screen holds of a slice: the number beside an area is what
+  // picking it would show, or the rail promises what the page then can't.
+  const inView = (s: Slice) => {
+    const n = {
+      all: s.pages.length + s.rows.length + s.components.length + s.sketches.length,
+      pages: s.pages.length,
+      flows: s.rows.length,
+      components: s.components.length,
+      sketches: s.sketches.length,
+    };
+    const v = view();
+    return v === null ? 0 : n[v];
+  };
+  const countIn = (a: string) => inView(areaSlice(a));
   const owesIn = (a: string) => onShow().some((n) => n.area === a && n.open > 0);
   const [archivedOpen, setArchivedOpen] = createSignal(false);
   const ARCHIVED_KIND: Partial<Record<HomeView, TreeNode["kind"]>> = {
@@ -365,7 +384,7 @@ export function Home(props: {
             onClick={(e) => swap(e, projectPath(p(), props.view, null))}
           >
             <span class="nm">All</span>
-            <span class="n">{onShow().length}</span>
+            <span class="n">{inView(whole())}</span>
           </a>
           <For each={areas()}>
             {(a) => (
@@ -570,19 +589,7 @@ export function Home(props: {
       !s.pages.length && !s.rows.length && !s.components.length && !s.sketches.length;
     return empty(rest) ? groups : [...groups, { area: null, slice: rest }];
   });
-  const nothing = () => {
-    const s = shownSlice();
-    const n = {
-      all: s.pages.length + s.rows.length + s.components.length + s.sketches.length,
-      pages: s.pages.length,
-      flows: s.rows.length,
-      components: s.components.length,
-      sketches: s.sketches.length,
-    };
-    const v = view();
-    return !!tree() && area() !== null && v !== null && n[v] === 0;
-  };
-
+  const nothing = () => !!tree() && area() !== null && view() !== null && !inView(shownSlice());
   return (
     <div
       class="screen home"
@@ -601,6 +608,11 @@ export function Home(props: {
                   value={project() ?? ""}
                   onChange={(e) => navigate(projectPath(e.currentTarget.value, props.view))}
                 >
+                  <Show when={noSuchProject()}>
+                    <option value={project() ?? ""} disabled>
+                      Choose a project
+                    </option>
+                  </Show>
                   <For each={projects()}>{(p) => <option value={p.name}>{p.name}</option>}</For>
                 </select>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -616,181 +628,204 @@ export function Home(props: {
         ref={(el) => (main = el)}
         onScroll={() => scrolls.set(scrollKey(), main.scrollTop)}
       >
-        <Show when={phoneLayout()}>{rail()}</Show>
-        <Show when={phoneLayout() && shown().length > 1}>
-          <div class="home-tabs-row">{tabs()}</div>
-        </Show>
-        <div class="home-body">
-          <Show when={!phoneLayout()}>{rail()}</Show>
-          <div class="home-content">
-            <Show
-              when={project()}
-              fallback={
-                <Show when={!projects.loading}>
-                  <p class="home-empty">
-                    Nothing published yet. Agents publish with `mockpit publish`.
-                  </p>
-                </Show>
-              }
-            >
-              <div class="home-lead">
-                {/* Until the list arrives there is no count to tell, not zero of one. */}
-                <Show when={list()}>
-                  <Show
-                    when={waiting().length || resolved().length}
-                    fallback={
-                      <span class="home-count">
-                        <i class="dot ok" />0 open · all answered
-                      </span>
-                    }
-                  >
-                    <button
-                      type="button"
-                      class="home-count"
-                      aria-expanded={listOpen()}
-                      onClick={() => setListOpen(!listOpen())}
-                    >
-                      <i class="dot" classList={{ ok: open() === 0 }} />
-                      {open() > 0
-                        ? `${open()} open across ${list()?.openMocks ?? 0} ${list()?.openMocks === 1 ? "mock" : "mocks"}`
-                        : "0 open · all answered"}
-                    </button>
+        <Show
+          when={!noSuchProject()}
+          fallback={
+            <NotFound
+              title={`No project called “${props.project}”`}
+              hint="It may have been renamed, or nothing has been published there yet."
+              href={rootPath()}
+              back="Go to your projects"
+            />
+          }
+        >
+          <Show when={phoneLayout()}>{rail()}</Show>
+          <Show when={phoneLayout() && shown().length > 1}>
+            <div class="home-tabs-row">{tabs()}</div>
+          </Show>
+          <div class="home-body">
+            <Show when={!phoneLayout()}>{rail()}</Show>
+            <div class="home-content">
+              <Show
+                when={project()}
+                fallback={
+                  <Show when={!projects.loading}>
+                    <p class="home-empty">
+                      Nothing published yet. Agents publish with `mockpit publish`.
+                    </p>
                   </Show>
-                  <Show when={open() > 0}>
-                    <span class="sep">·</span>
-                    <a
-                      class="home-next"
-                      href={questionPath(project()!, next()?.slug ?? "")}
-                      title={next()?.title}
-                      onClick={(e) => linkClick(e, questionPath(project()!, next()?.slug ?? ""))}
+                }
+              >
+                <div class="home-lead">
+                  {/* Until the list arrives there is no count to tell, not zero of one. */}
+                  <Show when={list()}>
+                    <Show
+                      when={waiting().length || resolved().length}
+                      fallback={
+                        <span class="home-count">
+                          <i class="dot ok" />
+                          Nothing open
+                        </span>
+                      }
                     >
-                      Answer next ›
-                    </a>
-                  </Show>
-                </Show>
-              </div>
-              <Show when={listOpen() && (waiting().length || resolved().length)}>
-                <div class="home-waiting">
-                  <ol class="home-list">
-                    <For each={waiting()}>
-                      {(id) => (
-                        <Show when={byId()[id]}>
-                          {(m) => (
-                            <MockRow
-                              mock={m()}
-                              project={project()!}
-                              {...(readonly() ? {} : { onResolve: () => void resolve(m()) })}
-                            />
-                          )}
-                        </Show>
-                      )}
-                    </For>
-                  </ol>
-                  <Show when={resolved().length}>
-                    <section class="home-resolved" aria-label="Closed">
                       <button
                         type="button"
-                        class="home-resolved-hd"
-                        aria-expanded={resolvedOpen()}
-                        onClick={() => setResolvedOpen(!resolvedOpen())}
+                        class="home-count"
+                        aria-expanded={listOpen()}
+                        onClick={() => setListOpen(!listOpen())}
                       >
-                        <span class="answered-chev" aria-hidden="true">
-                          ›
-                        </span>
-                        {`Closed · ${resolved().length}`}
+                        <i class="dot" classList={{ ok: open() === 0 }} />
+                        {open() > 0
+                          ? `${open()} open across ${list()?.openMocks ?? 0} ${list()?.openMocks === 1 ? "mock" : "mocks"}`
+                          : "Nothing open"}
                       </button>
-                      <Show when={resolvedOpen()}>
-                        <ol class="home-list">
-                          <For each={resolved().map((m) => m.id)}>
-                            {(id) => (
-                              <Show when={byId()[id]}>
-                                {(m) => (
-                                  <MockRow
-                                    mock={m()}
-                                    project={project()!}
-                                    {...(readonly() ? {} : { onReopen: () => void reopen(id) })}
-                                  />
-                                )}
-                              </Show>
-                            )}
-                          </For>
-                        </ol>
-                      </Show>
-                    </section>
+                    </Show>
+                    <Show when={open() > 0}>
+                      <span class="sep">·</span>
+                      <a
+                        class="home-next"
+                        href={questionPath(project()!, next()?.slug ?? "")}
+                        title={next()?.title}
+                        onClick={(e) => linkClick(e, questionPath(project()!, next()?.slug ?? ""))}
+                      >
+                        Answer next ›
+                      </a>
+                    </Show>
                   </Show>
                 </div>
-              </Show>
-
-              <Show when={nothing()}>
-                <p class="home-empty">{`Nothing here in ${area()}.`}</p>
-              </Show>
-
-              {/* Empty tiles until the tree is in, so the page has its shape at once. */}
-              <Show when={tree.loading && !tree()}>
-                <div class="home-flow home-skeleton" aria-hidden="true">
-                  <For each={[0, 1, 2, 3, 4, 5]}>
-                    {() => (
-                      <span class="home-step">
-                        <span class="home-pic" />
-                      </span>
-                    )}
-                  </For>
-                </div>
-              </Show>
-
-              <Show when={view() === "all"}>
-                <Show when={area() === null} fallback={kinds(shownSlice, 2)}>
-                  <For each={everyArea().map((g) => g.area)}>
-                    {(a) => (
-                      <section class="home-area">
-                        <h2 class="home-area-hd">{a ?? "No area"}</h2>
-                        {kinds(() => everyArea().find((g) => g.area === a)?.slice, 3)}
+                <Show when={listOpen() && (waiting().length || resolved().length)}>
+                  <div class="home-waiting">
+                    <ol class="home-list">
+                      <For each={waiting()}>
+                        {(id) => (
+                          <Show when={byId()[id]}>
+                            {(m) => (
+                              <MockRow
+                                mock={m()}
+                                project={project()!}
+                                {...(readonly() ? {} : { onResolve: () => void resolve(m()) })}
+                              />
+                            )}
+                          </Show>
+                        )}
+                      </For>
+                    </ol>
+                    <Show when={resolved().length}>
+                      <section class="home-resolved" aria-label="Closed">
+                        <button
+                          type="button"
+                          class="home-resolved-hd"
+                          aria-expanded={resolvedOpen()}
+                          onClick={() => setResolvedOpen(!resolvedOpen())}
+                        >
+                          <span class="answered-chev" aria-hidden="true">
+                            ›
+                          </span>
+                          {`Closed · ${resolved().length}`}
+                        </button>
+                        <Show when={resolvedOpen()}>
+                          <ol class="home-list">
+                            <For each={resolved().map((m) => m.id)}>
+                              {(id) => (
+                                <Show when={byId()[id]}>
+                                  {(m) => (
+                                    <MockRow
+                                      mock={m()}
+                                      project={project()!}
+                                      {...(readonly() ? {} : { onReopen: () => void reopen(id) })}
+                                    />
+                                  )}
+                                </Show>
+                              )}
+                            </For>
+                          </ol>
+                        </Show>
                       </section>
-                    )}
-                  </For>
+                    </Show>
+                  </div>
+                </Show>
+
+                <Show when={nothing()}>
+                  <p class="home-empty">
+                    {`No ${TABS.find((t) => t.view === view())?.label.toLowerCase() ?? "designs"} in ${area()}. `}
+                    <a
+                      href={projectPath(project()!, "all", area())}
+                      onClick={(e) => swap(e, projectPath(project()!, "all", area()))}
+                    >
+                      {`Show everything in ${area()}`}
+                    </a>
+                  </p>
+                </Show>
+
+                {/* Empty tiles until the tree is in, so the page has its shape at once. */}
+                <Show when={tree.loading && !tree()}>
+                  <div class="home-flow home-skeleton" aria-hidden="true">
+                    <For each={[0, 1, 2, 3, 4, 5]}>
+                      {() => (
+                        <span class="home-step">
+                          <span class="home-pic" />
+                        </span>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+
+                <Show when={view() === "all"}>
+                  <Show when={area() === null} fallback={kinds(shownSlice, 2)}>
+                    <For each={everyArea().map((g) => g.area)}>
+                      {(a) => (
+                        <section class="home-area">
+                          <h2 class="home-area-hd">{a ?? "No area"}</h2>
+                          {kinds(() => everyArea().find((g) => g.area === a)?.slice, 3)}
+                        </section>
+                      )}
+                    </For>
+                  </Show>
+                </Show>
+
+                <Show when={view() === "flows"}>{flowsOf(flowGroups, 2)}</Show>
+                <Show when={view() === "pages"}>
+                  {pagesOf(() => grouped(shownSlice().pages), 2)}
+                </Show>
+                <Show when={view() === "components"}>
+                  {componentsOf(() => grouped(shownSlice().components), 2)}
+                </Show>
+                <Show when={view() === "sketches"}>
+                  {sketchesOf(() => grouped(shownSlice().sketches), 2)}
+                </Show>
+                <Show when={archivedHere().length}>
+                  <section class="home-resolved" aria-label="Archived">
+                    <button
+                      type="button"
+                      class="home-resolved-hd"
+                      aria-expanded={archivedOpen()}
+                      onClick={() => setArchivedOpen(!archivedOpen())}
+                    >
+                      <span class="answered-chev" aria-hidden="true">
+                        ›
+                      </span>
+                      {`Archived · ${archivedHere().length}`}
+                    </button>
+                    <Show when={archivedOpen()}>
+                      <div class="home-archived">
+                        <For each={archivedHere()}>
+                          {(n) => {
+                            const href = mockPath(project()!, n.slug);
+                            return (
+                              <a href={href} onClick={(e) => linkClick(e, href)}>
+                                {n.title}
+                              </a>
+                            );
+                          }}
+                        </For>
+                      </div>
+                    </Show>
+                  </section>
                 </Show>
               </Show>
-
-              <Show when={view() === "flows"}>{flowsOf(flowGroups, 2)}</Show>
-              <Show when={view() === "pages"}>{pagesOf(() => grouped(shownSlice().pages), 2)}</Show>
-              <Show when={view() === "components"}>
-                {componentsOf(() => grouped(shownSlice().components), 2)}
-              </Show>
-              <Show when={view() === "sketches"}>
-                {sketchesOf(() => grouped(shownSlice().sketches), 2)}
-              </Show>
-              <Show when={archivedHere().length}>
-                <section class="home-resolved" aria-label="Archived">
-                  <button
-                    type="button"
-                    class="home-resolved-hd"
-                    aria-expanded={archivedOpen()}
-                    onClick={() => setArchivedOpen(!archivedOpen())}
-                  >
-                    <span class="answered-chev" aria-hidden="true">
-                      ›
-                    </span>
-                    {`Archived · ${archivedHere().length}`}
-                  </button>
-                  <Show when={archivedOpen()}>
-                    <div class="home-archived">
-                      <For each={archivedHere()}>
-                        {(n) => {
-                          const href = mockPath(project()!, n.slug);
-                          return (
-                            <a href={href} onClick={(e) => linkClick(e, href)}>
-                              {n.title}
-                            </a>
-                          );
-                        }}
-                      </For>
-                    </div>
-                  </Show>
-                </section>
-              </Show>
-            </Show>
+            </div>
           </div>
-        </div>
+        </Show>
       </main>
       <Show when={toast()}>
         {(t) => (

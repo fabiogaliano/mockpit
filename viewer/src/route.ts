@@ -30,7 +30,8 @@ export type Route =
       open: ScreenOpen | null;
       // The flow the user came through, which the flow bar keeps to.
       flow: string | null;
-    };
+    }
+  | { screen: "missing" };
 
 export type ScreenOpen = { state: string | null; variant: string | null; version?: number | null };
 export type MockRoute = Extract<Route, { screen: "mock" }>;
@@ -52,6 +53,9 @@ export function parseRoute(pathname: string, base = "", search = ""): Route {
     view: isHomeView(q.get("view")) ? (q.get("view") as HomeView) : null,
     area: q.get("area") || null,
   });
+  if (seg.length && (seg[0] !== "project" || !seg[1] || seg.length > 3)) {
+    return { screen: "missing" };
+  }
   if (seg[0] === "project" && seg[1]) {
     if (seg[2]) {
       const variant = q.get("variant");
@@ -113,6 +117,7 @@ const lastView = new Map<string, { view: HomeView | null; area: string | null }>
 export const rememberHomeView = (project: string, view: HomeView | null, area: string | null) =>
   lastView.set(project, { view, area });
 // The project's crumb means the whole project, its area crumb that area, on the same tab.
+export const rootPath = () => `${basePath()}/`;
 export const homePath = (project: string, area: string | null = null) =>
   projectPath(project, lastView.get(project)?.view ?? null, area);
 

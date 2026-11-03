@@ -1,12 +1,14 @@
-// How many mocks owe the user answers, across the workspace, on the installed
-// app's icon (`navigator.setAppBadge`, where the browser has it) and in the tab
-// title. Live from the feed while the viewer is open; nothing runs once it is
-// closed (no Web Push yet).
+// How many questions wait on the user: across the workspace on the installed
+// app's icon (`navigator.setAppBadge`, where the browser has it), and for the
+// project on screen in the tab title, which sits beside that project's page and
+// should say what the page says. Live from the feed while the viewer is open;
+// nothing runs once it is closed (no Web Push yet).
 
-import { onCleanup } from "solid-js";
+import { createEffect, on, onCleanup } from "solid-js";
 import { api, subscribe } from "./api.ts";
 import { countMayChange, titleWithCount } from "./badgeRules.ts";
 import { host, readonly, root } from "./host.ts";
+import { route } from "./route.ts";
 
 type BadgeNavigator = Navigator & {
   setAppBadge?: (n?: number) => Promise<void>;
@@ -24,18 +26,28 @@ export function startBadge() {
   let last: number | null = null;
   let timer = 0;
 
-  const show = (n: number) => {
+  const show = (here: number, everywhere: number) => {
     const doc = root();
-    doc.title = titleWithCount(doc.title, n);
-    if (n === last) return;
-    last = n;
+    doc.title = titleWithCount(doc.title, here);
+    if (everywhere === last) return;
+    last = everywhere;
     // Rejects without notification permission on some platforms; the title still counts.
-    if (n > 0) nav.setAppBadge?.(n).catch(() => {});
+    if (everywhere > 0) nav.setAppBadge?.(everywhere).catch(() => {});
     else nav.clearAppBadge?.().catch(() => {});
+  };
+  const onScreen = () => {
+    const r = route();
+    return r.screen === "missing" ? null : r.project;
   };
   const refresh = async () => {
     try {
-      show((await api.allMocks()).openMocks);
+      const projects = await api.projects();
+      // No project in the address is the most recent one, as on Home.
+      const here = projects.find((p) => p.name === onScreen()) ?? projects[0];
+      show(
+        here?.open ?? 0,
+        projects.reduce((n, p) => n + p.open, 0),
+      );
     } catch {
       // Offline or signed out: keep the last count rather than guess.
     }
@@ -46,6 +58,7 @@ export function startBadge() {
   };
 
   const stop = subscribe((e) => countMayChange(e) && soon(), soon);
+  createEffect(on(onScreen, soon, { defer: true }));
   onCleanup(() => {
     stop();
     win.clearTimeout(timer);

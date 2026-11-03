@@ -144,7 +144,7 @@ command for you. Sending it stops the nudge and keeps your answered question
 on the mock; the built-in one is gone once answered.
 
 Until a question binds them, the viewer shows a built-in "Which variant?"
-with a picture of each variant, so the user can still choose in one Send. Its
-answer reads like any other under the reserved id `variant` (per state:
-`variant:<state>`), and puts in use and archives per state. Your own question
-over those variants replaces it.
+with a picture of each variant, so the user can still choose in one Send. It
+doesn't count as open: nothing is waiting on it. Its answer reads like any other
+under the reserved id `variant` (per state: `variant:<state>`), and puts in use
+and archives per state. Your own question over those variants replaces it.

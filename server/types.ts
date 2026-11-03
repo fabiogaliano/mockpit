@@ -1237,11 +1237,9 @@ export const askAnswered = (a: Pick<Ask, "answer" | "other" | "note">): boolean 
 export const openAsks = (mock: Pick<Mock, "asks">): Ask[] =>
   mock.asks.filter((a) => !askAnswered(a) && !a.dismissed);
 
-// How many built-in "Which variant?" questions the viewer shows: one mock-wide when every
+// The built-in "Which variant?" questions the viewer shows: one mock-wide when every
 // state needs one and the live names line up, else one per needing state. Same
-// rule as viewer/src/logic.ts builtinAsks, so Home, `read` and `pending` count
-// the question the user actually sees. Answering it archives the losers, which
-// is what makes it stop counting.
+// rule as viewer/src/logic.ts builtinAsks.
 export function builtinAskIds(
   mock: Pick<Mock, "asks" | "states"> & { closedAt?: string | null },
   posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
@@ -1272,33 +1270,23 @@ export function builtinAskIds(
     : needing.map((st) => (st === null ? BUILTIN_ASK_ID : `${BUILTIN_ASK_ID}:${st}`));
 }
 
-export const builtinAskCount = (
-  mock: Pick<Mock, "asks" | "states"> & { closedAt?: string | null },
-  posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
-  mockId: string,
-): number => builtinAskIds(mock, posts, mockId).length;
-
-export const openCount = (
-  mock: Pick<Mock, "id" | "asks" | "states"> & { closedAt?: string | null },
-  posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
-): number => openAsks(mock).length + builtinAskCount(mock, posts, mock.id);
+// Questions an agent asked that wait on the user. The built-in "Which variant?"
+// is not one: no agent is waiting on it, and being shown several designs owes
+// nobody an answer.
+export const openCount = (mock: Pick<Mock, "asks">): number => openAsks(mock).length;
 
 // How many of the open asks the user's unsent draft already speaks for (a
 // pick, a write-in or a note), so Home can show a started mock as "draft 2/4";
 // null when there is no draft. A count only: the draft's content stays private.
-export function draftedCount(
-  mock: Pick<Mock, "id" | "asks" | "states" | "draft"> & { closedAt?: string | null },
-  posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
-): number | null {
+export function draftedCount(mock: Pick<Mock, "asks" | "draft">): number | null {
   const d = mock.draft;
   if (!d) return null;
-  const open = [...openAsks(mock).map((a) => a.id), ...builtinAskIds(mock, posts, mock.id)];
   const said = (id: string) => {
     const a = d.answers[id];
     const picked = Array.isArray(a) ? a.length > 0 : a !== undefined;
     return picked || d.others?.[id] !== undefined || d.notes?.[id] !== undefined;
   };
-  return open.filter(said).length;
+  return openAsks(mock).filter((a) => said(a.id)).length;
 }
 
 // The viewer's built-in "Which variant?" for variants no agent ask binds: `variant`
@@ -1334,11 +1322,7 @@ export function builtinAsk(
 
 // Per-project rollup for the projects list. Pure, so every store agrees on
 // what "open" and "lastActiveAt" mean.
-export function summarizeProjects(
-  mocks: Mock[],
-  sessions: Session[],
-  posts: Pick<Post, "mock" | "state" | "variant" | "status">[] = [],
-): ProjectSummary[] {
+export function summarizeProjects(mocks: Mock[], sessions: Session[]): ProjectSummary[] {
   const byProject = new Map<string, Mock[]>();
   for (const m of mocks) {
     const list = byProject.get(m.project);
@@ -1361,7 +1345,7 @@ export function summarizeProjects(
       return {
         name,
         mocks: list.length,
-        open: list.reduce((n, m) => n + openCount(m, posts), 0),
+        open: list.reduce((n, m) => n + openCount(m), 0),
         lastActiveAt: [lastMock, sessionActive.get(name) ?? ""].sort().pop() ?? "",
         sessions: sessionCounts.get(name) ?? 0,
       };

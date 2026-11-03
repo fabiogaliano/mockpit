@@ -1045,13 +1045,15 @@ export function createMockScreen(
     const e = flow().find((x) => x.ask.id === id);
     if (e) goQuestion(entriesIn(e.state).indexOf(e), { state: e.state });
   }
-  // The question card back from its tab: on the first question still owed.
+  // The question card back from its tab: on the first question still owed, else
+  // the first with a drafted answer waiting for its Send.
   function goOwed() {
     setPanelSignal(null);
-    const here = questions().length > 0;
-    const first = firstOwed();
-    if (!here && first) goQuestion(first.to, { state: first.state });
-    else setCardMin(false);
+    if (questions().length) return setCardMin(false);
+    const owedStop = firstOwed();
+    if (owedStop) return goQuestion(owedStop.to, { state: owedStop.state });
+    const drafted = flow()[0];
+    if (drafted) goEntry(drafted);
   }
   // "Change answer" on a sent one: deliberate, so it alone reopens it.
   function changeAnswer(ask: Ask) {

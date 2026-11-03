@@ -1039,17 +1039,7 @@ export class SqlStore implements Store {
   // --- projects / mocks ---
 
   async listProjects() {
-    // Open counts need only where each variant sits, never its surfaces.
-    const posts = this.sql
-      .exec("SELECT mockId, state, variant, status FROM posts")
-      .toArray()
-      .map((r) => ({
-        mock: r.mockId as string,
-        state: (r.state as string) ?? null,
-        variant: r.variant as string,
-        status: ((r.status as string) || "open") as PostStatus,
-      }));
-    return summarizeProjects(await this.listMocks(), await this.listSessions(), posts);
+    return summarizeProjects(await this.listMocks(), await this.listSessions());
   }
 
   async listMocks(project?: string) {

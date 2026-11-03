@@ -53,7 +53,7 @@ consciously, not as a side effect):
   a background `mockpit watch`). Guard this hardest — both halves have
   regressed before.
 - Tiers, no modes: each thing the agent adds lights up its part of the viewer
-  (variants → switcher and the built-in Which variant? question, asks → Questions, `data-part` → Tune parts and part
+  (variants → switcher and the built-in Which variant? question, which never counts as open, asks → Questions, `data-part` → Tune parts and part
   comments, `knobs` → Tune knobs, states and flows → the flow bar, `kind`
   page/component and flows → Home's tabs; undeclared is a sketch). A plain
   publish of any kind still gets stage + Thread + Use this / Revise.

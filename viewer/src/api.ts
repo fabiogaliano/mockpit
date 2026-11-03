@@ -103,7 +103,6 @@ export const api = {
   projects: () => call<ProjectSummary[]>("/api/projects"),
   mocks: (project: string) => call<MockList>(`/api/mocks?project=${encodeURIComponent(project)}`),
   // Every project's mocks: what the app badge counts.
-  allMocks: () => call<MockList>("/api/mocks"),
   shortlists: (project: string) =>
     call<{ shortlists: Shortlist[]; copies: LiveCopy[] }>(
       `/api/projects/${encodeURIComponent(project)}/shortlists`,

@@ -238,7 +238,7 @@ const situationsOf = (mock: Mock) =>
   Object.keys(mock.situations).length ? { situations: mock.situations } : {};
 
 export const mockSummaryView = (mock: Mock, posts: PostHead[]) => {
-  const drafted = draftedCount(mock, posts);
+  const drafted = draftedCount(mock);
   return {
     id: mock.id,
     project: mock.project,
@@ -250,7 +250,7 @@ export const mockSummaryView = (mock: Mock, posts: PostHead[]) => {
     ...situationsOf(mock),
     stateCount: Math.max(momentsOf(mock.states, mock.situations).length, 1),
     variants: posts.length,
-    open: openCount(mock, posts),
+    open: openCount(mock),
     // Only once the user has started one, so a list with no drafts costs nothing.
     ...(drafted === null ? {} : { drafted }),
     sessionId: mock.sessionId,
@@ -280,7 +280,7 @@ export const mockDetailView = (
   states: mock.states,
   ...situationsOf(mock),
   asks: mock.asks,
-  open: openCount(mock, posts),
+  open: openCount(mock),
   knobs: mock.knobs,
   widths: mock.widths,
   sessionId: mock.sessionId,
@@ -318,7 +318,7 @@ export const treeNodeView = (
   kind: mock.kind,
   ...placeOf(mock),
   ...(mock.shortlist ? { shortlist: true } : {}),
-  open: openCount(mock, posts),
+  open: openCount(mock),
   // Home shows a mock's states, never their situations.
   states: mock.states.length ? momentsOf(mock.states, mock.situations) : [null],
   widths: mock.widths,

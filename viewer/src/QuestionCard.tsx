@@ -5,9 +5,11 @@
 // a tab on the canvas's edge, as does opening the history.
 
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import type { Ask } from "../../server/types.ts";
 import { hasFiles } from "./attach.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
+import { isBuiltinAsk } from "./logic.ts";
 import { AskBody } from "./Questions.tsx";
 import type { MockScreenState } from "./state.ts";
 
@@ -32,6 +34,10 @@ export function QuestionCard(props: { s: MockScreenState }) {
   const shown = () => !s.cardMin() && !s.panel() && !s.mock()?.closedAt;
   const total = () => s.questions().length;
   const i = () => Math.min(s.cur(), total() - 1);
+  // The built-in Which variant? comes last and isn't a question anyone asked, so
+  // the count reads the same as Home's.
+  const counted = (a: Ask) => asked() > 1 && !isBuiltinAsk(a);
+  const asked = () => s.questions().filter((q) => q.kind === "ask" && !isBuiltinAsk(q.ask)).length;
   return (
     // Keyed by the question's id, not its object: the asks are rebuilt whenever
     // a frame reports its parts, and remounting on that would drop the focus
@@ -48,10 +54,10 @@ export function QuestionCard(props: { s: MockScreenState }) {
                 </div>
                 <div class="qhd">
                   <div class="qtext">
-                    <Show when={total() > 1 || s.askSlot(ask())}>
+                    <Show when={counted(ask()) || s.askSlot(ask())}>
                       <span class="qs">
-                        <Show when={total() > 1}>
-                          <span class="qcount">{`${i() + 1} of ${total()}`}</span>
+                        <Show when={counted(ask())}>
+                          <span class="qcount">{`${i() + 1} of ${asked()}`}</span>
                         </Show>
                         <Show when={s.askSlot(ask())}>
                           {(sl) => (
@@ -72,6 +78,7 @@ export function QuestionCard(props: { s: MockScreenState }) {
                     type="button"
                     class="ib qx"
                     aria-label="Minimise the question"
+                    title="Minimise"
                     onClick={() => s.setCardMin(true)}
                   >
                     <Icon name="close" />
@@ -135,22 +142,26 @@ export function QuestionCard(props: { s: MockScreenState }) {
   );
 }
 
-// The question tucked away: a tab on the canvas's right edge with how many are
-// open; a tap brings the card back on the first still owed.
+// The question tucked away: a tab on the canvas's right edge. It stays as long as
+// anything can still be sent, a question with a drafted answer too, or minimising
+// that one would leave no way back to its Send. A tap brings the card back.
 export function QuestionTab(props: { s: MockScreenState }) {
   const s = props.s;
-  const n = () => s.owed().length;
+  const asks = () => new Set(s.flow().map((e) => e.ask.id));
+  const n = () => [...asks()].filter((id) => !isBuiltinAsk({ id })).length;
   const hidden = () => s.cardMin() || !!s.panel() || !s.curAsk();
   return (
-    <Show when={hidden() && n() > 0 && !s.mock()?.closedAt}>
+    <Show when={hidden() && asks().size > 0 && !s.mock()?.closedAt}>
       <button
         type="button"
         class="qtab"
-        aria-label={`Show the question, ${n()} open`}
+        aria-label={n() ? `Show the question, ${n()} open` : "Show the choice of variant"}
         onClick={() => s.goOwed()}
       >
-        <b>{n()}</b>
-        {n() === 1 ? "Question" : "Questions"}
+        <Show when={n()} fallback="Pick one">
+          <b>{n()}</b>
+          {n() === 1 ? "Question" : "Questions"}
+        </Show>
       </button>
     </Show>
   );

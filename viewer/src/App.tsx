@@ -2,8 +2,9 @@ import { createMemo, Match, Switch } from "solid-js";
 import { startBadge } from "./badge.ts";
 import { Home } from "./Home.tsx";
 import { MockScreen } from "./MockScreen.tsx";
+import { NotFound } from "./NotFound.tsx";
 import { startNotifier } from "./notify.ts";
-import { type MockRoute, route } from "./route.ts";
+import { type MockRoute, rootPath, route } from "./route.ts";
 import { CarriedToast } from "./toast.tsx";
 
 export function App() {
@@ -33,6 +34,9 @@ export function App() {
         </Match>
         <Match when={home()}>
           {(r) => <Home project={r().project} view={r().view} area={r().area} />}
+        </Match>
+        <Match when={route().screen === "missing"}>
+          <NotFound title="Nothing at this address" href={rootPath()} back="Go to your projects" />
         </Match>
       </Switch>
       <CarriedToast />
