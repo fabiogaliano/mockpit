@@ -10,7 +10,6 @@
 // ask the frame itself what is under the pointer (`hit`), because only the page
 // knows its own stacking.
 
-import { AnswerPeek } from "./AnswerPeek.tsx";
 import {
   createEffect,
   createMemo,
@@ -486,7 +485,6 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
 
   return (
     <div class="stagewrap canvas" style={{ top: `${canvasTop()}px` }}>
-      <AnswerPeek s={s} />
       <div class="stage" classList={{ tuning: s.tuning() }}>
         <ArrivedBanner s={s} />
         <div class="layers" ref={(el) => (layersEl = el)} style={{ height: `${availH()}px` }}>

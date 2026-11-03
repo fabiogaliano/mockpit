@@ -125,9 +125,6 @@ export interface Preview {
   knobs?: Record<string, KnobValue>;
   // A Mix borrow: the part outlined on the donor look while it previews.
   part?: string;
-  // An option whose question is about another state: seen in the peek, because
-  // the stage would show nothing of it and moving it on a hover would jump the screen.
-  peek?: { ask: string; option: string };
 }
 
 // Where Send leaves the user: the next design still owing answers (null when none
@@ -1755,17 +1752,13 @@ export function createDesignScreen(
     if (o.variant && o.version) {
       return { key, variant: o.variant, version: o.version, state: optionState(ask, m) };
     }
+    // The stage would show nothing of it, and moving it on a hover would jump the
+    // screen: the card's Show is the way there.
     const about = askAbout(ask, m);
     const on = activeState();
-    const peek =
-      about.length && (on === null || !about.includes(on))
-        ? { peek: { ask: ask.id, option: o.id } }
-        : {};
-    if (o.variant) {
-      return { key, variant: o.variant, state: askState(ask, m, activeState()), ...peek };
-    }
-    if (!o.set) return null;
-    return "peek" in peek ? { key, ...peek } : { key, knobs: o.set };
+    if (about.length && (on === null || !about.includes(on))) return null;
+    if (o.variant) return { key, variant: o.variant, state: askState(ask, m, on) };
+    return o.set ? { key, knobs: o.set } : null;
   }
   // A tap, a click or a number key on an option: the first puts it on the
   // stage as your pick; the same option again sends it on (the next question,

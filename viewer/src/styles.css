@@ -8352,8 +8352,7 @@ body:has(.selp) .toast {
   border-left: 1px solid var(--line);
 }
 
-/* A question about another state: where it is from the card, and its answers
-   beside the stage, never over the card or under the pointer. */
+/* A question about another state says so on its card, with the way there. */
 .qabout {
   display: inline-flex;
   flex-wrap: wrap;
@@ -8365,64 +8364,4 @@ body:has(.selp) .toast {
 }
 .qabout .lnk {
   margin-left: 4px;
-}
-.answer-peek {
-  position: absolute;
-  top: 12px;
-  right: 16px;
-  z-index: 3;
-  width: 240px;
-  padding: 8px;
-  border: 1px solid var(--edge);
-  border-radius: 14px;
-  background: var(--panel);
-  box-shadow: 0 12px 32px #000a;
-  opacity: 0;
-  transform: translateY(4px);
-  pointer-events: none;
-  transition:
-    opacity 120ms ease,
-    transform 120ms ease;
-}
-.answer-peek.on {
-  opacity: 1;
-  transform: none;
-}
-/* The neighbouring screens' previews sit at this edge, in a layer above the stage's. */
-body:has(.answer-peek.on) .ghost {
-  opacity: 0;
-  pointer-events: none;
-}
-.answer-peek-cap {
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 6px;
-  color: var(--t3);
-  font-size: 12px;
-}
-.answer-peek-cap b {
-  color: var(--t1);
-  font-weight: 500;
-}
-.answer-peek-frame {
-  width: 100%;
-  border-radius: 8px;
-  background: var(--frame);
-}
-.answer-peek-frame.tall {
-  aspect-ratio: 9 / 16;
-}
-.answer-peek-frame.wide {
-  aspect-ratio: 4 / 3;
-}
-/* No room beside the stage: the option pictures still show the right state. */
-@media (max-width: 720px) {
-  .answer-peek {
-    display: none;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .answer-peek {
-    transition: none;
-  }
 }
