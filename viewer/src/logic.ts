@@ -1779,6 +1779,14 @@ export const stepFor = (steps: VersionStep[], ref: VersionRef | null | undefined
   ref ? steps.find((x) => sameVersion(x, ref)) : undefined;
 
 // The next or previous version to show from `ref`, passing over hidden ones.
+// The Versions list, one line per variant with the newest on top, from its far end:
+// so the arrows go up and down the list you can see, not across variants by date.
+export function listedSteps(steps: VersionStep[]): VersionStep[] {
+  const newest = [...steps].reverse();
+  const lines = [...new Set(newest.map((x) => x.variant))];
+  return lines.flatMap((v) => newest.filter((x) => x.variant === v)).reverse();
+}
+
 export function neighbourStep(
   steps: VersionStep[],
   ref: VersionRef | null,

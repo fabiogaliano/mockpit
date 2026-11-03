@@ -48,7 +48,18 @@ export function createFlowNav(
 
   const nodes = createMemo(() => new Map((data()?.mocks ?? []).map((n) => [n.slug, n])));
   const here = (): FlowStep => ({ mock: slug, state: s.activeState() });
-  const flow = createMemo(() => flowFor(data()?.flows ?? [], here(), cameThrough));
+  // A state the flow skips, reached from its list, stays inside the flow: leaving it
+  // there would take the way back with it.
+  type Flow = NonNullable<ReturnType<typeof flowOf>>;
+  const flowOf = () => flowFor(data()?.flows ?? [], here(), cameThrough);
+  const flow = createMemo<Flow | null>((was) => {
+    const flows = data()?.flows ?? [];
+    return (
+      flowOf() ??
+      flows.find((f) => f.name === was?.name && f.steps.some((x) => x.mock === slug)) ??
+      null
+    );
+  }, null);
   // Only a step in another mock takes its picture from the tree.
   const [tree] = createResource(
     () => (flow()?.steps.some((x) => x.mock !== slug) ? rev() + 1 : null),
@@ -60,6 +71,19 @@ export function createFlowNav(
   const emptied = createMemo(() => {
     if (flow()) return [];
     return s.states().filter((st) => st !== s.activeState() && s.emptiedState(st));
+  });
+  // This mock's states the flow doesn't walk through, listed after it.
+  const outside = createMemo<FlowStep[]>(() => {
+    const f = flow();
+    if (!f) return [];
+    return s
+      .states()
+      .filter(
+        (state) =>
+          !f.steps.some((x) => x.mock === slug && x.state === state) &&
+          (state === s.activeState() || !s.emptiedState(state)),
+      )
+      .map((state) => ({ mock: slug, state }));
   });
   const steps = createMemo<FlowStep[]>(
     () =>
@@ -147,6 +171,7 @@ export function createFlowNav(
   return {
     flow,
     steps,
+    outside,
     emptied,
     here,
     at,

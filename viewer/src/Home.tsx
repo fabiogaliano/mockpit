@@ -24,7 +24,6 @@ import { Album, DocRow, FlowStepTile } from "./Album.tsx";
 import {
   DATED_FROM,
   dateGroups,
-  litSections,
   lastWork,
   newestFirst,
   questions,
@@ -32,6 +31,8 @@ import {
   SECTION_LABEL,
   sectionOf,
   type ShelfSection,
+  SIDEBAR_FROM,
+  sidebarOf,
   usedIn,
 } from "./albums.ts";
 import { CardMenu } from "./CardMenu.tsx";
@@ -45,12 +46,10 @@ import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { openJump } from "./Jump.tsx";
 import {
-  nothingLeft,
   type AreaGroup,
   flowArea,
   groupByArea,
   nextOwedMock,
-  orderAreas,
   shortSource,
   timeAgo,
   versionStamp,
@@ -81,11 +80,6 @@ import { phoneLayout } from "./viewport.ts";
 const scrolls = new Map<string, number>();
 // Which date headings and folds the user opened or shut, for the same reason.
 const folds = new Map<string, boolean>();
-
-// A project this small is one or two things to look at, not a place to navigate.
-const SIDEBAR_FROM = 3;
-// Up to this many mocks in a lone section, the sidebar lists them by name.
-const TREE_UP_TO = 12;
 
 interface Row {
   name: string;
@@ -143,22 +137,7 @@ export function Home(props: {
   const bySlug = createMemo(() => new Map(nodes().map((n) => [n.slug, n])));
   // Ended a moment ago, before the tree catches up.
   const [leaving, setLeaving] = createSignal<Record<string, true>>({});
-  // One way off the shelf, however it got there: ended by hand, or with every design
-  // archived. Both are in the Archive, the ended ones first and newest first.
-  // A plan has nothing live because nothing is drawn yet, which is not the same thing.
-  const inArchive = (n: TreeNode) => !!n.closedAt || (nothingLeft(n) && !n.planned);
-  const onShow = createMemo(() => nodes().filter((n) => !inArchive(n) && !leaving()[n.id]));
-  const archived = createMemo(() => nodes().filter((n) => inArchive(n) && !leaving()[n.id]));
   const areaOrder = createMemo(() => tree()?.areaOrder ?? []);
-  const areas = createMemo(() =>
-    orderAreas(
-      onShow().flatMap((n) => (n.area ? [n.area] : [])),
-      areaOrder(),
-    ),
-  );
-  // An area the project no longer has is all of them.
-  const area = createMemo(() => (props.area && areas().includes(props.area) ? props.area : null));
-
   const allRows = createMemo<Row[]>(
     (was) =>
       keepSame(
@@ -168,6 +147,21 @@ export function Home(props: {
       ),
     [],
   );
+  const side = createMemo(() =>
+    sidebarOf(
+      nodes().filter((n) => !leaving()[n.id]),
+      allRows().length,
+      areaOrder(),
+    ),
+  );
+  const onShow = () => side().onShow;
+  const archived = () => side().archived;
+  const areas = () => side().areas;
+  const counts = () => side().counts;
+  const lit = () => side().lit;
+  // An area the project no longer has is all of them.
+  const area = createMemo(() => (props.area && areas().includes(props.area) ? props.area : null));
+
   // A flow belongs to every area one of its screens is in.
   const rowIn = (r: Row, a: string | null) =>
     a === null
@@ -177,14 +171,6 @@ export function Home(props: {
 
   const inSection = (sec: ShelfSection, a: string | null = null) =>
     onShow().filter((n) => sectionOf(n) === sec && (a === null || n.area === a));
-  const counts = createMemo<Record<Section, number>>(() => ({
-    ideas: inSection("ideas").length,
-    screens: inSection("screens").length,
-    components: inSection("components").length,
-    documents: inSection("documents").length,
-    flows: allRows().length,
-  }));
-  const lit = createMemo(() => litSections(counts()));
   const landing = (): Section | null => lit().rows[0] ?? lit().foot;
   const isLit = (s: HomePlace): s is Section =>
     lit().rows.includes(s as Section) || lit().foot === s;
@@ -389,20 +375,6 @@ export function Home(props: {
   });
 
   const countIn = (a: string) => onShow().filter((n) => n.area === a).length;
-  // The lone section, whose mocks the sidebar can list by name: there's no section
-  // choice to make there, and the shelf beside it is the same few things larger. A
-  // dated list already is the names.
-  const treeGroups = () => {
-    const { rows, foot } = lit();
-    if (rows.length !== 1 || foot || rows[0] === "flows" || rows[0] === "documents") return null;
-    const only = inSection(rows[0] as ShelfSection);
-    if (only.length > TREE_UP_TO) return null;
-    return groupByArea(only, (n) => n.area, areaOrder()).map((g) => ({
-      area: g.area,
-      nodes: g.rows,
-    }));
-  };
-
   const sidebar = (inDrawer: boolean) => (
     <Sidebar
       project={project() ?? ""}
@@ -413,7 +385,7 @@ export function Home(props: {
       rows={lit().rows}
       foot={lit().foot}
       areas={areas()}
-      tree={treeGroups()}
+      tree={side().tree}
       archived={archived().length}
       recent={nodes().length > 0}
       go={swap}

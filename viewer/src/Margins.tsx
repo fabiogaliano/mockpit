@@ -72,8 +72,10 @@ export function createMargins(
   // Opened by hand with only sent answers in it, which never open it themselves.
   const [pinned, setPinned] = createSignal(false);
 
-  const walkable = () => (nav.steps().length > 1 || nav.emptied().length > 0) && nav.at() >= 0;
-  const statesShown = () => walkable() || (outlining() && nav.at() >= 0);
+  const onList = () => nav.at() >= 0 || nav.outside().some((x) => x.state === s.activeState());
+  const walkable = () =>
+    (nav.steps().length + nav.outside().length > 1 || nav.emptied().length > 0) && onList();
+  const statesShown = () => walkable() || (outlining() && onList());
   const leftHas = () => statesShown() || s.steps().length > 1;
   const page = () => {
     const kinds: readonly string[] =
@@ -331,58 +333,63 @@ function StateList(props: { s: MockScreenState; nav: FlowNav; outlining: boolean
   const nav = props.nav;
   const keyOf = (x: { mock: string; state: string | null }) => JSON.stringify([x.mock, x.state]);
   const keys = createMemo(() => nav.steps().map(keyOf), [], { equals: sameList });
+  const outsideKeys = createMemo(() => nav.outside().map(keyOf), [], { equals: sameList });
   const pictured = () => nav.steps().length <= PICTURED_UP_TO;
   const flat = () => s.frameW() > 600;
   let list!: HTMLElement;
   createEffect(() => {
+    s.activeState();
     nav.at();
     host().window.requestAnimationFrame(() =>
       list?.querySelector("[aria-current]")?.scrollIntoView({ block: "nearest" }),
     );
   });
+  const row = (key: string) => {
+    const [mock, state] = JSON.parse(key) as [string, string | null];
+    const x = { mock, state };
+    const here = () => keyOf(nav.here()) === key;
+    return (
+      <button
+        type="button"
+        class="lm-row"
+        classList={{ on: here() }}
+        aria-current={here() ? "step" : undefined}
+        aria-label={
+          nav.owes(x)
+            ? `${nav.label(x)}, a question is waiting`
+            : nav.planned(x)
+              ? `${nav.label(x)}, planned`
+              : nav.label(x)
+        }
+        onClick={() => nav.go(x)}
+      >
+        <Show when={pictured()}>
+          <span class="lm-pic" classList={{ flat: flat(), "lm-dash": nav.planned(x) }}>
+            <Show when={nav.picture(x)}>
+              {(u) => <Thumb src={u()} width={s.frameW()} fit whole />}
+            </Show>
+          </span>
+        </Show>
+        <span class="lm-text">
+          <b>{nav.label(x)}</b>
+          <Show when={nav.planned(x)}>
+            <small>Planned</small>
+          </Show>
+        </span>
+        <Show when={nav.owes(x)}>
+          <i class="ftab-q" aria-hidden="true" />
+        </Show>
+      </button>
+    );
+  };
   return (
     <section class="lm-sec" ref={(el) => (list = el)}>
       <h3>{nav.flow() ? nav.name() : "States"}</h3>
-      <For each={keys()}>
-        {(key) => {
-          const [mock, state] = JSON.parse(key) as [string, string | null];
-          const x = { mock, state };
-          const here = () => keyOf(nav.steps()[nav.at()] ?? { mock: "", state: null }) === key;
-          return (
-            <button
-              type="button"
-              class="lm-row"
-              classList={{ on: here() }}
-              aria-current={here() ? "step" : undefined}
-              aria-label={
-                nav.owes(x)
-                  ? `${nav.label(x)}, a question is waiting`
-                  : nav.planned(x)
-                    ? `${nav.label(x)}, planned`
-                    : nav.label(x)
-              }
-              onClick={() => nav.go(x)}
-            >
-              <Show when={pictured()}>
-                <span class="lm-pic" classList={{ flat: flat(), "lm-dash": nav.planned(x) }}>
-                  <Show when={nav.picture(x)}>
-                    {(u) => <Thumb src={u()} width={s.frameW()} fit whole />}
-                  </Show>
-                </span>
-              </Show>
-              <span class="lm-text">
-                <b>{nav.label(x)}</b>
-                <Show when={nav.planned(x)}>
-                  <small>Planned</small>
-                </Show>
-              </span>
-              <Show when={nav.owes(x)}>
-                <i class="ftab-q" aria-hidden="true" />
-              </Show>
-            </button>
-          );
-        }}
-      </For>
+      <For each={keys()}>{row}</For>
+      <Show when={outsideKeys().length}>
+        <h3 class="lm-others">Other states</h3>
+        <For each={outsideKeys()}>{row}</For>
+      </Show>
       {/* The way back to what they hold: each state's archive sits in its own Studio. */}
       <Show when={nav.emptied().length}>
         <select

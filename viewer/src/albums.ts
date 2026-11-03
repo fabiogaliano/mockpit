@@ -7,8 +7,11 @@ import { isLive } from "../../server/types.ts";
 import type { TreeNode } from "./api.ts";
 import {
   designWidth,
+  groupByArea,
   mockStatus,
   type MockStatus,
+  nothingLeft,
+  orderAreas,
   screenPicture,
   type ScreenPicture,
   type StatusNode,
@@ -138,6 +141,50 @@ const TURN_TEXT: Record<Exclude<TurnKind, "open">, string> = {
   exploring: "Exploring",
   idle: "Nothing waiting",
 };
+
+// A project this small is one or two things to look at, not a place to navigate.
+export const SIDEBAR_FROM = 3;
+// Up to this many mocks in a lone section, the sidebar lists them by name.
+const TREE_UP_TO = 12;
+
+// One way off the shelf, however it got there: ended by hand, or with every design
+// archived. A plan has nothing live because nothing is drawn yet, which is not the same.
+export const inArchive = (n: TreeNode) => !!n.closedAt || (nothingLeft(n) && !n.planned);
+
+// What the sidebar holds, for Home and for the one that opens over a design.
+export function sidebarOf(nodes: TreeNode[], flows: number, areaOrder: string[]) {
+  const onShow = nodes.filter((n) => !inArchive(n));
+  const inSection = (sec: ShelfSection) => onShow.filter((n) => sectionOf(n) === sec);
+  const counts: Record<Section, number> = {
+    ideas: inSection("ideas").length,
+    screens: inSection("screens").length,
+    components: inSection("components").length,
+    documents: inSection("documents").length,
+    flows,
+  };
+  const lit = litSections(counts);
+  // The lone section, whose mocks the sidebar can list by name: there's no section
+  // choice to make there, and the shelf beside it is the same few things larger. A
+  // dated list already is the names.
+  const lone =
+    lit.rows.length === 1 && !lit.foot && lit.rows[0] !== "flows" && lit.rows[0] !== "documents"
+      ? inSection(lit.rows[0] as ShelfSection)
+      : null;
+  return {
+    onShow,
+    archived: nodes.filter(inArchive),
+    counts,
+    lit,
+    areas: orderAreas(
+      onShow.flatMap((n) => (n.area ? [n.area] : [])),
+      areaOrder,
+    ),
+    tree:
+      lone && lone.length <= TREE_UP_TO
+        ? groupByArea(lone, (n) => n.area, areaOrder).map((g) => ({ area: g.area, nodes: g.rows }))
+        : null,
+  };
+}
 
 export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 export const questions = (n: number) => plural(n, "question");

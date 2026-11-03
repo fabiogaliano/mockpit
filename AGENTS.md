@@ -178,7 +178,7 @@ consciously, not as a side effect):
   never reads surfaces; results are text nodes. `MockScreen`
   (`TopRow`: the path is the way up, project and area as links, ending at the
   mock's name, with an info button opening `About` (Appears in / Built from /
-  flows / code); the state tabs alone say which state;
+  flows / code), and `SideOver`, the project's sidebar opening over the design from a button; the state tabs alone say which state;
   `BuiltFrom` is Tune's drawer, open while Tune is; `Grid`, states against variants
   with what's missing shown (`?view=grid`, offered where names repeat across states, and
   how a component with several forms opens unless it is wall-sized), sharing Studio's

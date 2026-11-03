@@ -52,7 +52,7 @@ export function VersionStepper(props: {
         type="button"
         class="ib"
         aria-label="Previous version"
-        disabled={!neighbourStep(s.steps(), s.onStage(), -1)}
+        disabled={!neighbourStep(s.listed(), s.onStage(), -1)}
         onClick={() => s.stepVersion(-1)}
       >
         <Icon name="prev" />
@@ -76,7 +76,7 @@ export function VersionStepper(props: {
         type="button"
         class="ib"
         aria-label="Next version"
-        disabled={!neighbourStep(s.steps(), s.onStage(), 1)}
+        disabled={!neighbourStep(s.listed(), s.onStage(), 1)}
         onClick={() => s.stepVersion(1)}
       >
         <Icon name="next" />

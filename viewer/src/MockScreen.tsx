@@ -59,6 +59,7 @@ import { NotFound } from "./NotFound.tsx";
 import { OutlineChips, PlannedStage, StateAsk } from "./Outlines.tsx";
 import { QuestionCard, QuestionTab } from "./QuestionCard.tsx";
 import { EndedNote } from "./Questions.tsx";
+import { SideOver } from "./SideOver.tsx";
 import { Reader, ReaderSend } from "./Reader.tsx";
 import { markSeen } from "./seen.ts";
 import {
@@ -679,6 +680,7 @@ function TopRow(props: {
   });
   return (
     <div class="mtop">
+      <SideOver project={props.project} />
       <a
         class="ib mup"
         href={up().href}
@@ -1006,6 +1008,23 @@ function FlowBar(props: { nav: FlowNav; children?: JSX.Element }) {
             </button>
           )}
         </For>
+        <Show when={nav.outside().length}>
+          <span class="ftab-others" role="group" aria-label="Other states">
+            <For each={nav.outside()}>
+              {(x) => (
+                <button
+                  type="button"
+                  class="ftab"
+                  aria-current={x.state === nav.here().state ? "step" : undefined}
+                  title={nav.label(x)}
+                  onClick={() => nav.go(x)}
+                >
+                  <span>{nav.label(x)}</span>
+                </button>
+              )}
+            </For>
+          </span>
+        </Show>
         {props.children}
       </div>
       {/* The way back to what they hold: each state's archive sits in its own Studio. */}

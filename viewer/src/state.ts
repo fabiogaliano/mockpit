@@ -63,6 +63,7 @@ import {
   mockVersion,
   nextOwedMock,
   overflowWidth,
+  listedSteps,
   neighbourStep,
   type PartsReport,
   sameVersion,
@@ -1776,8 +1777,9 @@ export function createMockScreen(
     });
     rememberPlace();
   }
+  const listed = createMemo(() => listedSteps(steps()));
   function stepVersion(by: 1 | -1) {
-    const to = neighbourStep(steps(), onStage(), by);
+    const to = neighbourStep(listed(), onStage(), by);
     if (to) showVersion(to);
   }
   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
@@ -1827,7 +1829,7 @@ export function createMockScreen(
     // Off the stage, since it's no longer what this state shows: to the one before it,
     // else after.
     const away = hidden
-      ? (neighbourStep(steps(), ref, -1) ?? neighbourStep(steps(), ref, 1))
+      ? (neighbourStep(listed(), ref, -1) ?? neighbourStep(listed(), ref, 1))
       : null;
     try {
       await api.hide(m.id, { state, ...ref, hidden });
@@ -2192,6 +2194,7 @@ export function createMockScreen(
     inUse,
     usedBefore,
     showVersion,
+    listed,
     stepVersion,
     useThis,
     hideVersion,

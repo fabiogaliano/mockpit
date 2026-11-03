@@ -83,12 +83,17 @@ export function useTurn(node: () => StatusNode | null) {
 // there's work this browser hasn't opened (a word and a mark, not just a colour).
 export function AlbumWords(props: { node: TreeNode; fresh: boolean; extra?: string }) {
   const turn = useTurn(() => props.node);
+  // Most of a list has nothing waiting. Said on every row, it hides the rows that do.
+  const said = () => {
+    const t = turn();
+    return t?.kind === "idle" ? null : t;
+  };
   const inside = createMemo(() =>
     [albumInside(props.node), props.extra].filter(Boolean).join(" · "),
   );
   return (
     <span class="alb-words">
-      <Show when={turn()}>
+      <Show when={said()}>
         {(t) => (
           <span class="alb-turn" data-turn={t().kind}>
             {t().text}
