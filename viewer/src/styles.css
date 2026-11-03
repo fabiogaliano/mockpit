@@ -2522,6 +2522,13 @@ a.home-count {
   .opt:hover {
     background: var(--row-hover);
   }
+  /* Read-only: hovering still previews the option, but nothing here can be chosen. */
+  .opt-static:hover {
+    background: var(--row);
+  }
+}
+.opt-static {
+  cursor: default;
 }
 .opt.on {
   box-shadow: inset 0 0 0 1.5px var(--t2);

@@ -304,18 +304,22 @@ export function AskBody(props: {
             );
           }}
         </For>
-        <OptionCard
-          picture={null}
-          label="Other…"
-          other
-          on={s.otherTicked(props.ask)}
-          previewing={false}
-          data="other"
-          shortcut={props.ask.options.length < 9 ? String(props.ask.options.length + 1) : undefined}
-          onEnter={() => s.setPreview(null)}
-          onLeave={() => {}}
-          onChoose={() => !readonly() && s.pick(props.ask, null)}
-        />
+        <Show when={!readonly()}>
+          <OptionCard
+            picture={null}
+            label="Other…"
+            other
+            on={s.otherTicked(props.ask)}
+            previewing={false}
+            data="other"
+            shortcut={
+              props.ask.options.length < 9 ? String(props.ask.options.length + 1) : undefined
+            }
+            onEnter={() => s.setPreview(null)}
+            onLeave={() => {}}
+            onChoose={() => s.pick(props.ask, null)}
+          />
+        </Show>
       </div>
       <Show when={s.otherTicked(props.ask)}>
         <AskText
@@ -608,7 +612,9 @@ function OptionCard(props: {
         pill: !props.picture,
         other: !!props.other,
         previewing: props.previewing,
+        "opt-static": readonly(),
       }}
+      aria-disabled={readonly() || undefined}
       title={[
         props.note,
         props.pick ? (props.why ? `Agent's pick: ${props.why}` : "Agent's pick") : null,
