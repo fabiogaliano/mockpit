@@ -330,6 +330,23 @@ export class SqlStore implements Store {
     this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('designWords', '1')");
   }
 
+  // A value, so migrateToDesignWords' renames never reached it, and that one has
+  // already run on every workspace that needs this.
+  private migrateAskScopeWord() {
+    for (const r of this.sql.exec("SELECT id, asks FROM designs").toArray()) {
+      const asks = parseJson<Record<string, unknown>[]>(r.asks, []);
+      const old = asks.filter((a) => a.scope === "mock");
+      if (!old.length) continue;
+      for (const a of old) a.scope = "design";
+      this.sql.exec(
+        "UPDATE designs SET asks = ? WHERE id = ?",
+        JSON.stringify(asks),
+        r.id as string,
+      );
+    }
+    this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('askScopeWord', '1')");
+  }
+
   private renameMocksToDesigns() {
     if (!this.tables().has("mocks") || this.tables().has("designs")) return;
     for (const name of [
@@ -494,6 +511,7 @@ export class SqlStore implements Store {
     if (this.settingSync("sketchKind") !== "1") this.migrateToSketches();
     if (this.settingSync("contractTerms") !== "1") this.migrateToContractTerms();
     if (this.settingSync("designWords") !== "1") this.migrateToDesignWords();
+    if (this.settingSync("askScopeWord") !== "1") this.migrateAskScopeWord();
     // The day it went was never kept, and the design's last change is the nearest thing.
     // Frozen now, or the next reason or draft on the design would move it to that day.
     if (!dated) {
