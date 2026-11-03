@@ -89,7 +89,7 @@ function hitWhere(hit: JumpHit, here: string | null): string {
 }
 
 const hitTurn = (hit: JumpHit): string =>
-  hit.closed ? "Closed" : hit.open > 0 ? questions(hit.open) : hit.inUse ? "In use" : "";
+  hit.closed ? "Archived" : hit.open > 0 ? questions(hit.open) : hit.inUse ? "In use" : "";
 
 export function Jump() {
   onMount(() => {

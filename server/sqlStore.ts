@@ -145,7 +145,7 @@ const SURFACE_HEADS_SQL = `CASE WHEN json_valid(surfaces) THEN (
 
 // Everything a head row needs, spelled out because `SELECT *` reads the bodies.
 const POST_HEAD_COLUMNS =
-  "id, sessionId, mockId, state, variant, status, title, head, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, note, forkedFrom, copiedFrom, starred, acceptedVersion, hiddenVersions, curSession, amendedAt, rewrites";
+  "id, sessionId, mockId, state, variant, status, title, head, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, note, forkedFrom, copiedFrom, starred, acceptedVersion, hiddenVersions, curSession, amendedAt, rewrites, archiveReason, stayedVersion";
 
 const POST_COLUMNS = `
   id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, mockId TEXT NOT NULL, state TEXT,
@@ -300,6 +300,7 @@ export class SqlStore implements Store {
     this.addMissing("mocks", {
       widths: "TEXT NOT NULL DEFAULT '[]'",
       closedAt: "TEXT",
+      closeReason: "TEXT",
       area: "TEXT",
       source: "TEXT",
       situations: "TEXT NOT NULL DEFAULT '{}'",
@@ -320,6 +321,8 @@ export class SqlStore implements Store {
       curSession: "TEXT",
       amendedAt: "TEXT",
       rewrites: "INTEGER NOT NULL DEFAULT 0",
+      archiveReason: "TEXT",
+      stayedVersion: "INTEGER",
     });
     // Before the pin, accepted meant "its latest": freeze that as the version in use.
     if (!pinned) {
@@ -816,6 +819,7 @@ export class SqlStore implements Store {
       sessionId: (r.sessionId as string) ?? null,
       shortlist: !!r.shortlist,
       closedAt: (r.closedAt as string) ?? null,
+      closeReason: (r.closeReason as string) ?? null,
       createdAt: r.createdAt as string,
       updatedAt: r.updatedAt as string,
     };
@@ -848,6 +852,8 @@ export class SqlStore implements Store {
         ? { acceptedVersion: r.acceptedVersion as number }
         : {}),
       ...(hidden.length ? { hiddenVersions: hidden } : {}),
+      ...(r.archiveReason == null ? {} : { archiveReason: r.archiveReason as string }),
+      ...(r.stayedVersion == null ? {} : { stayedVersion: r.stayedVersion as number }),
       ...(r.curFrom == null ? {} : { from: r.curFrom as number }),
       ...(r.curPrompt == null ? {} : { prompt: r.curPrompt as string }),
       ...(r.curAuthor == null ? {} : { author: r.curAuthor as string }),
@@ -1129,6 +1135,7 @@ export class SqlStore implements Store {
       sessionId: input.sessionId ?? null,
       shortlist: !!input.shortlist,
       closedAt: null,
+      closeReason: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -1168,10 +1175,12 @@ export class SqlStore implements Store {
       ...(patch.widths !== undefined && { widths: patch.widths }),
       ...(patch.sessionId !== undefined && { sessionId: patch.sessionId }),
       ...(patch.closedAt !== undefined && { closedAt: patch.closedAt }),
+      ...(patch.closedAt === null && { closeReason: null }),
+      ...(patch.closeReason !== undefined && { closeReason: patch.closeReason }),
       updatedAt: new Date().toISOString(),
     };
     this.sql.exec(
-      "UPDATE mocks SET title = ?, kind = ?, area = ?, source = ?, states = ?, situations = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, closedAt = ?, updatedAt = ? WHERE id = ?",
+      "UPDATE mocks SET title = ?, kind = ?, area = ?, source = ?, states = ?, situations = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, closedAt = ?, closeReason = ?, updatedAt = ? WHERE id = ?",
       next.title,
       next.kind,
       next.area,
@@ -1183,6 +1192,7 @@ export class SqlStore implements Store {
       JSON.stringify(next.widths),
       next.sessionId,
       next.closedAt,
+      next.closeReason,
       next.updatedAt,
       id,
     );
@@ -1932,10 +1942,22 @@ export class SqlStore implements Store {
     const post = this.cachedPost(id) ?? (await this.getPost(id));
     if (!post) return null;
     const pin = status === "accepted" ? (acceptedVersion ?? post.version) : null;
-    this.raw.exec("UPDATE posts SET status = ?, acceptedVersion = ? WHERE id = ?", status, pin, id);
-    const { acceptedVersion: _, ...rest } = post;
-    const next: Post =
-      pin === null ? { ...rest, status } : { ...rest, status, acceptedVersion: pin };
+    // A reason says why it left, and a stay was about the version once in use.
+    const reason = status === "archived" ? (post.archiveReason ?? null) : null;
+    this.raw.exec(
+      "UPDATE posts SET status = ?, acceptedVersion = ?, archiveReason = ?, stayedVersion = NULL WHERE id = ?",
+      status,
+      pin,
+      reason,
+      id,
+    );
+    const { acceptedVersion: _, archiveReason: _reason, stayedVersion: _stayed, ...rest } = post;
+    const next: Post = {
+      ...rest,
+      status,
+      ...(pin === null ? {} : { acceptedVersion: pin }),
+      ...(reason === null ? {} : { archiveReason: reason }),
+    };
     this.recache(next);
     return next;
   }
@@ -1976,6 +1998,25 @@ export class SqlStore implements Store {
     );
     const { hiddenVersions: _, ...rest } = post;
     const next: Post = list.length ? { ...rest, hiddenVersions: list } : rest;
+    this.recache(next);
+    return next;
+  }
+
+  async setPostReason(id: string, reason: string | null) {
+    const post = this.cachedPost(id) ?? (await this.getPost(id));
+    if (!post) return null;
+    this.raw.exec("UPDATE posts SET archiveReason = ? WHERE id = ?", reason, id);
+    const { archiveReason: _, ...rest } = post;
+    const next: Post = reason ? { ...rest, archiveReason: reason } : rest;
+    this.recache(next);
+    return next;
+  }
+
+  async setPostStayed(id: string, version: number) {
+    const post = this.cachedPost(id) ?? (await this.getPost(id));
+    if (!post) return null;
+    this.raw.exec("UPDATE posts SET stayedVersion = ? WHERE id = ?", version, id);
+    const next: Post = { ...post, stayedVersion: version };
     this.recache(next);
     return next;
   }
@@ -2123,17 +2164,9 @@ export class SqlStore implements Store {
           JSON.stringify(input.asks),
           input.mockId,
         );
-        if (input.closedAt !== undefined) {
-          this.sql.exec(
-            "UPDATE mocks SET closedAt = ?, updatedAt = ? WHERE id = ?",
-            input.closedAt,
-            input.closedAt,
-            input.mockId,
-          );
-        }
         for (const { id, version } of input.accept) {
           this.sql.exec(
-            "UPDATE posts SET status = 'accepted', acceptedVersion = ? WHERE id = ? AND mockId = ?",
+            "UPDATE posts SET status = 'accepted', acceptedVersion = ?, archiveReason = NULL, stayedVersion = NULL WHERE id = ? AND mockId = ?",
             version,
             id,
             input.mockId,

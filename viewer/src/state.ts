@@ -11,6 +11,7 @@ import {
   type AskAnswer,
   askAnswered,
   isLive,
+  recommendedVariant,
   type KnobValue,
   MAX_ASK_IMAGES,
   momentOf,
@@ -422,6 +423,9 @@ export function createMockScreen(
       named(lookPick()) ??
       named(chosenVariant()[String(state)]) ??
       list.find((v) => v.status === "inUse") ??
+      list.find(
+        (v) => isLive(v.status) && v.variant === recommendedVariant(mock()?.asks ?? [], state),
+      ) ??
       list.find((v) => v.status === "open") ??
       list[0]
     );
@@ -1089,7 +1093,7 @@ export function createMockScreen(
     else goQuestion(0);
   }
   const revisingOf = (ask: Ask) => !!revising()[ask.id] && askAnswered(ask);
-  // Back from Resolved: the questions it closed are open again.
+  // Back from the Archive: the questions it left unanswered are open again.
   async function reopen() {
     const m = mock();
     if (!m) return;
@@ -1099,6 +1103,33 @@ export function createMockScreen(
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
+  }
+  // The × on an idea. The screen stays where it is, saying so, with the way back and a
+  // place for the reason, so no question stands between the × and being done.
+  async function endMock() {
+    const m = mock();
+    if (!m || readonly()) return;
+    try {
+      await api.close(m.id);
+      await loadMock();
+      setToast({
+        text: `Ended ${m.title}`,
+        undo: () => {
+          setToast(null);
+          void reopen();
+        },
+      });
+    } catch (e) {
+      fail(e);
+    }
+  }
+  function saveEndReason(reason: string | null) {
+    const m = mock();
+    if (m) void api.reason(m.id, { reason }).then(loadMock, fail);
+  }
+  function saveArchiveReason(variant: string, reason: string | null, state = activeState()) {
+    const m = mock();
+    if (m) void api.reason(m.id, { reason, state, variant }).then(loadMock, fail);
   }
   // The drawers. The bottom panel tucks the question card to its tab.
   const setDrawer = (on: boolean) => {
@@ -1726,9 +1757,8 @@ export function createMockScreen(
   }
   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
   // Use this: the version on stage goes in use, and the agent hears it once.
-  async function useThis() {
+  async function useThis(ref = onStage()) {
     const m = mock();
-    const ref = onStage();
     if (!m || !ref || readonly()) return;
     try {
       await api.use(m.id, { state: activeState(), ...ref });
@@ -1739,7 +1769,25 @@ export function createMockScreen(
       fail(e);
     }
   }
-  // Hidden from the history, never removed; Undo brings it back.
+  // The version in use has a newer one the user hasn't ruled on: after Use this, a
+  // change asks first. Null when nothing is asking.
+  const changed = createMemo(() => {
+    const v = inState(activeState()).find((x) => x.changedTo !== undefined);
+    const use = v && inUseOf(v.state);
+    return v?.changedTo !== undefined && use
+      ? { use, to: { variant: v.variant, version: v.changedTo } }
+      : null;
+  });
+  function stayOnUse() {
+    const m = mock();
+    const c = changed();
+    if (!m || !c || readonly()) return;
+    void api.stay(m.id, activeState(), c.use.variant).then(() => {
+      setToast({ text: `Staying on ${nameOf(c.use)}` });
+      return loadMock();
+    }, fail);
+  }
+  // Dimmed where it stands, never removed; Undo brings it back.
   // Resolves to its undo, or to nothing if it stayed. Quiet for whoever tells it
   // as part of something bigger.
   async function hideVersion(
@@ -1751,7 +1799,8 @@ export function createMockScreen(
     if (!m || readonly()) return;
     const state = activeState();
     const name = nameOf(ref);
-    // Away from a version going out of sight: to the one before it, else after.
+    // Off the stage, since it's no longer what this state shows: to the one before it,
+    // else after.
     const away = hidden
       ? (neighbourStep(steps(), ref, -1) ?? neighbourStep(steps(), ref, 1))
       : null;
@@ -1836,9 +1885,8 @@ export function createMockScreen(
       })),
     });
   }
-  // Studio's ×. One version goes out of sight like any hidden version; the
-  // last one left takes its variant to Archived, where Restore brings it back.
-  // A column's × takes the variant with the forks hanging in it, under one Undo.
+  // Studio's ×. One version dims like any hidden version; the last one left takes
+  // its variant to Archived, where Restore brings it back.
   const liveIn = (m: string | null) =>
     variants().some((v) => withSituations(m).includes(v.state) && isLive(v.status));
   // Everything archived: such a state leaves the tabs and every list of states,
@@ -1897,7 +1945,20 @@ export function createMockScreen(
         for (const v of variants) void restoreVariant(v, [state]);
       });
     };
-    if (!quiet) setToast({ text: `Archived ${label}`, undo });
+    if (!quiet) {
+      setToast({
+        text: `Archived ${label}`,
+        undo,
+        reason: {
+          value: null,
+          // After the archive lands: the server only keeps a reason for what has gone.
+          save: (reason) =>
+            void done.then(() => {
+              for (const v of variants) saveArchiveReason(v, reason, state);
+            }),
+        },
+      });
+    }
     await done;
     return landed ? undo : undefined;
   }
@@ -1981,6 +2042,11 @@ export function createMockScreen(
     keepAnswer,
     revisingOf,
     reopen,
+    endMock,
+    saveEndReason,
+    saveArchiveReason,
+    changed,
+    stayOnUse,
     step,
     stepTarget,
     curAsk,

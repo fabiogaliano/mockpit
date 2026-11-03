@@ -20,11 +20,12 @@ const KINDS: { kind: MockKind; label: string }[] = [
 const ERROR_MS = 5000;
 
 export function CardMenu(props: {
-  mock: { id: string; title: string; kind: MockKind; area?: string; closedAt: string | null };
+  mock: { id: string; title: string; kind: MockKind; area?: string };
   // The project's areas, in its order, to pick from.
   areas: string[];
+  // How taking this mock away reads: an idea ends, anything else is archived.
+  endLabel: string;
   onClose: () => void;
-  onReopen: () => void;
   onEdited: () => void;
 }) {
   const [open, setOpen] = createSignal(false);
@@ -175,11 +176,10 @@ export function CardMenu(props: {
             role="menuitem"
             onClick={() => {
               shut();
-              if (props.mock.closedAt) props.onReopen();
-              else props.onClose();
+              props.onClose();
             }}
           >
-            {props.mock.closedAt ? "Reopen" : "Close"}
+            {props.endLabel}
           </button>
           <Show when={error()}>
             {(msg) => (

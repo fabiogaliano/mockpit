@@ -35,7 +35,6 @@ type Feedback = {
   reply: null | { asks: { ask: string; chosen: { id: string; label: string; other?: true }[]; note?: string }[]; borrowed: Record<string, string>; tuned: Knobs; comments: { part: string | null; text: string }[]; verdict?: { kind: "use" | "revise"; state: string | null; variant: string; version?: number } };
   messages: { text: string; state: string | null; variant: string | null }[];
   inUse: { state: string | null; variant: string; version: number }[]; archived: { state: string | null; variant: string }[];
-  closed?: true; dismissed?: { ask: string; text: string }[];
 };
 type Pending = { mock: string; closed?: true; viewerOpen: boolean; draft: null | { answered: number; of: number; comments: number; touchedAt: string } };
 declare const mockpit: {

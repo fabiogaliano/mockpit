@@ -264,8 +264,7 @@ mockpit publish --mock <slug> [--state s] [--variant v] --withdraw
   feedback: `mockpit feedback [--project <name>] [--session <id>]
   Returns at once with {feedback, pending} as JSON: one batch per mock the user
   sent since you last heard ({mock, reply: {asks, borrowed, tuned, comments,
-  verdict}, messages, inUse, archived}, or {mock, closed: true, dismissed} when the
-  user closed it unanswered), delivered once across feedback, watch and
+  verdict}, messages, inUse, archived}), delivered once across feedback, watch and
   every write; and pending ({mock, viewerOpen, draft}) so you can tell the
   user "take your time" or "2 of 3 answered". Run it when the user says they
   answered.`,
@@ -1219,12 +1218,6 @@ function watchLines(batch) {
   const lines = [];
   const name = batch.mock ?? "a mock";
   if (batch.handoff) lines.push(`mockpit handoff on ${name}: ${batch.handoff}`);
-  if (batch.closed) {
-    const n = batch.dismissed?.length ?? 0;
-    lines.push(
-      `mockpit closed ${name}: ${n ? `${n} question${n === 1 ? "" : "s"} dismissed unanswered (${batch.dismissed.map((d) => d.text || d.ask).join("; ")}); don't ask again` : "closed by the user"}`,
-    );
-  }
   if (batch.edited) {
     const e = batch.edited;
     const bits = [

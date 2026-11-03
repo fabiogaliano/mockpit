@@ -244,12 +244,6 @@ function feedbackLines(feedback) {
   for (const batch of feedback ?? []) {
     const prefix = batch.mock ? `${batch.mock}: ` : "";
     if (batch.handoff) lines.push(`- ${prefix}${batch.handoff}`);
-    if (batch.closed) {
-      const asks = (batch.dismissed ?? []).map((d) => d.text || d.ask).join("; ");
-      lines.push(
-        `- ${prefix}closed by the user${asks ? `, unanswered: ${asks}; don't ask again` : ""}`,
-      );
-    }
     const reply = batch.reply;
     if (reply) {
       for (const a of reply.asks ?? []) {
@@ -620,7 +614,7 @@ export default function mockpitExtension(pi) {
     name: "mockpit_feedback",
     label: "Mockpit Feedback",
     description:
-      "Returns at once: what the user sent since you last heard (one batch per mock: answers, borrowed parts, tuned knobs, part comments, verdict; thread messages; inUse/archived; or closed with the questions it dismissed), delivered once, plus pending (viewer open, draft progress).",
+      "Returns at once: what the user sent since you last heard (one batch per mock: answers, borrowed parts, tuned knobs, part comments, verdict; thread messages; inUse/archived), delivered once, plus pending (viewer open, draft progress).",
     promptSnippet: "Read the user's mockpit reply when they say they answered.",
     promptGuidelines: [
       "Call mockpit_feedback when the user says they answered; it returns at once, so do not call it in a loop.",

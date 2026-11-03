@@ -102,7 +102,6 @@ import {
   type Asset,
   type AssetKind,
   builtinAsk,
-  builtinAskIds,
   BUILTIN_ASK_ID,
   type CodeSurface,
   type Comment,
@@ -123,6 +122,7 @@ import {
   MAX_ASK_IMAGES,
   MAX_ASSET_BYTES,
   inUseVersion,
+  currentVersion,
   isLive,
   isMockKind,
   momentOf,
@@ -131,7 +131,6 @@ import {
   type Mock,
   type MockKind,
   newId,
-  openAsks,
   draftedCount,
   openCount,
   OTHER_ID,
@@ -445,6 +444,7 @@ const str = (v: unknown, max: number): string | undefined =>
   typeof v === "string" && v.trim() ? v.trim().slice(0, max) : undefined;
 
 const MAX_LABEL = 120;
+const MAX_REASON = 280;
 const MAX_CANDIDATES = 50;
 const MAX_AREAS = 50;
 const MAX_FLOWS = 50;
@@ -1187,7 +1187,7 @@ export function createApp({
     return async (tag) => {
       const post = await embedTarget(project, tag.slug, tag.variant);
       if (!post) return null;
-      const version = tag.version ?? overrides[tag.slug] ?? inUseVersion(post);
+      const version = tag.version ?? overrides[tag.slug] ?? currentVersion(post);
       const surfaces =
         version === post.version
           ? post.surfaces
@@ -1950,7 +1950,6 @@ export function createApp({
     ];
     return (
       !!r.text ||
-      !!r.closed ||
       r.verdict?.state === state ||
       asked.some(askAbout) ||
       Object.entries(r.borrowed).some(([part, from]) => parts.has(part) || names.has(from)) ||
@@ -2704,7 +2703,7 @@ export function createApp({
     };
   }
 
-  // A version option names one visible version of one variant in the ask's
+  // A version option names one version of one variant in the ask's
   // state (`optionState`); the variant may be left out when that state has
   // only one, or one accepted.
   function versionOption(
@@ -2741,12 +2740,9 @@ export function createApp({
         ? `option "${label}" names variant "${variant}", which ${where} does not have`
         : `option "${label}" names version ${version} but ${where} has several variants (${inState.map((p) => p.variant).join(", ")}): name one`;
     }
-    const hidden = new Set(post.hiddenVersions ?? []);
-    const visible = [post.version, ...post.history.map((h) => h.version)]
-      .filter((v) => !hidden.has(v))
-      .sort((a, b) => a - b);
-    if (!visible.includes(version)) {
-      return `option "${label}" names ${post.variant} v${version}${hidden.has(version) ? ", which is hidden" : ""}; ${post.variant} has ${visible.map((v) => `v${v}`).join(", ")}`;
+    const versions = [post.version, ...post.history.map((h) => h.version)].sort((a, b) => a - b);
+    if (!versions.includes(version)) {
+      return `option "${label}" names ${post.variant} v${version}; ${post.variant} has ${versions.map((v) => `v${v}`).join(", ")}`;
     }
     return { variant: post.variant, version };
   }
@@ -2765,45 +2761,23 @@ export function createApp({
     const asks = [...mock.asks];
     const taken = new Set(asks.map((a) => a.id));
     const added: Ask[] = [];
-    const skipped: string[] = [];
     for (const entry of raw) {
       const ask = sanitizeAsk(entry, mock, posts, taken);
       if (typeof ask === "string") return fail(400, ask);
       const at = asks.findIndex((a) => a.id === ask.id);
-      // The user closed this one as not worth answering; asking it again is
-      // exactly the noise they closed away. Only their Reopen revives it.
-      if (at >= 0 && asks[at].dismissed) {
-        skipped.push(ask.id);
-        continue;
-      }
       if (at >= 0) asks[at] = ask;
       else asks.push(ask);
       taken.add(ask.id);
       added.push(ask);
     }
-    const skippedNudges = skipped.map(
-      (id) =>
-        `ask "${id}": the user dismissed it when they closed ${mock.slug}; not asked again. Don't re-ask it.`,
-    );
-    if (!added.length) {
-      return ok({
-        mock: mock.slug,
-        mockId: mock.id,
-        project: mock.project,
-        asks: [],
-        skipped,
-        open: openCount(mock),
-        url: mockUrl(ctx.base, mock),
-        nudges: skippedNudges,
-        feedback: mock.sessionId ? await collectFeedback(mock.sessionId, ctx.base) : [],
-      });
-    }
     let sessionId = mock.sessionId;
     if (typeof body.session === "string" && (await store.getSession(body.session))) {
       sessionId = body.session;
     }
-    // A new question on a closed mock brings it back to the open list, or it
-    // would wait where the user no longer looks.
+    // A question on something the user ended brings it back to the open list, or it
+    // would wait where they no longer look. Asked again, a question it left
+    // unanswered is simply open again: guidance about what to ask lives in the
+    // conversation, not in a refusal here.
     const updated = await store.updateMock(mock.id, {
       asks,
       sessionId,
@@ -2834,13 +2808,12 @@ export function createApp({
       url: mockUrl(ctx.base, mock),
     });
     const feedback = session ? await collectFeedback(session.id, ctx.base) : [];
-    const nudges = [...skippedNudges, ...askNudges(added, mock.asks)];
+    const nudges = askNudges(added, mock.asks);
     return ok({
       mock: mock.slug,
       mockId: mock.id,
       project: mock.project,
       asks: added,
-      ...(skipped.length ? { skipped } : {}),
       open: openCount(mock),
       url: mockUrl(ctx.base, mock),
       ...(nudges.length ? { nudges } : {}),
@@ -3459,6 +3432,8 @@ export function createApp({
       version: updated.version,
       by: "user",
     });
+    // An embed following this variant passes over a version the user hid.
+    void announceEmbedders(mock).catch((err) => console.warn("[mockpit] embedders", err));
     return ok({
       state: updated.state,
       variant: updated.variant,
@@ -3467,54 +3442,51 @@ export function createApp({
     });
   }
 
-  // The user closes a mock from the project list: its open asks are dismissed
-  // unanswered, an unsent draft goes with them, and the agent hears it once,
-  // as a close through the same cursor as a Send.
+  // What the user last wrote about a mock, to keep as why it ended: the note on the
+  // draft they were still writing, else on their last reply, unless a version has
+  // answered that since.
+  async function reasonFromNote(mock: Mock, posts: Post[]): Promise<string | null> {
+    const noteOf = (r: { text?: string; notes?: Record<string, string> }) =>
+      r.text?.trim() ||
+      Object.values(r.notes ?? {})
+        .map((n) => n.trim())
+        .filter(Boolean)
+        .at(-1) ||
+      null;
+    const drafted = mock.draft && noteOf(mock.draft);
+    if (drafted) return drafted.slice(0, MAX_REASON);
+    const replies = (await replyComments(mock.id)).filter((c) => !c.payload?.closed);
+    const last = replies.at(-1);
+    if (!last?.payload || posts.some((p) => p.updatedAt > last.createdAt)) return null;
+    const said = noteOf({ ...last.payload, text: last.text });
+    return said ? said.slice(0, MAX_REASON) : null;
+  }
+
+  // The user ends a mock: it leaves the working shelf and its open asks stop counting.
+  // The agent isn't told and nothing is refused: it reads `closedAt` as information,
+  // and a question it asks brings the mock back. An unsent draft stays with the mock
+  // for its Undo; what was already sent stays on the cursor, undisturbed.
   async function closeFlow(ref: unknown, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
     const mock = await resolveMock(ref);
     if (isResult(mock)) return mock;
     const posts = await store.listPosts({ mockId: mock.id });
-    if (mock.closedAt) return ok({ mock: mockSummaryView(mock, posts), dismissed: [] });
-    const dismissed = [...openAsks(mock).map((a) => a.id), ...builtinAskIds(mock, posts, mock.id)];
-    const asks = mock.asks.map((a): Ask => (askAnswered(a) ? a : { ...a, dismissed: true }));
-    const at = new Date().toISOString();
-    const sessionId = await replySessionId(mock, posts);
-    const session = sessionId ? await store.getSession(sessionId) : null;
-    const comment = session
-      ? await store.commitReply({
-          mockId: mock.id,
-          sessionId: session.id,
-          text: "",
-          payload: {
-            mockId: mock.id,
-            version: Math.max(1, ...posts.map((p) => p.version)),
-            answers: {},
-            borrowed: {},
-            tuned: {},
-            comments: [],
-            closed: { dismissed },
-          },
-          asks,
-          accept: [],
-          archive: [],
-          closedAt: at,
-        })
-      : null;
-    if (comment) announceComment(comment);
-    else {
-      // No agent to tell: the mock still leaves the open list.
-      await store.updateMock(mock.id, { asks, closedAt: at });
-      await store.putDraft(mock.id, null);
+    if (mock.closedAt) {
+      return ok({ mock: mockSummaryView(mock, posts), reason: mock.closeReason });
     }
+    const reason = await reasonFromNote(mock, posts);
+    const updated = await store.updateMock(mock.id, {
+      asks: mock.asks.map((a): Ask => (askAnswered(a) ? a : { ...a, dismissed: true })),
+      closedAt: new Date().toISOString(),
+      closeReason: reason,
+    });
+    if (!updated) return fail(404, "mock not found");
     bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
-    bus.broadcast({ type: "draft-updated", mockId: mock.id });
-    const after = (await store.getMock(mock.id)) ?? mock;
-    return ok({ mock: mockSummaryView(after, posts), dismissed });
+    return ok({ mock: mockSummaryView(updated, posts), reason });
   }
 
-  // Back from Closed: the asks it dismissed are open again. The agent was
-  // told they were dismissed; answers given now reach it as a normal Send.
+  // Back from the archive: the asks it dismissed are open again, and an answer
+  // given now reaches the agent as a normal Send.
   async function reopenFlow(ref: unknown, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
     const mock = await resolveMock(ref);
@@ -3526,6 +3498,60 @@ export function createApp({
     if (!updated) return fail(404, "mock not found");
     bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
     return ok({ mock: mockSummaryView(updated, posts) });
+  }
+
+  // The user says why something went, or rewords it: on an ended mock, or with a
+  // variant, on an archived variant. Information only, read back in `read`.
+  async function reasonFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const mock = await resolveMock(ref);
+    if (isResult(mock)) return mock;
+    const reason = str(body?.reason, MAX_REASON) ?? null;
+    if (body?.variant === undefined) {
+      if (!mock.closedAt) return fail(409, `${mock.slug} is not ended`);
+      await store.updateMock(mock.id, { closeReason: reason });
+      bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
+      return ok({ reason });
+    }
+    const posts = await store.listPosts({ mockId: mock.id });
+    const chosen = chooseVariant(mock, posts, stateArg(body?.state), str(body?.variant, MAX_LABEL));
+    if (isResult(chosen)) return chosen;
+    if (isLive(chosen.status)) return fail(409, `${chosen.variant} is not archived`);
+    const updated = await store.setPostReason(chosen.id, reason);
+    if (!updated) return fail(404, "variant not found");
+    bus.broadcast({
+      type: "post-updated",
+      id: updated.id,
+      mockId: mock.id,
+      sessionId: updated.sessionId,
+      version: updated.version,
+      by: "user",
+    });
+    return ok({ reason });
+  }
+
+  // The user looked at a newer version of what's in use and keeps what they have.
+  // Nothing moves and nobody is told: it only stops asking until a newer one comes.
+  async function stayFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const mock = await resolveMock(ref);
+    if (isResult(mock)) return mock;
+    const posts = await store.listPosts({ mockId: mock.id });
+    const chosen = chooseVariant(mock, posts, stateArg(body?.state), str(body?.variant, MAX_LABEL));
+    if (isResult(chosen)) return chosen;
+    if (chosen.status !== "accepted") return fail(409, `${chosen.variant} is not in use`);
+    const updated = await store.setPostStayed(chosen.id, chosen.version);
+    if (!updated) return fail(404, "variant not found");
+    bus.broadcast({
+      type: "post-updated",
+      id: updated.id,
+      mockId: mock.id,
+      sessionId: updated.sessionId,
+      version: updated.version,
+      by: "user",
+    });
+    bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
+    return ok({ state: updated.state, variant: updated.variant, version: inUseVersion(updated) });
   }
 
   async function restoreFlow(ref: unknown, body: any): Promise<FlowResult> {
@@ -3646,8 +3672,8 @@ export function createApp({
     return ok({ state: updated.state, variant: updated.variant, starred: !!updated.starred });
   }
 
-  // The user copies a version into a shortlist, or into any other mock or state
-  // of the project. It stays a copy of that one version, so its original and that
+  // The user copies a version into an idea they are gathering (stored as a shortlist,
+  // the word `read` still carries), or into any other mock or state of the project. It stays a copy of that one version, so its original and that
   // mock's decisions stay as they were, and an agent iterates on it like any other
   // variant.
   async function shortlistsFlow(project: string): Promise<FlowResult> {
@@ -3671,7 +3697,7 @@ export function createApp({
   }
 
   async function uniqueSlug(project: string, wanted: string): Promise<string> {
-    const base = slugify(wanted) || "shortlist";
+    const base = slugify(wanted) || "idea";
     let slug = base;
     for (let n = 2; await store.findMock(project, slug); n++) slug = `${base}-${n}`;
     return slug;
@@ -3744,7 +3770,7 @@ export function createApp({
       list = named;
     } else {
       const title = str(body.title, MAX_LABEL)?.trim();
-      if (!title) return fail(400, 'provide "to" or "title": which shortlist');
+      if (!title) return fail(400, 'provide "to" or "title": where to gather them');
       // The same name again means the same list, not a second one beside it.
       list = titledMocks(await store.listMocks(project), slugify(title)).find((m) => m.shortlist);
       if (!list) {
@@ -4021,83 +4047,6 @@ export function createApp({
       url: mockUrl(ctx.base, moved),
       feedback: await feedbackFor(body.session, ctx.base),
     });
-  }
-
-  // The user says these variants are variations of that one. It is the same link
-  // an agent's fork leaves, so Studio hangs them under it and agents read it as
-  // `forkedFrom`; here it can also mean "belongs under", not only "was made from".
-  // Returns what it replaced, which `restore` puts back.
-  async function setVariationsFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
-    if (!ctx.viewer) return viewerOnly();
-    const mock = await resolveMock(ref);
-    if (isResult(mock)) return mock;
-    const state = stateArg(body?.state) ?? null;
-    const inState = (await store.listPosts({ mockId: mock.id })).filter((p) => p.state === state);
-    const named = (v: unknown) => inState.find((p) => p.variant === v);
-    const forkArgOf = (from: any): ForkRef | null | FlowResult => {
-      if (from === null) return null;
-      const post = named(from?.variant);
-      if (!post) return fail(404, `no variant "${from?.variant}" here`);
-      const has =
-        from.version === post.version || post.history.some((h) => h.version === from.version);
-      if (!has) return fail(404, `${post.variant} has no version ${from.version}`);
-      return { variant: post.variant, version: from.version };
-    };
-    const changes = new Map<Post, ForkRef | null>();
-    if (Array.isArray(body?.restore)) {
-      for (const r of body.restore) {
-        const post = named(r?.variant);
-        if (!post) return fail(404, `no variant "${r?.variant}" here`);
-        const from = forkArgOf(r?.from ?? null);
-        if (isResult(from)) return from;
-        changes.set(post, from);
-      }
-    } else {
-      const lead = forkArgOf(body?.lead ?? null);
-      if (isResult(lead)) return lead;
-      const names: unknown[] = Array.isArray(body?.variants) ? body.variants : [];
-      const wanted = [...new Set(names)].filter((v) => v !== lead?.variant);
-      const members = wanted.flatMap((v) => named(v) ?? []);
-      if (members.length === 0 || members.length !== wanted.length) {
-        return fail(400, 'provide "variants": variants of this state, other than the lead');
-      }
-      for (const m of members) changes.set(m, lead);
-      if (lead) {
-        // A small card can't hold cards of its own: what hung under a member comes
-        // along to the lead, and the lead itself stands at the top.
-        const out = new Set(members.map((m) => m.variant));
-        for (const p of inState) {
-          if (p.variant === lead.variant || changes.has(p)) continue;
-          if (p.forkedFrom && out.has(p.forkedFrom.variant)) changes.set(p, lead);
-        }
-        const top = named(lead.variant);
-        if (top?.forkedFrom) changes.set(top, null);
-      }
-    }
-    const undo = [...changes.keys()].map((p) => ({
-      variant: p.variant,
-      from: p.forkedFrom ?? null,
-    }));
-    const told = new Map<string | null, string[]>();
-    for (const [post, from] of changes) {
-      const updated = await store.setForkedFrom(post.id, from);
-      if (!updated) return fail(404, "variant not found");
-      bus.broadcast({
-        type: "post-updated",
-        id: updated.id,
-        mockId: mock.id,
-        sessionId: updated.sessionId,
-        version: updated.version,
-        by: "user",
-      });
-      told.set(from?.variant ?? null, [...(told.get(from?.variant ?? null) ?? []), post.variant]);
-    }
-    if (told.size) {
-      await tellAgentEdit(mock, {
-        grouped: [...told].map(([lead, variants]) => ({ state, lead, variants })),
-      });
-    }
-    return ok({ undo });
   }
 
   // D8 "restore as vN": the user brings an older version back as the newest
@@ -4694,14 +4643,16 @@ export function createApp({
     // Closed by the user: nothing there is waiting on them, or on you.
     ...(mock.closedAt ? { closed: true } : {}),
     viewerOpen: viewing.has(mock.id),
-    draft: mock.draft
-      ? {
-          answered: draftedCount(mock) ?? 0,
-          of: openCount(mock),
-          comments: mock.draft.comments.length,
-          touchedAt: mock.draft.updatedAt,
-        }
-      : null,
+    // One kept for an ended mock's Undo isn't someone still answering.
+    draft:
+      mock.draft && !mock.closedAt
+        ? {
+            answered: draftedCount(mock) ?? 0,
+            of: openCount(mock),
+            comments: mock.draft.comments.length,
+            touchedAt: mock.draft.updatedAt,
+          }
+        : null,
   });
 
   // The feedback verb: never blocks. Takes what the session has not heard yet
@@ -5250,12 +5201,15 @@ export function createApp({
   app.post("/api/mocks/:id/reopen", async (c) =>
     send(c, await reopenFlow(c.req.param("id"), flowCtx(c))),
   );
+  app.post("/api/mocks/:id/reason", async (c) =>
+    send(c, await reasonFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+  app.post("/api/mocks/:id/stay", async (c) =>
+    send(c, await stayFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
 
   app.get("/api/projects/:name/shortlists", async (c) =>
     send(c, await shortlistsFlow(c.req.param("name"))),
-  );
-  app.post("/api/mocks/:ref/variations", async (c) =>
-    send(c, await setVariationsFlow(c.req.param("ref"), await jsonBody(c), flowCtx(c))),
   );
   app.post("/api/copies", async (c) =>
     send(c, await saveCopiesFlow(await jsonBody(c), flowCtx(c))),

@@ -10,7 +10,7 @@ import type { VersionStep } from "./logic.ts";
 import type { SteerNote } from "./state.ts";
 import { phoneLayout } from "./viewport.ts";
 
-type Panel = "more" | "comment" | "borrow" | "group";
+type Panel = "more" | "comment" | "borrow";
 
 const list = (names: string[]) =>
   names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
@@ -22,15 +22,11 @@ export function SelectBar(props: {
   name: (st: VersionStep) => string;
   inUse: (st: VersionStep) => boolean;
   pic: (st: VersionStep, large?: boolean) => JSX.Element;
-  // The selected variants that hang under another, which Group can take out.
-  grouped: string[];
   onAll: () => void;
   onClear: () => void;
   onSave: (from: HTMLElement) => void;
   onArchive: () => void;
   onSend: (notes: SteerNote[], text: string | undefined, sent: string) => void;
-  onGroup: (lead: VersionStep, variants: string[]) => void;
-  onUngroup: (variants: string[]) => void;
 }) {
   const [panel, setPanel] = createSignal<Panel | null>(null);
   let box: HTMLDivElement | undefined;
@@ -57,10 +53,6 @@ export function SelectBar(props: {
   const names = () => list(steps().map(props.name));
   const out = () => steps().filter((st) => !props.inUse(st)).length;
   const stay = () => steps().length - out();
-  // One version of each: a variant groups as a whole.
-  const heads = () =>
-    steps().filter((st, i) => steps().findIndex((x) => x.variant === st.variant) === i);
-  const canGroup = () => heads().length > 1 || props.grouped.length > 0;
   const open = (p: Panel) => setPanel(panel() === p ? null : p);
   const more = () => {
     if (steps().length === 1) {
@@ -117,16 +109,6 @@ export function SelectBar(props: {
       <Show when={panel() === "borrow"}>
         <BorrowPanel {...props} onCancel={() => setPanel(null)} />
       </Show>
-      <Show when={panel() === "group"}>
-        <GroupPanel
-          heads={heads()}
-          grouped={props.grouped}
-          pic={props.pic}
-          onGroup={props.onGroup}
-          onUngroup={props.onUngroup}
-          onCancel={() => setPanel(null)}
-        />
-      </Show>
       <div class="selbar-row" role="toolbar" aria-label="Selection">
         <span class="selbar-count" role="status" aria-label={`${steps().length} selected`}>
           {phoneLayout() ? steps().length : `${steps().length} selected`}
@@ -149,13 +131,6 @@ export function SelectBar(props: {
           () => open("borrow"),
           () => panel() === "borrow",
           () => steps().length < 2,
-        )}
-        {tool(
-          "layers",
-          canGroup() ? "Group" : "Group: select two or more variants",
-          () => open("group"),
-          () => panel() === "group",
-          () => !canGroup(),
         )}
         <span class="selbar-sep" />
         {tool("move", "Move or save", (e) => {
@@ -412,50 +387,6 @@ function BorrowPanel(props: {
         </button>
       </div>
     </form>
-  );
-}
-
-function GroupPanel(props: {
-  heads: VersionStep[];
-  grouped: string[];
-  pic: (st: VersionStep, large?: boolean) => JSX.Element;
-  onGroup: (lead: VersionStep, variants: string[]) => void;
-  onUngroup: (variants: string[]) => void;
-  onCancel: () => void;
-}) {
-  const [leadKey, setLeadKey] = createSignal(keyOf(props.heads[0]));
-  const lead = () => props.heads.find((st) => keyOf(st) === leadKey()) ?? props.heads[0];
-  const others = () => props.heads.filter((st) => st !== lead()).map((st) => st.variant);
-  return (
-    <section class="selp" aria-label="Group">
-      <Show when={props.heads.length > 1}>
-        <div class="selp-h">Which one leads?</div>
-        <div class="selp-b">
-          <Picks
-            steps={props.heads}
-            name={(st) => st.variant}
-            pic={props.pic}
-            on={lead()}
-            onPick={(st) => setLeadKey(keyOf(st))}
-          />
-        </div>
-      </Show>
-      <div class="selp-f">
-        <Show when={props.grouped.length}>
-          <button type="button" class="btn" onClick={() => props.onUngroup(props.grouped)}>
-            {`Take ${list(props.grouped)} out`}
-          </button>
-        </Show>
-        <button type="button" class="btn" onClick={props.onCancel}>
-          Cancel
-        </button>
-        <Show when={props.heads.length > 1}>
-          <button type="button" class="btn go" onClick={() => props.onGroup(lead(), others())}>
-            {`Group under ${lead().variant}`}
-          </button>
-        </Show>
-      </div>
-    </section>
   );
 }
 

@@ -96,10 +96,6 @@ export interface FeedbackBatch {
   archived: VariantRef[];
   // Set when this batch was sent to an earlier, now quiet session (handoff.ts).
   handoff?: string;
-  // The user closed the mock instead of answering: these asks were closed
-  // unanswered, as not worth answering. Don't ask them again.
-  closed?: true;
-  dismissed?: { ask: string; text: string }[];
   // The user moved the mock from Home: its kind or area as they left it
   // (area null: none). Build on it; don't move it back.
   edited?: MockEdit;
@@ -194,13 +190,16 @@ export function groupFeedback(
   const batches: FeedbackBatch[] = [];
   const open = new Map<string, FeedbackBatch>();
   for (const c of comments) {
+    // Stored from when a close wrote to this stream. Ending something tells the agent
+    // nothing, so one still ahead of the cursor stays unsaid.
+    if (c.kind === "reply" && c.payload?.closed) continue;
     const key = c.mockId ?? "";
     const mock = c.mockId ? mocks.get(c.mockId) : undefined;
     const mockPosts = (c.mockId && posts.get(c.mockId)) || [];
     let batch = open.get(key);
     // An edit says where the mock is now, so it joins whatever batch is open.
     const edit = c.kind === "reply" ? c.payload?.edited : undefined;
-    if (!batch || (c.kind === "reply" && !edit && (batch.reply || batch.closed))) {
+    if (!batch || (c.kind === "reply" && !edit && batch.reply)) {
       batch = {
         mockId: c.mockId,
         project: mock?.project ?? null,
@@ -217,16 +216,6 @@ export function groupFeedback(
     if (edit) {
       const grouped = [...(batch.edited?.grouped ?? []), ...(edit.grouped ?? [])];
       batch.edited = { ...batch.edited, ...edit, ...(grouped.length ? { grouped } : {}) };
-      continue;
-    }
-    if (c.kind === "reply" && c.payload?.closed) {
-      batch.closed = true;
-      batch.dismissed = c.payload.closed.dismissed.map((id) => ({
-        ask: id,
-        text:
-          (mock?.asks.find((a) => a.id === id) ?? (mock && builtinAsk(mock, mockPosts, id)))
-            ?.text ?? "",
-      }));
       continue;
     }
     if (c.kind === "reply" && c.payload) {

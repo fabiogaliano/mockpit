@@ -163,7 +163,7 @@ export function builtinAsks(
   mock: Pick<MockDetail, "asks" | "states"> & { closedAt?: string | null },
   variants: VariantRow[],
 ): Ask[] {
-  // Resolving the mock closed its choices too (server/types.ts builtinAskIds).
+  // Ending the mock put its choices away with it.
   if (mock.closedAt) return [];
   const states = mock.states.length ? mock.states : [null];
   const needing = states.filter((st) => needsBuiltinAsk(mock.asks, variants, st));
@@ -837,7 +837,8 @@ const KIND_NAMES: Record<MockKind, string> = {
   sketch: "Sketches",
 };
 
-// A move made from Home or a grouping made in Studio, as the thread lists it.
+// A move made from Home, or a grouping from when Studio could make one, as the
+// thread lists it.
 export const editedLine = (e: MockEdit): string =>
   [
     e.kind ? `Moved to ${KIND_NAMES[e.kind]}` : "",
@@ -1400,12 +1401,9 @@ export function mockStatus(
 ): MockStatus | null {
   if (node.closedAt) return null;
   if (node.open > 0) return { kind: "open", n: node.open };
-  // A variant in use at an older version than its latest: the agent moved on
-  // from what the user chose, and the choice wants a look again.
-  const changed = node.variants.some(
-    (v) => v.status === "inUse" && v.inUseVersion !== undefined && v.version > v.inUseVersion,
-  );
-  if (changed) return { kind: "changed" };
+  // The agent moved on from what the user chose, and they haven't said whether to
+  // take the new one or stay.
+  if (node.variants.some((v) => v.changedTo !== undefined)) return { kind: "changed" };
   if (node.states.every((st) => node.inUse.some((u) => u.state === st))) {
     return { kind: "decided" };
   }
@@ -1871,25 +1869,25 @@ export interface ScreenPicture {
   rewrites?: number;
 }
 
-// What a screen (one state of a mock) looks like now: the version in use, else
-// its newest live version, else its newest of any; null when it has nothing
-// that renders as a picture.
+// What a screen (one state of a mock) looks like now: what's in use, else what the
+// agent recommends, else the first still live, else the first of any; null when it has
+// nothing that renders as a picture. Parallel variants have no "newest": they arrive
+// within minutes of each other, so the last to land says nothing. Inside one variant
+// the newest does win, unless it was hidden.
 export function screenPicture(
-  node: Pick<TreeNode, "inUse" | "variants">,
+  node: Pick<TreeNode, "inUse" | "variants"> & { recommended?: TreeNode["recommended"] },
   state: string | null,
 ): ScreenPicture | null {
   const inState = node.variants.filter((v) => v.state === state);
   const use = node.inUse.find((u) => u.state === state);
   const used = use && inState.find((v) => v.variant === use.variant);
-  const newest = (vs: typeof inState) =>
-    vs.reduce<(typeof inState)[number] | undefined>(
-      (a, b) => (!a || b.updatedAt > a.updatedAt ? b : a),
-      undefined,
-    );
-  const v = used ?? newest(inState.filter((x) => isLive(x.status))) ?? newest(inState);
+  const live = inState.filter((x) => isLive(x.status));
+  const recommended = node.recommended?.find((r) => r.state === state)?.variant;
+  const v = used ?? live.find((x) => x.variant === recommended) ?? live[0] ?? inState[0];
   if (!v || v.surface < 0) return null;
-  const version = used && use ? use.version : v.version;
-  const poster = version === v.version ? v.poster : v.inUsePoster;
+  const version = used && use ? use.version : (v.coverVersion ?? v.version);
+  const poster =
+    version === v.version ? v.poster : version === v.coverVersion ? v.coverPoster : v.inUsePoster;
   return {
     postId: v.postId,
     surface: v.surface,

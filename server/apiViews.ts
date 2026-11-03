@@ -4,6 +4,8 @@
 import { slotKnobs, slotsInSurfaces } from "./fills.ts";
 import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
 import {
+  changedTo,
+  currentVersion,
   draftedCount,
   type Embed,
   inUseVersion,
@@ -16,6 +18,7 @@ import {
   type Post,
   type PostHead,
   type PostVersion,
+  recommendedVariant,
   type Session,
   SURFACE_CONTENT_FIELDS,
   type Surface,
@@ -68,6 +71,14 @@ const inUsePoster = (p: PostHead) => {
   if (p.acceptedVersion === undefined || p.acceptedVersion === p.version) return {};
   const poster = posterAt(p, p.acceptedVersion);
   return poster ? { inUsePoster: poster } : {};
+};
+
+// The version Home shows when nothing is in use and the newest was hidden.
+const coverVersion = (p: PostHead): { coverVersion?: number; coverPoster?: string } => {
+  const at = currentVersion(p);
+  if (p.status === "accepted" || at === p.version) return {};
+  const poster = posterAt(p, at);
+  return { coverVersion: at, ...(poster ? { coverPoster: poster } : {}) };
 };
 
 // A page that draws on a canvas may hold a WebGL context, of which a browser
@@ -149,6 +160,8 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
   ...(post.copiedFrom ? { copiedFrom: post.copiedFrom } : {}),
   ...(post.starred ? { starred: true } : {}),
   ...(post.acceptedVersion === undefined ? {} : { inUseVersion: post.acceptedVersion }),
+  ...(changedTo(post) === undefined ? {} : { changedTo: changedTo(post) }),
+  ...(post.archiveReason ? { archiveReason: post.archiveReason } : {}),
   // The part names this variant's own markup marks, so the viewer can tell
   // which variants render a part (Borrow) without the html bodies.
   parts: partsInSurfaces(post.surfaces).map((p) => p.name),
@@ -210,18 +223,21 @@ export const placeOf = (
   ...(mock.source ? { source: mock.source } : {}),
 });
 
-// What Home shows for a mock: the first state's chosen (else first) variant.
+// What a mock's first state looks like in a list: what's in use, else what the agent
+// recommends, else its first. Same rule as viewer/src/logic.ts screenPicture.
 function thumbnail(mock: Mock, posts: PostHead[]) {
   const first = stateOrder(mock)[0];
   const inState = posts.filter((p) => p.state === first);
+  const recommended = recommendedVariant(mock.asks, first);
   const pick =
     inState.find((p) => p.status === "accepted") ??
+    inState.find((p) => p.variant === recommended && isLive(p.status)) ??
     inState.find((p) => p.status === "open") ??
     inState[0] ??
     posts[0];
   if (!pick) return null;
   const surface = pick.surfaces.findIndex((s) => isSandboxedSurfaceKind(s.kind));
-  const version = inUseVersion(pick);
+  const version = currentVersion(pick);
   const poster = posterAt(pick, version);
   return {
     postId: pick.id,
@@ -285,6 +301,7 @@ export const mockDetailView = (
   widths: mock.widths,
   sessionId: mock.sessionId,
   closedAt: mock.closedAt,
+  ...(mock.closeReason ? { closeReason: mock.closeReason } : {}),
   createdAt: mock.createdAt,
   updatedAt: mock.updatedAt,
   variants: posts.map((p) => variantView(p, opts)),
@@ -330,10 +347,16 @@ export const treeNodeView = (
   createdAt: mock.createdAt,
   updatedAt: mock.updatedAt,
   closedAt: mock.closedAt,
+  ...(mock.closeReason ? { closeReason: mock.closeReason } : {}),
   settled: extra.settled,
   embeds: extra.embeds,
   embeddedIn: [] as string[],
   inUse: inUseByState(mock, posts),
+  // What the agent recommends where nothing is in use: a cover shows it.
+  recommended: stateOrder(mock).flatMap((state) => {
+    const variant = recommendedVariant(mock.asks, state);
+    return variant ? [{ state, variant }] : [];
+  }),
   variants: posts.map((p) => ({
     postId: p.id,
     state: p.state,
@@ -345,10 +368,13 @@ export const treeNodeView = (
     surface: p.surfaces.findIndex((x) => isSandboxedSurfaceKind(x.kind)),
     ...posterOf(p.surfaces),
     ...inUsePoster(p),
+    ...coverVersion(p),
     ...(p.note ? { note: p.note } : {}),
     ...(p.forkedFrom ? { forkedFrom: p.forkedFrom } : {}),
     ...(p.starred ? { starred: true } : {}),
     ...(p.acceptedVersion === undefined ? {} : { inUseVersion: p.acceptedVersion }),
+    ...(changedTo(p) === undefined ? {} : { changedTo: changedTo(p) }),
+    ...(p.archiveReason ? { archiveReason: p.archiveReason } : {}),
     ...(extra.embedViews.get(p.id) ? { embedsKey: extra.embedViews.get(p.id)!.key } : {}),
   })),
 });

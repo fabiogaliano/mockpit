@@ -10,7 +10,6 @@ import type {
 } from "../../server/apiViews.ts";
 import type { DecisionLine } from "../../server/decisionList.ts";
 import type { FeedEvent } from "../../server/events.ts";
-import type { VersionRef } from "./logic.ts";
 import type {
   AskAnswer,
   Comment,
@@ -60,7 +59,6 @@ export interface Shortlist {
   candidates: { variant: string; copiedFrom: CopyRef | null }[];
 }
 export type SaveCandidate = CopyRef;
-export type VariationUndo = { variant: string; from: VersionRef | null }[];
 export type { LiveCopy };
 
 export interface MockList {
@@ -129,17 +127,6 @@ export const api = {
       to: { id: string; slug: string; title: string; shortlist: boolean };
       saved: { state: string | null; variant: string; already: boolean }[];
     }>("/api/copies", json("POST", body)),
-  setVariations: (
-    mock: string,
-    body: { state: string | null } & (
-      | { lead: VersionRef | null; variants: string[] }
-      | { restore: VariationUndo }
-    ),
-  ) =>
-    call<{ undo: VariationUndo }>(
-      `/api/mocks/${encodeURIComponent(mock)}/variations`,
-      json("POST", body),
-    ),
   removeCopy: (mock: string, state: string | null, variant: string) =>
     call<unknown>(
       `/api/copies/${encodeURIComponent(mock)}/remove`,
@@ -186,12 +173,25 @@ export const api = {
     id: string,
     body: { state: string | null; variant: string; version: number; hidden: boolean },
   ) => call<unknown>(`/api/mocks/${encodeURIComponent(id)}/hide`, json("POST", body)),
-  // Close a mock from the project list: its open asks are dismissed unanswered
-  // and the agent hears it once; reopen brings them back.
+  // End a mock: off the shelf, its open asks dismissed, and the agent isn't told.
+  // `reason` is the note picked up from what the user last wrote; reopen undoes it.
   close: (id: string) =>
-    call<{ mock: MockSummary }>(`/api/mocks/${encodeURIComponent(id)}/close`, json("POST", {})),
+    call<{ mock: MockSummary; reason: string | null }>(
+      `/api/mocks/${encodeURIComponent(id)}/close`,
+      json("POST", {}),
+    ),
   reopen: (id: string) =>
     call<{ mock: MockSummary }>(`/api/mocks/${encodeURIComponent(id)}/reopen`, json("POST", {})),
+  // Why an ended mock, or with `variant` an archived variant, went.
+  reason: (
+    id: string,
+    body:
+      | { reason: string | null }
+      | { reason: string | null; state: string | null; variant: string },
+  ) => call<unknown>(`/api/mocks/${encodeURIComponent(id)}/reason`, json("POST", body)),
+  // Keep the version in use and stop asking about the newer one.
+  stay: (id: string, state: string | null, variant: string) =>
+    call<unknown>(`/api/mocks/${encodeURIComponent(id)}/stay`, json("POST", { state, variant })),
   decisions: (project: string) =>
     call<DecisionListView>(`/api/projects/${encodeURIComponent(project)}/decisions`),
   // The user's hand on a line: reword it, remove it, or take that back.

@@ -37,18 +37,19 @@ import {
   isBuiltinAsk,
   READING_W,
   readsAsDocument,
+  sameVersion,
   versionStamp,
   WALL_FROM,
   wideWidth,
   widthKind,
   widthLabel,
 } from "./logic.ts";
-import { questions } from "./albums.ts";
+import { questions, sectionOf } from "./albums.ts";
 import { createMargins, LeftMargin, PanelTabs, RightMargin, ToolStrip } from "./Margins.tsx";
 import { CarriedChip, NextCard } from "./NextCard.tsx";
 import { NotFound } from "./NotFound.tsx";
 import { QuestionCard, QuestionTab } from "./QuestionCard.tsx";
-import { ResolvedNote } from "./Questions.tsx";
+import { EndedNote } from "./Questions.tsx";
 import { Reader, ReaderSend } from "./Reader.tsx";
 import { markSeen } from "./seen.ts";
 import {
@@ -137,9 +138,9 @@ export function MockScreen(props: {
       if (s.waitsOnStage()) return "stage";
       // Too many to reach any other way, whichever view was last used here.
       if (wallSized()) return "studio";
-      // A shortlist stays for comparing, below, even if what it gathered is written.
+      // A gathered idea stays for comparing, below, even if what it holds is written.
       if (reading() && !s.mock()?.shortlist) return "stage";
-      // A shortlist is for comparing, and its Add candidate lives in Studio.
+      // A gathered idea is for comparing, and its Add candidate lives in Studio.
       return remembered() ?? (momentVariants() > 1 || s.mock()?.shortlist ? "studio" : "stage");
     });
   }, null);
@@ -584,6 +585,12 @@ function TopRow(props: {
   // The owner is the same on every mock; the repo's own name is enough.
   const shortProject = () => props.project.split("/").pop() ?? props.project;
   const title = () => s.mock()?.title ?? props.slug;
+  const idea = () => {
+    const m = s.mock();
+    if (!m) return false;
+    const states = m.states.length ? m.states : [null];
+    return sectionOf({ ...m, states, asked: m.asks.length }) === "ideas";
+  };
   // The name an agent finds this by, as far down as the screen is looking.
   const spoken = () => {
     const step = props.view === "stage" ? s.stageStep() : null;
@@ -600,7 +607,7 @@ function TopRow(props: {
   };
   // Whose turn it is, where it can be said from what this screen already holds.
   const turn = () => {
-    if (s.mock()?.closedAt) return { kind: "closed", text: "Closed" };
+    if (s.mock()?.closedAt) return { kind: "closed", text: "Archived" };
     const open = new Set(s.flow().flatMap((e) => (isBuiltinAsk(e.ask) ? [] : [e.ask.id]))).size;
     if (open) return { kind: "open", text: questions(open) };
     return s.sent() ? { kind: "sent", text: "Sent" } : null;
@@ -671,6 +678,17 @@ function TopRow(props: {
             {t().text}
           </span>
         )}
+      </Show>
+      <Show when={idea() && !s.mock()?.closedAt && !readonly()}>
+        <button
+          type="button"
+          class="ib x-remove mend"
+          aria-label={`End ${title()}`}
+          title="End this idea"
+          onClick={() => void s.endMock()}
+        >
+          <Icon name="close" />
+        </button>
       </Show>
       <Show when={s.mock()}>
         <button
@@ -766,7 +784,7 @@ function TopRow(props: {
   );
 }
 
-// The way back to the last shortlist saved to.
+// The way back to the last gathered idea saved to.
 function ShortlistPill(props: { list: Shortlist; project: string }) {
   const href = () => mockPath(props.project, props.list.slug);
   return (
@@ -967,14 +985,46 @@ function Ghost(props: { s: MockScreenState; nav: FlowNav; by: 1 | -1 }) {
   );
 }
 
+// Past Use this, a newer version doesn't take over by itself: look, take it, or stay.
+function ChangedNote(props: { s: MockScreenState }) {
+  const s = props.s;
+  const looking = () => sameVersion(s.onStage(), s.changed()?.to);
+  return (
+    <Show when={!readonly() && !s.mock()?.closedAt && s.changed()}>
+      {(c) => (
+        <div class="status-note changed-note" role="status">
+          <span>
+            <b class="alb-turn" data-turn="changed">
+              Changed
+            </b>
+            {` ${s.nameOf(c().to)} is newer than ${s.nameOf(c().use)}, which is in use.`}
+          </span>
+          <Show when={!looking()}>
+            <button type="button" class="btn" onClick={() => s.showVersion(c().to)}>
+              {`See ${s.nameOf(c().to)}`}
+            </button>
+          </Show>
+          <button type="button" class="btn" onClick={() => void s.useThis(c().to)}>
+            {`Use ${s.nameOf(c().to)}`}
+          </button>
+          <button type="button" class="btn" onClick={s.stayOnUse}>
+            {`Stay on ${s.nameOf(c().use)}`}
+          </button>
+        </div>
+      )}
+    </Show>
+  );
+}
+
 // After a Send: whether it reached the agent, and where to go next.
 function SentNote(props: { s: MockScreenState; project: string; slug: string }) {
   const s = props.s;
   return (
     <div class="sentnote">
       <Show when={s.mock()?.closedAt}>
-        <ResolvedNote s={s} />
+        <EndedNote s={s} />
       </Show>
+      <ChangedNote s={s} />
       <Show when={s.sent()} fallback={<CarriedChip project={props.project} slug={props.slug} />}>
         <div class="sentrow" role="status">
           <button

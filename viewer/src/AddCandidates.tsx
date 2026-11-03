@@ -1,11 +1,13 @@
-// Picking candidates for a shortlist from the project's other mocks: a mock at
-// a time, a state at a time, or by name across all of them. The dialog is the
-// browser's own, so the page behind it is inert and Esc closes it.
+// Gathering versions into an idea from the project's other mocks: a mock at a
+// time, a state at a time, or by name across all of them. With no idea to add to, it
+// starts one and goes there. The dialog is the browser's own, so the page behind it is
+// inert and Esc closes it.
 
 import { createMemo, createResource, createSignal, For, onMount, Show } from "solid-js";
 import { isLive } from "../../server/types.ts";
 import { api, assetUrl, surfaceUrl, type SaveCandidate, type TreeNode } from "./api.ts";
 import { Icon } from "./icons.tsx";
+import { mockPath, navigate } from "./route.ts";
 import { phoneLayout } from "./viewport.ts";
 import type { Shortlists } from "./shortlist.ts";
 import { theme } from "./theme.ts";
@@ -21,15 +23,19 @@ const keyOf = (c: Card) => JSON.stringify([c.node.id, c.v.state, c.v.variant]);
 export function AddCandidates(props: {
   sl: Shortlists;
   project: string;
-  list: { id: string; title: string };
-  onDone: (added: number) => void;
+  // The idea to add to; none starts a new one, named here.
+  list?: { id: string; title: string };
+  onDone?: (added: number) => void;
   onClose: () => void;
 }) {
+  const [name, setName] = createSignal("");
+  const title = () => props.list?.title ?? "New idea";
   let dialog!: HTMLDialogElement;
   let filterEl!: HTMLInputElement;
+  let nameEl: HTMLInputElement | undefined;
   onMount(() => {
     dialog.showModal();
-    filterEl.focus();
+    (nameEl ?? filterEl).focus();
   });
   const [tree] = createResource(() => api.tree(props.project));
   const sources = createMemo(() =>
@@ -68,7 +74,7 @@ export function AddCandidates(props: {
       : [];
   };
   const inList = (c: Card) => {
-    const list = props.sl.lists().find((l) => l.id === props.list.id);
+    const list = props.sl.lists().find((l) => l.id === props.list?.id);
     return !!list?.candidates.some(
       (x) =>
         x.copiedFrom?.mock === c.node.id &&
@@ -98,10 +104,14 @@ export function AddCandidates(props: {
     setBusy(true);
     setError(null);
     try {
-      await api.saveCopies({ to: props.list.id, candidates: [...chosen().values()] });
+      const candidates = [...chosen().values()];
+      const { to } = await api.saveCopies(
+        props.list ? { to: props.list.id, candidates } : { title: name().trim(), candidates },
+      );
       await props.sl.load();
-      props.onDone(chosen().size);
+      props.onDone?.(chosen().size);
       dialog.close();
+      if (!props.list) navigate(mockPath(props.project, to.slug));
     } catch (e) {
       setError(`Couldn't add them. ${e instanceof Error ? e.message : e}`);
       setBusy(false);
@@ -112,11 +122,25 @@ export function AddCandidates(props: {
       class="slpick"
       classList={{ phone: phoneLayout() }}
       ref={(el) => (dialog = el)}
-      aria-label={`Add to ${props.list.title}`}
+      aria-label={title()}
       onClose={props.onClose}
     >
       <header class="slpick-h">
-        <h2>{`Add to ${props.list.title}`}</h2>
+        <Show when={props.list} fallback={<h2>{title()}</h2>}>
+          <h2>{`Add to ${title()}`}</h2>
+        </Show>
+        <Show when={!props.list}>
+          <input
+            class="slpick-name"
+            ref={(el) => (nameEl = el)}
+            type="text"
+            maxLength={120}
+            placeholder="What is it?"
+            aria-label="Name of the idea"
+            value={name()}
+            onInput={(e) => setName(e.currentTarget.value)}
+          />
+        </Show>
         <button
           type="button"
           class="ib"
@@ -219,7 +243,7 @@ export function AddCandidates(props: {
         <button
           type="button"
           class="btn go"
-          disabled={!chosen().size || busy()}
+          disabled={!chosen().size || busy() || (!props.list && !name().trim())}
           onClick={() => void add()}
         >
           {chosen().size ? `Add ${chosen().size}` : "Add"}
@@ -252,7 +276,7 @@ function CandidateCard(props: {
       role="checkbox"
       aria-checked={props.on}
       aria-disabled={props.already}
-      aria-label={props.already ? `${v().variant}, already in this shortlist` : v().variant}
+      aria-label={props.already ? `${v().variant}, already in this idea` : v().variant}
       onClick={() => !props.already && props.onToggle()}
     >
       <span class="slcard-art">
@@ -276,7 +300,7 @@ function CandidateCard(props: {
             </span>
           }
         >
-          <span class="slcard-in">In shortlist</span>
+          <span class="slcard-in">Already in</span>
         </Show>
       </span>
       <span class="slcard-nm">{v().variant}</span>

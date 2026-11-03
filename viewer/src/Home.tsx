@@ -37,6 +37,7 @@ import { CardMenu } from "./CardMenu.tsx";
 import { createDecisions, Decisions } from "./Decisions.tsx";
 import { setCarried } from "./carry.ts";
 import { useSwipeAction } from "./gestures.ts";
+import { AddCandidates } from "./AddCandidates.tsx";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { openJump } from "./Jump.tsx";
@@ -64,10 +65,13 @@ import {
 } from "./route.ts";
 import { NotFound } from "./NotFound.tsx";
 import { ProjectSwitcher } from "./ProjectSwitcher.tsx";
+import { Reason } from "./Reason.tsx";
+import { createShortlists } from "./shortlist.ts";
 import { unseen } from "./seen.ts";
 import { setTheme, theme } from "./theme.ts";
 import { Sidebar } from "./Sidebar.tsx";
 import { Thumb } from "./Thumb.tsx";
+import { Toast, type ToastLine } from "./toast.tsx";
 import { TopBar } from "./TopBar.tsx";
 import { phoneLayout } from "./viewport.ts";
 
@@ -135,8 +139,17 @@ export function Home(props: {
     [],
   );
   const bySlug = createMemo(() => new Map(nodes().map((n) => [n.slug, n])));
-  const onShow = createMemo(() => nodes().filter((n) => !nothingLeft(n)));
-  const archived = createMemo(() => nodes().filter((n) => nothingLeft(n)));
+  // Ended a moment ago, before the tree catches up.
+  const [leaving, setLeaving] = createSignal<Record<string, true>>({});
+  // One way off the shelf, however it got there: ended by hand, or with every design
+  // archived. Both are in the Archive, the ended ones first and newest first.
+  const inArchive = (n: TreeNode) => !!n.closedAt || nothingLeft(n);
+  const onShow = createMemo(() => nodes().filter((n) => !inArchive(n) && !leaving()[n.id]));
+  const archived = createMemo(() =>
+    nodes()
+      .filter(inArchive)
+      .sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? "")),
+  );
   const areaOrder = createMemo(() => tree()?.areaOrder ?? []);
   const areas = createMemo(() =>
     orderAreas(
@@ -165,14 +178,11 @@ export function Home(props: {
 
   const inSection = (sec: ShelfSection, a: string | null = null) =>
     onShow().filter((n) => sectionOf(n) === sec && (a === null || n.area === a));
-  // What a count promises is what the place shows first: what's still going, and
-  // what's closed only once nothing else is left there.
-  const liveOr = (rows: TreeNode[]) => rows.filter((n) => !n.closedAt).length || rows.length;
   const counts = createMemo<Record<Section, number>>(() => ({
-    ideas: liveOr(inSection("ideas")),
-    screens: liveOr(inSection("screens")),
-    components: liveOr(inSection("components")),
-    documents: liveOr(inSection("documents")),
+    ideas: inSection("ideas").length,
+    screens: inSection("screens").length,
+    components: inSection("components").length,
+    documents: inSection("documents").length,
     flows: allRows().length,
   }));
   const lit = createMemo(() => litSections(counts()));
@@ -193,17 +203,10 @@ export function Home(props: {
     return n !== null && n >= SIDEBAR_FROM && !noSuchProject();
   };
 
-  // Resolved a moment ago, before the list catches up.
-  const [leaving, setLeaving] = createSignal<Record<string, true>>({});
   const all = createMemo(() =>
     [...(list()?.mocks ?? [])].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
   );
   const mocks = createMemo(() => all().filter((m) => !m.closedAt && !leaving()[m.id]));
-  const resolved = createMemo(() =>
-    all()
-      .filter((m) => m.closedAt)
-      .sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? "")),
-  );
   // Rows are keyed by id, so a refetch mid-swipe updates a row in place
   // instead of remounting it out from under the finger.
   const byId = createMemo(() => Object.fromEntries(all().map((m) => [m.id, m])));
@@ -222,7 +225,7 @@ export function Home(props: {
     const loaded = !!tree() && !!list();
     if (sec === "decisions" && (decisions.list.loading || decisionCount() > 0)) return sec;
     if (sec && !loaded && sec !== "decisions") return sec;
-    if (sec === "needs" && (waiting().length || resolved().length)) return sec;
+    if (sec === "needs" && waiting().length) return sec;
     if (sec === "archive" && archived().length) return sec;
     if (sec === "activity" && nodes().length) return sec;
     if (tiny()) return loaded ? "tiny" : null;
@@ -255,36 +258,38 @@ export function Home(props: {
     );
   });
 
-  // One line after a resolve, with Undo, since a swipe is easy to make by mistake.
-  const [toast, setToast] = createSignal<{ text: string; undo?: string } | null>(null);
-  let toastTimer = 0;
-  const say = (t: { text: string; undo?: string }) => {
-    host().window.clearTimeout(toastTimer);
-    setToast(t);
-    toastTimer = host().window.setTimeout(() => setToast(null), 6000);
-  };
-  onCleanup(() => host().window.clearTimeout(toastTimer));
-  async function resolve(m: { id: string; title: string }) {
+  const [toast, setToast] = createSignal<ToastLine | null>(null);
+  const saveReason = (id: string, reason: string | null) =>
+    void api.reason(id, { reason }).then(
+      () => refetch(),
+      (e) => setToast({ text: `Couldn't keep that: ${e instanceof Error ? e.message : e}` }),
+    );
+  // One line after it goes, with Undo, since a swipe is easy to make by mistake, and
+  // a place to say why. Nothing is asked first.
+  async function end(m: { id: string; title: string }, word: "Ended" | "Archived") {
     setLeaving({ ...leaving(), [m.id]: true });
     try {
-      await api.close(m.id);
+      const { reason } = await api.close(m.id);
       await refetch();
-      say({ text: `Closed “${m.title}”`, undo: m.id });
+      setToast({
+        text: `${word} “${m.title}”`,
+        undo: () => void reopen(m.id),
+        reason: { value: reason, save: (r) => saveReason(m.id, r) },
+      });
     } catch (e) {
-      say({ text: `Couldn't close “${m.title}”: ${e instanceof Error ? e.message : e}` });
+      setToast({ text: `Couldn't take away “${m.title}”: ${e instanceof Error ? e.message : e}` });
     } finally {
       const { [m.id]: _, ...rest } = leaving();
       setLeaving(rest);
     }
   }
   async function reopen(id: string) {
-    host().window.clearTimeout(toastTimer);
     setToast(null);
     try {
       await api.reopen(id);
       await refetch();
     } catch (e) {
-      say({ text: `Couldn't reopen: ${e instanceof Error ? e.message : e}` });
+      setToast({ text: `Couldn't restore: ${e instanceof Error ? e.message : e}` });
     }
   }
 
@@ -338,7 +343,7 @@ export function Home(props: {
   });
 
   const owesIn = (a: string) => onShow().some((n) => n.area === a && n.open > 0);
-  const countIn = (a: string) => liveOr(onShow().filter((n) => n.area === a));
+  const countIn = (a: string) => onShow().filter((n) => n.area === a).length;
   // The lone section, whose mocks the sidebar can list by name: there's no section
   // choice to make there, and the shelf beside it is the same few things larger. A
   // dated list already is the names.
@@ -380,8 +385,8 @@ export function Home(props: {
       <CardMenu
         mock={n}
         areas={areas()}
-        onClose={() => void resolve(n)}
-        onReopen={() => void reopen(n.id)}
+        endLabel={sectionOf(n) === "ideas" ? "End this idea" : "Archive"}
+        onClose={() => void end(n, sectionOf(n) === "ideas" ? "Ended" : "Archived")}
         onEdited={() => void refetch()}
       />
     );
@@ -392,6 +397,7 @@ export function Home(props: {
       fresh={fresh().has(n.id)}
       menu={menuFor(n)}
       extra={n.kind === "component" ? usedIn(n, (s) => bySlug().get(s)?.kind) : undefined}
+      {...(!readonly() && sectionOf(n) === "ideas" ? { onEnd: () => void end(n, "Ended") } : {})}
     />
   );
   const docRow = (n: TreeNode) => (
@@ -407,9 +413,7 @@ export function Home(props: {
     where: string,
   ) => {
     const newest = sec === "ideas" || sec === "documents";
-    const sorted = createMemo(() => (newest ? [...rows()].sort(newestFirst) : rows()));
-    const live = createMemo(() => sorted().filter((n) => !n.closedAt));
-    const closed = createMemo(() => sorted().filter((n) => n.closedAt));
+    const live = createMemo(() => (newest ? [...rows()].sort(newestFirst) : rows()));
     const body = (list: () => TreeNode[]) =>
       sec === "documents" ? (
         <ul class="home-docs">
@@ -442,17 +446,6 @@ export function Home(props: {
               );
             }}
           </For>
-        </Show>
-        {/* Nothing else here: they're not an aside, they're what the place holds. */}
-        <Show when={closed().length && !live().length}>{body(closed)}</Show>
-        <Show when={closed().length && live().length}>
-          <Fold
-            id={`${project()}|${sec}|${where}|closed`}
-            label={() => `Closed · ${closed().length}`}
-            startOpen={() => false}
-          >
-            {body(closed)}
-          </Fold>
         </Show>
       </>
     );
@@ -569,7 +562,7 @@ export function Home(props: {
     const sec = shelfOn();
     if (sec) {
       return a && sec !== "flows"
-        ? liveOr(inSection(sec, a))
+        ? inSection(sec, a).length
         : a
           ? inAreaCount(sec, a)
           : counts()[sec];
@@ -590,18 +583,43 @@ export function Home(props: {
     !projects.loading && (!project() || (!!tree() && nodes().length === 0));
 
   // No heading and nothing to say: a tiny project opens straight on its covers.
-  const leadHasWords = () =>
-    open() > 0 || (tiny() && (decisionCount() > 0 || resolved().length > 0));
+  const leadHasWords = () => open() > 0 || (tiny() && decisionCount() > 0);
 
   const [archivedOpen, setArchivedOpen] = createSignal(false);
-  const archivedLink = (n: TreeNode) => {
-    const href = mockPath(project()!, n.slug);
+  const archiveRow = (n: TreeNode) => {
+    const href = () => mockPath(project()!, n.slug);
     return (
-      <a href={href} onClick={(e) => linkClick(e, href)}>
-        {n.title}
-      </a>
+      <li class="home-arch">
+        <a href={href()} onClick={(e) => linkClick(e, href())}>
+          {n.title}
+        </a>
+        <span class="home-arch-when">
+          {n.closedAt ? timeAgo(n.closedAt) : "every design archived"}
+        </span>
+        {/* Work can still land in something ended, and here is where it would wait. */}
+        <Show when={fresh().has(n.id)}>
+          <span class="alb-new">
+            <i aria-hidden="true" />
+            New
+          </span>
+        </Show>
+        <Show when={n.closedAt}>
+          <Reason value={n.closeReason} onSave={(r) => saveReason(n.id, r)} />
+          <Show when={!readonly()}>
+            <button
+              type="button"
+              class="btn home-arch-back"
+              aria-label={`Restore ${n.title}`}
+              onClick={() => void reopen(n.id)}
+            >
+              Restore
+            </button>
+          </Show>
+        </Show>
+      </li>
     );
   };
+  const [gathering, setGathering] = createSignal(false);
 
   const switcher = () => (
     <ProjectSwitcher
@@ -759,17 +777,15 @@ export function Home(props: {
                       {`Decisions ${decisionCount()} ›`}
                     </a>
                   </Show>
-                  <Show when={tiny() && resolved().length > 0 && shown() !== "needs"}>
-                    <Show when={open() > 0 || decisionCount() > 0}>
-                      <span class="sep">·</span>
-                    </Show>
-                    <a
-                      class="home-next"
-                      href={projectPath(project()!, "needs")}
-                      onClick={(e) => swap(e, projectPath(project()!, "needs"))}
+                  <Show when={shelfOn() && !readonly()}>
+                    <button
+                      type="button"
+                      class="btn home-gather"
+                      onClick={() => setGathering(true)}
                     >
-                      {`Closed ${resolved().length} ›`}
-                    </a>
+                      <Icon name="plus" />
+                      New idea
+                    </button>
                   </Show>
                 </div>
               </header>
@@ -808,10 +824,10 @@ export function Home(props: {
                 </div>
                 <Show when={allRows().length}>{flowsAll()}</Show>
                 <Show when={archived().length}>
-                  <section class="home-resolved" aria-label="Archived">
+                  <section class="home-archive" aria-label="Archived">
                     <button
                       type="button"
-                      class="home-resolved-hd"
+                      class="home-archive-hd"
                       aria-expanded={archivedOpen()}
                       onClick={() => setArchivedOpen(!archivedOpen())}
                     >
@@ -821,9 +837,9 @@ export function Home(props: {
                       {`Archived · ${archived().length}`}
                     </button>
                     <Show when={archivedOpen()}>
-                      <div class="home-archived">
-                        <For each={archived()}>{archivedLink}</For>
-                      </div>
+                      <ul class="home-archived">
+                        <For each={archived()}>{archiveRow}</For>
+                      </ul>
                     </Show>
                   </section>
                 </Show>
@@ -835,9 +851,9 @@ export function Home(props: {
               <Show when={shown() === "documents"}>{sectionShelf("documents")}</Show>
               <Show when={shown() === "flows"}>{flowsAll()}</Show>
               <Show when={shown() === "archive"}>
-                <div class="home-archived home-archive-page">
-                  <For each={archived()}>{archivedLink}</For>
-                </div>
+                <ul class="home-archived home-archive-page">
+                  <For each={archived()}>{archiveRow}</For>
+                </ul>
               </Show>
             </Show>
 
@@ -851,38 +867,18 @@ export function Home(props: {
                           <MockRow
                             mock={m()}
                             project={project()!}
-                            {...(readonly() ? {} : { onResolve: () => void resolve(m()) })}
+                            {...(readonly()
+                              ? {}
+                              : {
+                                  onResolve: () =>
+                                    void end(m(), m().kind === "sketch" ? "Ended" : "Archived"),
+                                })}
                           />
                         )}
                       </Show>
                     )}
                   </For>
                 </ol>
-                <Show when={resolved().length}>
-                  <section class="home-resolved" aria-label="Closed">
-                    <Fold
-                      id={`${project()}|closed-rows`}
-                      label={() => `Closed · ${resolved().length}`}
-                      startOpen={() => !waiting().length}
-                    >
-                      <ol class="home-list">
-                        <For each={resolved().map((m) => m.id)}>
-                          {(id) => (
-                            <Show when={byId()[id]}>
-                              {(m) => (
-                                <MockRow
-                                  mock={m()}
-                                  project={project()!}
-                                  {...(readonly() ? {} : { onReopen: () => void reopen(id) })}
-                                />
-                              )}
-                            </Show>
-                          )}
-                        </For>
-                      </ol>
-                    </Fold>
-                  </section>
-                </Show>
               </div>
             </Show>
 
@@ -914,19 +910,9 @@ export function Home(props: {
           </Show>
         </Show>
       </main>
-      <Show when={toast()}>
-        {(t) => (
-          <div class="home-toast" role="status">
-            <span>{t().text}</span>
-            <Show when={t().undo}>
-              {(id) => (
-                <button type="button" class="home-toast-undo" onClick={() => void reopen(id())}>
-                  Undo
-                </button>
-              )}
-            </Show>
-          </div>
-        )}
+      <Toast toast={toast()} onDismiss={() => setToast(null)} />
+      <Show when={gathering() && project()} keyed>
+        {(p) => <NewIdea project={p} onClose={() => setGathering(false)} />}
       </Show>
     </div>
   );
@@ -946,7 +932,7 @@ function Fold(props: {
     <section class={`home-fold ${props.class ?? ""}`}>
       <button
         type="button"
-        class="home-resolved-hd"
+        class="home-archive-hd"
         aria-expanded={open()}
         onClick={() => {
           const next = !open();
@@ -1005,10 +991,10 @@ function MockRow(props: {
   mock: MockSummary;
   project: string;
   onResolve?: () => void;
-  onReopen?: () => void;
   // Only saying what changed when, not asking anything of the user.
   plain?: boolean;
 }) {
+  const endWord = () => (props.mock.kind === "sketch" ? "End" : "Archive");
   const href = () => mockPath(props.project, props.mock.slug);
   const thumb = () => props.mock.thumbnail;
   // How far a finger has pulled the row left; null at rest.
@@ -1019,7 +1005,7 @@ function MockRow(props: {
     const d = dx();
     return d !== null && d < -Math.min(140, (slide?.clientWidth ?? 0) * 0.4);
   };
-  // The row slides off before the list moves it into Resolved.
+  // The row slides off before the list lets it go.
   const commit = () => {
     if (!props.onResolve || gone()) return;
     setGone(true);
@@ -1027,16 +1013,13 @@ function MockRow(props: {
     host().window.setTimeout(() => props.onResolve?.(), reducedMotion() ? 0 : 180);
   };
   return (
-    <li
-      class="home-item"
-      classList={{ "is-resolved": !!props.onReopen, swiping: dx() !== null || gone() }}
-    >
+    <li class="home-item" classList={{ swiping: dx() !== null || gone() }}>
       <Show when={props.onResolve}>
         <div class="home-swipe-act" classList={{ armed: armed() || gone() }} aria-hidden="true">
           <svg viewBox="0 0 16 16">
             <path d="M3.5 8.5l3 3 6-7" />
           </svg>
-          Close
+          {endWord()}
         </div>
       </Show>
       <div
@@ -1089,7 +1072,6 @@ function MockRow(props: {
               <Show when={props.mock.source}>
                 {(src) => <span class="home-src" title={src()}>{` · ${shortSource(src())}`}</span>}
               </Show>
-              <Show when={props.mock.closedAt}>{(at) => ` · closed ${timeAgo(at())}`}</Show>
               <Show when={props.mock.drafted !== undefined && props.mock.open > 0}>
                 <span class="home-draft" title="Answered, not sent yet">
                   {` · draft ${props.mock.drafted}/${props.mock.open}`}
@@ -1118,24 +1100,22 @@ function MockRow(props: {
           <button
             type="button"
             class="home-act"
-            aria-label={`Close ${props.mock.title}`}
-            title="Close: leave its open questions unanswered"
+            aria-label={`${endWord()} ${props.mock.title}`}
+            title={`${endWord()}: it goes to the Archive, with its open questions`}
             onClick={commit}
           >
-            Close
-          </button>
-        </Show>
-        <Show when={props.onReopen}>
-          <button
-            type="button"
-            class="home-act reopen"
-            aria-label={`Reopen ${props.mock.title}`}
-            onClick={() => props.onReopen?.()}
-          >
-            Reopen
+            {endWord()}
           </button>
         </Show>
       </div>
     </li>
   );
+}
+
+// New idea: pick versions from across the project into an idea of their own. They come
+// as copies, so the originals stay as they are, and replies reach whichever agent is
+// working in the project until one writes to it.
+function NewIdea(props: { project: string; onClose: () => void }) {
+  const sl = createShortlists(props.project, () => {});
+  return <AddCandidates sl={sl} project={props.project} onClose={props.onClose} />;
 }

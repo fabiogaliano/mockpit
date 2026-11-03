@@ -81,7 +81,7 @@ export function Decisions(props: {
                   {head().title}
                 </a>
                 <Show when={head().closed}>
-                  <span class="decisions-closed">Closed</span>
+                  <span class="decisions-closed">Archived</span>
                 </Show>
                 <Show when={head().at}>{(at) => <time>{timeAgo(at())}</time>}</Show>
               </h3>

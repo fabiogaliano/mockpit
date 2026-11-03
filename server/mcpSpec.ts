@@ -247,7 +247,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "feedback",
     description:
-      "Returns at once: what the user sent since you last heard (one batch per mock: reply answers, borrowed parts, tuned knobs, part comments, verdict; thread messages; inUse/archived; or closed with the questions it dismissed), delivered once, plus pending (viewer open, draft progress).",
+      "Returns at once: what the user sent since you last heard (one batch per mock: reply answers, borrowed parts, tuned knobs, part comments, verdict; thread messages; inUse/archived), delivered once, plus pending (viewer open, draft progress).",
     params: {
       project: P.project,
       session: { t: "string", d: "Session id returned by publish", req: true },
@@ -387,14 +387,6 @@ const feedbackSchema = o({
   messages: z.array(o({ seq: num, text: str })).describe("What the user wrote in the thread"),
   inUse: z.array(inUseRef).describe("In use, each at the version the user put in use"),
   archived: z.array(variantRef),
-  closed: z
-    .literal(true)
-    .optional()
-    .describe("The user closed the mock: its open questions were closed unanswered"),
-  dismissed: z
-    .array(o({ ask: str, text: str }))
-    .optional()
-    .describe("The questions the close dismissed; don't ask them again"),
   edited: o({
     kind: str.optional(),
     area: nullStr.optional(),

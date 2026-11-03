@@ -91,6 +91,8 @@ export function Album(props: {
   menu: JSX.Element | undefined;
   // Words that only the shelf knows: where a component appears.
   extra?: string;
+  // Ideas end with a quiet × on the cover, as a design leaves Studio.
+  onEnd?: () => void;
 }) {
   const n = () => props.node;
   const shape = createMemo(() => coverShape(n()));
@@ -98,53 +100,62 @@ export function Album(props: {
   const depth = createMemo(() => stackDepth(n()));
   const widths = createMemo(() => bothWidths(n()));
   const href = () => mockPath(props.project, n().slug);
-  const waiting = () => n().open > 0 && !n().closedAt && !readonly();
+  const waiting = () => n().open > 0 && !readonly();
   return (
-    <div
-      class="alb"
-      classList={{ closed: !!n().closedAt, waiting: waiting() }}
-      data-shape={shape()}
-    >
-      {/* One stop per album for the keyboard: the title below carries it, except on
+    <div class="alb" classList={{ waiting: waiting() }} data-shape={shape()}>
+      <div class="alb-front">
+        {/* One stop per album for the keyboard: the title below carries it, except on
           a text cover, where the title is the cover. */}
-      <a
-        class="home-step alb-cover"
-        href={href()}
-        tabIndex={shape() === "text" ? undefined : -1}
-        aria-hidden={shape() === "text" ? undefined : "true"}
-        data-mock={n().slug}
-        onClick={(e) => linkClick(e, href())}
-      >
-        <For each={Array.from({ length: depth() }, (_, i) => depth() - i)}>
-          {(i) => <span class="alb-sheet" style={{ "--i": i }} />}
-        </For>
-        <span class="home-pic alb-art">
-          <Show
-            when={shape() !== "text" && pic()}
-            fallback={
-              <span class="alb-text">
-                <span class="alb-text-title">{n().title}</span>
-                <span class="alb-text-date">{shortDate(lastWork(n()))}</span>
-              </span>
-            }
+        <a
+          class="home-step alb-cover"
+          href={href()}
+          tabIndex={shape() === "text" ? undefined : -1}
+          aria-hidden={shape() === "text" ? undefined : "true"}
+          data-mock={n().slug}
+          onClick={(e) => linkClick(e, href())}
+        >
+          <For each={Array.from({ length: depth() }, (_, i) => depth() - i)}>
+            {(i) => <span class="alb-sheet" style={{ "--i": i }} />}
+          </For>
+          <span class="home-pic alb-art">
+            <Show
+              when={shape() !== "text" && pic()}
+              fallback={
+                <span class="alb-text">
+                  <span class="alb-text-title">{n().title}</span>
+                  <span class="alb-text-date">{shortDate(lastWork(n()))}</span>
+                </span>
+              }
+            >
+              {(p) => (
+                <>
+                  <Picture
+                    pic={p()}
+                    width={widths()?.wide ?? designWidth(n())}
+                    whole={shape() === "part"}
+                  />
+                  <Show when={shape() === "both"}>
+                    <span class="alb-phone">
+                      <Picture pic={p()} width={widths()?.phone ?? 390} whole={false} />
+                    </span>
+                  </Show>
+                </>
+              )}
+            </Show>
+          </span>
+        </a>
+        <Show when={props.onEnd}>
+          <button
+            type="button"
+            class="ib x-remove alb-x"
+            aria-label={`End ${n().title}`}
+            title="End this idea"
+            onClick={() => props.onEnd?.()}
           >
-            {(p) => (
-              <>
-                <Picture
-                  pic={p()}
-                  width={widths()?.wide ?? designWidth(n())}
-                  whole={shape() === "part"}
-                />
-                <Show when={shape() === "both"}>
-                  <span class="alb-phone">
-                    <Picture pic={p()} width={widths()?.phone ?? 390} whole={false} />
-                  </span>
-                </Show>
-              </>
-            )}
-          </Show>
-        </span>
-      </a>
+            <Icon name="close" />
+          </button>
+        </Show>
+      </div>
       <div class="alb-cap">
         <Show when={shape() !== "text"}>
           <a class="alb-title" href={href()} onClick={(e) => linkClick(e, href())}>
@@ -175,7 +186,7 @@ export function DocRow(props: {
   const n = () => props.node;
   const href = () => mockPath(props.project, n().slug);
   return (
-    <li class="home-doc" classList={{ closed: !!n().closedAt }}>
+    <li class="home-doc">
       <a
         class="home-doc-link"
         href={href()}

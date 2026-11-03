@@ -382,28 +382,17 @@ function StateList(props: { s: MockScreenState; nav: FlowNav }) {
 // One line per variant, newest first; each version names what prompted it.
 function VersionList(props: { s: MockScreenState }) {
   const s = props.s;
-  const [showHidden, setShowHidden] = createSignal(false);
-  const hidden = () => s.steps().filter((x) => x.hidden).length;
-  const visible = createMemo(() =>
-    s.steps().filter((x) => showHidden() || !x.hidden || sameVersion(x, s.onStage())),
-  );
-  const lines = createMemo(() => [...new Set([...visible()].reverse().map((x) => x.variant))], [], {
+  const lines = createMemo(() => [...new Set([...s.steps()].reverse().map((x) => x.variant))], [], {
     equals: sameList,
   });
   const inLine = (variant: string) =>
-    visible()
+    s
+      .steps()
       .filter((x) => x.variant === variant)
       .reverse();
   return (
     <section class="lm-sec">
-      <h3>
-        Versions
-        <Show when={hidden()}>
-          <button type="button" class="hidlink" onClick={() => setShowHidden(!showHidden())}>
-            {showHidden() ? "Fold hidden" : `${hidden()} hidden`}
-          </button>
-        </Show>
-      </h3>
+      <h3>Versions</h3>
       <For each={lines()}>
         {(variant) => (
           <>

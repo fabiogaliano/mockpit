@@ -29,7 +29,7 @@ while the user hasn't acted on it (`touchedBy` in `server/app.ts`). A
 mock may name its **area** (the project's own words, e.g. "Shell"; Home
 groups by it, in the project's `areaOrder` setting, then alphabetical) and its
 **source** (the code path that implements it). The user can move a mock too,
-from Home's ⋯ menu (kind, area, close); the agent hears a move as a feedback
+from Home's ⋯ menu (kind, area, archive); the agent hears a move as a feedback
 batch's `edited`, through the same cursor as a Send. The user's is Send (or Use this / Revise on a mock whose
 state has one variant and no asks), which releases one **reply**.
 
@@ -59,6 +59,10 @@ consciously, not as a side effect):
   by what it contains). A plain publish of any kind still gets stage + Thread + Use
   this / Revise, except a document (only written surfaces and pictures, no declared
   width), which opens in `Reader` with its paragraphs to comment on and no Use this.
+- Archive tells the agent nothing, and nothing blocks a question. Ending a mock or
+  archiving a variant writes nothing to the agent's stream and instructs no one:
+  `read` shows `closedAt`, `closeReason`, `status` and `archiveReason` as information,
+  and a question on an ended mock brings it back. Guidance over hard rules.
 - Self-hosted only; the embeddable viewer engine was dropped. Keep the
   `root()`/`host()` habit in `viewer/src` anyway.
 
@@ -106,8 +110,9 @@ consciously, not as a side effect):
   (items → single-state mocks, draft comments → mock drafts, traces dropped,
   `resolvedAt` → `closedAt`, the 2.0 contract words in stored replies, drafts
   and html).
-- A **shortlist** is a mock with `shortlist` set, gathered by the user from the
-  project's other mocks: `AddCandidates`, or a Studio bookmark (`SaveMenu`,
+- A **gathered idea** is a mock with `shortlist` set (the stored name, which is also in
+  `read`), gathered by the user from the project's other mocks: New idea on Home's
+  shelves (`AddCandidates`), or a Studio bookmark (`SaveMenu`,
   `viewer/src/shortlist.ts`), which can also copy into any other mock or state
   and take the version out of where it is. Each is one version copied as a variant
   with `copiedFrom`, originals untouched unless the user moves it. Until an agent writes to it, replies go to
@@ -153,9 +158,12 @@ consciously, not as a side effect):
   list (`DocRow`, `dateGroups`). Section rows sit above the areas a project names, a
   project with none looks as if areas did not exist, and `?area=` alone shows all of
   one area. Flows are rows of screens opened with `?flow=`. Components say "in N
-  screens". A mock with everything archived and no question waiting goes to Archive
-  (`nothingLeft`); a closed one folds under Closed in its section, and Needs you lists
-  the waiting ones to resolve, with Answer next above every place. `Jump` is search
+  screens". The Archive holds what left the shelves, one concept however it left: ended
+  by hand (the × on an idea, ⋯, a swipe in Needs you; `closedAt`, with an optional
+  `closeReason`) or with everything archived and no question waiting (`nothingLeft`).
+  Needs you lists the waiting ones, with Answer next above every place. A cover shows
+  what's in use, else the agent's recommendation, else the first (`screenPicture`).
+  Hide is per version and dims in place; archive is per variant and per mock, with Undo. `Jump` is search
   from anywhere (`/` or ⌘K), through `GET /api/search` (`server/jump.ts`), which
   never reads surfaces; results are text nodes. `MockScreen`
   (`TopRow`: the path is the way up, project and area as links, ending at the
@@ -164,8 +172,9 @@ consciously, not as a side effect):
   `BuiltFrom` is Tune's drawer, open while Tune is; `Studio`, the state zoomed
   out with every variant side by side, entered from the top bar's Stage | Studio
   switch and remembered per mock, each steer its own reply (`steer`, `sendAlone`), with `SelectBar` acting on
-  several versions at once, and Group hanging variants under a lead by setting
-  their `forkedFrom` (`setVariationsFlow`, which the agent hears as `edited.grouped`).
+  several versions at once. A fork is a column of its own saying where it came from.
+  Past Use this a newer version asks first (`changedTo`, `ChangedNote`: see it, use it,
+  or stay, which `stayedVersion` remembers until a newer one comes).
   A mock of `WALL_FROM` variants or more opens Studio as a wall: one grid of all its
   states, filtered by state, status and text, with the closer look beside it as a
   preview on a wide window and over it otherwise; every card without a poster shares

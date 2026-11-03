@@ -12,17 +12,19 @@ import { ACCEPT, filesOf, hasFiles } from "./attach.ts";
 import { readonly } from "./host.ts";
 import { answerIds, askState, draftKnobValues, frameKey, isLookAsk, partBox } from "./logic.ts";
 import type { AskField, MockScreenState } from "./state.ts";
+import { Reason } from "./Reason.tsx";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 
-// A mock the user closed from the project list: what that did, and the way back.
-export function ResolvedNote(props: { s: MockScreenState }) {
+// A mock the user ended: what that did, the way back, and why, if they want to say.
+export function EndedNote(props: { s: MockScreenState }) {
   return (
-    <div class="resolved-note" role="status">
-      <span>Closed. Questions still open were left unanswered, and your agent was told.</span>
+    <div class="status-note" role="status">
+      <span>In the Archive. Questions still open wait here if you restore it.</span>
+      <Reason value={props.s.mock()?.closeReason} onSave={props.s.saveEndReason} />
       <Show when={!readonly()}>
         <button type="button" class="secondary" onClick={() => void props.s.reopen()}>
-          Reopen
+          Restore
         </button>
       </Show>
     </div>

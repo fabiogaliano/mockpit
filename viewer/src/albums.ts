@@ -21,9 +21,14 @@ export const SECTION_LABEL: Record<Section, string> = {
 // One render, nothing asked and no design width is something to read. A declared
 // width means someone is designing for a device, however few pictures it has so
 // far; on the real data that keeps a lone phone sketch out of Documents.
-export function sectionOf(
-  node: Pick<TreeNode, "kind" | "shortlist" | "asked" | "states" | "variants" | "widths">,
-): ShelfSection {
+export function sectionOf(node: {
+  kind: TreeNode["kind"];
+  shortlist?: boolean;
+  asked?: number;
+  states: (string | null)[];
+  variants: unknown[];
+  widths: number[];
+}): ShelfSection {
   if (node.kind === "page") return "screens";
   if (node.kind === "component") return "components";
   if (node.shortlist || node.asked || node.variants.length > 1) return "ideas";
@@ -93,21 +98,20 @@ export function albumInside(node: TreeNode): string {
   const states = node.states.filter((s) => s !== null).length;
   const live = liveVariants(node);
   const parts: string[] = [];
-  if (node.shortlist) parts.push("Shortlist");
+  if (node.shortlist) parts.push("Gathered");
   if (states > 1) parts.push(`${states} states`);
   if (live > 1 && live !== states) parts.push(`${live} variants`);
   if (bothWidths(node)) parts.push("Phone and desktop");
   return parts.join(" · ");
 }
 
-export type TurnKind = "open" | "changed" | "decided" | "sent" | "exploring" | "closed";
+export type TurnKind = "open" | "changed" | "decided" | "sent" | "exploring";
 
 const TURN_TEXT: Record<Exclude<TurnKind, "open">, string> = {
   changed: "Changed",
   decided: "In use",
   sent: "Sent",
   exploring: "Exploring",
-  closed: "Closed",
 };
 
 export const questions = (n: number) => `${n} ${n === 1 ? "question" : "questions"}`;
@@ -117,7 +121,6 @@ export function turnWord(node: Parameters<typeof mockStatus>[0]): {
   kind: TurnKind;
   text: string;
 } | null {
-  if (node.closedAt) return { kind: "closed", text: TURN_TEXT.closed };
   const status = mockStatus(node);
   if (!status) return null;
   return status.kind === "open"
@@ -135,8 +138,8 @@ export function usedIn(node: TreeNode, kindOf: (slug: string) => string | undefi
   return `in ${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
-// When a mock last had new work. Not the mock's own updatedAt, which a draft or a
-// close also moves: what's newest shouldn't reshuffle because of a click.
+// When a mock last had new work. Not the mock's own updatedAt, which a draft or an
+// ending also moves: what's newest shouldn't reshuffle because of a click.
 export function lastWork(node: Pick<TreeNode, "variants" | "createdAt">): string {
   return node.variants.reduce((t, v) => (v.updatedAt > t ? v.updatedAt : t), node.createdAt);
 }

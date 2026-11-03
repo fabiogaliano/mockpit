@@ -87,9 +87,6 @@ export function BottomPanel(props: { s: MockScreenState; onHeight: (h: number) =
   );
 }
 
-// Shared by the head's controls and the tree below them.
-const [showHidden, setShowHidden] = createSignal(false);
-
 function HistoryHead(props: { s: MockScreenState }) {
   const s = props.s;
   const hidden = () => s.steps().filter((x) => x.hidden).length;
@@ -99,11 +96,6 @@ function HistoryHead(props: { s: MockScreenState }) {
   return (
     <div class="hh">
       <span class="hcount">{`${visible()} ${visible() === 1 ? "version" : "versions"}`}</span>
-      <Show when={hidden()}>
-        <button type="button" class="hidlink" onClick={() => setShowHidden(!showHidden())}>
-          {showHidden() ? "Fold hidden" : `${hidden()} hidden`}
-        </button>
-      </Show>
       <Show when={!readonly() && step()}>
         {(st) => (
           <Show
@@ -149,10 +141,7 @@ const LINE_NAME_H = 20;
 
 function History(props: { s: MockScreenState }) {
   const s = props.s;
-  const shown = createMemo(() =>
-    s.steps().filter((x) => showHidden() || !x.hidden || sameVersion(x, s.onStage())),
-  );
-  const layout = createMemo(() => historyLayout(shown()));
+  const layout = createMemo(() => historyLayout(s.steps()));
   const size = () => (widthKind(s.frameW()) === "phone" ? TALL : FLAT);
   // Each variant numbers its own versions, so with several, "#1" alone says nothing
   // until its line is named.
@@ -164,7 +153,7 @@ function History(props: { s: MockScreenState }) {
   const startsLine = (c: HistoryCell) =>
     lines() && layout().cells.find((o) => o.row === c.row) === c;
   return (
-    <Show when={shown().length} fallback={<p class="hempty">No versions yet.</p>}>
+    <Show when={s.steps().length} fallback={<p class="hempty">No versions yet.</p>}>
       <div class="hscroll">
         <div
           class="htree"

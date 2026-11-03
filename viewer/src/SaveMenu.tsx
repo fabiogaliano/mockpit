@@ -1,4 +1,4 @@
-// Where a version lives: tick the shortlists, mocks and states it should be in,
+// Where a version lives: tick the ideas, mocks and states it should be in,
 // and flip one switch to take it out of here. Nothing happens until the button,
 // which says what will: a move is two changes, and either alone would leave the
 // version in the wrong place. Fixed to the window, since Studio's scroller would
@@ -185,7 +185,7 @@ export function SaveMenu(props: {
         state: c.state,
         variant: c.variant,
         ref: c.item.ref,
-        // A shortlist left empty goes, so taking the removal back finds it by name.
+        // A gathered idea left empty goes, so taking the removal back finds it by name.
         title: sl.lists().some((l) => l.id === c.mock) ? titleOf(c.mock) : undefined,
         label: c.state ?? titleOf(c.mock),
       }));
@@ -277,7 +277,7 @@ export function SaveMenu(props: {
       />
       <div class="save-list">
         <Show when={shortlists().length}>
-          <div class="save-sec">Shortlists</div>
+          <div class="save-sec">Ideas you gathered</div>
           <For each={shortlists()}>
             {(l) => tick(l.id, null, l.title, String(l.candidates.length))}
           </For>
@@ -339,8 +339,8 @@ export function SaveMenu(props: {
         <Icon name="plus" />
         <input
           type="text"
-          placeholder="New shortlist"
-          aria-label="New shortlist name"
+          placeholder="New idea"
+          aria-label="New idea name"
           maxLength={120}
           value={fresh()}
           onInput={(e) => setFresh(e.currentTarget.value)}

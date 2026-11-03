@@ -73,10 +73,6 @@ values and comments are drafts and never delivered before Send. Each Send is
 delivered exactly once across the monitor, `feedback` and the `feedback` field
 on every write.
 
-A `mockpit closed <mock>: …` line (a batch with `closed: true` and
-`dismissed` questions) means the user closed that mock unanswered. Those
-questions were not worth answering: don't ask them again, in any wording.
-
 Respond by publishing the next version (`publish`, or `--parts name=file` for
 one part) or with a short note in the thread (`say` / `mockpit say`).
 

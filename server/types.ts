@@ -329,6 +329,47 @@ export const isLive = (status: PostStatus | VariantStatus): boolean =>
 export const inUseVersion = (post: Pick<Post, "status" | "version" | "acceptedVersion">): number =>
   post.status === "accepted" ? (post.acceptedVersion ?? post.version) : post.version;
 
+type VersionLine = Pick<
+  Post,
+  "status" | "version" | "acceptedVersion" | "hiddenVersions" | "stayedVersion"
+> & { history: { version: number }[] };
+
+const newestVisible = (post: VersionLine): number => {
+  const hidden = post.hiddenVersions ?? [];
+  const visible = [post.version, ...post.history.map((h) => h.version)].filter(
+    (v) => !hidden.includes(v),
+  );
+  return visible.length ? Math.max(...visible) : post.version;
+};
+
+// What stands for one line of versions: the newest wins until the user presses Use
+// this, and then only their pick does. A version they hid doesn't win.
+export const currentVersion = (post: VersionLine): number =>
+  post.status === "accepted" ? inUseVersion(post) : newestVisible(post);
+
+// A newer version than the one in use, which asks before it takes over. Unset until
+// the agent publishes past what the user picked or last chose to stay on.
+export const changedTo = (post: VersionLine): number | undefined => {
+  if (post.status !== "accepted") return undefined;
+  const newest = newestVisible(post);
+  return newest > Math.max(inUseVersion(post), post.stayedVersion ?? 0) ? newest : undefined;
+};
+
+// The variant the agent would pick for a state, read off its questions. Parallel
+// variants arrive within minutes of each other, so none of them is "the newest", and
+// this is the only thing that says one of them leads.
+export const recommendedVariant = (
+  asks: Pick<Ask, "state" | "options">[],
+  state: string | null,
+): string | undefined => {
+  for (const a of asks) {
+    if (a.state !== undefined && a.state !== state) continue;
+    const pick = a.options.find((o) => o.recommended && o.variant);
+    if (pick) return pick.variant;
+  }
+  return undefined;
+};
+
 // A variant as it stood at one of its versions (current or retained), or null
 // when that version is gone.
 export function postAtVersion(post: Post, version: number): Post | null {
@@ -508,8 +549,8 @@ export interface Reply {
   noteImages?: Record<string, string[]>;
   text?: string;
   verdict?: ReplyVerdict;
-  // A close instead of an answer: the user closed the mock, and these asks
-  // (stored or built-in ids) with it, unanswered.
+  // Only on stored rows, from when a close was written to the agent's stream: the
+  // thread still lists them, and they are never delivered (feedbackBatch.ts).
   closed?: { dismissed: string[] };
   // Neither an answer nor a close: the user moved the mock from Home
   // (another kind, another area; null area: none), which the agent must hear.
@@ -519,7 +560,7 @@ export interface Reply {
 export interface MockEdit {
   kind?: MockKind;
   area?: string | null;
-  // Which variants the user hung under which lead; a null lead takes them out.
+  // From when Studio could hang variants under a lead; stored rows still carry it.
   grouped?: { state: string | null; lead: string | null; variants: string[] }[];
 }
 
@@ -556,12 +597,16 @@ export interface Mock {
   // The agent conversation currently driving this mock (its latest writer), so a
   // reply lands on the cursor of the session that is waiting for it.
   sessionId: string | null;
-  // A list the user gathers candidates into from across the project, rather
-  // than one an agent started. It has no session until an agent writes to it.
+  // An idea the user gathers candidates into from across the project, rather than
+  // one an agent started. It has no session until an agent writes to it. The name is
+  // in `read`'s contract, so it waits for the words release.
   shortlist: boolean;
-  // When the user closed it: off the open list, its open asks dismissed,
-  // until they reopen it. null while it is live.
+  // When the user ended it: off the working shelf, its open asks dismissed, until
+  // they restore it or an agent asks something new. null while it is live.
   closedAt: string | null;
+  // Why, if there is a why: their own line, or the note on what they last sent.
+  // Kept as information; nothing reads it as an instruction.
+  closeReason: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -622,7 +667,7 @@ export interface ForkRef {
   version: number;
 }
 
-// The version a shortlist candidate is a copy of, in another mock of the project.
+// The version a gathered candidate is a copy of, in another mock of the project.
 export interface CopyRef {
   mock: string;
   state: string | null;
@@ -665,6 +710,11 @@ export interface Post {
   // Versions the user hid from the history. Hidden, never removed: replies,
   // embeds and the version in use may still point at one, so it still renders.
   hiddenVersions?: number[];
+  // Why it was archived, if the user said. Goes when it comes back.
+  archiveReason?: string;
+  // While in use: the newest version the user looked at and chose not to take, so
+  // it stops asking until a newer one comes.
+  stayedVersion?: number;
   // Provenance of the CURRENT version — the same fields a PostVersion
   // carries; on the next update they move into the history entry.
   from?: number;
@@ -935,7 +985,9 @@ export interface UpdateMockInput {
   knobs?: Knobs;
   widths?: number[];
   sessionId?: string | null;
+  // null brings it back, and takes the reason with it.
   closedAt?: string | null;
+  closeReason?: string | null;
 }
 
 export interface CreatePostInput {
@@ -1024,8 +1076,6 @@ export interface CommitReplyInput {
   // Each variant put in use, with the version.
   accept: { id: string; version: number }[];
   archive: string[];
-  // A close sets it (a reply leaves it as it is).
-  closedAt?: string;
   // A lone "use this version" is not a Send: the user's unsent draft stays.
   keepDraft?: true;
 }
@@ -1127,6 +1177,8 @@ export interface Store {
   setPostStatus(id: string, status: PostStatus, acceptedVersion?: number): Promise<Post | null>;
   setPostStarred(id: string, starred: boolean): Promise<Post | null>;
   setVersionHidden(id: string, version: number, hidden: boolean): Promise<Post | null>;
+  setPostReason(id: string, reason: string | null): Promise<Post | null>;
+  setPostStayed(id: string, version: number): Promise<Post | null>;
 
   // One project's variant statuses and reply times, for the decision list.
   listDecisionSources(project: string): Promise<DecisionSources>;
@@ -1297,39 +1349,6 @@ export const askAnswered = (a: Pick<Ask, "answer" | "other" | "note">): boolean 
   a.answer !== undefined || a.other !== undefined || a.note !== undefined;
 export const openAsks = (mock: Pick<Mock, "asks">): Ask[] =>
   mock.asks.filter((a) => !askAnswered(a) && !a.dismissed);
-
-// The built-in "Which variant?" questions the viewer shows: one mock-wide when every
-// state needs one and the live names line up, else one per needing state. Same
-// rule as viewer/src/logic.ts builtinAsks.
-export function builtinAskIds(
-  mock: Pick<Mock, "asks" | "states"> & { closedAt?: string | null },
-  posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
-  mockId: string,
-): string[] {
-  // Closing the mock closed the choice along with every other open question.
-  if (mock.closedAt) return [];
-  const live = (state: string | null) =>
-    posts
-      .filter((p) => p.mock === mockId && p.state === state && isLive(p.status))
-      .map((p) => p.variant);
-  const needs = (state: string | null) => {
-    const names = live(state);
-    if (names.length < 2) return false;
-    return !mock.asks.some(
-      (a) =>
-        (a.scope === "mock" || (a.scope === "state" && a.state === state)) &&
-        names.every((n) => a.options.some((o) => o.variant === n)),
-    );
-  };
-  const states = mock.states.length ? mock.states : [null];
-  const needing = states.filter(needs);
-  if (!needing.length) return [];
-  const key = (state: string | null) => [...live(state)].sort().join("\n");
-  const first = key(needing[0]);
-  return needing.length === states.length && states.every((st) => key(st) === first)
-    ? [BUILTIN_ASK_ID]
-    : needing.map((st) => (st === null ? BUILTIN_ASK_ID : `${BUILTIN_ASK_ID}:${st}`));
-}
 
 // Questions an agent asked that wait on the user. The built-in "Which variant?"
 // is not one: no agent is waiting on it, and being shown several designs owes

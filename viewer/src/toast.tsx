@@ -5,9 +5,15 @@
 import { createEffect, createSignal, on, onCleanup, Show } from "solid-js";
 import { host } from "./host.ts";
 import { Icon } from "./icons.tsx";
+import { Reason } from "./Reason.tsx";
 import { navigate, route } from "./route.ts";
 
-export type ToastLine = { text: string; undo?: () => void };
+// `reason`: something just went, and this is the moment to say why, if at all.
+export type ToastLine = {
+  text: string;
+  undo?: () => void;
+  reason?: { value: string | null; save: (reason: string | null) => void };
+};
 
 const LINE_MS = 2400;
 // Long enough to read it and reach for Undo.
@@ -36,7 +42,10 @@ export function Toast(props: { toast: ToastLine | null; onDismiss: () => void })
       <Show when={props.toast}>
         {(tst) => (
           <>
-            <span>{tst().text}</span>
+            <span class="toast-text">{tst().text}</span>
+            <Show when={tst().reason}>
+              {(why) => <Reason value={why().value} onSave={why().save} />}
+            </Show>
             <Show when={tst().undo}>
               {(undo) => (
                 <>
@@ -82,7 +91,7 @@ export function CarriedToast() {
     const undo = c?.line.undo;
     if (!c || !undo) return c?.line ?? null;
     return {
-      text: c.line.text,
+      ...c.line,
       undo: () => {
         undo();
         navigate(c.back);

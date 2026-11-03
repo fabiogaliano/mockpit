@@ -387,11 +387,12 @@ fill, nested; \`messages\` are what the user wrote in the thread. Each Send
 arrives exactly once: in a write's \`feedback\`, \`mockpit feedback\` or a
 \`mockpit watch\` line.
 A \`pending\` draft means the user is still answering. Send a nudge's
-\`suggestedAsk\` with \`ask\`. A batch with \`closed: true\` (no reply) means
-the user closed the mock unanswered: its \`dismissed\` questions were not worth
-answering. Don't ask them again, under any id; \`ask\` skips a dismissed id.
-\`edited: {kind, area, grouped}\` means the user moved the mock from Home, or (\`grouped\`) hung variants under a lead as its variations, or took them out with a null lead; it is done,
+\`suggestedAsk\` with \`ask\`.
+\`edited: {kind, area}\` means the user moved the mock from Home; it is done,
 so build on it and don't move it back.
+\`read\` shows what the user took away, as information: a mock's \`closedAt\` and
+\`closeReason\`, a variant's \`archived\` status and \`archiveReason\`. A question
+you ask on a closed mock brings it back to their list.
 A mock with \`shortlist: true\` is one the user gathered: its variants are
 copies (\`copiedFrom\` names each original) and its replies can reach you
 though you never wrote to it. Publish to those variants as usual; from then on
