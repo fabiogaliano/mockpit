@@ -10,8 +10,12 @@
 // On a phone there is no room for a grid of one state: every state's columns
 // run as one strip, a card per swipe, and the state under the snap is the one
 // on stage, so the flow bar names where you are instead of paging.
+// A lab past WALL_FROM opens on a wall instead: one grid of every state's designs,
+// narrowed by state, by what is in use, archived or hidden and by text, with a
+// preview beside it where there is room and the closer look where there isn't. The
+// columns are a click away, and they and everything else here are the same code.
 
-import { isLive } from "../../server/types.ts";
+import { isLive, isSandboxedSurfaceKind } from "../../server/types.ts";
 import {
   batch,
   createEffect,
@@ -31,6 +35,7 @@ import { api, assetUrl, surfaceUrl, type VariantView } from "./api.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import {
+  foldText,
   sameVersion,
   versionName,
   versionSteps,
@@ -38,6 +43,10 @@ import {
   type VersionStep,
   keepSame,
   stepKey,
+  WALL_FROM,
+  WALL_PREVIEW_MIN_W,
+  wallCard,
+  wallPreviewW,
 } from "./logic.ts";
 import type { MockScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
@@ -47,7 +56,7 @@ import { linkClick, mockPath } from "./route.ts";
 import type { Shortlists } from "./shortlist.ts";
 import { SaveMenu, type SaveFor } from "./SaveMenu.tsx";
 import { SelectBar } from "./SelectBar.tsx";
-import { phoneLayout } from "./viewport.ts";
+import { coarse, phoneLayout, win } from "./viewport.ts";
 
 // More canvas pages live than this and a browser drops the oldest one's WebGL
 // context; one past the budget waits as a placeholder until it is pointed at.
@@ -60,9 +69,11 @@ const Poster = (props: { id: string }) => (
   <img class="sk-poster" src={assetUrl(props.id)} alt="" loading="lazy" decoding="async" />
 );
 
-// Without a poster, an image surface is still cheaper than the page.
+// Without a poster, an image surface is still cheaper than the page. A document has
+// neither, and its text is the picture of it.
 function pictureOf(st: VersionStep): string | null {
-  const i = st.kinds.includes("image") ? st.kinds.indexOf("image") : st.kinds.indexOf("html");
+  const picture = st.kinds.includes("image") ? st.kinds.indexOf("image") : st.kinds.indexOf("html");
+  const i = picture >= 0 ? picture : st.kinds.findIndex(isSandboxedSurfaceKind);
   return i < 0
     ? null
     : surfaceUrl(st.postId, i, { version: st.version, mode: theme(), w: st.rewrites });
@@ -79,7 +90,16 @@ function pageOf(st: VersionStep): string | null {
 
 type Draft = { kind: "comment" | "borrow"; to: VersionStep; from?: VersionStep };
 type Acts = Record<
-  "look" | "full" | "open" | "more" | "comment" | "borrow" | "pick" | "remove",
+  | "look"
+  | "closer"
+  | "restore"
+  | "full"
+  | "open"
+  | "more"
+  | "comment"
+  | "borrow"
+  | "pick"
+  | "remove",
   (st: VersionStep) => void
 > & {
   saved: (st: VersionStep) => boolean;
@@ -98,11 +118,15 @@ type Acts = Record<
 type Board = ReturnType<typeof boardOf>;
 function boardOf(s: MockScreenState, moment: string | null, state: () => string | null) {
   const inState = createMemo(() => s.variants().filter((v) => v.state === state()));
+  const allSteps = createMemo<VersionStep[]>(
+    (was) => keepSame(was, versionSteps(s.variants(), state()), stepKey),
+    [],
+  );
   const shown = createMemo<VersionStep[]>(
     (was) =>
       keepSame(
         was,
-        versionSteps(s.variants(), state()).filter((st) => !st.hidden),
+        allSteps().filter((st) => !st.hidden),
         stepKey,
       ),
     [],
@@ -193,6 +217,11 @@ function boardOf(s: MockScreenState, moment: string | null, state: () => string 
           live(v) && v.forkedFrom?.variant === st.variant && v.forkedFrom.version === st.version,
       )
       .flatMap((v) => versionsOf(v.variant));
+  // Which the wall can list on purpose. Of an archived variant they went with it.
+  const hiddenSteps = () =>
+    allSteps().filter(
+      (st) => st.hidden && inState().some((v) => v.variant === st.variant && live(v)),
+    );
   // What Look closer flips through: the columns left to right, each down its
   // versions, a version's forks right after it, as the eye reads the grid.
   const runs = createMemo(() =>
@@ -215,6 +244,8 @@ function boardOf(s: MockScreenState, moment: string | null, state: () => string 
     familyOf,
     aside,
     runs,
+    hiddenSteps,
+    isRiff,
     situationName,
     inUse,
     nameOf,
@@ -225,9 +256,27 @@ function boardOf(s: MockScreenState, moment: string | null, state: () => string 
 // which state goes on stage with it.
 type Entry = { b: Board; st: VersionStep };
 
+// What the wall lists. An archived variant is one card, its newest version: what comes
+// back is the variant, so a card per version would offer the same Restore many times.
+type WallShow = "live" | "use" | "archived" | "hidden";
+const WALL_SHOWS: { id: WallShow; label: string }[] = [
+  { id: "live", label: "Live" },
+  { id: "use", label: "In use" },
+  { id: "archived", label: "Archived" },
+  { id: "hidden", label: "Hidden" },
+];
+function cardsOf(b: Board, show: WallShow): VersionStep[] {
+  if (show === "archived") return b.aside().map((v) => b.versionsOf(v.variant)[0]);
+  if (show === "hidden") return b.hiddenSteps();
+  const live = b.runs().flatMap((r) => r.steps);
+  return show === "use" ? live.filter((st) => sameVersion(b.inUse(), st)) : live;
+}
+
 export function Studio(props: {
   s: MockScreenState;
   onLooking: (openOnStage: (() => void) | null) => void;
+  // On the wall its own chips say which state, so the state tabs would be a second answer.
+  onWall: (on: boolean) => void;
   top: number;
   shortlists: Shortlists;
   onOpen: () => void;
@@ -250,12 +299,79 @@ export function Studio(props: {
     boardOf(s, m, () => (s.moment() === m ? s.activeState() : m)),
   );
   const active = () => boards().find((b) => b.moment === s.moment()) ?? boards()[0];
-  const strip = phoneLayout;
+  const readParam = (name: string) => new URLSearchParams(host().window.location.search).get(name);
+  const withParam = (name: string, k: string | null) => {
+    const w = host().window;
+    const q = new URLSearchParams(w.location.search);
+    if (k) q.set(name, k);
+    else q.delete(name);
+    return `${w.location.pathname}?${q}`;
+  };
+  const key = (st: VersionStep) => `${st.variant}@${st.version}`;
+  // Variant names repeat across states, so a frame is told apart by both.
+  const frameKey = (b: Board, st: VersionStep) => `${b.state() ?? ""}\n${key(st)}`;
+
+  // The wall's filters live in the URL, so Back from Stage finds the wall as it was left.
+  const sized = () => s.variants().length >= WALL_FROM;
+  const [columns, setColumns] = createSignal(readParam("cols") === "1");
+  const wall = () => sized() && !columns();
+  const strip = () => phoneLayout() && !wall();
+  const [statePick, setStatePick] = createSignal(readParam("in"));
+  const within = () => {
+    const m = statePick();
+    return (s.moments() as (string | null)[]).includes(m) ? m : null;
+  };
+  const [showPick, setShowPick] = createSignal(readParam("show"));
+  // A lab with everything archived would otherwise open on nothing.
+  const show = (): WallShow =>
+    WALL_SHOWS.find((x) => x.id === showPick())?.id ??
+    (s.variants().some((v) => isLive(v.status)) ? "live" : "archived");
+  const [query, setQuery] = createSignal(readParam("find") ?? "");
+  const wallText = createMemo(() => {
+    const out = new Map<string, string>();
+    if (!sized()) return out;
+    for (const v of s.variants()) {
+      out.set(`${v.state ?? ""}\n${v.variant}`, foldText(`${v.variant}\n${v.note ?? ""}`));
+    }
+    return out;
+  });
+  const wallCards = (b: Board, which: WallShow) => {
+    const q = foldText(query().trim());
+    const all = cardsOf(b, which);
+    if (!q) return all;
+    return all.filter((st) =>
+      wallText()
+        .get(`${b.state() ?? ""}\n${st.variant}`)
+        ?.includes(q),
+    );
+  };
+  const inWithin = (b: Board) => within() === null || b.moment === within();
+  const wallMap = createMemo(() =>
+    wall()
+      ? boards()
+          .filter(inWithin)
+          .map((b) => ({ b, steps: wallCards(b, show()) }))
+          .filter((x) => x.steps.length > 0)
+      : [],
+  );
+  // The states alone, which stay the same objects: a keystroke mustn't remount a grid.
+  const wallStates = createMemo(() => wallMap().map((x) => x.b));
+  const stepsIn = (b: Board) => wallMap().find((x) => x.b === b)?.steps ?? [];
+  const goneShown = (): "archived" | "hidden" | undefined => {
+    if (!wall()) return undefined;
+    const now = show();
+    return now === "archived" || now === "hidden" ? now : undefined;
+  };
+  createEffect(() => props.onWall(wall()));
+  onCleanup(() => props.onWall(false));
+
   // The strip passes over a state with nothing left in it, as its tabs do.
   const drawn = () =>
-    strip()
-      ? boards().filter((b) => b.moment === s.moment() || b.columns().length > 0)
-      : [active()];
+    wall()
+      ? []
+      : strip()
+        ? boards().filter((b) => b.moment === s.moment() || b.columns().length > 0)
+        : [active()];
   const countIn = (state: string | null) =>
     s.variants().filter((v) => v.state === state && isLive(v.status)).length;
   const runs = createMemo(() =>
@@ -266,7 +382,49 @@ export function Studio(props: {
       })),
     ),
   );
-  const order = createMemo(() => runs().flatMap((r) => r.steps));
+  const order = createMemo<Entry[]>(() =>
+    wall()
+      ? wallMap().flatMap(({ b, steps }) => steps.map((st): Entry => ({ b, st })))
+      : runs().flatMap((r) => r.steps),
+  );
+
+  // The preview stands beside the wall where a pointer can aim at it and the window
+  // has room. It follows a click and not the pointer: crossing the cards on the way to
+  // the preview's own buttons would change what they act on.
+  const beside = () => wall() && !coarse() && win().w >= WALL_PREVIEW_MIN_W;
+  const [peekKey, setPeekKey] = createSignal(readParam("at"));
+  const peeked = createMemo<Entry | null>(() => {
+    if (!beside()) return null;
+    const list = order();
+    return list.find((e) => frameKey(e.b, e.st) === peekKey()) ?? list[0] ?? null;
+  });
+  // Debounced: Safari refuses more than a hundred of these in thirty seconds, and a
+  // held arrow key would get there.
+  let wallUrl = 0;
+  onCleanup(() => host().window.clearTimeout(wallUrl));
+  createEffect(() => {
+    if (!sized()) return;
+    const put: [string, string | null][] = [
+      ["cols", columns() ? "1" : null],
+      ["in", within()],
+      ["show", show() === showPick() ? show() : null],
+      ["find", query().trim() || null],
+      ["at", beside() ? peekKey() : null],
+    ];
+    host().window.clearTimeout(wallUrl);
+    wallUrl = host().window.setTimeout(() => {
+      const w = host().window;
+      const q = new URLSearchParams(w.location.search);
+      for (const [name, value] of put) {
+        if (value) q.set(name, value);
+        else q.delete(name);
+      }
+      const next = `?${q}`;
+      if (next !== w.location.search) {
+        w.history.replaceState(w.history.state, "", `${w.location.pathname}${next}`);
+      }
+    }, 150);
+  });
 
   // A selection is of versions, since that is what a card is, in the state on
   // show: leaving the state lets it go.
@@ -399,8 +557,9 @@ export function Studio(props: {
   };
   // The top bar's Stage, from a closer look, means the design being looked at.
   createEffect(() => {
-    const e = looking();
-    props.onLooking(e ? () => actsFor(e.b).open(e.st) : null);
+    const e = looking() ?? peeked();
+    // An archived design has no place on stage to open in.
+    props.onLooking(e && !goneShown() ? () => actsFor(e.b).open(e.st) : null);
   });
   onCleanup(() => props.onLooking(null));
   const barPic = (st: VersionStep, large = false) => (
@@ -441,19 +600,8 @@ export function Studio(props: {
       );
     return [...pointedAt().filter((k) => inView().includes(k) && at(k).canvas), ...rest];
   });
-  const key = (st: VersionStep) => `${st.variant}@${st.version}`;
-  // Variant names repeat across states, so a frame is told apart by both.
-  const frameKey = (b: Board, st: VersionStep) => `${b.state() ?? ""}\n${key(st)}`;
   // Look closer: in the URL (?look=), so Back on a phone closes it and Back
   // from Stage reopens it where you were. It names a version of the state on stage.
-  const readParam = (name: string) => new URLSearchParams(host().window.location.search).get(name);
-  const withParam = (name: string, k: string | null) => {
-    const w = host().window;
-    const q = new URLSearchParams(w.location.search);
-    if (k) q.set(name, k);
-    else q.delete(name);
-    return `${w.location.pathname}?${q}`;
-  };
   const readLook = () => readParam("look");
   const lookUrl = (k: string | null) => withParam("look", k);
   const [lookKey, setLookKey] = createSignal<string | null>(readLook());
@@ -569,6 +717,21 @@ export function Studio(props: {
     const next = list[i + d];
     if (i >= 0 && next) look(next);
   };
+  const peek = (e: Entry) => {
+    setPeekKey(frameKey(e.b, e.st));
+    queueMicrotask(() => frameOf(e.b.state(), key(e.st))?.scrollIntoView({ block: "nearest" }));
+  };
+  const stepPeek = (d: number) => {
+    const list = order();
+    const at = peeked();
+    const next = at ? list[list.indexOf(at) + d] : undefined;
+    if (next) peek(next);
+  };
+  const wallRows = () => {
+    const at = peeked();
+    const grid = at && frameOf(at.b.state(), key(at.st))?.closest(".wall-grid");
+    return grid ? getComputedStyle(grid).gridTemplateColumns.split(" ").length : 1;
+  };
 
   const inBudget = (b: Board, st: VersionStep) => {
     // The closer look or full screen covers the grid: its one live frame
@@ -577,7 +740,8 @@ export function Studio(props: {
     const key = frameKey(b, st);
     if (!inView().includes(key)) return false;
     if (!places.get(key)?.canvas) return true;
-    return canvasOrder().indexOf(key) < CANVAS_MAX - (archivedOpen() ? active().aside().length : 0);
+    const taken = archivedOpen() ? active().aside().length : peeked() ? 1 : 0;
+    return canvasOrder().indexOf(key) < CANVAS_MAX - taken;
   };
   const bump = (b: Board, st: VersionStep) =>
     setPointedAt((l) => [frameKey(b, st), ...l.filter((k) => k !== frameKey(b, st))]);
@@ -642,6 +806,14 @@ export function Studio(props: {
     });
     onCleanup(() => {
       for (const o of observers) o.unobserve(el);
+      // A card filtered off the wall sends no leaving report, and would hold its share
+      // of the budget from the ones on screen.
+      const k = `${el.dataset.state}\n${el.dataset.key}`;
+      const out = (l: string[]) => (l.includes(k) ? l.filter((x) => x !== k) : l);
+      places.delete(k);
+      setInView(out);
+      setOnScreen(out);
+      setPointedAt(out);
     });
   };
 
@@ -737,6 +909,26 @@ export function Studio(props: {
   const onDown = (e: PointerEvent) => {
     if (archivedOpen() && !corner?.contains(e.target as Node)) setArchivedOpen(false);
   };
+  // In the capture phase, ahead of the flow's keys, which would also walk the versions
+  // of the state on stage while the preview walks the wall.
+  const onWallKey = (e: KeyboardEvent) => {
+    if (!peeked() || lookKey() || fullKey() || writing() || saving() || adding()) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const at = e.target as Element | null;
+    if (at?.closest?.("input, textarea, select, [contenteditable]")) return;
+    if (e.key === "ArrowRight") stepPeek(1);
+    else if (e.key === "ArrowLeft") stepPeek(-1);
+    else if (e.key === "ArrowDown") stepPeek(wallRows());
+    else if (e.key === "ArrowUp") stepPeek(-wallRows());
+    // Space presses a focused button, as in the closer look.
+    else if (e.key === " " && !at?.closest?.("button")) {
+      const on = peeked();
+      if (on) look(on);
+    } else return;
+    e.preventDefault();
+  };
+  onMount(() => host().window.addEventListener("keydown", onWallKey, true));
+  onCleanup(() => host().window.removeEventListener("keydown", onWallKey, true));
   onMount(() => host().window.addEventListener("pointerdown", onDown, true));
   onCleanup(() => host().window.removeEventListener("pointerdown", onDown, true));
   onMount(() => host().window.addEventListener("keydown", onKey));
@@ -752,7 +944,17 @@ export function Studio(props: {
       selecting,
       selected: (st) => b === active() && picked().includes(stepKey(st)),
       select: (st, e) => select(b, st, e.shiftKey),
-      look: (st) => look({ b, st }),
+      look: (st) => (beside() ? peek({ b, st }) : look({ b, st })),
+      closer: (st) => look({ b, st }),
+      restore(st) {
+        here();
+        if (st.hidden) void s.hideVersion(st, false);
+        else {
+          void s
+            .restoreVariant(st.variant, [b.state()])
+            .then(() => s.setToast({ text: `Restored ${st.variant}` }));
+        }
+      },
       full: (st) => openFull({ b, st }),
       open(st) {
         here();
@@ -808,7 +1010,22 @@ export function Studio(props: {
     };
   };
 
-  const card = (b: Board, act: Acts, st: VersionStep, small = false, lead?: string) => {
+  // On the wall a card is one design among many, in no column: its name has to say
+  // which version it is, and that it hangs from another.
+  const wallCaption = (b: Board, st: VersionStep) => {
+    const v = s.variants().find((x) => x.state === b.state() && x.variant === st.variant);
+    const name =
+      st.hidden || b.versionsOf(st.variant).length > 1 ? versionName(st, true) : st.variant;
+    return v && b.isRiff(v) ? `↳ ${name}` : name;
+  };
+  const card = (
+    b: Board,
+    act: Acts,
+    st: VersionStep,
+    small = false,
+    lead?: string,
+    onWall = false,
+  ) => {
     // A borrow goes between versions of one state.
     const borrowing = () => borrowFrom()?.b === b;
     return (
@@ -818,6 +1035,11 @@ export function Studio(props: {
         st={st}
         small={small}
         lead={lead}
+        wall={onWall}
+        caption={onWall ? wallCaption(b, st) : undefined}
+        gone={onWall ? goneShown() : undefined}
+        peek={onWall && peeked()?.b === b && sameVersion(peeked()?.st, st)}
+        elsewhere={onWall && selecting() && b !== active()}
         live={inBudget(b, st)}
         borrowing={borrowing()}
         source={borrowing() && sameVersion(borrowFrom()?.st, st)}
@@ -832,9 +1054,18 @@ export function Studio(props: {
   return (
     <div
       class="studio"
-      classList={{ strip: strip(), selecting: selecting() }}
+      classList={{ strip: strip(), selecting: selecting(), wall: wall(), peeking: !!peeked() }}
       ref={(el) => (scroller = el)}
-      style={{ top: `${props.top}px` }}
+      style={{
+        top: `${props.top}px`,
+        ...(peeked() ? { "--peek-w": `${wallPreviewW(s.frameW(), win().w)}px` } : {}),
+        ...(wall()
+          ? {
+              "--wall-card": `${wallCard(s.frameW()).min}px`,
+              "--wall-art": wallCard(s.frameW()).art,
+            }
+          : {}),
+      }}
       onScroll={follow}
     >
       <Show when={borrowFrom()}>
@@ -867,6 +1098,68 @@ export function Studio(props: {
             )}
           </For>
         </div>
+      </Show>
+      <Show when={wall()}>
+        <WallBar
+          query={query()}
+          onQuery={setQuery}
+          show={show()}
+          count={(which) =>
+            boards()
+              .filter(inWithin)
+              .flatMap((b) => wallCards(b, which)).length
+          }
+          onShow={setShowPick}
+          states={boards()}
+          within={within()}
+          countIn={(b) => wallCards(b, show()).length}
+          onWithin={setStatePick}
+          shown={order().length}
+          onAdd={isShortlist() && !readonly() && !borrowFrom() ? () => setAdding(true) : undefined}
+          onColumns={() => setColumns(true)}
+        />
+        <For each={wallStates()}>
+          {(b) => {
+            const act = actsFor(b);
+            return (
+              <section class="wall-state" aria-label={b.moment ?? undefined}>
+                <Show when={wallStates().length > 1}>
+                  <h2 class="studio-sth">
+                    {b.moment}
+                    <span class="n">{stepsIn(b).length}</span>
+                  </h2>
+                </Show>
+                <div class="wall-grid">
+                  <For each={stepsIn(b)}>{(st) => card(b, act, st, true, undefined, true)}</For>
+                </div>
+              </section>
+            );
+          }}
+        </For>
+        <Show when={!wallStates().length}>
+          <p class="wall-empty">
+            Nothing matches.{" "}
+            <button
+              type="button"
+              class="lnk"
+              onClick={() =>
+                batch(() => {
+                  setQuery("");
+                  setStatePick(null);
+                  setShowPick(null);
+                })
+              }
+            >
+              Clear the filters
+            </button>
+          </p>
+        </Show>
+      </Show>
+      <Show when={sized() && !wall()}>
+        <button type="button" class="btn wall-back" onClick={() => setColumns(false)}>
+          <Icon name="grid" />
+          Wall
+        </button>
       </Show>
       <div class="studio-cols">
         <For each={drawn()}>
@@ -1024,7 +1317,7 @@ export function Studio(props: {
           />
         )}
       </Show>
-      <Show when={active().aside().length}>
+      <Show when={!wall() && active().aside().length}>
         <div class="studio-archived" ref={(el) => (corner = el)}>
           <section
             class="arch-pop"
@@ -1090,10 +1383,34 @@ export function Studio(props: {
             order={order()}
             runs={runs()}
             last={e().b.versionsOf(e().st.variant).length === 1}
+            wall={wall()}
+            perState={strip() && drawn().length > 1}
+            gone={goneShown()}
             onStep={step}
             onGo={look}
             nextState={firstOfNextState}
             onClose={closeLook}
+            act={actsFor(e().b)}
+          />
+        )}
+      </Show>
+      {/* Out while the closer look is up: its one live frame stands in for all of them. */}
+      <Show when={!fullKey() && !lookKey() && peeked()}>
+        {(e) => (
+          <Look
+            s={s}
+            entry={e()}
+            top={props.top}
+            order={order()}
+            runs={[]}
+            last={e().b.versionsOf(e().st.variant).length === 1}
+            wall
+            beside
+            gone={goneShown()}
+            onStep={stepPeek}
+            onGo={peek}
+            nextState={() => undefined}
+            onClose={() => setPeekKey(null)}
             act={actsFor(e().b)}
           />
         )}
@@ -1119,12 +1436,111 @@ export function Studio(props: {
   );
 }
 
+// The wall's filters, above its grid. Each count says what picking that filter would
+// show given the others, so none of them leads to an empty wall by surprise.
+function WallBar(props: {
+  query: string;
+  onQuery: (q: string) => void;
+  show: WallShow;
+  count: (which: WallShow) => number;
+  onShow: (which: WallShow) => void;
+  states: Board[];
+  within: string | null;
+  countIn: (b: Board) => number;
+  onWithin: (state: string | null) => void;
+  shown: number;
+  onAdd?: () => void;
+  onColumns: () => void;
+}) {
+  const named = () => props.states.filter((b) => b.moment !== null);
+  return (
+    <div class="wall-bar" classList={{ phone: phoneLayout() }}>
+      <div class="wall-row">
+        <input
+          class="slpick-filter wall-find"
+          type="search"
+          placeholder="Filter by name or note"
+          aria-label="Filter by name or note"
+          value={props.query}
+          onInput={(e) => props.onQuery(e.currentTarget.value)}
+        />
+        <div class="wall-chips" role="radiogroup" aria-label="Show">
+          <For each={WALL_SHOWS}>
+            {(x) => (
+              <Show when={props.count(x.id) > 0 || props.show === x.id}>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={props.show === x.id}
+                  onClick={() => props.onShow(x.id)}
+                >
+                  {x.label}
+                  <span class="n">{props.count(x.id)}</span>
+                </button>
+              </Show>
+            )}
+          </For>
+        </div>
+        <span class="wall-sp" />
+        <Show when={props.onAdd}>
+          {(add) => (
+            <button type="button" class="btn" onClick={add()}>
+              <Icon name="plus" />
+              Add candidate
+            </button>
+          )}
+        </Show>
+        <button type="button" class="btn" onClick={props.onColumns}>
+          <Icon name="layers" />
+          Columns
+        </button>
+      </div>
+      <Show when={named().length > 1}>
+        <div class="wall-chips" role="radiogroup" aria-label="State">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={props.within === null}
+            onClick={() => props.onWithin(null)}
+          >
+            All states
+            <Show when={props.within === null}>
+              <span class="n">{props.shown}</span>
+            </Show>
+          </button>
+          <For each={named()}>
+            {(b) => (
+              <Show when={props.countIn(b) > 0 || props.within === b.moment}>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={props.within === b.moment}
+                  onClick={() => props.onWithin(b.moment)}
+                >
+                  {b.moment}
+                  <span class="n">{props.countIn(b)}</span>
+                </button>
+              </Show>
+            )}
+          </For>
+        </div>
+      </Show>
+    </div>
+  );
+}
+
 function Sketch(props: {
   s: MockScreenState;
   b: Board;
   st: VersionStep;
   small: boolean;
   lead?: string;
+  wall: boolean;
+  caption?: string;
+  // Archived or hidden: the one thing to do with it is bring it back.
+  gone?: string;
+  peek: boolean;
+  elsewhere: boolean;
   live: boolean;
   borrowing: boolean;
   source: boolean;
@@ -1140,6 +1556,8 @@ function Sketch(props: {
   const name = () => props.b.nameOf(st());
   const label = () => `${name()}${inUse() ? ", in use" : ""}`;
   const can = () => !readonly() && !props.borrowing;
+  const steers = () => can() && !props.gone;
+  const target = () => props.borrowing && !props.source && !props.gone;
   return (
     <div
       class="sk"
@@ -1147,16 +1565,20 @@ function Sketch(props: {
         on: props.act.selected(st()),
         small: props.small,
         source: props.source,
-        target: props.borrowing && !props.source,
+        target: target(),
+        peek: props.peek,
+        elsewhere: props.elsewhere,
+        gone: !!props.gone,
       }}
       data-key={`${st().variant}@${st().version}`}
       data-state={props.b.state() ?? ""}
       // A poster is an image: it holds no context, so it takes no budget.
-      data-canvas={st().canvas && !st().poster ? "" : undefined}
+      // On a wall any page counts: there can be a screenful of them with no canvas at all.
+      data-canvas={(st().canvas || props.wall) && !st().poster ? "" : undefined}
       ref={props.ref}
       // While selecting the whole card is the target, not only its picture and tick.
       onClick={(e) => {
-        if (!can() || !props.act.selecting()) return;
+        if (!steers() || !props.act.selecting()) return;
         if ((e.target as Element).closest("button, a, input, textarea")) return;
         props.act.select(st(), e);
       }}
@@ -1165,8 +1587,9 @@ function Sketch(props: {
       <button
         type="button"
         class="sk-art"
+        aria-current={props.peek || undefined}
         aria-label={
-          props.borrowing && !props.source
+          target()
             ? `Borrow into ${label()}`
             : props.act.selecting()
               ? `Select ${label()}`
@@ -1174,9 +1597,9 @@ function Sketch(props: {
         }
         title={st().prompt ?? ""}
         onClick={(e) => {
-          if (props.borrowing) props.act.pick(st());
+          if (props.borrowing && !props.gone) props.act.pick(st());
           // Once one is ticked the whole picture is the target, not just the number.
-          else if (can() && (props.act.selecting() || e.shiftKey || e.metaKey || e.ctrlKey)) {
+          else if (steers() && (props.act.selecting() || e.shiftKey || e.metaKey || e.ctrlKey)) {
             props.act.select(st(), e);
           } else props.act.look(st());
         }}
@@ -1193,7 +1616,10 @@ function Sketch(props: {
           {(p) => <Poster id={p()} />}
         </Show>
       </button>
-      <Show when={props.small && can()}>
+      <Show when={props.wall && inUse()}>
+        <span class="sk-tag wall-use">in use</span>
+      </Show>
+      <Show when={props.small && steers()}>
         <button
           type="button"
           class="sk-box sk-tick"
@@ -1208,9 +1634,10 @@ function Sketch(props: {
       <Show when={props.small}>
         <span class="sk-name" title={st().variant}>
           {/* The lead's name sits above the group, and repeating it would cut off the part that differs. */}
-          {st().variant.startsWith(`${props.lead} · `)
-            ? st().variant.slice(`${props.lead} · `.length)
-            : st().variant}
+          {props.caption ??
+            (st().variant.startsWith(`${props.lead} · `)
+              ? st().variant.slice(`${props.lead} · `.length)
+              : st().variant)}
         </span>
       </Show>
       <Show when={!props.small}>
@@ -1266,7 +1693,18 @@ function Sketch(props: {
           </Show>
         </div>
       </Show>
-      <Show when={can()}>
+      <Show when={can() && props.gone}>
+        <button
+          type="button"
+          class="ib sk-x wall-restore"
+          aria-label={`Restore ${name()}`}
+          title="Restore"
+          onClick={() => props.act.restore(st())}
+        >
+          <Icon name="undo" />
+        </button>
+      </Show>
+      <Show when={steers()}>
         <button
           type="button"
           class="ib sk-save"
@@ -1278,7 +1716,7 @@ function Sketch(props: {
           <Icon name="move" />
         </button>
       </Show>
-      <Show when={can() && !inUse()}>
+      <Show when={steers() && !inUse()}>
         <button
           type="button"
           class="ib x-remove sk-x"
@@ -1383,6 +1821,13 @@ function Look(props: {
   order: Entry[];
   runs: { variant: string; steps: Entry[] }[];
   last: boolean;
+  // On the wall: every design there in one run, so no strip of dots to place them.
+  wall?: boolean;
+  // Standing beside the wall as its preview, rather than over it.
+  beside?: boolean;
+  // On the phone's strip, where a count across every state says nothing useful.
+  perState?: boolean;
+  gone?: string;
   onStep: (d: number) => void;
   onGo: (e: Entry) => void;
   nextState: () => Entry | undefined;
@@ -1391,14 +1836,24 @@ function Look(props: {
 }) {
   const s = props.s;
   const st = () => props.entry.st;
+  // The board's own answers: a preview needn't be of the state on stage.
+  const b = () => props.entry.b;
   const at = () => props.order.indexOf(props.entry);
-  const name = () => s.nameOf(st());
-  const inUse = () => sameVersion(s.inUse(), st());
+  const name = () => b().nameOf(st());
+  const inUse = () => sameVersion(b().inUse(), st());
   const note = () =>
-    s.variants().find((v) => v.state === s.activeState() && v.variant === st().variant)?.note;
+    s.variants().find((v) => v.state === b().state() && v.variant === st().variant)?.note;
   const can = () => !readonly();
+  const counter = () => {
+    const among = props.perState ? props.order.filter((e) => e.b === b()) : props.order;
+    const count = `${among.indexOf(props.entry) + 1} of ${among.length}`;
+    return (props.perState || props.wall) && b().moment ? `${b().moment}, ${count}` : count;
+  };
   let box: HTMLDivElement | undefined;
-  onMount(() => box?.focus({ preventScroll: true }));
+  // A preview waits beside the wall: focus stays on the card or the filter.
+  onMount(() => {
+    if (!props.beside) box?.focus({ preventScroll: true });
+  });
   // A swipe across flips, a swipe down closes; a tap is left alone.
   let start: { x: number; y: number; id: number } | null = null;
   const down = (e: PointerEvent) => {
@@ -1429,6 +1884,7 @@ function Look(props: {
     });
   };
   const hide = () => stepOff(() => props.act.remove(st()));
+  const restore = () => stepOff(() => props.act.restore(st()));
   // The copies land first, and the look may have moved on by then.
   const leave = (from: VersionStep): ReturnType<SaveFor["leave"]> => {
     if (!sameVersion(st(), from)) return props.act.leave(from);
@@ -1450,10 +1906,11 @@ function Look(props: {
   return (
     <div
       class="look"
+      classList={{ beside: props.beside }}
       ref={(el) => (box = el)}
       tabIndex={-1}
-      role="dialog"
-      aria-label={`Look closer: ${name()}`}
+      role={props.beside ? "complementary" : "dialog"}
+      aria-label={props.beside ? `Preview: ${name()}` : `Look closer: ${name()}`}
       style={{ top: `${props.top}px` }}
     >
       <header class="look-h">
@@ -1461,17 +1918,32 @@ function Look(props: {
         <Show when={inUse()}>
           <span class="sk-tag">in use</span>
         </Show>
-        <span class="look-at">{`${at() + 1} of ${props.order.length}`}</span>
+        <span class="look-at">{counter()}</span>
         <span class="look-sp" />
-        <button
-          type="button"
-          class="ib"
-          aria-label="Back to Studio"
-          title="Back to Studio (Esc)"
-          onClick={props.onClose}
+        <Show
+          when={!props.beside}
+          fallback={
+            <button
+              type="button"
+              class="ib"
+              aria-label={`Look closer at ${name()}`}
+              title="Look closer (Space)"
+              onClick={() => props.act.closer(st())}
+            >
+              <Icon name="expand" />
+            </button>
+          }
         >
-          <Icon name="close" />
-        </button>
+          <button
+            type="button"
+            class="ib"
+            aria-label="Back to Studio"
+            title="Back to Studio (Esc)"
+            onClick={props.onClose}
+          >
+            <Icon name="close" />
+          </button>
+        </Show>
       </header>
       <div
         class="look-art"
@@ -1489,7 +1961,7 @@ function Look(props: {
           <Icon name="prev" />
         </button>
         <div class="look-frame">
-          <Show when={pageOf(st())}>
+          <Show when={!props.beside && pageOf(st())}>
             <button
               type="button"
               class="ib look-full"
@@ -1519,7 +1991,15 @@ function Look(props: {
         </button>
       </div>
       <Show when={note()}>{(text) => <LookNote text={text()} />}</Show>
-      <Show when={can()}>
+      <Show when={can() && props.gone}>
+        <div class="look-acts">
+          <button type="button" class="btn" onClick={restore}>
+            <Icon name="undo" />
+            Restore
+          </button>
+        </div>
+      </Show>
+      <Show when={can() && !props.gone}>
         <div class="look-acts" role="group" aria-label={`Steer ${name()}`}>
           <button type="button" class="btn" onClick={() => props.act.more(st())}>
             <Icon name="spark" />
@@ -1552,30 +2032,32 @@ function Look(props: {
           </Show>
         </div>
       </Show>
-      <nav class="look-strip" aria-label="Versions" ref={(el) => (dots = el)}>
-        <For each={props.runs}>
-          {(run) => (
-            <div class="look-group">
-              <span class="look-gname">{run.variant}</span>
-              <div class="look-dots">
-                <For each={run.steps}>
-                  {(x) => (
-                    <button
-                      type="button"
-                      class="look-dot"
-                      classList={{ on: x === props.entry }}
-                      aria-label={x.b.nameOf(x.st)}
-                      aria-current={x === props.entry || undefined}
-                      title={x.b.nameOf(x.st)}
-                      onClick={() => props.onGo(x)}
-                    />
-                  )}
-                </For>
+      <Show when={!props.wall}>
+        <nav class="look-strip" aria-label="Versions" ref={(el) => (dots = el)}>
+          <For each={props.runs}>
+            {(run) => (
+              <div class="look-group">
+                <span class="look-gname">{run.variant}</span>
+                <div class="look-dots">
+                  <For each={run.steps}>
+                    {(x) => (
+                      <button
+                        type="button"
+                        class="look-dot"
+                        classList={{ on: x === props.entry }}
+                        aria-label={x.b.nameOf(x.st)}
+                        aria-current={x === props.entry || undefined}
+                        title={x.b.nameOf(x.st)}
+                        onClick={() => props.onGo(x)}
+                      />
+                    )}
+                  </For>
+                </div>
               </div>
-            </div>
-          )}
-        </For>
-      </nav>
+            )}
+          </For>
+        </nav>
+      </Show>
     </div>
   );
 }

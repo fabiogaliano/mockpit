@@ -701,8 +701,15 @@ export interface ThreadRow {
   images?: { ask: string; ids: string[] }[];
 }
 
-export const commentWhere = (c: Pick<PartComment, "part" | "state">): string =>
-  c.state ? `${c.part ?? "page"} · ${c.state}` : (c.part ?? "page");
+export const paragraphQuote = (text: string, max = 48): string =>
+  `“${text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text}”`;
+
+// What a comment is on: its part, the words of its paragraph, else the page.
+export const commentPlace = (c: Pick<PartComment, "part" | "anchor">): string =>
+  c.part ?? (c.anchor?.paragraph ? paragraphQuote(c.anchor.paragraph.text) : "page");
+
+export const commentWhere = (c: Pick<PartComment, "part" | "state" | "anchor">): string =>
+  c.state ? `${commentPlace(c)} · ${c.state}` : commentPlace(c);
 
 // The thread (D8): agent publishes (from version history) and the comment log,
 // oldest first. An agent's ask or reply right after a publish reads as one row:
@@ -1192,7 +1199,8 @@ export function markPins(
   comments.forEach((c, index) => {
     if (!c.anchor) return;
     n++;
-    if (c.state !== state || !report) return;
+    // Its place is a block of a reading column (paragraphPins), no spot on a page.
+    if (c.state !== state || !report || c.anchor.paragraph) return;
     const p = anchorPoint(c, report);
     const w = c.anchor.width;
     const placedAt = w && Math.round(w) !== Math.round(report.width) ? w : null;
@@ -1204,6 +1212,135 @@ export function markPins(
 // The number the next mark gets.
 export const nextMark = (comments: PartComment[]): number =>
   comments.filter((c) => c.anchor).length + 1;
+
+// --- documents: written content read as a column ---
+
+// The text's measure; a diagram or a diff may run wider (`.reader-sf.wide`).
+export const READING_W = 720;
+const WRITTEN = new Set(["markdown", "mermaid", "code", "diff", "terminal", "json"]);
+// Pictures that run wider than the text, for what is drawn to its own width.
+const RUNS_WIDE = new Set(["mermaid", "diff", "image"]);
+export const runsWide = (kind: string): boolean => RUNS_WIDE.has(kind);
+
+// Written content with no width anyone is designing for. Pictures may sit in the
+// text, but a stack of nothing else is a picture, and html is a design, with its
+// parts, Try and Tune, however much prose it is stacked with.
+export function readsAsDocument(widths: readonly number[], kinds: readonly string[]): boolean {
+  return (
+    widths.length === 0 &&
+    kinds.some((k) => WRITTEN.has(k)) &&
+    kinds.every((k) => WRITTEN.has(k) || k === "image")
+  );
+}
+
+export interface ParagraphBlock {
+  index: number;
+  kind: string;
+  text: string;
+  box: { x: number; y: number; w: number; h: number };
+}
+export interface ParagraphPin {
+  // Numbered as mark pins are, across the whole draft.
+  n: number;
+  // In draft.comments.
+  index: number;
+  surface: number;
+  // The block it sits on, null when its paragraph has gone.
+  block: number | null;
+  y: number;
+  // Comments stacked on one block before this one, to step it aside.
+  step: number;
+  text: string;
+  quote: string;
+}
+
+// A paragraph is itself while its words are: places shift whenever one is added
+// above. Repeated words go to the nearest, its own surface first. An edit counts as
+// gone on purpose: the comment was about what those words said.
+export function findParagraph(
+  ref: { surface: number; index: number; text: string },
+  surfaces: readonly (readonly ParagraphBlock[] | undefined)[],
+): { surface: number; block: ParagraphBlock } | null {
+  const near = (i: number) => {
+    let best: ParagraphBlock | null = null;
+    for (const b of surfaces[i] ?? []) {
+      if (b.text !== ref.text) continue;
+      if (!best || Math.abs(b.index - ref.index) < Math.abs(best.index - ref.index)) best = b;
+    }
+    return best;
+  };
+  const own = near(ref.surface);
+  if (own) return { surface: ref.surface, block: own };
+  for (let i = 0; i < surfaces.length; i++) {
+    const b = near(i);
+    if (b) return { surface: i, block: b };
+  }
+  return null;
+}
+
+// The comments on paragraphs of what is on screen. Only called gone once every
+// surface has reported: a frame still loading hasn't lost anything.
+export function paragraphPins(
+  comments: readonly PartComment[],
+  at: { state: string | null; variant: string | null },
+  surfaces: readonly (readonly ParagraphBlock[] | undefined)[],
+): ParagraphPin[] {
+  const out: ParagraphPin[] = [];
+  const stacked = new Map<string, number>();
+  const reported = surfaces.every(Boolean);
+  let n = 0;
+  comments.forEach((c, index) => {
+    if (!c.anchor) return;
+    n++;
+    const ref = c.anchor.paragraph;
+    if (!ref || c.state !== at.state || (c.variant && c.variant !== at.variant)) return;
+    const hit = findParagraph(ref, surfaces);
+    if (!hit && !reported) return;
+    const surface = hit ? hit.surface : Math.max(0, Math.min(ref.surface, surfaces.length - 1));
+    const blockAt = hit?.block.index ?? null;
+    const spot = `${surface}:${blockAt ?? `gone${index}`}`;
+    const step = stacked.get(spot) ?? 0;
+    stacked.set(spot, step + 1);
+    out.push({
+      n,
+      index,
+      surface,
+      block: blockAt,
+      // Gone, it stays near where it was.
+      y: hit ? hit.block.box.y : (c.anchor.box?.[1] ?? 0),
+      step,
+      text: c.text,
+      quote: ref.text,
+    });
+  });
+  return out;
+}
+
+// --- the wall: a lab too big to compare side by side ---
+
+// ia.md's "Inside a mock": 2 to 6 variants switch, 7 to 50 compare first (Studio),
+// 50+ filter. Counted across every state and archived too: pruning a lab mustn't
+// change the layout under the hand doing it, and a lab with everything archived is
+// still a lot to look through. On the real data: concept-lab 108, onni-lab 99, onni
+// 85; the next is visions at 30, which stays Studio.
+export const WALL_FROM = 50;
+// The preview needs a pointer to aim with and room to stand beside the grid; anything
+// else goes from the wall to one large design, a swipe apart.
+export const WALL_PREVIEW_MIN_W = 1000;
+// Sized so about a screenful stays within the live-frame budget: 6 columns of tall
+// phone cards by 3 rows, or 3 columns of wide ones by 5.
+export const wallCard = (designW: number): { min: number; art: string } =>
+  designW <= 600 ? { min: 132, art: "3 / 5" } : { min: 240, art: "4 / 3" };
+// Beside the wall: enough for a phone page near true size, and a wide page gets more
+// of the window because it needs it.
+export const wallPreviewW = (designW: number, winW: number): number =>
+  designW <= 600
+    ? Math.max(380, Math.min(560, Math.round(winW * 0.36)))
+    : Math.max(440, Math.min(860, Math.round(winW * 0.46)));
+
+// Accents and case don't count, as in the jump search.
+export const foldText = (s: string): string =>
+  s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
 // --- the decision flow: across mocks, review, keys and swipes ---
 

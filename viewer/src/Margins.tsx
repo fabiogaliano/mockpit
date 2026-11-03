@@ -27,6 +27,7 @@ import {
   BOARD_GAP,
   BOARD_PAD,
   boardWidths,
+  commentPlace,
   GHOST_W,
   isBuiltinAsk,
   LEFT_MARGIN_W,
@@ -55,7 +56,13 @@ export type Margins = ReturnType<typeof createMargins>;
 // a lab has over a hundred. Comparing that many is Studio's work anyway.
 const PICTURED_UP_TO = 24;
 
-export function createMargins(s: MockScreenState, nav: FlowNav, active: () => boolean) {
+export function createMargins(
+  s: MockScreenState,
+  nav: FlowNav,
+  active: () => boolean,
+  // A reading column is what the margins have to leave room for, instead of artboards.
+  columnW: () => number | null,
+) {
   const [folded, setFolded] = createSignal(false);
   const [over, setOver] = createSignal(false);
   // Opened by hand with only sent answers in it, which never open it themselves.
@@ -85,7 +92,7 @@ export function createMargins(s: MockScreenState, nav: FlowNav, active: () => bo
     const row = boards();
     return marginLayout({
       winW: win().w - safeX(),
-      designW: row.reduce((sum, w) => sum + w, 0) + BOARD_GAP * (row.length - 1),
+      designW: columnW() ?? row.reduce((sum, w) => sum + w, 0) + BOARD_GAP * (row.length - 1),
       tools: page() || leftHas(),
       left,
       right: side() !== null,
@@ -594,7 +601,7 @@ function Talk(props: { s: MockScreenState; m: Margins }) {
   );
 }
 
-function WithThisSend(props: { s: MockScreenState; m: Margins }) {
+export function WithThisSend(props: { s: MockScreenState; m: Margins }) {
   const s = props.s;
   const comments = () => s.draft()?.comments ?? [];
   const pinOf = (i: number) =>
@@ -621,7 +628,7 @@ function WithThisSend(props: { s: MockScreenState; m: Margins }) {
             {(c, i) => {
               const where = () =>
                 [
-                  c().part ?? "page",
+                  commentPlace(c()),
                   c().state !== s.activeState() ? c().state : null,
                   c().anchor?.width && Math.round(c().anchor!.width!) !== s.frameW()
                     ? `placed at ${c().anchor!.width}px wide`

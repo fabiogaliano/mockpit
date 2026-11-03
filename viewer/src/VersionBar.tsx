@@ -182,7 +182,7 @@ export function SituationsButton(props: { s: MockScreenState }) {
   );
 }
 
-export function VersionBar(props: { s: MockScreenState; studio: boolean }) {
+export function VersionBar(props: { s: MockScreenState; studio: boolean; reading?: boolean }) {
   const s = props.s;
   return (
     <div class="vbar" role="toolbar" aria-label="Versions and tools">
@@ -200,11 +200,14 @@ export function VersionBar(props: { s: MockScreenState; studio: boolean }) {
         listNames="history and thread"
         onList={() => s.setPanel(s.panel() ? null : "history")}
       />
-      <UseThis s={s} />
-      <span class="vsep" />
-      <div class="tools">
-        <CanvasTools s={s} page />
-      </div>
+      {/* A document is read and answered, not put in use, and has no page to try. */}
+      <Show when={!props.reading}>
+        <UseThis s={s} />
+        <span class="vsep" />
+        <div class="tools">
+          <CanvasTools s={s} page />
+        </div>
+      </Show>
     </div>
   );
 }

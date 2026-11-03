@@ -378,7 +378,9 @@ order: answers decide structure (a variant answer already put it in use); tuned
 values become defaults; \`borrowed\` names a part to take from another variant
 (if it conflicts with an answer, the answer wins); address each comment and
 reaction on its part (a comment's \`borrow\` asks for a new version taking a part
-from another; "more like this" asks for 2–3 variants forked from it);
+from another; "more like this" asks for 2–3 variants forked from it; a comment on a
+written document has \`anchor.paragraph\`: \`{surface, index, kind, text}\`, the block
+it is about);
 \`verdict\` (use, revise) replaces answers when there were
 no questions; \`decisions\` is the state as chosen: variant, then each part's
 fill, nested; \`messages\` are what the user wrote in the thread. Each Send

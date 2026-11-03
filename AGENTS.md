@@ -57,7 +57,8 @@ consciously, not as a side effect):
   comments, `knobs` → Tune knobs, states and flows → the flow bar, `kind`
   page/component and flows → Home's sections; undeclared is an idea or a document,
   by what it contains). A plain publish of any kind still gets stage + Thread + Use
-  this / Revise.
+  this / Revise, except a document (only written surfaces and pictures, no declared
+  width), which opens in `Reader` with its paragraphs to comment on and no Use this.
 - Self-hosted only; the embeddable viewer engine was dropped. Keep the
   `root()`/`host()` habit in `viewer/src` anyway.
 
@@ -125,7 +126,9 @@ consciously, not as a side effect):
   bridge protocol is documented at the top of its "Stage bridge" section:
   `parts` reports, `hit`/`highlight`/`clear`/`scroll`/`knobs` commands, and the
   `?k=` knob preamble (`--k-<path>` vars, `data-k-<path>` attrs,
-  `[data-k-bind]`, `mockpit:knobs`).
+  `[data-k-bind]`, `mockpit:knobs`). A written surface loaded with `#read` adds
+  `PARAGRAPHS_JS`: `paragraphs` reports and `paragraph-tap` out, `paragraph-marks` in.
+  A tap sends only a block's number; the text a comment quotes comes from the report.
 - `server/themes.ts` — the one dialkit palette, dark and light; viewer-chrome
   vars and html-surface `--color-*` tokens are both derived from it. Mode is
   persisted per workspace (`/api/theme`).
@@ -162,7 +165,13 @@ consciously, not as a side effect):
   out with every variant side by side, entered from the top bar's Stage | Studio
   switch and remembered per mock, each steer its own reply (`steer`, `sendAlone`), with `SelectBar` acting on
   several versions at once, and Group hanging variants under a lead by setting
-  their `forkedFrom` (`setVariationsFlow`, which the agent hears as `edited.grouped`);
+  their `forkedFrom` (`setVariationsFlow`, which the agent hears as `edited.grouped`).
+  A mock of `WALL_FROM` variants or more opens Studio as a wall: one grid of all its
+  states, filtered by state, status and text, with the closer look beside it as a
+  preview on a wide window and over it otherwise; every card without a poster shares
+  the live-frame budget; the columns are a click away;
+  `Reader`, the stage for a document: one column of sandboxed frames at full height,
+  pins and comments built from the blocks they report;
   `Stage`, a pannable canvas whose mock's other `widths` spread out as
   picture-only artboards under "All widths", between the margins), `Margins` (states
   and versions on the left, On this design, Built from and Thread on the right, Try,

@@ -2,7 +2,12 @@ import { scanFills, slotCss } from "./fills.ts";
 import { CDN_ALLOWLIST, checkCdnUrl } from "./cdn.ts";
 import { CORE_CSS, KITS, kitAssets } from "./kits.ts";
 import { expandIcons, type IconResolver } from "./icons.ts";
-import type { DesignSettings, ProjectKit } from "./types.ts";
+import {
+  type DesignSettings,
+  PARAGRAPH_TEXT_MAX,
+  PARAGRAPHS_MAX,
+  type ProjectKit,
+} from "./types.ts";
 import {
   type Mode,
   type Palette,
@@ -406,6 +411,14 @@ export const HIT_TEST_JS = `
 //                                                a drag never reports
 //   ready            {version}                   the knob runtime is listening (KNOBS_JS,
 //                                                from <head>); values can be sent now
+//   paragraphs       {version, blocks, width}    a written surface's blocks (PARAGRAPHS_JS),
+//                                                only in a document opened with #read;
+//       blocks[i] = {i, kind, text, box:{x,y,w,h}}: place in the document, tag, clipped
+//       text, document px. Sent on load, on 50/150/400/1000ms timers and on any layout
+//       change; never twice alike. `version` as on a parts report.
+//   paragraph-tap    {version, i}                a click or tap on block i, which only opens
+//                                                the host's comment field; the host reads
+//                                                the text from its own last report
 //   pinch            {phase, a:{x,y}, b:{x,y}}   two fingers on the page, in viewport px
 //   zoom             {x, y, dy}                  ⌘/Ctrl+scroll or a trackpad pinch, in viewport px
 //                                                (PARTS_JS); phase start|move|end. The
@@ -427,6 +440,8 @@ export const HIT_TEST_JS = `
 //   try        {on}             Try is on or off: while on, [data-goto] elements are
 //                               outlined and a click on one reports goto instead
 //                               of reaching the page; a new document starts off
+//   paragraph-marks {marked:[i], on:i|null}  tint these blocks of a #read document: the
+//                               ones holding comments, and the one being commented on
 //
 // Knobs (`/s/:id?k=`, validated by the route against the mock's declared knobs,
 // and the `knobs` command): for each path, dots become "-" in names, and
@@ -709,6 +724,162 @@ export const PARTS_JS = `
 })();
 `;
 
+// A written surface read as a document. Identity and geometry leave the frame as
+// data, the way parts do; the trusted viewer draws its pins from those numbers and
+// shows the text as text nodes. Opt-in by the fragment `#read`, so the same document
+// pictured on a card or stacked on the stage stays inert: a fragment reaches no
+// server and no render cache, and it is read before first paint, so the reading type
+// never flashes. A rich document is not scrollable in this mode: the host sizes the
+// frame to it and the reader is the page's one scroll.
+const READ_CSS = `
+html.mockpit-read,html.mockpit-read body{overflow:hidden}
+html.mockpit-read body{display:flow-root;box-sizing:border-box;padding:2px 28px 6px;font-size:16px;line-height:1.65;text-wrap:pretty}
+html.mockpit-read :is(p,ul,ol,blockquote,table){margin:.75em 0}
+html.mockpit-read table{display:block;max-width:100%;overflow-x:auto}
+html.mockpit-read pre{max-height:none}
+html.mockpit-read [data-mp]{border-radius:6px;cursor:pointer;transition:background-color .12s ease-out}
+html.mockpit-read .mockpit-p-hov{background-color:var(--hover);box-shadow:0 0 0 4px var(--hover)}
+html.mockpit-read .mockpit-p-mark{--t:color-mix(in srgb,var(--accent) 12%,transparent);background-color:var(--t);box-shadow:0 0 0 4px var(--t)}
+html.mockpit-read .mockpit-p-on{--t:color-mix(in srgb,var(--accent) 24%,transparent);background-color:var(--t);box-shadow:0 0 0 4px var(--t)}
+`;
+export const PARAGRAPHS_JS = `
+(function () {
+  if (window.parent === window || location.hash !== '#read') return;
+  var MAX_BLOCKS = ${PARAGRAPHS_MAX};
+  var MAX_TEXT = ${PARAGRAPH_TEXT_MAX};
+  // Outermost blocks only: a paragraph in a quote or a list item belongs to it. A
+  // list inside a list item is the one exception, so a sub-item can be commented on.
+  var BLOCKS = 'h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,table,figure,dl';
+  var html = document.documentElement;
+  var version = Number(html.getAttribute('data-mockpit-version')) || null;
+  html.classList.add('mockpit-read');
+  var sheet = document.createElement('style');
+  sheet.textContent = ${JSON.stringify(READ_CSS)};
+  document.head.appendChild(sheet);
+
+  function clean(t) { return String(t || '').replace(/\\s+/g, ' ').trim().slice(0, MAX_TEXT); }
+  function textOf(el) {
+    var from = el;
+    if (el.tagName === 'LI' && el.querySelector('ul,ol')) {
+      from = el.cloneNode(true);
+      var inner = from.querySelectorAll('ul,ol');
+      for (var i = 0; i < inner.length; i++) inner[i].remove();
+    }
+    var t = clean(from.textContent);
+    if (t) return t;
+    var pic = el.querySelector('img');
+    return pic ? clean(pic.getAttribute('alt')) || 'image' : '';
+  }
+  function found() {
+    // A mermaid page: the whole diagram is one block, once it has drawn.
+    var diagram = document.getElementById('m');
+    if (diagram) return diagram.firstChild ? [{ el: diagram, kind: 'diagram' }] : [];
+    var all = document.querySelectorAll(BLOCKS);
+    var out = [];
+    for (var i = 0; i < all.length && out.length < MAX_BLOCKS; i++) {
+      var el = all[i];
+      var up = el.parentElement && el.parentElement.closest(BLOCKS);
+      if (up && !(el.tagName === 'LI' && up.tagName === 'LI')) continue;
+      out.push({ el: el, kind: el.tagName.toLowerCase() });
+    }
+    return out.length || !document.body ? out : [{ el: document.body, kind: 'document' }];
+  }
+  function collect() {
+    var sx = window.scrollX || 0, sy = window.scrollY || 0;
+    var list = found();
+    var blocks = [];
+    for (var i = 0; i < list.length; i++) {
+      var el = list[i].el;
+      var t = textOf(el);
+      if (!t) continue;
+      el.setAttribute('data-mp', String(blocks.length));
+      var r = el.getBoundingClientRect();
+      blocks.push({
+        i: blocks.length,
+        kind: list[i].kind,
+        text: t,
+        box: { x: r.left + sx, y: r.top + sy, w: r.width, h: r.height },
+      });
+    }
+    return { version: version, blocks: blocks, width: innerWidth };
+  }
+  var last = '';
+  var timer = 0;
+  function schedule() {
+    if (timer) return;
+    timer = setTimeout(function () {
+      timer = 0;
+      var m = collect();
+      var key = JSON.stringify(m);
+      if (key === last) return;
+      last = key;
+      m.__mockpit = true;
+      m.type = 'paragraphs';
+      parent.postMessage(m, '*');
+    }, 0);
+  }
+  if (typeof ResizeObserver !== 'undefined') {
+    var ro = new ResizeObserver(schedule);
+    ro.observe(html);
+    if (document.body) ro.observe(document.body);
+  }
+  // No attributes: this script writes those, and only content arriving moves blocks.
+  new MutationObserver(schedule).observe(html, { subtree: true, childList: true, characterData: true });
+  window.addEventListener('resize', schedule);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(schedule);
+  document.addEventListener('load', schedule, true);
+  function settle() {
+    schedule();
+    [50, 150, 400, 1000].forEach(function (ms) { setTimeout(schedule, ms); });
+  }
+  if (document.readyState === 'complete') settle();
+  else window.addEventListener('load', settle);
+
+  var hovered = null;
+  function hover(el) {
+    if (el === hovered) return;
+    if (hovered) hovered.classList.remove('mockpit-p-hov');
+    hovered = el;
+    if (el) el.classList.add('mockpit-p-hov');
+  }
+  document.addEventListener('pointerover', function (e) {
+    if (e.pointerType !== 'mouse') return;
+    hover(e.target && e.target.closest ? e.target.closest('[data-mp]') : null);
+  }, true);
+  html.addEventListener('pointerleave', function () { hover(null); });
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || !t.closest || t.closest('a[href],button,summary,input,select,textarea,label')) return;
+    // Selecting text to copy it is reading, not commenting.
+    var picked = window.getSelection && window.getSelection();
+    if (picked && !picked.isCollapsed) return;
+    var block = t.closest('[data-mp]');
+    if (!block) return;
+    parent.postMessage({
+      __mockpit: true,
+      type: 'paragraph-tap',
+      version: version,
+      i: Number(block.getAttribute('data-mp')),
+    }, '*');
+  });
+  function tint(cls, list) {
+    var on = document.querySelectorAll('.' + cls);
+    for (var i = 0; i < on.length; i++) on[i].classList.remove(cls);
+    for (var k = 0; k < list.length && k < MAX_BLOCKS; k++) {
+      var el = document.querySelector('[data-mp="' + Number(list[k]) + '"]');
+      if (el) el.classList.add(cls);
+    }
+  }
+  window.addEventListener('message', function (e) {
+    if (e.source !== parent) return;
+    var d = e.data;
+    if (!d || d.__mockpit !== true || d.type !== 'paragraph-marks') return;
+    tint('mockpit-p-mark', Array.isArray(d.marked) ? d.marked : []);
+    tint('mockpit-p-on', d.on === null || d.on === undefined ? [] : [d.on]);
+  });
+})();
+`;
+
 // Knobs: the `?k=` values are already on <html> (see knobPreamble); this binds
 // text, announces them, and applies the host's live `knobs` commands.
 export const KNOBS_JS = `
@@ -925,6 +1096,7 @@ const BRIDGE_PATH = registerAsset("bridge", "js", BRIDGE_JS);
 const HIT_TEST_PATH = registerAsset("hit-test", "js", HIT_TEST_JS);
 const PARTS_PATH = registerAsset("parts", "js", PARTS_JS);
 const KNOBS_PATH = registerAsset("knobs", "js", KNOBS_JS);
+const PARAGRAPHS_PATH = registerAsset("paragraphs", "js", PARAGRAPHS_JS);
 // The base html-surface stylesheet: static design tokens + the surface kit.
 const BASE_CSS_PATH = registerAsset(
   "base",
@@ -935,6 +1107,8 @@ const KIT_CORE_PATH = registerAsset("kit-core", "css", CORE_CSS);
 const KIT_PATHS = new Map(KITS.map((k) => [k.id, registerAsset(`kit-${k.id}`, "css", k.css)]));
 
 const scriptTag = (origin: string, path: string) => `<script src="${origin}${path}"></script>`;
+const versionAttr = (version: number | undefined) =>
+  version === undefined ? "" : ` data-mockpit-version="${version}"`;
 const styleTag = (origin: string, path: string) =>
   `<link rel="stylesheet" href="${origin}${path}">`;
 
@@ -1064,11 +1238,13 @@ export function renderSandboxedPart(doc: {
   origin: string;
   theme?: Theme | string;
   mode?: Mode;
+  // The post version this document renders; tagged on its paragraph reports.
+  version?: number;
 }): string {
   const theme =
     typeof doc.theme === "string" || doc.theme == null ? themeById(doc.theme) : doc.theme;
   return `<!doctype html>
-<html lang="en">
+<html lang="en"${versionAttr(doc.version)}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1083,6 +1259,7 @@ export function renderSandboxedPart(doc: {
 <body>
 ${doc.body}
 ${scriptTag(doc.origin, BRIDGE_PATH)}
+${scriptTag(doc.origin, PARAGRAPHS_PATH)}
 </body>
 </html>`;
 }
@@ -1211,6 +1388,7 @@ export function renderMermaidPage(doc: {
   origin: string;
   theme?: Theme | string;
   mode?: Mode;
+  version?: number;
 }): string {
   const theme =
     typeof doc.theme === "string" || doc.theme == null ? themeById(doc.theme) : doc.theme;
@@ -1256,7 +1434,7 @@ try {
   el.appendChild(pre);
 }`;
   return `<!doctype html>
-<html lang="en">
+<html lang="en"${versionAttr(doc.version)}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1268,6 +1446,7 @@ try {
 <div id="m"></div>
 <script type="module">${loader}</script>
 ${scriptTag(doc.origin, BRIDGE_PATH)}
+${scriptTag(doc.origin, PARAGRAPHS_PATH)}
 </body>
 </html>`;
 }

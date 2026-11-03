@@ -411,13 +411,29 @@ export interface Ask {
 // `{id: "other", other: true}` choice never shadows an option the agent declared.
 export const OTHER_ID = "other";
 
+// Which block of a written document a comment is on: the surface in the stack, the
+// block's place in it, its tag ("p", "h2", "li", "pre", "diagram"...) and its text.
+// The text is what finds the block again in a later version, since places move.
+export interface ParagraphAnchor {
+  surface: number;
+  index: number;
+  kind: string;
+  text: string;
+}
+// As far as a block's text is carried: the frame clips to it, the host and the
+// server re-clip, so it also bounds what one comment can repeat back to an agent.
+export const PARAGRAPH_TEXT_MAX = 600;
+export const PARAGRAPHS_MAX = 500;
+
 // A comment the user left on a part (or, with part null, anywhere on the render
-// via the Mark tool). Rides inside the reply rather than as its own comment.
+// via the Mark tool, or on a paragraph of a document). Rides inside the reply rather
+// than as its own comment.
 export interface PartCommentAnchor {
   offset?: [number, number];
   quote?: string;
   selector?: string;
   box?: number[];
+  paragraph?: ParagraphAnchor;
   // The stage width (CSS px) the comment was placed at: the same page reflows
   // at another width, so the agent and the viewer can tell which layout it meant.
   width?: number;

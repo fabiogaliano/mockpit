@@ -33,8 +33,12 @@ import { Icon, type IconName } from "./icons.tsx";
 import {
   DEVICE_WIDTHS,
   GHOST_W,
+  historyRow,
   isBuiltinAsk,
+  READING_W,
+  readsAsDocument,
   versionStamp,
+  WALL_FROM,
   wideWidth,
   widthKind,
   widthLabel,
@@ -45,6 +49,7 @@ import { CarriedChip, NextCard } from "./NextCard.tsx";
 import { NotFound } from "./NotFound.tsx";
 import { QuestionCard, QuestionTab } from "./QuestionCard.tsx";
 import { ResolvedNote } from "./Questions.tsx";
+import { Reader, ReaderSend } from "./Reader.tsx";
 import { markSeen } from "./seen.ts";
 import {
   homePath,
@@ -112,12 +117,28 @@ export function MockScreen(props: {
         .map((v) => v.variant),
     ).size;
   };
+  // What's on stage is written: it opens as a column instead of on the canvas. By the
+  // version on stage, which can differ from its neighbours (markdown, then a page).
+  const reading = createMemo(() => {
+    const m = s.mock();
+    const v = s.activeVariant();
+    if (!m || !v) return false;
+    const version = s.frameVersionOf(v);
+    const kinds = historyRow(v, version)?.surfaceKinds ?? v.surfaces.map((x) => x.kind);
+    return readsAsDocument(m.widths, kinds as string[]);
+  });
+  const wallSized = () => s.variants().length >= WALL_FROM;
+  const [onWall, setOnWall] = createSignal(false);
   // Decided once per visit: answering the last question or moving to another
   // state must not swap the view under you.
   const opened = createMemo<View | null>((before) => {
     if (before || !s.mock()) return before;
     return untrack(() => {
       if (s.waitsOnStage()) return "stage";
+      // Too many to reach any other way, whichever view was last used here.
+      if (wallSized()) return "studio";
+      // A shortlist stays for comparing, below, even if what it gathered is written.
+      if (reading() && !s.mock()?.shortlist) return "stage";
       // A shortlist is for comparing, and its Add candidate lives in Studio.
       return remembered() ?? (momentVariants() > 1 || s.mock()?.shortlist ? "studio" : "stage");
     });
@@ -196,7 +217,17 @@ export function MockScreen(props: {
   );
   const nav = createFlowNav(s, props.project, props.slug, props.flow ?? null);
   const t = createTune(s);
-  const m = createMargins(s, nav, () => !!s.mock() && !phoneLayout() && shownView() === "stage");
+  const m = createMargins(
+    s,
+    nav,
+    () => !!s.mock() && !phoneLayout() && shownView() === "stage",
+    () => (reading() ? READING_W : null),
+  );
+  // The tools act on a page, and a document isn't one.
+  createEffect(() => {
+    const tool = s.tool();
+    if (reading() && tool) s.toggleTool(tool);
+  });
   useFlowKeys(s);
   const about = createAbout(
     () => s.mock()?.project ?? props.project,
@@ -368,9 +399,10 @@ export function MockScreen(props: {
           slug={props.slug}
           about={about}
           view={shownView()}
-          variants={momentVariants()}
+          reading={reading()}
+          variants={wallSized() ? s.variants().length : momentVariants()}
           compare={s.variants().length > 1 || s.variants().some((v) => v.version > 1)}
-          tabs={m.walkable()}
+          tabs={m.walkable() || onWall()}
           shortlists={shortlists}
           actions={
             <Show when={m.active()}>
@@ -386,7 +418,9 @@ export function MockScreen(props: {
                 <Show when={!readonly()}>
                   <ReviseButton s={s} />
                 </Show>
-                <UseThis s={s} />
+                <Show when={!reading()}>
+                  <UseThis s={s} />
+                </Show>
               </div>
             </Show>
           }
@@ -403,7 +437,7 @@ export function MockScreen(props: {
           }}
         />
         {/* Beside a docked left margin the same steps are its first list. */}
-        <Show when={m.walkable() && !m.leftDocked()}>
+        <Show when={m.walkable() && !m.leftDocked() && !onWall()}>
           <FlowBar nav={nav} />
         </Show>
       </header>
@@ -430,19 +464,22 @@ export function MockScreen(props: {
                 shortlists={shortlists}
                 onOpen={() => setView("stage")}
                 onLooking={(open) => (openLooked = open)}
+                onWall={setOnWall}
               />
             }
           >
-            <Stage s={s} onGoto={nav.follow} />
+            <Show when={!reading()} fallback={<Reader s={s} />}>
+              <Stage s={s} onGoto={nav.follow} />
+              <Show when={m.ghosts() && !s.allSituations()}>
+                <Ghost s={s} nav={nav} by={-1} />
+                <Ghost s={s} nav={nav} by={1} />
+              </Show>
+            </Show>
             <SituationGrid
               s={s}
               top={canvasTop()}
               bottom={Math.max(0, win().h - bottomTop() + 8)}
             />
-            <Show when={m.ghosts() && !s.allSituations()}>
-              <Ghost s={s} nav={nav} by={-1} />
-              <Ghost s={s} nav={nav} by={1} />
-            </Show>
           </Show>
         </Show>
         <div
@@ -474,8 +511,11 @@ export function MockScreen(props: {
                 </Show>
               }
             >
+              <Show when={reading()}>
+                <ReaderSend s={s} m={m} />
+              </Show>
               <QuestionCard s={s} />
-              <VersionBar s={s} studio={momentVariants() > 1} />
+              <VersionBar s={s} studio={momentVariants() > 1} reading={reading()} />
             </Show>
           </Show>
         </div>
@@ -518,6 +558,8 @@ function TopRow(props: {
   slug: string;
   about: AboutState;
   view: View;
+  // A document: no widths to choose between.
+  reading: boolean;
   variants: number;
   // More than one design or version to compare, in any state, archived too: Studio is
   // where those are.
@@ -691,7 +733,7 @@ function TopRow(props: {
         {(list) => <ShortlistPill list={list()} project={props.project} />}
       </Show>
       {props.actions}
-      <Show when={props.view === "stage" && s.mock()}>
+      <Show when={props.view === "stage" && !props.reading && s.mock()}>
         <WidthMenu s={s} />
       </Show>
       <Show when={props.compare || props.view === "studio"}>

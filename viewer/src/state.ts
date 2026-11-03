@@ -1381,9 +1381,17 @@ export function createMockScreen(
     state: string | null,
     text: string,
     anchor?: PartCommentAnchor,
+    // The exact version it is about, where a reader may be on an older one.
+    on?: VersionRef,
   ) {
     writeDraft((d) => {
-      d.comments.push(anchor ? { part, state, text, anchor } : { part, state, text });
+      d.comments.push({
+        part,
+        state,
+        text,
+        ...(anchor ? { anchor } : {}),
+        ...(on ? { variant: on.variant, version: on.version } : {}),
+      });
       return d;
     });
   }

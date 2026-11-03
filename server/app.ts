@@ -135,6 +135,8 @@ import {
   draftedCount,
   openCount,
   OTHER_ID,
+  PARAGRAPH_TEXT_MAX,
+  type ParagraphAnchor,
   type PartComment,
   type Post,
   type PostHead,
@@ -2914,6 +2916,19 @@ export function createApp({
     return out;
   }
 
+  // The text came out of a sandboxed frame by way of the viewer: plain, clipped data,
+  // never read as anything but the words an agent gets back.
+  function sanitizeParagraph(raw: unknown): ParagraphAnchor | undefined {
+    if (!raw || typeof raw !== "object") return undefined;
+    const p = raw as Record<string, unknown>;
+    const place = (v: unknown) =>
+      Number.isInteger(v) && (v as number) >= 0 && (v as number) < 10000;
+    const text = str(p.text, PARAGRAPH_TEXT_MAX);
+    const kind = str(p.kind, 20);
+    if (!text || !kind || !place(p.surface) || !place(p.index)) return undefined;
+    return { surface: p.surface as number, index: p.index as number, kind, text };
+  }
+
   function sanitizePartAnchor(a: Record<string, unknown>) {
     const offset =
       Array.isArray(a.offset) && a.offset.length === 2 && a.offset.every((n) => Number.isFinite(n))
@@ -2929,12 +2944,14 @@ export function createApp({
       typeof a.width === "number" && Number.isFinite(a.width) && a.width >= 1 && a.width <= 10000
         ? Math.round(a.width)
         : undefined;
-    if (!offset && !box && !quote && !selector) return undefined;
+    const paragraph = sanitizeParagraph(a.paragraph);
+    if (!offset && !box && !quote && !selector && !paragraph) return undefined;
     return {
       ...(offset ? { offset } : {}),
       ...(quote ? { quote } : {}),
       ...(selector ? { selector } : {}),
       ...(box ? { box } : {}),
+      ...(paragraph ? { paragraph } : {}),
       ...(width ? { width } : {}),
     };
   }
@@ -5785,7 +5802,13 @@ export function createApp({
       });
     }
     if (surface.kind === "mermaid") {
-      return renderMermaidPage({ mermaid: surface.mermaid, origin, theme, mode });
+      return renderMermaidPage({
+        mermaid: surface.mermaid,
+        origin,
+        theme,
+        mode,
+        version: args.version,
+      });
     }
     // Load the rich renderers on first use, not at module load. richRender.ts
     // pulls in shiki, @pierre/diffs, markdown-it and ansi_up — measured at ~48 MB
@@ -5815,7 +5838,14 @@ export function createApp({
                 )}</div>`,
                 css: `.rich-error{color:var(--danger);font:13px/1.5 ui-monospace,monospace;padding:8px 12px;}`,
               }));
-    return renderSandboxedPart({ body: rendered.body, css: rendered.css, origin, theme, mode });
+    return renderSandboxedPart({
+      body: rendered.body,
+      css: rendered.css,
+      origin,
+      theme,
+      mode,
+      version: args.version,
+    });
   }
 
   // Render the current version of a post into the cache, off the write path.

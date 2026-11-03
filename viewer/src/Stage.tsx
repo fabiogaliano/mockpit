@@ -54,7 +54,7 @@ import type { MockScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
 import { canvasBox, canvasTop, cardInset, coarse, phoneLayout, safeX, win } from "./viewport.ts";
 
-const num = (v: unknown, d = 0) => (typeof v === "number" && Number.isFinite(v) ? v : d);
+export const num = (v: unknown, d = 0) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const MAX_TEXT = 200;
 const text = (v: unknown, max = MAX_TEXT) => String(v ?? "").slice(0, max);
 const MAX_PROMPT = 4000;
@@ -73,7 +73,7 @@ interface PendingMark {
   rect?: [number, number, number, number];
 }
 
-const httpUrl = (v: unknown): string | null => {
+export const httpUrl = (v: unknown): string | null => {
   try {
     const u = new URL(String(v));
     return u.protocol === "http:" || u.protocol === "https:" ? u.href : null;
@@ -483,16 +483,7 @@ export function Stage(props: { s: MockScreenState; onGoto?: (to: string) => void
   return (
     <div class="stagewrap canvas" style={{ top: `${canvasTop()}px` }}>
       <div class="stage" classList={{ tuning: s.tuning() }}>
-        <Show when={s.boundVersion() !== null}>
-          <div class="banner" role="status">
-            <b>{`${s.arrived()?.name ?? "A new version"} arrived`}</b>
-            <span class="sep">·</span>
-            <button type="button" onClick={() => s.viewNewVersion()}>
-              view
-            </button>
-            <span class="banner-note">{`your answers stay on ${s.arrived()?.bound ?? "this one"} until you do`}</span>
-          </div>
-        </Show>
+        <ArrivedBanner s={s} />
         <div class="layers" ref={(el) => (layersEl = el)} style={{ height: `${availH()}px` }}>
           <div class="layers-sizer" style={{ height: `${canvasH()}px`, width: `${canvasW()}px` }} />
           <Show when={!phone()}>
@@ -571,6 +562,23 @@ export function Stage(props: { s: MockScreenState; onGoto?: (to: string) => void
         </div>
       </div>
     </div>
+  );
+}
+
+// A newer version than the one the draft is bound to, on offer.
+export function ArrivedBanner(props: { s: MockScreenState }) {
+  const s = props.s;
+  return (
+    <Show when={s.boundVersion() !== null}>
+      <div class="banner" role="status">
+        <b>{`${s.arrived()?.name ?? "A new version"} arrived`}</b>
+        <span class="sep">·</span>
+        <button type="button" onClick={() => s.viewNewVersion()}>
+          view
+        </button>
+        <span class="banner-note">{`your answers stay on ${s.arrived()?.bound ?? "this one"} until you do`}</span>
+      </div>
+    </Show>
   );
 }
 
@@ -688,7 +696,11 @@ function Board(props: {
 
 // Image and json arrive whole and render as data, never as markup; an older
 // version's body is not sent, so it shows as a placeholder.
-function NativeSurface(props: { kind: unknown; surface: Surface | undefined; version: number }) {
+export function NativeSurface(props: {
+  kind: unknown;
+  surface: Surface | undefined;
+  version: number;
+}) {
   const sf = props.surface;
   if (sf?.kind === "image") {
     return (
@@ -1235,12 +1247,14 @@ function Overlay(props: {
 }
 
 // The pin being placed and its comment field, kept inside the overlay's box.
-function MarkField(props: {
+export function MarkField(props: {
   n: number;
   at: { x: number; y: number };
   width: number;
   height: number;
   where: string;
+  // How far below the pin the field starts, to leave what it's about readable.
+  under?: number;
   onSave: (text: string) => void;
   onCancel: () => void;
 }) {
@@ -1248,8 +1262,9 @@ function MarkField(props: {
   const W = () => Math.min(280, props.width - 8);
   const H = () => (coarse() ? 150 : 112);
   const left = () => Math.max(4, Math.min(props.at.x + 16, props.width - W() - 4));
-  const below = () => props.at.y + 16 + H() < props.height;
-  const top = () => Math.max(4, below() ? props.at.y + 16 : props.at.y - 16 - H());
+  const under = () => props.under ?? 16;
+  const below = () => props.at.y + under() + H() < props.height;
+  const top = () => Math.max(4, below() ? props.at.y + under() : props.at.y - 16 - H());
   let input: HTMLInputElement | undefined;
   const submit = () => {
     const t = value().trim();

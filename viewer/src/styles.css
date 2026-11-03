@@ -7407,3 +7407,276 @@ body:has(.selp) .toast {
   border-right: 0;
   border-bottom: 1px solid var(--line);
 }
+/* A document: one column on one page scroll. Nothing is framed and nothing nests a
+   scrollbar, since each sandboxed surface is sized to its whole height. */
+.reader {
+  position: fixed;
+  top: var(--canvas-top, 0);
+  right: var(--canvas-r, 0);
+  bottom: 0;
+  left: var(--canvas-l, 0);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-left: calc(var(--strip, 0px) + env(safe-area-inset-left));
+  padding-right: env(safe-area-inset-right);
+  background: var(--page);
+}
+.reader > .banner {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.reader-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 720px) minmax(0, 1fr);
+}
+.reader-hint {
+  grid-column: 2;
+  margin: 12px 28px 0;
+  color: var(--t5);
+  font-size: 12px;
+}
+.reader-sf {
+  position: relative;
+  grid-column: 2;
+  min-width: 0;
+}
+/* A diagram or a diff is drawn to its own width and can use more than the text's. */
+.reader-sf.wide {
+  grid-column: 1 / -1;
+  justify-self: center;
+  width: 100%;
+  max-width: 1040px;
+}
+.reader-sf iframe {
+  display: block;
+  width: 100%;
+  border: 0;
+}
+.reader-native {
+  padding: 8px 28px;
+}
+.reader-native img {
+  max-width: 100%;
+  height: auto;
+}
+.reader-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.reader-layer > * {
+  pointer-events: auto;
+}
+/* Clear of the top bar and, on a phone, of the stack floating at the foot. */
+.reader .markfield {
+  scroll-margin-block: 12px 150px;
+}
+.rsend {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-sizing: border-box;
+  width: min(calc(100vw - 24px), 420px);
+  padding: 5px 5px 5px 14px;
+  border: 1px solid var(--edge);
+  border-radius: 16px;
+  background: var(--panel);
+  box-shadow: 0 10px 30px #0006;
+}
+.rsend-list {
+  overflow-y: auto;
+  max-height: 40dvh;
+  padding-top: 8px;
+}
+.rsend-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+/* The wall: every design of a big lab in one grid, filtered. It only scrolls down, and
+   its budget of live frames comes from the same watch as the columns'. */
+.studio.wall {
+  overflow-x: hidden;
+  padding-inline: 16px;
+}
+.studio.peeking {
+  right: var(--peek-w);
+}
+.studio.peeking .selbar:not(.phone) {
+  left: calc((100vw - var(--peek-w)) / 2);
+}
+.wall-bar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: -4px -16px 4px;
+  padding: 10px 16px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--page);
+}
+/* Three rows of filters would take a third of a phone: they scroll away with the wall. */
+.wall-bar.phone {
+  position: static;
+}
+.wall-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.slpick-filter.wall-find {
+  flex: 1 1 200px;
+  width: auto;
+  min-width: 0;
+  max-width: 300px;
+}
+.wall-bar.phone .slpick-filter.wall-find {
+  flex-basis: 100%;
+  max-width: none;
+  /* 16px, or iOS zooms the whole page in on focus. */
+  font-size: 16px;
+}
+.wall-sp {
+  flex: 1;
+}
+.wall-chips {
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.wall-chips button {
+  flex: none;
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: var(--t4);
+  font-size: 13px;
+  transition:
+    background var(--ease),
+    color var(--ease);
+}
+.wall-chips button[aria-checked="true"] {
+  background: var(--row);
+  color: var(--t1);
+}
+@media (hover: hover) {
+  .wall-chips button:hover {
+    color: var(--t1);
+  }
+}
+.wall-chips .n {
+  margin-inline-start: 6px;
+  color: var(--t5);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.wall-state .studio-sth {
+  position: static;
+  margin: 14px 0 8px;
+}
+.wall-grid {
+  display: grid;
+  /* 44vw: two across on a phone whatever the design's shape. */
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--wall-card), 44vw), 1fr));
+  gap: 10px;
+}
+.wall-grid .sk.small {
+  width: auto;
+  /* Clear of the filters when an arrow key scrolls it into view. */
+  scroll-margin-block: 110px 16px;
+}
+.wall-grid .sk-art {
+  aspect-ratio: var(--wall-art);
+}
+/* In a small card the tick has the corner, so Move stands next to the ×. */
+.wall-grid .sk.small .sk-save {
+  left: auto;
+  right: 28px;
+}
+.wall-grid .sk.peek:not(.on) {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.wall-grid .sk.elsewhere {
+  opacity: 0.45;
+}
+.wall-grid .wall-use {
+  position: absolute;
+  bottom: 34px;
+  left: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 11px;
+}
+.wall-grid .wall-restore {
+  background: var(--panel);
+  color: var(--t1);
+}
+/* On a finger the cards are too small and too close for these: they wait in the large
+   view a tap away, except the tick and, on what's gone, Restore. */
+@media (hover: none) {
+  .wall-grid .sk:not(.gone) :is(.sk-x, .sk-save) {
+    display: none;
+  }
+}
+.wall-empty {
+  margin: 48px 0;
+  color: var(--t4);
+  font-size: 14px;
+  text-align: center;
+}
+.wall-back {
+  position: sticky;
+  top: 8px;
+  left: 0;
+  z-index: 3;
+  margin: 6px 0 10px;
+}
+/* The closer look as the wall's preview: beside it instead of over it. */
+.look.beside {
+  left: auto;
+  z-index: 5;
+  width: var(--peek-w);
+  border-left: 1px solid var(--line);
+}
+.look.beside .look-h {
+  padding-left: 16px;
+}
+.look.beside .look-art {
+  grid-template-columns: 36px minmax(0, 1fr) 36px;
+}
+.look.beside .look-nav {
+  width: 32px;
+  height: 32px;
+}
+.look.beside .look-acts {
+  padding-bottom: 14px;
+}
+/* The one track, held to the screen: without it a note that stays on one line sizes the
+   track and everything in it past the edge of a phone. */
+.look {
+  grid-template-columns: minmax(0, 1fr);
+}
+/* A swipe is the way across here, and 112px of arrows is a third of a phone's width. */
+@media (hover: none) {
+  .look-art {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .look-nav {
+    display: none;
+  }
+  .look-frame {
+    padding-inline: 10px;
+  }
+  .look-acts {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+}
