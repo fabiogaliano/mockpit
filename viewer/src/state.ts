@@ -84,7 +84,7 @@ import {
 } from "./logic.ts";
 import { navigate, questionPath, type ScreenOpen } from "./route.ts";
 import { setTheme } from "./theme.ts";
-import { coarse, win } from "./viewport.ts";
+import { coarse, phoneLayout, win } from "./viewport.ts";
 
 // The canvas's tools: Try hands taps to the design, Mark leaves a comment
 // where you tap, Tune outlines the parts and opens one's knobs.
@@ -222,6 +222,9 @@ export function createMockScreen(
   const [drawer, setDrawerSignal] = createSignal(false);
   const [panel, setPanelSignal] = createSignal<PanelTab | null>(null);
   const [cardMin, setCardMin] = createSignal(false);
+  // The question can't be seen, so it takes no keys and marks no part. Beside the
+  // design Built from takes the question's place; on a phone it is a sheet over it.
+  const questionHidden = () => cardMin() || !!panel() || (drawer() && !phoneLayout());
   // The last thing done to a version, with its undo while it is offered.
   const [toast, showToast] = createSignal<ToastLine | null>(null);
   // Actions may finish after the screen is gone, and still have a line to leave.
@@ -287,6 +290,11 @@ export function createMockScreen(
   // The zoom of the canvas, and the scale the stage last drew at.
   const [zoom, setZoom] = createSignal<Zoom>("fit");
   const [stageScale, setStageScale] = createSignal(1);
+  // Every width side by side: a pinch from there stays spread, a pick or fit doesn't.
+  const allWidths = createMemo<boolean>((was) => {
+    const z = zoom();
+    return z === "all" ? true : z === "fit" ? false : was;
+  }, false);
   // The least scale a zoom can reach on the stage now, so the header offers
   // only the steps it can take.
   const [zoomMin, setZoomMin] = createSignal(0.1);
@@ -679,7 +687,7 @@ export function createMockScreen(
   // The part the current question is about: the slot it chooses a fill for,
   // else the part it is scoped to.
   const focusPart = createMemo(() => {
-    if (cardMin() || panel()) return null;
+    if (questionHidden()) return null;
     const borrowing = preview()?.part;
     if (borrowing) return borrowing;
     const q = questions()[cur()];
@@ -1101,6 +1109,16 @@ export function createMockScreen(
     userMoved();
     setPanelSignal(tab);
   };
+  // Back to the question and the comments from whatever stands in their place.
+  function showTalk() {
+    userMoved();
+    batch(() => {
+      if (tool() === "tune") setTool(null);
+      setDrawerSignal(false);
+      setPanelSignal(null);
+      setCardMin(false);
+    });
+  }
   // A step of the flow brings its own questions: the first it still owes,
   // else its first.
   function showState(state: string | null) {
@@ -1369,6 +1387,21 @@ export function createMockScreen(
       return d;
     });
   }
+  // A comment read back beside the design can be reworded or taken back before
+  // Send, by its place in the draft.
+  function setCommentText(index: number, text: string) {
+    writeDraft((d) => {
+      const c = d.comments[index];
+      if (c) d.comments[index] = { ...c, text };
+      return d;
+    });
+  }
+  function removeComment(index: number) {
+    writeDraft((d) => {
+      d.comments.splice(index, 1);
+      return d;
+    });
+  }
   // A one-tap reaction on a part of the variant on stage, or (part null) on the
   // variant itself. Toggles: the same reaction again takes it back.
   function react(part: string | null, reaction: Reaction) {
@@ -1545,6 +1578,9 @@ export function createMockScreen(
     if (readonly() || !a || !asked(a)) return null;
     return nextStop(Math.min(cur(), questions().length - 1)) ? "next" : "send";
   });
+  // Comments and tuning want no answer: they can go while a question stays open.
+  const sendable = () => !readonly() && !draftIsEmpty(draft());
+  const sendDraft = () => void send();
   function commit() {
     const kind = commitKind();
     if (!kind) return;
@@ -1593,7 +1629,7 @@ export function createMockScreen(
   // A number key: the nth option of the question on the card, "Other…" after them.
   function chooseNth(n: number) {
     const a = curAsk();
-    if (!a || cardMin() || panel()) return;
+    if (!a || questionHidden()) return;
     const o = a.options[n];
     if (o) choose(a, o.id);
     else if (n === a.options.length && !readonly()) pick(a, null);
@@ -1899,6 +1935,7 @@ export function createMockScreen(
     withSituations,
     stepSituation,
     allSituations,
+    allWidths,
     setAllSituations,
     latest,
     boundVersion,
@@ -2001,6 +2038,8 @@ export function createMockScreen(
     setDrawer,
     panel,
     setPanel,
+    showTalk,
+    questionHidden,
     cardMin,
     setCardMin,
     sent,
@@ -2013,6 +2052,10 @@ export function createMockScreen(
     pick,
     toggleMix,
     addComment,
+    setCommentText,
+    removeComment,
+    sendable,
+    sendDraft,
     react,
     reactionOn,
     reactStatus,

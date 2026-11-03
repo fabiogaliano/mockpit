@@ -2287,6 +2287,7 @@ a.home-count {
   text-underline-offset: 3px;
 }
 .banner-note {
+  min-width: 0;
   margin-left: auto;
   color: var(--t5);
   overflow: hidden;
@@ -2731,9 +2732,9 @@ a.home-count {
 
 .stagewrap.canvas {
   position: fixed;
-  right: 0;
+  right: var(--canvas-r, 0px);
   bottom: 0;
-  left: 0;
+  left: var(--canvas-l, 0px);
   padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
   background-color: var(--page);
   background-image: radial-gradient(var(--line) 1px, transparent 1px);
@@ -2781,6 +2782,7 @@ a.home-count {
   top: 8px;
   left: 50%;
   z-index: 6;
+  max-width: calc(100% - 16px);
   border: 1px solid var(--edge);
   border-radius: 10px;
   transform: translateX(-50%);
@@ -4041,10 +4043,10 @@ html:has(.mock-screen) {
   translate: 0 -50%;
 }
 .ghost.left {
-  left: max(4px, env(safe-area-inset-left));
+  left: calc(var(--canvas-l, 0px) + var(--strip, 0px) + max(4px, env(safe-area-inset-left)));
 }
 .ghost.right {
-  right: max(4px, env(safe-area-inset-right));
+  right: calc(var(--canvas-r, 0px) + max(4px, env(safe-area-inset-right)));
 }
 .ghost-thumb,
 .ghost-blank {
@@ -4067,14 +4069,15 @@ html:has(.mock-screen) {
 /* Everything that floats at the foot of the canvas, centred above the bar. */
 .mbottom {
   position: fixed;
-  left: 50%;
+  /* Centred on the canvas, between whichever margins stand beside it. */
+  left: calc(var(--canvas-l, 0px) + (100% - var(--canvas-l, 0px) - var(--canvas-r, 0px)) / 2);
   z-index: 30;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
   width: max-content;
-  max-width: calc(100% - 24px);
+  max-width: calc(100% - var(--canvas-l, 0px) - var(--canvas-r, 0px) - 24px);
   margin-bottom: env(safe-area-inset-bottom);
   translate: -50% 0;
   pointer-events: none;
@@ -4215,8 +4218,8 @@ html:has(.mock-screen) {
 /* Every situation of the state side by side, over the canvas. */
 .sitgrid {
   position: fixed;
-  left: 0;
-  right: 0;
+  left: var(--canvas-l, 0px);
+  right: var(--canvas-r, 0px);
   z-index: 25;
   display: flex;
   flex-wrap: wrap;
@@ -4345,6 +4348,11 @@ html:has(.mock-screen) {
 .qcard .qx svg {
   width: 16px;
   height: 16px;
+}
+/* A phone's card scrolls its options alone (below), so the wrapper that scrolls
+   beside the design is no box here. */
+.qcard:not(.beside) .qscroll {
+  display: contents;
 }
 /* Only the middle scrolls: Send stays in reach however many options there are.
    The padding keeps focus rings and the agent's-pick dot from clipping. */
@@ -4520,11 +4528,6 @@ html:has(.mock-screen) {
 .hrestore {
   height: 30px;
 }
-.honly {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
 .bpbody {
   flex: 1;
   min-height: 0;
@@ -4677,7 +4680,7 @@ html:has(.mock-screen) {
   font-size: 15px;
   font-weight: 600;
 }
-.drawer h3 {
+:is(.drawer, .builtfrom) h3 {
   margin: 0 0 10px;
   color: var(--t4);
   font-size: 12px;
@@ -4693,13 +4696,13 @@ html:has(.mock-screen) {
   flex-direction: column;
   gap: 6px;
 }
-.drawer .crow {
+:is(.drawer, .builtfrom) .crow {
   border-radius: 12px;
 }
-.drawer .crow.open {
+:is(.drawer, .builtfrom) .crow.open {
   background: var(--row);
 }
-.drawer .chead {
+:is(.drawer, .builtfrom) .chead {
   display: flex;
   align-items: center;
 }
@@ -4733,13 +4736,13 @@ html:has(.mock-screen) {
   border-radius: 6px;
   background: var(--frame);
 }
-.drawer .tog svg {
+:is(.drawer, .builtfrom) .tog svg {
   transition: rotate 150ms cubic-bezier(0.2, 0, 0, 1);
 }
-.drawer .tog[aria-expanded="true"] svg {
+:is(.drawer, .builtfrom) .tog[aria-expanded="true"] svg {
   rotate: 180deg;
 }
-.drawer .knobs {
+:is(.drawer, .builtfrom) .knobs {
   display: grid;
   gap: 8px;
   padding: 2px 10px 12px;
@@ -4829,6 +4832,598 @@ html:has(.mock-screen) {
 .toast-x svg {
   width: 16px;
   height: 16px;
+}
+/* ---------- the open screen's margins (Margins.tsx) ---------- */
+/* The way up stands in for the path where the path won't fit. */
+.mup {
+  display: none;
+}
+.mturn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  margin-left: 2px;
+  color: var(--t4);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.mact {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+.mact .vlabel .v,
+.mact .vlabel .note {
+  max-width: 96px;
+}
+.mact .vlabel .note {
+  line-height: 14px;
+}
+.mact .ib {
+  width: 36px;
+  height: 36px;
+}
+.mtabs {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+}
+.mtab-dot {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--q);
+}
+.toolstrip {
+  position: fixed;
+  /* Mid-height of the canvas, whatever stands above it. */
+  top: calc((100dvh + var(--canvas-top, 0px)) / 2);
+  left: calc(var(--canvas-l, 0px) + max(8px, env(safe-area-inset-left)));
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--dd-shadow);
+  translate: 0 -50%;
+}
+.toolstrip-sep {
+  flex: none;
+  width: 24px;
+  height: 1px;
+  margin: 2px 0;
+  background: var(--line);
+}
+.lmargin,
+.rmargin {
+  position: fixed;
+  top: var(--canvas-top, 0px);
+  bottom: 0;
+  z-index: 28;
+  overscroll-behavior: contain;
+}
+/* Beside the canvas they are the page itself; over it, a panel that lifts off it. */
+.lmargin.float,
+.rmargin.float {
+  top: calc(var(--canvas-top, 0px) + 8px);
+  bottom: auto;
+  z-index: 35;
+  max-height: calc(100dvh - var(--canvas-top, 0px) - 16px - env(safe-area-inset-bottom));
+  border: 1px solid var(--edge);
+  border-radius: 16px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+.lmargin {
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 184px;
+  padding: 12px 8px calc(12px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+  background: var(--page);
+}
+.lmargin.float {
+  left: calc(var(--strip, 0px) + 8px);
+  width: 240px;
+  padding-left: 8px;
+}
+.lm-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  width: 28px;
+  height: 28px;
+}
+.lm-close svg {
+  width: 16px;
+  height: 16px;
+}
+.lm-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.lm-sec h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  margin: 0 0 6px;
+  /* Clear of the fold button, which rides this margin's top corner. */
+  padding: 2px 28px 0 6px;
+  color: var(--t4);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+.lm-line {
+  margin: 8px 0 2px;
+  padding: 0 6px;
+  overflow: hidden;
+  color: var(--t2);
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lm-item {
+  position: relative;
+}
+.lm-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 4px 6px 4px 4px;
+  border-radius: 9px;
+  color: var(--t4);
+  text-align: start;
+  transition:
+    background var(--ease),
+    color var(--ease);
+}
+.lm-row.on {
+  background: var(--row);
+  color: var(--t1);
+}
+.lm-row.hid .lm-pic {
+  opacity: 0.45;
+}
+.lm-pic {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 30px;
+  height: 52px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--frame);
+  box-shadow: 0 0 0 1px var(--edge);
+}
+.lm-pic.flat {
+  width: 52px;
+  height: 34px;
+}
+.lm-pic > .thumb {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.lm-pic > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+}
+.lm-pic .hkind {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  overflow: hidden;
+  color: var(--t4);
+  font-size: 12px;
+}
+.lm-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.lm-text b {
+  color: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.lm-row.on .lm-text b {
+  color: var(--t1);
+}
+.lm-text small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--t4);
+  font-size: 12px;
+  line-height: 16px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.lm-row .ftab-q {
+  margin-top: 6px;
+}
+.lm-emptied {
+  align-self: flex-start;
+  margin-top: 2px;
+}
+/* The version on stage is the one its × and Restore speak for; they hang off the
+   row's corner, past where its name wraps. */
+.lm-hide {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 28px;
+  height: 28px;
+}
+.lm-hide svg {
+  width: 15px;
+  height: 15px;
+}
+.lm-item .lm-row.on {
+  padding-right: 28px;
+}
+.lm-hide.off {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.lm-restore {
+  position: absolute;
+  top: 6px;
+  right: 2px;
+  padding: 0 4px;
+}
+.rmargin {
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  width: 320px;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+}
+.rmargin.float {
+  right: max(8px, env(safe-area-inset-right));
+}
+.rm-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 6px 2px 16px;
+}
+.rm-head h2 {
+  margin: 0;
+  color: var(--t4);
+  font-size: 13px;
+  font-weight: 500;
+}
+.rm-head .ib {
+  width: 32px;
+  height: 32px;
+}
+.rm-head .ib svg {
+  width: 16px;
+  height: 16px;
+}
+/* Every link of this chain may shrink, so a floating margin stops at its max-height
+   and the scroller inside takes what's left: Send stays in reach. */
+.rm-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+.rm-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 4px 16px calc(14px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.rm-go {
+  display: block;
+  margin: 0 0 12px;
+  text-align: start;
+}
+.builtfrom {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.rm-body > .qfoot {
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+}
+/* The question beside the design: no card of its own, and pictures to read. */
+.qcard.beside {
+  flex: 1 1 auto;
+  gap: 0;
+  width: auto;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.qcard.beside .qhd {
+  margin: 0;
+  padding: 0 16px 10px;
+}
+.qcard.beside .qtext {
+  padding-top: 0;
+}
+.qcard.beside .qt {
+  font-size: 14px;
+  line-height: 20px;
+}
+.qscroll {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.qcard.beside .qscroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 2px 16px 14px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.qcard.beside .qblock {
+  flex: none;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+}
+.qcard.beside .opts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+/* Words only: one to a row, so a long option reads whole. */
+.qcard.beside .opts:has(.opt.pill:not(.other)) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.qcard.beside .opts > .opt.other {
+  grid-column: 1 / -1;
+}
+.qcard.beside .opt {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 4px 4px 8px;
+  border-radius: 12px;
+}
+.qcard.beside .opt.pill {
+  flex-direction: row;
+  align-items: center;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+.qcard.beside .opt .crop {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 3.6;
+  border-radius: 8px;
+}
+.qcard.beside .opt .crop.flat {
+  aspect-ratio: 4 / 3;
+}
+.qcard.beside .opt:not(.pill) .lbl {
+  padding: 0 4px;
+}
+.qcard.beside .opt-arch > .vrestore {
+  position: static;
+  align-self: flex-start;
+}
+.qcard.beside .qfoot {
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+}
+.qaddnote {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 8px;
+  border-radius: 9px;
+  color: var(--t4);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.qaddnote svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linejoin: round;
+}
+.qaddnote.on {
+  color: var(--t1);
+}
+.cmts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cmt {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.cmt-n {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: var(--accent-solid);
+  color: var(--on-accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+.cmt-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.cmt-where {
+  overflow: hidden;
+  color: var(--t4);
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmt-input {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--row);
+  color: var(--t2);
+  font-size: 13px;
+  line-height: 18px;
+  resize: none;
+  field-sizing: content;
+}
+.cmt-react {
+  color: var(--t2);
+  font-size: 13px;
+}
+.cmt-x {
+  width: 28px;
+  height: 28px;
+  margin-top: -3px;
+}
+.cmt-x svg {
+  width: 15px;
+  height: 15px;
+}
+@media (hover: hover) {
+  .lm-row:not(.on):hover {
+    background: var(--row);
+    color: var(--t2);
+  }
+  .qaddnote:hover {
+    background: var(--row);
+    color: var(--t1);
+  }
+}
+/* A finger on a tablet: the same 44px these controls get everywhere else. */
+@media (pointer: coarse) {
+  .lm-row {
+    min-height: 44px;
+  }
+  .toolstrip .ib,
+  .mact .ib,
+  .qaddnote {
+    width: auto;
+    min-width: 44px;
+    height: 44px;
+  }
+  .lm-close,
+  .lm-hide,
+  .cmt-x,
+  .rm-head .ib {
+    width: 40px;
+    height: 40px;
+  }
+  .lm-sec h3 {
+    padding-right: 40px;
+  }
+}
+/* The top bar gives way in turn, so the name always has some of the row: first the
+   path, whose place the way up takes, then what's reachable another way. */
+@media (max-width: 1180px) {
+  .crumb-far {
+    display: none;
+  }
+  .mup {
+    display: grid;
+  }
+  .mturn {
+    display: none;
+  }
+  .mact .btn.vnew {
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+  .mact .btn.vnew .lbl {
+    display: none;
+  }
+}
+/* A phone's row has its own rule for these. */
+@media (min-width: 641px) and (max-width: 900px) {
+  .mcopy,
+  .msearch {
+    display: none;
+  }
+}
+@media (max-width: 900px) {
+  .mact .vlabel .note {
+    display: none;
+  }
+  .mact .btn.use {
+    padding: 0 10px;
+  }
+  .mact .btn.use .lbl {
+    display: none;
+  }
+  .mact .btn.use .sh {
+    display: inline;
+  }
+  .mact .btn.use.on {
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+@media (max-width: 800px) {
+  .mact .vgroup {
+    display: none;
+  }
 }
 /* Under a finger the top bar's icons take a 44px tap. */
 @media (pointer: coarse) {

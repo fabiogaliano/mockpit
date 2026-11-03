@@ -1,5 +1,5 @@
-// Tune's drawer (a bottom sheet on a phone), open while Tune is: the
-// components this state embeds and its own parts, each opening its knobs
+// Built from, in the right margin (a bottom sheet on a phone), open while Tune is:
+// the components this state embeds and its own parts, each opening its knobs
 // (tunekit, see tune.ts) with what is tuned riding in the next answer. What
 // sits around the mock is in About, under its name.
 
@@ -27,7 +27,12 @@ function nodePicture(node: TreeNode): string | null {
     : null;
 }
 
-export function BuiltFrom(props: { s: MockScreenState; t: TuneState }) {
+export function BuiltFrom(props: {
+  s: MockScreenState;
+  t: TuneState;
+  // In the margin, which has its own head and close, and only mounts this while open.
+  inline?: boolean;
+}) {
   const s = props.s;
   const t = props.t;
   const project = () => s.mock()?.project ?? s.project;
@@ -62,19 +67,21 @@ export function BuiltFrom(props: { s: MockScreenState; t: TuneState }) {
   const go = (slug: string) => mockPath(project(), slug);
   return (
     <aside
-      class="drawer"
+      class={props.inline ? "builtfrom" : "drawer"}
       classList={{ open: s.drawer() }}
       aria-label="Tune"
       aria-hidden={!s.drawer()}
       inert={!s.drawer() || undefined}
       ref={(el) => (panel = el)}
     >
-      <div class="dhead">
-        <h2>Tune</h2>
-        <button type="button" class="ib" aria-label="Close" onClick={close}>
-          <Icon name="close" />
-        </button>
-      </div>
+      <Show when={!props.inline}>
+        <div class="dhead">
+          <h2>Tune</h2>
+          <button type="button" class="ib" aria-label="Close" onClick={close}>
+            <Icon name="close" />
+          </button>
+        </div>
+      </Show>
       <Show when={uses().length}>
         <section>
           <h3>Components</h3>

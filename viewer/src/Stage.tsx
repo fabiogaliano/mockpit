@@ -30,6 +30,8 @@ import { host, readonly, root } from "./host.ts";
 import { useInspectGestures } from "./gestures.ts";
 import { JsonTree } from "./JsonTree.tsx";
 import {
+  BOARD_GAP,
+  BOARD_PAD,
   boardWidths,
   changedPart,
   clampZoom,
@@ -50,7 +52,7 @@ import {
 import { PartReactions } from "./Reactions.tsx";
 import type { MockScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
-import { canvasTop, cardInset, coarse, phoneLayout, safeX, win } from "./viewport.ts";
+import { canvasBox, canvasTop, cardInset, coarse, phoneLayout, safeX, win } from "./viewport.ts";
 
 const num = (v: unknown, d = 0) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const MAX_TEXT = 200;
@@ -110,11 +112,8 @@ function readReport(d: Record<string, unknown>, frameW: number): PartsReport | n
   };
 }
 
-// The canvas, in screen px: a margin round the artboards, a line for each
-// one's label, and the space between them (scaled with them).
-const BOARD_PAD = 16;
+// A line above each artboard for its label, in screen px.
 const BOARD_LABEL = 30;
-const BOARD_GAP = 64;
 // Under a finger a pin keeps its size and takes a 44px tap area around it;
 // pins step apart far enough that those areas never overlap.
 const PIN = 22;
@@ -147,17 +146,26 @@ export function Stage(props: { s: MockScreenState; onGoto?: (to: string) => void
   // Above a phone's page, no label: only room for the tap area of a pin on its
   // very first line, which would otherwise sit under the header.
   const labelH = () => (phone() ? 12 : BOARD_LABEL);
-  const order = createMemo(() => boardWidths(s.mock()?.widths ?? [], frameW(), zoom(), phone()));
+  const order = createMemo(() =>
+    boardWidths(s.mock()?.widths ?? [], frameW(), s.allWidths(), phone()),
+  );
   const others = createMemo(() => order().filter((w) => w !== frameW()));
-  // The whole screen inside its safe area, less what floats at its sides.
+  // The screen inside its safe area, less the margins and what floats at its sides.
   const availW = createMemo(
-    () => win().w - safeX() - cardInset().left - cardInset().right - (phone() ? 0 : 2 * BOARD_PAD),
+    () =>
+      win().w -
+      safeX() -
+      canvasBox().left -
+      canvasBox().right -
+      cardInset().left -
+      cardInset().right -
+      (phone() ? 0 : 2 * BOARD_PAD),
   );
   // The canvas's left margin, past what floats on its left: the live artboard
-  // fitted is centred on the screen; all of them start at the margin.
+  // fitted is centred in the room; all of them start at the margin.
   const padL = () => {
-    const centred = Math.max(0, (availW() - frameW() * fitScale()) / 2);
-    return cardInset().left + (zoom() === "all" ? BOARD_PAD : centred);
+    const edge = cardInset().left + (phone() ? 0 : BOARD_PAD);
+    return edge + (zoom() === "all" ? 0 : Math.max(0, (availW() - frameW() * fitScale()) / 2));
   };
   const activeKey = createMemo(() => {
     const v = s.activeVariant();
@@ -455,8 +463,11 @@ export function Stage(props: { s: MockScreenState; onGoto?: (to: string) => void
   const canvasW = () =>
     xOf(order().at(-1)!) +
     order().at(-1)! * scale() +
-    (phone() ? 0 : BOARD_PAD) +
-    cardInset().right;
+    // Fitted, the room already ends a pad short of the edge, and one more would
+    // make a classic scrollbar's width overflow sideways.
+    (phone() || zoom() === "fit" ? 0 : BOARD_PAD) +
+    cardInset().right +
+    canvasBox().over;
   // The artboards start under whatever rests at the top.
   const padT = () => cardInset().top;
   // Room under the artboards to pan them up past a card resting at the bottom;
@@ -489,7 +500,9 @@ export function Stage(props: { s: MockScreenState; onGoto?: (to: string) => void
               class="board-label"
               style={{ left: `${Math.max(10, xOf(frameW()))}px`, top: `${padT() + 8}px` }}
             >
-              {`${widthLabel(frameW())} · ${frameW()}`}
+              {`${widthLabel(frameW())} · ${frameW()}${
+                scale() < 1 ? ` · ${Math.round(scale() * 100)}%` : ""
+              }`}
             </div>
           </Show>
           <Show when={s.activeVariant()}>
@@ -719,6 +732,7 @@ function Pin(props: { s: MockScreenState; index: number; style: JSX.CSSPropertie
       data-question={props.index + 1}
       onClick={(e) => {
         e.stopPropagation();
+        s.showTalk();
         s.goQuestion(props.index);
       }}
     >

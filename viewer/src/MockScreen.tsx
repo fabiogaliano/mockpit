@@ -1,8 +1,10 @@
-// The mock screen: a quiet top bar (back, where you are, the width, Stage or
-// Studio), the design on a canvas with its states as tabs above it, and one bar
-// floating below it (New, the versions, Use this, Try / Mark / Tune). The
-// agent's question floats above that bar; the version label opens the history
-// and the thread as a bottom panel; Built from opens beside the canvas.
+// The mock screen: a quiet top bar (where you are, what acts on the version, the
+// width, Stage or Studio, the panels), the design on a canvas, states and versions
+// in a margin on its left and what's said about it in one on its right, each there
+// only with something in it (Margins.tsx). A phone has no room beside the design:
+// its states are tabs above, one bar floats below (Revise, the versions, Use this,
+// Try / Mark / Tune) with the question above that, and the version label opens the
+// history and the thread as a bottom panel.
 
 import type { Shortlist } from "./api.ts";
 import { openJump, rememberRecent } from "./Jump.tsx";
@@ -12,6 +14,7 @@ import {
   createMemo,
   createSignal,
   For,
+  type JSX,
   on,
   onCleanup,
   onMount,
@@ -21,19 +24,23 @@ import {
 import { isLive } from "../../server/types.ts";
 import { About, type AboutState, createAbout } from "./About.tsx";
 import { BottomPanel } from "./BottomPanel.tsx";
+import { hasFiles } from "./attach.ts";
 import { BuiltFrom } from "./BuiltFrom.tsx";
 import { useFlowKeys } from "./flowKeys.ts";
 import { createFlowNav, type FlowNav } from "./flowNav.ts";
 import { host, readonly, root } from "./host.ts";
 import { Icon, type IconName } from "./icons.tsx";
 import {
-  boardWidths,
   DEVICE_WIDTHS,
+  GHOST_W,
+  isBuiltinAsk,
   versionStamp,
   wideWidth,
   widthKind,
   widthLabel,
 } from "./logic.ts";
+import { questions } from "./albums.ts";
+import { createMargins, LeftMargin, PanelTabs, RightMargin, ToolStrip } from "./Margins.tsx";
 import { CarriedChip, NextCard } from "./NextCard.tsx";
 import { NotFound } from "./NotFound.tsx";
 import { QuestionCard, QuestionTab } from "./QuestionCard.tsx";
@@ -56,13 +63,16 @@ import { carryToast, Toast } from "./toast.tsx";
 import { createMockScreen, type MockScreenState } from "./state.ts";
 import { Thumb } from "./Thumb.tsx";
 import { createTune } from "./tune.ts";
-import { VersionBar } from "./VersionBar.tsx";
+import {
+  ReviseButton,
+  SituationsButton,
+  UseThis,
+  VersionBar,
+  VersionStepper,
+} from "./VersionBar.tsx";
 import { canvasTop, NO_INSET, phoneLayout, setCanvasTop, setCardInset, win } from "./viewport.ts";
 
 type View = "stage" | "studio";
-
-// The neighbouring steps beside the canvas, and the room they take.
-const GHOST_W = 112;
 
 export function MockScreen(props: {
   project: string;
@@ -186,6 +196,7 @@ export function MockScreen(props: {
   );
   const nav = createFlowNav(s, props.project, props.slug, props.flow ?? null);
   const t = createTune(s);
+  const m = createMargins(s, nav, () => !!s.mock() && !phoneLayout() && shownView() === "stage");
   useFlowKeys(s);
   const about = createAbout(
     () => s.mock()?.project ?? props.project,
@@ -247,27 +258,40 @@ export function MockScreen(props: {
       host().window.requestAnimationFrame(() => setBottomTop(bottom.getBoundingClientRect().top)),
     ),
   );
-  // What floats over the canvas takes its bands: the bottom stack below, the
-  // neighbouring steps at the sides.
-  const walkable = () => (nav.steps().length > 1 || nav.emptied().length > 0) && nav.at() >= 0;
-  // Beside a row of artboards the neighbours would sit on the next one: they
-  // step aside while more than one width is on the canvas, and the flow bar
-  // walks the steps alone.
-  const oneBoard = () =>
-    boardWidths(s.mock()?.widths ?? [], s.frameW(), s.zoom(), phoneLayout()).length === 1;
-  const ghosts = () => !phoneLayout() && walkable() && oneBoard();
+  // What floats over the canvas takes its bands. A phone's bottom stack takes the
+  // foot, or the first screen would sit under it. Elsewhere nothing but passing notes
+  // floats there, and fitting around those would resize the design as they come and go.
   createEffect(() => {
-    const below = Math.max(0, win().h - bottomTop() + 8);
-    const side = ghosts() ? GHOST_W : 0;
-    setCardInset({ ...NO_INSET, bottom: below, left: side, right: side });
+    if (phoneLayout()) {
+      setCardInset({ ...NO_INSET, bottom: Math.max(0, win().h - bottomTop() + 8) });
+      return;
+    }
+    const ghost = m.ghosts() ? GHOST_W : 0;
+    setCardInset({ ...NO_INSET, left: m.stripW() + ghost, right: ghost });
   });
   onCleanup(() => setCardInset(NO_INSET));
+
+  // A file dropped beside a drop zone would make the browser open it and leave
+  // the page; files land only where a zone takes them.
+  onMount(() => {
+    const w = host().window;
+    const guard = (e: DragEvent) => {
+      if (hasFiles(e.dataTransfer)) e.preventDefault();
+    };
+    w.addEventListener("dragover", guard);
+    w.addEventListener("drop", guard);
+    onCleanup(() => {
+      w.removeEventListener("dragover", guard);
+      w.removeEventListener("drop", guard);
+    });
+  });
 
   // Esc turns a canvas tool off, then closes what is open, one at a time.
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
       if (s.tool()) s.toggleTool(s.tool()!);
+      else if (m.leftFloats()) m.closeLeft();
       else if (s.drawer()) s.setDrawer(false);
       else if (s.panel()) s.setPanel(null);
       else return;
@@ -327,7 +351,16 @@ export function MockScreen(props: {
   });
 
   return (
-    <div class="screen mock-screen" classList={{ phone: phoneLayout() }}>
+    <div
+      class="screen mock-screen"
+      classList={{ phone: phoneLayout() }}
+      style={{
+        "--canvas-l": `${m.band().left}px`,
+        "--canvas-r": `${m.band().right}px`,
+        "--canvas-top": `${canvasTop()}px`,
+        "--strip": `${m.stripW()}px`,
+      }}
+    >
       <header class="mhead" ref={(el) => (head = el)}>
         <TopRow
           s={s}
@@ -337,8 +370,31 @@ export function MockScreen(props: {
           view={shownView()}
           variants={momentVariants()}
           compare={s.variants().length > 1 || s.variants().some((v) => v.version > 1)}
-          tabs={walkable()}
+          tabs={m.walkable()}
           shortlists={shortlists}
+          actions={
+            <Show when={m.active()}>
+              <div class="mact">
+                <Show when={s.steps().length > 1 && !m.leftDocked()}>
+                  <VersionStepper
+                    s={s}
+                    listOpen={m.leftFloats()}
+                    listNames="states and versions"
+                    onList={m.toggleLeft}
+                  />
+                </Show>
+                <Show when={!readonly()}>
+                  <ReviseButton s={s} />
+                </Show>
+                <UseThis s={s} />
+              </div>
+            </Show>
+          }
+          panels={
+            <Show when={m.active()}>
+              <PanelTabs s={s} m={m} />
+            </Show>
+          }
           onView={(v) => {
             if (v === shownView()) return;
             s.setDrawer(false);
@@ -346,7 +402,8 @@ export function MockScreen(props: {
             else setView(v);
           }}
         />
-        <Show when={walkable()}>
+        {/* Beside a docked left margin the same steps are its first list. */}
+        <Show when={m.walkable() && !m.leftDocked()}>
           <FlowBar nav={nav} />
         </Show>
       </header>
@@ -382,7 +439,7 @@ export function MockScreen(props: {
               top={canvasTop()}
               bottom={Math.max(0, win().h - bottomTop() + 8)}
             />
-            <Show when={ghosts() && !s.allSituations()}>
+            <Show when={m.ghosts() && !s.allSituations()}>
               <Ghost s={s} nav={nav} by={-1} />
               <Ghost s={s} nav={nav} by={1} />
             </Show>
@@ -409,16 +466,36 @@ export function MockScreen(props: {
           <SentNote s={s} project={props.project} slug={props.slug} />
           <Show when={s.mock() && shownView() === "stage"}>
             <SituationSwitch s={s} />
-            <QuestionCard s={s} />
-            <VersionBar s={s} studio={momentVariants() > 1} />
+            <Show
+              when={phoneLayout()}
+              fallback={
+                <Show when={momentVariants() <= 1 && s.situations().length > 1}>
+                  <SituationsButton s={s} />
+                </Show>
+              }
+            >
+              <QuestionCard s={s} />
+              <VersionBar s={s} studio={momentVariants() > 1} />
+            </Show>
           </Show>
         </div>
         <Show when={s.mock() && shownView() === "stage"}>
-          <QuestionTab s={s} />
-          <Show when={s.panel()}>
-            <BottomPanel s={s} onHeight={setPanelH} />
+          <Show
+            when={phoneLayout()}
+            fallback={
+              <>
+                <ToolStrip s={s} m={m} />
+                <LeftMargin s={s} nav={nav} m={m} />
+                <RightMargin s={s} t={t} m={m} />
+              </>
+            }
+          >
+            <QuestionTab s={s} />
+            <Show when={s.panel()}>
+              <BottomPanel s={s} onHeight={setPanelH} />
+            </Show>
+            <BuiltFrom s={s} t={t} />
           </Show>
-          <BuiltFrom s={s} t={t} />
         </Show>
       </Show>
       <Toast toast={s.toast()} onDismiss={() => s.setToast(null)} />
@@ -449,6 +526,10 @@ function TopRow(props: {
   tabs: boolean;
   shortlists: Shortlists;
   onView: (v: View) => void;
+  // What acts on the version on stage, and the right margin's tabs, where a margin
+  // can't be: in this row they cost the design no room.
+  actions: JSX.Element;
+  panels: JSX.Element;
 }) {
   const s = props.s;
   const sl = props.shortlists;
@@ -475,6 +556,13 @@ function TopRow(props: {
     if (!copying) return failed();
     copying.then(() => s.setToast({ text: `Copied: ${name}` }), failed);
   };
+  // Whose turn it is, where it can be said from what this screen already holds.
+  const turn = () => {
+    if (s.mock()?.closedAt) return { kind: "closed", text: "Closed" };
+    const open = new Set(s.flow().flatMap((e) => (isBuiltinAsk(e.ask) ? [] : [e.ask.id]))).size;
+    if (open) return { kind: "open", text: questions(open) };
+    return s.sent() ? { kind: "sent", text: "Sent" } : null;
+  };
   const [open, setOpen] = createSignal(false);
   let btn: HTMLButtonElement | undefined;
   let pop: HTMLElement | undefined;
@@ -500,16 +588,14 @@ function TopRow(props: {
   });
   return (
     <div class="mtop">
-      <Show when={phoneLayout()}>
-        <a
-          class="ib"
-          href={up().href}
-          aria-label={`Up to ${up().name}`}
-          onClick={(e) => linkClick(e, up().href)}
-        >
-          <Icon name="back" />
-        </a>
-      </Show>
+      <a
+        class="ib mup"
+        href={up().href}
+        aria-label={`Up to ${up().name}`}
+        onClick={(e) => linkClick(e, up().href)}
+      >
+        <Icon name="back" />
+      </a>
       <nav class="crumb mcrumb" aria-label="Path">
         <a class="crumb-far crumb-link" href={home()} onClick={(e) => linkClick(e, home())}>
           {shortProject()}
@@ -534,6 +620,16 @@ function TopRow(props: {
           {(state) => <span class="crumb-far crumb-sit">{`· ${state()}`}</span>}
         </Show>
       </nav>
+      <Show when={turn()}>
+        {(t) => (
+          <span class="mturn alb-turn" data-turn={t().kind}>
+            <Show when={t().kind === "open" && !readonly()}>
+              <i class="glow-dot" aria-hidden="true" />
+            </Show>
+            {t().text}
+          </span>
+        )}
+      </Show>
       <Show when={s.mock()}>
         <button
           type="button"
@@ -594,6 +690,7 @@ function TopRow(props: {
       >
         {(list) => <ShortlistPill list={list()} project={props.project} />}
       </Show>
+      {props.actions}
       <Show when={props.view === "stage" && s.mock()}>
         <WidthMenu s={s} />
       </Show>
@@ -622,6 +719,7 @@ function TopRow(props: {
           </button>
         </div>
       </Show>
+      {props.panels}
     </div>
   );
 }
@@ -686,52 +784,55 @@ function WidthMenu(props: { s: MockScreenState }) {
     setOpen(false);
   };
   return (
-    <div class="wpick">
-      <button
-        type="button"
-        class="ib"
-        classList={{ on: open() }}
-        ref={(el) => (btn = el)}
-        aria-haspopup="menu"
-        aria-expanded={open()}
-        aria-label={`Width: ${current().label}`}
-        title={current().label}
-        onClick={() => setOpen(!open())}
-      >
-        <Icon name={current().icon} />
-      </button>
-      <Show when={open()}>
-        <div class="wmenu" role="menu" aria-label="Width" ref={(el) => (menu = el)}>
-          <For each={widths()}>
-            {(w) => (
+    // One width is no choice: the label on the artboard already names it.
+    <Show when={widths().length > 1}>
+      <div class="wpick">
+        <button
+          type="button"
+          class="ib"
+          classList={{ on: open() }}
+          ref={(el) => (btn = el)}
+          aria-haspopup="menu"
+          aria-expanded={open()}
+          aria-label={`Width: ${current().label}`}
+          title={current().label}
+          onClick={() => setOpen(!open())}
+        >
+          <Icon name={current().icon} />
+        </button>
+        <Show when={open()}>
+          <div class="wmenu" role="menu" aria-label="Width" ref={(el) => (menu = el)}>
+            <For each={widths()}>
+              {(w) => (
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={s.frameW() === w && s.zoom() !== "all"}
+                  data-w={w}
+                  onClick={() => choose(w)}
+                >
+                  <Icon name={iconOf(w)} />
+                  {widthLabel(w)}
+                  <small>{w}</small>
+                </button>
+              )}
+            </For>
+            <Show when={all()}>
               <button
                 type="button"
                 role="menuitemradio"
-                aria-checked={s.frameW() === w && s.zoom() !== "all"}
-                data-w={w}
-                onClick={() => choose(w)}
+                aria-checked={s.zoom() === "all"}
+                data-w="all"
+                onClick={() => choose("all")}
               >
-                <Icon name={iconOf(w)} />
-                {widthLabel(w)}
-                <small>{w}</small>
+                <Icon name="all" />
+                All widths
               </button>
-            )}
-          </For>
-          <Show when={all()}>
-            <button
-              type="button"
-              role="menuitemradio"
-              aria-checked={s.zoom() === "all"}
-              data-w="all"
-              onClick={() => choose("all")}
-            >
-              <Icon name="all" />
-              All widths
-            </button>
-          </Show>
-        </div>
-      </Show>
-    </div>
+            </Show>
+          </div>
+        </Show>
+      </div>
+    </Show>
   );
 }
 

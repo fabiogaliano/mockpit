@@ -43,7 +43,7 @@ export function useFlowKeys(s: MockScreenState) {
           break;
         case "primary":
           if (s.afterSend()?.next) s.goNext();
-          else if (s.commitKind() && !s.cardMin() && !s.panel()) s.commit();
+          else if (s.commitKind() && !s.questionHidden()) s.commit();
           else return;
           break;
         case "mock":

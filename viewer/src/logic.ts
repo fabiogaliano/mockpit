@@ -1437,20 +1437,62 @@ export const widthLabel = (w: number): string => {
 };
 
 // Every width on the canvas in the mock's order, the live one in its place
-// (or first, when the user picked one the mock does not name). "All widths"
+// (or first, when the user picked one the mock does not name). Only "All widths"
+// spreads them: a width picked alone is the only one drawn, since the rest were
+// clipped at the canvas's edge and read as if the pick hadn't taken. "All widths"
 // on a mock that names none lays out the viewer's own; a phone shows one page.
 export function boardWidths(
   named: readonly number[],
   frameW: number,
-  zoom: Zoom,
+  all: boolean,
   phone: boolean,
 ): number[] {
-  const declared = phone
-    ? []
-    : named.length || zoom !== "all"
-      ? [...named]
-      : DEVICE_WIDTHS.map((d) => d.w);
+  const declared = phone || !all ? [] : named.length ? [...named] : DEVICE_WIDTHS.map((d) => d.w);
   return declared.includes(frameW) ? declared : [frameW, ...declared];
+}
+
+// The canvas, in screen px: a margin round the artboards, and the space between
+// them (scaled with them).
+export const BOARD_PAD = 16;
+export const BOARD_GAP = 64;
+
+// --- the open screen's margins ---
+
+export const LEFT_MARGIN_W = 184;
+export const RIGHT_MARGIN_W = 320;
+// The tool strip: 50 wide, 8 off the canvas's edge. The canvas's own pad is the
+// gap between it and the design.
+export const TOOL_BAND_W = 58;
+// The neighbouring steps beside the canvas, and the room they take.
+export const GHOST_W = 112;
+// Below this the design is shrunk too far to judge, so a margin gives up its
+// place and becomes a tab. The audit measured today's card leaving a 1280 page
+// at 50%, and 80% with it hidden: docking must never cost more than that.
+export const MARGIN_MIN_SCALE = 0.8;
+
+// What the design's width leaves room for, at this window. The right margin goes
+// last, since it holds the question being answered. Across only: the height fit
+// doesn't change with the margins, so it can't decide them.
+//
+//   1280 design, window 1280: both 53.6%, right only 68.0%, left only 78.6%,
+//     neither 93.0% (then the height fit: 87.3% at 800 tall, a long page).
+//   1280 design, window 1440: both 66.1%, right only 80.5%, neither 100%.
+export function marginLayout(o: {
+  winW: number;
+  // The live artboard, or the whole row of them under "All widths".
+  designW: number;
+  tools: boolean;
+  left: boolean;
+  right: boolean;
+}): { left: boolean; right: boolean } {
+  const room = o.winW - (o.tools ? TOOL_BAND_W : 0) - 2 * BOARD_PAD;
+  const fits = (left: boolean, right: boolean) =>
+    (room - (left ? LEFT_MARGIN_W : 0) - (right ? RIGHT_MARGIN_W : 0)) / o.designW >=
+    MARGIN_MIN_SCALE;
+  if (o.left && o.right && fits(true, true)) return { left: true, right: true };
+  if (o.right && fits(false, true)) return { left: false, right: true };
+  if (o.left && fits(true, false)) return { left: true, right: false };
+  return { left: false, right: false };
 }
 
 // Inspect zooms between fitting the screen and twice the design's size; the

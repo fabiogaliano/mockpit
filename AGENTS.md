@@ -163,12 +163,15 @@ consciously, not as a side effect):
   switch and remembered per mock, each steer its own reply (`steer`, `sendAlone`), with `SelectBar` acting on
   several versions at once, and Group hanging variants under a lead by setting
   their `forkedFrom` (`setVariationsFlow`, which the agent hears as `edited.grouped`);
-  `Stage` + `Strip`, `Panel` beside the stage; where the panel does
-  not fit, `CanvasHead`, the stage as a pannable canvas with the mock's other
-  `widths` as picture-only artboards beside the live frame, and `QuestionCard`
-  floating over it, snapping per `dock.ts`), `Stage` (frames, part overlay, pins,
-  hit-testing through the bridge), `Panel` (`Questions` · `Tune` · `Thread`),
-  `Versions`, `Thumb` (shrunk sandboxed frames for Home and option pictures);
+  `Stage`, a pannable canvas whose mock's other `widths` spread out as
+  picture-only artboards under "All widths", between the margins), `Margins` (states
+  and versions on the left, On this design, Built from and Thread on the right, Try,
+  Comment and Tune in a strip by the design; each there only with content, and
+  `marginLayout` in `logic.ts` turns one into a tab that floats over the canvas when
+  it would take a design below 80%; a phone has none of this: `VersionBar`,
+  `QuestionCard`, `BottomPanel` and the `BuiltFrom` sheet float over it instead),
+  `Stage` (frames, part overlay, pins, hit-testing through the bridge), `Thumb`
+  (shrunk sandboxed frames for Home and option pictures);
   `state.ts` (the mock screen's state and actions), `flowNav.ts` (the declared
   flow around the screen: flow bar, neighbours across mocks, Try's `data-goto`),
   `logic.ts` (pure rules),

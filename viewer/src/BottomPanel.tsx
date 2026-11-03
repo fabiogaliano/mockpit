@@ -1,4 +1,4 @@
-// The bottom panel, opened from the version label: the state's History (one
+// A phone's bottom panel, opened from the version label: the state's History (one
 // line per variant, its versions along it, the one in use marked) and the
 // Thread with the agent.
 
@@ -89,7 +89,6 @@ export function BottomPanel(props: { s: MockScreenState; onHeight: (h: number) =
 
 // Shared by the head's controls and the tree below them.
 const [showHidden, setShowHidden] = createSignal(false);
-const [usedOnly, setUsedOnly] = createSignal(false);
 
 function HistoryHead(props: { s: MockScreenState }) {
   const s = props.s;
@@ -137,14 +136,6 @@ function HistoryHead(props: { s: MockScreenState }) {
           </Show>
         )}
       </Show>
-      <label class="honly">
-        <input
-          type="checkbox"
-          checked={usedOnly()}
-          onChange={(e) => setUsedOnly(e.currentTarget.checked)}
-        />
-        Only ones I used
-      </label>
     </div>
   );
 }
@@ -158,15 +149,8 @@ const LINE_NAME_H = 20;
 
 function History(props: { s: MockScreenState }) {
   const s = props.s;
-  const used = (x: VersionStep) =>
-    sameVersion(x, s.inUse()) || s.usedBefore().some((r) => sameVersion(r, x));
   const shown = createMemo(() =>
-    s
-      .steps()
-      .filter(
-        (x) =>
-          (showHidden() || !x.hidden || sameVersion(x, s.onStage())) && (!usedOnly() || used(x)),
-      ),
+    s.steps().filter((x) => showHidden() || !x.hidden || sameVersion(x, s.onStage())),
   );
   const layout = createMemo(() => historyLayout(shown()));
   const size = () => (widthKind(s.frameW()) === "phone" ? TALL : FLAT);
@@ -180,10 +164,7 @@ function History(props: { s: MockScreenState }) {
   const startsLine = (c: HistoryCell) =>
     lines() && layout().cells.find((o) => o.row === c.row) === c;
   return (
-    <Show
-      when={shown().length}
-      fallback={<p class="hempty">{usedOnly() ? "Nothing used yet." : "No versions yet."}</p>}
-    >
+    <Show when={shown().length} fallback={<p class="hempty">No versions yet.</p>}>
       <div class="hscroll">
         <div
           class="htree"

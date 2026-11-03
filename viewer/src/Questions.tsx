@@ -159,7 +159,14 @@ export function optionPicture(
 
 // One question's body on the card: why it waits or is skipped, its options,
 // and the write-in and note under them. The question's words are the card's head.
-export function AskBody(props: { s: MockScreenState; ask: Ask; noteOpen?: boolean }) {
+export function AskBody(props: {
+  s: MockScreenState;
+  ask: Ask;
+  noteOpen?: boolean;
+  // Beside the design a picture has the room to be read: filled and cropped from
+  // the top, rather than a whole page shrunk into a chip.
+  beside?: boolean;
+}) {
   const s = props.s;
   const picked = (o: AskOption) => answerIds(s.answerOf(props.ask)).includes(o.id);
   const keyOf = (o: AskOption) => s.optionKey(props.ask, o.id);
@@ -246,12 +253,12 @@ export function AskBody(props: { s: MockScreenState; ask: Ask; noteOpen?: boolea
                   pic() ? (
                     <Thumb
                       width={s.frameW()}
-                      class="crop"
+                      class={s.frameW() > 600 ? "crop flat" : "crop"}
                       fit
                       src={pic()!.src}
                       knobs={pic()!.knobs}
                       focus={focus()}
-                      whole={!focus()}
+                      whole={!focus() && !props.beside}
                     />
                   ) : null
                 }

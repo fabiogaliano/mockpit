@@ -37,8 +37,9 @@ const [canvasTopSignal, setCanvasTopSignal] = createRoot(() => createSignal(96))
 export const canvasTop = canvasTopSignal;
 export const setCanvasTop = setCanvasTopSignal;
 
-// The bands of the canvas taken by what floats over it: the bottom bar and the
-// question card below, the neighbouring steps at the sides.
+// The bands of the canvas taken by what floats over it: on a phone the bottom bar
+// and the question card below; elsewhere the tool strip and the neighbouring steps
+// at the sides.
 export interface CardInset {
   left: number;
   right: number;
@@ -54,6 +55,23 @@ const [cardInsetSignal, setCardInsetSignal] = createRoot(() =>
 );
 export const cardInset = cardInsetSignal;
 export const setCardInset = setCardInsetSignal;
+
+// What the open screen's margins take from the canvas: the bands they stand in,
+// and how much further it pans so nothing stays stuck under a margin floating
+// over it.
+export interface CanvasBox {
+  left: number;
+  right: number;
+  over: number;
+}
+export const NO_BOX: CanvasBox = { left: 0, right: 0, over: 0 };
+const [canvasBoxSignal, setCanvasBoxSignal] = createRoot(() =>
+  createSignal<CanvasBox>(NO_BOX, {
+    equals: (a, b) => a.left === b.left && a.right === b.right && a.over === b.over,
+  }),
+);
+export const canvasBox = canvasBoxSignal;
+export const setCanvasBox = setCanvasBoxSignal;
 
 // The left and right safe-area insets together (a notched phone held sideways):
 // CSS knows them and script does not, so a hidden probe padded by them is read
