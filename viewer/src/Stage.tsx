@@ -822,13 +822,15 @@ function VariantFrame(props: {
   });
 
   // Try outlines the design's data-goto elements and lets a click on one move
-  // the user; re-sent to each fresh document, which starts with Try off.
+  // the user; re-sent to each fresh document, which starts with Try off. Its `ready`
+  // comes from <head>, before the bridge listens, so Try carried across a flow would
+  // be lost there: it goes again once the document has reported its parts.
   let lastTry = "";
   createEffect(() => {
     const reported = props.report?.version ?? props.ready;
     if (reported === undefined) return;
     const on = props.active && s.trying();
-    const k = `${reported}|${on}`;
+    const k = `${reported}|${!!props.report}|${on}`;
     if (k === lastTry || (!on && !lastTry.endsWith("|true"))) return;
     lastTry = k;
     props.post({ type: "try", on });

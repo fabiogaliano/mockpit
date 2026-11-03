@@ -522,10 +522,9 @@ export function carryOver(
   ]);
   const tuned: Record<string, KnobValue> = {};
   for (const [k, v] of Object.entries(draft.tuned)) if (paths.has(k)) tuned[k] = v;
-  const allParts = new Set(variants.flatMap((v) => v.parts));
-  const comments = draft.comments.filter(
-    (c) => (c.part === null || allParts.has(c.part)) && (!c.variant || names.has(c.variant)),
-  );
+  // Words the user wrote outlive the part or variant they were written on: the
+  // comment still names both, so it can go out with the Send rather than vanish.
+  const comments = draft.comments;
   return {
     draft: {
       version: toVersion,

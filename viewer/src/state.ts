@@ -1404,9 +1404,19 @@ export function createMockScreen(
     });
   }
   function removeComment(index: number) {
+    const gone = draft()?.comments[index];
     writeDraft((d) => {
       d.comments.splice(index, 1);
       return d;
+    });
+    if (!gone) return;
+    setToast({
+      text: "Comment removed",
+      undo: () =>
+        writeDraft((d) => {
+          d.comments.splice(index, 0, gone);
+          return d;
+        }),
     });
   }
   // A one-tap reaction on a part of the variant on stage, or (part null) on the

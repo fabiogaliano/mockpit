@@ -686,15 +686,17 @@ export function WithThisSend(props: { s: MockScreenState; m: Margins }) {
                       {(r) => <span class="cmt-react">{REACTION_LABEL[r()]}</span>}
                     </Show>
                   </div>
-                  <button
-                    type="button"
-                    class="ib cmt-x x-remove"
-                    aria-label={`Remove from this Send: ${c().text || where()}`}
-                    title="Remove"
-                    onClick={() => s.removeComment(i)}
-                  >
-                    <Icon name="close" />
-                  </button>
+                  <Show when={!readonly()}>
+                    <button
+                      type="button"
+                      class="ib cmt-x x-remove"
+                      aria-label={`Remove from this Send: ${c().text || where()}`}
+                      title="Remove"
+                      onClick={() => s.removeComment(i)}
+                    >
+                      <Icon name="close" />
+                    </button>
+                  </Show>
                 </div>
               );
             }}

@@ -41,7 +41,7 @@ const BRIDGE = `
   --dial-shadow-dropdown: var(--dd-shadow);
   font-family: var(--sans);
 }
-.up-shell-hosted { background: transparent; }
+.up-shell-hosted { width: 100%; min-width: 0; background: transparent; }
 .up-shell-hosted .up-header, .up-shell-hosted .up-preset-bar { display: none; }
 .up-shell-hosted .up-content { padding: 0; }
 .up-panel-section { display: flex; flex-direction: column; gap: 8px; }

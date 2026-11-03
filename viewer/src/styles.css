@@ -4732,6 +4732,8 @@ html:has(.mock-screen) {
 }
 :is(.drawer, .builtfrom) .knobs {
   display: grid;
+  /* Without a set track a graph's width sizes the column past the panel. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   padding: 2px 10px 12px;
 }
@@ -5552,6 +5554,24 @@ button.mturn:focus-visible {
   .vswitch button {
     min-height: 40px;
   }
+  .ftab {
+    justify-content: center;
+    min-width: 40px;
+  }
+  .qcard .qx,
+  .home-more.ib {
+    width: 40px;
+    height: 40px;
+  }
+  .vbar .btn {
+    min-width: 40px;
+    min-height: 40px;
+  }
+  .home-next {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+  }
   .qfoot .qsend {
     height: 44px;
   }
@@ -5613,8 +5633,8 @@ button.mturn:focus-visible {
     display: none;
   }
   .vbar .ib {
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
   }
   .vlabel {
     padding: 2px 4px;
