@@ -7,13 +7,13 @@ import { createSignal, For, Show } from "solid-js";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { notesShown } from "./Notes.tsx";
-import type { MockScreenState } from "./state.ts";
+import type { DesignScreenState } from "./state.ts";
 
 const MAX_NAME = 120;
 const MAX_DETAIL = 500;
 
 // Rows in the left margin, under the states.
-export function OutlineRows(props: { s: MockScreenState }) {
+export function OutlineRows(props: { s: DesignScreenState }) {
   const s = props.s;
   return (
     <>
@@ -54,7 +54,7 @@ export function OutlineRows(props: { s: MockScreenState }) {
 
 // The same in the flow bar, where margins can't stand. A tap opens the card below, which
 // holds "doesn't apply" too: no room here for a target that small.
-export function OutlineChips(props: { s: MockScreenState }) {
+export function OutlineChips(props: { s: DesignScreenState }) {
   const s = props.s;
   return (
     <>
@@ -85,7 +85,7 @@ export function OutlineChips(props: { s: MockScreenState }) {
 
 // Asking for a state: named by the outline it came from, or typed. It goes as a reply of
 // its own and nothing waits for it.
-export function StateAsk(props: { s: MockScreenState }) {
+export function StateAsk(props: { s: DesignScreenState }) {
   const s = props.s;
   const [typed, setTyped] = createSignal("");
   const [detail, setDetail] = createSignal("");
@@ -167,9 +167,9 @@ export function StateAsk(props: { s: MockScreenState }) {
 
 // Planned and not drawn, as big as a design would be: what it's called, and what the user
 // can do about it. The agent's next publish here takes its place.
-export function PlannedStage(props: { s: MockScreenState }) {
+export function PlannedStage(props: { s: DesignScreenState }) {
   const s = props.s;
-  const m = () => s.mock();
+  const m = () => s.design();
   const whole = () => !s.variants().length;
   const state = () => s.activeState();
   return (
@@ -180,7 +180,7 @@ export function PlannedStage(props: { s: MockScreenState }) {
         <p>Not drawn yet. It fills in when your agent publishes here.</p>
         <Show when={m()?.source}>{(src) => <p class="planned-src">{src()}</p>}</Show>
         <div class="planned-acts">
-          <Show when={!readonly() && !m()?.closedAt}>
+          <Show when={!readonly() && !m()?.archivedAt}>
             <button type="button" class="btn" onClick={() => void s.askToDraw()}>
               Ask your agent to draw it
             </button>
@@ -190,13 +190,11 @@ export function PlannedStage(props: { s: MockScreenState }) {
               Notes
             </button>
           </Show>
-          <Show when={!readonly() && !m()?.closedAt}>
+          <Show when={!readonly() && !m()?.archivedAt}>
             <button
               type="button"
               class="btn"
-              onClick={() =>
-                void (whole() ? s.endMock("Archived") : s.dropPlannedState(state() ?? ""))
-              }
+              onClick={() => void (whole() ? s.archiveDesign() : s.dropPlannedState(state() ?? ""))}
             >
               Not needed
             </button>

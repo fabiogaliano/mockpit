@@ -7,16 +7,16 @@ import { assetUrl } from "./api.ts";
 import { readonly } from "./host.ts";
 import { threadRows, timeAgo } from "./logic.ts";
 import { WakeLine } from "./NextCard.tsx";
-import type { MockScreenState } from "./state.ts";
+import type { DesignScreenState } from "./state.ts";
 
-export function useThreadRows(s: MockScreenState) {
+export function useThreadRows(s: DesignScreenState) {
   return createMemo(() => {
-    const m = s.mock();
+    const m = s.design();
     return m ? threadRows(s.comments(), s.variants(), m) : [];
   });
 }
 
-export function Thread(props: { s: MockScreenState; scroller: () => HTMLElement | undefined }) {
+export function Thread(props: { s: DesignScreenState; scroller: () => HTMLElement | undefined }) {
   const rows = useThreadRows(props.s);
   // Only under the newest thing said, or a thread of old Sends would repeat it. Here
   // because the status under the design is gone after a reload, and this isn't.
@@ -91,14 +91,14 @@ export function Thread(props: { s: MockScreenState; scroller: () => HTMLElement 
                       : "Not seen yet"}
                 </div>
               </Show>
-              <Show when={wakeRow() === r.id && props.s.mock()}>
+              <Show when={wakeRow() === r.id && props.s.design()}>
                 {(m) => <WakeLine slug={m().slug} />}
               </Show>
             </div>
           )}
         </For>
       </Show>
-      <Show when={props.s.mock()?.repliesGoTo}>
+      <Show when={props.s.design()?.repliesGoTo}>
         {(agent) => (
           <p class="treach">{`Replies go to ${agent()}, the agent last working in this project.`}</p>
         )}
@@ -111,7 +111,7 @@ export function Thread(props: { s: MockScreenState; scroller: () => HTMLElement 
 }
 
 // A message to the agent, outside any reply; a frame's sendPrompt fills it.
-function MessageField(props: { s: MockScreenState }) {
+function MessageField(props: { s: DesignScreenState }) {
   const s = props.s;
   const [busy, setBusy] = createSignal(false);
   const submit = async () => {

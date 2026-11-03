@@ -1,13 +1,13 @@
 // The app badge and the tab title count, the pure half: which feed events can
-// change how many mocks owe answers, and how the count reads in a title.
+// change how many designs owe answers, and how the count reads in a title.
 // badge.ts owns the fetch, the timer and the navigator calls.
 
 import type { FeedEvent } from "./api.ts";
 
-// A mock gains asks or variants (mock-*, post-*), or a Send answers them
-// (comment-created, then mock-updated). Drafts never change what is owed.
+// A design gains asks or variants (design-*, post-*), or a Send answers them
+// (comment-created, then design-updated). Drafts never change what is owed.
 export const countMayChange = (e: FeedEvent): boolean =>
-  e.type.startsWith("mock-") || e.type.startsWith("post-") || e.type === "comment-created";
+  e.type.startsWith("design-") || e.type.startsWith("post-") || e.type === "comment-created";
 
 const COUNT = /^\(\d+\) /;
 

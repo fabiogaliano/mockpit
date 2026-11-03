@@ -1,5 +1,5 @@
 // Tune's knob controls are tunekit's: its store (`PaneStore`) and its controls,
-// mounted once per mock screen into an element we own (`initPane({ host })`).
+// mounted once per design screen into an element we own (`initPane({ host })`).
 // Two renderers share this page (§8), so tunekit keeps its own shadow root and
 // we talk to it only through `PaneStore`: one panel at a time, the component
 // selected in Tune, with values pushed in from the draft and changes read back.
@@ -16,7 +16,7 @@ import type { KnobConfig, KnobValue, Knobs } from "../../server/types.ts";
 import { initPane, type PaneConfig, type PaneValue, PaneStore } from "tunekit/core";
 import { root } from "./host.ts";
 import { resolveKnobs, safeColor, type TuneComponent, tuneComponents, tuneWrite } from "./logic.ts";
-import type { MockScreenState } from "./state.ts";
+import type { DesignScreenState } from "./state.ts";
 
 const BRIDGE = `
 .up-root, .up-portal {
@@ -57,7 +57,7 @@ const BRIDGE = `
 .up-cp-scroll { flex: 1 1 auto; }
 `;
 
-const panelId = (mockId: string, c: TuneComponent) => `mockpit:${mockId}:${c.part ?? "look"}`;
+const panelId = (designId: string, c: TuneComponent) => `mockpit:${designId}:${c.part ?? "look"}`;
 // Inside a part's panel a knob is named without its part ("body.size" → "size").
 const keyOf = (c: TuneComponent, path: string) =>
   c.part === null ? path : path === c.part ? "shows" : path.slice(c.part.length + 1);
@@ -86,9 +86,9 @@ export function paneControl(cfg: KnobConfig): PaneConfig[string] {
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-export function createTune(s: MockScreenState) {
+export function createTune(s: DesignScreenState) {
   const components = createMemo(() => {
-    const m = s.mock();
+    const m = s.design();
     const slots = (s.activeVariant()?.fills ?? []).map((sl) => sl.part);
     const borrowable = s.mixOpts().map((o) => o.part);
     return m ? tuneComponents(m, s.knobContext().knobs, slots, borrowable) : [];
@@ -132,7 +132,7 @@ export function createTune(s: MockScreenState) {
 
   const config = createMemo(() => {
     const c = current();
-    const m = s.mock();
+    const m = s.design();
     if (!c || !m || !c.paths.length) return null;
     const knobs: Knobs = s.knobContext().knobs;
     const out: PaneConfig = {};

@@ -95,7 +95,7 @@ export function SelectBar(props: {
             }));
             props.onSend(
               notes,
-              blend ? `New designs that blend ${names()}.` : `More of each of ${names()}.`,
+              blend ? `New variants that blend ${names()}.` : `More of each of ${names()}.`,
               blend
                 ? `Asked for a blend of ${steps().length}, sent`
                 : `More of each of ${steps().length}, sent`,
@@ -165,11 +165,11 @@ function MorePanel(props: { names: string; onPick: (blend: boolean) => void }) {
     <section class="selp" aria-label="More like these">
       <button type="button" class="selp-choice" onClick={() => props.onPick(true)}>
         Blend them
-        <small>New designs that mix these</small>
+        <small>New variants that combine these</small>
       </button>
       <button type="button" class="selp-choice" onClick={() => props.onPick(false)}>
         More of each
-        <small>2 or 3 new ones from every design</small>
+        <small>2 or 3 new ones from every variant</small>
       </button>
     </section>
   );
@@ -261,8 +261,8 @@ function CommentPanel(props: {
               <div class="selp-big">{props.pic(here(), true)}</div>
               <input
                 class="selp-in"
-                aria-label={`A note on ${props.name(here())}`}
-                placeholder={`A note on ${props.name(here())}`}
+                aria-label={`A comment on ${props.name(here())}`}
+                placeholder={`A comment on ${props.name(here())}`}
                 autocomplete="off"
                 value={noteOf(here())}
                 onInput={(e) => write(here(), e.currentTarget.value)}
@@ -290,7 +290,7 @@ function CommentPanel(props: {
                 <span class="selp-th">{props.pic(st)}</span>
                 <input
                   class="selp-in"
-                  aria-label={`A note on ${props.name(st)}`}
+                  aria-label={`A comment on ${props.name(st)}`}
                   placeholder={props.name(st)}
                   autocomplete="off"
                   value={noteOf(st)}

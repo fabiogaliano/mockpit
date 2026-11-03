@@ -2,7 +2,7 @@
 // Sections light up by use: screens and components as declared, flows once one is,
 // and the rest as ideas or documents by what they contain (albums.ts). Albums that
 // wait on the user glow, and so does the project's name. A project of one or two
-// mocks has no sidebar and shows large covers; a phone gets the sidebar as a drawer.
+// designs has no sidebar and shows large covers; a phone gets the sidebar as a drawer.
 // Everything in this file is one address: `?sec=` and `?area=` (route.ts), and each
 // place keeps its own scroll.
 
@@ -19,7 +19,7 @@ import {
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import type { FlowStep } from "../../server/types.ts";
-import { api, type MockSummary, type RestoreUndo, subscribe, type TreeNode } from "./api.ts";
+import { api, type DesignSummary, type RestoreUndo, subscribe, type TreeNode } from "./api.ts";
 import { Album, DocRow, FlowStepTile } from "./Album.tsx";
 import {
   DATED_FROM,
@@ -38,7 +38,7 @@ import {
 import { CardMenu } from "./CardMenu.tsx";
 import { Archive } from "./Archive.tsx";
 import { createDecisions } from "./Decisions.tsx";
-import { MockThumb, Recent } from "./Recent.tsx";
+import { DesignThumb, Recent } from "./Recent.tsx";
 import { setCarried } from "./carry.ts";
 import { useSwipeAction } from "./gestures.ts";
 import { AddCandidates } from "./AddCandidates.tsx";
@@ -49,7 +49,7 @@ import {
   type AreaGroup,
   flowArea,
   groupByArea,
-  nextOwedMock,
+  nextOwedDesign,
   shortSource,
   timeAgo,
   versionStamp,
@@ -58,7 +58,7 @@ import {
 import {
   type HomePlace,
   linkClick,
-  mockPath,
+  designPath,
   navigate,
   projectPath,
   questionPath,
@@ -96,7 +96,7 @@ export function Home(props: {
   area: string | null;
   show: RecentShow | null;
 }) {
-  // Home shows where every mock stands; a Send carried from a mock ends here.
+  // Home shows where every design stands; a Send carried from a design ends here.
   setCarried(null);
   const [projects, { refetch: refetchProjects }] = createResource(() => api.projects());
   const project = createMemo(() => props.project ?? projects()?.[0]?.name ?? null);
@@ -104,7 +104,7 @@ export function Home(props: {
     const known = projects();
     return !!known && !!props.project && !known.some((p) => p.name === props.project);
   };
-  const [list, { refetch: refetchList }] = createResource(project, (p) => api.mocks(p));
+  const [list, { refetch: refetchList }] = createResource(project, (p) => api.designs(p));
   const [rawTree, { refetch: refetchTree }] = createResource(project, (p) => api.tree(p));
   // A resource keeps its last value while the next loads: the other project's
   // sections mustn't stand in for this one's.
@@ -135,7 +135,7 @@ export function Home(props: {
     [],
   );
   const bySlug = createMemo(() => new Map(nodes().map((n) => [n.slug, n])));
-  // Ended a moment ago, before the tree catches up.
+  // Archived a moment ago, before the tree catches up.
   const [leaving, setLeaving] = createSignal<Record<string, true>>({});
   const areaOrder = createMemo(() => tree()?.areaOrder ?? []);
   const allRows = createMemo<Row[]>(
@@ -165,8 +165,8 @@ export function Home(props: {
   // A flow belongs to every area one of its screens is in.
   const rowIn = (r: Row, a: string | null) =>
     a === null
-      ? !r.steps.some((x) => bySlug().get(x.mock)?.area)
-      : r.steps.some((x) => bySlug().get(x.mock)?.area === a);
+      ? !r.steps.some((x) => bySlug().get(x.design)?.area)
+      : r.steps.some((x) => bySlug().get(x.design)?.area === a);
   const rowArea = (r: Row) => flowArea(r.steps, (slug) => bySlug().get(slug)?.area);
 
   const inSection = (sec: ShelfSection, a: string | null = null) =>
@@ -178,7 +178,7 @@ export function Home(props: {
   // How much the project holds, known as soon as the project list is: the shape of
   // the page shouldn't wait for the tree.
   const held = () =>
-    tree()?.tree.length ?? projects()?.find((p) => p.name === project())?.mocks ?? null;
+    tree()?.tree.length ?? projects()?.find((p) => p.name === project())?.designs ?? null;
   const tiny = () => {
     const n = held();
     return n !== null && n < SIDEBAR_FROM;
@@ -189,19 +189,19 @@ export function Home(props: {
   };
 
   const all = createMemo(() =>
-    [...(list()?.mocks ?? [])].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    [...(list()?.designs ?? [])].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
   );
-  const mocks = createMemo(() => all().filter((m) => !m.closedAt && !leaving()[m.id]));
+  const designs = createMemo(() => all().filter((m) => !m.archivedAt && !leaving()[m.id]));
   // Rows are keyed by id, so a refetch mid-swipe updates a row in place
   // instead of remounting it out from under the finger.
   const byId = createMemo(() => Object.fromEntries(all().map((m) => [m.id, m])));
   const waiting = createMemo(() =>
-    mocks()
+    designs()
       .filter((m) => m.open > 0)
       .map((m) => m.id),
   );
   const open = () => list()?.open ?? 0;
-  const next = createMemo(() => nextOwedMock(mocks(), null));
+  const next = createMemo(() => nextOwedDesign(designs(), null));
 
   // A place in the URL stands until the data says it's empty. Before then it isn't
   // known to be wrong, and flashing the first section at a reload would be a lie.
@@ -250,13 +250,13 @@ export function Home(props: {
     );
   // One line after it goes, with Undo, since a swipe is easy to make by mistake, and
   // a place to say why. Nothing is asked first.
-  async function end(m: { id: string; title: string }, word: "Ended" | "Archived") {
+  async function end(m: { id: string; title: string }) {
     setLeaving({ ...leaving(), [m.id]: true });
     try {
-      const { reason } = await api.close(m.id);
+      const { reason } = await api.archiveDesign(m.id);
       await refetch();
       setToast({
-        text: `${word} “${m.title}”`,
+        text: `Archived “${m.title}”`,
         undo: () => void reopen(m.id),
         reason: { value: reason, save: (r) => saveReason(m.id, r) },
       });
@@ -270,7 +270,7 @@ export function Home(props: {
   async function reopen(id: string) {
     setToast(null);
     try {
-      await api.reopen(id);
+      await api.restoreDesign(id);
       await refetch();
     } catch (e) {
       setToast({ text: `Couldn't restore: ${e instanceof Error ? e.message : e}` });
@@ -284,7 +284,7 @@ export function Home(props: {
     const done: { id: string; undo: RestoreUndo }[] = [];
     try {
       for (const n of list) {
-        const { undo } = await api.reopen(n.id);
+        const { undo } = await api.restoreDesign(n.id);
         if (undo) done.push({ id: n.id, undo });
       }
       await refetch();
@@ -323,14 +323,14 @@ export function Home(props: {
     (e) => {
       if (e.type === "theme-changed") setTheme(e.mode === "light" ? "light" : "dark");
       else if (
-        e.type.startsWith("mock-") ||
+        e.type.startsWith("design-") ||
         e.type.startsWith("post-") ||
         e.type === "comment-created" ||
         // A cover's word follows its last Send, and no other project's agent moves it.
         ((e.type === "comment-delivered" || e.type === "agent-called") &&
           nodes().some((n) => n.lastSend?.sessionId === e.sessionId)) ||
         // Once, as a draft starts: a save per keystroke needn't reread a whole project.
-        (e.type === "draft-updated" && nodes().some((n) => n.id === e.mockId && !n.drafting))
+        (e.type === "draft-updated" && nodes().some((n) => n.id === e.designId && !n.drafting))
       ) {
         refetchSoon();
       }
@@ -398,10 +398,10 @@ export function Home(props: {
   const menuFor = (n: TreeNode) =>
     readonly() ? undefined : (
       <CardMenu
-        mock={n}
+        design={n}
         areas={areas()}
-        endLabel={sectionOf(n) === "ideas" ? "End this idea" : "Archive"}
-        onClose={() => void end(n, sectionOf(n) === "ideas" ? "Ended" : "Archived")}
+        endLabel="Archive"
+        onClose={() => void end(n)}
         onEdited={() => void refetch()}
       />
     );
@@ -415,9 +415,9 @@ export function Home(props: {
       {...(readonly()
         ? {}
         : n.planned
-          ? { onEnd: () => void end(n, "Archived"), endLabel: "Not needed" }
+          ? { onEnd: () => void end(n), endLabel: "Not needed" }
           : sectionOf(n) === "ideas"
-            ? { onEnd: () => void end(n, "Ended") }
+            ? { onEnd: () => void end(n) }
             : {})}
     />
   );
@@ -504,7 +504,7 @@ export function Home(props: {
       <div class="home-flow">
         <For each={row.steps}>
           {(x, i) => (
-            <Show when={bySlug().get(x.mock)}>
+            <Show when={bySlug().get(x.design)}>
               {(n) => (
                 <>
                   <Show when={i() > 0}>
@@ -863,14 +863,13 @@ export function Home(props: {
                     {(id) => (
                       <Show when={byId()[id]}>
                         {(m) => (
-                          <MockRow
-                            mock={m()}
+                          <DesignRow
+                            design={m()}
                             project={project()!}
                             {...(readonly()
                               ? {}
                               : {
-                                  onResolve: () =>
-                                    void end(m(), m().kind === "sketch" ? "Ended" : "Archived"),
+                                  onResolve: () => void end(m()),
                                 })}
                           />
                         )}
@@ -884,7 +883,7 @@ export function Home(props: {
             <Show when={shown() === "recent"}>
               <Recent
                 project={project()!}
-                mocks={all()}
+                designs={all()}
                 workedAt={(m) => {
                   const node = bySlug().get(m.slug);
                   return node ? lastWork(node) : m.updatedAt;
@@ -975,15 +974,14 @@ function Areas<T>(props: {
 const reducedMotion = () =>
   host().window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
-function MockRow(props: {
-  mock: MockSummary;
+function DesignRow(props: {
+  design: DesignSummary;
   project: string;
   onResolve?: () => void;
   // Only saying what changed when, not asking anything of the user.
   plain?: boolean;
 }) {
-  const endWord = () => (props.mock.kind === "sketch" ? "End" : "Archive");
-  const href = () => mockPath(props.project, props.mock.slug);
+  const href = () => designPath(props.project, props.design.slug);
   // How far a finger has pulled the row left; null at rest.
   const [dx, setDx] = createSignal<number | null>(null);
   const [gone, setGone] = createSignal(false);
@@ -1006,7 +1004,7 @@ function MockRow(props: {
           <svg viewBox="0 0 16 16">
             <path d="M3.5 8.5l3 3 6-7" />
           </svg>
-          {endWord()}
+          Archive
         </div>
       </Show>
       <div
@@ -1022,27 +1020,27 @@ function MockRow(props: {
           class="home-row"
           href={href()}
           onClick={(e) => linkClick(e, href())}
-          data-mock={props.mock.slug}
+          data-design={props.design.slug}
         >
           <div class="home-thumb">
-            <MockThumb mock={props.mock} />
+            <DesignThumb design={props.design} />
           </div>
           <div class="home-text">
-            <div class="home-name">{props.mock.title}</div>
+            <div class="home-name">{props.design.title}</div>
             <div class="home-sub">
-              {props.mock.stateCount === 1 ? "1 state" : `${props.mock.stateCount} states`}
-              <Show when={props.mock.source}>
+              {props.design.stateCount === 1 ? "1 state" : `${props.design.stateCount} states`}
+              <Show when={props.design.source}>
                 {(src) => <span class="home-src" title={src()}>{` · ${shortSource(src())}`}</span>}
               </Show>
-              <Show when={props.mock.drafted !== undefined && props.mock.open > 0}>
+              <Show when={props.design.drafted !== undefined && props.design.open > 0}>
                 <span class="home-draft" title="Answered, not sent yet">
-                  {` · draft ${props.mock.drafted}/${props.mock.open}`}
+                  {` · draft ${props.design.drafted}/${props.design.open}`}
                 </span>
               </Show>
             </div>
           </div>
           <Show
-            when={props.mock.open > 0}
+            when={props.design.open > 0}
             fallback={
               <Show when={!props.plain} fallback={<span />}>
                 <span class="home-done" title="decided">
@@ -1053,20 +1051,20 @@ function MockRow(props: {
           >
             <span class="home-chip">
               <i class="dot" />
-              {questions(props.mock.open)}
+              {questions(props.design.open)}
             </span>
           </Show>
-          <span class="home-ago">{timeAgo(props.mock.updatedAt)}</span>
+          <span class="home-ago">{timeAgo(props.design.updatedAt)}</span>
         </a>
         <Show when={props.onResolve}>
           <button
             type="button"
             class="home-act"
-            aria-label={`${endWord()} ${props.mock.title}`}
-            title={`${endWord()}: it goes to the Archive, with its open questions`}
+            aria-label={`Archive ${props.design.title}`}
+            title={`Archive: it goes to the Archive, with its open questions`}
             onClick={commit}
           >
-            {endWord()}
+            Archive
           </button>
         </Show>
       </div>

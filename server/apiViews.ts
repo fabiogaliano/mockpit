@@ -1,5 +1,5 @@
 // Response shapes shared by every tier (REST, both MCP transports, the CLI), so
-// one mock reads the same however an agent asks for it.
+// one design reads the same however an agent asks for it.
 
 import { slotKnobs, slotsInSurfaces } from "./fills.ts";
 import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
@@ -13,7 +13,7 @@ import {
   isSandboxedSurfaceKind,
   isLive,
   type KnobValue,
-  type Mock,
+  type Design,
   openCount,
   type Post,
   type PostHead,
@@ -149,7 +149,7 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
     ? { knobs: { ...slotKnobs(slotsInSurfaces(post.surfaces)), ...post.knobs } }
     : {}),
   ...(slotsInSurfaces(post.surfaces).length ? { fills: slotsInSurfaces(post.surfaces) } : {}),
-  ...(post.note ? { note: post.note } : {}),
+  ...(post.description ? { description: post.description } : {}),
   // Embedded components as they render now (server/embeds.ts); `publishedWith`
   // is what this version rendered with when it was published.
   ...(opts.embeds?.get(post.id)
@@ -187,12 +187,12 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
     : {}),
 });
 
-const stateOrder = (mock: Mock) => (mock.states.length ? mock.states : [null]);
+const stateOrder = (design: Design) => (design.states.length ? design.states : [null]);
 
-// What the user put in use, per state, in the mock's order; a state with
+// What the user put in use, per state, in the design's order; a state with
 // nothing accepted is absent. Export and embeds resolve to exactly these.
-export const inUseByState = (mock: Mock, posts: PostHead[]) =>
-  stateOrder(mock).flatMap((state) => {
+export const inUseByState = (design: Design, posts: PostHead[]) =>
+  stateOrder(design).flatMap((state) => {
     const p = posts.find((x) => x.state === state && x.status === "accepted");
     return p ? [{ state, variant: p.variant, version: inUseVersion(p) }] : [];
   });
@@ -203,8 +203,8 @@ export interface StateParts {
 }
 
 // The parts the agent marked, per state, across the variants still in play.
-export function partsByState(mock: Mock, posts: Post[]): StateParts[] {
-  return stateOrder(mock).map((state) => ({
+export function partsByState(design: Design, posts: Post[]): StateParts[] {
+  return stateOrder(design).map((state) => ({
     state,
     parts: mergeParts(
       posts
@@ -214,21 +214,21 @@ export function partsByState(mock: Mock, posts: Post[]): StateParts[] {
   }));
 }
 
-// Where a mock sits in the product and the code that implements it, only once
+// Where a design sits in the product and the code that implements it, only once
 // declared, so the views of a project that names neither cost nothing.
 export const placeOf = (
-  mock: Pick<Mock, "area" | "source">,
+  design: Pick<Design, "area" | "source">,
 ): { area?: string; source?: string } => ({
-  ...(mock.area ? { area: mock.area } : {}),
-  ...(mock.source ? { source: mock.source } : {}),
+  ...(design.area ? { area: design.area } : {}),
+  ...(design.source ? { source: design.source } : {}),
 });
 
-// What a mock's first state looks like in a list: what's in use, else what the agent
+// What a design's first state looks like in a list: what's in use, else what the agent
 // recommends, else its first. Same rule as viewer/src/logic.ts screenPicture.
-function thumbnail(mock: Mock, posts: PostHead[]) {
-  const first = stateOrder(mock)[0];
+function thumbnail(design: Design, posts: PostHead[]) {
+  const first = stateOrder(design)[0];
   const inState = posts.filter((p) => p.state === first);
-  const recommended = recommendedVariant(mock.asks, first);
+  const recommended = recommendedVariant(design.asks, first);
   const pick =
     inState.find((p) => p.status === "accepted") ??
     inState.find((p) => p.variant === recommended && isLive(p.status)) ??
@@ -249,77 +249,77 @@ function thumbnail(mock: Mock, posts: PostHead[]) {
 }
 
 // Only a plan says so, so the views of everything drawn are unchanged.
-const plannedOf = (mock: Mock, variants: number) =>
-  isPlanned(mock, variants) ? { planned: true as const } : {};
+const plannedOf = (design: Design, variants: number) =>
+  isPlanned(design, variants) ? { planned: true as const } : {};
 
 // Anything the user has yet to send. A stored draft can be an emptied one, which
 // waits on nobody.
-export const draftHolds = (draft: Mock["draft"]): boolean =>
+export const draftHolds = (draft: Design["draft"]): boolean =>
   !!draft &&
   (draft.comments.length > 0 ||
     Object.values(draft.answers).some((a) => !Array.isArray(a) || a.length > 0) ||
-    [draft.borrowed, draft.tuned, draft.others ?? {}, draft.notes ?? {}].some(
+    [draft.borrowed, draft.tuned, draft.others ?? {}, draft.askComments ?? {}].some(
       (rec) => Object.keys(rec).length > 0,
     ));
 
-export const mockSummaryView = (mock: Mock, posts: PostHead[]) => {
-  const drafted = draftedCount(mock);
+export const designSummaryView = (design: Design, posts: PostHead[]) => {
+  const drafted = draftedCount(design);
   return {
-    id: mock.id,
-    project: mock.project,
-    slug: mock.slug,
-    title: mock.title,
-    kind: mock.kind,
-    ...placeOf(mock),
-    ...plannedOf(mock, posts.length),
-    // Text comes with a read of the mock; a list only says there is some to read.
-    ...(mock.notes ? { hasNotes: true as const } : {}),
-    states: mock.states,
-    stateCount: Math.max(mock.states.length, 1),
+    id: design.id,
+    project: design.project,
+    slug: design.slug,
+    title: design.title,
+    kind: design.kind,
+    ...placeOf(design),
+    ...plannedOf(design, posts.length),
+    // Text comes with a read of the design; a list only says there is some to read.
+    ...(design.notes ? { hasNotes: true as const } : {}),
+    states: design.states,
+    stateCount: Math.max(design.states.length, 1),
     variants: posts.length,
-    open: openCount(mock),
+    open: openCount(design),
     // Only once the user has started one, so a list with no drafts costs nothing.
     ...(drafted === null ? {} : { drafted }),
-    sessionId: mock.sessionId,
-    closedAt: mock.closedAt,
-    createdAt: mock.createdAt,
-    updatedAt: mock.updatedAt,
-    thumbnail: thumbnail(mock, posts),
+    sessionId: design.sessionId,
+    archivedAt: design.archivedAt,
+    createdAt: design.createdAt,
+    updatedAt: design.updatedAt,
+    thumbnail: thumbnail(design, posts),
   };
 };
 
-// One mock as anyone outside the viewer's own draft sees it: the draft is the
+// One design as anyone outside the viewer's own draft sees it: the draft is the
 // user's unsent work and never leaves through this view.
-export const mockDetailView = (
-  mock: Mock,
+export const designDetailView = (
+  design: Design,
   posts: Post[],
   opts: VariantViewOptions & { settled?: Record<string, KnobValue>; repliesGoTo?: string } = {},
 ) => ({
-  id: mock.id,
-  project: mock.project,
-  slug: mock.slug,
-  title: mock.title,
-  kind: mock.kind,
-  ...placeOf(mock),
-  ...(mock.shortlist ? { shortlist: true } : {}),
+  id: design.id,
+  project: design.project,
+  slug: design.slug,
+  title: design.title,
+  kind: design.kind,
+  ...placeOf(design),
+  ...(design.shortlist ? { shortlist: true } : {}),
   // No agent has written to this shortlist yet: who its replies reach for now.
   ...(opts.repliesGoTo ? { repliesGoTo: opts.repliesGoTo } : {}),
-  ...plannedOf(mock, posts.length),
-  states: mock.states,
-  ...(mock.notes ? { notes: mock.notes } : {}),
-  ...(Object.keys(mock.stateOutlines).length ? { stateOutlines: mock.stateOutlines } : {}),
-  asks: mock.asks,
-  open: openCount(mock),
-  knobs: mock.knobs,
-  widths: mock.widths,
-  sessionId: mock.sessionId,
-  closedAt: mock.closedAt,
-  ...(mock.closeReason ? { closeReason: mock.closeReason } : {}),
-  createdAt: mock.createdAt,
-  updatedAt: mock.updatedAt,
+  ...plannedOf(design, posts.length),
+  states: design.states,
+  ...(design.notes ? { notes: design.notes } : {}),
+  ...(Object.keys(design.stateOutlines).length ? { stateOutlines: design.stateOutlines } : {}),
+  asks: design.asks,
+  open: openCount(design),
+  knobs: design.knobs,
+  widths: design.widths,
+  sessionId: design.sessionId,
+  archivedAt: design.archivedAt,
+  ...(design.archiveReason ? { archiveReason: design.archiveReason } : {}),
+  createdAt: design.createdAt,
+  updatedAt: design.updatedAt,
   variants: posts.map((p) => variantView(p, opts)),
-  inUse: inUseByState(mock, posts),
-  parts: partsByState(mock, posts),
+  inUse: inUseByState(design, posts),
+  parts: partsByState(design, posts),
   // Every knob value the user has sent (answers' sets and tuning, later replies
   // winning), never drafts. Later questions render on top of it.
   settled: opts.settled ?? {},
@@ -330,20 +330,20 @@ export const sessionRowView = (session: Session, postCount: number) => ({
   postCount,
 });
 
-// One mock as a node of the project tree (GET /api/projects/:name/tree): its
-// variants per state with status and lineage, and the mocks it embeds (`embeds`);
+// One design as a node of the project tree (GET /api/projects/:name/tree): its
+// variants per state with status and lineage, and the designs it embeds (`embeds`);
 // `embeddedIn` is filled in once every node is known.
-// When it left the shelf: ended by hand, or with the last of its designs archived.
-// Designs archived before the date was kept fall back on the mock's last change.
-function archivedOf(mock: Mock, posts: PostHead[]): { archivedAt?: string } {
-  if (mock.closedAt) return { archivedAt: mock.closedAt };
+// When it left the shelf: archived by hand, or with the last of its variants archived.
+// Designs archived before the date was kept fall back on the design's last change.
+function leftOf(design: Design, posts: PostHead[]): { leftAt?: string } {
+  if (design.archivedAt) return { leftAt: design.archivedAt };
   if (!posts.length || posts.some((p) => isLive(p.status))) return {};
   const last = posts.reduce((t, p) => (p.archivedAt && p.archivedAt > t ? p.archivedAt : t), "");
-  return { archivedAt: last || mock.updatedAt };
+  return { leftAt: last || design.updatedAt };
 }
 
 export const treeNodeView = (
-  mock: Mock,
+  design: Design,
   posts: PostHead[],
   extra: {
     settled: Record<string, KnobValue>;
@@ -355,34 +355,34 @@ export const treeNodeView = (
     drafting?: boolean;
   },
 ) => ({
-  id: mock.id,
-  slug: mock.slug,
-  title: mock.title,
-  kind: mock.kind,
-  ...placeOf(mock),
-  ...(mock.shortlist ? { shortlist: true } : {}),
-  ...plannedOf(mock, posts.length),
-  open: openCount(mock),
+  id: design.id,
+  slug: design.slug,
+  title: design.title,
+  kind: design.kind,
+  ...placeOf(design),
+  ...(design.shortlist ? { shortlist: true } : {}),
+  ...plannedOf(design, posts.length),
+  open: openCount(design),
   // Any question ever asked, answered or not: it tells an idea from a document.
-  ...(mock.asks.length ? { asked: mock.asks.length } : {}),
+  ...(design.asks.length ? { asked: design.asks.length } : {}),
   // Later than every variant: the user has spoken and it is the agent's turn.
   ...(extra.lastReplyAt ? { lastReplyAt: extra.lastReplyAt } : {}),
   ...(extra.lastSend ? { lastSend: extra.lastSend } : {}),
   ...(extra.drafting ? { drafting: true } : {}),
-  states: stateOrder(mock),
-  widths: mock.widths,
-  createdAt: mock.createdAt,
-  updatedAt: mock.updatedAt,
-  closedAt: mock.closedAt,
-  ...archivedOf(mock, posts),
-  ...(mock.closeReason ? { closeReason: mock.closeReason } : {}),
+  states: stateOrder(design),
+  widths: design.widths,
+  createdAt: design.createdAt,
+  updatedAt: design.updatedAt,
+  archivedAt: design.archivedAt,
+  ...leftOf(design, posts),
+  ...(design.archiveReason ? { archiveReason: design.archiveReason } : {}),
   settled: extra.settled,
   embeds: extra.embeds,
   embeddedIn: [] as string[],
-  inUse: inUseByState(mock, posts),
+  inUse: inUseByState(design, posts),
   // What the agent recommends where nothing is in use: a cover shows it.
-  recommended: stateOrder(mock).flatMap((state) => {
-    const variant = recommendedVariant(mock.asks, state);
+  recommended: stateOrder(design).flatMap((state) => {
+    const variant = recommendedVariant(design.asks, state);
     return variant ? [{ state, variant }] : [];
   }),
   variants: posts.map((p) => ({
@@ -397,7 +397,7 @@ export const treeNodeView = (
     ...posterOf(p.surfaces),
     ...inUsePoster(p),
     ...coverVersion(p),
-    ...(p.note ? { note: p.note } : {}),
+    ...(p.description ? { description: p.description } : {}),
     ...(p.forkedFrom ? { forkedFrom: p.forkedFrom } : {}),
     ...(p.starred ? { starred: true } : {}),
     ...(p.acceptedVersion === undefined ? {} : { inUseVersion: p.acceptedVersion }),

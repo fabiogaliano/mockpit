@@ -1,4 +1,4 @@
-// The mock screen's state: the mock as the server last sent it, the user's
+// The design screen's state: the design as the server last sent it, the user's
 // draft, and the view (state and version on stage, question, canvas tool,
 // selection, preview, drawers). Components read signals from here and call
 // its actions; nothing else talks to the API for this screen.
@@ -26,11 +26,11 @@ import {
   api,
   type CommentRow,
   type DraftInput,
-  type MockDetail,
-  type MockSummary,
+  type DesignDetail,
+  type DesignSummary,
   subscribe,
   type VariantView,
-  watchMock,
+  watchDesign,
   ApiError,
 } from "./api.ts";
 import { extensionOf, prepareImage, rejectReason } from "./attach.ts";
@@ -60,8 +60,8 @@ import {
   pruneMix,
   knobPart,
   resolveKnobs,
-  mockVersion,
-  nextOwedMock,
+  designVersion,
+  nextOwedDesign,
   overflowWidth,
   listedSteps,
   neighbourStep,
@@ -92,7 +92,7 @@ import { coarse, phoneLayout, win } from "./viewport.ts";
 export type Tool = "try" | "mark" | "tune";
 // The bottom panel, opened from the version label.
 export type PanelTab = "history" | "thread" | "notes";
-export type AskField = "other" | "note";
+export type AskField = "other" | "comment";
 
 // An image on its way up (a local preview), or one that failed (with why).
 export interface PendingImage {
@@ -126,10 +126,10 @@ export interface Preview {
   part?: string;
 }
 
-// Where Send leaves the user: the next mock still owing answers (null when none
+// Where Send leaves the user: the next design still owing answers (null when none
 // does), and whether the screen is about to carry them there on its own.
 export interface AfterSend {
-  next: MockSummary | null;
+  next: DesignSummary | null;
   auto: boolean;
 }
 
@@ -137,7 +137,7 @@ const SAVE_MS = 300;
 // Long enough to read "Next: …" and press Stay, short enough to feel carried.
 const FORWARD_MS = 1600;
 
-// Where this browser last left a mock. Versions stay out: a revision that
+// Where this browser last left a design. Versions stay out: a revision that
 // arrives while you are away must be what you come back to.
 type Place = { state: string | null; variants: Record<string, string> };
 const placeKey = (id: string) => `mockpit-place:${id}`;
@@ -159,15 +159,15 @@ export type SteerNote = {
   borrow?: { from: VersionRef; part?: string };
 };
 
-export function createMockScreen(
+export function createDesignScreen(
   project: string,
   slug: string,
   open: ScreenOpen | null = null,
   toOwed = false,
 ) {
-  const [mock, putMock] = createSignal<MockDetail | null>(null);
-  const setMock = (m: MockDetail) =>
-    putMock((was) =>
+  const [design, putDesign] = createSignal<DesignDetail | null>(null);
+  const setDesign = (m: DesignDetail) =>
+    putDesign((was) =>
       was ? { ...m, variants: keepSame(was.variants, m.variants, (v) => v.postId) } : m,
     );
   const [missing, setMissing] = createSignal(false);
@@ -249,7 +249,7 @@ export function createMockScreen(
   const [otherStash, setOtherStash] = createSignal<
     Record<string, { text: string; images: string[] }>
   >({});
-  // `${field}:${askId}` → that write-in or note folded to one line.
+  // `${field}:${askId}` → that write-in or comment folded to one line.
   const [folded, setFoldedSignal] = createSignal<Record<string, boolean>>({});
   // "No, all <look>" is an answer even though it borrows nothing.
   const [mixTouched, setMixTouched] = createSignal(false);
@@ -282,7 +282,7 @@ export function createMockScreen(
   const [threadText, setThreadText] = createSignal("");
   // Where Tune's knob controls mount: tunekit's pane is moved into it while Tune is open.
   const [tuneHost, setTuneHost] = createSignal<HTMLElement | null>(null);
-  // The width the stage renders the design at, remembered per mock in this browser.
+  // The width the stage renders the design at, remembered per design in this browser.
   const [frameW, setFrameWSignal] = createSignal(DESKTOP_W);
   // Only a width the user picked holds against a design that overflows it.
   const [widthPicked, setWidthPicked] = createSignal(false);
@@ -307,17 +307,17 @@ export function createMockScreen(
   const archiveKey = (state: string | null, variant: string) => JSON.stringify([state, variant]);
   const variants = createMemo(() => {
     const going = archiving();
-    const all = mock()?.variants ?? [];
+    const all = design()?.variants ?? [];
     if (!going.size) return all;
     return all.map((v) =>
       going.has(archiveKey(v.state, v.variant)) ? { ...v, status: "archived" as const } : v,
     );
   });
   const states = createMemo<(string | null)[]>(() => {
-    const m = mock();
+    const m = design();
     return m && m.states.length ? m.states : [null];
   });
-  const latest = createMemo(() => mockVersion(variants()));
+  const latest = createMemo(() => designVersion(variants()));
   // Q6: a draft made on an older version keeps the stage on that version until
   // the user chooses to view the new one.
   const boundVersion = createMemo(() => {
@@ -328,10 +328,10 @@ export function createMockScreen(
   // The agent's asks plus the built-in "Which variant?" where the agent left a
   // choice between variants unasked; everything below reads asks from here.
   const asks = createMemo<Ask[]>(() => {
-    const m = mock();
+    const m = design();
     return m ? [...m.asks, ...builtinAsks(m, variants())] : [];
   });
-  const withAsks = (m: MockDetail) => ({ ...m, asks: asks() });
+  const withAsks = (m: DesignDetail) => ({ ...m, asks: asks() });
   const look = createMemo(() => lookAsk({ asks: asks() }));
 
   // The draft speaks for an ask once it picked an option or ticked "Other…" there;
@@ -346,15 +346,17 @@ export function createMockScreen(
   const answerOf = (ask: Ask) => (drafted(ask) ? draft()?.answers[ask.id] : ask.answer);
   const otherOf = (ask: Ask) => (drafted(ask) ? draft()?.others[ask.id] : ask.other);
   const otherTicked = (ask: Ask) => !!otherOpen()[ask.id] || otherOf(ask) !== undefined;
-  const noteOf = (ask: Ask) => draft()?.notes[ask.id] ?? ask.note;
+  const commentOf = (ask: Ask) => draft()?.askComments[ask.id] ?? ask.comment;
   const otherImagesOf = (ask: Ask) =>
     (drafted(ask) ? draft()?.otherImages[ask.id] : ask.otherImages) ?? [];
-  const noteImagesOf = (ask: Ask) =>
-    (draft()?.notes[ask.id] !== undefined ? draft()?.noteImages[ask.id] : ask.noteImages) ?? [];
+  const commentImagesOf = (ask: Ask) =>
+    (draft()?.askComments[ask.id] !== undefined
+      ? draft()?.askCommentImages[ask.id]
+      : ask.commentImages) ?? [];
   const textOf = (ask: Ask, field: AskField) =>
-    (field === "other" ? otherOf(ask) : noteOf(ask)) ?? "";
+    (field === "other" ? otherOf(ask) : commentOf(ask)) ?? "";
   const imagesOf = (ask: Ask, field: AskField) =>
-    field === "other" ? otherImagesOf(ask) : noteImagesOf(ask);
+    field === "other" ? otherImagesOf(ask) : commentImagesOf(ask);
   const pendingOf = (ask: Ask, field: AskField) => uploads()[`${field}:${ask.id}`] ?? [];
 
   // The variant the variant question settled on, drafted or sent.
@@ -370,7 +372,7 @@ export function createMockScreen(
   // The exact version a drafted answer picked on a state, when its option
   // names one. Drafted only: once sent, it is the version in use.
   function pickedVersion(state: string | null): VersionRef | null {
-    const m = mock();
+    const m = design();
     const d = draft();
     if (!m || !d) return null;
     for (const a of asks()) {
@@ -397,7 +399,7 @@ export function createMockScreen(
       named(chosenVariant()[String(state)]) ??
       list.find((v) => v.status === "inUse") ??
       list.find(
-        (v) => isLive(v.status) && v.variant === recommendedVariant(mock()?.asks ?? [], state),
+        (v) => isLive(v.status) && v.variant === recommendedVariant(design()?.asks ?? [], state),
       ) ??
       list.find((v) => v.status === "open") ??
       list[0]
@@ -405,12 +407,12 @@ export function createMockScreen(
   }
   // What the user put in use on a state, if anything.
   const inUseOf = (state: string | null): VersionRef | null => {
-    const u = mock()?.inUse.find((x) => x.state === state);
+    const u = design()?.inUse.find((x) => x.state === state);
     return u ? { variant: u.variant, version: u.version } : null;
   };
   // The version of a variant the stage shows: the one stepped to, else a
   // version option previewed or picked, else the one in use, else the newest
-  // at the stage's mock version that isn't hidden.
+  // at the stage's design version that isn't hidden.
   function versionOf(v: VariantView): number {
     const pick = shown()[String(v.state)];
     if (pick?.variant === v.variant) return pick.version;
@@ -433,7 +435,7 @@ export function createMockScreen(
   const activeVariant = createMemo(() => variantFor(activeState()));
   // The version a bound stage is holding back and the one it stays on, named
   // after the variant that moved: "Dark #3 arrived", "stay on Dark #2". The
-  // draft stays bound to the mock-wide number; only these labels name a variant.
+  // draft stays bound to the design-wide number; only these labels name a variant.
   const arrived = createMemo(() => {
     const n = latest();
     const at = variants().filter((v) => v.version === n);
@@ -460,7 +462,7 @@ export function createMockScreen(
   const slotsIn = (state: string | null): SlotInfo[] => variantFor(state, false)?.fills ?? [];
   // The slot an ask chooses: every option sets exactly that one slot's path.
   function askSlot(ask: Ask): SlotInfo | null {
-    const m = mock();
+    const m = design();
     if (!m) return null;
     const paths = new Set(ask.options.flatMap((o) => Object.keys(o.set ?? {})));
     if (paths.size !== 1) return null;
@@ -469,7 +471,7 @@ export function createMockScreen(
   }
   // The values in force on a state's look (defaults, answers, tuning).
   function valuesIn(state: string | null): Record<string, KnobValue> {
-    const m = mock();
+    const m = design();
     if (!m) return {};
     return resolveKnobs({
       ...knobContext(),
@@ -479,7 +481,7 @@ export function createMockScreen(
   // A slot inside a fill that isn't chosen: its question doesn't apply now.
   // Walks up, so a slot two fills deep is dormant when either is unchosen.
   function dormantOf(ask: Ask): { part: string; fill: string; label: string } | null {
-    const m = mock();
+    const m = design();
     let slot = askSlot(ask);
     if (!m || !slot?.parent) return null;
     const state = askState(ask, m, activeState());
@@ -499,13 +501,13 @@ export function createMockScreen(
   // The ask this one waits on (`after`) while that one has no answer yet.
   function waitingOn(ask: Ask): Ask | null {
     if (!ask.after) return null;
-    const before = mock()?.asks.find((a) => a.id === ask.after);
+    const before = design()?.asks.find((a) => a.id === ask.after);
     return before && answerOf(before) === undefined && !before.dismissed ? before : null;
   }
   // What an answered `after` ask chose, which this one's pictures show.
   function shownWith(ask: Ask): { ask: Ask; labels: string } | null {
     if (!ask.after) return null;
-    const before = mock()?.asks.find((a) => a.id === ask.after);
+    const before = design()?.asks.find((a) => a.id === ask.after);
     if (!before || answerOf(before) === undefined) return null;
     const ids = answerIds(answerOf(before));
     const labels = before.options
@@ -517,7 +519,7 @@ export function createMockScreen(
   // The parts an ask's options change: each knob `set` names a part (a slot is
   // its own part; "key.color" belongs to "key"), in the labels the user reads.
   function changesOf(ask: Ask): string[] {
-    const m = mock();
+    const m = design();
     if (!m) return [];
     const names = new Set<string>();
     for (const o of ask.options) {
@@ -551,10 +553,10 @@ export function createMockScreen(
     return mixSettled(asks(), c.answers, c.others, c.tuned);
   });
   const partStates = (part: string) =>
-    (mock()?.parts ?? []).filter((s) => s.parts.some((p) => p.name === part)).map((s) => s.state);
+    (design()?.parts ?? []).filter((s) => s.parts.some((p) => p.name === part)).map((s) => s.state);
   const allowedMix = (mix: Record<string, string>) => pruneMix(mix, settled(), partStates);
   const mixOpts = createMemo(() => {
-    const m = mock();
+    const m = design();
     return m
       ? mixOptions(
           withAsks(m),
@@ -574,13 +576,13 @@ export function createMockScreen(
       !!d &&
       (d.answers[ask.id] !== undefined ||
         d.others[ask.id] !== undefined ||
-        d.notes[ask.id] !== undefined)
+        d.askComments[ask.id] !== undefined)
     );
   };
   const live = (ask: Ask) =>
     (!askAnswered(ask) && !ask.dismissed) || !!revising()[ask.id] || inDraft(ask);
   const ordered = createMemo<Ask[]>(() => {
-    const m = mock();
+    const m = design();
     if (!m) return [];
     // A slot's question comes right after the question of the slot it sits in.
     const all = asks();
@@ -599,11 +601,11 @@ export function createMockScreen(
     for (const a of all) put(a);
     return ordered;
   });
-  // The questions state by state, in the mock's order: each state holds the
-  // asks about it (askStates), so a mock-wide one appears on every state it
+  // The questions state by state, in the design's order: each state holds the
+  // asks about it (askStates), so a design-wide one appears on every state it
   // applies to and is answered once for all of them.
   const flow = createMemo<FlowEntry[]>(() => {
-    const m = mock();
+    const m = design();
     if (!m) return [];
     const open = ordered().filter(live);
     const out: FlowEntry[] = [];
@@ -622,7 +624,7 @@ export function createMockScreen(
   // Sent answers (and asks a resolution dismissed) on the state on stage, or on
   // every state: the folded, read-only Answered group.
   const closedAsks = (scope: "state" | "all") => {
-    const m = mock();
+    const m = design();
     if (!m) return [];
     return ordered().filter(
       (a) =>
@@ -632,27 +634,28 @@ export function createMockScreen(
     );
   };
   const owed = createMemo(() => {
-    const m = mock();
+    const m = design();
     return m ? unanswered(withAsks(m), draft()).filter((a) => !dormantOf(a) && !waitingOn(a)) : [];
   });
   const isOwed = (ask: Ask) => owed().some((a) => a.id === ask.id);
   // How many questions still owed are shown on a state, for its tab.
   const owedIn = (state: string | null) => entriesIn(state).filter((e) => isOwed(e.ask)).length;
   // What marks a state's tab: only what the agent asked counts as waiting, not
-  // the built-in Which variant?, and a mock-wide question has no one state to mark.
+  // the built-in Which variant?, and a design-wide question has no one state to mark.
   const askedIn = (state: string | null) =>
-    entriesIn(state).filter((e) => isOwed(e.ask) && !isBuiltinAsk(e.ask) && e.ask.scope !== "mock")
-      .length;
+    entriesIn(state).filter(
+      (e) => isOwed(e.ask) && !isBuiltinAsk(e.ask) && e.ask.scope !== "design",
+    ).length;
   const waitsOnStage = createMemo(() => owed().some((a) => !picksVariant(a)));
   // Tune is shown only with something to tune (tiers, no modes).
   const tuneShown = createMemo(() => {
-    const m = mock();
+    const m = design();
     return !!m && tuneVisible(m, inState(activeState()));
   });
   // What Tune reads and writes: the knobs of the variant on stage, the drafted
   // answers, the tuned values, and what earlier replies settled.
   const knobContext = createMemo<KnobContext>(() => {
-    const m = mock();
+    const m = design();
     return {
       knobs: { ...m?.knobs, ...activeVariant()?.knobs },
       asks: m?.asks ?? [],
@@ -679,7 +682,7 @@ export function createMockScreen(
     const mix = draft()?.borrowed ?? {};
     const kept = allowedMix(mix);
     if (Object.keys(kept).length === Object.keys(mix).length) return;
-    const m = mock();
+    const m = design();
     const c = chosen();
     const notes = Object.keys(mix)
       .filter((part) => !(part in kept))
@@ -706,7 +709,7 @@ export function createMockScreen(
   let lastLocalWrite = 0;
   let pending: DraftInput | null = null;
   async function flush() {
-    const m = mock();
+    const m = design();
     const d = pending;
     pending = null;
     host().window.clearTimeout(saveTimer);
@@ -726,16 +729,16 @@ export function createMockScreen(
       tuned: { ...base.tuned },
       comments: [...base.comments],
       others: { ...base.others },
-      notes: { ...base.notes },
+      askComments: { ...base.askComments },
       otherImages: { ...base.otherImages },
-      noteImages: { ...base.noteImages },
+      askCommentImages: { ...base.askCommentImages },
     });
     batch(() => {
       setDraftSignal(next);
       setSent(false);
       setError(null);
     });
-    // Answering again here means staying: no carrying off to the next mock.
+    // Answering again here means staying: no carrying off to the next design.
     host().window.clearTimeout(forwardTimer);
     setAfterSend(null);
     pending = next;
@@ -746,37 +749,37 @@ export function createMockScreen(
 
   // --- loading and the live feed ---
 
-  let mockId: string | null = null;
+  let designId: string | null = null;
   let disposed = false;
   let unwatch = () => {};
   // What says where this screen opens: a link naming the place, or the memory.
   let heldBy: "link" | "place" | null = null;
   let placeRead = false;
   // Not landed on: a state whose variants are all archived shows an empty Studio.
-  const holdsSomething = (m: MockDetail, state: string | null) => {
+  const holdsSomething = (m: DesignDetail, state: string | null) => {
     const inIt = m.variants.filter((v) => v.state === state);
     return !inIt.length || inIt.some((v) => isLive(v.status));
   };
-  async function fetchMock(): Promise<MockDetail | null> {
-    if (mockId) return api.mock(mockId);
-    const m = await api.mockIn(project, slug).catch((e) => {
+  async function fetchDesign(): Promise<DesignDetail | null> {
+    if (designId) return api.design(designId);
+    const m = await api.designIn(project, slug).catch((e) => {
       if (e instanceof ApiError && (e.status === 404 || e.status === 400)) return null;
       throw e;
     });
     // The route also answers to a title; this screen is only ever this slug.
     if (!m || m.slug !== slug) return null;
-    mockId = m.id;
-    if (!disposed) unwatch = watchMock(mockId);
+    designId = m.id;
+    if (!disposed) unwatch = watchDesign(designId);
     return m;
   }
-  async function loadMock() {
-    const m = await fetchMock();
+  async function loadDesign() {
+    const m = await fetchDesign();
     if (!m) {
       setMissing(true);
       return;
     }
     batch(() => {
-      setMock(m);
+      setDesign(m);
       setMissing(false);
       // The first load lands on the variant the user opened, once.
       const at = open;
@@ -815,7 +818,7 @@ export function createMockScreen(
     });
   }
   async function loadDraft() {
-    const id = mockId;
+    const id = designId;
     if (!id) return;
     const { draft: d } = await api.draft(id).catch(() => ({ draft: null }));
     if (Date.now() - lastLocalWrite < 1500 || pending) return;
@@ -828,24 +831,24 @@ export function createMockScreen(
             tuned: d.tuned,
             comments: d.comments,
             others: d.others ?? {},
-            notes: d.notes ?? {},
+            askComments: d.askComments ?? {},
             otherImages: d.otherImages ?? {},
-            noteImages: d.noteImages ?? {},
+            askCommentImages: d.askCommentImages ?? {},
           }
         : null,
     );
   }
   async function loadComments() {
-    const id = mockId;
+    const id = designId;
     if (!id) return;
     const { comments: list } = await api.comments(id);
     setComments(list);
   }
 
   async function start() {
-    await loadMock();
+    await loadDesign();
     await Promise.all([loadDraft(), loadComments()]);
-    const m = mock();
+    const m = design();
     if (!m) return;
     // Open on the first question still owed, on the state it is about; a draft
     // that already answers everything resumes on its first answer, one tap
@@ -867,28 +870,28 @@ export function createMockScreen(
     goQuestion(at?.to ?? 0, { quiet: true, ...(at ? { state: at.state } : {}) });
   }
 
-  const refetch = coalesce({ mock: loadMock, draft: loadDraft, comments: loadComments });
+  const refetch = coalesce({ design: loadDesign, draft: loadDraft, comments: loadComments });
   const stop = subscribe(
     (e) => {
-      const id = mockId;
+      const id = designId;
       switch (e.type) {
-        case "mock-created":
-        case "mock-updated":
-          if (e.id === id) refetch("mock");
+        case "design-created":
+        case "design-updated":
+          if (e.id === id) refetch("design");
           break;
-        case "mock-deleted":
+        case "design-deleted":
           if (e.id === id) setMissing(true);
           break;
         case "post-created":
         case "post-updated":
         case "post-deleted":
-          if (e.mockId === id) refetch("mock");
+          if (e.designId === id) refetch("design");
           break;
         case "draft-updated":
-          if (e.mockId === id) refetch("draft");
+          if (e.designId === id) refetch("draft");
           break;
         case "comment-created":
-          if (e.mockId === id) refetch("comments");
+          if (e.designId === id) refetch("comments");
           break;
         case "session-created":
           // A new session may supersede the one an undelivered Send waits on.
@@ -901,7 +904,7 @@ export function createMockScreen(
         case "comment-deleted":
         case "comment-delivered":
           if (
-            e.sessionId === mock()?.sessionId ||
+            e.sessionId === design()?.sessionId ||
             comments().some((c) => c.sessionId === e.sessionId)
           )
             refetch("comments");
@@ -912,8 +915,8 @@ export function createMockScreen(
       }
     },
     () => {
-      if (mockId) {
-        refetch("mock");
+      if (designId) {
+        refetch("design");
         refetch("draft");
         refetch("comments");
       }
@@ -932,14 +935,14 @@ export function createMockScreen(
   // moves sideways, so it replaces the entry, which stays current for Back to
   // restore when a step between Stage and Studio comes back to it.
   type Snap = {
-    mockpit: "mock";
+    mockpit: "design";
     state: string | null;
     cur: number;
   };
-  const snap = (): Snap => ({ mockpit: "mock", state: activeState(), cur: cur() });
+  const snap = (): Snap => ({ mockpit: "design", state: activeState(), cur: cur() });
   const record = () => host().history.replaceState(snap(), "");
   function restoreSnap(s: unknown) {
-    if (!s || typeof s !== "object" || (s as Snap).mockpit !== "mock") return false;
+    if (!s || typeof s !== "object" || (s as Snap).mockpit !== "design") return false;
     const v = s as Snap;
     batch(() => {
       setActiveState(v.state);
@@ -952,7 +955,7 @@ export function createMockScreen(
   // Only the user's own moves are remembered: a link someone sent shouldn't
   // change where they left off.
   function rememberPlace() {
-    const m = mock();
+    const m = design();
     if (!m) return;
     const variants = { ...chosenVariant() };
     for (const [state, ref] of Object.entries(shown())) variants[state] = ref.variant;
@@ -967,7 +970,7 @@ export function createMockScreen(
   // remembered or recorded, and landing where it already is does nothing.
   function landOn(at: ScreenOpen) {
     // Still loading: the first load lands there instead of on where it set out for.
-    if (!mock()) {
+    if (!design()) {
       open = at;
       return;
     }
@@ -1006,7 +1009,7 @@ export function createMockScreen(
     return variant ? { variant, version: null } : null;
   });
   // Any move the user makes on this screen after a Send means they are still
-  // here: the carry to the next mock must not fire.
+  // here: the carry to the next design must not fire.
   const userMoved = () => stayHere();
 
   // The ith question on a state (the one on stage unless named), which comes
@@ -1057,7 +1060,7 @@ export function createMockScreen(
     setRevising(rest);
     if (inDraft(ask)) {
       writeDraft((d) => {
-        for (const rec of [d.answers, d.others, d.notes, d.otherImages, d.noteImages]) {
+        for (const rec of [d.answers, d.others, d.askComments, d.otherImages, d.askCommentImages]) {
           delete rec[ask.id];
         }
         return d;
@@ -1072,25 +1075,25 @@ export function createMockScreen(
   const revisingOf = (ask: Ask) => !!revising()[ask.id] && askAnswered(ask);
   // Back from the Archive: the questions it left unanswered are open again.
   async function reopen() {
-    const m = mock();
+    const m = design();
     if (!m) return;
     try {
-      await api.reopen(m.id);
-      await loadMock();
+      await api.restoreDesign(m.id);
+      await loadDesign();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
   // The × on an idea. The screen stays where it is, saying so, with the way back and a
   // place for the reason, so no question stands between the × and being done.
-  async function endMock(word: "Ended" | "Archived" = "Ended") {
-    const m = mock();
+  async function archiveDesign() {
+    const m = design();
     if (!m || readonly()) return;
     try {
-      await api.close(m.id);
-      await loadMock();
+      await api.archiveDesign(m.id);
+      await loadDesign();
       setToast({
-        text: `${word} ${m.title}`,
+        text: `Archived ${m.title}`,
         undo: () => {
           setToast(null);
           void reopen();
@@ -1101,12 +1104,12 @@ export function createMockScreen(
     }
   }
   function saveEndReason(reason: string | null) {
-    const m = mock();
-    if (m) void api.reason(m.id, { reason }).then(loadMock, fail);
+    const m = design();
+    if (m) void api.reason(m.id, { reason }).then(loadDesign, fail);
   }
   function saveArchiveReason(variant: string, reason: string | null, state = activeState()) {
-    const m = mock();
-    if (m) void api.reason(m.id, { reason, state, variant }).then(loadMock, fail);
+    const m = design();
+    if (m) void api.reason(m.id, { reason, state, variant }).then(loadDesign, fail);
   }
   // The drawers. The bottom panel tucks the question card to its tab.
   const setDrawer = (on: boolean) => {
@@ -1162,7 +1165,7 @@ export function createMockScreen(
   // Keyed by id alone: a refetch or a resize must not undo the user's choice.
   createEffect(
     on(
-      () => mock()?.id,
+      () => design()?.id,
       (id) => {
         if (!id) return;
         let stored: string | null = null;
@@ -1171,7 +1174,7 @@ export function createMockScreen(
         } catch {
           // Unreadable storage: fall back to the default width.
         }
-        const declared = mock()?.widths ?? [];
+        const declared = design()?.widths ?? [];
         const picked = readDeviceWidth(stored, declared);
         setWidthPicked(picked !== null);
         setFrameWSignal(picked ?? declared[0] ?? defaultDeviceWidth(win().w, coarse()));
@@ -1180,7 +1183,7 @@ export function createMockScreen(
   );
   createEffect(() => {
     // Widths the agent declared are the ones to judge at, overflow or not.
-    if (widthPicked() || (mock()?.widths ?? []).length) return;
+    if (widthPicked() || (design()?.widths ?? []).length) return;
     const v = activeVariant();
     const w = v && overflowWidth(frameW(), reports[frameKey(v.state, v.variant)]);
     if (w) setFrameWSignal(w);
@@ -1188,7 +1191,7 @@ export function createMockScreen(
   function setFrameW(w: number) {
     setWidthPicked(true);
     setFrameWSignal(w);
-    const id = mock()?.id;
+    const id = design()?.id;
     if (!id) return;
     try {
       host().storage?.setItem(widthKey(id), String(w));
@@ -1219,7 +1222,7 @@ export function createMockScreen(
     return null;
   }
   // The first question still owed: on the state on stage if it has one, else
-  // the first in the mock's order.
+  // the first in the design's order.
   function firstOwed(which: (ask: Ask) => boolean = () => true): Stop | null {
     const st = activeState();
     const stops = (state: string | null) =>
@@ -1252,7 +1255,7 @@ export function createMockScreen(
     const picked = ask.options.find((o) => o.id === optionId)?.variant;
     if (picked) setShown({});
     // A look picked now means that look as it stands. Left on an older draft's
-    // version, Send would put a version nobody meant in use, on every page embedding it.
+    // version, Send would put a version nobody meant in use, on every screen embedding it.
     if (picked && boundVersion() !== null) viewNewVersion();
     const wasOpen = otherTicked(ask);
     const typed = { text: otherOf(ask) ?? "", images: otherImagesOf(ask) };
@@ -1282,7 +1285,7 @@ export function createMockScreen(
   const foldedOf = (ask: Ask, field: AskField) => !!folded()[`${field}:${ask.id}`];
   const setFolded = (ask: Ask, field: AskField, on: boolean) =>
     setFoldedSignal({ ...folded(), [`${field}:${ask.id}`]: on });
-  // The write-in under "Other…", and the note on a question, with their
+  // The write-in under "Other…", and the comment on a question, with their
   // images. Blank text with no image is none.
   function setField(ask: Ask, field: AskField, text: string, images: string[]) {
     writeDraft((d) => {
@@ -1295,7 +1298,8 @@ export function createMockScreen(
     if (field === "other") setOtherOpen({ ...otherOpen(), [ask.id]: true });
   }
   const setOther = (ask: Ask, text: string) => setField(ask, "other", text, otherImagesOf(ask));
-  const setNote = (ask: Ask, text: string) => setField(ask, "note", text, noteImagesOf(ask));
+  const setComment = (ask: Ask, text: string) =>
+    setField(ask, "comment", text, commentImagesOf(ask));
 
   function setPending(slot: string, fn: (list: PendingImage[]) => PendingImage[]) {
     const all = { ...uploads() };
@@ -1308,7 +1312,7 @@ export function createMockScreen(
   // Uploads at once, so Send never waits on bytes; the draft only ever holds
   // ids the server has. A file that can't go keeps its chip with the reason.
   async function attachImages(ask: Ask, field: AskField, files: File[]) {
-    const m = mock();
+    const m = design();
     if (!m || !files.length) return;
     const slot = `${field}:${ask.id}`;
     const room = MAX_ASK_IMAGES - imagesOf(ask, field).length - pendingOf(ask, field).length;
@@ -1448,7 +1452,7 @@ export function createMockScreen(
     setPanelSignal("thread");
   }
   async function postComment(text: string) {
-    const m = mock();
+    const m = design();
     if (!m) return false;
     try {
       await api.comment(m.id, text);
@@ -1462,11 +1466,11 @@ export function createMockScreen(
   }
   // D13: un-archive a variant in each of the given states.
   async function restoreVariant(variant: string, inStates: (string | null)[]) {
-    const m = mock();
+    const m = design();
     if (!m) return;
     try {
       for (const st of inStates) await api.restoreVariant(m.id, st, variant);
-      await loadMock();
+      await loadDesign();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -1515,7 +1519,7 @@ export function createMockScreen(
     const list = comments();
     for (let i = list.length - 1; i >= 0; i--) {
       const c = list[i];
-      if (c.kind !== "reply" || !c.payload || c.payload.edited || c.payload.closed) continue;
+      if (c.kind !== "reply" || !c.payload || c.payload.edited || c.payload.archived) continue;
       return {
         sessionId: c.sessionId,
         at: c.createdAt,
@@ -1548,7 +1552,7 @@ export function createMockScreen(
   }
 
   async function send(extra: { verdict?: ReplyVerdict; text?: string } = {}) {
-    const m = mock();
+    const m = design();
     if (!m || sending()) return;
     await flush();
     const d = draft() ?? emptyDraft(stageVersion());
@@ -1569,15 +1573,15 @@ export function createMockScreen(
         borrowed: allowedMix(d.borrowed),
         ...extra,
       });
-      // The draft holds the picks until the mock carrying them as sent answers
+      // The draft holds the picks until the design carrying them as sent answers
       // arrives: dropping it first would put the stage on another variant for
       // one fetch (a flash of a different frame fading in, then back).
       const [next] = await Promise.all([
-        api.mock(m.id).catch(() => null),
+        api.design(m.id).catch(() => null),
         loadComments().catch(() => {}),
       ]);
       batch(() => {
-        if (next) setMock(next);
+        if (next) setDesign(next);
         setDraftSignal(null);
         setSent(true);
         setSentId(reply.id);
@@ -1600,10 +1604,10 @@ export function createMockScreen(
     }
   }
 
-  // --- the flow: question → Send → the next mock ---
+  // --- the flow: question → Send → the next design ---
 
   const goEntry = (e: FlowEntry) => goQuestion(entriesIn(e.state).indexOf(e), { state: e.state });
-  // An ask's first entry: a mock-wide one met again on a later state is the
+  // An ask's first entry: a design-wide one met again on a later state is the
   // same question, so the arrows pass it by there unless they are already on
   // that state.
   const firstEntry = createMemo(() => {
@@ -1628,7 +1632,7 @@ export function createMockScreen(
   }
 
   const asked = (ask: Ask) =>
-    answerOf(ask) !== undefined || otherOf(ask) !== undefined || noteOf(ask) !== undefined;
+    answerOf(ask) !== undefined || otherOf(ask) !== undefined || commentOf(ask) !== undefined;
   // The question on the card now, if the state on stage has one.
   const curAsk = createMemo<Ask | null>(() => {
     const qs = questions();
@@ -1656,7 +1660,7 @@ export function createMockScreen(
 
   const optionKey = (ask: Ask, optionId: string) => `${ask.id}:${optionId}`;
   function previewOf(ask: Ask, optionId: string): Preview | null {
-    const m = mock();
+    const m = design();
     const o = ask.options.find((x) => x.id === optionId);
     if (!m || !o) return null;
     const key = optionKey(ask, o.id);
@@ -1700,24 +1704,24 @@ export function createMockScreen(
     else if (n === a.options.length && !readonly()) pick(a, null);
   }
 
-  async function owedMock(by: 1 | -1): Promise<MockSummary | null> {
-    const list = await api.mocks(project).catch(() => null);
-    return list ? nextOwedMock(list.mocks, slug, by) : null;
+  async function owedDesign(by: 1 | -1): Promise<DesignSummary | null> {
+    const list = await api.designs(project).catch(() => null);
+    return list ? nextOwedDesign(list.designs, slug, by) : null;
   }
-  async function goOwedMock(by: 1 | -1) {
-    const next = await owedMock(by);
+  async function goOwedDesign(by: 1 | -1) {
+    const next = await owedDesign(by);
     if (next && !disposed) navigate(questionPath(project, next.slug));
   }
   let forwardTimer = 0;
   onCleanup(() => host().window.clearTimeout(forwardTimer));
-  // The Send's status rides along, so Delivered stays in sight on the next mock.
+  // The Send's status rides along, so Delivered stays in sight on the next design.
   function goNext() {
     const a = afterSend();
-    const m = mock();
+    const m = design();
     const id = sentId();
     host().window.clearTimeout(forwardTimer);
     if (!a?.next || disposed) return;
-    if (m && id) setCarried({ project, slug, title: m.title, replyId: id, mockId: m.id });
+    if (m && id) setCarried({ project, slug, title: m.title, replyId: id, designId: m.id });
     navigate(questionPath(project, a.next.slug));
   }
   function stayHere() {
@@ -1726,14 +1730,14 @@ export function createMockScreen(
     if (a?.auto) setAfterSend({ ...a, auto: false });
   }
   async function planNext() {
-    const next = await owedMock(1);
+    const next = await owedDesign(1);
     if (disposed) return;
     // A hidden tab never moves on by itself: the user would come back elsewhere.
     // Nor does it carry the user into another agent conversation's work, which
     // is a different piece of work even in the same repo: that one is offered.
     const auto =
       !!next &&
-      next.sessionId === mock()?.sessionId &&
+      next.sessionId === design()?.sessionId &&
       host().window.document.visibilityState !== "hidden";
     setAfterSend({ next, auto });
     host().window.clearTimeout(forwardTimer);
@@ -1785,11 +1789,11 @@ export function createMockScreen(
   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
   // Use this: the version on stage goes in use, and the agent hears it once.
   async function useThis(ref = onStage()) {
-    const m = mock();
+    const m = design();
     if (!m || !ref || readonly()) return;
     try {
       await api.use(m.id, { state: activeState(), ...ref });
-      await Promise.all([loadMock(), loadComments()]);
+      await Promise.all([loadDesign(), loadComments()]);
       showVersion(ref);
       setToast({ text: `${nameOf(ref)} is in use` });
     } catch (e) {
@@ -1806,12 +1810,12 @@ export function createMockScreen(
       : null;
   });
   function stayOnUse() {
-    const m = mock();
+    const m = design();
     const c = changed();
     if (!m || !c || readonly()) return;
     void api.stay(m.id, activeState(), c.use.variant).then(() => {
       setToast({ text: `Staying on ${nameOf(c.use)}` });
-      return loadMock();
+      return loadDesign();
     }, fail);
   }
   // Dimmed where it stands, never removed; Undo brings it back.
@@ -1822,7 +1826,7 @@ export function createMockScreen(
     hidden: boolean,
     quiet = false,
   ): Promise<(() => void) | undefined> {
-    const m = mock();
+    const m = design();
     if (!m || readonly()) return;
     const state = activeState();
     const name = nameOf(ref);
@@ -1833,7 +1837,7 @@ export function createMockScreen(
       : null;
     try {
       await api.hide(m.id, { state, ...ref, hidden });
-      await loadMock();
+      await loadDesign();
       if (away && sameVersion(onStage(), ref)) showVersion(away);
       const undo = () => {
         setToast(null);
@@ -1855,7 +1859,7 @@ export function createMockScreen(
     comments?: DraftInput["comments"];
     text?: string;
   }): Promise<boolean> {
-    const m = mock();
+    const m = design();
     if (!m || readonly()) return false;
     await flush();
     const keep = draft();
@@ -1866,14 +1870,14 @@ export function createMockScreen(
         ...(body.text ? { text: body.text } : {}),
       });
       // Every reply clears the stored draft; put the user's back before the
-      // mock is fetched again, so the screen never shows it gone.
+      // design is fetched again, so the screen never shows it gone.
       if (keep) await api.putDraft(m.id, keep);
       const [next] = await Promise.all([
-        api.mock(m.id).catch(() => null),
+        api.design(m.id).catch(() => null),
         loadComments().catch(() => {}),
       ]);
       batch(() => {
-        if (next) setMock(next);
+        if (next) setDesign(next);
         setSent(true);
         setSentId(reply.id);
       });
@@ -1929,7 +1933,7 @@ export function createMockScreen(
   }
   // Resolves to its undo, or to nothing if they stayed; quiet as hideVersion is.
   async function archiveVariants(variants: string[], label = variants.join(", "), quiet = false) {
-    const m = mock();
+    const m = design();
     if (!m || readonly() || !variants.length) return undefined;
     const state = activeState();
     const keys = variants.map((v) => archiveKey(state, v));
@@ -1950,10 +1954,10 @@ export function createMockScreen(
     const done = (async () => {
       try {
         for (const v of variants) await api.archiveVariant(m.id, state, v);
-        await loadMock();
+        await loadDesign();
       } catch (e) {
         landed = false;
-        await loadMock().catch(() => {});
+        await loadDesign().catch(() => {});
         fail(e);
       } finally {
         going(false);
@@ -1987,20 +1991,20 @@ export function createMockScreen(
   // The states this screen could still have, and the one being asked for right now
   // (an empty name is + New state, whose name is still to be typed).
   const outlinable = createMemo(() => {
-    const m = mock();
+    const m = design();
     return !!m && !readonly() && canOutline(m, variants());
   });
   const stateOutlines = createMemo(() => {
-    const m = mock();
+    const m = design();
     return m && outlinable() ? missingStates(m, variants()) : [];
   });
   const [askingState, setAskingState] = createSignal<{ name: string } | null>(null);
   function setOutline(state: string, to: StateOutline | null) {
-    const m = mock();
+    const m = design();
     if (!m) return Promise.resolve(false);
     return api.stateOutline(m.id, { state, to }).then(
       async () => {
-        await loadMock();
+        await loadDesign();
         return true;
       },
       (e) => {
@@ -2041,7 +2045,7 @@ export function createMockScreen(
     return true;
   }
   function askToDraw() {
-    const m = mock();
+    const m = design();
     if (!m) return Promise.resolve(false);
     const state = activeState();
     return sendAlone({ text: `Please draw ${m.title}${state ? `, ${state}` : ""}.` });
@@ -2050,11 +2054,11 @@ export function createMockScreen(
   const [notesWriting, setNotesWriting] = createSignal<string | null>(null);
   // A hand edit: what later agents read, and what an active one hears in its feedback.
   function saveNotes(text: string) {
-    const m = mock();
+    const m = design();
     if (!m || readonly()) return Promise.resolve(false);
-    return api.editMock(m.id, { notes: text }).then(
+    return api.editDesign(m.id, { notes: text }).then(
       async () => {
-        await loadMock();
+        await loadDesign();
         return true;
       },
       (e) => {
@@ -2075,7 +2079,7 @@ export function createMockScreen(
   }
   // The newer version a draft-bound stage is holding back.
   function viewNewVersion() {
-    const m = mock();
+    const m = design();
     const d = draft();
     if (!m || !d) return;
     const moved = carryOver(d, withAsks(m), variants(), latest());
@@ -2092,7 +2096,7 @@ export function createMockScreen(
   return {
     project,
     slug,
-    mock,
+    design,
     missing,
     comments,
     draft,
@@ -2108,9 +2112,9 @@ export function createMockScreen(
     answerOf,
     otherOf,
     otherTicked,
-    noteOf,
     setOther,
-    setNote,
+    setComment,
+    commentOf,
     foldedOf,
     setFolded,
     imagesOf,
@@ -2135,7 +2139,7 @@ export function createMockScreen(
     keepAnswer,
     revisingOf,
     reopen,
-    endMock,
+    archiveDesign,
     saveEndReason,
     saveArchiveReason,
     changed,
@@ -2152,7 +2156,7 @@ export function createMockScreen(
     afterSend,
     goNext,
     stayHere,
-    goOwedMock,
+    goOwedDesign,
     nextStop,
     questions,
     flow,
@@ -2284,7 +2288,7 @@ export function createMockScreen(
   };
 }
 
-export type MockScreenState = ReturnType<typeof createMockScreen>;
+export type DesignScreenState = ReturnType<typeof createDesignScreen>;
 
 // Several events in one burst (a reply flips statuses on every variant) cost
 // one refetch per kind, not one per event.

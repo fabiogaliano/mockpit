@@ -40,8 +40,8 @@ const card = (tone) => `
     <h1>Writer</h1>
     <button data-part="cta">Start writing</button>
   </section>`;
-await mockpit.publish({ mock: "writer", title: "Writer", variant: "calm", html: card("calm") });
-await mockpit.publish({ mock: "writer", variant: "bold", html: card("bold") });
+await mockpit.publish({ design: "writer", title: "Writer", variant: "calm", html: card("calm") });
+await mockpit.publish({ design: "writer", variant: "bold", html: card("bold") });
 const { url } = await mockpit.ask("writer", [
   {
     id: "tone",
@@ -98,14 +98,14 @@ A host call that fails rejects with the message REST would give, so
 ```js
 try {
   await mockpit.publish({
-    mock: "writer",
+    design: "writer",
     variant: "calm",
     parts: { hero: '<section data-part="hero">…</section>' },
   });
 } catch (e) {
   print("part splice failed:", e.message);
   await mockpit.publish({
-    mock: "writer",
+    design: "writer",
     variant: "calm",
     html: '<section data-part="hero">…</section>',
   });

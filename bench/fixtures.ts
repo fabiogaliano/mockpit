@@ -11,23 +11,23 @@ import type { Store, Surface } from "../server/types.ts";
 
 export type Size = "small" | "large";
 
-let benchMockSeq = 0;
+let benchDesignSeq = 0;
 
-// Every variant belongs to a mock; benches that only care about the post get a
-// fresh single-state mock per post.
+// Every variant belongs to a design; benches that only care about the post get a
+// fresh single-state design per post.
 export async function createBenchPost(
   store: Store,
   input: { sessionId: string; title: string; surfaces: unknown[] },
 ) {
-  const mock = await store.createMock({
+  const design = await store.createDesign({
     project: "bench",
-    slug: `bench-${++benchMockSeq}`,
+    slug: `bench-${++benchDesignSeq}`,
     title: input.title,
     sessionId: input.sessionId,
   });
   return store.createPost({
     sessionId: input.sessionId,
-    mock: mock.id,
+    design: design.id,
     state: null,
     title: input.title,
     surfaces: input.surfaces as Surface[],

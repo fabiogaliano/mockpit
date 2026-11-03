@@ -1,4 +1,4 @@
-// Gathering versions into an idea from the project's other mocks: a mock at a
+// Gathering versions into an idea from the project's other designs: a design at a
 // time, a state at a time, or by name across all of them. With no idea to add to, it
 // starts one and goes there. The dialog is the browser's own, so the page behind it is
 // inert and Esc closes it.
@@ -7,7 +7,7 @@ import { createMemo, createResource, createSignal, For, onMount, Show } from "so
 import { isLive } from "../../server/types.ts";
 import { api, assetUrl, surfaceUrl, type SaveCandidate, type TreeNode } from "./api.ts";
 import { Icon } from "./icons.tsx";
-import { mockPath, navigate } from "./route.ts";
+import { designPath, navigate } from "./route.ts";
 import { phoneLayout } from "./viewport.ts";
 import type { Shortlists } from "./shortlist.ts";
 import { theme } from "./theme.ts";
@@ -40,7 +40,7 @@ export function AddCandidates(props: {
   const [tree] = createResource(() => api.tree(props.project));
   const sources = createMemo(() =>
     (tree()?.tree ?? [])
-      .filter((n) => !n.shortlist && !n.closedAt && n.variants.some((v) => isLive(v.status)))
+      .filter((n) => !n.shortlist && !n.archivedAt && n.variants.some((v) => isLive(v.status)))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
   );
   const [picked, setPicked] = createSignal<string | null>(null);
@@ -77,7 +77,7 @@ export function AddCandidates(props: {
     const list = props.sl.lists().find((l) => l.id === props.list?.id);
     return !!list?.candidates.some(
       (x) =>
-        x.copiedFrom?.mock === c.node.id &&
+        x.copiedFrom?.design === c.node.id &&
         x.copiedFrom.state === c.v.state &&
         x.copiedFrom.variant === c.v.variant,
     );
@@ -89,7 +89,7 @@ export function AddCandidates(props: {
     if (next.has(k)) next.delete(k);
     else {
       next.set(k, {
-        mock: c.node.id,
+        design: c.node.id,
         state: c.v.state,
         variant: c.v.variant,
         version: c.v.version,
@@ -111,7 +111,7 @@ export function AddCandidates(props: {
       await props.sl.load();
       props.onDone?.(chosen().size);
       dialog.close();
-      if (!props.list) navigate(mockPath(props.project, to.slug));
+      if (!props.list) navigate(designPath(props.project, to.slug));
     } catch (e) {
       setError(`Couldn't add them. ${e instanceof Error ? e.message : e}`);
       setBusy(false);
@@ -162,7 +162,7 @@ export function AddCandidates(props: {
             value={filter()}
             onInput={(e) => setFilter(e.currentTarget.value)}
           />
-          <div class="slpick-mocks">
+          <div class="slpick-designs">
             <For each={sources()}>
               {(n) => (
                 <button
@@ -206,14 +206,16 @@ export function AddCandidates(props: {
             </p>
           </Show>
           <Show when={tree.error}>
-            <p class="slpick-none">Couldn't load this project's mocks. Close this and try again.</p>
+            <p class="slpick-none">
+              Couldn't load this project's designs. Close this and try again.
+            </p>
           </Show>
           <div class="slpick-grid">
             <For each={cards()}>
               {(c) => (
                 <CandidateCard
                   card={c}
-                  showMock={!!query()}
+                  showDesign={!!query()}
                   already={inList(c)}
                   on={chosen().has(keyOf(c))}
                   onToggle={() => toggle(c)}
@@ -255,7 +257,7 @@ export function AddCandidates(props: {
 
 function CandidateCard(props: {
   card: Card;
-  showMock: boolean;
+  showDesign: boolean;
   already: boolean;
   on: boolean;
   onToggle: () => void;
@@ -304,7 +306,7 @@ function CandidateCard(props: {
         </Show>
       </span>
       <span class="slcard-nm">{v().variant}</span>
-      <Show when={props.showMock}>
+      <Show when={props.showDesign}>
         <span class="slcard-from">{props.card.node.title}</span>
       </Show>
     </button>

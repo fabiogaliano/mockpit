@@ -1,4 +1,4 @@
-// How Home sorts and pictures a project, read off what each mock holds, so a
+// How Home sorts and pictures a project, read off what each design holds, so a
 // project gets structure by being used and an agent files nothing. Screens and
 // components stay as declared; the rest is an idea or a document by its contents.
 // Pure rules: Album.tsx and Home.tsx draw them.
@@ -8,8 +8,8 @@ import type { TreeNode } from "./api.ts";
 import {
   designWidth,
   groupByArea,
-  mockStatus,
-  type MockStatus,
+  designStatus,
+  type DesignStatus,
   nothingLeft,
   orderAreas,
   screenPicture,
@@ -30,7 +30,7 @@ export const SECTION_LABEL: Record<Section, string> = {
 
 // One render, nothing asked and no design width is something to read. A declared
 // width means someone is designing for a device, however few pictures it has so
-// far; on the real data that keeps a lone phone sketch out of Documents.
+// far; on the real data that keeps a lone phone idea out of Documents.
 export function sectionOf(node: {
   kind: TreeNode["kind"];
   shortlist?: boolean;
@@ -39,7 +39,7 @@ export function sectionOf(node: {
   variants: unknown[];
   widths: number[];
 }): ShelfSection {
-  if (node.kind === "page") return "screens";
+  if (node.kind === "screen") return "screens";
   if (node.kind === "component") return "components";
   if (node.shortlist || node.asked || node.variants.length > 1) return "ideas";
   if (node.states.filter((s) => s !== null).length > 1 || node.widths.length) return "ideas";
@@ -128,7 +128,7 @@ export function albumInside(node: TreeNode): string {
   return parts.join(" · ");
 }
 
-export type TurnKind = MockStatus["kind"] | "idle";
+export type TurnKind = DesignStatus["kind"] | "idle";
 
 const TURN_TEXT: Record<Exclude<TurnKind, "open">, string> = {
   draft: "Draft to send",
@@ -144,12 +144,12 @@ const TURN_TEXT: Record<Exclude<TurnKind, "open">, string> = {
 
 // A project this small is one or two things to look at, not a place to navigate.
 export const SIDEBAR_FROM = 3;
-// Up to this many mocks in a lone section, the sidebar lists them by name.
+// Up to this many designs in a lone section, the sidebar lists them by name.
 const TREE_UP_TO = 12;
 
-// One way off the shelf, however it got there: ended by hand, or with every design
+// One way off the shelf, however it got there: archived by hand, or with every variant
 // archived. A plan has nothing live because nothing is drawn yet, which is not the same.
-export const inArchive = (n: TreeNode) => !!n.closedAt || (nothingLeft(n) && !n.planned);
+export const inArchive = (n: TreeNode) => !!n.archivedAt || (nothingLeft(n) && !n.planned);
 
 // What the sidebar holds, for Home and for the one that opens over a design.
 export function sidebarOf(nodes: TreeNode[], flows: number, areaOrder: string[]) {
@@ -163,7 +163,7 @@ export function sidebarOf(nodes: TreeNode[], flows: number, areaOrder: string[])
     flows,
   };
   const lit = litSections(counts);
-  // The lone section, whose mocks the sidebar can list by name: there's no section
+  // The lone section, whose designs the sidebar can list by name: there's no section
   // choice to make there, and the shelf beside it is the same few things larger. A
   // dated list already is the names.
   const lone =
@@ -189,11 +189,11 @@ export function sidebarOf(nodes: TreeNode[], flows: number, areaOrder: string[])
 export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 export const questions = (n: number) => plural(n, "question");
 
-// Whose turn it is, in a word, on anything still on a shelf: an ended mock has left,
+// Whose turn it is, in a word, on anything still on a shelf: an archived design has left,
 // and its place in the Archive says so.
 export function turnWord(node: StatusNode, now: number): { kind: TurnKind; text: string } | null {
-  if (node.closedAt) return null;
-  const status = mockStatus(node, now);
+  if (node.archivedAt) return null;
+  const status = designStatus(node, now);
   if (!status) return { kind: "idle", text: TURN_TEXT.idle };
   return status.kind === "open"
     ? { kind: "open", text: questions(status.n) }
@@ -201,16 +201,16 @@ export function turnWord(node: StatusNode, now: number): { kind: TurnKind; text:
 }
 
 // Where a component appears. Hosts needn't be declared screens, and calling a
-// sketch a screen would make the count say something untrue.
+// idea a screen would make the count say something untrue.
 export function usedIn(node: TreeNode, kindOf: (slug: string) => string | undefined): string {
   const n = node.embeddedIn.length;
   if (!n) return "";
-  const screens = node.embeddedIn.every((s) => kindOf(s) === "page");
+  const screens = node.embeddedIn.every((s) => kindOf(s) === "screen");
   const word = screens ? "screen" : "design";
   return `in ${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
-// When a mock last had new work. Not the mock's own updatedAt, which a draft or an
+// When a design last had new work. Not the design's own updatedAt, which a draft or an
 // ending also moves: what's newest shouldn't reshuffle because of a click.
 export function lastWork(node: Pick<TreeNode, "variants" | "createdAt">): string {
   return node.variants.reduce((t, v) => (v.updatedAt > t ? v.updatedAt : t), node.createdAt);

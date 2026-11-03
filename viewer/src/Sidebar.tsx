@@ -2,7 +2,7 @@
 // rows and the project's areas are chips, so the two never read as one list and
 // neither nests under the other. Each is here only when there's something behind it:
 // a project that names no area has no chips. With a single section there are no
-// section rows, just the mocks; a project of one or two mocks gets no sidebar at all
+// section rows, just the designs; a project of one or two designs gets no sidebar at all
 // (Home). On a phone the same column is a drawer.
 
 import { For, type JSX, Show } from "solid-js";
@@ -11,7 +11,7 @@ import { type Section, SECTION_LABEL } from "./albums.ts";
 import { ChromeButtons } from "./TopBar.tsx";
 import { Icon, type IconName } from "./icons.tsx";
 import { openJump } from "./Jump.tsx";
-import { linkClick, mockPath, type HomePlace, projectPath } from "./route.ts";
+import { linkClick, designPath, type HomePlace, projectPath } from "./route.ts";
 import { ProjectSwitcher } from "./ProjectSwitcher.tsx";
 
 const SECTION_ICON: Record<Section, IconName> = {
@@ -31,7 +31,7 @@ export function Sidebar(props: {
   rows: Section[];
   foot: Section | null;
   areas: string[];
-  // The mocks themselves, in place of section rows, when there's one small section.
+  // The designs themselves, in place of section rows, when there's one small section.
   tree: { area: string | null; nodes: TreeNode[] }[] | null;
   archived: number;
   recent: boolean;
@@ -126,7 +126,7 @@ export function Sidebar(props: {
                     <Show when={g.area}>{(a) => <h6 class="side-hd">{a()}</h6>}</Show>
                     <For each={g.nodes}>
                       {(n) => {
-                        const href = () => mockPath(props.project, n.slug);
+                        const href = () => designPath(props.project, n.slug);
                         return (
                           <a
                             class="side-row"

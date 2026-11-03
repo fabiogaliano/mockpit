@@ -1,4 +1,4 @@
-// The mock screen's icons: the devices, Try and Mark are Hugeicons free (MIT,
+// The design screen's icons: the devices, Try and Mark are Hugeicons free (MIT,
 // @hugeicons/core-free-icons), the rest plain strokes on the same 24px grid;
 // path data, so the single-file viewer carries no icon package.
 

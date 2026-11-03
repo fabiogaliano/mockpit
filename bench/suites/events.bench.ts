@@ -87,7 +87,7 @@ export const eventsSuite: Suite = {
           bus.broadcast({
             type: "post-updated",
             id: "p",
-            mockId: "m",
+            designId: "m",
             sessionId: "s",
             version: 2,
             by: "agent",
@@ -114,12 +114,12 @@ export const eventsSuite: Suite = {
       const surface = surfaceOfKind("markdown", "small");
       const publishOnce = async () => {
         const target = delivered + tabs;
-        const res = await app.request("/api/mocks", {
+        const res = await app.request("/api/designs", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             session: built.busiestSessionId,
-            mock: "bench-fanout",
+            design: "bench-fanout",
             surfaces: [surface],
           }),
         });

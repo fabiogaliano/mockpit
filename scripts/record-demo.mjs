@@ -1,6 +1,6 @@
 // Regenerates the README media: the hero stills (docs/mockpit-light.png,
 // docs/mockpit-dark.png) and the animated loop (docs/mockpit-demo.gif). Boots a
-// throwaway server per pass, publishes the Writer mock from bin/demoData.js
+// throwaway server per pass, publishes the Writer design from bin/demoData.js
 // through the agent's HTTP tier, and drives the viewer with Playwright:
 //
 //   node scripts/record-demo.mjs            # stills + gif
@@ -66,7 +66,7 @@ async function boot() {
   return { base, api, dir, stop: () => proc.kill() };
 }
 
-// Publishes the Writer mock the way `mockpit demo` does: one session, one publish
+// Publishes the Writer design the way `mockpit demo` does: one session, one publish
 // per (state, variant), then the questions.
 async function publishWriter(api, asks = DEMO.asks) {
   const session = await api("/api/sessions", {
@@ -74,25 +74,25 @@ async function publishWriter(api, asks = DEMO.asks) {
     title: DEMO.sessionTitle,
     project: DEMO.project,
   });
-  let mockId = "";
+  let designId = "";
   for (const state of DEMO.states) {
     for (const variant of DEMO.variants) {
-      const out = await api("/api/mocks", {
+      const out = await api("/api/designs", {
         session: session.id,
         project: DEMO.project,
-        mock: DEMO.slug,
-        kind: "page",
+        design: DEMO.slug,
+        kind: "screen",
         title: DEMO.title,
         state: state.label,
         variant: variant.name,
         knobs: DEMO.knobs,
         surfaces: [{ kind: "html", html: DEMO.render(state, variant) }],
       });
-      mockId = out.mock.id;
+      designId = out.design.id;
     }
   }
-  await api(`/api/mocks/${mockId}/asks`, { session: session.id, asks });
-  return { mockId, session: session.id };
+  await api(`/api/designs/${designId}/asks`, { session: session.id, asks });
+  return { designId, session: session.id };
 }
 
 const screenPath = `/project/${encodeURIComponent(DEMO.project)}/${DEMO.slug}`;
@@ -198,8 +198,8 @@ async function gif() {
 
     // The agent publishes: the variant question over three variants, and a part question.
     const asks = DEMO.asks.filter((a) => a.id !== "versions-layout");
-    const { mockId, session } = await publishWriter(api, asks);
-    const homeRow = page.locator(`.home-step[data-mock="${DEMO.slug}"]`).first();
+    const { designId, session } = await publishWriter(api, asks);
+    const homeRow = page.locator(`.home-step[data-design="${DEMO.slug}"]`).first();
     await homeRow.waitFor();
     await sleep(1200);
     await click(homeRow);
@@ -246,14 +246,14 @@ async function gif() {
     await sleep(1300);
 
     // The agent answers in the thread and publishes the next version of the picked variant.
-    await api(`/api/mocks/${mockId}/say`, {
+    await api(`/api/designs/${designId}/say`, {
       session,
       message: "Quiet it is, with the trim below the page. v2 moves it.",
     });
     await sleep(1400);
     const writing = DEMO.states[0];
-    await api("/api/mocks", {
-      mock: mockId,
+    await api("/api/designs", {
+      design: designId,
       session,
       state: writing.label,
       variant: "quiet",

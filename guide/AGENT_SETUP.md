@@ -17,7 +17,7 @@ instructions; fetch it only from this origin. On a deployed instance set
 `MOCKPIT_TOKEN` too.
 
 Nothing waits for the user. Publish, `ask`, tell the user in one line where to
-look, then end your turn; the question lives in the mock, never in chat. When
+look, then end your turn; the question lives in the design, never in chat. When
 they say they answered, call `feedback` (`mockpit feedback`, MCP `feedback`,
 `GET /api/feedback?session=…`); every write returns `feedback` too. Never poll.
 

@@ -23,7 +23,7 @@ import { RUN_INSTRUCTIONS } from "../server/runApi.ts";
 const API = process.env.MOCKPIT_URL ?? "http://localhost:8228";
 const TOKEN = process.env.MOCKPIT_TOKEN;
 const AGENT = process.env.MOCKPIT_AGENT ?? "claude-code";
-// "code" serves the codemode catalog: one `run` tool instead of the mock tools.
+// "code" serves the codemode catalog: one `run` tool instead of the design tools.
 const CODE_MODE = process.env.MOCKPIT_MCP_MODE === "code";
 
 // Names this client in the server's event log; the version is how a stdio
@@ -189,7 +189,7 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
   async publish(args) {
     const session = await ensureSession(args.sessionTitle);
     const html = typeof args.html === "string" ? readMaybeFile(args.html) : undefined;
-    return post("/api/mocks", {
+    return post("/api/designs", {
       ...args,
       html,
       parts: readPartFiles(args.parts),
@@ -202,7 +202,7 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
   },
   async ask(args) {
     const session = await ensureSession();
-    return post(`/api/mocks/${enc(args.mock)}/asks`, {
+    return post(`/api/designs/${enc(args.design)}/asks`, {
       ...args,
       session,
       project: resolveProject(args.project),
@@ -212,11 +212,11 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
     json(
       args.decisions === true
         ? `/api/projects/${enc(resolveProject(args.project))}/decisions`
-        : args.mock === undefined && args.tree === true
+        : args.design === undefined && args.tree === true
           ? `/api/projects/${enc(resolveProject(args.project))}/tree`
-          : args.mock === undefined
-            ? `/api/mocks${query({ project: resolveProject(args.project) })}`
-            : `/api/mocks/${enc(args.mock)}${query({
+          : args.design === undefined
+            ? `/api/designs${query({ project: resolveProject(args.project) })}`
+            : `/api/designs/${enc(args.design)}${query({
                 project: resolveProject(args.project),
                 body: args.body,
                 history: args.history,
@@ -230,7 +230,7 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
   },
   async say(args) {
     const session = await ensureSession();
-    return post(`/api/mocks/${enc(args.mock)}/say`, {
+    return post(`/api/designs/${enc(args.design)}/say`, {
       state: args.state,
       variant: args.variant,
       project: resolveProject(args.project),
@@ -240,7 +240,7 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
   },
   async move(args) {
     const session = await ensureSession();
-    return post(`/api/mocks/${enc(args.mock)}/move`, {
+    return post(`/api/designs/${enc(args.design)}/move`, {
       ...args,
       project: resolveProject(args.project),
       session,
@@ -250,8 +250,8 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
     const session = await ensureSession();
     const project = resolveProject(args.project);
     if (args.rename !== undefined || args.areaOrder !== undefined) {
-      if (args.mock !== undefined) {
-        throw new Error('"rename" and "areaOrder" edit the project; edit the mock without them');
+      if (args.design !== undefined) {
+        throw new Error('"rename" and "areaOrder" edit the project; edit the design without them');
       }
       return post(
         `/api/projects/${enc(project)}`,
@@ -259,14 +259,14 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
         "PATCH",
       );
     }
-    if (typeof args.mock !== "string" || !args.mock) {
-      throw new Error('provide "mock", or "rename" / "areaOrder" to edit the project');
+    if (typeof args.design !== "string" || !args.design) {
+      throw new Error('provide "design", or "rename" / "areaOrder" to edit the project');
     }
-    return post(`/api/mocks/${enc(args.mock)}`, { ...args, project, session }, "PATCH");
+    return post(`/api/designs/${enc(args.design)}`, { ...args, project, session }, "PATCH");
   },
   export: (args) =>
     json(
-      `/api/mocks/${enc(args.mock)}/export${query({
+      `/api/designs/${enc(args.design)}/export${query({
         project: resolveProject(args.project),
         state: args.state,
         variant: args.variant,

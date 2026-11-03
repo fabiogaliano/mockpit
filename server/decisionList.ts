@@ -1,7 +1,7 @@
 // The project's decision list: what the user has settled, as plain lines any
 // agent can read first, so a new session stops contradicting it. Nothing here
 // summarises and no agent has to keep it: every line is built from what replies
-// already left on the mock, the answers on its questions and the variants in
+// already left on the design, the answers on its questions and the variants in
 // use. Those are the current truth, so a later reply on a question replaces its
 // line by construction. Runtime-agnostic (no node imports).
 
@@ -11,7 +11,7 @@ import {
   DEFAULT_VARIANT,
   type DecisionSources,
   type DecisionVariant,
-  type Mock,
+  type Design,
   optionState,
 } from "./types.ts";
 
@@ -26,8 +26,8 @@ export interface DecisionParts {
 
 export interface DecisionLine {
   id: string;
-  // The mock it came from, by slug and by title.
-  mock: string;
+  // The design it came from, by slug and by title.
+  design: string;
   title: string;
   // The state it is about, when it is about one.
   state?: string;
@@ -35,8 +35,8 @@ export interface DecisionLine {
   // Absent once the user has reworded the line: then `text` is all there is.
   parts?: DecisionParts;
   edited?: true;
-  // The mock is closed: its answers stand, but the work there has stopped.
-  closed?: true;
+  // The design is archived: its answers stand, but the work there has stopped.
+  archived?: true;
   at?: string;
 }
 
@@ -120,17 +120,17 @@ function joinParts(p: DecisionParts): string {
     .join(" ");
 }
 
-function askParts(mock: Mock, ask: Ask): DecisionParts | null {
+function askParts(design: Design, ask: Ask): DecisionParts | null {
   const ids = answerIds(ask.answer);
   const chosen = ask.options.filter((o) => ids.includes(o.id)).map((o) => cleanLabel(o.label));
-  const said = [ask.other, ask.note]
+  const said = [ask.other, ask.comment]
     .map((w) => w?.trim() ?? "")
     .filter((w) => w && !handsItBack(w))
     .join(" ");
   if (!chosen.length && !said) return null;
   const question = ask.text.trim();
   // "Keep this idea?" repeated per state means nothing without the state.
-  const state = ask.state && mock.states.includes(ask.state) ? ask.state : null;
+  const state = ask.state && design.states.includes(ask.state) ? ask.state : null;
   const where = state && !question.toLowerCase().includes(state.toLowerCase()) ? `${state}: ` : "";
   const left = ask.options.filter((o) => !ids.includes(o.id)).map((o) => cleanLabel(o.label));
   const not =
@@ -146,18 +146,18 @@ function askParts(mock: Mock, ask: Ask): DecisionParts | null {
 }
 
 // The variants a question's answer put in use, by the states it settled.
-function pickedVariants(mock: Mock, ask: Ask): { state: string | null; variant: string }[] {
+function pickedVariants(design: Design, ask: Ask): { state: string | null; variant: string }[] {
   if (ask.scope === "part") return [];
   const ids = answerIds(ask.answer);
   return ask.options
     .filter((o) => ids.includes(o.id) && o.variant)
     .flatMap((o) =>
       (o.version !== undefined
-        ? [optionState(ask, mock)]
+        ? [optionState(ask, design)]
         : ask.scope === "state"
           ? [ask.state ?? null]
-          : mock.states.length
-            ? mock.states
+          : design.states.length
+            ? design.states
             : [null]
       ).map((state) => ({ state, variant: o.variant! })),
     );
@@ -180,16 +180,16 @@ const sameQuestion = (ask: Ask) => `${ask.state ?? ""}\n${ask.text.trim().toLowe
 // may have re-asked it under a new id, and the later answer is the decision),
 // whose picked variant, if it picked one, was not replaced since. Ask order is
 // the order the agent asked in.
-function standingAsks(mock: Mock, variants: DecisionVariant[]): Ask[] {
+function standingAsks(design: Design, variants: DecisionVariant[]): Ask[] {
   const seen = new Set<string>();
   const out: Ask[] = [];
-  for (const ask of [...mock.asks].reverse()) {
+  for (const ask of [...design.asks].reverse()) {
     if (ask.dismissed) continue;
-    if (ask.answer === undefined && !ask.other && !ask.note) continue;
+    if (ask.answer === undefined && !ask.other && !ask.comment) continue;
     const wording = sameQuestion(ask);
     if (seen.has(wording)) continue;
     seen.add(wording);
-    const picks = pickedVariants(mock, ask);
+    const picks = pickedVariants(design, ask);
     const named = picks.filter((p) =>
       variants.some((v) => v.state === p.state && v.variant === p.variant),
     );
@@ -205,36 +205,36 @@ function standingAsks(mock: Mock, variants: DecisionVariant[]): Ask[] {
   return out;
 }
 
-// Every line the project's replies add up to, as derived: newest decided mock
-// first, a closed mock after every live one, each mock's lines as it asked them
+// Every line the project's replies add up to, as derived: newest decided design
+// first, an archived design after every live one, each design's lines as it asked them
 // with what it put in use first.
 export function deriveDecisionLines(
-  mocks: Mock[],
+  designs: Design[],
   sources: DecisionSources,
 ): (DecisionLine & { basis: string })[] {
-  const byMock = new Map<string, DecisionVariant[]>();
+  const byDesign = new Map<string, DecisionVariant[]>();
   for (const v of sources.variants) {
-    const list = byMock.get(v.mockId);
+    const list = byDesign.get(v.designId);
     if (list) list.push(v);
-    else byMock.set(v.mockId, [v]);
+    else byDesign.set(v.designId, [v]);
   }
-  const order = [...mocks].sort(
+  const order = [...designs].sort(
     (a, b) =>
-      Number(!!a.closedAt) - Number(!!b.closedAt) ||
+      Number(!!a.archivedAt) - Number(!!b.archivedAt) ||
       (sources.decidedAt[b.id] ?? "").localeCompare(sources.decidedAt[a.id] ?? ""),
   );
   const out: (DecisionLine & { basis: string })[] = [];
-  for (const mock of order) {
-    const variants = byMock.get(mock.id) ?? [];
+  for (const design of order) {
+    const variants = byDesign.get(design.id) ?? [];
     const base = {
-      mock: mock.slug,
-      title: mock.title,
-      ...(mock.closedAt ? { closed: true as const } : {}),
-      ...(sources.decidedAt[mock.id] ? { at: sources.decidedAt[mock.id] } : {}),
+      design: design.slug,
+      title: design.title,
+      ...(design.archivedAt ? { closed: true as const } : {}),
+      ...(sources.decidedAt[design.id] ? { at: sources.decidedAt[design.id] } : {}),
     };
-    const asks = standingAsks(mock, variants);
+    const asks = standingAsks(design, variants);
     const answered = new Set(
-      asks.flatMap((a) => pickedVariants(mock, a).map((p) => `${p.state}\n${p.variant}`)),
+      asks.flatMap((a) => pickedVariants(design, a).map((p) => `${p.state}\n${p.variant}`)),
     );
     for (const v of variants) {
       // The question that put it in use already says so, in better words.
@@ -245,7 +245,7 @@ export function deriveDecisionLines(
       );
       out.push({
         ...base,
-        id: `use:${mock.id}:${v.state ?? ""}:${v.variant}`,
+        id: `use:${design.id}:${v.state ?? ""}:${v.variant}`,
         ...(v.state ? { state: v.state } : {}),
         text: joinParts(parts),
         parts,
@@ -253,15 +253,15 @@ export function deriveDecisionLines(
       });
     }
     for (const ask of asks) {
-      const parts = askParts(mock, ask);
+      const parts = askParts(design, ask);
       if (!parts) continue;
       out.push({
         ...base,
-        id: `ask:${mock.id}:${ask.id}`,
-        ...(ask.state && mock.states.includes(ask.state) ? { state: ask.state } : {}),
+        id: `ask:${design.id}:${ask.id}`,
+        ...(ask.state && design.states.includes(ask.state) ? { state: ask.state } : {}),
         text: joinParts(parts),
         parts,
-        basis: JSON.stringify([ask.answer ?? null, ask.other ?? null, ask.note ?? null]),
+        basis: JSON.stringify([ask.answer ?? null, ask.other ?? null, ask.comment ?? null]),
       });
     }
   }
@@ -288,12 +288,12 @@ export function applyDecisionEdits(
 }
 
 export interface AgentDecisionLine {
-  mock: string;
+  design: string;
   text: string;
-  // Comes from the mock this read asked about.
+  // Comes from the design this read asked about.
   here?: true;
   edited?: true;
-  closed?: true;
+  archived?: true;
 }
 
 export interface AgentDecisionList {
@@ -304,14 +304,14 @@ export interface AgentDecisionList {
 }
 
 // A read must stay cheap to hold in a prompt, and an agent reads often, so it
-// gets the mock it asked about and then the newest lines up to a budget, each
+// gets the design it asked about and then the newest lines up to a budget, each
 // clipped. A long line is a long write-in, and the rest of it is one call away.
 const AGENT_LINE_CHARS = 280;
 const AGENT_LIST_CHARS = 6000;
 
 export function agentDecisionList(lines: DecisionLine[], here?: string): AgentDecisionList {
   const ordered = here
-    ? [...lines.filter((l) => l.mock === here), ...lines.filter((l) => l.mock !== here)]
+    ? [...lines.filter((l) => l.design === here), ...lines.filter((l) => l.design !== here)]
     : lines;
   const kept: AgentDecisionLine[] = [];
   let used = 0;
@@ -319,15 +319,15 @@ export function agentDecisionList(lines: DecisionLine[], here?: string): AgentDe
   for (const l of ordered) {
     const long = l.text.length > AGENT_LINE_CHARS;
     const text = long ? `${l.text.slice(0, AGENT_LINE_CHARS - 1)}…` : l.text;
-    used += text.length + l.mock.length;
+    used += text.length + l.design.length;
     if (used > AGENT_LIST_CHARS && kept.length) break;
     clipped ||= long;
     kept.push({
-      mock: l.mock,
+      design: l.design,
       text,
-      ...(l.mock === here ? { here: true as const } : {}),
+      ...(l.design === here ? { here: true as const } : {}),
       ...(l.edited ? { edited: true as const } : {}),
-      ...(l.closed ? { closed: true as const } : {}),
+      ...(l.archived ? { archived: true as const } : {}),
     });
   }
   const left = lines.length - kept.length;
@@ -347,10 +347,10 @@ export function fullAgentDecisionList(lines: DecisionLine[]): AgentDecisionList 
   return {
     total: lines.length,
     lines: lines.map((l) => ({
-      mock: l.mock,
+      design: l.design,
       text: l.text,
       ...(l.edited ? { edited: true as const } : {}),
-      ...(l.closed ? { closed: true as const } : {}),
+      ...(l.archived ? { archived: true as const } : {}),
     })),
   };
 }

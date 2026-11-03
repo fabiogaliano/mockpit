@@ -1,4 +1,4 @@
-// Orphaned replies: a Send lands on the session that owns the mock, and when
+// Orphaned replies: a Send lands on the session that owns the design, and when
 // that agent restarts into a new session (a new conversation, /clear, a crash)
 // nobody would ever read it. The rule below decides when a newer session may
 // take such a reply instead. Runtime-agnostic (no node imports).
@@ -25,7 +25,7 @@ import type { Comment, Session } from "./types.ts";
 export const HANDOFF_GRACE_MS = 2 * 60_000;
 
 export const HANDOFF_NOTE =
-  "Sent to an earlier agent session in this project that has gone quiet; it is yours now. Read the mock before acting.";
+  "Sent to an earlier agent session in this project that has gone quiet; it is yours now. Read the design before acting.";
 
 export const ownerActiveAt = (s: Session): string => s.agentActiveAt ?? s.lastActiveAt;
 

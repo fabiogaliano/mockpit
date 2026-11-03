@@ -80,12 +80,12 @@ function bootServer(): Promise<Server> {
 }
 
 async function publish(url: string, sessionId: string | undefined, index: number) {
-  const res = await fetch(`${url}/api/mocks`, {
+  const res = await fetch(`${url}/api/designs`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       ...(sessionId ? { session: sessionId } : { agent: "bench", sessionTitle: "Viewer bench" }),
-      mock: `post-${index}`,
+      design: `post-${index}`,
       surfaces: [surfaceOfKind(KIND_MIX[index % KIND_MIX.length], "small", index % 4)],
     }),
   });
@@ -192,7 +192,7 @@ export const viewerSuite: Suite = {
       });
 
       // --- initial load -------------------------------------------------------
-      // Home shows each mock's screen as a sandboxed thumbnail frame.
+      // Home shows each design's screen as a sandboxed thumbnail frame.
       const cardSelector = ".home-step";
       const projects = (await (await fetch(`${server.url}/api/projects`)).json()) as {
         name: string;
@@ -216,7 +216,7 @@ export const viewerSuite: Suite = {
       const afterLoad = await readMetrics(cdp);
       ctx.add({
         suite: "viewer",
-        name: `load ${POSTS}-mock home to all rows`,
+        name: `load ${POSTS}-design home to all rows`,
         kind: "time",
         unit: "ms/op",
         value: loadMs,
@@ -272,7 +272,7 @@ export const viewerSuite: Suite = {
 
       const iframes = await page.locator(`${cardSelector} iframe`).count();
       ctx.add(
-        count("viewer", "surface iframes", iframes, "one opaque-origin thumbnail frame per mock"),
+        count("viewer", "surface iframes", iframes, "one opaque-origin thumbnail frame per design"),
       );
 
       const transferred = (await Promise.all(responseSizes)).reduce((a, b) => a + b, 0);

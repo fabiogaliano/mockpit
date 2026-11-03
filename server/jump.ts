@@ -1,20 +1,20 @@
-// Search to jump: find a mock by anything the user might remember it by, its
+// Search to jump: find a design by anything the user might remember it by, its
 // title, a state, a variant's name or note, a question, or its area. It reads
 // what `listJumpRows` hands it, which never includes surfaces, so a big
 // workspace costs its metadata and not its pages. This project comes first, then
 // the others. Runtime-agnostic (no node imports).
 
-import { isLive, openAsks, type JumpRows, type MockKind } from "./types.ts";
+import { isLive, openAsks, type JumpRows, type DesignKind } from "./types.ts";
 
-export type JumpMatch = "title" | "state" | "variant" | "area" | "question" | "note";
+export type JumpMatch = "title" | "state" | "variant" | "area" | "question" | "description";
 
 export interface JumpHit {
   project: string;
-  // Null for an area, which is a place on Home and not a mock.
+  // Null for an area, which is a place on Home and not a design.
   id: string | null;
   slug: string | null;
   title: string;
-  kind: MockKind | null;
+  kind: DesignKind | null;
   width: number | null;
   area: string | null;
   match: JumpMatch;
@@ -24,17 +24,17 @@ export interface JumpHit {
   variant: string | null;
   archived: boolean;
   open: number;
-  closed: boolean;
+  designArchived: boolean;
   inUse: boolean;
 }
 
 const MAX_HERE = 20;
 const MAX_ELSEWHERE = 12;
-// A mock whose variants all carry the word shouldn't push every other mock off the list.
-const MAX_PER_MOCK = 3;
+// A design whose variants all carry the word shouldn't push every other design off the list.
+const MAX_PER_DESIGN = 3;
 const SNIPPET = 90;
 
-// Precision before recall: what a mock is called beats what was once said about it.
+// Precision before recall: what a design is called beats what was once said about it.
 const RANK = {
   exact: 0,
   prefix: 1,
@@ -44,7 +44,7 @@ const RANK = {
   variant: 5,
   area: 6,
   question: 7,
-  note: 8,
+  description: 8,
 } as const;
 
 // "Cafe" finds "Café", and "food" finds "Food".
@@ -68,11 +68,11 @@ interface Ranked {
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 function allHits(rows: JumpRows, terms: string[], whole: string): Ranked[] {
-  const byMock = new Map<string, JumpRows["variants"]>();
+  const byDesign = new Map<string, JumpRows["variants"]>();
   for (const v of rows.variants) {
-    const list = byMock.get(v.mockId);
+    const list = byDesign.get(v.designId);
     if (list) list.push(v);
-    else byMock.set(v.mockId, [v]);
+    else byDesign.set(v.designId, [v]);
   }
   const has = (text: string) => {
     const f = fold(text);
@@ -80,8 +80,8 @@ function allHits(rows: JumpRows, terms: string[], whole: string): Ranked[] {
   };
   const out: Ranked[] = [];
   const areasSeen = new Set<string>();
-  for (const m of rows.mocks) {
-    const variants = byMock.get(m.id) ?? [];
+  for (const m of rows.designs) {
+    const variants = byDesign.get(m.id) ?? [];
     const base = {
       project: m.project,
       id: m.id,
@@ -91,7 +91,7 @@ function allHits(rows: JumpRows, terms: string[], whole: string): Ranked[] {
       width: m.widths[0] ?? null,
       area: m.area,
       open: openAsks(m).length,
-      closed: !!m.closedAt,
+      designArchived: !!m.archivedAt,
       inUse: variants.some((v) => v.status === "accepted"),
       text: null,
       state: null,
@@ -114,7 +114,7 @@ function allHits(rows: JumpRows, terms: string[], whole: string): Ranked[] {
     for (const v of variants) {
       const gone = !isLive(v.status);
       const tail = gone ? 0.5 : 0;
-      // A variant named "default" says nothing the mock's title doesn't.
+      // A variant named "default" says nothing the design's title doesn't.
       if (v.variant !== "default" && !namesSeen.has(v.variant) && has(v.variant)) {
         namesSeen.add(v.variant);
         add(RANK.variant + tail, "variant", {
@@ -124,9 +124,9 @@ function allHits(rows: JumpRows, terms: string[], whole: string): Ranked[] {
           archived: gone,
         });
       }
-      if (v.note && has(v.note)) {
-        add(RANK.note + tail, "note", {
-          text: clip(v.note, terms[0]),
+      if (v.description && has(v.description)) {
+        add(RANK.description + tail, "description", {
+          text: clip(v.description, terms[0]),
           state: v.state,
           variant: v.variant,
           archived: gone,
@@ -142,7 +142,7 @@ function allHits(rows: JumpRows, terms: string[], whole: string): Ranked[] {
       }
     }
     mine.sort((a, b) => a.rank - b.rank);
-    out.push(...mine.slice(0, MAX_PER_MOCK));
+    out.push(...mine.slice(0, MAX_PER_DESIGN));
     if (m.area && has(m.area) && !areasSeen.has(`${m.project}\n${m.area}`)) {
       areasSeen.add(`${m.project}\n${m.area}`);
       out.push({
@@ -155,7 +155,7 @@ function allHits(rows: JumpRows, terms: string[], whole: string): Ranked[] {
           width: null,
           match: "area",
           open: 0,
-          closed: false,
+          designArchived: false,
           inUse: false,
         },
         rank: RANK.area,
@@ -177,12 +177,14 @@ export function jumpHits(rows: JumpRows, query: string, project: string | null):
   return [...here.slice(0, MAX_HERE), ...elsewhere.slice(0, MAX_ELSEWHERE)].map((h) => h.hit);
 }
 
-// The mocks this browser opened last, in that order, as they are called now: a
+// The designs this browser opened last, in that order, as they are called now: a
 // renamed one follows, and a deleted one drops out.
 export function recentHits(rows: JumpRows, ids: string[]): JumpHit[] {
   const wanted = new Map(ids.map((id, i) => [id, i]));
-  const inUse = new Set(rows.variants.filter((v) => v.status === "accepted").map((v) => v.mockId));
-  return rows.mocks
+  const inUse = new Set(
+    rows.variants.filter((v) => v.status === "accepted").map((v) => v.designId),
+  );
+  return rows.designs
     .filter((m) => wanted.has(m.id))
     .sort((a, b) => wanted.get(a.id)! - wanted.get(b.id)!)
     .map((m) => ({
@@ -199,7 +201,7 @@ export function recentHits(rows: JumpRows, ids: string[]): JumpHit[] {
       variant: null,
       archived: false,
       open: openAsks(m).length,
-      closed: !!m.closedAt,
+      designArchived: !!m.archivedAt,
       inUse: inUse.has(m.id),
     }));
 }

@@ -28,7 +28,7 @@ export interface McpFlows {
   decisions: Flow<[query: { project?: string }]>;
   get: Flow<[ref: unknown, query: { project?: unknown; body?: boolean; history?: boolean }]>;
   ask: Flow<[ref: unknown, body: any, ctx: FlowContext]>;
-  exportMock: Flow<
+  exportDesign: Flow<
     [
       ref: unknown,
       query: { project?: unknown; state?: unknown; variant?: unknown },
@@ -72,7 +72,7 @@ export function unwrap(result: FlowResult): unknown {
 }
 
 // `edit` is one verb with two shapes: `rename` or `areaOrder` edits the
-// project, anything else edits the mock. Shared by both MCP transports' HTTP
+// project, anything else edits the design. Shared by both MCP transports' HTTP
 // side and `run`.
 export function editCall(
   flows: Pick<McpFlows, "edit" | "editProject">,
@@ -81,12 +81,12 @@ export function editCall(
   project: string | undefined,
 ): Promise<FlowResult> {
   if (args.rename === undefined && args.areaOrder === undefined) {
-    return flows.edit(args.mock, args, ctx);
+    return flows.edit(args.design, args, ctx);
   }
-  if (args.mock !== undefined) {
+  if (args.design !== undefined) {
     return Promise.resolve({
       status: 400,
-      body: { error: '"rename" and "areaOrder" edit the project; edit the mock without them' },
+      body: { error: '"rename" and "areaOrder" edit the project; edit the design without them' },
     });
   }
   if (!project) {
@@ -133,17 +133,17 @@ export function registerMcp(app: Hono, deps: McpDeps) {
       case "publish":
         return unwrap(await flows.publish(args, ctx));
       case "ask":
-        return unwrap(await flows.ask(args.mock, args, ctx));
+        return unwrap(await flows.ask(args.design, args, ctx));
       case "read":
         if (args.decisions === true) {
           return unwrap(await flows.decisions({ project: args.project }));
         }
-        if (args.mock === undefined && args.tree === true) {
+        if (args.design === undefined && args.tree === true) {
           return unwrap(await flows.tree({ project: args.project }));
         }
-        if (args.mock === undefined) return unwrap(await flows.list({ project: args.project }));
+        if (args.design === undefined) return unwrap(await flows.list({ project: args.project }));
         return unwrap(
-          await flows.get(args.mock, {
+          await flows.get(args.design, {
             project: args.project,
             body: args.body === true,
             history: args.history === true,
@@ -152,11 +152,11 @@ export function registerMcp(app: Hono, deps: McpDeps) {
       case "feedback":
         return unwrap(await flows.feedback({ session: args.session, project: args.project }, ctx));
       case "say":
-        return unwrap(await flows.say(args.mock, args, ctx));
+        return unwrap(await flows.say(args.design, args, ctx));
       case "move":
-        return unwrap(await flows.move(args.mock, args, ctx));
+        return unwrap(await flows.move(args.design, args, ctx));
       case "export":
-        return unwrap(await flows.exportMock(args.mock, args, ctx));
+        return unwrap(await flows.exportDesign(args.design, args, ctx));
       case "edit":
         return unwrap(await editCall(flows, args, ctx, await namedProject(args)));
       case "upload": {
@@ -193,7 +193,7 @@ export function registerMcp(app: Hono, deps: McpDeps) {
   app.post("/mcp", async (c) => {
     const rpc = (id: unknown, result: unknown) => c.json({ jsonrpc: "2.0", id, result });
     // `?mode=code` is the opt-in codemode catalog for clients without a
-    // harness of their own: one `run` tool instead of the mock tools.
+    // harness of their own: one `run` tool instead of the design tools.
     const code = c.req.query("mode") === "code";
     const rpcError = (id: unknown, code: number, message: string, status = 200) =>
       c.json({ jsonrpc: "2.0", id, error: { code, message } }, status as 200);

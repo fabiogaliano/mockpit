@@ -11,18 +11,18 @@ import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { isBuiltinAsk } from "./logic.ts";
 import { AskBody } from "./Questions.tsx";
-import type { MockScreenState } from "./state.ts";
+import type { DesignScreenState } from "./state.ts";
 
 export function QuestionCard(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   beside?: boolean;
   // What goes with this Send beside the question, scrolled with its options.
   below?: JSX.Element;
 }) {
   const s = props.s;
-  // The note opens from the card's foot; it stays open once it holds something.
+  // The comment opens from the card's foot; it stays open once it holds something.
   const [noteFor, setNoteFor] = createSignal<string | null>(null);
-  const shown = () => !s.questionHidden() && !s.mock()?.closedAt;
+  const shown = () => !s.questionHidden() && !s.design()?.archivedAt;
   const total = () => s.questions().length;
   const i = () => Math.min(s.cur(), total() - 1);
   // The built-in Which variant? comes last and isn't a question anyone asked, so
@@ -98,17 +98,17 @@ export function QuestionCard(props: {
                     <button
                       type="button"
                       class={props.beside ? "qaddnote" : "ib qnote"}
-                      classList={{ on: noteFor() === ask().id || s.noteOf(ask()) !== undefined }}
-                      aria-label="Add a note for the agent"
-                      aria-expanded={noteFor() === ask().id || s.noteOf(ask()) !== undefined}
-                      title="Note for the agent"
+                      classList={{ on: noteFor() === ask().id || s.commentOf(ask()) !== undefined }}
+                      aria-label="Add a comment for the agent"
+                      aria-expanded={noteFor() === ask().id || s.commentOf(ask()) !== undefined}
+                      title="Comment for the agent"
                       onClick={() => setNoteFor(noteFor() === ask().id ? null : ask().id)}
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-8l-4 3v-3H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
                       </svg>
                       <Show when={props.beside}>
-                        <span>Add a note</span>
+                        <span>Add a comment</span>
                       </Show>
                     </button>
                   </Show>
@@ -140,7 +140,7 @@ export function QuestionCard(props: {
                       disabled={(!s.commitKind() && !sendsAnyway()) || s.sending()}
                       title={
                         !s.commitKind() && !sendsAnyway()
-                          ? "Pick an answer, or add a note"
+                          ? "Pick an answer, or add a comment"
                           : undefined
                       }
                       onClick={() => (sendsAnyway() ? s.sendDraft() : s.commit())}
@@ -161,13 +161,13 @@ export function QuestionCard(props: {
 // The question tucked away on a phone: a tab on the canvas's right edge. It stays as
 // long as anything can still be sent, a question with a drafted answer too, or
 // minimising that one would leave no way back to its Send. A tap brings the card back.
-export function QuestionTab(props: { s: MockScreenState }) {
+export function QuestionTab(props: { s: DesignScreenState }) {
   const s = props.s;
   const asks = () => new Set(s.flow().map((e) => e.ask.id));
   const n = () => [...asks()].filter((id) => !isBuiltinAsk({ id })).length;
   const hidden = () => s.cardMin() || !!s.panel() || !s.curAsk();
   return (
-    <Show when={hidden() && asks().size > 0 && !s.mock()?.closedAt}>
+    <Show when={hidden() && asks().size > 0 && !s.design()?.archivedAt}>
       <button
         type="button"
         class="qtab"

@@ -59,7 +59,7 @@ export function partsInHtml(html: string): PartInfo[] {
   return [...byName.values()];
 }
 
-// Cached per surfaces array, which a stored post never mutates: a mock's view
+// Cached per surfaces array, which a stored post never mutates: a design's view
 // asks for every variant's parts on every read. Callers must not change the result.
 const bySurfaces = new WeakMap<Surface[], PartInfo[]>();
 export function partsInSurfaces(surfaces: Surface[]): PartInfo[] {

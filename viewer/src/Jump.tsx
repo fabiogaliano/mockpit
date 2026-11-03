@@ -1,5 +1,5 @@
 // Search to jump: a box from anywhere (/ or ⌘K, or a button where there are no
-// keys) that goes to a mock by anything it's remembered by, this project first
+// keys) that goes to a design by anything it's remembered by, this project first
 // and then the others. An empty box lists what this browser opened last. Every
 // word in a result is the agent's or the user's, so it's all text nodes here. No
 // live frames in the results: they change per keystroke, and each would be a page
@@ -20,7 +20,7 @@ import { questions } from "./albums.ts";
 import { FIELD } from "./flowKeys.ts";
 import { host, root } from "./host.ts";
 import { Icon, type IconName } from "./icons.tsx";
-import { linkClick, mockPath, navigate, projectPath, questionPath, route } from "./route.ts";
+import { linkClick, designPath, navigate, projectPath, questionPath, route } from "./route.ts";
 
 const [isOpen, setOpen] = createSignal(false);
 export const openJump = () => setOpen(true);
@@ -50,7 +50,7 @@ export function rememberRecent(id: string) {
 const hitPath = (hit: JumpHit): string => {
   if (hit.slug === null) return projectPath(hit.project, null, hit.area);
   if (hit.match === "question" && hit.open > 0) return questionPath(hit.project, hit.slug);
-  return mockPath(
+  return designPath(
     hit.project,
     hit.slug,
     hit.state !== null || hit.variant !== null ? { state: hit.state, variant: hit.variant } : null,
@@ -70,7 +70,7 @@ const MATCH_WORD: Record<JumpHit["match"], string> = {
   variant: "Variant",
   area: "Area",
   question: "Question",
-  note: "Note",
+  description: "Description",
 };
 
 const shortProject = (name: string) => name.split("/").pop() ?? name;
@@ -89,7 +89,7 @@ function hitWhere(hit: JumpHit, here: string | null): string {
 }
 
 const hitTurn = (hit: JumpHit): string =>
-  hit.closed ? "Archived" : hit.open > 0 ? questions(hit.open) : hit.inUse ? "In use" : "";
+  hit.designArchived ? "Archived" : hit.open > 0 ? questions(hit.open) : hit.inUse ? "In use" : "";
 
 export function Jump() {
   onMount(() => {
@@ -245,8 +245,8 @@ function JumpBox(props: { onClose: () => void }) {
             aria-controls="jump-results"
             aria-activedescendant={hits()?.length ? `jump-${active()}` : undefined}
             aria-autocomplete="list"
-            aria-label="Search titles, states, variants, notes, questions and areas"
-            placeholder="Titles, states, variants, notes, questions"
+            aria-label="Search titles, states, variants, descriptions, questions and areas"
+            placeholder="Titles, states, variants, descriptions, questions"
             autocomplete="off"
             spellcheck={false}
             value={q()}
@@ -296,7 +296,10 @@ function JumpBox(props: { onClose: () => void }) {
                   </span>
                   <Show when={hitTurn(hit)}>
                     {(turn) => (
-                      <span class="jump-turn" classList={{ waits: hit.open > 0 && !hit.closed }}>
+                      <span
+                        class="jump-turn"
+                        classList={{ waits: hit.open > 0 && !hit.designArchived }}
+                      >
                         {turn()}
                       </span>
                     )}

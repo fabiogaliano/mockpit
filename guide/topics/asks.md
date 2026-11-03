@@ -1,31 +1,31 @@
 # mockpit topic: asks
 
-A question (`ask`) is your structured question on a mock. A choice is several
+A question (`ask`) is your structured question on a design. A choice is several
 variants plus one question that binds them. Ask only when the decision is
-really the user's, and ask in the mock, never in chat: after asking, tell the
+really the user's, and ask in the design, never in chat: after asking, tell the
 user in one line where to look and end your turn. To the user they are
 questions; `ask` is only the tool's name.
 
 ```sh
-mockpit ask --mock writer "Quiet or dark?" --option Quiet=quiet --option Dark=dark --id tone
-mockpit ask --mock writer "Trim?" --option Above=knob:trim.position=top --option Below=knob:trim.position=bottom
-mockpit ask --mock writer --asks asks.json
+mockpit ask --design writer "Quiet or dark?" --option Quiet=quiet --option Dark=dark --id tone
+mockpit ask --design writer "Trim?" --option Above=knob:trim.position=top --option Below=knob:trim.position=bottom
+mockpit ask --design writer --asks asks.json
 ```
 
 `=knob:` sets one knob; for an option that sets several, use `--asks` JSON.
 `--recommend Quiet` (`"recommended": true` on one option) marks the one you
-would pick with a quiet dot; the user sees why on hover, in the variant's note.
+would pick with a quiet dot; the user sees why on hover, in the variant's description.
 
 ## Shape
 
-The same JSON goes to `--asks`, MCP `ask` and `POST /api/mocks/:id/asks`:
+The same JSON goes to `--asks`, MCP `ask` and `POST /api/designs/:id/asks`:
 
 ```json
 [
   {
     "id": "tone",
     "text": "Quiet or dark?",
-    "scope": "mock",
+    "scope": "design",
     "options": [
       { "label": "Quiet", "variant": "quiet" },
       { "label": "Dark", "variant": "dark" }
@@ -54,12 +54,12 @@ The same JSON goes to `--asks`, MCP `ask` and `POST /api/mocks/:id/asks`:
 
 ## Scope
 
-`scope` says what a question decides: `mock` (the default), `state` (add
+`scope` says what a question decides: `design` (the default), `state` (add
 `state`) or `part` (add `part`, the `data-part` name). Scope also says where
 the user sees it: the viewer shows each state with its own questions. A
 `state` question shows on that state, a `part` question on every state that
-declares the part, and a `mock` question whose options name variants on every
-state that has them (any other `mock` question on every state); answered
+declares the part, and a `design` question whose options name variants on every
+state that has them (any other `design` question on every state); answered
 once, it counts once.
 
 Only open questions are shown and counted ("1 of 3"). Once a Send answers
@@ -76,7 +76,7 @@ An option binds to one of:
   in that state. Add `version` to offer one version of it (`"version": 2`, CLI
   `--option Before=quiet@2`): two options can be two versions of one variant,
   and the picked one is put in use. It needs the question's `state` when the
-  mock has several.
+  design has several.
 - a knob `set`: picking it applies those values live.
 - nothing: a plain pill.
 
@@ -90,7 +90,7 @@ pictures render with that answer and say so. Ask the deciding question first.
 
 The viewer shows a picture of each option it can render. `multi: true` allows
 several answers. Option ids default to the slugged label. Reusing a question
-`id` replaces that question. The viewer adds an "Other…" write-in and a note to
+`id` replaces that question. The viewer adds an "Other…" write-in and a comment to
 every question (both take attached images), so don't add your own; the option
 id `other` is reserved.
 
@@ -125,7 +125,7 @@ whole design differs. Both combine: each variant may have parts with fills.
 
 ## The variant question
 
-When you publish variants, ask `scope: "mock"` with one option per variant,
+When you publish variants, ask `scope: "design"` with one option per variant,
 and ask it first. Questions appear in the order you ask them. Tune then
 offers, per part, to borrow that part from another variant. Variants without
 a variant question get a plain switcher in the frame header.
@@ -136,12 +136,12 @@ knob `set`s.
 ## When you forget to ask
 
 A publish that leaves a state with two or more open variants and no question
-binding them returns a nudge and a ready `suggestedAsk` (mock-wide when the
+binding them returns a nudge and a ready `suggestedAsk` (design-wide when the
 variant names line up across states, else for that state), or your existing
 question plus the new variants. Send it as is with `ask`, or write your own
 question with options bound to the variants. The CLI prints the `mockpit ask`
 command for you. Sending it stops the nudge and keeps your answered question
-on the mock; the built-in one is gone once answered.
+on the design; the built-in one is gone once answered.
 
 Until a question binds them, the viewer shows a built-in "Which variant?"
 with a picture of each variant, so the user can still choose in one Send. It

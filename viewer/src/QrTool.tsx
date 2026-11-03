@@ -18,8 +18,8 @@ import { CopyButton } from "./CopyButton.tsx";
 import { host, readonly, root } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { QR_QUIET, qrEncode, qrPath } from "./qr.ts";
-import { mockPath } from "./route.ts";
-import type { MockScreenState } from "./state.ts";
+import { designPath } from "./route.ts";
+import type { DesignScreenState } from "./state.ts";
 
 // Names that only ever mean the machine the browser runs on.
 const isLoopback = (hostname: string) =>
@@ -37,7 +37,7 @@ const isPrivate = (hostname: string) =>
   hostname.endsWith(".local") ||
   hostname.endsWith(".ts.net");
 
-export function QrTool(props: { s: MockScreenState }) {
+export function QrTool(props: { s: DesignScreenState }) {
   const s = props.s;
   const [open, setOpen] = createSignal(false);
   let btn: HTMLButtonElement | undefined;
@@ -91,13 +91,13 @@ export function QrTool(props: { s: MockScreenState }) {
   );
 }
 
-function QrBody(props: { s: MockScreenState }) {
+function QrBody(props: { s: DesignScreenState }) {
   const s = props.s;
   const place = createMemo(() => {
-    const m = s.mock();
+    const m = s.design();
     if (!m) return null;
     const v = s.onStage();
-    return mockPath(
+    return designPath(
       m.project,
       m.slug,
       { state: s.activeState(), variant: v?.variant ?? null, version: v?.version ?? null },

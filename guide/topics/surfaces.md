@@ -24,7 +24,7 @@ On the CLI: `--html`, `--md`, `--diff`, `--mermaid`, `--terminal`, `--code`,
 Pick by what the thing is:
 
 - `html`: you are drawing. UI, diagrams, data viz, anything interactive. Design
-  mocks use this. Topic `html` has its contract.
+  designs use this. Topic `html` has its contract.
 - `markdown`: prose, plans, tradeoffs. Tag fenced code to highlight it.
   `![caption](/a/<id>)` embeds an uploaded image. Raw HTML in the source is
   escaped.
@@ -48,11 +48,11 @@ from data, so send data, never markup.
 
 ## Composition: embeds
 
-Any mock can embed another mock of the project in its html with
+Any design can embed another design of the project in its html with
 `<mockpit-embed slug="button"></mockpit-embed>`. The server inlines that
-mock's html body in place, inside the embedding frame, and expands the
-component's own embeds in turn (up to 6 levels), so build a page from
-sections and sections from components, each its own mock with its own
+design's html body in place, inside the embedding frame, and expands the
+component's own embeds in turn (up to 6 levels), so build a screen from
+sections and sections from components, each its own design with its own
 variants and questions.
 
 - No `version`: the embed follows the component's version in use, else its
@@ -80,7 +80,7 @@ entry without an `id` is new, an id you leave out is removed, and the list
 order is the new order:
 
 ```json
-{ "mock": "writer", "surfaces": [{ "kind": "markdown", "markdown": "## Why" }, { "id": "s1" }] }
+{ "design": "writer", "surfaces": [{ "kind": "markdown", "markdown": "## Why" }, { "id": "s1" }] }
 ```
 
 An unknown id fails with the surfaces present and writes nothing.
@@ -110,9 +110,9 @@ html's `poster`, and Studio and Home show the picture; Stage still runs the
 page.
 
 ```
-CLI  mockpit publish --mock onni --variant felt --html felt.html --poster felt.png
-MCP  publish { mock, variant, html, poster: "<asset id, or an image path on stdio>" }
-HTTP POST /api/mocks { …, "html": "…", "poster": "<asset id>" }
+CLI  mockpit publish --design onni --variant felt --html felt.html --poster felt.png
+MCP  publish { design, variant, html, poster: "<asset id, or an image path on stdio>" }
+HTTP POST /api/designs { …, "html": "…", "poster": "<asset id>" }
 ```
 
 Render it yourself (a headless screenshot of the page) at the moment that
@@ -124,11 +124,11 @@ with edits) drops it, so send one with each.
 
 Each thing you add lights up its part of the viewer.
 
-| you publish            | the user gets                                        |
-| ---------------------- | ---------------------------------------------------- |
-| a plain mock, any kind | the stage and Thread, with Use this / Revise         |
-| several variants       | a switcher, plus a built-in variant question         |
-| questions (`ask`)      | Questions: picture options on the stage, then Send   |
-| `data-part`            | Tune's component list and comments anchored on parts |
-| `knobs`                | Tune's controls, live on the stage                   |
-| several states         | the state strip under the stage                      |
+| you publish              | the user gets                                        |
+| ------------------------ | ---------------------------------------------------- |
+| a plain design, any kind | the stage and Thread, with Use this / Revise         |
+| several variants         | a switcher, plus a built-in variant question         |
+| questions (`ask`)        | Questions: picture options on the stage, then Send   |
+| `data-part`              | Tune's component list and comments anchored on parts |
+| `knobs`                  | Tune's controls, live on the stage                   |
+| several states           | the state tabs above the stage                       |

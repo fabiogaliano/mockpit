@@ -11,17 +11,17 @@ import { assetUrl, surfaceUrl, type VariantView } from "./api.ts";
 import { ACCEPT, filesOf, hasFiles } from "./attach.ts";
 import { readonly } from "./host.ts";
 import { answerIds, askState, draftKnobValues, frameKey, isLookAsk, partBox } from "./logic.ts";
-import type { AskField, MockScreenState } from "./state.ts";
+import type { AskField, DesignScreenState } from "./state.ts";
 import { Reason } from "./Reason.tsx";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 
-// A mock the user ended: what that did, the way back, and why, if they want to say.
-export function EndedNote(props: { s: MockScreenState }) {
+// A design the user archived: what that did, the way back, and why, if they want to say.
+export function ArchivedNote(props: { s: DesignScreenState }) {
   return (
     <div class="status-note" role="status">
       <span>In the Archive. Questions still open wait here if you restore it.</span>
-      <Reason value={props.s.mock()?.closeReason} onSave={props.s.saveEndReason} />
+      <Reason value={props.s.design()?.archiveReason} onSave={props.s.saveEndReason} />
       <Show when={!readonly()}>
         <button type="button" class="secondary" onClick={() => void props.s.reopen()}>
           Restore
@@ -33,7 +33,7 @@ export function EndedNote(props: { s: MockScreenState }) {
 
 // Sent answers, folded: read-only, each with the answer it got. Changing one
 // is its own button, so a stray tap can't reopen it.
-export function Answered(props: { s: MockScreenState; scope: "state" | "all" }) {
+export function Answered(props: { s: DesignScreenState; scope: "state" | "all" }) {
   const s = props.s;
   const [open, setOpen] = createSignal(false);
   const id = createUniqueId();
@@ -42,7 +42,7 @@ export function Answered(props: { s: MockScreenState; scope: "state" | "all" }) 
     if (a.dismissed) return "Dismissed, not answered";
     const out = answerIds(a.answer).map((x) => a.options.find((o) => o.id === x)?.label ?? x);
     if (a.other !== undefined) out.push(a.other ? `“${a.other}”` : "an image");
-    if (!out.length && a.note !== undefined) out.push("a note");
+    if (!out.length && a.comment !== undefined) out.push("a comment");
     return out.join(", ");
   };
   return (
@@ -70,8 +70,8 @@ export function Answered(props: { s: MockScreenState; scope: "state" | "all" }) 
                     <span class="review-said" classList={{ dismissed: !!a.dismissed }}>
                       {said(a)}
                     </span>
-                    <Show when={a.note && !a.dismissed}>
-                      <span class="answered-note">{`Note: ${a.note}`}</span>
+                    <Show when={a.comment && !a.dismissed}>
+                      <span class="answered-note">{`Comment: ${a.comment}`}</span>
                     </Show>
                   </span>
                   <Show when={!readonly() && !a.dismissed}>
@@ -97,15 +97,15 @@ export function Answered(props: { s: MockScreenState; scope: "state" | "all" }) 
 // What a picture of this variant shows besides the option itself: the draft's
 // knob values (defaults, other answers, tuning), the same ones the stage shows.
 // A picture that ignored them would show a screen the user never chose.
-function draftValues(s: MockScreenState, v: VariantView): Record<string, KnobValue> {
-  const m = s.mock();
+function draftValues(s: DesignScreenState, v: VariantView): Record<string, KnobValue> {
+  const m = s.design();
   return m ? draftKnobValues(m, v.knobs, s.draft()) : {};
 }
 
 // The option's picture source and the knob values it shows, or null when it can
 // only be a pill.
 export function optionPicture(
-  s: MockScreenState,
+  s: DesignScreenState,
   ask: Ask,
   o: AskOption,
 ): {
@@ -114,7 +114,7 @@ export function optionPicture(
   variant: VariantView;
   state: string | null;
 } | null {
-  const m = s.mock();
+  const m = s.design();
   if (!m) return null;
   const state = o.version ? optionState(ask, m) : askState(ask, m, s.activeState());
   const html = (v: VariantView | undefined) => {
@@ -162,7 +162,7 @@ export function optionPicture(
 // One question's body on the card: why it waits or is skipped, its options,
 // and the write-in and note under them. The question's words are the card's head.
 export function AskBody(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   ask: Ask;
   noteOpen?: boolean;
   // Beside the design a picture has the room to be read: filled and cropped from
@@ -267,7 +267,7 @@ export function AskBody(props: {
                 }
                 label={o.label}
                 pick={!!o.recommended}
-                why={pic()?.variant.note}
+                why={pic()?.variant.description}
                 on={picked(o)}
                 previewing={s.preview()?.key === keyOf(o)}
                 data={o.id}
@@ -335,32 +335,32 @@ export function AskBody(props: {
   );
 }
 
-// A note on the question, opened from the card's note button; open on its own
-// once a note exists, so an unused one costs nothing.
-function AskNote(props: { s: MockScreenState; ask: Ask; open?: boolean }) {
+// A comment on the question, opened from the card's comment button; open on its own
+// once a comment exists, so an unused one costs nothing.
+function AskNote(props: { s: DesignScreenState; ask: Ask; open?: boolean }) {
   const s = props.s;
   return (
-    <Show when={props.open || s.noteOf(props.ask) !== undefined}>
+    <Show when={props.open || s.commentOf(props.ask) !== undefined}>
       <AskText
         s={s}
         ask={props.ask}
-        field="note"
+        field="comment"
         class="ask-note"
-        label="Note"
-        value={s.noteOf(props.ask) ?? ""}
+        label="Comment"
+        value={s.commentOf(props.ask) ?? ""}
         placeholder="e.g. Table on desktop, Cards on mobile"
-        focus={!!props.open && s.noteOf(props.ask) === undefined}
-        onInput={(v) => s.setNote(props.ask, v)}
+        focus={!!props.open && s.commentOf(props.ask) === undefined}
+        onInput={(v) => s.setComment(props.ask, v)}
       />
     </Show>
   );
 }
 
-// A write-in or a note, with images like a chat composer: attach with the
+// A write-in or a comment, with images like a chat composer: attach with the
 // button, paste, or drop onto the box. Each image uploads as soon as it's
 // added; its × removes it.
 function AskText(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   ask: Ask;
   field: AskField;
   class: string;
@@ -542,10 +542,10 @@ function AskText(props: {
   );
 }
 
-// A folded write-in or note: one line of what was written, the whole row
+// A folded write-in or comment: one line of what was written, the whole row
 // opens it again.
 function FoldedText(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   ask: Ask;
   field: AskField;
   class: string;

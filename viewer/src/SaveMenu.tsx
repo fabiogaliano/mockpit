@@ -1,4 +1,4 @@
-// Where a version lives: tick the ideas, mocks and states it should be in,
+// Where a version lives: tick the ideas, designs and states it should be in,
 // and flip one switch to take it out of here. Nothing happens until the button,
 // which says what will: a move is two changes, and either alone would leave the
 // version in the wrong place. Fixed to the window, since Studio's scroller would
@@ -113,11 +113,11 @@ export function SaveMenu(props: {
   const many = items.length > 1;
   const first = items[0].ref;
   const had = items.flatMap((item) => sl.copiesOf(item.ref).map((c) => ({ ...c, item })));
-  const holding = (k: string) => had.filter((c) => keyOf(c.mock, c.state) === k);
+  const holding = (k: string) => had.filter((c) => keyOf(c.design, c.state) === k);
   // Where every one of them is, none of them, or (as they stand) some of them.
   const [ticks, setTicks] = createSignal(
     new Map<string, "all" | "some">(
-      [...new Set(had.map((c) => keyOf(c.mock, c.state)))].map((k) => [
+      [...new Set(had.map((c) => keyOf(c.design, c.state)))].map((k) => [
         k,
         holding(k).length === items.length ? "all" : "some",
       ]),
@@ -142,17 +142,17 @@ export function SaveMenu(props: {
   const hit = (text: string | null) => !!text && text.toLowerCase().includes(q());
 
   const shortlists = createMemo(() =>
-    sl.lists().filter((l) => l.id !== first.mock && hit(l.title)),
+    sl.lists().filter((l) => l.id !== first.design && hit(l.title)),
   );
-  const hereNode = () => nodes().find((n) => n.id === first.mock);
-  // Nearest first: the rest of the mock they are in, then the mocks of its area.
-  const mocks = createMemo(() => {
+  const hereNode = () => nodes().find((n) => n.id === first.design);
+  // Nearest first: the rest of the design they are in, then the designs of its area.
+  const designs = createMemo(() => {
     const area = hereNode()?.area;
-    const rank = (n: TreeNode) => (n.id === first.mock ? 0 : area && n.area === area ? 1 : 2);
+    const rank = (n: TreeNode) => (n.id === first.design ? 0 : area && n.area === area ? 1 : 2);
     return nodes()
-      .filter((n) => !n.shortlist && !n.closedAt)
+      .filter((n) => !n.shortlist && !n.archivedAt)
       .map((n) => {
-        const all = liveStates(n).filter((st) => n.id !== first.mock || st !== first.state);
+        const all = liveStates(n).filter((st) => n.id !== first.design || st !== first.state);
         return { n, all, shown: hit(n.title) ? all : all.filter(hit) };
       })
       .filter((m) => m.shown.length)
@@ -179,15 +179,15 @@ export function SaveMenu(props: {
   ];
   const drops = (): Drop[] =>
     had
-      .filter((c) => !ticks().has(keyOf(c.mock, c.state)))
+      .filter((c) => !ticks().has(keyOf(c.design, c.state)))
       .map((c) => ({
-        id: c.mock,
+        id: c.design,
         state: c.state,
         variant: c.variant,
         ref: c.item.ref,
         // A gathered idea left empty goes, so taking the removal back finds it by name.
-        title: sl.lists().some((l) => l.id === c.mock) ? titleOf(c.mock) : undefined,
-        label: c.state ?? titleOf(c.mock),
+        title: sl.lists().some((l) => l.id === c.design) ? titleOf(c.design) : undefined,
+        label: c.state ?? titleOf(c.design),
       }));
   const stays = items.length - it.out;
   const leaveVerb = () => (it.leaves === "hidden" ? "Hide" : "Archive");
@@ -200,7 +200,7 @@ export function SaveMenu(props: {
     return drops().length ? "Remove" : "Done";
   };
   const idle = () => !adds().length && !drops().length && !removes();
-  // What a page embedding this mock shows, which leaving would change: the rule
+  // What a screen embedding this design shows, which leaving would change: the rule
   // is the server's embedTarget.
   const showsIn = () => {
     const n = hereNode();
@@ -233,7 +233,7 @@ export function SaveMenu(props: {
     const [a, d] = [adds(), drops()];
     shut(true);
     props.onDone?.();
-    void sl.settle(many ? `${items.length} designs` : items[0].name, a, d, leave);
+    void sl.settle(many ? `${items.length} variants` : items[0].name, a, d, leave);
   };
 
   const tick = (id: string, state: string | null, title: string, small?: string) => (
@@ -260,18 +260,18 @@ export function SaveMenu(props: {
       class="savemenu"
       classList={{ phone: phoneLayout() }}
       role="dialog"
-      aria-label={`${leaving() ? "Move" : "Save"} ${many ? `${items.length} designs` : items[0].name}`}
+      aria-label={`${leaving() ? "Move" : "Save"} ${many ? `${items.length} variants` : items[0].name}`}
       ref={(el) => (menu = el)}
       style={phoneLayout() ? undefined : place()}
     >
       <div class="save-h">
-        {`${leaving() ? "Move" : "Save"} ${many ? `${items.length} designs` : items[0].name} to`}
+        {`${leaving() ? "Move" : "Save"} ${many ? `${items.length} variants` : items[0].name} to`}
       </div>
       <input
         class="save-find"
         type="search"
-        placeholder="Find a mock"
-        aria-label="Find a mock"
+        placeholder="Find a design"
+        aria-label="Find a design"
         value={query()}
         onInput={(e) => setQuery(e.currentTarget.value)}
       />
@@ -282,13 +282,13 @@ export function SaveMenu(props: {
             {(l) => tick(l.id, null, l.title, String(l.candidates.length))}
           </For>
         </Show>
-        <Show when={mocks().length}>
-          <div class="save-sec">Mocks</div>
-          <For each={mocks()}>
+        <Show when={designs().length}>
+          <div class="save-sec">Designs</div>
+          <For each={designs()}>
             {(m) => {
               const flat = () => m.all.length === 1 && m.all[0] === null;
               const chosen = () => m.all.filter((st) => ticks().has(keyOf(m.n.id, st))).length;
-              // A search that found a state shows it; one that found the mock's
+              // A search that found a state shows it; one that found the design's
               // name says nothing about which state is wanted.
               const open = () => (!!q() && !hit(m.n.title)) || chosen() > 0 || opened().has(m.n.id);
               return (
@@ -320,12 +320,12 @@ export function SaveMenu(props: {
           </For>
         </Show>
         <Show when={tree.loading}>
-          <p class="save-none">Loading mocks…</p>
+          <p class="save-none">Loading designs…</p>
         </Show>
         <Show when={tree() === null}>
-          <p class="save-none">Couldn't load the other mocks. Close this and try again.</p>
+          <p class="save-none">Couldn't load the other designs. Close this and try again.</p>
         </Show>
-        <Show when={tree() && q() && !mocks().length && !shortlists().length}>
+        <Show when={tree() && q() && !designs().length && !shortlists().length}>
           <p class="save-none">{`Nothing called "${query().trim()}"`}</p>
         </Show>
       </div>

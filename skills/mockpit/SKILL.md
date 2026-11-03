@@ -1,6 +1,6 @@
 ---
 name: mockpit
-description: Show design and visual work on the user's mockpit surface — UI mocks with states and variants, diagrams, interactive explainers, code reviews — ask structured questions on it, expose knobs to tune, and receive the user's one batched reply. Use when the user asks you to design, illustrate, visualize, sketch, mock up, or review something visually, mentions mockpit, or when a render would explain your work better than text.
+description: Show design and visual work on the user's mockpit surface — UI designs with states and variants, diagrams, interactive explainers, code reviews — ask structured questions on it, expose knobs to tune, and receive the user's one batched reply. Use when the user asks you to design, illustrate, visualize, sketch, design up, or review something visually, mentions mockpit, or when a render would explain your work better than text.
 ---
 
 # mockpit
@@ -17,29 +17,29 @@ The loop never waits for the user:
 
 1. `mockpit init` once per repo; read the brief (`mockpit guide`). In a new session
    `mockpit read` first: its decisions are settled unless the user says otherwise.
-2. `mockpit publish --mock <slug> --state "<user's words>" --variant <v> --html f.html`,
+2. `mockpit publish --design <slug> --state "<user's words>" --variant <v> --html f.html`,
    once per variant; declare parts with `data-part`. Name a state by what the
    user sees ("Home, idle"), never by your process ("Prototype", "v2"); title
-   a mock by what it is ("Hold menu"), never "Round 2 · …". The html is the UI alone:
-   say what a variant is in `--note`, never in the design, and name the
+   a design by what it is ("Hold menu"), never "Round 2 · …". The html is the UI alone:
+   say what a variant is in `--description`, never in the design, and name the
    widths it ships at once with `--widths 390,1280`.
-   Declare structure only when designing a product's screens: `--kind page`
+   Declare structure only when designing a product's screens: `--kind screen`
    for a screen, `--flow <name> --step N` for states the user moves between,
-   and each reusable piece as its own mock embedded with
-   `<mockpit-embed slug="card">` (that makes it a component). Sketches,
+   and each reusable component as its own design embedded with
+   `<mockpit-embed slug="card">` (that makes it a component). Ideas,
    diagrams and reviews stay plain. `--area <name>` groups Home by the
-   product's parts; `--source <path>` names the code that implements it.
-   `mockpit edit --mock <slug>` changes slug, title, kind, area or source
+   product's areas; `--source <path>` names the code that implements it.
+   `mockpit edit --design <slug>` changes slug, title, kind, area or source
    without a new version; `mockpit edit --project <p> --area-order
 "Shell,Food"` orders Home's areas. A batch with `edited` is the user moving
-   a mock from Home (kind, area): build on it.
+   a design from Home (kind, area): build on it.
 3. A choice is several variants plus one question that binds them: `mockpit ask`
    with options bound to variants. A variant decides everything it differs on;
    don't re-ask it. Visual options carry a `variant` or knob `set`. One render
    plus a control: `--knobs`; declare knobs for what is worth fine-tuning
    even unasked. When a publish result nudges, send its `suggestedAsk`.
 4. Tell the user in one line where to look, then end your turn. The question
-   itself lives in the mock (`ask`), never in chat. The user answers in the
+   itself lives in the design (`ask`), never in chat. The user answers in the
    browser at their own pace. Never poll.
 5. When the user says they answered (or a `mockpit watch` line wakes you), run
    `mockpit feedback`. Every write also returns `feedback`; read it. Empty

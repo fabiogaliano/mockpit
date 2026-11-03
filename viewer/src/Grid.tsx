@@ -19,8 +19,8 @@ import {
   versionSteps,
   wallCard,
 } from "./logic.ts";
-import { linkClick, mockPath } from "./route.ts";
-import type { MockScreenState } from "./state.ts";
+import { linkClick, designPath } from "./route.ts";
+import type { DesignScreenState } from "./state.ts";
 import { pictureOf } from "./Studio.tsx";
 import { Thumb } from "./Thumb.tsx";
 
@@ -29,7 +29,7 @@ type Cell = { v: VariantView; step: VersionStep | undefined };
 const keyOf = (state: string | null, variant: string) => JSON.stringify([state, variant]);
 
 export function Grid(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   about: AboutState;
   project: string;
   slug: string;
@@ -50,7 +50,7 @@ export function Grid(props: {
       for (const v of s.variants()) {
         if (v.state !== state) continue;
         const own = steps.filter((x) => x.variant === v.variant);
-        const used = s.mock()?.inUse.find((u) => u.state === state && u.variant === v.variant);
+        const used = s.design()?.inUse.find((u) => u.state === state && u.variant === v.variant);
         const step =
           own.find((x) => x.version === used?.version) ??
           [...own].reverse().find((x) => !x.hidden) ??
@@ -110,7 +110,7 @@ export function Grid(props: {
   };
 
   const rel = aboutOf(props.about, props.slug);
-  const isComponent = () => s.mock()?.kind === "component";
+  const isComponent = () => s.design()?.kind === "component";
   const count = () => {
     const forms = `${axes().rows.length} ${isComponent() ? "forms" : "variants"}`;
     return flat() ? forms : `${forms}, ${axes().cols.length} states`;
@@ -148,8 +148,8 @@ export function Grid(props: {
             <For each={rel.embeddedIn()}>
               {(n) => (
                 <a
-                  href={mockPath(props.project, n.slug)}
-                  onClick={(e) => linkClick(e, mockPath(props.project, n.slug))}
+                  href={designPath(props.project, n.slug)}
+                  onClick={(e) => linkClick(e, designPath(props.project, n.slug))}
                 >
                   {n.title}
                 </a>
@@ -206,7 +206,7 @@ export function Grid(props: {
 }
 
 function Tile(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   state: string | null;
   variant: string;
   caption: boolean;
@@ -225,7 +225,7 @@ function Tile(props: {
     return (
       !!st &&
       s
-        .mock()
+        .design()
         ?.inUse.some(
           (u) => u.state === props.state && u.variant === st.variant && u.version === st.version,
         )
@@ -249,7 +249,7 @@ function Tile(props: {
             type="button"
             class="gv-tile"
             aria-label={`Open ${name()}${used() ? ", in use" : ""}`}
-            title={props.cell?.v.note ?? name()}
+            title={props.cell?.v.description ?? name()}
             onClick={() => props.onOpen({ variant: st().variant, version: st().version })}
             onPointerEnter={props.onPoint}
             onFocus={props.onPoint}

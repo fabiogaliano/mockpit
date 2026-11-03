@@ -8,7 +8,7 @@ import { DIALKIT, type Mode } from "./themes.ts";
 const BG = DIALKIT.dark.bg;
 const ACCENT = DIALKIT.dark.info.text;
 
-// Lucide's square-dashed-mouse-pointer (ISC): a mock being pointed at, the same
+// Lucide's square-dashed-mouse-pointer (ISC): a design being pointed at, the same
 // mark as the project icon. Full-bleed background and the mark inside the central
 // 80% circle, so the same art works as `maskable`.
 export const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">

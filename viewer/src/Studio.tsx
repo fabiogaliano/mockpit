@@ -47,11 +47,11 @@ import {
   wallCard,
   wallPreviewW,
 } from "./logic.ts";
-import type { MockScreenState } from "./state.ts";
+import type { DesignScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
 import { FullView } from "./FullView.tsx";
 import { Thumb } from "./Thumb.tsx";
-import { linkClick, mockPath } from "./route.ts";
+import { linkClick, designPath } from "./route.ts";
 import { Reason } from "./Reason.tsx";
 import type { Shortlists } from "./shortlist.ts";
 import { SaveMenu, type SaveFor } from "./SaveMenu.tsx";
@@ -111,7 +111,7 @@ type Acts = Record<
 // Everything here reads the board's own state rather than the one on stage,
 // since a phone's strip draws every state at once.
 type Board = ReturnType<typeof boardOf>;
-function boardOf(s: MockScreenState, state: string | null) {
+function boardOf(s: DesignScreenState, state: string | null) {
   const inState = createMemo(() => s.variants().filter((v) => v.state === state));
   const allSteps = createMemo<VersionStep[]>(
     (was) => keepSame(was, versionSteps(s.variants(), state), stepKey),
@@ -144,7 +144,7 @@ function boardOf(s: MockScreenState, state: string | null) {
     return out;
   });
   const inUse = (): VersionRef | null => {
-    const u = s.mock()?.inUse.find((x) => x.state === state);
+    const u = s.design()?.inUse.find((x) => x.state === state);
     return u ? { variant: u.variant, version: u.version } : null;
   };
   // "Dark #2", or "#2" while the state has one variant.
@@ -208,7 +208,7 @@ function cardsOf(b: Board, show: WallShow): VersionStep[] {
 }
 
 export function Studio(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   onLooking: (openOnStage: (() => void) | null) => void;
   // On the wall its own chips say which state, so the state tabs would be a second answer.
   onWall: (on: boolean) => void;
@@ -218,11 +218,11 @@ export function Studio(props: {
 }) {
   const s = props.s;
   const sl = props.shortlists;
-  const isShortlist = () => !!s.mock()?.shortlist;
-  // The mocks a gathered idea's candidates came from, to name and link them.
-  const [projectMocks] = createResource(
-    () => (isShortlist() ? s.mock()?.project : null),
-    (project) => api.mocks(project),
+  const isShortlist = () => !!s.design()?.shortlist;
+  // The designs a gathered idea's candidates came from, to name and link them.
+  const [projectDesigns] = createResource(
+    () => (isShortlist() ? s.design()?.project : null),
+    (project) => api.designs(project),
   );
   const [saving, setSaving] = createSignal<{
     item: SaveFor;
@@ -264,7 +264,7 @@ export function Studio(props: {
     const out = new Map<string, string>();
     if (!sized()) return out;
     for (const v of s.variants()) {
-      out.set(`${v.state ?? ""}\n${v.variant}`, foldText(`${v.variant}\n${v.note ?? ""}`));
+      out.set(`${v.state ?? ""}\n${v.variant}`, foldText(`${v.variant}\n${v.description ?? ""}`));
     }
     return out;
   });
@@ -415,14 +415,14 @@ export function Studio(props: {
     };
   };
   const saveFor = (b: Board, steps: VersionStep[], leave?: SaveFor["leave"]): SaveFor | null => {
-    const m = s.mock();
+    const m = s.design();
     if (!m) return null;
     const state = b.state;
     const out = steps.filter((st) => !sameVersion(b.inUse(), st));
     const archives = variantsGone(b, out);
     return {
       items: steps.map((st) => ({
-        ref: { mock: m.id, state, variant: st.variant, version: st.version },
+        ref: { design: m.id, state, variant: st.variant, version: st.version },
         name: b.nameOf(st),
       })),
       here: state ? `${m.title} · ${state}` : m.title,
@@ -892,9 +892,9 @@ export function Studio(props: {
         else void s.archiveVariants([st.variant]);
       },
       saved(st) {
-        const id = s.mock()?.id;
+        const id = s.design()?.id;
         if (!id) return false;
-        return sl.isSaved({ mock: id, state: b.state, variant: st.variant, version: st.version });
+        return sl.isSaved({ design: id, state: b.state, variant: st.variant, version: st.version });
       },
       family: (st) => b.familyOf(st),
       leave: (st) =>
@@ -922,7 +922,7 @@ export function Studio(props: {
     // A borrow goes between versions of one state.
     const borrowing = () => borrowFrom()?.b === b;
     return (
-      <Sketch
+      <StudioCard
         s={s}
         b={b}
         st={st}
@@ -1082,7 +1082,7 @@ export function Studio(props: {
                           </Show>
                         </header>
                         <Show when={v.copiedFrom}>
-                          {(c) => <Origin from={c()} mocks={projectMocks()?.mocks ?? []} />}
+                          {(c) => <Origin from={c()} designs={projectDesigns()?.designs ?? []} />}
                         </Show>
                         <For each={b.drawnOf(v.variant)}>{(st) => card(b, act, st)}</For>
                       </section>
@@ -1104,7 +1104,7 @@ export function Studio(props: {
         {(m) => (
           <SaveMenu
             sl={sl}
-            project={s.mock()?.project ?? ""}
+            project={s.design()?.project ?? ""}
             anchor={m.from}
             item={m.item}
             onClose={() => setSaving(null)}
@@ -1139,7 +1139,7 @@ export function Studio(props: {
           }}
         />
       </Show>
-      <Show when={adding() && s.mock()}>
+      <Show when={adding() && s.design()}>
         {(m) => (
           <AddCandidates
             sl={sl}
@@ -1300,8 +1300,8 @@ function WallBar(props: {
         <input
           class="slpick-filter wall-find"
           type="search"
-          placeholder="Filter by name or note"
-          aria-label="Filter by name or note"
+          placeholder="Filter by name or description"
+          aria-label="Filter by name or description"
           value={props.query}
           onInput={(e) => props.onQuery(e.currentTarget.value)}
         />
@@ -1370,8 +1370,8 @@ function WallBar(props: {
   );
 }
 
-function Sketch(props: {
-  s: MockScreenState;
+function StudioCard(props: {
+  s: DesignScreenState;
   b: Board;
   st: VersionStep;
   small: boolean;
@@ -1571,15 +1571,15 @@ function Sketch(props: {
 // Where a gathered idea's candidate came from, and the way back to it.
 function Origin(props: {
   from: CopyRef;
-  mocks: { id: string; slug: string; title: string; project: string }[];
+  designs: { id: string; slug: string; title: string; project: string }[];
 }) {
-  const mock = () => props.mocks.find((m) => m.id === props.from.mock);
+  const design = () => props.designs.find((m) => m.id === props.from.design);
   return (
-    <Show when={mock()}>
+    <Show when={design()}>
       {(m) => {
         const label = () => [m().title, props.from.state].filter(Boolean).join(" · ");
         const href = () =>
-          mockPath(m().project, m().slug, {
+          designPath(m().project, m().slug, {
             state: props.from.state,
             variant: props.from.variant,
             version: props.from.version,
@@ -1652,7 +1652,7 @@ function LookNote(props: { text: string }) {
 }
 
 function Look(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   entry: Entry;
   top: number;
   order: Entry[];
@@ -1682,7 +1682,7 @@ function Look(props: {
   const inUse = () => sameVersion(b().inUse(), st());
   const note = () => {
     const v = s.variants().find((x) => x.state === b().state && x.variant === st().variant);
-    return v?.archiveReason ? `Archived: ${v.archiveReason}` : v?.note;
+    return v?.archiveReason ? `Archived: ${v.archiveReason}` : v?.description;
   };
   const can = () => !readonly();
   const counter = () => {
@@ -1906,7 +1906,7 @@ function Look(props: {
 
 // A comment on one version, or what to borrow from where: one line, aimed at a
 // part when the version declares any, sent as its own reply.
-function NoteBox(props: { s: MockScreenState; draft: Draft; onDone: () => void }) {
+function NoteBox(props: { s: DesignScreenState; draft: Draft; onDone: () => void }) {
   const s = props.s;
   const [text, setText] = createSignal("");
   const [part, setPart] = createSignal<string | null>(null);

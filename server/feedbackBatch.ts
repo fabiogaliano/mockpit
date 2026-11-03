@@ -1,6 +1,6 @@
-// The agent-facing shape of feedback: one batch per mock, in delivery order.
+// The agent-facing shape of feedback: one batch per design, in delivery order.
 // The `feedback` verb, the watch long-poll and the write piggyback all return this,
-// so an agent reads one grouped object instead of re-deriving which mock a flat
+// so an agent reads one grouped object instead of re-deriving which design a flat
 // comment list belongs to. Runtime-agnostic (no node imports).
 
 import { type Decisions, decisionsFor } from "./decisions.ts";
@@ -11,8 +11,8 @@ import {
   type CommentAnchor,
   inUseVersion,
   DEFAULT_VARIANT,
-  type Mock,
-  type MockEdit,
+  type Design,
+  type DesignEdit,
   OTHER_ID,
   type PartComment,
   type Post,
@@ -58,19 +58,19 @@ export interface OtherChoice {
 }
 
 // An answered ask, resolved to the options the user chose, so the agent reads
-// "Which variant? → dark" without cross-referencing ids. `note` qualifies the answer.
+// "Which variant? → dark" without cross-referencing ids. `comment` qualifies the answer.
 export interface AnsweredAsk {
   ask: string;
   text: string;
   chosen: (AskOption | OtherChoice)[];
-  note?: string;
-  noteImages?: ImageRef[];
+  comment?: string;
+  commentImages?: ImageRef[];
 }
 
-// The write-ins, notes and their images ride in `asks`, not again as id maps.
+// The write-ins, comments and their images ride in `asks`, not again as id maps.
 export interface FeedbackReply extends Omit<
   Reply,
-  "others" | "notes" | "otherImages" | "noteImages"
+  "others" | "askComments" | "otherImages" | "askCommentImages"
 > {
   seq: number;
   at: string;
@@ -84,9 +84,9 @@ export interface FeedbackReply extends Omit<
 }
 
 export interface FeedbackBatch {
-  mockId: string | null;
+  designId: string | null;
   project: string | null;
-  mock: string | null;
+  design: string | null;
   title: string | null;
   reply: FeedbackReply | null;
   // What the user wrote in the thread, outside any Send.
@@ -96,9 +96,9 @@ export interface FeedbackBatch {
   archived: VariantRef[];
   // Set when this batch was sent to an earlier, now quiet session (handoff.ts).
   handoff?: string;
-  // The user moved the mock from Home: its kind or area as they left it
+  // The user moved the design from Home: its kind or area as they left it
   // (area null: none). Build on it; don't move it back.
-  edited?: MockEdit;
+  edited?: DesignEdit;
 }
 
 const ref = (p: Post): VariantRef => ({ state: p.state, variant: p.variant });
@@ -111,7 +111,7 @@ const REACTION_LEAD: Record<Reaction, string> = {
 
 // `👍 part "hero" (variant B, state Mobile)`, `👎 variant B`, `more like this: the page`.
 export function reactionLine(c: PartComment & { reaction: Reaction }): string {
-  // A mock published without variant names has only "default": naming it is noise.
+  // A design published without variant names has only "default": naming it is noise.
   const named = c.variant && c.variant !== DEFAULT_VARIANT ? c.variant : null;
   // A version is written as agents write it, dark@2.
   const at = c.version ? `@${c.version}` : "";
@@ -135,22 +135,23 @@ const isReaction = (c: PartComment): c is PartComment & { reaction: Reaction } =
 
 function answered(
   reply: Reply,
-  mock: Mock | undefined,
+  design: Design | undefined,
   posts: Post[],
   base: string,
 ): AnsweredAsk[] {
   const others = reply.others ?? {};
-  const notes = reply.notes ?? {};
+  const comments = reply.askComments ?? {};
   const refs = (ids: string[] | undefined): ImageRef[] =>
     (ids ?? []).map((id) => ({ id, url: `${base}/a/${encodeURIComponent(id)}` }));
   const askIds = new Set([
     ...Object.keys(reply.answers),
     ...Object.keys(others),
-    ...Object.keys(notes),
+    ...Object.keys(comments),
   ]);
   const out: AnsweredAsk[] = [];
   for (const askId of askIds) {
-    const ask = mock?.asks.find((a) => a.id === askId) ?? (mock && builtinAsk(mock, posts, askId));
+    const ask =
+      design?.asks.find((a) => a.id === askId) ?? (design && builtinAsk(design, posts, askId));
     const answer = reply.answers[askId];
     const ids = answer === undefined ? [] : Array.isArray(answer) ? answer : [answer];
     const chosen: AnsweredAsk["chosen"] = ids.map(
@@ -164,26 +165,26 @@ function answered(
         other: true,
         ...(otherImages.length ? { images: otherImages } : {}),
       });
-    const noteImages = refs(reply.noteImages?.[askId]);
+    const commentImages = refs(reply.askCommentImages?.[askId]);
     out.push({
       ask: askId,
       text: ask?.text ?? "",
       chosen,
-      ...(notes[askId] !== undefined ? { note: notes[askId] } : {}),
-      ...(noteImages.length ? { noteImages } : {}),
+      ...(comments[askId] !== undefined ? { comment: comments[askId] } : {}),
+      ...(commentImages.length ? { commentImages } : {}),
     });
   }
   return out;
 }
 
 // Comments arrive in seq order; keep that order both between batches and inside
-// one. A mock gets a fresh batch whenever a second reply arrives for it, so a
+// one. A design gets a fresh batch whenever a second reply arrives for it, so a
 // batch carries at most one reply and nothing is merged away. A comment whose
-// mock is unknown still gets a batch — feedback is never dropped for want of
+// design is unknown still gets a batch — feedback is never dropped for want of
 // context. `base` (origin + base path) makes image URLs absolute.
 export function groupFeedback(
   comments: Comment[],
-  mocks: Map<string, Mock>,
+  designs: Map<string, Design>,
   posts: Map<string, Post[]>,
   base = "",
 ): FeedbackBatch[] {
@@ -192,19 +193,19 @@ export function groupFeedback(
   for (const c of comments) {
     // Stored from when a close wrote to this stream. Ending something tells the agent
     // nothing, so one still ahead of the cursor stays unsaid.
-    if (c.kind === "reply" && c.payload?.closed) continue;
-    const key = c.mockId ?? "";
-    const mock = c.mockId ? mocks.get(c.mockId) : undefined;
-    const mockPosts = (c.mockId && posts.get(c.mockId)) || [];
+    if (c.kind === "reply" && c.payload?.archived) continue;
+    const key = c.designId ?? "";
+    const design = c.designId ? designs.get(c.designId) : undefined;
+    const designPosts = (c.designId && posts.get(c.designId)) || [];
     let batch = open.get(key);
-    // An edit says where the mock is now, so it joins whatever batch is open.
+    // An edit says where the design is now, so it joins whatever batch is open.
     const edit = c.kind === "reply" ? c.payload?.edited : undefined;
     if (!batch || (c.kind === "reply" && !edit && batch.reply)) {
       batch = {
-        mockId: c.mockId,
-        project: mock?.project ?? null,
-        mock: mock?.slug ?? null,
-        title: mock?.title ?? null,
+        designId: c.designId,
+        project: design?.project ?? null,
+        design: design?.slug ?? null,
+        title: design?.title ?? null,
         reply: null,
         messages: [],
         inUse: [],
@@ -214,16 +215,15 @@ export function groupFeedback(
       batches.push(batch);
     }
     if (edit) {
-      const grouped = [...(batch.edited?.grouped ?? []), ...(edit.grouped ?? [])];
-      batch.edited = { ...batch.edited, ...edit, ...(grouped.length ? { grouped } : {}) };
+      batch.edited = { ...batch.edited, ...edit };
       continue;
     }
     if (c.kind === "reply" && c.payload) {
       const {
         others: _others,
-        notes: _notes,
+        askComments: _askComments,
         otherImages: _otherImages,
-        noteImages: _noteImages,
+        askCommentImages: _askCommentImages,
         ...payload
       } = c.payload;
       const reactions = (payload.comments ?? []).filter(isReaction).map(reactionLine);
@@ -232,18 +232,18 @@ export function groupFeedback(
         comments: (payload.comments ?? []).filter((x) => !x.reaction),
         seq: c.seq,
         at: c.createdAt,
-        asks: answered(c.payload, mock, mockPosts, base),
+        asks: answered(c.payload, design, designPosts, base),
         ...(reactions.length ? { reactions } : {}),
       };
-      const decisions = mock ? decisionsFor(mock, mockPosts, c.payload) : null;
+      const decisions = design ? decisionsFor(design, designPosts, c.payload) : null;
       if (decisions) batch.reply.decisions = decisions;
-      batch.inUse = mockPosts
+      batch.inUse = designPosts
         .filter((p) => p.status === "accepted")
         .map((p) => ({ ...ref(p), version: inUseVersion(p) }));
-      batch.archived = mockPosts.filter((p) => p.status === "archived").map(ref);
+      batch.archived = designPosts.filter((p) => p.status === "archived").map(ref);
       continue;
     }
-    const post = c.postId ? mockPosts.find((p) => p.id === c.postId) : undefined;
+    const post = c.postId ? designPosts.find((p) => p.id === c.postId) : undefined;
     batch.messages.push({
       seq: c.seq,
       text: c.text,
@@ -263,16 +263,16 @@ export async function buildFeedbackBatches(
   comments: Comment[],
   base: string,
 ): Promise<FeedbackBatch[]> {
-  const mocks = new Map<string, Mock>();
+  const designs = new Map<string, Design>();
   const posts = new Map<string, Post[]>();
   for (const c of comments) {
-    if (!c.mockId || mocks.has(c.mockId)) continue;
-    const mock = await store.getMock(c.mockId);
-    if (!mock) continue;
-    mocks.set(c.mockId, mock);
-    posts.set(c.mockId, await store.listPosts({ mockId: c.mockId }));
+    if (!c.designId || designs.has(c.designId)) continue;
+    const design = await store.getDesign(c.designId);
+    if (!design) continue;
+    designs.set(c.designId, design);
+    posts.set(c.designId, await store.listPosts({ designId: c.designId }));
   }
-  return groupFeedback(comments, mocks, posts, base);
+  return groupFeedback(comments, designs, posts, base);
 }
 
 // Every image a list of batches carries, in order — what the MCP tiers attach
@@ -282,7 +282,7 @@ export function feedbackImages(batches: FeedbackBatch[]): ImageRef[] {
   for (const b of batches) {
     for (const a of b.reply?.asks ?? []) {
       for (const c of a.chosen) if ("other" in c && c.images) out.push(...c.images);
-      if (a.noteImages) out.push(...a.noteImages);
+      if (a.commentImages) out.push(...a.commentImages);
     }
   }
   return out;

@@ -1,4 +1,4 @@
-// The last Send, carried to the next mock: Send moves the user on, and its
+// The last Send, carried to the next design: Send moves the user on, and its
 // Delivered / Not seen yet must stay in sight there, or a reply the agent never
 // picked up goes unnoticed. Lives outside any one screen, since the screen that
 // sent it is gone by then.
@@ -14,7 +14,7 @@ export interface Carried {
   project: string;
   slug: string;
   title: string;
-  mockId: string;
+  designId: string;
   replyId: string;
 }
 
@@ -35,7 +35,7 @@ export function useCarriedDelivery() {
   const load = async () => {
     const c = carried();
     if (!c) return;
-    const { comments } = await api.comments(c.mockId).catch(() => ({ comments: [] }));
+    const { comments } = await api.comments(c.designId).catch(() => ({ comments: [] }));
     // The carried reply may have been replaced while this was in flight.
     if (carried() !== c) return;
     const row = comments.find((x) => x.id === c.replyId);

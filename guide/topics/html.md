@@ -50,7 +50,7 @@ decoration, and a slow one delays the frame's layout.
 ## Scope
 
 - For diagrams, `<svg width="100%" viewBox="0 0 680 H">` with the classes below.
-- One concept per mock. Publish several small mocks with their own slugs rather
+- One concept per design. Publish several small designs with their own slugs rather
   than one giant page.
 
 ## Theme tokens
@@ -136,11 +136,11 @@ The builtin, issues and slides kits also ship layout helpers (`.row`, `.stack`,
 `.num`, `.kbd`, `.hr`).
 
 ```sh
-mockpit publish --mock ci-status --html status.html --kit issues   # repeat --kit for more
+mockpit publish --design ci-status --html status.html --kit issues   # repeat --kit for more
 ```
 
 ```js
-publish({ mock: "ci-status", surfaces: [{ kind: "html", html, kits: ["issues"] }] });
+publish({ design: "ci-status", surfaces: [{ kind: "html", html, kits: ["issues"] }] });
 ```
 
 A kit only adds vocabulary. Write custom markup right beside kit classes.

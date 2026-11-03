@@ -13,7 +13,7 @@ export const MCP_SERVER_INFO = { name: "mockpit", version: "0.2.0" };
 const SURFACE_KIND_ENUM = [...SURFACE_KINDS] as [SurfaceKind, ...SurfaceKind[]];
 
 export const MCP_INSTRUCTIONS =
-  "Mockpit shows design work to the user: project > mock > state > variant > version. publish " +
+  "Mockpit shows design work to the user: project > design > state > variant > version. publish " +
   "each variant (name states in the user's words; declare parts with data-part); publish again to " +
   "revise. A choice is several variants plus one question that binds them (ask). One render plus a " +
   "control: declare a knob. Say where to look, then end your turn; nothing waits. When the " +
@@ -21,12 +21,11 @@ export const MCP_INSTRUCTIONS =
   "Fetch guide before html.";
 
 const field = {
-  mock: "Mock slug, title or id",
+  design: "Design slug, title or id",
   state: "State label; omit if single-state",
-  situation: 'Another render of this state ("Couldn\'t save"): its own state, "state · situation"',
   variant: 'Variant label; default "default"',
   project: "Default: the session's project",
-  title: "Mock title",
+  title: "Design title",
   session: "Session id from an earlier publish",
   sessionTitle: "Task name; used only when creating the session",
   agent: "Agent name for a new session",
@@ -39,9 +38,9 @@ const field = {
   withdraw: "Take the latest version back, before the user acts on it",
   fork: 'Start this new variant from a sibling: "variant" or "variant@N"; alone it copies it, with parts/fills it edits the copy',
   prompt: "What prompted this version; usually omit",
-  note: "What this variant is; shown beside it, never in the html",
+  description: "What this variant is; shown beside it, never in the html",
   widths: "Widths it ships at, side by side: [390,1280]",
-  kind: "Only when building the product's screens: page (a screen), component (a piece pages embed). With no html it plans one, drawn by a later publish. Omit for sketches, diagrams and reviews",
+  kind: "Only when building the product's screens: screen, component (a reusable design screens embed). With no html it plans one, drawn by a later publish. Omit for ideas, diagrams and reviews",
   area: 'Product area in the project\'s words; Home groups by it. "" clears',
   source: 'Code path implementing it. "" clears',
   flow: "Flow this state is a step of; alone, only places it",
@@ -94,7 +93,7 @@ export const mcpSurfaceSchema = z
 const askSchema = z.object({
   id: z.string().optional().describe("Stable id; reusing one replaces that question"),
   text: z.string().describe("The question, one sentence"),
-  scope: z.enum(["mock", "state", "part"]).optional(),
+  scope: z.enum(["design", "state", "part"]).optional(),
   state: z.string().optional(),
   part: z.string().optional().describe("data-part name, for scope part"),
   multi: z.boolean().optional(),
@@ -153,14 +152,14 @@ function zodParam(p: Param): z.ZodType {
 }
 
 const P = {
-  mock: { t: "string", d: field.mock, req: true },
+  design: { t: "string", d: field.design, req: true },
   state: { t: "string", d: field.state },
   variant: { t: "string", d: field.variant },
   project: { t: "string", d: field.project },
   session: { t: "string", d: field.session },
 } as const satisfies Record<string, Param>;
 
-const VARIANT_REF = { mock: P.mock, state: P.state, variant: P.variant, project: P.project };
+const VARIANT_REF = { design: P.design, state: P.state, variant: P.variant, project: P.project };
 
 interface ToolDef {
   name: string;
@@ -176,12 +175,11 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "publish",
     description:
-      "Create or version one variant of one state of a mock. One of html, surfaces (the full ordered list), parts or fills (splice the latest version); or kind page or component and none of them, to plan it. Returns parts per state, nudges, feedback.",
+      "Create or version one variant of one state of a design. One of html, surfaces (the full ordered list), parts or fills (splice the latest version); or kind screen or component and none of them, to plan it. Returns parts per state, nudges, feedback.",
     params: {
       ...VARIANT_REF,
-      situation: { t: "string", d: field.situation },
       title: { t: "string", d: field.title },
-      kind: { t: "enum", values: ["page", "component", "sketch"], d: field.kind },
+      kind: { t: "enum", values: ["screen", "component", "idea"], d: field.kind },
       area: { t: "string", d: field.area },
       source: { t: "string", d: field.source },
       html: { t: "string", d: field.html },
@@ -202,7 +200,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       amend: { t: "boolean", d: field.amend },
       withdraw: { t: "boolean", d: field.withdraw },
       prompt: { t: "string", d: field.prompt },
-      note: { t: "string", d: field.note },
+      description: { t: "string", d: field.description },
       widths: { t: "integers", d: field.widths },
       flow: { t: "string", d: field.flow },
       step: { t: "integer", d: field.step },
@@ -215,9 +213,9 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "ask",
     description:
-      "Ask structured questions on a mock. A choice is several variants plus one question that binds them; options may also set knob values. Reusing a question id replaces it.",
+      "Ask structured questions on a design. A choice is several variants plus one question that binds them; options may also set knob values. Reusing a question id replaces it.",
     params: {
-      mock: P.mock,
+      design: P.design,
       project: P.project,
       asks: { t: "asks", d: "Questions with options", req: true },
       session: P.session,
@@ -227,15 +225,15 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "read",
     description:
-      "Read this first. Both forms carry decisionList: what the user already settled in this project; it stands unless they say otherwise. Without mock: every mock (slug, states, variants, open questions), flows, plus pending. With mock: its notes (a spec; the user's edits stand), states, variants, questions with answers, parts, knobs and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
+      "Read this first. Both forms carry decisionList: what the user already settled in this project; it stands unless they say otherwise. Without design: every design (slug, states, variants, open questions), flows, plus pending. With design: its notes (a spec; the user's edits stand), states, variants, questions with answers, parts, knobs and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
     params: {
-      mock: { t: "string", d: field.mock },
+      design: { t: "string", d: field.design },
       project: P.project,
       body: { t: "boolean", d: "Include each variant's surfaces" },
       history: { t: "boolean", d: "Include version rows" },
       tree: {
         t: "boolean",
-        d: "Without mock: the project as a tree (each mock's variants with status and forkedFrom, the mocks it embeds and is embedded in)",
+        d: "Without design: the project as a tree (each design's variants with status and forkedFrom, the designs it embeds and is embedded in)",
       },
       decisions: {
         t: "boolean",
@@ -246,7 +244,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "feedback",
     description:
-      "Returns at once: what the user sent since you last heard (one batch per mock: reply answers, borrowed parts, tuned knobs, part comments, verdict; thread messages; inUse/archived), delivered once, plus pending (viewer open, draft progress).",
+      "Returns at once: what the user sent since you last heard (one batch per design: reply answers, borrowed parts, tuned knobs, part comments, verdict; thread messages; inUse/archived), delivered once, plus pending (viewer open, draft progress).",
     params: {
       project: P.project,
       session: { t: "string", d: "Session id returned by publish", req: true },
@@ -255,7 +253,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   },
   {
     name: "say",
-    description: "Post a short plain-text message in a mock's thread. Returns feedback.",
+    description: "Post a short plain-text message in a design's thread. Returns feedback.",
     params: {
       ...VARIANT_REF,
       message: { t: "string", d: "Plain text", req: true },
@@ -266,12 +264,12 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "move",
     description:
-      "Tidy up variants: to or toState moves them there and out of here; archive hides them; restore brings them back. Never deletes; a group goes along; one in use stays. Returns feedback.",
+      "Tidy up variants: to or toState moves them there and out of here; archive takes them out of view; restore brings them back. Never deletes; a group goes along; one in use stays. Returns feedback.",
     params: {
-      mock: P.mock,
+      design: P.design,
       state: P.state,
       variants: { t: "strings", d: "Variant names", req: true },
-      to: { t: "string", d: "Target mock; default this one" },
+      to: { t: "string", d: "Target design; default this one" },
       toState: { t: "string", d: "Target state; created if new" },
       archive: { t: "boolean" },
       restore: { t: "boolean" },
@@ -289,22 +287,22 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "edit",
     description:
-      "Change a mock without a new version; a new slug rewrites every reference to the old one. Without mock, rename renames the project and areaOrder orders its areas. Returns feedback.",
+      "Change a design without a new version; a new slug rewrites every reference to the old one. Without design, rename renames the project and areaOrder orders its areas. Returns feedback.",
     params: {
-      mock: { t: "string", d: field.mock },
+      design: { t: "string", d: field.design },
       project: P.project,
       slug: { t: "string" },
       title: { t: "string" },
-      kind: { t: "enum", values: ["page", "component", "sketch"] },
+      kind: { t: "enum", values: ["screen", "component", "idea"] },
       area: { t: "string" },
       source: { t: "string" },
-      firstState: { t: "string", d: "Names a mock's one unnamed state, so it can have more" },
+      firstState: { t: "string", d: "Names a design's one unnamed state, so it can have more" },
       notes: {
         t: "string",
         d: `A short plain-text spec, at most ${MAX_NOTES} characters; "" clears. Not applied over the user's own edit, and the result says so`,
       },
       rename: { t: "string", d: "New project name" },
-      areaOrder: { t: "strings", d: "Without mock: Home's area order" },
+      areaOrder: { t: "strings", d: "Without design: Home's area order" },
       session: P.session,
     },
     httpOnly: ["session"],
@@ -365,16 +363,16 @@ const bag = z.record(z.string(), z.unknown());
 const variantRef = o({ state: nullStr, variant: str });
 const inUseRef = o({ state: nullStr, variant: str, version: num });
 const partsByState = z.array(o({ state: nullStr, parts: z.array(o({ name: str })) }));
-const flowSchema = o({ name: str, steps: z.array(o({ mock: str, state: nullStr })) });
+const flowSchema = o({ name: str, steps: z.array(o({ design: str, state: nullStr })) });
 
 const feedbackSchema = o({
-  mock: nullStr,
+  design: nullStr,
   reply: o({
     asks: z.array(
       o({
         ask: str,
         chosen: z.array(o({ label: str, other: z.literal(true).optional() })),
-        note: str.optional(),
+        description: str.optional(),
       }),
     ),
     borrowed: bag.describe("Part → the variant to take it from"),
@@ -394,17 +392,16 @@ const feedbackSchema = o({
     kind: str.optional(),
     area: nullStr.optional(),
     notes: nullStr.optional(),
-    grouped: z.array(o({ state: nullStr, lead: nullStr, variants: z.array(str) })).optional(),
   })
     .optional()
-    .describe("The user moved the mock from Home (its kind or area now) or edited its notes"),
+    .describe("The user moved the design from Home (its kind or area now) or edited its notes"),
 }).meta({ id: "Feedback" });
 // Typed once, on feedback: repeating it on every write would cost more than
 // the rest of the write's output schema.
 const feedbackRide = z.array(bag).describe("Feedback batches as the feedback tool returns");
 const pendingSchema = o({
-  mock: str,
-  closed: z.literal(true).optional(),
+  design: str,
+  archived: z.literal(true).optional(),
   viewerOpen: z.boolean(),
   draft: o({ answered: num, of: num, comments: num, touchedAt: str }).nullable(),
 }).meta({ id: "Pending" });
@@ -454,14 +451,14 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
     feedback: feedbackRide,
   },
   feedback: {
-    feedback: z.array(feedbackSchema).describe("One batch per mock; empty when nothing is new"),
+    feedback: z.array(feedbackSchema).describe("One batch per design; empty when nothing is new"),
     pending: z.array(pendingSchema),
   },
   say: { feedback: feedbackRide },
   move: {
     variants: z.array(o({ state: str.nullable(), variant: str, status: str })),
     skipped: z.array(o({ variant: str, why: str })),
-    to: o({ mock: str, title: str, state: str.nullable() }).optional(),
+    to: o({ design: str, title: str, state: str.nullable() }).optional(),
     saved: z
       .array(o({ state: str.nullable(), variant: str, already: z.boolean() }))
       .optional()
@@ -477,7 +474,7 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
     feedback: feedbackRide,
   },
   read: {
-    mocks: z.array(o({ slug: str, states: strs, variants: num, open: num })).optional(),
+    designs: z.array(o({ slug: str, states: strs, variants: num, open: num })).optional(),
     states: strs.optional(),
     asks: z.array(o({ id: str, text: str })).optional(),
     variants: z
@@ -507,11 +504,11 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
       total: num,
       lines: z.array(
         o({
-          mock: str,
+          design: str,
           text: str,
-          here: z.boolean().optional().describe("From the mock read"),
+          here: z.boolean().optional().describe("From the design read"),
           edited: z.boolean().optional(),
-          closed: z.boolean().optional(),
+          archived: z.boolean().optional(),
         }),
       ),
       more: str.optional(),

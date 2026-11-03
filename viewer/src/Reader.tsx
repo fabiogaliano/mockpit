@@ -36,7 +36,7 @@ import {
 import type { Margins } from "./Margins.tsx";
 import { WithThisSend } from "./Margins.tsx";
 import { ArrivedBanner, httpUrl, MarkField, NativeSurface, num } from "./Stage.tsx";
-import type { MockScreenState } from "./state.ts";
+import type { DesignScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
 import { cardInset, coarse } from "./viewport.ts";
 
@@ -85,7 +85,7 @@ interface Pending {
   block: ParagraphBlock;
 }
 
-export function Reader(props: { s: MockScreenState }) {
+export function Reader(props: { s: DesignScreenState }) {
   const s = props.s;
   const variant = () => s.activeVariant();
   const version = createMemo(() => {
@@ -206,7 +206,7 @@ export function Reader(props: { s: MockScreenState }) {
       <ArrivedBanner s={s} />
       <article
         class="reader-col"
-        aria-label={s.mock()?.title}
+        aria-label={s.design()?.title}
         style={{ "padding-bottom": `${Math.max(120, cardInset().bottom)}px` }}
       >
         <Show when={hint()}>{(h) => <p class="reader-hint">{h()}</p>}</Show>
@@ -349,7 +349,7 @@ export function Reader(props: { s: MockScreenState }) {
 
 // A phone has no margin to read comments back in and no question card to send them
 // from when nothing was asked: this is that, above the version bar.
-export function ReaderSend(props: { s: MockScreenState; m: Margins }) {
+export function ReaderSend(props: { s: DesignScreenState; m: Margins }) {
   const s = props.s;
   const [open, setOpen] = createSignal(false);
   const n = () => {

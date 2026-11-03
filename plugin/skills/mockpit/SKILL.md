@@ -1,13 +1,13 @@
 ---
 name: mockpit
-description: Publish live design work — UI mocks with states and variants, diagrams, visual explainers — to the user's mockpit surface, ask structured questions on it, and receive the user's batched reply as a notification. Use when the user asks you to design, illustrate, visualize, sketch, or mock up something, mentions mockpit, or when a render would explain your work better than text.
+description: Publish live design work — UI designs with states and variants, diagrams, visual explainers — to the user's mockpit surface, ask structured questions on it, and receive the user's batched reply as a notification. Use when the user asks you to design, illustrate, visualize, sketch, or design up something, mentions mockpit, or when a render would explain your work better than text.
 ---
 
 # mockpit (plugin)
 
-The user keeps mockpit open in a browser. You publish a **mock** (a sketch, page or
+The user keeps mockpit open in a browser. You publish a **design** (an idea, screen or
 component by slug) with **states** named in the user's words, **variants** as
-parallel designs and numbered **versions**. Declare the **parts** you want
+parallel takes and numbered **versions**. Declare the **parts** you want
 feedback on with `data-part`. The user answers your questions, tunes knobs and
 comments on parts, then presses **Send** once.
 
@@ -26,35 +26,35 @@ its palette, kit and icon sprite on the server, and writes
 ## The loop
 
 Nothing waits for the user. Publish each variant, ask, tell the user in one
-line where to look, then end your turn. The question itself lives in the mock
+line where to look, then end your turn. The question itself lives in the design
 (`ask`), never in chat. The user answers in the browser at their own pace.
 Never poll.
 
-Declare structure only when designing a product's screens: `--kind page` for a
+Declare structure only when designing a product's screens: `--kind screen` for a
 screen, `--flow <name> --step N` for states the user moves between, and each
-reusable piece (button, card, header) as its own mock embedded with
-`<mockpit-embed slug="card">`, which makes it a component. Sketches, diagrams
-and reviews stay plain; Home shows a tab only for the kinds in use.
+reusable component (button, card, header) as its own design embedded with
+`<mockpit-embed slug="card">`, which makes it a component. Ideas, diagrams
+and reviews stay plain; Home shows a section only for the kinds in use.
 
-Name where each mock belongs in the product with `--area Shell` (the
+Name where each design belongs in the product with `--area Shell` (the
 project's own words) and the code that implements it with `--source
 apps/web/src/shell`; Home groups by area, in the order `mockpit edit --project
 
-<p> --area-order "Shell,Food"` sets. Rename, retitle or reclassify a mock
-without a new version with `mockpit edit --mock <slug> --slug <new>` (it
-rewrites every embed and flow step naming the old slug). Title a mock, like a
+<p> --area-order "Shell,Food"` sets. Rename, retitle or reclassify a design
+without a new version with `mockpit edit --design <slug> --slug <new>` (it
+rewrites every embed and flow step naming the old slug). Title a design, like a
 state, by what the user sees ("Hold menu"), never by your process ("Round 2 ·
-…", "v2", "Prototype"). The user can move a mock themselves from Home (kind,
+…", "v2", "Prototype"). The user can move a design themselves from Home (kind,
 area, close): you hear it in `feedback` as `edited`.
 
 Prefer the MCP tools when connected (`publish`, `ask`, `read`, `feedback`,
 `say`, `move`, `edit`, `export`, `upload`, `guide`); otherwise use the CLI.
 
 ```sh
-mockpit publish --mock writer --state "Writing" --variant quiet --html quiet.html
-mockpit publish --mock writer --state "Writing" --variant dark  --html dark.html
-mockpit ask     --mock writer "Quiet or dark?" --option Quiet=quiet --option Dark=dark
-mockpit export  --mock writer
+mockpit publish --design writer --state "Writing" --variant quiet --html quiet.html
+mockpit publish --design writer --state "Writing" --variant dark  --html dark.html
+mockpit ask     --design writer "Quiet or dark?" --option Quiet=quiet --option Dark=dark
+mockpit export  --design writer
 ```
 
 ## How feedback reaches you
@@ -81,14 +81,14 @@ one part) or with a short note in the thread (`say` / `mockpit say`).
 
 Rules of thumb:
 
-- One mock per concept, with a stable kebab-case slug; publishing the same
-  (mock, state, variant) again makes a new version.
+- One design per concept, with a stable kebab-case slug; publishing the same
+  (design, state, variant) again makes a new version.
 - A choice is several variants plus one question that binds them. A variant decides
   everything it differs on; don't re-ask it. Visual options carry a `variant`
   or knob `set`. One render plus a control → declare a knob; declare knobs for
   what is worth fine-tuning even unasked. When a publish result nudges, send
   its `suggestedAsk`.
-- The html is the UI alone. Say what a variant is in `note`, never as text
+- The html is the UI alone. Say what a variant is in `description`, never as text
   beside the design; name the widths it ships at once with `widths`.
 - Ask when a decision is genuinely the user's, not after every publish.
 - Use the kit, tokens and icons from `mockpit guide` before writing CSS.

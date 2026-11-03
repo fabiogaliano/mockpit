@@ -2,12 +2,7 @@ import { scanFills, slotCss } from "./fills.ts";
 import { CDN_ALLOWLIST, checkCdnUrl } from "./cdn.ts";
 import { CORE_CSS, KITS, kitAssets } from "./kits.ts";
 import { expandIcons, type IconResolver } from "./icons.ts";
-import {
-  type DesignSettings,
-  PARAGRAPH_TEXT_MAX,
-  PARAGRAPHS_MAX,
-  type ProjectKit,
-} from "./types.ts";
+import { type DesignSystem, PARAGRAPH_TEXT_MAX, PARAGRAPHS_MAX, type ProjectKit } from "./types.ts";
 import {
   type Mode,
   type Palette,
@@ -402,7 +397,7 @@ export const HIT_TEST_JS = `
 //   goto             {version, to}               a click on [data-goto] while the host
 //                                                has Try on (PARTS_JS); to is the
 //                                                attribute as written ("next", "prev",
-//                                                "<mock>:<state>"), ≤200 chars. The host
+//                                                "<design>:<state>"), ≤200 chars. The host
 //                                                honours it only while Try is on, from
 //                                                the frame on stage at its version, and
 //                                                only to a screen of this project:
@@ -443,7 +438,7 @@ export const HIT_TEST_JS = `
 //   paragraph-marks {marked:[i], on:i|null}  tint these blocks of a #read document: the
 //                               ones holding comments, and the one being commented on
 //
-// Knobs (`/s/:id?k=`, validated by the route against the mock's declared knobs,
+// Knobs (`/s/:id?k=`, validated by the route against the design's declared knobs,
 // and the `knobs` command): for each path, dots become "-" in names, and
 //   --k-<path>            on <html style>: numbers as-is, booleans 1/0, strings
 //                         raw when they are plain CSS tokens, else a quoted CSS
@@ -1151,12 +1146,12 @@ function resolveKits(
   return chosen;
 }
 
-// Everything a project's DesignSettings contributes to one html-surface doc.
+// Everything a project's DesignSystem contributes to one html-surface doc.
 // Kept in one place so the ordering rule is visible: the project's own tokens
 // land AFTER mockpit's, because a repo that declares `--radius` or a brand
 // color should win inside its own project's surfaces.
 function designAssets(
-  design: DesignSettings | null | undefined,
+  designSystem: DesignSystem | null | undefined,
   mode: Mode | undefined,
 ): {
   css: string;
@@ -1165,13 +1160,14 @@ function designAssets(
   headScripts: string;
   dark: boolean;
 } {
-  if (!design) return { css: "", kits: [], projectKits: [], headScripts: "", dark: false };
-  const tailwindCss = design.kit === "tailwind" ? (design.tailwindCss?.trim() ?? "") : "";
-  const raw = tailwindCss ? "" : (design.cssVars?.trim() ?? "");
+  if (!designSystem) return { css: "", kits: [], projectKits: [], headScripts: "", dark: false };
+  const tailwindCss =
+    designSystem.kit === "tailwind" ? (designSystem.tailwindCss?.trim() ?? "") : "";
+  const raw = tailwindCss ? "" : (designSystem.cssVars?.trim() ?? "");
   // `cssVars` is stored as the repo's raw block; accept either the full
   // `:root{…}` text or a bare declaration list.
   const vars = raw ? (raw.includes("{") ? raw : `:root{${raw}}`) : "";
-  const kit = design.kit;
+  const kit = designSystem.kit;
   // The browser build reads its input from the style tags present when its
   // script runs, so the stylesheet goes first. Its compiled output already
   // carries the repo's `:root` block, hence no `cssVars` beside it.
@@ -1182,7 +1178,7 @@ function designAssets(
   return {
     css: vars,
     kits: kit && kit !== "tailwind" && kit !== "none" ? [kit] : [],
-    projectKits: Array.isArray(design.projectKits) ? design.projectKits : [],
+    projectKits: Array.isArray(designSystem.projectKits) ? designSystem.projectKits : [],
     headScripts: tailwind,
     // Repos theme dark through a `.dark` ancestor (shadcn's `.dark {…}` block,
     // `@custom-variant dark (&:is(.dark *))`), so the frame wears the class.
@@ -1466,7 +1462,7 @@ export function renderHtmlPage(doc: {
   // The post's project design settings (`design:<project>`), imported from the
   // repo by `mockpit init`. Null/absent → the surface renders exactly as it
   // did before this existed.
-  design?: DesignSettings | null;
+  designSystem?: DesignSystem | null;
   // The post version this document renders; tagged on every parts report.
   version?: number;
   // Validated `?k=` values (the route checks them against the declared knobs).
@@ -1477,15 +1473,15 @@ export function renderHtmlPage(doc: {
 }): string {
   const theme =
     typeof doc.theme === "string" || doc.theme == null ? themeById(doc.theme) : doc.theme;
-  const design = designAssets(doc.design, doc.mode);
+  const designSystem = designAssets(doc.designSystem, doc.mode);
   const preamble = knobPreamble(doc.version, doc.knobs);
-  const htmlTag = design.dark
+  const htmlTag = designSystem.dark
     ? preamble.htmlTag.replace("<html ", '<html class="dark" ')
     : preamble.htmlTag;
   // The project kit is appended, so with both present its components win over
   // a surface-requested kit's same-named classes.
-  const kitIds = [...(doc.kits ?? []), ...design.kits];
-  const kits = resolveKits(kitIds, design.projectKits);
+  const kitIds = [...(doc.kits ?? []), ...designSystem.kits];
+  const kits = resolveKits(kitIds, designSystem.projectKits);
   const kit = kitAssets(kitIds);
   // Document order still decides the cascade, so the externalized stylesheets
   // sit exactly where their inlined text used to: theme tokens, base, kit
@@ -1499,7 +1495,7 @@ export function renderHtmlPage(doc: {
       ...(k.href ? [`<link rel="stylesheet" href="${escapeHtml(k.href)}">`] : []),
       ...(k.cssPath ? [styleTag(doc.origin, k.cssPath)] : []),
     ]),
-    `<style>${design.css}${colorSchemeCss(doc.mode)}</style>`,
+    `<style>${designSystem.css}${colorSchemeCss(doc.mode)}</style>`,
   ].join("\n");
   // Slots (fills.ts): only the chosen fill of each shows, keyed on the knob
   // attribute; with no value yet, the default fill.
@@ -1515,7 +1511,7 @@ ${preamble.headScript}
 ${scriptTag(doc.origin, KNOBS_PATH)}
 ${styles}
 ${fillCss ? `<style>${fillCss}</style>` : ""}
-${design.headScripts}
+${designSystem.headScripts}
 ${kits.flatMap((k) => (k.script ? [`<script src="${escapeHtml(k.script)}" defer></script>`] : [])).join("\n")}
 </head>
 <body>

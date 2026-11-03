@@ -1,5 +1,5 @@
 // A phone's bottom panel, opened from the version label: the state's History (one
-// line per variant, its versions along it, the one in use marked), the mock's Notes
+// line per variant, its versions along it, the one in use marked), the design's Notes
 // where it has them, and the Thread with the agent.
 
 import { createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js";
@@ -16,12 +16,12 @@ import {
 } from "./logic.ts";
 import { Notes, notesShown } from "./Notes.tsx";
 import { Answered } from "./Questions.tsx";
-import type { MockScreenState } from "./state.ts";
+import type { DesignScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
 import { Thread } from "./Thread.tsx";
 import { Thumb } from "./Thumb.tsx";
 
-export function BottomPanel(props: { s: MockScreenState; onHeight: (h: number) => void }) {
+export function BottomPanel(props: { s: DesignScreenState; onHeight: (h: number) => void }) {
   const s = props.s;
   let el!: HTMLElement;
   const [body, setBody] = createSignal<HTMLElement>();
@@ -102,7 +102,7 @@ export function BottomPanel(props: { s: MockScreenState; onHeight: (h: number) =
   );
 }
 
-function HistoryHead(props: { s: MockScreenState }) {
+function HistoryHead(props: { s: DesignScreenState }) {
   const s = props.s;
   const hidden = () => s.steps().filter((x) => x.hidden).length;
   const visible = () => s.steps().length - hidden();
@@ -154,7 +154,7 @@ const GAP_X = 26;
 const GAP_Y = 30;
 const LINE_NAME_H = 20;
 
-function History(props: { s: MockScreenState }) {
+function History(props: { s: DesignScreenState }) {
   const s = props.s;
   const layout = createMemo(() => historyLayout(s.steps()));
   const size = () => (widthKind(s.frameW()) === "phone" ? TALL : FLAT);
@@ -208,7 +208,7 @@ function History(props: { s: MockScreenState }) {
 }
 
 function HistoryThumb(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   step: VersionStep;
   size: { w: number; h: number };
 }) {

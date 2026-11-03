@@ -1,5 +1,5 @@
 // Composition: `<mockpit-embed slug="…" variant="…" version="…">` tags in any
-// mock's html are expanded server-side by inlining the referenced variant
+// design's html are expanded server-side by inlining the referenced variant
 // version's first html surface body, recursively, so a component can be built
 // from components. A tag without `version` follows the version in use when the
 // variant it resolves to is accepted, else its latest; one without `variant`
@@ -24,7 +24,7 @@ export interface EmbedTag {
 // What a tag resolved to: the variant and version shown, and its html body.
 // `attrs` (pre-escaped) go on the wrapper: the component's settled knob values,
 // so the page shows the component as decided. `stamp` names those values for
-// the embeds key, so deciding something on a component re-renders its pages.
+// the embeds key, so deciding something on a component re-renders its screens.
 export interface ResolvedEmbed {
   variant: string;
   version: number;
@@ -76,7 +76,7 @@ export function parseEmbedTags(html: string): EmbedTag[] {
 export const hasEmbedTags = (html: string): boolean => /<mockpit-embed\b/i.test(html);
 
 // Whether a post's first html surface embeds anything, cached per surfaces array
-// (a stored post never mutates it): a mock's view asks on every read.
+// (a stored post never mutates it): a design's view asks on every read.
 const embedsBySurfaces = new WeakMap<Surface[], boolean>();
 export function firstHtmlEmbeds(surfaces: Surface[]): boolean {
   const hit = embedsBySurfaces.get(surfaces);
@@ -87,7 +87,7 @@ export function firstHtmlEmbeds(surfaces: Surface[]): boolean {
   return found;
 }
 
-// The html with every reference to mock `from` pointed at `to`: the slug of
+// The html with every reference to design `from` pointed at `to`: the slug of
 // each embed tag naming it, and each data-goto naming it ("from" or
 // "from:<state>"). What a slug rename writes into every stored version, so
 // each version still renders the same component it did.
@@ -107,11 +107,11 @@ export function renameSlugRefs(html: string, from: string, to: string): string {
       /(\sdata-goto\s*=\s*)(?:"([^"]*)"|'([^']*)')/gi,
       (m: string, key: string, dq?: string, sq?: string) => {
         const value = dq ?? sq ?? "";
-        // "next" and "prev" are directions, never a mock.
+        // "next" and "prev" are directions, never a design.
         if (value === "next" || value === "prev") return m;
         const colon = value.indexOf(":");
-        const mock = (colon < 0 ? value : value.slice(0, colon)).trim();
-        if (mock !== from) return m;
+        const design = (colon < 0 ? value : value.slice(0, colon)).trim();
+        if (design !== from) return m;
         const q = dq === undefined ? "'" : '"';
         return `${key}${q}${to}${colon < 0 ? "" : value.slice(colon)}${q}`;
       },
@@ -131,7 +131,7 @@ export interface Expanded {
 }
 
 // Replace each tag with its resolved body, expanding that body's own tags in
-// turn. `stack` is the chain of slugs being expanded (the root mock's first),
+// turn. `stack` is the chain of slugs being expanded (the root design's first),
 // so a component that reaches back up renders a marked placeholder instead of
 // recursing. An unresolvable embed renders as an empty marked-up placeholder
 // rather than vanishing, so a broken reference is visible in review instead of

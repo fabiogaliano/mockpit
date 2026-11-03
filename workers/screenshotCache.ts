@@ -1,5 +1,5 @@
 // Short-lived edge cache for the versioned social-card screenshot advertised by
-// mock page metadata.
+// design page metadata.
 //
 // Authorization and pixel-identity validation happen before cache lookup: the
 // workspace DO must approve `/s/:id?surface=0&ver=N&theme=T&mode=M`. A forged or

@@ -5,12 +5,12 @@
 
 import { createMemo, createSignal, For, Show } from "solid-js";
 import type { DecisionLine } from "../../server/decisionList.ts";
-import { assetUrl, type DecisionListView, type MockSummary, surfaceUrl } from "./api.ts";
+import { assetUrl, type DecisionListView, type DesignSummary, surfaceUrl } from "./api.ts";
 import { byDay, plural, questions } from "./albums.ts";
 import { DecisionRow, createDecisionEdits } from "./Decisions.tsx";
 import { Icon } from "./icons.tsx";
 import { timeAgo } from "./logic.ts";
-import { linkClick, mockPath, projectPath, type RecentShow } from "./route.ts";
+import { linkClick, designPath, projectPath, type RecentShow } from "./route.ts";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 import { Toast } from "./toast.tsx";
@@ -18,12 +18,12 @@ import { Toast } from "./toast.tsx";
 const FIRST_OF_EACH = 3;
 
 type Entry =
-  | { kind: "design"; key: string; at: string; mock: MockSummary }
+  | { kind: "design"; key: string; at: string; design: DesignSummary }
   | { kind: "decision"; key: string; at: string | undefined; line: DecisionLine };
 
-export function MockThumb(props: { mock: MockSummary }) {
+export function DesignThumb(props: { design: DesignSummary }) {
   return (
-    <Show when={props.mock.thumbnail}>
+    <Show when={props.design.thumbnail}>
       {(t) => (
         <Show
           when={t().poster}
@@ -48,10 +48,10 @@ export function MockThumb(props: { mock: MockSummary }) {
 
 export function Recent(props: {
   project: string;
-  mocks: MockSummary[];
-  // When a mock last had new work, which is what "updated" here should mean. Not its
+  designs: DesignSummary[];
+  // When a design last had new work, which is what "updated" here should mean. Not its
   // own updatedAt, which a reason or a restore also moves.
-  workedAt: (mock: MockSummary) => string;
+  workedAt: (design: DesignSummary) => string;
   lines: DecisionLine[];
   show: RecentShow | null;
   go: (e: MouseEvent, path: string) => void;
@@ -65,11 +65,11 @@ export function Recent(props: {
     const designs: Entry[] =
       props.show === "decisions"
         ? []
-        : props.mocks.map((m) => ({
+        : props.designs.map((m) => ({
             kind: "design",
             key: `m:${m.id}`,
             at: props.workedAt(m),
-            mock: m,
+            design: m,
           }));
     const decisions: Entry[] =
       props.show === "designs"
@@ -110,7 +110,7 @@ export function Recent(props: {
       </Show>
       <Show when={props.show === "decisions"}>
         <p class="decisions-lead">
-          Written from your replies. Agents read this first, and treat it as settled.
+          Written from what you sent. Agents read this first, and treat it as settled.
         </p>
       </Show>
       <For each={days()}>
@@ -140,7 +140,7 @@ export function Recent(props: {
                 <For each={shown()}>
                   {(entry) =>
                     entry.kind === "design" ? (
-                      <DesignEntry project={props.project} mock={entry.mock} at={entry.at} />
+                      <DesignEntry project={props.project} design={entry.design} at={entry.at} />
                     ) : (
                       <DecisionEntry project={props.project} line={entry.line} edits={edits} />
                     )
@@ -165,8 +165,8 @@ export function Recent(props: {
   );
 }
 
-function DesignEntry(props: { project: string; mock: MockSummary; at: string }) {
-  const href = () => mockPath(props.project, props.mock.slug);
+function DesignEntry(props: { project: string; design: DesignSummary; at: string }) {
+  const href = () => designPath(props.project, props.design.slug);
   return (
     <li class="recent-entry">
       <a
@@ -176,17 +176,17 @@ function DesignEntry(props: { project: string; mock: MockSummary; at: string }) 
         aria-hidden="true"
         onClick={(e) => linkClick(e, href())}
       >
-        <MockThumb mock={props.mock} />
+        <DesignThumb design={props.design} />
       </a>
       <div class="recent-body">
         <a class="recent-name" href={href()} onClick={(e) => linkClick(e, href())}>
-          {props.mock.title}
+          {props.design.title}
         </a>{" "}
         <span class="recent-what">updated</span>
-        <Show when={props.mock.open > 0}>
+        <Show when={props.design.open > 0}>
           <span class="home-chip recent-chip">
             <i class="dot" />
-            {questions(props.mock.open)}
+            {questions(props.design.open)}
           </span>
         </Show>
       </div>
@@ -200,7 +200,7 @@ function DecisionEntry(props: {
   line: DecisionLine;
   edits: ReturnType<typeof createDecisionEdits>;
 }) {
-  const href = () => mockPath(props.project, props.line.mock);
+  const href = () => designPath(props.project, props.line.design);
   return (
     <li class="recent-entry">
       <span class="recent-pic recent-mark" aria-hidden="true">
@@ -211,7 +211,7 @@ function DecisionEntry(props: {
           {props.line.title}
         </a>
         <span class="recent-what"> · you decided</span>
-        <Show when={props.line.closed}>
+        <Show when={props.line.archived}>
           <span class="decisions-closed"> · Archived</span>
         </Show>
         <DecisionRow project={props.project} line={props.line} edits={props.edits} />

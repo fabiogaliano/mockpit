@@ -2,27 +2,27 @@ import type { Mode } from "./themes.ts";
 
 export type FeedEvent =
   | { type: "session-created" | "session-updated" | "session-deleted"; id: string }
-  // A mock's own fields changed (title, states, asks, knobs) or it was created.
-  | { type: "mock-created" | "mock-updated"; id: string; project: string }
-  | { type: "mock-deleted"; id: string; project: string }
-  // The user's draft changed, so other open tabs on the mock refresh it.
-  | { type: "draft-updated"; mockId: string }
+  // A design's own fields changed (title, states, asks, knobs) or it was created.
+  | { type: "design-created" | "design-updated"; id: string; project: string }
+  | { type: "design-deleted"; id: string; project: string }
+  // The user's draft changed, so other open tabs on the design refresh it.
+  | { type: "draft-updated"; designId: string }
   | {
       type: "post-created" | "post-updated";
       id: string;
-      mockId: string;
+      designId: string;
       sessionId: string;
       version: number;
       // Who caused it: the viewer's own restores and Send's accept/archive
       // flips are "user", so a listener can tell them from the agent's work.
       by: "agent" | "user";
     }
-  | { type: "post-deleted"; id: string; mockId: string; sessionId: string }
+  | { type: "post-deleted"; id: string; designId: string; sessionId: string }
   | {
       type: "comment-created";
       id: string;
       sessionId: string;
-      mockId: string | null;
+      designId: string | null;
       postId: string | null;
       seq: number;
     }

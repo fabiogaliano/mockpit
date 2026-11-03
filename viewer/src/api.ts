@@ -3,8 +3,8 @@
 // viewer's typecheck instead of its runtime.
 
 import type {
-  mockDetailView,
-  mockSummaryView,
+  designDetailView,
+  designSummaryView,
   treeNodeView,
   variantView,
 } from "../../server/apiViews.ts";
@@ -18,7 +18,7 @@ import type {
   Draft,
   FlowStep,
   KnobValue,
-  MockKind,
+  DesignKind,
   StateOutline,
   PartComment,
   ProjectSummary,
@@ -27,8 +27,8 @@ import type {
 import { basePath, host, renderRev } from "./host.ts";
 
 import type { JumpHit } from "../../server/jump.ts";
-export type MockSummary = ReturnType<typeof mockSummaryView>;
-export type MockDetail = ReturnType<typeof mockDetailView>;
+export type DesignSummary = ReturnType<typeof designSummaryView>;
+export type DesignDetail = ReturnType<typeof designDetailView>;
 export type TreeNode = ReturnType<typeof treeNodeView>;
 // A declared flow as `read` returns it: only steps whose screen exists.
 export type FlowView = { name: string; steps: FlowStep[] };
@@ -36,8 +36,8 @@ export type VariantView = ReturnType<typeof variantView>;
 export type HistoryRow = NonNullable<VariantView["history"]>[number];
 // What a restore changed, sent back as it is by its Undo.
 export type RestoreUndo = {
-  closedAt: string | null;
-  closeReason: string | null;
+  archivedAt: string | null;
+  archiveReason: string | null;
   dismissed: string[];
   variants: { id: string; archivedAt: string; reason: string | null }[];
 };
@@ -62,9 +62,9 @@ export interface DraftInput {
   tuned: Record<string, KnobValue>;
   comments: PartComment[];
   others: Record<string, string>;
-  notes: Record<string, string>;
+  askComments: Record<string, string>;
   otherImages: Record<string, string[]>;
-  noteImages: Record<string, string[]>;
+  askCommentImages: Record<string, string[]>;
 }
 
 export interface Shortlist {
@@ -76,11 +76,11 @@ export interface Shortlist {
 export type SaveCandidate = CopyRef;
 export type { LiveCopy };
 
-export interface MockList {
+export interface DesignList {
   project?: string;
-  mocks: MockSummary[];
+  designs: DesignSummary[];
   open: number;
-  openMocks: number;
+  openDesigns: number;
 }
 
 export class ApiError extends Error {
@@ -121,16 +121,17 @@ export const api = {
     call<{ hits: JumpHit[] }>(
       `/api/search?q=${encodeURIComponent(q)}${project ? `&project=${encodeURIComponent(project)}` : ""}`,
     ),
-  // The mocks this browser opened last, as they are called now.
+  // The designs this browser opened last, as they are called now.
   searchRecent: (ids: string[]) =>
     call<{ hits: JumpHit[] }>(`/api/search?recent=${ids.map(encodeURIComponent).join(",")}`),
-  mocks: (project: string) => call<MockList>(`/api/mocks?project=${encodeURIComponent(project)}`),
-  // Every project's mocks: what the app badge counts.
+  designs: (project: string) =>
+    call<DesignList>(`/api/designs?project=${encodeURIComponent(project)}`),
+  // Every project's designs: what the app badge counts.
   shortlists: (project: string) =>
     call<{ shortlists: Shortlist[]; copies: LiveCopy[] }>(
       `/api/projects/${encodeURIComponent(project)}/shortlists`,
     ),
-  // Into the mock and state `to` names, or the shortlist called `title`, made if
+  // Into the design and state `to` names, or the shortlist called `title`, made if
   // need be.
   saveCopies: (body: {
     to?: string;
@@ -142,9 +143,9 @@ export const api = {
       to: { id: string; slug: string; title: string; shortlist: boolean };
       saved: { state: string | null; variant: string; already: boolean }[];
     }>("/api/copies", json("POST", body)),
-  removeCopy: (mock: string, state: string | null, variant: string) =>
+  removeCopy: (design: string, state: string | null, variant: string) =>
     call<unknown>(
-      `/api/copies/${encodeURIComponent(mock)}/remove`,
+      `/api/copies/${encodeURIComponent(design)}/remove`,
       json("POST", { state, variant }),
     ),
   // The project as a tree: what the canvas and the phone's drill-down lay out.
@@ -157,69 +158,69 @@ export const api = {
     call<{ hosts: string[]; localOnly: boolean; access: "open" | "key" | "read" | "unknown" }>(
       "/api/reach",
     ),
-  mock: (id: string) => call<MockDetail>(`/api/mocks/${encodeURIComponent(id)}?history=1`),
-  mockIn: (project: string, slug: string) =>
-    call<MockDetail>(
-      `/api/mocks/${encodeURIComponent(slug)}?history=1&project=${encodeURIComponent(project)}`,
+  design: (id: string) => call<DesignDetail>(`/api/designs/${encodeURIComponent(id)}?history=1`),
+  designIn: (project: string, slug: string) =>
+    call<DesignDetail>(
+      `/api/designs/${encodeURIComponent(slug)}?history=1&project=${encodeURIComponent(project)}`,
     ),
-  // What the flow bar needs on every mock screen, far lighter than the tree.
+  // What the flow bar needs on every design screen, far lighter than the tree.
   flowOutline: (project: string) =>
     call<{
       flows: FlowView[];
-      mocks: { slug: string; title: string; states: (string | null)[] }[];
+      designs: { slug: string; title: string; states: (string | null)[] }[];
     }>(`/api/projects/${encodeURIComponent(project)}/flows`),
-  // The same view without version rows: enough to name a mock and its variants.
-  mockHead: (id: string) => call<MockDetail>(`/api/mocks/${encodeURIComponent(id)}`),
+  // The same view without version rows: enough to name a design and its variants.
+  designHead: (id: string) => call<DesignDetail>(`/api/designs/${encodeURIComponent(id)}`),
   draft: (id: string) =>
-    call<{ draft: Draft | null }>(`/api/mocks/${encodeURIComponent(id)}/draft`),
+    call<{ draft: Draft | null }>(`/api/designs/${encodeURIComponent(id)}/draft`),
   putDraft: (id: string, draft: DraftInput) =>
-    call<{ draft: Draft }>(`/api/mocks/${encodeURIComponent(id)}/draft`, json("PUT", draft)),
+    call<{ draft: Draft }>(`/api/designs/${encodeURIComponent(id)}/draft`, json("PUT", draft)),
   reply: (id: string, body: DraftInput & { text?: string; verdict?: ReplyVerdict }) =>
-    call<{ reply: CommentRow }>(`/api/mocks/${encodeURIComponent(id)}/reply`, json("POST", body)),
+    call<{ reply: CommentRow }>(`/api/designs/${encodeURIComponent(id)}/reply`, json("POST", body)),
   // A new version of the variant made from an older one ("restore as vN").
   restoreVersion: (id: string, postId: string, version: number) =>
     call<unknown>(
-      `/api/mocks/${encodeURIComponent(id)}/variants/${encodeURIComponent(postId)}/restore`,
+      `/api/designs/${encodeURIComponent(id)}/variants/${encodeURIComponent(postId)}/variants/restore`,
       json("POST", { version }),
     ),
   // Use this: one exact version goes in use; the agent hears it as a reply.
   use: (id: string, body: { state: string | null; variant: string; version: number }) =>
     call<{ reply: CommentRow | null }>(
-      `/api/mocks/${encodeURIComponent(id)}/use`,
+      `/api/designs/${encodeURIComponent(id)}/use`,
       json("POST", body),
     ),
   // Hide a version from the history, or bring it back.
   hide: (
     id: string,
     body: { state: string | null; variant: string; version: number; hidden: boolean },
-  ) => call<unknown>(`/api/mocks/${encodeURIComponent(id)}/hide`, json("POST", body)),
-  // End a mock: off the shelf, its open asks dismissed, and the agent isn't told.
-  // `reason` is the note picked up from what the user last wrote; reopen undoes it.
-  close: (id: string) =>
-    call<{ mock: MockSummary; reason: string | null }>(
-      `/api/mocks/${encodeURIComponent(id)}/close`,
+  ) => call<unknown>(`/api/designs/${encodeURIComponent(id)}/hide`, json("POST", body)),
+  // Archive a design: off the shelf, its open asks dismissed, and the agent isn't told.
+  // `reason` is the note picked up from what the user last wrote; restoreDesign undoes it.
+  archiveDesign: (id: string) =>
+    call<{ design: DesignSummary; reason: string | null }>(
+      `/api/designs/${encodeURIComponent(id)}/archive`,
       json("POST", {}),
     ),
-  reopen: (id: string) =>
-    call<{ mock: MockSummary; undo?: RestoreUndo }>(
-      `/api/mocks/${encodeURIComponent(id)}/reopen`,
+  restoreDesign: (id: string) =>
+    call<{ design: DesignSummary; undo?: RestoreUndo }>(
+      `/api/designs/${encodeURIComponent(id)}/restore`,
       json("POST", {}),
     ),
   rearchive: (id: string, undo: RestoreUndo) =>
-    call<{ mock: MockSummary }>(
-      `/api/mocks/${encodeURIComponent(id)}/rearchive`,
+    call<{ design: DesignSummary }>(
+      `/api/designs/${encodeURIComponent(id)}/rearchive`,
       json("POST", undo),
     ),
-  // Why an ended mock, or with `variant` an archived variant, went.
+  // Why an archived design, or with `variant` an archived variant, went.
   reason: (
     id: string,
     body:
       | { reason: string | null }
       | { reason: string | null; state: string | null; variant: string },
-  ) => call<unknown>(`/api/mocks/${encodeURIComponent(id)}/reason`, json("POST", body)),
+  ) => call<unknown>(`/api/designs/${encodeURIComponent(id)}/reason`, json("POST", body)),
   // Keep the version in use and stop asking about the newer one.
   stay: (id: string, state: string | null, variant: string) =>
-    call<unknown>(`/api/mocks/${encodeURIComponent(id)}/stay`, json("POST", { state, variant })),
+    call<unknown>(`/api/designs/${encodeURIComponent(id)}/stay`, json("POST", { state, variant })),
   decisions: (project: string) =>
     call<DecisionListView>(`/api/projects/${encodeURIComponent(project)}/decisions`),
   // The user's hand on a line: reword it, remove it, or take that back.
@@ -231,34 +232,40 @@ export const api = {
       `/api/projects/${encodeURIComponent(project)}/decisions`,
       json("PUT", body),
     ),
-  // The user moves a mock from Home: another kind or area (null: none). The
+  // The user moves a design from Home: another kind or area (null: none). The
   // agent hears it in its next feedback.
-  editMock: (id: string, body: { kind?: MockKind; area?: string | null; notes?: string }) =>
-    call<{ mock: { kind: MockKind; area?: string } }>(
-      `/api/mocks/${encodeURIComponent(id)}`,
+  editDesign: (id: string, body: { kind?: DesignKind; area?: string | null; notes?: string }) =>
+    call<{ design: { kind: DesignKind; area?: string } }>(
+      `/api/designs/${encodeURIComponent(id)}`,
       json("PATCH", body),
     ),
   stateOutline: (id: string, body: { state: string; to: StateOutline | null }) =>
     call<{ stateOutlines: Record<string, StateOutline> }>(
-      `/api/mocks/${encodeURIComponent(id)}/outlines`,
+      `/api/designs/${encodeURIComponent(id)}/outlines`,
       json("POST", body),
     ),
   // Un-archive one variant of one state (D13).
   archiveVariant: (id: string, state: string | null, variant: string) =>
-    call<unknown>(`/api/mocks/${encodeURIComponent(id)}/archive`, json("POST", { state, variant })),
+    call<unknown>(
+      `/api/designs/${encodeURIComponent(id)}/variants/archive`,
+      json("POST", { state, variant }),
+    ),
   restoreVariant: (id: string, state: string | null, variant: string) =>
-    call<unknown>(`/api/mocks/${encodeURIComponent(id)}/restore`, json("POST", { state, variant })),
+    call<unknown>(
+      `/api/designs/${encodeURIComponent(id)}/variants/restore`,
+      json("POST", { state, variant }),
+    ),
   // A plain comment from the user, outside a reply.
-  comment: (mockId: string, text: string) =>
-    call<CommentRow>("/api/comments", json("POST", { mock: mockId, text, author: "user" })),
-  comments: (mockId: string, after?: number) =>
+  comment: (designId: string, text: string) =>
+    call<CommentRow>("/api/comments", json("POST", { design: designId, text, author: "user" })),
+  comments: (designId: string, after?: number) =>
     call<{ comments: CommentRow[]; lastSeq: number }>(
-      `/api/comments?mock=${encodeURIComponent(mockId)}${after === undefined ? "" : `&after=${after}`}`,
+      `/api/comments?design=${encodeURIComponent(designId)}${after === undefined ? "" : `&after=${after}`}`,
     ),
   // An image the user attaches to a write-in or a note; the bytes go up raw.
-  attach: (mockId: string, image: Blob, filename: string) =>
+  attach: (designId: string, image: Blob, filename: string) =>
     call<{ id: string }>(
-      `/api/assets?mock=${encodeURIComponent(mockId)}&kind=image&filename=${encodeURIComponent(filename)}`,
+      `/api/assets?design=${encodeURIComponent(designId)}&kind=image&filename=${encodeURIComponent(filename)}`,
       { method: "POST", body: image, headers: { ...VIEWER, "content-type": image.type } },
     ),
   theme: () => call<{ mode: "dark" | "light" }>("/api/theme"),
@@ -304,8 +311,8 @@ export const assetUrl = (id: string) => url(`/a/${encodeURIComponent(id)}`);
 type Listener = { onEvent: (e: FeedEvent) => void; onOpen?: () => void };
 const listeners = new Set<Listener>();
 let feed: { close: () => void } | null = null;
-// The mock this tab has on screen, sent as `?viewing=` so the agent's
-// pending.viewerOpen is per mock.
+// The design this tab has on screen, sent as `?viewing=` so the agent's
+// pending.viewerOpen is per design.
 let viewingId: string | null = null;
 
 function connect(): { close: () => void } | null {
@@ -342,14 +349,14 @@ export function subscribe(onEvent: (e: FeedEvent) => void, onOpen?: () => void):
   };
 }
 
-// Marks `mockId` as on screen until the returned release runs. Changing it
+// Marks `designId` as on screen until the returned release runs. Changing it
 // reconnects the feed, whose hello refetches like any other gap. The release
 // only clears its own id, so a screen torn down after the next one mounted
 // can't unmark the new one.
-export function watchMock(mockId: string): () => void {
-  setViewing(mockId);
+export function watchDesign(designId: string): () => void {
+  setViewing(designId);
   return () => {
-    if (viewingId === mockId) setViewing(null);
+    if (viewingId === designId) setViewing(null);
   };
 }
 

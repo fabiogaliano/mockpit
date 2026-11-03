@@ -1,5 +1,5 @@
 // The line an action leaves, with its Undo. A screen shows its own; when an action
-// empties a mock the user lands on Home, and the line goes along, or the Undo
+// empties a design the user lands on Home, and the line goes along, or the Undo
 // would leave with the screen that made it.
 
 import { createEffect, createSignal, on, onCleanup, Show } from "solid-js";

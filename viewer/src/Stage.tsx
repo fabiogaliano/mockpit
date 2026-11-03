@@ -1,8 +1,8 @@
-// D1: one stage per mock, never replaced: a pannable, zoomable canvas under the
+// D1: one stage per design, never replaced: a pannable, zoomable canvas under the
 // top bar. Every (state, variant) of the version on stage is its own sandboxed
 // frame, all loaded at once; only the active one is visible, the rest stay laid
 // out (visibility, not display) so they report their parts up front and
-// switching is instant. The mock's other widths sit beside the live one as
+// switching is instant. The design's other widths sit beside the live one as
 // picture-only artboards.
 //
 // The overlay above the active frame is ours (trusted origin) and is built only
@@ -50,7 +50,7 @@ import {
   widthLabel,
 } from "./logic.ts";
 import { PartReactions } from "./Reactions.tsx";
-import type { MockScreenState } from "./state.ts";
+import type { DesignScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
 import { canvasBox, canvasTop, cardInset, coarse, phoneLayout, safeX, win } from "./viewport.ts";
 
@@ -120,7 +120,7 @@ const PIN = 22;
 const pinGap = () => (coarse() ? 44 - PIN : 6);
 const pinEdge = () => (coarse() ? (44 - PIN) / 2 : 2);
 
-export function Stage(props: { s: MockScreenState; onGoto?: (to: string) => void }) {
+export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => void }) {
   const s = props.s;
   const { reports, setReports } = s;
   // Per frame, the version whose knob runtime has said it is listening.
@@ -147,7 +147,7 @@ export function Stage(props: { s: MockScreenState; onGoto?: (to: string) => void
   // very first line, which would otherwise sit under the header.
   const labelH = () => (phone() ? 12 : BOARD_LABEL);
   const order = createMemo(() =>
-    boardWidths(s.mock()?.widths ?? [], frameW(), s.allWidths(), phone()),
+    boardWidths(s.design()?.widths ?? [], frameW(), s.allWidths(), phone()),
   );
   const others = createMemo(() => order().filter((w) => w !== frameW()));
   // The screen inside its safe area, less the margins and what floats at its sides.
@@ -566,7 +566,7 @@ export function Stage(props: { s: MockScreenState; onGoto?: (to: string) => void
 }
 
 // A newer version than the one the draft is bound to, on offer.
-export function ArrivedBanner(props: { s: MockScreenState }) {
+export function ArrivedBanner(props: { s: DesignScreenState }) {
   const s = props.s;
   return (
     <Show when={s.boundVersion() !== null}>
@@ -586,7 +586,7 @@ export function ArrivedBanner(props: { s: MockScreenState }) {
 // picture only (no parts, marks or hits) of every surface the live frame shows,
 // with the draft's knob values baked into its html's URL so it matches.
 function Board(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   variant: VariantView;
   w: number;
   scale: number;
@@ -608,7 +608,7 @@ function Board(props: {
     historyRow(props.variant, version())?.surfaceKinds ?? props.variant.surfaces.map((x) => x.kind);
   const primary = () => kinds().indexOf("html");
   const src = (index: number) => {
-    const m = s.mock();
+    const m = s.design();
     if (!m) return "";
     const knobs =
       index === primary()
@@ -722,7 +722,7 @@ export function NativeSurface(props: {
   return <div class="surface surface-gone">{`${String(props.kind)} (#${props.version})`}</div>;
 }
 
-function Pin(props: { s: MockScreenState; index: number; style: JSX.CSSProperties }) {
+function Pin(props: { s: DesignScreenState; index: number; style: JSX.CSSProperties }) {
   const s = props.s;
   const q = () => s.questions()[props.index];
   const ask = () => {
@@ -754,7 +754,7 @@ function Pin(props: { s: MockScreenState; index: number; style: JSX.CSSPropertie
 }
 
 function VariantFrame(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   variant: VariantView;
   active: boolean;
   scale: number;
@@ -808,7 +808,7 @@ function VariantFrame(props: {
   // baked into its URL.
   let lastKnobs = "";
   createEffect(() => {
-    const m = s.mock();
+    const m = s.design();
     const reported = props.report?.version ?? props.ready;
     if (!m || reported === undefined) return;
     const values = {
@@ -908,7 +908,7 @@ function VariantFrame(props: {
                   w: props.variant.rewrites,
                   knobs: isPrimary
                     ? untrack(() => {
-                        const m = s.mock();
+                        const m = s.design();
                         if (!m) return undefined;
                         // Only declared paths: the route refuses the whole URL
                         // over one value it can't check, which would blank the stage.
@@ -978,7 +978,7 @@ function VariantFrame(props: {
 }
 
 function Overlay(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   report: PartsReport | undefined;
   scale: number;
   frameW: number;

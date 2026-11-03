@@ -25,7 +25,7 @@ import {
   type ScreenPicture,
   type StatusNode,
 } from "./logic.ts";
-import { linkClick, mockPath } from "./route.ts";
+import { linkClick, designPath } from "./route.ts";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 
@@ -128,7 +128,7 @@ export function Album(props: {
   const pic = createMemo(() => albumPicture(n()));
   const depth = createMemo(() => stackDepth(n()));
   const widths = createMemo(() => bothWidths(n()));
-  const href = () => mockPath(props.project, n().slug);
+  const href = () => designPath(props.project, n().slug);
   const waiting = () => n().open > 0 && !readonly();
   return (
     <div class="alb" classList={{ waiting: waiting() }} data-shape={shape()}>
@@ -140,7 +140,7 @@ export function Album(props: {
           href={href()}
           tabIndex={shape() === "text" ? undefined : -1}
           aria-hidden={shape() === "text" ? undefined : "true"}
-          data-mock={n().slug}
+          data-design={n().slug}
           onClick={(e) => linkClick(e, href())}
         >
           <For each={Array.from({ length: depth() }, (_, i) => depth() - i)}>
@@ -184,8 +184,8 @@ export function Album(props: {
           <button
             type="button"
             class="ib x-remove alb-x"
-            aria-label={`${props.endLabel ?? "End"}: ${n().title}`}
-            title={props.endLabel ?? "End this idea"}
+            aria-label={`${props.endLabel ?? "Archive"}: ${n().title}`}
+            title={props.endLabel ?? "Archive"}
             onClick={() => props.onEnd?.()}
           >
             <Icon name="close" />
@@ -220,13 +220,13 @@ export function DocRow(props: {
   menu: JSX.Element | undefined;
 }) {
   const n = () => props.node;
-  const href = () => mockPath(props.project, n().slug);
+  const href = () => designPath(props.project, n().slug);
   return (
     <li class="home-doc">
       <a
         class="home-doc-link"
         href={href()}
-        data-mock={n().slug}
+        data-design={n().slug}
         onClick={(e) => linkClick(e, href())}
       >
         <span class="home-doc-title">{n().title}</span>
@@ -248,7 +248,7 @@ export function FlowStepTile(props: {
 }) {
   const pic = createMemo(() => screenPicture(props.node, props.state));
   const href = () =>
-    mockPath(
+    designPath(
       props.project,
       props.node.slug,
       props.state === null ? null : { state: props.state, variant: null },
@@ -263,7 +263,7 @@ export function FlowStepTile(props: {
       classList={{ phone: width() < 700, planned: planned() }}
       href={href()}
       onClick={(e) => linkClick(e, href())}
-      data-mock={props.node.slug}
+      data-design={props.node.slug}
       data-state={props.state ?? ""}
     >
       <span class="home-pic">

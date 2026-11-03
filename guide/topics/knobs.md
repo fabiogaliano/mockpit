@@ -10,12 +10,12 @@ spacing, colour, density) even when the user did not ask; they wait in Tune.
 ## Declaring
 
 Knobs use tunekit's `usePane` shape, keyed by path. `"size"` is global,
-`"body.size"` belongs to the `body` part. Mock-wide knobs go in `--knobs` (MCP
+`"body.size"` belongs to the `body` part. Design-wide knobs go in `--knobs` (MCP
 and HTTP `knobs`). Over MCP and HTTP, knobs only one variant has go in
 `variantKnobs`.
 
 ```sh
-mockpit publish --mock writer --state "Writing" --html w.html --knobs '{"body.size":[17,14,22,1]}'
+mockpit publish --design writer --state "Writing" --html w.html --knobs '{"body.size":[17,14,22,1]}'
 ```
 
 | shape                                                          | control        |

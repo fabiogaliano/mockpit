@@ -7,10 +7,10 @@ import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { neighbourStep, sameVersion, stepFor } from "./logic.ts";
 import { QrTool } from "./QrTool.tsx";
-import type { MockScreenState } from "./state.ts";
+import type { DesignScreenState } from "./state.ts";
 import { phoneLayout } from "./viewport.ts";
 
-export function ReviseButton(props: { s: MockScreenState }) {
+export function ReviseButton(props: { s: DesignScreenState }) {
   const s = props.s;
   return (
     <button
@@ -29,7 +29,7 @@ export function ReviseButton(props: { s: MockScreenState }) {
 
 // The arrows step; the label opens wherever this screen lists the versions.
 export function VersionStepper(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   listOpen: boolean;
   listNames: string;
   onList: () => void;
@@ -44,7 +44,7 @@ export function VersionStepper(props: {
   // its name when the label doesn't already say it.
   const note = () =>
     step()?.prompt ??
-    s.activeVariant()?.note ??
+    s.activeVariant()?.description ??
     (name().startsWith("#") ? (step()?.variant ?? "") : "");
   return (
     <div class="vgroup">
@@ -87,7 +87,7 @@ export function VersionStepper(props: {
 
 // Use this, and the way back to the version in use. The question is the decision
 // while it is open: no Use this beside it.
-export function UseThis(props: { s: MockScreenState }) {
+export function UseThis(props: { s: DesignScreenState }) {
   const s = props.s;
   const inUse = () => sameVersion(s.onStage(), s.inUse());
   const usedStep = () => stepFor(s.steps(), s.inUse());
@@ -131,7 +131,7 @@ export function UseThis(props: { s: MockScreenState }) {
 }
 
 // Try and Comment need a page to hand taps to or pin on; Tune needs something to tune.
-export function CanvasTools(props: { s: MockScreenState; page: boolean }) {
+export function CanvasTools(props: { s: DesignScreenState; page: boolean }) {
   const s = props.s;
   const tuned = () => Object.keys(s.draft()?.tuned ?? {}).length > 0;
   const tool = (name: "try" | "mark" | "tune", label: string, title: string) => (
@@ -167,7 +167,7 @@ export function CanvasTools(props: { s: MockScreenState; page: boolean }) {
   );
 }
 
-export function VersionBar(props: { s: MockScreenState; reading?: boolean }) {
+export function VersionBar(props: { s: DesignScreenState; reading?: boolean }) {
   const s = props.s;
   return (
     <div class="vbar" role="toolbar" aria-label="Versions and tools">

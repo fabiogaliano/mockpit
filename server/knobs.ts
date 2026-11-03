@@ -10,7 +10,7 @@ import type {
   KnobOption,
   Knobs,
   KnobValue,
-  Mock,
+  Design,
   Post,
 } from "./types.ts";
 
@@ -303,15 +303,15 @@ export function checkKnobValue(
   }
 }
 
-// The declared knob for a path: the mock's own, else a variant's override,
+// The declared knob for a path: the design's own, else a variant's override,
 // else the knob a variant's slot implies (fills.ts), so an option can `set` a
 // slot's fill without the agent declaring anything.
 export function knobFor(
   path: string,
-  mock: Pick<Mock, "knobs">,
+  design: Pick<Design, "knobs">,
   posts: (Pick<Post, "knobs"> & { surfaces?: Post["surfaces"] })[],
 ): KnobConfig | undefined {
-  if (Object.hasOwn(mock.knobs, path)) return mock.knobs[path];
+  if (Object.hasOwn(design.knobs, path)) return design.knobs[path];
   for (const p of posts) if (p.knobs && Object.hasOwn(p.knobs, path)) return p.knobs[path];
   for (const p of posts) {
     if (!p.surfaces) continue;
@@ -323,7 +323,7 @@ export function knobFor(
 
 export function checkKnobValues(
   raw: unknown,
-  mock: Pick<Mock, "knobs">,
+  design: Pick<Design, "knobs">,
   posts: (Pick<Post, "knobs"> & { surfaces?: Post["surfaces"] })[],
   what: string,
 ): Checked<Record<string, KnobValue>> {
@@ -333,7 +333,7 @@ export function checkKnobValues(
   }
   const out: Record<string, KnobValue> = {};
   for (const [path, value] of Object.entries(raw as Record<string, unknown>)) {
-    const config = knobFor(path, mock, posts);
+    const config = knobFor(path, design, posts);
     if (config === undefined) return { ok: false, error: `${what}: no knob "${path}" is declared` };
     const checked = checkKnobValue(path, config, value);
     if (!checked.ok) return checked;

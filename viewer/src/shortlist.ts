@@ -1,4 +1,4 @@
-// The project's shortlists and copies as a mock screen needs them: where a
+// The project's shortlists and copies as a design screen needs them: where a
 // version was saved, and the last shortlist saved to, which the top bar links.
 // That one is this browser's, per project.
 
@@ -42,17 +42,20 @@ export function createShortlists(project: string, toast: (t: Toast) => void) {
   onCleanup(
     subscribe((e) => {
       // Only what can change a list or a copy: agents publish all day in a busy
-      // project, and every open mock screen hears it.
-      if (e.type === "mock-created" || e.type === "mock-deleted") {
+      // project, and every open design screen hears it.
+      if (e.type === "design-created" || e.type === "design-deleted") {
         if (e.project === project) void load();
-      } else if (e.type === "mock-updated") {
+      } else if (e.type === "design-updated") {
         if (lists().some((l) => l.id === e.id)) void load();
       } else if (
         e.type === "post-created" ||
         e.type === "post-updated" ||
         e.type === "post-deleted"
       ) {
-        if (lists().some((l) => l.id === e.mockId) || copies().some((c) => c.mock === e.mockId)) {
+        if (
+          lists().some((l) => l.id === e.designId) ||
+          copies().some((c) => c.design === e.designId)
+        ) {
           void load();
         }
       }
@@ -71,7 +74,7 @@ export function createShortlists(project: string, toast: (t: Toast) => void) {
   const copiesOf = (ref: SaveCandidate) =>
     copies().filter(
       (c) =>
-        c.copiedFrom.mock === ref.mock &&
+        c.copiedFrom.design === ref.design &&
         c.copiedFrom.state === ref.state &&
         c.copiedFrom.variant === ref.variant &&
         c.copiedFrom.version === ref.version,

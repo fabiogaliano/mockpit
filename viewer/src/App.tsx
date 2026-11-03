@@ -2,10 +2,10 @@ import { createMemo, Match, Switch } from "solid-js";
 import { startBadge } from "./badge.ts";
 import { Home } from "./Home.tsx";
 import { Jump } from "./Jump.tsx";
-import { MockScreen } from "./MockScreen.tsx";
+import { DesignScreen } from "./DesignScreen.tsx";
 import { NotFound } from "./NotFound.tsx";
 import { startNotifier } from "./notify.ts";
-import { type MockRoute, rootPath, route } from "./route.ts";
+import { type DesignRoute, rootPath, route } from "./route.ts";
 import { CarriedToast } from "./toast.tsx";
 
 export function App() {
@@ -17,12 +17,12 @@ export function App() {
     const r = route();
     return r.screen === "home" ? r : null;
   });
-  // A mock's URL moves as its state and version do; only another mock or flow
+  // A design's URL moves as its state and version do; only another design or flow
   // is another screen, or every tab would reload the design.
-  const mock = createMemo<MockRoute | null>(
+  const design = createMemo<DesignRoute | null>(
     () => {
       const r = route();
-      return r.screen === "mock" ? r : null;
+      return r.screen === "design" ? r : null;
     },
     null,
     { equals: (a, b) => a?.project === b?.project && a?.slug === b?.slug && a?.flow === b?.flow },
@@ -30,8 +30,8 @@ export function App() {
   return (
     <>
       <Switch>
-        <Match when={mock()} keyed>
-          {(r) => <MockScreen project={r.project} slug={r.slug} open={r.open} flow={r.flow} />}
+        <Match when={design()} keyed>
+          {(r) => <DesignScreen project={r.project} slug={r.slug} open={r.open} flow={r.flow} />}
         </Match>
         <Match when={home()}>
           {(r) => <Home project={r().project} sec={r().sec} area={r().area} show={r().show} />}

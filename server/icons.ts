@@ -35,7 +35,7 @@ export type IconResolver = (prefix: string, name: string) => IconifyIcon | null;
 
 // Served with the server rather than installed per project: lucide (ISC) is
 // what agents reach for by default, mage (Apache-2.0) is what `mockpit init`
-// used to upload as a sprite, so mocks written against it keep rendering.
+// used to upload as a sprite, so designs written against it keep rendering.
 export const BUNDLED_ICON_PREFIXES = ["lucide", "mage"] as const;
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]*$/;

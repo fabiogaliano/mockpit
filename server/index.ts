@@ -60,7 +60,7 @@ const publicRead = pr === "session" || pr === "full" ? pr : undefined;
 // is writable however the package was installed.
 const dbPath = process.env.MOCKPIT_DB ?? join(homedir(), ".mockpit", "mockpit.db");
 // Far past the Durable Object's budget: one lab of inlined pages can be 70 MB,
-// and a mock that doesn't fit is re-read and re-parsed on every request.
+// and a design that doesn't fit is re-read and re-parsed on every request.
 const store = new SqlStore(createSqliteStorage(dbPath), { postCacheBytes: 256 * 1024 * 1024 });
 console.log(`mockpit store: SQLite at ${dbPath}`);
 

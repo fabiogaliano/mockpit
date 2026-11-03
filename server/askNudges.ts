@@ -33,7 +33,7 @@ export function askNudges(added: Ask[], all: Ask[]): string[] {
               a.id !== ask.id &&
               a.scope !== "part" &&
               bindsVariants(a) &&
-              (a.scope === "mock" || ask.scope === "mock" || a.state === ask.state),
+              (a.scope === "design" || ask.scope === "design" || a.state === ask.state),
           );
     // Only a pill that names a look or reads visual overlaps the variants; a
     // plain question on another axis ("Drawer or Margin?") stands beside them.

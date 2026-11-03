@@ -43,7 +43,7 @@ import { OutlineRows } from "./Outlines.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
 import { Answered } from "./Questions.tsx";
 import { REACTION_LABEL } from "./reactionRules.ts";
-import type { MockScreenState } from "./state.ts";
+import type { DesignScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
 import { Thread } from "./Thread.tsx";
 import { Thumb } from "./Thumb.tsx";
@@ -59,7 +59,7 @@ export type Margins = ReturnType<typeof createMargins>;
 const PICTURED_UP_TO = 24;
 
 export function createMargins(
-  s: MockScreenState,
+  s: DesignScreenState,
   nav: FlowNav,
   active: () => boolean,
   // A reading column is what the margins have to leave room for, instead of artboards.
@@ -83,7 +83,7 @@ export function createMargins(
     return kinds.includes("html");
   };
 
-  const closed = () => !!s.mock()?.closedAt;
+  const closed = () => !!s.design()?.archivedAt;
   const talkWants = () => !closed() && (!!s.curAsk() || s.sendable());
   const talkHas = () => talkWants() || s.flow().length > 0 || s.closedAsks("state").length > 0;
   const builtHas = () => s.tunable().length > 0 || !!s.activeVariant()?.embedsKey;
@@ -95,7 +95,7 @@ export function createMargins(
     return talkWants() || (pinned() && talkHas()) ? "talk" : null;
   });
 
-  const boards = () => boardWidths(s.mock()?.widths ?? [], s.frameW(), s.allWidths(), false);
+  const boards = () => boardWidths(s.design()?.widths ?? [], s.frameW(), s.allWidths(), false);
   const fitWith = (left: boolean) => {
     const row = boards();
     return marginLayout({
@@ -215,7 +215,7 @@ export function createMargins(
 
 // Try, Comment and Tune, left of the design. They change what a tap on it does, so
 // they stay by it, and the left margin's tab rides with them while it is folded.
-export function ToolStrip(props: { s: MockScreenState; m: Margins }) {
+export function ToolStrip(props: { s: DesignScreenState; m: Margins }) {
   const s = props.s;
   const m = props.m;
   const tools = () => m.page() || s.tunable().length > 0;
@@ -253,7 +253,7 @@ const PANELS: { id: Side; icon: IconName; label: string }[] = [
 
 // The right margin's tabs live in the top bar, where they cost the design nothing
 // and stay put whether the margin stands, floats or is shut.
-export function PanelTabs(props: { s: MockScreenState; m: Margins }) {
+export function PanelTabs(props: { s: DesignScreenState; m: Margins }) {
   const s = props.s;
   const m = props.m;
   const shown = () =>
@@ -297,7 +297,7 @@ export function PanelTabs(props: { s: MockScreenState; m: Margins }) {
   );
 }
 
-export function LeftMargin(props: { s: MockScreenState; nav: FlowNav; m: Margins }) {
+export function LeftMargin(props: { s: DesignScreenState; nav: FlowNav; m: Margins }) {
   const s = props.s;
   const m = props.m;
   return (
@@ -328,10 +328,11 @@ const sameList = (a: readonly string[], b: readonly string[]) =>
 
 // The steps, as the flow bar has them. By key, not object: the steps are rebuilt on
 // every read, and remounting a row would start its picture's page over.
-function StateList(props: { s: MockScreenState; nav: FlowNav; outlining: boolean }) {
+function StateList(props: { s: DesignScreenState; nav: FlowNav; outlining: boolean }) {
   const s = props.s;
   const nav = props.nav;
-  const keyOf = (x: { mock: string; state: string | null }) => JSON.stringify([x.mock, x.state]);
+  const keyOf = (x: { design: string; state: string | null }) =>
+    JSON.stringify([x.design, x.state]);
   const keys = createMemo(() => nav.steps().map(keyOf), [], { equals: sameList });
   const outsideKeys = createMemo(() => nav.outside().map(keyOf), [], { equals: sameList });
   const pictured = () => nav.steps().length <= PICTURED_UP_TO;
@@ -345,8 +346,8 @@ function StateList(props: { s: MockScreenState; nav: FlowNav; outlining: boolean
     );
   });
   const row = (key: string) => {
-    const [mock, state] = JSON.parse(key) as [string, string | null];
-    const x = { mock, state };
+    const [design, state] = JSON.parse(key) as [string, string | null];
+    const x = { design, state };
     const here = () => keyOf(nav.here()) === key;
     return (
       <button
@@ -400,7 +401,7 @@ function StateList(props: { s: MockScreenState; nav: FlowNav; outlining: boolean
           onChange={(e) => {
             const to = e.currentTarget.value;
             e.currentTarget.value = "";
-            if (to) nav.go({ mock: nav.here().mock, state: to });
+            if (to) nav.go({ design: nav.here().design, state: to });
           }}
         >
           <option value="">{`${nav.emptied().length} empty`}</option>
@@ -415,7 +416,7 @@ function StateList(props: { s: MockScreenState; nav: FlowNav; outlining: boolean
 }
 
 // One line per variant, newest first; each version names what prompted it.
-function VersionList(props: { s: MockScreenState }) {
+function VersionList(props: { s: DesignScreenState }) {
   const s = props.s;
   const lines = createMemo(() => [...new Set([...s.steps()].reverse().map((x) => x.variant))], [], {
     equals: sameList,
@@ -444,7 +445,7 @@ function VersionList(props: { s: MockScreenState }) {
   );
 }
 
-function VersionRow(props: { s: MockScreenState; step: VersionStep }) {
+function VersionRow(props: { s: DesignScreenState; step: VersionStep }) {
   const s = props.s;
   const on = () => sameVersion(props.step, s.onStage());
   const current = () => sameVersion(props.step, s.inUse());
@@ -453,7 +454,7 @@ function VersionRow(props: { s: MockScreenState; step: VersionStep }) {
     const v = s
       .variants()
       .find((o) => o.state === s.activeState() && o.variant === props.step.variant);
-    return props.step.prompt ?? (v?.version === props.step.version ? v?.note : undefined);
+    return props.step.prompt ?? (v?.version === props.step.version ? v?.description : undefined);
   };
   const src = () => {
     const i = props.step.kinds.indexOf("html");
@@ -544,7 +545,7 @@ function VersionRow(props: { s: MockScreenState; step: VersionStep }) {
   );
 }
 
-export function RightMargin(props: { s: MockScreenState; t: TuneState; m: Margins }) {
+export function RightMargin(props: { s: DesignScreenState; t: TuneState; m: Margins }) {
   const s = props.s;
   const m = props.m;
   const [body, setBody] = createSignal<HTMLElement>();
@@ -600,7 +601,7 @@ export function RightMargin(props: { s: MockScreenState; t: TuneState; m: Margin
 
 // On this design: the question, then everything else this Send will carry, so what
 // goes is on screen before it goes.
-function Talk(props: { s: MockScreenState; m: Margins }) {
+function Talk(props: { s: DesignScreenState; m: Margins }) {
   const s = props.s;
   const below = (): JSX.Element => <WithThisSend s={s} m={props.m} />;
   return (
@@ -630,7 +631,7 @@ function Talk(props: { s: MockScreenState; m: Margins }) {
   );
 }
 
-export function WithThisSend(props: { s: MockScreenState; m: Margins }) {
+export function WithThisSend(props: { s: DesignScreenState; m: Margins }) {
   const s = props.s;
   const comments = () => s.draft()?.comments ?? [];
   const pinOf = (i: number) =>

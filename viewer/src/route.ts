@@ -1,11 +1,11 @@
-// URL ⇄ screen. Home is /project/:name, a mock is /project/:name/:slug; "/" is
+// URL ⇄ screen. Home is /project/:name, a design is /project/:name/:slug; "/" is
 // the home of the most recently active project. Home's place is `?sec=`: a
 // section (ideas, screens, flows, components, documents), or needs, archive or
 // recent; absent, or a section the project hasn't lit, is its first. `?show=` narrows
 // recent to its decisions or designs.
 // `?area=` alone is everything in one of the project's areas, and with `?sec=`
-// that section of it. On a mock the URL is the whole place: `?state=`,
-// `?variant=`, `?version=`, `?view=`. The mock screen keeps them current, so Back
+// that section of it. On a design the URL is the whole place: `?state=`,
+// `?variant=`, `?version=`, `?view=`. The design screen keeps them current, so Back
 // and a reload land where the entry was.
 
 import { createSignal } from "solid-js";
@@ -38,7 +38,7 @@ export type Route =
       show: RecentShow | null;
     }
   | {
-      screen: "mock";
+      screen: "design";
       project: string;
       slug: string;
       // Open on this state, and this variant when named (a step of a flow or a
@@ -50,7 +50,7 @@ export type Route =
   | { screen: "missing" };
 
 export type ScreenOpen = { state: string | null; variant: string | null; version?: number | null };
-export type MockRoute = Extract<Route, { screen: "mock" }>;
+export type DesignRoute = Extract<Route, { screen: "design" }>;
 
 export function parseRoute(pathname: string, base = "", search = ""): Route {
   const path = base && pathname.startsWith(base) ? pathname.slice(base.length) : pathname;
@@ -78,7 +78,7 @@ export function parseRoute(pathname: string, base = "", search = ""): Route {
       const variant = q.get("variant");
       const version = Number(q.get("version"));
       return {
-        screen: "mock",
+        screen: "design",
         project: dec(seg[1]),
         slug: dec(seg[2]),
         open:
@@ -110,7 +110,7 @@ export const projectPath = (
   const qs = q.toString();
   return `${basePath()}/project/${encodeURIComponent(project)}${qs ? `?${qs}` : ""}`;
 };
-export const mockPath = (
+export const designPath = (
   project: string,
   slug: string,
   open?: ScreenOpen | null,
@@ -127,11 +127,11 @@ export const mockPath = (
   const qs = q.toString();
   return qs ? `${base}?${qs}` : base;
 };
-// Straight to what a mock still asks: on Stage, on its first open question,
+// Straight to what a design still asks: on Stage, on its first open question,
 // wherever this browser last left it.
 export const questionPath = (project: string, slug: string) =>
-  `${mockPath(project, slug)}?view=stage&owed=1`;
-// The place on Home last shown, per project, so going up from a mock lands there.
+  `${designPath(project, slug)}?view=stage&owed=1`;
+// The place on Home last shown, per project, so going up from a design lands there.
 const lastPlace = new Map<
   string,
   { sec: HomePlace | null; area: string | null; show: RecentShow | null }
@@ -145,7 +145,7 @@ export const rememberHomePlace = (
 export const rootPath = () => `${basePath()}/`;
 // The project's crumb means the whole project, in the section last open. An area
 // crumb means everything in that area, unless that's the area you came from: the
-// mock it names may not be in the section last open, which would land on nothing.
+// design it names may not be in the section last open, which would land on nothing.
 export const homePath = (project: string, area: string | null = null) => {
   const last = lastPlace.get(project);
   const same = area === null || last?.area === area;

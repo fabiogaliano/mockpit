@@ -1,4 +1,4 @@
-// The mock screen: a quiet top bar (where you are, what acts on the version, the
+// The design screen: a quiet top bar (where you are, what acts on the version, the
 // width, Stage, Studio or Grid, the panels), the design on a canvas, states and versions
 // in a margin on its left and what's said about it in one on its right, each there
 // only with something in it (Margins.tsx). A phone has no room beside the design:
@@ -58,14 +58,14 @@ import { CarriedChip, NextCard, WakeLine } from "./NextCard.tsx";
 import { NotFound } from "./NotFound.tsx";
 import { OutlineChips, PlannedStage, StateAsk } from "./Outlines.tsx";
 import { QuestionCard, QuestionTab } from "./QuestionCard.tsx";
-import { EndedNote } from "./Questions.tsx";
+import { ArchivedNote } from "./Questions.tsx";
 import { SideOver } from "./SideOver.tsx";
 import { Reader, ReaderSend } from "./Reader.tsx";
 import { markSeen } from "./seen.ts";
 import {
   homePath,
   linkClick,
-  mockPath,
+  designPath,
   navigate,
   projectPath,
   replaceUrl,
@@ -75,7 +75,7 @@ import { Stage } from "./Stage.tsx";
 import { Studio } from "./Studio.tsx";
 import type { ScreenOpen } from "./route.ts";
 import { carryToast, Toast } from "./toast.tsx";
-import { createMockScreen, type MockScreenState } from "./state.ts";
+import { createDesignScreen, type DesignScreenState } from "./state.ts";
 import { Thumb } from "./Thumb.tsx";
 import { createTune } from "./tune.ts";
 import { ReviseButton, UseThis, VersionBar, VersionStepper } from "./VersionBar.tsx";
@@ -85,14 +85,14 @@ type View = "stage" | "studio" | "grid";
 const isView = (v: string | null | undefined): v is View =>
   v === "stage" || v === "studio" || v === "grid";
 
-export function MockScreen(props: {
+export function DesignScreen(props: {
   project: string;
   slug: string;
   open?: ScreenOpen | null;
   flow?: string | null;
 }) {
   const opening = new URLSearchParams(host().window.location.search);
-  const s = createMockScreen(props.project, props.slug, props.open ?? null, opening.has("owed"));
+  const s = createDesignScreen(props.project, props.slug, props.open ?? null, opening.has("owed"));
   const shortlists = createShortlists(props.project, s.setToast);
   // Stage, Studio or Grid: one version up close, the state zoomed out, or every state
   // against every variant. The URL's ?view= wins and isn't remembered, so a link can't
@@ -104,7 +104,7 @@ export function MockScreen(props: {
   const [view, setViewSignal] = createSignal<View | null>(isView(asked) ? asked : null);
   const viewKey = (id: string) => `mockpit-view:${id}`;
   const remembered = (): View | null => {
-    const id = s.mock()?.id;
+    const id = s.design()?.id;
     const v = id ? host().storage?.getItem(viewKey(id)) : null;
     return isView(v) ? v : null;
   };
@@ -118,7 +118,7 @@ export function MockScreen(props: {
   // What's on stage is written: it opens as a column instead of on the canvas. By the
   // version on stage, which can differ from its neighbours (markdown, then a page).
   const reading = createMemo(() => {
-    const m = s.mock();
+    const m = s.design();
     const v = s.activeVariant();
     if (!m || !v) return false;
     const version = s.frameVersionOf(v);
@@ -127,7 +127,7 @@ export function MockScreen(props: {
   });
   const wallSized = () => s.variants().length >= WALL_FROM;
   const [onWall, setOnWall] = createSignal(false);
-  const comparesForms = () => gridComparesForms(s.mock()?.kind ?? "sketch", s.variants());
+  const comparesForms = () => gridComparesForms(s.design()?.kind ?? "idea", s.variants());
   const gridOffered = () => repeatsAcrossStates(s.variants()) || comparesForms();
   // The grid stands in for Studio on a component. Not on a wall: a component with 85
   // variants (onni's) is more than a table can show, and Studio's wall is how it's read.
@@ -135,17 +135,17 @@ export function MockScreen(props: {
   // Decided once per visit: answering the last question or moving to another
   // state must not swap the view under you.
   const opened = createMemo<View | null>((before) => {
-    if (before || !s.mock()) return before;
+    if (before || !s.design()) return before;
     return untrack(() => {
       if (s.waitsOnStage()) return "stage";
       // Too many to reach any other way, whichever view was last used here.
       if (wallSized()) return "studio";
       // A gathered idea stays for comparing, below, even if what it holds is written.
-      if (reading() && !s.mock()?.shortlist) return "stage";
+      if (reading() && !s.design()?.shortlist) return "stage";
       const was = remembered();
       if (gridFirst()) return was === "stage" ? "stage" : "grid";
       // A gathered idea is for comparing, and its Add candidate lives in Studio.
-      return was ?? (stateVariants() > 1 || s.mock()?.shortlist ? "studio" : "stage");
+      return was ?? (stateVariants() > 1 || s.design()?.shortlist ? "studio" : "stage");
     });
   }, null);
   // A grid left by the last archive falls back rather than show an empty table.
@@ -154,11 +154,11 @@ export function MockScreen(props: {
     return v === "grid" && !gridOffered() ? "stage" : v;
   };
   // On stage, in a state with nothing drawn: the plan stands where the design will.
-  const undrawn = () => !!s.mock() && !s.variants().some((v) => v.state === s.activeState());
+  const undrawn = () => !!s.design() && !s.variants().some((v) => v.state === s.activeState());
   const outlining = () => shownView() === "stage" && !reading() && s.outlinable();
   let openLooked: (() => void) | null = null;
   // Each step between the views is its own history entry, so Back
-  // returns to the view you came from rather than leaving the mock.
+  // returns to the view you came from rather than leaving the design.
   const setView = (v: View) => {
     const w = host().window;
     const q = new URLSearchParams(w.location.search);
@@ -169,7 +169,7 @@ export function MockScreen(props: {
     // entry, and the one being left must keep naming the view it was.
     w.history.pushState(w.history.state, "", `${w.location.pathname}?${q}`);
     setViewSignal(v);
-    const id = s.mock()?.id;
+    const id = s.design()?.id;
     try {
       if (id) host().storage?.setItem(viewKey(id), v);
     } catch {
@@ -190,7 +190,7 @@ export function MockScreen(props: {
   let urlTimer = 0;
   onCleanup(() => host().window.clearTimeout(urlTimer));
   createEffect(() => {
-    if (!s.mock()) return;
+    if (!s.design()) return;
     shownView();
     s.activeState();
     s.stagePick();
@@ -212,17 +212,17 @@ export function MockScreen(props: {
       if (next !== w.location.search) replaceUrl(`${w.location.pathname}${next}`);
     }, 0);
   });
-  // Back, Forward or a link to another place on this same mock: the screen stays
+  // Back, Forward or a link to another place on this same design: the screen stays
   // mounted and moves there.
   createEffect(
     on(
       () => {
         const r = route();
-        return r.screen === "mock" ? JSON.stringify(r.open) : null;
+        return r.screen === "design" ? JSON.stringify(r.open) : null;
       },
       () => {
         const r = route();
-        if (r.screen === "mock" && r.open) s.landOn(r.open);
+        if (r.screen === "design" && r.open) s.landOn(r.open);
       },
       { defer: true },
     ),
@@ -232,7 +232,7 @@ export function MockScreen(props: {
   const m = createMargins(
     s,
     nav,
-    () => !!s.mock() && !phoneLayout() && shownView() === "stage",
+    () => !!s.design() && !phoneLayout() && shownView() === "stage",
     () => (reading() ? READING_W : null),
     outlining,
   );
@@ -243,25 +243,25 @@ export function MockScreen(props: {
   });
   useFlowKeys(s);
   const about = createAbout(
-    () => s.mock()?.project ?? props.project,
+    () => s.design()?.project ?? props.project,
     () => {
-      const m = s.mock();
+      const m = s.design();
       return m ? `${m.updatedAt}:${versionStamp(m.variants)}` : null;
     },
   );
-  // On screen is seen: Home's dot for this mock goes until a newer version.
+  // On screen is seen: Home's dot for this design goes until a newer version.
   createEffect(() => {
-    const m = s.mock();
+    const m = s.design();
     if (m) markSeen(m.project, m.id, versionStamp(m.variants));
   });
   createEffect(() => {
-    const id = s.mock()?.id;
+    const id = s.design()?.id;
     if (id) rememberRecent(id);
   });
-  // The agent renamed the mock or its project while it was open: the address
+  // The agent renamed the design or its project while it was open: the address
   // follows, so a reload or a shared link still finds it.
   createEffect(() => {
-    const m = s.mock();
+    const m = s.design();
     if (!m || (m.slug === props.slug && m.project === props.project)) return;
     const path = `${projectPath(m.project)}/${encodeURIComponent(m.slug)}`;
     navigate(`${path}${host().location.search}`, { replace: true });
@@ -371,7 +371,7 @@ export function MockScreen(props: {
       if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx) * 0.6) return;
       nav.step(dx < 0 ? 1 : -1);
     };
-    const el = root().querySelector(".mock-screen");
+    const el = root().querySelector(".design-screen");
     el?.addEventListener("touchstart", down as EventListener, { passive: true });
     el?.addEventListener("touchend", up as EventListener);
     onCleanup(() => {
@@ -383,21 +383,21 @@ export function MockScreen(props: {
   createEffect(() => {
     if (s.error()) s.setToast({ text: s.error()! });
   });
-  // The last design gone leaves nothing to look at: up to where this mock lives. Not
-  // for a mock opened empty, whose Archived is what the user came for. Replaces, so
+  // The last design gone leaves nothing to look at: up to where this design lives. Not
+  // for a design opened empty, whose Archived is what the user came for. Replaces, so
   // Back doesn't return to the empty page.
   let hadLive = false;
   createEffect(() => {
     if (s.variants().some((v) => isLive(v.status))) hadLive = true;
     if (!hadLive || !s.emptied()) return;
     const back = `${host().location.pathname}${host().location.search}`;
-    navigate(homePath(props.project, s.mock()?.area ?? null), { replace: true });
+    navigate(homePath(props.project, s.design()?.area ?? null), { replace: true });
     s.handToast((line) => carryToast(line, back));
   });
 
   return (
     <div
-      class="screen mock-screen"
+      class="screen design-screen"
       classList={{ phone: phoneLayout() }}
       style={{
         "--canvas-l": `${m.band().left}px`,
@@ -474,7 +474,7 @@ export function MockScreen(props: {
           </main>
         }
       >
-        <Show when={s.mock()}>
+        <Show when={s.design()}>
           <Switch>
             <Match when={shownView() === "stage" && undrawn()}>
               <PlannedStage s={s} />
@@ -533,7 +533,7 @@ export function MockScreen(props: {
             )}
           </Show>
           <SentNote s={s} project={props.project} slug={props.slug} view={shownView()} />
-          <Show when={s.mock() && shownView() === "stage"}>
+          <Show when={s.design() && shownView() === "stage"}>
             <StateAsk s={s} />
             <Show when={phoneLayout()}>
               <Show when={reading()}>
@@ -546,7 +546,7 @@ export function MockScreen(props: {
             </Show>
           </Show>
         </div>
-        <Show when={s.mock() && shownView() === "stage"}>
+        <Show when={s.design() && shownView() === "stage"}>
           <Show
             when={phoneLayout()}
             fallback={
@@ -573,14 +573,14 @@ export function MockScreen(props: {
   );
 }
 
-// Where you are, as the way up: the project and the area are links, the mock's
+// Where you are, as the way up: the project and the area are links, the design's
 // name opens what's around it, then the state. A phone has room for the name
 // alone (the tabs below it name the state), so an arrow up to the area (else the
 // project) stands in for the rest.
 // Beyond it: the name to tell an agent, the width on Stage, and the views when there
 // is a choice to look at.
 function TopRow(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   project: string;
   slug: string;
   about: AboutState;
@@ -609,14 +609,14 @@ function TopRow(props: {
   const home = () => homePath(props.project);
   const areaHome = (area: string) => homePath(props.project, area);
   const up = () => {
-    const area = s.mock()?.area;
+    const area = s.design()?.area;
     return area ? { href: areaHome(area), name: area } : { href: home(), name: shortProject() };
   };
-  // The owner is the same on every mock; the repo's own name is enough.
+  // The owner is the same on every design; the repo's own name is enough.
   const shortProject = () => props.project.split("/").pop() ?? props.project;
-  const title = () => s.mock()?.title ?? props.slug;
+  const title = () => s.design()?.title ?? props.slug;
   const idea = () => {
-    const m = s.mock();
+    const m = s.design();
     if (!m) return false;
     const states = m.states.length ? m.states : [null];
     return sectionOf({ ...m, states, asked: m.asks.length }) === "ideas";
@@ -637,7 +637,7 @@ function TopRow(props: {
   };
   // Whose turn it is, by the rule the covers use, from what this screen already holds.
   const shelved = useTurn(() => {
-    const m = s.mock();
+    const m = s.design();
     if (!m) return null;
     const send = s.lastSend();
     return {
@@ -645,13 +645,13 @@ function TopRow(props: {
       states: m.states.length ? m.states : [null],
       variants: m.variants,
       inUse: m.inUse,
-      closedAt: m.closedAt,
+      archivedAt: m.archivedAt,
       drafting: s.sendable(),
       ...(send ? { lastReplyAt: send.at, lastSend: send } : {}),
     };
   });
   const turn = () =>
-    s.mock()?.closedAt ? { kind: "closed" as const, text: "Archived" } : shelved();
+    s.design()?.archivedAt ? { kind: "closed" as const, text: "Archived" } : shelved();
   // The words about a Send have their detail in the Thread, which only Stage has.
   const opensThread = (kind: string) =>
     props.view === "stage" && (kind === "unseen" || kind === "working" || kind === "sent");
@@ -695,7 +695,7 @@ function TopRow(props: {
             {shortProject()}
           </a>
           <span class="crumb-far sep">/</span>
-          <Show when={s.mock()?.area}>
+          <Show when={s.design()?.area}>
             {(area) => (
               <>
                 <a
@@ -740,18 +740,18 @@ function TopRow(props: {
           )}
         </Show>
       </div>
-      <Show when={idea() && !s.mock()?.closedAt && !readonly()}>
+      <Show when={idea() && !s.design()?.archivedAt && !readonly()}>
         <button
           type="button"
           class="ib x-remove mend"
-          aria-label={`End ${title()}`}
-          title="End this idea"
-          onClick={() => void s.endMock()}
+          aria-label={`Archive ${title()}`}
+          title="Archive"
+          onClick={() => void s.archiveDesign()}
         >
           <Icon name="close" />
         </button>
       </Show>
-      <Show when={s.mock()}>
+      <Show when={s.design()}>
         <button
           type="button"
           class="ib mabout"
@@ -777,7 +777,7 @@ function TopRow(props: {
         onClose={() => setOpen(false)}
         ref={(el) => (pop = el)}
       />
-      <Show when={!phoneLayout() && s.mock()}>
+      <Show when={!phoneLayout() && s.design()}>
         <button
           type="button"
           class="ib mcopy"
@@ -804,7 +804,7 @@ function TopRow(props: {
       <span class="grow" />
       <Show
         when={
-          !readonly() && !s.mock()?.shortlist && sl.current()?.candidates.length
+          !readonly() && !s.design()?.shortlist && sl.current()?.candidates.length
             ? sl.current()
             : null
         }
@@ -812,7 +812,7 @@ function TopRow(props: {
         {(list) => <ShortlistPill list={list()} project={props.project} />}
       </Show>
       {props.actions}
-      <Show when={props.view === "stage" && !props.reading && s.mock()}>
+      <Show when={props.view === "stage" && !props.reading && s.design()}>
         <WidthMenu s={s} />
       </Show>
       <Show when={props.compare || props.view !== "stage"}>
@@ -858,7 +858,7 @@ function TopRow(props: {
 
 // The way back to the last gathered idea saved to.
 function ShortlistPill(props: { list: Shortlist; project: string }) {
-  const href = () => mockPath(props.project, props.list.slug);
+  const href = () => designPath(props.project, props.list.slug);
   return (
     <div class="slpill">
       <a href={href()} title={`Open ${props.list.title}`} onClick={(e) => linkClick(e, href())}>
@@ -870,7 +870,7 @@ function ShortlistPill(props: { list: Shortlist; project: string }) {
   );
 }
 
-function WidthMenu(props: { s: MockScreenState }) {
+function WidthMenu(props: { s: DesignScreenState }) {
   const s = props.s;
   const [open, setOpen] = createSignal(false);
   let btn!: HTMLButtonElement;
@@ -895,8 +895,8 @@ function WidthMenu(props: { s: MockScreenState }) {
       doc.removeEventListener("pointerdown", onDown, true);
     });
   });
-  const declared = () => s.mock()?.widths ?? [];
-  // The mock's own widths when it names them; else the ones the viewer offers.
+  const declared = () => s.design()?.widths ?? [];
+  // The design's own widths when it names them; else the ones the viewer offers.
   const widths = () => (declared().length ? declared() : DEVICE_WIDTHS.map((d) => d.w));
   // A phone shows one artboard at a time, never the row of them.
   const all = () => widths().length > 1 && !phoneLayout();
@@ -968,7 +968,7 @@ function WidthMenu(props: { s: MockScreenState }) {
   );
 }
 
-// The steps by name: the declared flow this screen is a step of, else the mock's
+// The steps by name: the declared flow this screen is a step of, else the design's
 // own states in order. A step the agent still waits on is marked. The current
 // one stays in view however many there are, the next peeking past the edge.
 function FlowBar(props: { nav: FlowNav; children?: JSX.Element }) {
@@ -1037,7 +1037,7 @@ function FlowBar(props: { nav: FlowNav; children?: JSX.Element }) {
           onChange={(e) => {
             const to = e.currentTarget.value;
             e.currentTarget.value = "";
-            if (to) nav.go({ mock: nav.here().mock, state: to });
+            if (to) nav.go({ design: nav.here().design, state: to });
           }}
         >
           <option value="">{`${nav.emptied().length} empty`}</option>
@@ -1049,8 +1049,8 @@ function FlowBar(props: { nav: FlowNav; children?: JSX.Element }) {
 }
 
 // The previous or next step as a small dimmed picture at the canvas's edge;
-// another mock's step shows the design in use there.
-function Ghost(props: { s: MockScreenState; nav: FlowNav; by: 1 | -1 }) {
+// another design's step shows the design in use there.
+function Ghost(props: { s: DesignScreenState; nav: FlowNav; by: 1 | -1 }) {
   const s = props.s;
   const step = () => props.nav.near(props.by);
   const label = () => (step() ? props.nav.label(step()!) : "");
@@ -1083,7 +1083,7 @@ function Ghost(props: { s: MockScreenState; nav: FlowNav; by: 1 | -1 }) {
 }
 
 // Past Use this, a newer version doesn't take over by itself: look, take it, or stay.
-function ChangedNote(props: { s: MockScreenState }) {
+function ChangedNote(props: { s: DesignScreenState }) {
   const s = props.s;
   const looking = () => sameVersion(s.onStage(), s.changed()?.to);
   // Beside each other the design is the same one, so only the number tells them apart.
@@ -1092,7 +1092,7 @@ function ChangedNote(props: { s: MockScreenState }) {
       ? `version ${ref.version}`
       : s.nameOf(ref);
   return (
-    <Show when={!readonly() && !s.mock()?.closedAt && s.changed()}>
+    <Show when={!readonly() && !s.design()?.archivedAt && s.changed()}>
       {(c) => (
         <div class="status-note changed-note" role="status">
           <span>{`New version ready. You're using ${name(c().use)}.`}</span>
@@ -1116,7 +1116,7 @@ function ChangedNote(props: { s: MockScreenState }) {
 // After a Send: how far it has come (not seen, delivered, the agent working, a new
 // version), and where to go next. With nothing left to answer this is what the screen
 // stays on, so it can't be a dead end.
-function SentNote(props: { s: MockScreenState; project: string; slug: string; view: View }) {
+function SentNote(props: { s: DesignScreenState; project: string; slug: string; view: View }) {
   const s = props.s;
   const looking = (a: VersionRef & { state: string | null }) =>
     s.activeState() === a.state && sameVersion(s.onStage(), a);
@@ -1128,8 +1128,8 @@ function SentNote(props: { s: MockScreenState; project: string; slug: string; vi
   };
   return (
     <div class="sentnote">
-      <Show when={s.mock()?.closedAt}>
-        <EndedNote s={s} />
+      <Show when={s.design()?.archivedAt}>
+        <ArchivedNote s={s} />
       </Show>
       <ChangedNote s={s} />
       <Show when={s.sent()} fallback={<CarriedChip project={props.project} slug={props.slug} />}>

@@ -1,7 +1,7 @@
 # Connecting agents
 
 mockpit meets an agent wherever it is. Pick whichever tier the agent supports —
-each one covers the full loop: publish a mock, ask the user, read their one
+each one covers the full loop: publish a design, ask the user, read their one
 batched reply, revise. Nothing on any tier waits for the user: the agent asks,
 says where to look and ends its turn, and reads the reply with `feedback` once
 the user says they answered (or a background `mockpit watch` wakes it).
@@ -24,9 +24,9 @@ The `mockpit` CLI has no dependencies and keeps one session per agent
 conversation for you:
 
 ```sh
-mockpit publish --mock cache --state "Cold" --variant grid --html grid.html   # or --md / --diff …
-mockpit publish --mock cache --state "Cold" --variant list --html list.html
-mockpit ask --mock cache "Which layout?" --option Grid=grid --option List=list
+mockpit publish --design cache --state "Cold" --variant grid --html grid.html   # or --md / --diff …
+mockpit publish --design cache --state "Cold" --variant list --html list.html
+mockpit ask --design cache "Which layout?" --option Grid=grid --option List=list
 mockpit feedback                               # after the user says they answered; returns at once
 mockpit watch                                  # one line per Send, for a background monitor
 mockpit guide                                  # print the brief
@@ -81,10 +81,10 @@ claude mcp add --scope user --transport http mockpit-code "http://localhost:8228
 
 ## Plain HTTP
 
-`POST /api/mocks` to publish (create or next version), `POST /api/mocks/:id/asks`,
-`GET /api/mocks` and `GET /api/mocks/:id` to read, `GET /api/feedback?session=…`
-for the user's reply (returns at once), `POST /api/mocks/:id/say`,
-`GET /api/mocks/:id/export`, and `POST /api/assets` for blob uploads.
+`POST /api/designs` to publish (create or next version), `POST /api/designs/:id/asks`,
+`GET /api/designs` and `GET /api/designs/:id` to read, `GET /api/feedback?session=…`
+for the user's reply (returns at once), `POST /api/designs/:id/say`,
+`GET /api/designs/:id/export`, and `POST /api/assets` for blob uploads.
 `POST /api/run {code}` runs a script against the same API. Documented at
 `/agent-howto?topic=http`.
 

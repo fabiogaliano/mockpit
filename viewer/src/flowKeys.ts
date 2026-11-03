@@ -1,4 +1,4 @@
-// The mock screen's keyboard: flowKey (logic.ts) says what a key means, this
+// The design screen's keyboard: flowKey (logic.ts) says what a key means, this
 // applies it: number keys pick on the question card, ←/→ step through the
 // versions, Enter sends on. The Mark tool owns its keys while on.
 // Any key or press on the screen also keeps it from moving on by itself after
@@ -7,12 +7,12 @@
 import { onCleanup, onMount } from "solid-js";
 import { root } from "./host.ts";
 import { flowKey } from "./logic.ts";
-import type { MockScreenState } from "./state.ts";
+import type { DesignScreenState } from "./state.ts";
 
 export const FIELD = "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
 const CONTROL = "button, a[href], summary, [role='button'], [role='tab'], [role='option']";
 
-export function useFlowKeys(s: MockScreenState) {
+export function useFlowKeys(s: DesignScreenState) {
   onMount(() => {
     const stay = () => {
       if (s.afterSend()?.auto) s.stayHere();
@@ -45,8 +45,8 @@ export function useFlowKeys(s: MockScreenState) {
           else if (s.commitKind() && !s.questionHidden()) s.commit();
           else return;
           break;
-        case "mock":
-          void s.goOwedMock(key.by);
+        case "design":
+          void s.goOwedDesign(key.by);
           break;
         case "clear":
           if (!s.preview() && !s.afterSend()?.auto) return;

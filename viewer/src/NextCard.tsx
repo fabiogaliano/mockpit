@@ -1,15 +1,15 @@
-// After a Send: where to go next. The next mock that still owes answers, the
+// After a Send: where to go next. The next design that still owes answers, the
 // screen moving there by itself after a beat unless the user stays; or, with
 // nothing left, the way back to the project under the Send's status. And on that next
-// mock, the chip that keeps the last Send's Delivered / Not seen yet in sight, with
+// design, the chip that keeps the last Send's Delivered / Not seen yet in sight, with
 // the line that wakes an agent nothing is listening for.
 
 import { createSignal, onCleanup, Show } from "solid-js";
 import { BEAT_MS, carried, setCarried, useCarriedDelivery } from "./carry.ts";
 import { CopyButton } from "./CopyButton.tsx";
 import { host } from "./host.ts";
-import { homePath, linkClick, mockPath } from "./route.ts";
-import type { MockScreenState } from "./state.ts";
+import { homePath, linkClick, designPath } from "./route.ts";
+import type { DesignScreenState } from "./state.ts";
 
 const questions = (n: number) => (n === 1 ? "1 question" : `${n} questions`);
 
@@ -30,7 +30,7 @@ export function WakeLine(props: { slug: string }) {
   );
 }
 
-export function NextCard(props: { s: MockScreenState }) {
+export function NextCard(props: { s: DesignScreenState }) {
   const s = props.s;
   const home = () => homePath(s.project);
   // A question that has come in since is what's next, right here.
@@ -83,7 +83,7 @@ export function NextCard(props: { s: MockScreenState }) {
   );
 }
 
-// The Send made on the mock before this one, until this one sends its own.
+// The Send made on the design before this one, until this one sends its own.
 export function CarriedChip(props: { project: string; slug: string }) {
   const { delivered, listening, reload } = useCarriedDelivery();
   const [beat, setBeat] = createSignal(false);
@@ -97,7 +97,7 @@ export function CarriedChip(props: { project: string; slug: string }) {
     return c && c.project === props.project && c.slug !== props.slug ? c : null;
   };
   // Once a screen has shown it Delivered, it has done its job; until then it
-  // keeps following the user from mock to mock.
+  // keeps following the user from design to design.
   onCleanup(() => {
     if (shown() && delivered()) setCarried(null);
   });
@@ -108,9 +108,9 @@ export function CarriedChip(props: { project: string; slug: string }) {
           <a
             class="pill count carried"
             classList={{ waiting: !delivered() }}
-            href={mockPath(c().project, c().slug)}
+            href={designPath(c().project, c().slug)}
             title={`Your reply on ${c().title}`}
-            onClick={(e) => linkClick(e, mockPath(c().project, c().slug))}
+            onClick={(e) => linkClick(e, designPath(c().project, c().slug))}
           >
             <i class="dot" classList={{ ok: delivered() }} />
             <span class="carried-title">{c().title}</span>

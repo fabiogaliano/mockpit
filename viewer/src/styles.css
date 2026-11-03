@@ -138,7 +138,7 @@ a {
   grid-template-rows: calc(52px + env(safe-area-inset-top)) minmax(0, 1fr);
   height: 100%;
 }
-.mock-screen {
+.design-screen {
   overflow: hidden;
   /* dvh: the toolbar-aware height on iOS, where 100% can sit under Safari's bar */
   height: 100dvh;
@@ -360,7 +360,7 @@ a.home-count {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* The code path that implements a mock: there when asked for, never loud. */
+/* The code path that implements a design: there when asked for, never loud. */
 .home-src {
   color: var(--t5);
   font: 400 12px var(--mono);
@@ -487,10 +487,10 @@ a.home-count {
   font-size: 14px;
   text-wrap: pretty;
 }
-.decisions-mock {
+.decisions-design {
   margin-bottom: 26px;
 }
-.decisions-mock h3 {
+.decisions-design h3 {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -499,17 +499,17 @@ a.home-count {
   font-size: 13px;
   font-weight: 600;
 }
-.decisions-mock h3 a {
+.decisions-design h3 a {
   color: var(--t2);
   text-decoration: none;
 }
-.decisions-mock h3 time,
+.decisions-design h3 time,
 .decisions-closed {
   color: var(--t5);
   font-size: 12px;
   font-weight: 400;
 }
-.decisions-mock ul {
+.decisions-design ul {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -577,7 +577,7 @@ a.home-count {
 }
 /* On a pointer they wait for the line; a finger has no hover to find them with. */
 @media (hover: hover) {
-  .decisions-mock h3 a:hover,
+  .decisions-design h3 a:hover,
   .decisions-text:hover,
   .decisions-mine:hover,
   .decisions-words:hover {
@@ -3451,30 +3451,30 @@ html.theming *:not(iframe) {
 /* No pinch scales the viewer on a phone: on the design a pinch zooms the
    design (its page forwards it), and anywhere else it would scale the header
    and the sheet out from under the finger. Text size is still Safari's aA. */
-.mock-screen.phone {
+.design-screen.phone {
   touch-action: pan-x pan-y;
 }
 /* The design is the page here, not an artboard on a board: a page whose own
    background is transparent must not show the canvas's dots through its text. */
-.mock-screen.phone .stagewrap.canvas {
+.design-screen.phone .stagewrap.canvas {
   background-image: none;
 }
 /* The stage is the one scroller: native, with momentum, sideways too once
    zoomed. Frames take their full height and take no touch outside Try, so a
    swipe can't be caught by a page at its end; the overlay still answers taps. */
-.mock-screen.phone .stagewrap.canvas :is(.layers, .overlay) {
+.design-screen.phone .stagewrap.canvas :is(.layers, .overlay) {
   touch-action: pan-x pan-y;
 }
-.mock-screen.phone .stagewrap.canvas .frame:not(.trying) .surface iframe {
+.design-screen.phone .stagewrap.canvas .frame:not(.trying) .surface iframe {
   pointer-events: none;
 }
 /* A question's region scrolls to the top, short of the header, so the pin on
    its corner keeps its whole tap area. */
-.mock-screen.phone .stagewrap.canvas .box.sel {
+.design-screen.phone .stagewrap.canvas .box.sel {
   scroll-margin-top: 24px;
 }
 @media (pointer: coarse) {
-  .mock-screen.phone .stagewrap.canvas .layers {
+  .design-screen.phone .stagewrap.canvas .layers {
     overflow: auto;
   }
 }
@@ -3994,13 +3994,13 @@ html.theming *:not(iframe) {
   outline-offset: 0;
 }
 
-/* ---------- the mock screen (MockScreen): top bar, flow bar, canvas, bottom bar ---------- */
-.mock-screen {
+/* ---------- the design screen (DesignScreen): top bar, flow bar, canvas, bottom bar ---------- */
+.design-screen {
   position: fixed;
   inset: 0 0 auto;
   display: block;
 }
-html:has(.mock-screen) {
+html:has(.design-screen) {
   overflow: hidden;
   overscroll-behavior: none;
 }
@@ -5780,7 +5780,7 @@ button.mturn:focus-visible {
     height: 44px;
   }
 }
-/* Phone: the crumb is the mock's name, the tabs scroll (and a swipe walks them),
+/* Phone: the crumb is the design's name, the tabs scroll (and a swipe walks them),
    the bar keeps one line, and the drawers are sheets from the bottom. */
 @media (max-width: 640px) {
   .mtop {
@@ -5909,7 +5909,7 @@ button.mturn:focus-visible {
   }
 }
 /* Related: a quiet column over the canvas's left edge, under the top bar. */
-/* About: under the mock's name, what sits around it. Opens from the name, so
+/* About: under the design's name, what sits around it. Opens from the name, so
    it grows from there; a sheet from the bottom on a phone. */
 .about {
   position: fixed;
@@ -7252,7 +7252,7 @@ body:has(.selp) .toast {
   white-space: nowrap;
 }
 .save-row .n,
-.slpick-mocks .n {
+.slpick-designs .n {
   flex: none;
   color: var(--t5);
   font-size: 12px;
@@ -7579,11 +7579,11 @@ body:has(.selp) .toast {
   color: var(--t1);
   font-size: 13px;
 }
-.slpick-mocks {
+.slpick-designs {
   display: grid;
   gap: 1px;
 }
-.slpick-mocks button {
+.slpick-designs button {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -7595,12 +7595,12 @@ body:has(.selp) .toast {
   font-size: 13px;
   text-align: start;
 }
-.slpick-mocks button[aria-current="true"] {
+.slpick-designs button[aria-current="true"] {
   background: var(--row);
   color: var(--t1);
 }
 @media (hover: hover) {
-  .slpick-mocks button:hover {
+  .slpick-designs button:hover {
     background: var(--row);
     color: var(--t1);
   }

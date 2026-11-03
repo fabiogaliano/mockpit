@@ -9,7 +9,7 @@ import { Picture } from "./Album.tsx";
 import { readonly } from "./host.ts";
 import { designWidth } from "./logic.ts";
 import { Reason } from "./Reason.tsx";
-import { linkClick, mockPath } from "./route.ts";
+import { linkClick, designPath } from "./route.ts";
 
 const WIDE_FROM = 700;
 
@@ -40,7 +40,7 @@ export function Archive(props: {
   const days = createMemo(() =>
     byDay(
       props.nodes,
-      (n) => n.archivedAt,
+      (n) => n.leftAt,
       (n) => n.id,
     ),
   );
@@ -49,7 +49,7 @@ export function Archive(props: {
       <For each={days()}>
         {(day) => {
           const nodes = () => day.rows;
-          const reasons = () => nodes().map((n) => n.closeReason ?? null);
+          const reasons = () => nodes().map((n) => n.archiveReason ?? null);
           const same = () => reasons().every((r) => r === reasons()[0]);
           const unopened = () => nodes().filter((n) => props.fresh.has(n.id)).length;
           const areas = () => [...new Set(nodes().flatMap((n) => (n.area ? [n.area] : [])))];
@@ -104,7 +104,7 @@ export function Archive(props: {
                       project={props.project}
                       node={n}
                       fresh={props.fresh.has(n.id)}
-                      reason={same() ? null : (n.closeReason ?? null)}
+                      reason={same() ? null : (n.archiveReason ?? null)}
                       onRestore={() => props.onRestore([n])}
                     />
                   )}
@@ -129,7 +129,7 @@ function Tile(props: {
   const pic = createMemo(() => albumPicture(n()));
   const width = () => bothWidths(n())?.wide ?? designWidth(n());
   const part = () => n().kind === "component";
-  const href = () => mockPath(props.project, n().slug);
+  const href = () => designPath(props.project, n().slug);
   return (
     <article class="arch-tile" classList={{ wide: part() || width() >= WIDE_FROM }}>
       <a

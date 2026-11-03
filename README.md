@@ -2,7 +2,7 @@
 
 **A design-decision loop for terminal coding agents.**
 
-Your agent publishes a mock (a page or a component) in each of its UI states and
+Your agent publishes a design (a screen or a component) in each of its UI states and
 in a few parallel variants. It shows up live in your browser with the agent's
 questions beside it: pick a variant from pictures, tune the knobs it exposed, leave
 comments on the parts it declared, then press **Send**, at your own pace. Nothing
@@ -13,11 +13,11 @@ the agent calls waits for you: it gets the whole batch once and revises.
     <td width="50%" valign="top">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/mockpit-dark.png">
-        <img width="100%" alt="The Writer mock on its first question, Which variant?: the Writing state on the stage with a numbered question pin, the row of four UI states below it, and the panel offering three variants (Quiet, Dark, Editorial) as picture options" src="docs/mockpit-light.png">
+        <img width="100%" alt="The Writer design on its first question, Which variant?: the Writing state on the stage with a numbered question pin, the row of four UI states below it, and the panel offering three variants (Quiet, Dark, Editorial) as picture options" src="docs/mockpit-light.png">
       </picture>
     </td>
     <td width="50%" valign="top">
-      <img width="100%" alt="Animated demo: the agent publishes the Writer mock; the user previews the three variants on the stage, picks Quiet, answers where the trim goes, borrows a part from another variant and presses Send; the top bar reads Sent, Not seen yet, then Delivered once the agent reads the feedback; the agent replies and publishes its next version" src="docs/mockpit-demo.gif">
+      <img width="100%" alt="Animated demo: the agent publishes the Writer design; the user previews the three variants on the stage, picks Quiet, answers where the trim goes, borrows a part from another variant and presses Send; the top bar reads Sent, Not seen yet, then Delivered once the agent reads the feedback; the agent replies and publishes its next version" src="docs/mockpit-demo.gif">
     </td>
   </tr>
 </table>
@@ -32,23 +32,23 @@ Cloudflare deploy all come from that work. Thank you.
 Upstream is a live visual surface where agents post renders and you comment.
 mockpit turns that into a design-decision loop:
 
-|               | sideshow                                           | mockpit                                                                                                                        |
-| ------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Structure     | A stream of posts per session                      | **project › mock › state › variant › version**: a repo, a page or component by slug, its UI states, parallel variants, history |
-| Questions     | Free-text comments                                 | The agent asks; you answer in place, picking from pictures of each option                                                      |
-| Tuning        | —                                                  | Knobs the agent declares (sliders, colours, springs…) on [tunekit](https://github.com/fabiogaliano/tunekit), live on the stage |
-| Comments      | Text on a post                                     | Anchored on a **part** the agent declared with `data-part`, in a given state                                                   |
-| Feedback      | Each comment reaches the agent as it's written     | Picks, tuned values, borrowed parts and comments stay drafts until you **Send**, then go out as one reply                      |
-| Design system | Built-in viewer themes                             | `mockpit init` detects the repo's tokens, fonts and kit so the agent's markup matches your codebase                            |
-| Agent verbs   | Post-level: `publish`, `update`, `wait`, `comment` | Mock-level, never blocking: `publish`, `ask`, `read`, `feedback`, `say`, `move`, `edit`, `export`, `upload`, `guide`, `run`    |
+|               | sideshow                                           | mockpit                                                                                                                            |
+| ------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Structure     | A stream of posts per session                      | **project › design › state › variant › version**: a repo, a screen or component by slug, its UI states, parallel variants, history |
+| Questions     | Free-text comments                                 | The agent asks; you answer in place, picking from pictures of each option                                                          |
+| Tuning        | —                                                  | Knobs the agent declares (sliders, colours, springs…) on [tunekit](https://github.com/fabiogaliano/tunekit), live on the stage     |
+| Comments      | Text on a post                                     | Anchored on a **part** the agent declared with `data-part`, in a given state                                                       |
+| Feedback      | Each comment reaches the agent as it's written     | Picks, tuned values, borrowed parts and comments stay drafts until you **Send**, then go out as one reply                          |
+| Design system | Built-in viewer themes                             | `mockpit init` detects the repo's tokens, fonts and kit so the agent's markup matches your codebase                                |
+| Agent verbs   | Post-level: `publish`, `update`, `wait`, `comment` | Design-level, never blocking: `publish`, `ask`, `read`, `feedback`, `say`, `move`, `edit`, `export`, `upload`, `guide`, `run`      |
 
 ## The loop
 
-1. **Publish.** The agent publishes each state of the mock ("Writing", "Lab
-   open") in one or more variants ("quiet", "dark"). One stage shows the mock,
+1. **Publish.** The agent publishes each state of the design ("Writing", "Lab
+   open") in one or more variants ("quiet", "dark"). One stage shows the design,
    one state at a time.
 2. **Ask.** The agent asks what it can't decide alone: which variant, where a
-   panel goes, which of two layouts. The question lives in the mock, not in
+   panel goes, which of two layouts. The question lives in the design, not in
    chat; the agent tells you where to look and ends its turn. Options bound to
    a variant or to knob values render as pictures; hovering one previews it on
    the stage, clicking picks it, and the part it changed is outlined. A
@@ -61,7 +61,7 @@ mockpit turns that into a design-decision loop:
    another variant draws differently, plus a comment field. Presets
    save a set of tuned values in your browser.
 4. **Send.** Everything above is a draft (it survives a reload) until one
-   **Send**. A mock with a single variant and no questions gets **Use this /
+   **Send**. A design with a single variant and no questions gets **Use this /
    Revise** instead. The Send lands in the Thread as **Not seen yet**,
    then **Delivered** once the agent has it. If it isn't picked up, tell your
    agent you've answered.
@@ -72,14 +72,13 @@ mockpit turns that into a design-decision loop:
    and **Use this** puts an older one back in use. Variants that lost are
    archived, not deleted.
 
-**Home** lists the project's mocks with a thumbnail, their states and how many
+**Home** lists the project's designs with a thumbnail, their states and how many
 questions are open, with "Answer next ›" to jump to the first one. Dark and
 light themes, toggled from the top bar. On a phone or an iPad in portrait the
 design is a canvas you pan and pinch, at each width the agent names (or one you
 pick: Phone 390, Tablet 744, Desktop 820, Wide 1280) side by side, and the
 questions float over it in a card you can snap to a corner, a side or the
-bottom, or tuck against an edge. On a desktop, Inspect opens the stage full
-screen to pan and pinch-zoom it.
+bottom, or tuck against an edge.
 
 ## Quick start
 
@@ -98,17 +97,17 @@ Point your agent at it by pasting the setup block into its instructions:
 curl -s http://localhost:8228/setup >> AGENTS.md
 ```
 
-Then run `mockpit init` once per repo and ask the agent to "mock this up on
-mockpit". No agent handy? `mockpit demo` seeds the Writer: one mock in four
+Then run `mockpit init` once per repo and ask the agent to "design this up on
+mockpit". No agent handy? `mockpit demo` seeds the Writer: one design in four
 states and three variants, with questions, knobs and declared parts.
 
 MCP, the Pi extension and the Claude Code plugin are covered in
 **[docs/connecting-agents.md](docs/connecting-agents.md)**.
 
-## What a mock can show
+## What a design can show
 
 A version is an ordered list of **surfaces**, and one version can carry several.
-Html is what design mocks use and the only kind with parts and knobs; the others
+Html is what design designs use and the only kind with parts and knobs; the others
 render the same way on the stage.
 
 <table>
@@ -143,29 +142,29 @@ Ten verbs, the same on every tier with the same fields: a zero-dependency CLI
 for agents with only a shell, MCP over stdio or streamable HTTP at `/mcp`, and
 plain HTTP. None of them waits for the user.
 
-| CLI                   | MCP                  | HTTP                                                |
-| --------------------- | -------------------- | --------------------------------------------------- |
-| `mockpit publish`     | `publish`            | `POST /api/mocks`                                   |
-| `mockpit ask`         | `ask`                | `POST /api/mocks/:id/asks`                          |
-| `mockpit read [slug]` | `read`               | `GET /api/mocks`, `GET /api/mocks/:id`              |
-| `mockpit feedback`    | `feedback`           | `GET /api/feedback?session=…`                       |
-| `mockpit say`         | `say`                | `POST /api/mocks/:id/say`                           |
-| `mockpit move`        | `move`               | `POST /api/mocks/:id/move`                          |
-| `mockpit edit`        | `edit`               | `PATCH /api/mocks/:id`, `PATCH /api/projects/:name` |
-| `mockpit export`      | `export`             | `GET /api/mocks/:id/export`                         |
-| `mockpit upload`      | `upload`             | `POST /api/assets`                                  |
-| `mockpit guide`       | `guide`              | `GET /agent-howto`                                  |
-| `mockpit run`         | `run` (`?mode=code`) | `POST /api/run`                                     |
+| CLI                   | MCP                  | HTTP                                                  |
+| --------------------- | -------------------- | ----------------------------------------------------- |
+| `mockpit publish`     | `publish`            | `POST /api/designs`                                   |
+| `mockpit ask`         | `ask`                | `POST /api/designs/:id/asks`                          |
+| `mockpit read [slug]` | `read`               | `GET /api/designs`, `GET /api/designs/:id`            |
+| `mockpit feedback`    | `feedback`           | `GET /api/feedback?session=…`                         |
+| `mockpit say`         | `say`                | `POST /api/designs/:id/say`                           |
+| `mockpit move`        | `move`               | `POST /api/designs/:id/move`                          |
+| `mockpit edit`        | `edit`               | `PATCH /api/designs/:id`, `PATCH /api/projects/:name` |
+| `mockpit export`      | `export`             | `GET /api/designs/:id/export`                         |
+| `mockpit upload`      | `upload`             | `POST /api/assets`                                    |
+| `mockpit guide`       | `guide`              | `GET /agent-howto`                                    |
+| `mockpit run`         | `run` (`?mode=code`) | `POST /api/run`                                       |
 
 The CLI adds `mockpit init` (detect the repo's design system, once per repo)
 and `mockpit watch` (one line per Send, for a background monitor).
 
-- **`publish` is the one write.** It creates the mock, state or variant, or the
+- **`publish` is the one write.** It creates the design, state or variant, or the
   next version of an existing one. Send `html`, the full ordered `surfaces`
   list (an entry that is only `{id}` keeps that surface), or `parts` to replace
   just the declared elements.
 - **`feedback` returns at once** with what the user sent since the agent last
-  heard, plus `pending`: whether each mock is open in the viewer and how far the user's
+  heard, plus `pending`: whether each design is open in the viewer and how far the user's
   draft has got (`2 of 3 answered`). Every write returns `feedback` too, and
   each Send is delivered exactly once across all of them.
 - **Questions are nudged.** A publish that leaves several variants with no
@@ -174,9 +173,9 @@ and `mockpit watch` (one line per Send, for a background monitor).
 A typical turn:
 
 ```sh
-mockpit publish --mock writer --state "Writing" --variant quiet --html quiet.html
-mockpit publish --mock writer --state "Writing" --variant dark  --html dark.html
-mockpit ask     --mock writer "Quiet or dark?" --option Quiet=quiet --option Dark=dark
+mockpit publish --design writer --state "Writing" --variant quiet --html quiet.html
+mockpit publish --design writer --state "Writing" --variant dark  --html dark.html
+mockpit ask     --design writer "Quiet or dark?" --option Quiet=quiet --option Dark=dark
 # the agent says where to look and ends its turn; once you've answered:
 mockpit feedback
 ```
@@ -226,9 +225,9 @@ The server app is importable from `mockpit/server` (`createApp`, `SqlStore`,
 ## Migrating from 0.x
 
 - **SQLite workspaces migrate in place on first boot.** Each item becomes a
-  single-state mock with its variants and version history; comments keep their
+  single-state design with its variants and version history; comments keep their
   ids and sequence numbers, so agents' feedback cursors carry over. Comments a
-  user was still drafting become the mock's draft. Deployed Durable Objects
+  user was still drafting become the design's draft. Deployed Durable Objects
   migrate the same way.
 - **The JSON store is gone.** If you run with `MOCKPIT_STORE=json`, start your
   current version once without it **before upgrading**:
@@ -236,7 +235,7 @@ The server app is importable from `mockpit/server` (`createApp`, `SqlStore`,
   set them). That first SQLite boot copies `~/.mockpit/mockpit.json` into
   `~/.mockpit/mockpit.db`, as long as the database is still empty; then upgrade.
   The JSON file is left untouched either way.
-- **`--item` is now `--mock`** (`mockpit publish --mock <slug> --state <s>
+- **`--item` is now `--design`** (`mockpit publish --design <slug> --state <s>
 --variant <v>`), and the MCP tools are named by verb (`publish`, `ask`,
   `read`, `feedback`, `say`, `move`, `export`, `upload`, `guide`).
 - **Removed:** the item, post, snippet and session-page routes

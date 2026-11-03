@@ -9,7 +9,7 @@ import type { DecisionLine } from "../../server/decisionList.ts";
 import { api, type DecisionListView } from "./api.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import { linkClick, mockPath } from "./route.ts";
+import { linkClick, designPath } from "./route.ts";
 import type { ToastLine } from "./toast.tsx";
 
 // The list and how to refresh it, for whoever hosts the component and needs to
@@ -62,9 +62,9 @@ export function DecisionRow(props: {
   return (
     <Line
       line={props.line}
-      href={mockPath(
+      href={designPath(
         props.project,
-        props.line.mock,
+        props.line.design,
         props.line.state ? { state: props.line.state, variant: null } : null,
       )}
       editing={e.editing() === props.line.id}

@@ -145,7 +145,7 @@ export function useInspectGestures(opts: {
   return { pinch, zoomAt };
 }
 
-// A row that a finger swipes left to act on it (resolve a mock on Home). The
+// A row that a finger swipes left to act on it (resolve a design on Home). The
 // row follows the finger once the move is clearly sideways, and the action
 // fires past a share of its width or on a quick flick; short of that it springs
 // back. Touch and pen only: a mouse has the row's button instead. The row's

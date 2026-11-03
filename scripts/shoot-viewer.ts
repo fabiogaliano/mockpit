@@ -1,5 +1,5 @@
 // Screenshots of the viewer for review: boots a throwaway server, seeds the
-// demo Writer mock through the CLI, and saves 1600×1000 PNGs to
+// demo Writer design through the CLI, and saves 1600×1000 PNGs to
 // docs/tmp/phase4-shots/. Run after `npm run build:viewer`:
 //   node scripts/shoot-viewer.ts
 
@@ -62,16 +62,16 @@ try {
     env: { ...process.env, MOCKPIT_URL: url },
     stdio: "inherit",
   });
-  const list = await call(url, "/api/mocks?project=demo%2Fwriter");
-  const mock = list.mocks[0];
+  const list = await call(url, "/api/designs?project=demo%2Fwriter");
+  const design = list.designs[0];
   // A second version of the at-rest quiet look, so the versions popover has history.
-  const detail = await call(url, `/api/mocks/${mock.id}?body=1`);
+  const detail = await call(url, `/api/designs/${design.id}?body=1`);
   const rest = detail.variants.find(
     (v: { state: string; variant: string }) => v.state === "Writing" && v.variant === "quiet",
   );
-  await call(url, "/api/mocks", "POST", {
-    mock: mock.id,
-    session: mock.sessionId,
+  await call(url, "/api/designs", "POST", {
+    design: design.id,
+    session: design.sessionId,
     state: "Writing",
     variant: "quiet",
     prompt: "tightened the title",
@@ -115,9 +115,9 @@ try {
   await page.locator("button.send").click();
   await page.locator(".trow.you").waitFor();
   // The agent reads the reply (its cursor passes it) and answers.
-  await call(url, `/api/feedback?session=${mock.sessionId}`);
-  await call(url, `/api/mocks/${mock.id}/say`, "POST", {
-    session: mock.sessionId,
+  await call(url, `/api/feedback?session=${design.sessionId}`);
+  await call(url, `/api/designs/${design.id}/say`, "POST", {
+    session: design.sessionId,
     message: "Going with that. I'll fold the trim into the page header in the next version.",
   });
   await page.locator(".tdelivered.ok").waitFor();

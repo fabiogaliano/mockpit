@@ -1,22 +1,22 @@
-// A mock's notes: a short spec an agent drafts, the user corrects by hand, and later
+// A design's notes: a short spec an agent drafts, the user corrects by hand, and later
 // agents read. Plain text, always shown as text nodes. An experiment: what would prove
 // it wrong is an agent that ignores an edit.
 
 import { createSignal, Show } from "solid-js";
 import { MAX_NOTES } from "../../server/types.ts";
 import { readonly } from "./host.ts";
-import type { MockScreenState } from "./state.ts";
+import type { DesignScreenState } from "./state.ts";
 
 // A note is shown wherever there is one. An empty one only asks to be written on a
 // screen: on an idea or a document it would be one more thing nobody asked for.
-export const notesShown = (s: MockScreenState) => {
-  const m = s.mock();
-  return !!m && (!!m.notes || m.kind === "page");
+export const notesShown = (s: DesignScreenState) => {
+  const m = s.design();
+  return !!m && (!!m.notes || m.kind === "screen");
 };
 
-export function Notes(props: { s: MockScreenState }) {
+export function Notes(props: { s: DesignScreenState }) {
   const s = props.s;
-  const notes = () => s.mock()?.notes;
+  const notes = () => s.design()?.notes;
   const text = s.notesWriting;
   const setText = s.setNotesWriting;
   const [busy, setBusy] = createSignal(false);

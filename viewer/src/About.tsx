@@ -1,13 +1,13 @@
-// About: what sits around this mock, opened from the info button beside its name.
-// Appears in (the mocks that embed it), Built from (what it embeds), Flows
+// About: what sits around this design, opened from the info button beside its name.
+// Appears in (the designs that embed it), Built from (what it embeds), Flows
 // (each flow it is a step of) and where its code lives. Its states are the tabs'
 // job. A bottom sheet on a phone.
 
 import { createMemo, createResource, createSignal, For, type JSX, Show } from "solid-js";
 import { api, type FlowView, surfaceUrl, type TreeNode } from "./api.ts";
 import { designWidth, screenPicture } from "./logic.ts";
-import { linkClick, mockPath } from "./route.ts";
-import type { MockScreenState } from "./state.ts";
+import { linkClick, designPath } from "./route.ts";
+import type { DesignScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 
@@ -16,14 +16,14 @@ export interface AboutState {
   wake: () => void;
 }
 
-// One per mock screen. The tree is fetched again whenever the mock changes, so
+// One per design screen. The tree is fetched again whenever the design changes, so
 // a new embed or flow step shows.
-export function createAbout(project: () => string, mockKey: () => string | null): AboutState {
-  // Not before it is first opened: most visits to a mock never do.
+export function createAbout(project: () => string, designKey: () => string | null): AboutState {
+  // Not before it is first opened: most visits to a design never do.
   const [woken, setWoken] = createSignal(false);
   const [tree] = createResource(
     () => {
-      const k = mockKey();
+      const k = designKey();
       return k === null || !woken() ? null : `${project()}\u0000${k}`;
     },
     () => api.tree(project()),
@@ -58,7 +58,9 @@ export function aboutOf(r: AboutState, slug: string) {
   const flows = createMemo<FlowRow[]>(() =>
     (r.tree()?.flows ?? []).flatMap((f) =>
       f.steps.flatMap((x, i) =>
-        x.mock === slug ? [{ flow: f.name, step: i + 1, of: f.steps.length, state: x.state }] : [],
+        x.design === slug
+          ? [{ flow: f.name, step: i + 1, of: f.steps.length, state: x.state }]
+          : [],
       ),
     ),
   );
@@ -67,7 +69,7 @@ export function aboutOf(r: AboutState, slug: string) {
 }
 
 export function About(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   r: AboutState;
   project: string;
   slug: string;
@@ -88,7 +90,7 @@ export function About(props: {
     meta: JSX.Element,
     title: string = n.title,
   ) => (
-    <a class="rel-row" href={path} onClick={go(path)} data-mock={n.slug}>
+    <a class="rel-row" href={path} onClick={go(path)} data-design={n.slug}>
       <span class="rel-pic" classList={{ wide: n.kind === "component" || designWidth(n) >= 700 }}>
         <Show when={nodePicture(n, state)}>
           {(u) => <Thumb src={u()} width={designWidth(n)} class="rel-thumb" fit whole />}
@@ -119,13 +121,13 @@ export function About(props: {
     !rel.embeddedIn().length &&
     !rel.embeds().length &&
     !rel.flows().length &&
-    !s.mock()?.source;
+    !s.design()?.source;
   return (
     <div
       class="about"
       classList={{ open: props.open }}
       role="dialog"
-      aria-label={s.mock()?.title ?? props.slug}
+      aria-label={s.design()?.title ?? props.slug}
       aria-hidden={!props.open}
       inert={!props.open || undefined}
       ref={props.ref}
@@ -134,7 +136,7 @@ export function About(props: {
         "Appears in",
         () => (
           <For each={rel.embeddedIn()}>
-            {(n) => row(n, null, mockPath(props.project, n.slug), states(n))}
+            {(n) => row(n, null, designPath(props.project, n.slug), states(n))}
           </For>
         ),
         () => rel.embeddedIn().length,
@@ -143,7 +145,7 @@ export function About(props: {
         "Built from",
         () => (
           <For each={rel.embeds()}>
-            {(n) => row(n, null, mockPath(props.project, n.slug), states(n))}
+            {(n) => row(n, null, designPath(props.project, n.slug), states(n))}
           </For>
         ),
         () => rel.embeds().length,
@@ -158,7 +160,7 @@ export function About(props: {
                   row(
                     n(),
                     f.state,
-                    mockPath(
+                    designPath(
                       props.project,
                       props.slug,
                       f.state === null ? null : { state: f.state, variant: null },
@@ -176,7 +178,7 @@ export function About(props: {
         ),
         () => rel.flows().length,
       )}
-      <Show when={s.mock()?.source}>
+      <Show when={s.design()?.source}>
         {(src) => (
           <section>
             <h3>Code</h3>

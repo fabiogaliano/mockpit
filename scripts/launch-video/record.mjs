@@ -60,7 +60,7 @@ const api = (path, body, init = {}) =>
 
 // --- seed --------------------------------------------------------------------
 
-// The Writer mock is published on camera; this only names where it will live.
+// The Writer design is published on camera; this only names where it will live.
 const projectUrl = `${base}/project/${encodeURIComponent(DEMO.project)}`;
 
 async function publishWriter() {
@@ -69,25 +69,25 @@ async function publishWriter() {
     title: DEMO.sessionTitle,
     project: DEMO.project,
   });
-  let mockId = "";
+  let designId = "";
   for (const state of DEMO.states) {
     for (const variant of DEMO.variants) {
-      const out = await api("/api/mocks", {
+      const out = await api("/api/designs", {
         session: session.id,
         project: DEMO.project,
-        mock: DEMO.slug,
-        kind: "page",
+        design: DEMO.slug,
+        kind: "screen",
         title: DEMO.title,
         state: state.label,
         variant: variant.name,
         knobs: DEMO.knobs,
         surfaces: [{ kind: "html", html: DEMO.render(state, variant) }],
       });
-      mockId = out.mock.id;
+      designId = out.design.id;
     }
   }
-  await api(`/api/mocks/${mockId}/asks`, { session: session.id, asks: DEMO.asks });
-  return { mockId, session: session.id };
+  await api(`/api/designs/${designId}/asks`, { session: session.id, asks: DEMO.asks });
+  return { designId, session: session.id };
 }
 
 // --- stage + browser ---------------------------------------------------------
@@ -152,16 +152,16 @@ await stage(
 await app.locator(".home-lead").waitFor();
 await sleep(3200);
 
-// 2. Publish → the mock lands live on Home; open it.
+// 2. Publish → the design lands live on Home; open it.
 await stage("hideCard");
 await sleep(700);
 await stage(
   "caption",
-  `Agents publish a mock over <span class="hl">CLI, MCP, or plain HTTP</span> — every state, a few variants`,
+  `Agents publish a design over <span class="hl">CLI, MCP, or plain HTTP</span> — every state, a few variants`,
 );
 await sleep(900);
-const { mockId, session } = await publishWriter();
-const row = app.locator(`.home-step[data-mock="${DEMO.slug}"]`).first();
+const { designId, session } = await publishWriter();
+const row = app.locator(`.home-step[data-design="${DEMO.slug}"]`).first();
 await row.waitFor();
 await sleep(1600);
 await row.click();
@@ -199,14 +199,14 @@ await sleep(1500);
 await api(`/api/feedback?session=${session}`, undefined, { method: "GET" });
 await sent.locator(".tdelivered.ok").waitFor();
 await sleep(1200);
-await api(`/api/mocks/${mockId}/say`, { session, message: "Quiet it is. v2 coming up." });
+await api(`/api/designs/${designId}/say`, { session, message: "Quiet it is. v2 coming up." });
 await sleep(1400);
 const writing = DEMO.states[0];
 // The answers may have left another state on the stage; v2 lands on this one.
 await app.locator(".strip [role=tab]", { hasText: writing.label }).click();
 await sleep(600);
-await api("/api/mocks", {
-  mock: mockId,
+await api("/api/designs", {
+  design: designId,
   session,
   state: writing.label,
   variant: "quiet",
