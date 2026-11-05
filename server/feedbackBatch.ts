@@ -193,9 +193,15 @@ function answered(
       design?.asks.find((a) => a.id === askId) ?? (design && builtinAsk(design, posts, askId));
     const answer = reply.answers[askId];
     const ids = answer === undefined ? [] : Array.isArray(answer) ? answer : [answer];
-    const chosen: AnsweredAsk["chosen"] = ids.map(
-      (id) => ask?.options.find((o) => o.id === id) ?? { id, label: id },
-    );
+    const chosen: AnsweredAsk["chosen"] = ids.map((id) => {
+      const option = ask?.options.find((o) => o.id === id);
+      if (!option) return { id, label: id };
+      // What it brought isn't in any version yet: an agent folding it in needs it here.
+      const brought = design?.answerAdditions.find((a) =>
+        Object.entries(option.set ?? {}).some(([k, v]) => a.knob === k && a.value === v),
+      );
+      return brought ? { ...option, brought } : option;
+    });
     const otherImages = refs(reply.otherImages?.[askId]);
     if (others[askId] !== undefined)
       chosen.push({

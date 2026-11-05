@@ -80,6 +80,51 @@ An option binds to one of:
   and the picked one is put in use. It needs the question's `state` when the
   design has several.
 - a knob `set`: picking it applies those values live.
+
+An answer brings what it needs to draw itself, so adding answers never makes a new
+version and the page in use stays as it is. Send it in the one `ask` call, and pick the smallest
+that draws it:
+
+| The answer needs               | Send                                         | After Send               |
+| ------------------------------ | -------------------------------------------- | ------------------------ |
+| A value the page already knows | `set` alone                                  | Same version             |
+| A colour or other styling      | `set` of one new value, plus `style`         | Same version             |
+| Different content in one part  | `set: {"<part>": "<new fill>"}`, plus `fill` | Same version             |
+| A different page or behaviour  | `html`, the whole page                       | Becomes the next version |
+
+```json
+[
+  {
+    "label": "On time, in teal",
+    "set": { "role": "time-teal" },
+    "style": ".dv { --now: #00656e } &[data-k-dark=\"true\"] .dv { --now: #48beca }"
+  },
+  {
+    "label": "Shorter",
+    "set": { "proposal": "shorter" },
+    "fill": "<div data-part=\"proposal\"><p>Lunch at 13:00?</p></div>"
+  },
+  { "label": "Before and after", "html": "<main>…</main>" }
+]
+```
+
+- `style` holds only while its value is chosen, on every state, so write rules as if
+  already inside that value. `&` is `<html>`, for combining with another value. Only
+  `@media`, `@supports` and `@container` are allowed.
+- `fill` is the part's alternative outer html, added after the part. The part's own markup
+  becomes the fill `as-is`, the default. A part must be one element in some state. A fill
+  can't hold `<script>`, `<style>` or `<link>`, since it acts while unchosen: pair it with
+  `style`, or send `html`.
+- A new value's knob is added or extended for you. A value already there can't take
+  `style` or `fill`: changing what it means is a new version. Asked again with the same
+  `style` or `fill` it is unchanged, so a question can keep growing under its id.
+- `html` needs a state when the design has several, and takes the state's variant in use
+  unless `variant` names one. The user only meets it as this answer; asked again with the
+  same page it keeps its version.
+- A chosen answer's `brought` in the reply and `answerAdditions` in `read` say what isn't
+  in any version yet. Fold them into your next version if you make one.
+- A component embedded in a screen draws its own html only: answers on it show on its own
+  page, not in the screens that embed it.
 - nothing: a plain pill.
 
 Options that change how something looks carry a `variant` or a knob `set`, so

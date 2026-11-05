@@ -350,6 +350,7 @@ export const designDetailView = (
   states: design.states,
   ...(design.notes ? { notes: design.notes } : {}),
   ...(Object.keys(design.stateOutlines).length ? { stateOutlines: design.stateOutlines } : {}),
+  ...(design.answerAdditions.length ? { answerAdditions: design.answerAdditions } : {}),
   asks: design.asks,
   open: openCount(design),
   knobs: design.knobs,

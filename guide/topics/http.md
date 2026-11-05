@@ -2,26 +2,26 @@
 
 Every verb takes the same fields on the CLI, MCP and raw HTTP. None waits for the user.
 
-| CLI                            | MCP                                         | HTTP                                                 |
-| ------------------------------ | ------------------------------------------- | ---------------------------------------------------- |
-| `mockpit init`                 | none                                        | `PUT /api/projects/:name/design`                     |
-| `mockpit publish`              | `publish`                                   | `POST /api/designs`                                  |
-| `mockpit ask`                  | `ask`                                       | `POST /api/designs/:id/asks`                         |
-| `mockpit read [slug]`          | `read`                                      | `GET /api/designs?project=…`, `GET /api/designs/:id` |
-| `mockpit read --decisions`     | `read({decisions: true})`                   | `GET /api/projects/:name/decisions`                  |
-| `mockpit feedback`             | `feedback`                                  | `GET /api/feedback?session=…`                        |
-| `mockpit say`                  | `say`                                       | `POST /api/designs/:id/say`                          |
-| `mockpit move`                 | `move`                                      | `POST /api/designs/:id/move`                         |
-| `mockpit edit --design <slug>` | `edit`                                      | `PATCH /api/designs/:id`                             |
-| `mockpit edit --notes <t>`     | `edit({ notes })`                           | `PATCH /api/designs/:id` `{notes}`                   |
-| `mockpit edit --rename <n>`    | `edit({ rename })`                          | `PATCH /api/projects/:name` `{name}`                 |
-| `mockpit edit --area-order`    | `edit({ areaOrder })`                       | `PATCH /api/projects/:name` `{areaOrder}`            |
-| `mockpit export`               | `export`                                    | `GET /api/designs/:id/export`                        |
-| `mockpit upload`               | `upload`                                    | `POST /api/assets`                                   |
-| `mockpit guide`                | `guide`                                     | `GET /agent-howto?project=…`                         |
-| `mockpit guide --topic <id>`   | `guide({ topic })`                          | `GET /agent-howto?topic=<id>`                        |
-| `mockpit run <file>`           | `run` on `/mcp?mode=code` (topic `scripts`) | `POST /api/run`                                      |
-| `mockpit watch`                | none                                        | none: a CLI stream for background monitors           |
+| CLI                            | MCP                                         | HTTP                                                                           |
+| ------------------------------ | ------------------------------------------- | ------------------------------------------------------------------------------ |
+| `mockpit init`                 | none                                        | `PUT /api/projects/:name/design`                                               |
+| `mockpit publish`              | `publish`                                   | `POST /api/designs`                                                            |
+| `mockpit ask`                  | `ask`                                       | `POST /api/designs/:id/asks`                                                   |
+| `mockpit read [slug]`          | `read`                                      | `GET /api/designs?project=…`, `GET /api/designs/:id` (`?body=1` adds the html) |
+| `mockpit read --decisions`     | `read({decisions: true})`                   | `GET /api/projects/:name/decisions`                                            |
+| `mockpit feedback`             | `feedback`                                  | `GET /api/feedback?session=…`                                                  |
+| `mockpit say`                  | `say`                                       | `POST /api/designs/:id/say`                                                    |
+| `mockpit move`                 | `move`                                      | `POST /api/designs/:id/move`                                                   |
+| `mockpit edit --design <slug>` | `edit`                                      | `PATCH /api/designs/:id`                                                       |
+| `mockpit edit --notes <t>`     | `edit({ notes })`                           | `PATCH /api/designs/:id` `{notes}`                                             |
+| `mockpit edit --rename <n>`    | `edit({ rename })`                          | `PATCH /api/projects/:name` `{name}`                                           |
+| `mockpit edit --area-order`    | `edit({ areaOrder })`                       | `PATCH /api/projects/:name` `{areaOrder}`                                      |
+| `mockpit export`               | `export`                                    | `GET /api/designs/:id/export`                                                  |
+| `mockpit upload`               | `upload`                                    | `POST /api/assets`                                                             |
+| `mockpit guide`                | `guide`                                     | `GET /agent-howto?project=…`                                                   |
+| `mockpit guide --topic <id>`   | `guide({ topic })`                          | `GET /agent-howto?topic=<id>`                                                  |
+| `mockpit run <file>`           | `run` on `/mcp?mode=code` (topic `scripts`) | `POST /api/run`                                                                |
+| `mockpit watch`                | none                                        | none: a CLI stream for background monitors                                     |
 
 `:id` is the design id or its slug (add `project` for a slug). Over HTTP the first publish
 creates a session: pass its `sessionId` as `session` on every later call, or each call starts

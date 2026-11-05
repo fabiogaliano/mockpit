@@ -62,8 +62,20 @@ import {
   parseDecisionEdits,
 } from "./decisionList.ts";
 import { chosenFills, decisionsFor, settledValues } from "./decisions.ts";
-import { composeFills, slotsInSurfaces, spliceFills } from "./fills.ts";
-import { checkKnobs, checkKnobValues, discreteChoices } from "./knobs.ts";
+import {
+  checkAnswerFill,
+  checkAnswerStyle,
+  MAX_ANSWER_ADDITIONS,
+  withAnswerAdditions,
+} from "./answerAdditions.ts";
+import {
+  AS_IS_FILL,
+  composeFills,
+  partOccurrences,
+  slotsInSurfaces,
+  spliceFills,
+} from "./fills.ts";
+import { checkKnobs, checkKnobValues, discreteChoices, explicitKnob, knobFor } from "./knobs.ts";
 import { diffParts, type PartChanges, partsInSurfaces, spliceParts } from "./parts.ts";
 import { postToMarkdown } from "./postMarkdown.ts";
 import {
@@ -123,6 +135,7 @@ import {
   htmlSurface,
   type IconSetRef,
   isSandboxedSurfaceKind,
+  type AnswerAddition,
   type Knobs,
   type KnobValue,
   type MarkdownSurface,
@@ -131,6 +144,7 @@ import {
   MAX_ASSET_BYTES,
   inUseVersion,
   currentVersion,
+  newestVisible,
   isLive,
   isDesignKind,
   isPlanned,
@@ -2015,10 +2029,12 @@ export function createApp({
     const base = (): Surface[] | FlowResult => {
       if (fork) return fork.surfaces;
       if (!target) return missing();
-      if (from === undefined || from === target.version) return target.surfaces;
+      // Not an answer's unchosen whole page, which is the newest only by number.
+      const at = from ?? newestVisible(target);
+      if (at === target.version) return target.surfaces;
       return (
-        target.history.find((h) => h.version === from)?.surfaces ??
-        fail(404, `${slug} has no version ${from}`)
+        target.history.find((h) => h.version === at)?.surfaces ??
+        fail(404, `${slug} has no version ${at}`)
       );
     };
 
@@ -2880,8 +2896,9 @@ export function createApp({
       // With fills, the state as decided: only the chosen fills, by every
       // value sent so far (defaults before any reply). The authored markup with
       // every fill stays available as `allFills`.
-      const slots = slotsInSurfaces(post.surfaces);
-      const raw = html && html.kind === "html" ? html.html : "";
+      const raw =
+        html && html.kind === "html" ? withAnswerAdditions(html.html, design.answerAdditions) : "";
+      const slots = slotsInSurfaces([{ kind: "html", html: raw }]);
       const composed = slots.length ? composeFills(raw, chosenFills(slots, settled)) : raw;
       entries.push({
         state,
@@ -2889,7 +2906,7 @@ export function createApp({
         postId: post.id,
         version: post.version,
         // The agent's newer versions wait until the user puts one in use.
-        ...(found.version !== post.version ? { latest: found.version } : {}),
+        ...(newestVisible(found) !== post.version ? { latest: newestVisible(found) } : {}),
         status: variantStatus(post.status),
         html: composed,
         ...(slots.length ? { allFills: raw } : {}),
@@ -3085,6 +3102,185 @@ export function createApp({
 
   // Ask the user structured questions. An ask whose id matches an existing one
   // replaces it (and reopens it); anything else is appended.
+  // Takes what answers bring off their options (style, fill, html), checked before
+  // anything is written. Options then carry only what any option does: a `set`, or a
+  // `variant` whose `version` is filled in once its whole page exists.
+  function answersBringing(
+    raw: any[],
+    design: Design,
+    posts: Post[],
+  ):
+    | {
+        entries: any[];
+        knobs: Knobs;
+        additions: AnswerAddition[];
+        pages: { ask: number; option: number; target: Post; html: string }[];
+      }
+    | string {
+    const knobs: Knobs = { ...design.knobs };
+    const additions = [...design.answerAdditions];
+    const pages: { ask: number; option: number; target: Post; html: string }[] = [];
+    const renders = posts.flatMap((p) =>
+      (postAtVersion(p, currentVersion(p)) ?? p).surfaces.flatMap((s) =>
+        s.kind === "html" ? [s.html] : [],
+      ),
+    );
+    const entries: any[] = [];
+    for (const [askIndex, entry] of raw.entries()) {
+      if (!Array.isArray(entry?.options)) {
+        entries.push(entry);
+        continue;
+      }
+      const options: unknown[] = [];
+      for (const [optionIndex, o] of entry.options.entries()) {
+        const { style, fill, html, ...rest } = o && typeof o === "object" ? o : ({} as any);
+        if (style === undefined && fill === undefined && html === undefined) {
+          options.push(o);
+          continue;
+        }
+        const name = String(rest.label ?? "");
+        if (html !== undefined) {
+          if (typeof html !== "string" || style !== undefined || fill !== undefined || rest.set) {
+            return `option "${name}": html is a whole page; send it alone`;
+          }
+          if (entry.scope === "part") return `option "${name}": a part's question can't take html`;
+          if (entry.state === undefined && design.states.length > 1) {
+            return `option "${name}" brings html: give the question a state (${design.slug} has ${design.states.length})`;
+          }
+          const state = entry.state ?? design.states[0] ?? null;
+          const inState = posts.filter((p) => p.state === state);
+          const target = rest.variant
+            ? inState.find((p) => p.variant === rest.variant)
+            : (inState.find((p) => p.status === "accepted") ??
+              (inState.length === 1 ? inState[0] : undefined));
+          if (!target) {
+            return `option "${name}" brings html: name the variant it is a page of`;
+          }
+          pages.push({ ask: askIndex, option: optionIndex, target, html });
+          options.push({ ...rest, variant: target.variant });
+          continue;
+        }
+        const set = Object.entries((rest.set ?? {}) as Record<string, unknown>);
+        const value = set[0]?.[1];
+        if (set.length !== 1 || typeof value !== "string" || rest.variant) {
+          return `option "${name}": style and fill go with a set of one new value`;
+        }
+        const knob = set[0][0];
+        const addition: AnswerAddition = { knob, value };
+        if (style !== undefined) {
+          const bad =
+            typeof style === "string" ? checkAnswerStyle(style) : "style must be a string";
+          if (bad) return `option "${name}": ${bad}`;
+          addition.style = style;
+        }
+        if (fill !== undefined) {
+          const bad = typeof fill === "string" ? checkAnswerFill(fill) : "fill must be a string";
+          if (bad) return `option "${name}": ${bad}`;
+          if (value === AS_IS_FILL) return `option "${name}": "${AS_IS_FILL}" is the part as it is`;
+          if (!renders.some((h) => partOccurrences(h, knob) === 1)) {
+            return `option "${name}": no state has one part "${knob}" to add a fill to; declare data-part, or send html`;
+          }
+          addition.fill = fill;
+        }
+        const same = additions.find((a) => a.knob === knob && a.value === value);
+        if (same) {
+          // Asking again with what is already there is how a question grows.
+          if (same.style !== addition.style || same.fill !== addition.fill) {
+            return `option "${name}": "${value}" already means something else; use a new value`;
+          }
+          options.push(rest);
+          continue;
+        }
+        const declared = knobFor(knob, { knobs }, posts);
+        const config = declared === undefined ? null : explicitKnob(declared);
+        if (config && config.type !== "select") {
+          return `option "${name}": knob "${knob}" is a ${config.type}, which already carries its value; send the set alone`;
+        }
+        const known = (config?.options ?? []).map((v) =>
+          typeof v === "object" && v !== null && "value" in v ? String(v.value) : String(v),
+        );
+        if (known.includes(value)) {
+          return `option "${name}": "${value}" is already a value of "${knob}"; send the set alone, or use a new value (changing what it means is a new version)`;
+        }
+        if (additions.length >= MAX_ANSWER_ADDITIONS) {
+          return `${design.slug} has ${MAX_ANSWER_ADDITIONS} answer additions; publish a version holding them`;
+        }
+        knobs[knob] = config
+          ? { ...config, options: [...(config.options ?? []), value] }
+          : { type: "select", options: [AS_IS_FILL, value], value: AS_IS_FILL };
+        additions.push(addition);
+        options.push(rest);
+      }
+      entries.push({ ...entry, options });
+    }
+    return { entries, knobs, additions, pages };
+  }
+
+  // A whole page an answer brought: a version the user only meets if they choose it.
+  // Asked again with the same page, the question keeps the version it already has.
+  async function addAnswerPage(
+    design: Design,
+    page: { target: Post; html: string },
+    sessionId: string | null,
+  ): Promise<number | FlowResult> {
+    const post = (await store.getPost(page.target.id)) ?? page.target;
+    const same = [post, ...post.history].find(
+      (v) =>
+        post.hiddenVersions?.includes(v.version) &&
+        v.surfaces.some((s) => s.kind === "html" && s.html === page.html),
+    );
+    if (same) return same.version;
+    const seen = postAtVersion(post, currentVersion(post)) ?? post;
+    const kits = seen.surfaces.find((s) => s.kind === "html");
+    const surfaces: Surface[] = [
+      htmlSurface(page.html, kits?.kind === "html" ? kits.kits : undefined),
+    ];
+    const bad = checkSurfaces(surfaces);
+    if (bad) return bad;
+    const embeds = await publishEmbeds(design.project, design.slug, surfaces);
+    if (isResult(embeds)) return embeds;
+    await promoteEmbedded(design.project, embeds);
+    const updated = await store.updatePost(post.id, {
+      surfaces,
+      embeds,
+      from: seen.version,
+      ...(sessionId ? { publishedBy: sessionId } : {}),
+    });
+    if (!updated) return fail(404, "variant not found");
+    await store.setVersionHidden(updated.id, updated.version, true);
+    return updated.version;
+  }
+
+  // A select value the page may not know draws as if nothing was chosen: the user meets
+  // that as a picture identical to its neighbours. The literal is only a hint (a script
+  // could answer to it), so this says what couldn't be confirmed, and nothing is refused.
+  function unprovenValueNudges(asks: Ask[], design: Design, posts: Post[]): string[] {
+    const out: string[] = [];
+    for (const ask of asks) {
+      const shown = posts
+        .filter((p) => ask.state === undefined || p.state === ask.state)
+        .map((p) => postAtVersion(p, currentVersion(p)) ?? p);
+      const html = shown.flatMap((p) =>
+        p.surfaces.flatMap((s) => (s.kind === "html" ? [s.html] : [])),
+      );
+      if (html.length === 0) continue;
+      for (const option of ask.options) {
+        if (option.variant) continue;
+        for (const [knob, value] of Object.entries(option.set ?? {})) {
+          if (typeof value !== "string") continue;
+          const config = knobFor(knob, design, posts);
+          if (!config || explicitKnob(config).type !== "select") continue;
+          if (design.answerAdditions.some((a) => a.knob === knob && a.value === value)) continue;
+          if (html.some((h) => h.includes(value))) continue;
+          out.push(
+            `couldn't confirm the page knows "${value}" (option "${option.label}"): if it doesn't, its picture won't change. Send the option with style, fill or html`,
+          );
+        }
+      }
+    }
+    return out;
+  }
+
   async function askFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
     const resolved = await resolveDesign(ref, body.project, body.session);
@@ -3094,11 +3290,13 @@ export function createApp({
     if (!raw || raw.length === 0) return fail(400, 'provide "asks": [{text, options}]');
     if (raw.length > MAX_ASKS) return fail(400, `at most ${MAX_ASKS} asks per call`);
     const posts = await store.listPosts({ designId: design.id });
+    const brought = answersBringing(raw, design, posts);
+    if (typeof brought === "string") return fail(400, brought);
     const asks = [...design.asks];
     const taken = new Set(asks.map((a) => a.id));
     const added: Ask[] = [];
-    for (const entry of raw) {
-      const ask = sanitizeAsk(entry, design, posts, taken);
+    for (const entry of brought.entries) {
+      const ask = sanitizeAsk(entry, { ...design, knobs: brought.knobs }, posts, taken);
       if (typeof ask === "string") return fail(400, ask);
       const at = asks.findIndex((a) => a.id === ask.id);
       if (at >= 0) asks[at] = ask;
@@ -3110,17 +3308,26 @@ export function createApp({
     if (typeof body.session === "string" && (await store.getSession(body.session))) {
       sessionId = body.session;
     }
+    for (const page of brought.pages) {
+      const version = await addAnswerPage(design, page, sessionId);
+      if (isResult(version)) return version;
+      added[page.ask].options[page.option].version = version;
+    }
     // A question on something the user archived brings it back to the open list, or it
     // would wait where they no longer look. Asked again, a question it left
     // unanswered is simply open again: guidance about what to ask lives in the
     // conversation, not in a refusal here.
+    const additionsGrew = brought.additions.length > design.answerAdditions.length;
     const updated = await store.updateDesign(design.id, {
       asks,
       sessionId,
       ...(design.archivedAt ? { archivedAt: null } : {}),
+      ...(additionsGrew ? { knobs: brought.knobs, answerAdditions: brought.additions } : {}),
     });
     if (!updated) return fail(404, "design not found");
     design = updated;
+    // Every render carries these now, and frames key on `rewrites`: open ones reload.
+    if (additionsGrew) await store.bumpRewrites(design.id);
     bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
     // The questions also land in the thread, so the user reads them where they answer.
     const session = sessionId ? await store.getSession(sessionId) : null;
@@ -3144,7 +3351,7 @@ export function createApp({
       url: designUrl(ctx.base, design),
     });
     const feedback = session ? await collectFeedback(session.id, ctx.base) : [];
-    const nudges = askNudges(added, design.asks);
+    const nudges = [...askNudges(added, design.asks), ...unprovenValueNudges(added, design, posts)];
     return ok({
       design: design.slug,
       designId: design.id,
@@ -6587,7 +6794,10 @@ export function createApp({
       // Embedded components are expanded server-side (the caller passes the
       // expansion), so the whole page is still ONE sandboxed document rather
       // than nested frames.
-      const html = args.composed ?? surface.html;
+      const html = withAnswerAdditions(
+        args.composed ?? surface.html,
+        args.design?.answerAdditions ?? [],
+      );
       const page = renderHtmlPage({
         title: args.title,
         html,

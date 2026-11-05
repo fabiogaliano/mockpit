@@ -24,6 +24,7 @@ import {
   MAX_WORKSPACE_ASSET_BYTES,
   type Design,
   type DesignNotes,
+  type AnswerAddition,
   type StateOutline,
   isDesignKind,
   newId,
@@ -479,6 +480,7 @@ export class SqlStore implements Store {
       shortlist: "INTEGER NOT NULL DEFAULT 0",
       notes: "TEXT",
       stateOutlines: "TEXT NOT NULL DEFAULT '{}'",
+      answerAdditions: "TEXT NOT NULL DEFAULT '[]'",
     });
     this.migrateSituations();
     // Before the legacy lift, whose history rows are written with every column.
@@ -1035,6 +1037,7 @@ export class SqlStore implements Store {
       archiveReason: (r.archiveReason as string) ?? null,
       notes: parseJson<DesignNotes | null>(r.notes, null),
       stateOutlines: parseJson<Record<string, StateOutline>>(r.stateOutlines, {}),
+      answerAdditions: parseJson<AnswerAddition[]>(r.answerAdditions, []),
       createdAt: r.createdAt as string,
       updatedAt: r.updatedAt as string,
     };
@@ -1365,6 +1368,7 @@ export class SqlStore implements Store {
       archiveReason: null,
       notes: null,
       stateOutlines: {},
+      answerAdditions: [],
       createdAt: now,
       updatedAt: now,
     };
@@ -1407,10 +1411,11 @@ export class SqlStore implements Store {
       ...(patch.archiveReason !== undefined && { archiveReason: patch.archiveReason }),
       ...(patch.notes !== undefined && { notes: patch.notes }),
       ...(patch.stateOutlines !== undefined && { stateOutlines: patch.stateOutlines }),
+      ...(patch.answerAdditions !== undefined && { answerAdditions: patch.answerAdditions }),
       updatedAt: new Date().toISOString(),
     };
     this.sql.exec(
-      "UPDATE designs SET title = ?, kind = ?, area = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, archivedAt = ?, archiveReason = ?, notes = ?, stateOutlines = ?, updatedAt = ? WHERE id = ?",
+      "UPDATE designs SET title = ?, kind = ?, area = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, archivedAt = ?, archiveReason = ?, notes = ?, stateOutlines = ?, answerAdditions = ?, updatedAt = ? WHERE id = ?",
       next.title,
       next.kind,
       next.area,
@@ -1424,6 +1429,7 @@ export class SqlStore implements Store {
       next.archiveReason,
       next.notes ? JSON.stringify(next.notes) : null,
       JSON.stringify(next.stateOutlines),
+      JSON.stringify(next.answerAdditions),
       next.updatedAt,
       id,
     );
@@ -2234,7 +2240,9 @@ export class SqlStore implements Store {
       ...(archivedAt === null ? {} : { archivedAt }),
     };
     this.recache(next);
-    return next;
+    return pin !== null && next.hiddenVersions?.includes(pin)
+      ? this.setVersionHidden(id, pin, false)
+      : next;
   }
 
   async setPostArchived(id: string, archivedAt: string, reason: string | null) {
@@ -2277,6 +2285,13 @@ export class SqlStore implements Store {
     this.sql.exec("UPDATE posts SET starred = ? WHERE id = ?", starred ? 1 : 0, id);
     const { starred: _, ...rest } = post;
     return starred ? { ...rest, starred: true as const } : rest;
+  }
+
+  async bumpRewrites(designId: string) {
+    const ids = (await this.listPosts({ designId })).map((p) => p.id);
+    this.writingPosts(designId, ids, () =>
+      this.sql.exec("UPDATE posts SET rewrites = rewrites + 1 WHERE designId = ?", designId),
+    );
   }
 
   async setVersionHidden(id: string, version: number, hidden: boolean): Promise<Post | null> {
@@ -2498,6 +2513,19 @@ export class SqlStore implements Store {
             id,
             input.designId,
           );
+          // An answer's whole page stays hidden until it is chosen; now it's a version.
+          const hiddenRow = this.sql
+            .exec("SELECT hiddenVersions FROM posts WHERE id = ?", id)
+            .toArray()[0];
+          const hidden = parseJson<number[]>(hiddenRow?.hiddenVersions, []);
+          if (hidden.includes(version)) {
+            const left = hidden.filter((v) => v !== version);
+            this.sql.exec(
+              "UPDATE posts SET hiddenVersions = ? WHERE id = ?",
+              left.length ? JSON.stringify(left) : null,
+              id,
+            );
+          }
         }
         for (const id of input.archive) {
           this.sql.exec(

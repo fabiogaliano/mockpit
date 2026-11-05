@@ -374,7 +374,10 @@ one html, sharing \`data-part\`, each its own \`data-fill\`
 A fill may hold parts with fills, asked only while it is chosen. Send
 publish's \`suggestedFillAsks\` (\`set: {"bar": "tabs"}\`). A variant
 decides all it differs on; don't re-ask it. Visual options carry a \`variant\`
-or knob \`set\`. One render plus a control: a knob,
+or knob \`set\`. An answer a page doesn't know how to draw brings it, in that one \`ask\`:
+\`style\` or \`fill\` beside a \`set\` of a new value, or \`html\` for a whole page. Never
+publish a version to add answers: the user is on the old one, and their pictures won't
+change (\`mockpit guide asks\`). One render plus a control: a knob,
 \`--knobs '{...}'\`. Declare knobs for what is worth fine-tuning (size,
 spacing, colour, density) even unasked; they wait in Tune.
 
@@ -401,7 +404,7 @@ written document has \`anchor.paragraph\`: \`{surface, index, kind, text}\`, the
 it is about);
 \`more\` asks for more answers to one question, \`{ask, text, existing, note, answered}\`:
 ask it again under the same id, every \`existing\` answer plus new ones that differ from them
-and respect \`answered\`, each with something to see (a variant or a knob \`set\`);
+and respect \`answered\`, each with something to see, bringing what it needs;
 \`verdict\` (use, revise) replaces answers when there were
 no questions; \`decisions\` is the state as chosen: variant, then each part's
 fill, nested; \`messages\` are what the user wrote in the thread. Each Send

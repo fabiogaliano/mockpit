@@ -12,23 +12,28 @@ import type { DesignScreenState } from "./state.ts";
 export function NewVersionButton(props: { s: DesignScreenState }) {
   const s = props.s;
   const carried = () => draftCarried(s.draft());
+  // With an answer picked, what comes next is Send. A second way to send it, in the
+  // words of versions, only suggests that answering makes one.
+  const answering = () => Object.keys(s.draft()?.answers ?? {}).length > 0;
   const said = () =>
     carried() ? `Ask your agent for a new version, sending ${carried()} with it` : "";
   return (
-    <button
-      type="button"
-      class="btn vnew"
-      aria-label={said() || "New version"}
-      title={said() || "Ask your agent for a new version"}
-      disabled={s.sending() || !s.onStage()}
-      onClick={() => s.askNew()}
-    >
-      <Icon name="plus" />
-      <span class="lbl">
-        New version
-        <Show when={carried()}>{(c) => <span class="vnew-carried"> · {c()}</span>}</Show>
-      </span>
-    </button>
+    <Show when={!answering()}>
+      <button
+        type="button"
+        class="btn vnew"
+        aria-label={said() || "New version"}
+        title={said() || "Ask your agent for a new version"}
+        disabled={s.sending() || !s.onStage()}
+        onClick={() => s.askNew()}
+      >
+        <Icon name="plus" />
+        <span class="lbl">
+          New version
+          <Show when={carried()}>{(c) => <span class="vnew-carried"> · {c()}</span>}</Show>
+        </span>
+      </button>
+    </Show>
   );
 }
 
@@ -42,8 +47,8 @@ export function VersionStepper(props: {
   const s = props.s;
   const step = () => s.stageStep();
   const name = () => {
-    const st = step();
-    return st ? s.nameOf(st) : "#1";
+    const at = s.stageLabel();
+    return at ? s.nameOf(at) : "#1";
   };
   // What this version is: what prompted it, else the variant's own note, else
   // its name when the label doesn't already say it.

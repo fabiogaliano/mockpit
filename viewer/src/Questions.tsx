@@ -117,6 +117,21 @@ function draftValues(s: DesignScreenState, v: VariantView): Record<string, KnobV
   return m ? draftKnobValues(m, v.knobs, s.draft()) : {};
 }
 
+// Picking one answer replaces the others, so a picture of it doesn't show theirs.
+function withoutSiblings(
+  values: Record<string, KnobValue>,
+  ask: Ask,
+  o: AskOption,
+): Record<string, KnobValue> {
+  if (ask.multi) return values;
+  const out = { ...values };
+  for (const other of ask.options) {
+    if (other.id === o.id) continue;
+    for (const path of Object.keys(other.set ?? {})) delete out[path];
+  }
+  return out;
+}
+
 // The option's picture source and the knob values it shows, or null when it can
 // only be a pill.
 export function optionPicture(
@@ -147,7 +162,7 @@ export function optionPicture(
         e: v.embedsKey,
         w: v.rewrites,
       }),
-      knobs: draftValues(s, v),
+      knobs: withoutSiblings(draftValues(s, v), ask, o),
       variant: v,
       state,
     };
@@ -160,13 +175,13 @@ export function optionPicture(
       // The URL bakes only the option's own values so it stays stable while the
       // rest of the draft changes; those arrive through `knobs`.
       src: surfaceUrl(v.postId, idx, {
-        version: s.frameVersionOf(v),
+        version: s.answersBaseOf(v),
         mode: theme(),
         knobs: o.set,
         e: v.embedsKey,
         w: v.rewrites,
       }),
-      knobs: { ...draftValues(s, v), ...o.set },
+      knobs: { ...withoutSiblings(draftValues(s, v), ask, o), ...o.set },
       variant: v,
       state,
     };
@@ -250,9 +265,12 @@ export function AskBody(props: {
             const pic = () => optionPicture(s, props.ask, o);
             const focus = () => {
               const p = pic();
-              const r = region();
-              if (!p || !r) return null;
-              return partBox(s.reports[frameKey(p.state, p.variant.variant)], r) ?? null;
+              if (!p) return null;
+              const report = s.reports[frameKey(p.state, p.variant.variant)];
+              // An answer that sets a part's fill changes only that part: a whole-page
+              // picture could crop it off, leaving a card that looks like its neighbours.
+              const r = region() ?? Object.keys(o.set ?? {}).find((path) => partBox(report, path));
+              return r ? (partBox(report, r) ?? null) : null;
             };
             const card = () => (
               <OptionCard
@@ -703,6 +721,15 @@ function OptionCard(props: {
     setResting(false);
   };
   onCleanup(stopRest);
+  // A card can land under a mouse that hasn't moved, when new answers arrive or the
+  // list reflows. Only a mouse that moved means the user is looking at this one.
+  let hovering = false;
+  const hover = (e: PointerEvent) => {
+    if (e.pointerType !== "mouse" || hovering || (!e.movementX && !e.movementY)) return;
+    hovering = true;
+    props.onEnter();
+    startRest();
+  };
   const startRest = () => {
     const hold = props.onHold;
     if (!hold || props.on || props.held) return;
@@ -734,13 +761,11 @@ function OptionCard(props: {
       aria-pressed={props.on}
       aria-keyshortcuts={props.shortcut}
       data-option={props.data}
-      onPointerEnter={(e) => {
-        if (e.pointerType !== "mouse") return;
-        props.onEnter();
-        startRest();
-      }}
+      onPointerEnter={hover}
+      onPointerMove={hover}
       onPointerLeave={(e) => {
         if (e.pointerType !== "mouse") return;
+        hovering = false;
         stopRest();
         props.onLeave();
       }}

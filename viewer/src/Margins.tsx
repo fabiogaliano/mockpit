@@ -465,7 +465,7 @@ function VersionList(props: {
         onClick={() => props.onToggle(!props.open)}
       >
         <span>Versions</span>
-        <Show when={s.onStage()}>{(at) => <b class="num">{`#${at().version}`}</b>}</Show>
+        <Show when={s.stageLabel()}>{(at) => <b class="num">{`#${at().version}`}</b>}</Show>
         <Icon name="down" />
       </button>
       <Show when={props.open}>

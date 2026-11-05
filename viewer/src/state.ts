@@ -457,6 +457,14 @@ export function createDesignScreen(
     const visible = (v.history ?? []).map((h) => h.version).filter((x) => x < n && !hidden.has(x));
     return visible.length ? Math.max(...visible) : n;
   }
+  // The version answers draw on: the stage's, before any answer moved it. Hovering or
+  // picking an answer's whole page must not turn its neighbours' pictures into that page.
+  function answersBaseOf(v: VariantView): number {
+    const pick = shown()[String(v.state)];
+    if (pick?.variant === v.variant) return pick.version;
+    const use = inUseOf(v.state);
+    return use?.variant === v.variant ? use.version : frameVersion(v, stageVersion());
+  }
   const activeVariant = createMemo(() => variantFor(activeState()));
   // The version a bound stage is holding back and the one it stays on, named
   // after the variant that moved: "Dark #3 arrived", "stay on Dark #2". The
@@ -1893,6 +1901,14 @@ export function createDesignScreen(
     return v ? { variant: v.variant, version: versionOf(v) } : null;
   });
   const stageStep = createMemo(() => stepFor(steps(), onStage()));
+  // An answer's whole page isn't a version until it's chosen, so looking at one doesn't
+  // change the number the user reads, unless they stepped to it themselves.
+  const stageLabel = createMemo<VersionRef | null>(() => {
+    const on = onStage();
+    const v = activeVariant();
+    if (!on || !v || !stageStep()?.hidden || shown()[String(v.state)]) return on;
+    return { variant: v.variant, version: answersBaseOf(v) };
+  });
   const inUse = createMemo(() => inUseOf(activeState()));
   // Earlier versions the user put in use here, from the replies that did.
   const usedBefore = createMemo(() => {
@@ -2365,6 +2381,7 @@ export function createDesignScreen(
     steps,
     onStage,
     stageStep,
+    stageLabel,
     nameOf,
     inUse,
     usedBefore,
@@ -2460,6 +2477,7 @@ export function createDesignScreen(
     reports,
     setReports,
     frameVersionOf: versionOf,
+    answersBaseOf,
   };
 }
 

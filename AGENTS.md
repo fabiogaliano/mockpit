@@ -140,6 +140,12 @@ consciously, not as a side effect):
   `GET /api/designs/:id/recipients`) or else to a session started in this project that is
   listening (`sendTarget`, `recipientsFor`). That session becomes the owner and hears a
   `handoff` note. A move from Home and a thread comment still go to the owner.
+- `server/answerAdditions.ts` — what an answer brings so it can draw itself, with no new
+  version: `style` or `fill` beside a `set` of a new value, kept on `Design.answerAdditions`
+  (never removed or redefined) and laid over every render in `buildSurfaceDoc`. Adding one
+  bumps every post's `rewrites`, which is how open frames reload. An answer's `html` is a
+  whole page: a hidden version (`addAnswerPage`) that joins the versions only if chosen, so
+  `newestVisible`, not `post.version`, is what `parts`, `fills` and kept surfaces build on.
 - `server/kits.ts` — opt-in style/behavior bundles for html surfaces; listed at
   `/api/kits`, allowlisted in `server/postSurfaces.ts`. Adding a kit is a
   registry entry + a guide bullet. A reference kit (`href`/`script`, e.g.

@@ -337,7 +337,7 @@ type VersionLine = Pick<
   "status" | "version" | "acceptedVersion" | "hiddenVersions" | "stayedVersion"
 > & { history: { version: number }[] };
 
-const newestVisible = (post: VersionLine): number => {
+export const newestVisible = (post: VersionLine): number => {
   const hidden = post.hiddenVersions ?? [];
   const visible = [post.version, ...post.history.map((h) => h.version)].filter(
     (v) => !hidden.includes(v),
@@ -412,6 +412,15 @@ export interface AskOption {
   set?: Record<string, KnobValue>;
   // The one the agent would pick: a quiet mark on it, never a label.
   recommended?: true;
+}
+
+// One knob value and what makes it draw: a style that holds only while it is chosen,
+// or, with the knob at a part's path, a new fill of that part.
+export interface AnswerAddition {
+  knob: string;
+  value: string;
+  style?: string;
+  fill?: string;
 }
 
 export type AskAnswer = string | string[];
@@ -635,6 +644,8 @@ export interface Design {
   // By state name, only what the user has said; {} when nothing. Kept apart from
   // `states` because a dismissed state isn't one of the design's.
   stateOutlines: Record<string, StateOutline>;
+  // What answers brought so they could draw themselves: never removed or redefined.
+  answerAdditions: AnswerAddition[];
   createdAt: string;
   updatedAt: string;
 }
@@ -1000,6 +1011,7 @@ export interface UpdateDesignInput {
   // null clears.
   notes?: DesignNotes | null;
   stateOutlines?: Record<string, StateOutline>;
+  answerAdditions?: AnswerAddition[];
 }
 
 export interface CreatePostInput {
@@ -1192,6 +1204,8 @@ export interface Store {
   // Accepting pins `acceptedVersion` (default: the current version); any other
   // status clears it.
   setPostStatus(id: string, status: PostStatus, acceptedVersion?: number): Promise<Post | null>;
+  // Every render of the design changed under the same version numbers.
+  bumpRewrites(designId: string): Promise<void>;
   // Archives it as it was before, date and reason included: the Undo of a restore.
   setPostArchived(id: string, archivedAt: string, reason: string | null): Promise<Post | null>;
   setPostStarred(id: string, starred: boolean): Promise<Post | null>;
