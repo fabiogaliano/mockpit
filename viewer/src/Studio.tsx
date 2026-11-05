@@ -42,6 +42,7 @@ import {
   type VersionStep,
   keepSame,
   stepKey,
+  nextKept,
   WALL_FROM,
   WALL_PREVIEW_MIN_W,
   wallCard,
@@ -280,17 +281,20 @@ export function Studio(props: {
     );
   };
   const inWithin = (b: Board) => within() === null || b.state === within();
-  const wallMap = createMemo(() =>
+  // Every state's cards stay in the page, a state not picked hidden: its frames keep
+  // their documents and their place in the DOM, either of which would reload them.
+  const wallMounted = createMemo(() =>
     wall()
       ? boards()
-          .filter(inWithin)
           .map((b) => ({ b, steps: wallCards(b, show()) }))
           .filter((x) => x.steps.length > 0)
       : [],
   );
+  const wallMap = createMemo(() => wallMounted().filter((x) => inWithin(x.b)));
   // The states alone, which stay the same objects: a keystroke mustn't remount a grid.
+  const wallSections = createMemo(() => wallMounted().map((x) => x.b));
   const wallStates = createMemo(() => wallMap().map((x) => x.b));
-  const stepsIn = (b: Board) => wallMap().find((x) => x.b === b)?.steps ?? [];
+  const stepsIn = (b: Board) => wallMounted().find((x) => x.b === b)?.steps ?? [];
   const goneShown = (): "archived" | "hidden" | undefined => {
     if (!wall()) return undefined;
     const now = show();
@@ -484,7 +488,10 @@ export function Studio(props: {
   const [inView, setInView] = createSignal<string[]>([]);
   const [onScreen, setOnScreen] = createSignal<string[]>([]);
   const [pointedAt, setPointedAt] = createSignal<string[]>([]);
-  const places = new Map<string, { top: number; left: number; canvas: boolean }>();
+  const places = new Map<
+    string,
+    { top: number; left: number; canvas: boolean; frame: boolean; gl: boolean }
+  >();
   // Who gets the canvas budget: what was pointed at, then what the screen shows,
   // then what sits just off it. Top rows first, so a budget that runs out takes
   // older versions from every column rather than a whole column from the right.
@@ -634,16 +641,33 @@ export function Studio(props: {
     return grid ? getComputedStyle(grid).gridTemplateColumns.split(" ").length : 1;
   };
 
-  const inBudget = (b: Board, st: VersionStep) => {
+  const inBudget = (key: string) => {
     // The closer look or full screen covers the grid: its one live frame
     // stands in for all of them.
     if (lookKey() || fullKey()) return false;
-    const key = frameKey(b, st);
     if (!inView().includes(key)) return false;
     if (!places.get(key)?.canvas) return true;
     const taken = archivedOpen() ? active().aside().length : peeked() ? 1 : 0;
     return canvasOrder().indexOf(key) < CANVAS_MAX - taken;
   };
+  // On a wall a card that leaves the screen keeps its frame for the way back.
+  const kept = createMemo<{ live: Set<string>; keys: string[] }>(
+    (was) => {
+      if (!wall() || lookKey() || fullKey()) return { live: new Set(), keys: [] };
+      const live = new Set(inView().filter((k) => places.get(k)?.frame && inBudget(k)));
+      return {
+        live,
+        // A card gone from the wall took its frame with it.
+        keys: nextKept(
+          was.keys.filter((k) => places.has(k)),
+          was.live,
+          live,
+          (k) => !!places.get(k)?.gl,
+        ),
+      };
+    },
+    { live: new Set(), keys: [] },
+  );
   const bump = (b: Board, st: VersionStep) =>
     setPointedAt((l) => [frameKey(b, st), ...l.filter((k) => k !== frameKey(b, st))]);
   let scroller: HTMLDivElement | undefined;
@@ -681,6 +705,8 @@ export function Studio(props: {
               top: e.boundingClientRect.top + (root?.scrollTop ?? 0),
               left: e.boundingClientRect.left + (root?.scrollLeft ?? 0),
               canvas: (e.target as HTMLElement).dataset.canvas !== undefined,
+              frame: (e.target as HTMLElement).dataset.frame !== undefined,
+              gl: (e.target as HTMLElement).dataset.gl !== undefined,
             });
           }
           track(setInView, entries);
@@ -933,7 +959,7 @@ export function Studio(props: {
         gone={(onWall ? goneShown() : undefined) ?? (st.hidden ? "hidden" : undefined)}
         peek={onWall && peeked()?.b === b && sameVersion(peeked()?.st, st)}
         elsewhere={onWall && selecting() && b !== active()}
-        live={inBudget(b, st)}
+        live={inBudget(frameKey(b, st)) || kept().keys.includes(frameKey(b, st))}
         borrowing={borrowing()}
         source={borrowing() && sameVersion(borrowFrom()?.st, st)}
         last={b.versionsOf(st.variant).length === 1}
@@ -990,11 +1016,11 @@ export function Studio(props: {
           onAdd={isShortlist() && !readonly() && !borrowFrom() ? () => setAdding(true) : undefined}
           onColumns={() => setColumns(true)}
         />
-        <For each={wallStates()}>
+        <For each={wallSections()}>
           {(b) => {
             const act = actsFor(b);
             return (
-              <section class="wall-state" aria-label={b.state ?? undefined}>
+              <section class="wall-state" aria-label={b.state ?? undefined} hidden={!inWithin(b)}>
                 <Show when={wallStates().length > 1}>
                   <h2 class="studio-sth">
                     {b.state}
@@ -1431,6 +1457,8 @@ function StudioCard(props: {
       // A poster is an image: it holds no context, so it takes no budget.
       // On a wall any page counts: there can be a screenful of them with no canvas at all.
       data-canvas={(st().canvas || props.wall) && !st().poster ? "" : undefined}
+      data-frame={st().poster ? undefined : ""}
+      data-gl={st().canvas && !st().poster ? "" : undefined}
       ref={props.ref}
       // While selecting the whole card is the target, not only its picture and tick.
       onClick={(e) => {

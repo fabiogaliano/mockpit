@@ -62,7 +62,13 @@ export function Thumb(props: {
     if (docH() !== null) sendKnobs();
   });
   onMount(() => {
-    const measure = () => setSize({ w: box.clientWidth, h: box.clientHeight });
+    // A box hidden with its state measures nothing. Keep the last size: scaling the frame
+    // to zero and back would flash on the way back, and resize the page inside it for no one.
+    const measure = () => {
+      if (box.clientWidth || box.clientHeight) {
+        setSize({ w: box.clientWidth, h: box.clientHeight });
+      }
+    };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(box);

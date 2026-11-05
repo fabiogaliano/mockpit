@@ -1355,6 +1355,33 @@ export function paragraphPins(
 // Any other page has no such limit and is live whenever it is near the screen, except
 // on a wall or a grid, where a screenful of pages costs as much with no canvas at all.
 export const CANVAS_MAX = 16;
+// Frames that left the screen but stay loaded, so coming back to them costs nothing.
+// Enough for the screenful just left and most of the one before: a wall screen is about
+// 16 cards. Each holds a document's memory while it waits, so this is not the budget's
+// size again and again.
+export const KEPT_MAX = 24;
+// Who stays loaded once `now` is what's live: those that just stopped being live, most
+// recent first, then those already waiting. A hidden canvas still holds a context, which
+// the browser will take back past its limit, so canvases share CANVAS_MAX with the live
+// ones, and the live ones come first.
+export function nextKept(
+  kept: readonly string[],
+  was: ReadonlySet<string>,
+  now: ReadonlySet<string>,
+  isCanvas: (key: string) => boolean,
+): string[] {
+  let canvases = [...now].filter(isCanvas).length;
+  const out: string[] = [];
+  for (const key of new Set([...[...was].reverse(), ...kept])) {
+    if (now.has(key) || out.length >= KEPT_MAX) continue;
+    if (isCanvas(key)) {
+      if (canvases >= CANVAS_MAX) continue;
+      canvases++;
+    }
+    out.push(key);
+  }
+  return out;
+}
 
 // ia.md's "Inside a design": 2 to 6 variants switch, 7 to 50 compare first (Studio),
 // 50+ filter. Counted across every state and archived too: pruning a lab mustn't

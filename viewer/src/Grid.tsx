@@ -3,7 +3,8 @@
 // a component's forms are compared, with where the component is used above it. A tile is
 // a picture that opens that render on Stage. The pictures obey Studio's limit: a poster
 // costs nothing, and of the pages near the screen only a budget are live at once, the
-// one pointed at first, the rest waiting blank.
+// one pointed at first, the rest waiting blank. One scrolled away stays loaded for a while
+// (nextKept), since every state is already on this table and scrolling is how you leave one.
 
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { isLive } from "../../server/types.ts";
@@ -13,6 +14,7 @@ import { Icon } from "./icons.tsx";
 import {
   CANVAS_MAX,
   gridAxes,
+  nextKept,
   type VersionRef,
   type VersionStep,
   variantName,
@@ -76,6 +78,13 @@ export function Grid(props: {
     const rank = (k: string) => (k === pointed() ? -1 : (order().get(k) ?? Infinity));
     return new Set([...near()].sort((a, b) => rank(a) - rank(b)).slice(0, CANVAS_MAX));
   });
+  const kept = createMemo<{ live: Set<string>; keys: string[] }>(
+    (was) => ({
+      live: live(),
+      keys: nextKept(was.keys, was.live, live(), (k) => !!cells().get(k)?.step?.canvas),
+    }),
+    { live: new Set(), keys: [] },
+  );
   let scroller: HTMLDivElement | undefined;
   let seen: IntersectionObserver | undefined;
   onMount(() => {
@@ -123,7 +132,7 @@ export function Grid(props: {
       variant={variant}
       caption={flat()}
       cell={cells().get(keyOf(state, variant))}
-      live={live().has(keyOf(state, variant))}
+      live={live().has(keyOf(state, variant)) || kept().keys.includes(keyOf(state, variant))}
       watch={(el) => watch(el, keyOf(state, variant))}
       onPoint={() => setPointed(keyOf(state, variant))}
       onOpen={(ref) => props.onOpen(state, ref)}
