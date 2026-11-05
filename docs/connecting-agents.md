@@ -125,12 +125,28 @@ your deployed instance) and an optional token. Nothing runs until a conversation
 first mockpit call, over MCP or the CLI. That call starts `mockpit watch --once` for
 the conversation's own session in an `asyncRewake` hook, so two agents in one repo
 never take each other's replies, and a Send wakes the agent even while it sits idle.
-The wake carries the whole reply, and the end of that turn starts the next wait. A wait
+The agent reads the reply with `feedback`, and the end of that turn starts the next wait. A wait
 that reaches the hook's 24 hours ends without waking anyone; the reply still arrives on
 the agent's next call, and the end of its next turn starts waiting again.
 An installed `mockpit` new enough for `--once` is used
 before `npx`.
 Requires a Claude Code with `asyncRewake` hooks. The plugin lives in [`../plugin/`](../plugin/).
+
+## Codex
+
+The Codex plugin bundles the MCP server, the skill and a hook:
+
+```sh
+codex plugin marketplace add fabiogaliano/mockpit
+codex plugin add mockpit@mockpit
+```
+
+Review its hook once in `/hooks`, as Codex asks for any hook. Nothing runs until a thread's
+first mockpit call, over MCP or the CLI. That call starts a background hook that runs
+`mockpit watch --once` for that thread and passes each Send to `codex queue`, which starts
+a turn even while the thread is idle, usually within about ten seconds. Set `MOCKPIT_URL`
+and `MOCKPIT_TOKEN` in the environment for a server other than `http://localhost:8228`.
+Requires Codex 0.149.0 or later.
 
 ## Agents with nothing to wake them
 

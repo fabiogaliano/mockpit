@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "mockpit": {
+      "command": "sh",
+      "args": [
+        "-c",
+        "command -v mockpit >/dev/null 2>&1 && exec mockpit mcp || exec npx -y mockpit mcp"
+      ],
+      "env_vars": ["MOCKPIT_URL", "MOCKPIT_TOKEN"]
+    }
+  }
+}

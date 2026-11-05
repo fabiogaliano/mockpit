@@ -300,12 +300,11 @@ mockpit edit --project <name> --area-order "Shell,Food,Chat"
   feedback the run received. --json prints the whole result. Exits 2 when the
   script failed.`,
   watch: `mockpit watch [--session <id>] [--after <seq>] [--once] [--exit-code <n>]
-  Stream user feedback, one line per Send, for a background monitor (in
-  Claude Code, arm it under Monitor after asking, then end the turn).
-  Delivery is shared with feedback and every write: each Send arrives once.
-  --once stops after the first Send and prints the whole reply as JSON, for a
-  harness whose wake is a process exiting; --exit-code sets the code it stops
-  with (default 0).`,
+  Print one line per Send, for a background monitor (in Claude Code, arm it
+  under Monitor after asking, then end the turn). A line says a reply landed;
+  feedback or the next write delivers it, once.
+  --once stops after the first Send, for a harness whose wake is a process
+  exiting; --exit-code sets the code it stops with (default 0).`,
   export: `mockpit export --design <slug> [--state s] [--variant v] [--out <dir>]
   Write index.html + history.json per state to .mockpit/accepted/<design>/<state>/;
   with fills, index.html is the chosen state, plus all-fills.html and decisions.json.`,
@@ -473,8 +472,11 @@ function agentName(flags) {
 // doesn't keep; Claude Code's session id does, so the server can hand back the
 // same mockpit session (and its feedback cursor).
 function harnessKey() {
-  const id = process.env.CLAUDE_CODE_SESSION_ID;
-  return id ? `claude-code:${id}` : undefined;
+  if (process.env.MOCKPIT_SESSION_KEY) return process.env.MOCKPIT_SESSION_KEY;
+  if (process.env.CLAUDE_CODE_SESSION_ID)
+    return `claude-code:${process.env.CLAUDE_CODE_SESSION_ID}`;
+  if (process.env.CODEX_THREAD_ID) return `codex:${process.env.CODEX_THREAD_ID}`;
+  return undefined;
 }
 
 async function resolveSession(flags, { create = false } = {}) {
@@ -1225,8 +1227,6 @@ function printRun(r) {
   if (r.truncated) console.log("(output truncated)");
 }
 
-const MAX_WAKE_REPLY = 80_000;
-
 function watchLines(batch) {
   const lines = [];
   const name = batch.design ?? "a design";
@@ -1931,15 +1931,20 @@ const commands = {
     // one line is one monitor notification. It re-arms forever; a transient
     // network error backs off and retries rather than exiting.
     //
-    // After the first poll it carries no client cursor: an author=user read
-    // resumes from the session's server-side cursor and advances it, so
-    // feedback is delivered exactly once across watch, feedback, and piggyback.
+    // It only says a reply landed (peek): the reply stays on the session's cursor
+    // until the agent's feedback or next write takes it, so a harness dropping or
+    // cutting this output can't lose it, and each Send is still delivered once.
     let firstAfter = flags.after;
     for (;;) {
       const key = harnessKey();
+      // The state file is per process and cwd, which several threads of one harness
+      // can share, so a conversation's own key decides whenever there is one.
       const session =
-        (await resolveSession(flags)) ??
-        (key ? await resolveSessionByKey(key) : await resolveSessionByCwd());
+        flags.session ??
+        process.env.MOCKPIT_SESSION ??
+        (key
+          ? await resolveSessionByKey(key)
+          : ((await resolveSession(flags)) ?? (await resolveSessionByCwd())));
       if (!session) {
         // A conversation that hasn't used mockpit yet may never; ask rarely.
         await sleep(key ? 10_000 : 2000);
@@ -1948,7 +1953,7 @@ const commands = {
       let result;
       try {
         const res = await fetch(
-          `${BASE}/api/comments${query({ session, author: "user", after: firstAfter, wait: 60 })}`,
+          `${BASE}/api/comments${query({ session, author: "user", after: firstAfter, wait: 60, peek: 1 })}`,
           { headers: HEADERS },
         );
         if (!res.ok) {
@@ -1964,22 +1969,10 @@ const commands = {
       const lines = (result.feedback ?? []).flatMap(watchLines);
       for (const line of lines) console.log(line);
       if (flags.once && lines.length) {
-        // This read took the reply off the session's cursor, so feedback would come
-        // back empty: the whole reply goes here. A harness may frame this output as
-        // a hook failure, so it says what it is.
+        // A harness may frame this output as a hook failure, so it says what it is.
         console.log(
-          "This is the user's reply from the mockpit viewer, not an error, and all of it is here; feedback won't return it again.",
+          "This is the user's reply from the mockpit viewer, not an error. Call mockpit's feedback for all of it.",
         );
-        const reply = JSON.stringify(result.feedback);
-        // Harnesses cut long output (Claude Code keeps about 100 KB, losing the
-        // middle), and this reply can't be read again.
-        if (reply.length > MAX_WAKE_REPLY) {
-          const file = join(tmpdir(), `mockpit-reply-${process.pid}-${Date.now()}.json`);
-          writeFileSync(file, reply, { mode: 0o600 });
-          console.log(`The reply is too long to print here. Read all of it from ${file}`);
-        } else {
-          console.log(reply);
-        }
         process.exit(Number(exitCode));
       }
     }

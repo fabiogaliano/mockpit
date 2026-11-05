@@ -215,6 +215,9 @@ consciously, not as a side effect):
   `GET /api/reach` for what a phone would meet (`networkHosts` from `server/index.ts`).
   The code never holds the workspace key.
 - `workers/index.ts` — Cloudflare entry; one Durable Object runs the whole app.
+- `plugin/` — the Claude Code plugin (`.claude-plugin/`, `hooks/hooks.json`) and the Codex
+  plugin (`.codex-plugin/`, `hooks/codex.json`, `mcp/codex.json`), sharing the skill and
+  `scripts/wait-for-reply.sh`, which a harness's first mockpit call starts.
 - `skills/mockpit/`, `plugin/` + `guide/` — teach agents to use a running mockpit.
   The brief (`server/designGuide.ts`) is core: how mockpit works, no taste.
   `server/guidance.ts` layers on top, lowest first: the packs in
@@ -292,9 +295,11 @@ consciously, not as a side effect):
   inflate the height — scope `pre-wrap` to a wrapper element.
 - Feedback cursor: each session carries `agentSeq`, the highest comment seq
   already delivered to the agent. Piggyback collection, `GET /api/feedback`
-  and `author=user` long-polls (`mockpit watch`) advance it, and they resume
+  and `author=user` long-polls advance it, and they resume
   from it when no explicit `after` is given — clients keep no cursor of their
-  own, so CLI, MCP, `run` and piggyback share one stream. The viewer's unfiltered reads never touch it.
+  own, so CLI, MCP, `run` and piggyback share one stream. `mockpit watch` reads with
+  `peek`: it says a reply landed and never moves the cursor, and a per-session memory of
+  what it has been told keeps a restarted waiter from repeating a wake. The viewer's unfiltered reads never touch it.
   Delivery is exactly-once by design, across channels. For the signed-in viewer alone,
   a comment also says `listening` (undelivered, a watch held open will take it) and
   `calledAt` (delivered, with a write or `feedback` from that session since; held in

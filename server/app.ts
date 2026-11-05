@@ -420,6 +420,9 @@ export interface CommentWait {
   // author=user reads). The cursor moves for these alone: an anonymous reader on
   // a public-read workspace must never "take" feedback the agent has not seen.
   agent?: boolean;
+  // A watcher asking only to hear that a reply landed: the reply stays owed, and
+  // the agent takes it with feedback or a write.
+  peek?: boolean;
 }
 
 // What every design flow returns: a status and a JSON body. REST hands it to
@@ -725,6 +728,10 @@ export function createApp({
   // That's what lets the viewer say "working" only when something is. Memory only:
   // after a restart the viewer says less, which is still true.
   const agentCalls = new Map<string, number>();
+  // The newest comment each session's watcher has been told about, so a waiter that
+  // restarts before the agent reads doesn't wake it for the same reply forever. Memory
+  // only: after a restart the worst case is one repeated wake.
+  const noticed = new Map<string, number>();
   const agentCallEvents = new Map<string, number>();
   const noteAgentCall = (sessionId: string) => {
     const now = Date.now();
@@ -782,6 +789,22 @@ export function createApp({
     if (handedOff.length === 0) return mine;
     const theirs = await buildFeedbackBatches(store, handedOff, base);
     return [...mine, ...theirs.map((b) => ({ ...b, handoff: HANDOFF_NOTE }))];
+  }
+
+  // What takeOrphaned would take right now, with no cursor moved.
+  async function owedOrphans(taker: Session): Promise<Comment[]> {
+    if (!taker.project) return [];
+    const now = Date.now();
+    const owed: Comment[] = [];
+    for (const owner of await store.listSessions(taker.project)) {
+      if (!supersedes(taker, owner, listening.has(owner.id))) continue;
+      for (const c of await store.listComments({ sessionId: owner.id, afterSeq: owner.agentSeq })) {
+        if (c.author !== "user") continue;
+        if (!handoffReady(c, owner, taker, now)) break;
+        owed.push(c);
+      }
+    }
+    return owed;
   }
 
   // The user comments still owed to sessions `taker` supersedes (handoff.ts),
@@ -842,6 +865,7 @@ export function createApp({
       const heard =
         unread &&
         (listening.has(owner.id) ||
+          (noticed.get(owner.id) ?? 0) >= c.seq ||
           others.some((t) => listening.has(t.id) && supersedes(t, owner, false)));
       const called = agentCalls.get(c.sessionId);
       const acted =
@@ -4943,9 +4967,13 @@ export function createApp({
     if (afterSeq === undefined && q.author === "user" && q.sessionId) {
       afterSeq = (await store.getSession(q.sessionId))?.agentSeq;
     }
+    const peekFrom = q.peek && q.sessionId ? (noticed.get(q.sessionId) ?? 0) : 0;
+    if (q.peek) afterSeq = Math.max(afterSeq ?? 0, peekFrom);
     const takeOrphanedFor = async (id: string | undefined) => {
       const taker = id ? await store.getSession(id) : null;
-      return taker ? await takeOrphaned(taker) : [];
+      if (!taker) return [];
+      if (q.peek) return (await owedOrphans(taker)).filter((c) => c.seq > peekFrom);
+      return await takeOrphaned(taker);
     };
     let handedOff = await takeOrphanedFor(listener);
     const query = { sessionId: q.sessionId, designId: q.designId, postId: q.postId, afterSeq };
@@ -4995,6 +5023,13 @@ export function createApp({
     // The cursor advances past every comment in the window — not just the
     // filtered ones — so the next call doesn't re-read the agent's own comments.
     const lastSeq = all.length > 0 ? all[all.length - 1].seq : (afterSeq ?? 0);
+    if (q.peek) {
+      const seqs = [...comments, ...handedOff].map((c) => c.seq);
+      if (q.sessionId && seqs.length > 0) {
+        noticed.set(q.sessionId, Math.max(peekFrom, ...seqs));
+      }
+      return { comments, lastSeq, handedOff };
+    }
     // An author=user query is the agent listening (the viewer never filters by
     // author) — what it receives here must not be re-delivered as piggyback.
     if (q.agent && q.author === "user" && q.sessionId && all.length > 0) {
@@ -5728,6 +5763,7 @@ export function createApp({
     // would silently lose the comments that reader "took".
     const isAgentRead = isAuthenticated(c) && (author === "user" || waitSeconds > 0);
     query.agent = isAgentRead;
+    query.peek = isAgentRead && c.req.query("peek") === "1";
     const respond = async (signal?: AbortSignal) => {
       if (isAgentRead) return send(c, await listenFlow(query, flowCtx(c).base, signal));
       const { handedOff: _none, ...result } = await waitForComments(query, signal);

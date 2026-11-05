@@ -139,9 +139,20 @@ let sessionId: string | null = process.env.MOCKPIT_SESSION ?? null;
 
 // A resumed Claude Code conversation spawns a new MCP process; its session id
 // survives the resume, so keying on it hands back the same mockpit session.
-const harnessKey = process.env.CLAUDE_CODE_SESSION_ID
+let harnessKey = process.env.CLAUDE_CODE_SESSION_ID
   ? `claude-code:${process.env.CLAUDE_CODE_SESSION_ID}`
   : undefined;
+
+// Codex gives a stdio server no conversation id in its environment, only on each
+// call, and the key must be right before the call that creates the session.
+function noteCaller(extra: { _meta?: Record<string, unknown> }) {
+  const metadata = extra._meta?.["x-codex-turn-metadata"] as { thread_id?: unknown } | undefined;
+  if (typeof metadata?.thread_id !== "string") return;
+  const key = `codex:${metadata.thread_id}`;
+  if (key === harnessKey) return;
+  harnessKey = key;
+  sessionId = process.env.MOCKPIT_SESSION ?? null;
+}
 
 // `title` is used only when this call creates the session — once one exists
 // (here or in the viewer, where the user can rename it) it is never retitled.
@@ -329,7 +340,8 @@ const server = new McpServer(MCP_SERVER_INFO, {
 
 if (CODE_MODE) {
   const [{ name, ...config }] = STDIO_RUN_TOOLS;
-  server.registerTool(name, config, async (args: any) => {
+  server.registerTool(name, config, async (args: any, extra: any) => {
+    noteCaller(extra);
     const envelope = await run(args);
     return withFeedbackImages(runToolResult(envelope), envelope, loadImage);
   });
@@ -337,7 +349,8 @@ if (CODE_MODE) {
   for (const tool of STDIO_MCP_TOOLS) {
     const handler = handlers[tool.name];
     const { name, ...config } = tool;
-    server.registerTool(name, config, async (args: any) => {
+    server.registerTool(name, config, async (args: any, extra: any) => {
+      noteCaller(extra);
       const value = await handler(args);
       return withFeedbackImages(toolResult(name, value), value, loadImage);
     });

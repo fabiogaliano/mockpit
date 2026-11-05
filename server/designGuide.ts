@@ -394,8 +394,8 @@ it is about);
 \`verdict\` (use, revise) replaces answers when there were
 no questions; \`decisions\` is the state as chosen: variant, then each part's
 fill, nested; \`messages\` are what the user wrote in the thread. Each Send
-arrives exactly once: in a write's \`feedback\`, \`mockpit feedback\` or a
-\`mockpit watch\` line. In Claude Code, arm \`mockpit watch\` under Monitor after
+arrives exactly once: in a write's \`feedback\` or \`mockpit feedback\`. A
+\`mockpit watch\` line only says one landed. In Claude Code, arm \`mockpit watch\` under Monitor after
 asking, so a Send wakes you, unless your mockpit tools come from the plugin, which
 wakes you itself; it never returns, so never in the foreground. Elsewhere
 the user's next message is the wake-up.

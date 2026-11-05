@@ -66,8 +66,8 @@ mockpit turns that into a design-decision loop:
    then **Delivered** once the agent has it. If it isn't picked up, tell your
    agent you've answered.
 5. **Revise.** The agent gets one reply (answers, tuned values, borrowed parts, comments)
-   on its next write, its next `feedback` call, or from `mockpit watch` under a
-   background monitor. It publishes the next version. Versions are named by
+   on its next write or its next `feedback` call; `mockpit watch` under a background
+   monitor wakes it to make one. It publishes the next version. Versions are named by
    their variant's own number ("Dark #2"); the version bar walks the history,
    and **Use this** puts an older one back in use. Variants that lost are
    archived, not deleted.

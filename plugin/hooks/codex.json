@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__.*mockpit.*__.*|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${PLUGIN_ROOT}\"/scripts/wait-for-reply.sh --codex",
+            "async": true,
+            "timeout": 86400
+          }
+        ]
+      }
+    ]
+  }
+}

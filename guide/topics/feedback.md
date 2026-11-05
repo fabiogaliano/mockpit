@@ -153,13 +153,14 @@ user just corrected them (`null` if they cleared them).
 
 ## Delivery
 
-Each Send is delivered exactly once. Whichever channel picks it up advances
-your session's cursor.
+Each Send is delivered exactly once. Whichever of `feedback` or a write picks it up
+advances your session's cursor.
 
 1. Piggyback: every write (`publish`, `ask`, `say`, `move`, `edit`) returns `feedback` in the
    same shape. Read it whenever it is not empty.
 2. On request: `feedback` when the user says they answered.
-3. Background watch: `mockpit watch` prints one line per Send
+3. Background watch: `mockpit watch` tells you one landed, and delivers nothing: call
+   `feedback` for the reply. It prints one line per Send
    (`mockpit reply on writer: Quiet or dark?: Dark · 1 tuned · 1 comment`) and
    one per thread message (`mockpit message on writer: “…”`). In Claude Code,
    arm it under Monitor after asking, then end your turn, so a Send wakes you:
