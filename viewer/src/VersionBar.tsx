@@ -1,28 +1,33 @@
-// What acts on the version on stage: Revise (ask for a new one), stepping through
+// What acts on the version on stage: New version (ask for one), stepping through
 // the state's versions, putting one in use, and the canvas tools. On a phone they
 // float together as one bar; beside margins each sits where it belongs (Margins.tsx).
 
 import { Show } from "solid-js";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import { neighbourStep, sameVersion, stepFor } from "./logic.ts";
-import { QrTool } from "./QrTool.tsx";
+import { draftCarried, neighbourStep, sameVersion, stepFor } from "./logic.ts";
 import type { DesignScreenState } from "./state.ts";
-import { phoneLayout } from "./viewport.ts";
 
-export function ReviseButton(props: { s: DesignScreenState }) {
+// One click sends, so it says what goes with it.
+export function NewVersionButton(props: { s: DesignScreenState }) {
   const s = props.s;
+  const carried = () => draftCarried(s.draft());
+  const said = () =>
+    carried() ? `Ask your agent for a new version, sending ${carried()} with it` : "";
   return (
     <button
       type="button"
       class="btn vnew"
-      aria-label="Revise"
-      title="Ask your agent for a new version"
+      aria-label={said() || "New version"}
+      title={said() || "Ask your agent for a new version"}
       disabled={s.sending() || !s.onStage()}
       onClick={() => s.askNew()}
     >
-      <Icon name="spark" />
-      <span class="lbl">Revise</span>
+      <Icon name="plus" />
+      <span class="lbl">
+        New version
+        <Show when={carried()}>{(c) => <span class="vnew-carried"> · {c()}</span>}</Show>
+      </span>
     </button>
   );
 }
@@ -154,10 +159,6 @@ export function CanvasTools(props: { s: DesignScreenState; page: boolean }) {
     <>
       <Show when={props.page}>
         {tool("try", "Try", "Try: use the design as a prototype")}
-        {/* A phone is already where this would send you. */}
-        <Show when={!phoneLayout()}>
-          <QrTool s={s} />
-        </Show>
         <Show when={!readonly()}>
           {tool("mark", "Comment", "Comment: tap the design to leave a comment there")}
         </Show>
@@ -172,7 +173,7 @@ export function VersionBar(props: { s: DesignScreenState; reading?: boolean }) {
   return (
     <div class="vbar" role="toolbar" aria-label="Versions and tools">
       <Show when={!readonly()}>
-        <ReviseButton s={s} />
+        <NewVersionButton s={s} />
         <span class="vsep" />
       </Show>
       <VersionStepper

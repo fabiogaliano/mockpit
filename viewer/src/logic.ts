@@ -54,6 +54,16 @@ export const sendCount = (d: DraftInput): number =>
   Object.keys(d.tuned).length +
   d.comments.length;
 
+// What a draft adds to a reply sent some other way than Send, in the fewest words:
+// comments by name, since those are what say what to change.
+export function draftCarried(d: DraftInput | null): string | null {
+  if (!d) return null;
+  const n = sendCount(d);
+  if (n === 0) return null;
+  const noun = n === d.comments.length ? "comment" : "change";
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
 export const answerIds = (a: AskAnswer | undefined): string[] =>
   a === undefined ? [] : Array.isArray(a) ? a : [a];
 
@@ -1640,8 +1650,8 @@ export const BOARD_GAP = 64;
 
 export const LEFT_MARGIN_W = 184;
 export const RIGHT_MARGIN_W = 320;
-// The tool strip: 50 wide, 8 off the canvas's edge. The canvas's own pad is the
-// gap between it and the design.
+// The tool strip: 50 wide, 8 off the canvas's edge at its furthest. The canvas's own
+// pad is the gap between it and the design.
 export const TOOL_BAND_W = 58;
 // The neighbouring steps beside the canvas, and the room they take.
 export const GHOST_W = 112;

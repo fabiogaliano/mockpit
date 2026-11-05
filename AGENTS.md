@@ -30,7 +30,7 @@ design may name its **area** (the project's own words, e.g. "Shell"; Home
 groups by it, in the project's `areaOrder` setting, then alphabetical) and its
 **source** (the code path that implements it). The user can move a design too,
 from Home's ⋯ menu (kind, area, archive); the agent hears a move as a feedback
-batch's `edited`, through the same cursor as a Send. The user's is Send (or Use this / Revise on a design whose
+batch's `edited`, through the same cursor as a Send. The user's is Send (or Use this / New version on a design whose
 state has one variant and no asks), which releases one **reply**.
 
 Current product stances (deliberate choices, not accidents — revisit
@@ -57,7 +57,7 @@ consciously, not as a side effect):
   comments, `knobs` → Tune knobs, states and flows → the flow bar, `kind`
   screen/component and flows → Home's sections; undeclared is an idea or a document,
   by what it contains). A plain publish of any kind still gets stage + Thread + Use
-  this / Revise, except a document (only written surfaces and pictures, no declared
+  this / New version, except a document (only written surfaces and pictures, no declared
   width), which opens in `Reader` with its paragraphs to comment on and no Use this.
 - Archive tells the agent nothing, and nothing blocks a question. Ending a design or
   archiving a variant writes nothing to the agent's stream and instructs no one:
@@ -211,7 +211,7 @@ consciously, not as a side effect):
   `presets.ts` (Tune presets in localStorage), `theme.ts`, `host.ts`.
 - `bin/mockpit.js` — CLI, Node built-ins only; `bin/demoData.js` — the Writer
   design `mockpit demo` seeds.
-- `viewer/src/qr.ts` + `QrTool.tsx` — the QR code beside Try: a local encoder, and
+- `viewer/src/qr.ts` + `QrTool.tsx` — the QR code in the top bar, by the width: a local encoder, and
   `GET /api/reach` for what a phone would meet (`networkHosts` from `server/index.ts`).
   The code never holds the workspace key.
 - `workers/index.ts` — Cloudflare entry; one Durable Object runs the whole app.

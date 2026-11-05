@@ -107,7 +107,7 @@ taking any feedback.
    with the user's words in quotes. Reactions never also appear in `comments`.
 5. `verdict` (`{kind: use|revise, state, variant}`) is the user's word on one
    variant outside any question. `use` is their Use this, with the `version`
-   now in use; `revise` is their Revise: publish another version of that
+   now in use; `revise` is their New version: publish another version of that
    variant (its `text` says from which). Archived variants stay in view,
    muted, and the user can restore them.
 6. `text` is the user's message on the Send.

@@ -2157,7 +2157,7 @@ export function createDesignScreen(
       },
     );
   }
-  // Revise: ask the agent for another version of the one on stage, as a reply
+  // New version: ask the agent for another version of the one on stage, as a reply
   // (with whatever the draft holds), so it arrives through the same cursor.
   function askNew() {
     const ref = onStage();

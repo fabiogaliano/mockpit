@@ -213,8 +213,8 @@ export function createMargins(
   };
 }
 
-// Try, Comment and Tune, left of the design. They change what a tap on it does, so
-// they stay by it, and the left margin's tab rides with them while it is folded.
+// Try, Comment and Tune, against the design's left edge. They change what a tap on
+// it does, so they stay by it however narrow it is or wherever it's panned, and the left margin's tab rides with them while it is folded.
 export function ToolStrip(props: { s: DesignScreenState; m: Margins }) {
   const s = props.s;
   const m = props.m;

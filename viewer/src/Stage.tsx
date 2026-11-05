@@ -53,7 +53,16 @@ import {
 import { PartReactions } from "./Reactions.tsx";
 import type { DesignScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
-import { canvasBox, canvasTop, cardInset, coarse, phoneLayout, safeX, win } from "./viewport.ts";
+import {
+  canvasBox,
+  canvasTop,
+  cardInset,
+  coarse,
+  phoneLayout,
+  safeX,
+  setDesignAt,
+  win,
+} from "./viewport.ts";
 
 export const num = (v: unknown, d = 0) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const MAX_TEXT = 200;
@@ -473,6 +482,18 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
     canvasBox().over;
   // The artboards start under whatever rests at the top.
   const padT = () => cardInset().top;
+  const [panned, setPanned] = createSignal({ x: 0, y: 0 });
+  const onPan = () => setPanned({ x: layersEl.scrollLeft, y: layersEl.scrollTop });
+  // The row's first artboard, not the live one: under "All widths" the live one can
+  // have a neighbour on its left, closer than anything could stand between them.
+  createEffect(() => {
+    setDesignAt({
+      // The safe-area padding sits outside the scroller, and only the DOM knows it.
+      left: layersEl.getBoundingClientRect().left + xOf(order()[0]!) - panned().x,
+      top: canvasTop() + padT() + labelH() - panned().y,
+    });
+  });
+  onCleanup(() => setDesignAt(null));
   // Room under the artboards to pan them up past a card resting at the bottom;
   // on a phone, just enough to bring the page's end above the sheet.
   const canvasH = () =>
@@ -487,7 +508,12 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
     <div class="stagewrap canvas" style={{ top: `${canvasTop()}px` }}>
       <div class="stage" classList={{ tuning: s.tuning() }}>
         <ArrivedBanner s={s} />
-        <div class="layers" ref={(el) => (layersEl = el)} style={{ height: `${availH()}px` }}>
+        <div
+          class="layers"
+          ref={(el) => (layersEl = el)}
+          style={{ height: `${availH()}px` }}
+          onScroll={onPan}
+        >
           <div class="layers-sizer" style={{ height: `${canvasH()}px`, width: `${canvasW()}px` }} />
           <Show when={!phone()}>
             <div

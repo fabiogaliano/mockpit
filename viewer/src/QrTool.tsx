@@ -1,4 +1,4 @@
-// Beside Try: this design as a code to scan, to feel it on the device it's for. A
+// In the top bar, by the width: this design as a code to scan, to feel it on the device it's for. A
 // code nobody can follow is worse than none, so an address a phone can't reach gets
 // the address to use instead. The code never holds the workspace's key: the viewer
 // takes `?key=` out of the URL on load, so there's none in what it encodes, and
@@ -66,7 +66,7 @@ export function QrTool(props: { s: DesignScreenState }) {
     <div class="qrtool">
       <button
         type="button"
-        class="ib tool"
+        class="ib"
         classList={{ on: open() }}
         aria-expanded={open()}
         aria-haspopup="dialog"

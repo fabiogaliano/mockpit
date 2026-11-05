@@ -62,7 +62,7 @@ mockpit turns that into a design-decision loop:
    save a set of tuned values in your browser.
 4. **Send.** Everything above is a draft (it survives a reload) until one
    **Send**. A design with a single variant and no questions gets **Use this /
-   Revise** instead. The Send lands in the Thread as **Not seen yet**,
+   New version** instead. The Send lands in the Thread as **Not seen yet**,
    then **Delivered** once the agent has it. If it isn't picked up, tell your
    agent you've answered.
 5. **Revise.** The agent gets one reply (answers, tuned values, borrowed parts, comments)

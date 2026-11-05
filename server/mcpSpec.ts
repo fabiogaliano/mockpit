@@ -385,7 +385,7 @@ const feedbackSchema = o({
     reactions: strs.optional().describe('One-tap reactions, e.g. 👍 part "hero" (variant B)'),
     verdict: o({ kind: z.enum(["use", "revise"]), state: nullStr, variant: str })
       .optional()
-      .describe("Use this or Revise on one variant"),
+      .describe("Use this or New version on one variant"),
   })
     .nullable()
     .describe("The user's Send; null if only messages"),

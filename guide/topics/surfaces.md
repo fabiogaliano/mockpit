@@ -126,7 +126,7 @@ Each thing you add lights up its part of the viewer.
 
 | you publish              | the user gets                                        |
 | ------------------------ | ---------------------------------------------------- |
-| a plain design, any kind | the stage and Thread, with Use this / Revise         |
+| a plain design, any kind | the stage and Thread, with Use this / New version    |
 | several variants         | a switcher, plus a built-in variant question         |
 | questions (`ask`)        | Questions: picture options on the stage, then Send   |
 | `data-part`              | Tune's component list and comments anchored on parts |

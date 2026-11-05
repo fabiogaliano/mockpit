@@ -73,6 +73,20 @@ const [canvasBoxSignal, setCanvasBoxSignal] = createRoot(() =>
 export const canvasBox = canvasBoxSignal;
 export const setCanvasBox = setCanvasBoxSignal;
 
+// Where the artboards start on screen as the canvas pans, for what stands beside
+// them. Null where no canvas is showing.
+export interface DesignAt {
+  left: number;
+  top: number;
+}
+const [designAtSignal, setDesignAtSignal] = createRoot(() =>
+  createSignal<DesignAt | null>(null, {
+    equals: (a, b) => a?.left === b?.left && a?.top === b?.top,
+  }),
+);
+export const designAt = designAtSignal;
+export const setDesignAt = setDesignAtSignal;
+
 // The left and right safe-area insets together (a notched phone held sideways):
 // CSS knows them and script does not, so a hidden probe padded by them is read
 // on every resize. The stage fits inside them and never sits under a notch.

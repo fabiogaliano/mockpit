@@ -2,7 +2,7 @@
 // width, Stage, Studio or Grid, the panels), the design on a canvas, states and versions
 // in a margin on its left and what's said about it in one on its right, each there
 // only with something in it (Margins.tsx). A phone has no room beside the design:
-// its states are tabs above, one bar floats below (Revise, the versions, Use this,
+// its states are tabs above, one bar floats below (New version, the versions, Use this,
 // Try / Mark / Tune) with the question above that, and the version label opens the
 // history and the thread as a bottom panel.
 
@@ -71,6 +71,7 @@ import {
   replaceUrl,
   route,
 } from "./route.ts";
+import { QrTool } from "./QrTool.tsx";
 import { Stage } from "./Stage.tsx";
 import { Studio } from "./Studio.tsx";
 import type { ScreenOpen } from "./route.ts";
@@ -78,8 +79,16 @@ import { carryToast, Toast } from "./toast.tsx";
 import { createDesignScreen, type DesignScreenState } from "./state.ts";
 import { Thumb } from "./Thumb.tsx";
 import { createTune } from "./tune.ts";
-import { ReviseButton, UseThis, VersionBar, VersionStepper } from "./VersionBar.tsx";
-import { canvasTop, NO_INSET, phoneLayout, setCanvasTop, setCardInset, win } from "./viewport.ts";
+import { NewVersionButton, UseThis, VersionBar, VersionStepper } from "./VersionBar.tsx";
+import {
+  canvasTop,
+  designAt,
+  NO_INSET,
+  phoneLayout,
+  setCanvasTop,
+  setCardInset,
+  win,
+} from "./viewport.ts";
 
 type View = "stage" | "studio" | "grid";
 const isView = (v: string | null | undefined): v is View =>
@@ -404,6 +413,8 @@ export function DesignScreen(props: {
         "--canvas-r": `${m.band().right}px`,
         "--canvas-top": `${canvasTop()}px`,
         "--strip": `${m.stripW()}px`,
+        "--design-l": `${designAt()?.left ?? 0}px`,
+        "--design-t": `${designAt()?.top ?? 0}px`,
       }}
     >
       <header class="mhead" ref={(el) => (head = el)}>
@@ -419,6 +430,7 @@ export function DesignScreen(props: {
           grid={gridOffered()}
           studioHidden={gridFirst()}
           tabs={m.statesShown() || onWall()}
+          qr={m.active() && m.page() && !reading()}
           shortlists={shortlists}
           actions={
             <Show when={m.active() && !undrawn()}>
@@ -432,7 +444,7 @@ export function DesignScreen(props: {
                   />
                 </Show>
                 <Show when={!readonly()}>
-                  <ReviseButton s={s} />
+                  <NewVersionButton s={s} />
                 </Show>
                 <Show when={!reading()}>
                   <UseThis s={s} />
@@ -597,6 +609,8 @@ function TopRow(props: {
   studioHidden: boolean;
   // Whether the state tabs are showing, which name the state where it isn't.
   tabs: boolean;
+  // A page on stage, past a phone's width: a phone is already where this would send you.
+  qr: boolean;
   shortlists: Shortlists;
   onView: (v: View) => void;
   // What acts on the version on stage, and the right margin's tabs, where a margin
@@ -811,6 +825,9 @@ function TopRow(props: {
       {props.actions}
       <Show when={props.view === "stage" && !props.reading && s.design()}>
         <WidthMenu s={s} />
+      </Show>
+      <Show when={props.qr}>
+        <QrTool s={s} />
       </Show>
       <Show when={props.compare || props.view !== "stage"}>
         <div class="vswitch" role="group" aria-label="View">

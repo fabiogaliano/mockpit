@@ -507,7 +507,7 @@ export interface PartComment {
 }
 
 // What a reply says about one variant outside the ask flow: the user's Use this
-// or Revise.
+// or New version.
 export interface ReplyVerdict {
   kind: "use" | "revise";
   state: string | null;

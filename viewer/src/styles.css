@@ -4315,7 +4315,7 @@ html:has(.design-screen) {
   translate: 0 -50%;
 }
 .ghost.left {
-  left: calc(var(--canvas-l, 0px) + var(--strip, 0px) + max(4px, env(safe-area-inset-left)));
+  left: calc(var(--canvas-l, 0px) + max(4px, env(safe-area-inset-left)));
 }
 .ghost.right {
   right: calc(var(--canvas-r, 0px) + max(4px, env(safe-area-inset-right)));
@@ -5085,19 +5085,15 @@ button.mturn:focus-visible {
     color: var(--t1);
   }
 }
-/* Over a margin floating beside the strip, which would otherwise cover the code. */
-.toolstrip:has(.qrpop) {
-  z-index: 36;
-}
-/* Absolute inside the strip: the strip's translate would make a fixed one relative to
-   it anyway, and this way it opens from the button that asked. */
 .qrtool {
+  position: relative;
   display: flex;
+  flex: none;
 }
 .qrpop {
   position: absolute;
-  top: 50%;
-  left: 100%;
+  top: calc(100% + 8px);
+  right: 0;
   z-index: 1;
   display: flex;
   flex-direction: column;
@@ -5114,7 +5110,6 @@ button.mturn:focus-visible {
   color: var(--t3);
   font-size: 13px;
   line-height: 1.4;
-  translate: 8px -50%;
 }
 .qrpop p {
   margin: 0;
@@ -5155,6 +5150,10 @@ button.mturn:focus-visible {
   width: 36px;
   height: 36px;
 }
+.vnew-carried {
+  color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}
 .mtabs {
   display: flex;
   flex: none;
@@ -5173,11 +5172,19 @@ button.mturn:focus-visible {
   border-radius: 50%;
   background: var(--q);
 }
+.design-screen {
+  /* Its width and a gap short of the design, stopping at the canvas's edge when the
+     design runs up to it or pans past it. */
+  --strip-at: max(
+    var(--canvas-l, 0px) + max(8px, env(safe-area-inset-left)),
+    var(--design-l, 0px) - 66px
+  );
+}
 .toolstrip {
   position: fixed;
-  /* Mid-height of the canvas, whatever stands above it. */
-  top: calc((100dvh + var(--canvas-top, 0px)) / 2);
-  left: calc(var(--canvas-l, 0px) + max(8px, env(safe-area-inset-left)));
+  /* Level with the top of the design, however short it is, staying on the canvas. */
+  top: max(var(--canvas-top, 0px) + 8px, var(--design-t, 0px));
+  left: var(--strip-at);
   z-index: 30;
   display: flex;
   flex-direction: column;
@@ -5188,7 +5195,6 @@ button.mturn:focus-visible {
   border-radius: 14px;
   background: var(--panel);
   box-shadow: var(--dd-shadow);
-  translate: 0 -50%;
 }
 .toolstrip-sep {
   flex: none;
@@ -5229,7 +5235,7 @@ button.mturn:focus-visible {
   background: var(--page);
 }
 .lmargin.float {
-  left: calc(var(--strip, 0px) + 8px);
+  left: calc(var(--strip-at) + 58px);
   width: 240px;
   padding-left: 8px;
 }
