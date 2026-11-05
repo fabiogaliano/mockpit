@@ -146,6 +146,10 @@ consciously, not as a side effect):
   `[data-k-bind]`, `mockpit:knobs`). A written surface loaded with `#read` adds
   `PARAGRAPHS_JS`: `paragraphs` reports and `paragraph-tap` out, `paragraph-marks` in.
   A tap sends only a block's number; the text a comment quotes comes from the report.
+- `server/cdnInline.ts` — bakes what an html surface links from the CDN allowlist into its
+  document at render (fonts as `data:` URLs, stylesheets and classic scripts inline). A
+  failed fetch leaves the link and makes the render `complete: false`: not stored, not
+  immutable. Mermaid's module graph stays on the CDN.
 - `server/themes.ts` — the one dialkit palette, dark and light; viewer-chrome
   vars and html-surface `--color-*` tokens are both derived from it. Mode is
   persisted per workspace (`/api/theme`).

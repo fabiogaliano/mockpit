@@ -80,6 +80,7 @@ import {
   type EmbedResolver,
   type Expanded,
 } from "./embeds.ts";
+import { createCdnInliner, type InlineResult } from "./cdnInline.ts";
 import { type McpFlows, registerMcp } from "./mcpHttp.ts";
 import { createRunFlow, DEFAULT_RUN_LIMITS, type Executor, type RunLimits } from "./run.ts";
 import { type LogSink, logMiddleware, writeLog } from "./eventLog.ts";
@@ -608,6 +609,7 @@ export function createApp({
   // workspace, so this in-memory cache is authoritative; a multi-instance deploy
   // could back it with KV/Cache API behind the same key without changing callers.
   const MAX_RENDER_CACHE_BYTES = 32 * 1024 * 1024;
+  const cdnInliner = createCdnInliner();
   const renderCache = new Map<string, string>();
   let renderCacheBytes = 0;
   // UTF-16 code units × 2 is the retained JS string size, which is what this
@@ -659,10 +661,17 @@ export function createApp({
     renderCache.set(key, hit);
     return hit;
   }
-  async function cachedRender(key: string, build: () => Promise<string> | string): Promise<string> {
+  // A document built while a CDN was failing goes out as it is and is not kept: the next
+  // request gets another try at the whole thing.
+  async function cachedRender(
+    key: string,
+    build: () => Promise<InlineResult>,
+  ): Promise<InlineResult> {
     const hit = renderCacheHit(key);
-    if (hit !== undefined) return hit;
-    const doc = await build();
+    if (hit !== undefined) return { doc: hit, complete: true };
+    const built = await build();
+    if (!built.complete) return built;
+    const { doc } = built;
     renderCache.set(key, doc);
     renderCacheBytes += docBytes(doc);
     while (renderCacheBytes > MAX_RENDER_CACHE_BYTES && renderCache.size > 1) {
@@ -670,7 +679,7 @@ export function createApp({
       if (oldest === undefined) break;
       dropCacheEntry(oldest);
     }
-    return doc;
+    return built;
   }
 
   // Last-resort safety net: any handler that throws (rather than returning a
@@ -6404,7 +6413,7 @@ export function createApp({
     designSystem: DesignSystem | null;
     knobs?: Record<string, KnobValue>;
     composed?: string;
-  }): Promise<string> {
+  }): Promise<InlineResult> {
     const { surface, mode, origin } = args;
     const theme = themeById(DEFAULT_THEME_ID);
     const themeId = theme.id;
@@ -6413,7 +6422,7 @@ export function createApp({
       // expansion), so the whole page is still ONE sandboxed document rather
       // than nested frames.
       const html = args.composed ?? surface.html;
-      return renderHtmlPage({
+      const page = renderHtmlPage({
         title: args.title,
         html,
         origin,
@@ -6427,15 +6436,19 @@ export function createApp({
           ? (await iconResolverFor(args.designSystem)).resolve
           : undefined,
       });
+      return cdnInliner.inline(page, html);
     }
     if (surface.kind === "mermaid") {
-      return renderMermaidPage({
-        mermaid: surface.mermaid,
-        origin,
-        theme,
-        mode,
-        version: args.version,
-      });
+      return {
+        doc: renderMermaidPage({
+          mermaid: surface.mermaid,
+          origin,
+          theme,
+          mode,
+          version: args.version,
+        }),
+        complete: true,
+      };
     }
     // Load the rich renderers on first use, not at module load. richRender.ts
     // pulls in shiki, @pierre/diffs, markdown-it and ansi_up — measured at ~48 MB
@@ -6465,14 +6478,17 @@ export function createApp({
                 )}</div>`,
                 css: `.rich-error{color:var(--danger);font:13px/1.5 ui-monospace,monospace;padding:8px 12px;}`,
               }));
-    return renderSandboxedPart({
-      body: rendered.body,
-      css: rendered.css,
-      origin,
-      theme,
-      mode,
-      version: args.version,
-    });
+    return {
+      doc: renderSandboxedPart({
+        body: rendered.body,
+        css: rendered.css,
+        origin,
+        theme,
+        mode,
+        version: args.version,
+      }),
+      complete: true,
+    };
   }
 
   // Render the current version of a post into the cache, off the write path.
@@ -6640,14 +6656,6 @@ export function createApp({
       composed = await composedHtml(design.project, design.slug, surface.html, overrides);
     }
     const eKey = composed ? embedsKey(composed) : undefined;
-    // Every input is in the URL (the palette is fixed, the mode is a query
-    // param), so a version-pinned document never changes, unless it follows a
-    // component's latest version and the URL does not name that state (`e`).
-    surfaceDocHeaders(
-      c,
-      ver != null && (eKey === undefined || eKey === eParam) && wParam === (post.rewrites ?? 0),
-    );
-
     // Cache the finished document under the same key the pre-warm uses; the
     // resolved `version` and embeds key make it immutable, so a hit is always
     // correct.
@@ -6662,7 +6670,7 @@ export function createApp({
       rewrites: post.rewrites,
     });
     const designSystem = design ? await designSystemFor(design.project) : null;
-    const doc = await cachedRender(cacheKey, async () =>
+    const { doc, complete } = await cachedRender(cacheKey, () =>
       buildSurfaceDoc({
         post,
         design,
@@ -6675,6 +6683,17 @@ export function createApp({
         knobs,
         composed: composed?.html,
       }),
+    );
+    // Every input is in the URL (the palette is fixed, the mode is a query
+    // param), so a version-pinned document never changes, unless it follows a
+    // component's latest version and the URL does not name that state (`e`), or
+    // a CDN it links failed this time and the next one may do better.
+    surfaceDocHeaders(
+      c,
+      complete &&
+        ver != null &&
+        (eKey === undefined || eKey === eParam) &&
+        wParam === (post.rewrites ?? 0),
     );
     return c.html(doc);
   };
