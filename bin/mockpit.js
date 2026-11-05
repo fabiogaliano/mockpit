@@ -13,6 +13,7 @@ import { homedir, tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { findBrowser, queuePoster } from "./poster.js";
 import { serveUrl } from "./serveUrl.js";
 
 const BASE = (process.env.MOCKPIT_URL ?? "http://localhost:8228").replace(/\/$/, "");
@@ -155,6 +156,7 @@ environment:
   MOCKPIT_PROJECT  project name; overrides the git-remote/directory default
   MOCKPIT_URL      server base URL (default http://localhost:8228)
   MOCKPIT_TOKEN    bearer token for a deployed instance
+  CHROME_PATH      the browser for automatic posters; pointing nowhere turns them off
   MOCKPIT_HOST     address serve binds to (default: every interface)
   MOCKPIT_LOG      serve's event log file, or "off" (default ~/.mockpit/events.jsonl)
   MOCKPIT_SESSION  fixed session id (overrides auto-detection)
@@ -237,7 +239,8 @@ mockpit publish --design <slug> [--state s] [--variant v] --withdraw
   --step <N>         its 1-based place in the flow (moves it if it is there);
                      0 takes it out; omitted, it joins at the end
   --project <name>   project (default: git remote, else directory name)
-  --poster <file>    a still of the page (png, jpg) that Studio and Home show
+  --poster <file>    a still of the page (png, jpg) that Studio and Home show; without
+                     one, a local Chrome or Chromium takes it just after the publish
                      instead of running it; with --parts or --fills it is the
                      still of the spliced page. A version that changes the page
                      without one drops the old still
@@ -1176,6 +1179,7 @@ async function publishDesign() {
     ...(parts && { parts }),
     ...(fills && { fills }),
     ...(poster && { poster }),
+    ...(!poster && findBrowser() && { posterComing: true }),
     ...(flags.amend && { amend: true }),
   };
   const result = await api(
@@ -1184,6 +1188,17 @@ async function publishDesign() {
     { report: "die", fix: `mockpit read ${slug}` },
   );
   printPublished(result, flags);
+  if (!poster && result.post?.surfaces?.some((s) => s.kind === "html") && !result.withdrawn) {
+    queuePoster({
+      base: BASE,
+      token: TOKEN,
+      client: HEADERS["x-mockpit-client"],
+      session,
+      design: result.design.id,
+      postId: result.post.id,
+      version: result.post.version,
+    });
+  }
   return result;
 }
 

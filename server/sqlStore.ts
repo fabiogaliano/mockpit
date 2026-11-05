@@ -2085,6 +2085,27 @@ export class SqlStore implements Store {
     };
   }
 
+  async setPosterOnce(id: string, version: number, poster: string) {
+    const post = await this.getPost(id);
+    if (!post || post.version !== version) return false;
+    const at = post.surfaces.findIndex((s) => s.kind === "html");
+    const page = post.surfaces[at];
+    if (!page || page.kind !== "html" || page.poster) return false;
+    const surfaces = post.surfaces.map((s, i) => (i === at ? { ...page, poster } : s));
+    const wrote = this.writingPosts(post.design, [id], () => {
+      this.sql.exec(
+        "UPDATE posts SET surfaces = ?, head = ? WHERE id = ? AND version = ?",
+        JSON.stringify(surfaces),
+        surfaceHeads(surfaces),
+        id,
+        version,
+      );
+      return (this.sql.exec("SELECT changes() AS n").one().n as number) > 0;
+    });
+    if (wrote) this.invalidateAssetRefs();
+    return wrote;
+  }
+
   async withdrawVersion(id: string, version: number, embeds: Embed[]) {
     const post = await this.getPost(id);
     if (!post || post.version !== version) return null;

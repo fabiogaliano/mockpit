@@ -96,8 +96,13 @@ references it. Limit: 5 MB per asset.
 ## Posters
 
 A heavy page (3D, WebGL, a running canvas) costs a live frame in every overview card, and a
-browser holds only about 16. Send a still as the html's `poster`: Studio and Home show the
+browser holds only about 16. A still as the html's `poster` fixes that: Studio and Home show the
 picture, Stage still runs the page.
+
+The CLI and the stdio MCP server take one for you, with a local Chrome or Chromium, just after
+each publish that doesn't send its own. It arrives seconds later and the publish doesn't wait for
+it. With no browser there is none, and the page runs live as before. Send your own to choose the
+moment; yours always wins. Over raw HTTP and `/mcp`, only yours exists:
 
 ```
 CLI  mockpit publish --design onni --variant felt --html felt.html --poster felt.png
@@ -105,9 +110,8 @@ MCP  publish { design, variant, html, poster: "<asset id, or an image path on st
 HTTP POST /api/designs { …, "html": "…", "poster": "<asset id>" }
 ```
 
-Render it yourself (a headless screenshot) at the moment that shows the design best. A version
-that changes the page without a new poster (`--parts`, `--fills`, a fork with edits) drops it, so
-send one with each.
+A version that changes the page without a new poster (`--parts`, `--fills`, a fork with edits)
+drops it, so send one with each, or let the CLI or stdio server take the new one.
 
 ## What the user sees
 

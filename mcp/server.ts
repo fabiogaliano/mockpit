@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -44,6 +44,20 @@ function packageVersion(): string {
   }
   return "unknown";
 }
+
+// The CLI's poster worker, which is built-ins only and isn't compiled into dist: found the
+// way the version is. Missing or broken means no posters, never a failed publish.
+interface Posters {
+  findBrowser(): string | null;
+  queuePoster(job: Record<string, unknown>): void;
+}
+const posters: Promise<Posters | null> = (async () => {
+  for (const rel of ["../bin/poster.js", "../../bin/poster.js"]) {
+    const path = join(dirname(fileURLToPath(import.meta.url)), rel);
+    if (existsSync(path)) return (await import(pathToFileURL(path).href)) as Posters;
+  }
+  return null;
+})().catch(() => null);
 
 async function api(path: string, init: RequestInit = {}) {
   const headers: Record<string, string> = {
@@ -200,7 +214,8 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
   async publish(args) {
     const session = await ensureSession(args.sessionTitle);
     const html = typeof args.html === "string" ? readMaybeFile(args.html) : undefined;
-    return post("/api/designs", {
+    const taking = args.poster === undefined ? await posters : null;
+    const result = await post("/api/designs", {
       ...args,
       html,
       parts: readPartFiles(args.parts),
@@ -209,7 +224,24 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
       session,
       agent: AGENT,
       project: resolveProject(args.project),
+      ...(taking?.findBrowser() ? { posterComing: true } : {}),
     });
+    if (
+      taking &&
+      result.post?.surfaces?.some((s: { kind: string }) => s.kind === "html") &&
+      !result.withdrawn
+    ) {
+      taking.queuePoster({
+        base: API.replace(/\/$/, ""),
+        token: TOKEN,
+        client: CLIENT,
+        session,
+        design: result.design.id,
+        postId: result.post.id,
+        version: result.post.version,
+      });
+    }
+    return result;
   },
   async ask(args) {
     const session = await ensureSession();

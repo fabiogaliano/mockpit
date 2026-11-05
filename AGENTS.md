@@ -215,6 +215,9 @@ consciously, not as a side effect):
   `logic.ts` (pure rules),
   `tune.ts` (tunekit mounted via `initPane({ host })`),
   `presets.ts` (Tune presets in localStorage), `theme.ts`, `host.ts`.
+- `bin/poster.js` — automatic posters for the CLI and stdio MCP: a publish leaves a job, a
+  detached worker renders it in one headless browser and attaches the still with
+  `POST /api/designs/:id/variants/:postId/poster`, which makes no new version. Built-ins only.
 - `bin/mockpit.js` — CLI, Node built-ins only; `bin/demoData.js` — the Writer
   design `mockpit demo` seeds.
 - `viewer/src/qr.ts` + `QrTool.tsx` — the QR code in `PreviewTool`, with the widths, in the tool strip: a local encoder, and

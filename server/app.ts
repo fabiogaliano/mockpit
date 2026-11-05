@@ -1247,6 +1247,35 @@ export function createApp({
     return out;
   }
 
+  // A still taken after the publish, by the CLI or the stdio server, once the page exists
+  // to be rendered. It adds a picture to the version, so it makes no new version and no
+  // rewrite, isn't the user's or a new word from the agent, and asks no frame to reload. It
+  // never replaces a poster, which is the agent's own or an earlier capture's, and a
+  // version amended or replaced while the browser worked refuses it: it shows an old page.
+  async function attachPosterFlow(ref: unknown, postId: string, body: any): Promise<FlowResult> {
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
+    const post = await store.getPost(postId);
+    if (!post || post.design !== design.id) return fail(404, "variant not found");
+    const session = typeof body?.session === "string" ? body.session : "";
+    if (publisherOf(post) !== session) {
+      return fail(403, `v${post.version} of ${post.variant} was published by another session`);
+    }
+    if (body?.version !== post.version || (body?.rewrites ?? 0) !== (post.rewrites ?? 0)) {
+      return fail(409, `${post.variant} has changed since this still was taken`);
+    }
+    const poster = str(body?.poster, MAX_LABEL);
+    if (!poster) return fail(400, '"poster" must be the asset id of an uploaded image');
+    const asset = await store.getAsset(poster);
+    if (!asset?.contentType.startsWith("image/")) {
+      return fail(400, `poster "${poster}" is not an uploaded image`);
+    }
+    const attached = await store.setPosterOnce(post.id, post.version, poster);
+    if (!attached) return fail(409, `${post.variant} already has a poster`);
+    bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+    return ok({ poster });
+  }
+
   function checkSurfaces(surfaces: Surface[]): FlowResult | null {
     if (surfaces.length === 0) return fail(400, "a variant needs at least one surface");
     if (surfacesByteLength(surfaces) > MAX_SURFACE_BYTES) {
@@ -1917,7 +1946,8 @@ export function createApp({
     const nudges = [
       ...knobNudges({ ...knobs.value, ...variantKnobs.value }),
       ...titleNudges(title),
-      ...(target ? [] : posterNudges(surfaces)),
+      // The CLI or stdio server has a browser and is taking the still itself.
+      ...(target || body.posterComing === true ? [] : posterNudges(surfaces)),
     ];
     const embeds = await publishEmbeds(project, slug, surfaces);
     if (isResult(embeds)) return embeds;
@@ -5880,6 +5910,9 @@ export function createApp({
     send(c, await restoreFlow(c.req.param("id"), await jsonBody(c))),
   );
 
+  app.post("/api/designs/:id/variants/:postId/poster", async (c) =>
+    send(c, await attachPosterFlow(c.req.param("id"), c.req.param("postId"), await jsonBody(c))),
+  );
   app.post("/api/designs/:id/variants/:postId/restore", async (c) =>
     send(
       c,

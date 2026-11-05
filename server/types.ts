@@ -1172,6 +1172,9 @@ export interface Store {
   // `embeds` (what that version renders with now), or removes the variant
   // when it had no other ({ post: null }). The variant's comments stay, on the design.
   amendPost(id: string, version: number, patch: AmendPostInput): Promise<Post | null>;
+  // On a variant's latest version, if its first page has no poster yet. Touches nothing else:
+  // not the version, not when it was updated, so it reads as nothing having happened.
+  setPosterOnce(id: string, version: number, poster: string): Promise<boolean>;
   withdrawVersion(
     id: string,
     version: number,
