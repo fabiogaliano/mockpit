@@ -73,7 +73,7 @@ export function SelectBar(props: {
       type="button"
       class="ib selbar-b"
       aria-label={label}
-      data-tip={label}
+      title={label}
       aria-expanded={on ? on() : undefined}
       disabled={disabled?.()}
       onClick={onClick}

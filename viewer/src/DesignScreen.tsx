@@ -7,7 +7,7 @@
 // history and the thread as a bottom panel.
 
 import type { Shortlist } from "./api.ts";
-import { openJump, rememberRecent } from "./Jump.tsx";
+import { rememberRecent } from "./Jump.tsx";
 import { createShortlists, type Shortlists } from "./shortlist.ts";
 import {
   createEffect,
@@ -728,17 +728,6 @@ function TopRow(props: {
     });
   });
   const archive = () => idea() && !s.design()?.archivedAt && !readonly();
-  const search = () => (
-    <button
-      type="button"
-      class="ib msearch"
-      aria-label="Search"
-      title="Search ( / or ⌘K )"
-      onClick={openJump}
-    >
-      <Icon name="search" />
-    </button>
-  );
   const pill = () => (
     <Show
       when={
@@ -754,7 +743,6 @@ function TopRow(props: {
     <div class="mtop">
       <div class="mzone">
         <SideOver project={props.project} />
-        <Show when={!phoneLayout()}>{search()}</Show>
         <a
           class="ib mup"
           href={up().href}
@@ -918,9 +906,6 @@ function TopRow(props: {
           onClose={() => setOpen(false)}
           ref={(el) => (pop = el)}
         />
-        {/* A phone has no key to press, but a row already holding the view switch has
-            no room for it either: Home is one step up from there. */}
-        <Show when={phoneLayout() && !(props.compare || props.view !== "stage")}>{search()}</Show>
       </div>
       <Show when={phoneLayout()}>
         <span class="grow" />

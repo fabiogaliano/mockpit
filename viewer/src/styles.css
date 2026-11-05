@@ -54,9 +54,13 @@
   --glow: rgba(255, 255, 255, 0.08);
   --danger: #f87171;
   --danger-glow: rgba(248, 113, 113, 0.18);
+  --tip: #2b2b2b;
+  --tip-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
   color-scheme: dark;
 }
 [data-theme="light"] {
+  --tip: #ebebeb;
+  --tip-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
   --page: #fafafa;
   --frame: #fff;
   --panel: #ffffff;
@@ -5816,12 +5820,6 @@ button.mturn:focus-visible {
     line-height: 15px;
   }
 }
-/* A phone's row has its own rule for these. */
-@media (min-width: 641px) and (max-width: 900px) {
-  .msearch {
-    display: none;
-  }
-}
 @media (max-width: 900px) {
   .mact .vlabel .note {
     display: none;
@@ -6444,35 +6442,6 @@ body:has(.selp) .toast {
 }
 .selbar-b:disabled svg {
   opacity: 0.35;
-}
-/* An icon-only bar lives on its names, and a native title takes a second to show. */
-.selbar-b::after {
-  content: attr(data-tip);
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  z-index: 2;
-  padding: 4px 8px;
-  border: 1px solid var(--edge);
-  border-radius: 7px;
-  background: var(--panel);
-  box-shadow: var(--dd-shadow);
-  color: var(--t1);
-  font-size: 12px;
-  font-weight: 400;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(-50%);
-  transition: opacity 60ms;
-}
-.selbar-b:focus-visible::after {
-  opacity: 1;
-}
-@media (hover: hover) {
-  .selbar-b:hover::after {
-    opacity: 1;
-  }
 }
 .selbar-n {
   position: absolute;
@@ -8463,4 +8432,29 @@ body:has(.selp) .toast {
 }
 .qabout .lnk {
   margin-left: 4px;
+}
+
+/* Popover UA styles centre it with auto margins and a fit-content box in the middle. */
+.tip {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  max-width: 280px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--tip);
+  box-shadow: var(--tip-shadow);
+  color: var(--t1);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  /* Some titles carry their own line breaks (a note, then the agent's pick). */
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.tip-keys {
+  margin-left: 8px;
+  opacity: 0.6;
 }
