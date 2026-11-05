@@ -30,7 +30,7 @@ The loop never waits for the user:
    product's areas; `--source <path>` names the code that implements it.
    `mockpit edit --design <slug>` changes slug, title, kind, area or source
    without a new version; `mockpit edit --project <p> --area-order
-"Shell,Food"` orders Home's areas. A batch with `edited` is the user moving
+   "Shell,Food"` orders Home's areas. A batch with `edited` is the user moving
    a design from Home (kind, area): build on it.
 3. A choice is several variants plus one question that binds them: `mockpit ask`
    with options bound to variants. A variant decides everything it differs on;

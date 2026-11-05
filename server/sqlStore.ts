@@ -1735,13 +1735,11 @@ export class SqlStore implements Store {
         ...args,
       )
       .toArray()
-      .map(
-        (r): PostHead => ({
-          ...this.rowToPost(r, []),
-          surfaces: parseJson<SurfaceHead[]>(r.head, []),
-          history: history.get(r.id as string) ?? [],
-        }),
-      );
+      .map((r): PostHead => ({
+        ...this.rowToPost(r, []),
+        surfaces: parseJson<SurfaceHead[]>(r.head, []),
+        history: history.get(r.id as string) ?? [],
+      }));
   }
 
   // Every open design screen asks, and a project's posts can be hundreds of MB:
@@ -1754,14 +1752,12 @@ export class SqlStore implements Store {
       )
       .toArray()
       .filter((r) => isLive(r.status as PostStatus))
-      .map(
-        (r): LiveCopy => ({
-          design: r.designId as string,
-          state: r.state as string | null,
-          variant: r.variant as string,
-          copiedFrom: parseJson<CopyRef>(r.copiedFrom, null!),
-        }),
-      );
+      .map((r): LiveCopy => ({
+        design: r.designId as string,
+        state: r.state as string | null,
+        variant: r.variant as string,
+        copiedFrom: parseJson<CopyRef>(r.copiedFrom, null!),
+      }));
   }
 
   private postsOfDesign(designId: string): Post[] {
@@ -2451,16 +2447,14 @@ export class SqlStore implements Store {
         project,
       )
       .toArray()
-      .map(
-        (r): DecisionVariant => ({
-          designId: r.designId as string,
-          state: (r.state as string | null) ?? null,
-          variant: r.variant as string,
-          status: r.status as PostStatus,
-          version: r.version as number,
-          acceptedVersion: (r.acceptedVersion as number | null) ?? null,
-        }),
-      );
+      .map((r): DecisionVariant => ({
+        designId: r.designId as string,
+        state: (r.state as string | null) ?? null,
+        variant: r.variant as string,
+        status: r.status as PostStatus,
+        version: r.version as number,
+        acceptedVersion: (r.acceptedVersion as number | null) ?? null,
+      }));
     // A close or a move from Home is a reply too, and decides nothing.
     const decidedAt: Record<string, string> = {};
     for (const r of this.sql

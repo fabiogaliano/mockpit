@@ -186,11 +186,11 @@ mockpit read    --decisions               # the whole decision list, when a read
   handed back ("I don't get this"), part comments and anything unanswered, so what it
   doesn't say is still open. `more` says lines were cut, keeping the newest.
 - A flow is the states the user walks, in order, across designs: `--flow
-Morning --step 2` (MCP/HTTP `flow`, `step`) puts this (design, state) at step
+  Morning --step 2` (MCP/HTTP `flow`, `step`) puts this (design, state) at step
   2, moving it if it is there; without `--step` it joins at the end, `--step 0`
   takes it out. `flow` with no html places an existing state without a new
   version. `read` (no design) and `read --tree` return `flows: [{name, steps:
-[{design, state}]}]`. In the design, `data-goto="next"`, `"prev"` or
+  [{design, state}]}]`. In the design, `data-goto="next"`, `"prev"` or
   `"<design>:<state>"` on an element moves the user there while they try it.
 
 - `publish` on an existing (design, state, variant) makes its next version.
@@ -200,7 +200,7 @@ Morning --step 2` (MCP/HTTP `flow`, `step`) puts this (design, state) at step
   parts. Don't publish a near-duplicate variant; publish the next version.
 - Replace one part instead of the document: `--parts body=body.html`
   (repeatable; `--parts body=-` reads stdin), MCP `publish({parts: {body:
-"<p data-part=\"body\">new copy</p>"}})`, or `parts` in the HTTP publish body.
+  "<p data-part=\"body\">new copy</p>"}})`, or `parts` in the HTTP publish body.
   Each value replaces the whole element carrying `data-part="body"`, so you can
   rename, relabel or retag it. `"row#a"` targets one keyed instance. Send one of
   `html`, `surfaces`, `parts` or `fills` per call. The response lists `applied` plus the

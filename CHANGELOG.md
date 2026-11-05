@@ -632,7 +632,7 @@
 - af09e7a: Emit canonical `/p/<id>` post links everywhere a link is produced, finishing
   the post/surface vocabulary migration. The CLI (`sideshow publish` / `update`
   output), the viewer's copy-link and open-as-image actions, the `<link
-rel="canonical">` / OpenGraph preview tags, the viewer's History API URL shapes
+  rel="canonical">` / OpenGraph preview tags, the viewer's History API URL shapes
   (`/p/:id` and `/session/:id/p/:postId`), and every MCP tool response —
   including the deprecated `publish_surface` / `publish_snippet` aliases — now
   return `/p/` URLs.
@@ -744,7 +744,7 @@ rel="canonical">` / OpenGraph preview tags, the viewer's History API URL shapes
 
   **Viewer**
   - Surfaces are keyed by stable `id` (Solid `<For>` with `reconcile({ key: "id"
-})`) instead of array position, so reordering moves DOM nodes instead of
+    })`) instead of array position, so reordering moves DOM nodes instead of
     re-creating them.
 
 ### Patch Changes
@@ -760,7 +760,7 @@ rel="canonical">` / OpenGraph preview tags, the viewer's History API URL shapes
   separator). Any id starting with `-` broke CLI commands that take an id as a
   positional — `node:util` `parseArgs` treated it as an unknown option
   (`Unknown option '-6'` for an id like `-6K4AJsKD4M`), affecting `sideshow
-update`, `show`, and `surface add/remove/edit/move`. Two fixes:
+  update`, `show`, and `surface add/remove/edit/move`. Two fixes:
   - `newId` now swaps a leading separator for an alphanumeric, so new ids are
     always CLI-safe.
   - The CLI's `parse()` wrapper swaps id-shaped `-`/`_`-prefixed tokens for a
@@ -900,7 +900,7 @@ update`, `show`, and `surface add/remove/edit/move`. Two fixes:
   `surface-created/updated/deleted`, the deprecated MCP tool aliases, the
   `status board` kit, `--surface`) are kept byte-identical, and the CLI keeps
   every endpoint and subcommand it has today (a new `--post` flag on `sideshow
-comment` is added alongside the existing `--surface`/`--snippet` aliases).
+  comment` is added alongside the existing `--surface`/`--snippet` aliases).
 - 76a9976: Move the default data directory from the package-relative `<package-root>/data/` to a user-owned `~/.sideshow/`. The package-relative default was read-only under `sudo npm install -g` (crashing with `EACCES` even after the #157 mkdir guard) and was wiped on every `npm install -g` upgrade — silent data loss. `~/.sideshow/` is always writable and survives reinstalls. A one-time migration copies any existing `sideshow.{db,db-wal,db-shm,json}` from the old location to the new one on first boot (only when using default paths; `SIDESHOW_DATA`/`SIDESHOW_DB` overrides are unchanged and skip the migration).
 - 61b57f2: Fix first-run crash when the SQLite db path's parent directory does not exist. `node:sqlite` does not create missing parent directories, so the default `<package-root>/data/sideshow.db` path (no `data/` shipped in the package) failed with `ERR_SQLITE_ERROR: unable to open database file` on a fresh `npx sideshow serve`. `createSqliteStorage` now `mkdirSync(dirname(path), { recursive: true })` before opening, guarded by the existing `:memory:` check so the in-memory contract suite is untouched. A user-supplied `SIDESHOW_DB` pointing into a not-yet-created directory now works too.
 - da74857: Submit-time validation now rejects diffs and mermaid diagrams that won't
@@ -1145,7 +1145,7 @@ Sideshow 0.6 focuses on richer surfaces, safer rendering, and better agent setup
   `image` and `trace`. Publish any of them across all three tiers — MCP
   (`publish_surface`/`update_surface`), `POST /api/surfaces`, and the CLI.
 - Uploads: push images, traces, and files across all three tiers (`POST
-/api/assets`, the `upload_asset` MCP tool, `sideshow upload`/`image`/`trace`).
+  /api/assets`, the `upload_asset` MCP tool, `sideshow upload`/`image`/`trace`).
   Assets are content-addressed by SHA-256, identical uploads dedupe, and an
   asset lives as long as any surface references it. Capped at 5 MB each.
 - A Claude Code plugin (`plugin/`, via a repo-hosted marketplace) bundles the
@@ -1278,7 +1278,7 @@ Sideshow 0.6 focuses on richer surfaces, safer rendering, and better agent setup
   unknown option or missing option value likewise fails with a one-line
   error and a `sideshow help` hint instead of a stack trace.
 - Following the README quick start from a git clone failed: `npx sideshow
-serve` exited with `viewer build missing` because nothing built the viewer.
+  serve` exited with `viewer build missing` because nothing built the viewer.
   `npm install` in the repo now builds it (the published npm package was
   unaffected — `prepack` already ships a built viewer).
 

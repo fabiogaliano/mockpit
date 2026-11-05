@@ -51,7 +51,7 @@ opaque-origin-in-general and traded away isolation to fix it.)
    history; net diff is the `/f/:id` approach.)
 3. **`/f/:id` sandbox-header (CURRENT, committed).** Viewer POSTs the rendered
    string to `/api/frames`; `/f/:id` serves it with `Content-Security-Policy:
-sandbox allow-scripts`. Real URL → dodges the bug; opaque origin → isolation
+   sandbox allow-scripts`. Real URL → dodges the bug; opaque origin → isolation
    intact. **Confirmed working on Chrome 149.** Downsides that triggered the pivot:
    a write endpoint, a transient store, a public-read POST exception, no caching.
 
@@ -157,7 +157,7 @@ Four independent signals all green:
    `counter-reset:line` start, diff produces ~50KB of @pierre SSR
    (`diffs-container` + declarative shadow roots).
 3. **Clean workerd bundle** — `esbuild --platform=browser
---conditions=workerd,worker,browser` bundles it with **zero `node:` builtins**
+   --conditions=workerd,worker,browser` bundles it with **zero `node:` builtins**
    and zero real `require()` (the one match was a Ruby TextMate grammar regex).
 4. **Real workerd execution** — ran the four renderers inside `wrangler dev` on
    workerd via a throwaway worker; all returned `ok:true` (`allOk:true`),
@@ -169,7 +169,7 @@ Four independent signals all green:
 - terminal → **(A) server-render** ✅ (ansi_up, pure JS)
 - code → **(A) server-render** ✅ (shiki-js)
 - diff → **(A) server-render** ✅ (@pierre/diffs SSR on `preferredHighlighter:
-"shiki-js"`)
+  "shiki-js"`)
 - mermaid → **(B) self-rendering sandboxed doc** (unchanged; needs a DOM, loads
   mermaid from CDN inside the `/s/:id` iframe).
 
