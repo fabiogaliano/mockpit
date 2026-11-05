@@ -289,7 +289,7 @@ mockpit trace <file.json|-> --title "…"
 **MCP** (`server/mcpHttp.ts` + stdio passthrough in `mcp/server.ts`):
 
 - new tool `upload_asset { data (base64), contentType, filename?, kind?,
-session? } -> { id, url, byteLength }`. Base64 is required because MCP is
+  session? } -> { id, url, byteLength }`. Base64 is required because MCP is
   JSON-RPC (no binary frames).
 - `coerceParts()` extended to accept `image` and `trace` parts; `PARTS_SCHEMA`
   documents them so `publish_surface` / `update_surface` can include them.

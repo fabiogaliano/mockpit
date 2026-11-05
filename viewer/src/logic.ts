@@ -767,17 +767,15 @@ export function threadRows(
   const events: Event[] = [
     ...states.flatMap((state) => {
       const named = variants.filter((v) => v.state === state).length > 1;
-      return versionSteps(variants, state).map(
-        (st): Event => ({
-          kind: "publish",
-          at: st.at,
-          label:
-            states.length > 1 && state !== null
-              ? `${state}, ${versionName(st, named)}`
-              : versionName(st, named),
-          id: `${state ?? ""}:${st.variant}@${st.version}`,
-        }),
-      );
+      return versionSteps(variants, state).map((st): Event => ({
+        kind: "publish",
+        at: st.at,
+        label:
+          states.length > 1 && state !== null
+            ? `${state}, ${versionName(st, named)}`
+            : versionName(st, named),
+        id: `${state ?? ""}:${st.variant}@${st.version}`,
+      }));
     }),
     ...comments.map((c): Event => ({ kind: "comment", at: c.createdAt, c })),
   ].sort((a, b) => a.at.localeCompare(b.at) || (a.kind === "publish" ? -1 : 1));
