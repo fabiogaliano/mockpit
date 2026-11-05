@@ -83,6 +83,7 @@ import {
   missingStates,
   stepKey,
   type VersionStep,
+  shortLabel,
 } from "./logic.ts";
 import { navigate, questionPath, type ScreenOpen } from "./route.ts";
 import { setTheme } from "./theme.ts";
@@ -516,16 +517,15 @@ export function createDesignScreen(
     return before && answerOf(before) === undefined && !before.dismissed ? before : null;
   }
   // What an answered `after` ask chose, which this one's pictures show.
-  function shownWith(ask: Ask): { ask: Ask; labels: string } | null {
+  function shownWith(ask: Ask): { ask: Ask; labels: string; short: string } | null {
     if (!ask.after) return null;
     const before = design()?.asks.find((a) => a.id === ask.after);
     if (!before || answerOf(before) === undefined) return null;
     const ids = answerIds(answerOf(before));
-    const labels = before.options
-      .filter((o) => ids.includes(o.id))
-      .map((o) => o.label)
-      .join(", ");
-    return labels ? { ask: before, labels } : null;
+    const chosen = before.options.filter((o) => ids.includes(o.id)).map((o) => o.label);
+    return chosen.length
+      ? { ask: before, labels: chosen.join(", "), short: chosen.map(shortLabel).join(", ") }
+      : null;
   }
   // The parts an ask's options change: each knob `set` names a part (a slot is
   // its own part; "key.color" belongs to "key"), in the labels the user reads.

@@ -28,6 +28,7 @@ export function QuestionCard(props: {
   // The built-in Which variant? comes last and isn't a question anyone asked, so
   // the count reads the same as Home's.
   const counted = (a: Ask) => asked() > 1 && !isBuiltinAsk(a);
+  const askAt = (id: string) => s.questions().findIndex((q) => q.kind === "ask" && q.ask.id === id);
   const asked = () => s.questions().filter((q) => q.kind === "ask" && !isBuiltinAsk(q.ask)).length;
   // No answer yet, yet comments or tuning to send: they go, and the question stays open.
   const sendsAnyway = () => !s.commitKind() && s.sendable();
@@ -52,36 +53,63 @@ export function QuestionCard(props: {
                 </div>
                 <div class="qhd">
                   <div class="qtext">
-                    <Show when={counted(ask()) || s.askSlot(ask()) || s.stageOffer(ask())}>
+                    <Show
+                      when={
+                        counted(ask()) ||
+                        s.askSlot(ask()) ||
+                        s.stageOffer(ask()) ||
+                        s.shownWith(ask())
+                      }
+                    >
                       <span class="qs">
-                        <Show when={counted(ask())}>
-                          <span class="qcount">{`${i() + 1} of ${asked()}`}</span>
-                        </Show>
-                        <Show when={s.stageOffer(ask())} keyed>
-                          {(o) => {
-                            return "show" in o ? (
-                              <span class="qabout">
-                                {"About "}
-                                <b>{o.show}</b>
+                        <span class="qs-row">
+                          <Show when={counted(ask())}>
+                            <span class="qcount">{`${i() + 1} of ${asked()}`}</span>
+                          </Show>
+                          <Show when={s.shownWith(ask())}>
+                            {(w) => (
+                              <span class="qwith">
+                                <span class="qcut" title={`With ${w().labels}`}>
+                                  {`With ${w().short}`}
+                                </span>
+                                <Show when={askAt(w().ask.id) >= 0}>
+                                  <button
+                                    type="button"
+                                    class="lnk"
+                                    aria-label={`Change answer: ${w().labels}`}
+                                    onClick={() => s.goQuestion(askAt(w().ask.id))}
+                                  >
+                                    Change
+                                  </button>
+                                </Show>
+                              </span>
+                            )}
+                          </Show>
+                          <Show when={s.stageOffer(ask())} keyed>
+                            {(o) =>
+                              "show" in o ? (
                                 <button
                                   type="button"
-                                  class="lnk"
+                                  class="qgo"
+                                  title={`Go to ${o.show}`}
                                   onClick={() => s.showAskState(ask())}
                                 >
-                                  Show
+                                  <span class="qcut">{`Go to ${o.show}`}</span>
+                                  <Icon name="arrow" />
                                 </button>
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                class="lnk qabout"
-                                onClick={() => s.backFromAsk(ask())}
-                              >
-                                {`Back to ${o.back}`}
-                              </button>
-                            );
-                          }}
-                        </Show>
+                              ) : (
+                                <button
+                                  type="button"
+                                  class="lnk qback"
+                                  title={`Back to ${o.back}`}
+                                  onClick={() => s.backFromAsk(ask())}
+                                >
+                                  {`Back to ${o.back}`}
+                                </button>
+                              )
+                            }
+                          </Show>
+                        </span>
                         <Show when={s.askSlot(ask())}>
                           {(sl) => (
                             <span class="slotchip">{`Part · ${sl().label ?? partLabel(s.design() ?? { parts: [] }, sl().part)}`}</span>

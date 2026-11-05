@@ -8,6 +8,7 @@
 
 import type { Shortlist } from "./api.ts";
 import { rememberRecent } from "./Jump.tsx";
+import { ArrangeSwitch, type Arrangement, StudioBar } from "./StudioBar.tsx";
 import { createShortlists, type Shortlists } from "./shortlist.ts";
 import {
   createEffect,
@@ -47,7 +48,7 @@ import {
   versionStamp,
   WALL_FROM,
 } from "./logic.ts";
-import { sectionOf } from "./albums.ts";
+import { questions, sectionOf } from "./albums.ts";
 import { turnClock, useTurn } from "./Album.tsx";
 import {
   createMargins,
@@ -140,7 +141,12 @@ export function DesignScreen(props: {
     return readsAsDocument(m.widths, kinds as string[]);
   });
   const wallSized = () => s.variants().length >= WALL_FROM;
-  const [onWall, setOnWall] = createSignal(false);
+  const [columns, setColumns] = createSignal(
+    new URLSearchParams(host().window.location.search).get("cols") === "1",
+  );
+  const [barSlot, setBarSlot] = createSignal<HTMLDivElement>();
+  // The arrangement left off in, for the Studio button to come back to.
+  const [compared, setCompared] = createSignal<"studio" | "grid" | null>(null);
   const comparesForms = () => gridComparesForms(s.design()?.kind ?? "idea", s.variants());
   const gridOffered = () => repeatsAcrossStates(s.variants()) || comparesForms();
   // The grid stands in for Studio on a component. Not on a wall: a component with 85
@@ -174,6 +180,7 @@ export function DesignScreen(props: {
   // Each step between the views is its own history entry, so Back
   // returns to the view you came from rather than leaving the design.
   const setView = (v: View) => {
+    if (v !== "stage") setCompared(v);
     const w = host().window;
     const q = new URLSearchParams(w.location.search);
     q.set("view", v);
@@ -240,6 +247,23 @@ export function DesignScreen(props: {
       },
       { defer: true },
     ),
+  );
+  const arrangement = (): Arrangement =>
+    shownView() === "grid" ? "grid" : wallSized() && !columns() ? "wall" : "columns";
+  const arrangements = (): Arrangement[] => [
+    ...(wallSized() ? (["wall"] as const) : []),
+    "columns",
+    ...(gridOffered() ? (["grid"] as const) : []),
+  ];
+  const arrange = (to: Arrangement) => {
+    if (to === "grid") return setView("grid");
+    setColumns(to === "columns");
+    if (shownView() !== "studio") setView("studio");
+  };
+  const arrangeSwitch = (
+    <Show when={arrangements().length > 1}>
+      <ArrangeSwitch on={arrangement()} options={arrangements()} onPick={arrange} />
+    </Show>
   );
   const nav = createFlowNav(s, props.project, props.slug, props.flow ?? null);
   const t = createTune(s);
@@ -432,11 +456,8 @@ export function DesignScreen(props: {
           about={about}
           view={shownView()}
           reading={reading()}
-          variants={wallSized() ? s.variants().length : stateVariants()}
           compare={s.variants().length > 1 || s.variants().some((v) => v.version > 1)}
-          grid={gridOffered()}
-          studioHidden={gridFirst()}
-          tabs={m.statesShown() || onWall()}
+          tabs={m.statesShown() || (shownView() !== "stage" && s.states().length > 1)}
           shortlists={shortlists}
           panels={
             <Show when={m.active()}>
@@ -445,19 +466,24 @@ export function DesignScreen(props: {
           }
           panelsShown={m.active()}
           onView={(v) => {
-            if (v === shownView()) return;
+            if (v === "stage" ? shownView() === "stage" : shownView() !== "stage") return;
             s.setDrawer(false);
             if (v === "stage" && openLooked) openLooked();
-            else setView(v);
+            else
+              setView(v === "stage" ? "stage" : (compared() ?? (gridFirst() ? "grid" : "studio")));
           }}
         />
         {/* Beside a docked left margin the same steps are its first list. */}
-        <Show when={m.statesShown() && !m.leftDocked() && !onWall() && shownView() !== "grid"}>
+        <Show when={m.statesShown() && !m.leftDocked() && shownView() === "stage"}>
           <FlowBar nav={nav}>
             <Show when={outlining()}>
               <OutlineChips s={s} />
             </Show>
           </FlowBar>
+        </Show>
+        <div ref={setBarSlot} />
+        <Show when={shownView() === "grid" && arrangements().length > 1}>
+          <StudioBar arrange={arrangeSwitch} />
         </Show>
       </header>
       <Show
@@ -506,7 +532,10 @@ export function DesignScreen(props: {
                 shortlists={shortlists}
                 onOpen={() => setView("stage")}
                 onLooking={(open) => (openLooked = open)}
-                onWall={setOnWall}
+                columns={columns}
+                barSlot={barSlot()}
+                arrange={arrangeSwitch}
+                arrangeable={arrangements().length > 1}
               />
             </Match>
             <Match when={shownView() === "grid"}>
@@ -515,7 +544,6 @@ export function DesignScreen(props: {
                 about={about}
                 project={props.project}
                 slug={props.slug}
-                onColumns={gridFirst() ? () => setView("studio") : undefined}
                 onOpen={(state, ref) => {
                   s.showState(state);
                   s.showVersion(ref);
@@ -641,18 +669,13 @@ function TopRow(props: {
   view: View;
   // A document: no widths to choose between.
   reading: boolean;
-  variants: number;
   // More than one design or version to compare, in any state, archived too: Studio is
   // where those are.
   compare: boolean;
-  // Variants repeat across states, or they're a component's forms.
-  grid: boolean;
-  // Where the grid is how this is compared, Studio is one step on from it instead.
-  studioHidden: boolean;
   // Whether the state tabs are showing, which name the state where it isn't.
   tabs: boolean;
   shortlists: Shortlists;
-  onView: (v: View) => void;
+  onView: (v: "stage" | "studio") => void;
   // The right margin's tabs: in this row they cost the design no room.
   panels: JSX.Element;
   // They're showing, so they carry the count of questions.
@@ -689,13 +712,15 @@ function TopRow(props: {
     if (!copying) return failed();
     copying.then(() => s.setToast({ text: `Copied: ${name}` }), failed);
   };
+  const openAsked = () =>
+    new Set(s.flow().flatMap((e) => (isBuiltinAsk(e.ask) ? [] : [e.ask.id]))).size;
   // Whose turn it is, by the rule the covers use, from what this screen already holds.
   const shelved = useTurn(() => {
     const m = s.design();
     if (!m) return null;
     const send = s.lastSend();
     return {
-      open: new Set(s.flow().flatMap((e) => (isBuiltinAsk(e.ask) ? [] : [e.ask.id]))).size,
+      open: openAsked(),
       states: m.states.length ? m.states : [null],
       variants: m.variants,
       inUse: m.inUse,
@@ -709,6 +734,13 @@ function TopRow(props: {
   // The words about a Send have their detail in the Thread, which only Stage has.
   const opensThread = (kind: string) =>
     props.view === "stage" && (kind === "unseen" || kind === "working" || kind === "sent");
+  // Off Stage the panels are gone, but questions keep the corner their tab has there.
+  const questionsTab = () => !phoneLayout() && props.view !== "stage" && turn()?.kind === "open";
+  const toQuestions = () => {
+    s.showTalk();
+    if (!s.curAsk()) s.goOwed();
+    props.onView("stage");
+  };
   const [more, setMore] = createSignal(false);
   let moreMenu: HTMLDivElement | undefined;
   const [open, setOpen] = createSignal(false);
@@ -789,8 +821,10 @@ function TopRow(props: {
               {(state) => <span class="crumb-far crumb-sit">{`· ${state()}`}</span>}
             </Show>
           </nav>
-          {/* The panels' tab says how many questions wait, so the name needn't too. */}
-          <Show when={props.panelsShown && turn()?.kind === "open" ? null : turn()}>
+          {/* A tab says how many questions wait, so the name needn't too. */}
+          <Show
+            when={(props.panelsShown || questionsTab()) && turn()?.kind === "open" ? null : turn()}
+          >
             {(t) => (
               <Show
                 when={opensThread(t().kind)}
@@ -936,42 +970,44 @@ function TopRow(props: {
               type="button"
               aria-pressed={props.view === "stage"}
               aria-label={
-                props.view !== "stage" && s.waitsOnStage()
+                phoneLayout() && props.view !== "stage" && s.waitsOnStage()
                   ? "Stage, a question is waiting"
                   : "Stage"
               }
               onClick={() => props.onView("stage")}
             >
               Stage
-              <Show when={props.view !== "stage" && s.waitsOnStage()}>
+              <Show when={phoneLayout() && props.view !== "stage" && s.waitsOnStage()}>
                 <i class="vswitch-q" aria-hidden="true" />
               </Show>
             </button>
-            <Show when={!props.studioHidden || props.view === "studio"}>
-              <button
-                type="button"
-                aria-pressed={props.view === "studio"}
-                onClick={() => props.onView("studio")}
-              >
-                Studio
-                <span class="num">{props.variants}</span>
-              </button>
-            </Show>
-            <Show when={props.grid}>
-              <button
-                type="button"
-                aria-pressed={props.view === "grid"}
-                onClick={() => props.onView("grid")}
-              >
-                Grid
-              </button>
-            </Show>
+            <button
+              type="button"
+              aria-pressed={props.view !== "stage"}
+              onClick={() => props.onView("studio")}
+            >
+              Studio
+            </button>
           </div>
         </Show>
       </div>
       <div class="mzone mzone-end">
         <Show when={!phoneLayout()}>{pill()}</Show>
         {props.panels}
+        <Show when={questionsTab()}>
+          <div class="mtabs">
+            <button
+              type="button"
+              class="ib ib-count"
+              aria-label={`${questions(openAsked())}, open them on Stage`}
+              title={`${questions(openAsked())}, open them on Stage`}
+              onClick={toQuestions}
+            >
+              <Icon name="question" />
+              <span class="num">{openAsked()}</span>
+            </button>
+          </div>
+        </Show>
       </div>
     </div>
   );

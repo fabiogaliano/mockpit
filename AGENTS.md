@@ -188,19 +188,19 @@ consciously, not as a side effect):
   design's name, with a ⋯ menu (Copy name, Archive for an idea) opening `About` (Appears in / Built from /
   flows / code), and `SideOver`, the project's sidebar opening over the design from a button; the state tabs alone say which state;
   `BuiltFrom` is Tune's drawer, open while Tune is; `Grid`, states against variants
-  with what's missing shown (`?view=grid`, offered where names repeat across states, and
+  with what's missing shown (`?view=grid`, an arrangement offered where names repeat across states, and
   how a component with several forms opens unless it is wall-sized), sharing Studio's
   live-frame limit; `Outlines` (missing states in the margin or flow bar, `StateAsk`,
   `PlannedStage` where nothing is drawn); `Notes`; `Studio`, the state zoomed
-  out with every variant side by side, entered from the top bar's Stage | Studio | Grid
-  switch and remembered per design, each steer its own reply (`steer`, `sendAlone`), with `SelectBar` acting on
+  out with every variant side by side, entered from the top bar's Stage | Studio switch and
+  remembered per design, with one row of controls in the header (`StudioBar`: states, filter, what's live, in use, hidden or archived, and Wall | Columns | Grid), each steer its own reply (`steer`, `sendAlone`), with `SelectBar` acting on
   several versions at once. A fork is a column of its own saying where it came from.
   Past Use this a newer version asks first (`changedTo`, `ChangedNote`: see it, use it,
   or stay, which `stayedVersion` remembers until a newer one comes).
   A design of `WALL_FROM` variants or more opens Studio as a wall: one grid of all its
   states, filtered by state, status and text, with the closer look beside it as a
   preview on a wide window and over it otherwise; every card without a poster shares
-  the live-frame budget; the columns are a click away;
+  the live-frame budget; a closer look has no strip, its name opens the list;
   `Reader`, the stage for a document: one column of sandboxed frames at full height,
   pins and comments built from the blocks they report;
   `Stage`, a pannable canvas whose design's other `widths` spread out as

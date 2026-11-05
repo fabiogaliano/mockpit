@@ -3949,24 +3949,6 @@ html.theming *:not(iframe) {
   }
 }
 
-.qwith {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 10px;
-  margin: 8px 0 4px;
-  font-size: 13px;
-  color: var(--t4);
-}
-.qwith-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 10px;
-  border-radius: 99px;
-  background: color-mix(in srgb, var(--ok) 16%, transparent);
-  color: var(--ok);
-}
 .opts.waiting {
   opacity: 0.45;
   pointer-events: none;
@@ -4583,6 +4565,71 @@ html:has(.design-screen) {
   gap: 6px;
   color: var(--t4);
   font-size: 12px;
+}
+/* Names an agent chose can be any length: each stays on one line, cut with the whole in a
+   tooltip, and the way to a state drops to a line of its own when there's no room for it. */
+.qs-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  width: 100%;
+  white-space: nowrap;
+}
+.qcount {
+  flex: none;
+}
+.qcut {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.qback {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.qwith {
+  display: flex;
+  flex: 1 1 120px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.qwith .lnk {
+  flex: none;
+}
+.qgo {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--row);
+  color: var(--t2);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--ease);
+}
+.qgo svg {
+  flex: none;
+  width: 13px;
+  height: 13px;
+}
+@media (hover: hover) {
+  .qgo:hover {
+    background: var(--row-hover);
+  }
+}
+@media (pointer: coarse) {
+  .qgo {
+    height: 32px;
+  }
 }
 .qs .flag {
   color: var(--keep-ink);
@@ -6818,148 +6865,7 @@ body:has(.selp) .toast {
   color: var(--t2);
   font-size: 13px;
 }
-/* Archived waits in the window's corner, as far from the exploration as the
-   screen allows; the list rises from the count. */
-.studio-archived {
-  position: fixed;
-  right: 20px;
-  bottom: 16px;
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-}
-.arch-count {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 6px;
-  border: 0;
-  border-radius: 7px;
-  background: none;
-  color: var(--t5);
-  font: 400 12px var(--sans);
-  cursor: pointer;
-  transition: color 150ms ease;
-}
-.arch-count svg {
-  width: 14px;
-  height: 14px;
-  transform: rotate(180deg);
-  transition: transform 150ms ease;
-}
-.arch-count[aria-expanded="true"] {
-  color: var(--t2);
-}
-.arch-count[aria-expanded="true"] svg {
-  transform: none;
-}
-@media (hover: hover) {
-  .arch-count:hover {
-    color: var(--t2);
-  }
-}
-.arch-count:focus-visible {
-  outline: 2px solid var(--accent);
-}
-.arch-pop {
-  width: 260px;
-  max-height: min(60vh, 480px);
-  padding: 8px;
-  overflow: auto;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--panel);
-  box-shadow: 0 14px 36px #0008;
-  opacity: 0;
-  transform: translateY(4px);
-  transform-origin: bottom right;
-  pointer-events: none;
-  transition:
-    opacity 150ms ease-out,
-    transform 150ms ease-out;
-}
-.arch-pop.open {
-  opacity: 1;
-  transform: none;
-  pointer-events: auto;
-  transition-duration: 200ms;
-}
-.arch-pop h3 {
-  margin: 2px 6px 6px;
-  color: var(--t5);
-  font: 500 12px var(--sans);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-.arch-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 40px;
-  padding: 0 4px 0 6px;
-  border-radius: 8px;
-  color: var(--t3);
-  font-size: 13px;
-}
-.arch-th {
-  flex: none;
-  width: 30px;
-  height: 30px;
-  overflow: hidden;
-  border-radius: 6px;
-  background: var(--frame);
-}
-.arch-th .thumb {
-  width: 100%;
-  height: 100%;
-}
-.arch-text {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-}
-.arch-nm {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.arch-row .ib {
-  width: 28px;
-  height: 28px;
-  opacity: 0;
-  transition: opacity 150ms ease;
-}
-.arch-row .ib svg {
-  width: 15px;
-  height: 15px;
-}
-@media (hover: hover) {
-  .arch-row:hover {
-    background: var(--row);
-    color: var(--t1);
-  }
-}
-.arch-row:focus-within {
-  color: var(--t1);
-}
-.arch-row:hover .ib,
-.arch-row .ib:focus-visible {
-  opacity: 1;
-}
-@media (hover: none) {
-  .arch-row .ib {
-    opacity: 1;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .arch-pop,
-  .arch-count svg {
-    transition: none;
-  }
-}
+
 .studio-note {
   position: fixed;
   left: 50%;
@@ -7205,63 +7111,7 @@ body:has(.selp) .toast {
   background: none;
   color: var(--t3);
 }
-.look-strip {
-  display: flex;
-  gap: 18px;
-  overflow-x: auto;
-  padding: 12px 20px calc(14px + env(safe-area-inset-bottom));
-  scrollbar-width: none;
-}
-.look-group {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  gap: 6px;
-}
-.look-gname {
-  color: var(--t4);
-  font-size: 12px;
-}
-.look-dots {
-  display: flex;
-  gap: 4px;
-  padding: 0 8px;
-}
-/* A 24px target around an 8px mark. */
-.look-dot {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  margin: -8px;
-  padding: 0;
-  border: 0;
-  background: none;
-}
-.look-dot::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--t6);
-  transition:
-    background 0.15s ease-out,
-    transform 0.15s ease-out;
-}
-.look-dot.on::before {
-  background: var(--t1);
-  transform: scale(1.35);
-}
-@media (hover: hover) {
-  .look-dot:hover::before {
-    background: var(--t2);
-  }
-}
-.look-dot:focus-visible {
-  outline: 2px solid var(--t1);
-  outline-offset: -4px;
-  border-radius: 50%;
-}
+
 /* A phone swipes instead of reaching for arrows, and keeps the note short. */
 @media (max-width: 640px), (hover: none) {
   .look-art {
@@ -7962,44 +7812,8 @@ body:has(.selp) .toast {
 .studio.peeking .selbar:not(.phone) {
   left: calc((100vw - var(--peek-w)) / 2);
 }
-.wall-bar {
-  position: sticky;
-  top: 0;
-  z-index: 4;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: -4px -16px 4px;
-  padding: 10px 16px 8px;
-  border-bottom: 1px solid var(--line);
-  background: var(--page);
-}
-/* Three rows of filters would take a third of a phone: they scroll away with the wall. */
-.wall-bar.phone {
-  position: static;
-}
-.wall-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-.slpick-filter.wall-find {
-  flex: 1 1 200px;
-  width: auto;
-  min-width: 0;
-  max-width: 300px;
-}
-.wall-bar.phone .slpick-filter.wall-find {
-  flex-basis: 100%;
-  max-width: none;
-  /* 16px, or iOS zooms the whole page in on focus. */
-  font-size: 16px;
-}
-.wall-sp {
-  flex: 1;
-}
-.wall-chips {
+
+.sbar-tabs {
   display: flex;
   gap: 2px;
   min-width: 0;
@@ -8007,7 +7821,7 @@ body:has(.selp) .toast {
   overflow-x: auto;
   scrollbar-width: none;
 }
-.wall-chips button {
+.sbar-tabs button {
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -8019,20 +7833,20 @@ body:has(.selp) .toast {
     background var(--ease),
     color var(--ease);
 }
-.wall-chips button[aria-checked="true"] {
+.sbar-tabs button[aria-checked="true"] {
   background: var(--row);
   color: var(--t1);
 }
 @media (hover: hover) {
-  .wall-chips button:hover {
+  .sbar-tabs button:hover {
     color: var(--t1);
   }
 }
-.wall-chips svg {
+.sbar-tabs svg {
   width: 15px;
   height: 15px;
 }
-.wall-chips .n {
+.sbar-tabs .n {
   margin-inline-start: 6px;
   color: var(--t5);
   font-size: 12px;
@@ -8093,13 +7907,159 @@ body:has(.selp) .toast {
   font-size: 14px;
   text-align: center;
 }
-.wall-back,
-.studio-hidden {
-  position: sticky;
-  top: 8px;
-  left: 0;
-  z-index: 3;
-  margin: 6px 0 10px;
+
+.sbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 12px 6px;
+}
+.sbar-sp {
+  flex: 1;
+}
+.sbar-find.slpick-filter {
+  flex: 0 1 200px;
+  width: auto;
+  min-width: 96px;
+}
+.sbar-arrange button {
+  padding: 4px 6px;
+}
+.sbar-arrange svg {
+  width: 17px;
+  height: 17px;
+}
+.sbar-show {
+  position: relative;
+  flex: none;
+}
+.sbar-show .wmenu {
+  min-width: 170px;
+}
+.sbar-show .wmenu > button {
+  min-height: 32px;
+  font-size: 13px;
+}
+.sbar-showb {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--t3);
+  font-size: 13px;
+  white-space: nowrap;
+  transition: background var(--ease);
+}
+.sbar-showb .n {
+  color: var(--t5);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.sbar-showb svg {
+  width: 14px;
+  height: 14px;
+  color: var(--t4);
+}
+@media (hover: hover) {
+  .sbar-showb:hover {
+    background: var(--row);
+  }
+}
+.sbar-tabs .ftab-q {
+  margin-inline-start: 6px;
+}
+.slpick-filter.sbar-phonefind {
+  width: 100%;
+  margin-top: 10px;
+  /* 16px, or iOS zooms the whole page in on focus. */
+  font-size: 16px;
+}
+.look-pick {
+  position: relative;
+  min-width: 0;
+}
+.look-pick h2 {
+  display: flex;
+  overflow: visible;
+}
+.look-pick h2 button {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 6px;
+  margin-inline-start: -6px;
+  border-radius: 7px;
+  color: inherit;
+  font: inherit;
+  transition: background var(--ease);
+}
+.look-pick h2 span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.look-pick h2 svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--t4);
+}
+@media (hover: hover) {
+  .look-pick h2 button:hover {
+    background: var(--row);
+  }
+}
+.look-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: -6px;
+  z-index: 45;
+  display: grid;
+  gap: 1px;
+  width: max-content;
+  min-width: 200px;
+  max-width: min(320px, 80vw);
+  max-height: min(420px, 60dvh);
+  padding: 5px;
+  overflow-y: auto;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--dd-shadow);
+}
+.look-list button {
+  padding: 5px 8px;
+  overflow: hidden;
+  border-radius: 6px;
+  color: var(--t3);
+  font-size: 13px;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (hover: hover) {
+  .look-list button:hover {
+    background: var(--row);
+  }
+}
+.look-list button[aria-current] {
+  background: var(--row);
+  color: var(--t1);
+}
+.look-list-h {
+  padding: 8px 8px 3px;
+  color: var(--t5);
+  font-size: 12px;
+}
+.look-reason {
+  padding: 0 20px 8px;
+  text-align: center;
 }
 /* The closer look as the wall's preview: beside it instead of over it. */
 .look.beside {
@@ -8332,10 +8292,7 @@ body:has(.selp) .toast {
   text-decoration-color: var(--edge);
   text-underline-offset: 3px;
 }
-.gv-cols-btn svg {
-  width: 15px;
-  height: 15px;
-}
+
 .gv-table {
   display: grid;
   grid-template-columns: var(--gv-name) repeat(var(--gv-cols), var(--gv-cell));
@@ -8517,18 +8474,6 @@ body:has(.selp) .toast {
 }
 
 /* A question about another state says so on its card, with the way there. */
-.qabout {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 0 4px;
-}
-.qabout b {
-  color: var(--t2);
-  font-weight: 500;
-}
-.qabout .lnk {
-  margin-left: 4px;
-}
 
 /* Popover UA styles centre it with auto margins and a fit-content box in the middle. */
 .tip {

@@ -207,20 +207,6 @@ export function AskBody(props: {
           </div>
         )}
       </Show>
-      <Show when={s.shownWith(props.ask)}>
-        {(w) => (
-          <div class="qwith">
-            <span class="qwith-chip">
-              {`With ${w().labels}`}
-              <Show when={askAt(w().ask.id) >= 0}>
-                <button type="button" class="lnk" onClick={() => s.goQuestion(askAt(w().ask.id))}>
-                  change
-                </button>
-              </Show>
-            </span>
-          </div>
-        )}
-      </Show>
       <Show when={dormant()}>
         {(d) => (
           <div class="dormant" role="status">

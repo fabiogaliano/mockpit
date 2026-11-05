@@ -35,8 +35,6 @@ export function Grid(props: {
   about: AboutState;
   project: string;
   slug: string;
-  // On a component this stands in for Studio, whose tools are one step on from here.
-  onColumns?: () => void;
   onOpen: (state: string | null, ref: VersionRef) => void;
 }) {
   const s = props.s;
@@ -170,12 +168,6 @@ export function Grid(props: {
           <span class="gv-used">Not used in a design yet</span>
         </Show>
         <span class="grow" />
-        <Show when={props.onColumns}>
-          <button type="button" class="btn gv-cols-btn" onClick={() => props.onColumns?.()}>
-            <Icon name="grid" />
-            Columns
-          </button>
-        </Show>
       </div>
       <Show
         when={!flat()}

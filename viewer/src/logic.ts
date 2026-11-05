@@ -272,6 +272,13 @@ export const spokenName = (name: string): string => {
   return words ? words[0]!.toUpperCase() + words.slice(1) : name;
 };
 
+// Agents write an option as its name, a colon, then what it means. Referring back to
+// one needs only the name. A colon inside a word, as in 10:30, isn't that.
+export function shortLabel(label: string): string {
+  const at = label.indexOf(": ");
+  return at > 0 ? label.slice(0, at) : label;
+}
+
 export function partLabel(design: Pick<DesignDetail, "parts">, name: string): string {
   for (const s of design.parts) {
     const p = s.parts.find((x) => x.name === name);

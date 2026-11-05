@@ -1,18 +1,20 @@
 // Studio: the state zoomed out, every variant side by side with its newest
 // version on top, for exploring before anything is in use. A click looks
 // closer without leaving: one version large, flipped through in reading order;
-// Stage, where answers are, is a deliberate step from there. Hidden versions leave the
-// grid behind a count that brings them back, dimmed. A fork is a column of its own beside the one it came from,
+// Stage, where answers are, is a deliberate step from there. What's hidden, archived or
+// in use is picked from the bar, and lists as cards. A fork is a column of its own beside the one it came from,
 // saying so: the lineage is the agent's data, and nothing here is grouped by hand.
 // Each steer (more like this, a comment, a borrow) is its own reply.
 // On a phone there is no room for a grid of one state: every state's columns
 // run as one strip, a card per swipe, and the state under the snap is the one
-// on stage, so the flow bar names where you are instead of paging.
+// on stage, so the bar's tabs name where you are instead of paging.
 // A lab past WALL_FROM opens on a wall instead: one grid of every state's designs,
 // narrowed by state, by what is in use, archived or hidden and by text, with a
 // preview beside it where there is room and the closer look where there isn't. The
-// columns are a click away, and they and everything else here are the same code.
+// columns are a click away, and they and everything else here are the same code. The
+// controls for all of it are one row in the design's header (StudioBar).
 
+import { Portal } from "solid-js/web";
 import { isLive, isSandboxedSurfaceKind } from "../../server/types.ts";
 import {
   batch,
@@ -20,6 +22,7 @@ import {
   createMemo,
   createResource,
   createSignal,
+  type JSX,
   For,
   mapArray,
   on,
@@ -57,6 +60,8 @@ import { Reason } from "./Reason.tsx";
 import type { Shortlists } from "./shortlist.ts";
 import { SaveMenu, type SaveFor } from "./SaveMenu.tsx";
 import { SelectBar } from "./SelectBar.tsx";
+import { StudioBar, type BarTab } from "./StudioBar.tsx";
+import { usePopover } from "./popover.ts";
 import { coarse, phoneLayout, win } from "./viewport.ts";
 
 // The agent's still of the page: an image costs no live frame, so it is
@@ -112,19 +117,18 @@ type Acts = Record<
 // Everything here reads the board's own state rather than the one on stage,
 // since a phone's strip draws every state at once.
 type Board = ReturnType<typeof boardOf>;
-function boardOf(s: DesignScreenState, state: string | null, showHidden: () => boolean) {
+function boardOf(s: DesignScreenState, state: string | null) {
   const inState = createMemo(() => s.variants().filter((v) => v.state === state));
   const allSteps = createMemo<VersionStep[]>(
     (was) => keepSame(was, versionSteps(s.variants(), state), stepKey),
     [],
   );
-  // Everything a column draws: the hidden ones only when asked for, dimmed.
   const drawnOf = (variant: string) =>
     allSteps()
-      .filter((st) => st.variant === variant && (showHidden() || !st.hidden))
+      .filter((st) => st.variant === variant && !st.hidden)
       .reverse();
   // What's still in play, which is what decides whether a × hides or archives.
-  const versionsOf = (variant: string) => drawnOf(variant).filter((st) => !st.hidden);
+  const versionsOf = drawnOf;
   const live = (v: VariantView) => isLive(v.status);
   const isFork = (v: VariantView) =>
     !!v.forkedFrom &&
@@ -195,6 +199,7 @@ type Entry = { b: Board; st: VersionStep };
 // What the wall lists. An archived variant is one card, its newest version: what comes
 // back is the variant, so a card per version would offer the same Restore many times.
 type WallShow = "live" | "use" | "archived" | "hidden";
+const FILTER_FROM = 8;
 const WALL_SHOWS: { id: WallShow; label: string }[] = [
   { id: "live", label: "Live" },
   { id: "use", label: "In use" },
@@ -211,8 +216,11 @@ function cardsOf(b: Board, show: WallShow): VersionStep[] {
 export function Studio(props: {
   s: DesignScreenState;
   onLooking: (openOnStage: (() => void) | null) => void;
-  // On the wall its own chips say which state, so the state tabs would be a second answer.
-  onWall: (on: boolean) => void;
+  columns: () => boolean;
+  // Where the bar goes: the design's header, which a preview doesn't narrow.
+  barSlot: HTMLElement | undefined;
+  arrange: JSX.Element;
+  arrangeable: boolean;
   top: number;
   shortlists: Shortlists;
   onOpen: () => void;
@@ -231,8 +239,7 @@ export function Studio(props: {
     onDone?: () => void;
   } | null>(null);
   const [adding, setAdding] = createSignal(false);
-  const [showHidden, setShowHidden] = createSignal(false);
-  const boards = mapArray(s.states, (st) => boardOf(s, st, showHidden));
+  const boards = mapArray(s.states, (st) => boardOf(s, st));
   const active = () => boards().find((b) => b.state === s.activeState()) ?? boards()[0];
   const readParam = (name: string) => new URLSearchParams(host().window.location.search).get(name);
   const withParam = (name: string, k: string | null) => {
@@ -248,38 +255,43 @@ export function Studio(props: {
 
   // The wall's filters live in the URL, so Back from Stage finds the wall as it was left.
   const sized = () => s.variants().length >= WALL_FROM;
-  const [columns, setColumns] = createSignal(readParam("cols") === "1");
-  const wall = () => sized() && !columns();
+  const columnsOn = () => !sized() || props.columns();
+  // Only what's live has columns: anything else is a list of what to bring back or open.
+  const wall = () => !columnsOn() || show() !== "live";
   const strip = () => phoneLayout() && !wall();
   const [statePick, setStatePick] = createSignal(readParam("in"));
-  const within = () => {
+  const narrowedTo = () => {
     const m = statePick();
     return s.states().includes(m) ? m : null;
   };
+  // Columns are always of one state.
+  const within = () => (columnsOn() ? s.activeState() : narrowedTo());
   const [showPick, setShowPick] = createSignal(readParam("show"));
   // A lab with everything archived would otherwise open on nothing.
+  // So would one whose last archived variant was just brought back.
   const show = (): WallShow =>
-    WALL_SHOWS.find((x) => x.id === showPick())?.id ??
-    (s.variants().some((v) => isLive(v.status)) ? "live" : "archived");
+    WALL_SHOWS.find((x) => x.id === showPick() && boards().some((b) => cardsOf(b, x.id).length))
+      ?.id ?? (s.variants().some((v) => isLive(v.status)) ? "live" : "archived");
   const [query, setQuery] = createSignal(readParam("find") ?? "");
   const wallText = createMemo(() => {
     const out = new Map<string, string>();
-    if (!sized()) return out;
     for (const v of s.variants()) {
       out.set(`${v.state ?? ""}\n${v.variant}`, foldText(`${v.variant}\n${v.description ?? ""}`));
     }
     return out;
   });
-  const wallCards = (b: Board, which: WallShow) => {
+  const matches = (b: Board, variant: string) => {
     const q = foldText(query().trim());
-    const all = cardsOf(b, which);
-    if (!q) return all;
-    return all.filter((st) =>
-      wallText()
-        .get(`${b.state ?? ""}\n${st.variant}`)
-        ?.includes(q),
+    return (
+      !q ||
+      !!wallText()
+        .get(`${b.state ?? ""}\n${variant}`)
+        ?.includes(q)
     );
   };
+  const wallCards = (b: Board, which: WallShow) =>
+    cardsOf(b, which).filter((st) => matches(b, st.variant));
+  const columnsIn = (b: Board) => b.columns().filter((v) => matches(b, v.variant));
   const inWithin = (b: Board) => within() === null || b.state === within();
   // Every state's cards stay in the page, a state not picked hidden: its frames keep
   // their documents and their place in the DOM, either of which would reload them.
@@ -300,8 +312,71 @@ export function Studio(props: {
     const now = show();
     return now === "archived" || now === "hidden" ? now : undefined;
   };
-  createEffect(() => props.onWall(wall()));
-  onCleanup(() => props.onWall(false));
+  // The state narrowed to on the wall is the one its columns open on.
+  createEffect(
+    on(
+      columnsOn,
+      (on) => {
+        const m = narrowedTo();
+        if (on && m !== null && m !== s.activeState()) s.showState(m);
+      },
+      { defer: true },
+    ),
+  );
+  const tabs = (): BarTab[] => {
+    const named = boards().filter((b) => b.state !== null);
+    const list = named
+      .filter((b) => wallCards(b, show()).length > 0 || within() === b.state)
+      .map((b) => ({
+        id: b.state as string,
+        label: b.state as string,
+        n: wallCards(b, show()).length,
+        on: within() === b.state,
+        owes: s.askedIn(b.state) > 0,
+        onPick: () => (columnsOn() ? s.showState(b.state) : setStatePick(b.state)),
+      }));
+    if (columnsOn() || named.length < 2) return list;
+    return [
+      {
+        id: "",
+        label: "All",
+        n: boards().flatMap((b) => wallCards(b, show())).length,
+        on: narrowedTo() === null,
+        onPick: () => setStatePick(null),
+      },
+      ...list,
+    ];
+  };
+  const showing = () =>
+    WALL_SHOWS.map((x) => ({
+      ...x,
+      n: boards()
+        .filter((b) => columnsOn() || within() === null || b.state === within())
+        .flatMap((b) => wallCards(b, x.id)).length,
+    })).filter((x) => x.n > 0 || x.id === show());
+  // Columns are of one state, and what's picked may only be in another: go where it is.
+  const pickShow = (id: string) =>
+    batch(() => {
+      setShowPick(id);
+      const which = id as WallShow;
+      if (!columnsOn() || wallCards(active(), which).length) return;
+      const there = boards().find((b) => wallCards(b, which).length);
+      if (there) s.showState(there.state);
+    });
+  // A handful is read at a glance; a filter only earns its place past that.
+  const filterable = () => s.variants().length > FILTER_FROM || !!query();
+  const barShown = () =>
+    tabs().length > 1 ||
+    filterable() ||
+    showing().length > 1 ||
+    props.arrangeable ||
+    (wall() && isShortlist() && !readonly());
+  const clearFilters = () =>
+    batch(() => {
+      setQuery("");
+      setStatePick(null);
+      setShowPick(null);
+    });
 
   // The strip passes over a state with nothing left in it, as its tabs do.
   const drawn = () =>
@@ -314,10 +389,13 @@ export function Studio(props: {
     s.variants().filter((v) => v.state === state && isLive(v.status)).length;
   const runs = createMemo(() =>
     drawn().flatMap((b) =>
-      b.runs().map((r) => ({
-        variant: r.variant,
-        steps: r.steps.map((st): Entry => ({ b, st })),
-      })),
+      b
+        .runs()
+        .filter((r) => matches(b, r.variant))
+        .map((r) => ({
+          variant: r.variant,
+          steps: r.steps.map((st): Entry => ({ b, st })),
+        })),
     ),
   );
   const order = createMemo<Entry[]>(() =>
@@ -341,10 +419,9 @@ export function Studio(props: {
   let wallUrl = 0;
   onCleanup(() => host().window.clearTimeout(wallUrl));
   createEffect(() => {
-    if (!sized()) return;
     const put: [string, string | null][] = [
-      ["cols", columns() ? "1" : null],
-      ["in", within()],
+      ["cols", sized() && props.columns() ? "1" : null],
+      ["in", narrowedTo()],
       ["show", show() === showPick() ? show() : null],
       ["find", query().trim() || null],
       ["at", beside() ? peekKey() : null],
@@ -481,9 +558,6 @@ export function Studio(props: {
     </Show>
   );
 
-  // Archived variants are out of the exploration: a quiet count in the window's
-  // corner, opened on purpose.
-  const [archivedOpen, setArchivedOpen] = createSignal(false);
   // Live frames: the versions in view; for canvas pages, up to the budget.
   const [inView, setInView] = createSignal<string[]>([]);
   const [onScreen, setOnScreen] = createSignal<string[]>([]);
@@ -647,7 +721,7 @@ export function Studio(props: {
     if (lookKey() || fullKey()) return false;
     if (!inView().includes(key)) return false;
     if (!places.get(key)?.canvas) return true;
-    const taken = archivedOpen() ? active().aside().length : peeked() ? 1 : 0;
+    const taken = peeked() ? 1 : 0;
     return canvasOrder().indexOf(key) < CANVAS_MAX - taken;
   };
   // On a wall a card that leaves the screen keeps its frame for the way back.
@@ -807,6 +881,8 @@ export function Studio(props: {
   );
 
   const onKey = (e: KeyboardEvent) => {
+    // A popover already took this Esc: it shuts that alone.
+    if (e.defaultPrevented) return;
     // Full screen is over everything: Esc closes it, and nothing under it moves.
     if (fullKey()) {
       if (e.key !== "Escape") return;
@@ -830,11 +906,6 @@ export function Studio(props: {
     if (writing()) setWriting(null);
     else if (borrowFrom()) setBorrowFrom(null);
     else if (selecting()) setPicked([]);
-    else if (archivedOpen()) setArchivedOpen(false);
-  };
-  let corner: HTMLElement | undefined;
-  const onDown = (e: PointerEvent) => {
-    if (archivedOpen() && !corner?.contains(e.target as Node)) setArchivedOpen(false);
   };
   // In the capture phase, ahead of the flow's keys, which would also walk the versions
   // of the state on stage while the preview walks the wall.
@@ -856,8 +927,6 @@ export function Studio(props: {
   };
   onMount(() => host().window.addEventListener("keydown", onWallKey, true));
   onCleanup(() => host().window.removeEventListener("keydown", onWallKey, true));
-  onMount(() => host().window.addEventListener("pointerdown", onDown, true));
-  onCleanup(() => host().window.removeEventListener("pointerdown", onDown, true));
   onMount(() => host().window.addEventListener("keydown", onKey));
   onCleanup(() => host().window.removeEventListener("keydown", onKey));
 
@@ -997,25 +1066,34 @@ export function Studio(props: {
           </div>
         )}
       </Show>
+      <Show when={barShown() && props.barSlot}>
+        {(slot) => (
+          <Portal mount={slot()}>
+            <StudioBar
+              tabs={tabs()}
+              {...(filterable() ? { query: query(), onQuery: setQuery } : {})}
+              show={showing()}
+              showOn={show()}
+              onShow={pickShow}
+              {...(wall() && isShortlist() && !readonly() && !borrowFrom()
+                ? { onAdd: () => setAdding(true) }
+                : {})}
+              arrange={props.arrange}
+            />
+          </Portal>
+        )}
+      </Show>
       <Show when={wall()}>
-        <WallBar
-          query={query()}
-          onQuery={setQuery}
-          show={show()}
-          count={(which) =>
-            boards()
-              .filter(inWithin)
-              .flatMap((b) => wallCards(b, which)).length
-          }
-          onShow={setShowPick}
-          states={boards()}
-          within={within()}
-          countIn={(b) => wallCards(b, show()).length}
-          onWithin={setStatePick}
-          shown={order().length}
-          onAdd={isShortlist() && !readonly() && !borrowFrom() ? () => setAdding(true) : undefined}
-          onColumns={() => setColumns(true)}
-        />
+        <Show when={phoneLayout() && filterable()}>
+          <input
+            class="slpick-filter sbar-phonefind"
+            type="search"
+            placeholder="Filter by name or description"
+            aria-label="Filter by name or description"
+            value={query()}
+            onInput={(e) => setQuery(e.currentTarget.value)}
+          />
+        </Show>
         <For each={wallSections()}>
           {(b) => {
             const act = actsFor(b);
@@ -1037,39 +1115,35 @@ export function Studio(props: {
         <Show when={!wallStates().length}>
           <p class="wall-empty">
             Nothing matches.{" "}
-            <button
-              type="button"
-              class="lnk"
-              onClick={() =>
-                batch(() => {
-                  setQuery("");
-                  setStatePick(null);
-                  setShowPick(null);
-                })
-              }
-            >
+            <button type="button" class="lnk" onClick={clearFilters}>
               Clear the filters
             </button>
           </p>
         </Show>
       </Show>
-      <Show when={sized() && !wall()}>
-        <button type="button" class="btn wall-back" onClick={() => setColumns(false)}>
-          <Icon name="grid" />
-          Wall
-        </button>
-      </Show>
-      <Show when={drawn().flatMap((b) => b.hiddenSteps()).length}>
-        {(n) => (
-          <button
-            type="button"
-            class="btn studio-hidden"
-            aria-pressed={showHidden()}
-            onClick={() => setShowHidden((on) => !on)}
+      <Show when={!wall() && !drawn().some((b) => columnsIn(b).length > 0)}>
+        <p class="wall-empty">
+          <Show
+            when={!query().trim() && active().aside().length}
+            fallback={
+              <>
+                Nothing matches.{" "}
+                <button type="button" class="lnk" onClick={clearFilters}>
+                  Clear the filters
+                </button>
+              </>
+            }
           >
-            {showHidden() ? `Collapse ${n()} hidden` : `${n()} hidden`}
-          </button>
-        )}
+            {(n) => (
+              <>
+                Nothing live here.{" "}
+                <button type="button" class="lnk" onClick={() => setShowPick("archived")}>
+                  {`Show ${n()} archived`}
+                </button>
+              </>
+            )}
+          </Show>
+        </p>
       </Show>
       <div class="studio-cols">
         <For each={drawn()}>
@@ -1089,7 +1163,7 @@ export function Studio(props: {
                   </h2>
                 </Show>
                 <div class="studio-run">
-                  <For each={b.columns()}>
+                  <For each={columnsIn(b)}>
                     {(v) => (
                       <section class="studio-col" aria-label={v.variant}>
                         <header class="studio-colh">
@@ -1189,67 +1263,6 @@ export function Studio(props: {
           />
         )}
       </Show>
-      <Show when={!wall() && active().aside().length}>
-        <div class="studio-archived" ref={(el) => (corner = el)}>
-          <section
-            class="arch-pop"
-            classList={{ open: archivedOpen() }}
-            aria-label="Archived"
-            aria-hidden={!archivedOpen()}
-            inert={!archivedOpen() || undefined}
-          >
-            <h3>Archived</h3>
-            <For each={active().aside()}>
-              {(v) => {
-                const st = () => active().versionsOf(v.variant)[0];
-                return (
-                  <div class="arch-row">
-                    <span class="arch-th">
-                      <Show
-                        when={st()?.poster}
-                        fallback={
-                          <Show when={archivedOpen() && st() && pictureOf(st())}>
-                            {(u) => <Thumb src={u()} width={s.frameW()} fit whole />}
-                          </Show>
-                        }
-                      >
-                        {(p) => <Poster id={p()} />}
-                      </Show>
-                    </span>
-                    <span class="arch-text">
-                      <span class="arch-nm">{v.variant}</span>
-                      <Reason
-                        value={v.archiveReason}
-                        onSave={(r) => s.saveArchiveReason(v.variant, r)}
-                      />
-                    </span>
-                    <Show when={!readonly()}>
-                      <button
-                        type="button"
-                        class="ib"
-                        aria-label={`Restore ${v.variant}`}
-                        title="Restore"
-                        onClick={() => void s.restoreVariant(v.variant, [s.activeState()])}
-                      >
-                        <Icon name="undo" />
-                      </button>
-                    </Show>
-                  </div>
-                );
-              }}
-            </For>
-          </section>
-          <button
-            type="button"
-            class="arch-count"
-            aria-expanded={archivedOpen()}
-            onClick={() => setArchivedOpen(!archivedOpen())}
-          >
-            {`${active().aside().length} archived`}
-            <Icon name="down" />
-          </button>
-        </div>
-      </Show>
       {/* Under full screen the closer look steps aside, so its frame isn't a
           second live copy of the same page. */}
       <Show when={!fullKey() && looking()}>
@@ -1259,12 +1272,10 @@ export function Studio(props: {
             entry={e()}
             top={props.top}
             order={order()}
-            runs={runs()}
             last={e().b.versionsOf(e().st.variant).length === 1}
             wall={wall()}
             perState={strip() && drawn().length > 1}
-            gone={goneShown() ?? (e().st.hidden ? "hidden" : undefined)}
-            inPlace={!goneShown()}
+            gone={goneShown()}
             onStep={step}
             onGo={look}
             nextState={firstOfNextState}
@@ -1281,12 +1292,10 @@ export function Studio(props: {
             entry={e()}
             top={props.top}
             order={order()}
-            runs={[]}
             last={e().b.versionsOf(e().st.variant).length === 1}
             wall
             beside
-            gone={goneShown() ?? (e().st.hidden ? "hidden" : undefined)}
-            inPlace={!goneShown()}
+            gone={goneShown()}
             onStep={stepPeek}
             onGo={peek}
             nextState={() => undefined}
@@ -1311,101 +1320,6 @@ export function Studio(props: {
             )}
           </Show>
         )}
-      </Show>
-    </div>
-  );
-}
-
-// The wall's filters, above its grid. Each count says what picking that filter would
-// show given the others, so none of them leads to an empty wall by surprise.
-function WallBar(props: {
-  query: string;
-  onQuery: (q: string) => void;
-  show: WallShow;
-  count: (which: WallShow) => number;
-  onShow: (which: WallShow) => void;
-  states: Board[];
-  within: string | null;
-  countIn: (b: Board) => number;
-  onWithin: (state: string | null) => void;
-  shown: number;
-  onAdd?: () => void;
-  onColumns: () => void;
-}) {
-  const named = () => props.states.filter((b) => b.state !== null);
-  return (
-    <div class="wall-bar" classList={{ phone: phoneLayout() }}>
-      <div class="wall-row">
-        <input
-          class="slpick-filter wall-find"
-          type="search"
-          placeholder="Filter by name or description"
-          aria-label="Filter by name or description"
-          value={props.query}
-          onInput={(e) => props.onQuery(e.currentTarget.value)}
-        />
-        <div class="wall-chips" role="radiogroup" aria-label="Show">
-          <For each={WALL_SHOWS}>
-            {(x) => (
-              <Show when={props.count(x.id) > 0 || props.show === x.id}>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={props.show === x.id}
-                  onClick={() => props.onShow(x.id)}
-                >
-                  {x.label}
-                  <span class="n">{props.count(x.id)}</span>
-                </button>
-              </Show>
-            )}
-          </For>
-        </div>
-        <span class="wall-sp" />
-        <Show when={props.onAdd}>
-          {(add) => (
-            <button type="button" class="btn" onClick={add()}>
-              <Icon name="plus" />
-              Add candidate
-            </button>
-          )}
-        </Show>
-        <button type="button" class="btn" onClick={props.onColumns}>
-          <Icon name="layers" />
-          Columns
-        </button>
-      </div>
-      <Show when={named().length > 1}>
-        <div class="wall-chips" role="radiogroup" aria-label="State">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={props.within === null}
-            aria-label="All states"
-            title="All states"
-            onClick={() => props.onWithin(null)}
-          >
-            <Icon name="all" />
-            <Show when={props.within === null}>
-              <span class="n">{props.shown}</span>
-            </Show>
-          </button>
-          <For each={named()}>
-            {(b) => (
-              <Show when={props.countIn(b) > 0 || props.within === b.state}>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={props.within === b.state}
-                  onClick={() => props.onWithin(b.state)}
-                >
-                  {b.state}
-                  <span class="n">{props.countIn(b)}</span>
-                </button>
-              </Show>
-            )}
-          </For>
-        </div>
       </Show>
     </div>
   );
@@ -1695,22 +1609,88 @@ function LookNote(props: { text: string }) {
   );
 }
 
+// The name is also the way to any other: every one in the run, in the order the arrows
+// walk it, with the states marked where it crosses them.
+function LookPick(props: { name: string; order: Entry[]; entry: Entry; onGo: (e: Entry) => void }) {
+  const [open, setOpen] = createSignal(false);
+  let button: HTMLButtonElement | undefined;
+  let pop: HTMLDivElement | undefined;
+  usePopover(
+    open,
+    () => setOpen(false),
+    () => button,
+    () => pop,
+  );
+  const crosses = () => new Set(props.order.map((e) => e.b)).size > 1;
+  return (
+    <Show when={props.order.length > 1} fallback={<h2>{props.name}</h2>}>
+      <div class="look-pick">
+        <h2>
+          <button
+            type="button"
+            ref={(el) => (button = el)}
+            aria-haspopup="menu"
+            aria-expanded={open()}
+            onClick={() => setOpen((on) => !on)}
+          >
+            <span>{props.name}</span>
+            <Icon name="down" />
+          </button>
+        </h2>
+        <Show when={open()}>
+          <div
+            class="look-list"
+            role="menu"
+            ref={(el) => {
+              pop = el;
+              queueMicrotask(() =>
+                el.querySelector("[aria-current]")?.scrollIntoView({ block: "center" }),
+              );
+            }}
+          >
+            <For each={props.order}>
+              {(e, i) => (
+                <>
+                  <Show when={crosses() && props.order[i() - 1]?.b !== e.b}>
+                    <span class="look-list-h">{e.b.state}</span>
+                  </Show>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    aria-current={e === props.entry || undefined}
+                    onClick={() => {
+                      props.onGo(e);
+                      setOpen(false);
+                      button?.focus();
+                    }}
+                  >
+                    {props.order.filter((x) => x.b === e.b && x.st.variant === e.st.variant)
+                      .length > 1
+                      ? e.b.nameOf(e.st)
+                      : e.st.variant}
+                  </button>
+                </>
+              )}
+            </For>
+          </div>
+        </Show>
+      </div>
+    </Show>
+  );
+}
+
 function Look(props: {
   s: DesignScreenState;
   entry: Entry;
   top: number;
   order: Entry[];
-  runs: { variant: string; steps: Entry[] }[];
   last: boolean;
-  // On the wall: every design there in one run, so no strip of dots to place them.
   wall?: boolean;
   // Standing beside the wall as its preview, rather than over it.
   beside?: boolean;
   // On the phone's strip, where a count across every state says nothing useful.
   perState?: boolean;
   gone?: string;
-  // Dimmed where it stands, so bringing it back doesn't take it out of the run.
-  inPlace?: boolean;
   onStep: (d: number) => void;
   onGo: (e: Entry) => void;
   nextState: () => Entry | undefined;
@@ -1724,11 +1704,15 @@ function Look(props: {
   const at = () => props.order.indexOf(props.entry);
   const name = () => b().nameOf(st());
   const inUse = () => sameVersion(b().inUse(), st());
-  const note = () => {
-    const v = s.variants().find((x) => x.state === b().state && x.variant === st().variant);
-    return v?.archiveReason ? `Archived: ${v.archiveReason}` : v?.description;
-  };
+  const row = () => s.variants().find((x) => x.state === b().state && x.variant === st().variant);
   const can = () => !readonly();
+  // Where the reason can be written, the box says it.
+  const note = () => {
+    const v = row();
+    return v?.archiveReason && !(can() && props.gone === "archived")
+      ? `Archived: ${v.archiveReason}`
+      : v?.description;
+  };
   const counter = () => {
     const among = props.perState ? props.order.filter((e) => e.b === b()) : props.order;
     const count = `${among.indexOf(props.entry) + 1} of ${among.length}`;
@@ -1769,8 +1753,7 @@ function Look(props: {
     });
   };
   const hide = () => stepOff(() => props.act.remove(st()));
-  const restore = () =>
-    props.inPlace ? props.act.restore(st()) : stepOff(() => props.act.restore(st()));
+  const restore = () => stepOff(() => props.act.restore(st()));
   // The copies land first, and the look may have moved on by then.
   const leave = (from: VersionStep): ReturnType<SaveFor["leave"]> => {
     if (!sameVersion(st(), from)) return props.act.leave(from);
@@ -1778,17 +1761,6 @@ function Look(props: {
     stepOff(() => (out = props.act.leave(from)), props.act.family(from));
     return out;
   };
-  let dots: HTMLElement | undefined;
-  // The strip can run longer than the screen; the version shown stays in it.
-  createEffect(
-    on(
-      () => props.entry,
-      () =>
-        dots
-          ?.querySelector<HTMLElement>(".look-dot.on")
-          ?.scrollIntoView({ block: "nearest", inline: "center" }),
-    ),
-  );
   return (
     <div
       class="look"
@@ -1800,7 +1772,7 @@ function Look(props: {
       style={{ top: `${props.top}px` }}
     >
       <header class="look-h">
-        <h2>{name()}</h2>
+        <LookPick name={name()} order={props.order} entry={props.entry} onGo={props.onGo} />
         <Show when={inUse()}>
           <span class="sk-tag">in use</span>
         </Show>
@@ -1877,6 +1849,14 @@ function Look(props: {
         </button>
       </div>
       <Show when={note()}>{(text) => <LookNote text={text()} />}</Show>
+      <Show when={can() && props.gone === "archived"}>
+        <div class="look-reason">
+          <Reason
+            value={row()?.archiveReason}
+            onSave={(r) => s.saveArchiveReason(st().variant, r, b().state)}
+          />
+        </div>
+      </Show>
       <Show when={can() && props.gone}>
         <div class="look-acts">
           <button type="button" class="btn" onClick={restore}>
@@ -1917,32 +1897,6 @@ function Look(props: {
             </button>
           </Show>
         </div>
-      </Show>
-      <Show when={!props.wall}>
-        <nav class="look-strip" aria-label="Versions" ref={(el) => (dots = el)}>
-          <For each={props.runs}>
-            {(run) => (
-              <div class="look-group">
-                <span class="look-gname">{run.variant}</span>
-                <div class="look-dots">
-                  <For each={run.steps}>
-                    {(x) => (
-                      <button
-                        type="button"
-                        class="look-dot"
-                        classList={{ on: x === props.entry }}
-                        aria-label={x.b.nameOf(x.st)}
-                        aria-current={x === props.entry || undefined}
-                        title={x.b.nameOf(x.st)}
-                        onClick={() => props.onGo(x)}
-                      />
-                    )}
-                  </For>
-                </div>
-              </div>
-            )}
-          </For>
-        </nav>
       </Show>
     </div>
   );
