@@ -206,8 +206,11 @@ consciously, not as a side effect):
   out with every variant side by side, entered from the top bar's Stage | Studio switch and
   remembered per design, with one row of controls in the header (`StudioBar`: states, filter, what's live, in use, hidden or archived, and Wall | Columns | Grid), each steer its own reply (`steer`, `sendAlone`), with `SelectBar` acting on
   several versions at once. A fork is a column of its own saying where it came from.
-  Past Use this a newer version asks first (`changedTo`, `ChangedNote`: see it, use it,
-  or stay, which `stayedVersion` remembers until a newer one comes).
+  Past Use this a newer version takes over by itself (`changedTo`, `ChangedNote`): the stage
+  moves to it when the tab has focus and it goes in use ten seconds later, writing nothing
+  before then. Back to the old one is a stay, which `stayedVersion` remembers until a newer one
+  comes, as does Use this on an older version. Anything underway (a draft, an open question, a
+  tool, typing) holds it to a See pill, and touching the page stops the count.
   A design of `WALL_FROM` variants or more opens Studio as a wall: one grid of all its
   states, filtered by state, status and text, with the closer look beside it as a
   preview on a wide window and over it otherwise; every card without a poster shares

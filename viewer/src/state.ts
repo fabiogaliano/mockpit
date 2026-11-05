@@ -1933,8 +1933,8 @@ export function createDesignScreen(
       fail(e);
     }
   }
-  // The version in use has a newer one the user hasn't ruled on: after Use this, a
-  // change asks first. Null when nothing is asking.
+  // The version in use has a newer one the user hasn't ruled on, which ChangedNote
+  // moves to by itself. Null when there is none.
   const changed = createMemo(() => {
     const v = inState(activeState()).find((x) => x.changedTo !== undefined);
     const use = v && inUseOf(v.state);

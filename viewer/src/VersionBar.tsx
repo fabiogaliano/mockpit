@@ -97,8 +97,11 @@ export function UseThis(props: { s: DesignScreenState; primary?: boolean }) {
   const inUse = () => sameVersion(s.onStage(), s.inUse());
   const usedStep = () => stepFor(s.steps(), s.inUse());
   const questionOpen = () => !!s.curAsk() && !s.questionHidden();
+  // On a newer version taking over, ChangedNote holds both ways out, so they'd show twice.
+  const noteHasIt = () =>
+    !s.design()?.archivedAt && !!s.changed() && sameVersion(s.onStage(), s.changed()?.to);
   return (
-    <Show when={!readonly() && !questionOpen()}>
+    <Show when={!readonly() && !questionOpen() && !noteHasIt()}>
       <Show when={usedStep() && !inUse()}>
         <button
           type="button"

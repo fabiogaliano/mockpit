@@ -2489,8 +2489,11 @@ export class SqlStore implements Store {
           );
         }
         for (const { id, version } of input.accept) {
+          // Picking an older version is passing on the newer ones. Otherwise they'd read
+          // as unruled-on, and the viewer would move straight back to them.
           this.sql.exec(
-            "UPDATE posts SET status = 'accepted', acceptedVersion = ?, archiveReason = NULL, stayedVersion = NULL, archivedAt = NULL WHERE id = ? AND designId = ?",
+            "UPDATE posts SET status = 'accepted', acceptedVersion = ?, archiveReason = NULL, stayedVersion = CASE WHEN ? < version THEN version ELSE NULL END, archivedAt = NULL WHERE id = ? AND designId = ?",
+            version,
             version,
             id,
             input.designId,

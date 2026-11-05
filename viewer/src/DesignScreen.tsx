@@ -29,6 +29,7 @@ import { About, type AboutState, createAbout } from "./About.tsx";
 import { BottomPanel } from "./BottomPanel.tsx";
 import { hasFiles } from "./attach.ts";
 import { BuiltFrom } from "./BuiltFrom.tsx";
+import { ChangedNote } from "./ChangedNote.tsx";
 import { useFlowKeys } from "./flowKeys.ts";
 import { createFlowNav, type FlowNav } from "./flowNav.ts";
 import { Grid } from "./Grid.tsx";
@@ -1159,37 +1160,6 @@ function Ghost(props: { s: DesignScreenState; nav: FlowNav; by: 1 | -1 }) {
   );
 }
 
-// Past Use this, a newer version doesn't take over by itself: look, take it, or stay.
-function ChangedNote(props: { s: DesignScreenState }) {
-  const s = props.s;
-  const looking = () => sameVersion(s.onStage(), s.changed()?.to);
-  // Beside each other the design is the same one, so only the number tells them apart.
-  const name = (ref: VersionRef) =>
-    ref.variant === s.changed()?.to.variant && ref.variant === s.changed()?.use.variant
-      ? `version ${ref.version}`
-      : s.nameOf(ref);
-  return (
-    <Show when={!readonly() && !s.design()?.archivedAt && s.changed()}>
-      {(c) => (
-        <div class="status-note changed-note" role="status">
-          <span>{`New version ready. You're using ${name(c().use)}.`}</span>
-          <Show when={!looking()}>
-            <button type="button" class="btn" onClick={() => s.showVersion(c().to)}>
-              See it
-            </button>
-          </Show>
-          <button type="button" class="btn" onClick={() => void s.useThis(c().to)}>
-            Use it
-          </button>
-          <button type="button" class="btn" onClick={s.stayOnUse}>
-            {`Keep ${name(c().use)}`}
-          </button>
-        </div>
-      )}
-    </Show>
-  );
-}
-
 // After a Send: how far it has come (not seen, delivered, the agent working, a new
 // version), and where to go next. With nothing left to answer this is what the screen
 // stays on, so it can't be a dead end.
@@ -1210,7 +1180,7 @@ function SentNote(props: { s: DesignScreenState; project: string; slug: string; 
       <Show when={s.design()?.archivedAt}>
         <ArchivedNote s={s} />
       </Show>
-      <ChangedNote s={s} />
+      <ChangedNote s={s} onStageView={props.view === "stage"} />
       <Show when={s.sent()} fallback={<CarriedChip project={props.project} slug={props.slug} />}>
         <div class="sentrow" role="status">
           <Show

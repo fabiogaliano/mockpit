@@ -3611,8 +3611,81 @@ html.theming *:not(iframe) {
   margin-top: 0;
   padding: 0 16px;
 }
-.changed-note b {
-  font-weight: 600;
+.changed-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px;
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--dd-shadow);
+  color: var(--t2);
+  font-size: 14px;
+}
+.changed-note .btn {
+  min-width: 0;
+}
+.changed-name {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.changed-text {
+  padding: 0 6px 0 8px;
+}
+.changed-back {
+  position: relative;
+  overflow: hidden;
+}
+.changed-count {
+  min-width: 1.3em;
+  color: var(--t4);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.changed-drain {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--t4);
+  transform-origin: left;
+  transition: transform 100ms linear;
+}
+.changed-see {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 36px;
+  padding: 0 8px 0 10px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+.changed-see > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (hover: hover) {
+  .changed-see:hover {
+    background: var(--row);
+  }
+}
+@media (pointer: coarse) {
+  .changed-note .btn,
+  .changed-see {
+    min-height: 40px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .changed-drain {
+    display: none;
+  }
 }
 .answered {
   margin-top: 12px;
