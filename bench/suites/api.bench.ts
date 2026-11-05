@@ -262,7 +262,7 @@ export const apiSuite: Suite = {
           ...jsonPost({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
         });
         const { result } = (await res.json()) as { result: { tools: object[] } };
-        const visible = result.tools.map(({ outputSchema: _, ...tool }: any) => tool);
+        const visible = result.tools.map(({ outputSchema: _outputSchema, ...tool }: any) => tool);
         ctx.add(
           count(
             "api",

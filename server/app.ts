@@ -1563,7 +1563,7 @@ export function createApp({
     }
     const reached = new Set<string>([slug]);
     const out: Design[] = [];
-    for (let grew = true; grew; ) {
+    for (let grew = true; grew;) {
       grew = false;
       for (const m of designs) {
         if (reached.has(m.slug)) continue;
@@ -4184,7 +4184,7 @@ export function createApp({
           }))
         : [],
     };
-    const asks = design.asks.map(({ dismissed: _, ...a }) => a);
+    const asks = design.asks.map(({ dismissed: _dismissed, ...a }) => a);
     const updated = await store.updateDesign(design.id, { asks, archivedAt: null });
     if (!updated) return fail(404, "design not found");
     if (nothingLive) for (const post of posts) await setStatus(design, post, "open");
