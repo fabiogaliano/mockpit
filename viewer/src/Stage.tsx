@@ -32,6 +32,7 @@ import { JsonTree } from "./JsonTree.tsx";
 import {
   BOARD_GAP,
   BOARD_PAD,
+  draftCarried,
   boardWidths,
   changedPart,
   clampZoom,
@@ -60,6 +61,7 @@ import {
   coarse,
   phoneLayout,
   safeX,
+  designAt,
   setDesignAt,
   win,
 } from "./viewport.ts";
@@ -131,6 +133,8 @@ const LABEL_AT = 14;
 // The live label gives way to those actions on an artboard too narrow for both.
 const LABEL_ROOM_ONE_VERSION = 360;
 const LABEL_ROOM_VERSIONS = 480;
+const LABEL_ROOM_ARRIVED = 180;
+const LABEL_ROOM_CARRIED = 100;
 // Under a finger a pin keeps its size and takes a 44px tap area around it;
 // pins step apart far enough that those areas never overlap.
 const PIN = 22;
@@ -501,6 +505,18 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
     });
   });
   onCleanup(() => setDesignAt(null));
+  // The row's width on screen: a margin floating over the artboard takes it from the
+  // actions as well, since they stop short of it.
+  const labelFits = () => {
+    const w = frameW() * scale();
+    const right = designAt()?.right ?? 0;
+    const edge = win().w - canvasBox().right - canvasBox().over - 8;
+    const needs =
+      (s.steps().length > 1 ? LABEL_ROOM_VERSIONS : LABEL_ROOM_ONE_VERSION) +
+      (s.boundVersion() !== null ? LABEL_ROOM_ARRIVED : 0) +
+      (draftCarried(s.draft()) ? LABEL_ROOM_CARRIED : 0);
+    return Math.min(right, edge) - (right - w) >= needs;
+  };
   // Room under the artboards to pan them up past a card resting at the bottom;
   // on a phone, just enough to bring the page's end above the sheet.
   const canvasH = () =>
@@ -522,13 +538,7 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
           onScroll={onPan}
         >
           <div class="layers-sizer" style={{ height: `${canvasH()}px`, width: `${canvasW()}px` }} />
-          <Show
-            when={
-              !phone() &&
-              frameW() * scale() >=
-                (s.steps().length > 1 ? LABEL_ROOM_VERSIONS : LABEL_ROOM_ONE_VERSION)
-            }
-          >
+          <Show when={!phone() && labelFits()}>
             <div
               class="board-label"
               style={{ left: `${Math.max(10, xOf(frameW()))}px`, top: `${padT() + LABEL_AT}px` }}
@@ -608,10 +618,11 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
 }
 
 // A newer version than the one the draft is bound to, on offer.
+// A phone's: elsewhere the version's own row says it (VersionCaption).
 export function ArrivedBanner(props: { s: DesignScreenState }) {
   const s = props.s;
   return (
-    <Show when={s.boundVersion() !== null}>
+    <Show when={phoneLayout() && s.boundVersion() !== null}>
       <div class="banner" role="status">
         <b>{`${s.arrived()?.name ?? "A new version"} arrived`}</b>
         <span class="sep">·</span>

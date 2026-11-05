@@ -272,10 +272,15 @@ mockpit publish --design <slug> [--state s] [--variant v] --withdraw
   A plain-text message in the design's thread, as your session's agent.`,
   move: `mockpit move --design <slug> [--state s] --variant <v> [--variant <v>...]
   --to <design> [--to-state <s>] | --to-state <s> | --archive | --restore
+mockpit move --design <slug> [--state s] [--variant <v>...] --hide-older | --delete-older
   Tidy up. --to or --to-state moves them to another design or tab (a new state is
   created) and takes them out of here; --archive takes them out of sight; --restore
-  brings them back. Their group goes along; one in use stays and is reported.
-  Never deletes. The thread says what happened, so the user can undo it.`,
+  brings them back. Their group goes along; one in use stays and is reported. The
+  thread says what happened, so the user can undo it.
+  Only when the user asks: --hide-older hides all but each variant's newest visible
+  version (no --variant: every variant), and --delete-older deletes them for good,
+  skipping and listing any that a reply, comment, question, embed, copy or fork still
+  points at, or that is in use. It can't be undone: confirm first.`,
   edit: `mockpit edit --design <slug> [--slug <new>] [--title <t>] [--kind screen|component|idea]
   [--first-state <name>] [--notes <text>|""]
   [--area <name>|""] [--source <path>|""] [--project <name>]
@@ -2012,11 +2017,14 @@ const commands = {
         "to-state": { type: "string" },
         archive: { type: "boolean" },
         restore: { type: "boolean" },
+        "hide-older": { type: "boolean" },
+        "delete-older": { type: "boolean" },
       },
     });
     const example = "mockpit move --design writer --variant quiet --archive";
     const slug = requireDesign(flags, example);
-    if (!flags.variant?.length) die("move needs --variant", example);
+    const tidying = flags["hide-older"] || flags["delete-older"];
+    if (!flags.variant?.length && !tidying) die("move needs --variant", example);
     const session = await resolveSession(flags);
     const result = await api(
       `${designPath(slug)}/move`,
@@ -2029,6 +2037,8 @@ const commands = {
           toState: flags["to-state"],
           archive: flags.archive,
           restore: flags.restore,
+          hideOlder: flags["hide-older"],
+          deleteOlder: flags["delete-older"],
           project: resolveProject(flags).name,
           session: session ?? undefined,
         }),
@@ -2037,6 +2047,16 @@ const commands = {
     );
     if (flags.json) return out(result);
     if (flags.quiet) return;
+    if (tidying) {
+      const verb = flags["delete-older"] ? "deleted" : "hid";
+      console.log(`${verb} ${result.versions.length} older versions`);
+      for (const s of result.skipped) {
+        const which = s.version ? ` v${s.version}` : "";
+        console.log(`stayed: ${s.state ? `${s.state}/` : ""}${s.variant}${which} (${s.why})`);
+      }
+      printFeedback(result.feedback);
+      return;
+    }
     const names = result.variants.map((v) => v.variant).join(", ") || "nothing";
     const done = result.to
       ? `moved to ${result.to.design}`

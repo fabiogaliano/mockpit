@@ -268,15 +268,17 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "move",
     description:
-      "Tidy up variants: to or toState moves them there and out of here; archive takes them out of view; restore brings them back. Never deletes; a group goes along; one in use stays. Returns feedback.",
+      "Tidy up variants: to or toState moves them there and out of here; archive takes them out of view; restore brings them back; a group goes along; one in use stays. Only when the user asks: hideOlder hides each variant's older versions (variants optional: all of them), and deleteOlder deletes them for good, skipping any that a reply, comment, question, embed, copy or fork still points at, or that is in use. Confirm a delete first: it can't be undone. Returns feedback.",
     params: {
       design: P.design,
       state: P.state,
-      variants: { t: "strings", d: "Variant names", req: true },
+      variants: { t: "strings", d: "Variant names; required except with hideOlder or deleteOlder" },
       to: { t: "string", d: "Target design; default this one" },
       toState: { t: "string", d: "Target state; created if new" },
       archive: { t: "boolean" },
       restore: { t: "boolean" },
+      hideOlder: { t: "boolean", d: "Hide all but each variant's newest visible version" },
+      deleteOlder: { t: "boolean", d: "Delete them instead; permanent, skips what's referenced" },
       project: P.project,
       session: P.session,
     },
@@ -461,7 +463,13 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
   say: { feedback: feedbackRide },
   move: {
     variants: z.array(o({ state: str.nullable(), variant: str, status: str })),
-    skipped: z.array(o({ variant: str, why: str })),
+    versions: z
+      .array(o({ state: str.nullable(), variant: str, version: num }))
+      .optional()
+      .describe("With hideOlder or deleteOlder: what was hidden or deleted"),
+    skipped: z.array(
+      o({ state: str.nullable().optional(), variant: str, version: num.optional(), why: str }),
+    ),
     to: o({ design: str, title: str, state: str.nullable() }).optional(),
     saved: z
       .array(o({ state: str.nullable(), variant: str, already: z.boolean() }))

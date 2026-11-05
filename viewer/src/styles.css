@@ -5239,6 +5239,16 @@ button.mturn:focus-visible {
   min-width: 0;
   margin: 8px 28px 0;
 }
+.vcap-arrived {
+  border-color: var(--banner-line);
+  background: var(--banner-bg);
+  color: var(--t1);
+}
+.vcap-view {
+  color: var(--t4);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .vcap .vgroup {
   height: 36px;
   border: 1px solid var(--line);
@@ -5389,6 +5399,81 @@ button.mturn:focus-visible {
   font-size: 12px;
   font-weight: 500;
   line-height: 16px;
+}
+/* Pinned to the margin's foot while the states scroll behind it. The negative margins
+   carry its background through the margin's padding, so nothing shows around it. */
+.lm-versions {
+  position: sticky;
+  bottom: calc(-12px - env(safe-area-inset-bottom));
+  z-index: 2;
+  display: flex;
+  flex: none;
+  /* The bar comes first for keyboard and screen readers, and sits under what it opens. */
+  flex-direction: column-reverse;
+  gap: 6px;
+  margin: auto -8px calc(-12px - env(safe-area-inset-bottom));
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--page);
+}
+.lmargin.float .lm-versions {
+  border-radius: 0 0 15px 15px;
+  background: var(--panel);
+}
+.lm-versions-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 4px 0 6px;
+  border-radius: 9px;
+  color: var(--t4);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: start;
+  transition:
+    background var(--ease),
+    color var(--ease);
+}
+/* With no states above it the bar is the margin's first row, under the fold button. */
+.lmargin.float .lm-close + .lm-versions {
+  padding-top: 8px;
+}
+.lmargin.float .lm-close + .lm-versions .lm-versions-bar {
+  padding-right: 32px;
+}
+.lm-versions-bar > span {
+  flex: 1;
+}
+.lm-versions-bar b {
+  color: var(--t2);
+  font-weight: 500;
+}
+.lm-versions-bar svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  transform: rotate(180deg);
+  transition: transform var(--ease);
+}
+.lm-versions.open .lm-versions-bar svg {
+  transform: none;
+}
+@media (hover: hover) {
+  .lm-versions-bar:hover {
+    background: var(--row);
+    color: var(--t2);
+  }
+}
+.lm-versions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 55dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .lm-line {
   margin: 8px 0 2px;
@@ -6267,12 +6352,16 @@ button.mturn:focus-visible {
   display: block;
   width: 100%;
   aspect-ratio: 4 / 3;
-  padding: 0;
+  padding: 10px;
   border: 0;
   border-radius: 14px 14px 0 0;
   background: var(--frame);
   overflow: hidden;
   cursor: pointer;
+}
+/* A phone's card is the whole screen: the design needs every pixel of it. */
+.studio.strip .sk-art {
+  padding: 0;
 }
 .sk-art .thumb {
   width: 100%;
@@ -7919,7 +8008,9 @@ body:has(.selp) .toast {
   scrollbar-width: none;
 }
 .wall-chips button {
+  display: inline-flex;
   flex: none;
+  align-items: center;
   padding: 6px 10px;
   border-radius: 8px;
   color: var(--t4);
@@ -7936,6 +8027,10 @@ body:has(.selp) .toast {
   .wall-chips button:hover {
     color: var(--t1);
   }
+}
+.wall-chips svg {
+  width: 15px;
+  height: 15px;
 }
 .wall-chips .n {
   margin-inline-start: 6px;
@@ -7998,7 +8093,8 @@ body:has(.selp) .toast {
   font-size: 14px;
   text-align: center;
 }
-.wall-back {
+.wall-back,
+.studio-hidden {
   position: sticky;
   top: 8px;
   left: 0;

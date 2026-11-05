@@ -20,8 +20,10 @@ a parallel take on one state; versions are its history. A **part** is a
 `data-part` element in a render. The agent's eleven verbs are `publish`, `ask`,
 `read`, `feedback`, `say`, `move`, `edit`, `export`, `upload`, `guide` and `run` (the
 CLI adds `init` and `watch`); `move` takes variants to another design or state,
-archives or restores them (never deletes, never touches one in use, and says so in
-the Thread); `edit` changes a design (slug, title, kind, area,
+archives or restores them (never touches one in use, and says so in the Thread), and,
+when the user asks, hides or deletes their older versions (`hideOlder`, `deleteOlder`:
+deleting skips any version a reply, comment, question, embed, copy or fork points at,
+`deleteBlocker` in `server/app.ts`); `edit` changes a design (slug, title, kind, area,
 source, notes, or the first name of its one unnamed state) without a new version, renames a project, or sets its area order;
 `publish` with `amend` replaces a variant's latest version in place and with
 `withdraw` deletes it, both only from the session that published it and only

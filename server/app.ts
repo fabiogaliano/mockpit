@@ -3605,7 +3605,7 @@ export function createApp({
   }
 
   // The user hides one version of a variant from the history, or brings it
-  // back. Hidden, never removed: replies and embeds may point at it, so it still
+  // back; an agent asked to tidy up hides through `move`. Hidden, not removed: replies and embeds may point at it, so it still
   // renders by URL. The version in use can't be hidden, nor a state's last.
   async function hideFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
@@ -4285,20 +4285,250 @@ export function createApp({
   // Nothing is destroyed, so the user can always undo it from Archived, and a variant
   // in use stays, since which design is in use is the user's call. A group moves
   // together, as it does when the user moves one.
+  // Why one older version can't be deleted, if anything points at it. A reply or comment
+  // made while it was the current one counts even when it names no version: it answered
+  // what was on screen, and that picture is the record of what the user meant.
+  async function deleteBlocker(
+    design: Design,
+    post: Post,
+    version: number,
+    siblings: Post[],
+    comments: Comment[],
+    elsewhere: { design: Design; posts: Post[] }[],
+  ): Promise<string | null> {
+    if (variantStatus(post.status) === "inUse" && inUseVersion(post) === version) return "in use";
+    if (post.stayedVersion === version) return "the user chose to stay on it";
+    const steps = post.history
+      .map((h) => [h.version, h.at] as const)
+      .concat([[post.version, post.updatedAt]])
+      .sort((a, b) => a[0] - b[0]);
+    const at = steps.findIndex(([v]) => v === version);
+    const from = steps[at][1];
+    const until = steps[at + 1]?.[1] ?? "￿";
+    const during = (when: string) => when >= from && when < until;
+    const inState = new Set(siblings.map((p) => p.id));
+
+    for (const c of comments) {
+      if (c.author !== "user") continue;
+      if (c.kind === "reply") {
+        const r = c.payload;
+        if (!r || r.edited) continue;
+        const names =
+          (r.verdict?.variant === post.variant &&
+            r.verdict.state === post.state &&
+            r.verdict.version === version) ||
+          r.comments.some(
+            (x) => x.variant === post.variant && x.state === post.state && x.version === version,
+          );
+        if (names) return "a reply names it";
+        if (during(c.createdAt) && speaksToState(r, design, post, siblings)) {
+          return "the user replied while it was current";
+        }
+        continue;
+      }
+      const anchorVersion =
+        c.anchor && "postVersion" in c.anchor ? c.anchor.postVersion : undefined;
+      if (
+        c.postId === post.id &&
+        (c.postVersion === version ||
+          anchorVersion === version ||
+          c.anchors.some((a) => a.postVersion === version))
+      ) {
+        return "the user commented on it";
+      }
+      const anchored = c.anchor?.kind === "part" ? c.anchor.state : undefined;
+      const other = c.postId
+        ? !inState.has(c.postId)
+        : anchored !== undefined && anchored !== post.state;
+      if (!other && during(c.createdAt)) return "the user commented while it was current";
+    }
+
+    // A note on a question is about the question, so only picks and comments hold a version.
+    const d = design.draft;
+    if (d) {
+      const here = d.comments.filter((x) => x.state === post.state);
+      if (here.some((x) => x.variant === post.variant && x.version === version)) {
+        return "the user's draft names it";
+      }
+      const holds =
+        here.length > 0 || Object.keys(d.answers).length > 0 || Object.keys(d.borrowed).length > 0;
+      if (holds && during(d.updatedAt)) return "the user's draft was made on it";
+    }
+
+    for (const ask of design.asks) {
+      if (ask.state !== undefined && ask.state !== post.state) continue;
+      if (ask.options.some((o) => o.variant === post.variant && o.version === version)) {
+        return `question "${ask.id}" offers it`;
+      }
+    }
+    const fork = siblings.find(
+      (p) => p.forkedFrom?.variant === post.variant && p.forkedFrom.version === version,
+    );
+    if (fork) return `${fork.variant} was forked from it`;
+
+    for (const { design: other, posts } of elsewhere) {
+      for (const p of posts) {
+        const copy = p.copiedFrom;
+        if (
+          copy?.design === design.id &&
+          copy.state === post.state &&
+          copy.variant === post.variant &&
+          copy.version === version
+        ) {
+          return `copied to ${other.slug}`;
+        }
+        const embeds = p.embeds.some(
+          (e) => e.slug === design.slug && e.variant === post.variant && e.version === version,
+        );
+        const pinned = [p, ...p.history].some((v) =>
+          v.surfaces.some(
+            (s) =>
+              s.kind === "html" &&
+              parseEmbedTags(s.html).some(
+                (t) =>
+                  t.slug === design.slug &&
+                  t.version === version &&
+                  (t.variant === null || t.variant === post.variant),
+              ),
+          ),
+        );
+        if (embeds || pinned) return `embedded in ${other.slug}`;
+      }
+    }
+    return null;
+  }
+
+  // `move`'s tidying of versions rather than variants, only when the user asks for it.
+  // Each variant keeps its latest, or its newest visible one if the user hid the latest,
+  // so no variant is left with nothing to show.
+  async function tidyVersionsFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    const deleting = body.deleteOlder === true;
+    const given: unknown[] = Array.isArray(body.variants) ? body.variants : [];
+    const names = [...new Set(given.flatMap((v) => str(v, MAX_LABEL) ?? []))];
+    const target = await commentTarget({
+      design: ref,
+      project: body.project,
+      session: body.session,
+    });
+    if (isResult(target)) return target;
+    const { design, session } = target;
+    const posts = await store.listPosts({ designId: design.id });
+    const state = stateArg(body.state);
+    const unknown = names.find((n) => !posts.some((p) => p.variant === n));
+    if (unknown) return fail(404, `${design.slug} has no variant "${unknown}"`);
+    const scope = posts.filter(
+      (p) => (!names.length || names.includes(p.variant)) && (state == null || p.state === state),
+    );
+
+    const comments = deleting ? await store.listComments({ designId: design.id }) : [];
+    const elsewhere = deleting
+      ? await Promise.all(
+          (await store.listDesigns(design.project))
+            .filter((d) => d.id !== design.id)
+            .map(async (d) => ({ design: d, posts: await store.listPosts({ designId: d.id }) })),
+        )
+      : [];
+
+    const versions: { state: string | null; variant: string; version: number }[] = [];
+    const skipped: { state: string | null; variant: string; version?: number; why: string }[] = [];
+    const changed = new Set<string>();
+    for (const post of scope) {
+      if (!isLive(post.status)) {
+        skipped.push({ state: post.state, variant: post.variant, why: "archived" });
+        continue;
+      }
+      const hidden = post.hiddenVersions ?? [];
+      const all = [post.version, ...post.history.map((h) => h.version)].sort((a, b) => b - a);
+      const keep = all.find((v) => !hidden.includes(v)) ?? post.version;
+      const older = all.filter((v) => v < keep);
+      const siblings = posts.filter((p) => p.state === post.state);
+      const going: number[] = [];
+      for (const version of older) {
+        const why = deleting
+          ? await deleteBlocker(design, post, version, siblings, comments, elsewhere)
+          : variantStatus(post.status) === "inUse" && inUseVersion(post) === version
+            ? "in use"
+            : hidden.includes(version)
+              ? "already hidden"
+              : null;
+        if (why) skipped.push({ state: post.state, variant: post.variant, version, why });
+        else going.push(version);
+      }
+      if (!going.length) continue;
+      changed.add(post.id);
+      if (deleting) {
+        await store.deleteOldVersions(post.id, going);
+        dropPostRenders(post.id);
+      } else {
+        for (const version of going) await store.setVersionHidden(post.id, version, true);
+      }
+      for (const version of going) {
+        versions.push({ state: post.state, variant: post.variant, version });
+      }
+      bus.broadcast({
+        type: "post-updated",
+        id: post.id,
+        designId: design.id,
+        sessionId: post.sessionId,
+        version: post.version,
+        by: "agent",
+      });
+    }
+
+    if (versions.length) {
+      bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+      const n = versions.length;
+      const word = `older version${n === 1 ? "" : "s"}`;
+      const line = deleting
+        ? `Deleted ${n} ${word} of ${changed.size} ${changed.size === 1 ? "render" : "renders"}. This can't be undone.`
+        : `Hid ${n} ${word} of ${changed.size} ${changed.size === 1 ? "render" : "renders"}. Studio brings them back.`;
+      const comment = await store.createComment({
+        sessionId: session.id,
+        designId: design.id,
+        postId: null,
+        author: reservedAgent(session.agent),
+        text: line,
+        kind: "comment",
+        anchors: [],
+        postVersion: null,
+        viewport: null,
+      });
+      if (comment) announceComment(comment);
+    }
+    return ok({
+      variants: [],
+      versions,
+      skipped,
+      url: designUrl(ctx.base, design),
+      feedback: await feedbackFor(body.session, ctx.base),
+    });
+  }
+
   async function moveFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
     const given: unknown[] = Array.isArray(body.variants) ? body.variants : [];
     const names = [...new Set(given.flatMap((v) => str(v, MAX_LABEL) ?? []))];
-    if (names.length === 0) return fail(400, 'provide "variants": which ones to move');
+    const tidying = body.hideOlder === true || body.deleteOlder === true;
+    if (names.length === 0 && !tidying) return fail(400, 'provide "variants": which ones to move');
     if (names.length > MAX_CANDIDATES) {
       return fail(400, `move at most ${MAX_CANDIDATES} variants at once`);
     }
     const toState = stateArg(body.toState) ?? undefined;
     const moving = (body.to !== undefined && body.to !== null) || toState !== undefined;
-    const actions = [moving, body.archive === true, body.restore === true];
+    const actions = [
+      moving,
+      body.archive === true,
+      body.restore === true,
+      body.hideOlder === true,
+      body.deleteOlder === true,
+    ];
     if (actions.filter(Boolean).length !== 1) {
-      return fail(400, 'provide one of "to" or "toState", "archive" or "restore"');
+      return fail(
+        400,
+        'provide one of "to" or "toState", "archive", "restore", "hideOlder" or "deleteOlder"',
+      );
     }
+    if (tidying) return tidyVersionsFlow(ref, body, ctx);
     const target = await commentTarget({
       design: ref,
       project: body.project,

@@ -595,6 +595,19 @@ function VersionCaption(props: { s: DesignScreenState; m: Margins; reading: bool
   return (
     <div class="vcap" classList={{ inline: props.reading }} role="group" aria-label="This version">
       <div class="mact">
+        <Show when={s.boundVersion() !== null}>
+          <div role="status">
+            <button
+              type="button"
+              class="btn vcap-arrived"
+              title={`Your answers stay on ${s.arrived()?.bound ?? "this one"} until you do`}
+              onClick={() => s.viewNewVersion()}
+            >
+              {`${s.arrived()?.name ?? "A new version"} arrived`}
+              <span class="vcap-view">View</span>
+            </button>
+          </div>
+        </Show>
         <Show when={s.steps().length > 1 && !props.m.leftDocked()}>
           <VersionStepper
             s={s}

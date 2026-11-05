@@ -353,9 +353,15 @@ areas alphabetically unless \`mockpit edit --project <p> --area-order
 Tidying up is yours too when the user asks: \`mockpit move --design <slug> --variant
 <v> --to <design> [--to-state <tab>]\` moves variants and takes them out of here,
 \`--archive\` takes them out of sight and \`--restore\` brings them back. Their group
-goes along, one in use stays, and nothing is deleted. Copying by publishing leaves the
-originals behind, so use this instead. A design with no states takes tabs after
+goes along and one in use stays. Copying by publishing leaves the originals behind,
+so use this instead. A design with no states takes tabs after
 \`mockpit edit --design <slug> --first-state <name>\`, which names the one it has.
+
+To clear out older versions, only when the user asks: \`mockpit move --design <slug>
+--hide-older\` hides all but each variant's newest, and the user can bring them back.
+\`--delete-older\` deletes them for good and skips any that a reply, comment, question,
+embed, copy or fork points at, or that is in use, listing why. It can't be undone, so
+confirm first; \`--withdraw\` is still how you take back your own latest version.
 
 ## Question, fills or knob
 

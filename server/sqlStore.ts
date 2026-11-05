@@ -2272,6 +2272,28 @@ export class SqlStore implements Store {
     return next;
   }
 
+  async deleteOldVersions(id: string, versions: number[]): Promise<Post | null> {
+    const post = await this.getPost(id);
+    if (!post) return null;
+    const gone = new Set(versions.filter((v) => v !== post.version));
+    const hidden = (post.hiddenVersions ?? []).filter((v) => !gone.has(v));
+    this.writingPosts(post.design, [id], () =>
+      this.atomic(() => {
+        for (const v of gone) {
+          this.sql.exec("DELETE FROM post_versions WHERE postId = ? AND version = ?", id, v);
+        }
+        this.sql.exec(
+          "UPDATE posts SET hiddenVersions = ? WHERE id = ?",
+          hidden.length ? JSON.stringify(hidden) : null,
+          id,
+        );
+      }),
+    );
+    this.touchDesign(post.design, new Date().toISOString());
+    this.invalidateAssetRefs();
+    return this.getPost(id);
+  }
+
   async setPostReason(id: string, reason: string | null) {
     const post = this.cachedPost(id) ?? (await this.getPost(id));
     if (!post) return null;

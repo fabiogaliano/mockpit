@@ -73,6 +73,8 @@ export function createMargins(
   const [over, setOver] = createSignal(false);
   // Opened by hand with only sent answers in it, which never open it themselves.
   const [pinned, setPinned] = createSignal(false);
+  // Held here because folding the margin unmounts the list.
+  const [versionsOpen, setVersionsOpen] = createSignal(false);
 
   const onList = () => nav.at() >= 0 || nav.outside().some((x) => x.state === s.activeState());
   const walkable = () =>
@@ -217,6 +219,8 @@ export function createMargins(
     closeLeft,
     closeSide,
     toggleSide,
+    versionsOpen,
+    setVersionsOpen,
   };
 }
 
@@ -335,7 +339,7 @@ export function LeftMargin(props: { s: DesignScreenState; nav: FlowNav; m: Margi
           <StateList s={s} nav={props.nav} outlining={m.outlining()} />
         </Show>
         <Show when={s.steps().length > 1}>
-          <VersionList s={s} />
+          <VersionList s={s} open={m.versionsOpen()} onToggle={m.setVersionsOpen} />
         </Show>
       </aside>
     </Show>
@@ -434,8 +438,14 @@ function StateList(props: { s: DesignScreenState; nav: FlowNav; outlining: boole
   );
 }
 
-// One line per variant, newest first; each version names what prompted it.
-function VersionList(props: { s: DesignScreenState }) {
+// A bar at the margin's foot that opens upward, so the states keep the margin until
+// the history is asked for. Shut, it still says which version is on stage. One line per
+// variant, newest first; each version names what prompted it.
+function VersionList(props: {
+  s: DesignScreenState;
+  open: boolean;
+  onToggle: (open: boolean) => void;
+}) {
   const s = props.s;
   const lines = createMemo(() => [...new Set([...s.steps()].reverse().map((x) => x.variant))], [], {
     equals: sameList,
@@ -446,20 +456,40 @@ function VersionList(props: { s: DesignScreenState }) {
       .filter((x) => x.variant === variant)
       .reverse();
   return (
-    <section class="lm-sec">
-      <h3>Versions</h3>
-      <For each={lines()}>
-        {(variant) => (
-          <>
-            <Show when={lines().length > 1}>
-              <span class="lm-line" title={variant}>
-                {variantName(variant)}
-              </span>
-            </Show>
-            <For each={inLine(variant)}>{(step) => <VersionRow s={s} step={step} />}</For>
-          </>
-        )}
-      </For>
+    <section class="lm-versions" classList={{ open: props.open }}>
+      <button
+        type="button"
+        class="lm-versions-bar"
+        aria-expanded={props.open}
+        onClick={() => props.onToggle(!props.open)}
+      >
+        <span>Versions</span>
+        <Show when={s.onStage()}>{(at) => <b class="num">{`#${at().version}`}</b>}</Show>
+        <Icon name="down" />
+      </button>
+      <Show when={props.open}>
+        <div
+          class="lm-versions-list"
+          ref={(el) =>
+            host().window.requestAnimationFrame(() =>
+              el.querySelector(".lm-row.on")?.scrollIntoView({ block: "nearest" }),
+            )
+          }
+        >
+          <For each={lines()}>
+            {(variant) => (
+              <>
+                <Show when={lines().length > 1}>
+                  <span class="lm-line" title={variant}>
+                    {variantName(variant)}
+                  </span>
+                </Show>
+                <For each={inLine(variant)}>{(step) => <VersionRow s={s} step={step} />}</For>
+              </>
+            )}
+          </For>
+        </div>
+      </Show>
     </section>
   );
 }

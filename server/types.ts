@@ -706,8 +706,9 @@ export interface Post {
   // publish newer ones; export and embeds keep showing this one until the user
   // chooses again, so a decision never drifts under them.
   acceptedVersion?: number;
-  // Versions the user hid from the history. Hidden, never removed: replies,
-  // embeds and the version in use may still point at one, so it still renders.
+  // Versions hidden from the history, by the user or by an agent asked to tidy up.
+  // Hidden, not removed: replies, embeds and the version in use may still point at
+  // one, so it still renders.
   hiddenVersions?: number[];
   // Why it was archived, if the user said. Goes when it comes back.
   archiveReason?: string;
@@ -1183,6 +1184,8 @@ export interface Store {
   setPostArchived(id: string, archivedAt: string, reason: string | null): Promise<Post | null>;
   setPostStarred(id: string, starred: boolean): Promise<Post | null>;
   setVersionHidden(id: string, version: number, hidden: boolean): Promise<Post | null>;
+  // Gone for good, so the caller has checked nothing points at them. Never the latest.
+  deleteOldVersions(id: string, versions: number[]): Promise<Post | null>;
   setPostReason(id: string, reason: string | null): Promise<Post | null>;
   setPostStayed(id: string, version: number): Promise<Post | null>;
 

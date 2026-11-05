@@ -1,8 +1,8 @@
 // Studio: the state zoomed out, every variant side by side with its newest
 // version on top, for exploring before anything is in use. A click looks
 // closer without leaving: one version large, flipped through in reading order;
-// Stage, where answers are, is a deliberate step from there. A hidden version stays
-// dimmed where it stands. A fork is a column of its own beside the one it came from,
+// Stage, where answers are, is a deliberate step from there. Hidden versions leave the
+// grid behind a count that brings them back, dimmed. A fork is a column of its own beside the one it came from,
 // saying so: the lineage is the agent's data, and nothing here is grouped by hand.
 // Each steer (more like this, a comment, a borrow) is its own reply.
 // On a phone there is no room for a grid of one state: every state's columns
@@ -111,16 +111,16 @@ type Acts = Record<
 // Everything here reads the board's own state rather than the one on stage,
 // since a phone's strip draws every state at once.
 type Board = ReturnType<typeof boardOf>;
-function boardOf(s: DesignScreenState, state: string | null) {
+function boardOf(s: DesignScreenState, state: string | null, showHidden: () => boolean) {
   const inState = createMemo(() => s.variants().filter((v) => v.state === state));
   const allSteps = createMemo<VersionStep[]>(
     (was) => keepSame(was, versionSteps(s.variants(), state), stepKey),
     [],
   );
-  // Everything a column draws, the hidden ones dimmed.
+  // Everything a column draws: the hidden ones only when asked for, dimmed.
   const drawnOf = (variant: string) =>
     allSteps()
-      .filter((st) => st.variant === variant)
+      .filter((st) => st.variant === variant && (showHidden() || !st.hidden))
       .reverse();
   // What's still in play, which is what decides whether a × hides or archives.
   const versionsOf = (variant: string) => drawnOf(variant).filter((st) => !st.hidden);
@@ -230,7 +230,8 @@ export function Studio(props: {
     onDone?: () => void;
   } | null>(null);
   const [adding, setAdding] = createSignal(false);
-  const boards = mapArray(s.states, (st) => boardOf(s, st));
+  const [showHidden, setShowHidden] = createSignal(false);
+  const boards = mapArray(s.states, (st) => boardOf(s, st, showHidden));
   const active = () => boards().find((b) => b.state === s.activeState()) ?? boards()[0];
   const readParam = (name: string) => new URLSearchParams(host().window.location.search).get(name);
   const withParam = (name: string, k: string | null) => {
@@ -1032,6 +1033,18 @@ export function Studio(props: {
           Wall
         </button>
       </Show>
+      <Show when={drawn().flatMap((b) => b.hiddenSteps()).length}>
+        {(n) => (
+          <button
+            type="button"
+            class="btn studio-hidden"
+            aria-pressed={showHidden()}
+            onClick={() => setShowHidden((on) => !on)}
+          >
+            {showHidden() ? `Collapse ${n()} hidden` : `${n()} hidden`}
+          </button>
+        )}
+      </Show>
       <div class="studio-cols">
         <For each={drawn()}>
           {(b, i) => {
@@ -1342,9 +1355,11 @@ function WallBar(props: {
             type="button"
             role="radio"
             aria-checked={props.within === null}
+            aria-label="All states"
+            title="All states"
             onClick={() => props.onWithin(null)}
           >
-            All states
+            <Icon name="all" />
             <Show when={props.within === null}>
               <span class="n">{props.shown}</span>
             </Show>
