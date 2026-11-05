@@ -151,7 +151,8 @@ Each Send is delivered exactly once, by whichever of `feedback` or a write picks
    thread message (`mockpit message on writer: “…”`). It never returns, so never run it in
    the foreground. In Claude Code, arm it under Monitor after asking, then end your turn:
    `Monitor({ command: "mockpit watch", description: "mockpit replies", timeout_ms: 1800000 })`.
-   A monitor expires with one notice; re-arm it while you still expect a reply. With the
+   A monitor expires with one notice; re-arm it while you still expect a reply, without
+   telling the user. With the
    mockpit plugin, skip this: your mockpit calls start its wait. With no such tool the
    user's next message is the wake-up: when no watcher is open, the viewer shows them a
    line to paste to you.

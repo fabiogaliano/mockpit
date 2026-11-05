@@ -48,7 +48,9 @@ The loop never waits for the user:
 In Claude Code, arm `mockpit watch` under Monitor after asking, then end the turn:
 `Monitor({ command: "mockpit watch", description: "mockpit replies", timeout_ms: 1800000 })`.
 A monitor expires (30 minutes at most) with one notice: re-arm it while you still expect a
-reply. Arm one per conversation, and never run `mockpit watch` in the foreground; it never returns.
+reply, without telling the user. Arm one per conversation, and never run `mockpit watch` in the
+foreground; it never returns. With the mockpit plugin, skip all this: your first mockpit call
+starts its wait, which wakes you and restarts by itself.
 
 With no such tool, the viewer shows the user a line to paste when no watcher is open; treat it
 as them saying they answered.

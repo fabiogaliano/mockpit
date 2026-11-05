@@ -48,7 +48,8 @@ the loop (never blocks on the user):
      mockpit feedback. Every write also returns feedback; read it.
   6. mockpit publish the revision; mockpit export once a variant is in use.
   In Claude Code, arm mockpit watch under Monitor after asking, then end the
-  turn; elsewhere the user's next message is the wake-up.
+  turn, unless you have the mockpit plugin, which wakes you itself; elsewhere
+  the user's next message is the wake-up.
 
 verbs:
   mockpit init [--project name] [--kit <id>] [--kit-url <url> --kit-doc <file|text>]
@@ -309,7 +310,8 @@ mockpit edit --project <name> --area-order "Shell,Food,Chat"
   script failed.`,
   watch: `mockpit watch [--session <id>] [--after <seq>] [--once] [--exit-code <n>]
   Print one line per Send, for a background monitor (in Claude Code, arm it
-  under Monitor after asking, then end the turn). A line says a reply landed;
+  under Monitor after asking, then end the turn; with the mockpit plugin, don't,
+  since it wakes you itself). A line says a reply landed;
   feedback or the next write delivers it, once.
   --once stops after the first Send, for a harness whose wake is a process
   exiting; --exit-code sets the code it stops with (default 0).`,
