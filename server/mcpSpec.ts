@@ -388,6 +388,15 @@ const feedbackSchema = o({
     verdict: o({ kind: z.enum(["use", "revise"]), state: nullStr, variant: str })
       .optional()
       .describe("Use this or New version on one variant"),
+    more: o({
+      ask: str,
+      text: str,
+      existing: strs,
+      note: str.optional(),
+      answered: z.array(o({ ask: str, text: str, chosen: strs, comment: str.optional() })),
+    })
+      .optional()
+      .describe("The user wants more answers to this question: ask it again, same id, with them"),
   })
     .nullable()
     .describe("The user's Send; null if only messages"),

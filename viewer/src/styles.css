@@ -4823,6 +4823,244 @@ html:has(.design-screen) {
   flex-direction: column;
   gap: 4px;
 }
+.qview {
+  margin-left: auto;
+}
+.qview button {
+  padding: 3px 8px;
+}
+.qview svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+.opt.held {
+  outline: 1.5px dashed var(--t2);
+  outline-offset: -3px;
+}
+/* Runs for HOLD_MS in Questions.tsx: waits so a pointer passing over stays quiet, then
+   counts at a constant speed, since it is a clock. Its colours sit on a picture, so they
+   don't follow the theme. */
+.holdtimer {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  z-index: 3;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgb(15 15 15 / 0.82);
+  opacity: 0;
+  pointer-events: none;
+  animation: holdtimer-in 120ms ease 300ms forwards;
+}
+.holdtimer svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+  transform: rotate(-90deg);
+  fill: none;
+  stroke: #f5f5f5;
+  stroke-width: 2.4;
+}
+.holdtimer circle {
+  stroke-dasharray: 1 1;
+  stroke-dashoffset: 1;
+  animation: holdtimer-run 1700ms linear 300ms forwards;
+}
+@keyframes holdtimer-in {
+  to {
+    opacity: 1;
+  }
+}
+@keyframes holdtimer-run {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .holdtimer {
+    display: none;
+  }
+}
+.optnew {
+  position: absolute;
+  top: 9px;
+  left: 9px;
+  z-index: 2;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--t1);
+  color: var(--page);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 17px;
+}
+.qcard.beside .opts.aslist {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+.qcard.beside .opts.aslist .opt:not(.pill) {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 32px 5px 5px;
+  border-radius: 10px;
+}
+.qcard.beside .opts.aslist .opt .crop {
+  flex: none;
+  width: 36px;
+  height: 48px;
+  aspect-ratio: auto;
+  border-radius: 6px;
+}
+.qcard.beside .opts.aslist .opt .lbl {
+  flex: 1;
+  padding: 0;
+  line-height: 17px;
+}
+.opts.aslist .holdtimer {
+  top: 50%;
+  right: 6px;
+  margin-top: -10px;
+}
+.opts.aslist .optnew {
+  position: static;
+  order: 3;
+  flex: none;
+}
+.moreans {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px dashed var(--fill);
+  border-radius: 10px;
+  color: var(--t3);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+}
+.moreans svg {
+  width: 16px;
+  height: 16px;
+}
+@media (hover: hover) {
+  .moreans:hover {
+    background: var(--row);
+    color: var(--t1);
+  }
+}
+.morewait {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--row);
+  color: var(--t3);
+  font-size: 13px;
+}
+.morebox {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: var(--panel);
+  font-size: 13px;
+}
+.morebox h3 {
+  margin: 0;
+  color: var(--t1);
+  font-size: 13px;
+  font-weight: 600;
+}
+.morebox dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 10px;
+  margin: 0;
+  color: var(--t3);
+  font-size: 12.5px;
+  line-height: 17px;
+}
+.morebox dt {
+  color: var(--t5);
+}
+.morebox dd {
+  margin: 0;
+}
+.morebox textarea {
+  width: 100%;
+  min-height: 54px;
+  padding: 8px 10px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--row);
+  color: var(--t1);
+  font: 13px/1.35 var(--sans);
+}
+.morebox textarea::placeholder {
+  color: var(--t5);
+}
+.morebox-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.morebox-acts .btn {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.previewcap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 240px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 11px;
+  background: var(--row);
+  color: var(--t2);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.previewcap b {
+  flex: none;
+  color: var(--t4);
+  font-weight: 400;
+}
+.previewcap span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.previewcap button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-right: -4px;
+  border-radius: 6px;
+  color: var(--t4);
+}
+.previewcap svg {
+  width: 13px;
+  height: 13px;
+}
+@media (hover: hover) {
+  .previewcap button:hover {
+    background: var(--row-hover);
+    color: var(--t1);
+  }
+}
 .qfoot {
   display: flex;
   flex: none;

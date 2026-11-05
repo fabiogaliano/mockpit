@@ -6,16 +6,30 @@
 // the same one again sends it on. Sent answers fold into a read-only Answered
 // list, changed only through its "Change answer".
 
-import { createSignal, createUniqueId, For, type JSX, Show } from "solid-js";
+import { createSignal, createUniqueId, For, type JSX, onCleanup, Show } from "solid-js";
 import { type Ask, type AskOption, type KnobValue, optionState } from "../../server/types.ts";
 import { assetUrl, surfaceUrl, type VariantView } from "./api.ts";
 import { ACCEPT, filesOf, hasFiles } from "./attach.ts";
-import { readonly } from "./host.ts";
-import { answerIds, askState, draftKnobValues, frameKey, isLookAsk, partBox } from "./logic.ts";
+import { answersView } from "./answersView.ts";
+import { host, readonly } from "./host.ts";
+import {
+  answerIds,
+  askState,
+  draftKnobValues,
+  frameKey,
+  isBuiltinAsk,
+  isLookAsk,
+  partBox,
+} from "./logic.ts";
 import type { AskField, DesignScreenState } from "./state.ts";
 import { Reason } from "./Reason.tsx";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
+import { Icon } from "./icons.tsx";
+
+// .holdtimer's two animations add up to this.
+const HOLD_MS = 2000;
+const LIST_ABOVE = 4;
 
 // A design the user archived: what that did, the way back, and why, if they want to say.
 export function ArchivedNote(props: { s: DesignScreenState }) {
@@ -225,7 +239,11 @@ export function AskBody(props: {
         class="opts"
         role="group"
         aria-label={props.ask.text}
-        classList={{ asleep: !!dormant(), waiting: !!s.waitingOn(props.ask) }}
+        classList={{
+          asleep: !!dormant(),
+          waiting: !!s.waitingOn(props.ask),
+          aslist: !!props.beside && listed(s, props.ask) && answersView() === "list",
+        }}
       >
         <For each={props.ask.options}>
           {(o, i) => {
@@ -257,10 +275,17 @@ export function AskBody(props: {
                 why={pic()?.variant.description}
                 on={picked(o)}
                 previewing={s.preview()?.key === keyOf(o)}
+                held={s.heldPreview()?.key === keyOf(o) && !picked(o)}
+                isNew={s.isNewOption(props.ask, o.id)}
                 data={o.id}
                 shortcut={i() < 9 ? String(i() + 1) : undefined}
-                onEnter={() => s.setPreview(s.previewOf(props.ask, o.id))}
-                onLeave={() => s.preview()?.key === keyOf(o) && s.setPreview(null)}
+                onEnter={() => s.setHoveredPreview(s.previewOf(props.ask, o.id))}
+                onLeave={() => s.hoveredPreview()?.key === keyOf(o) && s.setHoveredPreview(null)}
+                onHold={
+                  s.previewOf(props.ask, o.id)
+                    ? () => s.setHeldPreview(s.previewOf(props.ask, o.id))
+                    : undefined
+                }
                 onChoose={() => s.choose(props.ask, o.id)}
               />
             );
@@ -302,10 +327,13 @@ export function AskBody(props: {
             shortcut={
               props.ask.options.length < 9 ? String(props.ask.options.length + 1) : undefined
             }
-            onEnter={() => s.setPreview(null)}
+            onEnter={() => s.setHoveredPreview(null)}
             onLeave={() => {}}
             onChoose={() => s.pick(props.ask, null)}
           />
+          <Show when={!isBuiltinAsk(props.ask) && !dormant()}>
+            <MoreAnswers s={s} ask={props.ask} />
+          </Show>
         </Show>
       </div>
       <Show when={s.otherTicked(props.ask)}>
@@ -573,6 +601,80 @@ function XIcon() {
   );
 }
 
+// Whether a question offers enough pictures for a list to be worth having.
+export const listed = (s: DesignScreenState, ask: Ask) =>
+  ask.options.length > LIST_ABOVE && ask.options.some((o) => optionPicture(s, ask, o));
+
+// None of the answers fit: ask for more without answering. The request goes on its own,
+// so whatever else is drafted stays a draft.
+function MoreAnswers(props: { s: DesignScreenState; ask: Ask }) {
+  const s = props.s;
+  const [open, setOpen] = createSignal(false);
+  const [note, setNote] = createSignal("");
+  const [sending, setSending] = createSignal(false);
+  const around = () => s.answeredAround(props.ask);
+  async function ask() {
+    setSending(true);
+    const sent = await s.askMore(props.ask, note().trim());
+    setSending(false);
+    if (!sent) return;
+    setOpen(false);
+    setNote("");
+  }
+  return (
+    <Show
+      when={!s.moreWaiting(props.ask)}
+      fallback={
+        <p class="morewait" role="status">
+          More answers asked for. They'll appear here.
+        </p>
+      }
+    >
+      <Show
+        when={open()}
+        fallback={
+          <button type="button" class="moreans" onClick={() => setOpen(true)}>
+            <Icon name="plus" />
+            More answers
+          </button>
+        }
+      >
+        <div
+          class="morebox"
+          role="group"
+          aria-label="Ask for more answers"
+          ref={(el) => host().window.setTimeout(() => el.scrollIntoView({ block: "nearest" }))}
+        >
+          <h3>More answers to this question</h3>
+          <dl>
+            <Show when={around().length}>
+              <dt>Keeps</dt>
+              <dd>{around().join(" · ")}</dd>
+            </Show>
+            <dt>Skips</dt>
+            <dd>{`The ${props.ask.options.length} answers here`}</dd>
+          </dl>
+          <textarea
+            aria-label="What to aim for"
+            placeholder="Anything to aim for? Optional"
+            value={note()}
+            ref={(el) => host().window.setTimeout(() => el.focus({ preventScroll: true }))}
+            onInput={(e) => setNote(e.currentTarget.value)}
+          />
+          <div class="morebox-acts">
+            <button type="button" class="btn" onClick={() => setOpen(false)}>
+              Cancel
+            </button>
+            <button type="button" class="btn go" disabled={sending()} onClick={() => void ask()}>
+              Ask
+            </button>
+          </div>
+        </div>
+      </Show>
+    </Show>
+  );
+}
+
 function OptionCard(props: {
   picture: JSX.Element | null;
   other?: boolean;
@@ -584,12 +686,32 @@ function OptionCard(props: {
   why?: string;
   on: boolean;
   previewing: boolean;
+  held?: boolean;
+  isNew?: boolean;
   data: string;
   shortcut?: string;
   onEnter: () => void;
   onLeave: () => void;
   onChoose: () => void;
+  // Called once the pointer has rested on it; absent when the stage can't show it.
+  onHold?: () => void;
 }) {
+  const [resting, setResting] = createSignal(false);
+  let timer = 0;
+  const stopRest = () => {
+    host().window.clearTimeout(timer);
+    setResting(false);
+  };
+  onCleanup(stopRest);
+  const startRest = () => {
+    const hold = props.onHold;
+    if (!hold || props.on || props.held) return;
+    setResting(true);
+    timer = host().window.setTimeout(() => {
+      setResting(false);
+      hold();
+    }, HOLD_MS);
+  };
   return (
     <button
       type="button"
@@ -599,6 +721,7 @@ function OptionCard(props: {
         pill: !props.picture,
         other: !!props.other,
         previewing: props.previewing,
+        held: !!props.held,
         "opt-static": readonly(),
       }}
       aria-disabled={readonly() || undefined}
@@ -611,11 +734,32 @@ function OptionCard(props: {
       aria-pressed={props.on}
       aria-keyshortcuts={props.shortcut}
       data-option={props.data}
-      onPointerEnter={(e) => e.pointerType === "mouse" && props.onEnter()}
-      onPointerLeave={(e) => e.pointerType === "mouse" && props.onLeave()}
-      onClick={() => props.onChoose()}
+      onPointerEnter={(e) => {
+        if (e.pointerType !== "mouse") return;
+        props.onEnter();
+        startRest();
+      }}
+      onPointerLeave={(e) => {
+        if (e.pointerType !== "mouse") return;
+        stopRest();
+        props.onLeave();
+      }}
+      onClick={() => {
+        stopRest();
+        props.onChoose();
+      }}
     >
       {props.picture}
+      <Show when={resting()}>
+        <span class="holdtimer" aria-hidden="true">
+          <svg viewBox="0 0 20 20">
+            <circle cx="10" cy="10" r="6" pathLength="1" />
+          </svg>
+        </span>
+      </Show>
+      <Show when={props.isNew}>
+        <span class="optnew">New</span>
+      </Show>
       <span class="lbl">{props.label}</span>
       <Show when={props.note}>
         <span class="onote">{props.note}</span>

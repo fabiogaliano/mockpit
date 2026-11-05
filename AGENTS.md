@@ -130,6 +130,11 @@ consciously, not as a side effect):
   and take the version out of where it is. Each is one version copied as a variant
   with `copiedFrom`, originals untouched unless the user moves it. Until an agent writes to it, replies go to
   the project's live agent (`replySessionId` in `server/app.ts`).
+- Answers in `Questions.tsx`: `OptionCard` holds a preview after the pointer rests `HOLD_MS`
+  (`heldPreview` in `state.ts`, which the stage falls back to when no answer is hovered; it never
+  answers). `MoreAnswers` sends `reply.more` through `sendAlone`, so the draft stays;
+  `feedbackBatch.ts` resolves it to the question, its answers and what's settled around it, and
+  the agent replies by asking the same id again. `answersView.ts` is the pictures or list choice.
 - A Send goes to the design's owner unless the owner can't hear it: with no watch open and
   no call in `OWNER_BUSY_MS`, it goes to the user's pick (`SendTo`, from
   `GET /api/designs/:id/recipients`) or else to a session started in this project that is

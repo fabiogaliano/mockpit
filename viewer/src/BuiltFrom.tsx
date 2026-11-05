@@ -216,7 +216,7 @@ function PartKnobs(props: { s: DesignScreenState; part: string | null }) {
                   part: o().part,
                 })
               }
-              onMouseLeave={() => s.setPreview(null)}
+              onMouseLeave={() => s.setHoveredPreview(null)}
               onClick={() => s.toggleMix(o())}
             >
               <span>{`${partLabel(s.design() ?? { parts: [] }, o().part)} as in ${o().variant}`}</span>

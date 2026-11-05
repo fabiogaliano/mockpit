@@ -3577,7 +3577,13 @@ export function createApp({
     const text = str(body?.text, MAX_COMMENT_TEXT);
     const verdict = sanitizeVerdict(body?.verdict, design, posts);
     if (typeof verdict === "string") return fail(400, verdict);
+    const moreAsk = str(body?.more?.ask, MAX_LABEL);
+    if (moreAsk && !design.asks.some((a) => a.id === moreAsk)) {
+      return fail(400, `${design.slug} has no question "${moreAsk}"`);
+    }
+    const moreNote = str(body?.more?.note, MAX_COMMENT_TEXT);
     const empty =
+      !moreAsk &&
       !text &&
       !verdict &&
       !Object.keys(draft.answers).length &&
@@ -3595,6 +3601,7 @@ export function createApp({
       designId: design.id,
       version: draft.version,
       ...(routed ? { routed: true as const } : {}),
+      ...(moreAsk ? { more: { ask: moreAsk, ...(moreNote ? { note: moreNote } : {}) } } : {}),
       answers: draft.answers,
       borrowed: draft.borrowed,
       tuned: draft.tuned,

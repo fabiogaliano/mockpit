@@ -64,6 +64,7 @@ const PATHS = {
   next: ["M9.5 6l6 6-6 6"],
   arrow: ["M5 12h14", "M13 6l6 6-6 6"],
   columns: ["M4 5h4v14H4z", "M10 5h4v14h-4z", "M16 5h4v14h-4z"],
+  rows: ["M4 7h16", "M4 12h16", "M4 17h16"],
   table: ["M4 5h16v14H4z", "M4 10h16", "M4 15h16", "M10 5v14"],
   down: ["M7 10l5 5 5-5"],
   layers: ["M12 3l9 5-9 5-9-5 9-5z", "M3 13l9 5 9-5"],

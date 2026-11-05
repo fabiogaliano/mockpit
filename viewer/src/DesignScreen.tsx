@@ -620,9 +620,27 @@ export function DesignScreen(props: {
 // opaque, since panning brings the design under them.
 function VersionCaption(props: { s: DesignScreenState; m: Margins; reading: boolean }) {
   const s = props.s;
+  const holding = () => s.heldPreview()?.key === s.preview()?.key;
   return (
     <div class="vcap" classList={{ inline: props.reading }} role="group" aria-label="This version">
       <div class="mact">
+        <Show when={s.preview()?.label}>
+          {(label) => (
+            <div class="previewcap" role="status" title={label()}>
+              <b>{holding() ? "Holding" : "Previewing"}</b>
+              <span>{label()}</span>
+              <Show when={holding()}>
+                <button
+                  type="button"
+                  aria-label="Stop holding this preview"
+                  onClick={() => s.setPreview(null)}
+                >
+                  <Icon name="close" />
+                </button>
+              </Show>
+            </div>
+          )}
+        </Show>
         <Show when={s.boundVersion() !== null}>
           <div role="status">
             <button

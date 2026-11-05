@@ -10,7 +10,8 @@ import type { Ask } from "../../server/types.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { isBuiltinAsk, partLabel } from "./logic.ts";
-import { AskBody } from "./Questions.tsx";
+import { answersView, setAnswersView } from "./answersView.ts";
+import { AskBody, listed } from "./Questions.tsx";
 import { SendTo } from "./SendTo.tsx";
 import type { DesignScreenState } from "./state.ts";
 
@@ -33,6 +34,7 @@ export function QuestionCard(props: {
   const asked = () => s.questions().filter((q) => q.kind === "ask" && !isBuiltinAsk(q.ask)).length;
   // No answer yet, yet comments or tuning to send: they go, and the question stays open.
   const sendsAnyway = () => !s.commitKind() && s.sendable();
+  const showsList = (a: Ask) => !!props.beside && listed(s, a);
   return (
     // Keyed by the question's id, not its object: the asks are rebuilt whenever
     // a frame reports its parts, and remounting on that would drop the focus
@@ -56,6 +58,7 @@ export function QuestionCard(props: {
                   <div class="qtext">
                     <Show
                       when={
+                        showsList(ask()) ||
                         counted(ask()) ||
                         s.askSlot(ask()) ||
                         s.stageOffer(ask()) ||
@@ -109,6 +112,28 @@ export function QuestionCard(props: {
                                 </button>
                               )
                             }
+                          </Show>
+                          <Show when={showsList(ask())}>
+                            <span class="vswitch qview" role="group" aria-label="Show answers as">
+                              <button
+                                type="button"
+                                aria-label="Pictures"
+                                title="Pictures"
+                                aria-pressed={answersView() === "grid"}
+                                onClick={() => setAnswersView("grid")}
+                              >
+                                <Icon name="grid" />
+                              </button>
+                              <button
+                                type="button"
+                                aria-label="List"
+                                title="List"
+                                aria-pressed={answersView() === "list"}
+                                onClick={() => setAnswersView("list")}
+                              >
+                                <Icon name="rows" />
+                              </button>
+                            </span>
                           </Show>
                         </span>
                         <Show when={s.askSlot(ask())}>

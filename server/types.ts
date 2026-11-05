@@ -556,6 +556,8 @@ export interface Reply {
   text?: string;
   // Sent to a session other than the design's owner, so it has to read up first.
   routed?: true;
+  // The user asked for more answers to one question instead of answering it.
+  more?: { ask: string; note?: string };
   verdict?: ReplyVerdict;
   // Only on stored rows, from when an archive was written to the agent's stream: the
   // thread still lists them, and they are never delivered (feedbackBatch.ts).

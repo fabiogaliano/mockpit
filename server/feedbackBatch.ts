@@ -6,6 +6,7 @@
 import { type Decisions, decisionsFor } from "./decisions.ts";
 import { ROUTED_NOTE } from "./handoff.ts";
 import {
+  type Ask,
   type AskOption,
   builtinAsk,
   type Comment,
@@ -68,11 +69,22 @@ export interface AnsweredAsk {
   commentImages?: ImageRef[];
 }
 
+// A request for more answers, with what the agent needs to answer it in one go: the
+// question, what it already offers, and what the user has settled around it.
+export interface MoreAnswers {
+  ask: string;
+  text: string;
+  existing: string[];
+  note?: string;
+  answered: { ask: string; text: string; chosen: string[]; comment?: string }[];
+}
+
 // The write-ins, comments and their images ride in `asks`, not again as id maps.
 export interface FeedbackReply extends Omit<
   Reply,
-  "others" | "askComments" | "otherImages" | "askCommentImages"
+  "others" | "askComments" | "otherImages" | "askCommentImages" | "more"
 > {
+  more?: MoreAnswers;
   seq: number;
   at: string;
   asks: AnsweredAsk[];
@@ -103,6 +115,32 @@ export interface FeedbackBatch {
 }
 
 const ref = (p: Post): VariantRef => ({ state: p.state, variant: p.variant });
+
+function moreAnswers(design: Design, more: NonNullable<Reply["more"]>): MoreAnswers | undefined {
+  const ask = design.asks.find((a) => a.id === more.ask);
+  if (!ask) return undefined;
+  const labels = (a: Ask): string[] => {
+    const ids = a.answer === undefined ? [] : Array.isArray(a.answer) ? a.answer : [a.answer];
+    return [
+      ...ids.map((id) => a.options.find((o) => o.id === id)?.label ?? id),
+      ...(a.other === undefined ? [] : [a.other]),
+    ];
+  };
+  return {
+    ask: ask.id,
+    text: ask.text,
+    existing: ask.options.map((o) => o.label),
+    ...(more.note ? { note: more.note } : {}),
+    answered: design.asks
+      .filter((a) => a.id !== ask.id && labels(a).length > 0)
+      .map((a) => ({
+        ask: a.id,
+        text: a.text,
+        chosen: labels(a),
+        ...(a.comment ? { comment: a.comment } : {}),
+      })),
+  };
+}
 
 const REACTION_LEAD: Record<Reaction, string> = {
   up: "👍",
@@ -226,8 +264,10 @@ export function groupFeedback(
         otherImages: _otherImages,
         askCommentImages: _askCommentImages,
         routed,
+        more: asked,
         ...payload
       } = c.payload;
+      const more = asked && design ? moreAnswers(design, asked) : undefined;
       if (routed) batch.handoff = ROUTED_NOTE;
       const reactions = (payload.comments ?? []).filter(isReaction).map(reactionLine);
       batch.reply = {
@@ -237,6 +277,7 @@ export function groupFeedback(
         at: c.createdAt,
         asks: answered(c.payload, design, designPosts, base),
         ...(reactions.length ? { reactions } : {}),
+        ...(more ? { more } : {}),
       };
       const decisions = design ? decisionsFor(design, designPosts, c.payload) : null;
       if (decisions) batch.reply.decisions = decisions;

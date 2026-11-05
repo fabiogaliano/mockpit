@@ -122,6 +122,8 @@ export interface Stop {
 // or knob values sent live to the frame on stage.
 export interface Preview {
   key: string;
+  // An option's words, for saying what the stage is showing.
+  label?: string;
   variant?: string;
   // A version option: exactly that version of the variant.
   version?: number;
@@ -180,7 +182,15 @@ export function createDesignScreen(
   const [draft, setDraftSignal] = createSignal<DraftInput | null>(null);
   const [activeState, setActiveState] = createSignal<string | null>(null);
   const [chosenVariant, setChosenVariant] = createSignal<Record<string, string>>({});
-  const [preview, setPreview] = createSignal<Preview | null>(null);
+  const [hoveredPreview, setHoveredPreview] = createSignal<Preview | null>(null);
+  const [heldPreview, setHeldPreview] = createSignal<Preview | null>(null);
+  const preview = () => hoveredPreview() ?? heldPreview();
+  // Everyone's null here means the preview is over, a held one included. A pointer
+  // leaving says setHoveredPreview(null), which falls back to what is held.
+  const setPreview = (p: Preview | null) => {
+    setHoveredPreview(p);
+    if (!p) setHeldPreview(null);
+  };
   // Where the stage came from when going to a question moved it.
   const [stageBack, setStageBack] = createSignal<{
     from: string | null;
@@ -1781,16 +1791,17 @@ export function createDesignScreen(
     const o = ask.options.find((x) => x.id === optionId);
     if (!m || !o) return null;
     const key = optionKey(ask, o.id);
+    const label = o.label;
     if (o.variant && o.version) {
-      return { key, variant: o.variant, version: o.version, state: optionState(ask, m) };
+      return { key, label, variant: o.variant, version: o.version, state: optionState(ask, m) };
     }
     // The stage would show nothing of it, and moving it on a hover would jump the
     // screen: the card's Show is the way there.
     const about = askAbout(ask, m);
     const on = activeState();
     if (about.length && (on === null || !about.includes(on))) return null;
-    if (o.variant) return { key, variant: o.variant, state: askState(ask, m, on) };
-    return o.set ? { key, knobs: o.set } : null;
+    if (o.variant) return { key, label, variant: o.variant, state: askState(ask, m, on) };
+    return o.set ? { key, label, knobs: o.set } : null;
   }
   // A tap, a click or a number key on an option: the first puts it on the
   // stage as your pick; the same option again sends it on (the next question,
@@ -1980,6 +1991,7 @@ export function createDesignScreen(
   async function sendAlone(body: {
     comments?: DraftInput["comments"];
     text?: string;
+    more?: { ask: string; note?: string };
   }): Promise<boolean> {
     const m = design();
     if (!m || readonly()) return false;
@@ -1990,6 +2002,7 @@ export function createDesignScreen(
         ...emptyDraft(boundVersion() ?? latest()),
         comments: body.comments ?? [],
         ...(body.text ? { text: body.text } : {}),
+        ...(body.more ? { more: body.more } : {}),
         ...toField(),
       });
       // Every reply clears the stored draft; put the user's back before the
@@ -2011,6 +2024,30 @@ export function createDesignScreen(
       return false;
     }
   }
+  // What each question offered when more answers were asked for, to tell the new ones.
+  const [askedMore, setAskedMore] = createSignal<Record<string, string[]>>({});
+  async function askMore(ask: Ask, note: string): Promise<boolean> {
+    const known = ask.options.map((o) => o.id);
+    const sent = await sendAlone({
+      text: `More answers to: ${ask.text}`,
+      more: { ask: ask.id, ...(note ? { note } : {}) },
+    });
+    if (sent) setAskedMore((all) => ({ ...all, [ask.id]: known }));
+    return sent;
+  }
+  const isNewOption = (ask: Ask, id: string) => {
+    const known = askedMore()[ask.id];
+    return !!known && !known.includes(id);
+  };
+  const moreWaiting = (ask: Ask) =>
+    !!askedMore()[ask.id] && !ask.options.some((o) => isNewOption(ask, o.id));
+  // What the agent will keep to: what's been answered on the design, this question aside.
+  const answeredAround = (ask: Ask) =>
+    (design()?.asks ?? [])
+      .filter((a) => a.id !== ask.id && a.answer !== undefined)
+      .flatMap((a) =>
+        answerIds(a.answer).map((id) => a.options.find((o) => o.id === id)?.label ?? id),
+      );
   // A steer names the version, since Studio shows older ones side by side.
   // Several go as one reply, with `text` for what is said about all of them.
   function steer(c: SteerNote) {
@@ -2278,6 +2315,14 @@ export function createDesignScreen(
     choose,
     chooseNth,
     previewOf,
+    hoveredPreview,
+    setHoveredPreview,
+    heldPreview,
+    setHeldPreview,
+    askMore,
+    moreWaiting,
+    isNewOption,
+    answeredAround,
     optionKey,
     afterSend,
     goNext,
