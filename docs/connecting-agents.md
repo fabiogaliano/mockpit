@@ -112,9 +112,8 @@ while it still expects a reply. An agent without the skill can be told the same 
 in its instructions.
 
 **Plugin.** A plugin bundles all three integrations at once — the MCP server, the
-skill, and a **background monitor** that streams your replies from the browser to the
-agent as notifications, so each reply arrives without pasting or re-arming a
-watcher:
+skill, and a **hook** that wakes the agent with each reply from the browser, without
+pasting or arming a watcher:
 
 ```text
 /plugin marketplace add fabiogaliano/mockpit
@@ -122,16 +121,20 @@ watcher:
 ```
 
 On install it asks for your **Mockpit URL** (default `http://localhost:8228`, or
-your deployed instance) and an optional token. The monitor runs `mockpit watch`
-for the conversation's own session, so two agents in one repo never take each
-other's replies, and a reply wakes the agent even while it sits idle. Each reply
-is delivered exactly once. An installed `mockpit` (global, or a checkout on your
-`PATH`) is used before `npx`.
-Requires Claude Code ≥ 2.1.105. The plugin lives in [`../plugin/`](../plugin/).
+your deployed instance) and an optional token. Nothing runs until a conversation's
+first mockpit call, over MCP or the CLI. That call starts `mockpit watch --once` for
+the conversation's own session in an `asyncRewake` hook, so two agents in one repo
+never take each other's replies, and a Send wakes the agent even while it sits idle.
+The wake carries the whole reply, and the end of that turn starts the next wait. A wait
+that reaches the hook's 24 hours ends without waking anyone; the reply still arrives on
+the agent's next call, and the end of its next turn starts waiting again.
+An installed `mockpit` new enough for `--once` is used
+before `npx`.
+Requires a Claude Code with `asyncRewake` hooks. The plugin lives in [`../plugin/`](../plugin/).
 
 ## Agents with nothing to wake them
 
-An agent with no background monitor hears a Send on its next call, in any write's
+An agent with nothing watching hears a Send on its next call, in any write's
 `feedback` or the `feedback` verb, or when you tell it. After a Send, when the server
 sees no `mockpit watch` open for that agent's session, the viewer shows a line to copy
 and paste to it. It can't tell a stopped agent from a busy one, so it says only that no

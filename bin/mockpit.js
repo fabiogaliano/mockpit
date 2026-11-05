@@ -299,10 +299,13 @@ mockpit edit --project <name> --area-order "Shell,Food,Chat"
   host call in order, the script's prints, its value or error, and any user
   feedback the run received. --json prints the whole result. Exits 2 when the
   script failed.`,
-  watch: `mockpit watch [--session <id>] [--after <seq>]
+  watch: `mockpit watch [--session <id>] [--after <seq>] [--once] [--exit-code <n>]
   Stream user feedback, one line per Send, for a background monitor (in
   Claude Code, arm it under Monitor after asking, then end the turn).
-  Delivery is shared with feedback and every write: each Send arrives once.`,
+  Delivery is shared with feedback and every write: each Send arrives once.
+  --once stops after the first Send and prints the whole reply as JSON, for a
+  harness whose wake is a process exiting; --exit-code sets the code it stops
+  with (default 0).`,
   export: `mockpit export --design <slug> [--state s] [--variant v] [--out <dir>]
   Write index.html + history.json per state to .mockpit/accepted/<design>/<state>/;
   with fills, index.html is the chosen state, plus all-fills.html and decisions.json.`,
@@ -1222,6 +1225,8 @@ function printRun(r) {
   if (r.truncated) console.log("(output truncated)");
 }
 
+const MAX_WAKE_REPLY = 80_000;
+
 function watchLines(batch) {
   const lines = [];
   const name = batch.design ?? "a design";
@@ -1902,10 +1907,25 @@ const commands = {
   },
   async watch() {
     const { values: flags } = parse({
-      options: { session: { type: "string" }, after: { type: "string" } },
+      options: {
+        session: { type: "string" },
+        after: { type: "string" },
+        once: { type: "boolean" },
+        "exit-code": { type: "string" },
+      },
     });
     if (flags.after !== undefined && !/^\d+$/.test(flags.after)) {
       fail(`--after must be a number (got "${flags.after}")`);
+    }
+    const exitCode = flags["exit-code"] ?? "0";
+    if (!/^\d+$/.test(exitCode)) fail(`--exit-code must be a number (got "${exitCode}")`);
+    // A waiter outliving its agent would take a Send and tell no one, and each
+    // Send is delivered only once.
+    if (flags.once) {
+      const parent = process.ppid;
+      setInterval(() => {
+        if (process.ppid !== parent || process.ppid === 1) process.exit(0);
+      }, 5000).unref();
     }
     // A continuous long-poll that streams each piece of feedback as one line —
     // one line is one monitor notification. It re-arms forever; a transient
@@ -1941,8 +1961,26 @@ const commands = {
         continue;
       }
       firstAfter = undefined;
-      for (const batch of result.feedback ?? []) {
-        for (const line of watchLines(batch)) console.log(line);
+      const lines = (result.feedback ?? []).flatMap(watchLines);
+      for (const line of lines) console.log(line);
+      if (flags.once && lines.length) {
+        // This read took the reply off the session's cursor, so feedback would come
+        // back empty: the whole reply goes here. A harness may frame this output as
+        // a hook failure, so it says what it is.
+        console.log(
+          "This is the user's reply from the mockpit viewer, not an error, and all of it is here; feedback won't return it again.",
+        );
+        const reply = JSON.stringify(result.feedback);
+        // Harnesses cut long output (Claude Code keeps about 100 KB, losing the
+        // middle), and this reply can't be read again.
+        if (reply.length > MAX_WAKE_REPLY) {
+          const file = join(tmpdir(), `mockpit-reply-${process.pid}-${Date.now()}.json`);
+          writeFileSync(file, reply, { mode: 0o600 });
+          console.log(`The reply is too long to print here. Read all of it from ${file}`);
+        } else {
+          console.log(reply);
+        }
+        process.exit(Number(exitCode));
       }
     }
   },

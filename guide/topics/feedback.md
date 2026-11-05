@@ -164,8 +164,8 @@ your session's cursor.
    one per thread message (`mockpit message on writer: “…”`). In Claude Code,
    arm it under Monitor after asking, then end your turn, so a Send wakes you:
    `Monitor({ command: "mockpit watch", description: "mockpit replies", timeout_ms: 1800000 })`.
-   A monitor expires with one notice; re-arm it while you still expect a reply. The
-   plugin's monitor needs none of this. It never returns, so never run it in the
+   A monitor expires with one notice; re-arm it while you still expect a reply. With
+   the mockpit plugin, skip all of this: your mockpit calls start its wait. It never returns, so never run it in the
    foreground. With no such tool the user's next message is the wake-up: when no
    watcher is open, the viewer shows them a line to paste to you.
 

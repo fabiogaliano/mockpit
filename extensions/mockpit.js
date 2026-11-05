@@ -319,7 +319,7 @@ const pause = (ms, signal) =>
     signal.addEventListener("abort", () => (clearTimeout(timer), done()), { once: true });
   });
 
-// The user's reply wakes the idle agent, as the Claude Code plugin's monitor
+// The user's reply wakes the idle agent, as the Claude Code plugin's hook
 // does. Reading feedback advances the server's cursor, so the message carries
 // the whole reply: a nudge to call mockpit_feedback would come back empty.
 // followUp waits for a busy agent to finish rather than cutting into its work.

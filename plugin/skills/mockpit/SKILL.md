@@ -59,22 +59,23 @@ mockpit export  --design writer
 
 ## How feedback reaches you
 
-The plugin's monitor runs `mockpit watch` for the whole session, so don't arm
-another. Each Send arrives as one notification on your next turn, for example:
+The plugin starts waiting for a reply after your first mockpit call and keeps
+waiting for the rest of the conversation, so don't arm `mockpit watch` yourself. A Send wakes you
+even when idle, framed as a hook message, with a summary line and the whole reply as
+JSON:
 
 ```
 mockpit reply on writer: Quiet or dark?: Dark · 1 tuned · borrowed body←quiet · 1 comment
 ```
 
-If the monitor isn't running, the viewer shows the user a line to paste to you,
-which means the same thing.
+If nothing is waiting, the viewer shows the user a line to paste to you. Treat that
+as a message from the user and run `feedback` (`mockpit feedback`) for the reply.
 
-Treat it as a message from the user and run `feedback` (`mockpit feedback`)
-for the full reply. It returns at once. Its `pending` says whether the user is
-still answering (`viewerOpen`, `draft {answered, of, comments}`). Picks, tuned
-values and comments are drafts and never delivered before Send. Each Send is
-delivered exactly once across the monitor, `feedback` and the `feedback` field
-on every write.
+`feedback` returns at once. Its `pending` says whether the user is still answering
+(`viewerOpen`, `draft {answered, of, comments}`). Picks, tuned values and comments are
+drafts and never delivered before Send. Each Send is delivered exactly once across the
+wake, `feedback` and the `feedback` field on every write, so after a wake `feedback`
+returns nothing new.
 
 Respond by publishing the next version (`publish`, or `--parts name=file` for
 one part) or with a short note in the thread (`say` / `mockpit say`).
