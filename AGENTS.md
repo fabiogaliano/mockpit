@@ -135,6 +135,19 @@ consciously, not as a side effect):
   answers). `MoreAnswers` sends `reply.more` through `sendAlone`, so the draft stays;
   `feedbackBatch.ts` resolves it to the question, its answers and what's settled around it, and
   the agent replies by asking the same id again. `answersView.ts` is the pictures or list choice.
+- Kept and hidden answers (`server/standings.ts`, `Design.standings` by ask id, the built-in
+  Which variant? included): saved on the click through `POST /api/designs/:id/standings`
+  (serialized per design), never waiting for a Send; the next reply of any kind carries the
+  changed ones (`Reply.standings`, `unsent`). A re-ask remaps them to the new option ids; a
+  hidden answer stays folded and `existing` in `more` leaves it out. A variant some question
+  keeps is never archived by a Send or Use this, only released from use (`release` in
+  `commitReply`). The cards (`OptionCard`'s actions, `flipCards` for the fade and slide) put
+  kept ones first and hidden ones in `HiddenAnswers`; `Kept.tsx` holds what waits after a
+  Send: `KeptAnswers` beside the design (Use this instead, a kept screen's missing updates
+  counted from `since`, Update it now, `carried`), `AnswerPills` on the design's top edge,
+  and `AnswerSets` (`Design.sets`, `POST /api/designs/:id/sets`, put in use as `Reply.set`).
+  `AnswerBoard.tsx` is Studio's Answers arrangement: the open question laid out whole, with
+  keys and On every state. The old `starred` column is inert.
 - A Send goes to the design's owner unless the owner can't hear it: with no watch open and
   no call in `OWNER_BUSY_MS`, it goes to the user's pick (`SendTo`, from
   `GET /api/designs/:id/recipients`) or else to a session started in this project that is
@@ -347,8 +360,8 @@ consciously, not as a side effect):
   server-side draft per design — they survive reload, stay bound to the version
   they were made on, are never delivered before Send, and are cleared by it.
   The reply is one `kind: "reply"` comment through the same cursor; a
-  variant-bound answer puts one variant in use and archives its siblings in
-  the same transaction (stored as `accepted`, read as `inUse`).
+  variant-bound answer puts one variant in use and archives its siblings, except
+  kept ones, in the same transaction (stored as `accepted`, read as `inUse`).
 - Borrow (Tune, per part) offers a part from another variant only when that variant's frame reports it
   differently (count, labels, rounded sizes, visibility); a pure restyle at
   equal size is not offered.

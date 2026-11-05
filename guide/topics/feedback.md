@@ -229,8 +229,21 @@ Morning --step 2` (MCP/HTTP `flow`, `step`) puts this (design, state) at step
   option's `set` and each tuned value, later replies winning. The viewer renders later
   questions and the stage on top of it, so ask the deciding question first and its
   dependents after.
-- `starred: true` on a variant is a favourite. It decides nothing; keep it in mind when
-  revising.
+- `standings` (on `read`), by question id, is what the user said about answers besides
+  choosing one: `kept` answers are runners-up they want to come back to, `hidden` ones
+  (each `{id, label, why}`) they don't want offered again, and `carried` names kept
+  screens to change along with the one in use, every time. A reply's `asks` carry the
+  same as labels when they changed since the last one. Never offer a hidden answer
+  again, and treat a `why` as taste that holds across the project. A variant a question
+  keeps reads `kept: true`; it is not archived when another is chosen, and nothing
+  else changes it unless it is `carried`. Values follow every new version by themselves;
+  a kept screen doesn't, so leave it as it is.
+- `update: {ask, text, kept, inUse}` asks you to bring one kept screen up to date with
+  the one in use, once: publish a new version of `kept.variant` with the changes made
+  to the one in use since.
+- `set` names a saved set the user put in use: a combination of answers across
+  questions (`sets` on `read`, each `{name, answers}`). The reply's answers are its
+  answers.
 - A variant's `status` is `open`, `inUse` (with `inUseVersion`) or `archived`
   (with `archiveReason` if the user gave one). `changedTo` is a newer version
   than the one in use, which the user hasn't taken or passed on yet. Both are

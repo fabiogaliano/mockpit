@@ -425,6 +425,37 @@ export interface AnswerAddition {
 
 export type AskAnswer = string | string[];
 
+// One hidden answer: its label as it was, so it still reads after the agent drops
+// it, and the user's optional why.
+export interface HiddenAnswer {
+  id: string;
+  label: string;
+  why?: string;
+}
+
+// What the user said about a question's answers besides choosing one: the ones kept
+// for later and the ones hidden. Saved on the click, never waits for a Send; the next
+// Send or More answers carries it to the agent while `unsent`.
+export interface AnswerStanding {
+  kept: string[];
+  hidden: HiddenAnswer[];
+  // Kept whole screens (variant answers) the agent changes along with the one in use,
+  // rather than leaving them as they were.
+  carried?: string[];
+  // By kept answer: when it started waiting, the reply that set it aside. A kept
+  // screen counts the versions the one in use gained since.
+  since?: Record<string, string>;
+  unsent?: true;
+}
+
+// A combination of answers across questions under the user's name for it ("Warm",
+// "Quiet"): a theme is more than one answer.
+export interface AnswerSet {
+  name: string;
+  answers: Record<string, AskAnswer>;
+  at: string;
+}
+
 // The state a version option names a version in: the ask's state, else the
 // design's first (`ask` accepts version options without a state only while the
 // design has one).
@@ -565,8 +596,15 @@ export interface Reply {
   text?: string;
   // Sent to a session other than the design's owner, so it has to read up first.
   routed?: true;
-  // The user asked for more answers to one question instead of answering it.
-  more?: { ask: string; note?: string };
+  // The user asked for more answers to one question instead of answering it, maybe
+  // more like one of them (`like`, an option id).
+  more?: { ask: string; note?: string; like?: string };
+  // The standings that changed since the last reply, by ask id, as they were sent.
+  standings?: Record<string, AnswerStanding>;
+  // A kept screen brought up to date with the one in use, once.
+  update?: { ask: string; option: string };
+  // A saved set the user put in use, by name.
+  set?: string;
   verdict?: ReplyVerdict;
   // Only on stored rows, from when an archive was written to the agent's stream: the
   // thread still lists them, and they are never delivered (feedbackBatch.ts).
@@ -646,6 +684,10 @@ export interface Design {
   stateOutlines: Record<string, StateOutline>;
   // What answers brought so they could draw themselves: never removed or redefined.
   answerAdditions: AnswerAddition[];
+  // By ask id (the built-in Which variant? included): kept and hidden answers.
+  standings: Record<string, AnswerStanding>;
+  // The user's named combinations of answers, in the order they made them.
+  sets: AnswerSet[];
   createdAt: string;
   updatedAt: string;
 }
@@ -718,8 +760,6 @@ export interface Post {
   forkedFrom?: ForkRef;
   // Set on a shortlist's candidates; stays across the versions an agent adds.
   copiedFrom?: CopyRef;
-  // The user's favourite: a mark, not a decision. Unrelated to status.
-  starred?: true;
   // Set only while accepted: the version the user put in use. The agent may
   // publish newer ones; export and embeds keep showing this one until the user
   // chooses again, so a decision never drifts under them.
@@ -1012,6 +1052,8 @@ export interface UpdateDesignInput {
   notes?: DesignNotes | null;
   stateOutlines?: Record<string, StateOutline>;
   answerAdditions?: AnswerAddition[];
+  standings?: Record<string, AnswerStanding>;
+  sets?: AnswerSet[];
 }
 
 export interface CreatePostInput {
@@ -1100,6 +1142,9 @@ export interface CommitReplyInput {
   // Each variant put in use, with the version.
   accept: { id: string; version: number }[];
   archive: string[];
+  // Variants that leave use without being archived: kept answers.
+  release?: string[];
+  standings?: Record<string, AnswerStanding>;
   // A lone "use this version" is not a Send: the user's unsent draft stays.
   keepDraft?: true;
   // The session taking the design over, when this reply went to one that isn't its owner.
@@ -1208,7 +1253,6 @@ export interface Store {
   bumpRewrites(designId: string): Promise<void>;
   // Archives it as it was before, date and reason included: the Undo of a restore.
   setPostArchived(id: string, archivedAt: string, reason: string | null): Promise<Post | null>;
-  setPostStarred(id: string, starred: boolean): Promise<Post | null>;
   setVersionHidden(id: string, version: number, hidden: boolean): Promise<Post | null>;
   // Gone for good, so the caller has checked nothing points at them. Never the latest.
   deleteOldVersions(id: string, versions: number[]): Promise<Post | null>;

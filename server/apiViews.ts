@@ -4,6 +4,7 @@
 import { slotKnobs, slotsInSurfaces } from "./fills.ts";
 import type { Mode } from "./themes.ts";
 import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
+import { isKeptVariant, keptVariants } from "./standings.ts";
 import {
   changedTo,
   currentVersion,
@@ -160,6 +161,8 @@ export interface VariantViewOptions {
   history?: boolean;
   // What each post's embeds resolve to now, by post id.
   embeds?: Map<string, EmbedView>;
+  // The variants some question keeps (standings.ts keptVariants).
+  kept?: Set<string>;
 }
 
 // A variant's embeds as they render now (nested ones included): each with the
@@ -200,7 +203,7 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
   ...(post.embeds.length ? { publishedWith: post.embeds } : {}),
   ...(post.forkedFrom ? { forkedFrom: post.forkedFrom } : {}),
   ...(post.copiedFrom ? { copiedFrom: post.copiedFrom } : {}),
-  ...(post.starred ? { starred: true } : {}),
+  ...(opts.kept && isKeptVariant(opts.kept, post) ? { kept: true } : {}),
   ...(post.acceptedVersion === undefined ? {} : { inUseVersion: post.acceptedVersion }),
   ...(changedTo(post) === undefined ? {} : { changedTo: changedTo(post) }),
   ...(post.archiveReason ? { archiveReason: post.archiveReason } : {}),
@@ -352,6 +355,9 @@ export const designDetailView = (
   ...(Object.keys(design.stateOutlines).length ? { stateOutlines: design.stateOutlines } : {}),
   ...(design.answerAdditions.length ? { answerAdditions: design.answerAdditions } : {}),
   asks: design.asks,
+  // By question id: the answers the user kept for later and hid, with why.
+  ...(Object.keys(design.standings).length ? { standings: design.standings } : {}),
+  ...(design.sets.length ? { sets: design.sets } : {}),
   open: openCount(design),
   knobs: design.knobs,
   widths: design.widths,
@@ -360,7 +366,9 @@ export const designDetailView = (
   ...(design.archiveReason ? { archiveReason: design.archiveReason } : {}),
   createdAt: design.createdAt,
   updatedAt: design.updatedAt,
-  variants: posts.map((p) => variantView(p, opts)),
+  variants: ((kept) => posts.map((p) => variantView(p, { ...opts, kept })))(
+    keptVariants(design, posts),
+  ),
   inUse: inUseByState(design, posts),
   parts: partsByState(design, posts),
   // Every knob value the user has sent (answers' sets and tuning, later replies
@@ -444,7 +452,6 @@ export const treeNodeView = (
     ...coverVersion(p),
     ...(p.description && !extra.noDescriptions ? { description: p.description } : {}),
     ...(p.forkedFrom ? { forkedFrom: p.forkedFrom } : {}),
-    ...(p.starred ? { starred: true } : {}),
     ...(p.acceptedVersion === undefined ? {} : { inUseVersion: p.acceptedVersion }),
     ...(changedTo(p) === undefined ? {} : { changedTo: changedTo(p) }),
     ...(p.archiveReason ? { archiveReason: p.archiveReason } : {}),

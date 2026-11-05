@@ -2104,3 +2104,12 @@ export function gridAxes(
     ),
   };
 }
+
+// "Clay: linen, terracotta and pine" reads as a name and what it is: the name alone
+// where room is short, the rest on a line of its own under it.
+export function splitLabel(label: string): { name: string; sub?: string } {
+  const at = label.indexOf(": ");
+  if (at < 1 || at > 32) return { name: label };
+  const sub = label.slice(at + 2).trim();
+  return sub ? { name: label.slice(0, at), sub } : { name: label };
+}

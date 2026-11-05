@@ -136,6 +136,8 @@ import {
   type IconSetRef,
   isSandboxedSurfaceKind,
   type AnswerAddition,
+  type AnswerSet,
+  type AnswerStanding,
   type Knobs,
   type KnobValue,
   type MarkdownSurface,
@@ -196,6 +198,17 @@ import {
 } from "./postSurfaces.ts";
 import { isViewerRequest } from "./viewerRequest.ts";
 import { jumpHits, recentHits } from "./jump.ts";
+import {
+  isKeptVariant,
+  keptVariants,
+  MAX_SETS,
+  MAX_WHY,
+  remapStanding,
+  reoffered,
+  standingOf,
+  type StandingKind,
+  withStanding,
+} from "./standings.ts";
 
 export type { FeedEvent } from "./events.ts";
 export type { FeedbackBatch } from "./feedbackBatch.ts";
@@ -3295,10 +3308,17 @@ export function createApp({
     const asks = [...design.asks];
     const taken = new Set(asks.map((a) => a.id));
     const added: Ask[] = [];
+    // Asked again, a question keeps what the user kept and hid, even under new ids.
+    const standings = { ...design.standings };
+    const stillHidden: string[] = [];
     for (const entry of brought.entries) {
       const ask = sanitizeAsk(entry, { ...design, knobs: brought.knobs }, posts, taken);
       if (typeof ask === "string") return fail(400, ask);
       const at = asks.findIndex((a) => a.id === ask.id);
+      if (standings[ask.id]) {
+        standings[ask.id] = remapStanding(standings[ask.id]!, at >= 0 ? asks[at] : undefined, ask);
+        for (const h of reoffered(standings[ask.id]!, ask)) stillHidden.push(h.label);
+      }
       if (at >= 0) asks[at] = ask;
       else asks.push(ask);
       taken.add(ask.id);
@@ -3321,6 +3341,7 @@ export function createApp({
     const updated = await store.updateDesign(design.id, {
       asks,
       sessionId,
+      standings,
       ...(design.archivedAt ? { archivedAt: null } : {}),
       ...(additionsGrew ? { knobs: brought.knobs, answerAdditions: brought.additions } : {}),
     });
@@ -3351,7 +3372,13 @@ export function createApp({
       url: designUrl(ctx.base, design),
     });
     const feedback = session ? await collectFeedback(session.id, ctx.base) : [];
-    const nudges = [...askNudges(added, design.asks), ...unprovenValueNudges(added, design, posts)];
+    const nudges = [
+      ...askNudges(added, design.asks),
+      ...unprovenValueNudges(added, design, posts),
+      ...(stillHidden.length
+        ? [`The user hid ${stillHidden.join(", ")}: they stay folded away. Offer something else.`]
+        : []),
+    ];
     return ok({
       design: design.slug,
       designId: design.id,
@@ -3684,14 +3711,20 @@ export function createApp({
     answers: Record<string, AskAnswer>,
     verdict: ReplyVerdict | undefined,
     version: number,
-  ): { accept: Map<string, number>; archive: Set<string> } {
+  ): { accept: Map<string, number>; archive: Set<string>; release: Set<string> } {
     const accept = new Map<string, number>();
     const archive = new Set<string>();
+    // A kept answer's variant isn't chosen, nor lost: it leaves use, if it was in use,
+    // and waits beside the design.
+    const release = new Set<string>();
+    const kept = keptVariants(design, posts);
     const settle = (inState: Post[], chosen: Set<string>, pins?: Map<string, number>) => {
       if (!inState.some((p) => chosen.has(p.variant))) return;
       for (const p of inState) {
         if (!chosen.has(p.variant)) {
-          if (isLive(p.status)) archive.add(p.id);
+          if (isKeptVariant(kept, p)) {
+            if (p.status === "accepted") release.add(p.id);
+          } else if (isLive(p.status)) archive.add(p.id);
           continue;
         }
         const pin = pins?.get(p.variant);
@@ -3737,8 +3770,39 @@ export function createApp({
         new Set([verdict.variant]),
       );
     }
-    for (const id of accept.keys()) archive.delete(id);
-    return { accept, archive };
+    for (const id of accept.keys()) {
+      archive.delete(id);
+      release.delete(id);
+    }
+    return { accept, archive, release };
+  }
+
+  // The standings a reply carries: those changed since the last one, as sent, and
+  // every standing with an answer chosen now no longer kept, since it's in use.
+  function sentStandings(design: Design, answers: Record<string, AskAnswer>) {
+    const payload: Record<string, AnswerStanding> = {};
+    const next: Record<string, AnswerStanding> = {};
+    const now = new Date().toISOString();
+    for (const [askId, st] of Object.entries(design.standings)) {
+      const chosen = answers[askId] === undefined ? [] : [answers[askId]].flat();
+      const { unsent, since: was, ...rest } = st;
+      const kept = rest.kept.filter((id) => !chosen.includes(id));
+      const carried = (rest.carried ?? []).filter((id) => kept.includes(id));
+      // A kept answer starts waiting at the reply that answers its question.
+      const answered =
+        answers[askId] !== undefined || !!design.asks.find((a) => a.id === askId)?.answer;
+      const since = Object.fromEntries(
+        kept.flatMap((id) => (was?.[id] ? [[id, was[id]]] : answered ? [[id, now]] : [])),
+      );
+      const settled: AnswerStanding = {
+        kept,
+        hidden: rest.hidden,
+        ...(carried.length ? { carried } : {}),
+      };
+      if (unsent) payload[askId] = settled;
+      next[askId] = { ...settled, ...(Object.keys(since).length ? { since } : {}) };
+    }
+    return { payload, next };
   }
 
   // An ask as a reply leaves it. A pick or a write-in replaces whatever was
@@ -3789,8 +3853,23 @@ export function createApp({
       return fail(400, `${design.slug} has no question "${moreAsk}"`);
     }
     const moreNote = str(body?.more?.note, MAX_COMMENT_TEXT);
+    const moreLike = str(body?.more?.like, MAX_LABEL);
+    if (
+      moreLike &&
+      !design.asks.find((a) => a.id === moreAsk)?.options.some((o) => o.id === moreLike)
+    ) {
+      return fail(400, `question "${moreAsk}" has no answer "${moreLike}"`);
+    }
+    const update = sanitizeUpdate(body?.update, design);
+    if (typeof update === "string") return fail(400, update);
+    const setName = str(body?.set, MAX_LABEL);
+    if (setName && !design.sets.some((x) => x.name === setName)) {
+      return fail(400, `${design.slug} has no set "${setName}"`);
+    }
     const empty =
       !moreAsk &&
+      !update &&
+      !setName &&
       !text &&
       !verdict &&
       !Object.keys(draft.answers).length &&
@@ -3808,7 +3887,17 @@ export function createApp({
       designId: design.id,
       version: draft.version,
       ...(routed ? { routed: true as const } : {}),
-      ...(moreAsk ? { more: { ask: moreAsk, ...(moreNote ? { note: moreNote } : {}) } } : {}),
+      ...(moreAsk
+        ? {
+            more: {
+              ask: moreAsk,
+              ...(moreNote ? { note: moreNote } : {}),
+              ...(moreLike ? { like: moreLike } : {}),
+            },
+          }
+        : {}),
+      ...(update ? { update } : {}),
+      ...(setName ? { set: setName } : {}),
       answers: draft.answers,
       borrowed: draft.borrowed,
       tuned: draft.tuned,
@@ -3821,6 +3910,8 @@ export function createApp({
     };
     const asks = design.asks.map((a) => sentAsk(a, draft));
     const flips = replyFlips(design, posts, draft.answers, verdict, draft.version);
+    const standings = sentStandings(design, draft.answers);
+    if (Object.keys(standings.payload).length) payload.standings = standings.payload;
     if (verdict) {
       const target = posts.find((p) => p.state === verdict.state && p.variant === verdict.variant);
       const pinned = verdict.kind === "use" && target ? flips.accept.get(target.id) : undefined;
@@ -3834,6 +3925,8 @@ export function createApp({
       asks,
       accept: [...flips.accept].map(([id, version]) => ({ id, version })),
       archive: [...flips.archive],
+      release: [...flips.release],
+      standings: standings.next,
       ...(routed ? { owner: sessionId } : {}),
     });
     if (!comment) return fail(409, `${design.slug} has no agent session to reply to`);
@@ -3843,7 +3936,7 @@ export function createApp({
     void announceEmbedders(design).catch((err) => console.warn("[mockpit] embedders", err));
     const after = await store.listPosts({ designId: design.id });
     for (const p of after) {
-      if (flips.accept.has(p.id) || flips.archive.has(p.id)) {
+      if (flips.accept.has(p.id) || flips.archive.has(p.id) || flips.release.has(p.id)) {
         bus.broadcast({
           type: "post-updated",
           id: p.id,
@@ -3911,9 +4004,10 @@ export function createApp({
     if (isResult(target)) return target;
     if (!target) return fail(409, `${design.slug} has no agent session to reply to`);
     const { sessionId, routed } = target;
-    const archive = posts.filter(
-      (p) => p.state === chosen.state && p.id !== chosen.id && isLive(p.status),
-    );
+    const kept = keptVariants(design, posts);
+    const siblings = posts.filter((p) => p.state === chosen.state && p.id !== chosen.id);
+    const archive = siblings.filter((p) => isLive(p.status) && !isKeptVariant(kept, p));
+    const release = siblings.filter((p) => p.status === "accepted" && isKeptVariant(kept, p));
     const comment = await store.commitReply({
       designId: design.id,
       sessionId,
@@ -3931,6 +4025,7 @@ export function createApp({
       asks: design.asks,
       accept: [{ id: chosen.id, version }],
       archive: archive.map((p) => p.id),
+      release: release.map((p) => p.id),
       keepDraft: true,
       ...(routed ? { owner: sessionId } : {}),
     });
@@ -3938,7 +4033,7 @@ export function createApp({
     announceComment(comment);
     bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
     void announceEmbedders(design).catch((err) => console.warn("[mockpit] embedders", err));
-    for (const p of [chosen, ...archive]) {
+    for (const p of [chosen, ...archive, ...release]) {
       bus.broadcast({
         type: "post-updated",
         id: p.id,
@@ -4347,33 +4442,97 @@ export function createApp({
     });
   }
 
-  // The user stars (or unstars) a variant: a favourite to come back to, which
-  // decides nothing. Viewer-only; the agent reads it as `starred`.
-  async function starFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+  // The user keeps an answer for later, hides it (with an optional why), or neither.
+  // Saved now and told to the agent with the next reply, so nothing waits for a
+  // Send. Viewer-only. `carried` instead says whether a kept screen is changed along
+  // with the one in use.
+  // Culling by key sends standings faster than one write finishes, and each rewrites
+  // the design's whole map: one at a time per design, or a later one drops an earlier.
+  const standingQueue = new Map<string, Promise<unknown>>();
+  function standingFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    const key = String(ref);
+    const run = (standingQueue.get(key) ?? Promise.resolve()).then(() =>
+      writeStanding(ref, body, ctx),
+    );
+    const settled = run.catch(() => {});
+    standingQueue.set(key, settled);
+    void settled.then(() => {
+      if (standingQueue.get(key) === settled) standingQueue.delete(key);
+    });
+    return run;
+  }
+  async function writeStanding(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
     const design = await resolveDesign(ref);
     if (isResult(design)) return design;
-    if (typeof body?.starred !== "boolean") return fail(400, '"starred" must be true or false');
     const posts = await store.listPosts({ designId: design.id });
-    const chosen = chooseVariant(
-      design,
-      posts,
-      stateArg(body?.state),
-      str(body?.variant, MAX_LABEL),
-    );
-    if (isResult(chosen)) return chosen;
-    const updated = await store.setPostStarred(chosen.id, body.starred);
-    if (!updated) return fail(404, "variant not found");
-    bus.broadcast({
-      type: "post-updated",
-      id: updated.id,
-      designId: design.id,
-      sessionId: updated.sessionId,
-      version: updated.version,
-      by: "user",
-    });
+    const askId = str(body?.ask, MAX_LABEL);
+    const ask = askId ? askById(design, posts, askId) : undefined;
+    if (!ask) return fail(400, `${design.slug} has no question "${String(body?.ask)}"`);
+    const option = ask.options.find((o) => o.id === body?.option);
+    if (!option) return fail(400, `question "${ask.id}" has no answer "${String(body?.option)}"`);
+    let next = standingOf(design, ask.id);
+    if (typeof body?.carried === "boolean") {
+      if (!next.kept.includes(option.id) || !option.variant) {
+        return fail(400, "only a kept screen can be changed along with the one in use");
+      }
+      const carried = (next.carried ?? []).filter((id) => id !== option.id);
+      if (body.carried) carried.push(option.id);
+      const { carried: _, ...rest } = next;
+      next = { ...rest, ...(carried.length ? { carried } : {}), unsent: true };
+    } else {
+      const to = body?.to as StandingKind;
+      if (to !== "kept" && to !== "hidden" && to !== "open") {
+        return fail(400, '"to" must be kept, hidden or open');
+      }
+      next = withStanding(next, option, to, to === "hidden" ? str(body?.why, MAX_WHY) : undefined);
+    }
+    const standings = { ...design.standings, [ask.id]: next };
+    if (!next.kept.length && !next.hidden.length) delete standings[ask.id];
+    const updated = await store.updateDesign(design.id, { standings });
+    if (!updated) return fail(404, "design not found");
     bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
-    return ok({ state: updated.state, variant: updated.variant, starred: !!updated.starred });
+    return ok({ ask: ask.id, standing: standings[ask.id] ?? { kept: [], hidden: [] } });
+  }
+
+  // A kept screen brought up to date once: the question and the kept answer.
+  function sanitizeUpdate(raw: unknown, design: Design): Reply["update"] | string | undefined {
+    if (raw === undefined || raw === null) return undefined;
+    const r = raw as Record<string, unknown>;
+    const ask = design.asks.find((a) => a.id === r.ask);
+    const option = ask?.options.find((o) => o.id === r.option);
+    if (!ask || !option?.variant) return "update names a question and one of its screen answers";
+    if (!standingOf(design, ask.id).kept.includes(option.id)) return `"${option.label}" isn't kept`;
+    return { ask: ask.id, option: option.id };
+  }
+
+  // The user saves the answers on screen as a named set, or removes one.
+  // A set decides nothing until it is put in use, which is a reply like any other.
+  async function setsFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
+    const posts = await store.listPosts({ designId: design.id });
+    const name = str(body?.name, MAX_LABEL);
+    if (!name) return fail(400, '"name" is required');
+    const sets = design.sets.filter((x) => x.name !== name);
+    if (body?.remove === true) {
+      if (sets.length === design.sets.length)
+        return fail(404, `${design.slug} has no set "${name}"`);
+    } else {
+      const answers = sanitizeAnswers(body?.answers, design, posts);
+      if (typeof answers === "string") return fail(400, answers);
+      if (!Object.keys(answers).length) return fail(400, "a set holds at least one answer");
+      const at = design.sets.findIndex((x) => x.name === name);
+      const entry: AnswerSet = { name, answers, at: new Date().toISOString() };
+      if (at >= 0) sets.splice(at, 0, entry);
+      else if (sets.length >= MAX_SETS) return fail(400, `at most ${MAX_SETS} sets`);
+      else sets.push(entry);
+    }
+    const updated = await store.updateDesign(design.id, { sets });
+    if (!updated) return fail(404, "design not found");
+    bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+    return ok({ sets });
   }
 
   // The user copies a version into an idea they are gathering (stored as a shortlist,
@@ -6240,8 +6399,11 @@ export function createApp({
   app.post("/api/copies/:design/remove", async (c) =>
     send(c, await removeCopyFlow(c.req.param("design"), await jsonBody(c), flowCtx(c))),
   );
-  app.post("/api/designs/:id/star", async (c) =>
-    send(c, await starFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  app.post("/api/designs/:id/standings", async (c) =>
+    send(c, await standingFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+  app.post("/api/designs/:id/sets", async (c) =>
+    send(c, await setsFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
   app.post("/api/designs/:id/variants/archive", async (c) =>
     send(c, await archiveFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),

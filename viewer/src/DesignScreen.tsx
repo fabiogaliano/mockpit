@@ -64,6 +64,10 @@ import { NotFound } from "./NotFound.tsx";
 import { OutlineChips, PlannedStage, StateAsk } from "./Outlines.tsx";
 import { QuestionCard, QuestionTab } from "./QuestionCard.tsx";
 import { ArchivedNote } from "./Questions.tsx";
+import { AnswerPills } from "./Kept.tsx";
+import { Portal } from "solid-js/web";
+import { AnswerBoard, boardAsk } from "./AnswerBoard.tsx";
+import { LIST_ABOVE } from "./Questions.tsx";
 import { SideOver } from "./SideOver.tsx";
 import { Reader, ReaderSend } from "./Reader.tsx";
 import { markSeen } from "./seen.ts";
@@ -249,14 +253,31 @@ export function DesignScreen(props: {
       { defer: true },
     ),
   );
+  // An open question with many pictured answers opens Studio on them, until the user
+  // picks another arrangement.
+  const askOnBoard = () => boardAsk(s);
+  const [answersPick, setAnswersPick] = createSignal<boolean | null>(null);
+  const answersOn = () =>
+    !!askOnBoard() &&
+    (answersPick() ??
+      askOnBoard()!.options.filter((o) => !s.hiddenOf(askOnBoard()!, o.id)).length > LIST_ABOVE);
   const arrangement = (): Arrangement =>
-    shownView() === "grid" ? "grid" : wallSized() && !columns() ? "wall" : "columns";
+    shownView() === "grid"
+      ? "grid"
+      : answersOn()
+        ? "answers"
+        : wallSized() && !columns()
+          ? "wall"
+          : "columns";
   const arrangements = (): Arrangement[] => [
+    ...(askOnBoard() ? (["answers"] as const) : []),
     ...(wallSized() ? (["wall"] as const) : []),
     "columns",
     ...(gridOffered() ? (["grid"] as const) : []),
   ];
   const arrange = (to: Arrangement) => {
+    setAnswersPick(to === "answers");
+    if (to === "answers") return setView("studio");
     if (to === "grid") return setView("grid");
     setColumns(to === "columns");
     if (shownView() !== "studio") setView("studio");
@@ -526,6 +547,20 @@ export function DesignScreen(props: {
                 </Show>
               </Show>
             </Match>
+            <Match when={shownView() === "studio" && answersOn() && askOnBoard()}>
+              {(ask) => (
+                <div class="aboard-wrap" style={{ top: `${canvasTop()}px` }}>
+                  <Show when={barSlot()}>
+                    {(slot) => (
+                      <Portal mount={slot()}>
+                        <div class="sbar">{arrangeSwitch}</div>
+                      </Portal>
+                    )}
+                  </Show>
+                  <AnswerBoard s={s} ask={ask()} />
+                </div>
+              )}
+            </Match>
             <Match when={shownView() === "studio"}>
               <Studio
                 s={s}
@@ -624,6 +659,7 @@ function VersionCaption(props: { s: DesignScreenState; m: Margins; reading: bool
   const holding = () => s.heldPreview()?.key === s.preview()?.key;
   return (
     <div class="vcap" classList={{ inline: props.reading }} role="group" aria-label="This version">
+      <AnswerPills s={s} />
       <div class="mact">
         <Show when={s.preview()?.label}>
           {(label) => (

@@ -7,8 +7,11 @@ import type { ToastLine } from "./toast.tsx";
 import { batch, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js";
 import { createStore } from "solid-js/store";
 import {
+  type AnswerSet,
+  type AnswerStanding,
   type Ask,
   type AskAnswer,
+  type AskOption,
   askAnswered,
   isLive,
   recommendedVariant,
@@ -21,6 +24,7 @@ import {
   type StateOutline,
 } from "../../server/types.ts";
 import type { SlotInfo } from "../../server/fills.ts";
+import { hiddenAnswer, type StandingKind, withStanding } from "../../server/standings.ts";
 import { reactionOf, reactionStatus, toggleReaction } from "./reactionRules.ts";
 import {
   api,
@@ -85,6 +89,7 @@ import {
   stepKey,
   type VersionStep,
   shortLabel,
+  splitLabel,
 } from "./logic.ts";
 import { navigate, questionPath, type ScreenOpen } from "./route.ts";
 import { setTheme } from "./theme.ts";
@@ -1840,9 +1845,10 @@ export function createDesignScreen(
   function chooseNth(n: number) {
     const a = curAsk();
     if (!a || questionHidden()) return;
-    const o = a.options[n];
+    const list = shownOptions(a);
+    const o = list[n];
     if (o) choose(a, o.id);
-    else if (n === a.options.length && !readonly()) pick(a, null);
+    else if (n === list.length && !readonly()) pick(a, null);
   }
 
   async function owedDesign(by: 1 | -1): Promise<DesignSummary | null> {
@@ -2007,7 +2013,10 @@ export function createDesignScreen(
   async function sendAlone(body: {
     comments?: DraftInput["comments"];
     text?: string;
-    more?: { ask: string; note?: string };
+    more?: { ask: string; note?: string; like?: string };
+    answers?: Record<string, AskAnswer>;
+    update?: { ask: string; option: string };
+    set?: string;
   }): Promise<boolean> {
     const m = design();
     if (!m || readonly()) return false;
@@ -2017,13 +2026,21 @@ export function createDesignScreen(
       const { reply } = await api.reply(m.id, {
         ...emptyDraft(boundVersion() ?? latest()),
         comments: body.comments ?? [],
+        ...(body.answers ? { answers: body.answers } : {}),
         ...(body.text ? { text: body.text } : {}),
         ...(body.more ? { more: body.more } : {}),
+        ...(body.update ? { update: body.update } : {}),
+        ...(body.set ? { set: body.set } : {}),
         ...toField(),
       });
       // Every reply clears the stored draft; put the user's back before the
-      // design is fetched again, so the screen never shows it gone.
-      if (keep) await api.putDraft(m.id, keep);
+      // design is fetched again, so the screen never shows it gone. What this reply
+      // answered is settled, so its drafted picks don't come back.
+      if (keep) {
+        const left = { ...keep, answers: { ...keep.answers } };
+        for (const id of Object.keys(body.answers ?? {})) delete left.answers[id];
+        await api.putDraft(m.id, left);
+      }
       const [next] = await Promise.all([
         api.design(m.id).catch(() => null),
         loadComments().catch(() => {}),
@@ -2042,11 +2059,11 @@ export function createDesignScreen(
   }
   // What each question offered when more answers were asked for, to tell the new ones.
   const [askedMore, setAskedMore] = createSignal<Record<string, string[]>>({});
-  async function askMore(ask: Ask, note: string): Promise<boolean> {
+  async function askMore(ask: Ask, note: string, like?: AskOption): Promise<boolean> {
     const known = ask.options.map((o) => o.id);
     const sent = await sendAlone({
-      text: `More answers to: ${ask.text}`,
-      more: { ask: ask.id, ...(note ? { note } : {}) },
+      text: like ? `More like ${splitLabel(like.label).name}` : `More answers to: ${ask.text}`,
+      more: { ask: ask.id, ...(note ? { note } : {}), ...(like ? { like: like.id } : {}) },
     });
     if (sent) setAskedMore((all) => ({ ...all, [ask.id]: known }));
     return sent;
@@ -2064,6 +2081,177 @@ export function createDesignScreen(
       .flatMap((a) =>
         answerIds(a.answer).map((id) => a.options.find((o) => o.id === id)?.label ?? id),
       );
+  // Kept and hidden answers save on the click: the screen moves at once, and moves
+  // back if the server refuses (server/standings.ts holds the rules).
+  const standingFor = (ask: Ask): AnswerStanding =>
+    design()?.standings?.[ask.id] ?? { kept: [], hidden: [] };
+  const isKept = (ask: Ask, id: string) => standingFor(ask).kept.includes(id);
+  const hiddenOf = (ask: Ask, id: string) => hiddenAnswer(standingFor(ask), id);
+  const isCarried = (ask: Ask, id: string) => !!standingFor(ask).carried?.includes(id);
+  function putStanding(ask: Ask, next: AnswerStanding) {
+    const m = design();
+    if (m) setDesign({ ...m, standings: { ...m.standings, [ask.id]: next } });
+  }
+  async function setStanding(ask: Ask, o: AskOption, to: StandingKind, why?: string) {
+    const m = design();
+    if (!m || readonly()) return;
+    const was = standingFor(ask);
+    putStanding(ask, withStanding(was, o, to, why));
+    // A hidden answer is out of the running, so it can't stay the pick.
+    if (to === "hidden" && drafted(ask) && answerIds(answerOf(ask)).includes(o.id)) {
+      writeDraft((d) => {
+        const left = answerIds(d.answers[ask.id]).filter((x) => x !== o.id);
+        if (ask.multi && left.length) d.answers[ask.id] = left;
+        else delete d.answers[ask.id];
+        return d;
+      });
+    }
+    try {
+      await api.standing(m.id, { ask: ask.id, option: o.id, to, ...(why ? { why } : {}) });
+    } catch (e) {
+      putStanding(ask, was);
+      fail(e);
+    }
+  }
+  // The answers a question shows, in the order it shows them: kept ones first, hidden
+  // ones left out (they fold away below), the rest as the agent asked.
+  const shownOptions = (ask: Ask): AskOption[] => {
+    const st = standingFor(ask);
+    const live = ask.options.filter((o) => !hiddenAnswer(st, o.id));
+    return [
+      ...live.filter((o) => st.kept.includes(o.id)),
+      ...live.filter((o) => !st.kept.includes(o.id)),
+    ];
+  };
+  const hiddenOptions = (ask: Ask): AskOption[] =>
+    ask.options.filter((o) => hiddenAnswer(standingFor(ask), o.id));
+  const toggleKept = (ask: Ask, o: AskOption) =>
+    void setStanding(ask, o, isKept(ask, o.id) ? "open" : "kept");
+  function hideAnswer(ask: Ask, o: AskOption) {
+    if (preview()?.key === optionKey(ask, o.id)) setPreview(null);
+    void setStanding(ask, o, "hidden");
+    setToast({
+      text: `Hid ${o.label}`,
+      undo: () => {
+        setToast(null);
+        void setStanding(ask, o, "open");
+      },
+      reason: {
+        value: null,
+        save: (why) => void setStanding(ask, o, "hidden", why ?? undefined),
+      },
+    });
+  }
+  const unhideAnswer = (ask: Ask, o: AskOption) => void setStanding(ask, o, "open");
+  // Answered, a kept answer can take over: the one in use waits in its place, and the
+  // agent hears the change as a reply of its own, so nothing is drafted for it.
+  async function useInstead(ask: Ask, o: AskOption): Promise<boolean> {
+    const m = design();
+    if (!m || readonly()) return false;
+    const was = answerIds(ask.answer);
+    try {
+      for (const id of was) {
+        const old = ask.options.find((x) => x.id === id);
+        if (old && !ask.multi && !isKept(ask, id)) {
+          await api.standing(m.id, { ask: ask.id, option: id, to: "kept" });
+        }
+      }
+    } catch (e) {
+      fail(e);
+      return false;
+    }
+    const name = (l: string) => splitLabel(l).name;
+    const labels = was.map((id) => name(ask.options.find((x) => x.id === id)?.label ?? id));
+    const sent = await sendAlone({
+      answers: { [ask.id]: ask.multi ? [...was, o.id] : o.id },
+      text: ask.multi
+        ? `${name(o.label)} too`
+        : `${name(o.label)} instead${labels.length ? ` of ${labels.join(", ")}` : ""}`,
+    });
+    if (sent) setPreview(null);
+    return sent;
+  }
+  // A kept screen doesn't follow the one in use by itself: brought up to date once,
+  // or changed along with it from now on.
+  const updateOnce = (ask: Ask, o: AskOption) =>
+    sendAlone({
+      update: { ask: ask.id, option: o.id },
+      text: `Bring ${splitLabel(o.label).name} up to date`,
+    });
+  async function carryKept(ask: Ask, o: AskOption, carried: boolean) {
+    const m = design();
+    if (!m || readonly()) return;
+    try {
+      await api.standing(m.id, { ask: ask.id, option: o.id, carried });
+    } catch (e) {
+      fail(e);
+      return;
+    }
+    await sendAlone({
+      text: carried
+        ? `Change ${splitLabel(o.label).name} along with the one in use, from now on`
+        : `Leave ${splitLabel(o.label).name} as it is`,
+    });
+  }
+  // Saved sets: the answers on screen under a name, to come back to whole.
+  const sets = (): AnswerSet[] => design()?.sets ?? [];
+  const answersNow = (): Record<string, AskAnswer> => {
+    const out: Record<string, AskAnswer> = {};
+    for (const a of design()?.asks ?? []) {
+      const x = answerOf(a);
+      if (answerIds(x).length) out[a.id] = x!;
+    }
+    return out;
+  };
+  async function writeSet(body: Parameters<typeof api.saveSet>[1]) {
+    const m = design();
+    if (!m || readonly()) return false;
+    try {
+      const { sets: next } = await api.saveSet(m.id, body);
+      const now = design();
+      if (now) setDesign({ ...now, sets: next });
+      return true;
+    } catch (e) {
+      fail(e);
+      return false;
+    }
+  }
+  const saveSet = (name: string) => writeSet({ name, answers: answersNow() });
+  function removeSet(set: AnswerSet) {
+    void writeSet({ name: set.name, remove: true });
+    setToast({
+      text: `Removed ${set.name}`,
+      undo: () => {
+        setToast(null);
+        void writeSet({ name: set.name, answers: set.answers });
+      },
+    });
+  }
+  // What a set looks like on the stage: every answer's values, and its screen if one
+  // of them picks a screen.
+  function previewSet(set: AnswerSet): Preview | null {
+    const m = design();
+    if (!m) return null;
+    let out: Preview = { key: `set:${set.name}`, label: set.name, knobs: {} };
+    for (const [askId, answer] of Object.entries(set.answers)) {
+      const ask = m.asks.find((a) => a.id === askId);
+      for (const id of answerIds(answer)) {
+        const p = ask ? previewOf(ask, id) : null;
+        if (!p) continue;
+        out = { ...out, ...(p.variant ? { variant: p.variant, state: p.state } : {}) };
+        if (p.version) out.version = p.version;
+        out.knobs = { ...out.knobs, ...p.knobs };
+      }
+    }
+    return out;
+  }
+  const setInUse = (set: AnswerSet) =>
+    Object.entries(set.answers).every(([id, x]) => {
+      const a = design()?.asks.find((q) => q.id === id);
+      return !!a && JSON.stringify(answerIds(a.answer)) === JSON.stringify(answerIds(x));
+    });
+  const useSet = (set: AnswerSet) =>
+    sendAlone({ answers: set.answers, set: set.name, text: `Use ${set.name}` });
   // A steer names the version, since Studio shows older ones side by side.
   // Several go as one reply, with `text` for what is said about all of them.
   function steer(c: SteerNote) {
@@ -2336,6 +2524,25 @@ export function createDesignScreen(
     heldPreview,
     setHeldPreview,
     askMore,
+    standingFor,
+    shownOptions,
+    hiddenOptions,
+    isKept,
+    hiddenOf,
+    isCarried,
+    toggleKept,
+    hideAnswer,
+    unhideAnswer,
+    useInstead,
+    updateOnce,
+    carryKept,
+    sets,
+    answersNow,
+    saveSet,
+    removeSet,
+    previewSet,
+    setInUse,
+    useSet,
     moreWaiting,
     isNewOption,
     answeredAround,

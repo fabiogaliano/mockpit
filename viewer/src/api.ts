@@ -11,6 +11,8 @@ import type {
 import type { DecisionLine } from "../../server/decisionList.ts";
 import type { FeedEvent } from "../../server/events.ts";
 import type {
+  AnswerSet,
+  AnswerStanding,
   AskAnswer,
   Comment,
   CopyRef,
@@ -195,7 +197,33 @@ export const api = {
     call<{ draft: Draft | null }>(`/api/designs/${encodeURIComponent(id)}/draft`),
   putDraft: (id: string, draft: DraftInput) =>
     call<{ draft: Draft }>(`/api/designs/${encodeURIComponent(id)}/draft`, json("PUT", draft)),
-  reply: (id: string, body: DraftInput & { text?: string; verdict?: ReplyVerdict; to?: string }) =>
+  standing: (
+    id: string,
+    body: { ask: string; option: string } & (
+      | { to: "kept" | "hidden" | "open"; why?: string }
+      | { carried: boolean }
+    ),
+  ) =>
+    call<{ ask: string; standing: AnswerStanding }>(
+      `/api/designs/${encodeURIComponent(id)}/standings`,
+      json("POST", body),
+    ),
+  saveSet: (
+    id: string,
+    body: { name: string } & ({ answers: Record<string, AskAnswer> } | { remove: true }),
+  ) =>
+    call<{ sets: AnswerSet[] }>(`/api/designs/${encodeURIComponent(id)}/sets`, json("POST", body)),
+  reply: (
+    id: string,
+    body: DraftInput & {
+      text?: string;
+      verdict?: ReplyVerdict;
+      to?: string;
+      more?: { ask: string; note?: string; like?: string };
+      update?: { ask: string; option: string };
+      set?: string;
+    },
+  ) =>
     call<{ reply: CommentRow }>(`/api/designs/${encodeURIComponent(id)}/reply`, json("POST", body)),
   recipients: (id: string) =>
     call<SendRecipients>(`/api/designs/${encodeURIComponent(id)}/recipients`),

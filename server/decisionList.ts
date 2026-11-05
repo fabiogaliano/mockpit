@@ -14,12 +14,15 @@ import {
   type Design,
   optionState,
 } from "./types.ts";
+import { standingOf } from "./standings.ts";
 
 // The words of a derived line, so the viewer can weigh the answer over the
 // question. `text` below is exactly these, joined.
 export interface DecisionParts {
   asked: string;
   chose?: string;
+  // Answers kept for later: the runners-up.
+  kept?: string;
   not?: string;
   words?: string;
 }
@@ -113,6 +116,7 @@ function joinParts(p: DecisionParts): string {
   return [
     p.asked,
     p.chose ? stop(p.chose) : "",
+    p.kept ? `Kept for later: ${p.kept}.` : "",
     p.not ? `Not: ${p.not}.` : "",
     p.words ? `“${p.words}”` : "",
   ]
@@ -127,19 +131,32 @@ function askParts(design: Design, ask: Ask): DecisionParts | null {
     .map((w) => w?.trim() ?? "")
     .filter((w) => w && !handsItBack(w))
     .join(" ");
-  if (!chosen.length && !said) return null;
+  const standing = standingOf(design, ask.id);
+  const kept = ask.options
+    .filter((o) => standing.kept.includes(o.id) && !ids.includes(o.id))
+    .map((o) => cleanLabel(o.label));
+  // A reason is taste a new session should know before it offers the same again.
+  const why = standing.hidden.filter((h) => h.why);
+  if (!chosen.length && !said && !why.length) return null;
   const question = ask.text.trim();
   // "Keep this idea?" repeated per state means nothing without the state.
   const state = ask.state && design.states.includes(ask.state) ? ask.state : null;
   const where = state && !question.toLowerCase().includes(state.toLowerCase()) ? `${state}: ` : "";
-  const left = ask.options.filter((o) => !ids.includes(o.id)).map((o) => cleanLabel(o.label));
+  const reasoned = why.map((h) => `${cleanLabel(h.label)} (${h.why})`);
+  const left = ask.options
+    .filter((o) => !ids.includes(o.id) && !standing.kept.includes(o.id))
+    .filter((o) => !why.some((h) => h.id === o.id))
+    .map((o) => cleanLabel(o.label));
   const not =
-    chosen.length && !ask.other && ![...chosen, ...left].some((l) => YES_NO.test(l))
-      ? notList(left)
+    (chosen.length || reasoned.length) &&
+    !ask.other &&
+    ![...chosen, ...left].some((l) => YES_NO.test(l))
+      ? notList([...reasoned, ...(chosen.length ? left : [])])
       : undefined;
   return {
     asked: `${where}${/[?:.]$/.test(question) ? question : `${question}:`}`,
     ...(chosen.length ? { chose: listed(chosen) } : {}),
+    ...(kept.length ? { kept: listed(kept) } : {}),
     ...(not ? { not } : {}),
     ...(said ? { words: said } : {}),
   };
@@ -185,7 +202,8 @@ function standingAsks(design: Design, variants: DecisionVariant[]): Ask[] {
   const out: Ask[] = [];
   for (const ask of [...design.asks].reverse()) {
     if (ask.dismissed) continue;
-    if (ask.answer === undefined && !ask.other && !ask.comment) continue;
+    const reasons = standingOf(design, ask.id).hidden.some((h) => h.why);
+    if (ask.answer === undefined && !ask.other && !ask.comment && !reasons) continue;
     const wording = sameQuestion(ask);
     if (seen.has(wording)) continue;
     seen.add(wording);
@@ -203,6 +221,14 @@ function standingAsks(design: Design, variants: DecisionVariant[]): Ask[] {
     if (!replaced) out.unshift(ask);
   }
   return out;
+}
+
+// Kept and hidden answers change the line, so they're part of what an edit was made on.
+// Absent when there are none, so edits made before standings existed still apply.
+function standingBasis(design: Design, ask: Ask): string[] {
+  const s = standingOf(design, ask.id);
+  if (!s.kept.length && !s.hidden.length) return [];
+  return [JSON.stringify([s.kept, s.hidden.map((h) => [h.id, h.why ?? ""])])];
 }
 
 // Every line the project's replies add up to, as derived: newest decided design
@@ -261,7 +287,12 @@ export function deriveDecisionLines(
         ...(ask.state && design.states.includes(ask.state) ? { state: ask.state } : {}),
         text: joinParts(parts),
         parts,
-        basis: JSON.stringify([ask.answer ?? null, ask.other ?? null, ask.comment ?? null]),
+        basis: JSON.stringify([
+          ask.answer ?? null,
+          ask.other ?? null,
+          ask.comment ?? null,
+          ...standingBasis(design, ask),
+        ]),
       });
     }
   }

@@ -5,7 +5,9 @@
 
 import { type Decisions, decisionsFor } from "./decisions.ts";
 import { ROUTED_NOTE } from "./handoff.ts";
+import { standingOf, type StandingView, standingView } from "./standings.ts";
 import {
+  type AnswerStanding,
   type Ask,
   type AskOption,
   builtinAsk,
@@ -61,7 +63,7 @@ export interface OtherChoice {
 
 // An answered ask, resolved to the options the user chose, so the agent reads
 // "Which variant? → dark" without cross-referencing ids. `comment` qualifies the answer.
-export interface AnsweredAsk {
+export interface AnsweredAsk extends StandingView {
   ask: string;
   text: string;
   chosen: (AskOption | OtherChoice)[];
@@ -76,15 +78,29 @@ export interface MoreAnswers {
   text: string;
   existing: string[];
   note?: string;
+  // More like this one answer, rather than more of everything.
+  like?: string;
+  // What the user kept points the way; what they hid, and why, is what to avoid.
+  kept?: string[];
+  hidden?: { label: string; why?: string }[];
   answered: { ask: string; text: string; chosen: string[]; comment?: string }[];
+}
+
+// A kept screen to bring up to date with the one in use, once.
+export interface UpdateRequest {
+  ask: string;
+  text: string;
+  kept: AskOption;
+  inUse: AskOption[];
 }
 
 // The write-ins, comments and their images ride in `asks`, not again as id maps.
 export interface FeedbackReply extends Omit<
   Reply,
-  "others" | "askComments" | "otherImages" | "askCommentImages" | "more"
+  "others" | "askComments" | "otherImages" | "askCommentImages" | "more" | "standings" | "update"
 > {
   more?: MoreAnswers;
+  update?: UpdateRequest;
   seq: number;
   at: string;
   asks: AnsweredAsk[];
@@ -116,9 +132,16 @@ export interface FeedbackBatch {
 
 const ref = (p: Post): VariantRef => ({ state: p.state, variant: p.variant });
 
-function moreAnswers(design: Design, more: NonNullable<Reply["more"]>): MoreAnswers | undefined {
+function moreAnswers(
+  design: Design,
+  more: NonNullable<Reply["more"]>,
+  sent: AnswerStanding | undefined,
+): MoreAnswers | undefined {
   const ask = design.asks.find((a) => a.id === more.ask);
   if (!ask) return undefined;
+  const st = sent ?? standingOf(design, ask.id);
+  const view = standingView(ask, st);
+  const like = more.like ? ask.options.find((o) => o.id === more.like)?.label : undefined;
   const labels = (a: Ask): string[] => {
     const ids = a.answer === undefined ? [] : Array.isArray(a.answer) ? a.answer : [a.answer];
     return [
@@ -129,8 +152,14 @@ function moreAnswers(design: Design, more: NonNullable<Reply["more"]>): MoreAnsw
   return {
     ask: ask.id,
     text: ask.text,
-    existing: ask.options.map((o) => o.label),
+    // Hidden ones are out: asked again, they'd only fold away.
+    existing: ask.options.filter((o) => !st.hidden.some((h) => h.id === o.id)).map((o) => o.label),
     ...(more.note ? { note: more.note } : {}),
+    ...(like ? { like } : {}),
+    ...(view?.kept ? { kept: view.kept.map((k) => k.label) } : {}),
+    ...(view?.hidden
+      ? { hidden: view.hidden.map((h) => ({ label: h.label, ...(h.why ? { why: h.why } : {}) })) }
+      : {}),
     answered: design.asks
       .filter((a) => a.id !== ask.id && labels(a).length > 0)
       .map((a) => ({
@@ -139,6 +168,22 @@ function moreAnswers(design: Design, more: NonNullable<Reply["more"]>): MoreAnsw
         chosen: labels(a),
         ...(a.comment ? { comment: a.comment } : {}),
       })),
+  };
+}
+
+function updateRequest(
+  design: Design,
+  wanted: NonNullable<Reply["update"]>,
+): UpdateRequest | undefined {
+  const ask = design.asks.find((a) => a.id === wanted.ask);
+  const kept = ask?.options.find((o) => o.id === wanted.option);
+  if (!ask || !kept) return undefined;
+  const ids = ask.answer === undefined ? [] : [ask.answer].flat();
+  return {
+    ask: ask.id,
+    text: ask.text,
+    kept,
+    inUse: ask.options.filter((o) => ids.includes(o.id)),
   };
 }
 
@@ -182,10 +227,14 @@ function answered(
   const comments = reply.askComments ?? {};
   const refs = (ids: string[] | undefined): ImageRef[] =>
     (ids ?? []).map((id) => ({ id, url: `${base}/a/${encodeURIComponent(id)}` }));
+  const standings = reply.standings ?? {};
   const askIds = new Set([
     ...Object.keys(reply.answers),
     ...Object.keys(others),
     ...Object.keys(comments),
+    // A question whose answers the user only kept or hid is still news: more answers
+    // should follow the kept ones and avoid the hidden.
+    ...Object.keys(standings).filter((id) => id !== reply.more?.ask),
   ]);
   const out: AnsweredAsk[] = [];
   for (const askId of askIds) {
@@ -211,10 +260,12 @@ function answered(
         ...(otherImages.length ? { images: otherImages } : {}),
       });
     const commentImages = refs(reply.askCommentImages?.[askId]);
+    const st = standings[askId];
     out.push({
       ask: askId,
       text: ask?.text ?? "",
       chosen,
+      ...(ask && st ? standingView({ ...ask, answer }, st) : {}),
       ...(comments[askId] !== undefined ? { comment: comments[askId] } : {}),
       ...(commentImages.length ? { commentImages } : {}),
     });
@@ -271,9 +322,13 @@ export function groupFeedback(
         askCommentImages: _askCommentImages,
         routed,
         more: asked,
+        standings: _standings,
+        update: wanted,
         ...payload
       } = c.payload;
-      const more = asked && design ? moreAnswers(design, asked) : undefined;
+      const more =
+        asked && design ? moreAnswers(design, asked, c.payload.standings?.[asked.ask]) : undefined;
+      const update = wanted && design ? updateRequest(design, wanted) : undefined;
       if (routed) batch.handoff = ROUTED_NOTE;
       const reactions = (payload.comments ?? []).filter(isReaction).map(reactionLine);
       batch.reply = {
@@ -284,6 +339,7 @@ export function groupFeedback(
         asks: answered(c.payload, design, designPosts, base),
         ...(reactions.length ? { reactions } : {}),
         ...(more ? { more } : {}),
+        ...(update ? { update } : {}),
       };
       const decisions = design ? decisionsFor(design, designPosts, c.payload) : null;
       if (decisions) batch.reply.decisions = decisions;

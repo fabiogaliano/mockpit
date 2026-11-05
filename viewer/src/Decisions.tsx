@@ -120,6 +120,11 @@ function Line(props: {
                           </>
                         )}
                       </Show>
+                      <Show when={p().kept}>
+                        {(kept) => (
+                          <span class="decisions-not">{` Kept for later: ${kept()}.`}</span>
+                        )}
+                      </Show>
                       <Show when={p().not}>
                         {(not) => <span class="decisions-not">{` Not: ${not()}`}</span>}
                       </Show>

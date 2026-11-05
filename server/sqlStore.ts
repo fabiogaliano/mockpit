@@ -25,6 +25,8 @@ import {
   type Design,
   type DesignNotes,
   type AnswerAddition,
+  type AnswerSet,
+  type AnswerStanding,
   type StateOutline,
   isDesignKind,
   newId,
@@ -481,6 +483,8 @@ export class SqlStore implements Store {
       notes: "TEXT",
       stateOutlines: "TEXT NOT NULL DEFAULT '{}'",
       answerAdditions: "TEXT NOT NULL DEFAULT '[]'",
+      standings: "TEXT NOT NULL DEFAULT '{}'",
+      sets: "TEXT NOT NULL DEFAULT '[]'",
     });
     this.migrateSituations();
     // Before the legacy lift, whose history rows are written with every column.
@@ -493,6 +497,7 @@ export class SqlStore implements Store {
       description: "TEXT",
       forkedFrom: "TEXT",
       copiedFrom: "TEXT",
+      // Inert: kept answers (`Design.standings`) took over from the star.
       starred: "INTEGER NOT NULL DEFAULT 0",
       acceptedVersion: "INTEGER",
       hiddenVersions: "TEXT",
@@ -1038,6 +1043,8 @@ export class SqlStore implements Store {
       notes: parseJson<DesignNotes | null>(r.notes, null),
       stateOutlines: parseJson<Record<string, StateOutline>>(r.stateOutlines, {}),
       answerAdditions: parseJson<AnswerAddition[]>(r.answerAdditions, []),
+      standings: parseJson<Record<string, AnswerStanding>>(r.standings, {}),
+      sets: parseJson<AnswerSet[]>(r.sets, []),
       createdAt: r.createdAt as string,
       updatedAt: r.updatedAt as string,
     };
@@ -1065,7 +1072,6 @@ export class SqlStore implements Store {
       embeds: parseJson<Embed[]>(r.slots, []),
       ...(r.forkedFrom == null ? {} : { forkedFrom: parseJson<ForkRef>(r.forkedFrom, null!) }),
       ...(r.copiedFrom == null ? {} : { copiedFrom: parseJson<CopyRef>(r.copiedFrom, null!) }),
-      ...(r.starred ? { starred: true as const } : {}),
       ...(r.status === "accepted" && r.acceptedVersion != null
         ? { acceptedVersion: r.acceptedVersion as number }
         : {}),
@@ -1369,6 +1375,8 @@ export class SqlStore implements Store {
       notes: null,
       stateOutlines: {},
       answerAdditions: [],
+      standings: {},
+      sets: [],
       createdAt: now,
       updatedAt: now,
     };
@@ -1412,10 +1420,12 @@ export class SqlStore implements Store {
       ...(patch.notes !== undefined && { notes: patch.notes }),
       ...(patch.stateOutlines !== undefined && { stateOutlines: patch.stateOutlines }),
       ...(patch.answerAdditions !== undefined && { answerAdditions: patch.answerAdditions }),
+      ...(patch.standings !== undefined && { standings: patch.standings }),
+      ...(patch.sets !== undefined && { sets: patch.sets }),
       updatedAt: new Date().toISOString(),
     };
     this.sql.exec(
-      "UPDATE designs SET title = ?, kind = ?, area = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, archivedAt = ?, archiveReason = ?, notes = ?, stateOutlines = ?, answerAdditions = ?, updatedAt = ? WHERE id = ?",
+      "UPDATE designs SET title = ?, kind = ?, area = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, archivedAt = ?, archiveReason = ?, notes = ?, stateOutlines = ?, answerAdditions = ?, standings = ?, sets = ?, updatedAt = ? WHERE id = ?",
       next.title,
       next.kind,
       next.area,
@@ -1430,6 +1440,8 @@ export class SqlStore implements Store {
       next.notes ? JSON.stringify(next.notes) : null,
       JSON.stringify(next.stateOutlines),
       JSON.stringify(next.answerAdditions),
+      JSON.stringify(next.standings),
+      JSON.stringify(next.sets),
       next.updatedAt,
       id,
     );
@@ -2279,14 +2291,6 @@ export class SqlStore implements Store {
     return next;
   }
 
-  async setPostStarred(id: string, starred: boolean) {
-    const post = await this.getPost(id);
-    if (!post) return null;
-    this.sql.exec("UPDATE posts SET starred = ? WHERE id = ?", starred ? 1 : 0, id);
-    const { starred: _, ...rest } = post;
-    return starred ? { ...rest, starred: true as const } : rest;
-  }
-
   async bumpRewrites(designId: string) {
     const ids = (await this.listPosts({ designId })).map((p) => p.id);
     this.writingPosts(designId, ids, () =>
@@ -2477,7 +2481,7 @@ export class SqlStore implements Store {
   async commitReply(input: CommitReplyInput) {
     if (!(await this.getSession(input.sessionId))) return null;
     if (!(await this.getDesign(input.designId))) return null;
-    const moved = [...input.accept.map((x) => x.id), ...input.archive];
+    const moved = [...input.accept.map((x) => x.id), ...input.archive, ...(input.release ?? [])];
     return this.writingPosts(input.designId, moved, () =>
       this.atomic(() => {
         const comment = this.insertComment({
@@ -2496,6 +2500,13 @@ export class SqlStore implements Store {
           JSON.stringify(input.asks),
           input.designId,
         );
+        if (input.standings) {
+          this.sql.exec(
+            "UPDATE designs SET standings = ? WHERE id = ?",
+            JSON.stringify(input.standings),
+            input.designId,
+          );
+        }
         if (input.owner) {
           this.sql.exec(
             "UPDATE designs SET sessionId = ? WHERE id = ?",
@@ -2526,6 +2537,13 @@ export class SqlStore implements Store {
               id,
             );
           }
+        }
+        for (const id of input.release ?? []) {
+          this.sql.exec(
+            "UPDATE posts SET status = 'open', acceptedVersion = NULL, stayedVersion = NULL WHERE id = ? AND designId = ? AND status = 'accepted'",
+            id,
+            input.designId,
+          );
         }
         for (const id of input.archive) {
           this.sql.exec(

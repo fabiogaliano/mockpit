@@ -402,9 +402,13 @@ reaction on its part (a comment's \`borrow\` asks for a new version taking a par
 from another; "more like this" asks for 2–3 variants forked from it; a comment on a
 written document has \`anchor.paragraph\`: \`{surface, index, kind, text}\`, the block
 it is about);
-\`more\` asks for more answers to one question, \`{ask, text, existing, note, answered}\`:
-ask it again under the same id, every \`existing\` answer plus new ones that differ from them
-and respect \`answered\`, each with something to see, bringing what it needs;
+\`more\` asks for more answers to one question, \`{ask, text, existing, note, like, kept,
+hidden, answered}\`: ask it again under the same id, every \`existing\` answer plus new ones
+that differ from them and respect \`answered\`, each with something to see, bringing what it
+needs; with \`like\`, the new ones are close to that answer; follow \`kept\` and stay away
+from \`hidden\` and each \`why\`. An answered ask's \`kept\` and \`hidden\` are the user's
+runners-up and rejects: never offer a hidden answer again; \`update\` asks you to bring one
+kept screen up to date with the one in use;
 \`verdict\` (use, revise) replaces answers when there were
 no questions; \`decisions\` is the state as chosen: variant, then each part's
 fill, nested; \`messages\` are what the user wrote in the thread. Each Send

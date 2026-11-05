@@ -20,6 +20,7 @@ import {
 } from "solid-js";
 import { assetUrl, surfaceUrl } from "./api.ts";
 import { BuiltFrom } from "./BuiltFrom.tsx";
+import { AnswerSets, KeptAnswers, keptGroups } from "./Kept.tsx";
 import type { FlowNav } from "./flowNav.ts";
 import { host, readonly } from "./host.ts";
 import { Icon, type IconName } from "./icons.tsx";
@@ -93,7 +94,8 @@ export function createMargins(
     columnW() === null && (page() || widthChoices(s.design()?.widths ?? []).length > 1);
 
   const closed = () => !!s.design()?.archivedAt;
-  const talkWants = () => !closed() && (!!s.curAsk() || s.sendable());
+  // Kept answers wait beside the design, so they hold the side open after a Send.
+  const talkWants = () => !closed() && (!!s.curAsk() || s.sendable() || keptGroups(s).length > 0);
   const talkHas = () => talkWants() || s.flow().length > 0 || s.closedAsks("state").length > 0;
   const builtHas = () => s.tunable().length > 0 || !!s.activeVariant()?.embedsKey;
   const side = createMemo<Side | null>(() => {
@@ -774,7 +776,9 @@ export function WithThisSend(props: { s: DesignScreenState; m: Margins }) {
           </button>
         </div>
       </Show>
+      <KeptAnswers s={s} />
       <Answered s={s} scope="state" />
+      <AnswerSets s={s} />
     </>
   );
 }

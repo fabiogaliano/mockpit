@@ -2735,6 +2735,182 @@ a.home-count {
   box-shadow: inset 0 0 0 1.5px var(--t4);
 }
 
+/* An answer with its actions: the bookmark on its left, more like this and hide on its
+   right. They wait for a hover, except a kept answer's bookmark, which is how it reads
+   as kept. A touch screen has no hover, so they stay. */
+.optw {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+.optw > .opt {
+  flex: 1;
+  min-width: 0;
+}
+.optw.kept {
+  order: -1;
+}
+.optw.kept > .opt:not(.on) {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.optleft,
+.optacts {
+  position: absolute;
+  top: 9px;
+  z-index: 3;
+  display: flex;
+  gap: 4px;
+}
+.optleft {
+  left: 9px;
+}
+.optacts {
+  right: 9px;
+}
+.optw.on .optacts {
+  right: 40px;
+}
+.optic {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: rgb(15 15 15 / 0.78);
+  color: #f5f5f5;
+  opacity: 0;
+  transition:
+    opacity 120ms ease,
+    background-color 120ms ease;
+}
+.optic .icon {
+  width: 15px;
+  height: 15px;
+}
+.optw:hover .optic,
+.optw:focus-within .optic,
+.optw.kept .optkeep {
+  opacity: 1;
+}
+.optw.kept .optkeep {
+  background: var(--accent);
+  color: #fff;
+}
+.optw.kept .optkeep .icon path {
+  fill: currentColor;
+}
+@media (hover: hover) {
+  .optic:hover {
+    background: rgb(15 15 15 / 0.94);
+  }
+  .optw.kept .optkeep:hover {
+    background: color-mix(in srgb, var(--accent) 82%, #000);
+  }
+}
+@media (hover: none) {
+  .optic {
+    opacity: 0.9;
+  }
+}
+.optic:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* The New badge sits in the left group, before the bookmark. */
+.optw .optnew {
+  left: 39px;
+}
+.optw:not(.kept):not(:hover):not(:focus-within) .optnew {
+  left: 9px;
+}
+.optw .opt:not(.pill) .holdtimer {
+  top: auto;
+  bottom: 38px;
+}
+/* A pill has no picture to sit on: the actions perch on its corners. */
+.optw.pillw .optleft {
+  top: -9px;
+  left: -6px;
+}
+.optw.pillw .optacts {
+  top: -9px;
+  right: -6px;
+}
+.optw.pillw .optic {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+}
+/* Rows (the list, and a phone's card): the actions sit at the row's ends. */
+.opts.aslist .optleft,
+.opts.aslist .optacts,
+.qcard:not(.beside) .optleft,
+.qcard:not(.beside) .optacts {
+  top: 50%;
+  translate: 0 -50%;
+}
+.opts.aslist .optleft,
+.qcard:not(.beside) .optleft {
+  left: 10px;
+}
+.opts.aslist .optacts,
+.opts.aslist .optw.on .optacts,
+.qcard:not(.beside) .optacts,
+.qcard:not(.beside) .optw.on .optacts {
+  right: 6px;
+}
+.qcard.beside .opts.aslist .optw .opt:not(.pill),
+.qcard:not(.beside) .optw .opt {
+  padding-right: 92px;
+}
+.opts.aslist .optw .holdtimer {
+  top: 50%;
+  bottom: auto;
+  right: 66px;
+}
+.opt-arch > .optw {
+  flex: 1;
+  opacity: 0.5;
+}
+.hiddenans {
+  grid-column: 1 / -1;
+  flex-basis: 100%;
+}
+.hiddenans-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 4px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.hiddenans-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+.hiddenans-name {
+  color: var(--t3);
+  text-decoration: line-through;
+  text-decoration-color: var(--t6);
+}
+.hiddenans-why {
+  min-width: 0;
+  color: var(--t4);
+  overflow-wrap: anywhere;
+}
+.hiddenans-list .vrestore {
+  margin-left: auto;
+  flex: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .optic {
+    transition: none;
+  }
+}
+
 .secondary {
   height: 44px;
   margin-top: 8px;
@@ -8920,4 +9096,369 @@ body:has(.selp) .toast {
 .tip-keys {
   margin-left: 8px;
   opacity: 0.6;
+}
+
+/* Kept answers beside the design, and saved sets (Kept.tsx). */
+.keptans,
+.asets {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.keptans ul,
+.asets ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.keptans-hd {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 4px 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--t2);
+}
+.keptans-hd small {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--t4);
+}
+.keptrow,
+.setrow {
+  display: flex;
+  gap: 10px;
+  padding: 6px;
+  border-radius: var(--r);
+  background: var(--row);
+  box-shadow: inset 0 0 0 1.5px transparent;
+  transition: box-shadow 120ms ease;
+}
+.keptrow.previewing,
+.setrow.previewing {
+  box-shadow: inset 0 0 0 1.5px var(--t4);
+}
+.setrow {
+  align-items: center;
+  padding-left: 12px;
+}
+.keptrow-pic {
+  flex: none;
+  width: 56px;
+}
+.keptrow-pic .crop {
+  width: 56px;
+  aspect-ratio: 3 / 4;
+  border-radius: 8px;
+  background: var(--frame);
+}
+.keptrow-pic.empty {
+  height: 74px;
+  border-radius: 8px;
+  background: var(--frame);
+}
+.keptrow-col {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.keptrow-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--t1);
+}
+.keptrow-desc,
+.keptrow-late {
+  font-size: 12px;
+  color: var(--t4);
+  overflow-wrap: anywhere;
+}
+.keptrow-late.due {
+  color: var(--t2);
+  font-weight: 500;
+}
+.keptrow-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.setrow .keptrow-acts {
+  flex: none;
+  margin-top: 0;
+}
+.keptrow .optic,
+.setrow .optic {
+  opacity: 1;
+  background: var(--fill);
+  color: var(--t2);
+}
+.keptrow .optkeep.on {
+  margin-left: auto;
+  background: var(--accent);
+  color: #fff;
+}
+.keptrow .optkeep.on .icon path {
+  fill: currentColor;
+}
+.keptrow-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+  border: 0;
+}
+.keptrow-mode legend {
+  margin-bottom: 2px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.keptrow-mode .seg {
+  display: flex;
+  align-self: flex-start;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--panel);
+}
+.keptrow-mode label {
+  position: relative;
+  padding: 4px 9px;
+  border-radius: 7px;
+  font-size: 12px;
+  color: var(--t3);
+  cursor: pointer;
+}
+.keptrow-mode label:has(:checked) {
+  background: var(--fill);
+  color: var(--t1);
+}
+.keptrow-mode label:has(:focus-visible) {
+  outline: 2px solid var(--accent);
+}
+.keptrow-mode input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+/* The pill that is on already says what the stage shows. */
+.vcap:has(.apill.on) .previewcap {
+  display: none;
+}
+.setrow-use {
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--fill);
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--t2);
+}
+.asets .moreans {
+  margin-top: 6px;
+  width: 100%;
+}
+.asets-new {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.asets-new input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 9px;
+  background: var(--row);
+  color: var(--t1);
+}
+
+/* On the design's top edge: in use, kept and sets, to look at without choosing. */
+.apills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  min-width: 0;
+}
+.apills-row {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 12px;
+  background: var(--panel);
+}
+.apill {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 9px;
+  font-size: 13px;
+  color: var(--t3);
+  white-space: nowrap;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+.apill.use {
+  background: var(--row);
+  color: var(--t1);
+}
+.apill.on,
+.apill[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+@media (hover: hover) {
+  .apill:not(.on):hover {
+    background: var(--row-hover);
+    color: var(--t1);
+  }
+}
+.apills-note {
+  font-size: 12px;
+  color: var(--t4);
+}
+
+/* Studio's Answers (AnswerBoard.tsx): every answer of the open question at once. */
+.aboard-wrap {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow-y: auto;
+}
+.aboard {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 16px 24px 48px;
+}
+.aboard-hd {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0 12px;
+  background: var(--page);
+}
+.aboard-hd h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--t1);
+  text-wrap: balance;
+}
+.aboard-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--t4);
+}
+.aboard-every {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--t2);
+  cursor: pointer;
+}
+.aboard-every input {
+  accent-color: var(--accent);
+}
+.aboard-keys kbd {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--row);
+  font: 11px var(--mono, monospace);
+  color: var(--t2);
+}
+.aboard-send {
+  margin-left: auto;
+}
+.aboard-grid .opts {
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 12px;
+}
+.aboard-grid .opt .crop {
+  aspect-ratio: 3 / 4;
+}
+.aboard-grid .opt:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.aevery {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(180px, 220px);
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 12px;
+}
+.aevery-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 14px;
+  background: var(--row);
+  box-shadow: inset 0 0 0 1.5px transparent;
+}
+.aevery-col.kept {
+  order: -1;
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.aevery-hd {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.aevery-name {
+  flex: 1;
+  min-width: 0;
+  padding: 4px;
+  border-radius: 7px;
+  text-align: start;
+  font-weight: 500;
+  color: var(--t2);
+}
+.aevery-name[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 1.5px var(--t2);
+}
+.aevery-hd .optic {
+  opacity: 1;
+  background: var(--fill);
+  color: var(--t2);
+}
+.aevery-hd .optkeep.on {
+  background: var(--accent);
+  color: #fff;
+}
+.aevery-hd .optkeep.on .icon path {
+  fill: currentColor;
+}
+.aevery-pic {
+  margin: 0;
+}
+.aevery-pic .crop {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border-radius: var(--r);
+  background: var(--frame);
+}
+.aevery-pic figcaption {
+  padding: 4px 2px 0;
+  font-size: 12px;
+  color: var(--t4);
 }

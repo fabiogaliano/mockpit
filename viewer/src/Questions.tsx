@@ -20,6 +20,7 @@ import {
   isBuiltinAsk,
   isLookAsk,
   partBox,
+  splitLabel,
 } from "./logic.ts";
 import type { AskField, DesignScreenState } from "./state.ts";
 import { Reason } from "./Reason.tsx";
@@ -29,7 +30,7 @@ import { Icon } from "./icons.tsx";
 
 // .holdtimer's two animations add up to this.
 const HOLD_MS = 2000;
-const LIST_ABOVE = 4;
+export const LIST_ABOVE = 4;
 
 // A design the user archived: what that did, the way back, and why, if they want to say.
 export function ArchivedNote(props: { s: DesignScreenState }) {
@@ -138,6 +139,8 @@ export function optionPicture(
   s: DesignScreenState,
   ask: Ask,
   o: AskOption,
+  // Another state to picture it on than the one it would show on now.
+  at?: string | null,
 ): {
   src: string;
   knobs: Record<string, KnobValue>;
@@ -146,7 +149,11 @@ export function optionPicture(
 } | null {
   const m = s.design();
   if (!m) return null;
-  const state = o.version ? optionState(ask, m) : askState(ask, m, s.activeState());
+  const state = o.version
+    ? optionState(ask, m)
+    : at !== undefined
+      ? at
+      : askState(ask, m, s.activeState());
   const html = (v: VariantView | undefined) => {
     if (!v) return -1;
     return v.surfaces.findIndex((x) => x.kind === "html");
@@ -201,6 +208,11 @@ export function AskBody(props: {
 }) {
   const s = props.s;
   const picked = (o: AskOption) => answerIds(s.answerOf(props.ask)).includes(o.id);
+  let optsEl: HTMLDivElement | undefined;
+  // Keeping, hiding and more-like-this act on one answer; the built-in Which variant?
+  // has no agent behind it to ask for more.
+  const acts = () => !readonly() && !dormant();
+  const moveCards = (change: () => void, gone?: Element | null) => flipCards(optsEl, change, gone);
   const keyOf = (o: AskOption) => s.optionKey(props.ask, o.id);
   const slot = () => s.askSlot(props.ask);
   const dormant = () => s.dormantOf(props.ask);
@@ -252,6 +264,7 @@ export function AskBody(props: {
       </Show>
       <div
         class="opts"
+        ref={(el) => (optsEl = el)}
         role="group"
         aria-label={props.ask.text}
         classList={{
@@ -260,7 +273,7 @@ export function AskBody(props: {
           aslist: !!props.beside && listed(s, props.ask) && answersView() === "list",
         }}
       >
-        <For each={props.ask.options}>
+        <For each={s.shownOptions(props.ask)}>
           {(o, i) => {
             const pic = () => optionPicture(s, props.ask, o);
             const focus = () => {
@@ -305,6 +318,21 @@ export function AskBody(props: {
                     : undefined
                 }
                 onChoose={() => s.choose(props.ask, o.id)}
+                actions={
+                  acts()
+                    ? {
+                        kept: s.isKept(props.ask, o.id),
+                        onKeep: () => moveCards(() => s.toggleKept(props.ask, o)),
+                        onHide: (card, key) =>
+                          moveCards(() => s.hideAnswer(props.ask, o), key ? null : card),
+                        ...(isBuiltinAsk(props.ask)
+                          ? {}
+                          : { onLike: () => void s.askMore(props.ask, "", o) }),
+                      }
+                    : s.isKept(props.ask, o.id)
+                      ? { kept: true }
+                      : undefined
+                }
               />
             );
             // D13: once the Look is sent its losers are archived; each stays restorable.
@@ -343,7 +371,9 @@ export function AskBody(props: {
             previewing={false}
             data="other"
             shortcut={
-              props.ask.options.length < 9 ? String(props.ask.options.length + 1) : undefined
+              s.shownOptions(props.ask).length < 9
+                ? String(s.shownOptions(props.ask).length + 1)
+                : undefined
             }
             onEnter={() => s.setHoveredPreview(null)}
             onLeave={() => {}}
@@ -353,6 +383,7 @@ export function AskBody(props: {
             <MoreAnswers s={s} ask={props.ask} />
           </Show>
         </Show>
+        <HiddenAnswers s={s} ask={props.ask} move={moveCards} />
       </div>
       <Show when={s.otherTicked(props.ask)}>
         <AskText
@@ -631,6 +662,7 @@ function MoreAnswers(props: { s: DesignScreenState; ask: Ask }) {
   const [note, setNote] = createSignal("");
   const [sending, setSending] = createSignal(false);
   const around = () => s.answeredAround(props.ask);
+  const kept = () => props.ask.options.filter((o) => s.isKept(props.ask, o.id)).map((o) => o.label);
   async function ask() {
     setSending(true);
     const sent = await s.askMore(props.ask, note().trim());
@@ -668,6 +700,19 @@ function MoreAnswers(props: { s: DesignScreenState; ask: Ask }) {
             <Show when={around().length}>
               <dt>Keeps</dt>
               <dd>{around().join(" · ")}</dd>
+            </Show>
+            <Show when={kept().length}>
+              <dt>Like</dt>
+              <dd>{kept().join(" · ")}</dd>
+            </Show>
+            <Show when={s.hiddenOptions(props.ask).length}>
+              <dt>Not like</dt>
+              <dd>
+                {s
+                  .hiddenOptions(props.ask)
+                  .map((o) => o.label)
+                  .join(" · ")}
+              </dd>
             </Show>
             <dt>Skips</dt>
             <dd>{`The ${props.ask.options.length} answers here`}</dd>
@@ -713,6 +758,14 @@ function OptionCard(props: {
   onChoose: () => void;
   // Called once the pointer has rested on it; absent when the stage can't show it.
   onHold?: () => void;
+  // The bookmark on its left, more like this and hide on its right. `kept` alone, read
+  // only: the mark without the buttons.
+  actions?: {
+    kept: boolean;
+    onKeep?: () => void;
+    onHide?: (card: Element | null, byKey: boolean) => void;
+    onLike?: () => void;
+  };
 }) {
   const [resting, setResting] = createSignal(false);
   let timer = 0;
@@ -739,7 +792,7 @@ function OptionCard(props: {
       hold();
     }, HOLD_MS);
   };
-  return (
+  const card = (
     <button
       type="button"
       class="opt"
@@ -785,9 +838,9 @@ function OptionCard(props: {
       <Show when={props.isNew}>
         <span class="optnew">New</span>
       </Show>
-      <span class="lbl">{props.label}</span>
-      <Show when={props.note}>
-        <span class="onote">{props.note}</span>
+      <span class="lbl">{splitLabel(props.label).name}</span>
+      <Show when={props.note ?? splitLabel(props.label).sub}>
+        {(note) => <span class="onote">{note()}</span>}
       </Show>
       <Show when={props.on}>
         <span class="tick">✓</span>
@@ -796,6 +849,172 @@ function OptionCard(props: {
         <span class="pickdot" aria-hidden="true" />
         <span class="sr-only">, agent's pick</span>
       </Show>
+      <Show when={props.actions?.kept}>
+        <span class="sr-only">, kept</span>
+      </Show>
     </button>
   );
+  const a = props.actions;
+  if (!a) return card;
+  // A key press is a quick cull: it skips the fade, so the next press lands at once.
+  const byKey = (e: MouseEvent) => e.detail === 0;
+  return (
+    <div
+      class="optw"
+      classList={{ kept: a.kept, on: props.on, pillw: !props.picture }}
+      data-option-card={props.data}
+    >
+      {card}
+      <span class="optleft">
+        <Show when={a.onKeep} fallback={<KeptMark />}>
+          <button
+            type="button"
+            class="optic optkeep"
+            aria-pressed={a.kept}
+            aria-label={a.kept ? `Kept. Remove ${props.label} from kept` : `Keep ${props.label}`}
+            title={a.kept ? "Kept. Click to remove" : "Keep for later"}
+            onClick={() => a.onKeep?.()}
+          >
+            <Icon name="bookmark" />
+          </button>
+        </Show>
+      </span>
+      <Show when={a.onHide || a.onLike}>
+        <span class="optacts">
+          <Show when={a.onLike}>
+            <button
+              type="button"
+              class="optic"
+              aria-label={`More like ${props.label}`}
+              title="More like this"
+              onClick={() => a.onLike?.()}
+            >
+              <Icon name="plus" />
+            </button>
+          </Show>
+          <Show when={a.onHide}>
+            <button
+              type="button"
+              class="optic"
+              aria-label={`Hide ${props.label}`}
+              title="Hide"
+              onClick={(e) => a.onHide?.(e.currentTarget.closest(".optw"), byKey(e))}
+            >
+              <Icon name="close" />
+            </button>
+          </Show>
+        </span>
+      </Show>
+    </div>
+  );
+}
+
+function KeptMark() {
+  return (
+    <span class="optic optkeep" aria-hidden="true">
+      <Icon name="bookmark" />
+    </span>
+  );
+}
+
+// Hidden answers, folded after the rest: each with its why, and the way back.
+function HiddenAnswers(props: {
+  s: DesignScreenState;
+  ask: Ask;
+  move: (change: () => void) => void;
+}) {
+  const s = props.s;
+  const [open, setOpen] = createSignal(false);
+  const id = createUniqueId();
+  const list = () => s.hiddenOptions(props.ask);
+  return (
+    <Show when={list().length}>
+      <div class="hiddenans">
+        <button
+          type="button"
+          class="answered-hd"
+          aria-expanded={open()}
+          aria-controls={id}
+          onClick={() => setOpen(!open())}
+        >
+          <span class="answered-chev" aria-hidden="true">
+            ›
+          </span>
+          {`Hidden · ${list().length}`}
+        </button>
+        <Show when={open()}>
+          <ul class="hiddenans-list" id={id}>
+            <For each={list()}>
+              {(o) => (
+                <li>
+                  <span class="hiddenans-name">{o.label}</span>
+                  <Show when={s.hiddenOf(props.ask, o.id)?.why}>
+                    {(why) => <span class="hiddenans-why">{why()}</span>}
+                  </Show>
+                  <Show when={!readonly()}>
+                    <button
+                      type="button"
+                      class="vrestore"
+                      aria-label={`Bring back ${o.label}`}
+                      onClick={() => props.move(() => s.unhideAnswer(props.ask, o))}
+                    >
+                      Bring back
+                    </button>
+                  </Show>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
+      </div>
+    </Show>
+  );
+}
+
+const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
+const EASE_MOVE = "cubic-bezier(0.645, 0.045, 0.355, 1)";
+
+// An answer leaving fades out, then the others slide from where they were into the gap
+// (FLIP); one arriving grows in. Only transform and opacity move, and reduced motion
+// skips all of it.
+export function flipCards(box: HTMLElement | undefined, change: () => void, gone?: Element | null) {
+  const w = host().window;
+  if (!box || w.matchMedia("(prefers-reduced-motion: reduce)").matches) return change();
+  const cards = () => [...box.children] as HTMLElement[];
+  const run = () => {
+    const before = new Map(cards().map((el) => [el, el.getBoundingClientRect()]));
+    change();
+    for (const el of cards()) {
+      const b = before.get(el);
+      if (!b) {
+        el.animate(
+          [
+            { opacity: 0, transform: "scale(0.96)" },
+            { opacity: 1, transform: "none" },
+          ],
+          { duration: 200, easing: EASE_OUT },
+        );
+        continue;
+      }
+      const a = el.getBoundingClientRect();
+      const dx = b.left - a.left;
+      const dy = b.top - a.top;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+      el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], {
+        duration: 240,
+        easing: EASE_MOVE,
+      });
+    }
+  };
+  if (!gone) return run();
+  (gone as HTMLElement).style.pointerEvents = "none";
+  gone
+    .animate(
+      [
+        { opacity: 1, transform: "none" },
+        { opacity: 0, transform: "scale(0.96)" },
+      ],
+      { duration: 150, easing: EASE_OUT, fill: "forwards" },
+    )
+    .finished.then(run, run);
 }
