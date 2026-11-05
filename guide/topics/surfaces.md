@@ -21,10 +21,8 @@ On the CLI: `--html`, `--md`, `--diff`, `--mermaid`, `--terminal`, `--code`,
 
 ## Picking a kind
 
-Pick by what the thing is:
-
-- `html`: you are drawing. UI, diagrams, data viz, anything interactive. Design
-  designs use this. Topic `html` has its contract.
+- `html`: you are drawing: UI, diagrams, data viz, anything interactive. Topic `html` has its
+  contract.
 - `markdown`: prose, plans, tradeoffs. Tag fenced code to highlight it.
   `![caption](/a/<id>)` embeds an uploaded image. Raw HTML in the source is
   escaped.
@@ -48,16 +46,13 @@ from data, so send data, never markup.
 
 ## Composition: embeds
 
-Any design can embed another design of the project in its html with
-`<mockpit-embed slug="button"></mockpit-embed>`. The server inlines that
-design's html body in place, inside the embedding frame, and expands the
-component's own embeds in turn (up to 6 levels), so build a screen from
-sections and sections from components, each its own design with its own
-variants and questions.
+Any design can embed another of the project in its html with
+`<mockpit-embed slug="button"></mockpit-embed>`. The server inlines that design's html body in
+place and expands its own embeds (up to 6 levels), so build a screen from sections and sections
+from components, each its own design with its own variants and questions.
 
-- No `version`: the embed follows the component's version in use, else its
-  latest, so a new version of the button shows in every
-  page that embeds it without republishing them. `version="3"` pins it.
+- No `version`: follows the component's version in use, else its latest, without republishing
+  what embeds it. `version="3"` pins it.
 - No `variant`: the component's variant in use (else `default`). Name one to
   show a specific variant.
 - The component shows as decided: its parts with fills keep only the fills the user
@@ -67,17 +62,14 @@ variants and questions.
 - `read` lists each variant's `embeds` as they render now (nested included,
   with every version, for the user to peek back) and `publishedWith`, the
   versions it rendered with when you published it.
-- A chain that loops back on itself is refused at publish. An unknown slug
-  renders as an empty placeholder, not silently dropped.
+- A chain that loops back is refused at publish. An unknown slug renders as an empty placeholder.
 
 ## Editing one surface
 
-`publish` with `surfaces` takes the full ordered list, so one call adds, edits,
-removes and reorders. Every write returns each surface's `id`
-(`post.surfaces`). In the next list, an entry that is only `{ "id": "…" }`
-keeps that surface unchanged, an `id` with content replaces it in place, an
-entry without an `id` is new, an id you leave out is removed, and the list
-order is the new order:
+`publish` with `surfaces` takes the full ordered list, so one call adds, edits, removes and
+reorders. Every write returns each surface's `id` (`post.surfaces`). In the next list: `{ "id": "…" }`
+alone keeps a surface, an `id` with content replaces it, no `id` is new, a missing id is removed,
+and list order is the new order:
 
 ```json
 { "design": "writer", "surfaces": [{ "kind": "markdown", "markdown": "## Why" }, { "id": "s1" }] }
@@ -96,18 +88,16 @@ POST /api/assets   (raw)   Content-Type: image/png   <bytes>   ?filename=shot.pn
 POST /api/assets   (json)  { "data": "<base64>", "contentType": "image/png", "filename": "shot.png" }
 ```
 
-An asset's id is the SHA-256 of its bytes. You can derive the URL locally
-(`mockpit asset-url shot.png`) and write `<img src="/a/<hash>">` before the
-upload finishes; the viewer waits briefly for an in-flight asset. Identical
-bytes dedupe. An asset lives as long as something references it. The limit is
-5 MB per asset.
+An asset's id is the SHA-256 of its bytes, so identical bytes dedupe. You can derive the URL
+locally (`mockpit asset-url shot.png`) and write `<img src="/a/<hash>">` before the upload
+finishes; the viewer waits briefly for an in-flight asset. An asset lives as long as something
+references it. Limit: 5 MB per asset.
 
 ## Posters
 
-A heavy page (3D, WebGL, a running canvas) costs a live frame in every
-overview card, and a browser holds only about 16. Send a still of it as the
-html's `poster`, and Studio and Home show the picture; Stage still runs the
-page.
+A heavy page (3D, WebGL, a running canvas) costs a live frame in every overview card, and a
+browser holds only about 16. Send a still as the html's `poster`: Studio and Home show the
+picture, Stage still runs the page.
 
 ```
 CLI  mockpit publish --design onni --variant felt --html felt.html --poster felt.png
@@ -115,14 +105,11 @@ MCP  publish { design, variant, html, poster: "<asset id, or an image path on st
 HTTP POST /api/designs { …, "html": "…", "poster": "<asset id>" }
 ```
 
-Render it yourself (a headless screenshot of the page) at the moment that
-shows the design best. A poster belongs to the html it was taken of: a
-version that changes the page without a new one (`--parts`, `--fills`, a fork
-with edits) drops it, so send one with each.
+Render it yourself (a headless screenshot) at the moment that shows the design best. A version
+that changes the page without a new poster (`--parts`, `--fills`, a fork with edits) drops it, so
+send one with each.
 
 ## What the user sees
-
-Each thing you add lights up its part of the viewer.
 
 | you publish              | the user gets                                        |
 | ------------------------ | ---------------------------------------------------- |

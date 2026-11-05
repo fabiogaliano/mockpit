@@ -21,11 +21,10 @@ look, then end your turn; the question lives in the design, never in chat. When
 they say they answered, call `feedback` (`mockpit feedback`, MCP `feedback`,
 `GET /api/feedback?session=…`); every write returns `feedback` too. Never poll.
 
-To be woken by a Send: in Claude Code, start `mockpit watch` with the Monitor tool
-after asking, at its longest timeout, and re-arm it when it expires (with the mockpit
-plugin, don't: it wakes you). It never returns, so never run it in the foreground.
-With no such tool, the user's next message is the wake-up: the viewer gives them a
-line to paste to you.
+To be woken by a Send: in Claude Code, start `mockpit watch` with the Monitor tool after
+asking, at its longest timeout, and re-arm it when it expires (with the mockpit plugin, don't:
+it wakes you). Never run it in the foreground; it never returns. With no such tool, the viewer
+gives the user a line to paste to you.
 
 One user request gets one version. To fix a version before the user has acted
 on it, replace it with `mockpit publish … --amend` (MCP `amend`, HTTP

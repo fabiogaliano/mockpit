@@ -1,11 +1,9 @@
 # mockpit topic: knobs
 
-A knob is a value the user tunes live on one render. Use one when one render
-plus a control shows the choice. A choice is several variants plus one question
-that binds them; for that, publish variants and ask instead (topic `asks`).
-A 2–3 option knob is a choice: ask with options that `set` it. Publishing
-one returns that nudge. Declare knobs for what is worth fine-tuning (size,
-spacing, colour, density) even when the user did not ask; they wait in Tune.
+A knob is a value the user tunes live on one render. For a choice between renders, publish
+variants and ask (topic `asks`). A 2–3 option knob is a choice: ask with options that `set`
+it; publishing one returns that nudge. Declare knobs for what is worth fine-tuning (size,
+spacing, colour, density) even unasked; they wait in Tune.
 
 ## Declaring
 
@@ -69,5 +67,4 @@ from script.
 <div class="trim-bottom" data-part="trim">Chapter 7</div>
 ```
 
-A question's option can set knob values too (`"set": {"trim.position": "bottom"}`),
-which turns a knob into a question. See topic `asks`.
+Topic `asks`: an option's `"set": {"trim.position": "bottom"}` turns a knob into a question.

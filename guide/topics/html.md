@@ -1,9 +1,7 @@
 # mockpit topic: html
 
-An `html` surface is a blank canvas. Custom SVG, bespoke layout, small
-interactions and animation are all fine. Below are the hard rules and the
-vocabulary available inside the frame; how a design looks is the project's
-call. `mockpit guide` prints this project's real palette, kit, icons and rules.
+An `html` surface is a blank canvas: custom SVG, bespoke layout, small interactions and
+animation are all fine. `mockpit guide` prints this project's palette, kit, icons and rules.
 
 ## Contract
 
@@ -12,18 +10,16 @@ call. `mockpit guide` prints this project's real palette, kit, icons and rules.
 - The stage renders your fragment in an 820px-wide frame, scaled to fit the
   user's window. Question pictures and Home thumbnails are the same document,
   shrunk. Height is measured from your content.
-- Keep content in normal flow. The frame measures the document box, so anything
-  out of flow is invisible to the sizer and can leave the surface clipped or
-  stuck at the wrong height.
+- Keep content in normal flow: the frame measures the document box, so anything out of
+  flow can leave the surface clipped or at the wrong height.
   - Never use `position: fixed`.
   - Don't stack `position: absolute` layers over a box with a fixed `height` or
     `min-height`. The overlay grows `scrollHeight` but not the measured box.
   - To overlap elements, grid-stack them: `display: grid` on the container,
     `grid-area: 1 / 1` on each child. The container sizes to the tallest child.
     The `slides` kit does this.
-- Never hardcode a color. `color: #333` disappears in dark mode. Drive every
-  color from the tokens below. Test: if the background were near-black, would
-  everything still read?
+- Never hardcode a color (`color: #333` disappears in dark mode). Drive every color from
+  the tokens below.
 - `<style>` and `<script>` are allowed. Scripts run in a sandboxed iframe with
   no access to the host page.
 
@@ -44,8 +40,8 @@ boxes, so never hard-code geometry for it. Knob values arrive as unitless
 `knobs` has the details. Alternatives of one region are a part with fills: the same
 `data-part` with a `data-fill` each; topic `asks`.
 
-The page must read before any web font or remote stylesheet loads: they are
-decoration, and a slow one delays the frame's layout.
+The page must read before any web font or remote stylesheet loads; a slow one delays the
+frame's layout.
 
 ## Scope
 
@@ -147,15 +143,12 @@ A kit only adds vocabulary. Write custom markup right beside kit classes.
 
 ## Tailwind projects
 
-When `mockpit init` found Tailwind v4, the sandbox compiles the repo's own
-Tailwind stylesheet with the browser build, so write the same utility classes
-you write in the repo, including theme classes (`bg-card`,
-`text-muted-foreground`). The browser build cannot load plugins or non-core
-imports, so init strips them; their utilities (`tw-animate-css`, typography)
-are not available, and the brief lists what was stripped. In dark mode the
-frame's `<html>` carries `class="dark"`, so the repo's `.dark` theme applies.
-A Tailwind v3 repo keeps its theme in `tailwind.config`, which the browser
-build cannot load: core utilities work, theme classes do not.
+When `mockpit init` found Tailwind v4, the sandbox compiles the repo's own stylesheet with
+the browser build, so write the repo's utility classes, including theme classes (`bg-card`,
+`text-muted-foreground`). The build can't load plugins or non-core imports, so init strips
+them and the brief lists what was stripped (`tw-animate-css`, typography). In dark mode
+`<html>` carries `class="dark"`, so the repo's `.dark` theme applies. In a Tailwind v3 repo
+core utilities work and theme classes do not, since `tailwind.config` can't load.
 
 ## Icons
 

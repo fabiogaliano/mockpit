@@ -5,8 +5,7 @@ description: Show design and visual work on the user's mockpit surface — UI de
 
 # mockpit
 
-Read the brief before your first publish. It is short and written for this
-project (its palette, kit and icons): `mockpit guide`.
+Read the brief before your first publish: `mockpit guide`.
 
 Without the CLI: `curl -s ${MOCKPIT_URL:-http://localhost:8228}/agent-howto`.
 Over MCP: `guide`. A connector on `/mcp?mode=code` (stdio:
@@ -38,25 +37,21 @@ The loop never waits for the user:
    don't re-ask it. Visual options carry a `variant` or knob `set`. One render
    plus a control: `--knobs`; declare knobs for what is worth fine-tuning
    even unasked. When a publish result nudges, send its `suggestedAsk`.
-4. Tell the user in one line where to look, then end your turn. The question
-   itself lives in the design (`ask`), never in chat. The user answers in the
-   browser at their own pace. Never poll.
+4. Tell the user in one line where to look, then end your turn. The question lives in the
+   design (`ask`), never in chat. Never poll.
 5. When the user says they answered (or a `mockpit watch` line wakes you), run
-   `mockpit feedback`. Every write also returns `feedback`; read it. Empty
-   `feedback` with a `pending` draft means they are still answering. To the
-   user, they are always questions.
+   `mockpit feedback`. Every write also returns `feedback`; read it. Empty `feedback` with a
+   `pending` draft means they are still answering.
 6. `mockpit publish` the revision (`--parts name=file` for one part);
    `mockpit export` once a variant is in use.
 
-In Claude Code, arm `mockpit watch` under Monitor after asking, then end the
-turn, so Send wakes you with no prompt from the user:
+In Claude Code, arm `mockpit watch` under Monitor after asking, then end the turn:
 `Monitor({ command: "mockpit watch", description: "mockpit replies", timeout_ms: 1800000 })`.
-A monitor expires (30 minutes at most) with one notice: re-arm it while you still
-expect a reply. Arm one per conversation, and never run `mockpit watch` in the
-foreground, since it never returns.
+A monitor expires (30 minutes at most) with one notice: re-arm it while you still expect a
+reply. Arm one per conversation, and never run `mockpit watch` in the foreground; it never returns.
 
-With no such tool the user's next message is the wake-up. The viewer shows them a
-line to paste when no watcher is open; treat it as them saying they answered.
+With no such tool, the viewer shows the user a line to paste when no watcher is open; treat it
+as them saying they answered.
 
 Reference topics, fetched only when needed with `mockpit guide --topic <id>`:
 knobs, asks, surfaces, html, feedback, http, scripts.

@@ -1,7 +1,6 @@
 # mockpit topic: http
 
-Every verb works the same on the CLI, MCP and raw HTTP, with the same fields.
-None of them waits for the user.
+Every verb takes the same fields on the CLI, MCP and raw HTTP. None waits for the user.
 
 | CLI                            | MCP                                         | HTTP                                                 |
 | ------------------------------ | ------------------------------------------- | ---------------------------------------------------- |
@@ -24,10 +23,9 @@ None of them waits for the user.
 | `mockpit run <file>`           | `run` on `/mcp?mode=code` (topic `scripts`) | `POST /api/run`                                      |
 | `mockpit watch`                | none                                        | none: a CLI stream for background monitors           |
 
-`:id` is the design id or its slug (add `project` for a slug). Over HTTP the first
-publish creates a session. Pass its `sessionId` as `session` on every later
-call; otherwise each call starts a new session and the reply goes elsewhere.
-`GET /api/feedback` requires it.
+`:id` is the design id or its slug (add `project` for a slug). Over HTTP the first publish
+creates a session: pass its `sessionId` as `session` on every later call, or each call starts
+a new session and the reply goes elsewhere. `GET /api/feedback` requires it.
 
 ## Walkthrough
 
@@ -78,6 +76,5 @@ Nothing is written on a failed command, so a retry is safe. HTTP errors are
 
 ## Remote
 
-A deployed mockpit needs `MOCKPIT_URL` and `MOCKPIT_TOKEN` in your environment.
-The CLI and MCP server send the token for you. For curl, add
-`-H "Authorization: Bearer $MOCKPIT_TOKEN"`.
+A deployed mockpit needs `MOCKPIT_URL` and `MOCKPIT_TOKEN` in your environment. The CLI and
+MCP server send the token. For curl, add `-H "Authorization: Bearer $MOCKPIT_TOKEN"`.
