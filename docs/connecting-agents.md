@@ -150,10 +150,7 @@ Requires Codex 0.149.0 or later.
 
 ## OpenCode
 
-The plugin in `opencode/` wakes the agent with each Send. Add it next to the MCP server in
-`opencode.json`, using the path of `opencode/` in a mockpit checkout or install.
-
-OpenCode 2.x takes the directory:
+Add the plugin and the MCP server to `opencode.json`. On 1.x, use the key `plugin` and the path `…/opencode/mockpit.js`.
 
 ```json
 {
@@ -162,21 +159,7 @@ OpenCode 2.x takes the directory:
 }
 ```
 
-OpenCode 1.x takes the file:
-
-```json
-{
-  "plugin": ["file:///path/to/mockpit/opencode/mockpit.js"],
-  "mcp": {
-    "mockpit": { "type": "local", "command": ["npx", "-y", "mockpit", "mcp"], "enabled": true }
-  }
-}
-```
-
-Nothing runs until a session's first mockpit call, over MCP or the CLI. After that, a Send
-starts a turn in that session, even while it sits idle, and the agent reads the reply with
-`feedback`. Set `MOCKPIT_URL` and `MOCKPIT_TOKEN` in the environment for a server other than
-`http://localhost:8228`.
+From a session's first mockpit call, each Send starts a turn there, even when idle. `MOCKPIT_URL` and `MOCKPIT_TOKEN` set another server.
 
 ## Agents with nothing to wake them
 
