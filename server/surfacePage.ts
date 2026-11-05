@@ -47,17 +47,11 @@ const cdns = CDN_ALLOWLIST.join(" ");
 // (served at <origin>/a/:id) embed by URL. It is needed because the iframe runs
 // at an opaque origin (sandbox without allow-same-origin), so `'self'` matches
 // nothing, and a local http origin isn't covered by the `https:` source.
-// `${origin}/asset/` is the fixed, content-hashed path the bridge script and the
-// static stylesheets are served from (see registerAsset). It is deliberately a
-// single directory of server-authored, workspace-data-free files: nothing an
-// agent or a user can write is ever reachable under it, so widening script-src
-// to it grants the sandbox no capability beyond running our own bridge.
 function buildCsp(origin: string): string {
-  const assets = `${origin}${STATIC_ASSET_PREFIX}`;
   return [
     `default-src 'none'`,
-    `script-src 'unsafe-inline' ${assets} ${cdns}`,
-    `style-src 'unsafe-inline' ${assets} ${cdns}`,
+    `script-src 'unsafe-inline' ${cdns}`,
+    `style-src 'unsafe-inline' ${cdns}`,
     `font-src ${cdns} data:`,
     `img-src https: data: blob: ${origin}`,
     `connect-src ${cdns}`,
@@ -1037,81 +1031,45 @@ const TAILWIND_CDN = "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4";
 const ICON_CSS = `.icon{width:1em;height:1em;flex:none;vertical-align:-0.125em}`;
 
 // ---------------------------------------------------------------------------
-// Content-hashed static assets for surface documents
+// Mockpit's own scripts and stylesheets, inlined in every surface document
 // ---------------------------------------------------------------------------
 //
-// The bridge script and the theme-independent stylesheets used to be inlined
-// into EVERY surface document — ~11 KB of identical bytes per surface, paid
-// again for every post, every version, every theme and every mode. They are
-// served instead from `/asset/<name>.<hash>.<ext>`, so the browser fetches each
-// one once and reuses it across the whole workspace.
+// These were once served from content-hashed URLs so a browser would fetch each
+// file once. It doesn't: a frame's subresources are partitioned by its opaque
+// origin, so in Chrome nothing a frame fetches is cached or shared. Measured with
+// 8 frames, every file was fetched 8 times on first load and on every reload,
+// while the document itself came from disk cache. Bytes in the document cost
+// nothing past that document's one fetch, so that's where they live.
 //
-// The hash is derived from the content at module load (FNV-1a — no crypto, no
-// async, runtime-agnostic), so an upgrade that changes a byte changes the URL:
-// a surface document cached as immutable for a year can never pair with stale
-// asset bytes.
-//
-// Only content that does NOT depend on the theme or the resolved mode lives
-// here. Theme tokens are per (theme, mode) and stay inline in the document,
-// where they are already covered by its cache key.
+// Comments and indentation in these scripts are for this file's reader; every
+// frame would pay for them, so they're dropped once at load. Safe because no
+// script here holds a multi-line string.
+const compactJs = (js: string): string =>
+  js
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("//"))
+    .join("\n");
+const inlineScript = (js: string): string => `<script>${compactJs(js)}</script>`;
+const inlineStyle = (css: string): string => `<style>${css}</style>`;
 
-const fnv1a = (input: string): string => {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < input.length; i++) {
-    h ^= input.charCodeAt(i);
-    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
-  }
-  return h.toString(36);
-};
-
-export interface StaticAsset {
-  path: string;
-  contentType: string;
-  body: string;
-}
-
-// Every path is registered at module load, so a document served from a
-// long-lived cache after a restart always finds the asset it references.
-export const STATIC_ASSET_PREFIX = "/asset/";
-const STATIC_ASSETS = new Map<string, StaticAsset>();
-
-function registerAsset(name: string, ext: "js" | "css", body: string): string {
-  const path = `${STATIC_ASSET_PREFIX}${name}.${fnv1a(body)}.${ext}`;
-  STATIC_ASSETS.set(path, {
-    path,
-    contentType: ext === "js" ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8",
-    body,
-  });
-  return path;
-}
-
-export const staticAsset = (path: string): StaticAsset | null => STATIC_ASSETS.get(path) ?? null;
-
-const BRIDGE_PATH = registerAsset("bridge", "js", BRIDGE_JS);
-const HIT_TEST_PATH = registerAsset("hit-test", "js", HIT_TEST_JS);
-const PARTS_PATH = registerAsset("parts", "js", PARTS_JS);
-const KNOBS_PATH = registerAsset("knobs", "js", KNOBS_JS);
-const PARAGRAPHS_PATH = registerAsset("paragraphs", "js", PARAGRAPHS_JS);
+const BRIDGE_TAG = inlineScript(BRIDGE_JS);
+const HIT_TEST_TAG = inlineScript(HIT_TEST_JS);
+const PARTS_TAG = inlineScript(PARTS_JS);
+const KNOBS_TAG = inlineScript(KNOBS_JS);
+const PARAGRAPHS_TAG = inlineScript(PARAGRAPHS_JS);
 // The base html-surface stylesheet: static design tokens + the surface kit.
-const BASE_CSS_PATH = registerAsset(
-  "base",
-  "css",
-  `${TOKENS_CSS}${KIT_CSS}${PART_HIGHLIGHT_CSS}${ICON_CSS}`,
-);
-const KIT_CORE_PATH = registerAsset("kit-core", "css", CORE_CSS);
-const KIT_PATHS = new Map(KITS.map((k) => [k.id, registerAsset(`kit-${k.id}`, "css", k.css)]));
+const BASE_CSS_TAG = inlineStyle(`${TOKENS_CSS}${KIT_CSS}${PART_HIGHLIGHT_CSS}${ICON_CSS}`);
+const KIT_CORE_TAG = inlineStyle(CORE_CSS);
 
-const scriptTag = (origin: string, path: string) => `<script src="${origin}${path}"></script>`;
 const versionAttr = (version: number | undefined) =>
   version === undefined ? "" : ` data-mockpit-version="${version}"`;
-const styleTag = (origin: string, path: string) =>
-  `<link rel="stylesheet" href="${origin}${path}">`;
 
-// A kit as one document references it: our own content-hashed stylesheet,
-// a library on the CDN allowlist, or both (a reference kit's theme bridge).
+// A kit as one document references it: our own stylesheet, a library on the CDN
+// allowlist, or both (a reference kit's theme bridge).
 interface ResolvedKit {
   id: string;
-  cssPath?: string;
+  css?: string;
   href?: string;
   script?: string;
 }
@@ -1132,7 +1090,7 @@ function resolveKits(
     const kit = KITS.find((k) => k.id === id);
     if (kit) {
       seen.add(id);
-      chosen.push({ id, cssPath: KIT_PATHS.get(id), href: kit.href, script: kit.script });
+      chosen.push({ id, css: kit.css, href: kit.href, script: kit.script });
       continue;
     }
     const own = projectKits.find((k) => k.id === id);
@@ -1203,9 +1161,7 @@ export const escapeHtml = (s: string) =>
 function buildRichCsp(origin: string): string {
   return [
     `default-src 'none'`,
-    // Same fixed same-origin asset directory as buildCsp — only the bridge
-    // script lives there. Still no connect-src.
-    `script-src 'unsafe-inline' ${origin}${STATIC_ASSET_PREFIX}`,
+    `script-src 'unsafe-inline'`,
     `style-src 'unsafe-inline'`,
     `img-src https: data: blob: ${origin}`,
     `font-src data:`,
@@ -1254,8 +1210,8 @@ export function renderSandboxedPart(doc: {
 </head>
 <body>
 ${doc.body}
-${scriptTag(doc.origin, BRIDGE_PATH)}
-${scriptTag(doc.origin, PARAGRAPHS_PATH)}
+${BRIDGE_TAG}
+${PARAGRAPHS_TAG}
 </body>
 </html>`;
 }
@@ -1441,8 +1397,8 @@ try {
 <body>
 <div id="m"></div>
 <script type="module">${loader}</script>
-${scriptTag(doc.origin, BRIDGE_PATH)}
-${scriptTag(doc.origin, PARAGRAPHS_PATH)}
+${BRIDGE_TAG}
+${PARAGRAPHS_TAG}
 </body>
 </html>`;
 }
@@ -1483,17 +1439,16 @@ export function renderHtmlPage(doc: {
   const kitIds = [...(doc.kits ?? []), ...designSystem.kits];
   const kits = resolveKits(kitIds, designSystem.projectKits);
   const kit = kitAssets(kitIds);
-  // Document order still decides the cascade, so the externalized stylesheets
-  // sit exactly where their inlined text used to: theme tokens, base, kit
-  // accents, kit(s), then the project's own vars (which must win last).
+  // Document order decides the cascade: theme tokens, base, kit accents, kit(s),
+  // then the project's own vars (which must win last).
   const styles = [
     `<style>${tokenThemeCss(theme, doc.mode)}</style>`,
-    styleTag(doc.origin, BASE_CSS_PATH),
+    BASE_CSS_TAG,
     `<style>${kitAccentCss(doc.mode)}</style>`,
-    ...(kits.some((k) => !k.href) ? [styleTag(doc.origin, KIT_CORE_PATH)] : []),
+    ...(kits.some((k) => !k.href) ? [KIT_CORE_TAG] : []),
     ...kits.flatMap((k) => [
       ...(k.href ? [`<link rel="stylesheet" href="${escapeHtml(k.href)}">`] : []),
-      ...(k.cssPath ? [styleTag(doc.origin, k.cssPath)] : []),
+      ...(k.css ? [inlineStyle(k.css)] : []),
     ]),
     `<style>${designSystem.css}${colorSchemeCss(doc.mode)}</style>`,
   ].join("\n");
@@ -1508,7 +1463,7 @@ ${htmlTag}
 <meta http-equiv="Content-Security-Policy" content="${buildCsp(doc.origin)}">
 <title>${escapeHtml(doc.title)}</title>
 ${preamble.headScript}
-${scriptTag(doc.origin, KNOBS_PATH)}
+${KNOBS_TAG}
 ${styles}
 ${fillCss ? `<style>${fillCss}</style>` : ""}
 ${designSystem.headScripts}
@@ -1517,9 +1472,9 @@ ${kits.flatMap((k) => (k.script ? [`<script src="${escapeHtml(k.script)}" defer>
 <body>
 ${SVG_DEFS}
 ${expandIcons(doc.html, doc.resolveIcon ?? (() => null)).html}
-${scriptTag(doc.origin, BRIDGE_PATH)}
-${scriptTag(doc.origin, HIT_TEST_PATH)}
-${scriptTag(doc.origin, PARTS_PATH)}
+${BRIDGE_TAG}
+${HIT_TEST_TAG}
+${PARTS_TAG}
 ${kit.js ? `<script>${kit.js}</script>` : ""}
 </body>
 </html>`;

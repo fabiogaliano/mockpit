@@ -90,8 +90,6 @@ import {
   renderMermaidPage,
   knobAttributes,
   renderSandboxedPart,
-  STATIC_ASSET_PREFIX,
-  staticAsset,
 } from "./surfacePage.ts";
 import { DEFAULT_MODE, DEFAULT_THEME_ID, isMode, type Mode, themeById } from "./themes.ts";
 import {
@@ -5393,13 +5391,6 @@ export function createApp({
   app.use("*", async (c, next) => {
     const path = new URL(c.req.url).pathname;
 
-    // Content-hashed static assets (the surface bridge script and the static
-    // stylesheets) are served unauthenticated on purpose: they are our own code,
-    // carry no workspace data, and the sandboxed frames that load them run at an
-    // opaque origin, so their subresource requests carry no SameSite cookie and
-    // could not authenticate even on a tokened workspace.
-    if (path.startsWith(STATIC_ASSET_PREFIX)) return next();
-
     if (authenticate) {
       const result = await authenticate(c.req.raw);
       if (result === true) return next();
@@ -5412,7 +5403,6 @@ export function createApp({
 
     if (!authToken) return next();
     if (path === "/guide" || path === "/setup" || path === "/agent-howto") return next();
-    if (path.startsWith(STATIC_ASSET_PREFIX)) return next();
     // The installable-app files carry no workspace data, and a browser may
     // fetch them without the cookie; the manifest adds the key only for a
     // caller that already holds it.
@@ -6012,16 +6002,6 @@ export function createApp({
     }
   });
 
-  // Content-hashed bridge/token assets the surface documents reference, so
-  // every surface doesn't re-inline the same ~11 KB. Without this route the
-  // in-frame bridge never loads and iframes never report their height.
-  app.get("/asset/:file", (c) => {
-    const asset = staticAsset(`/asset/${c.req.param("file")}`);
-    if (!asset) return c.text("Not found", 404);
-    c.header("Content-Type", asset.contentType);
-    c.header("Cache-Control", "public, max-age=31536000, immutable");
-    return c.body(asset.body);
-  });
   app.get("/guide", (c) => c.text(withOrigin(topics.html ?? "", c)));
   app.get("/setup", (c) => c.text(withOrigin(setupText, c)));
   // The brief without `?topic=`, one reference topic with it. Unknown topics

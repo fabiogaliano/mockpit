@@ -269,6 +269,11 @@ consciously, not as a side effect):
   postMessage bridge, the write API). Gate each so contained content can't
   impersonate the user, exfiltrate, or exhaust the server; add any new channel
   the same way.
+- A frame's document carries everything it needs. Chrome partitions a sandboxed
+  frame's subresources by its opaque origin, so nothing a frame fetches is cached
+  or shared with another frame, while the version-pinned document comes from disk
+  cache. Mockpit pays this cost, not the design or the agent: don't reintroduce a
+  subresource for what the document could hold.
 - Every surface that becomes HTML (html + the rich kinds) is rendered server-side
   and served from `/s/:id?surface=N` by real URL under a `sandbox` CSP header —
   opaque origin, not srcdoc/blob (which a Chrome 149 field trial fails to lay
