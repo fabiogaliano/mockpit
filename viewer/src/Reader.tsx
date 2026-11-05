@@ -10,6 +10,7 @@ import {
   createMemo,
   createSignal,
   For,
+  type JSX,
   on,
   onCleanup,
   onMount,
@@ -85,7 +86,7 @@ interface Pending {
   block: ParagraphBlock;
 }
 
-export function Reader(props: { s: DesignScreenState }) {
+export function Reader(props: { s: DesignScreenState; head?: JSX.Element }) {
   const s = props.s;
   const variant = () => s.activeVariant();
   const version = createMemo(() => {
@@ -209,6 +210,7 @@ export function Reader(props: { s: DesignScreenState }) {
         aria-label={s.design()?.title}
         style={{ "padding-bottom": `${Math.max(120, cardInset().bottom)}px` }}
       >
+        {props.head}
         <Show when={hint()}>{(h) => <p class="reader-hint">{h()}</p>}</Show>
         <For each={kinds()}>
           {(kind, i) => {

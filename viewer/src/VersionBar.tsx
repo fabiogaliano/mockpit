@@ -92,7 +92,7 @@ export function VersionStepper(props: {
 
 // Use this, and the way back to the version in use. The question is the decision
 // while it is open: no Use this beside it.
-export function UseThis(props: { s: DesignScreenState }) {
+export function UseThis(props: { s: DesignScreenState; primary?: boolean }) {
   const s = props.s;
   const inUse = () => sameVersion(s.onStage(), s.inUse());
   const usedStep = () => stepFor(s.steps(), s.inUse());
@@ -117,6 +117,7 @@ export function UseThis(props: { s: DesignScreenState }) {
           <button
             type="button"
             class="btn use"
+            classList={{ go: props.primary }}
             aria-label="Use this version"
             disabled={!s.onStage()}
             onClick={() => void s.useThis()}

@@ -176,8 +176,8 @@ consciously, not as a side effect):
   Hide is per version and dims in place; archive is per variant and per design, with Undo. `Jump` is search
   from anywhere (`/` or ⌘K), through `GET /api/search` (`server/jump.ts`), which
   never reads surfaces; results are text nodes. `DesignScreen`
-  (`TopRow`: the path is the way up, project and area as links, ending at the
-  design's name, with an info button opening `About` (Appears in / Built from /
+  (`VersionCaption`: the version and New version / Use this on the design's top edge, or a document's column; `TopRow`, in three zones with the views centred: the path is the way up, project and area as links, ending at the
+  design's name, with a ⋯ menu (Copy name, Archive for an idea) opening `About` (Appears in / Built from /
   flows / code), and `SideOver`, the project's sidebar opening over the design from a button; the state tabs alone say which state;
   `BuiltFrom` is Tune's drawer, open while Tune is; `Grid`, states against variants
   with what's missing shown (`?view=grid`, offered where names repeat across states, and
@@ -198,7 +198,7 @@ consciously, not as a side effect):
   `Stage`, a pannable canvas whose design's other `widths` spread out as
   picture-only artboards under "All widths", between the margins), `Margins` (states
   and versions on the left, On this design, Notes, Built from and Thread on the right, Try,
-  Comment and Tune in a strip by the design; each there only with content, and
+  Comment, Tune and the preview in a strip by the design; each there only with content, and
   `marginLayout` in `logic.ts` turns one into a tab that floats over the canvas when
   it would take a design below 80%; a phone has none of this: `VersionBar`,
   `QuestionCard`, `BottomPanel` and the `BuiltFrom` sheet float over it instead),
@@ -211,7 +211,7 @@ consciously, not as a side effect):
   `presets.ts` (Tune presets in localStorage), `theme.ts`, `host.ts`.
 - `bin/mockpit.js` — CLI, Node built-ins only; `bin/demoData.js` — the Writer
   design `mockpit demo` seeds.
-- `viewer/src/qr.ts` + `QrTool.tsx` — the QR code in the top bar, by the width: a local encoder, and
+- `viewer/src/qr.ts` + `QrTool.tsx` — the QR code in `PreviewTool`, with the widths, in the tool strip: a local encoder, and
   `GET /api/reach` for what a phone would meet (`networkHosts` from `server/index.ts`).
   The code never holds the workspace key.
 - `workers/index.ts` — Cloudflare entry; one Durable Object runs the whole app.

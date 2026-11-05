@@ -3998,6 +3998,32 @@ html:has(.design-screen) {
   height: 56px;
   padding: 0 10px;
 }
+/* The views stay on the bar's centre for as long as the sides leave room: the name gives
+   way first, the panels never. */
+.design-screen:not(.phone) .mtop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr);
+}
+.mzone {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.mzone-end {
+  justify-content: flex-end;
+}
+.design-screen.phone .mzone {
+  display: contents;
+}
+.mmore {
+  position: relative;
+  flex: none;
+}
+.mmore .wmenu {
+  right: auto;
+  left: 0;
+}
 .mcrumb {
   gap: 7px;
   /* Room for the links' hover pads, so focusing one never scrolls the path. */
@@ -4136,6 +4162,49 @@ html:has(.design-screen) {
 }
 .wpick {
   position: relative;
+}
+.wpop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 45;
+  display: grid;
+  gap: 2px;
+  width: max-content;
+  min-width: 200px;
+  max-height: calc(100dvh - var(--canvas-top, 0px) - 24px);
+  padding: 5px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--dd-shadow);
+}
+.wpop-code {
+  width: 288px;
+}
+.wpop .wmenu {
+  position: static;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+.wpop-sep {
+  height: 1px;
+  margin: 3px 5px;
+  background: var(--line);
+}
+/* It opens beside the strip, level with its top, wherever in the strip the button is. */
+.toolstrip .wpick {
+  position: static;
+}
+.toolstrip .wpop {
+  top: 0;
+  right: auto;
+  left: calc(100% + 8px);
 }
 .wmenu {
   position: absolute;
@@ -5085,11 +5154,6 @@ button.mturn:focus-visible {
     color: var(--t1);
   }
 }
-.qrtool {
-  position: relative;
-  display: flex;
-  flex: none;
-}
 .qrpop {
   position: absolute;
   top: calc(100% + 8px);
@@ -5110,6 +5174,16 @@ button.mturn:focus-visible {
   color: var(--t3);
   font-size: 13px;
   line-height: 1.4;
+}
+.qrpop.inset {
+  position: static;
+  width: auto;
+  max-height: none;
+  padding: 7px;
+  overflow: visible;
+  border: 0;
+  background: none;
+  box-shadow: none;
 }
 .qrpop p {
   margin: 0;
@@ -5133,11 +5207,45 @@ button.mturn:focus-visible {
   list-style: none;
   font: 400 12px var(--mono);
 }
+/* Right-aligned to the live artboard, held on the canvas however far it's panned or
+   zoomed, and never narrower than what's in it. Only its pieces take a press, so the
+   empty rest of the row still pans the canvas. */
+.vcap {
+  position: fixed;
+  top: max(var(--canvas-top, 0px) + 4px, var(--design-t, 0px) - 40px);
+  left: calc(var(--canvas-l, 0px) + 8px);
+  z-index: 29;
+  display: flex;
+  justify-content: flex-end;
+  width: calc(
+    min(var(--design-r, 100vw), 100vw - var(--canvas-end, 0px) - 8px) - var(--canvas-l, 0px) - 8px
+  );
+  min-width: max-content;
+  pointer-events: none;
+}
+.vcap > * {
+  pointer-events: auto;
+}
+.vcap.inline {
+  position: sticky;
+  top: 8px;
+  left: auto;
+  grid-column: 2;
+  width: auto;
+  min-width: 0;
+  margin: 8px 28px 0;
+}
+.vcap .vgroup {
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel);
+}
 .mact {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 .mact .vlabel .v,
 .mact .vlabel .note {
@@ -5159,9 +5267,18 @@ button.mturn:focus-visible {
   flex: none;
   align-items: center;
   gap: 2px;
-  margin-left: 4px;
-  padding-left: 8px;
-  border-left: 1px solid var(--line);
+}
+/* Three classes, so a hover or the open panel's colour never takes the orange away. */
+.mtabs .ib.ib-count {
+  display: inline-flex;
+  gap: 5px;
+  width: auto;
+  min-width: 40px;
+  padding: 0 10px 0 9px;
+  color: var(--q);
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 .mtab-dot {
   position: absolute;
@@ -5651,6 +5768,10 @@ button.mturn:focus-visible {
   .lm-row {
     min-height: 44px;
   }
+  /* The caption's row is no taller for it: its height is in the canvas's fit. */
+  .mact .ib {
+    margin-block: -4px;
+  }
   .toolstrip .ib,
   .mact .ib,
   .qaddnote {
@@ -5694,43 +5815,15 @@ button.mturn:focus-visible {
     font-size: 12px;
     line-height: 15px;
   }
-  .mact .btn.vnew {
-    width: 36px;
-    padding: 0;
-    justify-content: center;
-  }
-  .mact .btn.vnew .lbl {
-    display: none;
-  }
 }
 /* A phone's row has its own rule for these. */
 @media (min-width: 641px) and (max-width: 900px) {
-  .mcopy,
   .msearch {
     display: none;
   }
 }
 @media (max-width: 900px) {
   .mact .vlabel .note {
-    display: none;
-  }
-  .mact .btn.use {
-    padding: 0 10px;
-  }
-  .mact .btn.use .lbl {
-    display: none;
-  }
-  .mact .btn.use .sh {
-    display: inline;
-  }
-  .mact .btn.use.on {
-    width: 36px;
-    padding: 0;
-    justify-content: center;
-  }
-}
-@media (max-width: 800px) {
-  .mact .vgroup {
     display: none;
   }
 }

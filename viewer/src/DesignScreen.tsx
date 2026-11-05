@@ -1,7 +1,7 @@
-// The design screen: a quiet top bar (where you are, what acts on the version, the
-// width, Stage, Studio or Grid, the panels), the design on a canvas, states and versions
-// in a margin on its left and what's said about it in one on its right, each there
-// only with something in it (Margins.tsx). A phone has no room beside the design:
+// The design screen: a quiet top bar (where you are, Stage, Studio or Grid, the panels),
+// the design on a canvas with its version and what acts on that above it and its tools
+// beside it, states and versions in a margin on its left and what's said about it in one
+// on its right, each there only with something in it (Margins.tsx). A phone has no room beside the design:
 // its states are tabs above, one bar floats below (New version, the versions, Use this,
 // Try / Mark / Tune) with the question above that, and the version label opens the
 // history and the thread as a bottom panel.
@@ -32,9 +32,8 @@ import { useFlowKeys } from "./flowKeys.ts";
 import { createFlowNav, type FlowNav } from "./flowNav.ts";
 import { Grid } from "./Grid.tsx";
 import { host, readonly, root } from "./host.ts";
-import { Icon, type IconName } from "./icons.tsx";
+import { Icon } from "./icons.tsx";
 import {
-  DEVICE_WIDTHS,
   GHOST_W,
   gridComparesForms,
   historyRow,
@@ -47,13 +46,17 @@ import {
   type VersionRef,
   versionStamp,
   WALL_FROM,
-  wideWidth,
-  widthKind,
-  widthLabel,
 } from "./logic.ts";
 import { sectionOf } from "./albums.ts";
 import { turnClock, useTurn } from "./Album.tsx";
-import { createMargins, LeftMargin, PanelTabs, RightMargin, ToolStrip } from "./Margins.tsx";
+import {
+  createMargins,
+  LeftMargin,
+  type Margins,
+  PanelTabs,
+  RightMargin,
+  ToolStrip,
+} from "./Margins.tsx";
 import { CarriedChip, NextCard, WakeLine } from "./NextCard.tsx";
 import { NotFound } from "./NotFound.tsx";
 import { OutlineChips, PlannedStage, StateAsk } from "./Outlines.tsx";
@@ -71,7 +74,8 @@ import {
   replaceUrl,
   route,
 } from "./route.ts";
-import { QrTool } from "./QrTool.tsx";
+import { usePopover } from "./popover.ts";
+import { PreviewTool } from "./PreviewTool.tsx";
 import { Stage } from "./Stage.tsx";
 import { Studio } from "./Studio.tsx";
 import type { ScreenOpen } from "./route.ts";
@@ -81,6 +85,7 @@ import { Thumb } from "./Thumb.tsx";
 import { createTune } from "./tune.ts";
 import { NewVersionButton, UseThis, VersionBar, VersionStepper } from "./VersionBar.tsx";
 import {
+  canvasBox,
   canvasTop,
   designAt,
   NO_INSET,
@@ -415,6 +420,8 @@ export function DesignScreen(props: {
         "--strip": `${m.stripW()}px`,
         "--design-l": `${designAt()?.left ?? 0}px`,
         "--design-t": `${designAt()?.top ?? 0}px`,
+        "--design-r": `${designAt()?.right ?? 0}px`,
+        "--canvas-end": `${m.band().right + canvasBox().over}px`,
       }}
     >
       <header class="mhead" ref={(el) => (head = el)}>
@@ -430,33 +437,13 @@ export function DesignScreen(props: {
           grid={gridOffered()}
           studioHidden={gridFirst()}
           tabs={m.statesShown() || onWall()}
-          qr={m.active() && m.page() && !reading()}
           shortlists={shortlists}
-          actions={
-            <Show when={m.active() && !undrawn()}>
-              <div class="mact">
-                <Show when={s.steps().length > 1 && !m.leftDocked()}>
-                  <VersionStepper
-                    s={s}
-                    listOpen={m.leftFloats()}
-                    listNames="states and versions"
-                    onList={m.toggleLeft}
-                  />
-                </Show>
-                <Show when={!readonly()}>
-                  <NewVersionButton s={s} />
-                </Show>
-                <Show when={!reading()}>
-                  <UseThis s={s} />
-                </Show>
-              </div>
-            </Show>
-          }
           panels={
             <Show when={m.active()}>
               <PanelTabs s={s} m={m} />
             </Show>
           }
+          panelsShown={m.active()}
           onView={(v) => {
             if (v === shownView()) return;
             s.setDrawer(false);
@@ -492,7 +479,19 @@ export function DesignScreen(props: {
               <PlannedStage s={s} />
             </Match>
             <Match when={shownView() === "stage"}>
-              <Show when={!reading()} fallback={<Reader s={s} />}>
+              <Show
+                when={!reading()}
+                fallback={
+                  <Reader
+                    s={s}
+                    head={
+                      <Show when={m.active()}>
+                        <VersionCaption s={s} m={m} reading />
+                      </Show>
+                    }
+                  />
+                }
+              >
                 <Stage s={s} onGoto={nav.follow} />
                 <Show when={m.ghosts()}>
                   <Ghost s={s} nav={nav} by={-1} />
@@ -564,6 +563,9 @@ export function DesignScreen(props: {
             fallback={
               <>
                 <ToolStrip s={s} m={m} />
+                <Show when={m.active() && !undrawn() && !reading()}>
+                  <VersionCaption s={s} m={m} reading={false} />
+                </Show>
                 <LeftMargin s={s} nav={nav} m={m} />
                 <RightMargin s={s} t={t} m={m} />
               </>
@@ -585,12 +587,39 @@ export function DesignScreen(props: {
   );
 }
 
+// The version on stage and what acts on it, on the top edge of the design they're about:
+// a row of its own over the canvas, or the head of a document's column. Each piece is
+// opaque, since panning brings the design under them.
+function VersionCaption(props: { s: DesignScreenState; m: Margins; reading: boolean }) {
+  const s = props.s;
+  return (
+    <div class="vcap" classList={{ inline: props.reading }} role="group" aria-label="This version">
+      <div class="mact">
+        <Show when={s.steps().length > 1 && !props.m.leftDocked()}>
+          <VersionStepper
+            s={s}
+            listOpen={props.m.leftFloats()}
+            listNames="states and versions"
+            onList={props.m.toggleLeft}
+          />
+        </Show>
+        <Show when={!readonly()}>
+          <NewVersionButton s={s} />
+        </Show>
+        <Show when={!props.reading}>
+          <UseThis s={s} primary />
+        </Show>
+      </div>
+    </div>
+  );
+}
+
 // Where you are, as the way up: the project and the area are links, the design's
 // name opens what's around it, then the state. A phone has room for the name
 // alone (the tabs below it name the state), so an arrow up to the area (else the
 // project) stands in for the rest.
-// Beyond it: the name to tell an agent, the width on Stage, and the views when there
-// is a choice to look at.
+// Three zones: the design on the left, the views in the middle, the panels on the right.
+// A phone's row runs them together, and keeps the width since it has no tool strip.
 function TopRow(props: {
   s: DesignScreenState;
   project: string;
@@ -609,14 +638,12 @@ function TopRow(props: {
   studioHidden: boolean;
   // Whether the state tabs are showing, which name the state where it isn't.
   tabs: boolean;
-  // A page on stage, past a phone's width: a phone is already where this would send you.
-  qr: boolean;
   shortlists: Shortlists;
   onView: (v: View) => void;
-  // What acts on the version on stage, and the right margin's tabs, where a margin
-  // can't be: in this row they cost the design no room.
-  actions: JSX.Element;
+  // The right margin's tabs: in this row they cost the design no room.
   panels: JSX.Element;
+  // They're showing, so they carry the count of questions.
+  panelsShown: boolean;
 }) {
   const s = props.s;
   const sl = props.shortlists;
@@ -669,9 +696,17 @@ function TopRow(props: {
   // The words about a Send have their detail in the Thread, which only Stage has.
   const opensThread = (kind: string) =>
     props.view === "stage" && (kind === "unseen" || kind === "working" || kind === "sent");
+  const [more, setMore] = createSignal(false);
+  let moreMenu: HTMLDivElement | undefined;
   const [open, setOpen] = createSignal(false);
   let btn: HTMLButtonElement | undefined;
   let pop: HTMLElement | undefined;
+  usePopover(
+    more,
+    () => setMore(false),
+    () => btn,
+    () => moreMenu,
+  );
   createEffect(() => {
     if (!open()) return;
     const doc = root();
@@ -692,180 +727,254 @@ function TopRow(props: {
       doc.removeEventListener("pointerdown", onDown, true);
     });
   });
+  const archive = () => idea() && !s.design()?.archivedAt && !readonly();
+  const search = () => (
+    <button
+      type="button"
+      class="ib msearch"
+      aria-label="Search"
+      title="Search ( / or ⌘K )"
+      onClick={openJump}
+    >
+      <Icon name="search" />
+    </button>
+  );
+  const pill = () => (
+    <Show
+      when={
+        !readonly() && !s.design()?.shortlist && sl.current()?.candidates.length
+          ? sl.current()
+          : null
+      }
+    >
+      {(list) => <ShortlistPill list={list()} project={props.project} />}
+    </Show>
+  );
   return (
     <div class="mtop">
-      <SideOver project={props.project} />
-      <a
-        class="ib mup"
-        href={up().href}
-        aria-label={`Up to ${up().name}`}
-        onClick={(e) => linkClick(e, up().href)}
-      >
-        <Icon name="back" />
-      </a>
-      <div class="mname">
-        <nav class="crumb mcrumb" aria-label="Path">
-          <a class="crumb-far crumb-link" href={home()} onClick={(e) => linkClick(e, home())}>
-            {shortProject()}
-          </a>
-          <span class="crumb-far sep">/</span>
-          <Show when={s.design()?.area}>
-            {(area) => (
-              <>
-                <a
-                  class="crumb-far crumb-link"
-                  href={areaHome(area())}
-                  onClick={(e) => linkClick(e, areaHome(area()))}
+      <div class="mzone">
+        <SideOver project={props.project} />
+        <Show when={!phoneLayout()}>{search()}</Show>
+        <a
+          class="ib mup"
+          href={up().href}
+          aria-label={`Up to ${up().name}`}
+          onClick={(e) => linkClick(e, up().href)}
+        >
+          <Icon name="back" />
+        </a>
+        <div class="mname">
+          <nav class="crumb mcrumb" aria-label="Path">
+            <a class="crumb-far crumb-link" href={home()} onClick={(e) => linkClick(e, home())}>
+              {shortProject()}
+            </a>
+            <span class="crumb-far sep">/</span>
+            <Show when={s.design()?.area}>
+              {(area) => (
+                <>
+                  <a
+                    class="crumb-far crumb-link"
+                    href={areaHome(area())}
+                    onClick={(e) => linkClick(e, areaHome(area()))}
+                  >
+                    {area()}
+                  </a>
+                  <span class="crumb-far sep">/</span>
+                </>
+              )}
+            </Show>
+            <b class="crumb-name">{title()}</b>
+            <Show when={!props.tabs && s.activeState()}>
+              {(state) => <span class="crumb-far crumb-sit">{`· ${state()}`}</span>}
+            </Show>
+          </nav>
+          {/* The panels' tab says how many questions wait, so the name needn't too. */}
+          <Show when={props.panelsShown && turn()?.kind === "open" ? null : turn()}>
+            {(t) => (
+              <Show
+                when={opensThread(t().kind)}
+                fallback={
+                  <span class="mturn alb-turn" data-turn={t().kind}>
+                    {t().text}
+                  </span>
+                }
+              >
+                <button
+                  type="button"
+                  class="mturn alb-turn"
+                  data-turn={t().kind}
+                  title="See it in the Thread"
+                  onClick={() => s.setPanel("thread")}
                 >
-                  {area()}
-                </a>
-                <span class="crumb-far sep">/</span>
-              </>
+                  {t().text}
+                </button>
+              </Show>
             )}
           </Show>
-          <b class="crumb-name">{title()}</b>
-          <Show when={!props.tabs && s.activeState()}>
-            {(state) => <span class="crumb-far crumb-sit">{`· ${state()}`}</span>}
-          </Show>
-        </nav>
-        <Show when={turn()}>
-          {(t) => (
-            <Show
-              when={opensThread(t().kind)}
-              fallback={
-                <span class="mturn alb-turn" data-turn={t().kind}>
-                  {t().text}
-                </span>
-              }
-            >
+        </div>
+        <Show when={s.design()}>
+          <Show
+            when={!phoneLayout()}
+            fallback={
+              <>
+                <Show when={archive()}>
+                  <button
+                    type="button"
+                    class="ib x-remove mend"
+                    aria-label={`Archive ${title()}`}
+                    title="Archive"
+                    onClick={() => void s.archiveDesign()}
+                  >
+                    <Icon name="close" />
+                  </button>
+                </Show>
+                <button
+                  type="button"
+                  class="ib mabout"
+                  aria-label={`About ${title()}`}
+                  title="About"
+                  aria-expanded={open()}
+                  aria-haspopup="dialog"
+                  ref={(el) => (btn = el)}
+                  onClick={() => {
+                    props.about.wake();
+                    setOpen(!open());
+                  }}
+                >
+                  <Icon name="info" />
+                </button>
+              </>
+            }
+          >
+            <div class="mmore">
               <button
                 type="button"
-                class="mturn alb-turn"
-                data-turn={t().kind}
-                title="See it in the Thread"
-                onClick={() => s.setPanel("thread")}
+                class="ib"
+                classList={{ on: more() || open() }}
+                aria-label={`More about ${title()}`}
+                title="More"
+                aria-expanded={more()}
+                aria-haspopup="menu"
+                ref={(el) => (btn = el)}
+                onClick={() => (open() ? setOpen(false) : setMore(!more()))}
               >
-                {t().text}
+                <Icon name="more" />
+              </button>
+              <Show when={more()}>
+                <div
+                  class="wmenu"
+                  role="menu"
+                  aria-label={`More about ${title()}`}
+                  ref={(el) => (moreMenu = el)}
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMore(false);
+                      props.about.wake();
+                      setOpen(true);
+                    }}
+                  >
+                    <Icon name="info" />
+                    About
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    title={spoken()}
+                    onClick={() => {
+                      setMore(false);
+                      copyName();
+                    }}
+                  >
+                    <Icon name="copy" />
+                    Copy name
+                  </button>
+                  <Show when={archive()}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setMore(false);
+                        void s.archiveDesign();
+                      }}
+                    >
+                      <Icon name="close" />
+                      Archive
+                    </button>
+                  </Show>
+                </div>
+              </Show>
+            </div>
+          </Show>
+        </Show>
+        <About
+          s={s}
+          r={props.about}
+          project={props.project}
+          slug={props.slug}
+          open={open()}
+          onClose={() => setOpen(false)}
+          ref={(el) => (pop = el)}
+        />
+        {/* A phone has no key to press, but a row already holding the view switch has
+            no room for it either: Home is one step up from there. */}
+        <Show when={phoneLayout() && !(props.compare || props.view !== "stage")}>{search()}</Show>
+      </div>
+      <Show when={phoneLayout()}>
+        <span class="grow" />
+      </Show>
+      <div class="mzone mzone-mid">
+        <Show when={phoneLayout()}>
+          {pill()}
+          <Show when={props.view === "stage" && !props.reading && s.design()}>
+            <PreviewTool s={s} qr={false} />
+          </Show>
+        </Show>
+        <Show when={props.compare || props.view !== "stage"}>
+          <div class="vswitch" role="group" aria-label="View">
+            <button
+              type="button"
+              aria-pressed={props.view === "stage"}
+              aria-label={
+                props.view !== "stage" && s.waitsOnStage()
+                  ? "Stage, a question is waiting"
+                  : "Stage"
+              }
+              onClick={() => props.onView("stage")}
+            >
+              Stage
+              <Show when={props.view !== "stage" && s.waitsOnStage()}>
+                <i class="vswitch-q" aria-hidden="true" />
+              </Show>
+            </button>
+            <Show when={!props.studioHidden || props.view === "studio"}>
+              <button
+                type="button"
+                aria-pressed={props.view === "studio"}
+                onClick={() => props.onView("studio")}
+              >
+                Studio
+                <span class="num">{props.variants}</span>
               </button>
             </Show>
-          )}
+            <Show when={props.grid}>
+              <button
+                type="button"
+                aria-pressed={props.view === "grid"}
+                onClick={() => props.onView("grid")}
+              >
+                Grid
+              </button>
+            </Show>
+          </div>
         </Show>
       </div>
-      <Show when={idea() && !s.design()?.archivedAt && !readonly()}>
-        <button
-          type="button"
-          class="ib x-remove mend"
-          aria-label={`Archive ${title()}`}
-          title="Archive"
-          onClick={() => void s.archiveDesign()}
-        >
-          <Icon name="close" />
-        </button>
-      </Show>
-      <Show when={s.design()}>
-        <button
-          type="button"
-          class="ib mabout"
-          aria-label={`About ${title()}`}
-          title="About"
-          aria-expanded={open()}
-          aria-haspopup="dialog"
-          ref={(el) => (btn = el)}
-          onClick={() => {
-            props.about.wake();
-            setOpen(!open());
-          }}
-        >
-          <Icon name="info" />
-        </button>
-      </Show>
-      <About
-        s={s}
-        r={props.about}
-        project={props.project}
-        slug={props.slug}
-        open={open()}
-        onClose={() => setOpen(false)}
-        ref={(el) => (pop = el)}
-      />
-      <Show when={!phoneLayout() && s.design()}>
-        <button
-          type="button"
-          class="ib mcopy"
-          aria-label={`Copy name: ${spoken()}`}
-          title={`Copy name: ${spoken()}`}
-          onClick={copyName}
-        >
-          <Icon name="copy" />
-        </button>
-      </Show>
-      {/* A phone has no key to press, but a row already holding the view switch has
-          no room for it either: Home is one step up from there. */}
-      <Show when={!phoneLayout() || !(props.compare || props.view !== "stage")}>
-        <button
-          type="button"
-          class="ib msearch"
-          aria-label="Search"
-          title="Search ( / or ⌘K )"
-          onClick={openJump}
-        >
-          <Icon name="search" />
-        </button>
-      </Show>
-      <span class="grow" />
-      <Show
-        when={
-          !readonly() && !s.design()?.shortlist && sl.current()?.candidates.length
-            ? sl.current()
-            : null
-        }
-      >
-        {(list) => <ShortlistPill list={list()} project={props.project} />}
-      </Show>
-      {props.actions}
-      <Show when={props.view === "stage" && !props.reading && s.design()}>
-        <WidthMenu s={s} />
-      </Show>
-      <Show when={props.qr}>
-        <QrTool s={s} />
-      </Show>
-      <Show when={props.compare || props.view !== "stage"}>
-        <div class="vswitch" role="group" aria-label="View">
-          <button
-            type="button"
-            aria-pressed={props.view === "stage"}
-            aria-label={
-              props.view !== "stage" && s.waitsOnStage() ? "Stage, a question is waiting" : "Stage"
-            }
-            onClick={() => props.onView("stage")}
-          >
-            Stage
-            <Show when={props.view !== "stage" && s.waitsOnStage()}>
-              <i class="vswitch-q" aria-hidden="true" />
-            </Show>
-          </button>
-          <Show when={!props.studioHidden || props.view === "studio"}>
-            <button
-              type="button"
-              aria-pressed={props.view === "studio"}
-              onClick={() => props.onView("studio")}
-            >
-              Studio
-              <span class="num">{props.variants}</span>
-            </button>
-          </Show>
-          <Show when={props.grid}>
-            <button
-              type="button"
-              aria-pressed={props.view === "grid"}
-              onClick={() => props.onView("grid")}
-            >
-              Grid
-            </button>
-          </Show>
-        </div>
-      </Show>
-      {props.panels}
+      <div class="mzone mzone-end">
+        <Show when={!phoneLayout()}>{pill()}</Show>
+        {props.panels}
+      </div>
     </div>
   );
 }
@@ -881,104 +990,6 @@ function ShortlistPill(props: { list: Shortlist; project: string }) {
         <span class="num">{props.list.candidates.length}</span>
       </a>
     </div>
-  );
-}
-
-function WidthMenu(props: { s: DesignScreenState }) {
-  const s = props.s;
-  const [open, setOpen] = createSignal(false);
-  let btn!: HTMLButtonElement;
-  let menu: HTMLDivElement | undefined;
-  createEffect(() => {
-    if (!open()) return;
-    const doc = root();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      setOpen(false);
-      btn.focus();
-    };
-    const onDown = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (!menu?.contains(t) && !btn.contains(t)) setOpen(false);
-    };
-    doc.addEventListener("keydown", onKey, true);
-    doc.addEventListener("pointerdown", onDown, true);
-    onCleanup(() => {
-      doc.removeEventListener("keydown", onKey, true);
-      doc.removeEventListener("pointerdown", onDown, true);
-    });
-  });
-  const declared = () => s.design()?.widths ?? [];
-  // The design's own widths when it names them; else the ones the viewer offers.
-  const widths = () => (declared().length ? declared() : DEVICE_WIDTHS.map((d) => d.w));
-  // A phone shows one artboard at a time, never the row of them.
-  const all = () => widths().length > 1 && !phoneLayout();
-  const wide = () => wideWidth(widths());
-  const iconOf = (w: number): IconName => (w === wide() ? "wide" : widthKind(w));
-  const current = (): { icon: IconName; label: string } => {
-    if (s.zoom() === "all") return { icon: "all", label: "All widths" };
-    const w = s.frameW();
-    return { icon: iconOf(w), label: `${widthLabel(w)} · ${w}px` };
-  };
-  const choose = (w: number | "all") => {
-    if (w === "all") s.setZoom("all");
-    else {
-      if (w !== s.frameW()) s.setFrameW(w);
-      s.setZoom("fit");
-    }
-    setOpen(false);
-  };
-  return (
-    // One width is no choice: the label on the artboard already names it.
-    <Show when={widths().length > 1}>
-      <div class="wpick">
-        <button
-          type="button"
-          class="ib"
-          classList={{ on: open() }}
-          ref={(el) => (btn = el)}
-          aria-haspopup="menu"
-          aria-expanded={open()}
-          aria-label={`Width: ${current().label}`}
-          title={current().label}
-          onClick={() => setOpen(!open())}
-        >
-          <Icon name={current().icon} />
-        </button>
-        <Show when={open()}>
-          <div class="wmenu" role="menu" aria-label="Width" ref={(el) => (menu = el)}>
-            <For each={widths()}>
-              {(w) => (
-                <button
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={s.frameW() === w && s.zoom() !== "all"}
-                  data-w={w}
-                  onClick={() => choose(w)}
-                >
-                  <Icon name={iconOf(w)} />
-                  {widthLabel(w)}
-                  <small>{w}</small>
-                </button>
-              )}
-            </For>
-            <Show when={all()}>
-              <button
-                type="button"
-                role="menuitemradio"
-                aria-checked={s.zoom() === "all"}
-                data-w="all"
-                onClick={() => choose("all")}
-              >
-                <Icon name="all" />
-                All widths
-              </button>
-            </Show>
-          </div>
-        </Show>
-      </div>
-    </Show>
   );
 }
 

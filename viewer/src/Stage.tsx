@@ -125,7 +125,12 @@ function readReport(d: Record<string, unknown>, frameW: number): PartsReport | n
 }
 
 // A line above each artboard for its label, in screen px.
-const BOARD_LABEL = 30;
+// The row above the artboard: its label, and a live one's version and what acts on it.
+const BOARD_LABEL = 44;
+const LABEL_AT = 14;
+// The live label gives way to those actions on an artboard too narrow for both.
+const LABEL_ROOM_ONE_VERSION = 360;
+const LABEL_ROOM_VERSIONS = 480;
 // Under a finger a pin keeps its size and takes a 44px tap area around it;
 // pins step apart far enough that those areas never overlap.
 const PIN = 22;
@@ -491,6 +496,8 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
       // The safe-area padding sits outside the scroller, and only the DOM knows it.
       left: layersEl.getBoundingClientRect().left + xOf(order()[0]!) - panned().x,
       top: canvasTop() + padT() + labelH() - panned().y,
+      right:
+        layersEl.getBoundingClientRect().left + xOf(frameW()) + frameW() * scale() - panned().x,
     });
   });
   onCleanup(() => setDesignAt(null));
@@ -515,10 +522,16 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
           onScroll={onPan}
         >
           <div class="layers-sizer" style={{ height: `${canvasH()}px`, width: `${canvasW()}px` }} />
-          <Show when={!phone()}>
+          <Show
+            when={
+              !phone() &&
+              frameW() * scale() >=
+                (s.steps().length > 1 ? LABEL_ROOM_VERSIONS : LABEL_ROOM_ONE_VERSION)
+            }
+          >
             <div
               class="board-label"
-              style={{ left: `${Math.max(10, xOf(frameW()))}px`, top: `${padT() + 8}px` }}
+              style={{ left: `${Math.max(10, xOf(frameW()))}px`, top: `${padT() + LABEL_AT}px` }}
             >
               {`${widthLabel(frameW())} · ${frameW()}${
                 scale() < 1 ? ` · ${Math.round(scale() * 100)}%` : ""
@@ -532,7 +545,7 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
                   <>
                     <div
                       class="board-label"
-                      style={{ left: `${Math.max(10, xOf(w))}px`, top: `${padT() + 8}px` }}
+                      style={{ left: `${Math.max(10, xOf(w))}px`, top: `${padT() + LABEL_AT}px` }}
                     >
                       {`${widthLabel(w)} · ${w}`}
                     </div>

@@ -1,22 +1,13 @@
-// In the top bar, by the width: this design as a code to scan, to feel it on the device it's for. A
+// In the preview tool: this design as a code to scan, to feel it on the device it's for. A
 // code nobody can follow is worse than none, so an address a phone can't reach gets
 // the address to use instead. The code never holds the workspace's key: the viewer
 // takes `?key=` out of the URL on load, so there's none in what it encodes, and
 // putting it there would hand sign-in to anyone who photographs the screen.
 
-import {
-  createEffect,
-  createMemo,
-  createResource,
-  createSignal,
-  For,
-  onCleanup,
-  Show,
-} from "solid-js";
+import { createMemo, createResource, For, Show } from "solid-js";
 import { api } from "./api.ts";
 import { CopyButton } from "./CopyButton.tsx";
-import { host, readonly, root } from "./host.ts";
-import { Icon } from "./icons.tsx";
+import { host, readonly } from "./host.ts";
 import { QR_QUIET, qrEncode, qrPath } from "./qr.ts";
 import { designPath } from "./route.ts";
 import type { DesignScreenState } from "./state.ts";
@@ -37,61 +28,7 @@ const isPrivate = (hostname: string) =>
   hostname.endsWith(".local") ||
   hostname.endsWith(".ts.net");
 
-export function QrTool(props: { s: DesignScreenState }) {
-  const s = props.s;
-  const [open, setOpen] = createSignal(false);
-  let btn: HTMLButtonElement | undefined;
-  let pop: HTMLDivElement | undefined;
-  createEffect(() => {
-    if (!open()) return;
-    const doc = root();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      setOpen(false);
-      btn?.focus();
-    };
-    const onDown = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (!pop?.contains(t) && !btn?.contains(t)) setOpen(false);
-    };
-    doc.addEventListener("keydown", onKey, true);
-    doc.addEventListener("pointerdown", onDown, true);
-    onCleanup(() => {
-      doc.removeEventListener("keydown", onKey, true);
-      doc.removeEventListener("pointerdown", onDown, true);
-    });
-  });
-  return (
-    <div class="qrtool">
-      <button
-        type="button"
-        class="ib"
-        classList={{ on: open() }}
-        aria-expanded={open()}
-        aria-haspopup="dialog"
-        aria-label="Open on a phone or iPad"
-        title="Open on a phone or iPad"
-        ref={(el) => (btn = el)}
-        onClick={() => setOpen(!open())}
-      >
-        <Icon name="qr" />
-      </button>
-      <Show when={open()}>
-        <div
-          class="qrpop"
-          role="dialog"
-          aria-label="Open on a phone or iPad"
-          ref={(el) => (pop = el)}
-        >
-          <QrBody s={s} />
-        </div>
-      </Show>
-    </div>
-  );
-}
-
-function QrBody(props: { s: DesignScreenState }) {
+export function QrBody(props: { s: DesignScreenState }) {
   const s = props.s;
   const place = createMemo(() => {
     const m = s.design();

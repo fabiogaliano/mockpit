@@ -1574,6 +1574,10 @@ export function flowKey(e: {
 // The widths a design is judged at. Desktop is the stage's historical width and
 // what every thumbnail renders at; the others are the devices the viewer itself
 // is checked on, so a design can be read at the width it will ship to.
+// The design's own widths when it names them; else the ones the viewer offers.
+export const widthChoices = (declared: readonly number[]): readonly number[] =>
+  declared.length ? declared : DEVICE_WIDTHS.map((d) => d.w);
+
 export const DEVICE_WIDTHS = [
   { label: "Phone", w: 390 },
   { label: "Tablet", w: 744 },

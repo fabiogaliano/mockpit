@@ -78,10 +78,12 @@ export const setCanvasBox = setCanvasBoxSignal;
 export interface DesignAt {
   left: number;
   top: number;
+  // The live artboard's right edge, which is what its version's actions line up with.
+  right: number;
 }
 const [designAtSignal, setDesignAtSignal] = createRoot(() =>
   createSignal<DesignAt | null>(null, {
-    equals: (a, b) => a?.left === b?.left && a?.top === b?.top,
+    equals: (a, b) => a?.left === b?.left && a?.top === b?.top && a?.right === b?.right,
   }),
 );
 export const designAt = designAtSignal;

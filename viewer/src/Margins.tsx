@@ -37,9 +37,11 @@ import {
   TOOL_BAND_W,
   variantName,
   type VersionStep,
+  widthChoices,
 } from "./logic.ts";
 import { Notes, notesShown } from "./Notes.tsx";
 import { OutlineRows } from "./Outlines.tsx";
+import { PreviewTool } from "./PreviewTool.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
 import { Answered } from "./Questions.tsx";
 import { REACTION_LABEL } from "./reactionRules.ts";
@@ -83,6 +85,10 @@ export function createMargins(
     return kinds.includes("html");
   };
 
+  // A document has no widths to choose between, and nothing to scan onto a phone.
+  const previewHas = () =>
+    columnW() === null && (page() || widthChoices(s.design()?.widths ?? []).length > 1);
+
   const closed = () => !!s.design()?.archivedAt;
   const talkWants = () => !closed() && (!!s.curAsk() || s.sendable());
   const talkHas = () => talkWants() || s.flow().length > 0 || s.closedAsks("state").length > 0;
@@ -101,7 +107,7 @@ export function createMargins(
     return marginLayout({
       winW: win().w - safeX(),
       designW: columnW() ?? row.reduce((sum, w) => sum + w, 0) + BOARD_GAP * (row.length - 1),
-      tools: page() || leftHas(),
+      tools: page() || leftHas() || previewHas(),
       left,
       right: side() !== null,
     });
@@ -114,7 +120,7 @@ export function createMargins(
   const leftTab = () => active() && leftHas() && !leftDocked();
   const leftFloats = () => leftTab() && over();
   const stripW = () =>
-    active() && (page() || s.tunable().length > 0 || leftTab()) ? TOOL_BAND_W : 0;
+    active() && (page() || s.tunable().length > 0 || leftTab() || previewHas()) ? TOOL_BAND_W : 0;
   const band = () => ({
     left: leftDocked() ? LEFT_MARGIN_W : 0,
     right: rightDocked() ? RIGHT_MARGIN_W : 0,
@@ -204,6 +210,7 @@ export function createMargins(
     leftTab,
     leftFloats,
     stripW,
+    previewHas,
     band,
     ghosts,
     toggleLeft,
@@ -213,8 +220,9 @@ export function createMargins(
   };
 }
 
-// Try, Comment and Tune, against the design's left edge. They change what a tap on
-// it does, so they stay by it however narrow it is or wherever it's panned, and the left margin's tab rides with them while it is folded.
+// Try, Comment, Tune and the preview, against the design's left edge. They change what a
+// tap on it does or how it's shown, so they stay by it however narrow it is or wherever
+// it's panned, and the left margin's tab rides with them while it is folded.
 export function ToolStrip(props: { s: DesignScreenState; m: Margins }) {
   const s = props.s;
   const m = props.m;
@@ -234,11 +242,17 @@ export function ToolStrip(props: { s: DesignScreenState; m: Margins }) {
           >
             <Icon name="versions" />
           </button>
-          <Show when={tools()}>
+          <Show when={tools() || m.previewHas()}>
             <span class="toolstrip-sep" />
           </Show>
         </Show>
         <CanvasTools s={s} page={m.page()} />
+        <Show when={m.previewHas()}>
+          <Show when={tools()}>
+            <span class="toolstrip-sep" />
+          </Show>
+          <PreviewTool s={s} qr={m.page()} />
+        </Show>
       </div>
     </Show>
   );
@@ -272,7 +286,9 @@ export function PanelTabs(props: { s: DesignScreenState; m: Margins }) {
     p.id === "talk" && asked() ? `${p.label}, ${asked()} open` : p.label;
   // Something there the user hasn't got in front of them.
   const waiting = (p: (typeof PANELS)[number]) =>
-    p.id === "talk" && m.side() !== "talk" && !m.closed() && (asked() > 0 || s.sendable());
+    p.id === "talk" && m.side() !== "talk" && !m.closed() && !asked() && s.sendable();
+  // The one place the screen counts its questions, on the tab that holds them.
+  const count = (p: (typeof PANELS)[number]) => (p.id === "talk" ? asked() : 0);
   return (
     <div class="mtabs" role="group" aria-label="Panels">
       <For each={shown()}>
@@ -280,13 +296,16 @@ export function PanelTabs(props: { s: DesignScreenState; m: Margins }) {
           <button
             type="button"
             class="ib"
-            classList={{ on: m.side() === p.id }}
+            classList={{ on: m.side() === p.id, "ib-count": count(p) > 0 }}
             aria-pressed={m.side() === p.id}
             aria-label={label(p)}
             title={label(p)}
             onClick={() => m.toggleSide(p.id)}
           >
             <Icon name={p.icon} />
+            <Show when={count(p) > 0}>
+              <span class="num">{count(p)}</span>
+            </Show>
             <Show when={waiting(p)}>
               <span class="mtab-dot" aria-hidden="true" />
             </Show>
