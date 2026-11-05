@@ -8,8 +8,8 @@
 //   node scripts/record-demo.mjs --gif      # gif only
 //
 // The gif pass replays the decide loop live: the agent publishes three variants and
-// its questions → the user previews the variants on the stage and picks one → answers a
-// part question → Send → Thread shows ✓, then ✓✓ once the agent's feedback
+// its questions → the user previews the variants, keeps one, hides one and picks one → answers a
+// part question → Send → Not seen yet, then Delivered once the agent's feedback
 // read takes it → the agent replies and publishes v2. ffmpeg turns the recorded webm into the
 // gif: mpdecimate drops held frames (keeping one every two seconds, so the
 // closing hold survives) and an undithered 128-colour palette suits flat UI; both
@@ -123,6 +123,10 @@ async function stills() {
       await page.locator('.opt[data-option="quiet"] iframe').waitFor();
       await page.locator(".frame.on iframe").waitFor();
       await sleep(1500); // thumbnails and the stage frame report their heights
+      // One answer kept for later, so the still shows the bookmark.
+      const keep = page.locator('.optw[data-option-card="dark"] .optkeep');
+      if ((await keep.getAttribute("aria-pressed")) !== "true") await keep.click();
+      await sleep(400);
       await page.mouse.move(0, 0);
       const path = join(DOCS, `mockpit-${mode}.png`);
       await page.screenshot({ path });
@@ -213,36 +217,32 @@ async function gif() {
     await sleep(1100);
     await hover(option("editorial"));
     await sleep(1100);
+    // Dark is kept for later, Editorial hidden: it fades and the others close up.
+    await click(page.locator('.optw[data-option-card="dark"] .optkeep'));
+    await sleep(900);
+    await click(page.locator('.optw[data-option-card="editorial"] [aria-label^="Hide"]'));
+    await sleep(1300);
     await click(option("quiet"));
     await sleep(1300);
 
-    // The part question: Trim, pinned on its part on the stage. If the variants
-    // differ enough to borrow parts, that question comes last and "all quiet" closes it.
-    await page.locator(".opt").first().waitFor();
-    await click(page.locator(".opt").nth(1));
+    // Next: the part question, Trim, answered Below; then Send.
+    const qsend = page.locator("button.qsend");
+    await click(qsend);
     await sleep(1100);
-    if (!(await page.locator("button.send").count())) {
-      const next = page.locator("button.primary", { hasText: "Next" });
-      if (await next.count()) await click(next);
-      await page.locator('.opt[data-option="none"]').waitFor();
-      await click(page.locator('.opt[data-option="none"]'));
+    await click(page.locator(".opt", { hasText: "Below" }));
+    await sleep(1100);
+    while ((await qsend.textContent())?.trim() === "Next") {
+      await click(qsend);
       await sleep(900);
     }
-
-    // Send: the panel flips to Thread with the Sent row at ✓.
-    const send = page.locator("button.send");
-    await send.waitFor();
-    await click(send);
-    const row = page.locator(".trow.you");
-    await row.waitFor();
-    // Rest the pointer beside the row, clear of the tick that is about to change.
-    const rb = await row.boundingBox();
-    await glide(rb.x - 40, rb.y + rb.height / 2);
+    await click(qsend);
+    const sent = page.locator(".sentrow .pill.count");
+    await sent.waitFor();
     await sleep(1600);
 
-    // The agent's feedback read takes the batch: ✓ turns ✓✓ seen.
+    // The agent's feedback read takes the batch: Not seen yet turns Delivered.
     await api(`/api/feedback?session=${session}`);
-    await row.locator(".tdelivered.ok").waitFor();
+    await page.locator(".sentrow .pill.count:not(.waiting)").waitFor();
     await sleep(1300);
 
     // The agent answers in the thread and publishes the next version of the picked variant.
@@ -268,10 +268,7 @@ async function gif() {
         },
       ],
     });
-    await page.locator(".vbtn", { hasText: "v2" }).waitFor();
-    await sleep(900);
-    await click(page.locator(".vbtn"));
-    await page.locator(".vpop").waitFor();
+    await page.locator(".vcap", { hasText: "#2" }).waitFor();
     await sleep(2400);
 
     const video = page.video();
