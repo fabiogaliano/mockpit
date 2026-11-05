@@ -2,6 +2,7 @@
 // one design reads the same however an agent asks for it.
 
 import { slotKnobs, slotsInSurfaces } from "./fills.ts";
+import type { Mode } from "./themes.ts";
 import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
 import {
   changedTo,
@@ -49,6 +50,47 @@ export const hydratedSurfaceView = (surface: Surface, index: number) => {
   delete view[field];
   return view;
 };
+
+// A still mockpit took shows the page in the mode it was taken in. In the other mode it
+// would be the one picture in the wrong colours among live pages, so it is left out and the
+// page runs as it did before posters. Applied to posts before any view reads them, so every
+// view agrees. Posts come from the store's cache: copied where changed, never written to.
+const otherMode = (s: { kind: string }, mode: Mode) => {
+  const taken = (s as { posterMode?: Mode }).posterMode;
+  return s.kind === "html" && taken !== undefined && taken !== mode;
+};
+const surfacesFor = <S extends { kind: string }>(surfaces: S[], mode: Mode): S[] =>
+  surfaces.some((s) => otherMode(s, mode))
+    ? surfaces.map((s) => {
+        if (!otherMode(s, mode)) return s;
+        const {
+          poster: _poster,
+          posterMode: _mode,
+          ...rest
+        } = s as S & {
+          poster?: string;
+          posterMode?: Mode;
+        };
+        return rest as unknown as S;
+      })
+    : surfaces;
+export const postersFor = <
+  S extends { kind: string },
+  P extends { surfaces: S[]; history: { surfaces: S[] }[] },
+>(
+  posts: P[],
+  mode: Mode,
+): P[] =>
+  posts.map((p) => {
+    const surfaces = surfacesFor(p.surfaces, mode);
+    const history = p.history.map((h) => {
+      const own = surfacesFor(h.surfaces, mode);
+      return own === h.surfaces ? h : { ...h, surfaces: own };
+    });
+    return surfaces === p.surfaces && history.every((h, i) => h === p.history[i])
+      ? p
+      : { ...p, surfaces, history };
+  });
 
 // The still overviews show for a version: its html page's poster.
 const pagePoster = (surfaces: SurfaceHead[]) => surfaces.find((s) => s.kind === "html")?.poster;

@@ -30,6 +30,12 @@ const MAX_IMPORT_DEPTH = 3;
 // Beside the 32 MB render cache, inside the Worker's 128 MB isolate.
 const MAX_CACHE_BYTES = 24 * 1024 * 1024;
 const MAX_FAILED_URLS = 512;
+// What an answer with no bytes to keep (too big, missing) counts as, so a page naming
+// thousands of them still meets the cache's limit.
+const EMPTY_ENTRY_BYTES = 512;
+// Fetches started past a document's deadline only fill the cache for the next render, and
+// a page may link any number of files.
+const MAX_LATE_FETCHES = 8;
 
 // Google Fonts picks its CSS by User-Agent. Always one modern one: every browser that
 // runs the viewer takes variable woff2 and unicode-range, the answer is the smallest of
@@ -41,6 +47,9 @@ type Fetched =
   // `url` is where it ended up after redirects: relative URLs inside resolve against it.
   | { kind: "ok"; url: string; contentType: string; bytes: Uint8Array }
   | { kind: "too-big" }
+  // The CDN's own answer that there is nothing here: a mistyped URL, a package unpublished.
+  // Final, unlike `failed`, or one dead link would keep its page from ever being cached.
+  | { kind: "missing" }
   | { kind: "failed" };
 
 type Held = Exclude<Fetched, { kind: "failed" }>;
@@ -105,7 +114,8 @@ async function fetchFromCdn(url: string, signal: AbortSignal): Promise<Fetched> 
     }
     if (!res.ok) {
       await res.body?.cancel();
-      return { kind: "failed" };
+      const final = res.status >= 400 && res.status < 500 && ![408, 425, 429].includes(res.status);
+      return { kind: final ? "missing" : "failed" };
     }
     const bytes = await readCapped(res, MAX_INLINE_BYTES);
     if (!bytes) return { kind: "too-big" };
@@ -342,13 +352,14 @@ export function createCdnInliner() {
   const inFlight = new Map<string, Promise<Fetched>>();
   const failedAt = new Map<string, number>();
 
+  const weigh = (got: Held) => (got.kind === "ok" ? got.bytes.length : 0) + EMPTY_ENTRY_BYTES;
   const remember = (url: string, got: Held) => {
     cache.set(url, got);
-    cacheBytes += got.kind === "ok" ? got.bytes.length : 0;
+    cacheBytes += weigh(got);
     while (cacheBytes > MAX_CACHE_BYTES && cache.size > 1) {
       const oldest = cache.keys().next().value as string;
       const drop = cache.get(oldest);
-      cacheBytes -= drop?.kind === "ok" ? drop.bytes.length : 0;
+      cacheBytes -= drop ? weigh(drop) : 0;
       cache.delete(oldest);
     }
   };
@@ -386,7 +397,7 @@ export function createCdnInliner() {
     }
     const left = deadline - Date.now();
     if (left <= 0) {
-      void start(url);
+      if (inFlight.size < MAX_LATE_FETCHES) void start(url);
       return Promise.resolve({ kind: "failed" });
     }
     let timer: ReturnType<typeof setTimeout>;
@@ -541,6 +552,10 @@ export function createCdnInliner() {
     let out = "";
     let copied = 0;
     let deferred = "";
+    // Deferred and module scripts run in document order once the document has parsed. An
+    // inlined one runs at the end of the body, ahead of any that kept its link, so once one
+    // of them stays, those after it stay too: a plugin must not run before its library.
+    let orderHeld = false;
     const splice = (from: number, to: number, withText: string) => {
       out += doc.slice(copied, from) + withText;
       copied = to;
@@ -570,14 +585,30 @@ export function createCdnInliner() {
         i = close.end;
         const src = tag.attrs.get("src");
         const url = src ? onCdn(src) : null;
-        if (!url || !onlyThese(tag.attrs, SCRIPT_ATTRS)) continue;
         const type = (tag.attrs.get("type") ?? "").trim().toLowerCase();
-        if (type && !/^(text|application)\/(java|ecma)script$/.test(type)) continue;
+        const classic = !type || /^(text|application)\/(java|ecma)script$/.test(type);
+        const ordered = classic
+          ? !!src && tag.attrs.has("defer") && !tag.attrs.has("async")
+          : type === "module" && !tag.attrs.has("async");
+        const stays = () => {
+          if (ordered) orderHeld = true;
+        };
+        if (!url || !classic || !onlyThese(tag.attrs, SCRIPT_ATTRS)) {
+          stays();
+          continue;
+        }
+        if (ordered && orderHeld) continue;
         const got = await fetchOr(url);
-        if (got.kind !== "ok" || !/javascript|ecmascript/.test(got.contentType)) continue;
-        if (!(await passesIntegrity(tag.attrs.get("integrity"), got.bytes))) continue;
-        const js = new TextDecoder().decode(got.bytes);
-        if (got.bytes.length > budget || needsItsUrl(js)) continue;
+        const fits =
+          got.kind === "ok" &&
+          /javascript|ecmascript/.test(got.contentType) &&
+          (await passesIntegrity(tag.attrs.get("integrity"), got.bytes)) &&
+          got.bytes.length <= budget;
+        const js = got.kind === "ok" && fits ? new TextDecoder().decode(got.bytes) : null;
+        if (got.kind !== "ok" || js === null || needsItsUrl(js)) {
+          stays();
+          continue;
+        }
         budget -= got.bytes.length;
         const inlined = `<script>${safeScript(js)}</script>`;
         // An inline script can't wait, so what was deferred goes where deferred scripts

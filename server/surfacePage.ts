@@ -302,11 +302,14 @@ if (window.ResizeObserver) {
 //     asking for a frame is the page doing something new, not a loop, so it thaws the page
 //     and settling starts over, within RUN_MAX_MS of rendered time in all, so a timer can't
 //     keep it awake. Timers themselves keep running: drawing by timer completes however late.
+//     Past that allowance only HELD_MAX requests are kept for a later thaw: a page asking by
+//     timer would otherwise pile them up for as long as it stays open.
 //   - New knob values always thaw, with a new allowance: the picture must follow them.
 export const FREEZE_JS = `
 (function () {
   if (location.hash !== '#small' || !document.getAnimations) return;
   var QUIET_MS = 800, CAP_MS = 10000, LOAD_CAP_MS = 15000, MAX_STEP_MS = 100, RUN_MAX_MS = 30000;
+  var HELD_MAX = 32;
   var raf = window.requestAnimationFrame.bind(window);
   var caf = window.cancelAnimationFrame.bind(window);
   var asked = new Map(), nextId = 0;
@@ -329,6 +332,7 @@ export const FREEZE_JS = `
   window.requestAnimationFrame = function (cb) {
     if (frozen && run < runUntil) thaw();
     var id = ++nextId, entry = { cb: cb, native: 0 };
+    if (frozen && asked.size >= HELD_MAX) return id;
     asked.set(id, entry);
     active = run;
     if (!frozen) queue(id, entry);

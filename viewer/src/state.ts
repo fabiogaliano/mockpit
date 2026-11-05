@@ -922,6 +922,8 @@ export function createDesignScreen(
           break;
         case "theme-changed":
           setTheme(e.mode === "light" ? "light" : "dark");
+          // Which stills show depends on the mode they were taken in.
+          if (id) refetch("design");
           break;
       }
     },

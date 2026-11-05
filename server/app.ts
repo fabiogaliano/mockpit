@@ -9,6 +9,7 @@ import {
   type EmbedView,
   draftHolds,
   designDetailView,
+  postersFor,
   treeNodeView,
   designSummaryView,
   placeOf,
@@ -161,6 +162,7 @@ import {
   slugify,
   type StateOutline,
   type Store,
+  type HtmlSurface,
   type Surface,
   surfacesByteLength,
   type TerminalSurface,
@@ -1226,10 +1228,14 @@ export function createApp({
         (s.id !== undefined && pagesBefore.find((b) => b.id === s.id)) || pagesBefore[ordinal];
       let next: Surface = s;
       if (s.poster && old?.kind === "html" && old.html !== s.html && old.poster === s.poster) {
-        const { poster: _stale, ...rest } = s;
+        const { poster: _stale, posterMode: _mode, ...rest } = s;
         next = rest;
       }
-      if (ordinal === 0 && given) next = { ...next, poster: given };
+      // The agent's own still names no mode, whatever the one it replaces did.
+      if (ordinal === 0 && given) {
+        const { posterMode: _mode, ...rest } = next as HtmlSurface;
+        next = { ...rest, poster: given };
+      }
       ordinal++;
       return next;
     });
@@ -1270,7 +1276,12 @@ export function createApp({
     if (!asset?.contentType.startsWith("image/")) {
       return fail(400, `poster "${poster}" is not an uploaded image`);
     }
-    const attached = await store.setPosterOnce(post.id, post.version, poster);
+    const attached = await store.setPosterOnce(
+      post.id,
+      post.version,
+      poster,
+      isMode(body?.mode) ? body.mode : undefined,
+    );
     if (!attached) return fail(409, `${post.variant} already has a poster`);
     bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
     return ok({ poster });
@@ -2587,7 +2598,8 @@ export function createApp({
   }): Promise<FlowResult> {
     const project = str(query.project, MAX_TITLE);
     const designs = await store.listDesigns(project);
-    const heads = headsByDesign(await store.listPostHeads(project));
+    const mode = await workspaceMode();
+    const heads = headsByDesign(postersFor(await store.listPostHeads(project), mode));
     const rows = [];
     const pending = [];
     for (const m of designs) {
@@ -2620,7 +2632,8 @@ export function createApp({
     const project = str(query.project, MAX_TITLE);
     if (!project) return fail(400, 'provide "project"');
     const designs = await store.listDesigns(project);
-    const heads = headsByDesign(await store.listPostHeads(project));
+    const mode = await workspaceMode();
+    const heads = headsByDesign(postersFor(await store.listPostHeads(project), mode));
     const nodes = [];
     const pending = [];
     for (const m of designs) {
@@ -2628,7 +2641,7 @@ export function createApp({
       // Only embeds and fills need the html: most of a workspace's bytes are
       // pages with neither, which this list has no reason to read.
       const marked = designHeads.some((p) => p.surfaces.some((x) => x.marked));
-      const posts = marked ? await store.listPosts({ designId: m.id }) : null;
+      const posts = marked ? postersFor(await store.listPosts({ designId: m.id }), mode) : null;
       const views = posts ? await embedViews(m, posts) : new Map<string, EmbedView>();
       const embeds = new Set<string>();
       for (const p of posts ?? []) {
@@ -2723,7 +2736,7 @@ export function createApp({
   ): Promise<FlowResult> {
     const design = await resolveDesign(ref, query.project, query.session);
     if (isResult(design)) return design;
-    const posts = await store.listPosts({ designId: design.id });
+    const posts = postersFor(await store.listPosts({ designId: design.id }), await workspaceMode());
     return ok({
       ...(query.noDecisions ? {} : await decisionListField(design.project, design.slug)),
       ...designDetailView(design, posts, {

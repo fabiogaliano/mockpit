@@ -43,7 +43,7 @@ export function Thumb(props: {
   // What the user is deciding from: ahead of every other picture on the screen,
   // however many the margins started before it.
   first?: boolean;
-  // Looked at, not glanced over: the closer look. It keeps animating, where every other
+  // Looked at, not glanced over: the closer look, a column in Studio. It keeps animating, where every other
   // Thumb tells its page it's small, in the fragment so it stays the same cached document.
   large?: boolean;
 }) {

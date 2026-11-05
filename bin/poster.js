@@ -275,8 +275,8 @@ async function capture(port, job) {
   const variant = design.variants?.find((v) => v.postId === job.postId);
   const page = variant?.surfaces?.find((s) => s.kind === "html");
   // Moved on already, or the agent's own still arrived: nothing to add.
-  if (!page || page.poster || variant.version !== job.version) return;
   const { mode } = await get("/api/theme");
+  if (!page || page.poster || variant.version !== job.version) return;
   const rewrites = variant.rewrites ?? 0;
   const query = new URLSearchParams({
     surface: String(page.index),
@@ -299,7 +299,7 @@ async function capture(port, job) {
   });
   await post(
     `/api/designs/${encodeURIComponent(job.design)}/variants/${encodeURIComponent(job.postId)}/poster`,
-    { version: job.version, rewrites, poster: asset.id, session: job.session },
+    { version: job.version, rewrites, poster: asset.id, mode, session: job.session },
   );
 }
 

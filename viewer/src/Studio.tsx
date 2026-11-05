@@ -473,7 +473,7 @@ export function Studio(props: {
       fallback={
         // A canvas page is a whole live context: one large, never a row of them.
         <Show when={(large || !st.canvas) && pictureOf(st)}>
-          {(u) => <Thumb src={u()} width={s.frameW()} fit whole />}
+          {(u) => <Thumb src={u()} width={s.frameW()} fit whole large={large} />}
         </Show>
       }
     >
@@ -1493,7 +1493,8 @@ function StudioCard(props: {
           when={st().poster}
           fallback={
             <Show when={props.live && src()}>
-              {(u) => <Thumb src={u()} width={s.frameW()} fit whole />}
+              {/* Columns are for comparing, motion included; a wall is a screenful of small ones. */}
+              {(u) => <Thumb src={u()} width={s.frameW()} fit whole large={!props.wall} />}
             </Show>
           }
         >

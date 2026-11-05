@@ -1,6 +1,6 @@
 // Shared data model — no runtime imports, safe for any platform.
 
-import type { Palette } from "./themes.ts";
+import type { Mode, Palette } from "./themes.ts";
 
 export interface Session {
   id: string;
@@ -117,6 +117,9 @@ export interface HtmlSurface {
   // An uploaded still of this page, by asset id. Overviews (Studio, Home)
   // show it instead of running the page; Stage always runs the page.
   poster?: string;
+  // Set on a still mockpit took itself: the mode the page was in. Overviews in the other
+  // mode run the page instead. An agent's own poster names none and always shows.
+  posterMode?: Mode;
 }
 
 // A markdown surface is prose — explanations, plans, tradeoff write-ups. The
@@ -1174,7 +1177,7 @@ export interface Store {
   amendPost(id: string, version: number, patch: AmendPostInput): Promise<Post | null>;
   // On a variant's latest version, if its first page has no poster yet. Touches nothing else:
   // not the version, not when it was updated, so it reads as nothing having happened.
-  setPosterOnce(id: string, version: number, poster: string): Promise<boolean>;
+  setPosterOnce(id: string, version: number, poster: string, mode?: Mode): Promise<boolean>;
   withdrawVersion(
     id: string,
     version: number,
@@ -1238,6 +1241,7 @@ export interface SqlStorage {
 export interface SurfaceHead {
   kind: Surface["kind"];
   poster?: string;
+  posterMode?: Mode;
   marked?: boolean;
 }
 

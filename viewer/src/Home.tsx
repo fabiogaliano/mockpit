@@ -373,8 +373,11 @@ export function Home(props: {
 
   const [feedAt, setFeedAt] = createSignal<number | null>(null);
   const stop = subscribe((e) => {
-    if (e.type === "theme-changed") setTheme(e.mode === "light" ? "light" : "dark");
-    else if (
+    if (e.type === "theme-changed") {
+      setTheme(e.mode === "light" ? "light" : "dark");
+      // Which stills show depends on the mode they were taken in.
+      void refetch();
+    } else if (
       e.type.startsWith("design-") ||
       e.type.startsWith("post-") ||
       e.type === "comment-created" ||

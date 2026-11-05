@@ -62,6 +62,7 @@ import {
   type DecisionVariant,
 } from "./types.ts";
 import { renameSlugRefs } from "./embeds.ts";
+import type { Mode } from "./themes.ts";
 import { RULES_SETTING } from "./guidance.ts";
 
 type Row = Record<string, SqlStorageValue>;
@@ -124,6 +125,7 @@ const surfaceHeads = (surfaces: Surface[]): string =>
       return {
         kind: s.kind,
         ...(s.poster ? { poster: s.poster } : {}),
+        ...(s.poster && s.posterMode ? { posterMode: s.posterMode } : {}),
         ...(/<mockpit-embed|data-fill/i.test(s.html) ? { marked: true } : {}),
       };
     }),
@@ -2085,13 +2087,15 @@ export class SqlStore implements Store {
     };
   }
 
-  async setPosterOnce(id: string, version: number, poster: string) {
+  async setPosterOnce(id: string, version: number, poster: string, mode?: Mode) {
     const post = await this.getPost(id);
     if (!post || post.version !== version) return false;
     const at = post.surfaces.findIndex((s) => s.kind === "html");
     const page = post.surfaces[at];
     if (!page || page.kind !== "html" || page.poster) return false;
-    const surfaces = post.surfaces.map((s, i) => (i === at ? { ...page, poster } : s));
+    const surfaces = post.surfaces.map((s, i) =>
+      i === at ? { ...page, poster, ...(mode ? { posterMode: mode } : {}) } : s,
+    );
     const wrote = this.writingPosts(post.design, [id], () => {
       this.sql.exec(
         "UPDATE posts SET surfaces = ?, head = ? WHERE id = ? AND version = ?",
