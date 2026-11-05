@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "recordedAt": "2026-11-05T09:55:13.881Z",
+  "recordedAt": "2026-11-05T10:33:28.777Z",
   "git": {
-    "commit": "6534a3e",
+    "commit": "ee3dbcd",
     "branch": "feat/cheap-frames"
   },
   "machine": {
@@ -12,7 +12,7 @@
     "cpuModel": "Apple M1 Pro",
     "nodeVersion": "v26.13.0",
     "totalMemory": 17179869184,
-    "index": 17775.748000057305
+    "index": 17485.625358819525
   },
   "results": [
     {
@@ -20,15 +20,15 @@
       "name": "sqlite-memory/getPost",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.03921735135134907,
+      "value": 0.039380208333331744,
       "stats": {
-        "iterations": 8769,
-        "samples": 237,
-        "min": 0.036189189189187614,
-        "median": 0.03921735135134907,
-        "p95": 0.04862388108108093,
-        "max": 0.2548873783783755,
-        "opsPerSec": 25498.91732975486
+        "iterations": 8376,
+        "samples": 349,
+        "min": 0.035795125000002294,
+        "median": 0.039380208333331744,
+        "p95": 0.06767740833333082,
+        "max": 0.2916527916666685,
+        "opsPerSec": 25393.466472689823
       },
       "note": "SqlStore(:memory:), 144 posts / 96 comments"
     },
@@ -37,15 +37,15 @@
       "name": "sqlite-memory/listPosts(session)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.327658399999973,
+      "value": 0.3656541000000061,
       "stats": {
-        "iterations": 1110,
-        "samples": 222,
-        "min": 0.30854160000003505,
-        "median": 0.327658399999973,
-        "p95": 0.5108891000000176,
-        "max": 0.9273581999999806,
-        "opsPerSec": 3051.9589914376756
+        "iterations": 880,
+        "samples": 176,
+        "min": 0.3052083999999923,
+        "median": 0.3656541000000061,
+        "p95": 0.8088665999999649,
+        "max": 2.5335667999999716,
+        "opsPerSec": 2734.8250710165244
       },
       "note": "SqlStore(:memory:), 12 posts in session"
     },
@@ -54,15 +54,15 @@
       "name": "sqlite-memory/listPosts(all)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 3.7605000000000928,
+      "value": 3.8991664999998648,
       "stats": {
-        "iterations": 101,
-        "samples": 101,
-        "min": 3.433082999999897,
-        "median": 3.7605000000000928,
-        "p95": 5.1275419999999485,
-        "max": 9.409500000000207,
-        "opsPerSec": 265.9220848291385
+        "iterations": 100,
+        "samples": 100,
+        "min": 3.392457999999806,
+        "median": 3.8991664999998648,
+        "p95": 4.956894099999886,
+        "max": 5.368791999999985,
+        "opsPerSec": 256.46506759843027
       },
       "note": "SqlStore(:memory:), 144 posts / 96 comments"
     },
@@ -71,15 +71,15 @@
       "name": "sqlite-memory/listDesigns",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.4567865000000211,
+      "value": 0.4647223333333083,
       "stats": {
-        "iterations": 840,
-        "samples": 210,
-        "min": 0.436802000000057,
-        "median": 0.4567865000000211,
-        "p95": 0.5774312500000235,
-        "max": 1.399156249999919,
-        "opsPerSec": 2189.2065549221657
+        "iterations": 819,
+        "samples": 273,
+        "min": 0.4428886666667798,
+        "median": 0.4647223333333083,
+        "p95": 0.6316529333333165,
+        "max": 0.8821946666666918,
+        "opsPerSec": 2151.822557842899
       },
       "note": "SqlStore(:memory:), 144 posts / 96 comments"
     },
@@ -88,15 +88,15 @@
       "name": "sqlite-memory/listComments(session)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.03236144186047208,
+      "value": 0.033344614583327825,
       "stats": {
-        "iterations": 11309,
-        "samples": 263,
-        "min": 0.028693813953491056,
-        "median": 0.03236144186047208,
-        "p95": 0.03927889069766849,
-        "max": 0.1589612558139506,
-        "opsPerSec": 30900.9717277601
+        "iterations": 11040,
+        "samples": 230,
+        "min": 0.029307291666659314,
+        "median": 0.033344614583327825,
+        "p95": 0.042364413541666555,
+        "max": 0.15092274999999708,
+        "opsPerSec": 29989.850310040652
       },
       "note": "SqlStore(:memory:), 144 posts / 96 comments"
     },
@@ -105,15 +105,15 @@
       "name": "sqlite-memory/listSessions",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.02554475925926117,
+      "value": 0.02644575862068999,
       "stats": {
-        "iterations": 14202,
-        "samples": 263,
-        "min": 0.024431333333335782,
-        "median": 0.02554475925926117,
-        "p95": 0.032711105555556584,
-        "max": 0.11913349999999641,
-        "opsPerSec": 39146.972960312916
+        "iterations": 12992,
+        "samples": 224,
+        "min": 0.024278017241378055,
+        "median": 0.02644575862068999,
+        "p95": 0.04312966379310606,
+        "max": 0.20890013793103301,
+        "opsPerSec": 37813.24689311973
       },
       "note": "SqlStore(:memory:), 12 sessions"
     },
@@ -122,15 +122,15 @@
       "name": "sqlite-memory/isAssetReferenced(miss)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.00005898044038415434,
+      "value": 0.00006183561949092767,
       "stats": {
-        "iterations": 6488880,
+        "iterations": 6138976,
         "samples": 304,
-        "min": 0.000053941204029042695,
-        "median": 0.00005898044038415434,
-        "p95": 0.00006903716561256537,
-        "max": 0.00019266221597564564,
-        "opsPerSec": 16954773.370404664
+        "min": 0.00004707873625828709,
+        "median": 0.00006183561949092767,
+        "p95": 0.00008023497325938113,
+        "max": 0.00030180375359018413,
+        "opsPerSec": 16171908.816191563
       },
       "note": "SqlStore(:memory:), 144 posts / 96 comments"
     },
@@ -139,15 +139,15 @@
       "name": "sqlite-memory/createPost",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.07487500000024738,
+      "value": 0.10256249999997635,
       "stats": {
         "iterations": 40,
         "samples": 40,
-        "min": 0.0703750000002401,
-        "median": 0.07487500000024738,
-        "p95": 0.10953575000000906,
-        "max": 0.4024580000000242,
-        "opsPerSec": 13355.592654379914
+        "min": 0.09108299999979863,
+        "median": 0.10256249999997635,
+        "p95": 0.5501042000002367,
+        "max": 0.8703329999998459,
+        "opsPerSec": 9750.152346132656
       },
       "note": "SqlStore(:memory:), 144 posts / 96 comments"
     },
@@ -156,15 +156,15 @@
       "name": "sqlite-memory/updatePost",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.17014549999998962,
+      "value": 0.21218750000002728,
       "stats": {
         "iterations": 40,
         "samples": 40,
-        "min": 0.10637499999984357,
-        "median": 0.17014549999998962,
-        "p95": 0.2680454999996982,
-        "max": 0.29424999999991996,
-        "opsPerSec": 5877.322644442909
+        "min": 0.13908300000002782,
+        "median": 0.21218750000002728,
+        "p95": 1.0700021000001465,
+        "max": 1.2624580000001515,
+        "opsPerSec": 4712.812960235035
       },
       "note": "SqlStore(:memory:), history at cap"
     },
@@ -173,15 +173,15 @@
       "name": "sqlite-memory/createComment",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.0342915000001085,
+      "value": 0.038895500000080574,
       "stats": {
         "iterations": 40,
         "samples": 40,
-        "min": 0.030125000000225555,
-        "median": 0.0342915000001085,
-        "p95": 0.04124309999997421,
-        "max": 0.1293749999999818,
-        "opsPerSec": 29161.74562200067
+        "min": 0.0354589999997188,
+        "median": 0.038895500000080574,
+        "p95": 0.04970059999986915,
+        "max": 0.21079199999985576,
+        "opsPerSec": 25709.91502867757
       },
       "note": "SqlStore(:memory:), 144 posts / 96 comments"
     },
@@ -190,15 +190,15 @@
       "name": "sqlite-file/getPost",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.04231768749998821,
+      "value": 0.043224399999988755,
       "stats": {
-        "iterations": 8000,
-        "samples": 250,
-        "min": 0.03894790625000155,
-        "median": 0.04231768749998821,
-        "p95": 0.05502207031249923,
-        "max": 0.4347434999999962,
-        "opsPerSec": 23630.78086439101
+        "iterations": 7910,
+        "samples": 226,
+        "min": 0.039639285714266795,
+        "median": 0.043224399999988755,
+        "p95": 0.06037500714286839,
+        "max": 0.38824522857142124,
+        "opsPerSec": 23135.081111600397
       },
       "note": "SqlStore(file), 144 posts / 96 comments"
     },
@@ -207,15 +207,15 @@
       "name": "sqlite-file/listPosts(session)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.3360792000000401,
+      "value": 0.33974170000001325,
       "stats": {
-        "iterations": 1090,
-        "samples": 218,
-        "min": 0.3140167999999903,
-        "median": 0.3360792000000401,
-        "p95": 0.5377083900000343,
-        "max": 0.8434999999999491,
-        "opsPerSec": 2975.489110899695
+        "iterations": 1070,
+        "samples": 214,
+        "min": 0.3183999999999287,
+        "median": 0.33974170000001325,
+        "p95": 0.5491937500000493,
+        "max": 1.2980500000001485,
+        "opsPerSec": 2943.4125984533575
       },
       "note": "SqlStore(file), 12 posts in session"
     },
@@ -224,15 +224,15 @@
       "name": "sqlite-file/listPosts(all)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 3.838416999999936,
+      "value": 3.7515834999999242,
       "stats": {
-        "iterations": 99,
-        "samples": 99,
-        "min": 3.4076249999998254,
-        "median": 3.838416999999936,
-        "p95": 5.604299699999228,
-        "max": 7.0110410000006596,
-        "opsPerSec": 260.52406499867436
+        "iterations": 102,
+        "samples": 102,
+        "min": 3.457333999999719,
+        "median": 3.7515834999999242,
+        "p95": 5.102407700000273,
+        "max": 7.6828749999995125,
+        "opsPerSec": 266.5541097512611
       },
       "note": "SqlStore(file), 144 posts / 96 comments"
     },
@@ -241,15 +241,15 @@
       "name": "sqlite-file/listDesigns",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.46388200000001234,
+      "value": 0.46356250000008004,
       "stats": {
-        "iterations": 810,
-        "samples": 270,
-        "min": 0.4417359999997643,
-        "median": 0.46388200000001234,
-        "p95": 0.6488818833332208,
-        "max": 1.4503196666667766,
-        "opsPerSec": 2155.7206358513013
+        "iterations": 824,
+        "samples": 206,
+        "min": 0.4436355000000276,
+        "median": 0.46356250000008004,
+        "p95": 0.5709245625000108,
+        "max": 1.9823229999999512,
+        "opsPerSec": 2157.20641768872
       },
       "note": "SqlStore(file), 144 posts / 96 comments"
     },
@@ -258,15 +258,15 @@
       "name": "sqlite-file/listComments(session)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.03457824390243775,
+      "value": 0.0342699347825937,
       "stats": {
-        "iterations": 10455,
-        "samples": 255,
-        "min": 0.03095731707315547,
-        "median": 0.03457824390243775,
-        "p95": 0.043176831707320916,
-        "max": 0.26801829268291527,
-        "opsPerSec": 28919.918629225136
+        "iterations": 10994,
+        "samples": 239,
+        "min": 0.031212869565222165,
+        "median": 0.0342699347825937,
+        "p95": 0.03869294130434197,
+        "max": 0.14334328260868104,
+        "opsPerSec": 29180.096383139822
       },
       "note": "SqlStore(file), 144 posts / 96 comments"
     },
@@ -275,15 +275,15 @@
       "name": "sqlite-file/listSessions",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.02992651818181416,
+      "value": 0.02788095238093731,
       "stats": {
-        "iterations": 10890,
-        "samples": 198,
-        "min": 0.026111363636366812,
-        "median": 0.02992651818181416,
-        "p95": 0.06318128454545577,
-        "max": 0.341093181818178,
-        "opsPerSec": 33415.180273383194
+        "iterations": 13062,
+        "samples": 311,
+        "min": 0.025957357142856165,
+        "median": 0.02788095238093731,
+        "p95": 0.03338044047618063,
+        "max": 0.1584613095238161,
+        "opsPerSec": 35866.78052948139
       },
       "note": "SqlStore(file), 12 sessions"
     },
@@ -292,15 +292,15 @@
       "name": "sqlite-file/isAssetReferenced(miss)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.0000727320701877467,
+      "value": 0.00006956225386246798,
       "stats": {
-        "iterations": 5210484,
-        "samples": 228,
-        "min": 0.000054722924780116656,
-        "median": 0.0000727320701877467,
-        "p95": 0.0001003765916947351,
-        "max": 0.0002894404673346862,
-        "opsPerSec": 13749093.039956834
+        "iterations": 5730536,
+        "samples": 248,
+        "min": 0.000054006015493127124,
+        "median": 0.00006956225386246798,
+        "p95": 0.00007648052105424092,
+        "max": 0.0001814060674254536,
+        "opsPerSec": 14375612.41154013
       },
       "note": "SqlStore(file), 144 posts / 96 comments"
     },
@@ -309,15 +309,15 @@
       "name": "sqlite-file/createPost",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.15535399999998845,
+      "value": 0.13650049999978364,
       "stats": {
         "iterations": 40,
         "samples": 40,
-        "min": 0.12937500000043656,
-        "median": 0.15535399999998845,
-        "p95": 0.3421017500004378,
-        "max": 2.0227909999994154,
-        "opsPerSec": 6436.91182718227
+        "min": 0.12308299999949668,
+        "median": 0.13650049999978364,
+        "p95": 0.23870415000019377,
+        "max": 2.8345829999998386,
+        "opsPerSec": 7325.9804909255645
       },
       "note": "SqlStore(file), 144 posts / 96 comments"
     },
@@ -326,15 +326,15 @@
       "name": "sqlite-file/updatePost",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.23875050000015108,
+      "value": 0.24235400000043228,
       "stats": {
         "iterations": 40,
         "samples": 40,
-        "min": 0.17166700000052515,
-        "median": 0.23875050000015108,
-        "p95": 0.2560711500000251,
-        "max": 0.43562500000007276,
-        "opsPerSec": 4188.472903719017
+        "min": 0.17862499999955617,
+        "median": 0.24235400000043228,
+        "p95": 0.2750785500002621,
+        "max": 0.3007499999994252,
+        "opsPerSec": 4126.195565157646
       },
       "note": "SqlStore(file), history at cap"
     },
@@ -343,15 +343,15 @@
       "name": "sqlite-file/createComment",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.06554199999982302,
+      "value": 0.06045800000038071,
       "stats": {
         "iterations": 40,
         "samples": 40,
-        "min": 0.06016600000020844,
-        "median": 0.06554199999982302,
-        "p95": 0.14356040000011488,
-        "max": 0.1525420000007216,
-        "opsPerSec": 15257.39220656526
+        "min": 0.05820800000037707,
+        "median": 0.06045800000038071,
+        "p95": 0.0679062500006239,
+        "max": 0.15050000000064756,
+        "opsPerSec": 16540.408217170647
       },
       "note": "SqlStore(file), 144 posts / 96 comments"
     },
@@ -360,15 +360,15 @@
       "name": "sqlite-file/cold open + first read",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.9758954999997513,
+      "value": 0.9771249999998872,
       "stats": {
-        "iterations": 274,
-        "samples": 137,
-        "min": 0.8972914999999375,
-        "median": 0.9758954999997513,
-        "p95": 1.726495499999871,
-        "max": 4.050583500000357,
-        "opsPerSec": 1024.6998782146807
+        "iterations": 282,
+        "samples": 141,
+        "min": 0.9061249999999745,
+        "median": 0.9771249999998872,
+        "p95": 1.5463750000003529,
+        "max": 2.44150000000036,
+        "opsPerSec": 1023.4105155431653
       },
       "note": "SqlStore(file), 144 posts / 96 comments"
     },
@@ -377,15 +377,15 @@
       "name": "sqlite-memory/createPost @ 50 posts",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.09379200000012133,
+      "value": 0.08110399999986839,
       "stats": {
         "iterations": 20,
         "samples": 20,
-        "min": 0.07116700000005949,
-        "median": 0.09379200000012133,
-        "p95": 0.19864615000001323,
-        "max": 0.2053749999995489,
-        "opsPerSec": 10661.890139870206
+        "min": 0.07183299999996962,
+        "median": 0.08110399999986839,
+        "p95": 0.09596284999997806,
+        "max": 0.10395899999912217,
+        "opsPerSec": 12329.848096291462
       },
       "note": "SqlStore(:memory:), workspace already holds 50 posts"
     },
@@ -394,15 +394,15 @@
       "name": "sqlite-memory/createPost @ 200 posts",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.07958350000035352,
+      "value": 0.07941650000020672,
       "stats": {
         "iterations": 20,
         "samples": 20,
-        "min": 0.07362499999999272,
-        "median": 0.07958350000035352,
-        "p95": 0.0930288500000188,
-        "max": 0.1086249999998472,
-        "opsPerSec": 12565.418711109185
+        "min": 0.06999999999970896,
+        "median": 0.07941650000020672,
+        "p95": 0.3921107500002597,
+        "max": 4.901166999999987,
+        "opsPerSec": 12591.841745700163
       },
       "note": "SqlStore(:memory:), workspace already holds 200 posts"
     },
@@ -411,15 +411,15 @@
       "name": "sqlite-memory/createPost @ 500 posts",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.08595850000028804,
+      "value": 0.07539550000001327,
       "stats": {
         "iterations": 20,
         "samples": 20,
-        "min": 0.0788750000001528,
-        "median": 0.08595850000028804,
-        "p95": 0.12425174999943922,
-        "max": 0.15595800000028248,
-        "opsPerSec": 11633.520826871678
+        "min": 0.06970900000032998,
+        "median": 0.07539550000001327,
+        "p95": 0.08596045000053892,
+        "max": 0.09708399999999529,
+        "opsPerSec": 13263.391051187724
       },
       "note": "SqlStore(:memory:), workspace already holds 500 posts"
     },
@@ -428,15 +428,15 @@
       "name": "sqlite-file/createPost @ 50 posts",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.17885400000022855,
+      "value": 0.16808299999956944,
       "stats": {
         "iterations": 20,
         "samples": 20,
-        "min": 0.14987500000006548,
-        "median": 0.17885400000022855,
-        "p95": 0.30462920000063604,
-        "max": 0.30470900000000256,
-        "opsPerSec": 5591.152560181613
+        "min": 0.1483749999997599,
+        "median": 0.16808299999956944,
+        "p95": 0.2541521000000557,
+        "max": 0.28791700000056153,
+        "opsPerSec": 5949.441644916866
       },
       "note": "SqlStore(file), workspace already holds 50 posts"
     },
@@ -445,15 +445,15 @@
       "name": "sqlite-file/createPost @ 200 posts",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.14537449999988894,
+      "value": 0.12950000000000728,
       "stats": {
         "iterations": 20,
         "samples": 20,
-        "min": 0.1334580000002461,
-        "median": 0.14537449999988894,
-        "p95": 0.22412114999983718,
-        "max": 0.27075000000058935,
-        "opsPerSec": 6878.785481640618
+        "min": 0.12041599999975006,
+        "median": 0.12950000000000728,
+        "p95": 0.15045595000037792,
+        "max": 0.16229199999997945,
+        "opsPerSec": 7722.007722007288
       },
       "note": "SqlStore(file), workspace already holds 200 posts"
     },
@@ -462,15 +462,15 @@
       "name": "sqlite-file/createPost @ 500 posts",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.14952099999982238,
+      "value": 0.17172949999985576,
       "stats": {
         "iterations": 20,
         "samples": 20,
-        "min": 0.12525000000005093,
-        "median": 0.14952099999982238,
-        "p95": 0.18887739999981937,
-        "max": 0.24512500000037107,
-        "opsPerSec": 6688.023755868326
+        "min": 0.12741600000026665,
+        "median": 0.17172949999985576,
+        "p95": 0.2529100999999628,
+        "max": 0.26150000000052387,
+        "opsPerSec": 5823.111346628505
       },
       "note": "SqlStore(file), workspace already holds 500 posts"
     },
@@ -495,7 +495,7 @@
       "name": "sqlite-file/heap for loaded workspace",
       "kind": "memory",
       "unit": "bytes",
-      "value": 2064,
+      "value": 22760,
       "note": "SqlStore(file), 12×25 posts"
     },
     {
@@ -532,7 +532,7 @@
       "name": "shiki cold init (first code render)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 95.69520799999918,
+      "value": 96.87608399999954,
       "note": "one-time per process; loads every registry theme",
       "tolerance": 2
     },
@@ -541,7 +541,7 @@
       "name": "shiki resident heap after warmup",
       "kind": "memory",
       "unit": "bytes",
-      "value": 2688320,
+      "value": 2687224,
       "note": "themes + grammars, per process"
     },
     {
@@ -549,15 +549,15 @@
       "name": "markdown/small",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.4004861666662691,
+      "value": 0.4003022500000952,
       "stats": {
-        "iterations": 930,
-        "samples": 310,
-        "min": 0.35834733333346475,
-        "median": 0.4004861666662691,
-        "p95": 0.6121237333332525,
-        "max": 1.3909026666666857,
-        "opsPerSec": 2496.9651469467967
+        "iterations": 924,
+        "samples": 231,
+        "min": 0.35456250000015643,
+        "median": 0.4003022500000952,
+        "p95": 0.6108333749998565,
+        "max": 1.4607394999998178,
+        "opsPerSec": 2498.112363844475
       },
       "note": "1760 B source"
     },
@@ -573,15 +573,15 @@
       "name": "markdown/large",
       "kind": "time",
       "unit": "ms/op",
-      "value": 7.632291500000065,
+      "value": 8.042833000001337,
       "stats": {
-        "iterations": 52,
-        "samples": 52,
-        "min": 7.023791000001438,
-        "median": 7.632291500000065,
-        "p95": 8.548562350000974,
-        "max": 11.934792000000016,
-        "opsPerSec": 131.02224934673833
+        "iterations": 47,
+        "samples": 47,
+        "min": 7.033167000001413,
+        "median": 8.042833000001337,
+        "p95": 11.25211259999978,
+        "max": 13.055790999998862,
+        "opsPerSec": 124.3342986233624
       },
       "note": "34621 B source"
     },
@@ -597,15 +597,15 @@
       "name": "code/small",
       "kind": "time",
       "unit": "ms/op",
-      "value": 6.818125000000691,
+      "value": 5.954459000000497,
       "stats": {
-        "iterations": 52,
-        "samples": 52,
-        "min": 5.71429199999875,
-        "median": 6.818125000000691,
-        "p95": 12.099058700000112,
-        "max": 16.13683300000048,
-        "opsPerSec": 146.66788889905928
+        "iterations": 65,
+        "samples": 65,
+        "min": 5.576875000000655,
+        "median": 5.954459000000497,
+        "p95": 7.134441399999195,
+        "max": 11.687083999999231,
+        "opsPerSec": 167.94136965254384
       },
       "note": "48 lines"
     },
@@ -621,15 +621,15 @@
       "name": "code/large",
       "kind": "time",
       "unit": "ms/op",
-      "value": 179.1934999999994,
+      "value": 177.8884999999991,
       "stats": {
         "iterations": 15,
         "samples": 15,
-        "min": 172.17074999999932,
-        "median": 179.1934999999994,
-        "p95": 204.38738729999932,
-        "max": 211.91066599999976,
-        "opsPerSec": 5.580559562707371
+        "min": 172.30791600000157,
+        "median": 177.8884999999991,
+        "p95": 204.61835010000013,
+        "max": 209.5095420000016,
+        "opsPerSec": 5.621498860241134
       },
       "note": "1402 lines"
     },
@@ -645,15 +645,15 @@
       "name": "terminal/small",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.04442954411762698,
+      "value": 0.044007590909076855,
       "stats": {
-        "iterations": 8568,
-        "samples": 252,
-        "min": 0.04284311764706003,
-        "median": 0.04442954411762698,
-        "p95": 0.05317933970585834,
-        "max": 0.1632585588235195,
-        "opsPerSec": 22507.545820243067
+        "iterations": 8778,
+        "samples": 266,
+        "min": 0.04206312121211588,
+        "median": 0.044007590909076855,
+        "p95": 0.052507901515182864,
+        "max": 0.09641163636363424,
+        "opsPerSec": 22723.35247948652
       },
       "note": "30 lines with SGR codes"
     },
@@ -669,15 +669,15 @@
       "name": "terminal/large",
       "kind": "time",
       "unit": "ms/op",
-      "value": 2.1792914999996356,
+      "value": 2.128167000000758,
       "stats": {
-        "iterations": 176,
-        "samples": 176,
-        "min": 1.8972499999999854,
-        "median": 2.1792914999996356,
-        "p95": 2.91159400000015,
-        "max": 5.483000000000175,
-        "opsPerSec": 458.86472736674614
+        "iterations": 175,
+        "samples": 175,
+        "min": 1.884541999999783,
+        "median": 2.128167000000758,
+        "p95": 3.413199899999376,
+        "max": 5.431167000000642,
+        "opsPerSec": 469.8879364258744
       },
       "note": "1500 lines with SGR codes"
     },
@@ -693,15 +693,15 @@
       "name": "diff/small",
       "kind": "time",
       "unit": "ms/op",
-      "value": 1.5501249999997526,
+      "value": 1.4081659999992553,
       "stats": {
-        "iterations": 149,
-        "samples": 149,
-        "min": 1.3259580000012647,
-        "median": 1.5501249999997526,
-        "p95": 4.073666799999409,
-        "max": 32.22483300000022,
-        "opsPerSec": 645.109265381927
+        "iterations": 197,
+        "samples": 197,
+        "min": 1.2713330000005953,
+        "median": 1.4081659999992553,
+        "p95": 2.136833800000749,
+        "max": 4.980416999998852,
+        "opsPerSec": 710.1435484172525
       },
       "note": "368 B patch"
     },
@@ -717,15 +717,15 @@
       "name": "diff/large",
       "kind": "time",
       "unit": "ms/op",
-      "value": 77.49370799999997,
+      "value": 68.11062499999935,
       "stats": {
         "iterations": 7,
         "samples": 7,
-        "min": 71.10337499999878,
-        "median": 77.49370799999997,
-        "p95": 83.27913759999919,
-        "max": 84.6677499999987,
-        "opsPerSec": 12.90427346695038
+        "min": 62.50262499999917,
+        "median": 68.11062499999935,
+        "p95": 83.42849570000016,
+        "max": 86.03633300000001,
+        "opsPerSec": 14.681997118658206
       },
       "note": "13086 B patch"
     },
@@ -741,15 +741,15 @@
       "name": "html/small page wrap",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.011794693548381474,
+      "value": 0.011654713178288586,
       "stats": {
-        "iterations": 30876,
-        "samples": 249,
-        "min": 0.011229838709676832,
-        "median": 0.011794693548381474,
-        "p95": 0.014252146774191303,
-        "max": 0.09479973387096247,
-        "opsPerSec": 84783.88996696103
+        "iterations": 33411,
+        "samples": 259,
+        "min": 0.011156007751929976,
+        "median": 0.011654713178288586,
+        "p95": 0.013287047286817247,
+        "max": 0.02829522480619356,
+        "opsPerSec": 85802.19733445582
       },
       "note": "784 B source"
     },
@@ -758,22 +758,22 @@
       "name": "html/small document",
       "kind": "bytes",
       "unit": "bytes",
-      "value": 22036
+      "value": 25380
     },
     {
       "suite": "render",
       "name": "html/large page wrap",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.3897603750001508,
+      "value": 0.40172925000024406,
       "stats": {
-        "iterations": 1000,
-        "samples": 250,
-        "min": 0.3787292500001058,
-        "median": 0.3897603750001508,
-        "p95": 0.4497933124997644,
-        "max": 0.7858437499999127,
-        "opsPerSec": 2565.678976472693
+        "iterations": 868,
+        "samples": 217,
+        "min": 0.3763332499997887,
+        "median": 0.40172925000024406,
+        "p95": 0.7181249999999636,
+        "max": 2.043312500000411,
+        "opsPerSec": 2489.2387099007415
       },
       "note": "37049 B source"
     },
@@ -782,22 +782,22 @@
       "name": "html/large document",
       "kind": "bytes",
       "unit": "bytes",
-      "value": 58301
+      "value": 61645
     },
     {
       "suite": "render",
       "name": "mermaid/small page wrap",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.0035183823529437446,
+      "value": 0.0033316829268276306,
       "stats": {
-        "iterations": 103020,
-        "samples": 303,
-        "min": 0.003217891176470456,
-        "median": 0.0035183823529437446,
-        "p95": 0.0053165685294152346,
-        "max": 0.02327499999999632,
-        "opsPerSec": 284221.52560062846
+        "iterations": 115784,
+        "samples": 353,
+        "min": 0.003180893292687315,
+        "median": 0.0033316829268276306,
+        "p95": 0.003999034146348027,
+        "max": 0.0060889237804919345,
+        "opsPerSec": 300148.61016566854
       },
       "note": "250 B source"
     },
@@ -813,15 +813,15 @@
       "name": "mermaid/large page wrap",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.006679505813947397,
+      "value": 0.006720959595964594,
       "stats": {
-        "iterations": 57276,
-        "samples": 333,
-        "min": 0.0064849825581447034,
-        "median": 0.006679505813947397,
-        "p95": 0.008536869767437543,
-        "max": 0.015015023255812615,
-        "opsPerSec": 149711.67446428625
+        "iterations": 58014,
+        "samples": 293,
+        "min": 0.006432656565661403,
+        "median": 0.006720959595964594,
+        "p95": 0.007767718181819855,
+        "max": 0.01597495959594189,
+        "opsPerSec": 148788.2772871334
       },
       "note": "3819 B source"
     },
@@ -837,15 +837,15 @@
       "name": "theme switch re-render (10 mixed surfaces)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 17.46947949999958,
+      "value": 17.367395999997825,
       "stats": {
-        "iterations": 18,
-        "samples": 18,
-        "min": 16.361832999999024,
-        "median": 17.46947949999958,
-        "p95": 18.465616999998748,
-        "max": 18.551041999999143,
-        "opsPerSec": 57.24269002977588
+        "iterations": 16,
+        "samples": 16,
+        "min": 16.619375000002037,
+        "median": 17.367395999997825,
+        "p95": 27.889228999998522,
+        "max": 33.42504199999894,
+        "opsPerSec": 57.57915579285031
       },
       "note": "burst cost when the workspace theme changes"
     },
@@ -854,15 +854,15 @@
       "name": "typical: GET /api/sessions",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.06493915384607345,
+      "value": 0.0639790000004723,
       "stats": {
-        "iterations": 5057,
-        "samples": 389,
-        "min": 0.05936538461537566,
-        "median": 0.06493915384607345,
-        "p95": 0.10525703076933629,
-        "max": 1.0309230769229403,
-        "opsPerSec": 15399.030334924284
+        "iterations": 5052,
+        "samples": 1263,
+        "min": 0.05930224999974598,
+        "median": 0.0639790000004723,
+        "p95": 0.11634985000036972,
+        "max": 1.3091457499995158,
+        "opsPerSec": 15630.128635843292
       },
       "note": "144 posts / 96 comments"
     },
@@ -879,15 +879,15 @@
       "name": "typical: GET /api/designs",
       "kind": "time",
       "unit": "ms/op",
-      "value": 1.6619170000012673,
+      "value": 1.6081874999999854,
       "stats": {
-        "iterations": 223,
-        "samples": 223,
-        "min": 1.4459999999999127,
-        "median": 1.6619170000012673,
-        "p95": 2.5070749999991655,
-        "max": 6.36908300000141,
-        "opsPerSec": 601.7147667418033
+        "iterations": 244,
+        "samples": 244,
+        "min": 1.451334000001225,
+        "median": 1.6081874999999854,
+        "p95": 1.9553812000021935,
+        "max": 4.277540999999474,
+        "opsPerSec": 621.8180404959055
       },
       "note": "144 posts / 96 comments"
     },
@@ -904,15 +904,15 @@
       "name": "typical: GET /api/designs/:id",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.8690309999992678,
+      "value": 0.8687919999993028,
       "stats": {
-        "iterations": 428,
-        "samples": 214,
-        "min": 0.814645999998902,
-        "median": 0.8690309999992678,
-        "p95": 1.2757156249997932,
-        "max": 2.1678334999996878,
-        "opsPerSec": 1150.7069368075968
+        "iterations": 438,
+        "samples": 219,
+        "min": 0.8198124999998981,
+        "median": 0.8687919999993028,
+        "p95": 1.1110272500001883,
+        "max": 1.8807085000007646,
+        "opsPerSec": 1151.0234900883095
       },
       "note": "144 posts / 96 comments"
     },
@@ -929,15 +929,15 @@
       "name": "typical: GET /api/comments?session",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.0828467941176795,
+      "value": 0.08364458823523499,
       "stats": {
-        "iterations": 4318,
-        "samples": 254,
-        "min": 0.0751887058823366,
-        "median": 0.0828467941176795,
-        "p95": 0.1232773294117685,
-        "max": 0.3448406470588987,
-        "opsPerSec": 12070.473102188513
+        "iterations": 4284,
+        "samples": 252,
+        "min": 0.07605147058818736,
+        "median": 0.08364458823523499,
+        "p95": 0.11212858235291652,
+        "max": 0.44855147058821304,
+        "opsPerSec": 11955.346079147215
       },
       "note": "144 posts / 96 comments"
     },
@@ -954,15 +954,15 @@
       "name": "heavy: GET /api/sessions",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.13728820833330246,
+      "value": 0.13968936363645215,
       "stats": {
-        "iterations": 2736,
-        "samples": 228,
-        "min": 0.13158333333346187,
-        "median": 0.13728820833330246,
-        "p95": 0.19055762083330557,
-        "max": 0.2836424166668318,
-        "opsPerSec": 7283.9467579928105
+        "iterations": 2651,
+        "samples": 241,
+        "min": 0.1323409090906683,
+        "median": 0.13968936363645215,
+        "p95": 0.19405300000024991,
+        "max": 0.45787127272739203,
+        "opsPerSec": 7158.741180914425
       },
       "note": "900 posts / 600 comments"
     },
@@ -979,15 +979,15 @@
       "name": "heavy: GET /api/designs",
       "kind": "time",
       "unit": "ms/op",
-      "value": 12.644208000001527,
+      "value": 13.466499999998632,
       "stats": {
-        "iterations": 31,
-        "samples": 31,
-        "min": 11.89904100000058,
-        "median": 12.644208000001527,
-        "p95": 15.12310400000024,
-        "max": 22.991582999999082,
-        "opsPerSec": 79.0875948892868
+        "iterations": 21,
+        "samples": 21,
+        "min": 11.780500000000757,
+        "median": 13.466499999998632,
+        "p95": 48.23962499999834,
+        "max": 102.71149999999761,
+        "opsPerSec": 74.25834478150236
       },
       "note": "900 posts / 600 comments"
     },
@@ -1004,15 +1004,15 @@
       "name": "heavy: GET /api/designs/:id",
       "kind": "time",
       "unit": "ms/op",
-      "value": 5.26666699999987,
+      "value": 5.7150205000016285,
       "stats": {
-        "iterations": 75,
-        "samples": 75,
-        "min": 4.788124999999127,
-        "median": 5.26666699999987,
-        "p95": 5.923721299998943,
-        "max": 8.314665999998397,
-        "opsPerSec": 189.8734057042195
+        "iterations": 66,
+        "samples": 66,
+        "min": 4.940792000001238,
+        "median": 5.7150205000016285,
+        "p95": 7.785989500000142,
+        "max": 14.115791000000172,
+        "opsPerSec": 174.9775000806585
       },
       "note": "900 posts / 600 comments"
     },
@@ -1029,15 +1029,15 @@
       "name": "heavy: GET /api/comments?session",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.11172171428565239,
+      "value": 0.12264999999994568,
       "stats": {
-        "iterations": 3304,
-        "samples": 236,
-        "min": 0.10535114285708655,
-        "median": 0.11172171428565239,
-        "p95": 0.13913617857146424,
-        "max": 0.3874672857143326,
-        "opsPerSec": 8950.811454997722
+        "iterations": 2475,
+        "samples": 165,
+        "min": 0.10713333333333139,
+        "median": 0.12264999999994568,
+        "p95": 0.3813538799999498,
+        "max": 1.6818472666665911,
+        "opsPerSec": 8153.281695886204
       },
       "note": "900 posts / 600 comments"
     },
@@ -1054,15 +1054,15 @@
       "name": "POST /api/designs (publish)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 2.055229000001418,
+      "value": 2.261812499998996,
       "stats": {
-        "iterations": 178,
-        "samples": 178,
-        "min": 1.6964999999981956,
-        "median": 2.055229000001418,
-        "p95": 3.7826456500009984,
-        "max": 5.241041999997833,
-        "opsPerSec": 486.5637843760038
+        "iterations": 148,
+        "samples": 148,
+        "min": 1.695958000000246,
+        "median": 2.261812499998996,
+        "p95": 4.8713602000005265,
+        "max": 11.54737500000192,
+        "opsPerSec": 442.12329713468466
       },
       "note": "144 posts"
     },
@@ -1071,15 +1071,15 @@
       "name": "POST /api/designs/:id/revise",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.023870762711848622,
+      "value": 0.025462968253989294,
       "stats": {
-        "iterations": 14573,
-        "samples": 247,
-        "min": 0.020507067796612412,
-        "median": 0.023870762711848622,
-        "p95": 0.05123318813559802,
-        "max": 0.09642584745764043,
-        "opsPerSec": 41892.251708557036
+        "iterations": 12222,
+        "samples": 194,
+        "min": 0.022178571428542324,
+        "median": 0.025462968253989294,
+        "p95": 0.06505836111110609,
+        "max": 0.2477407460317495,
+        "opsPerSec": 39272.71911212981
       },
       "note": "144 posts"
     },
@@ -1088,15 +1088,15 @@
       "name": "POST /api/comments",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.016350692982469855,
+      "value": 0.016959651898738416,
       "stats": {
-        "iterations": 21204,
-        "samples": 186,
-        "min": 0.014706508771939153,
-        "median": 0.016350692982469855,
-        "p95": 0.033918951754394425,
-        "max": 0.05848172807016358,
-        "opsPerSec": 61159.48731176927
+        "iterations": 20382,
+        "samples": 258,
+        "min": 0.015427734177206684,
+        "median": 0.016959651898738416,
+        "p95": 0.037424524050644156,
+        "max": 0.11041034177216279,
+        "opsPerSec": 58963.47436673434
       },
       "note": "144 posts"
     },
@@ -1105,15 +1105,15 @@
       "name": "GET /s/:id html (cache hit)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.02386409523803325,
+      "value": 0.02682017543861947,
       "stats": {
-        "iterations": 15834,
-        "samples": 377,
-        "min": 0.02009226190481665,
-        "median": 0.02386409523803325,
-        "p95": 0.039489490476158344,
-        "max": 0.08573709523807338,
-        "opsPerSec": 41903.95613265305
+        "iterations": 13965,
+        "samples": 245,
+        "min": 0.022749280701725837,
+        "median": 0.02682017543861947,
+        "p95": 0.04185935438600655,
+        "max": 0.07582528070174464,
+        "opsPerSec": 37285.36385933028
       },
       "note": "render-cache hit"
     },
@@ -1122,22 +1122,22 @@
       "name": "GET /s/:id html bytes",
       "kind": "bytes",
       "unit": "bytes",
-      "value": 22021
+      "value": 25365
     },
     {
       "suite": "api",
       "name": "GET /s/:id markdown (cache hit)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.019784727272715165,
+      "value": 0.020883328571445807,
       "stats": {
-        "iterations": 19074,
-        "samples": 289,
-        "min": 0.017918560606024887,
-        "median": 0.019784727272715165,
-        "p95": 0.029107709090892574,
-        "max": 0.03421022727271713,
-        "opsPerSec": 50544.037641554234
+        "iterations": 16170,
+        "samples": 231,
+        "min": 0.018205942857145732,
+        "median": 0.020883328571445807,
+        "p95": 0.04287707857139529,
+        "max": 0.0905928571428376,
+        "opsPerSec": 47885.08673695438
       },
       "note": "render-cache hit"
     },
@@ -1153,15 +1153,15 @@
       "name": "GET /s/:id code (cache hit)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.030094195652212795,
+      "value": 0.030830718750053165,
       "stats": {
-        "iterations": 10626,
-        "samples": 231,
-        "min": 0.026538043478269727,
-        "median": 0.030094195652212795,
-        "p95": 0.07515670652173867,
-        "max": 0.265173021739152,
-        "opsPerSec": 33228.99909193855
+        "iterations": 10464,
+        "samples": 327,
+        "min": 0.025657562499986852,
+        "median": 0.030830718750053165,
+        "p95": 0.06891588437500785,
+        "max": 0.25211846875004085,
+        "opsPerSec": 32435.182848219378
       },
       "note": "render-cache hit"
     },
@@ -1177,15 +1177,15 @@
       "name": "GET /s/:id diff (cache hit)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.05419790000002346,
+      "value": 0.05407390322574018,
       "stats": {
-        "iterations": 6840,
-        "samples": 228,
-        "min": 0.043811099999948054,
-        "median": 0.05419790000002346,
-        "p95": 0.08020846833334871,
-        "max": 0.1179778000000321,
-        "opsPerSec": 18450.899389082733
+        "iterations": 6944,
+        "samples": 224,
+        "min": 0.04688306451616001,
+        "median": 0.05407390322574018,
+        "p95": 0.07312681612903331,
+        "max": 0.10706587096771522,
+        "opsPerSec": 18493.209114669226
       },
       "note": "render-cache hit"
     },
@@ -1201,15 +1201,15 @@
       "name": "GET /s/:id terminal (cache hit)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.020669012499979544,
+      "value": 0.022023214285712,
       "stats": {
-        "iterations": 17920,
-        "samples": 224,
-        "min": 0.018108849999998712,
-        "median": 0.020669012499979544,
-        "p95": 0.030635993750008764,
-        "max": 0.04159010000003036,
-        "opsPerSec": 48381.60507189154
+        "iterations": 14140,
+        "samples": 202,
+        "min": 0.0185559571428582,
+        "median": 0.022023214285712,
+        "p95": 0.05263521785715314,
+        "max": 0.26291368571427093,
+        "opsPerSec": 45406.63261169692
       },
       "note": "render-cache hit"
     },
@@ -1225,15 +1225,15 @@
       "name": "GET /s/:id html (cache miss)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.09529999999989135,
+      "value": 0.1356371666668868,
       "stats": {
-        "iterations": 2325,
-        "samples": 155,
-        "min": 0.08768053333333228,
-        "median": 0.09529999999989135,
-        "p95": 0.35721442000009057,
-        "max": 0.5979583333333721,
-        "opsPerSec": 10493.179433380274
+        "iterations": 1776,
+        "samples": 148,
+        "min": 0.12367016666667041,
+        "median": 0.1356371666668868,
+        "p95": 0.31332637916660444,
+        "max": 0.9555451666668281,
+        "opsPerSec": 7372.6105062037595
       },
       "note": "forced re-render"
     },
@@ -1242,15 +1242,15 @@
       "name": "GET /s/:id markdown (cache miss)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.5168539999995119,
+      "value": 0.5257083333344781,
       "stats": {
-        "iterations": 502,
-        "samples": 251,
-        "min": 0.4611249999998108,
-        "median": 0.5168539999995119,
-        "p95": 0.9234062499999709,
-        "max": 2.414999999999054,
-        "opsPerSec": 1934.7823563345635
+        "iterations": 525,
+        "samples": 175,
+        "min": 0.46015299999999115,
+        "median": 0.5257083333344781,
+        "p95": 0.9880140333338189,
+        "max": 1.2541526666670204,
+        "opsPerSec": 1902.1954505784051
       },
       "note": "forced re-render"
     },
@@ -1259,15 +1259,15 @@
       "name": "GET /s/:id code (cache miss)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 7.079354499999681,
+      "value": 6.038917000001675,
       "stats": {
-        "iterations": 40,
-        "samples": 40,
-        "min": 5.888582999999926,
-        "median": 7.079354499999681,
-        "p95": 10.81086729999697,
-        "max": 11.545500000000175,
-        "opsPerSec": 141.2558164731043
+        "iterations": 49,
+        "samples": 49,
+        "min": 5.67358299999978,
+        "median": 6.038917000001675,
+        "p95": 7.020433799999591,
+        "max": 8.014541000000463,
+        "opsPerSec": 165.59260542904013
       },
       "note": "forced re-render"
     },
@@ -1276,15 +1276,15 @@
       "name": "GET /s/:id diff (cache miss)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 1.6627079999998386,
+      "value": 1.5528119999999035,
       "stats": {
-        "iterations": 143,
-        "samples": 143,
-        "min": 1.4086659999993572,
-        "median": 1.6627079999998386,
-        "p95": 2.9071702000004733,
-        "max": 22.614916999998968,
-        "opsPerSec": 601.4285130041457
+        "iterations": 172,
+        "samples": 172,
+        "min": 1.4009589999986929,
+        "median": 1.5528119999999035,
+        "p95": 2.7584331500009274,
+        "max": 5.648750000000291,
+        "opsPerSec": 643.9929624449464
       },
       "note": "forced re-render"
     },
@@ -1293,15 +1293,15 @@
       "name": "GET /s/:id terminal (cache miss)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.14098750000011934,
+      "value": 0.13607293750010285,
       "stats": {
-        "iterations": 1550,
-        "samples": 155,
-        "min": 0.12417500000010477,
-        "median": 0.14098750000011934,
-        "p95": 0.3905242000000349,
-        "max": 1.0425499999997556,
-        "opsPerSec": 7092.827378307677
+        "iterations": 1776,
+        "samples": 222,
+        "min": 0.12400512500016703,
+        "median": 0.13607293750010285,
+        "p95": 0.4682711312500485,
+        "max": 0.9273906250000437,
+        "opsPerSec": 7348.99987000901
       },
       "note": "forced re-render"
     },
@@ -1310,15 +1310,15 @@
       "name": "GET / (viewer document)",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.014583333333361866,
+      "value": 0.014598245098033445,
       "stats": {
-        "iterations": 23970,
-        "samples": 235,
-        "min": 0.01314747058823545,
-        "median": 0.014583333333361866,
-        "p95": 0.033026350000017926,
-        "max": 0.04928023529411054,
-        "opsPerSec": 68571.42857129441
+        "iterations": 23460,
+        "samples": 230,
+        "min": 0.013330470588234854,
+        "median": 0.014598245098033445,
+        "p95": 0.03577216274511645,
+        "max": 0.06387662745096438,
+        "opsPerSec": 68501.38446673373
       },
       "note": "in-memory single-file viewer"
     },
@@ -1327,7 +1327,7 @@
       "name": "render cache heap (64 mixed surfaces)",
       "kind": "memory",
       "unit": "bytes",
-      "value": 4148168,
+      "value": 4099328,
       "note": "cache holds up to 512 entries"
     },
     {
@@ -1359,15 +1359,15 @@
       "name": "bus.broadcast → 1 subscribers",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.000051014516297929577,
+      "value": 0.00005217916666673167,
       "stats": {
-        "iterations": 5781846,
-        "samples": 303,
-        "min": 0.00003976260350072703,
-        "median": 0.000051014516297929577,
-        "p95": 0.00014302639660411027,
-        "max": 0.0007924658840793103,
-        "opsPerSec": 19602263.680398457
+        "iterations": 7650000,
+        "samples": 255,
+        "min": 0.00003931113333334603,
+        "median": 0.00005217916666673167,
+        "p95": 0.000059628326666703886,
+        "max": 0.00012006943333338616,
+        "opsPerSec": 19164736.884109322
       },
       "note": "1 listeners"
     },
@@ -1376,15 +1376,15 @@
       "name": "bus.broadcast → 10 subscribers",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.00007611582516644175,
+      "value": 0.00007543251413307733,
       "stats": {
-        "iterations": 5296077,
-        "samples": 219,
-        "min": 0.00006600537567723863,
-        "median": 0.00007611582516644175,
-        "p95": 0.00008286864739689971,
-        "max": 0.00009013393706322634,
-        "opsPerSec": 13137872.417638637
+        "iterations": 4661376,
+        "samples": 183,
+        "min": 0.00006583534861809097,
+        "median": 0.00007543251413307733,
+        "p95": 0.00009875484453513636,
+        "max": 0.0015024258793969513,
+        "opsPerSec": 13256882.810982667
       },
       "note": "10 listeners"
     },
@@ -1393,15 +1393,15 @@
       "name": "bus.broadcast → 100 subscribers",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.0003173302835311688,
+      "value": 0.0003167911221736538,
       "stats": {
-        "iterations": 1173628,
-        "samples": 236,
-        "min": 0.0003092113412426782,
-        "median": 0.0003173302835311688,
-        "p95": 0.00041224492258197705,
-        "max": 0.0045389101146189655,
-        "opsPerSec": 3151290.790378593
+        "iterations": 1200429,
+        "samples": 249,
+        "min": 0.0003090472930925053,
+        "median": 0.0003167911221736538,
+        "p95": 0.00037919161999560474,
+        "max": 0.0010989680564200714,
+        "opsPerSec": 3156654.116878424
       },
       "note": "100 listeners"
     },
@@ -1410,15 +1410,15 @@
       "name": "publish → SSE delivery to 1 tabs",
       "kind": "time",
       "unit": "ms/op",
-      "value": 2.2663329999995767,
+      "value": 2.4677090000004682,
       "stats": {
-        "iterations": 161,
-        "samples": 161,
-        "min": 1.789667000000918,
-        "median": 2.2663329999995767,
-        "p95": 4.589915999997174,
-        "max": 6.0832919999993464,
-        "opsPerSec": 441.2414239214567
+        "iterations": 141,
+        "samples": 141,
+        "min": 1.8600830000032147,
+        "median": 2.4677090000004682,
+        "p95": 5.6507910000000265,
+        "max": 8.242624999998952,
+        "opsPerSec": 405.2341665892576
       },
       "note": "1 open streams"
     },
@@ -1435,15 +1435,15 @@
       "name": "publish → SSE delivery to 5 tabs",
       "kind": "time",
       "unit": "ms/op",
-      "value": 2.0934790000010253,
+      "value": 2.068458499999906,
       "stats": {
-        "iterations": 174,
-        "samples": 174,
-        "min": 1.7577500000006694,
-        "median": 2.0934790000010253,
-        "p95": 4.142639249999772,
-        "max": 6.887833999997383,
-        "opsPerSec": 477.67376696852955
+        "iterations": 170,
+        "samples": 170,
+        "min": 1.7501249999986612,
+        "median": 2.068458499999906,
+        "p95": 4.409118750000197,
+        "max": 8.57116600000154,
+        "opsPerSec": 483.4518072274814
       },
       "note": "5 open streams"
     },
@@ -1460,15 +1460,15 @@
       "name": "publish → SSE delivery to 20 tabs",
       "kind": "time",
       "unit": "ms/op",
-      "value": 2.0244375000002037,
+      "value": 2.066917000000103,
       "stats": {
-        "iterations": 180,
-        "samples": 180,
-        "min": 1.751749999999447,
-        "median": 2.0244375000002037,
-        "p95": 3.4197999999992916,
-        "max": 6.077790999999706,
-        "opsPerSec": 493.96437281956065
+        "iterations": 169,
+        "samples": 169,
+        "min": 1.7942499999990105,
+        "median": 2.066917000000103,
+        "p95": 4.368516400000953,
+        "max": 7.4554169999973965,
+        "opsPerSec": 483.8123640184633
       },
       "note": "20 open streams"
     },
@@ -1485,7 +1485,7 @@
       "name": "heap per open SSE connection",
       "kind": "memory",
       "unit": "bytes",
-      "value": 1268,
+      "value": 1585,
       "note": "measured across 20 concurrent streams"
     },
     {
@@ -1493,15 +1493,15 @@
       "name": "comment long-poll wakeup latency",
       "kind": "time",
       "unit": "ms/op",
-      "value": 0.37334733333288267,
+      "value": 0.40665010000011537,
       "stats": {
-        "iterations": 921,
-        "samples": 307,
-        "min": 0.3153749999995246,
-        "median": 0.37334733333288267,
-        "p95": 0.5080487666672221,
-        "max": 4.352985999999267,
-        "opsPerSec": 2678.47098591269
+        "iterations": 880,
+        "samples": 176,
+        "min": 0.3188666000001831,
+        "median": 0.40665010000011537,
+        "p95": 0.5384187499999825,
+        "max": 2.4582084000001485,
+        "opsPerSec": 2459.116572207203
       },
       "note": "post → parked agent wakes"
     }

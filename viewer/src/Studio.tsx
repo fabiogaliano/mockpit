@@ -1862,7 +1862,7 @@ function Look(props: {
             keyed
             fallback={<Show when={st().poster}>{(p) => <Poster id={p()} />}</Show>}
           >
-            {(u) => <Thumb src={u} width={s.frameW()} fit whole title={name()} />}
+            {(u) => <Thumb src={u} width={s.frameW()} fit whole large title={name()} />}
           </Show>
         </div>
         <button

@@ -43,6 +43,9 @@ export function Thumb(props: {
   // What the user is deciding from: ahead of every other picture on the screen,
   // however many the margins started before it.
   first?: boolean;
+  // Looked at, not glanced over: the closer look. It keeps animating, where every other
+  // Thumb tells its page it's small, in the fragment so it stays the same cached document.
+  large?: boolean;
 }) {
   let box!: HTMLDivElement;
   let frameEl: HTMLIFrameElement | undefined;
@@ -129,7 +132,7 @@ export function Thumb(props: {
     >
       {/* Keyed by src: a new document is a new element, never a frame navigation
           (which would add a joint-history entry under the user's Back button). */}
-      <Show when={started() && props.src} keyed>
+      <Show when={started() && (props.large ? props.src : `${props.src}#small`)} keyed>
         {(src) => (
           <iframe
             ref={(el) => {

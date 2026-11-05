@@ -276,6 +276,137 @@ if (window.ResizeObserver) {
 }
 `;
 
+// Freeze: a frame shown small (a wall, a grid, a cover, an option's picture) stops animating
+// once its page has settled, so a screenful of them costs nothing while they're looked at.
+// Opt-in by the fragment `#small`, so it's the same document and the same cache entry as the
+// page on Stage, which never has it. It runs first in <head>, ahead of the page's own
+// scripts, and asks nothing of them. Pinned down with pages built to trip it.
+//
+// The danger is a picture that freezes half-drawn, so stopping is the last thing that happens
+// to a page, and each way of drawing is handled for what it is:
+//
+//   - Settled: the page has loaded, and for QUIET_MS the DOM hasn't changed, no animation
+//     with an end is still running (its delay counts), and no frame has been asked for.
+//     An animation that loops forever doesn't hold this up: it never finishes.
+//   - Or CAP_MS have gone by. A frame loop can't be told apart from a page drawing in slowly
+//     (it may draw on a canvas or in a shadow root, neither of which the DOM check sees), so
+//     every loop gets that long, and the cap is where its cost ends. A draw-in longer than
+//     the cap is the one case that freezes part way.
+//   - Time here is time the frame was rendered: this clock ticks on animation frames, which a
+//     hidden or offscreen frame isn't given. A page that hasn't been seen hasn't had its
+//     chance to draw, so it doesn't get frozen before it has.
+//   - At the freeze, what has an end is finished rather than paused, since its end is what
+//     the page means to show. What loops is paused back at its start, its resting state in
+//     nearly every loop, and never midway through a fade. New animations get the same.
+//   - Frames stop. A frame loop's next frame is held and never handed out. A timer or event
+//     asking for a frame is the page doing something new, not a loop, so it thaws the page
+//     and settling starts over, within RUN_MAX_MS of rendered time in all, so a timer can't
+//     keep it awake. Timers themselves keep running: drawing by timer completes however late.
+//   - New knob values always thaw, with a new allowance: the picture must follow them.
+export const FREEZE_JS = `
+(function () {
+  if (location.hash !== '#small' || !document.getAnimations) return;
+  var QUIET_MS = 800, CAP_MS = 10000, LOAD_CAP_MS = 15000, MAX_STEP_MS = 100, RUN_MAX_MS = 30000;
+  var raf = window.requestAnimationFrame.bind(window);
+  var caf = window.cancelAnimationFrame.bind(window);
+  var asked = new Map(), nextId = 0;
+  var frozen = false, loaded = false;
+  var run = 0, last = 0, settleFrom = 0, active = 0, runUntil = RUN_MAX_MS;
+  var paused = [], sweepQueued = false;
+  window.addEventListener('load', function () { loaded = true; settleFrom = run; active = run; });
+
+  function fire(id, t) {
+    var entry = asked.get(id);
+    if (!entry) return;
+    entry.native = 0;
+    if (frozen) return;
+    asked.delete(id);
+    entry.cb(t);
+  }
+  function queue(id, entry) {
+    entry.native = raf(function (t) { fire(id, t); });
+  }
+  window.requestAnimationFrame = function (cb) {
+    if (frozen && run < runUntil) thaw();
+    var id = ++nextId, entry = { cb: cb, native: 0 };
+    asked.set(id, entry);
+    active = run;
+    if (!frozen) queue(id, entry);
+    return id;
+  };
+  window.cancelAnimationFrame = function (id) {
+    var entry = asked.get(id);
+    if (!entry) return;
+    if (entry.native) caf(entry.native);
+    asked.delete(id);
+  };
+  if (window.webkitRequestAnimationFrame) {
+    window.webkitRequestAnimationFrame = window.requestAnimationFrame;
+    window.webkitCancelAnimationFrame = window.cancelAnimationFrame;
+  }
+
+  function own(a) { return a.timeline === document.timeline && a.effect; }
+  function ends(a) { return isFinite(a.effect.getComputedTiming().endTime); }
+  function stillDrawing() {
+    return document.getAnimations().some(function (a) {
+      return own(a) && a.playState === 'running' && ends(a);
+    });
+  }
+  function sweep() {
+    sweepQueued = false;
+    if (!frozen) return;
+    document.getAnimations().forEach(function (a) {
+      if (!own(a)) return;
+      try {
+        if (ends(a)) a.finish();
+        else if (a.playState !== 'paused') { a.pause(); a.currentTime = 0; paused.push(a); }
+      } catch (e) {}
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('svg'), function (svg) {
+      if (svg.pauseAnimations) svg.pauseAnimations();
+    });
+  }
+  function queueSweep() {
+    if (frozen && !sweepQueued) { sweepQueued = true; setTimeout(sweep, 0); }
+  }
+  function freeze() { frozen = true; sweep(); }
+  function thaw() {
+    frozen = false;
+    active = settleFrom = run;
+    paused.splice(0).forEach(function (a) { try { a.play(); } catch (e) {} });
+    Array.prototype.forEach.call(document.querySelectorAll('svg'), function (svg) {
+      if (svg.unpauseAnimations) svg.unpauseAnimations();
+    });
+    asked.forEach(function (entry, id) { if (!entry.native) queue(id, entry); });
+    last = 0;
+    raf(tick);
+  }
+  function settled() {
+    return run - active >= QUIET_MS && !stillDrawing();
+  }
+  function tick(t) {
+    if (frozen) return;
+    run += last ? Math.min(t - last, MAX_STEP_MS) : 0;
+    last = t;
+    if (loaded ? settled() || run - settleFrom >= CAP_MS : run >= LOAD_CAP_MS) freeze();
+    else raf(tick);
+  }
+  new MutationObserver(function () {
+    active = run;
+    queueSweep();
+  }).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+  document.addEventListener('animationstart', queueSweep, true);
+  document.addEventListener('transitionstart', queueSweep, true);
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (e.source !== window.parent || !d || d.__mockpit !== true || d.type !== 'knobs') return;
+    runUntil = run + RUN_MAX_MS;
+    if (frozen) thaw();
+  });
+  raf(tick);
+})();
+`;
+
 // Hit test: the viewer's marker overlay lives in the trusted origin ABOVE the
 // sandboxed frame, so when the operator drops a pin it knows the normalized
 // point but nothing about what sits under it. This answers that question over
@@ -1053,6 +1184,7 @@ const compactJs = (js: string): string =>
 const inlineScript = (js: string): string => `<script>${compactJs(js)}</script>`;
 const inlineStyle = (css: string): string => `<style>${css}</style>`;
 
+const FREEZE_TAG = inlineScript(FREEZE_JS);
 const BRIDGE_TAG = inlineScript(BRIDGE_JS);
 const HIT_TEST_TAG = inlineScript(HIT_TEST_JS);
 const PARTS_TAG = inlineScript(PARTS_JS);
@@ -1462,6 +1594,7 @@ ${htmlTag}
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${buildCsp(doc.origin)}">
 <title>${escapeHtml(doc.title)}</title>
+${FREEZE_TAG}
 ${preamble.headScript}
 ${KNOBS_TAG}
 ${styles}

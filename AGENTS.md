@@ -146,6 +146,8 @@ consciously, not as a side effect):
   `[data-k-bind]`, `mockpit:knobs`). A written surface loaded with `#read` adds
   `PARAGRAPHS_JS`: `paragraphs` reports and `paragraph-tap` out, `paragraph-marks` in.
   A tap sends only a block's number; the text a comment quotes comes from the report.
+  An html surface loaded with `#small` (every `Thumb` but the closer look) runs `FREEZE_JS`:
+  once settled, animations stop and no more frames are handed out. Its comment holds the rule.
 - `server/cdnInline.ts` — bakes what an html surface links from the CDN allowlist into its
   document at render (fonts as `data:` URLs, stylesheets and classic scripts inline). A
   failed fetch leaves the link and makes the render `complete: false`: not stored, not
