@@ -1,19 +1,19 @@
-// Regenerates the README media: the hero stills (docs/mockpit-light.png,
-// docs/mockpit-dark.png) and the animated loop (docs/mockpit-demo.gif). Boots a
-// throwaway server per pass, publishes the Writer design from bin/demoData.js
-// through the agent's HTTP tier, and drives the viewer with Playwright:
+// Regenerates the README media: two stills (docs/mockpit-question.png,
+// docs/mockpit-accent.png) and the animated loop (docs/mockpit-demo.gif), all dark.
+// Boots a throwaway server per pass, publishes the Shop design from
+// scripts/demo-store.mjs through the agent's HTTP tier, and drives the viewer with
+// Playwright:
 //
 //   node scripts/record-demo.mjs            # stills + gif
 //   node scripts/record-demo.mjs --stills   # stills only
 //   node scripts/record-demo.mjs --gif      # gif only
 //
-// The gif pass replays the decide loop live: the agent publishes three variants and
-// its questions → the user previews the variants, keeps one, hides one and picks one → answers a
-// part question → Send → Not seen yet, then Delivered once the agent's feedback
-// read takes it → the agent replies and publishes v2. ffmpeg turns the recorded webm into the
-// gif: mpdecimate drops held frames (keeping one every two seconds, so the
-// closing hold survives) and an undithered 128-colour palette suits flat UI; both
-// keep the README gif small.
+// The gif replays the decide loop live: the agent publishes three card variants and its
+// questions → the user previews and picks a card, a button style, an accent and whether
+// ratings show → Send → Not seen yet, then Delivered once the agent's feedback read takes
+// it → the agent replies and publishes v2. ffmpeg turns the recorded webm into the gif:
+// mpdecimate drops held frames (keeping one every two seconds, so the closing hold
+// survives) and an undithered 96-colour palette suits flat UI; both keep the gif small.
 
 import { chromium } from "@playwright/test";
 import { execFileSync, spawn } from "node:child_process";
@@ -21,7 +21,7 @@ import { mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEMO } from "../bin/demoData.js";
+import { STORE as DEMO } from "./demo-store.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DOCS = join(ROOT, "docs");
@@ -66,9 +66,9 @@ async function boot() {
   return { base, api, dir, stop: () => proc.kill() };
 }
 
-// Publishes the Writer design the way `mockpit demo` does: one session, one publish
+// Publishes the Shop design the way `mockpit demo` publishes its own: one session, one publish
 // per (state, variant), then the questions.
-async function publishWriter(api, asks = DEMO.asks) {
+async function publishShop(api, asks = DEMO.asks) {
   const session = await api("/api/sessions", {
     agent: DEMO.agent,
     title: DEMO.sessionTitle,
@@ -108,34 +108,51 @@ async function setTheme(page, api, base, mode) {
 async function stills() {
   const { base, api, stop } = await boot();
   try {
-    await publishWriter(api);
+    await publishShop(api);
     const browser = await chromium.launch();
-    // 1184×736 CSS px at 1.25x = 1480×920: the README cell is half a page wide,
-    // so the viewer is laid out a little narrow to keep its type legible there.
     const page = await browser.newPage({
-      viewport: { width: 1184, height: 736 },
-      deviceScaleFactor: 1.25,
+      viewport: { width: 1280, height: 800 },
+      deviceScaleFactor: 1.5,
+      colorScheme: "dark",
     });
     page.on("pageerror", (e) => console.error("pageerror:", e.message));
-    for (const mode of ["light", "dark"]) {
-      await setTheme(page, api, base, mode);
-      await page.goto(`${base}${screenPath}`);
-      await page.locator('.opt[data-option="quiet"] iframe').waitFor();
-      await page.locator(".frame.on iframe").waitFor();
-      await sleep(1500); // thumbnails and the stage frame report their heights
-      // One answer kept for later, so the still shows the bookmark.
-      const keep = page.locator('.optw[data-option-card="dark"] .optkeep');
-      if ((await keep.getAttribute("aria-pressed")) !== "true") await keep.click();
-      await sleep(400);
-      await page.mouse.move(0, 0);
-      const path = join(DOCS, `mockpit-${mode}.png`);
-      await page.screenshot({ path });
-      console.log(path);
+    await setTheme(page, api, base, "dark");
+
+    // The first question on the stage, its answers as pictures.
+    await page.goto(`${base}${screenPath}`);
+    await page.locator('.opt[data-option="minimal"] iframe').waitFor();
+    await page.locator(".frame.on iframe").waitFor();
+    await sleep(1800); // thumbnails and the stage frame report their heights
+    await page.mouse.move(0, 0);
+    await shoot(page, "question");
+
+    // The quick view, two answers in, previewing an accent before picking it.
+    await page.getByText("Quick view", { exact: true }).first().click();
+    await sleep(1200);
+    const answer = (label) => page.locator(".opt:visible", { hasText: label }).first();
+    for (const label of ["Overlay", "Pill"]) {
+      await answer(label).click();
+      await sleep(500);
+      await page.locator("button.qsend").click();
+      await sleep(900);
     }
+    await answer("Violet").locator("iframe").waitFor();
+    await sleep(1500);
+    // The still is about the preview, so the pointer's card actions stay out of it.
+    await page.addStyleTag({ content: ".optic,.holdtimer{visibility:hidden!important}" });
+    await answer("Lime").hover();
+    await sleep(1500);
+    await shoot(page, "accent");
     await browser.close();
   } finally {
     stop();
   }
+}
+
+async function shoot(page, name) {
+  const path = join(DOCS, `mockpit-${name}.png`);
+  await page.screenshot({ path });
+  console.log(path);
 }
 
 // --- gif -------------------------------------------------------------------------
@@ -157,7 +174,7 @@ async function gif() {
     const context = await browser.newContext({
       viewport: size,
       recordVideo: { dir, size },
-      colorScheme: "light",
+      colorScheme: "dark",
     });
     await context.addInitScript(CURSOR);
     const page = await context.newPage();
@@ -196,46 +213,39 @@ async function gif() {
     };
 
     // The project's Home, empty, so the publish lands on camera.
-    await api("/api/theme", { mode: "light" }, "PUT");
+    await api("/api/theme", { mode: "dark" }, "PUT");
     await page.goto(`${base}/project/${encodeURIComponent(DEMO.project)}`);
     await sleep(900);
 
-    // The agent publishes: the variant question over three variants, and a part question.
-    const asks = DEMO.asks.filter((a) => a.id !== "versions-layout");
-    const { designId, session } = await publishWriter(api, asks);
+    // The agent publishes three card variants in two states, and its questions.
+    const { designId, session } = await publishShop(api);
     const homeRow = page.locator(`.home-step[data-design="${DEMO.slug}"]`).first();
     await homeRow.waitFor();
     await sleep(1200);
     await click(homeRow);
-    await page.locator('.opt[data-option="editorial"] iframe').waitFor();
+    await page.locator('.opt[data-option="minimal"] iframe').waitFor();
     await page.locator(".frame.on iframe").waitFor();
     await sleep(1600);
 
-    // Hovering a variant previews it on the stage; picking one moves on.
-    const option = (id) => page.locator(`.opt[data-option="${id}"]`);
-    await hover(option("dark"), 18);
-    await sleep(1100);
-    await hover(option("editorial"));
-    await sleep(1100);
-    // Dark is kept for later, Editorial hidden: it fades and the others close up.
-    await click(page.locator('.optw[data-option-card="dark"] .optkeep'));
-    await sleep(900);
-    await click(page.locator('.optw[data-option-card="editorial"] [aria-label^="Hide"]'));
-    await sleep(1300);
-    await click(option("quiet"));
-    await sleep(1300);
-
-    // Next: the part question, Trim, answered Below; then Send.
+    // Hovering an answer previews it on the stage; a click picks it. Each pick is
+    // followed by Next, and the last by Send.
+    const answer = (label) => page.locator(".opt:visible", { hasText: label }).first();
     const qsend = page.locator("button.qsend");
-    await click(qsend);
-    await sleep(1100);
-    await click(page.locator(".opt", { hasText: "Below" }));
-    await sleep(1100);
-    while ((await qsend.textContent())?.trim() === "Next") {
+    const decide = async (look, pick) => {
+      for (const label of look) {
+        await hover(answer(label), 16);
+        await sleep(1000);
+      }
+      await click(answer(pick));
+      await sleep(1000);
       await click(qsend);
-      await sleep(900);
-    }
-    await click(qsend);
+      await sleep(1100);
+    };
+    await decide(["Overlay", "Minimal"], "Overlay");
+    await decide(["Outline"], "Pill");
+    await decide(["Lime", "Violet"], "Lime");
+    await decide(["Hide"], "Hide");
+    // The last answer's button was Send.
     const sent = page.locator(".sentrow .pill.count");
     await sent.waitFor();
     await sleep(1600);
@@ -245,30 +255,30 @@ async function gif() {
     await page.locator(".sentrow .pill.count:not(.waiting)").waitFor();
     await sleep(1300);
 
-    // The agent answers in the thread and publishes the next version of the picked variant.
+    // The agent answers in the thread and publishes the next version of the picked card.
     await api(`/api/designs/${designId}/say`, {
       session,
-      message: "Quiet it is, with the trim below the page. v2 moves it.",
+      message: "Overlay cards, pill buttons in lime, no ratings. v2 adds a sale badge.",
     });
     await sleep(1400);
-    const writing = DEMO.states[0];
+    const grid = DEMO.states[0];
     await api("/api/designs", {
       design: designId,
       session,
-      state: writing.label,
-      variant: "quiet",
-      prompt: "trim below the page",
+      state: grid.label,
+      variant: "overlay",
+      prompt: "overlay, pill, lime, no ratings",
       surfaces: [
         {
           kind: "html",
-          html: DEMO.render(writing, { name: "quiet" }).replace(
-            "The Pier</h1>",
-            "The Pier</h1><!-- v2 -->",
+          html: DEMO.render(grid, { name: "overlay" }).replace(
+            /<article class="card overlay"[^>]*>/,
+            '$&<span style="position:absolute;top:12px;left:12px;z-index:1;background:#0c0c0e;color:var(--accent);font:600 11px/1 system-ui;letter-spacing:.04em;padding:6px 8px;border-radius:999px">SALE −20%</span>',
           ),
         },
       ],
     });
-    await page.locator(".vcap", { hasText: "#2" }).waitFor();
+    await page.getByText("Overlay #2 is on stage").waitFor();
     await sleep(2400);
 
     const video = page.video();
@@ -285,7 +295,7 @@ async function gif() {
         "-i",
         raw,
         "-vf",
-        "fps=10,scale=880:-1:flags=lanczos,mpdecimate=max=20,split[a][b];[a]palettegen=max_colors=128:stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle",
+        "fps=10,scale=900:-1:flags=lanczos,mpdecimate=max=20,split[a][b];[a]palettegen=max_colors=96:stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle",
         "-fps_mode",
         "vfr",
         out,

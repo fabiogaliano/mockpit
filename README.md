@@ -7,19 +7,7 @@ The agent publishes a screen in its states and a few variants, then ends its tur
 them from pictures, tune knobs, comment on parts and keep the runners-up. One Send gives the
 agent the whole reply. Nothing it calls waits for you.
 
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/mockpit-dark.png">
-        <img width="100%" alt="The Writer design asking Quiet, dark or editorial?, with the three variants as picture answers beside the stage" src="docs/mockpit-light.png">
-      </picture>
-    </td>
-    <td width="50%" valign="top">
-      <img width="100%" alt="Animated demo: the user keeps Dark, hides Editorial, picks Quiet, answers where the trim goes and presses Send; the reply shows Not seen yet, then Delivered, and the agent publishes version 2" src="docs/mockpit-demo.gif">
-    </td>
-  </tr>
-</table>
+<a href="docs/mockpit-demo.gif"><img width="100%" alt="Animated demo: the agent publishes a shop's product grid in three card variants with four questions; the user previews and picks the Overlay card, pill buttons, a lime accent and hidden ratings, then presses Send; the reply shows Not seen yet, then Delivered, and the agent publishes version 2 with a sale badge" src="docs/mockpit-demo.gif"></a>
 
 ## Quickstart
 
@@ -44,9 +32,9 @@ Then ask it to "design this up on mockpit". Claude Code, Codex, OpenCode, Pi and
 ## A turn
 
 ```sh
-mockpit publish --design writer --state Writing --variant quiet --html quiet.html
-mockpit publish --design writer --state Writing --variant dark  --html dark.html
-mockpit ask --design writer "Quiet or dark?" --option Quiet=quiet --option Dark=dark
+mockpit publish --design shop --state Grid --variant classic --html classic.html
+mockpit publish --design shop --state Grid --variant overlay --html overlay.html
+mockpit ask --design shop "Which product card?" --option Classic=classic --option Overlay=overlay
 # the agent says where to look and stops. After your Send:
 mockpit feedback
 ```
@@ -64,17 +52,17 @@ mockpit feedback
 Studio puts every variant side by side. Home groups a project's ideas, screens, flows and
 components, and Needs you lists what's waiting on you.
 
+<table>
+  <tr>
+    <td width="50%"><a href="docs/mockpit-question.png"><img src="docs/mockpit-question.png" width="100%" alt="The Shop design asking Which product card?, with Classic, Overlay and Minimal as picture answers beside the stage"></a></td>
+    <td width="50%"><a href="docs/mockpit-accent.png"><img src="docs/mockpit-accent.png" width="100%" alt="The Quick view state previewing the Lime answer to Which accent? on the stage before it is picked"></a></td>
+  </tr>
+</table>
+
 ## What it shows
 
 Html with parts and knobs, plus markdown, diff, terminal, image, mermaid, json and code. All of
 it renders in a sandboxed frame.
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/surfaces/01-html.png" width="100%" alt="html surface"></td>
-    <td width="50%"><img src="docs/surfaces/03-diff.png" width="100%" alt="diff surface"></td>
-  </tr>
-</table>
 
 ## Agent side
 
