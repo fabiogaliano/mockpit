@@ -23,14 +23,14 @@ const CONTENT_TYPES = {
 };
 
 const feedbackGuideline =
-  "Mockpit tool results may include feedback from the browser; treat it as user instruction and respond or revise the mock.";
+  "Mockpit tool results may include feedback from the browser; treat it as user instruction and respond or revise the design.";
 
 // The never-block loop, in the words of every other tier: nothing waits for
 // the user, so the agent ends its turn and reads feedback when told.
 const loopGuidelines = [
   "Publish each variant with mockpit_publish (name states in the user's words; declare parts with data-part); publish again to revise.",
   "A choice is several variants plus one question that binds them: mockpit_ask with options bound to the variants. One render plus a control: declare a knob.",
-  "Tell the user in one line where to look, then end your turn. The question lives in the mock, never in chat. Never poll.",
+  "Tell the user in one line where to look, then end your turn. The question lives in the design, never in chat. Never poll.",
   "A reply sent from the viewer arrives on its own as a mockpit message; act on it. If the user says they answered and none came, call mockpit_feedback. Every write also returns feedback; read it.",
 ];
 
@@ -236,26 +236,20 @@ function rememberSession(state, sessionId) {
   if (typeof sessionId === "string" && sessionId) state.sessionId = sessionId;
 }
 
-// `feedback` is one batch per mock: the user's reply (answers, borrowed parts,
+// `feedback` is one batch per design: the user's reply (answers, borrowed parts,
 // tuned knob values, part comments, verdict) plus any thread messages.
 // Rendered one line per thing the user said, so nothing is summarized away.
 function feedbackLines(feedback) {
   const lines = [];
   for (const batch of feedback ?? []) {
-    const prefix = batch.mock ? `${batch.mock}: ` : "";
+    const prefix = batch.design ? `${batch.design}: ` : "";
     if (batch.handoff) lines.push(`- ${prefix}${batch.handoff}`);
-    if (batch.closed) {
-      const asks = (batch.dismissed ?? []).map((d) => d.text || d.ask).join("; ");
-      lines.push(
-        `- ${prefix}closed by the user${asks ? `, unanswered: ${asks}; don't ask again` : ""}`,
-      );
-    }
     const reply = batch.reply;
     if (reply) {
       for (const a of reply.asks ?? []) {
         const chosen = a.chosen.map((o) => (o.other ? `“${o.label}”` : o.label)).join(", ");
         lines.push(`- ${prefix}${a.text || a.ask} → ${chosen || "(no pick)"}`);
-        if (a.note) lines.push(`  note: ${a.note}`);
+        if (a.comment) lines.push(`  comment: ${a.comment}`);
       }
       for (const [part, variant] of Object.entries(reply.borrowed ?? {})) {
         lines.push(`- ${prefix}borrow ${part} from ${variant}`);
@@ -284,23 +278,30 @@ function feedbackLines(feedback) {
         e.kind ? `now a ${e.kind}` : "",
         e.area !== undefined ? (e.area ? `area ${e.area}` : "no area") : "",
       ].filter(Boolean);
-      lines.push(`- ${prefix}the user moved it from Home (${moved.join(", ")})`);
+      if (moved.length) lines.push(`- ${prefix}the user moved it from Home (${moved.join(", ")})`);
+      if (e.notes !== undefined) {
+        lines.push(
+          e.notes === null
+            ? `- ${prefix}the user cleared its notes`
+            : `- ${prefix}the user edited its notes: ${e.notes}`,
+        );
+      }
     }
   }
   return lines;
 }
 
-// What the user is doing right now, per mock, so the agent can say "take your time".
+// What the user is doing right now, per design, so the agent can say "take your time".
 function pendingLines(pending) {
   const lines = [pending ?? []]
     .flat()
     .flatMap((p) =>
       p.draft
         ? [
-            `- ${p.mock}: the user is answering (${p.draft.answered} of ${p.draft.of} answered, ${p.draft.comments} comments)`,
+            `- ${p.design}: the user is answering (${p.draft.answered} of ${p.draft.of} answered, ${p.draft.comments} comments)`,
           ]
         : p.viewerOpen
-          ? [`- ${p.mock}: open in the viewer`]
+          ? [`- ${p.design}: open in the viewer`]
           : [],
     );
   return lines.length ? ["Pending:", ...lines] : [];
@@ -318,7 +319,7 @@ const pause = (ms, signal) =>
     signal.addEventListener("abort", () => (clearTimeout(timer), done()), { once: true });
   });
 
-// The user's reply wakes the idle agent, as the Claude Code plugin's monitor
+// The user's reply wakes the idle agent, as the Claude Code plugin's hook
 // does. Reading feedback advances the server's cursor, so the message carries
 // the whole reply: a nudge to call mockpit_feedback would come back empty.
 // followUp waits for a busy agent to finish rather than cutting into its work.
@@ -408,7 +409,7 @@ export default function mockpitExtension(pi) {
   });
 
   const projectOf = (params, ctx) => params.project ?? resolveProjectName(ctx.cwd);
-  const mockPath = (mock) => `/api/mocks/${encodeURIComponent(mock)}`;
+  const designPath = (design) => `/api/designs/${encodeURIComponent(design)}`;
 
   // GET /api/feedback reads from a session's cursor, so a feedback call before
   // any write still needs one; later writes then land in the same session.
@@ -427,12 +428,12 @@ export default function mockpitExtension(pi) {
     return created.id;
   }
 
-  // project › mock › state › variant › version.
-  const mockProps = {
-    mock: { type: "string", description: "Mock slug, e.g. writer" },
+  // project › design › state › variant › version.
+  const designProps = {
+    design: { type: "string", description: "Design slug, e.g. writer" },
     state: {
       type: "string",
-      description: "State label in the user's words; omit for a single-state mock",
+      description: "State label in the user's words; omit for a single-state design",
     },
     variant: { type: "string", description: 'Variant label; default "default"' },
     project: { type: "string", description: "Project name; defaults to the repo" },
@@ -442,15 +443,15 @@ export default function mockpitExtension(pi) {
     name: "mockpit_publish",
     label: "Mockpit Publish",
     description:
-      "Create or version one variant of one state of a mock in the user's browser. One of html (or path), surfaces (the full ordered list) or parts (splices the latest version). Returns parts per state, nudges, feedback.",
-    promptSnippet: "Publish a UI mock (state + variant) to mockpit for the user to review.",
+      "Create or version one variant of one state of a design in the user's browser. One of html (or path), surfaces (the full ordered list) or parts (splices the latest version). Returns parts per state, nudges, feedback.",
+    promptSnippet: "Publish a UI design (state + variant) to mockpit for the user to review.",
     promptGuidelines: [...loopGuidelines, feedbackGuideline],
     parameters: {
       type: "object",
       properties: {
-        ...mockProps,
-        title: { type: "string", description: "Mock title" },
-        kind: { type: "string", enum: ["component", "page"], description: "Mock kind" },
+        ...designProps,
+        title: { type: "string", description: "Design title" },
+        kind: { type: "string", enum: ["component", "screen"], description: "Design kind" },
         area: {
           type: "string",
           description: 'Where in the product it belongs ("Shell"); Home groups by it. "" clears',
@@ -474,7 +475,7 @@ export default function mockpitExtension(pi) {
         from: { type: "number", description: "Branch from this version" },
         prompt: { type: "string", description: "What prompted this version" },
       },
-      required: ["mock"],
+      required: ["design"],
     },
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const html = params.path
@@ -482,7 +483,7 @@ export default function mockpitExtension(pi) {
         : params.html;
       const { path: _path, ...rest } = params;
       const poster = await posterId(params.poster, ctx);
-      const result = await requestJson("/api/mocks", {
+      const result = await requestJson("/api/designs", {
         method: "POST",
         body: JSON.stringify({
           ...rest,
@@ -497,6 +498,17 @@ export default function mockpitExtension(pi) {
       });
       rememberSession(state, result.sessionId);
       const { post } = result;
+      if (result.planned) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `${result.design.slug}: planned, nothing drawn yet · ${result.url}${feedbackSummary(result.feedback)}`,
+            },
+          ],
+          details: { ...result, baseUrl: baseUrl() },
+        };
+      }
       const parts = (result.parts ?? [])
         .filter((s) => s.parts.length)
         .map(
@@ -509,7 +521,7 @@ export default function mockpitExtension(pi) {
           ]
         : [];
       const text = [
-        `${result.mock.slug}/${post.state ? `${post.state}/` : ""}${post.variant} v${post.version} · ${result.url}`,
+        `${result.design.slug}/${post.state ? `${post.state}/` : ""}${post.variant} v${post.version} · ${result.url}`,
         ...parts,
         ...(result.applied?.length ? [`applied: ${result.applied.join(", ")}`] : []),
         ...changes,
@@ -529,7 +541,7 @@ export default function mockpitExtension(pi) {
     name: "mockpit_ask",
     label: "Mockpit Ask",
     description:
-      "Ask structured questions on a mock. A choice is several variants plus one question that binds them ({label, variant}); options may also set knob values ({label, set}). Reusing a question id replaces it.",
+      "Ask structured questions on a design. A choice is several variants plus one question that binds them ({label, variant}); options may also set knob values ({label, set}). Reusing a question id replaces it.",
     promptSnippet: "Ask the user to choose between mockpit variants.",
     promptGuidelines: [
       "Use mockpit_ask once the variants are published, tell the user where to look, then end your turn.",
@@ -537,19 +549,19 @@ export default function mockpitExtension(pi) {
     parameters: {
       type: "object",
       properties: {
-        mock: mockProps.mock,
-        project: mockProps.project,
+        design: designProps.design,
+        project: designProps.project,
         asks: {
           type: "array",
           description:
-            "Questions: {id?, text, scope: mock|state|part, state?, part?, multi?, options}",
+            "Questions: {id?, text, scope: design|state|part, state?, part?, multi?, options}",
           items: { type: "object" },
         },
       },
-      required: ["mock", "asks"],
+      required: ["design", "asks"],
     },
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const result = await requestJson(`${mockPath(params.mock)}/asks`, {
+      const result = await requestJson(`${designPath(params.design)}/asks`, {
         method: "POST",
         body: JSON.stringify({
           project: projectOf(params, ctx),
@@ -560,7 +572,7 @@ export default function mockpitExtension(pi) {
       const text = result.asks
         .map(
           (a) =>
-            `Asked on ${result.mock}: ${a.text} [${a.options.map((o) => o.label).join(" | ")}]`,
+            `Asked on ${result.design}: ${a.text} [${a.options.map((o) => o.label).join(" | ")}]`,
         )
         .join("\n");
       return {
@@ -576,25 +588,25 @@ export default function mockpitExtension(pi) {
     name: "mockpit_read",
     label: "Mockpit Read",
     description:
-      "Without mock: every mock (slug, states, variants, open asks) plus pending. With mock: its states, variants, asks with answers, parts, knobs and last tuned values, plus pending. Never consumes feedback.",
-    promptSnippet: "Read mockpit mocks.",
+      "Without design: every design (slug, states, variants, open asks) plus pending. With design: its states, variants, asks with answers, parts, knobs and last tuned values, plus pending. Never consumes feedback.",
+    promptSnippet: "Read mockpit designs.",
     promptGuidelines: [
-      "Use mockpit_read to recover mock slugs or a mock's state when you lost track.",
+      "Use mockpit_read to recover design slugs or a design's state when you lost track.",
     ],
     parameters: {
       type: "object",
       properties: {
-        mock: { type: "string", description: "Mock slug; omit for every mock" },
-        project: mockProps.project,
+        design: { type: "string", description: "Design slug; omit for every design" },
+        project: designProps.project,
         body: { type: "boolean", description: "Include each variant's surfaces" },
         history: { type: "boolean", description: "Include version rows" },
       },
     },
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const query = new URLSearchParams({ project: projectOf(params, ctx) });
-      if (params.mock === undefined) {
-        const result = await requestJson(`/api/mocks?${query}`);
-        const lines = result.mocks.map(
+      if (params.design === undefined) {
+        const result = await requestJson(`/api/designs?${query}`);
+        const lines = result.designs.map(
           (m) =>
             `${m.slug} · ${m.kind} · ${m.states.length ? m.states.join(" / ") : "single state"} · ${m.variants} variants${m.open ? ` · ${m.open} open` : ""}`,
         );
@@ -603,7 +615,7 @@ export default function mockpitExtension(pi) {
           content: [
             {
               type: "text",
-              text: [...lines, ...busy].join("\n") || `No mocks in ${query.get("project")}.`,
+              text: [...lines, ...busy].join("\n") || `No designs in ${query.get("project")}.`,
             },
           ],
           details: { ...result, baseUrl: baseUrl() },
@@ -611,8 +623,8 @@ export default function mockpitExtension(pi) {
       }
       if (params.body) query.set("body", "1");
       if (params.history) query.set("history", "1");
-      const mock = await requestJson(`${mockPath(params.mock)}?${query}`);
-      return { content: [{ type: "text", text: jsonText(mock) }], details: mock };
+      const design = await requestJson(`${designPath(params.design)}?${query}`);
+      return { content: [{ type: "text", text: jsonText(design) }], details: design };
     },
   });
 
@@ -620,12 +632,12 @@ export default function mockpitExtension(pi) {
     name: "mockpit_feedback",
     label: "Mockpit Feedback",
     description:
-      "Returns at once: what the user sent since you last heard (one batch per mock: answers, borrowed parts, tuned knobs, part comments, verdict; thread messages; inUse/archived; or closed with the questions it dismissed), delivered once, plus pending (viewer open, draft progress).",
+      "Returns at once: what the user sent since you last heard (one batch per design: answers, borrowed parts, tuned knobs, part comments, verdict; thread messages; inUse/archived), delivered once, plus pending (viewer open, draft progress).",
     promptSnippet: "Read the user's mockpit reply when they say they answered.",
     promptGuidelines: [
       "Call mockpit_feedback when the user says they answered; it returns at once, so do not call it in a loop.",
     ],
-    parameters: { type: "object", properties: { project: mockProps.project } },
+    parameters: { type: "object", properties: { project: designProps.project } },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const session = await ensureSession(ctx);
       const query = new URLSearchParams({ session, project: projectOf(params, ctx) });
@@ -647,7 +659,7 @@ export default function mockpitExtension(pi) {
     name: "mockpit_say",
     label: "Mockpit Say",
     description:
-      "Post a short plain-text message in a mock's thread. Returns feedback; treat it as user instruction.",
+      "Post a short plain-text message in a design's thread. Returns feedback; treat it as user instruction.",
     promptSnippet: "Say something to the user in a mockpit thread.",
     promptGuidelines: [
       "Use mockpit_say for brief acknowledgements; publish again for substantive revisions.",
@@ -655,11 +667,11 @@ export default function mockpitExtension(pi) {
     ],
     parameters: {
       type: "object",
-      properties: { ...mockProps, message: { type: "string", description: "Plain text" } },
-      required: ["mock", "message"],
+      properties: { ...designProps, message: { type: "string", description: "Plain text" } },
+      required: ["design", "message"],
     },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const result = await requestJson(`${mockPath(params.mock)}/say`, {
+      const result = await requestJson(`${designPath(params.design)}/say`, {
         method: "POST",
         body: JSON.stringify({
           message: params.message,
@@ -673,7 +685,7 @@ export default function mockpitExtension(pi) {
         content: [
           {
             type: "text",
-            text: `Said on ${params.mock}.${feedbackSummary(result.feedback)}`,
+            text: `Said on ${params.design}.${feedbackSummary(result.feedback)}`,
           },
         ],
         details: { ...result, baseUrl: baseUrl() },
@@ -685,24 +697,29 @@ export default function mockpitExtension(pi) {
     name: "mockpit_edit",
     label: "Mockpit Edit",
     description:
-      'Change a mock without a new version: slug, title, kind, area, source ("" clears). A new slug rewrites every embed, data-goto and flow step naming the old one. Or, with no mock, rename the project (rename) or order its areas on Home (areaOrder). Returns feedback.',
-    promptSnippet: "Rename, retitle or reclassify a mockpit mock, or rename the project.",
+      'Change a design without a new version: slug, title, kind, area, source ("" clears). A new slug rewrites every embed, data-goto and flow step naming the old one. Or, with no design, rename the project (rename) or order its areas on Home (areaOrder). Returns feedback.',
+    promptSnippet: "Rename, retitle or reclassify a mockpit design, or rename the project.",
     promptGuidelines: [feedbackGuideline],
     parameters: {
       type: "object",
       properties: {
-        mock: { type: "string", description: "Mock slug or id" },
+        design: { type: "string", description: "Design slug or id" },
         project: { type: "string", description: "Project name; defaults to the repo" },
         slug: { type: "string", description: "New slug" },
-        title: { type: "string", description: "Mock title" },
-        kind: { type: "string", enum: ["page", "component", "sketch"] },
+        title: { type: "string", description: "Design title" },
+        kind: { type: "string", enum: ["screen", "component", "idea"] },
         area: { type: "string", description: 'Area in the product; "" clears' },
         source: { type: "string", description: 'Code path that implements it; "" clears' },
-        rename: { type: "string", description: "Without mock: the project's new name" },
+        notes: {
+          type: "string",
+          description:
+            'A short plain-text spec; "" clears. Not applied over the user\'s own edit, and the result says so',
+        },
+        rename: { type: "string", description: "Without design: the project's new name" },
         areaOrder: {
           type: "array",
           items: { type: "string" },
-          description: "Without mock: Home's area order; unlisted areas follow alphabetically",
+          description: "Without design: Home's area order; unlisted areas follow alphabetically",
         },
       },
     },
@@ -710,15 +727,15 @@ export default function mockpitExtension(pi) {
       const project = projectOf(params, ctx);
       const { rename, areaOrder, ...fields } = params;
       const onProject = rename !== undefined || areaOrder !== undefined;
-      if (onProject && params.mock !== undefined) {
-        throw new Error('"rename" and "areaOrder" edit the project; edit the mock without them');
+      if (onProject && params.design !== undefined) {
+        throw new Error('"rename" and "areaOrder" edit the project; edit the design without them');
       }
       const result = onProject
         ? await requestJson(`/api/projects/${encodeURIComponent(project)}`, {
             method: "PATCH",
             body: JSON.stringify({ name: rename, areaOrder, session: state.sessionId }),
           })
-        : await requestJson(mockPath(params.mock ?? ""), {
+        : await requestJson(designPath(params.design ?? ""), {
             method: "PATCH",
             body: JSON.stringify({ ...fields, project, session: state.sessionId }),
           });
@@ -726,7 +743,7 @@ export default function mockpitExtension(pi) {
         ? `renamed ${result.renamed.from} → ${result.renamed.to} · ${result.url}`
         : result.areaOrder
           ? `area order ${result.areaOrder.join(", ") || "alphabetical"} · ${result.url}`
-          : `edited ${result.mock.slug} · ${result.url}`;
+          : `edited ${result.design.slug} · ${result.url}${result.notes?.applied === false ? `\nnotes.text: ${result.notes.text}` : ""}`;
       return {
         content: [
           {
@@ -744,13 +761,13 @@ export default function mockpitExtension(pi) {
     label: "Mockpit Export",
     description:
       "The html in use (else current) per state, version history, and the last reply's tuned values.",
-    promptSnippet: "Export the design in use from a mockpit mock.",
-    parameters: { type: "object", properties: mockProps, required: ["mock"] },
+    promptSnippet: "Export the design in use from a mockpit design.",
+    parameters: { type: "object", properties: designProps, required: ["design"] },
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const query = new URLSearchParams({ project: projectOf(params, ctx) });
       if (params.state) query.set("state", params.state);
       if (params.variant) query.set("variant", params.variant);
-      const data = await requestJson(`${mockPath(params.mock)}/export?${query}`);
+      const data = await requestJson(`${designPath(params.design)}/export?${query}`);
       return { content: [{ type: "text", text: jsonText(data) }], details: data };
     },
   });
@@ -760,7 +777,7 @@ export default function mockpitExtension(pi) {
     label: "Mockpit Upload",
     description:
       "Upload an asset to mockpit and get an id and URL. Use the id as an image surface's assetId, or embed the URL in html.",
-    promptSnippet: "Upload an image or file asset for use in a mock.",
+    promptSnippet: "Upload an image or file asset for use in a design.",
     promptGuidelines: [
       "Use mockpit_upload before referencing local images or files in mockpit_publish.",
     ],
@@ -819,14 +836,14 @@ export default function mockpitExtension(pi) {
     label: "Mockpit Guide",
     description:
       "Fetch the brief: the loop, parts, asks and knobs, feedback, the html contract, and this project's palette, kit and icons. Read it before the first mockpit_publish. Pass topic for one reference section.",
-    promptSnippet: "Fetch mockpit's brief before authoring mocks.",
+    promptSnippet: "Fetch mockpit's brief before authoring designs.",
     promptGuidelines: [
       "Use mockpit_guide before your first mockpit_publish call unless you already know the current brief.",
     ],
     parameters: {
       type: "object",
       properties: {
-        project: mockProps.project,
+        project: designProps.project,
         topic: {
           type: "string",
           enum: ["knobs", "asks", "surfaces", "html", "feedback", "http", "scripts"],
@@ -854,7 +871,7 @@ export default function mockpitExtension(pi) {
       properties: {
         code: { type: "string", description: "JavaScript: the body of an async function" },
         path: { type: "string", description: "Local .js file to run instead of code" },
-        project: mockProps.project,
+        project: designProps.project,
       },
     },
     async execute(_id, params, _signal, _onUpdate, ctx) {

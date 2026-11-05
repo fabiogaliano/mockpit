@@ -1,4 +1,4 @@
-// Seed content for `mockpit demo`: the Writer mock — four states of one
+// Seed content for `mockpit demo`: the Writer design — four states of one
 // writing app, each drawn in three variants, with its parts marked so the viewer
 // can show questions, tuning and part comments. Dependency-free like the CLI.
 
@@ -103,7 +103,7 @@ export const DEMO = {
     {
       id: "tone",
       text: "Quiet, dark or editorial?",
-      scope: "mock",
+      scope: "design",
       options: [
         { label: "Quiet", variant: "quiet" },
         { label: "Dark", variant: "dark" },

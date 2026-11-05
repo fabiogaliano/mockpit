@@ -2,8 +2,8 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "mockpit",
   "displayName": "mockpit",
-  "version": "0.1.0",
-  "description": "Publish design mocks (states, variants, questions, knobs) to mockpit over MCP, and wake Claude Code the moment the user sends a reply from the browser.",
+  "version": "0.2.0",
+  "description": "Publish design designs (states, variants, questions, knobs) to mockpit over MCP, and wake Claude Code the moment the user sends a reply from the browser.",
   "author": { "name": "Fábio Galiano" },
   "homepage": "https://github.com/fabiogaliano/mockpit",
   "repository": "https://github.com/fabiogaliano/mockpit",
@@ -22,9 +22,6 @@
         "MOCKPIT_TOKEN": "${user_config.apiToken}"
       }
     }
-  },
-  "experimental": {
-    "monitors": "./monitors.json"
   },
   "userConfig": {
     "mockpitUrl": {

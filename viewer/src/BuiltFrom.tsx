@@ -1,15 +1,15 @@
-// Tune's drawer (a bottom sheet on a phone), open while Tune is: the
-// components this state embeds and its own parts, each opening its knobs
+// Built from, in the right margin (a bottom sheet on a phone), open while Tune is:
+// the components this state embeds and its own parts, each opening its knobs
 // (tunekit, see tune.ts) with what is tuned riding in the next answer. What
-// sits around the mock is in About, under its name.
+// sits around the design is in About, under its name.
 
 import { createEffect, createMemo, createResource, For, Index, on, Show } from "solid-js";
 import { api, surfaceUrl, type TreeNode } from "./api.ts";
 import { host } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import { designWidth, screenPicture, versionName } from "./logic.ts";
-import { linkClick, mockPath } from "./route.ts";
-import type { MockScreenState } from "./state.ts";
+import { designWidth, partLabel, screenPicture, versionName } from "./logic.ts";
+import { linkClick, designPath } from "./route.ts";
+import type { DesignScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 import type { TuneState } from "./tune.ts";
@@ -27,13 +27,18 @@ function nodePicture(node: TreeNode): string | null {
     : null;
 }
 
-export function BuiltFrom(props: { s: MockScreenState; t: TuneState }) {
+export function BuiltFrom(props: {
+  s: DesignScreenState;
+  t: TuneState;
+  // In the margin, which has its own head and close, and only mounts this while open.
+  inline?: boolean;
+}) {
   const s = props.s;
   const t = props.t;
-  const project = () => s.mock()?.project ?? s.project;
-  // Refetched whenever the mock changes, so a newly embedded component shows.
+  const project = () => s.design()?.project ?? s.project;
+  // Refetched whenever the design changes, so a newly embedded component shows.
   const [tree] = createResource(
-    () => (s.drawer() ? `${project()}\u0000${s.mock()?.updatedAt ?? ""}` : null),
+    () => (s.drawer() ? `${project()}\u0000${s.design()?.updatedAt ?? ""}` : null),
     () => api.tree(project()).then((r) => r.tree),
   );
   const bySlug = createMemo(() => new Map((tree() ?? []).map((n) => [n.slug, n])));
@@ -59,22 +64,24 @@ export function BuiltFrom(props: { s: MockScreenState; t: TuneState }) {
   );
   // Closing the drawer puts Tune down with it.
   const close = () => (s.tool() === "tune" ? s.toggleTool("tune") : s.setDrawer(false));
-  const go = (slug: string) => mockPath(project(), slug);
+  const go = (slug: string) => designPath(project(), slug);
   return (
     <aside
-      class="drawer"
+      class={props.inline ? "builtfrom" : "drawer"}
       classList={{ open: s.drawer() }}
       aria-label="Tune"
       aria-hidden={!s.drawer()}
       inert={!s.drawer() || undefined}
       ref={(el) => (panel = el)}
     >
-      <div class="dhead">
-        <h2>Tune</h2>
-        <button type="button" class="ib" aria-label="Close" onClick={close}>
-          <Icon name="close" />
-        </button>
-      </div>
+      <Show when={!props.inline}>
+        <div class="dhead">
+          <h2>Tune</h2>
+          <button type="button" class="ib" aria-label="Close" onClick={close}>
+            <Icon name="close" />
+          </button>
+        </div>
+      </Show>
       <Show when={uses().length}>
         <section>
           <h3>Components</h3>
@@ -123,7 +130,7 @@ export function BuiltFrom(props: { s: MockScreenState; t: TuneState }) {
           <Show when={tuned()}>
             <div class="tunedbar" role="status">
               <span>{`${tuned()} tuned · goes with your next answer`}</span>
-              <button type="button" onClick={() => s.replaceTuned({})}>
+              <button type="button" onClick={s.resetTuned}>
                 Reset
               </button>
             </div>
@@ -134,7 +141,11 @@ export function BuiltFrom(props: { s: MockScreenState; t: TuneState }) {
             <For each={parts().map((c) => c.part)}>
               {(part) => {
                 const c = () =>
-                  parts().find((x) => x.part === part) ?? { part, label: part ?? "", paths: [] };
+                  parts().find((x) => x.part === part) ?? {
+                    part,
+                    label: part ? partLabel(s.design() ?? { parts: [] }, part) : "",
+                    paths: [],
+                  };
                 return (
                   <div
                     class="crow"
@@ -164,7 +175,7 @@ export function BuiltFrom(props: { s: MockScreenState; t: TuneState }) {
   );
 }
 
-function PartToggle(props: { s: MockScreenState; part: string | null; label: string }) {
+function PartToggle(props: { s: DesignScreenState; part: string | null; label: string }) {
   const open = () => props.s.tuneOpen() === props.part;
   return (
     <button
@@ -181,7 +192,7 @@ function PartToggle(props: { s: MockScreenState; part: string | null; label: str
 
 // The open part's knobs: tunekit's pane moves in here, then any borrow from
 // another look.
-function PartKnobs(props: { s: MockScreenState; part: string | null }) {
+function PartKnobs(props: { s: DesignScreenState; part: string | null }) {
   const s = props.s;
   const borrow = () => s.mixOpts().filter((o) => o.part === props.part);
   return (
@@ -205,10 +216,10 @@ function PartKnobs(props: { s: MockScreenState; part: string | null }) {
                   part: o().part,
                 })
               }
-              onMouseLeave={() => s.setPreview(null)}
+              onMouseLeave={() => s.setHoveredPreview(null)}
               onClick={() => s.toggleMix(o())}
             >
-              <span>{`${o().part} as in ${o().variant}`}</span>
+              <span>{`${partLabel(s.design() ?? { parts: [] }, o().part)} as in ${o().variant}`}</span>
               <span class="borrow-act">{on() ? "Borrowed" : "Borrow"}</span>
             </button>
           );

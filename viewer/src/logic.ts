@@ -1,4 +1,4 @@
-// Pure rules behind the mock screen — no DOM, no signals.
+// Pure rules behind the design screen — no DOM, no signals.
 
 import {
   type Ask,
@@ -10,8 +10,8 @@ import {
   type KnobConfig,
   type KnobValue,
   type Knobs,
-  type MockEdit,
-  type MockKind,
+  type DesignEdit,
+  type DesignKind,
   type PartComment,
   type Reply,
   sameScreen,
@@ -20,13 +20,13 @@ import type {
   CommentRow,
   DraftInput,
   HistoryRow,
-  MockDetail,
+  DesignDetail,
   TreeNode,
   VariantView,
 } from "./api.ts";
 import { commentText, reactionWhere } from "./reactionRules.ts";
 
-type MockLike = Pick<MockDetail, "asks" | "states" | "title" | "knobs">;
+type DesignLike = Pick<DesignDetail, "asks" | "states" | "title" | "knobs">;
 
 export const emptyDraft = (version: number): DraftInput => ({
   version,
@@ -35,14 +35,14 @@ export const emptyDraft = (version: number): DraftInput => ({
   tuned: {},
   comments: [],
   others: {},
-  notes: {},
+  askComments: {},
   otherImages: {},
-  noteImages: {},
+  askCommentImages: {},
 });
 
 // The asks a draft says something about: a pick, a write-in or a note.
 const draftAsks = (d: DraftInput): Set<string> =>
-  new Set([...Object.keys(d.answers), ...Object.keys(d.others), ...Object.keys(d.notes)]);
+  new Set([...Object.keys(d.answers), ...Object.keys(d.others), ...Object.keys(d.askComments)]);
 
 export const draftIsEmpty = (d: DraftInput | null): boolean => !d || sendCount(d) === 0;
 
@@ -54,6 +54,16 @@ export const sendCount = (d: DraftInput): number =>
   Object.keys(d.tuned).length +
   d.comments.length;
 
+// What a draft adds to a reply sent some other way than Send, in the fewest words:
+// comments by name, since those are what say what to change.
+export function draftCarried(d: DraftInput | null): string | null {
+  if (!d) return null;
+  const n = sendCount(d);
+  if (n === 0) return null;
+  const noun = n === d.comments.length ? "comment" : "change";
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
 export const answerIds = (a: AskAnswer | undefined): string[] =>
   a === undefined ? [] : Array.isArray(a) ? a : [a];
 
@@ -63,19 +73,19 @@ export const answerIds = (a: AskAnswer | undefined): string[] =>
 export function setAskField(
   d: DraftInput,
   askId: string,
-  field: "other" | "note",
+  field: "other" | "comment",
   text: string,
   images: string[],
 ): DraftInput {
-  const texts = { ...(field === "other" ? d.others : d.notes) };
-  const imgs = { ...(field === "other" ? d.otherImages : d.noteImages) };
+  const texts = { ...(field === "other" ? d.others : d.askComments) };
+  const imgs = { ...(field === "other" ? d.otherImages : d.askCommentImages) };
   if (text.trim() || images.length) texts[askId] = text;
   else delete texts[askId];
   if (images.length) imgs[askId] = images;
   else delete imgs[askId];
   return field === "other"
     ? { ...d, others: texts, otherImages: imgs }
-    : { ...d, notes: texts, noteImages: imgs };
+    : { ...d, askComments: texts, askCommentImages: imgs };
 }
 
 // Picking an option or "Other…" (option null) in a draft: single asks keep one
@@ -114,14 +124,22 @@ export function pickInDraft(
   return { draft: { ...d, answers, others, otherImages }, otherOpen: open };
 }
 
-// The variant question (Q9): mock-wide, its options bound to variants.
+// The variant question (Q9): design-wide, its options bound to variants.
 export const isLookAsk = (ask: Ask): boolean =>
-  ask.scope === "mock" && ask.options.some((o) => o.variant);
+  ask.scope === "design" && ask.options.some((o) => o.variant);
 
-export const lookAsk = (mock: Pick<MockDetail, "asks">): Ask | undefined =>
-  mock.asks.find(isLookAsk);
+export const lookAsk = (design: Pick<DesignDetail, "asks">): Ask | undefined =>
+  design.asks.find(isLookAsk);
 
 // --- the built-in "Which variant?" ---
+
+// The viewer's own question, not one the agent asked: it says nothing is waiting.
+export const isBuiltinAsk = (ask: Pick<Ask, "id">): boolean =>
+  ask.id === BUILTIN_ASK_ID || ask.id.startsWith(`${BUILTIN_ASK_ID}:`);
+
+// Answered by comparing designs, which Studio does as well as Stage.
+export const picksVariant = (ask: Pick<Ask, "options">): boolean =>
+  ask.options.some((o) => o.variant);
 
 type VariantRow = Pick<VariantView, "state" | "variant" | "status">;
 
@@ -142,28 +160,28 @@ export function needsBuiltinAsk(
   if (live.length < 2) return false;
   return !asks.some(
     (a) =>
-      (a.scope === "mock" || (a.scope === "state" && a.state === state)) &&
+      (a.scope === "design" || (a.scope === "state" && a.state === state)) &&
       live.every((name) => a.options.some((o) => o.variant === name)),
   );
 }
 
-// The built-in asks a mock shows, under the ids the server reserves for them.
-// One mock-wide ask when every state needs one and the live variant names line
+// The built-in asks a design shows, under the ids the server reserves for them.
+// One design-wide ask when every state needs one and the live variant names line
 // up, so the user answers once; one per needing state otherwise. Option ids
 // are variant names, as the server's reply handling expects.
 export function builtinAsks(
-  mock: Pick<MockDetail, "asks" | "states"> & { closedAt?: string | null },
+  design: Pick<DesignDetail, "asks" | "states"> & { archivedAt?: string | null },
   variants: VariantRow[],
 ): Ask[] {
-  // Resolving the mock closed its choices too (server/types.ts builtinAskIds).
-  if (mock.closedAt) return [];
-  const states = mock.states.length ? mock.states : [null];
-  const needing = states.filter((st) => needsBuiltinAsk(mock.asks, variants, st));
+  // Ending the design put its choices away with it.
+  if (design.archivedAt) return [];
+  const states = design.states.length ? design.states : [null];
+  const needing = states.filter((st) => needsBuiltinAsk(design.asks, variants, st));
   if (!needing.length) return [];
   const ask = (names: string[], state: string | null): Ask => ({
     id: state === null ? BUILTIN_ASK_ID : `${BUILTIN_ASK_ID}:${state}`,
     text: "Which variant?",
-    scope: state === null ? "mock" : "state",
+    scope: state === null ? "design" : "state",
     ...(state === null ? {} : { state }),
     options: names.map((v) => ({ id: v, label: v, variant: v })),
     at: "",
@@ -177,11 +195,11 @@ export function builtinAsks(
   return needing.map((st) => ask(liveVariants(variants, st), st));
 }
 
-// The latest version any variant of the mock reached.
-export const mockVersion = (variants: Pick<VariantView, "version">[]): number =>
+// The latest version any variant of the design reached.
+export const designVersion = (variants: Pick<VariantView, "version">[]): number =>
   Math.max(1, ...variants.map((v) => v.version));
 
-// A variant as it stood at mock version `n`: its newest version not after n.
+// A variant as it stood at design version `n`: its newest version not after n.
 export function frameVersion(variant: Pick<VariantView, "version" | "history">, n: number): number {
   const versions = variant.history?.map((h) => h.version) ?? [variant.version];
   const fit = versions.filter((v) => v <= n);
@@ -191,21 +209,22 @@ export function frameVersion(variant: Pick<VariantView, "version" | "history">, 
 export const historyRow = (variant: VariantView, version: number): HistoryRow | undefined =>
   variant.history?.find((h) => h.version === version);
 
-// Every state an ask is shown on, in the mock's order: its own state; each
-// state holding its part; for a mock-wide ask that picks between variants,
-// each state with one of those variants; any other mock-wide ask, every state.
+// Every state an ask is shown on, in the design's order: its own state; each
+// state holding its part; for a design-wide ask that picks between variants,
+// each state with one of those variants; any other design-wide ask, every state.
 export function askStates(
   ask: Ask,
-  mock: Pick<MockDetail, "states" | "parts">,
+  design: Pick<DesignDetail, "states" | "parts">,
   variants: Pick<VariantView, "state" | "variant">[],
 ): (string | null)[] {
-  const all: (string | null)[] = mock.states.length ? mock.states : [null];
+  const all: (string | null)[] = design.states.length ? design.states : [null];
   if (ask.scope === "state" && ask.state !== undefined) {
     return all.includes(ask.state) ? [ask.state] : all.slice(0, 1);
   }
   if (ask.scope === "part" && ask.part) {
     const holding = all.filter(
-      (s) => mock.parts.find((p) => p.state === s)?.parts.some((p) => p.name === ask.part) ?? false,
+      (s) =>
+        design.parts.find((p) => p.state === s)?.parts.some((p) => p.name === ask.part) ?? false,
     );
     if (holding.length) return holding;
     return ask.state !== undefined && all.includes(ask.state) ? [ask.state] : all.slice(0, 1);
@@ -218,35 +237,60 @@ export function askStates(
   return all;
 }
 
-// The state an ask shows on: its own, else the first state holding its part.
+// The states a design-wide ask declared its answers can be seen on, without any
+// the design has since lost. Empty means it never said, so every state will do.
+export const askAbout = (ask: Ask, design: Pick<DesignDetail, "states">): string[] =>
+  (ask.states ?? []).filter((st) => design.states.includes(st));
+
+// The state an ask shows on: the one on stage if the ask is about it, else the
+// first it declared; its own, else the first state holding its part.
 export function askState(
   ask: Ask,
-  mock: Pick<MockDetail, "states" | "parts">,
+  design: Pick<DesignDetail, "states" | "parts">,
   active: string | null,
 ): string | null {
+  const about = askAbout(ask, design);
+  if (about.length) return active !== null && about.includes(active) ? active : about[0];
   if (ask.scope === "state" && ask.state !== undefined) return ask.state;
   if (ask.scope === "part" && ask.part) {
     const has = (s: string | null) =>
-      mock.parts.find((p) => p.state === s)?.parts.some((p) => p.name === ask.part) ?? false;
+      design.parts.find((p) => p.state === s)?.parts.some((p) => p.name === ask.part) ?? false;
     if (has(active)) return active;
-    const first = mock.parts.find((p) => p.parts.some((x) => x.name === ask.part));
+    const first = design.parts.find((p) => p.parts.some((x) => x.name === ask.part));
     if (first) return first.state;
   }
-  return active ?? mock.states[0] ?? null;
+  return active ?? design.states[0] ?? null;
 }
 
-export function partLabel(mock: Pick<MockDetail, "parts">, name: string): string {
-  for (const s of mock.parts) {
+// A part's name is an identifier the agent chose; with no label of its own it still
+// has to read as a word to the person looking at it: hero-title is "Hero title".
+export const spokenName = (name: string): string => {
+  const words = name
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[-_.]+/g, " ")
+    .trim();
+  return words ? words[0]!.toUpperCase() + words.slice(1) : name;
+};
+
+// Agents write an option as its name, a colon, then what it means. Referring back to
+// one needs only the name. A colon inside a word, as in 10:30, isn't that.
+export function shortLabel(label: string): string {
+  const at = label.indexOf(": ");
+  return at > 0 ? label.slice(0, at) : label;
+}
+
+export function partLabel(design: Pick<DesignDetail, "parts">, name: string): string {
+  for (const s of design.parts) {
     const p = s.parts.find((x) => x.name === name);
-    if (p) return p.label ?? p.name;
+    if (p?.label) return p.label;
   }
-  return name;
+  return spokenName(name);
 }
 
 // The question's heading in the panel ("Variant", "Trim", "Versions open").
-export function askName(ask: Ask, mock: Pick<MockDetail, "parts">): string {
+export function askName(ask: Ask, design: Pick<DesignDetail, "parts">): string {
   if (isLookAsk(ask)) return "Variant";
-  if (ask.scope === "part" && ask.part) return partLabel(mock, ask.part);
+  if (ask.scope === "part" && ask.part) return partLabel(design, ask.part);
   if (ask.scope === "state" && ask.state) return ask.state;
   return "Question";
 }
@@ -274,13 +318,13 @@ export interface MixOption {
 // What the user already chose, so Mix can never contradict it. A borrow brings
 // a part over whole, with every dimension its look varies on, so:
 // - an answered part ask decides its part;
-// - an answered mock- or state-wide ask whose pick sets a part knob
+// - an answered design- or state-wide ask whose pick sets a part knob
 //   ("notes.tone") decides that part, and a tuned part knob does too;
 // - picks or tuning on global knobs are no conflict: knobs apply to every look
 //   alike;
 // - an answer in words (a pick with no `set`, or an Other… write-in) may touch
 //   any part and the viewer cannot see which, so it closes Mix in its scope
-//   (every state for a mock-wide ask).
+//   (every state for a design-wide ask).
 // A decided part is never offered, and a borrow made before the choice is
 // dropped (`pruneMix`). The variant question is borrowing's own input and counts for nothing.
 export interface MixSettled {
@@ -301,7 +345,7 @@ export function mixSettled(
   }
   for (const ask of asks) {
     if (ask.options.some((o) => o.variant)) continue;
-    const state = ask.scope === "mock" ? null : (ask.state ?? null);
+    const state = ask.scope === "design" ? null : (ask.state ?? null);
     const said = answers[ask.id] !== undefined || others[ask.id] !== undefined;
     if (ask.scope === "part") {
       if (said && ask.part) out.decided.push({ part: ask.part, state });
@@ -382,18 +426,18 @@ function wrapsFrame(report: PartsReport, name: string): boolean {
 // restyle that keeps every box the same size is not seen as a difference, and
 // a frame that has not reported yet offers nothing until it does.
 export function mixOptions(
-  mock: Pick<MockDetail, "asks" | "states">,
+  design: Pick<DesignDetail, "asks" | "states">,
   variants: Pick<VariantView, "state" | "variant" | "status" | "parts">[],
   look: string | null,
   reportOf: (state: string | null, variant: string) => PartsReport | undefined,
   settled: MixSettled = { decided: [], closed: [] },
 ): MixOption[] {
-  const ask = lookAsk(mock);
+  const ask = lookAsk(design);
   if (!ask || !look) return [];
   const looks = ask.options.flatMap((o) => (o.variant ? [o.variant] : []));
   const out: MixOption[] = [];
   const seen = new Set<string>();
-  for (const state of mock.states.length ? mock.states : [null]) {
+  for (const state of design.states.length ? design.states : [null]) {
     const inState = variants.filter(
       (v) => v.state === state && isLive(v.status) && looks.includes(v.variant),
     );
@@ -446,12 +490,12 @@ function fmtValue(v: KnobValue): string {
 export function summarizeReply(
   reply: Pick<
     Reply,
-    "answers" | "borrowed" | "tuned" | "comments" | "text" | "verdict" | "others" | "notes"
+    "answers" | "borrowed" | "tuned" | "comments" | "text" | "verdict" | "others" | "askComments"
   >,
-  mock: Pick<MockDetail, "asks">,
+  design: Pick<DesignDetail, "asks">,
 ): string {
   const parts: string[] = [];
-  for (const ask of mock.asks) {
+  for (const ask of design.asks) {
     const answer = reply.answers[ask.id];
     const other = reply.others?.[ask.id];
     const said = [
@@ -459,10 +503,10 @@ export function summarizeReply(
       other !== undefined ? (other ? `“${other}”` : "an image") : "",
     ].filter(Boolean);
     if (said.length) parts.push(`${askTopic(ask)} ${said.join(" + ")}`);
-    else if (reply.notes?.[ask.id] !== undefined) parts.push(`${askTopic(ask)} noted`);
+    else if (reply.askComments?.[ask.id] !== undefined) parts.push(`${askTopic(ask)} noted`);
   }
   for (const [id, answer] of Object.entries(reply.answers)) {
-    if (!mock.asks.some((a) => a.id === id))
+    if (!design.asks.some((a) => a.id === id))
       parts.push(`${builtinTopic(id)} ${answerIds(answer).join(" + ")}`);
   }
   const borrowed = Object.entries(reply.borrowed).map(([part, v]) => `${part} from ${v}`);
@@ -484,7 +528,7 @@ export function summarizeReply(
 // and options still exist carry over; the rest are dropped and flagged.
 export function carryOver(
   draft: DraftInput,
-  mock: Pick<MockDetail, "asks" | "knobs">,
+  design: Pick<DesignDetail, "asks" | "knobs">,
   variants: Pick<VariantView, "variant" | "parts" | "knobs">[],
   toVersion: number,
 ): { draft: DraftInput; flagged: string[] } {
@@ -492,9 +536,11 @@ export function carryOver(
   const answers: Record<string, AskAnswer> = {};
   const flagged: string[] = [];
   const known = <T>(byAsk: Record<string, T>) =>
-    Object.fromEntries(Object.entries(byAsk).filter(([id]) => mock.asks.some((a) => a.id === id)));
+    Object.fromEntries(
+      Object.entries(byAsk).filter(([id]) => design.asks.some((a) => a.id === id)),
+    );
   for (const [id, answer] of Object.entries(draft.answers)) {
-    const ask = mock.asks.find((a) => a.id === id);
+    const ask = design.asks.find((a) => a.id === id);
     const ok =
       ask !== undefined &&
       answerIds(answer).every((oid) => {
@@ -509,15 +555,14 @@ export function carryOver(
     if (variants.some((v) => v.variant === variant && v.parts.includes(part))) mix[part] = variant;
   }
   const paths = new Set([
-    ...Object.keys(mock.knobs),
+    ...Object.keys(design.knobs),
     ...variants.flatMap((v) => Object.keys(v.knobs ?? {})),
   ]);
   const tuned: Record<string, KnobValue> = {};
   for (const [k, v] of Object.entries(draft.tuned)) if (paths.has(k)) tuned[k] = v;
-  const allParts = new Set(variants.flatMap((v) => v.parts));
-  const comments = draft.comments.filter(
-    (c) => (c.part === null || allParts.has(c.part)) && (!c.variant || names.has(c.variant)),
-  );
+  // Words the user wrote outlive the part or variant they were written on: the
+  // comment still names both, so it can go out with the Send rather than vanish.
+  const comments = draft.comments;
   return {
     draft: {
       version: toVersion,
@@ -526,9 +571,9 @@ export function carryOver(
       tuned,
       comments,
       others: known(draft.others),
-      notes: known(draft.notes),
+      askComments: known(draft.askComments),
       otherImages: known(draft.otherImages),
-      noteImages: known(draft.noteImages),
+      askCommentImages: known(draft.askCommentImages),
     },
     flagged,
   };
@@ -664,16 +709,16 @@ export function knobDefault(cfg: KnobConfig): KnobValue | undefined {
 // knob inheriting the global it refines), then what was already sent, then
 // answered knob-set options, then tuned values.
 export function draftKnobValues(
-  mock: Pick<MockDetail, "asks" | "knobs" | "settled">,
+  design: Pick<DesignDetail, "asks" | "knobs" | "settled">,
   variantKnobs: Knobs | undefined,
   draft: DraftInput | null,
 ): Record<string, KnobValue> {
   return resolveKnobs({
-    knobs: { ...mock.knobs, ...variantKnobs },
-    asks: mock.asks,
+    knobs: { ...design.knobs, ...variantKnobs },
+    asks: design.asks,
     answers: draft?.answers ?? {},
     tuned: draft?.tuned ?? {},
-    settled: mock.settled,
+    settled: design.settled,
   });
 }
 
@@ -684,6 +729,9 @@ export interface ThreadRow {
   quote?: string;
   delivered?: boolean;
   ownerGone?: boolean;
+  listening?: boolean;
+  // A move from Home or a close: the agent hears it in passing, with nothing to wake for.
+  inPassing?: boolean;
   id: string;
   // A reply's comments, each with where it was left ("title · At rest").
   comments?: { where: string; text: string }[];
@@ -693,8 +741,15 @@ export interface ThreadRow {
   images?: { ask: string; ids: string[] }[];
 }
 
-export const commentWhere = (c: Pick<PartComment, "part" | "state">): string =>
-  c.state ? `${c.part ?? "page"} · ${c.state}` : (c.part ?? "page");
+export const paragraphQuote = (text: string, max = 48): string =>
+  `“${text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text}”`;
+
+// What a comment is on: its part, the words of its paragraph, else the page.
+export const commentPlace = (c: Pick<PartComment, "part" | "anchor">): string =>
+  c.part ?? (c.anchor?.paragraph ? paragraphQuote(c.anchor.paragraph.text) : "page");
+
+export const commentWhere = (c: Pick<PartComment, "part" | "state" | "anchor">): string =>
+  c.state ? `${commentPlace(c)} · ${c.state}` : commentPlace(c);
 
 // The thread (D8): agent publishes (from version history) and the comment log,
 // oldest first. An agent's ask or reply right after a publish reads as one row:
@@ -703,7 +758,7 @@ export const commentWhere = (c: Pick<PartComment, "part" | "state">): string =>
 export function threadRows(
   comments: CommentRow[],
   variants: StepSource[],
-  mock: Pick<MockDetail, "asks">,
+  design: Pick<DesignDetail, "asks">,
 ): ThreadRow[] {
   const states = [...new Set(variants.map((v) => v.state))];
   type Event =
@@ -743,12 +798,12 @@ export function threadRows(
     const c = e.c;
     if (c.author === "user" || c.author === "surface") {
       const reply = c.kind === "reply" ? c.payload : undefined;
-      const text = reply?.closed
-        ? closedLine(reply.closed.dismissed.length)
+      const text = reply?.archived
+        ? archivedLine(reply.archived.dismissed.length)
         : reply?.edited
           ? editedLine(reply.edited)
           : reply
-            ? summarizeReply(reply, mock)
+            ? summarizeReply(reply, design)
             : c.text || "Sent";
       const row: ThreadRow = {
         who: "you",
@@ -756,6 +811,8 @@ export function threadRows(
         text,
         delivered: c.delivered,
         ...(c.ownerGone ? { ownerGone: true } : {}),
+        ...(c.listening ? { listening: true } : {}),
+        ...(reply?.archived || reply?.edited ? { inPassing: true } : {}),
         id: c.id,
       };
       if (reply?.comments.length) {
@@ -764,20 +821,20 @@ export function threadRows(
           text: commentText(x),
         }));
       }
-      const notes = Object.entries(reply?.notes ?? {}).filter(([, text]) => text);
+      const notes = Object.entries(reply?.askComments ?? {}).filter(([, text]) => text);
       if (notes.length) {
         row.notes = notes.map(([id, text]) => ({
-          ask: mock.asks.find((a) => a.id === id)?.text ?? id,
+          ask: design.asks.find((a) => a.id === id)?.text ?? id,
           text,
         }));
       }
       const attached = [
         ...Object.entries(reply?.otherImages ?? {}),
-        ...Object.entries(reply?.noteImages ?? {}),
+        ...Object.entries(reply?.askCommentImages ?? {}),
       ];
       if (attached.length) {
         row.images = attached.map(([id, ids]) => ({
-          ask: mock.asks.find((a) => a.id === id)?.text ?? id,
+          ask: design.asks.find((a) => a.id === id)?.text ?? id,
           ids,
         }));
       }
@@ -812,38 +869,40 @@ export function timeAgo(iso: string, now = Date.now()): string {
   return `${d} days ago`;
 }
 
-export const openAsks = (mock: Pick<MockDetail, "asks">): Ask[] =>
-  mock.asks.filter((a) => !askAnswered(a) && !a.dismissed);
+export const openAsks = (design: Pick<DesignDetail, "asks">): Ask[] =>
+  design.asks.filter((a) => !askAnswered(a) && !a.dismissed);
 
-// A resolution in the thread: what it closed.
-const KIND_NAMES: Record<MockKind, string> = {
-  page: "Pages",
+// An archive in the thread: what it left open.
+const KIND_NAMES: Record<DesignKind, string> = {
+  screen: "Screens",
   component: "Components",
-  sketch: "Sketches",
+  idea: "Ideas",
 };
 
-// A move made from Home, as the thread lists it.
-export const editedLine = (e: MockEdit): string =>
+// A move made from Home, the notes corrected by hand, or a grouping from when Studio
+// could make one, as the thread lists it.
+export const editedLine = (e: DesignEdit): string =>
   [
     e.kind ? `Moved to ${KIND_NAMES[e.kind]}` : "",
     e.area !== undefined ? (e.area ? `Area ${e.area}` : "No area") : "",
+    e.notes !== undefined ? (e.notes === null ? "Notes cleared" : "Notes edited") : "",
   ]
     .filter(Boolean)
     .join(" · ");
 
-export const closedLine = (dismissed: number): string =>
+export const archivedLine = (dismissed: number): string =>
   dismissed
-    ? `Closed · ${dismissed} ${dismissed === 1 ? "question" : "questions"} left unanswered`
-    : "Closed";
+    ? `Archived · ${dismissed} ${dismissed === 1 ? "question" : "questions"} left unanswered`
+    : "Archived";
 
 // A question the user still owes: open on the server and not answered in the
 // draft. A write-in with text or a note alone answers it.
-export const unanswered = (mock: MockLike, draft: DraftInput | null): Ask[] =>
-  openAsks(mock).filter(
+export const unanswered = (design: DesignLike, draft: DraftInput | null): Ask[] =>
+  openAsks(design).filter(
     (a) =>
       !answerIds(draft?.answers[a.id]).length &&
       draft?.others[a.id] === undefined &&
-      draft?.notes[a.id] === undefined,
+      draft?.askComments[a.id] === undefined,
   );
 
 // The box a part occupies in a frame's document: its deepest visible instance.
@@ -974,7 +1033,7 @@ export interface TuneComponent {
   paths: string[];
 }
 export function tuneComponents(
-  mock: Pick<MockDetail, "asks" | "parts">,
+  design: Pick<DesignDetail, "asks" | "parts">,
   knobs: Knobs,
   // Slot paths (a slot's knob is its part's name): tuned under that part.
   slots: string[] = [],
@@ -987,7 +1046,7 @@ export function tuneComponents(
     { part: null, label: "Whole design", paths: paths.filter((p) => partOf(p) === null) },
   ];
   const names: string[] = [];
-  for (const s of mock.parts)
+  for (const s of design.parts)
     for (const p of s.parts) if (!names.includes(p.name)) names.push(p.name);
   for (const p of paths) {
     const part = partOf(p);
@@ -998,26 +1057,26 @@ export function tuneComponents(
     const own = paths
       .filter((p) => partOf(p) === name)
       .sort((a, b) => Number(b === name) - Number(a === name));
-    const asked = mock.asks.some((a) => a.scope === "part" && a.part === name);
+    const asked = design.asks.some((a) => a.scope === "part" && a.part === name);
     if (own.length || asked || borrowable.includes(name))
-      out.push({ part: name, label: name, paths: own });
+      out.push({ part: name, label: partLabel(design, name), paths: own });
   }
   return out;
 }
 
 // Tiers, no modes: the Tune tab exists only when the agent gave it something.
-// Knobs count where the stage would show them (the mock's, or any variant's in
+// Knobs count where the stage would show them (the design's, or any variant's in
 // the state on stage, so hovering an option never blinks the tab); a marked
 // part (or a part ask) counts in any state, as Tune's selector walks parts
 // across states and each takes comments.
 export function tuneVisible(
-  mock: Pick<MockDetail, "knobs" | "parts" | "asks">,
+  design: Pick<DesignDetail, "knobs" | "parts" | "asks">,
   stateVariants: Pick<VariantView, "knobs">[],
 ): boolean {
-  if (Object.keys(mock.knobs).length) return true;
+  if (Object.keys(design.knobs).length) return true;
   if (stateVariants.some((v) => Object.keys(v.knobs ?? {}).length)) return true;
-  if (mock.asks.some((a) => a.scope === "part")) return true;
-  return mock.parts.some((p) => p.parts.length > 0);
+  if (design.asks.some((a) => a.scope === "part")) return true;
+  return design.parts.some((p) => p.parts.length > 0);
 }
 
 // Copy hands the agent what was tuned, one `path: value` per line.
@@ -1101,7 +1160,7 @@ export interface PinSpot {
   y: number;
 }
 
-// Pins that want the same spot (every mock- and state-wide question wants the
+// Pins that want the same spot (every design- and state-wide question wants the
 // frame's top-left corner; two asks can share a part) step right along the
 // row until they no longer touch.
 export function layoutPins(pins: PinSpot[], size = 22, gap = 6): PinSpot[] {
@@ -1179,7 +1238,8 @@ export function markPins(
   comments.forEach((c, index) => {
     if (!c.anchor) return;
     n++;
-    if (c.state !== state || !report) return;
+    // Its place is a block of a reading column (paragraphPins), no spot on a page.
+    if (c.state !== state || !report || c.anchor.paragraph) return;
     const p = anchorPoint(c, report);
     const w = c.anchor.width;
     const placedAt = w && Math.round(w) !== Math.round(report.width) ? w : null;
@@ -1192,7 +1252,169 @@ export function markPins(
 export const nextMark = (comments: PartComment[]): number =>
   comments.filter((c) => c.anchor).length + 1;
 
-// --- the decision flow: across mocks, review, keys and swipes ---
+// --- documents: written content read as a column ---
+
+// The text's measure; a diagram or a diff may run wider (`.reader-sf.wide`).
+export const READING_W = 720;
+const WRITTEN = new Set(["markdown", "mermaid", "code", "diff", "terminal", "json"]);
+// Pictures that run wider than the text, for what is drawn to its own width.
+const RUNS_WIDE = new Set(["mermaid", "diff", "image"]);
+export const runsWide = (kind: string): boolean => RUNS_WIDE.has(kind);
+
+// Written content with no width anyone is designing for. Pictures may sit in the
+// text, but a stack of nothing else is a picture, and html is a design, with its
+// parts, Try and Tune, however much prose it is stacked with.
+export function readsAsDocument(widths: readonly number[], kinds: readonly string[]): boolean {
+  return (
+    widths.length === 0 &&
+    kinds.some((k) => WRITTEN.has(k)) &&
+    kinds.every((k) => WRITTEN.has(k) || k === "image")
+  );
+}
+
+export interface ParagraphBlock {
+  index: number;
+  kind: string;
+  text: string;
+  box: { x: number; y: number; w: number; h: number };
+}
+export interface ParagraphPin {
+  // Numbered as mark pins are, across the whole draft.
+  n: number;
+  // In draft.comments.
+  index: number;
+  surface: number;
+  // The block it sits on, null when its paragraph has gone.
+  block: number | null;
+  y: number;
+  // Comments stacked on one block before this one, to step it aside.
+  step: number;
+  text: string;
+  quote: string;
+}
+
+// A paragraph is itself while its words are: places shift whenever one is added
+// above. Repeated words go to the nearest, its own surface first. An edit counts as
+// gone on purpose: the comment was about what those words said.
+export function findParagraph(
+  ref: { surface: number; index: number; text: string },
+  surfaces: readonly (readonly ParagraphBlock[] | undefined)[],
+): { surface: number; block: ParagraphBlock } | null {
+  const near = (i: number) => {
+    let best: ParagraphBlock | null = null;
+    for (const b of surfaces[i] ?? []) {
+      if (b.text !== ref.text) continue;
+      if (!best || Math.abs(b.index - ref.index) < Math.abs(best.index - ref.index)) best = b;
+    }
+    return best;
+  };
+  const own = near(ref.surface);
+  if (own) return { surface: ref.surface, block: own };
+  for (let i = 0; i < surfaces.length; i++) {
+    const b = near(i);
+    if (b) return { surface: i, block: b };
+  }
+  return null;
+}
+
+// The comments on paragraphs of what is on screen. Only called gone once every
+// surface has reported: a frame still loading hasn't lost anything.
+export function paragraphPins(
+  comments: readonly PartComment[],
+  at: { state: string | null; variant: string | null },
+  surfaces: readonly (readonly ParagraphBlock[] | undefined)[],
+): ParagraphPin[] {
+  const out: ParagraphPin[] = [];
+  const stacked = new Map<string, number>();
+  const reported = surfaces.every(Boolean);
+  let n = 0;
+  comments.forEach((c, index) => {
+    if (!c.anchor) return;
+    n++;
+    const ref = c.anchor.paragraph;
+    if (!ref || c.state !== at.state || (c.variant && c.variant !== at.variant)) return;
+    const hit = findParagraph(ref, surfaces);
+    if (!hit && !reported) return;
+    const surface = hit ? hit.surface : Math.max(0, Math.min(ref.surface, surfaces.length - 1));
+    const blockAt = hit?.block.index ?? null;
+    const spot = `${surface}:${blockAt ?? `gone${index}`}`;
+    const step = stacked.get(spot) ?? 0;
+    stacked.set(spot, step + 1);
+    out.push({
+      n,
+      index,
+      surface,
+      block: blockAt,
+      // Gone, it stays near where it was.
+      y: hit ? hit.block.box.y : (c.anchor.box?.[1] ?? 0),
+      step,
+      text: c.text,
+      quote: ref.text,
+    });
+  });
+  return out;
+}
+
+// --- the wall: a lab too big to compare side by side ---
+
+// More canvas pages live than this and a browser drops the oldest one's WebGL
+// context; one past the budget waits as a placeholder until it is pointed at.
+// Any other page has no such limit and is live whenever it is near the screen, except
+// on a wall or a grid, where a screenful of pages costs as much with no canvas at all.
+export const CANVAS_MAX = 16;
+// Frames that left the screen but stay loaded, so coming back to them costs nothing.
+// Enough for the screenful just left and most of the one before: a wall screen is about
+// 16 cards. Each holds a document's memory while it waits, so this is not the budget's
+// size again and again.
+export const KEPT_MAX = 24;
+// Who stays loaded once `now` is what's live: those that just stopped being live, most
+// recent first, then those already waiting. A hidden canvas still holds a context, which
+// the browser will take back past its limit, so canvases share CANVAS_MAX with the live
+// ones, and the live ones come first.
+export function nextKept(
+  kept: readonly string[],
+  was: ReadonlySet<string>,
+  now: ReadonlySet<string>,
+  isCanvas: (key: string) => boolean,
+): string[] {
+  let canvases = [...now].filter(isCanvas).length;
+  const out: string[] = [];
+  for (const key of new Set([...[...was].reverse(), ...kept])) {
+    if (now.has(key) || out.length >= KEPT_MAX) continue;
+    if (isCanvas(key)) {
+      if (canvases >= CANVAS_MAX) continue;
+      canvases++;
+    }
+    out.push(key);
+  }
+  return out;
+}
+
+// ia.md's "Inside a design": 2 to 6 variants switch, 7 to 50 compare first (Studio),
+// 50+ filter. Counted across every state and archived too: pruning a lab mustn't
+// change the layout under the hand doing it, and a lab with everything archived is
+// still a lot to look through. On the real data: concept-lab 108, onni-lab 99, onni
+// 85; the next is visions at 30, which stays Studio.
+export const WALL_FROM = 50;
+// The preview needs a pointer to aim with and room to stand beside the grid; anything
+// else goes from the wall to one large design, a swipe apart.
+export const WALL_PREVIEW_MIN_W = 1000;
+// Sized so about a screenful stays within the live-frame budget: 6 columns of tall
+// phone cards by 3 rows, or 3 columns of wide ones by 5.
+export const wallCard = (designW: number): { min: number; art: string } =>
+  designW <= 600 ? { min: 132, art: "3 / 5" } : { min: 240, art: "4 / 3" };
+// Beside the wall: enough for a phone page near true size, and a wide page gets more
+// of the window because it needs it.
+export const wallPreviewW = (designW: number, winW: number): number =>
+  designW <= 600
+    ? Math.max(380, Math.min(560, Math.round(winW * 0.36)))
+    : Math.max(440, Math.min(860, Math.round(winW * 0.46)));
+
+// Accents and case don't count, as in the jump search.
+export const foldText = (s: string): string =>
+  s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+
+// --- the decision flow: across designs, review, keys and swipes ---
 
 export interface AreaGroup<T> {
   // null: the rows no area claims, shown last under no heading.
@@ -1235,29 +1457,59 @@ export function groupByArea<T>(
   return rest.length ? [...groups, { area: null, rows: rest }] : groups;
 }
 
-// Where a mock stands, read off what mockpit already holds, for its card on
+// Where a design stands, read off what mockpit already holds, for its card on
 // Home; null says nothing worth a word (one variant, nothing asked or chosen).
-// A resolved mock gets none: Home fades it instead.
-export type MockStatus =
+// A resolved design gets none: Home fades it instead.
+export type DesignStatus =
   | { kind: "open"; n: number }
+  | { kind: "draft" }
   | { kind: "changed" }
+  | { kind: "unseen" }
+  | { kind: "working" }
   | { kind: "decided" }
+  | { kind: "sent" }
   | { kind: "exploring" };
 
-export function mockStatus(
-  node: Pick<TreeNode, "open" | "states" | "variants" | "inUse" | "closedAt">,
-): MockStatus | null {
-  if (node.closedAt) return null;
+// How long after the agent's last call of its own "working" can still be said. A
+// guess at how long a design takes between calls: past it the word gets weaker, and
+// an agent still busy is under-reported, never the reverse.
+export const WORKING_MS = 5 * 60_000;
+
+export function activeLabel(at: string, now: number): string {
+  const mins = Math.floor((now - Date.parse(at)) / 60_000);
+  if (mins < 1) return "active now";
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  return hours < 24 ? `${hours} h ago` : `${Math.floor(hours / 24)} d ago`;
+}
+
+export const stillWorking = (calledAt: string | undefined, now: number): boolean =>
+  !!calledAt && now - Date.parse(calledAt) < WORKING_MS;
+
+export type StatusNode = Pick<
+  TreeNode,
+  "open" | "states" | "inUse" | "archivedAt" | "lastReplyAt" | "drafting" | "lastSend"
+> & {
+  variants: Pick<TreeNode["variants"][number], "state" | "status" | "updatedAt" | "changedTo">[];
+};
+
+export function designStatus(node: StatusNode, now: number): DesignStatus | null {
+  if (node.archivedAt) return null;
   if (node.open > 0) return { kind: "open", n: node.open };
-  // A variant in use at an older version than its latest: the agent moved on
-  // from what the user chose, and the choice wants a look again.
-  const changed = node.variants.some(
-    (v) => v.status === "inUse" && v.inUseVersion !== undefined && v.version > v.inUseVersion,
-  );
-  if (changed) return { kind: "changed" };
-  if (node.states.every((st) => node.inUse.some((u) => u.state === st))) {
+  if (node.drafting) return { kind: "draft" };
+  // The agent moved on from what the user chose, and they haven't said whether to
+  // take the new one or stay.
+  if (node.variants.some((v) => v.changedTo !== undefined)) return { kind: "changed" };
+  // Ahead of In use: a Use this the agent hasn't heard is still on its way.
+  if (node.lastSend && !node.lastSend.delivered) return { kind: "unseen" };
+  // The user spoke last and nothing has been published since: the agent's turn.
+  const reply = node.lastReplyAt;
+  const quiet = !!reply && node.variants.every((v) => v.updatedAt < reply);
+  if (quiet && stillWorking(node.lastSend?.calledAt, now)) return { kind: "working" };
+  if (node.inUse.length && node.states.every((st) => node.inUse.some((u) => u.state === st))) {
     return { kind: "decided" };
   }
+  if (quiet) return { kind: "sent" };
   // Several designs of one screen still in play.
   const live = node.variants.filter((v) => isLive(v.status));
   if (node.states.some((st) => live.filter((v) => v.state === st).length > 1)) {
@@ -1266,7 +1518,11 @@ export function mockStatus(
   return null;
 }
 
-// How far a mock has come, as one number: every variant's version summed, so
+// Everything archived and no question waiting: nothing to look at on Home.
+export const nothingLeft = (node: Pick<TreeNode, "open" | "variants">): boolean =>
+  node.open === 0 && !node.variants.some((v) => isLive(v.status));
+
+// How far a design has come, as one number: every variant's version summed, so
 // any publish (a new version or a new variant) raises it. Home's "new" dot
 // compares it against the last one this browser opened.
 export const versionStamp = (variants: { version: number }[]): number =>
@@ -1284,28 +1540,30 @@ export function flowArea(
   steps: FlowStep[],
   areaOf: (slug: string) => string | null | undefined,
 ): string | null {
-  const areas = new Set(steps.map((x) => areaOf(x.mock) ?? null));
+  const areas = new Set(steps.map((x) => areaOf(x.design) ?? null));
   const [only] = areas;
   return areas.size === 1 ? (only ?? null) : null;
 }
 
-type QueueMock = { slug: string; open: number; createdAt: string };
+type QueueDesign = { slug: string; open: number; createdAt: string };
 
-// An agent publishes mocks in the order it wants them answered, so the queue
-// runs oldest first. Most recently updated would put the last mock asked on
+// An agent publishes designs in the order it wants them answered, so the queue
+// runs oldest first. Most recently updated would put the last design asked on
 // first: the reverse of the agent's plan.
-export const queueOrder = <T extends QueueMock>(mocks: T[]): T[] =>
-  [...mocks].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.slug.localeCompare(b.slug));
+export const queueOrder = <T extends QueueDesign>(designs: T[]): T[] =>
+  [...designs].sort(
+    (a, b) => a.createdAt.localeCompare(b.createdAt) || a.slug.localeCompare(b.slug),
+  );
 
-// The next mock that still owes answers after `current` in queue order (or
+// The next design that still owes answers after `current` in queue order (or
 // before it, for `dir` -1), wrapping around; never `current` itself. With no
-// current mock (Home), the first one owed.
-export function nextOwedMock<T extends QueueMock>(
-  mocks: T[],
+// current design (Home), the first one owed.
+export function nextOwedDesign<T extends QueueDesign>(
+  designs: T[],
   current: string | null,
   dir: 1 | -1 = 1,
 ): T | null {
-  const order = queueOrder(mocks);
+  const order = queueOrder(designs);
   const at = current === null ? -1 : order.findIndex((m) => m.slug === current);
   const n = order.length;
   for (let k = 1; k <= n; k++) {
@@ -1320,11 +1578,10 @@ export type FlowKey =
   | { kind: "pick"; n: number }
   | { kind: "step"; by: 1 | -1 }
   | { kind: "primary" }
-  | { kind: "mock"; by: 1 | -1 }
-  | { kind: "situation"; by: 1 | -1 }
+  | { kind: "design"; by: 1 | -1 }
   | { kind: "clear" };
 
-// What a key does on the mock screen, or null when it isn't ours. Keys typed
+// What a key does on the design screen, or null when it isn't ours. Keys typed
 // into a field stay the field's; Enter on a focused button stays the button's
 // (its own click); a chord with ⌘/Ctrl/Alt belongs to the browser.
 export function flowKey(e: {
@@ -1342,14 +1599,10 @@ export function flowKey(e: {
       return { kind: "step", by: 1 };
     case "ArrowLeft":
       return { kind: "step", by: -1 };
-    case "ArrowDown":
-      return e.onControl ? null : { kind: "situation", by: 1 };
-    case "ArrowUp":
-      return e.onControl ? null : { kind: "situation", by: -1 };
     case "]":
-      return { kind: "mock", by: 1 };
+      return { kind: "design", by: 1 };
     case "[":
-      return { kind: "mock", by: -1 };
+      return { kind: "design", by: -1 };
     case "Escape":
       return { kind: "clear" };
     case "Enter":
@@ -1362,7 +1615,11 @@ export function flowKey(e: {
 
 // The widths a design is judged at. Desktop is the stage's historical width and
 // what every thumbnail renders at; the others are the devices the viewer itself
-// is checked on, so a mock can be read at the width it will ship to.
+// is checked on, so a design can be read at the width it will ship to.
+// The design's own widths when it names them; else the ones the viewer offers.
+export const widthChoices = (declared: readonly number[]): readonly number[] =>
+  declared.length ? declared : DEVICE_WIDTHS.map((d) => d.w);
+
 export const DEVICE_WIDTHS = [
   { label: "Phone", w: 390 },
   { label: "Tablet", w: 744 },
@@ -1373,7 +1630,7 @@ export const DESKTOP_W = 820;
 const PHONE_MAX = 600;
 const TABLET_MAX = 900;
 
-// A touch screen opens a mock at the device width it can show at true size
+// A touch screen opens a design at the device width it can show at true size
 // (a phone at Phone, an iPad mini portrait at Tablet); a mouse at desktop width.
 export const defaultDeviceWidth = (winW: number, coarse: boolean): number => {
   if (!coarse || winW > TABLET_MAX) return DESKTOP_W;
@@ -1391,7 +1648,7 @@ export function overflowWidth(frameW: number, r: PartsReport | undefined): numbe
 }
 
 // A width remembered in storage counts only if it is still one we offer, or
-// one the mock itself asks to be judged at.
+// one the design itself asks to be judged at.
 export function readDeviceWidth(raw: string | null, declared: number[] = []): number | null {
   const n = Number(raw);
   return DEVICE_WIDTHS.some((d) => d.w === n) || declared.includes(n) ? n : null;
@@ -1415,29 +1672,71 @@ export const widthLabel = (w: number): string => {
   return d ? d.label : `${w}`;
 };
 
-// Every width on the canvas in the mock's order, the live one in its place
-// (or first, when the user picked one the mock does not name). "All widths"
-// on a mock that names none lays out the viewer's own; a phone shows one page.
+// Every width on the canvas in the design's order, the live one in its place
+// (or first, when the user picked one the design does not name). Only "All widths"
+// spreads them: a width picked alone is the only one drawn, since the rest were
+// clipped at the canvas's edge and read as if the pick hadn't taken. "All widths"
+// on a design that names none lays out the viewer's own; a phone shows one page.
 export function boardWidths(
   named: readonly number[],
   frameW: number,
-  zoom: Zoom,
+  all: boolean,
   phone: boolean,
 ): number[] {
-  const declared = phone
-    ? []
-    : named.length || zoom !== "all"
-      ? [...named]
-      : DEVICE_WIDTHS.map((d) => d.w);
+  const declared = phone || !all ? [] : named.length ? [...named] : DEVICE_WIDTHS.map((d) => d.w);
   return declared.includes(frameW) ? declared : [frameW, ...declared];
+}
+
+// The canvas, in screen px: a margin round the artboards, and the space between
+// them (scaled with them).
+export const BOARD_PAD = 16;
+export const BOARD_GAP = 64;
+
+// --- the open screen's margins ---
+
+export const LEFT_MARGIN_W = 184;
+export const RIGHT_MARGIN_W = 320;
+// The tool strip: 50 wide, 8 off the canvas's edge at its furthest. The canvas's own
+// pad is the gap between it and the design.
+export const TOOL_BAND_W = 58;
+// The neighbouring steps beside the canvas, and the room they take.
+export const GHOST_W = 112;
+// Below this the design is shrunk too far to judge, so a margin gives up its
+// place and becomes a tab. The audit measured today's card leaving a 1280 page
+// at 50%, and 80% with it hidden: docking must never cost more than that.
+export const MARGIN_MIN_SCALE = 0.8;
+
+// What the design's width leaves room for, at this window. The right margin goes
+// last, since it holds the question being answered. Across only: the height fit
+// doesn't change with the margins, so it can't decide them.
+//
+//   1280 design, window 1280: both 53.6%, right only 68.0%, left only 78.6%,
+//     neither 93.0% (then the height fit: 87.3% at 800 tall, a long page).
+//   1280 design, window 1440: both 66.1%, right only 80.5%, neither 100%.
+export function marginLayout(o: {
+  winW: number;
+  // The live artboard, or the whole row of them under "All widths".
+  designW: number;
+  tools: boolean;
+  left: boolean;
+  right: boolean;
+}): { left: boolean; right: boolean } {
+  const room = o.winW - (o.tools ? TOOL_BAND_W : 0) - 2 * BOARD_PAD;
+  const fits = (left: boolean, right: boolean) =>
+    (room - (left ? LEFT_MARGIN_W : 0) - (right ? RIGHT_MARGIN_W : 0)) / o.designW >=
+    MARGIN_MIN_SCALE;
+  if (o.left && o.right && fits(true, true)) return { left: true, right: true };
+  if (o.right && fits(false, true)) return { left: false, right: true };
+  if (o.left && fits(true, false)) return { left: true, right: false };
+  return { left: false, right: false };
 }
 
 // Inspect zooms between fitting the screen and twice the design's size; the
 // canvas also zooms out to "all", every width side by side.
 export type Zoom = "fit" | "all" | number;
 export const MAX_ZOOM = 2;
-export const clampZoom = (z: number, fit: number): number =>
-  Math.max(Math.min(fit, 1), Math.min(MAX_ZOOM, Number.isFinite(z) ? z : fit));
+export const clampZoom = (z: number, fit: number, max = MAX_ZOOM): number =>
+  Math.max(Math.min(fit, 1), Math.min(max, Number.isFinite(z) ? z : fit));
 
 // Keeps the point under the pinch's midpoint still while the scale changes:
 // `scroll` and `mid` are in the scroller's px at scale z0, the result at z1.
@@ -1467,6 +1766,8 @@ export interface VersionStep extends VersionRef {
   kinds: string[];
   // The still of this version's page, which overviews show instead of it.
   poster?: string;
+  // The page draws on a canvas, so its live frame counts against the WebGL budget.
+  canvas?: boolean;
   forkedFrom?: VersionRef;
   rewrites?: number;
 }
@@ -1488,6 +1789,18 @@ const posterOfSurfaces = (surfaces: readonly object[]) => {
   const page = surfaces.find((s) => "kind" in s && s.kind === "html");
   return page && "poster" in page && typeof page.poster === "string" ? { poster: page.poster } : {};
 };
+
+// The previous object for whatever a refetch returned unchanged: <For> keeps a
+// row by identity, so a fresh copy would rebuild its card and restart its frame.
+export function keepSame<T>(was: readonly T[], next: readonly T[], key: (x: T) => string): T[] {
+  const old = new Map(was.map((x) => [key(x), x]));
+  return next.map((x) => {
+    const prior = old.get(key(x));
+    return prior !== undefined && JSON.stringify(prior) === JSON.stringify(x) ? prior : x;
+  });
+}
+
+export const stepKey = (x: VersionRef): string => `${x.variant}@${x.version}`;
 
 export function versionSteps(variants: StepSource[], state: string | null): VersionStep[] {
   const rows = variants
@@ -1515,6 +1828,7 @@ export function versionSteps(variants: StepSource[], state: string | null): Vers
           hidden: "hidden" in h && h.hidden === true,
           kinds: h.surfaceKinds as string[],
           ...("poster" in h && typeof h.poster === "string" ? { poster: h.poster } : {}),
+          ...("canvas" in h && h.canvas === true ? { canvas: true } : {}),
           ...(v.forkedFrom ? { forkedFrom: v.forkedFrom } : {}),
           ...(v.rewrites ? { rewrites: v.rewrites } : {}),
         },
@@ -1529,15 +1843,24 @@ export function versionSteps(variants: StepSource[], state: string | null): Vers
 
 // A version as the user reads it: the agent's own number, so "Dark #2" is the
 // agent's dark@2, with the variant's name in front when its state has others.
+export const variantName = (variant: string): string =>
+  `${variant.charAt(0).toUpperCase()}${variant.slice(1)}`;
+
 export const versionName = (ref: VersionRef, named: boolean): string =>
-  named
-    ? `${ref.variant.charAt(0).toUpperCase()}${ref.variant.slice(1)} #${ref.version}`
-    : `#${ref.version}`;
+  named ? `${variantName(ref.variant)} #${ref.version}` : `#${ref.version}`;
 
 export const stepFor = (steps: VersionStep[], ref: VersionRef | null | undefined) =>
   ref ? steps.find((x) => sameVersion(x, ref)) : undefined;
 
 // The next or previous version to show from `ref`, passing over hidden ones.
+// The Versions list, one line per variant with the newest on top, from its far end:
+// so the arrows go up and down the list you can see, not across variants by date.
+export function listedSteps(steps: VersionStep[]): VersionStep[] {
+  const newest = [...steps].reverse();
+  const lines = [...new Set(newest.map((x) => x.variant))];
+  return lines.flatMap((v) => newest.filter((x) => x.variant === v)).reverse();
+}
+
 export function neighbourStep(
   steps: VersionStep[],
   ref: VersionRef | null,
@@ -1623,7 +1946,7 @@ export function flowFor<F extends { name: string; steps: FlowStep[] }>(
 }
 
 // Where a design's data-goto points: "next" / "prev" along the steps, else
-// "<mock>:<state>" (or a bare "<mock>", its first state) of this project.
+// "<design>:<state>" (or a bare "<design>", its first state) of this project.
 // Anything else, a URL included, points nowhere.
 export function gotoTarget(
   to: string,
@@ -1634,15 +1957,15 @@ export function gotoTarget(
   const word = to.trim();
   if (word === "next" || word === "prev") return steps[at + (word === "next" ? 1 : -1)] ?? null;
   const colon = word.indexOf(":");
-  const mock = (colon < 0 ? word : word.slice(0, colon)).trim();
-  const states = mock ? statesOf(mock) : undefined;
+  const design = (colon < 0 ? word : word.slice(0, colon)).trim();
+  const states = design ? statesOf(design) : undefined;
   if (!states?.length) return null;
-  if (colon < 0) return { mock, state: states[0] };
+  if (colon < 0) return { design, state: states[0] };
   const state = word.slice(colon + 1).trim();
-  return states.includes(state) ? { mock, state } : null;
+  return states.includes(state) ? { design, state } : null;
 }
 
-// The width a mock is designed at: its first declared one, else a desktop's.
+// The width a design is designed at: its first declared one, else a desktop's.
 export const designWidth = (node: Pick<TreeNode, "widths">): number => node.widths[0] ?? 1280;
 
 export interface ScreenPicture {
@@ -1655,25 +1978,25 @@ export interface ScreenPicture {
   rewrites?: number;
 }
 
-// What a screen (one state of a mock) looks like now: the version in use, else
-// its newest live version, else its newest of any; null when it has nothing
-// that renders as a picture.
+// What a screen (one state of a design) looks like now: what's in use, else what the
+// agent recommends, else the first still live, else the first of any; null when it has
+// nothing that renders as a picture. Parallel variants have no "newest": they arrive
+// within minutes of each other, so the last to land says nothing. Inside one variant
+// the newest does win, unless it was hidden.
 export function screenPicture(
-  node: Pick<TreeNode, "inUse" | "variants">,
+  node: Pick<TreeNode, "inUse" | "variants"> & { recommended?: TreeNode["recommended"] },
   state: string | null,
 ): ScreenPicture | null {
   const inState = node.variants.filter((v) => v.state === state);
   const use = node.inUse.find((u) => u.state === state);
   const used = use && inState.find((v) => v.variant === use.variant);
-  const newest = (vs: typeof inState) =>
-    vs.reduce<(typeof inState)[number] | undefined>(
-      (a, b) => (!a || b.updatedAt > a.updatedAt ? b : a),
-      undefined,
-    );
-  const v = used ?? newest(inState.filter((x) => isLive(x.status))) ?? newest(inState);
+  const live = inState.filter((x) => isLive(x.status));
+  const recommended = node.recommended?.find((r) => r.state === state)?.variant;
+  const v = used ?? live.find((x) => x.variant === recommended) ?? live[0] ?? inState[0];
   if (!v || v.surface < 0) return null;
-  const version = used && use ? use.version : v.version;
-  const poster = version === v.version ? v.poster : v.inUsePoster;
+  const version = used && use ? use.version : (v.coverVersion ?? v.version);
+  const poster =
+    version === v.version ? v.poster : version === v.coverVersion ? v.coverPoster : v.inUsePoster;
   return {
     postId: v.postId,
     surface: v.surface,
@@ -1683,4 +2006,110 @@ export function screenPicture(
     ...(v.rewrites ? { rewrites: v.rewrites } : {}),
     inUse: !!used,
   };
+}
+
+// --- what a declared screen doesn't have yet ---
+
+// The standard states a screen is expected to have, and what already counts as each:
+// an agent that drew "Error" or "No results" has drawn it, whatever it called it.
+const STANDARD_STATES: { name: string; covered: RegExp }[] = [
+  { name: "Empty", covered: /\b(empty|blank|no (results|data|items))\b/i },
+  { name: "Loading", covered: /\b(loading|skeleton)\b/i },
+  { name: "Failed", covered: /\b(fail(ed|ure)?|errors?|offline|couldn.t)\b/i },
+];
+
+export interface StateOutlineRow {
+  name: string;
+  // Already asked for: it waits on the agent, not on the user.
+  requested: boolean;
+}
+
+// Only on a screen with a drawn design: on an idea, a document or a component these would
+// be noise, and on a plan the whole screen is the outline. Once per screen, not per
+// state: seven states times three would be twenty-one frames of nothing.
+// Only a declared screen with a design drawn: an idea, a document or a component owes
+// nobody an empty state.
+export const canOutline = (
+  design: Pick<DesignDetail, "kind" | "archivedAt">,
+  variants: { surfaces: { kind?: unknown }[] }[],
+): boolean =>
+  design.kind === "screen" &&
+  !design.archivedAt &&
+  variants.some((v) => v.surfaces.some((x) => x.kind === "html"));
+
+export function missingStates(
+  design: Pick<DesignDetail, "kind" | "states" | "archivedAt" | "stateOutlines">,
+  variants: { surfaces: { kind?: unknown }[] }[],
+): StateOutlineRow[] {
+  if (!canOutline(design, variants)) return [];
+  const said = design.stateOutlines ?? {};
+  const has = (name: string) =>
+    design.states.some((st) => st.toLowerCase().includes(name.toLowerCase()));
+  const standard = STANDARD_STATES.filter(
+    (x) => said[x.name] !== "dismissed" && !design.states.some((st) => x.covered.test(st)),
+  ).map((x) => ({ name: x.name, requested: said[x.name] === "requested" }));
+  const asked = Object.entries(said)
+    .filter(
+      ([name, to]) =>
+        to === "requested" && !STANDARD_STATES.some((x) => x.name === name) && !has(name),
+    )
+    .map(([name]) => ({ name, requested: true }));
+  return [...standard, ...asked];
+}
+
+// --- the grid of variants and states ---
+
+const liveNames = (variants: Pick<VariantView, "variant" | "state" | "status">[]) => {
+  const out = new Map<string, Set<string | null>>();
+  for (const v of variants) {
+    if (!isLive(v.status)) continue;
+    const states = out.get(v.variant) ?? new Set();
+    states.add(v.state);
+    out.set(v.variant, states);
+  }
+  return out;
+};
+
+// Several variants, and at least one of them drawn in more than one state: the same set
+// across states, which reads whole only as a grid. 23 of the 48 multi-state designs on the
+// real data. A lone name repeated across states is just a list of states.
+export function repeatsAcrossStates(
+  variants: Pick<VariantView, "variant" | "state" | "status">[],
+): boolean {
+  const names = liveNames(variants);
+  return names.size > 1 && [...names.values()].some((states) => states.size > 1);
+}
+
+// A component's variants are its forms, all kept, so they're compared in a grid even
+// with one state.
+export const gridComparesForms = (
+  kind: string,
+  variants: Pick<VariantView, "variant" | "state" | "status">[],
+): boolean => kind === "component" && liveNames(variants).size > 1;
+
+// Rows and columns: every name still in play, in the order they were made, against every
+// state that has one or hasn't been drawn yet, so a whole missing state shows too. A
+// state with everything archived has left the tabs and leaves here.
+export function gridAxes(
+  states: (string | null)[],
+  variants: Pick<VariantView, "variant" | "state" | "status">[],
+): { rows: string[]; cols: (string | null)[] } {
+  const names = liveNames(variants);
+  return {
+    rows: [...names.keys()],
+    cols: states.filter(
+      (st) =>
+        !variants.some((v) => v.state === st) ||
+        variants.some((v) => v.state === st && isLive(v.status)),
+    ),
+  };
+}
+
+// "Clay: linen, terracotta and pine" reads as a name and what it is: the name alone
+// where room is short, the rest on a line of its own under it.
+export function splitLabel(label: string): { name: string; sub?: string } {
+  const at = label.indexOf(": ");
+  if (at < 1 || at > 32) return { name: label };
+  const sub = label.slice(at + 2).trim();
+  return sub ? { name: label.slice(0, at), sub } : { name: label };
 }

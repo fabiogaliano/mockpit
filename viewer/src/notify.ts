@@ -1,6 +1,6 @@
 // Browser notifications while a viewer tab is open (no service worker, no Web
 // Push): the bell's state, the permission request behind it, and the feed
-// listener that raises one Notification per mock when the user is elsewhere.
+// listener that raises one Notification per design when the user is elsewhere.
 
 import { createEffect, createSignal, onCleanup } from "solid-js";
 import { api, subscribe } from "./api.ts";
@@ -18,7 +18,7 @@ import {
   notificationText,
   parseBellPref,
 } from "./notifyRules.ts";
-import { mockPath, navigate } from "./route.ts";
+import { designPath, navigate } from "./route.ts";
 
 const KEY = "mockpit-notify";
 
@@ -63,31 +63,31 @@ export async function toggleBell() {
 
 const userAway = () => away(root().visibilityState, root().hasFocus());
 
-async function deliver(mockId: string, items: Candidate[]) {
+async function deliver(designId: string, items: Candidate[]) {
   const N = ctor();
   if (!N || bell() !== "on" || !userAway()) return;
   const seqs = items.flatMap((c) => (c.source === "comment" ? [c.seq] : []));
   const fetched = await Promise.all([
-    api.mockHead(mockId),
-    seqs.length ? api.comments(mockId, Math.min(...seqs) - 1) : null,
+    api.designHead(designId),
+    seqs.length ? api.comments(designId, Math.min(...seqs) - 1) : null,
   ]).catch(() => null);
-  // The mock was deleted or the server is gone; nothing worth saying.
+  // The design was deleted or the server is gone; nothing worth saying.
   if (!fetched) return;
-  const [mock, thread] = fetched;
+  const [design, thread] = fetched;
   const notices = items.flatMap((c): Notice[] => {
     if (c.source === "comment") {
       const row = thread?.comments.find((r) => r.id === c.commentId);
       const n = row ? noticeFromComment(row) : null;
       return n ? [n] : [];
     }
-    const v = mock.variants.find((x) => x.postId === c.postId);
-    return v ? [noticeFromVariant(mock.title, v, c.version, mock.variants)] : [];
+    const v = design.variants.find((x) => x.postId === c.postId);
+    return v ? [noticeFromVariant(design.title, v, c.version, design.variants)] : [];
   });
   const notice = mergeNotices(notices);
   // Re-checked after the fetch: the user may have come back meanwhile.
   if (!notice || bell() !== "on" || !userAway()) return;
-  const text = notificationText(mock, notice);
-  const path = mockPath(mock.project, mock.slug);
+  const text = notificationText(design, notice);
+  const path = designPath(design.project, design.slug);
   const n = new N(text.title, { body: text.body, tag: text.tag });
   n.onclick = () => {
     host().window.focus();
@@ -110,13 +110,13 @@ export function startNotifier() {
 
   createEffect(() => {
     if (bell() !== "on") return;
-    const batch = createBatcher<Candidate>((mockId, items) => void deliver(mockId, items), {
+    const batch = createBatcher<Candidate>((designId, items) => void deliver(designId, items), {
       set: (fn, ms) => win.setTimeout(fn, ms),
       clear: (id) => win.clearTimeout(id),
     });
     const stop = subscribe((e) => {
       const c = candidateFor(e);
-      if (c && userAway()) batch.add(c.mockId, c, Date.now());
+      if (c && userAway()) batch.add(c.designId, c, Date.now());
     });
     onCleanup(() => {
       stop();

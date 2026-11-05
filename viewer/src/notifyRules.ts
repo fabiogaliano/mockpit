@@ -1,5 +1,5 @@
 // Browser notifications, the pure half: which feed events mean "the agent wants
-// you", what the notification says, and how a burst folds into one per mock.
+// you", what the notification says, and how a burst folds into one per design.
 // notify.ts owns the permission, the timers and the Notification itself.
 
 import type { CommentRow, FeedEvent, VariantView } from "./api.ts";
@@ -27,17 +27,19 @@ export const away = (visibility: DocumentVisibilityState, focused: boolean): boo
 // notification. Comments are decided on their row (author, kind); the event
 // alone can't tell an agent's comment from the user's Send.
 export type Candidate =
-  | { mockId: string; source: "comment"; commentId: string; seq: number }
-  | { mockId: string; source: "post"; postId: string; version: number };
+  | { designId: string; source: "comment"; commentId: string; seq: number }
+  | { designId: string; source: "post"; postId: string; version: number };
 
 export function candidateFor(e: FeedEvent): Candidate | null {
   switch (e.type) {
     case "comment-created":
-      return e.mockId ? { mockId: e.mockId, source: "comment", commentId: e.id, seq: e.seq } : null;
+      return e.designId
+        ? { designId: e.designId, source: "comment", commentId: e.id, seq: e.seq }
+        : null;
     case "post-created":
     case "post-updated":
       return e.by === "agent"
-        ? { mockId: e.mockId, source: "post", postId: e.id, version: e.version }
+        ? { designId: e.designId, source: "post", postId: e.id, version: e.version }
         : null;
     default:
       return null;
@@ -65,14 +67,14 @@ export function noticeFromComment(row: CommentRow): Notice | null {
 
 // Named as the version bar names it: "New version of Writer: Writing, Dark #3".
 export function noticeFromVariant(
-  mockTitle: string,
+  designTitle: string,
   v: VariantView,
   version: number,
   variants: Pick<VariantView, "state">[],
 ): Notice {
   const named = variants.filter((x) => x.state === v.state).length > 1;
   const where = [v.state, versionName({ variant: v.variant, version }, named)].filter(Boolean);
-  return { kind: "version", text: `New version of ${mockTitle}: ${where.join(", ")}` };
+  return { kind: "version", text: `New version of ${designTitle}: ${where.join(", ")}` };
 }
 
 // The loudest thing in a burst speaks for it: a question outranks a reply,
@@ -100,13 +102,13 @@ export interface NotificationText {
 }
 
 export function notificationText(
-  mock: { id: string; title: string; slug: string },
+  design: { id: string; title: string; slug: string },
   notice: Notice,
 ): NotificationText {
   return {
-    title: `mockpit · ${mock.title.trim() || mock.slug}`,
+    title: `mockpit · ${design.title.trim() || design.slug}`,
     body: clip(notice.text),
-    tag: `mockpit:${mock.id}`,
+    tag: `mockpit:${design.id}`,
   };
 }
 

@@ -4,7 +4,7 @@
 //
 // The point of this file is that the agent never assembles a design set by
 // hand: init reads what the repo already declares (Tailwind, shadcn, a `:root`
-// token block, fonts), turns it into the project's DesignSettings, and writes a
+// token block, fonts), turns it into the project's DesignSystem, and writes a
 // starter file the agent copies from. Everything here is deterministic — no
 // model in the loop.
 
@@ -257,11 +257,11 @@ function hasTailwind(cwd) {
 }
 
 /**
- * Inspect a repo and derive the project's DesignSettings inputs.
+ * Inspect a repo and derive the project's DesignSystem inputs.
  * Never throws on a hostile/odd tree — an undetectable repo returns the
  * builtin kit with no palette, which is a perfectly good starting point.
  */
-export async function detectDesign(cwd) {
+export async function detectDesignSystem(cwd) {
   const { paletteFromCssVars } = await loadThemes();
   const budget = { left: MAX_FILES };
   const cssFiles = findCssFiles(cwd, budget);
@@ -818,13 +818,13 @@ const STARTER_TOKENS = [
  * tokens, and one icon in use. `iconSets` are the prefixes the server resolves
  * for this project.
  */
-export function renderStarter(design, iconSets = ["lucide", "mage"]) {
-  const kit = design?.kit ?? "builtin";
+export function renderStarter(designSystem, iconSets = ["lucide", "mage"]) {
+  const kit = designSystem?.kit ?? "builtin";
   const bodies = { tailwind: TAILWIND_BODY, basecoat: BASECOAT_BODY };
   const body = (bodies[kit] ?? BUILTIN_BODY).replace("ICON_SLOT", '<i icon="lucide:check"></i>');
   // Show the tokens an agent reaches for first. A repo's block is usually led
   // by sizing/easing tokens, so surface the semantic colors ahead of them.
-  const props = customProps(design?.cssVars ?? "");
+  const props = customProps(designSystem?.cssVars ?? "");
   const rank = (name) => {
     const i = STARTER_TOKENS.indexOf(name);
     return i === -1 ? STARTER_TOKENS.length : i;

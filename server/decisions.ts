@@ -11,7 +11,7 @@ import { checkKnobValue, knobFor } from "./knobs.ts";
 import {
   inUseVersion,
   type KnobValue,
-  type Mock,
+  type Design,
   type Post,
   postAtVersion,
   type Reply,
@@ -32,7 +32,7 @@ export interface StateDecision {
 }
 
 export interface Decisions {
-  // Keyed by state label; a single-state mock uses "".
+  // Keyed by state label; a single-state design uses "".
   states: Record<string, StateDecision>;
   // Values the reply set (answers' knob sets, then tuning) that pick no fill.
   knobs: Record<string, KnobValue>;
@@ -42,10 +42,10 @@ export interface Decisions {
 // which wins, as in the viewer's resolveKnobs.
 export function replyValues(
   reply: Pick<Reply, "answers" | "tuned">,
-  mock: Pick<Mock, "asks">,
+  design: Pick<Design, "asks">,
 ): Record<string, KnobValue> {
   const out: Record<string, KnobValue> = {};
-  for (const ask of mock.asks) {
+  for (const ask of design.asks) {
     const answer = reply.answers[ask.id];
     const ids = answer === undefined ? [] : Array.isArray(answer) ? answer : [answer];
     for (const id of ids) Object.assign(out, ask.options.find((o) => o.id === id)?.set ?? {});
@@ -58,14 +58,14 @@ export function replyValues(
 // the agent may have renamed or narrowed a knob since.
 export function settledValues(
   replies: Pick<Reply, "answers" | "tuned">[],
-  mock: Pick<Mock, "asks" | "knobs">,
+  design: Pick<Design, "asks" | "knobs">,
   posts: (Pick<Post, "knobs"> & { surfaces?: Post["surfaces"] })[],
 ): Record<string, KnobValue> {
   const all: Record<string, KnobValue> = {};
-  for (const r of replies) Object.assign(all, replyValues(r, mock));
+  for (const r of replies) Object.assign(all, replyValues(r, design));
   const out: Record<string, KnobValue> = {};
   for (const [path, value] of Object.entries(all)) {
-    const config = knobFor(path, mock, posts);
+    const config = knobFor(path, design, posts);
     const checked = config === undefined ? null : checkKnobValue(path, config, value);
     if (checked?.ok) out[path] = checked.value;
   }
@@ -122,17 +122,17 @@ function tree(
   return out;
 }
 
-// Null when the mock has no fills and the reply set no knobs: then the
+// Null when the design has no fills and the reply set no knobs: then the
 // answered asks already say everything.
 export function decisionsFor(
-  mock: Mock,
+  design: Design,
   posts: Post[],
   reply: Pick<Reply, "answers" | "tuned" | "borrowed">,
 ): Decisions | null {
-  const values = replyValues(reply, mock);
+  const values = replyValues(reply, design);
   const states: Record<string, StateDecision> = {};
   const slotPaths = new Set<string>();
-  for (const state of mock.states.length ? mock.states : [null]) {
+  for (const state of design.states.length ? design.states : [null]) {
     const post = postForState(posts, state);
     if (!post) continue;
     const slots = slotsInSurfaces(post.surfaces);

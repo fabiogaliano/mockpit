@@ -13,6 +13,7 @@ import { homedir, tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { findBrowser, queuePoster } from "./poster.js";
 import { serveUrl } from "./serveUrl.js";
 
 const BASE = (process.env.MOCKPIT_URL ?? "http://localhost:8228").replace(/\/$/, "");
@@ -28,9 +29,9 @@ const HEADERS = {
 
 const HELP = `mockpit — a live visual surface for terminal coding agents
 
-vocabulary: project › mock › state › variant › version. A project is a repo; a
-mock is a sketch, page or component, by slug; a state is one thing the user sees in it ("Lab
-open"); a variant is a parallel design of a state; a version is its history.
+vocabulary: project › design › state › variant › version. A project is a repo; a
+design is an idea, screen or component, by slug; a state is one thing the user sees in it ("Lab
+open"); a variant is a parallel take on a state; a version is its history.
 Declare the parts you want feedback on with data-part="name" in the html.
 
 the loop (never blocks on the user):
@@ -41,22 +42,22 @@ the loop (never blocks on the user):
      on; don't re-ask it. Visual options carry a variant or knob set. One
      render plus a control: --knobs.
   4. Tell the user in one line where to look, then end your turn. The question
-     itself lives in the mock, never in chat. The user answers in the
+     itself lives in the design, never in chat. The user answers in the
      browser at their own pace. Never poll.
   5. When the user says they answered (or a mockpit watch line wakes you), run
      mockpit feedback. Every write also returns feedback; read it.
   6. mockpit publish the revision; mockpit export once a variant is in use.
   In Claude Code, arm mockpit watch under Monitor after asking, then end the
-  turn; elsewhere the user's next message is the wake-up.
+  turn, unless you have the mockpit plugin, which wakes you itself; elsewhere
+  the user's next message is the wake-up.
 
 verbs:
   mockpit init [--project name] [--kit <id>] [--kit-url <url> --kit-doc <file|text>]
                                           detect the repo's design system, store
                                           palette/kit/icon sets, write .mockpit/starter.html
-  mockpit publish --mock <slug> --html <file> [options]
+  mockpit publish --design <slug> --html <file> [options]
                                           create or version one variant of one state
-      --state <label>   state, in the user's words (omit for a single-state mock)
-      --situation <s>   another render of that state ("Couldn't save", "Loading")
+      --state <label>   state, in the user's words (omit for a single-state design)
       --variant <name>  variant label (default "default")
       --html <file|->   the html body (or a positional file)
       --surfaces <json|file>  instead: the full ordered surface list; {"id"}
@@ -65,8 +66,9 @@ verbs:
                         the latest version (repeatable; name#key targets one instance)
       --fills <part#fill=file|->  instead: replace or add one fill of a part in
                         the latest version (repeatable)
-      --title <t>       mock title
-      --kind <k>        page|component, only for an app's screens (default sketch)
+      --title <t>       design title
+      --kind <k>        screen|component, only for an app's screens (default idea);
+                        with no html it plans one, drawn by a later publish
       --area <name>     where in the product it belongs ("Shell"); Home groups by it
       --source <path>   the code path that implements it
       --knobs <json|file>  knobs in tunekit usePane shape, keyed by path
@@ -75,7 +77,7 @@ verbs:
                         user has acted on it (one request, one version)
       --withdraw        take the latest version back, under the same rule
       --prompt <text>   what prompted this version
-      --note <text>     one line on what this variant is, shown beside it
+      --description <text>  one line on what this variant is, shown beside it
       --widths <list>   device widths to show it at, e.g. 390,1280
       --flow <name> [--step <N>]  make this state step N of a flow (0 takes
                         it out); with no html it only places the state
@@ -87,33 +89,38 @@ verbs:
       --md/--mermaid/--diff/--terminal/--data/--code/--image <file|->
                         add a surface of that kind after the html (repeatable;
                         --data is a JSON tree)
-  mockpit ask --mock <slug> "<question>" --option <label[=variant]> ...
+  mockpit ask --design <slug> "<question>" --option <label[=variant]> ...
                                           ask the user; bind options to variants
       --option <l[=v]>  an option (repeatable); "=variant" binds it to a variant,
                         "=variant@3" to its version 3, "=knob:path=value" sets one knob
       --recommend <l>   the option you would pick, by label; a quiet mark on it
-      --scope <s>       mock|state|part (default mock)
+      --scope <s>       design|state|part (default design)
       --state <label>   the state a state-scoped question is about
+      --states <label>  a design-wide question: a state its answers can be seen
+                        on (repeatable, best first)
       --part <name>     the part a part-scoped question is about
       --multi           allow several answers
       --id <id>         stable id; reusing one replaces that question
       --asks <json|file>  several questions at once, full shape
-  mockpit read [slug] [--body] [--history]
-                                          no slug: every mock plus what the user
-                                          is doing now; a slug: that mock
+  mockpit read [slug] [--body] [--history] [--decisions]
+                                          what the user already decided, then
+                                          no slug: every design plus what the user
+                                          is doing now; a slug: that design
   mockpit feedback                       what the user sent since you last heard,
                                           plus pending; returns at once
-  mockpit say "<text>" --mock <slug> [--state s] [--variant v]
-                                          a plain-text message in a mock's thread
-  mockpit edit --mock <slug> [--slug s] [--title t] [--kind k] [--area a] [--source p]
-                                          change a mock without a new version ("" clears)
+  mockpit say "<text>" --design <slug> [--state s] [--variant v]
+                                          a plain-text message in a design's thread
+  mockpit move --design <slug> --variant <v>... (--to <design> [--to-state s] | --archive | --restore)
+                                          move variants elsewhere, archive or restore them
+  mockpit edit --design <slug> [--slug s] [--title t] [--kind k] [--area a] [--source p]
+                                          change a design without a new version ("" clears)
   mockpit edit --project <name> --rename <new>
                                           rename a project
   mockpit edit --project <name> --area-order "Shell,Food"
                                           the order Home lists areas in
-  mockpit export --mock <slug> [--state s] [--variant v] [--out <dir>]
+  mockpit export --design <slug> [--state s] [--variant v] [--out <dir>]
                                           write the html in use + history per state
-                                          to .mockpit/accepted/<mock>/<state>/
+                                          to .mockpit/accepted/<design>/<state>/
   mockpit upload <file> [--kind image|file]
                                           upload an asset, print its id and URL
   mockpit guide [--topic <id>]           the project-aware brief, or one reference topic
@@ -127,7 +134,7 @@ verbs:
 other commands:
   mockpit serve [--port N] [--host H] [--open]
                                           start the server (API + viewer)
-  mockpit demo                           seed the Writer mock to explore the viewer
+  mockpit demo                           seed the Writer design to explore the viewer
   mockpit icons [add|remove <set>...]    list the icon sets html surfaces can name
                                           (icon="prefix:name"); add or remove an
                                           Iconify set for this project
@@ -150,6 +157,7 @@ environment:
   MOCKPIT_PROJECT  project name; overrides the git-remote/directory default
   MOCKPIT_URL      server base URL (default http://localhost:8228)
   MOCKPIT_TOKEN    bearer token for a deployed instance
+  CHROME_PATH      the browser for automatic posters; pointing nowhere turns them off
   MOCKPIT_HOST     address serve binds to (default: every interface)
   MOCKPIT_LOG      serve's event log file, or "off" (default ~/.mockpit/events.jsonl)
   MOCKPIT_SESSION  fixed session id (overrides auto-detection)
@@ -186,12 +194,12 @@ mockpit icons remove <set> [<set>...]
   html surfaces write <i icon="lucide:check"></i>; the server inlines the svg.
   lucide and mage are bundled. add finds @iconify-json/<set> in node_modules,
   the global npm root or bun's cache, else fetches it from jsDelivr.`,
-  publish: `mockpit publish --mock <slug> --html <file> [options]
-mockpit publish --mock <slug> --surfaces <json|file> [options]
-mockpit publish --mock <slug> --parts <name=file|-> ... [options]
-mockpit publish --mock <slug> --fills <part#fill=file|-> ... [options]
-mockpit publish --mock <slug> [--state s] [--variant v] --withdraw
-  Creates the mock, state or variant, or the next version of an existing one.
+  publish: `mockpit publish --design <slug> --html <file> [options]
+mockpit publish --design <slug> --surfaces <json|file> [options]
+mockpit publish --design <slug> --parts <name=file|-> ... [options]
+mockpit publish --design <slug> --fills <part#fill=file|-> ... [options]
+mockpit publish --design <slug> [--state s] [--variant v] --withdraw
+  Creates the design, state or variant, or the next version of an existing one.
   One request gets one version: fixes to it before the user acts use --amend.
   --amend            replace the variant's latest version in place (same number)
                      instead of adding one. Only from the session that published
@@ -200,9 +208,7 @@ mockpit publish --mock <slug> [--state s] [--variant v] --withdraw
   --withdraw         take the variant's latest version back under the same
                      rule: the version before it is current again, and a
                      variant with no other version goes
-  --state <label>    state in the user's words (omit for a single-state mock)
-  --situation <s>    another render of that state ("Couldn't save", "Loading"),
-                     after the state itself is published
+  --state <label>    state in the user's words (omit for a single-state design)
   --variant <name>   variant label (default "default")
   --surfaces <json|file>  the full ordered list: {"id"} alone keeps a surface,
                      a missing id removes it, order is the list order
@@ -211,10 +217,10 @@ mockpit publish --mock <slug> [--state s] [--variant v] --withdraw
   --fills <part#fill=file|->  replace the element carrying data-part="part"
                      data-fill="fill" in the latest version, or add it after
                      that part's other fills; the marks are added if missing
-  --title <t>        mock title
-  --kind <k>         page|component|sketch: page for a screen of the product,
-                     component for a piece pages embed (embedding makes one);
-                     omit for sketches, diagrams, reviews (default sketch)
+  --title <t>        design title
+  --kind <k>         screen|component|idea: screen for a screen of the product,
+                     component for a reusable design screens embed (embedding makes one);
+                     omit for ideas, diagrams, reviews (default idea)
   --area <name>      where in the product it belongs, in the project's words
                      ("Shell", "Food"); Home groups each tab by it. "" clears
   --source <path>    the code path that implements it (apps/web/src/shell). "" clears
@@ -224,17 +230,18 @@ mockpit publish --mock <slug> [--state s] [--variant v] --withdraw
                      its latest); alone it copies v, with --parts/--fills it
                      edits the copy
   --prompt <text>    what prompted this version
-  --note <text>      one line on what this variant is, shown beside it (never
+  --description <text>  one line on what this variant is, shown beside it (never
                      inside the design)
-  --widths <list>    device widths the mock is judged at, side by side, e.g.
+  --widths <list>    device widths the design is judged at, side by side, e.g.
                      390,1280 (the ones the user ships to)
   --flow <name>      a flow this state is a step of: the states the user moves
-                     between, in order, across mocks; without html it only
+                     between, in order, across designs; without html it only
                      places the existing state
   --step <N>         its 1-based place in the flow (moves it if it is there);
                      0 takes it out; omitted, it joins at the end
   --project <name>   project (default: git remote, else directory name)
-  --poster <file>    a still of the page (png, jpg) that Studio and Home show
+  --poster <file>    a still of the page (png, jpg) that Studio and Home show; without
+                     one, a local Chrome or Chromium takes it just after the publish
                      instead of running it; with --parts or --fills it is the
                      still of the spliced page. A version that changes the page
                      without one drops the old still
@@ -242,37 +249,56 @@ mockpit publish --mock <slug> [--state s] [--variant v] --withdraw
   --json / --quiet
   Prints the parts found per state, parts that vanished or were renamed,
   nudges, a ready-to-run "mockpit ask" when variants have no question, and feedback.`,
-  ask: `mockpit ask --mock <slug> "<question>" --option <label[=variant]> ... [--scope mock|state|part]
-  [--state s] [--part p] [--multi] [--id id] [--after <ask id>] [--recommend <label>]
-  mockpit ask --mock <slug> --asks <json|file>
+  ask: `mockpit ask --design <slug> "<question>" --option <label[=variant]> ... [--scope design|state|part]
+  [--state s] [--states s]... [--part p] [--multi] [--id id] [--after <ask id>] [--recommend <label>]
+  mockpit ask --design <slug> --asks <json|file>
   Ask the user. A choice is several variants plus one question that binds them.
   Then tell the user where to look and end your turn.`,
-  read: `mockpit read [slug] [--project <name>] [--body] [--history] [--tree]
-  No slug: one line per mock (states, variants, open questions), one per flow, plus pending, what
-  the user is doing now. A slug: the mock's states, variants, questions with
-  answers, parts, knobs and settled values, plus its pending, as JSON.
+  read: `mockpit read [slug] [--project <name>] [--body] [--history] [--tree] [--decisions]
+  Read this first. Both forms carry the project's decision list, what the user
+  already settled, from their replies: treat each line as settled unless they say
+  otherwise. No slug: one line per design (states, variants, open questions), one per
+  flow, plus pending, what the user is doing now, then the decisions. A slug: the
+  design's states, variants, questions with answers, parts, knobs and settled values,
+  plus its pending and decisionList (its own lines marked here), as JSON.
   --body includes surfaces, --history version rows. --tree (no slug): the
-  project as a tree, each mock's variants with status and forkedFrom, and the
-  mocks it embeds and is embedded in, as JSON. Never consumes feedback.`,
+  project as a tree, each design's variants with status and forkedFrom, and the
+  designs it embeds and is embedded in, as JSON. --decisions: the whole list, when
+  a read says lines were left out. Never consumes feedback.`,
   feedback: `mockpit feedback [--project <name>] [--session <id>]
-  Returns at once with {feedback, pending} as JSON: one batch per mock the user
-  sent since you last heard ({mock, reply: {asks, borrowed, tuned, comments,
-  verdict}, messages, inUse, archived}, or {mock, closed: true, dismissed} when the
-  user closed it unanswered), delivered once across feedback, watch and
-  every write; and pending ({mock, viewerOpen, draft}) so you can tell the
+  Returns at once with {feedback, pending} as JSON: one batch per design the user
+  sent since you last heard ({design, reply: {asks, borrowed, tuned, comments,
+  verdict}, messages, inUse, archived}), delivered once across feedback, watch and
+  every write; and pending ({design, viewerOpen, draft}) so you can tell the
   user "take your time" or "2 of 3 answered". Run it when the user says they
   answered.`,
-  say: `mockpit say "<text>" --mock <slug> [--state s] [--variant v]
-  A plain-text message in the mock's thread, as your session's agent.`,
-  edit: `mockpit edit --mock <slug> [--slug <new>] [--title <t>] [--kind page|component|sketch]
+  say: `mockpit say "<text>" --design <slug> [--state s] [--variant v]
+  A plain-text message in the design's thread, as your session's agent.`,
+  move: `mockpit move --design <slug> [--state s] --variant <v> [--variant <v>...]
+  --to <design> [--to-state <s>] | --to-state <s> | --archive | --restore
+mockpit move --design <slug> [--state s] [--variant <v>...] --hide-older | --delete-older
+  Tidy up. --to or --to-state moves them to another design or tab (a new state is
+  created) and takes them out of here; --archive takes them out of sight; --restore
+  brings them back. Their group goes along; one in use stays and is reported. The
+  thread says what happened, so the user can undo it.
+  Only when the user asks: --hide-older hides all but each variant's newest visible
+  version (no --variant: every variant), and --delete-older deletes them for good,
+  skipping and listing any that a reply, comment, question, embed, copy or fork still
+  points at, or that is in use. It can't be undone: confirm first.`,
+  edit: `mockpit edit --design <slug> [--slug <new>] [--title <t>] [--kind screen|component|idea]
+  [--first-state <name>] [--notes <text>|""]
   [--area <name>|""] [--source <path>|""] [--project <name>]
 mockpit edit --project <name> --rename <new name>
 mockpit edit --project <name> --area-order "Shell,Food,Chat"
-  Change a mock without publishing a new version; "" clears area or source. A new
+  Change a design without publishing a new version; "" clears area or source. A new
   slug rewrites every embed, data-goto and flow step that names the old one, in
-  every version. A mock still embedded somewhere stays a component, not a sketch.
-  --rename moves the project's mocks, sessions, flows and design settings to the
-  new name (refused if that project has mocks); pass --project <new> or set
+  every version. A design still embedded somewhere stays a component, not an idea.
+  --notes drafts the design's short plain-text spec, which read returns; the user's own
+  edit of it stands, so the draft is then not applied and the result says so.
+  --first-state names a design's one unnamed state, and every variant it holds goes
+  there, so the design can then have more states.
+  --rename moves the project's designs, sessions, flows and design settings to the
+  new name (refused if that project has designs); pass --project <new> or set
   MOCKPIT_PROJECT afterwards if the repo still resolves to the old name.
   --area-order lists the project's areas in the order Home shows them; areas it
   leaves out follow alphabetically, "" goes back to alphabetical.`,
@@ -282,12 +308,15 @@ mockpit edit --project <name> --area-order "Shell,Food,Chat"
   host call in order, the script's prints, its value or error, and any user
   feedback the run received. --json prints the whole result. Exits 2 when the
   script failed.`,
-  watch: `mockpit watch [--session <id>] [--after <seq>]
-  Stream user feedback, one line per Send, for a background monitor (in
-  Claude Code, arm it under Monitor after asking, then end the turn).
-  Delivery is shared with feedback and every write: each Send arrives once.`,
-  export: `mockpit export --mock <slug> [--state s] [--variant v] [--out <dir>]
-  Write index.html + history.json per state to .mockpit/accepted/<mock>/<state>/;
+  watch: `mockpit watch [--session <id>] [--after <seq>] [--once] [--exit-code <n>]
+  Print one line per Send, for a background monitor (in Claude Code, arm it
+  under Monitor after asking, then end the turn; with the mockpit plugin, don't,
+  since it wakes you itself). A line says a reply landed;
+  feedback or the next write delivers it, once.
+  --once stops after the first Send, for a harness whose wake is a process
+  exiting; --exit-code sets the code it stops with (default 0).`,
+  export: `mockpit export --design <slug> [--state s] [--variant v] [--out <dir>]
+  Write index.html + history.json per state to .mockpit/accepted/<design>/<state>/;
   with fills, index.html is the chosen state, plus all-fills.html and decisions.json.`,
   upload: `mockpit upload <file> [--kind image|file] [--session <id>]
   Upload an asset; prints its id and URL. Use the id as an image surface's assetId.`,
@@ -326,7 +355,7 @@ function die(what, fix) {
 }
 
 // `report` decides how a failure reads: plumbing verbs keep the one-line
-// `mockpit: …` (exit 1); the mock verbs pass `die` so the error / fix / exit 2
+// `mockpit: …` (exit 1); the design verbs pass `die` so the error / fix / exit 2
 // format is what an agent parses.
 async function api(path, init = {}, { report, fix } = {}) {
   const bail = (what, hint) => (report === "die" ? die(what, hint ?? fix) : fail(what));
@@ -453,8 +482,11 @@ function agentName(flags) {
 // doesn't keep; Claude Code's session id does, so the server can hand back the
 // same mockpit session (and its feedback cursor).
 function harnessKey() {
-  const id = process.env.CLAUDE_CODE_SESSION_ID;
-  return id ? `claude-code:${id}` : undefined;
+  if (process.env.MOCKPIT_SESSION_KEY) return process.env.MOCKPIT_SESSION_KEY;
+  if (process.env.CLAUDE_CODE_SESSION_ID)
+    return `claude-code:${process.env.CLAUDE_CODE_SESSION_ID}`;
+  if (process.env.CODEX_THREAD_ID) return `codex:${process.env.CODEX_THREAD_ID}`;
+  return undefined;
 }
 
 async function resolveSession(flags, { create = false } = {}) {
@@ -696,17 +728,17 @@ async function installIconSets(project, prefixes) {
       errors.push({ prefix, message: err instanceof Error ? err.message : String(err) });
     }
   }
-  if (added.length === 0) return { added: [], errors, design: null };
-  const stored = (await api(`${projectPath(project)}/design`)) ?? {};
+  if (added.length === 0) return { added: [], errors, designSystem: null };
+  const stored = (await api(`${projectPath(project)}/design-system`)) ?? {};
   const keep = (stored.iconSets ?? []).filter((s) => !added.some((a) => a.prefix === s.prefix));
-  const design = await api(`${projectPath(project)}/design`, {
+  const designSystem = await api(`${projectPath(project)}/design-system`, {
     method: "PUT",
     body: JSON.stringify({ ...stored, iconSets: [...keep, ...added] }),
   });
   return {
-    added: design.iconSets.filter((s) => added.some((a) => a.prefix === s.prefix)),
+    added: designSystem.iconSets.filter((s) => added.some((a) => a.prefix === s.prefix)),
     errors,
-    design,
+    designSystem,
   };
 }
 
@@ -850,7 +882,7 @@ function slugify(text) {
 
 const projectPath = (project) => `/api/projects/${encodeURIComponent(project)}`;
 
-const mockPath = (slug) => `/api/mocks/${encodeURIComponent(slug)}`;
+const designPath = (slug) => `/api/designs/${encodeURIComponent(slug)}`;
 
 const query = (params) => {
   const q = new URLSearchParams();
@@ -861,18 +893,18 @@ const query = (params) => {
   return s ? `?${s}` : "";
 };
 
-// The flags every mock verb shares: which mock, which state, which variant.
-const MOCK_FLAGS = {
-  mock: { type: "string" },
+// The flags every design verb shares: which design, which state, which variant.
+const DESIGN_FLAGS = {
+  design: { type: "string" },
   state: { type: "string" },
   variant: { type: "string" },
   project: { type: "string" },
   session: { type: "string" },
 };
 
-function requireMock(flags, example) {
-  const slug = flags.mock ? slugify(flags.mock) : "";
-  if (!slug) die("--mock needs a slug", example);
+function requireDesign(flags, example) {
+  const slug = flags.design ? slugify(flags.design) : "";
+  if (!slug) die("--design needs a slug", example);
   return slug;
 }
 
@@ -894,7 +926,7 @@ const shq = (s) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${String(s).replace(/'/g,
 // The server's suggested ask as the command that sends it: an agent that was
 // nudged can run it as is. --asks carries ids and scope, which flags can't.
 function suggestedAskLine(slug, ask) {
-  return `mockpit ask --mock ${shq(slug)} --asks ${shq(JSON.stringify([ask]))}`;
+  return `mockpit ask --design ${shq(slug)} --asks ${shq(JSON.stringify([ask]))}`;
 }
 
 // One line per write: what was published, its URL, the parts found per state,
@@ -902,7 +934,14 @@ function suggestedAskLine(slug, ask) {
 function printPublished(result, flags) {
   if (flags.json) return out(result);
   if (flags.quiet) return;
-  const { mock, post } = result;
+  const { design, post } = result;
+  if (result.planned) {
+    console.log(`${design.slug}: planned, nothing drawn yet · ${result.url}`);
+    if (result.flow) console.log(flowLine(result.flow));
+    for (const nudge of result.nudges ?? []) console.log(`nudge: ${nudge}`);
+    printFeedback(result.feedback);
+    return;
+  }
   const branch = post.from !== undefined && post.from !== post.version - 1;
   const how = result.withdrawn
     ? ` (v${result.withdrawn.version} withdrawn)`
@@ -910,7 +949,7 @@ function printPublished(result, flags) {
       ? " (amended)"
       : "";
   console.log(
-    `${mock.slug}/${stateLabel(post.state)}${post.variant} v${post.version}${branch && post.from ? ` (from v${post.from})` : ""}${how} · ${result.url}`,
+    `${design.slug}/${stateLabel(post.state)}${post.variant} v${post.version}${branch && post.from ? ` (from v${post.from})` : ""}${how} · ${result.url}`,
   );
   for (const { state, parts } of result.parts ?? []) {
     if (parts.length === 0) continue;
@@ -925,7 +964,7 @@ function printPublished(result, flags) {
   if (changes?.vanished?.length) console.log(`vanished: ${changes.vanished.join(", ")}`);
   for (const nudge of result.nudges ?? []) console.log(`nudge: ${nudge}`);
   if (result.suggestedAsk)
-    console.log(`suggested: ${suggestedAskLine(mock.slug, result.suggestedAsk)}`);
+    console.log(`suggested: ${suggestedAskLine(design.slug, result.suggestedAsk)}`);
   for (const warning of result.warnings ?? []) console.log(`warning: ${warning}`);
   printFeedback(result.feedback);
 }
@@ -934,13 +973,13 @@ async function withdrawVersion(flags, slug, project) {
   const session = await resolveSession(flags);
   if (!session) die(`no session has published ${slug} from here`, `mockpit read ${slug}`);
   const result = await api(
-    "/api/mocks",
+    "/api/designs",
     {
       method: "POST",
       body: JSON.stringify({
         session,
         project,
-        mock: slug,
+        design: slug,
         state: flags.state,
         variant: flags.variant,
         withdraw: true,
@@ -959,7 +998,7 @@ async function withdrawVersion(flags, slug, project) {
 }
 
 function flowLine(flow) {
-  const steps = flow.steps.map((x) => (x.state === null ? x.mock : `${x.mock}/${x.state}`));
+  const steps = flow.steps.map((x) => (x.state === null ? x.design : `${x.design}/${x.state}`));
   return `flow ${flow.name}: ${steps.length ? steps.join(" → ") : "empty, removed"}`;
 }
 
@@ -969,15 +1008,15 @@ function printFeedback(feedback) {
   if (feedback?.length) console.log(`feedback: ${JSON.stringify(feedback)}`);
 }
 
-// What the user is doing right now, per mock.
+// What the user is doing right now, per design.
 function pendingLines(pending) {
   return (pending ?? []).flatMap((p) =>
     p.draft
       ? [
-          `pending: ${p.mock} — the user is answering (${p.draft.answered} of ${p.draft.of} answered, ${p.draft.comments} comment${p.draft.comments === 1 ? "" : "s"})`,
+          `pending: ${p.design} — the user is answering (${p.draft.answered} of ${p.draft.of} answered, ${p.draft.comments} comment${p.draft.comments === 1 ? "" : "s"})`,
         ]
       : p.viewerOpen
-        ? [`pending: ${p.mock} — open in the viewer`]
+        ? [`pending: ${p.design} — open in the viewer`]
         : [],
   );
 }
@@ -987,8 +1026,7 @@ function parsePublishFlags() {
     tokens: true,
     allowPositionals: true,
     options: {
-      ...MOCK_FLAGS,
-      situation: { type: "string" },
+      ...DESIGN_FLAGS,
       title: { type: "string" },
       kind: { type: "string" },
       area: { type: "string" },
@@ -1002,7 +1040,7 @@ function parsePublishFlags() {
       from: { type: "string" },
       fork: { type: "string" },
       prompt: { type: "string" },
-      note: { type: "string" },
+      description: { type: "string" },
       widths: { type: "string" },
       flow: { type: "string" },
       step: { type: "string" },
@@ -1031,8 +1069,8 @@ function readPartFlags(values, slug, flag = "parts") {
   if (!values?.length) return undefined;
   const example =
     flag === "parts"
-      ? `mockpit publish --mock ${slug} --parts body=body.html`
-      : `mockpit publish --mock ${slug} --fills entry#skeleton=skeleton.html`;
+      ? `mockpit publish --design ${slug} --parts body=body.html`
+      : `mockpit publish --design ${slug} --fills entry#skeleton=skeleton.html`;
   const parts = {};
   let stdin = false;
   for (const raw of values) {
@@ -1054,9 +1092,9 @@ function readPartFlags(values, slug, flag = "parts") {
   return parts;
 }
 
-async function publishMock() {
+async function publishDesign() {
   const { values: flags, positionals, tokens } = parsePublishFlags();
-  const slug = requireMock(flags, "mockpit publish --mock writer --html writer.html");
+  const slug = requireDesign(flags, "mockpit publish --design writer --html writer.html");
   const project = resolveProject(flags).name;
   const from = flags.from === undefined ? undefined : Number(flags.from);
   if (from !== undefined && !Number.isInteger(from)) {
@@ -1111,16 +1149,16 @@ async function publishMock() {
     }
     surfaces.push(...(await surfacesFromFlags(flags, tokens, { session, layout: flags.layout })));
   }
-  if (!surfaces && !parts && !fills && !flags.fork && flags.flow === undefined)
-    die(`no html for ${slug}`, `mockpit publish --mock ${slug} --html <file>`);
+  const declaring = flags.kind === "screen" || flags.kind === "component";
+  if (!surfaces && !parts && !fills && !flags.fork && flags.flow === undefined && !declaring)
+    die(`no html for ${slug}`, `mockpit publish --design ${slug} --html <file>`);
   const poster =
     flags.poster === undefined ? undefined : (await uploadFile(flags.poster, { session })).id;
   const body = {
     session,
     project,
-    mock: slug,
+    design: slug,
     state: flags.state,
-    situation: flags.situation,
     variant: flags.variant,
     title: flags.title,
     kind: flags.kind,
@@ -1130,7 +1168,7 @@ async function publishMock() {
     ...(from !== undefined && { from }),
     ...(flags.fork !== undefined && { fork: flags.fork }),
     prompt: flags.prompt,
-    note: flags.note,
+    description: flags.description,
     ...(flags.widths !== undefined && {
       widths: flags.widths
         .split(",")
@@ -1143,14 +1181,26 @@ async function publishMock() {
     ...(parts && { parts }),
     ...(fills && { fills }),
     ...(poster && { poster }),
+    ...(!poster && findBrowser() && { posterComing: true }),
     ...(flags.amend && { amend: true }),
   };
   const result = await api(
-    "/api/mocks",
+    "/api/designs",
     { method: "POST", body: JSON.stringify(body) },
     { report: "die", fix: `mockpit read ${slug}` },
   );
   printPublished(result, flags);
+  if (!poster && result.post?.surfaces?.some((s) => s.kind === "html") && !result.withdrawn) {
+    queuePoster({
+      base: BASE,
+      token: TOKEN,
+      client: HEADERS["x-mockpit-client"],
+      session,
+      design: result.design.id,
+      postId: result.post.id,
+      version: result.post.version,
+    });
+  }
   return result;
 }
 
@@ -1201,21 +1251,22 @@ function printRun(r) {
 
 function watchLines(batch) {
   const lines = [];
-  const name = batch.mock ?? "a mock";
+  const name = batch.design ?? "a design";
   if (batch.handoff) lines.push(`mockpit handoff on ${name}: ${batch.handoff}`);
-  if (batch.closed) {
-    const n = batch.dismissed?.length ?? 0;
-    lines.push(
-      `mockpit closed ${name}: ${n ? `${n} question${n === 1 ? "" : "s"} dismissed unanswered (${batch.dismissed.map((d) => d.text || d.ask).join("; ")}); don't ask again` : "closed by the user"}`,
-    );
-  }
   if (batch.edited) {
     const e = batch.edited;
     const bits = [
       e.kind ? `now a ${e.kind}` : "",
       e.area !== undefined ? (e.area ? `area ${e.area}` : "no area") : "",
     ].filter(Boolean);
-    lines.push(`mockpit edited ${name}: the user moved it (${bits.join(", ")})`);
+    if (bits.length) lines.push(`mockpit edited ${name}: the user moved it (${bits.join(", ")})`);
+    if (e.notes !== undefined) {
+      lines.push(
+        e.notes === null
+          ? `mockpit edited ${name}: the user cleared its notes`
+          : `mockpit edited ${name}: the user edited its notes: ${e.notes}`,
+      );
+    }
   }
   if (batch.reply) {
     const r = batch.reply;
@@ -1224,7 +1275,7 @@ function watchLines(batch) {
         ? r.asks
             .map(
               (a) =>
-                `${a.text || a.ask}: ${a.chosen.map((o) => (o.other ? `“${o.label}”` : o.label)).join("+")}${a.note ? ` (“${a.note}”)` : ""}`,
+                `${a.text || a.ask}: ${a.chosen.map((o) => (o.other ? `“${o.label}”` : o.label)).join("+")}${a.comment ? ` (“${a.comment}”)` : ""}`,
             )
             .join("; ")
         : "",
@@ -1260,7 +1311,7 @@ function watchLines(batch) {
   return lines;
 }
 
-// GET where "not there yet" is an answer, not an exit — a project or mock that
+// GET where "not there yet" is an answer, not an exit — a project or design that
 // doesn't exist is the normal state before the first publish.
 async function apiSoft(path) {
   let res;
@@ -1496,28 +1547,32 @@ const commands = {
     const say = (label, text) => {
       if (!flags.quiet && !flags.json) console.log(`${label.padEnd(8)} ${text}`);
     };
-    const { detectDesign, detectIconSets, renderStarter } = await import("./initDesign.js");
+    const { detectDesignSystem, detectIconSets, renderStarter } = await import("./initDesign.js");
     say("project:", `${project} (from ${source})`);
 
-    const design = await detectDesign(process.cwd());
-    const d = design.detected;
+    const designSystem = await detectDesignSystem(process.cwd());
+    const d = designSystem.detected;
     // `detected` is always an object, so emptiness has to be read off the
     // fields — otherwise a repo with no design system printed a blank line.
-    const stripped = design.strippedImports?.length
-      ? ` (stripped: ${design.strippedImports.join(", ")})`
+    const stripped = designSystem.strippedImports?.length
+      ? ` (stripped: ${designSystem.strippedImports.join(", ")})`
       : "";
     const found = [
       d?.tailwind &&
-        (design.tailwindSource ? `tailwind: ${design.tailwindSource}${stripped}` : "tailwind"),
+        (designSystem.tailwindSource
+          ? `tailwind: ${designSystem.tailwindSource}${stripped}`
+          : "tailwind"),
       d?.shadcn && "shadcn",
-      d?.cssVars ? `${d.cssVars} css vars${design.source ? ` from ${design.source}` : ""}` : null,
+      d?.cssVars
+        ? `${d.cssVars} css vars${designSystem.source ? ` from ${designSystem.source}` : ""}`
+        : null,
       d?.fonts?.length ? `fonts ${d.fonts.join(", ")}` : null,
     ].filter(Boolean);
     say(
       "design:",
       found.length ? found.join(" · ") : "nothing detected — using the built-in palette",
     );
-    let kit = flags.kit ?? design.kit ?? "builtin";
+    let kit = flags.kit ?? designSystem.kit ?? "builtin";
     // The project kit is stored first so the design PUT can name it as default.
     if (flags["kit-url"] !== undefined) {
       kit = flags.kit ?? "project";
@@ -1528,7 +1583,7 @@ const commands = {
       });
     }
     say("kit:", kit);
-    const files = design.designFiles;
+    const files = designSystem.designFiles;
     if (files) {
       const sh = files.shadcn;
       say(
@@ -1543,16 +1598,16 @@ const commands = {
       );
     }
 
-    let stored = await api(`${projectPath(project)}/design`, {
+    let stored = await api(`${projectPath(project)}/design-system`, {
       method: "PUT",
       body: JSON.stringify({
-        detected: design.detected ?? null,
-        palette: design.palette ?? null,
-        cssVars: design.cssVars ?? "",
-        tailwindCss: design.tailwindCss ?? "",
-        strippedImports: design.strippedImports ?? [],
+        detected: designSystem.detected ?? null,
+        palette: designSystem.palette ?? null,
+        cssVars: designSystem.cssVars ?? "",
+        tailwindCss: designSystem.tailwindCss ?? "",
+        strippedImports: designSystem.strippedImports ?? [],
         kit,
-        designFiles: design.designFiles ?? null,
+        designFiles: designSystem.designFiles ?? null,
       }),
     });
 
@@ -1575,7 +1630,7 @@ const commands = {
         if (added) say("icons:", `${f.prefix} (${added.count} icons, from ${f.from})`);
         else say("icons:", `${f.prefix} not added: ${error?.message ?? "unknown error"}`);
       }
-      if (result.design) stored = result.design;
+      if (result.designSystem) stored = result.designSystem;
     }
     const iconSets = [
       ...new Set([...(stored?.iconSets ?? []).map((s) => s.prefix), ...BUNDLED_ICON_SETS]),
@@ -1584,7 +1639,7 @@ const commands = {
 
     const starter = join(process.cwd(), ".mockpit", "starter.html");
     mkdirSync(dirname(starter), { recursive: true });
-    writeFileSync(starter, renderStarter({ ...design, kit }, iconSets));
+    writeFileSync(starter, renderStarter({ ...designSystem, kit }, iconSets));
     say("wrote:", ".mockpit/starter.html");
     if (ignoreMockpitDir()) say("wrote:", ".gitignore (+ .mockpit/, keeping .mockpit/rules.md)");
     const rulesFile = join(repoRoot(), ".mockpit", "rules.md");
@@ -1592,24 +1647,25 @@ const commands = {
       say("rules:", rulesSummary(await sendRules(rulesFile, `${projectPath(project)}/rules`)));
     }
     say("next:", "mockpit guide");
-    if (flags.json) out({ project, design: stored, starter });
+    if (flags.json) out({ project, designSystem: stored, starter });
   },
 
   async publish() {
-    await publishMock();
+    await publishDesign();
   },
 
   async ask() {
     const { values: flags, positionals } = parse({
       allowPositionals: true,
       options: {
-        mock: { type: "string" },
+        design: { type: "string" },
         project: { type: "string" },
         session: { type: "string" },
         option: { type: "string", multiple: true },
         recommend: { type: "string" },
         scope: { type: "string" },
         state: { type: "string" },
+        states: { type: "string", multiple: true },
         part: { type: "string" },
         multi: { type: "boolean" },
         id: { type: "string" },
@@ -1617,16 +1673,16 @@ const commands = {
         asks: { type: "string" },
       },
     });
-    const slug = requireMock(
+    const slug = requireDesign(
       flags,
-      'mockpit ask --mock writer "Quiet or dark?" --option Quiet=quiet',
+      'mockpit ask --design writer "Quiet or dark?" --option Quiet=quiet',
     );
     let asks;
     if (flags.asks !== undefined) {
       if (positionals.length > 0) {
         die(
           "use the question or --asks, not both",
-          `mockpit ask --mock ${slug} --asks <json|file>`,
+          `mockpit ask --design ${slug} --asks <json|file>`,
         );
       }
       asks = readJsonFlag("asks", flags.asks);
@@ -1636,13 +1692,13 @@ const commands = {
       if (!text)
         die(
           "ask needs a question",
-          `mockpit ask --mock ${slug} "Quiet or dark?" --option Quiet=quiet`,
+          `mockpit ask --design ${slug} "Quiet or dark?" --option Quiet=quiet`,
         );
       const options = (flags.option ?? []).map(parseOption);
       if (options.length === 0) {
         die(
           "ask needs options",
-          `mockpit ask --mock ${slug} "${text}" --option Quiet=quiet --option Dark=dark`,
+          `mockpit ask --design ${slug} "${text}" --option Quiet=quiet --option Dark=dark`,
         );
       }
       if (flags.recommend !== undefined) {
@@ -1652,7 +1708,7 @@ const commands = {
         if (!pick)
           die(
             `--recommend "${flags.recommend}" names no option`,
-            `mockpit ask --mock ${slug} "${text}" --option Quiet=quiet --option Dark=dark --recommend Quiet`,
+            `mockpit ask --design ${slug} "${text}" --option Quiet=quiet --option Dark=dark --recommend Quiet`,
           );
         pick.recommended = true;
       }
@@ -1663,6 +1719,7 @@ const commands = {
           ...(flags.id && { id: flags.id }),
           ...(flags.scope && { scope: flags.scope }),
           ...(flags.state && { state: flags.state }),
+          ...(flags.states && { states: flags.states }),
           ...(flags.part && { part: flags.part }),
           ...(flags.multi && { multi: true }),
           ...(flags.after && { after: flags.after }),
@@ -1671,7 +1728,7 @@ const commands = {
     }
     const session = await resolveSession(flags);
     const result = await api(
-      `${mockPath(slug)}/asks`,
+      `${designPath(slug)}/asks`,
       {
         method: "POST",
         body: JSON.stringify({
@@ -1686,7 +1743,7 @@ const commands = {
     if (flags.quiet) return;
     for (const ask of result.asks) {
       console.log(
-        `asked on ${result.mock}: ${ask.text} [${ask.options.map((o) => o.label).join(" | ")}]`,
+        `asked on ${result.design}: ${ask.text} [${ask.options.map((o) => o.label).join(" | ")}]`,
       );
     }
     for (const nudge of result.nudges ?? []) console.log(`nudge: ${nudge}`);
@@ -1704,10 +1761,20 @@ const commands = {
         body: { type: "boolean" },
         history: { type: "boolean" },
         tree: { type: "boolean" },
+        decisions: { type: "boolean" },
       },
     });
     const project = resolveProject(flags).name;
-    if (positionals.length > 1) die("read takes one mock slug", "mockpit read writer");
+    if (positionals.length > 1) die("read takes one design slug", "mockpit read writer");
+    if (flags.decisions) {
+      return out(
+        await api(
+          `/api/projects/${encodeURIComponent(project)}/decisions`,
+          {},
+          { report: "die", fix: `mockpit read --project ${project}` },
+        ),
+      );
+    }
     if (flags.tree) {
       return out(
         await api(
@@ -1721,49 +1788,56 @@ const commands = {
       const slug = slugify(positionals[0]);
       return out(
         await api(
-          `${mockPath(slug)}${query({ project, body: flags.body, history: flags.history })}`,
+          `${designPath(slug)}${query({ project, body: flags.body, history: flags.history })}`,
           {},
           { report: "die", fix: `mockpit read --project ${project}` },
         ),
       );
     }
-    const list = (await apiSoft(`/api/mocks${query({ project })}`)) ?? {
-      mocks: [],
+    const list = (await apiSoft(`/api/designs${query({ project })}`)) ?? {
+      designs: [],
       open: 0,
       pending: [],
     };
     if (flags.json) return out(list);
     if (flags.quiet) return;
-    const mocks = list.mocks ?? [];
+    const designs = list.designs ?? [];
     console.log(
-      `${project} · ${mocks.length} mock${mocks.length === 1 ? "" : "s"}` +
+      `${project} · ${designs.length} design${designs.length === 1 ? "" : "s"}` +
         (list.open
           ? ` · ${list.open} open question${list.open === 1 ? "" : "s"}`
           : " · nothing waiting on the user"),
     );
-    for (const m of mocks) {
+    for (const m of designs) {
       const states = m.states.length ? m.states.join(" / ") : "single state";
       console.log(
-        `  ${m.slug} · ${m.kind}${m.area ? ` · ${m.area}` : ""} · ${states} · ${m.variants} variant${m.variants === 1 ? "" : "s"}${m.closedAt ? " · closed" : m.open ? ` · ${m.open} open` : ""}`,
+        `  ${m.slug} · ${m.kind}${m.area ? ` · ${m.area}` : ""} · ${states} · ${m.variants} variant${m.variants === 1 ? "" : "s"}${m.planned ? " · planned" : ""}${m.archivedAt ? " · archived" : m.open ? ` · ${m.open} open` : ""}`,
       );
     }
     for (const flow of list.flows ?? []) console.log(`  ${flowLine(flow)}`);
     for (const line of pendingLines(list.pending)) console.log(line);
+    if (list.decisionList) {
+      console.log(
+        `Decided, ${list.decisionList.total}. Treat as settled unless the user says otherwise:`,
+      );
+      for (const d of list.decisionList.lines) console.log(`  ${d.design}: ${d.text}`);
+      if (list.decisionList.more) console.log(`  ${list.decisionList.more} (--decisions)`);
+    }
   },
   async export() {
     const { values: flags } = parse({
       options: {
-        mock: { type: "string" },
+        design: { type: "string" },
         state: { type: "string" },
         variant: { type: "string" },
         project: { type: "string" },
         out: { type: "string" },
       },
     });
-    const slug = requireMock(flags, "mockpit export --mock writer");
+    const slug = requireDesign(flags, "mockpit export --design writer");
     const project = resolveProject(flags).name;
     const data = await api(
-      `${mockPath(slug)}/export${query({ project, state: flags.state, variant: flags.variant })}`,
+      `${designPath(slug)}/export${query({ project, state: flags.state, variant: flags.variant })}`,
       {},
       { report: "die", fix: `mockpit read ${slug}` },
     );
@@ -1787,7 +1861,7 @@ const commands = {
         JSON.stringify(
           {
             project,
-            mock: slug,
+            design: slug,
             state: entry.state,
             variant: entry.variant,
             version: entry.version,
@@ -1855,24 +1929,44 @@ const commands = {
   },
   async watch() {
     const { values: flags } = parse({
-      options: { session: { type: "string" }, after: { type: "string" } },
+      options: {
+        session: { type: "string" },
+        after: { type: "string" },
+        once: { type: "boolean" },
+        "exit-code": { type: "string" },
+      },
     });
     if (flags.after !== undefined && !/^\d+$/.test(flags.after)) {
       fail(`--after must be a number (got "${flags.after}")`);
+    }
+    const exitCode = flags["exit-code"] ?? "0";
+    if (!/^\d+$/.test(exitCode)) fail(`--exit-code must be a number (got "${exitCode}")`);
+    // A waiter outliving its agent would take a Send and tell no one, and each
+    // Send is delivered only once.
+    if (flags.once) {
+      const parent = process.ppid;
+      setInterval(() => {
+        if (process.ppid !== parent || process.ppid === 1) process.exit(0);
+      }, 5000).unref();
     }
     // A continuous long-poll that streams each piece of feedback as one line —
     // one line is one monitor notification. It re-arms forever; a transient
     // network error backs off and retries rather than exiting.
     //
-    // After the first poll it carries no client cursor: an author=user read
-    // resumes from the session's server-side cursor and advances it, so
-    // feedback is delivered exactly once across watch, feedback, and piggyback.
+    // It only says a reply landed (peek): the reply stays on the session's cursor
+    // until the agent's feedback or next write takes it, so a harness dropping or
+    // cutting this output can't lose it, and each Send is still delivered once.
     let firstAfter = flags.after;
     for (;;) {
       const key = harnessKey();
+      // The state file is per process and cwd, which several threads of one harness
+      // can share, so a conversation's own key decides whenever there is one.
       const session =
-        (await resolveSession(flags)) ??
-        (key ? await resolveSessionByKey(key) : await resolveSessionByCwd());
+        flags.session ??
+        process.env.MOCKPIT_SESSION ??
+        (key
+          ? await resolveSessionByKey(key)
+          : ((await resolveSession(flags)) ?? (await resolveSessionByCwd())));
       if (!session) {
         // A conversation that hasn't used mockpit yet may never; ask rarely.
         await sleep(key ? 10_000 : 2000);
@@ -1881,7 +1975,7 @@ const commands = {
       let result;
       try {
         const res = await fetch(
-          `${BASE}/api/comments${query({ session, author: "user", after: firstAfter, wait: 60 })}`,
+          `${BASE}/api/comments${query({ session, author: "user", after: firstAfter, wait: 60, peek: 1 })}`,
           { headers: HEADERS },
         );
         if (!res.ok) {
@@ -1894,20 +1988,26 @@ const commands = {
         continue;
       }
       firstAfter = undefined;
-      for (const batch of result.feedback ?? []) {
-        for (const line of watchLines(batch)) console.log(line);
+      const lines = (result.feedback ?? []).flatMap(watchLines);
+      for (const line of lines) console.log(line);
+      if (flags.once && lines.length) {
+        // A harness may frame this output as a hook failure, so it says what it is.
+        console.log(
+          "This is the user's reply from the mockpit viewer, not an error. Call mockpit's feedback for all of it.",
+        );
+        process.exit(Number(exitCode));
       }
     }
   },
 
   async say() {
-    const { values: flags, positionals } = parse({ allowPositionals: true, options: MOCK_FLAGS });
+    const { values: flags, positionals } = parse({ allowPositionals: true, options: DESIGN_FLAGS });
     const text = positionals.join(" ").trim();
-    if (!text) die("say needs text", 'mockpit say "…" --mock writer');
-    const slug = requireMock(flags, `mockpit say "${text}" --mock writer`);
+    if (!text) die("say needs text", 'mockpit say "…" --design writer');
+    const slug = requireDesign(flags, `mockpit say "${text}" --design writer`);
     const session = await resolveSession(flags);
     const result = await api(
-      `${mockPath(slug)}/say`,
+      `${designPath(slug)}/say`,
       {
         method: "POST",
         body: JSON.stringify({
@@ -1925,10 +2025,69 @@ const commands = {
     console.log(`said on ${slug}`);
     printFeedback(result.feedback);
   },
+  async move() {
+    const { values: flags } = parse({
+      options: {
+        ...DESIGN_FLAGS,
+        variant: { type: "string", multiple: true },
+        to: { type: "string" },
+        "to-state": { type: "string" },
+        archive: { type: "boolean" },
+        restore: { type: "boolean" },
+        "hide-older": { type: "boolean" },
+        "delete-older": { type: "boolean" },
+      },
+    });
+    const example = "mockpit move --design writer --variant quiet --archive";
+    const slug = requireDesign(flags, example);
+    const tidying = flags["hide-older"] || flags["delete-older"];
+    if (!flags.variant?.length && !tidying) die("move needs --variant", example);
+    const session = await resolveSession(flags);
+    const result = await api(
+      `${designPath(slug)}/move`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          state: flags.state,
+          variants: flags.variant,
+          to: flags.to,
+          toState: flags["to-state"],
+          archive: flags.archive,
+          restore: flags.restore,
+          hideOlder: flags["hide-older"],
+          deleteOlder: flags["delete-older"],
+          project: resolveProject(flags).name,
+          session: session ?? undefined,
+        }),
+      },
+      { report: "die", fix: `mockpit read ${slug}` },
+    );
+    if (flags.json) return out(result);
+    if (flags.quiet) return;
+    if (tidying) {
+      const verb = flags["delete-older"] ? "deleted" : "hid";
+      console.log(`${verb} ${result.versions.length} older versions`);
+      for (const s of result.skipped) {
+        const which = s.version ? ` v${s.version}` : "";
+        console.log(`stayed: ${s.state ? `${s.state}/` : ""}${s.variant}${which} (${s.why})`);
+      }
+      printFeedback(result.feedback);
+      return;
+    }
+    const names = result.variants.map((v) => v.variant).join(", ") || "nothing";
+    const done = result.to
+      ? `moved to ${result.to.design}`
+      : flags.restore
+        ? "restored"
+        : "archived";
+    console.log(`${done}: ${names}`);
+    for (const s of result.skipped) console.log(`stayed: ${s.variant} (${s.why})`);
+    printFeedback(result.feedback);
+  },
   async edit() {
     const { values: flags } = parse({
       options: {
-        mock: { type: "string" },
+        design: { type: "string" },
         project: { type: "string" },
         session: { type: "string" },
         slug: { type: "string" },
@@ -1936,6 +2095,8 @@ const commands = {
         kind: { type: "string" },
         area: { type: "string" },
         source: { type: "string" },
+        "first-state": { type: "string" },
+        notes: { type: "string" },
         rename: { type: "string" },
         "area-order": { type: "string" },
       },
@@ -1944,9 +2105,9 @@ const commands = {
     const session = (await resolveSession(flags)) ?? undefined;
     const areaOrder = flags["area-order"];
     if (flags.rename !== undefined || areaOrder !== undefined) {
-      if (flags.mock) {
+      if (flags.design) {
         die(
-          "--rename and --area-order edit the project; edit the mock without them",
+          "--rename and --area-order edit the project; edit the design without them",
           "mockpit edit --help",
         );
       }
@@ -1975,7 +2136,7 @@ const commands = {
       for (const nudge of result.nudges ?? []) console.log(`nudge: ${nudge}`);
       if (!result.renamed) return printFeedback(result.feedback);
       console.log(
-        `renamed project ${result.renamed.from} → ${result.renamed.to} · ${result.mocks} mock${result.mocks === 1 ? "" : "s"} · ${result.url}`,
+        `renamed project ${result.renamed.from} → ${result.renamed.to} · ${result.designs} design${result.designs === 1 ? "" : "s"} · ${result.url}`,
       );
       if (!flags.project && !process.env.MOCKPIT_PROJECT) {
         console.log(
@@ -1985,40 +2146,46 @@ const commands = {
       printFeedback(result.feedback);
       return;
     }
-    const slug = requireMock(flags, "mockpit edit --mock writer --area Shell");
-    const fields = ["slug", "title", "kind", "area", "source"].filter(
+    const slug = requireDesign(flags, "mockpit edit --design writer --area Shell");
+    const fields = ["slug", "title", "kind", "area", "source", "notes"].filter(
       (k) => flags[k] !== undefined,
     );
-    if (!fields.length) {
-      die("edit needs --slug, --title, --kind, --area or --source", "mockpit edit --help");
+    if (!fields.length && flags["first-state"] === undefined) {
+      die(
+        "edit needs --slug, --title, --kind, --area, --source, --notes or --first-state",
+        "mockpit edit --help",
+      );
     }
     const result = await api(
-      mockPath(slug),
+      designPath(slug),
       {
         method: "PATCH",
         body: JSON.stringify({
           project,
           session,
           ...Object.fromEntries(fields.map((k) => [k, flags[k]])),
+          firstState: flags["first-state"],
         }),
       },
       { report: "die", fix: `mockpit read ${slug}` },
     );
     if (flags.json) return out(result);
     if (flags.quiet) return;
-    const m = result.mock;
+    const m = result.design;
     console.log(
       [
         result.renamed ? `${result.renamed.from} → ${m.slug}` : m.slug,
         m.kind,
         m.area && `area ${m.area}`,
         m.source && `source ${m.source}`,
+        result.notes && (result.notes.applied ? "notes saved" : "notes NOT applied"),
         result.url,
       ]
         .filter(Boolean)
         .join(" · "),
     );
     for (const nudge of result.nudges ?? []) console.log(`nudge: ${nudge}`);
+    if (result.notes && !result.notes.applied) console.log(`notes: ${result.notes.text}`);
     printFeedback(result.feedback);
   },
   async demo() {
@@ -2032,13 +2199,13 @@ const commands = {
     });
     for (const state of DEMO.states) {
       for (const variant of DEMO.variants) {
-        await api("/api/mocks", {
+        await api("/api/designs", {
           method: "POST",
           body: JSON.stringify({
             session: session.id,
             project: DEMO.project,
-            mock: DEMO.slug,
-            kind: "page",
+            design: DEMO.slug,
+            kind: "screen",
             title: DEMO.title,
             state: state.label,
             variant: variant.name,
@@ -2048,7 +2215,7 @@ const commands = {
         });
       }
     }
-    await api(`${mockPath(DEMO.slug)}/asks`, {
+    await api(`${designPath(DEMO.slug)}/asks`, {
       method: "POST",
       body: JSON.stringify({ project: DEMO.project, session: session.id, asks: DEMO.asks }),
     });
@@ -2101,14 +2268,14 @@ const commands = {
     if (sub === "add") {
       const result = await installIconSets(project, sets);
       if (result.errors.length) fail(result.errors.map((e) => e.message).join("; "));
-      if (flags.json) return out(result.design);
+      if (flags.json) return out(result.designSystem);
       for (const a of result.added) {
         if (!flags.quiet) console.log(`added ${a.prefix} (${a.count} icons)`);
       }
       return;
     }
     if (sub === "remove") {
-      const stored = await api(`${projectPath(project)}/design`);
+      const stored = await api(`${projectPath(project)}/design-system`);
       const installed = stored?.iconSets ?? [];
       for (const set of sets) {
         if (installed.some((s) => s.prefix === set)) continue;
@@ -2118,14 +2285,14 @@ const commands = {
             : `${set} is not installed for ${project}`,
         );
       }
-      const design = await api(`${projectPath(project)}/design`, {
+      const designSystem = await api(`${projectPath(project)}/design-system`, {
         method: "PUT",
         body: JSON.stringify({
           ...stored,
           iconSets: installed.filter((s) => !sets.includes(s.prefix)),
         }),
       });
-      if (flags.json) return out(design);
+      if (flags.json) return out(designSystem);
       if (!flags.quiet) console.log(`removed ${sets.join(", ")}`);
       return;
     }
@@ -2152,13 +2319,13 @@ const commands = {
     const { name: project } = resolveProject(flags);
     if ((sub !== "add" && sub !== "remove") || !id)
       fail("usage: mockpit kit add <id> --url <url> --doc <file|text> | mockpit kit remove <id>");
-    const design =
+    const designSystem =
       sub === "add"
         ? await putProjectKit(project, id, flags)
         : await api(`${projectPath(project)}/kits/${encodeURIComponent(id)}`, {
             method: "DELETE",
           });
-    if (flags.json) return out(design);
+    if (flags.json) return out(designSystem);
     if (!flags.quiet) console.log(`${sub === "add" ? "added" : "removed"} kit ${id} (${project})`);
   },
 

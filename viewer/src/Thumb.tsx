@@ -4,6 +4,7 @@
 
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import type { KnobValue } from "../../server/types.ts";
+import { takeTurn } from "./frameQueue.ts";
 import { host } from "./host.ts";
 import { fitThumb } from "./logic.ts";
 
@@ -39,12 +40,21 @@ export function Thumb(props: {
   // and again whenever they change, so a picture follows the draft without
   // reloading. A value baked into src is only where the page starts.
   knobs?: Record<string, KnobValue>;
+  // What the user is deciding from: ahead of every other picture on the screen,
+  // however many the margins started before it.
+  first?: boolean;
+  // Looked at, not glanced over: the closer look, a column in Studio. It keeps animating, where every other
+  // Thumb tells its page it's small, in the fragment so it stays the same cached document.
+  large?: boolean;
 }) {
   let box!: HTMLDivElement;
   let frameEl: HTMLIFrameElement | undefined;
   const [size, setSize] = createSignal({ w: 0, h: 0 });
   // The page's own height, from the bridge's resize message: a number, clamped.
   const [docH, setDocH] = createSignal<number | null>(null);
+  // Near the screen and its turn has come: only then does the page start.
+  const [started, setStarted] = createSignal(false);
+  let endTurn = () => {};
   const sendKnobs = () => {
     const values = props.knobs;
     if (!values || !Object.keys(values).length) return;
@@ -55,22 +65,42 @@ export function Thumb(props: {
     if (docH() !== null) sendKnobs();
   });
   onMount(() => {
-    const measure = () => setSize({ w: box.clientWidth, h: box.clientHeight });
+    // A box hidden with its state measures nothing. Keep the last size: scaling the frame
+    // to zero and back would flash on the way back, and resize the page inside it for no one.
+    const measure = () => {
+      if (box.clientWidth || box.clientHeight) {
+        setSize({ w: box.clientWidth, h: box.clientHeight });
+      }
+    };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(box);
+    // scrollMargin is what reaches past a scrolling ancestor like Home's;
+    // rootMargin only grows the window's own edge.
+    const near = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        near.disconnect();
+        endTurn = takeTurn(() => setStarted(true), props.first);
+      },
+      { rootMargin: "300px", scrollMargin: "300px" } as IntersectionObserverInit,
+    );
+    near.observe(box);
     const onMessage = (e: MessageEvent) => {
       if (!frameEl || e.source !== frameEl.contentWindow) return;
       const d = e.data as Record<string, unknown> | null;
       if (!d || d.__mockpit !== true || d.type !== "resize") return;
       const h = typeof d.height === "number" && Number.isFinite(d.height) ? d.height : 0;
       if (h > 0) setDocH(Math.min(h, 20000));
+      endTurn();
       // A fresh document starts from the values baked into its URL.
       sendKnobs();
     };
     host().window.addEventListener("message", onMessage);
     onCleanup(() => {
       ro.disconnect();
+      near.disconnect();
+      endTurn();
       host().window.removeEventListener("message", onMessage);
     });
   });
@@ -102,7 +132,7 @@ export function Thumb(props: {
     >
       {/* Keyed by src: a new document is a new element, never a frame navigation
           (which would add a joint-history entry under the user's Back button). */}
-      <Show when={props.src} keyed>
+      <Show when={started() && (props.large ? props.src : `${props.src}#small`)} keyed>
         {(src) => (
           <iframe
             ref={(el) => {
@@ -111,7 +141,7 @@ export function Thumb(props: {
             }}
             src={src}
             sandbox="allow-scripts"
-            loading="lazy"
+            onLoad={() => endTurn()}
             tabIndex={-1}
             title={props.title ?? ""}
             width={props.width ?? FRAME_W}

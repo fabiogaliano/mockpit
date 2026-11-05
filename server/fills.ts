@@ -206,7 +206,7 @@ export function slotKnobs(slots: SlotInfo[]): Knobs {
   return out;
 }
 
-const cssString = (s: string) =>
+export const cssString = (s: string) =>
   `"${s.replace(/[\\"]/g, (c) => `\\${c}`).replace(/[\n\r<>]/g, (c) => `\\${c.charCodeAt(0).toString(16)} `)}"`;
 
 // Shows only the chosen fill of each slot, keyed on the `data-k-<part>`
@@ -299,6 +299,61 @@ function markFill(html: string, part: string, fill: string): string | { error: s
     (attrs["data-fill"] === undefined ? ` data-fill="${attrValue(fill)}"` : "");
   const at = m.index + m[0].indexOf("<") + 1 + m[1].length;
   return html.slice(0, at) + add + html.slice(at);
+}
+
+// The name a plain part's own markup goes by once an answer adds a fill to it.
+export const AS_IS_FILL = "as-is";
+
+// How many elements declare this part, fills counted once each. A fill can only be
+// added to a part that is one thing or already has fills.
+export function partOccurrences(html: string, part: string): number {
+  if (scanAll(html).ranges.some((r) => r.part === part)) return 1;
+  let n = 0;
+  walkOpenTags(html, (attrs) => {
+    if (attrs["data-part"] === part) n++;
+  });
+  return n;
+}
+
+function walkOpenTags(
+  html: string,
+  visit: (attrs: Record<string, string>, tagNameEnd: number) => void,
+): void {
+  TOKEN.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = TOKEN.exec(html))) {
+    if (m[0].startsWith("<!--") || m[1]) continue;
+    const tag = m[2].toLowerCase();
+    const end = TOKEN.lastIndex;
+    visit(attributes(m[3] ?? ""), m.index + 1 + m[2].length);
+    TOKEN.lastIndex = end;
+    if (RAW.has(tag)) {
+      const endTag = new RegExp(`</${tag}\\s*>`, "gi");
+      endTag.lastIndex = end;
+      const e = endTag.exec(html);
+      TOKEN.lastIndex = e ? endTag.lastIndex : html.length;
+    }
+  }
+}
+
+// Adds a fill at render time, leaving the html as it was when it can't: a version
+// without this part has nothing to fill, and one with its own fill of this name
+// already says what that value means.
+export function addFill(html: string, part: string, fill: string, markup: string): string {
+  const ranges = scanAll(html).ranges.filter((r) => r.part === part);
+  if (ranges.some((r) => r.fill === fill)) return html;
+  let base = html;
+  if (ranges.length === 0) {
+    const at: number[] = [];
+    walkOpenTags(html, (attrs, tagNameEnd) => {
+      if (attrs["data-part"] === part) at.push(tagNameEnd);
+    });
+    if (at.length !== 1) return html;
+    base = `${html.slice(0, at[0])} data-fill="${AS_IS_FILL}" data-fill-default${html.slice(at[0])}`;
+  }
+  const spliced = spliceFills([{ kind: "html", html: base }], { [`${part}#${fill}`]: markup });
+  const surface = spliced.ok ? spliced.surfaces[0] : undefined;
+  return surface?.kind === "html" ? surface.html : html;
 }
 
 export type FillSplice =

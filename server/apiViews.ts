@@ -1,23 +1,30 @@
 // Response shapes shared by every tier (REST, both MCP transports, the CLI), so
-// one mock reads the same however an agent asks for it.
+// one design reads the same however an agent asks for it.
 
 import { slotKnobs, slotsInSurfaces } from "./fills.ts";
+import type { Mode } from "./themes.ts";
 import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
+import { isKeptVariant, keptVariants } from "./standings.ts";
 import {
+  changedTo,
+  currentVersion,
   draftedCount,
   type Embed,
   inUseVersion,
+  isPlanned,
   isSandboxedSurfaceKind,
   isLive,
   type KnobValue,
-  type Mock,
-  momentsOf,
+  type Design,
   openCount,
   type Post,
+  type PostHead,
   type PostVersion,
+  recommendedVariant,
   type Session,
   SURFACE_CONTENT_FIELDS,
   type Surface,
+  type SurfaceHead,
   variantStatus,
 } from "./types.ts";
 
@@ -45,18 +52,56 @@ export const hydratedSurfaceView = (surface: Surface, index: number) => {
   return view;
 };
 
-// The still overviews show for a version: its html page's poster.
-const pagePoster = (surfaces: Surface[]) => {
-  const page = surfaces.find((s) => s.kind === "html");
-  return page?.kind === "html" ? page.poster : undefined;
+// A still mockpit took shows the page in the mode it was taken in. In the other mode it
+// would be the one picture in the wrong colours among live pages, so it is left out and the
+// page runs as it did before posters. Applied to posts before any view reads them, so every
+// view agrees. Posts come from the store's cache: copied where changed, never written to.
+const otherMode = (s: { kind: string }, mode: Mode) => {
+  const taken = (s as { posterMode?: Mode }).posterMode;
+  return s.kind === "html" && taken !== undefined && taken !== mode;
 };
-const posterOf = (surfaces: Surface[]) => {
+const surfacesFor = <S extends { kind: string }>(surfaces: S[], mode: Mode): S[] =>
+  surfaces.some((s) => otherMode(s, mode))
+    ? surfaces.map((s) => {
+        if (!otherMode(s, mode)) return s;
+        const {
+          poster: _poster,
+          posterMode: _mode,
+          ...rest
+        } = s as S & {
+          poster?: string;
+          posterMode?: Mode;
+        };
+        return rest as unknown as S;
+      })
+    : surfaces;
+export const postersFor = <
+  S extends { kind: string },
+  P extends { surfaces: S[]; history: { surfaces: S[] }[] },
+>(
+  posts: P[],
+  mode: Mode,
+): P[] =>
+  posts.map((p) => {
+    const surfaces = surfacesFor(p.surfaces, mode);
+    const history = p.history.map((h) => {
+      const own = surfacesFor(h.surfaces, mode);
+      return own === h.surfaces ? h : { ...h, surfaces: own };
+    });
+    return surfaces === p.surfaces && history.every((h, i) => h === p.history[i])
+      ? p
+      : { ...p, surfaces, history };
+  });
+
+// The still overviews show for a version: its html page's poster.
+const pagePoster = (surfaces: SurfaceHead[]) => surfaces.find((s) => s.kind === "html")?.poster;
+const posterOf = (surfaces: SurfaceHead[]) => {
   const poster = pagePoster(surfaces);
   return poster ? { poster } : {};
 };
 
 // The poster of one version of a variant: what Home shows for it.
-const posterAt = (post: Post, version: number) =>
+const posterAt = (post: PostHead, version: number) =>
   pagePoster(
     (version === post.version
       ? post.surfaces
@@ -65,10 +110,33 @@ const posterAt = (post: Post, version: number) =>
 
 // The in-use version's poster, when Home shows an older version than the
 // newest.
-const inUsePoster = (p: Post) => {
+const inUsePoster = (p: PostHead) => {
   if (p.acceptedVersion === undefined || p.acceptedVersion === p.version) return {};
   const poster = posterAt(p, p.acceptedVersion);
   return poster ? { inUsePoster: poster } : {};
+};
+
+// The version Home shows when nothing is in use and the newest was hidden.
+const coverVersion = (p: PostHead): { coverVersion?: number; coverPoster?: string } => {
+  const at = currentVersion(p);
+  if (p.status === "accepted" || at === p.version) return {};
+  const poster = posterAt(p, at);
+  return { coverVersion: at, ...(poster ? { coverPoster: poster } : {}) };
+};
+
+// A page that draws on a canvas may hold a WebGL context, of which a browser
+// keeps about 16 and drops the oldest past that, so overviews ration these
+// frames and no others. Three.js and the like make their canvas from script.
+// Asked once per version: a read lists every version, with bodies up to 1 MB.
+const CANVAS_PAGE = /<canvas[\s>]|webgl|three(?:\.module|\.min|\.js|@)|['"]three['"]|pixi|babylon/i;
+const canvasPages = new WeakMap<Surface[], boolean>();
+const drawsOnCanvas = (surfaces: Surface[]): boolean => {
+  let hit = canvasPages.get(surfaces);
+  if (hit === undefined) {
+    hit = surfaces.some((s) => s.kind === "html" && CANVAS_PAGE.test(s.html));
+    canvasPages.set(surfaces, hit);
+  }
+  return hit;
 };
 
 // One past version without its bodies: enough to list versions or pick one to
@@ -83,6 +151,7 @@ export const historyMetaView = (version: PostVersion) => ({
   ...(version.amendedAt ? { amendedAt: version.amendedAt } : {}),
   surfaceKinds: version.surfaces.map((s) => s.kind),
   ...posterOf(version.surfaces),
+  ...(drawsOnCanvas(version.surfaces) ? { canvas: true } : {}),
 });
 
 export interface VariantViewOptions {
@@ -92,6 +161,8 @@ export interface VariantViewOptions {
   history?: boolean;
   // What each post's embeds resolve to now, by post id.
   embeds?: Map<string, EmbedView>;
+  // The variants some question keeps (standings.ts keptVariants).
+  kept?: Set<string>;
 }
 
 // A variant's embeds as they render now (nested ones included): each with the
@@ -123,7 +194,7 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
     ? { knobs: { ...slotKnobs(slotsInSurfaces(post.surfaces)), ...post.knobs } }
     : {}),
   ...(slotsInSurfaces(post.surfaces).length ? { fills: slotsInSurfaces(post.surfaces) } : {}),
-  ...(post.note ? { note: post.note } : {}),
+  ...(post.description ? { description: post.description } : {}),
   // Embedded components as they render now (server/embeds.ts); `publishedWith`
   // is what this version rendered with when it was published.
   ...(opts.embeds?.get(post.id)
@@ -131,8 +202,11 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
     : {}),
   ...(post.embeds.length ? { publishedWith: post.embeds } : {}),
   ...(post.forkedFrom ? { forkedFrom: post.forkedFrom } : {}),
-  ...(post.starred ? { starred: true } : {}),
+  ...(post.copiedFrom ? { copiedFrom: post.copiedFrom } : {}),
+  ...(opts.kept && isKeptVariant(opts.kept, post) ? { kept: true } : {}),
   ...(post.acceptedVersion === undefined ? {} : { inUseVersion: post.acceptedVersion }),
+  ...(changedTo(post) === undefined ? {} : { changedTo: changedTo(post) }),
+  ...(post.archiveReason ? { archiveReason: post.archiveReason } : {}),
   // The part names this variant's own markup marks, so the viewer can tell
   // which variants render a part (Borrow) without the html bodies.
   parts: partsInSurfaces(post.surfaces).map((p) => p.name),
@@ -158,12 +232,12 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
     : {}),
 });
 
-const stateOrder = (mock: Mock) => (mock.states.length ? mock.states : [null]);
+const stateOrder = (design: Design) => (design.states.length ? design.states : [null]);
 
-// What the user put in use, per state, in the mock's order; a state with
+// What the user put in use, per state, in the design's order; a state with
 // nothing accepted is absent. Export and embeds resolve to exactly these.
-export const inUseByState = (mock: Mock, posts: Post[]) =>
-  stateOrder(mock).flatMap((state) => {
+export const inUseByState = (design: Design, posts: PostHead[]) =>
+  stateOrder(design).flatMap((state) => {
     const p = posts.find((x) => x.state === state && x.status === "accepted");
     return p ? [{ state, variant: p.variant, version: inUseVersion(p) }] : [];
   });
@@ -174,8 +248,8 @@ export interface StateParts {
 }
 
 // The parts the agent marked, per state, across the variants still in play.
-export function partsByState(mock: Mock, posts: Post[]): StateParts[] {
-  return stateOrder(mock).map((state) => ({
+export function partsByState(design: Design, posts: Post[]): StateParts[] {
+  return stateOrder(design).map((state) => ({
     state,
     parts: mergeParts(
       posts
@@ -185,27 +259,30 @@ export function partsByState(mock: Mock, posts: Post[]): StateParts[] {
   }));
 }
 
-// Where a mock sits in the product and the code that implements it, only once
+// Where a design sits in the product and the code that implements it, only once
 // declared, so the views of a project that names neither cost nothing.
 export const placeOf = (
-  mock: Pick<Mock, "area" | "source">,
+  design: Pick<Design, "area" | "source">,
 ): { area?: string; source?: string } => ({
-  ...(mock.area ? { area: mock.area } : {}),
-  ...(mock.source ? { source: mock.source } : {}),
+  ...(design.area ? { area: design.area } : {}),
+  ...(design.source ? { source: design.source } : {}),
 });
 
-// What Home shows for a mock: the first state's chosen (else first) variant.
-function thumbnail(mock: Mock, posts: Post[]) {
-  const first = stateOrder(mock)[0];
+// What a design's first state looks like in a list: what's in use, else what the agent
+// recommends, else its first. Same rule as viewer/src/logic.ts screenPicture.
+function thumbnail(design: Design, posts: PostHead[]) {
+  const first = stateOrder(design)[0];
   const inState = posts.filter((p) => p.state === first);
+  const recommended = recommendedVariant(design.asks, first);
   const pick =
     inState.find((p) => p.status === "accepted") ??
+    inState.find((p) => p.variant === recommended && isLive(p.status)) ??
     inState.find((p) => p.status === "open") ??
     inState[0] ??
     posts[0];
   if (!pick) return null;
   const surface = pick.surfaces.findIndex((s) => isSandboxedSurfaceKind(s.kind));
-  const version = inUseVersion(pick);
+  const version = currentVersion(pick);
   const poster = posterAt(pick, version);
   return {
     postId: pick.id,
@@ -216,61 +293,84 @@ function thumbnail(mock: Mock, posts: Post[]) {
   };
 }
 
-// A mock's situations, only once it has any, so the views of mocks without
-// them are unchanged.
-const situationsOf = (mock: Mock) =>
-  Object.keys(mock.situations).length ? { situations: mock.situations } : {};
+// Only a plan says so, so the views of everything drawn are unchanged.
+const plannedOf = (design: Design, variants: number) =>
+  isPlanned(design, variants) ? { planned: true as const } : {};
 
-export const mockSummaryView = (mock: Mock, posts: Post[]) => {
-  const drafted = draftedCount(mock, posts);
+// Anything the user has yet to send. A stored draft can be an emptied one, which
+// waits on nobody.
+export const draftHolds = (draft: Design["draft"]): boolean =>
+  !!draft &&
+  (draft.comments.length > 0 ||
+    Object.values(draft.answers).some((a) => !Array.isArray(a) || a.length > 0) ||
+    [draft.borrowed, draft.tuned, draft.others ?? {}, draft.askComments ?? {}].some(
+      (rec) => Object.keys(rec).length > 0,
+    ));
+
+export const designSummaryView = (design: Design, posts: PostHead[]) => {
+  const drafted = draftedCount(design);
   return {
-    id: mock.id,
-    project: mock.project,
-    slug: mock.slug,
-    title: mock.title,
-    kind: mock.kind,
-    ...placeOf(mock),
-    states: mock.states,
-    ...situationsOf(mock),
-    stateCount: Math.max(momentsOf(mock.states, mock.situations).length, 1),
+    id: design.id,
+    project: design.project,
+    slug: design.slug,
+    title: design.title,
+    kind: design.kind,
+    ...placeOf(design),
+    ...plannedOf(design, posts.length),
+    // Text comes with a read of the design; a list only says there is some to read.
+    ...(design.notes ? { hasNotes: true as const } : {}),
+    states: design.states,
+    stateCount: Math.max(design.states.length, 1),
     variants: posts.length,
-    open: openCount(mock, posts),
+    open: openCount(design),
     // Only once the user has started one, so a list with no drafts costs nothing.
     ...(drafted === null ? {} : { drafted }),
-    sessionId: mock.sessionId,
-    closedAt: mock.closedAt,
-    createdAt: mock.createdAt,
-    updatedAt: mock.updatedAt,
-    thumbnail: thumbnail(mock, posts),
+    sessionId: design.sessionId,
+    archivedAt: design.archivedAt,
+    createdAt: design.createdAt,
+    updatedAt: design.updatedAt,
+    thumbnail: thumbnail(design, posts),
   };
 };
 
-// One mock as anyone outside the viewer's own draft sees it: the draft is the
+// One design as anyone outside the viewer's own draft sees it: the draft is the
 // user's unsent work and never leaves through this view.
-export const mockDetailView = (
-  mock: Mock,
+export const designDetailView = (
+  design: Design,
   posts: Post[],
-  opts: VariantViewOptions & { settled?: Record<string, KnobValue> } = {},
+  opts: VariantViewOptions & { settled?: Record<string, KnobValue>; repliesGoTo?: string } = {},
 ) => ({
-  id: mock.id,
-  project: mock.project,
-  slug: mock.slug,
-  title: mock.title,
-  kind: mock.kind,
-  ...placeOf(mock),
-  states: mock.states,
-  ...situationsOf(mock),
-  asks: mock.asks,
-  open: openCount(mock, posts),
-  knobs: mock.knobs,
-  widths: mock.widths,
-  sessionId: mock.sessionId,
-  closedAt: mock.closedAt,
-  createdAt: mock.createdAt,
-  updatedAt: mock.updatedAt,
-  variants: posts.map((p) => variantView(p, opts)),
-  inUse: inUseByState(mock, posts),
-  parts: partsByState(mock, posts),
+  id: design.id,
+  project: design.project,
+  slug: design.slug,
+  title: design.title,
+  kind: design.kind,
+  ...placeOf(design),
+  ...(design.shortlist ? { shortlist: true } : {}),
+  // No agent has written to this shortlist yet: who its replies reach for now.
+  ...(opts.repliesGoTo ? { repliesGoTo: opts.repliesGoTo } : {}),
+  ...plannedOf(design, posts.length),
+  states: design.states,
+  ...(design.notes ? { notes: design.notes } : {}),
+  ...(Object.keys(design.stateOutlines).length ? { stateOutlines: design.stateOutlines } : {}),
+  ...(design.answerAdditions.length ? { answerAdditions: design.answerAdditions } : {}),
+  asks: design.asks,
+  // By question id: the answers the user kept for later and hid, with why.
+  ...(Object.keys(design.standings).length ? { standings: design.standings } : {}),
+  ...(design.sets.length ? { sets: design.sets } : {}),
+  open: openCount(design),
+  knobs: design.knobs,
+  widths: design.widths,
+  sessionId: design.sessionId,
+  archivedAt: design.archivedAt,
+  ...(design.archiveReason ? { archiveReason: design.archiveReason } : {}),
+  createdAt: design.createdAt,
+  updatedAt: design.updatedAt,
+  variants: ((kept) => posts.map((p) => variantView(p, { ...opts, kept })))(
+    keptVariants(design, posts),
+  ),
+  inUse: inUseByState(design, posts),
+  parts: partsByState(design, posts),
   // Every knob value the user has sent (answers' sets and tuning, later replies
   // winning), never drafts. Later questions render on top of it.
   settled: opts.settled ?? {},
@@ -281,34 +381,63 @@ export const sessionRowView = (session: Session, postCount: number) => ({
   postCount,
 });
 
-// One mock as a node of the project tree (GET /api/projects/:name/tree): its
-// variants per state with status and lineage, and the mocks it embeds (`embeds`);
+// One design as a node of the project tree (GET /api/projects/:name/tree): its
+// variants per state with status and lineage, and the designs it embeds (`embeds`);
 // `embeddedIn` is filled in once every node is known.
+// When it left the shelf: archived by hand, or with the last of its variants archived.
+// Designs archived before the date was kept fall back on the design's last change.
+function leftOf(design: Design, posts: PostHead[]): { leftAt?: string } {
+  if (design.archivedAt) return { leftAt: design.archivedAt };
+  if (!posts.length || posts.some((p) => isLive(p.status))) return {};
+  const last = posts.reduce((t, p) => (p.archivedAt && p.archivedAt > t ? p.archivedAt : t), "");
+  return { leftAt: last || design.updatedAt };
+}
+
 export const treeNodeView = (
-  mock: Mock,
-  posts: Post[],
+  design: Design,
+  posts: PostHead[],
   extra: {
     settled: Record<string, KnobValue>;
     embeds: string[];
     embedViews: Map<string, EmbedView>;
+    lastReplyAt?: string;
+    // About half of a tree's bytes, and no screen of the viewer's reads them from one.
+    noDescriptions?: boolean;
+    // The viewer's alone: where the last Send stands, and a draft waiting to go.
+    lastSend?: { sessionId: string; at: string; delivered: boolean; calledAt?: string };
+    drafting?: boolean;
   },
 ) => ({
-  id: mock.id,
-  slug: mock.slug,
-  title: mock.title,
-  kind: mock.kind,
-  ...placeOf(mock),
-  open: openCount(mock, posts),
-  // Home shows a mock's states, never their situations.
-  states: mock.states.length ? momentsOf(mock.states, mock.situations) : [null],
-  widths: mock.widths,
-  createdAt: mock.createdAt,
-  updatedAt: mock.updatedAt,
-  closedAt: mock.closedAt,
+  id: design.id,
+  slug: design.slug,
+  title: design.title,
+  kind: design.kind,
+  ...placeOf(design),
+  ...(design.shortlist ? { shortlist: true } : {}),
+  ...plannedOf(design, posts.length),
+  open: openCount(design),
+  // Any question ever asked, answered or not: it tells an idea from a document.
+  ...(design.asks.length ? { asked: design.asks.length } : {}),
+  // Later than every variant: the user has spoken and it is the agent's turn.
+  ...(extra.lastReplyAt ? { lastReplyAt: extra.lastReplyAt } : {}),
+  ...(extra.lastSend ? { lastSend: extra.lastSend } : {}),
+  ...(extra.drafting ? { drafting: true } : {}),
+  states: stateOrder(design),
+  widths: design.widths,
+  createdAt: design.createdAt,
+  updatedAt: design.updatedAt,
+  archivedAt: design.archivedAt,
+  ...leftOf(design, posts),
+  ...(design.archiveReason ? { archiveReason: design.archiveReason } : {}),
   settled: extra.settled,
   embeds: extra.embeds,
   embeddedIn: [] as string[],
-  inUse: inUseByState(mock, posts),
+  inUse: inUseByState(design, posts),
+  // What the agent recommends where nothing is in use: a cover shows it.
+  recommended: stateOrder(design).flatMap((state) => {
+    const variant = recommendedVariant(design.asks, state);
+    return variant ? [{ state, variant }] : [];
+  }),
   variants: posts.map((p) => ({
     postId: p.id,
     state: p.state,
@@ -320,10 +449,12 @@ export const treeNodeView = (
     surface: p.surfaces.findIndex((x) => isSandboxedSurfaceKind(x.kind)),
     ...posterOf(p.surfaces),
     ...inUsePoster(p),
-    ...(p.note ? { note: p.note } : {}),
+    ...coverVersion(p),
+    ...(p.description && !extra.noDescriptions ? { description: p.description } : {}),
     ...(p.forkedFrom ? { forkedFrom: p.forkedFrom } : {}),
-    ...(p.starred ? { starred: true } : {}),
     ...(p.acceptedVersion === undefined ? {} : { inUseVersion: p.acceptedVersion }),
+    ...(changedTo(p) === undefined ? {} : { changedTo: changedTo(p) }),
+    ...(p.archiveReason ? { archiveReason: p.archiveReason } : {}),
     ...(extra.embedViews.get(p.id) ? { embedsKey: extra.embedViews.get(p.id)!.key } : {}),
   })),
 });

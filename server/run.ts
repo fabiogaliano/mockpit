@@ -112,7 +112,7 @@ export interface RunDeps {
 }
 
 export const RUN_UNAVAILABLE =
-  "run is not available on this deployment: it has no script sandbox. Use the mock tools (or REST) instead";
+  "run is not available on this deployment: it has no script sandbox. Use the design tools (or REST) instead";
 
 const text = (v: unknown, max: number): string | undefined =>
   typeof v === "string" && v.trim() ? v.trim().slice(0, max) : undefined;
@@ -131,7 +131,7 @@ export function cut(s: string, max: number): string {
 
 function writeSummary(body: any): string {
   const post = body?.post;
-  const slug = body?.mock?.slug ?? "?";
+  const slug = body?.design?.slug ?? "?";
   if (!post) return slug;
   return `${slug}/${post.state ? `${post.state}/` : ""}${post.variant} v${post.version}`;
 }
@@ -243,28 +243,32 @@ export function createRunFlow(deps: RunDeps) {
         if (!isGuideTopic(topic)) throw new Error(unknownTopicMessage(String(topic)));
         return [await deps.guide("", topic), String(topic)];
       },
-      async read([mock, opts]) {
-        if ((mock === undefined || mock === null) && plain(opts).tree === true) {
-          const value = await take(flows.tree({ project: await projectOf() }));
-          return [value, `${value.tree.length} mocks`];
+      async read([design, opts]) {
+        if (plain(opts).decisions === true) {
+          const value = await take(flows.decisions({ project: await projectOf() }));
+          return [value, `${value.total} decisions`];
         }
-        if (mock === undefined || mock === null) {
+        if ((design === undefined || design === null) && plain(opts).tree === true) {
+          const value = await take(flows.tree({ project: await projectOf() }));
+          return [value, `${value.tree.length} designs`];
+        }
+        if (design === undefined || design === null) {
           const value = await take(flows.list({ project: await projectOf() }));
-          return [value, `${value.mocks.length} mocks`];
+          return [value, `${value.designs.length} designs`];
         }
         const o = plain(opts);
         const value = await take(
-          flows.get(mock, { project, body: o.body === true, history: o.history === true }),
+          flows.get(design, { project, body: o.body === true, history: o.history === true }),
         );
-        return [value, String(value?.slug ?? mock)];
+        return [value, String(value?.slug ?? design)];
       },
       async publish([v]) {
         const value = await take(flows.publish({ ...(await mine(plain(v))), agent }, flowCtx));
         return [value, writeSummary(value)];
       },
-      async ask([mock, asks]) {
-        const value = await take(flows.ask(mock, await mine({ asks }), flowCtx));
-        return [value, `${value.mock} ${value.asks.length} ask(s)`];
+      async ask([design, asks]) {
+        const value = await take(flows.ask(design, await mine({ asks }), flowCtx));
+        return [value, `${value.design} ${value.asks.length} ask(s)`];
       },
       async feedback() {
         const value = await take(flows.feedback(await mine({}), flowCtx));
@@ -273,8 +277,13 @@ export function createRunFlow(deps: RunDeps) {
       },
       async say([v, message]) {
         const r = plain(v);
-        await take(flows.say(r.mock, { ...(await mine(r)), message }, flowCtx));
-        return [null, String(r.mock ?? "?")];
+        await take(flows.say(r.design, { ...(await mine(r)), message }, flowCtx));
+        return [null, String(r.design ?? "?")];
+      },
+      async move([v]) {
+        const r = plain(v);
+        const value = await take(flows.move(r.design, await mine(r), flowCtx));
+        return [value, `${value.variants.length} moved`];
       },
       async edit([v]) {
         const r = await mine(plain(v));
@@ -297,8 +306,8 @@ export function createRunFlow(deps: RunDeps) {
       },
       async export([v]) {
         const r = plain(v);
-        const value = await take(flows.exportMock(r.mock, { ...r, project }, flowCtx));
-        return [value, `${value.mock} ${value.states.length} state(s)`];
+        const value = await take(flows.exportDesign(r.design, { ...r, project }, flowCtx));
+        return [value, `${value.design} ${value.states.length} state(s)`];
       },
     };
 

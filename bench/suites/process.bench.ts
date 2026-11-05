@@ -248,11 +248,11 @@ export const processSuite: Suite = {
       // The first rich surface loads shiki's themes and grammars into the server
       // process; that step is invisible in an idle reading but permanent
       // afterwards. Measuring both makes the jump attributable.
-      const publish = await fetch(`${server.url}/api/mocks`, {
+      const publish = await fetch(`${server.url}/api/designs`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          mock: "bench",
+          design: "bench",
           agent: "bench",
           surfaces: [{ kind: "code", code: "const x = 1;\n", language: "typescript" }],
         }),

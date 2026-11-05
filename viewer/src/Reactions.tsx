@@ -5,7 +5,7 @@
 import { createSignal, For, type JSX, onCleanup, onMount } from "solid-js";
 import { REACTIONS, type Reaction } from "../../server/types.ts";
 import { REACTION_LABEL, reactionSpot } from "./reactionRules.ts";
-import type { MockScreenState } from "./state.ts";
+import type { DesignScreenState } from "./state.ts";
 
 const Thumb = (props: { down?: boolean }) => (
   <svg
@@ -42,7 +42,7 @@ const ICON: Record<Reaction, () => JSX.Element> = {
 };
 
 export function ReactionBar(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   // null: the variant on stage itself.
   part: string | null;
   // What the reaction is about, for the group's name ("hero", "variant B").
@@ -94,7 +94,7 @@ export function ReactionBar(props: {
 // The reaction row for the picked part: under it, else above its label, else
 // inside its top edge, always within the overlay's box.
 export function PartReactions(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   r: { x: number; y: number; w: number; h: number };
   part: string;
   label: string;

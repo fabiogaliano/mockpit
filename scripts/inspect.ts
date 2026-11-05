@@ -8,7 +8,7 @@
 //   node scripts/inspect.ts find [--since 2026-10-09]       transcripts that called mockpit
 //   node scripts/inspect.ts sessions [--since …] [--project …]
 //   node scripts/inspect.ts undelivered                     replies their session never received
-//   node scripts/inspect.ts log [--session id] [--mock slug] [--client cli] [--since …] [--limit 50]
+//   node scripts/inspect.ts log [--session id] [--design slug] [--client cli] [--since …] [--limit 50]
 //   node scripts/inspect.ts transcript <session id | transcript uuid | path.jsonl> [--full]
 //
 // MOCKPIT_DB, MOCKPIT_LOG and CLAUDE_CONFIG_DIR point it elsewhere.
@@ -28,7 +28,7 @@ const { positionals, values: flags } = parseArgs({
     since: { type: "string" },
     project: { type: "string" },
     session: { type: "string" },
-    mock: { type: "string" },
+    design: { type: "string" },
     client: { type: "string" },
     limit: { type: "string" },
     full: { type: "boolean" },
@@ -196,7 +196,7 @@ function undelivered() {
   const rows = query(
     `SELECT c.seq, c.createdAt, c.kind, c.sessionId, s.agentSeq, s.lastActiveAt, s.key, m.project, m.slug,
        (SELECT count(*) FROM sessions o WHERE o.cwd = s.cwd AND o.createdAt > c.createdAt) AS later
-     FROM comments c JOIN sessions s ON s.id = c.sessionId LEFT JOIN mocks m ON m.id = c.mockId
+     FROM comments c JOIN sessions s ON s.id = c.sessionId LEFT JOIN designs m ON m.id = c.designId
      WHERE c.author = 'user' AND c.seq > s.agentSeq ORDER BY c.seq`,
   );
   if (!rows.length) return console.log("every user comment and reply was delivered");
@@ -219,7 +219,7 @@ function log() {
     for (const e of lines(f)) {
       if (since && Date.parse(e.t) < since) continue;
       if (flags.session && e.session !== flags.session) continue;
-      if (flags.mock && e.mock !== flags.mock) continue;
+      if (flags.design && e.design !== flags.design) continue;
       if (flags.client && !String(e.client).startsWith(flags.client)) continue;
       out.push(e);
     }

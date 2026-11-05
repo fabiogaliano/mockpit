@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
@@ -23,7 +23,7 @@ import { RUN_INSTRUCTIONS } from "../server/runApi.ts";
 const API = process.env.MOCKPIT_URL ?? "http://localhost:8228";
 const TOKEN = process.env.MOCKPIT_TOKEN;
 const AGENT = process.env.MOCKPIT_AGENT ?? "claude-code";
-// "code" serves the codemode catalog: one `run` tool instead of the mock tools.
+// "code" serves the codemode catalog: one `run` tool instead of the design tools.
 const CODE_MODE = process.env.MOCKPIT_MCP_MODE === "code";
 
 // Names this client in the server's event log; the version is how a stdio
@@ -44,6 +44,20 @@ function packageVersion(): string {
   }
   return "unknown";
 }
+
+// The CLI's poster worker, which is built-ins only and isn't compiled into dist: found the
+// way the version is. Missing or broken means no posters, never a failed publish.
+interface Posters {
+  findBrowser(): string | null;
+  queuePoster(job: Record<string, unknown>): void;
+}
+const posters: Promise<Posters | null> = (async () => {
+  for (const rel of ["../bin/poster.js", "../../bin/poster.js"]) {
+    const path = join(dirname(fileURLToPath(import.meta.url)), rel);
+    if (existsSync(path)) return (await import(pathToFileURL(path).href)) as Posters;
+  }
+  return null;
+})().catch(() => null);
 
 async function api(path: string, init: RequestInit = {}) {
   const headers: Record<string, string> = {
@@ -139,9 +153,20 @@ let sessionId: string | null = process.env.MOCKPIT_SESSION ?? null;
 
 // A resumed Claude Code conversation spawns a new MCP process; its session id
 // survives the resume, so keying on it hands back the same mockpit session.
-const harnessKey = process.env.CLAUDE_CODE_SESSION_ID
+let harnessKey = process.env.CLAUDE_CODE_SESSION_ID
   ? `claude-code:${process.env.CLAUDE_CODE_SESSION_ID}`
   : undefined;
+
+// Codex gives a stdio server no conversation id in its environment, only on each
+// call, and the key must be right before the call that creates the session.
+function noteCaller(extra: { _meta?: Record<string, unknown> }) {
+  const metadata = extra._meta?.["x-codex-turn-metadata"] as { thread_id?: unknown } | undefined;
+  if (typeof metadata?.thread_id !== "string") return;
+  const key = `codex:${metadata.thread_id}`;
+  if (key === harnessKey) return;
+  harnessKey = key;
+  sessionId = process.env.MOCKPIT_SESSION ?? null;
+}
 
 // `title` is used only when this call creates the session — once one exists
 // (here or in the viewer, where the user can rename it) it is never retitled.
@@ -189,7 +214,8 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
   async publish(args) {
     const session = await ensureSession(args.sessionTitle);
     const html = typeof args.html === "string" ? readMaybeFile(args.html) : undefined;
-    return post("/api/mocks", {
+    const taking = args.poster === undefined ? await posters : null;
+    const result = await post("/api/designs", {
       ...args,
       html,
       parts: readPartFiles(args.parts),
@@ -198,11 +224,28 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
       session,
       agent: AGENT,
       project: resolveProject(args.project),
+      ...(taking?.findBrowser() ? { posterComing: true } : {}),
     });
+    if (
+      taking &&
+      result.post?.surfaces?.some((s: { kind: string }) => s.kind === "html") &&
+      !result.withdrawn
+    ) {
+      taking.queuePoster({
+        base: API.replace(/\/$/, ""),
+        token: TOKEN,
+        client: CLIENT,
+        session,
+        design: result.design.id,
+        postId: result.post.id,
+        version: result.post.version,
+      });
+    }
+    return result;
   },
   async ask(args) {
     const session = await ensureSession();
-    return post(`/api/mocks/${enc(args.mock)}/asks`, {
+    return post(`/api/designs/${enc(args.design)}/asks`, {
       ...args,
       session,
       project: resolveProject(args.project),
@@ -210,15 +253,17 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
   },
   read: (args) =>
     json(
-      args.mock === undefined && args.tree === true
-        ? `/api/projects/${enc(resolveProject(args.project))}/tree`
-        : args.mock === undefined
-          ? `/api/mocks${query({ project: resolveProject(args.project) })}`
-          : `/api/mocks/${enc(args.mock)}${query({
-              project: resolveProject(args.project),
-              body: args.body,
-              history: args.history,
-            })}`,
+      args.decisions === true
+        ? `/api/projects/${enc(resolveProject(args.project))}/decisions`
+        : args.design === undefined && args.tree === true
+          ? `/api/projects/${enc(resolveProject(args.project))}/tree`
+          : args.design === undefined
+            ? `/api/designs${query({ project: resolveProject(args.project) })}`
+            : `/api/designs/${enc(args.design)}${query({
+                project: resolveProject(args.project),
+                body: args.body,
+                history: args.history,
+              })}`,
     ),
   // Never waits: the server reads from the session's cursor, shared with
   // piggyback and `mockpit watch`, so each Send is delivered exactly once.
@@ -228,7 +273,7 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
   },
   async say(args) {
     const session = await ensureSession();
-    return post(`/api/mocks/${enc(args.mock)}/say`, {
+    return post(`/api/designs/${enc(args.design)}/say`, {
       state: args.state,
       variant: args.variant,
       project: resolveProject(args.project),
@@ -236,12 +281,20 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
       message: args.message,
     });
   },
+  async move(args) {
+    const session = await ensureSession();
+    return post(`/api/designs/${enc(args.design)}/move`, {
+      ...args,
+      project: resolveProject(args.project),
+      session,
+    });
+  },
   async edit(args) {
     const session = await ensureSession();
     const project = resolveProject(args.project);
     if (args.rename !== undefined || args.areaOrder !== undefined) {
-      if (args.mock !== undefined) {
-        throw new Error('"rename" and "areaOrder" edit the project; edit the mock without them');
+      if (args.design !== undefined) {
+        throw new Error('"rename" and "areaOrder" edit the project; edit the design without them');
       }
       return post(
         `/api/projects/${enc(project)}`,
@@ -249,14 +302,14 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
         "PATCH",
       );
     }
-    if (typeof args.mock !== "string" || !args.mock) {
-      throw new Error('provide "mock", or "rename" / "areaOrder" to edit the project');
+    if (typeof args.design !== "string" || !args.design) {
+      throw new Error('provide "design", or "rename" / "areaOrder" to edit the project');
     }
-    return post(`/api/mocks/${enc(args.mock)}`, { ...args, project, session }, "PATCH");
+    return post(`/api/designs/${enc(args.design)}`, { ...args, project, session }, "PATCH");
   },
   export: (args) =>
     json(
-      `/api/mocks/${enc(args.mock)}/export${query({
+      `/api/designs/${enc(args.design)}/export${query({
         project: resolveProject(args.project),
         state: args.state,
         variant: args.variant,
@@ -319,7 +372,8 @@ const server = new McpServer(MCP_SERVER_INFO, {
 
 if (CODE_MODE) {
   const [{ name, ...config }] = STDIO_RUN_TOOLS;
-  server.registerTool(name, config, async (args: any) => {
+  server.registerTool(name, config, async (args: any, extra: any) => {
+    noteCaller(extra);
     const envelope = await run(args);
     return withFeedbackImages(runToolResult(envelope), envelope, loadImage);
   });
@@ -327,7 +381,8 @@ if (CODE_MODE) {
   for (const tool of STDIO_MCP_TOOLS) {
     const handler = handlers[tool.name];
     const { name, ...config } = tool;
-    server.registerTool(name, config, async (args: any) => {
+    server.registerTool(name, config, async (args: any, extra: any) => {
+      noteCaller(extra);
       const value = await handler(args);
       return withFeedbackImages(toolResult(name, value), value, loadImage);
     });

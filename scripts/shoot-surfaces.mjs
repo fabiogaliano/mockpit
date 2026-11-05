@@ -1,6 +1,6 @@
 // Regenerates the README surface gallery (docs/surfaces/*.png): boots a fresh
-// server, publishes one mock per surface kind from scripts/surface-examples/,
-// and screenshots each mock's stage in a dark-mode Chromium at 2x. Run after
+// server, publishes one design per surface kind from scripts/surface-examples/,
+// and screenshots each design's stage in a dark-mode Chromium at 2x. Run after
 // changing a surface renderer or an example:
 //
 //   node scripts/shoot-surfaces.mjs
@@ -92,8 +92,8 @@ const terminal =
   `${E}36m==>${E}0m Rolling  [${E}32m####################${E}0m] 4/4 machines\n` +
   `${E}32m✓${E}0m Deployed ${E}1mworker${E}0m v231 → ${E}1mv232${E}0m\n`;
 
-// One mock per kind; `n` and `file` name the screenshot (05 was trace).
-const mocks = [
+// One design per kind; `n` and `file` name the screenshot (05 was trace).
+const designs = [
   {
     n: 1,
     file: "html",
@@ -170,10 +170,10 @@ const mocks = [
 
 const PROJECT = "surfaces";
 let session;
-for (const m of mocks) {
-  const res = await post("/api/mocks", {
+for (const m of designs) {
+  const res = await post("/api/designs", {
     project: PROJECT,
-    mock: m.file,
+    design: m.file,
     title: m.title,
     surfaces: m.surfaces,
     ...(session ? { session } : { agent: "claude-opus", sessionTitle: "Surface kinds" }),
@@ -189,7 +189,7 @@ await fetch(`${base}/api/theme`, {
   body: JSON.stringify({ mode: "dark" }),
 });
 
-for (const m of mocks) {
+for (const m of designs) {
   await page.goto(`${base}/project/${PROJECT}/${m.file}`, { waitUntil: "domcontentloaded" });
   await page.locator(".frame.on .surface").first().waitFor();
   if (m.surfaces.some((s) => s.kind === "image")) await page.locator(".frame.on img").waitFor();

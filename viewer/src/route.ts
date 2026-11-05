@@ -1,26 +1,44 @@
-// URL ⇄ screen. Home is /project/:name, a mock is /project/:name/:slug; "/" is
-// the home of the most recently active project. Home's tab is `?view=`: all,
-// pages, flows, components or sketches; absent, or a tab the project lacks, is
-// its first. `?area=` narrows Home to one of the project's areas.
+// URL ⇄ screen. Home is /project/:name, a design is /project/:name/:slug; "/" is
+// the home of the most recently active project. Home's place is `?sec=`: a
+// section (ideas, screens, flows, components, documents), or needs, archive or
+// recent; absent, or a section the project hasn't lit, is its first. `?show=` narrows
+// recent to its decisions or designs.
+// `?area=` alone is everything in one of the project's areas, and with `?sec=`
+// that section of it. On a design the URL is the whole place: `?state=`,
+// `?variant=`, `?version=`, `?view=`. The design screen keeps them current, so Back
+// and a reload land where the entry was.
 
 import { createSignal } from "solid-js";
 import { basePath, host } from "./host.ts";
 
-export const HOME_VIEWS = ["all", "pages", "flows", "components", "sketches"] as const;
-export type HomeView = (typeof HOME_VIEWS)[number];
-const isHomeView = (v: string | null): v is HomeView => HOME_VIEWS.includes(v as HomeView);
+export const HOME_PLACES = [
+  "ideas",
+  "screens",
+  "flows",
+  "components",
+  "documents",
+  "needs",
+  "archive",
+  "recent",
+] as const;
+export type HomePlace = (typeof HOME_PLACES)[number];
+const isHomePlace = (v: string | null): v is HomePlace => HOME_PLACES.includes(v as HomePlace);
+export type RecentShow = "decisions" | "designs";
+const isRecentShow = (v: string | null): v is RecentShow => v === "decisions" || v === "designs";
 
 export type Route =
   | {
       screen: "home";
       project: string | null;
-      // null: the first tab the project has.
-      view: HomeView | null;
+      // null: the first section the project has lit, or all of one area.
+      sec: HomePlace | null;
       // null: every area.
       area: string | null;
+      // null: all of recent.
+      show: RecentShow | null;
     }
   | {
-      screen: "mock";
+      screen: "design";
       project: string;
       slug: string;
       // Open on this state, and this variant when named (a step of a flow or a
@@ -28,9 +46,11 @@ export type Route =
       open: ScreenOpen | null;
       // The flow the user came through, which the flow bar keeps to.
       flow: string | null;
-    };
+    }
+  | { screen: "missing" };
 
-export type ScreenOpen = { state: string | null; variant: string | null };
+export type ScreenOpen = { state: string | null; variant: string | null; version?: number | null };
+export type DesignRoute = Extract<Route, { screen: "design" }>;
 
 export function parseRoute(pathname: string, base = "", search = ""): Route {
   const path = base && pathname.startsWith(base) ? pathname.slice(base.length) : pathname;
@@ -46,18 +66,29 @@ export function parseRoute(pathname: string, base = "", search = ""): Route {
   const home = (project: string | null): Route => ({
     screen: "home",
     project,
-    view: isHomeView(q.get("view")) ? (q.get("view") as HomeView) : null,
+    sec: isHomePlace(q.get("sec")) ? (q.get("sec") as HomePlace) : null,
     area: q.get("area") || null,
+    show: isRecentShow(q.get("show")) ? (q.get("show") as RecentShow) : null,
   });
+  if (seg.length && (seg[0] !== "project" || !seg[1] || seg.length > 3)) {
+    return { screen: "missing" };
+  }
   if (seg[0] === "project" && seg[1]) {
     if (seg[2]) {
       const variant = q.get("variant");
+      const version = Number(q.get("version"));
       return {
-        screen: "mock",
+        screen: "design",
         project: dec(seg[1]),
         slug: dec(seg[2]),
         open:
-          variant || q.has("state") ? { state: q.get("state"), variant: variant || null } : null,
+          variant || q.has("state")
+            ? {
+                state: q.get("state"),
+                variant: variant || null,
+                version: Number.isInteger(version) && version > 0 ? version : null,
+              }
+            : null,
         flow: q.get("flow") || null,
       };
     }
@@ -68,35 +99,63 @@ export function parseRoute(pathname: string, base = "", search = ""): Route {
 
 export const projectPath = (
   project: string,
-  view: HomeView | null = null,
+  sec: HomePlace | null = null,
   area: string | null = null,
+  show: RecentShow | null = null,
 ) => {
   const q = new URLSearchParams();
-  if (view) q.set("view", view);
+  if (sec) q.set("sec", sec);
   if (area) q.set("area", area);
+  if (show) q.set("show", show);
   const qs = q.toString();
   return `${basePath()}/project/${encodeURIComponent(project)}${qs ? `?${qs}` : ""}`;
 };
-export const mockPath = (
+export const designPath = (
   project: string,
   slug: string,
   open?: ScreenOpen | null,
   flow?: string | null,
+  view?: string | null,
 ) => {
   const base = `${projectPath(project)}/${encodeURIComponent(slug)}`;
   const q = new URLSearchParams();
   if (open?.variant) q.set("variant", open.variant);
+  if (open?.version) q.set("version", String(open.version));
   if (open && open.state !== null) q.set("state", open.state);
   if (flow) q.set("flow", flow);
+  if (view) q.set("view", view);
   const qs = q.toString();
   return qs ? `${base}?${qs}` : base;
 };
-// The tab and area Home was last on, per project, so Back from a mock returns to it.
-const lastView = new Map<string, { view: HomeView | null; area: string | null }>();
-export const rememberHomeView = (project: string, view: HomeView | null, area: string | null) =>
-  lastView.set(project, { view, area });
-export const homePath = (project: string) =>
-  projectPath(project, lastView.get(project)?.view ?? null, lastView.get(project)?.area ?? null);
+// Straight to what a design still asks: on Stage, on its first open question,
+// wherever this browser last left it.
+export const questionPath = (project: string, slug: string) =>
+  `${designPath(project, slug)}?view=stage&owed=1`;
+// The place on Home last shown, per project, so going up from a design lands there.
+const lastPlace = new Map<
+  string,
+  { sec: HomePlace | null; area: string | null; show: RecentShow | null }
+>();
+export const rememberHomePlace = (
+  project: string,
+  sec: HomePlace | null,
+  area: string | null,
+  show: RecentShow | null,
+) => lastPlace.set(project, { sec, area, show });
+export const rootPath = () => `${basePath()}/`;
+// The project's crumb means the whole project, in the section last open. An area
+// crumb means everything in that area, unless that's the area you came from: the
+// design it names may not be in the section last open, which would land on nothing.
+export const homePath = (project: string, area: string | null = null) => {
+  const last = lastPlace.get(project);
+  const same = area === null || last?.area === area;
+  return projectPath(
+    project,
+    same ? (last?.sec ?? null) : null,
+    area,
+    same ? (last?.show ?? null) : null,
+  );
+};
 
 const key = (r: Route) => JSON.stringify(r);
 const read = () => parseRoute(host().location.pathname, basePath(), host().location.search);
@@ -109,6 +168,12 @@ export function navigate(path: string, opts: { replace?: boolean } = {}) {
   const h = host().history;
   if (opts.replace) h.replaceState(null, "", path);
   else h.pushState(null, "", path);
+  setRoute(read());
+}
+
+// The current entry's address changes with no step in history.
+export function replaceUrl(path: string) {
+  host().history.replaceState(host().history.state, "", path);
   setRoute(read());
 }
 

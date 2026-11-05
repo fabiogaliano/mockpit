@@ -1,19 +1,18 @@
-// The mock screen's keyboard: flowKey (logic.ts) says what a key means, this
+// The design screen's keyboard: flowKey (logic.ts) says what a key means, this
 // applies it: number keys pick on the question card, ←/→ step through the
-// versions, ↑/↓ through the situations of a state, Enter sends on. The Mark
-// tool owns its keys while on.
+// versions, Enter sends on. The Mark tool owns its keys while on.
 // Any key or press on the screen also keeps it from moving on by itself after
 // a Send: the user is reading or doing something here.
 
 import { onCleanup, onMount } from "solid-js";
 import { root } from "./host.ts";
 import { flowKey } from "./logic.ts";
-import type { MockScreenState } from "./state.ts";
+import type { DesignScreenState } from "./state.ts";
 
-const FIELD = "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
+export const FIELD = "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
 const CONTROL = "button, a[href], summary, [role='button'], [role='tab'], [role='option']";
 
-export function useFlowKeys(s: MockScreenState) {
+export function useFlowKeys(s: DesignScreenState) {
   onMount(() => {
     const stay = () => {
       if (s.afterSend()?.auto) s.stayHere();
@@ -43,16 +42,11 @@ export function useFlowKeys(s: MockScreenState) {
           break;
         case "primary":
           if (s.afterSend()?.next) s.goNext();
-          else if (s.commitKind() && !s.cardMin() && !s.panel()) s.commit();
+          else if (s.commitKind() && !s.questionHidden()) s.commit();
           else return;
           break;
-        case "mock":
-          void s.goOwedMock(key.by);
-          break;
-        // Only where there are situations to move through: otherwise the
-        // arrows still scroll.
-        case "situation":
-          if (!s.stepSituation(key.by)) return;
+        case "design":
+          void s.goOwedDesign(key.by);
           break;
         case "clear":
           if (!s.preview() && !s.afterSend()?.auto) return;

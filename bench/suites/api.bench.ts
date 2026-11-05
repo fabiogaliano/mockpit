@@ -53,13 +53,13 @@ async function benchReads(
   ctx: SuiteContext,
   app: App,
   sessionId: string,
-  mockId: string,
+  designId: string,
   scale: string,
 ) {
   const reads: [string, string][] = [
     ["GET /api/sessions", "/api/sessions"],
-    ["GET /api/mocks", "/api/mocks"],
-    ["GET /api/mocks/:id", `/api/mocks/${mockId}`],
+    ["GET /api/designs", "/api/designs"],
+    ["GET /api/designs/:id", `/api/designs/${designId}`],
     ["GET /api/comments?session", `/api/comments?session=${sessionId}`],
   ];
   for (const [name, path] of reads) {
@@ -91,7 +91,7 @@ export const apiSuite: Suite = {
         },
         app,
         built.busiestSessionId,
-        (await store.listMocks())[0]?.id ?? "",
+        (await store.listDesigns())[0]?.id ?? "",
         `${built.totalPosts} posts / ${built.totalComments} comments`,
       );
     }
@@ -105,23 +105,23 @@ export const apiSuite: Suite = {
 
       const publishBody = {
         session: built.busiestSessionId,
-        mock: "bench-publish",
+        design: "bench-publish",
         surfaces: [surfaceOfKind("markdown", "small")],
       };
       await ctx.time(
-        "POST /api/mocks (publish)",
+        "POST /api/designs (publish)",
         async () => {
-          await (await app.request("/api/mocks", jsonPost(publishBody))).text();
+          await (await app.request("/api/designs", jsonPost(publishBody))).text();
         },
         { note: scale },
       );
 
-      const target = (await store.listMocks())[0].id;
+      const target = (await store.listDesigns())[0].id;
       let rev = 0;
       await ctx.time(
-        "POST /api/mocks/:id/revise",
+        "POST /api/designs/:id/revise",
         async () => {
-          const res = await app.request(`/api/mocks/${target}/revise`, {
+          const res = await app.request(`/api/designs/${target}/revise`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({

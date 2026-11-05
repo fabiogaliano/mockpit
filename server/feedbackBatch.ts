@@ -1,18 +1,22 @@
-// The agent-facing shape of feedback: one batch per mock, in delivery order.
+// The agent-facing shape of feedback: one batch per design, in delivery order.
 // The `feedback` verb, the watch long-poll and the write piggyback all return this,
-// so an agent reads one grouped object instead of re-deriving which mock a flat
+// so an agent reads one grouped object instead of re-deriving which design a flat
 // comment list belongs to. Runtime-agnostic (no node imports).
 
 import { type Decisions, decisionsFor } from "./decisions.ts";
+import { ROUTED_NOTE } from "./handoff.ts";
+import { standingOf, type StandingView, standingView } from "./standings.ts";
 import {
+  type AnswerStanding,
+  type Ask,
   type AskOption,
   builtinAsk,
   type Comment,
   type CommentAnchor,
   inUseVersion,
   DEFAULT_VARIANT,
-  type Mock,
-  type MockEdit,
+  type Design,
+  type DesignEdit,
   OTHER_ID,
   type PartComment,
   type Post,
@@ -58,20 +62,45 @@ export interface OtherChoice {
 }
 
 // An answered ask, resolved to the options the user chose, so the agent reads
-// "Which variant? → dark" without cross-referencing ids. `note` qualifies the answer.
-export interface AnsweredAsk {
+// "Which variant? → dark" without cross-referencing ids. `comment` qualifies the answer.
+export interface AnsweredAsk extends StandingView {
   ask: string;
   text: string;
   chosen: (AskOption | OtherChoice)[];
-  note?: string;
-  noteImages?: ImageRef[];
+  comment?: string;
+  commentImages?: ImageRef[];
 }
 
-// The write-ins, notes and their images ride in `asks`, not again as id maps.
+// A request for more answers, with what the agent needs to answer it in one go: the
+// question, what it already offers, and what the user has settled around it.
+export interface MoreAnswers {
+  ask: string;
+  text: string;
+  existing: string[];
+  note?: string;
+  // More like this one answer, rather than more of everything.
+  like?: string;
+  // What the user kept points the way; what they hid, and why, is what to avoid.
+  kept?: string[];
+  hidden?: { label: string; why?: string }[];
+  answered: { ask: string; text: string; chosen: string[]; comment?: string }[];
+}
+
+// A kept screen to bring up to date with the one in use, once.
+export interface UpdateRequest {
+  ask: string;
+  text: string;
+  kept: AskOption;
+  inUse: AskOption[];
+}
+
+// The write-ins, comments and their images ride in `asks`, not again as id maps.
 export interface FeedbackReply extends Omit<
   Reply,
-  "others" | "notes" | "otherImages" | "noteImages"
+  "others" | "askComments" | "otherImages" | "askCommentImages" | "more" | "standings" | "update"
 > {
+  more?: MoreAnswers;
+  update?: UpdateRequest;
   seq: number;
   at: string;
   asks: AnsweredAsk[];
@@ -84,9 +113,9 @@ export interface FeedbackReply extends Omit<
 }
 
 export interface FeedbackBatch {
-  mockId: string | null;
+  designId: string | null;
   project: string | null;
-  mock: string | null;
+  design: string | null;
   title: string | null;
   reply: FeedbackReply | null;
   // What the user wrote in the thread, outside any Send.
@@ -94,18 +123,69 @@ export interface FeedbackBatch {
   // The variants the reply left in use / archived (restorable).
   inUse: InUseRef[];
   archived: VariantRef[];
-  // Set when this batch was sent to an earlier, now quiet session (handoff.ts).
+  // Set when this batch reached a session that didn't ask it (handoff.ts).
   handoff?: string;
-  // The user closed the mock instead of answering: these asks were closed
-  // unanswered, as not worth answering. Don't ask them again.
-  closed?: true;
-  dismissed?: { ask: string; text: string }[];
-  // The user moved the mock from Home: its kind or area as they left it
+  // The user moved the design from Home: its kind or area as they left it
   // (area null: none). Build on it; don't move it back.
-  edited?: MockEdit;
+  edited?: DesignEdit;
 }
 
 const ref = (p: Post): VariantRef => ({ state: p.state, variant: p.variant });
+
+function moreAnswers(
+  design: Design,
+  more: NonNullable<Reply["more"]>,
+  sent: AnswerStanding | undefined,
+): MoreAnswers | undefined {
+  const ask = design.asks.find((a) => a.id === more.ask);
+  if (!ask) return undefined;
+  const st = sent ?? standingOf(design, ask.id);
+  const view = standingView(ask, st);
+  const like = more.like ? ask.options.find((o) => o.id === more.like)?.label : undefined;
+  const labels = (a: Ask): string[] => {
+    const ids = a.answer === undefined ? [] : Array.isArray(a.answer) ? a.answer : [a.answer];
+    return [
+      ...ids.map((id) => a.options.find((o) => o.id === id)?.label ?? id),
+      ...(a.other === undefined ? [] : [a.other]),
+    ];
+  };
+  return {
+    ask: ask.id,
+    text: ask.text,
+    // Hidden ones are out: asked again, they'd only fold away.
+    existing: ask.options.filter((o) => !st.hidden.some((h) => h.id === o.id)).map((o) => o.label),
+    ...(more.note ? { note: more.note } : {}),
+    ...(like ? { like } : {}),
+    ...(view?.kept ? { kept: view.kept.map((k) => k.label) } : {}),
+    ...(view?.hidden
+      ? { hidden: view.hidden.map((h) => ({ label: h.label, ...(h.why ? { why: h.why } : {}) })) }
+      : {}),
+    answered: design.asks
+      .filter((a) => a.id !== ask.id && labels(a).length > 0)
+      .map((a) => ({
+        ask: a.id,
+        text: a.text,
+        chosen: labels(a),
+        ...(a.comment ? { comment: a.comment } : {}),
+      })),
+  };
+}
+
+function updateRequest(
+  design: Design,
+  wanted: NonNullable<Reply["update"]>,
+): UpdateRequest | undefined {
+  const ask = design.asks.find((a) => a.id === wanted.ask);
+  const kept = ask?.options.find((o) => o.id === wanted.option);
+  if (!ask || !kept) return undefined;
+  const ids = ask.answer === undefined ? [] : [ask.answer].flat();
+  return {
+    ask: ask.id,
+    text: ask.text,
+    kept,
+    inUse: ask.options.filter((o) => ids.includes(o.id)),
+  };
+}
 
 const REACTION_LEAD: Record<Reaction, string> = {
   up: "👍",
@@ -115,7 +195,7 @@ const REACTION_LEAD: Record<Reaction, string> = {
 
 // `👍 part "hero" (variant B, state Mobile)`, `👎 variant B`, `more like this: the page`.
 export function reactionLine(c: PartComment & { reaction: Reaction }): string {
-  // A mock published without variant names has only "default": naming it is noise.
+  // A design published without variant names has only "default": naming it is noise.
   const named = c.variant && c.variant !== DEFAULT_VARIANT ? c.variant : null;
   // A version is written as agents write it, dark@2.
   const at = c.version ? `@${c.version}` : "";
@@ -139,27 +219,38 @@ const isReaction = (c: PartComment): c is PartComment & { reaction: Reaction } =
 
 function answered(
   reply: Reply,
-  mock: Mock | undefined,
+  design: Design | undefined,
   posts: Post[],
   base: string,
 ): AnsweredAsk[] {
   const others = reply.others ?? {};
-  const notes = reply.notes ?? {};
+  const comments = reply.askComments ?? {};
   const refs = (ids: string[] | undefined): ImageRef[] =>
     (ids ?? []).map((id) => ({ id, url: `${base}/a/${encodeURIComponent(id)}` }));
+  const standings = reply.standings ?? {};
   const askIds = new Set([
     ...Object.keys(reply.answers),
     ...Object.keys(others),
-    ...Object.keys(notes),
+    ...Object.keys(comments),
+    // A question whose answers the user only kept or hid is still news: more answers
+    // should follow the kept ones and avoid the hidden.
+    ...Object.keys(standings).filter((id) => id !== reply.more?.ask),
   ]);
   const out: AnsweredAsk[] = [];
   for (const askId of askIds) {
-    const ask = mock?.asks.find((a) => a.id === askId) ?? (mock && builtinAsk(mock, posts, askId));
+    const ask =
+      design?.asks.find((a) => a.id === askId) ?? (design && builtinAsk(design, posts, askId));
     const answer = reply.answers[askId];
     const ids = answer === undefined ? [] : Array.isArray(answer) ? answer : [answer];
-    const chosen: AnsweredAsk["chosen"] = ids.map(
-      (id) => ask?.options.find((o) => o.id === id) ?? { id, label: id },
-    );
+    const chosen: AnsweredAsk["chosen"] = ids.map((id) => {
+      const option = ask?.options.find((o) => o.id === id);
+      if (!option) return { id, label: id };
+      // What it brought isn't in any version yet: an agent folding it in needs it here.
+      const brought = design?.answerAdditions.find((a) =>
+        Object.entries(option.set ?? {}).some(([k, v]) => a.knob === k && a.value === v),
+      );
+      return brought ? { ...option, brought } : option;
+    });
     const otherImages = refs(reply.otherImages?.[askId]);
     if (others[askId] !== undefined)
       chosen.push({
@@ -168,44 +259,49 @@ function answered(
         other: true,
         ...(otherImages.length ? { images: otherImages } : {}),
       });
-    const noteImages = refs(reply.noteImages?.[askId]);
+    const commentImages = refs(reply.askCommentImages?.[askId]);
+    const st = standings[askId];
     out.push({
       ask: askId,
       text: ask?.text ?? "",
       chosen,
-      ...(notes[askId] !== undefined ? { note: notes[askId] } : {}),
-      ...(noteImages.length ? { noteImages } : {}),
+      ...(ask && st ? standingView({ ...ask, answer }, st) : {}),
+      ...(comments[askId] !== undefined ? { comment: comments[askId] } : {}),
+      ...(commentImages.length ? { commentImages } : {}),
     });
   }
   return out;
 }
 
 // Comments arrive in seq order; keep that order both between batches and inside
-// one. A mock gets a fresh batch whenever a second reply arrives for it, so a
+// one. A design gets a fresh batch whenever a second reply arrives for it, so a
 // batch carries at most one reply and nothing is merged away. A comment whose
-// mock is unknown still gets a batch — feedback is never dropped for want of
+// design is unknown still gets a batch — feedback is never dropped for want of
 // context. `base` (origin + base path) makes image URLs absolute.
 export function groupFeedback(
   comments: Comment[],
-  mocks: Map<string, Mock>,
+  designs: Map<string, Design>,
   posts: Map<string, Post[]>,
   base = "",
 ): FeedbackBatch[] {
   const batches: FeedbackBatch[] = [];
   const open = new Map<string, FeedbackBatch>();
   for (const c of comments) {
-    const key = c.mockId ?? "";
-    const mock = c.mockId ? mocks.get(c.mockId) : undefined;
-    const mockPosts = (c.mockId && posts.get(c.mockId)) || [];
+    // Stored from when a close wrote to this stream. Ending something tells the agent
+    // nothing, so one still ahead of the cursor stays unsaid.
+    if (c.kind === "reply" && c.payload?.archived) continue;
+    const key = c.designId ?? "";
+    const design = c.designId ? designs.get(c.designId) : undefined;
+    const designPosts = (c.designId && posts.get(c.designId)) || [];
     let batch = open.get(key);
-    // An edit says where the mock is now, so it joins whatever batch is open.
+    // An edit says where the design is now, so it joins whatever batch is open.
     const edit = c.kind === "reply" ? c.payload?.edited : undefined;
-    if (!batch || (c.kind === "reply" && !edit && (batch.reply || batch.closed))) {
+    if (!batch || (c.kind === "reply" && !edit && batch.reply)) {
       batch = {
-        mockId: c.mockId,
-        project: mock?.project ?? null,
-        mock: mock?.slug ?? null,
-        title: mock?.title ?? null,
+        designId: c.designId,
+        project: design?.project ?? null,
+        design: design?.slug ?? null,
+        title: design?.title ?? null,
         reply: null,
         messages: [],
         inUse: [],
@@ -218,42 +314,42 @@ export function groupFeedback(
       batch.edited = { ...batch.edited, ...edit };
       continue;
     }
-    if (c.kind === "reply" && c.payload?.closed) {
-      batch.closed = true;
-      batch.dismissed = c.payload.closed.dismissed.map((id) => ({
-        ask: id,
-        text:
-          (mock?.asks.find((a) => a.id === id) ?? (mock && builtinAsk(mock, mockPosts, id)))
-            ?.text ?? "",
-      }));
-      continue;
-    }
     if (c.kind === "reply" && c.payload) {
       const {
         others: _others,
-        notes: _notes,
+        askComments: _askComments,
         otherImages: _otherImages,
-        noteImages: _noteImages,
+        askCommentImages: _askCommentImages,
+        routed,
+        more: asked,
+        standings: _standings,
+        update: wanted,
         ...payload
       } = c.payload;
+      const more =
+        asked && design ? moreAnswers(design, asked, c.payload.standings?.[asked.ask]) : undefined;
+      const update = wanted && design ? updateRequest(design, wanted) : undefined;
+      if (routed) batch.handoff = ROUTED_NOTE;
       const reactions = (payload.comments ?? []).filter(isReaction).map(reactionLine);
       batch.reply = {
         ...payload,
         comments: (payload.comments ?? []).filter((x) => !x.reaction),
         seq: c.seq,
         at: c.createdAt,
-        asks: answered(c.payload, mock, mockPosts, base),
+        asks: answered(c.payload, design, designPosts, base),
         ...(reactions.length ? { reactions } : {}),
+        ...(more ? { more } : {}),
+        ...(update ? { update } : {}),
       };
-      const decisions = mock ? decisionsFor(mock, mockPosts, c.payload) : null;
+      const decisions = design ? decisionsFor(design, designPosts, c.payload) : null;
       if (decisions) batch.reply.decisions = decisions;
-      batch.inUse = mockPosts
+      batch.inUse = designPosts
         .filter((p) => p.status === "accepted")
         .map((p) => ({ ...ref(p), version: inUseVersion(p) }));
-      batch.archived = mockPosts.filter((p) => p.status === "archived").map(ref);
+      batch.archived = designPosts.filter((p) => p.status === "archived").map(ref);
       continue;
     }
-    const post = c.postId ? mockPosts.find((p) => p.id === c.postId) : undefined;
+    const post = c.postId ? designPosts.find((p) => p.id === c.postId) : undefined;
     batch.messages.push({
       seq: c.seq,
       text: c.text,
@@ -273,16 +369,16 @@ export async function buildFeedbackBatches(
   comments: Comment[],
   base: string,
 ): Promise<FeedbackBatch[]> {
-  const mocks = new Map<string, Mock>();
+  const designs = new Map<string, Design>();
   const posts = new Map<string, Post[]>();
   for (const c of comments) {
-    if (!c.mockId || mocks.has(c.mockId)) continue;
-    const mock = await store.getMock(c.mockId);
-    if (!mock) continue;
-    mocks.set(c.mockId, mock);
-    posts.set(c.mockId, await store.listPosts({ mockId: c.mockId }));
+    if (!c.designId || designs.has(c.designId)) continue;
+    const design = await store.getDesign(c.designId);
+    if (!design) continue;
+    designs.set(c.designId, design);
+    posts.set(c.designId, await store.listPosts({ designId: c.designId }));
   }
-  return groupFeedback(comments, mocks, posts, base);
+  return groupFeedback(comments, designs, posts, base);
 }
 
 // Every image a list of batches carries, in order — what the MCP tiers attach
@@ -292,7 +388,7 @@ export function feedbackImages(batches: FeedbackBatch[]): ImageRef[] {
   for (const b of batches) {
     for (const a of b.reply?.asks ?? []) {
       for (const c of a.chosen) if ("other" in c && c.images) out.push(...c.images);
-      if (a.noteImages) out.push(...a.noteImages);
+      if (a.commentImages) out.push(...a.commentImages);
     }
   }
   return out;

@@ -10,7 +10,7 @@ import { isViewerRequest } from "./viewerRequest.ts";
 
 export interface LogEntry {
   t: string;
-  // "POST /api/mocks", "mcp publish", "sse close".
+  // "POST /api/designs", "mcp publish", "sse close".
   op: string;
   // The x-mockpit-client header ("cli/1.0.0", "mcp-stdio/1.0.0", "pi/1.0.0"),
   // else "viewer", "mcp-http" or "http". The version is how a stale client
@@ -21,7 +21,7 @@ export interface LogEntry {
   session?: string;
   project?: string;
   // The slug when the response names it, else the id the request did.
-  mock?: string;
+  design?: string;
   state?: string | null;
   variant?: string;
   version?: number;
@@ -33,7 +33,7 @@ export interface LogEntry {
   nudges?: number;
   // The seq a viewer Send created.
   reply?: number;
-  // The mock an SSE client has on screen.
+  // The design an SSE client has on screen.
   viewing?: string;
   key?: string;
   error?: string;
@@ -61,13 +61,13 @@ const text = (v: unknown): string | undefined =>
 export function fromRequest(
   query: URLSearchParams,
   body: unknown,
-  pathMock: string | undefined,
+  pathDesign: string | undefined,
 ): Partial<LogEntry> {
   const b = isObj(body) ? body : {};
   return prune({
     session: text(query.get("session")) ?? text(b.session),
     project: text(query.get("project")) ?? text(b.project),
-    mock: pathMock ?? text(b.mock),
+    design: pathDesign ?? text(b.design),
     variant: text(b.variant),
     viewing: text(query.get("viewing")),
   });
@@ -76,7 +76,7 @@ export function fromRequest(
 // What a flow's response body says about the call.
 export function fromResponse(body: unknown): Partial<LogEntry> {
   if (!isObj(body)) return {};
-  const mock = isObj(body.mock) ? body.mock : undefined;
+  const design = isObj(body.design) ? body.design : undefined;
   const post = isObj(body.post) ? body.post : undefined;
   // POST /api/sessions answers with the bare session (201 new, 200 reclaimed by key).
   const session = typeof body.agentSeq === "number" ? body : undefined;
@@ -85,11 +85,11 @@ export function fromResponse(body: unknown): Partial<LogEntry> {
   return prune({
     session: text(body.sessionId) ?? text(post?.sessionId) ?? text(session?.id),
     key: text(session?.key),
-    project: text(mock?.project) ?? text(body.project) ?? text(session?.project),
-    mock:
-      text(mock?.slug) ??
+    project: text(design?.project) ?? text(body.project) ?? text(session?.project),
+    design:
+      text(design?.slug) ??
       text(body.slug) ??
-      (typeof body.mock === "string" ? text(body.mock) : undefined),
+      (typeof body.design === "string" ? text(body.design) : undefined),
     state: post ? (post.state ?? null) : undefined,
     variant: text(post?.variant),
     version: typeof post?.version === "number" ? post.version : undefined,
@@ -117,9 +117,9 @@ function deliveredSeqs(feedback: unknown): number[] {
 function pendingLines(pending: unknown): string[] {
   const rows = Array.isArray(pending) ? pending : isObj(pending) ? [pending] : [];
   return rows.flatMap((p) => {
-    if (!isObj(p) || typeof p.mock !== "string") return [];
-    if (isObj(p.draft)) return [`${p.mock} ${p.draft.answered}/${p.draft.of} answered`];
-    return p.viewerOpen ? [`${p.mock} open`] : [];
+    if (!isObj(p) || typeof p.design !== "string") return [];
+    if (isObj(p.draft)) return [`${p.design} ${p.draft.answered}/${p.draft.of} answered`];
+    return p.viewerOpen ? [`${p.design} open`] : [];
   });
 }
 
@@ -182,8 +182,8 @@ export function logMiddleware(sink: LogSink): MiddlewareHandler {
         Object.assign(entry, fromRequest(url.searchParams, call.arguments, undefined));
         Object.assign(entry, fromMcpResult(resBody));
       } else {
-        const pathMock = /^\/api\/mocks\/([^/]+)/.exec(c.req.path)?.[1];
-        Object.assign(entry, fromRequest(url.searchParams, reqBody, pathMock));
+        const pathDesign = /^\/api\/designs\/([^/]+)/.exec(c.req.path)?.[1];
+        Object.assign(entry, fromRequest(url.searchParams, reqBody, pathDesign));
         Object.assign(entry, fromResponse(resBody));
       }
       writeLog(sink, entry);

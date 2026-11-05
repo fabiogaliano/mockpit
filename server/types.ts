@@ -1,6 +1,6 @@
 // Shared data model — no runtime imports, safe for any platform.
 
-import type { Palette } from "./themes.ts";
+import type { Mode, Palette } from "./themes.ts";
 
 export interface Session {
   id: string;
@@ -117,6 +117,9 @@ export interface HtmlSurface {
   // An uploaded still of this page, by asset id. Overviews (Studio, Home)
   // show it instead of running the page; Stage always runs the page.
   poster?: string;
+  // Set on a still mockpit took itself: the mode the page was in. Overviews in the other
+  // mode run the page instead. An agent's own poster names none and always shows.
+  posterMode?: Mode;
 }
 
 // A markdown surface is prose — explanations, plans, tradeoff write-ups. The
@@ -224,7 +227,7 @@ export type Surface =
 
 // --- knobs ---
 // Mirrors tunekit's `usePane` config shape as plain data, so the viewer can hand
-// a mock's knobs to tunekit unchanged while the server never imports tunekit.
+// a design's knobs to tunekit unchanged while the server never imports tunekit.
 // Only value-carrying controls are knobs: tunekit's action/slot/folder have no
 // value a reply could carry, and folders are flattened into dotted paths.
 
@@ -303,14 +306,14 @@ export interface PadValue {
 }
 export type KnobValue = number | boolean | string | PadValue | SpringKnob | EasingKnob;
 
-// --- project › mock › state › variant › version ---
+// --- project › design › state › variant › version ---
 
-// Structure is declared, never assumed: a mock is a sketch until the agent
-// calls it a page (a screen of the product) or a component (a piece pages
-// embed; being embedded makes a sketch one). Home shows a tab per kind in use.
-export type MockKind = "page" | "component" | "sketch";
-export const isMockKind = (k: unknown): k is MockKind =>
-  k === "page" || k === "component" || k === "sketch";
+// Structure is declared, never assumed: a design is an idea until the agent
+// calls it a screen (one of the product's) or a component (a reusable design screens
+// embed; being embedded makes an idea one). Home shows a tab per kind in use.
+export type DesignKind = "screen" | "component" | "idea";
+export const isDesignKind = (k: unknown): k is DesignKind =>
+  k === "screen" || k === "component" || k === "idea";
 // A variant's review state. A variant-bound answer puts the chosen variant in
 // use and archives its siblings in that state; archived variants stay in view,
 // muted, and are restorable. "accepted" is storage's word for in use; every
@@ -328,6 +331,47 @@ export const isLive = (status: PostStatus | VariantStatus): boolean =>
 // use when accepted, else its latest.
 export const inUseVersion = (post: Pick<Post, "status" | "version" | "acceptedVersion">): number =>
   post.status === "accepted" ? (post.acceptedVersion ?? post.version) : post.version;
+
+type VersionLine = Pick<
+  Post,
+  "status" | "version" | "acceptedVersion" | "hiddenVersions" | "stayedVersion"
+> & { history: { version: number }[] };
+
+export const newestVisible = (post: VersionLine): number => {
+  const hidden = post.hiddenVersions ?? [];
+  const visible = [post.version, ...post.history.map((h) => h.version)].filter(
+    (v) => !hidden.includes(v),
+  );
+  return visible.length ? Math.max(...visible) : post.version;
+};
+
+// What stands for one line of versions: the newest wins until the user presses Use
+// this, and then only their pick does. A version they hid doesn't win.
+export const currentVersion = (post: VersionLine): number =>
+  post.status === "accepted" ? inUseVersion(post) : newestVisible(post);
+
+// A newer version than the one in use, which asks before it takes over. Unset until
+// the agent publishes past what the user picked or last chose to stay on.
+export const changedTo = (post: VersionLine): number | undefined => {
+  if (post.status !== "accepted") return undefined;
+  const newest = newestVisible(post);
+  return newest > Math.max(inUseVersion(post), post.stayedVersion ?? 0) ? newest : undefined;
+};
+
+// The variant the agent would pick for a state, read off its questions. Parallel
+// variants arrive within minutes of each other, so none of them is "the newest", and
+// this is the only thing that says one of them leads.
+export const recommendedVariant = (
+  asks: Pick<Ask, "state" | "options">[],
+  state: string | null,
+): string | undefined => {
+  for (const a of asks) {
+    if (a.state !== undefined && a.state !== state) continue;
+    const pick = a.options.find((o) => o.recommended && o.variant);
+    if (pick) return pick.variant;
+  }
+  return undefined;
+};
 
 // A variant as it stood at one of its versions (current or retained), or null
 // when that version is gone.
@@ -348,7 +392,7 @@ export function postAtVersion(post: Post, version: number): Post | null {
   };
 }
 
-// The variant's newest version not after mock version `n` — what the stage
+// The variant's newest version not after design version `n` — what the stage
 // showed when a draft or reply was bound to n (the viewer's frameVersion).
 export function versionAt(post: Pick<Post, "version" | "history">, n: number): number {
   const versions = [post.version, ...post.history.map((h) => h.version)];
@@ -370,38 +414,81 @@ export interface AskOption {
   recommended?: true;
 }
 
+// One knob value and what makes it draw: a style that holds only while it is chosen,
+// or, with the knob at a part's path, a new fill of that part.
+export interface AnswerAddition {
+  knob: string;
+  value: string;
+  style?: string;
+  fill?: string;
+}
+
 export type AskAnswer = string | string[];
 
+// One hidden answer: its label as it was, so it still reads after the agent drops
+// it, and the user's optional why.
+export interface HiddenAnswer {
+  id: string;
+  label: string;
+  why?: string;
+}
+
+// What the user said about a question's answers besides choosing one: the ones kept
+// for later and the ones hidden. Saved on the click, never waits for a Send; the next
+// Send or More answers carries it to the agent while `unsent`.
+export interface AnswerStanding {
+  kept: string[];
+  hidden: HiddenAnswer[];
+  // Kept whole screens (variant answers) the agent changes along with the one in use,
+  // rather than leaving them as they were.
+  carried?: string[];
+  // By kept answer: when it started waiting, the reply that set it aside. A kept
+  // screen counts the versions the one in use gained since.
+  since?: Record<string, string>;
+  unsent?: true;
+}
+
+// A combination of answers across questions under the user's name for it ("Warm",
+// "Quiet"): a theme is more than one answer.
+export interface AnswerSet {
+  name: string;
+  answers: Record<string, AskAnswer>;
+  at: string;
+}
+
 // The state a version option names a version in: the ask's state, else the
-// mock's first (`ask` accepts version options without a state only while the
-// mock has one).
-export const optionState = (ask: Pick<Ask, "state">, mock: { states: string[] }): string | null =>
-  ask.state ?? mock.states[0] ?? null;
+// design's first (`ask` accepts version options without a state only while the
+// design has one).
+export const optionState = (ask: Pick<Ask, "state">, design: { states: string[] }): string | null =>
+  ask.state ?? design.states[0] ?? null;
 
 // A structured question from the agent. `scope` says what it decides: the whole
-// mock, one state, or one part.
+// design, one state, or one part.
 export interface Ask {
   id: string;
   text: string;
-  scope: "mock" | "state" | "part";
+  scope: "design" | "state" | "part";
   state?: string;
+  // Design-wide only: the states where this question's answers can be seen,
+  // best first. It still shows on every state; these are where it takes the user.
+  states?: string[];
   part?: string;
   options: AskOption[];
   multi?: boolean;
   // The id of an ask this one depends on: it waits until that one is answered
   // and its pictures then show that answer.
   after?: string;
-  // Set when a reply answered it; an ask with none of answer, other or note is
+  // Set when a reply answered it; an ask with none of answer, other or comment is
   // still open.
   answer?: AskAnswer;
   // The user's write-in under the viewer's "Other…" option.
   other?: string;
-  // The user's note qualifying the answer ("Table on desktop, Cards on mobile").
-  note?: string;
-  // Asset ids of the images the user attached to the write-in / the note.
+  // The user's comment qualifying the answer ("Table on desktop, Cards on mobile").
+  comment?: string;
+  // Asset ids of the images the user attached to the write-in / the comment.
   otherImages?: string[];
-  noteImages?: string[];
-  // Set when the user closed the mock with this ask still open: closed
+  commentImages?: string[];
+  // Set when the user archived the design with this ask still open: left
   // unanswered, as not worth answering. Neither open nor answered.
   dismissed?: true;
   at: string;
@@ -411,13 +498,29 @@ export interface Ask {
 // `{id: "other", other: true}` choice never shadows an option the agent declared.
 export const OTHER_ID = "other";
 
+// Which block of a written document a comment is on: the surface in the stack, the
+// block's place in it, its tag ("p", "h2", "li", "pre", "diagram"...) and its text.
+// The text is what finds the block again in a later version, since places move.
+export interface ParagraphAnchor {
+  surface: number;
+  index: number;
+  kind: string;
+  text: string;
+}
+// As far as a block's text is carried: the frame clips to it, the host and the
+// server re-clip, so it also bounds what one comment can repeat back to an agent.
+export const PARAGRAPH_TEXT_MAX = 600;
+export const PARAGRAPHS_MAX = 500;
+
 // A comment the user left on a part (or, with part null, anywhere on the render
-// via the Mark tool). Rides inside the reply rather than as its own comment.
+// via the Mark tool, or on a paragraph of a document). Rides inside the reply rather
+// than as its own comment.
 export interface PartCommentAnchor {
   offset?: [number, number];
   quote?: string;
   selector?: string;
   box?: number[];
+  paragraph?: ParagraphAnchor;
   // The stage width (CSS px) the comment was placed at: the same page reflows
   // at another width, so the agent and the viewer can tell which layout it meant.
   width?: number;
@@ -447,7 +550,7 @@ export interface PartComment {
 }
 
 // What a reply says about one variant outside the ask flow: the user's Use this
-// or Revise.
+// or New version.
 export interface ReplyVerdict {
   kind: "use" | "revise";
   state: string | null;
@@ -456,7 +559,7 @@ export interface ReplyVerdict {
   version?: number;
 }
 
-// The user's unsent picks, tuned values and comments for one mock. Lives
+// The user's unsent picks, tuned values and comments for one design. Lives
 // server-side so it survives a reload; never delivered until Send.
 export interface Draft {
   // The variant version on stage when the draft was made; a newer version
@@ -467,107 +570,131 @@ export interface Draft {
   borrowed: Record<string, string>;
   tuned: Record<string, KnobValue>;
   comments: PartComment[];
-  // askId → the write-in under "Other…" / the note on that question. Optional
+  // askId → the write-in under "Other…" / the comment on that question. Optional
   // because drafts stored before they existed lack them.
   others?: Record<string, string>;
-  notes?: Record<string, string>;
-  // askId → asset ids attached to that write-in / note. An attachment with no
-  // text still counts: its write-in or note is then present as "".
+  askComments?: Record<string, string>;
+  // askId → asset ids attached to that write-in / comment. An attachment with no
+  // text still counts: its write-in or comment is then present as "".
   otherImages?: Record<string, string[]>;
-  noteImages?: Record<string, string[]>;
+  askCommentImages?: Record<string, string[]>;
   updatedAt: string;
 }
 
 // The user's one batched answer — the payload of a kind:"reply" comment.
 export interface Reply {
-  mockId: string;
+  designId: string;
   version: number;
   answers: Record<string, AskAnswer>;
   borrowed: Record<string, string>;
   tuned: Record<string, KnobValue>;
   comments: PartComment[];
   others?: Record<string, string>;
-  notes?: Record<string, string>;
+  askComments?: Record<string, string>;
   otherImages?: Record<string, string[]>;
-  noteImages?: Record<string, string[]>;
+  askCommentImages?: Record<string, string[]>;
   text?: string;
+  // Sent to a session other than the design's owner, so it has to read up first.
+  routed?: true;
+  // The user asked for more answers to one question instead of answering it, maybe
+  // more like one of them (`like`, an option id).
+  more?: { ask: string; note?: string; like?: string };
+  // The standings that changed since the last reply, by ask id, as they were sent.
+  standings?: Record<string, AnswerStanding>;
+  // A kept screen brought up to date with the one in use, once.
+  update?: { ask: string; option: string };
+  // A saved set the user put in use, by name.
+  set?: string;
   verdict?: ReplyVerdict;
-  // A close instead of an answer: the user closed the mock, and these asks
-  // (stored or built-in ids) with it, unanswered.
-  closed?: { dismissed: string[] };
-  // Neither an answer nor a close: the user moved the mock from Home
+  // Only on stored rows, from when an archive was written to the agent's stream: the
+  // thread still lists them, and they are never delivered (feedbackBatch.ts).
+  archived?: { dismissed: string[] };
+  // Neither an answer nor an archive: the user moved the design from Home
   // (another kind, another area; null area: none), which the agent must hear.
-  edited?: MockEdit;
+  edited?: DesignEdit;
 }
 
-export interface MockEdit {
-  kind?: MockKind;
+export interface DesignEdit {
+  kind?: DesignKind;
   area?: string | null;
+  // The notes as the user just wrote them; null when they cleared them.
+  notes?: string | null;
+  // From when Studio could hang variants under a lead; stored rows still carry it.
 }
 
 // The settings key prefix of a project's area order (`areaOrder:<project>`): a
 // JSON array of area names, the order Home lists them in.
 export const AREA_ORDER_SETTING = "areaOrder";
+// The user's hand edits to a project's decision list (`decisions:<project>`).
+export const DECISION_EDITS_SETTING = "decisions";
 
-export interface Mock {
+// A short spec of a design: an agent drafts it, the user corrects it by hand, and later
+// agents read it. Whoever wrote it last is kept because a hand edit outranks a draft.
+export interface DesignNotes {
+  text: string;
+  by: "agent" | "user";
+  at: string;
+}
+export const MAX_NOTES = 4000;
+
+// What the user said about a state a declared screen doesn't have yet.
+export type StateOutline = "dismissed" | "requested";
+
+// Declared and not drawn yet: a screen or component the agent planned, which its next
+// publish fills. An undeclared design with nothing in it is no plan, only empty.
+export const isPlanned = (design: { kind: DesignKind }, variants: number): boolean =>
+  design.kind !== "idea" && variants === 0;
+
+export interface Design {
   id: string;
   project: string;
   slug: string;
   title: string;
-  kind: MockKind;
+  kind: DesignKind;
   // Where in the product it belongs, in the project's own words ("Shell",
   // "Food"): Home groups each tab by it. null leaves it ungrouped.
   area: string | null;
   // The code path that implements it (e.g. "apps/web/src/shell"), shown as
   // plain text; never checked against a filesystem.
   source: string | null;
-  // Ordered state labels; [] means a single-state mock whose posts carry state null.
+  // Ordered state labels; [] means a single-state design whose posts carry state null.
   states: string[];
-  // A state's situations, by the state they are another render of, in order:
-  // each is also a state of its own (situationKey), so asks, comments, decisions
-  // and export reach it like any state. {} when none.
-  situations: Record<string, string[]>;
   asks: Ask[];
   knobs: Knobs;
-  // The device widths the mock is judged at, side by side on a canvas; [] lets
+  // The device widths the design is judged at, side by side on a canvas; [] lets
   // the viewer choose one for the screen it is on.
   widths: number[];
   draft: Draft | null;
-  // The agent conversation currently driving this mock (its latest writer), so a
+  // The agent conversation currently driving this design (its latest writer), so a
   // reply lands on the cursor of the session that is waiting for it.
   sessionId: string | null;
-  // When the user closed it: off the open list, its open asks dismissed,
-  // until they reopen it. null while it is live.
-  closedAt: string | null;
+  // An idea the user gathers candidates into from across the project, rather than
+  // one an agent started. It has no session until an agent writes to it. The name is
+  // in `read`'s contract, so it waits for the words release.
+  shortlist: boolean;
+  // When the user archived it: off the working shelf, its open asks dismissed, until
+  // they restore it or an agent asks something new. null while it is live.
+  archivedAt: string | null;
+  // Why, if there is a why: their own line, or the note on what they last sent.
+  // Kept as information; nothing reads it as an instruction.
+  archiveReason: string | null;
+  notes: DesignNotes | null;
+  // By state name, only what the user has said; {} when nothing. Kept apart from
+  // `states` because a dismissed state isn't one of the design's.
+  stateOutlines: Record<string, StateOutline>;
+  // What answers brought so they could draw themselves: never removed or redefined.
+  answerAdditions: AnswerAddition[];
+  // By ask id (the built-in Which variant? included): kept and hidden answers.
+  standings: Record<string, AnswerStanding>;
+  // The user's named combinations of answers, in the order they made them.
+  sets: AnswerSet[];
   createdAt: string;
   updatedAt: string;
 }
 
-// The state's own render, when a state has situations.
-export const NORMAL_SITUATION = "Normal";
-
-// The state a situation is stored as: what feedback, decisions and export name.
-export const situationKey = (state: string, situation: string) => `${state} · ${situation}`;
-
-// The state a situation belongs to, or the state itself.
-export function momentOf(
-  situations: Record<string, string[]>,
-  state: string | null,
-): string | null {
-  if (state === null) return null;
-  for (const [moment, names] of Object.entries(situations)) {
-    if (names.some((n) => situationKey(moment, n) === state)) return moment;
-  }
-  return state;
-}
-
-// The states that are moments of the mock, not situations of one.
-export const momentsOf = (states: string[], situations: Record<string, string[]>) =>
-  states.filter((st) => momentOf(situations, st) === st);
-
 // One component included in a page, pinned to an exact version (snapshot
 // semantics: pulling a newer version is an explicit new page version). `slug`
-// names a mock in the same project.
+// names a design in the same project.
 export interface Embed {
   slug: string;
   variant: string;
@@ -593,8 +720,16 @@ export interface PostVersion {
   amendedAt?: string;
 }
 
-// A variant of one state of a mock.
+// A variant of one state of a design.
 export interface ForkRef {
+  variant: string;
+  version: number;
+}
+
+// The version a gathered candidate is a copy of, in another design of the project.
+export interface CopyRef {
+  design: string;
+  state: string | null;
   variant: string;
   version: number;
 }
@@ -602,7 +737,7 @@ export interface ForkRef {
 export interface Post {
   id: string;
   sessionId: string;
-  mock: string;
+  design: string;
   state: string | null;
   variant: string;
   status: PostStatus;
@@ -616,22 +751,30 @@ export interface Post {
   knobs?: Knobs;
   // A line or two on what this variant is, shown beside it so the design itself
   // carries no captions. Stays across versions until replaced.
-  note?: string;
+  description?: string;
   // The component versions this version rendered with when published, nested
   // ones included (embeds.ts); rendering follows the latest unless pinned.
   embeds: Embed[];
   // The variant (in the same state) and version this one was forked from: the
   // lineage tree. Absent on a variant started from scratch.
   forkedFrom?: ForkRef;
-  // The user's favourite: a mark, not a decision. Unrelated to status.
-  starred?: true;
+  // Set on a shortlist's candidates; stays across the versions an agent adds.
+  copiedFrom?: CopyRef;
   // Set only while accepted: the version the user put in use. The agent may
   // publish newer ones; export and embeds keep showing this one until the user
   // chooses again, so a decision never drifts under them.
   acceptedVersion?: number;
-  // Versions the user hid from the history. Hidden, never removed: replies,
-  // embeds and the version in use may still point at one, so it still renders.
+  // Versions hidden from the history, by the user or by an agent asked to tidy up.
+  // Hidden, not removed: replies, embeds and the version in use may still point at
+  // one, so it still renders.
   hiddenVersions?: number[];
+  // Why it was archived, if the user said. Goes when it comes back.
+  archiveReason?: string;
+  // When it was archived. Absent on anything archived before this was kept.
+  archivedAt?: string;
+  // While in use: the newest version the user looked at and chose not to take, so
+  // it stops asking until a newer one comes.
+  stayedVersion?: number;
   // Provenance of the CURRENT version — the same fields a PostVersion
   // carries; on the next update they move into the history entry.
   from?: number;
@@ -645,11 +788,11 @@ export interface Post {
   rewrites?: number;
 }
 
-// A screen is one state of one mock, by slug (state null for a single-state
-// mock). A flow is the screens the user moves between, in order; the same
+// A screen is one state of one design, by slug (state null for a single-state
+// design). A flow is the screens the user moves between, in order; the same
 // screen may be a step of several flows.
 export interface FlowStep {
-  mock: string;
+  design: string;
   state: string | null;
 }
 export interface Flow {
@@ -659,12 +802,37 @@ export interface Flow {
   createdAt: string;
   updatedAt: string;
 }
-export const sameScreen = (a: FlowStep, b: FlowStep) => a.mock === b.mock && a.state === b.state;
+export const sameScreen = (a: FlowStep, b: FlowStep) =>
+  a.design === b.design && a.state === b.state;
+
+// What search reads: every name a design goes by, and none of its surfaces.
+export interface JumpRows {
+  designs: {
+    id: string;
+    project: string;
+    slug: string;
+    title: string;
+    kind: DesignKind;
+    area: string | null;
+    states: string[];
+    asks: Ask[];
+    widths: number[];
+    archivedAt: string | null;
+    updatedAt: string;
+  }[];
+  variants: {
+    designId: string;
+    state: string | null;
+    variant: string;
+    description: string | null;
+    status: PostStatus;
+  }[];
+}
 
 export interface ProjectSummary {
   name: string;
-  mocks: number;
-  // Open asks across the project's mocks.
+  designs: number;
+  // Open asks across the project's designs.
   open: number;
   lastActiveAt: string;
   sessions: number;
@@ -673,7 +841,7 @@ export interface ProjectSummary {
 // Per-project design system state, imported from the repo by `mockpit init`
 // and rendered into every html surface's sandbox (see renderHtmlPage). Stored
 // as JSON under the settings key `design:<project>`.
-export interface DesignSettings {
+export interface DesignSystem {
   detected: { tailwind: boolean; shadcn: boolean; cssVars: number; fonts: string[] } | null;
   palette: { light: Palette; dark: Palette } | null;
   // "tailwind" (the repo's own utilities), "none", or a bundled or project kit
@@ -799,7 +967,7 @@ export interface Comment {
   id: string;
   seq: number;
   sessionId: string;
-  mockId: string | null;
+  designId: string | null;
   postId: string | null;
   author: string;
   text: string;
@@ -852,45 +1020,54 @@ export interface CreateSessionInput {
   key?: string;
 }
 
-export interface CreateMockInput {
+export interface CreateDesignInput {
   project: string;
   slug: string;
   title?: string;
-  kind?: MockKind;
+  kind?: DesignKind;
   area?: string | null;
   source?: string | null;
   states?: string[];
   knobs?: Knobs;
   widths?: number[];
   sessionId?: string | null;
+  shortlist?: boolean;
 }
 
-export interface UpdateMockInput {
+export interface UpdateDesignInput {
   title?: string;
-  kind?: MockKind;
+  kind?: DesignKind;
   // undefined keeps, null clears.
   area?: string | null;
   source?: string | null;
   states?: string[];
-  situations?: Record<string, string[]>;
   asks?: Ask[];
   knobs?: Knobs;
   widths?: number[];
   sessionId?: string | null;
-  closedAt?: string | null;
+  // null brings it back, and takes the reason with it.
+  archivedAt?: string | null;
+  archiveReason?: string | null;
+  // null clears.
+  notes?: DesignNotes | null;
+  stateOutlines?: Record<string, StateOutline>;
+  answerAdditions?: AnswerAddition[];
+  standings?: Record<string, AnswerStanding>;
+  sets?: AnswerSet[];
 }
 
 export interface CreatePostInput {
   sessionId: string;
-  mock: string;
+  design: string;
   state: string | null;
   variant?: string;
   title?: string;
   surfaces: Surface[];
   knobs?: Knobs;
-  note?: string;
+  description?: string;
   embeds?: Embed[];
   forkedFrom?: ForkRef;
+  copiedFrom?: CopyRef;
   from?: number;
   prompt?: string;
   author?: string;
@@ -903,12 +1080,12 @@ export interface UpdatePostInput {
   // undefined keeps, null clears.
   knobs?: Knobs | null;
   // undefined keeps, "" clears.
-  note?: string;
+  description?: string;
   embeds?: Embed[];
   from?: number;
   prompt?: string;
   author?: string;
-  // Re-files the variant under another state (a single-state mock adopting its
+  // Re-files the variant under another state (a single-state design adopting its
   // first named state).
   state?: string | null;
   publishedBy?: string;
@@ -920,7 +1097,7 @@ export type AmendPostInput = Omit<UpdatePostInput, "state" | "publishedBy">;
 
 export interface CreateCommentInput {
   sessionId: string;
-  mockId?: string | null;
+  designId?: string | null;
   postId?: string | null;
   author: string;
   text: string;
@@ -934,15 +1111,30 @@ export interface CreateCommentInput {
 
 export interface CommentQuery {
   sessionId?: string;
-  mockId?: string;
+  designId?: string;
   postId?: string;
   afterSeq?: number;
 }
 
 // Everything one Send writes. The store applies it atomically: the reply
 // comment, the answers recorded on the asks, the status flips, the cleared draft.
+// What the decision list needs beyond the designs, without any variant's body.
+export interface DecisionVariant {
+  designId: string;
+  state: string | null;
+  variant: string;
+  status: PostStatus;
+  version: number;
+  acceptedVersion: number | null;
+}
+export interface DecisionSources {
+  variants: DecisionVariant[];
+  // Per design id, when its last reply that answered or chose anything was sent.
+  decidedAt: Record<string, string>;
+}
+
 export interface CommitReplyInput {
-  mockId: string;
+  designId: string;
   sessionId: string;
   text: string;
   payload: Reply;
@@ -950,14 +1142,17 @@ export interface CommitReplyInput {
   // Each variant put in use, with the version.
   accept: { id: string; version: number }[];
   archive: string[];
-  // A close sets it (a reply leaves it as it is).
-  closedAt?: string;
+  // Variants that leave use without being archived: kept answers.
+  release?: string[];
+  standings?: Record<string, AnswerStanding>;
   // A lone "use this version" is not a Send: the user's unsent draft stays.
   keepDraft?: true;
+  // The session taking the design over, when this reply went to one that isn't its owner.
+  owner?: string;
 }
 
 export interface PostQuery {
-  mockId?: string;
+  designId?: string;
   sessionId?: string;
 }
 
@@ -988,21 +1183,26 @@ export interface Store {
   setSetting(key: string, value: string): Promise<void>;
 
   listProjects(): Promise<ProjectSummary[]>;
+  listJumpRows(): Promise<JumpRows>;
   // Newest first; every project when `project` is omitted.
-  listMocks(project?: string): Promise<Mock[]>;
-  getMock(id: string): Promise<Mock | null>;
-  findMock(project: string, slug: string): Promise<Mock | null>;
-  createMock(input: CreateMockInput): Promise<Mock>;
-  updateMock(id: string, patch: UpdateMockInput): Promise<Mock | null>;
-  // Cascades the mock's posts and comments, and takes its screens out of flows.
-  removeMock(id: string): Promise<boolean>;
+  listDesigns(project?: string): Promise<Design[]>;
+  getDesign(id: string): Promise<Design | null>;
+  findDesign(project: string, slug: string): Promise<Design | null>;
+  createDesign(input: CreateDesignInput): Promise<Design>;
+  updateDesign(id: string, patch: UpdateDesignInput): Promise<Design | null>;
+  // Cascades the design's posts and comments, and takes its screens out of flows.
+  removeDesign(id: string): Promise<boolean>;
   // A new slug, and every reference to the old one in the project rewritten
   // with it, atomically: embed tags and data-goto in every version of every
   // variant (current and history), recorded embeds, flow steps. Null when the
-  // mock is missing or the slug is taken.
-  renameMock(id: string, slug: string): Promise<Mock | null>;
-  // Moves everything keyed by the project name (mocks, sessions, flows, the
-  // design settings) to `to`. False when `to` already has mocks.
+  // design is missing or the slug is taken.
+  renameDesign(id: string, slug: string): Promise<Design | null>;
+  // Gives a design with no states its first one, and everything it holds moves
+  // there: variants, flow steps, copies' origins, the draft's comments. Null when
+  // the design is missing or already has states.
+  nameFirstState(id: string, state: string): Promise<Design | null>;
+  // Moves everything keyed by the project name (designs, sessions, flows, the
+  // design settings) to `to`. False when `to` already has designs.
   renameProject(from: string, to: string): Promise<boolean>;
 
   // One project's flows, in the order they were first declared.
@@ -1016,14 +1216,19 @@ export interface Store {
     screen: FlowStep,
     step: number,
   ): Promise<Flow | null>;
-  putDraft(mockId: string, draft: Draft | null): Promise<Mock | null>;
+  putDraft(designId: string, draft: Draft | null): Promise<Design | null>;
 
   // Oldest first.
   listPosts(query?: PostQuery): Promise<Post[]>;
+  // Every variant of a project, or of the workspace, without its bodies; oldest first.
+  listPostHeads(project?: string): Promise<PostHead[]>;
+  // Every live copy of a version in a project, without reading a body.
+  listCopies(project: string): Promise<LiveCopy[]>;
   // Variants per session, without loading bodies or history.
   countPostsBySession(): Promise<Map<string, number>>;
   getPost(id: string): Promise<Post | null>;
-  findPost(mockId: string, state: string | null, variant: string): Promise<Post | null>;
+  setForkedFrom(id: string, from: ForkRef | null): Promise<Post | null>;
+  findPost(designId: string, state: string | null, variant: string): Promise<Post | null>;
   createPost(input: CreatePostInput): Promise<Post | null>;
   updatePost(id: string, patch: UpdatePostInput): Promise<Post | null>;
   removePost(id: string): Promise<boolean>;
@@ -1031,8 +1236,11 @@ export interface Store {
   // (null otherwise, or when the post is missing). Amend replaces it in place;
   // withdraw deletes it and makes the version before it current again, with
   // `embeds` (what that version renders with now), or removes the variant
-  // when it had no other ({ post: null }). The variant's comments stay, on the mock.
+  // when it had no other ({ post: null }). The variant's comments stay, on the design.
   amendPost(id: string, version: number, patch: AmendPostInput): Promise<Post | null>;
+  // On a variant's latest version, if its first page has no poster yet. Touches nothing else:
+  // not the version, not when it was updated, so it reads as nothing having happened.
+  setPosterOnce(id: string, version: number, poster: string, mode?: Mode): Promise<boolean>;
   withdrawVersion(
     id: string,
     version: number,
@@ -1041,8 +1249,18 @@ export interface Store {
   // Accepting pins `acceptedVersion` (default: the current version); any other
   // status clears it.
   setPostStatus(id: string, status: PostStatus, acceptedVersion?: number): Promise<Post | null>;
-  setPostStarred(id: string, starred: boolean): Promise<Post | null>;
+  // Every render of the design changed under the same version numbers.
+  bumpRewrites(designId: string): Promise<void>;
+  // Archives it as it was before, date and reason included: the Undo of a restore.
+  setPostArchived(id: string, archivedAt: string, reason: string | null): Promise<Post | null>;
   setVersionHidden(id: string, version: number, hidden: boolean): Promise<Post | null>;
+  // Gone for good, so the caller has checked nothing points at them. Never the latest.
+  deleteOldVersions(id: string, versions: number[]): Promise<Post | null>;
+  setPostReason(id: string, reason: string | null): Promise<Post | null>;
+  setPostStayed(id: string, version: number): Promise<Post | null>;
+
+  // One project's variant statuses and reply times, for the decision list.
+  listDecisionSources(project: string): Promise<DecisionSources>;
 
   listComments(query: CommentQuery): Promise<Comment[]>;
   createComment(input: CreateCommentInput): Promise<Comment | null>;
@@ -1080,6 +1298,31 @@ export interface SqlStorage {
   transactionSync?<T>(fn: () => T): T;
 }
 
+// A surface as overviews read it, stored beside its body so that listing a
+// project never reads the bodies, which hold nearly all of a workspace's bytes.
+// `marked` says the html has embeds or fills, the two things an overview must
+// read the body to resolve.
+export interface SurfaceHead {
+  kind: Surface["kind"];
+  poster?: string;
+  posterMode?: Mode;
+  marked?: boolean;
+}
+
+// A variant as overviews read it; a full Post reads as one too.
+export type PostHead = Omit<Post, "surfaces" | "history"> & {
+  surfaces: SurfaceHead[];
+  history: { version: number; surfaces: SurfaceHead[] }[];
+};
+
+// Where a version was copied to.
+export interface LiveCopy {
+  design: string;
+  state: string | null;
+  variant: string;
+  copiedFrom: CopyRef;
+}
+
 export const HISTORY_LIMIT = 20;
 
 // "user" is the reserved trust label for genuine human comments. A session
@@ -1102,7 +1345,7 @@ export function stripNul<T extends string | null | undefined>(s: T): T {
 // budget the store evicts down to. One Durable Object holds the whole workspace, so
 // the budget sits well under its ~10 GB SQLite ceiling.
 export const MAX_ASSET_BYTES = 5 * 1024 * 1024;
-// What the user may attach to a write-in or a note: raster formats a model can
+// What the user may attach to a write-in or a comment: raster formats a model can
 // read. SVG is active content, so it is never attachable.
 export const ATTACHABLE_IMAGE_TYPES: ReadonlySet<string> = new Set([
   "image/png",
@@ -1115,7 +1358,7 @@ export const MAX_WORKSPACE_ASSET_BYTES = 2 * 1024 * 1024 * 1024;
 
 // Short, unguessable id: 8 random bytes (64 bits) as 11 url-safe base64 chars.
 // These double as bearer capabilities: in publicRead mode `/s/:id` and
-// `/api/mocks/:id` are reachable without the workspace token, so the id IS the
+// `/api/designs/:id` are reachable without the workspace token, so the id IS the
 // share secret and must resist enumeration. btoa is a global in both Node and
 // Workers.
 export const newId = () => {
@@ -1150,7 +1393,7 @@ export function normalizeSurfaceIds(surfaces: Surface[]): Surface[] {
 export const DEFAULT_PROJECT = "workspace";
 export const DEFAULT_VARIANT = "default";
 
-// Stable, url-safe slug derived from a title. Empty input yields "mock" so a
+// Stable, url-safe slug derived from a title. Empty input yields "design" so a
 // slug is never the empty string.
 export function slugify(input: string): string {
   const slug = input
@@ -1161,7 +1404,7 @@ export function slugify(input: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 60)
     .replace(/-+$/g, "");
-  return slug || "mock";
+  return slug || "design";
 }
 
 // Last path segment of a working directory, for sessions that never declared a
@@ -1180,85 +1423,40 @@ export const htmlSurface = (html: string, kits?: unknown): HtmlSurface => ({
     : {}),
 });
 
-// An open ask is one no reply has answered yet: a write-in or a note alone
+// An open ask is one no reply has answered yet: a write-in or a comment alone
 // answers it too ("Neither, because…").
-export const askAnswered = (a: Pick<Ask, "answer" | "other" | "note">): boolean =>
-  a.answer !== undefined || a.other !== undefined || a.note !== undefined;
-export const openAsks = (mock: Pick<Mock, "asks">): Ask[] =>
-  mock.asks.filter((a) => !askAnswered(a) && !a.dismissed);
+export const askAnswered = (a: Pick<Ask, "answer" | "other" | "comment">): boolean =>
+  a.answer !== undefined || a.other !== undefined || a.comment !== undefined;
+export const openAsks = (design: Pick<Design, "asks">): Ask[] =>
+  design.asks.filter((a) => !askAnswered(a) && !a.dismissed);
 
-// How many built-in "Which variant?" questions the viewer shows: one mock-wide when every
-// state needs one and the live names line up, else one per needing state. Same
-// rule as viewer/src/logic.ts builtinAsks, so Home, `read` and `pending` count
-// the question the user actually sees. Answering it archives the losers, which
-// is what makes it stop counting.
-export function builtinAskIds(
-  mock: Pick<Mock, "asks" | "states"> & { closedAt?: string | null },
-  posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
-  mockId: string,
-): string[] {
-  // Closing the mock closed the choice along with every other open question.
-  if (mock.closedAt) return [];
-  const live = (state: string | null) =>
-    posts
-      .filter((p) => p.mock === mockId && p.state === state && isLive(p.status))
-      .map((p) => p.variant);
-  const needs = (state: string | null) => {
-    const names = live(state);
-    if (names.length < 2) return false;
-    return !mock.asks.some(
-      (a) =>
-        (a.scope === "mock" || (a.scope === "state" && a.state === state)) &&
-        names.every((n) => a.options.some((o) => o.variant === n)),
-    );
-  };
-  const states = mock.states.length ? mock.states : [null];
-  const needing = states.filter(needs);
-  if (!needing.length) return [];
-  const key = (state: string | null) => [...live(state)].sort().join("\n");
-  const first = key(needing[0]);
-  return needing.length === states.length && states.every((st) => key(st) === first)
-    ? [BUILTIN_ASK_ID]
-    : needing.map((st) => (st === null ? BUILTIN_ASK_ID : `${BUILTIN_ASK_ID}:${st}`));
-}
-
-export const builtinAskCount = (
-  mock: Pick<Mock, "asks" | "states"> & { closedAt?: string | null },
-  posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
-  mockId: string,
-): number => builtinAskIds(mock, posts, mockId).length;
-
-export const openCount = (
-  mock: Pick<Mock, "id" | "asks" | "states"> & { closedAt?: string | null },
-  posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
-): number => openAsks(mock).length + builtinAskCount(mock, posts, mock.id);
+// Questions an agent asked that wait on the user. The built-in "Which variant?"
+// is not one: no agent is waiting on it, and being shown several designs owes
+// nobody an answer.
+export const openCount = (design: Pick<Design, "asks">): number => openAsks(design).length;
 
 // How many of the open asks the user's unsent draft already speaks for (a
-// pick, a write-in or a note), so Home can show a started mock as "draft 2/4";
+// pick, a write-in or a comment), so Home can show a started design as "draft 2/4";
 // null when there is no draft. A count only: the draft's content stays private.
-export function draftedCount(
-  mock: Pick<Mock, "id" | "asks" | "states" | "draft"> & { closedAt?: string | null },
-  posts: Pick<Post, "mock" | "state" | "variant" | "status">[],
-): number | null {
-  const d = mock.draft;
+export function draftedCount(design: Pick<Design, "asks" | "draft">): number | null {
+  const d = design.draft;
   if (!d) return null;
-  const open = [...openAsks(mock).map((a) => a.id), ...builtinAskIds(mock, posts, mock.id)];
   const said = (id: string) => {
     const a = d.answers[id];
     const picked = Array.isArray(a) ? a.length > 0 : a !== undefined;
-    return picked || d.others?.[id] !== undefined || d.notes?.[id] !== undefined;
+    return picked || d.others?.[id] !== undefined || d.askComments?.[id] !== undefined;
   };
-  return open.filter(said).length;
+  return openAsks(design).filter((a) => said(a.id)).length;
 }
 
 // The viewer's built-in "Which variant?" for variants no agent ask binds: `variant`
-// mock-wide, `variant:<state>` per state. Never stored; synthesized from the
+// design-wide, `variant:<state>` per state. Never stored; synthesized from the
 // variants so a reply answering it validates, flips and reads like any ask. An
 // option's id is the variant name, so the viewer needs no id mapping.
 export const BUILTIN_ASK_ID = "variant";
 
 export function builtinAsk(
-  mock: Pick<Mock, "states">,
+  design: Pick<Design, "states">,
   posts: Pick<Post, "state" | "variant">[],
   id: string,
 ): Ask | undefined {
@@ -1266,7 +1464,7 @@ export function builtinAsk(
   if (id !== BUILTIN_ASK_ID) {
     if (!id.startsWith(`${BUILTIN_ASK_ID}:`)) return undefined;
     state = id.slice(BUILTIN_ASK_ID.length + 1);
-    if (!mock.states.includes(state)) return undefined;
+    if (!design.states.includes(state)) return undefined;
   }
   const names = [
     ...new Set(posts.filter((p) => state === null || p.state === state).map((p) => p.variant)),
@@ -1275,7 +1473,7 @@ export function builtinAsk(
   return {
     id,
     text: "Which variant?",
-    scope: state === null ? "mock" : "state",
+    scope: state === null ? "design" : "state",
     ...(state === null ? {} : { state }),
     options: names.map((v) => ({ id: v, label: v, variant: v })),
     at: "",
@@ -1284,13 +1482,9 @@ export function builtinAsk(
 
 // Per-project rollup for the projects list. Pure, so every store agrees on
 // what "open" and "lastActiveAt" mean.
-export function summarizeProjects(
-  mocks: Mock[],
-  sessions: Session[],
-  posts: Post[] = [],
-): ProjectSummary[] {
-  const byProject = new Map<string, Mock[]>();
-  for (const m of mocks) {
+export function summarizeProjects(designs: Design[], sessions: Session[]): ProjectSummary[] {
+  const byProject = new Map<string, Design[]>();
+  for (const m of designs) {
     const list = byProject.get(m.project);
     if (list) list.push(m);
     else byProject.set(m.project, [m]);
@@ -1307,12 +1501,12 @@ export function summarizeProjects(
   return [...names]
     .map((name) => {
       const list = byProject.get(name) ?? [];
-      const lastMock = list.reduce((max, m) => (m.updatedAt > max ? m.updatedAt : max), "");
+      const lastDesign = list.reduce((max, m) => (m.updatedAt > max ? m.updatedAt : max), "");
       return {
         name,
-        mocks: list.length,
-        open: list.reduce((n, m) => n + openCount(m, posts), 0),
-        lastActiveAt: [lastMock, sessionActive.get(name) ?? ""].sort().pop() ?? "",
+        designs: list.length,
+        open: list.reduce((n, m) => n + openCount(m), 0),
+        lastActiveAt: [lastDesign, sessionActive.get(name) ?? ""].sort().pop() ?? "",
         sessions: sessionCounts.get(name) ?? 0,
       };
     })
@@ -1360,12 +1554,12 @@ export function collectAssetIds(surfaces: Surface[], out: Set<string>): void {
 }
 
 // The images a draft, a reply or a sent ask carries (all keep the user's
-// attachments in otherImages / noteImages).
+// attachments in otherImages / askCommentImages).
 export function collectAttachedIds(
-  holder: { otherImages?: unknown; noteImages?: unknown } | null | undefined,
+  holder: { otherImages?: unknown; askCommentImages?: unknown } | null | undefined,
   out: Set<string>,
 ): void {
-  for (const map of [holder?.otherImages, holder?.noteImages]) {
+  for (const map of [holder?.otherImages, holder?.askCommentImages]) {
     if (!map || typeof map !== "object") continue;
     for (const ids of Array.isArray(map) ? [map] : Object.values(map)) {
       if (Array.isArray(ids)) for (const id of ids) if (typeof id === "string") out.add(id);

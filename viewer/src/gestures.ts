@@ -19,6 +19,8 @@ export function useInspectGestures(opts: {
   anywhere?: () => boolean;
   scale: () => number;
   fit: () => number;
+  // How far in a pinch may go; Inspect's own limit unless named.
+  max?: () => number;
   setZoom: (z: number) => void;
 }) {
   const touches = new Map<number, Point>();
@@ -70,7 +72,7 @@ export function useInspectGestures(opts: {
     if (gesture?.kind !== "pinch") return;
     const p = pair(el);
     const z0 = opts.scale();
-    const z1 = clampZoom((gesture.z * p.dist) / gesture.dist, opts.fit());
+    const z1 = clampZoom((gesture.z * p.dist) / gesture.dist, opts.fit(), opts.max?.());
     // The midpoint's own travel pans; the spread zooms around it.
     const left = zoomScroll(el.scrollLeft + gesture.mid.x - p.mid.x, p.mid.x, z0, z1);
     const top = zoomScroll(el.scrollTop + gesture.mid.y - p.mid.y, p.mid.y, z0, z1);
@@ -133,7 +135,7 @@ export function useInspectGestures(opts: {
     const mx = x - box.left;
     const my = y - box.top;
     const z0 = opts.scale();
-    const z1 = clampZoom(z0 * factor, opts.fit());
+    const z1 = clampZoom(z0 * factor, opts.fit(), opts.max?.());
     const left = zoomScroll(el.scrollLeft, mx, z0, z1);
     const top = zoomScroll(el.scrollTop, my, z0, z1);
     opts.setZoom(z1);
@@ -143,7 +145,7 @@ export function useInspectGestures(opts: {
   return { pinch, zoomAt };
 }
 
-// A row that a finger swipes left to act on it (resolve a mock on Home). The
+// A row that a finger swipes left to act on it (resolve a design on Home). The
 // row follows the finger once the move is clearly sideways, and the action
 // fires past a share of its width or on a quick flick; short of that it springs
 // back. Touch and pen only: a mouse has the row's button instead. The row's

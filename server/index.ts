@@ -1,7 +1,9 @@
 import { serve } from "@hono/node-server";
+import { Hono } from "hono";
+import { compress } from "hono/compress";
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, networkInterfaces } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApp } from "./app.ts";
@@ -57,7 +59,9 @@ const publicRead = pr === "session" || pr === "full" ? pr : undefined;
 // default lives in ~/.mockpit/, a user-owned dir that survives reinstalls and
 // is writable however the package was installed.
 const dbPath = process.env.MOCKPIT_DB ?? join(homedir(), ".mockpit", "mockpit.db");
-const store = new SqlStore(createSqliteStorage(dbPath));
+// Far past the Durable Object's budget: one lab of inlined pages can be 70 MB,
+// and a design that doesn't fit is re-read and re-parsed on every request.
+const store = new SqlStore(createSqliteStorage(dbPath), { postCacheBytes: 256 * 1024 * 1024 });
 console.log(`mockpit store: SQLite at ${dbPath}`);
 
 // The event log is on by default, next to the database, so a session can be
@@ -76,6 +80,29 @@ if (logPath) console.log(`mockpit event log: ${logPath}`);
 const rulesPath = dbPath === ":memory:" ? undefined : join(dirname(dbPath), "rules.md");
 const userRules = rulesPath ? () => readFile(rulesPath, "utf8").catch(() => null) : undefined;
 
+const port = Number(process.env.PORT ?? 8228);
+// MOCKPIT_HOST (or `serve --host`) restricts the listener to one address.
+// Unset keeps the previous behaviour — node's default, every interface — because
+// that is what a container or a LAN-shared instance needs. Set it to 127.0.0.1
+// when the server shares a host with anything you don't want reaching it; that
+// is stronger than the token, which is a single shared secret by design.
+const hostname = process.env.MOCKPIT_HOST || undefined;
+
+// The addresses a phone might open this server at. Read when asked, since a laptop
+// changes networks while it runs.
+const networkHosts = () => {
+  if (hostname === "127.0.0.1" || hostname === "::1" || hostname === "localhost") {
+    return { localOnly: true, hosts: [] };
+  }
+  if (hostname && hostname !== "0.0.0.0" && hostname !== "::") {
+    return { localOnly: false, hosts: [`${hostname}:${port}`] };
+  }
+  const hosts = Object.values(networkInterfaces())
+    .flat()
+    .flatMap((a) => (a && a.family === "IPv4" && !a.internal ? [`${a.address}:${port}`] : []));
+  return { localOnly: false, hosts: hosts.slice(0, 3) };
+};
+
 const app = createApp({
   store,
   viewerHtml,
@@ -92,18 +119,18 @@ const app = createApp({
   renderRev,
   // `run` scripts execute in QuickJS inside a worker thread per run.
   executor: createNodeExecutor(),
+  networkHosts,
   log: logPath ? createFileLog(logPath) : undefined,
 });
 
-const port = Number(process.env.PORT ?? 8228);
-// MOCKPIT_HOST (or `serve --host`) restricts the listener to one address.
-// Unset keeps the previous behaviour — node's default, every interface — because
-// that is what a container or a LAN-shared instance needs. Set it to 127.0.0.1
-// when the server shares a host with anything you don't want reaching it; that
-// is stronger than the token, which is a single shared secret by design.
-const hostname = process.env.MOCKPIT_HOST || undefined;
+// Cloudflare compresses at its edge; a Node server reached over a network
+// (a tailnet, a LAN) would otherwise send the viewer and every list uncompressed.
+// Hono's filter leaves SSE streams alone.
+const outer = new Hono();
+outer.use(compress());
+outer.all("*", (c) => app.fetch(c.req.raw, c.env));
 
-serve({ fetch: app.fetch, port, hostname }, (info) => {
+serve({ fetch: outer.fetch, port, hostname }, (info) => {
   // Report the address actually bound. Printing "localhost" unconditionally hid
   // the fact that the default listens on every interface.
   const shown = hostname ?? "localhost";

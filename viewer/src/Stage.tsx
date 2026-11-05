@@ -1,8 +1,8 @@
-// D1: one stage per mock, never replaced: a pannable, zoomable canvas under the
+// D1: one stage per design, never replaced: a pannable, zoomable canvas under the
 // top bar. Every (state, variant) of the version on stage is its own sandboxed
 // frame, all loaded at once; only the active one is visible, the rest stay laid
 // out (visibility, not display) so they report their parts up front and
-// switching is instant. The mock's other widths sit beside the live one as
+// switching is instant. The design's other widths sit beside the live one as
 // picture-only artboards.
 //
 // The overlay above the active frame is ours (trusted origin) and is built only
@@ -30,6 +30,9 @@ import { host, readonly, root } from "./host.ts";
 import { useInspectGestures } from "./gestures.ts";
 import { JsonTree } from "./JsonTree.tsx";
 import {
+  BOARD_GAP,
+  BOARD_PAD,
+  draftCarried,
   boardWidths,
   changedPart,
   clampZoom,
@@ -46,13 +49,24 @@ import {
   type PartsReport,
   reportIsCurrent,
   widthLabel,
+  spokenName,
 } from "./logic.ts";
 import { PartReactions } from "./Reactions.tsx";
-import type { MockScreenState } from "./state.ts";
+import type { DesignScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
-import { canvasTop, cardInset, coarse, phoneLayout, safeX, win } from "./viewport.ts";
+import {
+  canvasBox,
+  canvasTop,
+  cardInset,
+  coarse,
+  phoneLayout,
+  safeX,
+  designAt,
+  setDesignAt,
+  win,
+} from "./viewport.ts";
 
-const num = (v: unknown, d = 0) => (typeof v === "number" && Number.isFinite(v) ? v : d);
+export const num = (v: unknown, d = 0) => (typeof v === "number" && Number.isFinite(v) ? v : d);
 const MAX_TEXT = 200;
 const text = (v: unknown, max = MAX_TEXT) => String(v ?? "").slice(0, max);
 const MAX_PROMPT = 4000;
@@ -71,7 +85,7 @@ interface PendingMark {
   rect?: [number, number, number, number];
 }
 
-const httpUrl = (v: unknown): string | null => {
+export const httpUrl = (v: unknown): string | null => {
   try {
     const u = new URL(String(v));
     return u.protocol === "http:" || u.protocol === "https:" ? u.href : null;
@@ -96,10 +110,12 @@ function readReport(d: Record<string, unknown>, frameW: number): PartsReport | n
       const b = (p.box ?? {}) as Record<string, unknown>;
       const name = text(p.name);
       if (!name) return [];
+      // The frame reports the bare name as the label when the agent set none.
+      const label = text(p.label);
       return [
         {
           name,
-          label: text(p.label) || name,
+          label: label && label !== name ? label : spokenName(name),
           box: { x: num(b.x), y: num(b.y), w: num(b.w), h: num(b.h) },
           visible: p.visible === true,
           depth: num(p.depth),
@@ -110,18 +126,22 @@ function readReport(d: Record<string, unknown>, frameW: number): PartsReport | n
   };
 }
 
-// The canvas, in screen px: a margin round the artboards, a line for each
-// one's label, and the space between them (scaled with them).
-const BOARD_PAD = 16;
-const BOARD_LABEL = 30;
-const BOARD_GAP = 64;
+// A line above each artboard for its label, in screen px.
+// The row above the artboard: its label, and a live one's version and what acts on it.
+const BOARD_LABEL = 44;
+const LABEL_AT = 14;
+// The live label gives way to those actions on an artboard too narrow for both.
+const LABEL_ROOM_ONE_VERSION = 360;
+const LABEL_ROOM_VERSIONS = 480;
+const LABEL_ROOM_ARRIVED = 180;
+const LABEL_ROOM_CARRIED = 100;
 // Under a finger a pin keeps its size and takes a 44px tap area around it;
 // pins step apart far enough that those areas never overlap.
 const PIN = 22;
 const pinGap = () => (coarse() ? 44 - PIN : 6);
 const pinEdge = () => (coarse() ? (44 - PIN) / 2 : 2);
 
-export function Stage(props: { s: MockScreenState; onGoto?: (to: string) => void }) {
+export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => void }) {
   const s = props.s;
   const { reports, setReports } = s;
   // Per frame, the version whose knob runtime has said it is listening.
@@ -147,17 +167,26 @@ export function Stage(props: { s: MockScreenState; onGoto?: (to: string) => void
   // Above a phone's page, no label: only room for the tap area of a pin on its
   // very first line, which would otherwise sit under the header.
   const labelH = () => (phone() ? 12 : BOARD_LABEL);
-  const order = createMemo(() => boardWidths(s.mock()?.widths ?? [], frameW(), zoom(), phone()));
+  const order = createMemo(() =>
+    boardWidths(s.design()?.widths ?? [], frameW(), s.allWidths(), phone()),
+  );
   const others = createMemo(() => order().filter((w) => w !== frameW()));
-  // The whole screen inside its safe area, less what floats at its sides.
+  // The screen inside its safe area, less the margins and what floats at its sides.
   const availW = createMemo(
-    () => win().w - safeX() - cardInset().left - cardInset().right - (phone() ? 0 : 2 * BOARD_PAD),
+    () =>
+      win().w -
+      safeX() -
+      canvasBox().left -
+      canvasBox().right -
+      cardInset().left -
+      cardInset().right -
+      (phone() ? 0 : 2 * BOARD_PAD),
   );
   // The canvas's left margin, past what floats on its left: the live artboard
-  // fitted is centred on the screen; all of them start at the margin.
+  // fitted is centred in the room; all of them start at the margin.
   const padL = () => {
-    const centred = Math.max(0, (availW() - frameW() * fitScale()) / 2);
-    return cardInset().left + (zoom() === "all" ? BOARD_PAD : centred);
+    const edge = cardInset().left + (phone() ? 0 : BOARD_PAD);
+    return edge + (zoom() === "all" ? 0 : Math.max(0, (availW() - frameW() * fitScale()) / 2));
   };
   const activeKey = createMemo(() => {
     const v = s.activeVariant();
@@ -455,10 +484,39 @@ export function Stage(props: { s: MockScreenState; onGoto?: (to: string) => void
   const canvasW = () =>
     xOf(order().at(-1)!) +
     order().at(-1)! * scale() +
-    (phone() ? 0 : BOARD_PAD) +
-    cardInset().right;
+    // Fitted, the room already ends a pad short of the edge, and one more would
+    // make a classic scrollbar's width overflow sideways.
+    (phone() || zoom() === "fit" ? 0 : BOARD_PAD) +
+    cardInset().right +
+    canvasBox().over;
   // The artboards start under whatever rests at the top.
   const padT = () => cardInset().top;
+  const [panned, setPanned] = createSignal({ x: 0, y: 0 });
+  const onPan = () => setPanned({ x: layersEl.scrollLeft, y: layersEl.scrollTop });
+  // The row's first artboard, not the live one: under "All widths" the live one can
+  // have a neighbour on its left, closer than anything could stand between them.
+  createEffect(() => {
+    setDesignAt({
+      // The safe-area padding sits outside the scroller, and only the DOM knows it.
+      left: layersEl.getBoundingClientRect().left + xOf(order()[0]!) - panned().x,
+      top: canvasTop() + padT() + labelH() - panned().y,
+      right:
+        layersEl.getBoundingClientRect().left + xOf(frameW()) + frameW() * scale() - panned().x,
+    });
+  });
+  onCleanup(() => setDesignAt(null));
+  // The row's width on screen: a margin floating over the artboard takes it from the
+  // actions as well, since they stop short of it.
+  const labelFits = () => {
+    const w = frameW() * scale();
+    const right = designAt()?.right ?? 0;
+    const edge = win().w - canvasBox().right - canvasBox().over - 8;
+    const needs =
+      (s.steps().length > 1 ? LABEL_ROOM_VERSIONS : LABEL_ROOM_ONE_VERSION) +
+      (s.boundVersion() !== null ? LABEL_ROOM_ARRIVED : 0) +
+      (draftCarried(s.draft()) ? LABEL_ROOM_CARRIED : 0);
+    return Math.min(right, edge) - (right - w) >= needs;
+  };
   // Room under the artboards to pan them up past a card resting at the bottom;
   // on a phone, just enough to bring the page's end above the sheet.
   const canvasH = () =>
@@ -472,24 +530,22 @@ export function Stage(props: { s: MockScreenState; onGoto?: (to: string) => void
   return (
     <div class="stagewrap canvas" style={{ top: `${canvasTop()}px` }}>
       <div class="stage" classList={{ tuning: s.tuning() }}>
-        <Show when={s.boundVersion() !== null}>
-          <div class="banner" role="status">
-            <b>{`${s.arrived()?.name ?? "A new version"} arrived`}</b>
-            <span class="sep">·</span>
-            <button type="button" onClick={() => s.viewNewVersion()}>
-              view
-            </button>
-            <span class="banner-note">{`your answers stay on ${s.arrived()?.bound ?? "this one"} until you do`}</span>
-          </div>
-        </Show>
-        <div class="layers" ref={(el) => (layersEl = el)} style={{ height: `${availH()}px` }}>
+        <ArrivedBanner s={s} />
+        <div
+          class="layers"
+          ref={(el) => (layersEl = el)}
+          style={{ height: `${availH()}px` }}
+          onScroll={onPan}
+        >
           <div class="layers-sizer" style={{ height: `${canvasH()}px`, width: `${canvasW()}px` }} />
-          <Show when={!phone()}>
+          <Show when={!phone() && labelFits()}>
             <div
               class="board-label"
-              style={{ left: `${Math.max(10, xOf(frameW()))}px`, top: `${padT() + 8}px` }}
+              style={{ left: `${Math.max(10, xOf(frameW()))}px`, top: `${padT() + LABEL_AT}px` }}
             >
-              {`${widthLabel(frameW())} · ${frameW()}`}
+              {`${widthLabel(frameW())} · ${frameW()}${
+                scale() < 1 ? ` · ${Math.round(scale() * 100)}%` : ""
+              }`}
             </div>
           </Show>
           <Show when={s.activeVariant()}>
@@ -499,7 +555,7 @@ export function Stage(props: { s: MockScreenState; onGoto?: (to: string) => void
                   <>
                     <div
                       class="board-label"
-                      style={{ left: `${Math.max(10, xOf(w))}px`, top: `${padT() + 8}px` }}
+                      style={{ left: `${Math.max(10, xOf(w))}px`, top: `${padT() + LABEL_AT}px` }}
                     >
                       {`${widthLabel(w)} · ${w}`}
                     </div>
@@ -561,11 +617,29 @@ export function Stage(props: { s: MockScreenState; onGoto?: (to: string) => void
   );
 }
 
+// A newer version than the one the draft is bound to, on offer.
+// A phone's: elsewhere the version's own row says it (VersionCaption).
+export function ArrivedBanner(props: { s: DesignScreenState }) {
+  const s = props.s;
+  return (
+    <Show when={phoneLayout() && s.boundVersion() !== null}>
+      <div class="banner" role="status">
+        <b>{`${s.arrived()?.name ?? "A new version"} arrived`}</b>
+        <span class="sep">·</span>
+        <button type="button" onClick={() => s.viewNewVersion()}>
+          view
+        </button>
+        <span class="banner-note">{`your answers stay on ${s.arrived()?.bound ?? "this one"} until you do`}</span>
+      </div>
+    </Show>
+  );
+}
+
 // Another width of the variant on stage, beside the live one on the canvas: a
 // picture only (no parts, marks or hits) of every surface the live frame shows,
 // with the draft's knob values baked into its html's URL so it matches.
 function Board(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   variant: VariantView;
   w: number;
   scale: number;
@@ -587,7 +661,7 @@ function Board(props: {
     historyRow(props.variant, version())?.surfaceKinds ?? props.variant.surfaces.map((x) => x.kind);
   const primary = () => kinds().indexOf("html");
   const src = (index: number) => {
-    const m = s.mock();
+    const m = s.design();
     if (!m) return "";
     const knobs =
       index === primary()
@@ -675,7 +749,11 @@ function Board(props: {
 
 // Image and json arrive whole and render as data, never as markup; an older
 // version's body is not sent, so it shows as a placeholder.
-function NativeSurface(props: { kind: unknown; surface: Surface | undefined; version: number }) {
+export function NativeSurface(props: {
+  kind: unknown;
+  surface: Surface | undefined;
+  version: number;
+}) {
   const sf = props.surface;
   if (sf?.kind === "image") {
     return (
@@ -697,7 +775,7 @@ function NativeSurface(props: { kind: unknown; surface: Surface | undefined; ver
   return <div class="surface surface-gone">{`${String(props.kind)} (#${props.version})`}</div>;
 }
 
-function Pin(props: { s: MockScreenState; index: number; style: JSX.CSSProperties }) {
+function Pin(props: { s: DesignScreenState; index: number; style: JSX.CSSProperties }) {
   const s = props.s;
   const q = () => s.questions()[props.index];
   const ask = () => {
@@ -719,6 +797,7 @@ function Pin(props: { s: MockScreenState; index: number; style: JSX.CSSPropertie
       data-question={props.index + 1}
       onClick={(e) => {
         e.stopPropagation();
+        s.showTalk();
         s.goQuestion(props.index);
       }}
     >
@@ -728,7 +807,7 @@ function Pin(props: { s: MockScreenState; index: number; style: JSX.CSSPropertie
 }
 
 function VariantFrame(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   variant: VariantView;
   active: boolean;
   scale: number;
@@ -782,7 +861,7 @@ function VariantFrame(props: {
   // baked into its URL.
   let lastKnobs = "";
   createEffect(() => {
-    const m = s.mock();
+    const m = s.design();
     const reported = props.report?.version ?? props.ready;
     if (!m || reported === undefined) return;
     const values = {
@@ -796,13 +875,15 @@ function VariantFrame(props: {
   });
 
   // Try outlines the design's data-goto elements and lets a click on one move
-  // the user; re-sent to each fresh document, which starts with Try off.
+  // the user; re-sent to each fresh document, which starts with Try off. Its `ready`
+  // comes from <head>, before the bridge listens, so Try carried across a flow would
+  // be lost there: it goes again once the document has reported its parts.
   let lastTry = "";
   createEffect(() => {
     const reported = props.report?.version ?? props.ready;
     if (reported === undefined) return;
     const on = props.active && s.trying();
-    const k = `${reported}|${on}`;
+    const k = `${reported}|${!!props.report}|${on}`;
     if (k === lastTry || (!on && !lastTry.endsWith("|true"))) return;
     lastTry = k;
     props.post({ type: "try", on });
@@ -880,7 +961,7 @@ function VariantFrame(props: {
                   w: props.variant.rewrites,
                   knobs: isPrimary
                     ? untrack(() => {
-                        const m = s.mock();
+                        const m = s.design();
                         if (!m) return undefined;
                         // Only declared paths: the route refuses the whole URL
                         // over one value it can't check, which would blank the stage.
@@ -950,7 +1031,7 @@ function VariantFrame(props: {
 }
 
 function Overlay(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   report: PartsReport | undefined;
   scale: number;
   frameW: number;
@@ -1221,12 +1302,14 @@ function Overlay(props: {
 }
 
 // The pin being placed and its comment field, kept inside the overlay's box.
-function MarkField(props: {
+export function MarkField(props: {
   n: number;
   at: { x: number; y: number };
   width: number;
   height: number;
   where: string;
+  // How far below the pin the field starts, to leave what it's about readable.
+  under?: number;
   onSave: (text: string) => void;
   onCancel: () => void;
 }) {
@@ -1234,8 +1317,9 @@ function MarkField(props: {
   const W = () => Math.min(280, props.width - 8);
   const H = () => (coarse() ? 150 : 112);
   const left = () => Math.max(4, Math.min(props.at.x + 16, props.width - W() - 4));
-  const below = () => props.at.y + 16 + H() < props.height;
-  const top = () => Math.max(4, below() ? props.at.y + 16 : props.at.y - 16 - H());
+  const under = () => props.under ?? 16;
+  const below = () => props.at.y + under() + H() < props.height;
+  const top = () => Math.max(4, below() ? props.at.y + under() : props.at.y - 16 - H());
   let input: HTMLInputElement | undefined;
   const submit = () => {
     const t = value().trim();

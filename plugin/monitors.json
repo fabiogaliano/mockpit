@@ -1,8 +1,0 @@
-[
-  {
-    "name": "mockpit-comments",
-    "description": "Streams each mockpit reply the user sends from the browser (answers, tuned values, borrowed parts, comments, steers, verdicts), their thread messages and closed mocks to Claude as they land.",
-    "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/watch.sh \"${CLAUDE_PLUGIN_DATA}\"",
-    "when": "always"
-  }
-]

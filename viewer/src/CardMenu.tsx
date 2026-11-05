@@ -1,28 +1,31 @@
-// A Home card's ⋯ menu: the user moves the mock themselves (another kind,
+// An album's ⋯ menu on Home: the user moves the design themselves (another kind,
 // another area) or closes it. Moves go through the same edit the agent uses,
-// with its rules (a mock still embedded stays a component), and the agent
+// with its rules (a design still embedded stays a component), and the agent
 // hears each one in its next feedback; a refusal shows here, briefly.
 
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
-import type { MockKind } from "../../server/types.ts";
+import type { DesignKind } from "../../server/types.ts";
 import { api } from "./api.ts";
 import { host, root } from "./host.ts";
 import { Icon } from "./icons.tsx";
 
-const KINDS: { kind: MockKind; label: string }[] = [
-  { kind: "page", label: "Pages" },
+// A design declared neither way is an idea or a document by what it holds, so the
+// user moves it out of the declared shelves, never between those two.
+const KINDS: { kind: DesignKind; label: string }[] = [
+  { kind: "screen", label: "Screens" },
   { kind: "component", label: "Components" },
-  { kind: "sketch", label: "Sketches" },
+  { kind: "idea", label: "Ideas and documents" },
 ];
 
 const ERROR_MS = 5000;
 
 export function CardMenu(props: {
-  mock: { id: string; title: string; kind: MockKind; area?: string; closedAt: string | null };
+  design: { id: string; title: string; kind: DesignKind; area?: string };
   // The project's areas, in its order, to pick from.
   areas: string[];
+  // How taking this design away reads: an idea ends, anything else is archived.
+  endLabel: string;
   onClose: () => void;
-  onReopen: () => void;
   onEdited: () => void;
 }) {
   const [open, setOpen] = createSignal(false);
@@ -66,13 +69,13 @@ export function CardMenu(props: {
     });
   });
 
-  async function edit(body: { kind?: MockKind; area?: string | null }) {
+  async function edit(body: { kind?: DesignKind; area?: string | null }) {
     if (busy()) return;
     setBusy(true);
     host().window.clearTimeout(errTimer);
     setError(null);
     try {
-      await api.editMock(props.mock.id, body);
+      await api.editDesign(props.design.id, body);
       props.onEdited();
       shut(true);
     } catch (e) {
@@ -82,7 +85,7 @@ export function CardMenu(props: {
       setBusy(false);
     }
   }
-  const area = () => props.mock.area ?? null;
+  const area = () => props.design.area ?? null;
 
   return (
     <div class="home-more-wrap" classList={{ open: open() }}>
@@ -92,7 +95,7 @@ export function CardMenu(props: {
         ref={(el) => (btn = el)}
         aria-haspopup="menu"
         aria-expanded={open()}
-        aria-label={`More for ${props.mock.title}`}
+        aria-label={`More for ${props.design.title}`}
         onClick={(e) => {
           e.preventDefault();
           if (open()) shut();
@@ -106,7 +109,7 @@ export function CardMenu(props: {
           class="cmenu"
           classList={{ flip: flip() }}
           role="menu"
-          aria-label={props.mock.title}
+          aria-label={props.design.title}
           aria-busy={busy()}
           ref={(el) => (menu = el)}
         >
@@ -116,13 +119,13 @@ export function CardMenu(props: {
               <button
                 type="button"
                 role="menuitemradio"
-                aria-checked={props.mock.kind === k.kind}
+                aria-checked={props.design.kind === k.kind}
                 onClick={() =>
-                  props.mock.kind === k.kind ? shut(true) : void edit({ kind: k.kind })
+                  props.design.kind === k.kind ? shut(true) : void edit({ kind: k.kind })
                 }
               >
                 {k.label}
-                <Show when={props.mock.kind === k.kind}>
+                <Show when={props.design.kind === k.kind}>
                   <Icon name="check" />
                 </Show>
               </button>
@@ -173,11 +176,10 @@ export function CardMenu(props: {
             role="menuitem"
             onClick={() => {
               shut();
-              if (props.mock.closedAt) props.onReopen();
-              else props.onClose();
+              props.onClose();
             }}
           >
-            {props.mock.closedAt ? "Reopen" : "Close"}
+            {props.endLabel}
           </button>
           <Show when={error()}>
             {(msg) => (

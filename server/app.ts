@@ -7,9 +7,11 @@ import { ICON_PNG_BASE64 } from "./appIconPng.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
   type EmbedView,
-  mockDetailView,
+  draftHolds,
+  designDetailView,
+  postersFor,
   treeNodeView,
-  mockSummaryView,
+  designSummaryView,
   placeOf,
   sessionRowView,
   surfaceRef,
@@ -32,7 +34,14 @@ import {
   RULES_SETTING,
   USER_RULES_SETTING,
 } from "./guidance.ts";
-import { HANDOFF_NOTE, handoffReady, supersedes } from "./handoff.ts";
+import {
+  HANDOFF_NOTE,
+  handoffReady,
+  OWNER_BUSY_MS,
+  ownerActiveAt,
+  sessionName,
+  supersedes,
+} from "./handoff.ts";
 import {
   bundledIconSets,
   expandIcons,
@@ -45,9 +54,28 @@ import {
   resolverFor,
 } from "./icons.ts";
 import { checkProjectKit, KIT_IDS, kitSummaries } from "./kits.ts";
+import {
+  agentDecisionList,
+  applyDecisionEdits,
+  deriveDecisionLines,
+  fullAgentDecisionList,
+  parseDecisionEdits,
+} from "./decisionList.ts";
 import { chosenFills, decisionsFor, settledValues } from "./decisions.ts";
-import { composeFills, slotsInSurfaces, spliceFills } from "./fills.ts";
-import { checkKnobs, checkKnobValues, discreteChoices } from "./knobs.ts";
+import {
+  checkAnswerFill,
+  checkAnswerStyle,
+  MAX_ANSWER_ADDITIONS,
+  withAnswerAdditions,
+} from "./answerAdditions.ts";
+import {
+  AS_IS_FILL,
+  composeFills,
+  partOccurrences,
+  slotsInSurfaces,
+  spliceFills,
+} from "./fills.ts";
+import { checkKnobs, checkKnobValues, discreteChoices, explicitKnob, knobFor } from "./knobs.ts";
 import { diffParts, type PartChanges, partsInSurfaces, spliceParts } from "./parts.ts";
 import { postToMarkdown } from "./postMarkdown.ts";
 import {
@@ -63,13 +91,16 @@ import {
   vapidKeys,
 } from "./push.ts";
 import {
-  type EmbedResolver,
+  dropRepeatedStyles,
   embedsKey,
-  type Expanded,
   expandHtml,
+  firstHtmlEmbeds,
   hasEmbedTags,
   parseEmbedTags,
+  type EmbedResolver,
+  type Expanded,
 } from "./embeds.ts";
+import { createCdnInliner, type InlineResult } from "./cdnInline.ts";
 import { type McpFlows, registerMcp } from "./mcpHttp.ts";
 import { createRunFlow, DEFAULT_RUN_LIMITS, type Executor, type RunLimits } from "./run.ts";
 import { type LogSink, logMiddleware, writeLog } from "./eventLog.ts";
@@ -80,8 +111,6 @@ import {
   renderMermaidPage,
   knobAttributes,
   renderSandboxedPart,
-  STATIC_ASSET_PREFIX,
-  staticAsset,
 } from "./surfacePage.ts";
 import { DEFAULT_MODE, DEFAULT_THEME_ID, isMode, type Mode, themeById } from "./themes.ts";
 import {
@@ -93,7 +122,6 @@ import {
   type Asset,
   type AssetKind,
   builtinAsk,
-  builtinAskIds,
   BUILTIN_ASK_ID,
   type CodeSurface,
   type Comment,
@@ -101,12 +129,15 @@ import {
   DEFAULT_PROJECT,
   DEFAULT_VARIANT,
   type DesignFiles,
-  type DesignSettings,
+  type DesignSystem,
   type DiffSurface,
   type Draft,
   htmlSurface,
   type IconSetRef,
   isSandboxedSurfaceKind,
+  type AnswerAddition,
+  type AnswerSet,
+  type AnswerStanding,
   type Knobs,
   type KnobValue,
   type MarkdownSurface,
@@ -114,25 +145,31 @@ import {
   MAX_ASK_IMAGES,
   MAX_ASSET_BYTES,
   inUseVersion,
+  currentVersion,
+  newestVisible,
   isLive,
-  isMockKind,
-  momentOf,
-  NORMAL_SITUATION,
+  isDesignKind,
+  isPlanned,
+  MAX_NOTES,
   optionState,
-  type Mock,
-  type MockKind,
+  type Design,
+  type DesignKind,
   newId,
-  openAsks,
+  draftedCount,
   openCount,
   OTHER_ID,
+  PARAGRAPH_TEXT_MAX,
+  type ParagraphAnchor,
   type PartComment,
   type Post,
+  type PostHead,
   type Reaction,
   REACTIONS,
   projectFromCwd,
   type Reply,
   AREA_ORDER_SETTING,
-  type MockEdit,
+  DECISION_EDITS_SETTING,
+  type DesignEdit,
   stripNul,
   postAtVersion,
   versionAt,
@@ -145,9 +182,10 @@ import {
   type FlowStep,
   type ForkRef,
   sameScreen,
-  situationKey,
   slugify,
+  type StateOutline,
   type Store,
+  type HtmlSurface,
   type Surface,
   surfacesByteLength,
   type TerminalSurface,
@@ -159,11 +197,26 @@ import {
   validateSurfaces,
 } from "./postSurfaces.ts";
 import { isViewerRequest } from "./viewerRequest.ts";
+import { jumpHits, recentHits } from "./jump.ts";
+import {
+  isKeptVariant,
+  keptVariants,
+  MAX_SETS,
+  MAX_WHY,
+  remapStanding,
+  reoffered,
+  standingOf,
+  type StandingKind,
+  withStanding,
+} from "./standings.ts";
 
 export type { FeedEvent } from "./events.ts";
 export type { FeedbackBatch } from "./feedbackBatch.ts";
 
 const MAX_SURFACE_BYTES = 2 * 1024 * 1024;
+// An agent at work makes many calls, and the viewer only needs to hear it's alive.
+// Short, because a call swallowed here is one the viewer doesn't hear until the next.
+const AGENT_CALL_EVENT_MS = 5_000;
 // A held long-poll (watch, the viewer) re-arms rather than pinning a socket
 // for good; proxies and serverless hosts drop longer requests anyway.
 const MAX_WAIT_SECONDS = 230;
@@ -179,6 +232,8 @@ const MAX_BODY_BYTES = 16 * 1024 * 1024;
 // the agent in feedback batches, re-sent on every poll — so cap them at the
 // edge to keep one oversize value from bloating the agent's context forever.
 const MAX_COMMENT_TEXT = 8000;
+// Room for any derived line to be edited: the question plus a whole write-in.
+const MAX_DECISION_TEXT = MAX_COMMENT_TEXT + 2000;
 const MAX_TITLE = 500;
 
 // Ceiling on concurrently-held SSE + long-poll connections. Both are GETs that
@@ -274,7 +329,7 @@ export interface AppOptions {
   basePath?: BasePathHook;
   // When set, unauthenticated GET routes can be read without bypassing the
   // write token. "session" exposes only reads addressed by an unguessable id
-  // (a mock, a post's documents, a session's feed); "full" exposes every GET.
+  // (a design, a post's documents, a session's feed); "full" exposes every GET.
   publicRead?: PublicReadMode;
   // Whether this deployment can render a post's first surface as a PNG (the
   // /s/:id.png route). That route lives in the Cloudflare Worker entry and needs
@@ -308,6 +363,9 @@ export interface AppOptions {
   executor?: Executor;
   // Overrides for the run limits; tests shrink the deadline and budgets.
   runLimits?: Partial<RunLimits>;
+  // Where else this machine answers, for a viewer on loopback who wants a phone to
+  // open the page. Node supplies it; a Worker is never on loopback in production.
+  networkHosts?: () => { localOnly: boolean; hosts: string[] };
   // The event log (server/eventLog.ts): one entry per agent call, viewer write
   // and live-feed connection. The host decides where entries go (a JSONL file
   // on Node, Workers Logs on Cloudflare); absent, nothing is computed.
@@ -358,16 +416,16 @@ async function fetchLatestFromRegistry(): Promise<LatestRelease | null> {
 const UPDATE_CHECK_TTL_MS = 6 * 60 * 60 * 1000;
 
 // In "session" mode only reads addressed by an unguessable id are public: a
-// mock id, a post id (its documents), an asset id, a session's comments/feed.
-// Anything addressed by NAME (projects, mock slugs, the mock list) would let a
+// design id, a post id (its documents), an asset id, a session's comments/feed.
+// Anything addressed by NAME (projects, design slugs, the design list) would let a
 // single shared link enumerate the whole workspace, so it stays private.
 function isPublicReadAllowed(path: string, mode: PublicReadMode, query: URLSearchParams): boolean {
   if (mode === "full") return true;
   if (path.startsWith("/project/")) return true;
   if (path.startsWith("/s/")) return true;
   if (path.startsWith("/a/")) return true;
-  if (/^\/api\/mocks\/[^/]+(\/export)?$/.test(path)) {
-    return !path.startsWith("/api/mocks/recent") && !query.has("project");
+  if (/^\/api\/designs\/[^/]+(\/export)?$/.test(path)) {
+    return !path.startsWith("/api/designs/recent") && !query.has("project");
   }
   if (path === "/api/comments") return true;
   if (path === "/api/events") return true;
@@ -378,9 +436,30 @@ function isPublicReadAllowed(path: string, mode: PublicReadMode, query: URLSearc
   return false;
 }
 
+// A comment as the viewer reads it: stored, plus what's derived about its delivery.
+type DeliveredComment = Comment & {
+  delivered: boolean;
+  ownerGone?: true;
+  listening?: true;
+  calledAt?: string;
+  recipient?: string;
+};
+
+// A session the user could send to, in terms they can recognise it by.
+interface SendRecipient {
+  id: string;
+  name: string;
+  lastCallAt: string;
+  listening: boolean;
+  // It owns this design, so this is the agent that asked.
+  asked: boolean;
+  // The slugs of what else it owns in this project.
+  designs: string[];
+}
+
 export interface CommentWait {
   sessionId?: string;
-  mockId?: string;
+  designId?: string;
   postId?: string;
   author?: string;
   afterSeq?: number;
@@ -389,9 +468,12 @@ export interface CommentWait {
   // author=user reads). The cursor moves for these alone: an anonymous reader on
   // a public-read workspace must never "take" feedback the agent has not seen.
   agent?: boolean;
+  // A watcher asking only to hear that a reply landed: the reply stays owed, and
+  // the agent takes it with feedback or a write.
+  peek?: boolean;
 }
 
-// What every mock flow returns: a status and a JSON body. REST hands it to
+// What every design flow returns: a status and a JSON body. REST hands it to
 // c.json; the MCP tier turns an error status into a tool error. One shape for
 // every tier by construction.
 export interface FlowResult {
@@ -416,7 +498,7 @@ const fail = (status: number, error: string, extra: Record<string, unknown> = {}
   body: { error, ...extra },
 });
 
-const MAX_NOTE = 400;
+const MAX_DESCRIPTION = 400;
 // How soon a second version of the same variant reads as a fix to the first.
 const AMEND_WINDOW_MS = 5 * 60_000;
 const MAX_SOURCE = 1024;
@@ -427,6 +509,10 @@ const str = (v: unknown, max: number): string | undefined =>
   typeof v === "string" && v.trim() ? v.trim().slice(0, max) : undefined;
 
 const MAX_LABEL = 120;
+const MAX_REASON = 280;
+// A screen has three standard states and whatever few the user asks for by name.
+const MAX_STATE_OUTLINES = 40;
+const MAX_CANDIDATES = 50;
 const MAX_AREAS = 50;
 const MAX_FLOWS = 50;
 const MAX_FLOW_STEPS = 100;
@@ -434,7 +520,7 @@ const MAX_ASKS = 20;
 const MAX_OPTIONS = 20;
 const MAX_DRAFT_COMMENTS = 50;
 
-// A title that names a step of the agent's process instead of what the mock
+// A title that names a step of the agent's process instead of what the design
 // is: it reads as noise on Home, where titles are seen out of context.
 const PROCESS_TITLE = /^\s*(round\s*\d+|flow\s*\d+\s*[·:\-–—]|v\d+\b|prototype\b)/i;
 // Once, on a variant's first version: a canvas page runs live in every
@@ -449,7 +535,7 @@ const posterNudges = (surfaces: Surface[]): string[] =>
 const titleNudges = (title: string | undefined): string[] =>
   title && PROCESS_TITLE.test(title)
     ? [
-        `title "${title}" names your process; title the mock by what it is ("Hold menu"), as states are named by what the user sees`,
+        `title "${title}" names your process; title the design by what it is ("Hold menu"), as states are named by what the user sees`,
       ]
     : [];
 
@@ -459,6 +545,9 @@ const APP_FILES = new Set([
   "/apple-touch-icon.png",
   ...ICON_SIZES.map((s) => `/icon-${s}.png`),
 ]);
+
+const titledDesigns = (designs: Design[], slug: string) =>
+  designs.filter((m) => slugify(m.title) === slug);
 
 const titleFromSlug = (slug: string) =>
   slug.replace(/-/g, " ").replace(/^./, (ch) => ch.toUpperCase());
@@ -483,6 +572,7 @@ export function createApp({
   maxHoldConnections = DEFAULT_MAX_HOLD_CONNECTIONS,
   executor,
   runLimits,
+  networkHosts,
   log,
 }: AppOptions) {
   const app = new Hono();
@@ -508,6 +598,21 @@ export function createApp({
   });
   if (log) app.use("*", logMiddleware(log));
   const bus = new EventBus();
+  // Where the workspace's data stands: a read says the revision it began at, the
+  // feed's hello says the current one, and a read at least that new missed nothing,
+  // so a client can skip refetching on connect. Starting from the clock keeps it
+  // rising across restarts, when this memory is lost. A write counts even if it
+  // broadcasts nothing, since a reconnect is the only way a client would learn of it.
+  let revision = Date.now();
+  bus.subscribe(() => {
+    revision++;
+  });
+  app.use("*", async (c, next) => {
+    const isRead = c.req.method === "GET" || c.req.method === "HEAD";
+    if (isRead && c.req.path.startsWith("/api/")) c.header("x-mockpit-rev", String(revision));
+    await next();
+    if (!isRead) revision++;
+  });
   if (onEvent) {
     bus.subscribe((event) => {
       try {
@@ -523,8 +628,8 @@ export function createApp({
   // release() wired to every exit (stream abort, request abort, normal return).
   let holdConnections = 0;
   // Only the viewer holds /api/events (watch long-polls). Each tab names the
-  // mock it has on screen (`?viewing=`), so pending.viewerOpen is per mock: a
-  // tab on Home or on another mock doesn't read as "looking at this one".
+  // design it has on screen (`?viewing=`), so pending.viewerOpen is per design: a
+  // tab on Home or on another design doesn't read as "looking at this one".
   const viewing = new Map<string, number>();
   const acquireHold = (): boolean => {
     if (holdConnections >= maxHoldConnections) return false;
@@ -553,6 +658,7 @@ export function createApp({
   // workspace, so this in-memory cache is authoritative; a multi-instance deploy
   // could back it with KV/Cache API behind the same key without changing callers.
   const MAX_RENDER_CACHE_BYTES = 32 * 1024 * 1024;
+  const cdnInliner = createCdnInliner();
   const renderCache = new Map<string, string>();
   let renderCacheBytes = 0;
   // UTF-16 code units × 2 is the retained JS string size, which is what this
@@ -604,10 +710,17 @@ export function createApp({
     renderCache.set(key, hit);
     return hit;
   }
-  async function cachedRender(key: string, build: () => Promise<string> | string): Promise<string> {
+  // A document built while a CDN was failing goes out as it is and is not kept: the next
+  // request gets another try at the whole thing.
+  async function cachedRender(
+    key: string,
+    build: () => Promise<InlineResult>,
+  ): Promise<InlineResult> {
     const hit = renderCacheHit(key);
-    if (hit !== undefined) return hit;
-    const doc = await build();
+    if (hit !== undefined) return { doc: hit, complete: true };
+    const built = await build();
+    if (!built.complete) return built;
+    const { doc } = built;
     renderCache.set(key, doc);
     renderCacheBytes += docBytes(doc);
     while (renderCacheBytes > MAX_RENDER_CACHE_BYTES && renderCache.size > 1) {
@@ -615,7 +728,7 @@ export function createApp({
       if (oldest === undefined) break;
       dropCacheEntry(oldest);
     }
-    return doc;
+    return built;
   }
 
   // Last-resort safety net: any handler that throws (rather than returning a
@@ -666,6 +779,113 @@ export function createApp({
   // Sessions with an author=user long-poll held open right now: a waiting
   // `mockpit watch` is a live agent, whatever its agentActiveAt says.
   const listening = new Map<string, number>();
+  // When each session last made a call of its own: a write or `feedback`, never a
+  // watch re-arming, which keeps agentActiveAt fresh all night with nobody working.
+  // That's what lets the viewer say "working" only when something is. Memory only:
+  // after a restart the viewer says less, which is still true.
+  const agentCalls = new Map<string, number>();
+  // The newest comment each session's watcher has been told about, so a waiter that
+  // restarts before the agent reads doesn't wake it for the same reply forever. Memory
+  // only: after a restart the worst case is one repeated wake.
+  const noticed = new Map<string, number>();
+  const agentCallEvents = new Map<string, number>();
+  const noteAgentCall = (sessionId: string) => {
+    const now = Date.now();
+    agentCalls.set(sessionId, now);
+    if (now - (agentCallEvents.get(sessionId) ?? 0) >= AGENT_CALL_EVENT_MS) {
+      agentCallEvents.set(sessionId, now);
+      bus.broadcast({ type: "agent-called", sessionId });
+    }
+  };
+
+  // Who hears the user on this design: the agent driving it, or on a shortlist no
+  // agent has written to, the one working in the project right now. A session
+  // with `mockpit watch` open is live whatever its last call says.
+  async function projectAgent(project: string): Promise<Session | null> {
+    const sessions = await store.listSessions(project);
+    const when = (s: Session) => s.agentActiveAt ?? s.createdAt;
+    const newest = (list: Session[]) =>
+      list.reduce<Session | null>((a, b) => (a && when(a) >= when(b) ? a : b), null);
+    return newest(sessions.filter((s) => listening.has(s.id))) ?? newest(sessions);
+  }
+
+  async function replySessionId(design: Design, posts: Post[]): Promise<string | undefined> {
+    if (design.sessionId) return design.sessionId;
+    const agent = design.shortlist ? await projectAgent(design.project) : null;
+    if (agent) return agent.id;
+    return [...posts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]?.sessionId;
+  }
+
+  const ownsDesigns = async (project: string) => {
+    const owned = new Map<string, string[]>();
+    for (const d of await store.listDesigns(project)) {
+      if (d.sessionId) owned.set(d.sessionId, [...(owned.get(d.sessionId) ?? []), d.slug]);
+    }
+    return owned;
+  };
+
+  // Who else could hear a Send when the owner can't: null while the owner is
+  // listening or working, or nobody else is listening. The default is a session
+  // started in this project; one from another repo only counts as a choice, since a
+  // design it owns here doesn't make it the right agent for this one.
+  async function recipientsFor(
+    design: Design,
+    ownerId: string,
+  ): Promise<{ default: string; recipients: SendRecipient[] } | null> {
+    if (listening.size === 0 || listening.has(ownerId)) return null;
+    const called = agentCalls.get(ownerId);
+    if (called !== undefined && Date.now() - called < OWNER_BUSY_MS) return null;
+    const owned = await ownsDesigns(design.project);
+    const live: Session[] = [];
+    for (const id of listening.keys()) {
+      const s = await store.getSession(id);
+      if (s && (s.project === design.project || owned.has(id))) live.push(s);
+    }
+    if (live.length === 0) return null;
+    const lastCall = (s: Session) =>
+      agentCalls.has(s.id) ? new Date(agentCalls.get(s.id)!).toISOString() : ownerActiveAt(s);
+    live.sort(
+      (a, b) =>
+        Number(b.project === design.project) - Number(a.project === design.project) ||
+        lastCall(b).localeCompare(lastCall(a)),
+    );
+    const owner = await store.getSession(ownerId);
+    const row = (s: Session, heard: boolean): SendRecipient => ({
+      id: s.id,
+      name: sessionName(s),
+      lastCallAt: lastCall(s),
+      listening: heard,
+      asked: s.id === ownerId,
+      designs: (owned.get(s.id) ?? []).filter((slug) => slug !== design.slug),
+    });
+    return {
+      default: live.find((s) => s.project === design.project)?.id ?? ownerId,
+      recipients: [...live.map((s) => row(s, true)), ...(owner ? [row(owner, false)] : [])],
+    };
+  }
+
+  // Where a Send goes: the user's pick, else the one the picker would have shown,
+  // which also covers what has no picker beside it (Use this, New version, a steer).
+  // `routed` when that isn't the owner, who then loses the design to it.
+  async function sendTarget(
+    design: Design,
+    posts: Post[],
+    to: unknown,
+  ): Promise<{ sessionId: string; routed: boolean } | FlowResult | undefined> {
+    const owner = await replySessionId(design, posts);
+    if (typeof to === "string" && to && to !== owner) {
+      const session = await store.getSession(to);
+      const here =
+        session &&
+        (session.project === design.project || (await ownsDesigns(design.project)).has(to));
+      if (!here) return fail(400, `session "${to}" isn't working on ${design.project}`);
+      return { sessionId: to, routed: true };
+    }
+    if (!owner) return undefined;
+    if (to === owner) return { sessionId: owner, routed: false };
+    const sessionId = (await recipientsFor(design, owner))?.default ?? owner;
+    return { sessionId, routed: sessionId !== owner };
+  }
 
   // User comments the agent has not seen yet ride along on its next write, so
   // agents hear feedback without blocking on the long-poll. The cursor also
@@ -676,6 +896,7 @@ export function createApp({
     await store.touchAgent(sessionId);
     const session = await store.getSession(sessionId);
     if (!session) return [];
+    noteAgentCall(sessionId);
     const handedOff = await takeOrphaned(session);
     const fresh = await store.listComments({ sessionId, afterSeq: session.agentSeq });
     if (fresh.length > 0) {
@@ -695,6 +916,22 @@ export function createApp({
     if (handedOff.length === 0) return mine;
     const theirs = await buildFeedbackBatches(store, handedOff, base);
     return [...mine, ...theirs.map((b) => ({ ...b, handoff: HANDOFF_NOTE }))];
+  }
+
+  // What takeOrphaned would take right now, with no cursor moved.
+  async function owedOrphans(taker: Session): Promise<Comment[]> {
+    if (!taker.project) return [];
+    const now = Date.now();
+    const owed: Comment[] = [];
+    for (const owner of await store.listSessions(taker.project)) {
+      if (!supersedes(taker, owner, listening.has(owner.id))) continue;
+      for (const c of await store.listComments({ sessionId: owner.id, afterSeq: owner.agentSeq })) {
+        if (c.author !== "user") continue;
+        if (!handoffReady(c, owner, taker, now)) break;
+        owed.push(c);
+      }
+    }
+    return owed;
   }
 
   // The user comments still owed to sessions `taker` supersedes (handoff.ts),
@@ -727,32 +964,50 @@ export function createApp({
   // Per-comment delivery state for the viewer: `delivered` once the session's
   // agentSeq has passed the comment. Computed, never stored. `ownerGone` marks
   // an undelivered user comment whose session a newer one already supersedes,
-  // so the Thread can say the next agent here will get it.
-  async function withDelivered(
-    comments: Comment[],
-  ): Promise<(Comment & { delivered: boolean; ownerGone?: true })[]> {
+  // so the Thread can say the next agent here will get it. With `live` (the signed-in
+  // viewer, not an agent or an anonymous reader), a user comment also says who could
+  // act on it: `listening`, undelivered with a `mockpit watch` held open that will
+  // take it; `calledAt`, delivered with a call of the agent's own since.
+  async function withDelivered(comments: Comment[], live = false): Promise<DeliveredComment[]> {
     const sessions = new Map<string, Session | null>();
     for (const c of comments) {
       if (!sessions.has(c.sessionId))
         sessions.set(c.sessionId, await store.getSession(c.sessionId));
     }
-    const gone = new Map<string, boolean>();
-    const ownerGone = async (owner: Session): Promise<boolean> => {
-      if (!gone.has(owner.id)) {
-        const peers = owner.project ? await store.listSessions(owner.project) : [];
-        gone.set(
-          owner.id,
-          peers.some((t) => supersedes(t, owner, listening.has(owner.id))),
-        );
+    const peers = new Map<string, Session[]>();
+    const peersOf = async (owner: Session): Promise<Session[]> => {
+      if (!peers.has(owner.id)) {
+        peers.set(owner.id, owner.project ? await store.listSessions(owner.project) : []);
       }
-      return gone.get(owner.id)!;
+      return peers.get(owner.id)!;
     };
-    const out: (Comment & { delivered: boolean; ownerGone?: true })[] = [];
+    const out: DeliveredComment[] = [];
     for (const c of comments) {
       const owner = sessions.get(c.sessionId);
       const delivered = c.seq <= (owner?.agentSeq ?? 0);
-      const waiting = !delivered && !!owner && c.author === "user" && (await ownerGone(owner));
-      out.push({ ...c, delivered, ...(waiting ? { ownerGone: true as const } : {}) });
+      const unread = !delivered && !!owner && c.author === "user";
+      const others = unread ? await peersOf(owner) : [];
+      const waiting = unread && others.some((t) => supersedes(t, owner, listening.has(owner.id)));
+      // A newer session's watch counts: handoff.ts gives it this reply after the grace.
+      const heard =
+        unread &&
+        (listening.has(owner.id) ||
+          (noticed.get(owner.id) ?? 0) >= c.seq ||
+          others.some((t) => listening.has(t.id) && supersedes(t, owner, false)));
+      const called = agentCalls.get(c.sessionId);
+      const acted =
+        delivered &&
+        c.author === "user" &&
+        called !== undefined &&
+        called >= Date.parse(c.createdAt);
+      out.push({
+        ...c,
+        delivered,
+        ...(waiting ? { ownerGone: true as const } : {}),
+        ...(live && heard ? { listening: true as const } : {}),
+        ...(live && acted ? { calledAt: new Date(called).toISOString() } : {}),
+        ...(live && owner && c.kind === "reply" ? { recipient: sessionName(owner) } : {}),
+      });
     }
     return out;
   }
@@ -766,18 +1021,20 @@ export function createApp({
 
   // A project's imported design system (settings key `design:<project>`), or
   // null when `mockpit init` has never run for it.
-  async function designFor(project: string): Promise<DesignSettings | null> {
+  async function designSystemFor(project: string): Promise<DesignSystem | null> {
     const raw = await store.getSetting(`design:${project}`);
     if (!raw) return null;
     try {
-      const design = JSON.parse(raw) as DesignSettings;
+      const designSystem = JSON.parse(raw) as DesignSystem;
       return {
-        ...design,
-        tailwindCss: typeof design.tailwindCss === "string" ? design.tailwindCss : "",
-        strippedImports: Array.isArray(design.strippedImports) ? design.strippedImports : [],
-        iconSets: Array.isArray(design.iconSets) ? design.iconSets : [],
-        projectKits: Array.isArray(design.projectKits) ? design.projectKits : [],
-        designFiles: design.designFiles ?? null,
+        ...designSystem,
+        tailwindCss: typeof designSystem.tailwindCss === "string" ? designSystem.tailwindCss : "",
+        strippedImports: Array.isArray(designSystem.strippedImports)
+          ? designSystem.strippedImports
+          : [],
+        iconSets: Array.isArray(designSystem.iconSets) ? designSystem.iconSets : [],
+        projectKits: Array.isArray(designSystem.projectKits) ? designSystem.projectKits : [],
+        designFiles: designSystem.designFiles ?? null,
       };
     } catch {
       return null;
@@ -804,10 +1061,10 @@ export function createApp({
   // The project's installed sets first, so installing a set under a bundled
   // prefix (a newer lucide) overrides the bundled copy.
   async function iconSetsFor(
-    design: DesignSettings | null,
+    designSystem: DesignSystem | null,
   ): Promise<{ prefix: string; set: IconifyJSON; source: "installed" | "bundled" }[]> {
     const out: { prefix: string; set: IconifyJSON; source: "installed" | "bundled" }[] = [];
-    for (const ref of design?.iconSets ?? []) {
+    for (const ref of designSystem?.iconSets ?? []) {
       const set = await installedIconSet(ref.assetId);
       if (set) out.push({ prefix: ref.prefix, set, source: "installed" });
     }
@@ -818,9 +1075,9 @@ export function createApp({
   }
 
   async function iconResolverFor(
-    design: DesignSettings | null,
+    designSystem: DesignSystem | null,
   ): Promise<{ resolve: IconResolver; prefixes: string[] }> {
-    const sets = await iconSetsFor(design);
+    const sets = await iconSetsFor(designSystem);
     return { resolve: resolverFor(sets.map((s) => s.set)), prefixes: sets.map((s) => s.prefix) };
   }
 
@@ -831,7 +1088,7 @@ export function createApp({
       s.kind === "html" && mayHaveIcons(s.html) ? [s.html] : [],
     );
     if (html.length === 0) return [];
-    const { resolve, prefixes } = await iconResolverFor(await designFor(project));
+    const { resolve, prefixes } = await iconResolverFor(await designSystemFor(project));
     const unknown = new Set<string>();
     for (const h of html) for (const u of expandIcons(h, resolve).unknown) unknown.add(u);
     return [...unknown].map((u) => `unknown icon ${u} (sets: ${prefixes.join(", ")})`);
@@ -842,7 +1099,7 @@ export function createApp({
   async function briefFor(project: string | undefined): Promise<string> {
     try {
       const name = project ?? (await store.listProjects())[0]?.name ?? DEFAULT_PROJECT;
-      return renderBriefGuide(await designFor(name), await guidanceFor(name));
+      return renderBriefGuide(await designSystemFor(name), await guidanceFor(name));
     } catch (err) {
       console.warn("[mockpit] project design unavailable for the brief", err);
       return renderBriefGuide(null);
@@ -887,8 +1144,8 @@ export function createApp({
     void notify(store, payload).catch((err) => console.warn("[mockpit] notify failed", err));
   }
 
-  const mockUrl = (base: string, mock: Mock, post?: Post | null) => {
-    const url = `${base}/project/${encodeURIComponent(mock.project)}/${encodeURIComponent(mock.slug)}`;
+  const designUrl = (base: string, design: Design, post?: Post | null) => {
+    const url = `${base}/project/${encodeURIComponent(design.project)}/${encodeURIComponent(design.slug)}`;
     if (!post) return url;
     const q = new URLSearchParams();
     if (post.state !== null) q.set("state", post.state);
@@ -901,17 +1158,18 @@ export function createApp({
   const resolveProject = (project?: string, cwd?: string | null): string =>
     project?.trim() || projectFromCwd(cwd) || DEFAULT_PROJECT;
 
-  // A mock reference is its id, or its slug within a project. Without a
-  // project, a slug that names exactly one mock in the workspace still resolves —
-  // an agent rarely has more than one repo with the same mock name.
-  async function resolveMock(
+  // A design reference is its id, or its slug within a project, or its title: the
+  // name the user sees is the name they tell an agent. Without a project, a name
+  // that fits exactly one design in the workspace still resolves — an agent rarely
+  // has more than one repo with the same design name.
+  async function resolveDesign(
     ref: unknown,
     project?: unknown,
     sessionId?: unknown,
-  ): Promise<Mock | FlowResult> {
+  ): Promise<Design | FlowResult> {
     const name = typeof ref === "string" ? ref.trim() : "";
-    if (!name) return fail(400, 'provide a "mock"');
-    const byId = await store.getMock(name);
+    if (!name) return fail(400, 'provide a "design"');
+    const byId = await store.getDesign(name);
     if (byId) return byId;
     const slug = slugify(name);
     let proj = typeof project === "string" && project.trim() ? project.trim() : undefined;
@@ -920,12 +1178,21 @@ export function createApp({
       proj = session?.project ?? undefined;
     }
     if (proj) {
-      const mock = await store.findMock(proj, slug);
-      return mock ?? fail(404, `${proj} has no mock "${slug}"`);
+      const design = await store.findDesign(proj, slug);
+      if (design) return design;
+      const titled = titledDesigns(await store.listDesigns(proj), slug);
+      if (titled.length === 1) return titled[0];
+      return titled.length
+        ? fail(400, `several designs in ${proj} are titled "${name}"; pass a slug`, {
+            designs: titled.map((m) => m.slug),
+          })
+        : fail(404, `${proj} has no design "${slug}"`);
     }
-    const matches = (await store.listMocks()).filter((m) => m.slug === slug);
+    const all = await store.listDesigns();
+    const bySlug = all.filter((m) => m.slug === slug);
+    const matches = bySlug.length ? bySlug : titledDesigns(all, slug);
     if (matches.length === 1) return matches[0];
-    if (matches.length === 0) return fail(404, `no mock "${slug}"`);
+    if (matches.length === 0) return fail(404, `no design "${slug}"`);
     return fail(400, `"${slug}" exists in several projects; pass project`, {
       projects: matches.map((m) => m.project),
     });
@@ -943,35 +1210,35 @@ export function createApp({
   // Which variant a call means. Explicit wins; one candidate is unambiguous;
   // several is an error that names them rather than guessing.
   function chooseVariant(
-    mock: Mock,
+    design: Design,
     posts: Post[],
     stateIn: string | null | undefined,
     variant: string | undefined,
   ): Post | FlowResult {
     let candidates = posts;
     if (stateIn !== undefined) {
-      if (stateIn !== null && !mock.states.includes(stateIn)) {
-        return fail(404, `${mock.slug} has no state "${stateIn}"`, { states: mock.states });
+      if (stateIn !== null && !design.states.includes(stateIn)) {
+        return fail(404, `${design.slug} has no state "${stateIn}"`, { states: design.states });
       }
       candidates = candidates.filter((p) => p.state === stateIn);
     }
     if (variant) candidates = candidates.filter((p) => p.variant === variant);
     if (candidates.length === 1) return candidates[0];
     if (candidates.length === 0) {
-      return fail(404, `${mock.slug} has no variant ${variant ? `"${variant}"` : ""}`.trim(), {
+      return fail(404, `${design.slug} has no variant ${variant ? `"${variant}"` : ""}`.trim(), {
         variants: posts.map(variantLabel),
       });
     }
     const live = candidates.filter((p) => isLive(p.status));
     if (live.length === 1 && !variant) return live[0];
-    return fail(400, `${mock.slug} has several variants; pass ${variant ? "state" : "variant"}`, {
+    return fail(400, `${design.slug} has several variants; pass ${variant ? "state" : "variant"}`, {
       variants: candidates.map(variantLabel),
     });
   }
 
   // The kit ids a surface of this project may name beyond the bundled ones.
   const kitScope = async (project: string): Promise<SurfaceKitScope> => ({
-    projectKits: ((await designFor(project))?.projectKits ?? []).map((k) => k.id),
+    projectKits: ((await designSystemFor(project))?.projectKits ?? []).map((k) => k.id),
   });
 
   async function parseSurfaceInput(
@@ -1080,10 +1347,14 @@ export function createApp({
         (s.id !== undefined && pagesBefore.find((b) => b.id === s.id)) || pagesBefore[ordinal];
       let next: Surface = s;
       if (s.poster && old?.kind === "html" && old.html !== s.html && old.poster === s.poster) {
-        const { poster: _stale, ...rest } = s;
+        const { poster: _stale, posterMode: _mode, ...rest } = s;
         next = rest;
       }
-      if (ordinal === 0 && given) next = { ...next, poster: given };
+      // The agent's own still names no mode, whatever the one it replaces did.
+      if (ordinal === 0 && given) {
+        const { posterMode: _mode, ...rest } = next as HtmlSurface;
+        next = { ...rest, poster: given };
+      }
       ordinal++;
       return next;
     });
@@ -1101,6 +1372,40 @@ export function createApp({
     return out;
   }
 
+  // A still taken after the publish, by the CLI or the stdio server, once the page exists
+  // to be rendered. It adds a picture to the version, so it makes no new version and no
+  // rewrite, isn't the user's or a new word from the agent, and asks no frame to reload. It
+  // never replaces a poster, which is the agent's own or an earlier capture's, and a
+  // version amended or replaced while the browser worked refuses it: it shows an old page.
+  async function attachPosterFlow(ref: unknown, postId: string, body: any): Promise<FlowResult> {
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
+    const post = await store.getPost(postId);
+    if (!post || post.design !== design.id) return fail(404, "variant not found");
+    const session = typeof body?.session === "string" ? body.session : "";
+    if (publisherOf(post) !== session) {
+      return fail(403, `v${post.version} of ${post.variant} was published by another session`);
+    }
+    if (body?.version !== post.version || (body?.rewrites ?? 0) !== (post.rewrites ?? 0)) {
+      return fail(409, `${post.variant} has changed since this still was taken`);
+    }
+    const poster = str(body?.poster, MAX_LABEL);
+    if (!poster) return fail(400, '"poster" must be the asset id of an uploaded image');
+    const asset = await store.getAsset(poster);
+    if (!asset?.contentType.startsWith("image/")) {
+      return fail(400, `poster "${poster}" is not an uploaded image`);
+    }
+    const attached = await store.setPosterOnce(
+      post.id,
+      post.version,
+      poster,
+      isMode(body?.mode) ? body.mode : undefined,
+    );
+    if (!attached) return fail(409, `${post.variant} already has a poster`);
+    bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+    return ok({ poster });
+  }
+
   function checkSurfaces(surfaces: Surface[]): FlowResult | null {
     if (surfaces.length === 0) return fail(400, "a variant needs at least one surface");
     if (surfacesByteLength(surfaces) > MAX_SURFACE_BYTES) {
@@ -1116,11 +1421,13 @@ export function createApp({
     slug: string,
     variant: string | null,
   ): Promise<Post | null> {
-    const mock = await store.findMock(project, slug);
-    if (!mock) return null;
-    const state = mock.states[0] ?? null;
-    if (variant) return store.findPost(mock.id, state, variant);
-    const inState = (await store.listPosts({ mockId: mock.id })).filter((p) => p.state === state);
+    const design = await store.findDesign(project, slug);
+    if (!design) return null;
+    const state = design.states[0] ?? null;
+    if (variant) return store.findPost(design.id, state, variant);
+    const inState = (await store.listPosts({ designId: design.id })).filter(
+      (p) => p.state === state,
+    );
     return (
       inState.find((p) => p.status === "accepted") ??
       inState.find((p) => p.variant === DEFAULT_VARIANT && isLive(p.status)) ??
@@ -1138,19 +1445,19 @@ export function createApp({
     return async (tag) => {
       const post = await embedTarget(project, tag.slug, tag.variant);
       if (!post) return null;
-      const version = tag.version ?? overrides[tag.slug] ?? inUseVersion(post);
+      const version = tag.version ?? overrides[tag.slug] ?? currentVersion(post);
       const surfaces =
         version === post.version
           ? post.surfaces
           : post.history.find((h) => h.version === version)?.surfaces;
       const body = surfaces?.find((x) => x.kind === "html");
       if (!surfaces || !body || body.kind !== "html") return null;
-      const mock = await store.getMock(post.mock);
-      const settled = mock
+      const design = await store.getDesign(post.design);
+      const settled = design
         ? settledValues(
-            await replyPayloads(mock.id),
-            mock,
-            await store.listPosts({ mockId: mock.id }),
+            await replyPayloads(design.id),
+            design,
+            await store.listPosts({ designId: design.id }),
           )
         : {};
       const slots = slotsInSurfaces(surfaces);
@@ -1161,7 +1468,7 @@ export function createApp({
         version,
         html: slots.length ? composeFills(body.html, chosenFills(slots, settled)) : body.html,
         attrs: knobAttributes(rest).attrs,
-        // A rewritten component version keeps its number; its pages re-render on it.
+        // A rewritten component version keeps its number; its screens re-render on it.
         ...(Object.keys(settled).length || post.rewrites
           ? {
               stamp:
@@ -1181,11 +1488,12 @@ export function createApp({
     overrides?: Record<string, number>,
   ): Promise<Expanded> {
     if (!hasEmbedTags(html)) return { html, used: [], stamps: [], cycle: null };
-    return expandHtml(html, embedResolver(project, overrides), [slug]);
+    const expanded = await expandHtml(html, embedResolver(project, overrides), [slug]);
+    return { ...expanded, html: dropRepeatedStyles(expanded.html) };
   }
 
   // The component versions a publish renders with, recorded on the version;
-  // an embed chain that loops back to this mock is refused.
+  // an embed chain that loops back to this design is refused.
   async function publishEmbeds(
     project: string,
     slug: string,
@@ -1200,30 +1508,31 @@ export function createApp({
     return used;
   }
 
-  // Being embedded is what makes a mock a component, so a sketch another mock
-  // embeds becomes one; a declared page stays a page.
+  // Being embedded is what makes a design a component, so an idea another design
+  // embeds becomes one; a declared screen stays a screen.
   async function promoteEmbedded(project: string, embeds: Embed[]) {
     for (const slug of new Set(embeds.map((e) => e.slug))) {
-      const m = await store.findMock(project, slug);
-      if (m?.kind !== "sketch") continue;
-      const updated = await store.updateMock(m.id, { kind: "component" });
-      if (updated) bus.broadcast({ type: "mock-updated", id: updated.id, project });
+      const m = await store.findDesign(project, slug);
+      if (m?.kind !== "idea") continue;
+      const updated = await store.updateDesign(m.id, { kind: "component" });
+      if (updated) bus.broadcast({ type: "design-updated", id: updated.id, project });
     }
   }
 
-  // What the variants of a mock show through their embeds now: per post, the
+  // What the variants of a design show through their embeds now: per post, the
   // resolved list (nested included) with each component's versions, and the
   // key that changes when any of them does.
-  async function embedViews(mock: Mock, posts: Post[]): Promise<Map<string, EmbedView>> {
+  async function embedViews(design: Design, posts: Post[]): Promise<Map<string, EmbedView>> {
     const out = new Map<string, EmbedView>();
     for (const post of posts) {
+      if (!firstHtmlEmbeds(post.surfaces)) continue;
       const html = post.surfaces.find((x) => x.kind === "html");
-      if (!html || html.kind !== "html" || !hasEmbedTags(html.html)) continue;
-      const composed = await composedHtml(mock.project, mock.slug, html.html);
+      if (html?.kind !== "html") continue;
+      const composed = await composedHtml(design.project, design.slug, html.html);
       const { used } = composed;
       const list = [];
       for (const e of used) {
-        const target = await embedTarget(mock.project, e.slug, e.variant);
+        const target = await embedTarget(design.project, e.slug, e.variant);
         const versions = target
           ? [target.version, ...target.history.map((h) => h.version)].sort((a, b) => b - a)
           : [e.version];
@@ -1234,14 +1543,18 @@ export function createApp({
     return out;
   }
 
-  // The mocks whose html embeds this slug, directly or through other
+  // The designs whose html embeds this slug, directly or through other
   // components: they render differently once it changes.
-  async function embeddersOf(project: string, slug: string): Promise<Mock[]> {
-    const mocks = await store.listMocks(project);
+  async function embeddersOf(project: string, slug: string): Promise<Design[]> {
+    const designs = await store.listDesigns(project);
+    const heads = headsByDesign(await store.listPostHeads(project));
     const tagsOf = new Map<string, Set<string>>();
-    for (const m of mocks) {
+    for (const m of designs) {
+      // Every publish comes through here, and most of a project's bytes are
+      // designs with no embed.
+      if (!heads.get(m.id)?.some((p) => p.surfaces.some((x) => x.marked))) continue;
       const slugs = new Set<string>();
-      for (const p of await store.listPosts({ mockId: m.id })) {
+      for (const p of await store.listPosts({ designId: m.id })) {
         for (const x of p.surfaces) {
           if (x.kind === "html") for (const t of parseEmbedTags(x.html)) slugs.add(t.slug);
         }
@@ -1249,10 +1562,10 @@ export function createApp({
       tagsOf.set(m.id, slugs);
     }
     const reached = new Set<string>([slug]);
-    const out: Mock[] = [];
+    const out: Design[] = [];
     for (let grew = true; grew; ) {
       grew = false;
-      for (const m of mocks) {
+      for (const m of designs) {
         if (reached.has(m.slug)) continue;
         if ([...(tagsOf.get(m.id) ?? [])].some((s) => reached.has(s))) {
           reached.add(m.slug);
@@ -1281,10 +1594,10 @@ export function createApp({
 
   // Ask discipline: two live variants of a state with no ask binding them all
   // leave the user nothing to answer in one Send, and the agent tends to ask in
-  // chat instead. The nudge carries a ready ask: mock-wide when every state has
+  // chat instead. The nudge carries a ready ask: design-wide when every state has
   // the same variant names, else for this state.
   function unboundVariants(
-    mock: Mock,
+    design: Design,
     posts: Post[],
     state: string | null,
   ): { nudge: string; ask: Record<string, unknown> } | null {
@@ -1293,21 +1606,21 @@ export function createApp({
     const names = live(state);
     if (names.length < 2) return null;
     const applies = (a: Ask) => a.scope !== "part" && !(a.scope === "state" && a.state !== state);
-    const bound = mock.asks.some((a) => {
+    const bound = design.asks.some((a) => {
       if (!applies(a)) return false;
       const variants = new Set(a.options.map((o) => o.variant));
       return names.every((n) => variants.has(n));
     });
     if (bound) return null;
-    const where = state === null ? mock.slug : `${mock.slug} state "${state}"`;
+    const where = state === null ? design.slug : `${design.slug} state "${state}"`;
     const key = (list: string[]) => [...list].sort().join("\n");
-    const states = mock.states.length ? mock.states : [null];
+    const states = design.states.length ? design.states : [null];
     const wide = states.every((s) => key(live(s)) === key(names));
     // An ask that already picks between some of these variants is the question:
     // a second, generic "Which variant?" would make the user choose twice.
-    // A mock-wide one only fits while every state has the same variants; else a
+    // A design-wide one only fits while every state has the same variants; else a
     // variant only some states have would leave the others no real choice.
-    const existing = mock.asks.find(
+    const existing = design.asks.find(
       (a) => applies(a) && a.options.some((o) => o.variant) && (a.scope === "state" || wide),
     );
     if (existing) {
@@ -1340,9 +1653,9 @@ export function createApp({
     // already taken, which sending this would silently replace.
     const base = wide ? "choice" : `choice-${slugify(state ?? "")}`;
     let id = base;
-    for (let n = 2; mock.asks.some((a) => a.id === id); n++) id = `${base}-${n}`;
+    for (let n = 2; design.asks.some((a) => a.id === id); n++) id = `${base}-${n}`;
     const ask = wide
-      ? { id, text: "Which variant?", scope: "mock", options }
+      ? { id, text: "Which variant?", scope: "design", options }
       : { id, text: "Which variant?", scope: "state", state, options };
     return {
       nudge: `${where} has ${names.length} variants and no question binds them: call ask with suggestedAsk. Never ask in chat.`,
@@ -1354,7 +1667,7 @@ export function createApp({
   // what moved since the previous version, and any feedback waiting — for the
   // session that wrote, which on a new version may not be the variant's own.
   async function writeResult(
-    mock: Mock,
+    design: Design,
     post: Post,
     ctx: FlowContext,
     extra: {
@@ -1367,13 +1680,13 @@ export function createApp({
       withdrawn?: number;
     } = {},
   ): Promise<FlowResult> {
-    const posts = await store.listPosts({ mockId: mock.id });
-    const detail = mockDetailView(mock, posts);
-    const unbound = unboundVariants(mock, posts, post.state);
+    const posts = await store.listPosts({ designId: design.id });
+    const detail = designDetailView(design, posts);
+    const unbound = unboundVariants(design, posts, post.state);
     // A part with fills that no ask sets is a decision nobody was asked; hand over the ask.
     const slots = slotsInSurfaces(post.surfaces);
     const setPaths = new Set(
-      mock.asks.flatMap((a) => a.options.flatMap((o) => Object.keys(o.set ?? {}))),
+      design.asks.flatMap((a) => a.options.flatMap((o) => Object.keys(o.set ?? {}))),
     );
     const slotAsks = slots
       .filter((sl) => !setPaths.has(sl.part))
@@ -1397,18 +1710,18 @@ export function createApp({
     if (extra.previous) {
       partChanges = diffParts(partsInSurfaces(extra.previous), partsInSurfaces(post.surfaces));
     }
-    const warnings = await iconWarnings(mock.project, post.surfaces);
+    const warnings = await iconWarnings(design.project, post.surfaces);
     const feedback = await collectFeedback(extra.writer?.id ?? post.sessionId, ctx.base);
     return ok(
       {
-        mock: {
-          id: mock.id,
-          project: mock.project,
-          slug: mock.slug,
-          title: mock.title,
-          kind: mock.kind,
-          ...placeOf(mock),
-          states: mock.states,
+        design: {
+          id: design.id,
+          project: design.project,
+          slug: design.slug,
+          title: design.title,
+          kind: design.kind,
+          ...placeOf(design),
+          states: design.states,
         },
         post: {
           id: post.id,
@@ -1421,7 +1734,7 @@ export function createApp({
         },
         ...(extra.withdrawn ? { withdrawn: { version: extra.withdrawn } } : {}),
         sessionId: post.sessionId,
-        url: mockUrl(ctx.base, mock, post),
+        url: designUrl(ctx.base, design, post),
         parts: detail.parts,
         ...(slots.length ? { fills: slots } : {}),
         ...(extra.applied ? { applied: extra.applied } : {}),
@@ -1439,37 +1752,42 @@ export function createApp({
     );
   }
 
-  function announcePost(mock: Mock, post: Post, created: boolean, by: "agent" | "user" = "agent") {
+  function announcePost(
+    design: Design,
+    post: Post,
+    created: boolean,
+    by: "agent" | "user" = "agent",
+  ) {
     bus.broadcast({
       type: created ? "post-created" : "post-updated",
       id: post.id,
-      mockId: mock.id,
+      designId: design.id,
       sessionId: post.sessionId,
       version: post.version,
       by,
     });
-    warmPost(post, mock);
-    void announceEmbedders(mock).catch((err) => console.warn("[mockpit] embedders", err));
+    warmPost(post, design);
+    void announceEmbedders(design).catch((err) => console.warn("[mockpit] embedders", err));
   }
 
-  // A component's new version changes every mock that shows it: their views
+  // A component's new version changes every design that shows it: their views
   // carry a new embeds key, so open viewers refetch and reload those frames.
-  async function announceEmbedders(mock: Mock): Promise<void> {
-    for (const m of await embeddersOf(mock.project, mock.slug)) {
-      bus.broadcast({ type: "mock-updated", id: m.id, project: m.project });
+  async function announceEmbedders(design: Design): Promise<void> {
+    for (const m of await embeddersOf(design.project, design.slug)) {
+      bus.broadcast({ type: "design-updated", id: m.id, project: m.project });
     }
   }
 
-  // The one write: publish one variant of one state of a mock. An existing
-  // (mock, state, variant) becomes a new version; anything else is created.
+  // The one write: publish one variant of one state of a design. An existing
+  // (design, state, variant) becomes a new version; anything else is created.
   // Exactly one body: `html`, the full ordered `surfaces` list, or `parts` or
   // `fills` spliced into the variant's latest (or `from`) version.
   async function publishFlow(body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
     if (body.withdraw === true) return withdrawFlow(body, ctx);
     const amend = body.amend === true;
-    const slugIn = str(body.mock, MAX_TITLE);
-    if (!slugIn) return fail(400, 'provide "mock": the mock slug, e.g. "writer"');
+    const slugIn = str(body.design, MAX_TITLE);
+    if (!slugIn) return fail(400, 'provide "design": the design slug, e.g. "writer"');
     const given = ["html", "surfaces", "parts", "fills"].filter((k) => body[k] !== undefined);
     const forkIn = forkArg(body.fork);
     if (isResult(forkIn)) return forkIn;
@@ -1477,9 +1795,11 @@ export function createApp({
     if (isResult(flowIn)) return flowIn;
     // `flow` alone places an existing screen in a flow without a new version.
     const flowOnly = given.length === 0 && !forkIn && !!flowIn;
-    if (given.length === 0 && !forkIn && !flowIn) {
-      return fail(400, 'provide "html", "surfaces", "parts" or "fills" (or "fork" alone)');
-    }
+    // With no body, a declared kind plans the screen or component instead of drawing it.
+    const declaring = body.kind === "screen" || body.kind === "component";
+    const noBody =
+      'provide "html", "surfaces", "parts" or "fills" (or "fork" alone, or "kind" screen or component to plan it)';
+    if (given.length === 0 && !forkIn && !flowIn && !declaring) return fail(400, noBody);
     if (given.length > 1) {
       return fail(
         400,
@@ -1504,13 +1824,18 @@ export function createApp({
     if (!variantKnobs.ok) return fail(400, variantKnobs.error);
     const stateIn = stateArg(body.state);
     const variantIn = str(body.variant, MAX_LABEL);
-    const kind: MockKind | undefined = isMockKind(body.kind) ? body.kind : undefined;
+    // Never quietly filed as an idea: an agent still saying page or sketch has to hear it.
+    if (body.kind !== undefined && !isDesignKind(body.kind)) {
+      return fail(400, '"kind" must be screen, component or idea');
+    }
+    const kind: DesignKind | undefined = body.kind;
     const title = str(body.title, MAX_TITLE);
     const fromN = Number(body.from);
     const from = Number.isInteger(fromN) && fromN > 0 ? fromN : undefined;
     const prompt = str(body.prompt, MAX_COMMENT_TEXT);
     const author = str(body.author, MAX_TITLE);
-    const note = body.note === undefined ? undefined : (str(body.note, MAX_NOTE) ?? "");
+    const description =
+      body.description === undefined ? undefined : (str(body.description, MAX_DESCRIPTION) ?? "");
     const widths = widthsArg(body.widths);
     if (isResult(widths)) return widths;
     const area = labelArg(body, "area", MAX_LABEL);
@@ -1518,9 +1843,9 @@ export function createApp({
     const source = labelArg(body, "source", MAX_SOURCE);
     if (isResult(source)) return source;
 
-    // An existing mock is addressable by id before a session exists.
-    let mock: Mock | null = null;
-    if (typeof body.mock === "string") mock = await store.getMock(body.mock);
+    // An existing design is addressable by id before a session exists.
+    let design: Design | null = null;
+    if (typeof body.design === "string") design = await store.getDesign(body.design);
 
     let session: Session | null = null;
     if (typeof body.session === "string" && body.session) {
@@ -1528,63 +1853,120 @@ export function createApp({
       if (!session) return fail(404, `session "${body.session}" not found`);
     }
     const project =
-      mock?.project ??
+      design?.project ??
       (str(body.project, MAX_TITLE) ||
         session?.project ||
         projectFromCwd(session?.cwd) ||
         resolveProject(undefined, str(body.cwd, 4096)));
-    const slug = mock?.slug ?? slugify(slugIn);
-    mock ??= await store.findMock(project, slug);
+    let slug = design?.slug ?? slugify(slugIn);
+    design ??= await store.findDesign(project, slug);
+    // Told a design by its title, the agent means that design, not a new one named
+    // after it. Only for what can't be a slug: a slug it chose stays a new design.
+    if (!design && slugIn !== slug) {
+      const titled = titledDesigns(await store.listDesigns(project), slug);
+      if (titled.length === 1) {
+        design = titled[0];
+        slug = design.slug;
+      }
+    }
 
-    const posts = mock ? await store.listPosts({ mockId: mock.id }) : [];
+    const posts = design ? await store.listPosts({ designId: design.id }) : [];
     let state: string | null;
     if (stateIn === undefined || stateIn === null) {
-      if (mock && mock.states.length > 0) {
-        return fail(400, `${slug} has states; pass state`, { states: mock.states });
+      if (design && design.states.length > 0) {
+        return fail(400, `${slug} has states; pass state`, { states: design.states });
       }
       state = null;
     } else {
-      if (mock && mock.states.length === 0 && posts.length > 0) {
+      if (design && design.states.length === 0 && posts.length > 0) {
         return fail(
           409,
-          `${slug} is a single-state mock; its variants have no state name. Publish a multi-state design as a new mock and name every state`,
+          `${slug} is a single-state design; its variants have no state name. Name theirs first with edit firstState, or publish a multi-state design as a new design`,
         );
       }
       state = stateIn;
     }
-    const situationIn = str(body.situation, MAX_LABEL);
-    // A situation is another render of one state ("Couldn't save"); "Normal"
-    // names the state's own render.
-    let situation: { of: string; name: string } | undefined;
-    if (situationIn && situationIn.toLowerCase() !== NORMAL_SITUATION.toLowerCase()) {
-      if (state === null) {
-        return fail(400, '"situation" needs "state": the state it is another render of');
-      }
-      if (!mock || !mock.states.includes(state)) {
-        return fail(
-          404,
-          `${slug} has no state "${state}" yet: publish its normal render first, then its situations`,
-          mock ? { states: mock.states } : {},
-        );
-      }
-      const moment = momentOf(mock.situations, state);
-      // The key feedback names it by, passed back with its own situation.
-      if (moment !== state && moment !== null && situationKey(moment, situationIn) === state) {
-        state = moment;
-      } else if (moment !== state) {
-        return fail(400, `"${state}" is a situation; give "situation" the state it belongs to`);
-      }
-      const key = situationKey(state, situationIn);
-      if (mock.states.includes(key) && !(mock.situations[state] ?? []).includes(situationIn)) {
-        return fail(
-          409,
-          `${slug} already has a state named "${key}"; name the situation otherwise`,
-        );
-      }
-      situation = { of: state, name: situationIn };
-      state = key;
-    }
     const inState = posts.filter((p) => p.state === state);
+    const screen: FlowStep = { design: slug, state };
+    // Nothing to draw and nothing there yet: the plan itself is the write. A body-less
+    // publish naming a variant, or landing on what is already drawn, is a forgotten body.
+    const planning =
+      given.length === 0 &&
+      !forkIn &&
+      variantIn === undefined &&
+      inState.length === 0 &&
+      (declaring || (!!design && isPlanned(design, posts.length)));
+    if (planning) {
+      if (flowIn) {
+        const full = await flowFull(project, flowIn.name, screen, flowIn.step);
+        if (full) return full;
+      }
+      if (!session) {
+        session = await store.createSession({
+          agent: str(body.agent, MAX_TITLE) ?? "agent",
+          title: str(body.sessionTitle, MAX_TITLE),
+          cwd: str(body.cwd, 4096),
+          project,
+        });
+        bus.broadcast({ type: "session-created", id: session.id });
+      }
+      const created = !design;
+      // As when drawing it: a plan with no state name takes its first, and the steps
+      // of any flow that planned it follow.
+      if (design && state !== null && design.states.length === 0 && posts.length === 0) {
+        design = (await store.nameFirstState(design.id, state)) ?? design;
+      }
+      if (!design) {
+        design = await store.createDesign({
+          project,
+          slug,
+          title: title ?? titleFromSlug(slug),
+          kind,
+          ...(area === undefined ? {} : { area }),
+          ...(source === undefined ? {} : { source }),
+          states: state === null ? [] : [state],
+          knobs: knobs.value,
+          ...(widths ? { widths } : {}),
+          sessionId: session.id,
+        });
+        bus.broadcast({ type: "design-created", id: design.id, project });
+      } else {
+        design = await updateDesignAfterWrite(design, {
+          state,
+          kind,
+          title,
+          knobs: knobs.value,
+          widths,
+          area,
+          source,
+          session,
+        });
+      }
+      const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
+      if (flow) bus.broadcast({ type: "design-updated", id: design.id, project });
+      const nudges = titleNudges(title);
+      return ok(
+        {
+          design: {
+            id: design.id,
+            project: design.project,
+            slug: design.slug,
+            title: design.title,
+            kind: design.kind,
+            ...placeOf(design),
+            states: design.states,
+          },
+          planned: true,
+          sessionId: session.id,
+          url: designUrl(ctx.base, design),
+          ...(flow ? { flow } : {}),
+          ...(nudges.length ? { nudges } : {}),
+          feedback: await collectFeedback(session.id, ctx.base),
+        },
+        created ? 201 : 200,
+      );
+    }
+    if (given.length === 0 && !forkIn && !flowIn) return fail(400, noBody);
     let variant = variantIn;
     if (!variant) {
       const live = inState.filter((p) => isLive(p.status));
@@ -1604,22 +1986,20 @@ export function createApp({
         variants: posts.map(variantLabel),
       });
     if (amend) {
-      if (!mock || !target) {
+      if (!design || !target) {
         return fail(404, `${slug} has no variant "${variant}" to amend`, {
           fix: "publish without --amend to create it",
         });
       }
-      const refused = await rewriteRefusal(mock, target, session, "amend");
+      const refused = await rewriteRefusal(design, target, session, "amend");
       if (refused) return refused;
     }
-    // A flow steps through states; a situation's step is its state's.
-    const screen: FlowStep = { mock: slug, state: situation ? situation.of : state };
     if (flowIn) {
       const full = await flowFull(project, flowIn.name, screen, flowIn.step);
       if (full) return full;
     }
     if (flowOnly) {
-      if (!mock || inState.length === 0) {
+      if (!design || inState.length === 0) {
         return fail(
           404,
           `${slug} has no ${state === null ? "design" : `state "${state}"`} yet: publish it with "flow" to place it`,
@@ -1627,12 +2007,13 @@ export function createApp({
       }
       if (!target) return missing();
       const flow = await placeFlow(project, flowIn!.name, screen, flowIn!.step);
-      bus.broadcast({ type: "mock-updated", id: mock.id, project });
-      return writeResult(mock, target, ctx, { writer: session, flow });
+      bus.broadcast({ type: "design-updated", id: design.id, project });
+      return writeResult(design, target, ctx, { writer: session, flow });
     }
     // A fork starts a new variant from a sibling's version: that version's
     // surfaces are what `parts`, `fills` and kept surface ids refer to.
-    let fork: { ref: ForkRef; surfaces: Surface[]; knobs?: Knobs; note?: string } | null = null;
+    let fork: { ref: ForkRef; surfaces: Surface[]; knobs?: Knobs; description?: string } | null =
+      null;
     if (forkIn) {
       if (target) {
         return fail(409, `${variant} already exists; fork names a new variant to start`);
@@ -1653,7 +2034,7 @@ export function createApp({
         ref: { variant: source.variant, version },
         surfaces: surfacesAt,
         ...(source.knobs ? { knobs: source.knobs } : {}),
-        ...(source.note ? { note: source.note } : {}),
+        ...(source.description ? { description: source.description } : {}),
       };
     }
     // What `parts` and kept surface ids refer to: the variant's current
@@ -1661,10 +2042,12 @@ export function createApp({
     const base = (): Surface[] | FlowResult => {
       if (fork) return fork.surfaces;
       if (!target) return missing();
-      if (from === undefined || from === target.version) return target.surfaces;
+      // Not an answer's unchosen whole page, which is the newest only by number.
+      const at = from ?? newestVisible(target);
+      if (at === target.version) return target.surfaces;
       return (
-        target.history.find((h) => h.version === from)?.surfaces ??
-        fail(404, `${slug} has no version ${from}`)
+        target.history.find((h) => h.version === at)?.surfaces ??
+        fail(404, `${slug} has no version ${at}`)
       );
     };
 
@@ -1695,7 +2078,8 @@ export function createApp({
     const nudges = [
       ...knobNudges({ ...knobs.value, ...variantKnobs.value }),
       ...titleNudges(title),
-      ...(target ? [] : posterNudges(surfaces)),
+      // The CLI or stdio server has a browser and is taking the still itself.
+      ...(target || body.posterComing === true ? [] : posterNudges(surfaces)),
     ];
     const embeds = await publishEmbeds(project, slug, surfaces);
     if (isResult(embeds)) return embeds;
@@ -1712,12 +2096,17 @@ export function createApp({
         });
         bus.broadcast({ type: "session-created", id: session.id });
       }
-      if (!mock) {
-        mock = await store.createMock({
+      // The first drawing of a plan with no state name yet gives it one, and the
+      // steps of any flow that planned it follow.
+      if (design && state !== null && design.states.length === 0 && posts.length === 0) {
+        design = (await store.nameFirstState(design.id, state)) ?? design;
+      }
+      if (!design) {
+        design = await store.createDesign({
           project,
           slug,
           title: title ?? titleFromSlug(slug),
-          kind: kind ?? "sketch",
+          kind: kind ?? "idea",
           ...(area === undefined ? {} : { area }),
           ...(source === undefined ? {} : { source }),
           states: state === null ? [] : [state],
@@ -1725,21 +2114,25 @@ export function createApp({
           ...(widths ? { widths } : {}),
           sessionId: session.id,
         });
-        bus.broadcast({ type: "mock-created", id: mock.id, project });
+        bus.broadcast({ type: "design-created", id: design.id, project });
       }
       const created = await store.createPost({
         sessionId: session.id,
-        mock: mock.id,
+        design: design.id,
         state,
         variant,
-        title: title ?? mock.title,
+        title: title ?? design.title,
         surfaces,
         ...(Object.keys(variantKnobs.value).length
           ? { knobs: variantKnobs.value }
           : fork?.knobs
             ? { knobs: fork.knobs }
             : {}),
-        ...(note ? { note } : note === undefined && fork?.note ? { note: fork.note } : {}),
+        ...(description
+          ? { description }
+          : description === undefined && fork?.description
+            ? { description: fork.description }
+            : {}),
         embeds,
         ...(fork ? { forkedFrom: fork.ref } : {}),
         from,
@@ -1747,9 +2140,8 @@ export function createApp({
         author,
       });
       if (!created) return fail(404, "session not found");
-      mock = await updateMockAfterWrite(mock, {
+      design = await updateDesignAfterWrite(design, {
         state,
-        situation,
         kind,
         title,
         knobs: knobs.value,
@@ -1759,18 +2151,18 @@ export function createApp({
         session,
       });
       const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
-      announcePost(mock, created, true);
-      if (prompt && ctx.request) notifyPublish(mock, created, prompt, ctx);
-      return writeResult(mock, created, ctx, { nudges, status: 201, flow });
+      announcePost(design, created, true);
+      if (prompt && ctx.request) notifyPublish(design, created, prompt, ctx);
+      return writeResult(design, created, ctx, { nudges, status: 201, flow });
     }
 
-    if (!mock) return missing();
+    if (!design) return missing();
     if (amend) {
       const amended = await store.amendPost(target.id, target.version, {
         surfaces,
         title,
         ...(body.variantKnobs !== undefined ? { knobs: variantKnobs.value } : {}),
-        ...(note !== undefined ? { note } : {}),
+        ...(description !== undefined ? { description } : {}),
         embeds,
         from,
         prompt,
@@ -1783,9 +2175,8 @@ export function createApp({
       }
       dropPostRenders(amended.id);
       const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
-      mock = await updateMockAfterWrite(mock, {
+      design = await updateDesignAfterWrite(design, {
         state,
-        situation,
         kind,
         knobs: knobs.value,
         widths,
@@ -1793,8 +2184,8 @@ export function createApp({
         source,
         session,
       });
-      announcePost(mock, amended, false);
-      return writeResult(mock, amended, ctx, {
+      announcePost(design, amended, false);
+      return writeResult(design, amended, ctx, {
         previous: target.surfaces,
         applied,
         nudges,
@@ -1812,7 +2203,7 @@ export function createApp({
       session &&
       publisherOf(target) === session.id &&
       Date.now() - Date.parse(target.updatedAt) < AMEND_WINDOW_MS &&
-      !(await touchedBy(mock, target))
+      !(await touchedBy(design, target))
     ) {
       nudges.push(
         `v${target.version} of ${variant} was minutes old and untouched by the user: one request gets one version. Fix a version the user hasn't acted on with amend (CLI --amend) instead of adding one; withdraw takes this one back`,
@@ -1822,7 +2213,7 @@ export function createApp({
       surfaces,
       title,
       ...(body.variantKnobs !== undefined ? { knobs: variantKnobs.value } : {}),
-      ...(note !== undefined ? { note } : {}),
+      ...(description !== undefined ? { description } : {}),
       embeds,
       from,
       prompt,
@@ -1831,9 +2222,8 @@ export function createApp({
     });
     if (!updated) return fail(404, "variant not found");
     const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
-    mock = await updateMockAfterWrite(mock, {
+    design = await updateDesignAfterWrite(design, {
       state,
-      situation,
       kind,
       knobs: knobs.value,
       widths,
@@ -1841,9 +2231,9 @@ export function createApp({
       source,
       session,
     });
-    announcePost(mock, updated, false);
-    if (prompt && ctx.request) notifyPublish(mock, updated, prompt, ctx);
-    return writeResult(mock, updated, ctx, {
+    announcePost(design, updated, false);
+    if (prompt && ctx.request) notifyPublish(design, updated, prompt, ctx);
+    return writeResult(design, updated, ctx, {
       previous: target.surfaces,
       applied,
       nudges,
@@ -1858,11 +2248,11 @@ export function createApp({
   // Whether a reply's or a draft's content may be about `post`'s state. The
   // variants of a state compete, so a word on any of them may have weighed
   // this one; another state's questions, parts and comments did not. What
-  // can't be placed (free text, a close, a mock-wide question) counts.
+  // can't be placed (free text, a close, a design-wide question) counts.
   function speaksToState(
-    r: Pick<Reply, "answers" | "borrowed" | "tuned" | "comments" | "others" | "notes"> &
-      Partial<Pick<Reply, "otherImages" | "noteImages" | "text" | "verdict" | "closed">>,
-    mock: Mock,
+    r: Pick<Reply, "answers" | "borrowed" | "tuned" | "comments" | "others" | "askComments"> &
+      Partial<Pick<Reply, "otherImages" | "askCommentImages" | "text" | "verdict" | "archived">>,
+    design: Design,
     post: Post,
     siblings: Post[],
   ): boolean {
@@ -1872,21 +2262,20 @@ export function createApp({
     const askAbout = (id: string) => {
       if (id === BUILTIN_ASK_ID) return true;
       if (id.startsWith(`${BUILTIN_ASK_ID}:`)) return id.slice(BUILTIN_ASK_ID.length + 1) === state;
-      const a = mock.asks.find((x) => x.id === id);
-      if (!a || a.scope === "mock") return true;
+      const a = design.asks.find((x) => x.id === id);
+      if (!a || a.scope === "design") return true;
       if (a.scope === "state") return a.state === state;
       return a.state === undefined ? !!a.part && parts.has(a.part) : a.state === state;
     };
     const asked = [
       ...Object.keys(r.answers),
       ...Object.keys(r.others ?? {}),
-      ...Object.keys(r.notes ?? {}),
+      ...Object.keys(r.askComments ?? {}),
       ...Object.keys(r.otherImages ?? {}),
-      ...Object.keys(r.noteImages ?? {}),
+      ...Object.keys(r.askCommentImages ?? {}),
     ];
     return (
       !!r.text ||
-      !!r.closed ||
       r.verdict?.state === state ||
       asked.some(askAbout) ||
       Object.entries(r.borrowed).some(([part, from]) => parts.has(part) || names.has(from)) ||
@@ -1897,24 +2286,24 @@ export function createApp({
 
   // What the user did with a variant's latest version, if anything: put it in
   // use, hid it, made it (a restore), or, since it was published, sent,
-  // commented or started answering on its state, or on a mock that shows it.
+  // commented or started answering on its state, or on a design that shows it.
   // Null means untouched, so rewriting it loses no feedback.
-  async function touchedBy(mock: Mock, post: Post): Promise<string | null> {
+  async function touchedBy(design: Design, post: Post): Promise<string | null> {
     const v = `v${post.version} of ${post.variant}`;
     if (post.status === "accepted" && post.acceptedVersion === post.version)
       return `${v} is in use`;
     if (post.author === "user") return `the user made ${v}`;
     if (post.hiddenVersions?.includes(post.version)) return `the user hid ${v}`;
     const since = post.updatedAt;
-    const siblings = (await store.listPosts({ mockId: mock.id })).filter(
+    const siblings = (await store.listPosts({ designId: design.id })).filter(
       (p) => p.state === post.state,
     );
     const inState = new Set(siblings.map((p) => p.id));
     const where = post.state === null ? "" : ` on "${post.state}"`;
-    for (const c of await store.listComments({ mockId: mock.id })) {
+    for (const c of await store.listComments({ designId: design.id })) {
       if (c.author !== "user" || c.createdAt < since) continue;
       if (c.kind === "reply") {
-        if (c.payload && !c.payload.edited && speaksToState(c.payload, mock, post, siblings)) {
+        if (c.payload && !c.payload.edited && speaksToState(c.payload, design, post, siblings)) {
           return `the user replied${where} after ${v} was published`;
         }
         continue;
@@ -1925,14 +2314,14 @@ export function createApp({
         : anchored !== undefined && anchored !== post.state;
       if (!elsewhere) return `the user commented${where} after ${v} was published`;
     }
-    const d = mock.draft;
-    if (d && d.updatedAt >= since && speaksToState(d, mock, post, siblings)) {
+    const d = design.draft;
+    if (d && d.updatedAt >= since && speaksToState(d, design, post, siblings)) {
       return `the user is answering${where} since ${v} was published`;
     }
-    // A page that shows this component can't say which of its parts a word
+    // A screen that shows this component can't say which of its parts a word
     // was about, so anything the user said there counts.
-    for (const m of await embeddersOf(mock.project, mock.slug)) {
-      const said = (await store.listComments({ mockId: m.id })).some(
+    for (const m of await embeddersOf(design.project, design.slug)) {
+      const said = (await store.listComments({ designId: m.id })).some(
         (c) => c.author === "user" && c.createdAt >= since && !c.payload?.edited,
       );
       const drafting = !!m.draft && m.draft.updatedAt >= since && draftHasContent(m.draft);
@@ -1943,14 +2332,20 @@ export function createApp({
 
   // The viewer may keep a draft that holds nothing yet.
   const draftHasContent = (d: Draft) =>
-    [d.answers, d.borrowed, d.tuned, d.others, d.notes, d.otherImages, d.noteImages].some(
-      (x) => x && Object.keys(x).length > 0,
-    ) || d.comments.length > 0;
+    [
+      d.answers,
+      d.borrowed,
+      d.tuned,
+      d.others,
+      d.askComments,
+      d.otherImages,
+      d.askCommentImages,
+    ].some((x) => x && Object.keys(x).length > 0) || d.comments.length > 0;
 
   // Amend and withdraw rewrite a version in place, so only its own session
   // may, and only while the user hasn't acted on it.
   async function rewriteRefusal(
-    mock: Mock,
+    design: Design,
     post: Post,
     session: Session | null,
     verb: "amend" | "withdraw",
@@ -1966,7 +2361,7 @@ export function createApp({
     if (publisherOf(post) !== session.id) {
       return fail(403, `${v} was published by another session`, { fix });
     }
-    const touched = await touchedBy(mock, post);
+    const touched = await touchedBy(design, post);
     return touched ? fail(409, touched, { fix }) : null;
   }
 
@@ -1989,16 +2384,16 @@ export function createApp({
       session = await store.getSession(body.session);
       if (!session) return fail(404, `session "${body.session}" not found`);
     }
-    const mock = await resolveMock(
-      body.mock,
+    const design = await resolveDesign(
+      body.design,
       str(body.project, MAX_TITLE) ?? session?.project,
       body.session,
     );
-    if (isResult(mock)) return mock;
-    const posts = await store.listPosts({ mockId: mock.id });
-    const post = chooseVariant(mock, posts, stateArg(body.state), str(body.variant, MAX_LABEL));
+    if (isResult(design)) return design;
+    const posts = await store.listPosts({ designId: design.id });
+    const post = chooseVariant(design, posts, stateArg(body.state), str(body.variant, MAX_LABEL));
     if (isResult(post)) return post;
-    const refused = await rewriteRefusal(mock, post, session, "withdraw");
+    const refused = await rewriteRefusal(design, post, session, "withdraw");
     if (refused) return refused;
     const v = post.version;
     // Its number is reused by the next publish, so nothing may still point at it.
@@ -2016,11 +2411,15 @@ export function createApp({
     const previous = post.history.at(-1);
     if (!previous) {
       if (!posts.some((p) => p.id !== post.id && p.state === post.state)) {
-        return fail(409, `v1 of ${post.variant} is the only design of ${post.state ?? mock.slug}`, {
-          fix: "publish with --amend to replace it",
-        });
+        return fail(
+          409,
+          `v1 of ${post.variant} is the only design of ${post.state ?? design.slug}`,
+          {
+            fix: "publish with --amend to replace it",
+          },
+        );
       }
-      const binding = mock.asks.find(
+      const binding = design.asks.find(
         (a) =>
           (a.state === undefined || a.state === post.state) &&
           a.options.some((o) => o.variant === post.variant),
@@ -2031,11 +2430,13 @@ export function createApp({
         });
       }
     }
-    const embeds = previous ? await publishEmbeds(mock.project, mock.slug, previous.surfaces) : [];
+    const embeds = previous
+      ? await publishEmbeds(design.project, design.slug, previous.surfaces)
+      : [];
     const result = await store.withdrawVersion(post.id, v, isResult(embeds) ? [] : embeds);
     if (!result) {
       return fail(409, `${post.variant} has a newer version than v${v}`, {
-        fix: `mockpit read ${mock.slug} --history`,
+        fix: `mockpit read ${design.slug} --history`,
       });
     }
     dropPostRenders(post.id);
@@ -2043,19 +2444,19 @@ export function createApp({
       bus.broadcast({
         type: "post-deleted",
         id: post.id,
-        mockId: mock.id,
+        designId: design.id,
         sessionId: post.sessionId,
       });
-      bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
-      void announceEmbedders(mock).catch((err) => console.warn("[mockpit] embedders", err));
+      bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+      void announceEmbedders(design).catch((err) => console.warn("[mockpit] embedders", err));
       return ok({
         withdrawn: { state: post.state, variant: post.variant, version: v },
         removed: true,
-        url: mockUrl(ctx.base, mock),
+        url: designUrl(ctx.base, design),
         feedback: await collectFeedback(session!.id, ctx.base),
       });
     }
-    const after = (await store.getMock(mock.id)) ?? mock;
+    const after = (await store.getDesign(design.id)) ?? design;
     announcePost(after, result.post, false);
     return writeResult(after, result.post, ctx, {
       previous: post.surfaces,
@@ -2124,10 +2525,10 @@ export function createApp({
   }
 
   // The project's flows as `read` returns them: only steps whose screen exists.
-  async function flowsView(project: string, mocks: Mock[]) {
-    const bySlug = new Map(mocks.map((m) => [m.slug, m]));
+  async function flowsView(project: string, designs: Design[]) {
+    const bySlug = new Map(designs.map((m) => [m.slug, m]));
     const exists = (x: FlowStep) => {
-      const m = bySlug.get(x.mock);
+      const m = bySlug.get(x.design);
       return !!m && (x.state === null ? m.states.length === 0 : m.states.includes(x.state));
     };
     return (await store.listFlows(project))
@@ -2149,7 +2550,7 @@ export function createApp({
     return version === undefined ? { variant } : { variant, version };
   }
 
-  // An optional free-text field of the mock (`area`, `source`): absent keeps
+  // An optional free-text field of the design (`area`, `source`): absent keeps
   // it, "" or null clears it.
   function labelArg(body: any, key: string, max: number): string | null | undefined | FlowResult {
     const v = body?.[key];
@@ -2159,7 +2560,7 @@ export function createApp({
     return str(v, max) ?? null;
   }
 
-  // `widths`: the device widths the mock is judged at, in the agent's order;
+  // `widths`: the device widths the design is judged at, in the agent's order;
   // [] hands the choice back to the viewer.
   function widthsArg(v: unknown): number[] | FlowResult | undefined {
     if (v === undefined) return undefined;
@@ -2198,14 +2599,13 @@ export function createApp({
     return edits as Record<string, string>;
   }
 
-  // A write may add a state, retitle the mock, declare knobs, and makes its
+  // A write may add a state, retitle the design, declare knobs, and makes its
   // session the one a reply is delivered to.
-  async function updateMockAfterWrite(
-    mock: Mock,
+  async function updateDesignAfterWrite(
+    design: Design,
     w: {
       state: string | null;
-      situation?: { of: string; name: string };
-      kind?: MockKind;
+      kind?: DesignKind;
       title?: string;
       knobs: Knobs;
       widths?: number[];
@@ -2213,28 +2613,14 @@ export function createApp({
       source?: string | null;
       session: Session | null;
     },
-  ): Promise<Mock> {
-    let states: string[] | undefined;
-    let situations: Record<string, string[]> | undefined;
-    if (w.state !== null && !mock.states.includes(w.state)) {
-      if (w.situation) {
-        // After its state and that state's other situations, so the order of
-        // states reads moment by moment.
-        const { of, name } = w.situation;
-        const own = mock.situations[of] ?? [];
-        const last = [of, ...own.map((n) => situationKey(of, n))]
-          .map((st) => mock.states.indexOf(st))
-          .reduce((a, b) => Math.max(a, b), -1);
-        states = [...mock.states.slice(0, last + 1), w.state, ...mock.states.slice(last + 1)];
-        situations = { ...mock.situations, [of]: [...own, name] };
-      } else {
-        states = [...mock.states, w.state];
-      }
-    }
-    const knobs = Object.keys(w.knobs).length ? { ...mock.knobs, ...w.knobs } : undefined;
-    const updated = await store.updateMock(mock.id, {
+  ): Promise<Design> {
+    const states =
+      w.state !== null && !design.states.includes(w.state)
+        ? [...design.states, w.state]
+        : undefined;
+    const knobs = Object.keys(w.knobs).length ? { ...design.knobs, ...w.knobs } : undefined;
+    const updated = await store.updateDesign(design.id, {
       ...(states ? { states } : {}),
-      ...(situations ? { situations } : {}),
       ...(w.kind ? { kind: w.kind } : {}),
       ...(w.title ? { title: w.title } : {}),
       ...(knobs ? { knobs } : {}),
@@ -2243,71 +2629,181 @@ export function createApp({
       ...(w.source === undefined ? {} : { source: w.source }),
       ...(w.session ? { sessionId: w.session.id } : {}),
     });
-    if (!updated) return mock;
-    bus.broadcast({ type: "mock-updated", id: updated.id, project: updated.project });
+    if (!updated) return design;
+    bus.broadcast({ type: "design-updated", id: updated.id, project: updated.project });
     return updated;
   }
 
-  function notifyPublish(mock: Mock, post: Post, text: string, ctx: FlowContext) {
+  function notifyPublish(design: Design, post: Post, text: string, ctx: FlowContext) {
     fireNotify({
       event: "publish",
-      project: mock.project,
-      slug: mock.slug,
+      project: design.project,
+      slug: design.slug,
       variant: post.variant,
       version: post.version,
       text,
-      url: mockUrl(ctx.base, mock, post),
+      url: designUrl(ctx.base, design, post),
     });
   }
 
-  async function listMocksFlow(query: { project?: string }): Promise<FlowResult> {
+  function headsByDesign(heads: PostHead[]): Map<string, PostHead[]> {
+    const out = new Map<string, PostHead[]>();
+    for (const h of heads) {
+      const list = out.get(h.design);
+      if (list) list.push(h);
+      else out.set(h.design, [h]);
+    }
+    return out;
+  }
+
+  // --- the decision list ---
+
+  const derivedDecisions = async (project: string, designs?: Design[]) =>
+    deriveDecisionLines(
+      designs ?? (await store.listDesigns(project)),
+      await store.listDecisionSources(project),
+    );
+  const decisionEdits = async (project: string) =>
+    parseDecisionEdits(await store.getSetting(`${DECISION_EDITS_SETTING}:${project}`));
+  const decisionLines = async (project: string, designs?: Design[]) =>
+    applyDecisionEdits(await derivedDecisions(project, designs), await decisionEdits(project));
+
+  // What every agent read carries, once the project has any: the first thing a
+  // new session needs is what it must not contradict. Omitted for the viewer,
+  // which shows it on its own, and for a session-scoped public read, which may
+  // see one design and not the project around it.
+  async function decisionListField(project: string, here?: string, designs?: Design[]) {
+    const lines = await decisionLines(project, designs);
+    return lines.length ? { decisionList: agentDecisionList(lines, here) } : {};
+  }
+
+  async function decisionsFlow(query: { project?: unknown }, ctx?: { viewer: boolean }) {
     const project = str(query.project, MAX_TITLE);
-    const mocks = await store.listMocks(project);
+    if (!project) return fail(400, '"project" is required');
+    const lines = await decisionLines(project);
+    return ok(
+      ctx?.viewer
+        ? { project, total: lines.length, lines }
+        : { project, ...fullAgentDecisionList(lines) },
+    );
+  }
+
+  // The user's own hand on a line: reword it, remove it, or take that back. An
+  // agent never edits the list; the user's word is what makes it worth trusting.
+  async function editDecisionFlow(name: string, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const project = str(name, MAX_TITLE);
+    if (!project) return fail(400, '"project" is required');
+    const id = str(body?.id, 1000);
+    if (!id) return fail(400, '"id" is required');
+    const designs = await store.listDesigns(project);
+    const line = (await derivedDecisions(project, designs)).find((l) => l.id === id);
+    if (!line) return fail(404, "no such line");
+    const edits = await decisionEdits(project);
+    if (body.reset === true) delete edits[id];
+    else if (body.removed === true) edits[id] = { basis: line.basis, removed: true };
+    else {
+      const text = str(body.text, MAX_DECISION_TEXT);
+      if (!text) return fail(400, 'provide "text", "removed" or "reset"');
+      edits[id] = { basis: line.basis, text };
+    }
+    await store.setSetting(`${DECISION_EDITS_SETTING}:${project}`, JSON.stringify(edits));
+    const design = designs.find((m) => m.slug === line.design);
+    if (design) bus.broadcast({ type: "design-updated", id: design.id, project });
+    return decisionsFlow({ project }, ctx);
+  }
+
+  async function listDesignsFlow(query: {
+    project?: string;
+    noDecisions?: boolean;
+  }): Promise<FlowResult> {
+    const project = str(query.project, MAX_TITLE);
+    const designs = await store.listDesigns(project);
+    const mode = await workspaceMode();
+    const heads = headsByDesign(postersFor(await store.listPostHeads(project), mode));
     const rows = [];
     const pending = [];
-    for (const m of mocks) {
-      const posts = await store.listPosts({ mockId: m.id });
-      rows.push(mockSummaryView(m, posts));
-      pending.push(pendingOf(m, posts));
+    for (const m of designs) {
+      const posts = heads.get(m.id) ?? [];
+      rows.push(designSummaryView(m, posts));
+      pending.push(pendingOf(m));
     }
     const open = rows.reduce((n, r) => n + r.open, 0);
     return ok({
-      ...(project ? { project, flows: await flowsView(project, mocks) } : {}),
-      mocks: rows,
+      ...(project ? { project, flows: await flowsView(project, designs) } : {}),
+      ...(project && !query.noDecisions
+        ? await decisionListField(project, undefined, designs)
+        : {}),
+      designs: rows,
       open,
-      openMocks: rows.filter((r) => r.open > 0).length,
+      openDesigns: rows.filter((r) => r.open > 0).length,
       pending,
     });
   }
 
-  // The project as a tree: every mock with its variants per state (status,
+  // The project as a tree: every design with its variants per state (status,
   // lineage, what its embeds resolve to) and the components it embeds and is
   // embedded in, and the declared flows. What the viewer's Home and an agent's
   // `read --tree` lay out.
-  async function treeFlow(query: { project?: string }): Promise<FlowResult> {
+  async function treeFlow(query: {
+    project?: string;
+    live?: boolean;
+    noDescriptions?: boolean;
+  }): Promise<FlowResult> {
     const project = str(query.project, MAX_TITLE);
     if (!project) return fail(400, 'provide "project"');
-    const mocks = await store.listMocks(project);
+    const designs = await store.listDesigns(project);
+    const mode = await workspaceMode();
+    const heads = headsByDesign(postersFor(await store.listPostHeads(project), mode));
     const nodes = [];
     const pending = [];
-    for (const m of mocks) {
-      const posts = await store.listPosts({ mockId: m.id });
-      const views = await embedViews(m, posts);
+    for (const m of designs) {
+      const designHeads = heads.get(m.id) ?? [];
+      // Only embeds and fills need the html: most of a workspace's bytes are
+      // pages with neither, which this list has no reason to read.
+      const marked = designHeads.some((p) => p.surfaces.some((x) => x.marked));
+      const posts = marked ? postersFor(await store.listPosts({ designId: m.id }), mode) : null;
+      const views = posts ? await embedViews(m, posts) : new Map<string, EmbedView>();
       const embeds = new Set<string>();
-      for (const p of posts) {
+      for (const p of posts ?? []) {
         if (!isLive(p.status)) continue;
         for (const x of p.surfaces) {
           if (x.kind === "html") for (const t of parseEmbedTags(x.html)) embeds.add(t.slug);
         }
       }
+      const replies = await replyComments(m.id);
+      const lastReplyAt = replies[replies.length - 1]?.createdAt;
+      // Whose turn, for the viewer's covers. Not an agent's concern, and an ended
+      // design's cover says nothing of the kind.
+      const sends = query.live && !m.archivedAt ? replies.filter((c) => !c.payload?.archived) : [];
+      const lastSend = sends.length
+        ? (await withDelivered([sends[sends.length - 1]], true))[0]
+        : undefined;
       nodes.push(
-        treeNodeView(m, posts, {
-          settled: settledValues(await replyPayloads(m.id), m, posts),
+        treeNodeView(m, posts ?? designHeads, {
+          settled: settledValues(
+            replies.map((c) => c.payload as Reply),
+            m,
+            posts ?? designHeads.map((p) => ({ knobs: p.knobs })),
+          ),
           embeds: [...embeds],
           embedViews: views,
+          noDescriptions: query.noDescriptions,
+          ...(lastReplyAt ? { lastReplyAt } : {}),
+          ...(lastSend
+            ? {
+                lastSend: {
+                  sessionId: lastSend.sessionId,
+                  at: lastSend.createdAt,
+                  delivered: lastSend.delivered,
+                  ...(lastSend.calledAt ? { calledAt: lastSend.calledAt } : {}),
+                },
+              }
+            : {}),
+          ...(query.live && !m.archivedAt && draftHolds(m.draft) ? { drafting: true } : {}),
         }),
       );
-      pending.push(pendingOf(m, posts));
+      pending.push(pendingOf(m));
     }
     const bySlug = new Map(nodes.map((n) => [n.slug, n]));
     for (const n of nodes) {
@@ -2317,34 +2813,68 @@ export function createApp({
     return ok({
       project,
       tree: nodes,
-      flows: await flowsView(project, mocks),
+      flows: await flowsView(project, designs),
       areaOrder: await areaOrderOf(project),
       pending,
     });
   }
 
-  async function replyPayloads(mockId: string): Promise<Reply[]> {
-    return (await store.listComments({ mockId }))
-      .filter((c) => c.kind === "reply" && c.payload && !c.payload.edited)
-      .map((c) => c.payload as Reply);
+  // The flows and what names a step, without the tree's pictures and counts:
+  // every design screen wants this much on open, few want the rest.
+  async function flowOutlineFlow(name: string): Promise<FlowResult> {
+    const project = str(name, MAX_TITLE);
+    if (!project) return fail(400, 'provide "project"');
+    const designs = await store.listDesigns(project);
+    return ok({
+      flows: await flowsView(project, designs),
+      designs: designs.map((m) => ({
+        slug: m.slug,
+        title: m.title,
+        states: m.states.length ? m.states : [null],
+      })),
+    });
   }
 
-  async function getMockFlow(
+  async function replyComments(designId: string) {
+    return (await store.listComments({ designId })).filter(
+      (c) => c.kind === "reply" && c.payload && !c.payload.edited,
+    );
+  }
+
+  async function replyPayloads(designId: string): Promise<Reply[]> {
+    return (await replyComments(designId)).map((c) => c.payload as Reply);
+  }
+
+  async function getDesignFlow(
     ref: unknown,
-    query: { project?: unknown; session?: unknown; body?: boolean; history?: boolean },
+    query: {
+      project?: unknown;
+      session?: unknown;
+      body?: boolean;
+      history?: boolean;
+      noDecisions?: boolean;
+    },
   ): Promise<FlowResult> {
-    const mock = await resolveMock(ref, query.project, query.session);
-    if (isResult(mock)) return mock;
-    const posts = await store.listPosts({ mockId: mock.id });
+    const design = await resolveDesign(ref, query.project, query.session);
+    if (isResult(design)) return design;
+    const posts = postersFor(await store.listPosts({ designId: design.id }), await workspaceMode());
     return ok({
-      ...mockDetailView(mock, posts, {
+      ...(query.noDecisions ? {} : await decisionListField(design.project, design.slug)),
+      ...designDetailView(design, posts, {
         body: query.body,
         history: query.history,
-        settled: settledValues(await replyPayloads(mock.id), mock, posts),
-        embeds: await embedViews(mock, posts),
+        settled: settledValues(await replyPayloads(design.id), design, posts),
+        embeds: await embedViews(design, posts),
+        ...(await shortlistReach(design)),
       }),
-      pending: pendingOf(mock, posts),
+      pending: pendingOf(design),
     });
+  }
+
+  async function shortlistReach(design: Design): Promise<{ repliesGoTo?: string }> {
+    if (!design.shortlist || design.sessionId) return {};
+    const agent = await projectAgent(design.project);
+    return agent ? { repliesGoTo: agent.title ?? agent.agent } : {};
   }
 
   async function exportFlow(
@@ -2352,18 +2882,18 @@ export function createApp({
     query: { project?: unknown; state?: unknown; variant?: unknown },
     ctx: FlowContext,
   ): Promise<FlowResult> {
-    const mock = await resolveMock(ref, query.project);
-    if (isResult(mock)) return mock;
-    const posts = await store.listPosts({ mockId: mock.id });
+    const design = await resolveDesign(ref, query.project);
+    if (isResult(design)) return design;
+    const posts = await store.listPosts({ designId: design.id });
     const wantedState = stateArg(query.state);
     const wantedVariant = str(query.variant, MAX_LABEL);
-    const states = (mock.states.length ? mock.states : [null]).filter(
+    const states = (design.states.length ? design.states : [null]).filter(
       (s) => wantedState === undefined || s === wantedState,
     );
-    if (states.length === 0) return fail(404, `${mock.slug} has no state "${wantedState}"`);
-    const replies = await replyPayloads(mock.id);
+    if (states.length === 0) return fail(404, `${design.slug} has no state "${wantedState}"`);
+    const replies = await replyPayloads(design.id);
     const lastReply = replies[replies.length - 1] ?? null;
-    const settled = settledValues(replies, mock, posts);
+    const settled = settledValues(replies, design, posts);
     const entries = [];
     for (const state of states) {
       const inState = posts.filter((p) => p.state === state);
@@ -2379,8 +2909,9 @@ export function createApp({
       // With fills, the state as decided: only the chosen fills, by every
       // value sent so far (defaults before any reply). The authored markup with
       // every fill stays available as `allFills`.
-      const slots = slotsInSurfaces(post.surfaces);
-      const raw = html && html.kind === "html" ? html.html : "";
+      const raw =
+        html && html.kind === "html" ? withAnswerAdditions(html.html, design.answerAdditions) : "";
+      const slots = slotsInSurfaces([{ kind: "html", html: raw }]);
       const composed = slots.length ? composeFills(raw, chosenFills(slots, settled)) : raw;
       entries.push({
         state,
@@ -2388,7 +2919,7 @@ export function createApp({
         postId: post.id,
         version: post.version,
         // The agent's newer versions wait until the user puts one in use.
-        ...(found.version !== post.version ? { latest: found.version } : {}),
+        ...(newestVisible(found) !== post.version ? { latest: newestVisible(found) } : {}),
         status: variantStatus(post.status),
         html: composed,
         ...(slots.length ? { allFills: raw } : {}),
@@ -2417,18 +2948,19 @@ export function createApp({
       });
     }
     if (entries.length === 0) {
-      return fail(404, `${mock.slug} has no variant "${wantedVariant}"`, {
+      if (posts.length === 0) return fail(404, `${design.slug} isn't drawn yet`);
+      return fail(404, `${design.slug} has no variant "${wantedVariant}"`, {
         variants: posts.map(variantLabel),
       });
     }
-    const decisions = lastReply ? decisionsFor(mock, posts, lastReply) : null;
+    const decisions = lastReply ? decisionsFor(design, posts, lastReply) : null;
     return ok({
-      project: mock.project,
-      mock: mock.slug,
-      title: mock.title,
-      kind: mock.kind,
+      project: design.project,
+      design: design.slug,
+      title: design.title,
+      kind: design.kind,
       states: entries,
-      knobs: mock.knobs,
+      knobs: design.knobs,
       settled,
       reply: lastReply,
       ...(decisions ? { decisions } : {}),
@@ -2437,20 +2969,34 @@ export function createApp({
 
   // --- asks ---
 
-  function sanitizeAsk(raw: any, mock: Mock, posts: Post[], taken: Set<string>): Ask | string {
+  function sanitizeAsk(raw: any, design: Design, posts: Post[], taken: Set<string>): Ask | string {
     if (!raw || typeof raw !== "object") return "each ask must be an object";
     const text = str(raw.text, MAX_COMMENT_TEXT);
     if (!text) return 'each ask needs "text"';
-    const scope = raw.scope === "state" || raw.scope === "part" ? raw.scope : "mock";
+    const scope = raw.scope === "state" || raw.scope === "part" ? raw.scope : "design";
     const state = str(raw.state, MAX_LABEL);
     if (scope === "state") {
       if (!state) return `ask "${text}" has scope "state" but no state`;
-      if (!mock.states.includes(state)) return `${mock.slug} has no state "${state}"`;
-    } else if (state && !mock.states.includes(state)) {
-      return `${mock.slug} has no state "${state}"`;
+      if (!design.states.includes(state)) return `${design.slug} has no state "${state}"`;
+    } else if (state && !design.states.includes(state)) {
+      return `${design.slug} has no state "${state}"`;
     }
     const part = str(raw.part, 200);
     if (scope === "part" && !part) return `ask "${text}" has scope "part" but no part`;
+    const states: string[] = [];
+    if (raw.states !== undefined) {
+      if (!Array.isArray(raw.states)) return `ask "${text}": states must be a list of state names`;
+      if (scope !== "design") {
+        return `ask "${text}": states is for a design-wide question; a "${scope}" question already says where it is`;
+      }
+      for (const name of raw.states) {
+        const label = str(name, MAX_LABEL);
+        if (!label || !design.states.includes(label)) {
+          return `${design.slug} has no state "${String(name)}"`;
+        }
+        if (!states.includes(label)) states.push(label);
+      }
+    }
     if (!Array.isArray(raw.options) || raw.options.length === 0) {
       return `ask "${text}" needs options`;
     }
@@ -2477,17 +3023,17 @@ export function createApp({
       optionIds.add(id);
       const variant = str(opt.variant, MAX_LABEL);
       if (variant && !variants.has(variant)) {
-        return `option "${label}" names variant "${variant}", which ${mock.slug} does not have`;
+        return `option "${label}" names variant "${variant}", which ${design.slug} does not have`;
       }
       let set: AskOption["set"];
       if (opt.set !== undefined) {
-        const checked = checkKnobValues(opt.set, mock, posts, `option "${label}"`);
+        const checked = checkKnobValues(opt.set, design, posts, `option "${label}"`);
         if (!checked.ok) return checked.error;
         set = checked.value;
       }
       const pick = opt.recommended === true ? { recommended: true as const } : {};
       if (opt.version !== undefined) {
-        const pinned = versionOption(opt.version, label, variant, { scope, state }, mock, posts);
+        const pinned = versionOption(opt.version, label, variant, { scope, state }, design, posts);
         if (typeof pinned === "string") return pinned;
         options.push({ id, label, ...pinned, ...(set ? { set } : {}), ...pick });
         continue;
@@ -2514,6 +3060,7 @@ export function createApp({
       text,
       scope,
       ...(state ? { state } : {}),
+      ...(states.length ? { states } : {}),
       ...(part ? { part } : {}),
       options,
       ...(raw.multi === true ? { multi: true } : {}),
@@ -2522,7 +3069,7 @@ export function createApp({
     };
   }
 
-  // A version option names one visible version of one variant in the ask's
+  // A version option names one version of one variant in the ask's
   // state (`optionState`); the variant may be left out when that state has
   // only one, or one accepted.
   function versionOption(
@@ -2530,7 +3077,7 @@ export function createApp({
     label: string,
     variant: string | undefined,
     ask: Pick<Ask, "scope" | "state">,
-    mock: Mock,
+    design: Design,
     posts: Post[],
   ): { variant: string; version: number } | string {
     const version = Number(raw);
@@ -2538,12 +3085,12 @@ export function createApp({
       return `option "${label}": version must be a positive integer`;
     }
     if (ask.scope === "part") {
-      return `option "${label}" names a version, which puts it in use: ask with scope "state" or "mock", not "part"`;
+      return `option "${label}" names a version, which puts it in use: ask with scope "state" or "design", not "part"`;
     }
-    if (ask.state === undefined && mock.states.length > 1) {
-      return `option "${label}" names a version: give the ask a state (${mock.slug} has ${mock.states.map((x) => `"${x}"`).join(", ")})`;
+    if (ask.state === undefined && design.states.length > 1) {
+      return `option "${label}" names a version: give the ask a state (${design.slug} has ${design.states.map((x) => `"${x}"`).join(", ")})`;
     }
-    const state = optionState(ask, mock);
+    const state = optionState(ask, design);
     const inState = posts.filter((p) => p.state === state);
     const accepted = inState.filter((p) => p.status === "accepted");
     const post = variant
@@ -2553,89 +3100,262 @@ export function createApp({
         : accepted.length === 1
           ? accepted[0]
           : undefined;
-    const where = state === null ? mock.slug : `"${state}"`;
+    const where = state === null ? design.slug : `"${state}"`;
     if (!post) {
       return variant
         ? `option "${label}" names variant "${variant}", which ${where} does not have`
         : `option "${label}" names version ${version} but ${where} has several variants (${inState.map((p) => p.variant).join(", ")}): name one`;
     }
-    const hidden = new Set(post.hiddenVersions ?? []);
-    const visible = [post.version, ...post.history.map((h) => h.version)]
-      .filter((v) => !hidden.has(v))
-      .sort((a, b) => a - b);
-    if (!visible.includes(version)) {
-      return `option "${label}" names ${post.variant} v${version}${hidden.has(version) ? ", which is hidden" : ""}; ${post.variant} has ${visible.map((v) => `v${v}`).join(", ")}`;
+    const versions = [post.version, ...post.history.map((h) => h.version)].sort((a, b) => a - b);
+    if (!versions.includes(version)) {
+      return `option "${label}" names ${post.variant} v${version}; ${post.variant} has ${versions.map((v) => `v${v}`).join(", ")}`;
     }
     return { variant: post.variant, version };
   }
 
   // Ask the user structured questions. An ask whose id matches an existing one
   // replaces it (and reopens it); anything else is appended.
+  // Takes what answers bring off their options (style, fill, html), checked before
+  // anything is written. Options then carry only what any option does: a `set`, or a
+  // `variant` whose `version` is filled in once its whole page exists.
+  function answersBringing(
+    raw: any[],
+    design: Design,
+    posts: Post[],
+  ):
+    | {
+        entries: any[];
+        knobs: Knobs;
+        additions: AnswerAddition[];
+        pages: { ask: number; option: number; target: Post; html: string }[];
+      }
+    | string {
+    const knobs: Knobs = { ...design.knobs };
+    const additions = [...design.answerAdditions];
+    const pages: { ask: number; option: number; target: Post; html: string }[] = [];
+    const renders = posts.flatMap((p) =>
+      (postAtVersion(p, currentVersion(p)) ?? p).surfaces.flatMap((s) =>
+        s.kind === "html" ? [s.html] : [],
+      ),
+    );
+    const entries: any[] = [];
+    for (const [askIndex, entry] of raw.entries()) {
+      if (!Array.isArray(entry?.options)) {
+        entries.push(entry);
+        continue;
+      }
+      const options: unknown[] = [];
+      for (const [optionIndex, o] of entry.options.entries()) {
+        const { style, fill, html, ...rest } = o && typeof o === "object" ? o : ({} as any);
+        if (style === undefined && fill === undefined && html === undefined) {
+          options.push(o);
+          continue;
+        }
+        const name = String(rest.label ?? "");
+        if (html !== undefined) {
+          if (typeof html !== "string" || style !== undefined || fill !== undefined || rest.set) {
+            return `option "${name}": html is a whole page; send it alone`;
+          }
+          if (entry.scope === "part") return `option "${name}": a part's question can't take html`;
+          if (entry.state === undefined && design.states.length > 1) {
+            return `option "${name}" brings html: give the question a state (${design.slug} has ${design.states.length})`;
+          }
+          const state = entry.state ?? design.states[0] ?? null;
+          const inState = posts.filter((p) => p.state === state);
+          const target = rest.variant
+            ? inState.find((p) => p.variant === rest.variant)
+            : (inState.find((p) => p.status === "accepted") ??
+              (inState.length === 1 ? inState[0] : undefined));
+          if (!target) {
+            return `option "${name}" brings html: name the variant it is a page of`;
+          }
+          pages.push({ ask: askIndex, option: optionIndex, target, html });
+          options.push({ ...rest, variant: target.variant });
+          continue;
+        }
+        const set = Object.entries((rest.set ?? {}) as Record<string, unknown>);
+        const value = set[0]?.[1];
+        if (set.length !== 1 || typeof value !== "string" || rest.variant) {
+          return `option "${name}": style and fill go with a set of one new value`;
+        }
+        const knob = set[0][0];
+        const addition: AnswerAddition = { knob, value };
+        if (style !== undefined) {
+          const bad =
+            typeof style === "string" ? checkAnswerStyle(style) : "style must be a string";
+          if (bad) return `option "${name}": ${bad}`;
+          addition.style = style;
+        }
+        if (fill !== undefined) {
+          const bad = typeof fill === "string" ? checkAnswerFill(fill) : "fill must be a string";
+          if (bad) return `option "${name}": ${bad}`;
+          if (value === AS_IS_FILL) return `option "${name}": "${AS_IS_FILL}" is the part as it is`;
+          if (!renders.some((h) => partOccurrences(h, knob) === 1)) {
+            return `option "${name}": no state has one part "${knob}" to add a fill to; declare data-part, or send html`;
+          }
+          addition.fill = fill;
+        }
+        const same = additions.find((a) => a.knob === knob && a.value === value);
+        if (same) {
+          // Asking again with what is already there is how a question grows.
+          if (same.style !== addition.style || same.fill !== addition.fill) {
+            return `option "${name}": "${value}" already means something else; use a new value`;
+          }
+          options.push(rest);
+          continue;
+        }
+        const declared = knobFor(knob, { knobs }, posts);
+        const config = declared === undefined ? null : explicitKnob(declared);
+        if (config && config.type !== "select") {
+          return `option "${name}": knob "${knob}" is a ${config.type}, which already carries its value; send the set alone`;
+        }
+        const known = (config?.options ?? []).map((v) =>
+          typeof v === "object" && v !== null && "value" in v ? String(v.value) : String(v),
+        );
+        if (known.includes(value)) {
+          return `option "${name}": "${value}" is already a value of "${knob}"; send the set alone, or use a new value (changing what it means is a new version)`;
+        }
+        if (additions.length >= MAX_ANSWER_ADDITIONS) {
+          return `${design.slug} has ${MAX_ANSWER_ADDITIONS} answer additions; publish a version holding them`;
+        }
+        knobs[knob] = config
+          ? { ...config, options: [...(config.options ?? []), value] }
+          : { type: "select", options: [AS_IS_FILL, value], value: AS_IS_FILL };
+        additions.push(addition);
+        options.push(rest);
+      }
+      entries.push({ ...entry, options });
+    }
+    return { entries, knobs, additions, pages };
+  }
+
+  // A whole page an answer brought: a version the user only meets if they choose it.
+  // Asked again with the same page, the question keeps the version it already has.
+  async function addAnswerPage(
+    design: Design,
+    page: { target: Post; html: string },
+    sessionId: string | null,
+  ): Promise<number | FlowResult> {
+    const post = (await store.getPost(page.target.id)) ?? page.target;
+    const same = [post, ...post.history].find(
+      (v) =>
+        post.hiddenVersions?.includes(v.version) &&
+        v.surfaces.some((s) => s.kind === "html" && s.html === page.html),
+    );
+    if (same) return same.version;
+    const seen = postAtVersion(post, currentVersion(post)) ?? post;
+    const kits = seen.surfaces.find((s) => s.kind === "html");
+    const surfaces: Surface[] = [
+      htmlSurface(page.html, kits?.kind === "html" ? kits.kits : undefined),
+    ];
+    const bad = checkSurfaces(surfaces);
+    if (bad) return bad;
+    const embeds = await publishEmbeds(design.project, design.slug, surfaces);
+    if (isResult(embeds)) return embeds;
+    await promoteEmbedded(design.project, embeds);
+    const updated = await store.updatePost(post.id, {
+      surfaces,
+      embeds,
+      from: seen.version,
+      ...(sessionId ? { publishedBy: sessionId } : {}),
+    });
+    if (!updated) return fail(404, "variant not found");
+    await store.setVersionHidden(updated.id, updated.version, true);
+    return updated.version;
+  }
+
+  // A select value the page may not know draws as if nothing was chosen: the user meets
+  // that as a picture identical to its neighbours. The literal is only a hint (a script
+  // could answer to it), so this says what couldn't be confirmed, and nothing is refused.
+  function unprovenValueNudges(asks: Ask[], design: Design, posts: Post[]): string[] {
+    const out: string[] = [];
+    for (const ask of asks) {
+      const shown = posts
+        .filter((p) => ask.state === undefined || p.state === ask.state)
+        .map((p) => postAtVersion(p, currentVersion(p)) ?? p);
+      const html = shown.flatMap((p) =>
+        p.surfaces.flatMap((s) => (s.kind === "html" ? [s.html] : [])),
+      );
+      if (html.length === 0) continue;
+      for (const option of ask.options) {
+        if (option.variant) continue;
+        for (const [knob, value] of Object.entries(option.set ?? {})) {
+          if (typeof value !== "string") continue;
+          const config = knobFor(knob, design, posts);
+          if (!config || explicitKnob(config).type !== "select") continue;
+          if (design.answerAdditions.some((a) => a.knob === knob && a.value === value)) continue;
+          if (html.some((h) => h.includes(value))) continue;
+          out.push(
+            `couldn't confirm the page knows "${value}" (option "${option.label}"): if it doesn't, its picture won't change. Send the option with style, fill or html`,
+          );
+        }
+      }
+    }
+    return out;
+  }
+
   async function askFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
-    const resolved = await resolveMock(ref, body.project, body.session);
+    const resolved = await resolveDesign(ref, body.project, body.session);
     if (isResult(resolved)) return resolved;
-    let mock = resolved;
+    let design = resolved;
     const raw = Array.isArray(body.asks) ? body.asks : body.text ? [body] : null;
     if (!raw || raw.length === 0) return fail(400, 'provide "asks": [{text, options}]');
     if (raw.length > MAX_ASKS) return fail(400, `at most ${MAX_ASKS} asks per call`);
-    const posts = await store.listPosts({ mockId: mock.id });
-    const asks = [...mock.asks];
+    const posts = await store.listPosts({ designId: design.id });
+    const brought = answersBringing(raw, design, posts);
+    if (typeof brought === "string") return fail(400, brought);
+    const asks = [...design.asks];
     const taken = new Set(asks.map((a) => a.id));
     const added: Ask[] = [];
-    const skipped: string[] = [];
-    for (const entry of raw) {
-      const ask = sanitizeAsk(entry, mock, posts, taken);
+    // Asked again, a question keeps what the user kept and hid, even under new ids.
+    const standings = { ...design.standings };
+    const stillHidden: string[] = [];
+    for (const entry of brought.entries) {
+      const ask = sanitizeAsk(entry, { ...design, knobs: brought.knobs }, posts, taken);
       if (typeof ask === "string") return fail(400, ask);
       const at = asks.findIndex((a) => a.id === ask.id);
-      // The user closed this one as not worth answering; asking it again is
-      // exactly the noise they closed away. Only their Reopen revives it.
-      if (at >= 0 && asks[at].dismissed) {
-        skipped.push(ask.id);
-        continue;
+      if (standings[ask.id]) {
+        standings[ask.id] = remapStanding(standings[ask.id]!, at >= 0 ? asks[at] : undefined, ask);
+        for (const h of reoffered(standings[ask.id]!, ask)) stillHidden.push(h.label);
       }
       if (at >= 0) asks[at] = ask;
       else asks.push(ask);
       taken.add(ask.id);
       added.push(ask);
     }
-    const skippedNudges = skipped.map(
-      (id) =>
-        `ask "${id}": the user dismissed it when they closed ${mock.slug}; not asked again. Don't re-ask it.`,
-    );
-    if (!added.length) {
-      return ok({
-        mock: mock.slug,
-        mockId: mock.id,
-        project: mock.project,
-        asks: [],
-        skipped,
-        open: openCount(mock, posts),
-        url: mockUrl(ctx.base, mock),
-        nudges: skippedNudges,
-        feedback: mock.sessionId ? await collectFeedback(mock.sessionId, ctx.base) : [],
-      });
-    }
-    let sessionId = mock.sessionId;
+    let sessionId = design.sessionId;
     if (typeof body.session === "string" && (await store.getSession(body.session))) {
       sessionId = body.session;
     }
-    // A new question on a closed mock brings it back to the open list, or it
-    // would wait where the user no longer looks.
-    const updated = await store.updateMock(mock.id, {
+    for (const page of brought.pages) {
+      const version = await addAnswerPage(design, page, sessionId);
+      if (isResult(version)) return version;
+      added[page.ask].options[page.option].version = version;
+    }
+    // A question on something the user archived brings it back to the open list, or it
+    // would wait where they no longer look. Asked again, a question it left
+    // unanswered is simply open again: guidance about what to ask lives in the
+    // conversation, not in a refusal here.
+    const additionsGrew = brought.additions.length > design.answerAdditions.length;
+    const updated = await store.updateDesign(design.id, {
       asks,
       sessionId,
-      ...(mock.closedAt ? { closedAt: null } : {}),
+      standings,
+      ...(design.archivedAt ? { archivedAt: null } : {}),
+      ...(additionsGrew ? { knobs: brought.knobs, answerAdditions: brought.additions } : {}),
     });
-    if (!updated) return fail(404, "mock not found");
-    mock = updated;
-    bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
+    if (!updated) return fail(404, "design not found");
+    design = updated;
+    // Every render carries these now, and frames key on `rewrites`: open ones reload.
+    if (additionsGrew) await store.bumpRewrites(design.id);
+    bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
     // The questions also land in the thread, so the user reads them where they answer.
     const session = sessionId ? await store.getSession(sessionId) : null;
     if (session) {
       const comment = await store.createComment({
         sessionId: session.id,
-        mockId: mock.id,
+        designId: design.id,
         author: reservedAgent(session.agent),
         text: added.map((a) => a.text).join("\n"),
         kind: "ask",
@@ -2644,23 +3364,28 @@ export function createApp({
     }
     fireNotify({
       event: "ask",
-      project: mock.project,
-      slug: mock.slug,
+      project: design.project,
+      slug: design.slug,
       variant: "",
       version: Math.max(1, ...posts.map((p) => p.version)),
       text: added.map((a) => a.text).join(" · "),
-      url: mockUrl(ctx.base, mock),
+      url: designUrl(ctx.base, design),
     });
     const feedback = session ? await collectFeedback(session.id, ctx.base) : [];
-    const nudges = [...skippedNudges, ...askNudges(added, mock.asks)];
+    const nudges = [
+      ...askNudges(added, design.asks),
+      ...unprovenValueNudges(added, design, posts),
+      ...(stillHidden.length
+        ? [`The user hid ${stillHidden.join(", ")}: they stay folded away. Offer something else.`]
+        : []),
+    ];
     return ok({
-      mock: mock.slug,
-      mockId: mock.id,
-      project: mock.project,
+      design: design.slug,
+      designId: design.id,
+      project: design.project,
       asks: added,
-      ...(skipped.length ? { skipped } : {}),
-      open: openCount(mock, posts),
-      url: mockUrl(ctx.base, mock),
+      open: openCount(design),
+      url: designUrl(ctx.base, design),
       ...(nudges.length ? { nudges } : {}),
       feedback,
     });
@@ -2668,7 +3393,11 @@ export function createApp({
 
   // --- drafts and replies (the user's side; viewer origin only) ---
 
-  function sanitizePartComments(raw: unknown, mock: Mock, posts: Post[]): PartComment[] | string {
+  function sanitizePartComments(
+    raw: unknown,
+    design: Design,
+    posts: Post[],
+  ): PartComment[] | string {
     if (raw === undefined || raw === null) return [];
     if (!Array.isArray(raw)) return '"comments" must be an array';
     if (raw.length > MAX_DRAFT_COMMENTS) return `at most ${MAX_DRAFT_COMMENTS} comments`;
@@ -2681,26 +3410,26 @@ export function createApp({
       const borrowIn = c?.borrow;
       if (!text && !reaction && !borrowIn) return "every comment needs text";
       const state = stateArg(c.state) ?? null;
-      if (state !== null && !mock.states.includes(state))
-        return `${mock.slug} has no state "${state}"`;
+      if (state !== null && !design.states.includes(state))
+        return `${design.slug} has no state "${state}"`;
       const part = str(c.part, 200) ?? null;
       const variant = str(c.variant, 200);
       const post = variant ? posts.find((p) => p.variant === variant && p.state === state) : null;
       if (variant && !post)
-        return `${mock.slug} has no variant "${variant}"${state ? ` in "${state}"` : ""}`;
+        return `${design.slug} has no variant "${variant}"${state ? ` in "${state}"` : ""}`;
       const version = c.version;
       if (
         version !== undefined &&
         (!post || !Number.isInteger(version) || version < 1 || version > post.version)
       )
-        return `${mock.slug} has no version ${String(version)}${variant ? ` of "${variant}"` : ""}`;
+        return `${design.slug} has no version ${String(version)}${variant ? ` of "${variant}"` : ""}`;
       let borrow: PartComment["borrow"];
       if (borrowIn !== undefined) {
         const from = str(borrowIn?.from, 240);
         const at = from ? /^(.+)@(\d+)$/.exec(from) : null;
         const source = at && posts.find((p) => p.variant === at[1] && p.state === state);
         if (!at || !source || Number(at[2]) < 1 || Number(at[2]) > source.version)
-          return `borrow.from must be variant@version of "${mock.slug}"${state ? ` in "${state}"` : ""}`;
+          return `borrow.from must be variant@version of "${design.slug}"${state ? ` in "${state}"` : ""}`;
         if (!post || version === undefined) return "a borrow names the version it goes into";
         const borrowed = str(borrowIn?.part, 200);
         borrow = { from: at[0], ...(borrowed ? { part: borrowed } : {}) };
@@ -2734,6 +3463,19 @@ export function createApp({
     return out;
   }
 
+  // The text came out of a sandboxed frame by way of the viewer: plain, clipped data,
+  // never read as anything but the words an agent gets back.
+  function sanitizeParagraph(raw: unknown): ParagraphAnchor | undefined {
+    if (!raw || typeof raw !== "object") return undefined;
+    const p = raw as Record<string, unknown>;
+    const place = (v: unknown) =>
+      Number.isInteger(v) && (v as number) >= 0 && (v as number) < 10000;
+    const text = str(p.text, PARAGRAPH_TEXT_MAX);
+    const kind = str(p.kind, 20);
+    if (!text || !kind || !place(p.surface) || !place(p.index)) return undefined;
+    return { surface: p.surface as number, index: p.index as number, kind, text };
+  }
+
   function sanitizePartAnchor(a: Record<string, unknown>) {
     const offset =
       Array.isArray(a.offset) && a.offset.length === 2 && a.offset.every((n) => Number.isFinite(n))
@@ -2749,31 +3491,33 @@ export function createApp({
       typeof a.width === "number" && Number.isFinite(a.width) && a.width >= 1 && a.width <= 10000
         ? Math.round(a.width)
         : undefined;
-    if (!offset && !box && !quote && !selector) return undefined;
+    const paragraph = sanitizeParagraph(a.paragraph);
+    if (!offset && !box && !quote && !selector && !paragraph) return undefined;
     return {
       ...(offset ? { offset } : {}),
       ...(quote ? { quote } : {}),
       ...(selector ? { selector } : {}),
       ...(box ? { box } : {}),
+      ...(paragraph ? { paragraph } : {}),
       ...(width ? { width } : {}),
     };
   }
 
   // A stored ask, else the viewer's built-in variant ask under its reserved id.
-  const askById = (mock: Mock, posts: Post[], id: string): Ask | undefined =>
-    mock.asks.find((a) => a.id === id) ?? builtinAsk(mock, posts, id);
+  const askById = (design: Design, posts: Post[], id: string): Ask | undefined =>
+    design.asks.find((a) => a.id === id) ?? builtinAsk(design, posts, id);
 
   function sanitizeAnswers(
     raw: unknown,
-    mock: Mock,
+    design: Design,
     posts: Post[],
   ): Record<string, AskAnswer> | string {
     if (raw === undefined || raw === null) return {};
     if (typeof raw !== "object" || Array.isArray(raw)) return '"answers" must be an object';
     const out: Record<string, AskAnswer> = {};
     for (const [askId, value] of Object.entries(raw as Record<string, unknown>)) {
-      const ask = askById(mock, posts, askId);
-      if (!ask) return `${mock.slug} has no ask "${askId}"`;
+      const ask = askById(design, posts, askId);
+      if (!ask) return `${design.slug} has no ask "${askId}"`;
       const ids = Array.isArray(value) ? value : [value];
       if (ids.length === 0) continue;
       if (!ask.multi && ids.length > 1) return `ask "${askId}" takes one answer`;
@@ -2787,19 +3531,19 @@ export function createApp({
     return out;
   }
 
-  // askId → text, for the write-ins and the notes: known asks only, text capped
+  // askId → text, for the write-ins and the comments: known asks only, text capped
   // like a comment, blanks dropped.
   function sanitizeAskTexts(
     raw: unknown,
-    mock: Mock,
+    design: Design,
     posts: Post[],
-    key: "others" | "notes",
+    key: "others" | "askComments",
   ): Record<string, string> | string {
     if (raw === undefined || raw === null) return {};
     if (typeof raw !== "object" || Array.isArray(raw)) return `"${key}" must be an object`;
     const out: Record<string, string> = {};
     for (const [askId, value] of Object.entries(raw as Record<string, unknown>)) {
-      if (!askById(mock, posts, askId)) return `${mock.slug} has no ask "${askId}"`;
+      if (!askById(design, posts, askId)) return `${design.slug} has no ask "${askId}"`;
       if (value !== undefined && value !== null && typeof value !== "string") {
         return `${key} "${askId}" must be text`;
       }
@@ -2813,15 +3557,15 @@ export function createApp({
   // deduped and capped, empty lists dropped.
   async function sanitizeAskImages(
     raw: unknown,
-    mock: Mock,
+    design: Design,
     posts: Post[],
-    key: "otherImages" | "noteImages",
+    key: "otherImages" | "askCommentImages",
   ): Promise<Record<string, string[]> | string> {
     if (raw === undefined || raw === null) return {};
     if (typeof raw !== "object" || Array.isArray(raw)) return `"${key}" must be an object`;
     const out: Record<string, string[]> = {};
     for (const [askId, value] of Object.entries(raw as Record<string, unknown>)) {
-      if (!askById(mock, posts, askId)) return `${mock.slug} has no ask "${askId}"`;
+      if (!askById(design, posts, askId)) return `${design.slug} has no ask "${askId}"`;
       if (!Array.isArray(value) || value.some((id) => typeof id !== "string")) {
         return `${key} "${askId}" must be a list of asset ids`;
       }
@@ -2856,35 +3600,40 @@ export function createApp({
     return out;
   }
 
-  // A draft, validated against the mock as it is now: unknown asks, options,
+  // A draft, validated against the design as it is now: unknown asks, options,
   // variants, knob paths or out-of-range values are refused, never stored.
   async function sanitizeDraft(
     raw: any,
-    mock: Mock,
+    design: Design,
     posts: Post[],
     base: Draft | null,
   ): Promise<Draft | string> {
     const pick = (key: keyof Draft) => (raw?.[key] !== undefined ? raw[key] : base?.[key]);
-    const answers = sanitizeAnswers(pick("answers"), mock, posts);
+    const answers = sanitizeAnswers(pick("answers"), design, posts);
     if (typeof answers === "string") return answers;
     const borrowed = sanitizeBorrowed(pick("borrowed"), posts);
     if (typeof borrowed === "string") return borrowed;
-    const tuned = checkKnobValues(pick("tuned"), mock, posts, "tuned");
+    const tuned = checkKnobValues(pick("tuned"), design, posts, "tuned");
     if (!tuned.ok) return tuned.error;
-    const comments = sanitizePartComments(pick("comments"), mock, posts);
+    const comments = sanitizePartComments(pick("comments"), design, posts);
     if (typeof comments === "string") return comments;
-    const others = sanitizeAskTexts(pick("others"), mock, posts, "others");
+    const others = sanitizeAskTexts(pick("others"), design, posts, "others");
     if (typeof others === "string") return others;
-    const notes = sanitizeAskTexts(pick("notes"), mock, posts, "notes");
-    if (typeof notes === "string") return notes;
-    const otherImages = await sanitizeAskImages(pick("otherImages"), mock, posts, "otherImages");
+    const askComments = sanitizeAskTexts(pick("askComments"), design, posts, "askComments");
+    if (typeof askComments === "string") return askComments;
+    const otherImages = await sanitizeAskImages(pick("otherImages"), design, posts, "otherImages");
     if (typeof otherImages === "string") return otherImages;
-    const noteImages = await sanitizeAskImages(pick("noteImages"), mock, posts, "noteImages");
-    if (typeof noteImages === "string") return noteImages;
+    const askCommentImages = await sanitizeAskImages(
+      pick("askCommentImages"),
+      design,
+      posts,
+      "askCommentImages",
+    );
+    if (typeof askCommentImages === "string") return askCommentImages;
     for (const askId of Object.keys(otherImages)) others[askId] ??= "";
-    for (const askId of Object.keys(noteImages)) notes[askId] ??= "";
+    for (const askId of Object.keys(askCommentImages)) askComments[askId] ??= "";
     for (const askId of Object.keys(others)) {
-      const ask = askById(mock, posts, askId);
+      const ask = askById(design, posts, askId);
       if (!ask?.multi && answers[askId] !== undefined) return `ask "${askId}" takes one answer`;
     }
     const versionN = Number(pick("version"));
@@ -2899,9 +3648,9 @@ export function createApp({
       tuned: tuned.value,
       comments,
       others,
-      notes,
+      askComments,
       ...(Object.keys(otherImages).length ? { otherImages } : {}),
-      ...(Object.keys(noteImages).length ? { noteImages } : {}),
+      ...(Object.keys(askCommentImages).length ? { askCommentImages } : {}),
       updatedAt: new Date().toISOString(),
     };
   }
@@ -2910,38 +3659,42 @@ export function createApp({
 
   async function getDraftFlow(ref: unknown, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
-    const mock = await resolveMock(ref);
-    if (isResult(mock)) return mock;
-    return ok({ draft: mock.draft });
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
+    return ok({ draft: design.draft });
   }
 
   async function putDraftFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
-    const mock = await resolveMock(ref);
-    if (isResult(mock)) return mock;
-    const posts = await store.listPosts({ mockId: mock.id });
-    const draft = await sanitizeDraft(body, mock, posts, null);
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
+    const posts = await store.listPosts({ designId: design.id });
+    const draft = await sanitizeDraft(body, design, posts, null);
     if (typeof draft === "string") return fail(400, draft);
-    await store.putDraft(mock.id, draft);
-    bus.broadcast({ type: "draft-updated", mockId: mock.id });
+    await store.putDraft(design.id, draft);
+    bus.broadcast({ type: "draft-updated", designId: design.id });
     return ok({ draft });
   }
 
   async function deleteDraftFlow(ref: unknown, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
-    const mock = await resolveMock(ref);
-    if (isResult(mock)) return mock;
-    await store.putDraft(mock.id, null);
-    bus.broadcast({ type: "draft-updated", mockId: mock.id });
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
+    await store.putDraft(design.id, null);
+    bus.broadcast({ type: "draft-updated", designId: design.id });
     return ok({ draft: null });
   }
 
-  function sanitizeVerdict(raw: any, mock: Mock, posts: Post[]): ReplyVerdict | string | undefined {
+  function sanitizeVerdict(
+    raw: any,
+    design: Design,
+    posts: Post[],
+  ): ReplyVerdict | string | undefined {
     if (raw === undefined || raw === null) return undefined;
     const kind = raw.kind;
     if (kind !== "use" && kind !== "revise") return 'verdict.kind must be "use" or "revise"';
-    const chosen = chooseVariant(mock, posts, stateArg(raw.state), str(raw.variant, MAX_LABEL));
+    const chosen = chooseVariant(design, posts, stateArg(raw.state), str(raw.variant, MAX_LABEL));
     if (isResult(chosen)) return chosen.body.error as string;
     return { kind, state: chosen.state, variant: chosen.variant };
   }
@@ -2950,22 +3703,28 @@ export function createApp({
   // the chosen variant(s) in use in every state the ask covers and archives
   // their siblings there; a part-scoped pick is a borrow, not a verdict. The
   // built-in variant questions flip the same way, per state. Each variant is put
-  // in use at the version the reply was made on (`version`, a mock version), not
+  // in use at the version the reply was made on (`version`, a design version), not
   // whatever the agent published since — or, for a version option, at its version.
   function replyFlips(
-    mock: Mock,
+    design: Design,
     posts: Post[],
     answers: Record<string, AskAnswer>,
     verdict: ReplyVerdict | undefined,
     version: number,
-  ): { accept: Map<string, number>; archive: Set<string> } {
+  ): { accept: Map<string, number>; archive: Set<string>; release: Set<string> } {
     const accept = new Map<string, number>();
     const archive = new Set<string>();
+    // A kept answer's variant isn't chosen, nor lost: it leaves use, if it was in use,
+    // and waits beside the design.
+    const release = new Set<string>();
+    const kept = keptVariants(design, posts);
     const settle = (inState: Post[], chosen: Set<string>, pins?: Map<string, number>) => {
       if (!inState.some((p) => chosen.has(p.variant))) return;
       for (const p of inState) {
         if (!chosen.has(p.variant)) {
-          if (isLive(p.status)) archive.add(p.id);
+          if (isKeptVariant(kept, p)) {
+            if (p.status === "accepted") release.add(p.id);
+          } else if (isLive(p.status)) archive.add(p.id);
           continue;
         }
         const pin = pins?.get(p.variant);
@@ -2979,16 +3738,16 @@ export function createApp({
       }
     };
     const builtins = Object.keys(answers)
-      .filter((id) => !mock.asks.some((a) => a.id === id))
-      .flatMap((id) => builtinAsk(mock, posts, id) ?? []);
-    for (const ask of [...mock.asks, ...builtins]) {
+      .filter((id) => !design.asks.some((a) => a.id === id))
+      .flatMap((id) => builtinAsk(design, posts, id) ?? []);
+    for (const ask of [...design.asks, ...builtins]) {
       const answer = answers[ask.id];
       if (answer === undefined || ask.scope === "part") continue;
       const ids = Array.isArray(answer) ? answer : [answer];
       const picked = ask.options.filter((o) => ids.includes(o.id) && o.variant);
       const pinned = picked.filter((o) => o.version !== undefined);
       if (pinned.length) {
-        const state = optionState(ask, mock);
+        const state = optionState(ask, design);
         settle(
           posts.filter((p) => p.state === state),
           new Set(pinned.map((o) => o.variant!)),
@@ -2998,7 +3757,7 @@ export function createApp({
       const chosen = new Set(picked.filter((o) => o.version === undefined).map((o) => o.variant!));
       if (chosen.size === 0) continue;
       const states =
-        ask.scope === "state" ? [ask.state ?? null] : mock.states.length ? mock.states : [null];
+        ask.scope === "state" ? [ask.state ?? null] : design.states.length ? design.states : [null];
       for (const state of states)
         settle(
           posts.filter((p) => p.state === state),
@@ -3011,17 +3770,48 @@ export function createApp({
         new Set([verdict.variant]),
       );
     }
-    for (const id of accept.keys()) archive.delete(id);
-    return { accept, archive };
+    for (const id of accept.keys()) {
+      archive.delete(id);
+      release.delete(id);
+    }
+    return { accept, archive, release };
+  }
+
+  // The standings a reply carries: those changed since the last one, as sent, and
+  // every standing with an answer chosen now no longer kept, since it's in use.
+  function sentStandings(design: Design, answers: Record<string, AskAnswer>) {
+    const payload: Record<string, AnswerStanding> = {};
+    const next: Record<string, AnswerStanding> = {};
+    const now = new Date().toISOString();
+    for (const [askId, st] of Object.entries(design.standings)) {
+      const chosen = answers[askId] === undefined ? [] : [answers[askId]].flat();
+      const { unsent, since: was, ...rest } = st;
+      const kept = rest.kept.filter((id) => !chosen.includes(id));
+      const carried = (rest.carried ?? []).filter((id) => kept.includes(id));
+      // A kept answer starts waiting at the reply that answers its question.
+      const answered =
+        answers[askId] !== undefined || !!design.asks.find((a) => a.id === askId)?.answer;
+      const since = Object.fromEntries(
+        kept.flatMap((id) => (was?.[id] ? [[id, was[id]]] : answered ? [[id, now]] : [])),
+      );
+      const settled: AnswerStanding = {
+        kept,
+        hidden: rest.hidden,
+        ...(carried.length ? { carried } : {}),
+      };
+      if (unsent) payload[askId] = settled;
+      next[askId] = { ...settled, ...(Object.keys(since).length ? { since } : {}) };
+    }
+    return { payload, next };
   }
 
   // An ask as a reply leaves it. A pick or a write-in replaces whatever was
-  // answered before; a note alone keeps that answer and adds to it.
+  // answered before; a comment alone keeps that answer and adds to it.
   function sentAsk(a: Ask, draft: Draft): Ask {
     const answer = draft.answers[a.id];
     const other = draft.others?.[a.id];
-    const note = draft.notes?.[a.id];
-    if (answer === undefined && other === undefined && note === undefined) return a;
+    const comment = draft.askComments?.[a.id];
+    if (answer === undefined && other === undefined && comment === undefined) return a;
     const next: Ask = { ...a };
     delete next.dismissed;
     if (answer !== undefined || other !== undefined) {
@@ -3032,30 +3822,54 @@ export function createApp({
       if (other !== undefined) next.other = other;
       const images = draft.otherImages?.[a.id];
       if (other !== undefined && images) next.otherImages = images;
+      // A comment qualified the answer it was written on, not this one.
+      delete next.comment;
+      delete next.commentImages;
     }
-    if (note !== undefined) {
-      next.note = note;
-      delete next.noteImages;
-      const images = draft.noteImages?.[a.id];
-      if (images) next.noteImages = images;
+    if (comment !== undefined) {
+      next.comment = comment;
+      delete next.commentImages;
+      const images = draft.askCommentImages?.[a.id];
+      if (images) next.commentImages = images;
     }
     return next;
   }
 
   // Send: the user's one batched answer becomes one kind:"reply" comment on the
-  // mock's session, delivered through the same cursor as everything else. The
+  // design's session, delivered through the same cursor as everything else. The
   // draft is cleared and statuses flip in the same store transaction.
   async function replyFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
-    const mock = await resolveMock(ref);
-    if (isResult(mock)) return mock;
-    const posts = await store.listPosts({ mockId: mock.id });
-    const draft = await sanitizeDraft(body ?? {}, mock, posts, mock.draft);
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
+    const posts = await store.listPosts({ designId: design.id });
+    const draft = await sanitizeDraft(body ?? {}, design, posts, design.draft);
     if (typeof draft === "string") return fail(400, draft);
     const text = str(body?.text, MAX_COMMENT_TEXT);
-    const verdict = sanitizeVerdict(body?.verdict, mock, posts);
+    const verdict = sanitizeVerdict(body?.verdict, design, posts);
     if (typeof verdict === "string") return fail(400, verdict);
+    const moreAsk = str(body?.more?.ask, MAX_LABEL);
+    if (moreAsk && !design.asks.some((a) => a.id === moreAsk)) {
+      return fail(400, `${design.slug} has no question "${moreAsk}"`);
+    }
+    const moreNote = str(body?.more?.note, MAX_COMMENT_TEXT);
+    const moreLike = str(body?.more?.like, MAX_LABEL);
+    if (
+      moreLike &&
+      !design.asks.find((a) => a.id === moreAsk)?.options.some((o) => o.id === moreLike)
+    ) {
+      return fail(400, `question "${moreAsk}" has no answer "${moreLike}"`);
+    }
+    const update = sanitizeUpdate(body?.update, design);
+    if (typeof update === "string") return fail(400, update);
+    const setName = str(body?.set, MAX_LABEL);
+    if (setName && !design.sets.some((x) => x.name === setName)) {
+      return fail(400, `${design.slug} has no set "${setName}"`);
+    }
     const empty =
+      !moreAsk &&
+      !update &&
+      !setName &&
       !text &&
       !verdict &&
       !Object.keys(draft.answers).length &&
@@ -3063,52 +3877,70 @@ export function createApp({
       !Object.keys(draft.tuned).length &&
       !draft.comments.length &&
       !Object.keys(draft.others ?? {}).length &&
-      !Object.keys(draft.notes ?? {}).length;
+      !Object.keys(draft.askComments ?? {}).length;
     if (empty) return fail(400, "nothing to send");
-    const latest = [...posts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-    const sessionId = mock.sessionId ?? latest?.sessionId;
-    if (!sessionId) return fail(409, `${mock.slug} has no agent session to reply to`);
+    const target = await sendTarget(design, posts, body?.to);
+    if (isResult(target)) return target;
+    if (!target) return fail(409, `${design.slug} has no agent session to reply to`);
+    const { sessionId, routed } = target;
     const payload: Reply = {
-      mockId: mock.id,
+      designId: design.id,
       version: draft.version,
+      ...(routed ? { routed: true as const } : {}),
+      ...(moreAsk
+        ? {
+            more: {
+              ask: moreAsk,
+              ...(moreNote ? { note: moreNote } : {}),
+              ...(moreLike ? { like: moreLike } : {}),
+            },
+          }
+        : {}),
+      ...(update ? { update } : {}),
+      ...(setName ? { set: setName } : {}),
       answers: draft.answers,
       borrowed: draft.borrowed,
       tuned: draft.tuned,
       comments: draft.comments,
       ...(Object.keys(draft.others ?? {}).length ? { others: draft.others } : {}),
-      ...(Object.keys(draft.notes ?? {}).length ? { notes: draft.notes } : {}),
+      ...(Object.keys(draft.askComments ?? {}).length ? { askComments: draft.askComments } : {}),
       ...(draft.otherImages ? { otherImages: draft.otherImages } : {}),
-      ...(draft.noteImages ? { noteImages: draft.noteImages } : {}),
+      ...(draft.askCommentImages ? { askCommentImages: draft.askCommentImages } : {}),
       ...(text ? { text } : {}),
     };
-    const asks = mock.asks.map((a) => sentAsk(a, draft));
-    const flips = replyFlips(mock, posts, draft.answers, verdict, draft.version);
+    const asks = design.asks.map((a) => sentAsk(a, draft));
+    const flips = replyFlips(design, posts, draft.answers, verdict, draft.version);
+    const standings = sentStandings(design, draft.answers);
+    if (Object.keys(standings.payload).length) payload.standings = standings.payload;
     if (verdict) {
       const target = posts.find((p) => p.state === verdict.state && p.variant === verdict.variant);
       const pinned = verdict.kind === "use" && target ? flips.accept.get(target.id) : undefined;
       payload.verdict = pinned === undefined ? verdict : { ...verdict, version: pinned };
     }
     const comment = await store.commitReply({
-      mockId: mock.id,
+      designId: design.id,
       sessionId,
       text: text ?? "",
       payload,
       asks,
       accept: [...flips.accept].map(([id, version]) => ({ id, version })),
       archive: [...flips.archive],
+      release: [...flips.release],
+      standings: standings.next,
+      ...(routed ? { owner: sessionId } : {}),
     });
-    if (!comment) return fail(409, `${mock.slug} has no agent session to reply to`);
+    if (!comment) return fail(409, `${design.slug} has no agent session to reply to`);
     announceComment(comment);
-    bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
-    bus.broadcast({ type: "draft-updated", mockId: mock.id });
-    void announceEmbedders(mock).catch((err) => console.warn("[mockpit] embedders", err));
-    const after = await store.listPosts({ mockId: mock.id });
+    bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+    bus.broadcast({ type: "draft-updated", designId: design.id });
+    void announceEmbedders(design).catch((err) => console.warn("[mockpit] embedders", err));
+    const after = await store.listPosts({ designId: design.id });
     for (const p of after) {
-      if (flips.accept.has(p.id) || flips.archive.has(p.id)) {
+      if (flips.accept.has(p.id) || flips.archive.has(p.id) || flips.release.has(p.id)) {
         bus.broadcast({
           type: "post-updated",
           id: p.id,
-          mockId: mock.id,
+          designId: design.id,
           sessionId: p.sessionId,
           version: p.version,
           by: "user",
@@ -3117,12 +3949,12 @@ export function createApp({
     }
     fireNotify({
       event: "decision",
-      project: mock.project,
-      slug: mock.slug,
+      project: design.project,
+      slug: design.slug,
       variant: verdict?.variant ?? "",
       version: draft.version,
       text: text || verdict?.kind || "reply",
-      url: mockUrl(ctx.base, mock),
+      url: designUrl(ctx.base, design),
     });
     const [delivered] = await withDelivered([comment]);
     return ok(
@@ -3145,10 +3977,15 @@ export function createApp({
   // the user's unsent draft is left for their next Send.
   async function useFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
-    const mock = await resolveMock(ref);
-    if (isResult(mock)) return mock;
-    const posts = await store.listPosts({ mockId: mock.id });
-    const chosen = chooseVariant(mock, posts, stateArg(body?.state), str(body?.variant, MAX_LABEL));
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
+    const posts = await store.listPosts({ designId: design.id });
+    const chosen = chooseVariant(
+      design,
+      posts,
+      stateArg(body?.state),
+      str(body?.variant, MAX_LABEL),
+    );
     if (isResult(chosen)) return chosen;
     const version = Number(body?.version);
     if (!Number.isInteger(version) || version < 1) {
@@ -3163,39 +4000,44 @@ export function createApp({
     if (chosen.status === "accepted" && chosen.acceptedVersion === version) {
       return ok({ reply: null, inUse, archived: [] });
     }
-    const latest = [...posts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-    const sessionId = mock.sessionId ?? latest?.sessionId;
-    if (!sessionId) return fail(409, `${mock.slug} has no agent session to reply to`);
-    const archive = posts.filter(
-      (p) => p.state === chosen.state && p.id !== chosen.id && isLive(p.status),
-    );
+    const target = await sendTarget(design, posts, body?.to);
+    if (isResult(target)) return target;
+    if (!target) return fail(409, `${design.slug} has no agent session to reply to`);
+    const { sessionId, routed } = target;
+    const kept = keptVariants(design, posts);
+    const siblings = posts.filter((p) => p.state === chosen.state && p.id !== chosen.id);
+    const archive = siblings.filter((p) => isLive(p.status) && !isKeptVariant(kept, p));
+    const release = siblings.filter((p) => p.status === "accepted" && isKeptVariant(kept, p));
     const comment = await store.commitReply({
-      mockId: mock.id,
+      designId: design.id,
       sessionId,
       text: "",
       payload: {
-        mockId: mock.id,
+        designId: design.id,
         version,
         answers: {},
         borrowed: {},
         tuned: {},
         comments: [],
         verdict: { kind: "use", ...inUse },
+        ...(routed ? { routed: true as const } : {}),
       },
-      asks: mock.asks,
+      asks: design.asks,
       accept: [{ id: chosen.id, version }],
       archive: archive.map((p) => p.id),
+      release: release.map((p) => p.id),
       keepDraft: true,
+      ...(routed ? { owner: sessionId } : {}),
     });
-    if (!comment) return fail(409, `${mock.slug} has no agent session to reply to`);
+    if (!comment) return fail(409, `${design.slug} has no agent session to reply to`);
     announceComment(comment);
-    bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
-    void announceEmbedders(mock).catch((err) => console.warn("[mockpit] embedders", err));
-    for (const p of [chosen, ...archive]) {
+    bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+    void announceEmbedders(design).catch((err) => console.warn("[mockpit] embedders", err));
+    for (const p of [chosen, ...archive, ...release]) {
       bus.broadcast({
         type: "post-updated",
         id: p.id,
-        mockId: mock.id,
+        designId: design.id,
         sessionId: p.sessionId,
         version: p.version,
         by: "user",
@@ -3203,12 +4045,12 @@ export function createApp({
     }
     fireNotify({
       event: "decision",
-      project: mock.project,
-      slug: mock.slug,
+      project: design.project,
+      slug: design.slug,
       variant: chosen.variant,
       version,
       text: "use",
-      url: mockUrl(ctx.base, mock),
+      url: designUrl(ctx.base, design),
     });
     const [delivered] = await withDelivered([comment]);
     return ok(
@@ -3222,15 +4064,20 @@ export function createApp({
   }
 
   // The user hides one version of a variant from the history, or brings it
-  // back. Hidden, never removed: replies and embeds may point at it, so it still
+  // back; an agent asked to tidy up hides through `move`. Hidden, not removed: replies and embeds may point at it, so it still
   // renders by URL. The version in use can't be hidden, nor a state's last.
   async function hideFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
-    const mock = await resolveMock(ref);
-    if (isResult(mock)) return mock;
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
     if (typeof body?.hidden !== "boolean") return fail(400, '"hidden" must be true or false');
-    const posts = await store.listPosts({ mockId: mock.id });
-    const chosen = chooseVariant(mock, posts, stateArg(body?.state), str(body?.variant, MAX_LABEL));
+    const posts = await store.listPosts({ designId: design.id });
+    const chosen = chooseVariant(
+      design,
+      posts,
+      stateArg(body?.state),
+      str(body?.variant, MAX_LABEL),
+    );
     if (isResult(chosen)) return chosen;
     const version = Number(body?.version);
     if (!Number.isInteger(version) || version < 1) {
@@ -3256,11 +4103,13 @@ export function createApp({
     bus.broadcast({
       type: "post-updated",
       id: updated.id,
-      mockId: mock.id,
+      designId: design.id,
       sessionId: updated.sessionId,
       version: updated.version,
       by: "user",
     });
+    // An embed following this variant passes over a version the user hid.
+    void announceEmbedders(design).catch((err) => console.warn("[mockpit] embedders", err));
     return ok({
       state: updated.state,
       variant: updated.variant,
@@ -3269,89 +4118,301 @@ export function createApp({
     });
   }
 
-  // The user closes a mock from the project list: its open asks are dismissed
-  // unanswered, an unsent draft goes with them, and the agent hears it once,
-  // as a close through the same cursor as a Send.
-  async function closeFlow(ref: unknown, ctx: FlowContext): Promise<FlowResult> {
+  // What the user last wrote about a design, to keep as why it was archived: the comment on the
+  // draft they were still writing, else on their last reply, unless a version has
+  // answered that since.
+  async function reasonFromNote(design: Design, posts: Post[]): Promise<string | null> {
+    const lastWords = (r: { text?: string; askComments?: Record<string, string> }) =>
+      r.text?.trim() ||
+      Object.values(r.askComments ?? {})
+        .map((n) => n.trim())
+        .filter(Boolean)
+        .at(-1) ||
+      null;
+    const drafted = design.draft && lastWords(design.draft);
+    if (drafted) return drafted.slice(0, MAX_REASON);
+    const replies = (await replyComments(design.id)).filter((c) => !c.payload?.archived);
+    const last = replies.at(-1);
+    if (!last?.payload || posts.some((p) => p.updatedAt > last.createdAt)) return null;
+    const said = lastWords({ ...last.payload, text: last.text });
+    return said ? said.slice(0, MAX_REASON) : null;
+  }
+
+  // The user ends a design: it leaves the working shelf and its open asks stop counting.
+  // The agent isn't told and nothing is refused: it reads `archivedAt` as information,
+  // and a question it asks brings the design back. An unsent draft stays with the design
+  // for its Undo; what was already sent stays on the cursor, undisturbed.
+  async function archiveDesignFlow(ref: unknown, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
-    const mock = await resolveMock(ref);
-    if (isResult(mock)) return mock;
-    const posts = await store.listPosts({ mockId: mock.id });
-    if (mock.closedAt) return ok({ mock: mockSummaryView(mock, posts), dismissed: [] });
-    const dismissed = [...openAsks(mock).map((a) => a.id), ...builtinAskIds(mock, posts, mock.id)];
-    const asks = mock.asks.map((a): Ask => (askAnswered(a) ? a : { ...a, dismissed: true }));
-    const at = new Date().toISOString();
-    const latest = [...posts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-    const sessionId = mock.sessionId ?? latest?.sessionId;
-    const session = sessionId ? await store.getSession(sessionId) : null;
-    const comment = session
-      ? await store.commitReply({
-          mockId: mock.id,
-          sessionId: session.id,
-          text: "",
-          payload: {
-            mockId: mock.id,
-            version: Math.max(1, ...posts.map((p) => p.version)),
-            answers: {},
-            borrowed: {},
-            tuned: {},
-            comments: [],
-            closed: { dismissed },
-          },
-          asks,
-          accept: [],
-          archive: [],
-          closedAt: at,
-        })
-      : null;
-    if (comment) announceComment(comment);
-    else {
-      // No agent to tell: the mock still leaves the open list.
-      await store.updateMock(mock.id, { asks, closedAt: at });
-      await store.putDraft(mock.id, null);
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
+    const posts = await store.listPosts({ designId: design.id });
+    if (design.archivedAt) {
+      return ok({ design: designSummaryView(design, posts), reason: design.archiveReason });
     }
-    bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
-    bus.broadcast({ type: "draft-updated", mockId: mock.id });
-    const after = (await store.getMock(mock.id)) ?? mock;
-    return ok({ mock: mockSummaryView(after, posts), dismissed });
+    const reason = await reasonFromNote(design, posts);
+    const updated = await store.updateDesign(design.id, {
+      asks: design.asks.map((a): Ask => (askAnswered(a) ? a : { ...a, dismissed: true })),
+      archivedAt: new Date().toISOString(),
+      archiveReason: reason,
+    });
+    if (!updated) return fail(404, "design not found");
+    bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+    return ok({ design: designSummaryView(updated, posts), reason });
   }
 
-  // Back from Closed: the asks it dismissed are open again. The agent was
-  // told they were dismissed; answers given now reach it as a normal Send.
-  async function reopenFlow(ref: unknown, ctx: FlowContext): Promise<FlowResult> {
+  // Back from the archive: the asks it dismissed are open again, and an answer
+  // given now reaches the agent as a normal Send. With every variant archived, ending
+  // it isn't what keeps it off the shelf, so they all come back too. `undo` is what
+  // puts it exactly where it was, day included.
+  async function restoreDesignFlow(ref: unknown, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
-    const mock = await resolveMock(ref);
-    if (isResult(mock)) return mock;
-    const posts = await store.listPosts({ mockId: mock.id });
-    if (!mock.closedAt) return ok({ mock: mockSummaryView(mock, posts) });
-    const asks = mock.asks.map(({ dismissed: _, ...a }) => a);
-    const updated = await store.updateMock(mock.id, { asks, closedAt: null });
-    if (!updated) return fail(404, "mock not found");
-    bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
-    return ok({ mock: mockSummaryView(updated, posts) });
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
+    const posts = await store.listPosts({ designId: design.id });
+    const nothingLive = posts.length > 0 && !posts.some((p) => isLive(p.status));
+    if (!design.archivedAt && !nothingLive) return ok({ design: designSummaryView(design, posts) });
+    const undo = {
+      archivedAt: design.archivedAt,
+      archiveReason: design.archiveReason,
+      dismissed: design.asks.filter((a) => a.dismissed).map((a) => a.id),
+      variants: nothingLive
+        ? posts.map((p) => ({
+            id: p.id,
+            archivedAt: p.archivedAt ?? design.updatedAt,
+            reason: p.archiveReason ?? null,
+          }))
+        : [],
+    };
+    const asks = design.asks.map(({ dismissed: _, ...a }) => a);
+    const updated = await store.updateDesign(design.id, { asks, archivedAt: null });
+    if (!updated) return fail(404, "design not found");
+    if (nothingLive) for (const post of posts) await setStatus(design, post, "open");
+    bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+    return ok({
+      design: designSummaryView(updated, await store.listPosts({ designId: design.id })),
+      undo,
+    });
   }
 
-  async function restoreFlow(ref: unknown, body: any): Promise<FlowResult> {
-    const mock = await resolveMock(ref, body?.project);
-    if (isResult(mock)) return mock;
-    const posts = await store.listPosts({ mockId: mock.id });
-    const chosen = chooseVariant(mock, posts, stateArg(body?.state), str(body?.variant, MAX_LABEL));
+  // The Undo of a restore: back to what restoreDesignFlow's `undo` says it was. A design the
+  // agent has archived or removed since is left as it is.
+  async function rearchiveFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
+    const when = (v: unknown) => {
+      const text = str(v, 40);
+      return text && !Number.isNaN(Date.parse(text)) ? text : null;
+    };
+    const posts = new Map(
+      (await store.listPosts({ designId: design.id })).map((p): [string, Post] => [p.id, p]),
+    );
+    const given: any[] = Array.isArray(body?.variants) ? body.variants : [];
+    for (const v of given) {
+      const post = posts.get(v?.id);
+      if (!post || !isLive(post.status)) continue;
+      const updated = await store.setPostArchived(
+        post.id,
+        when(v.archivedAt) ?? new Date().toISOString(),
+        str(v.reason, MAX_REASON) ?? null,
+      );
+      if (updated) {
+        bus.broadcast({
+          type: "post-updated",
+          id: updated.id,
+          designId: design.id,
+          sessionId: updated.sessionId,
+          version: updated.version,
+          by: "user",
+        });
+      }
+    }
+    const dismissed = new Set<unknown>(Array.isArray(body?.dismissed) ? body.dismissed : []);
+    const updated = await store.updateDesign(design.id, {
+      asks: design.asks.map((a): Ask => (dismissed.has(a.id) ? { ...a, dismissed: true } : a)),
+      archivedAt: when(body?.archivedAt),
+      archiveReason: str(body?.archiveReason, MAX_REASON) ?? null,
+    });
+    if (!updated) return fail(404, "design not found");
+    bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+    return ok({ design: designSummaryView(updated, [...posts.values()]) });
+  }
+
+  // The user says why something went, or rewords it: on an archived design, or with a
+  // variant, on an archived variant. Information only, read back in `read`.
+  async function reasonFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
+    const reason = str(body?.reason, MAX_REASON) ?? null;
+    if (body?.variant === undefined) {
+      // Every variant archived is as gone as archived, and sits beside it in the Archive.
+      const posts = await store.listPosts({ designId: design.id });
+      const gone = design.archivedAt || (posts.length > 0 && !posts.some((p) => isLive(p.status)));
+      if (!gone) return fail(409, `${design.slug} is not archived`);
+      await store.updateDesign(design.id, { archiveReason: reason });
+      bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+      return ok({ reason });
+    }
+    const posts = await store.listPosts({ designId: design.id });
+    const chosen = chooseVariant(
+      design,
+      posts,
+      stateArg(body?.state),
+      str(body?.variant, MAX_LABEL),
+    );
     if (isResult(chosen)) return chosen;
-    const updated = await store.setPostStatus(chosen.id, "open");
+    if (isLive(chosen.status)) return fail(409, `${chosen.variant} is not archived`);
+    const updated = await store.setPostReason(chosen.id, reason);
     if (!updated) return fail(404, "variant not found");
     bus.broadcast({
       type: "post-updated",
       id: updated.id,
-      mockId: mock.id,
+      designId: design.id,
       sessionId: updated.sessionId,
       version: updated.version,
       by: "user",
     });
+    return ok({ reason });
+  }
+
+  // What the user says about a state a declared screen doesn't have: it doesn't apply,
+  // or they've asked for it (the asking itself is a normal reply). null takes that back.
+  // Dismissing a state only the agent planned also takes it out of the list, since
+  // nothing is drawn there to lose.
+  async function outlineFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
+    const state = str(body?.state, MAX_LABEL);
+    if (!state) return fail(400, '"state" must name the state');
+    const to: unknown = body?.to;
+    if (to !== "dismissed" && to !== "requested" && to !== null) {
+      return fail(400, '"to" must be "dismissed", "requested" or null');
+    }
+    const { [state]: _, ...rest } = design.stateOutlines;
+    if (to !== null && Object.keys(rest).length >= MAX_STATE_OUTLINES) {
+      return fail(400, `${design.slug} already has ${MAX_STATE_OUTLINES} of these`);
+    }
+    const stateOutlines: Record<string, StateOutline> =
+      to === null ? rest : { ...rest, [state]: to };
+    const posts = await store.listPosts({ designId: design.id });
+    const undrawn =
+      to === "dismissed" && design.states.includes(state) && !posts.some((p) => p.state === state);
+    const updated = await store.updateDesign(design.id, {
+      stateOutlines,
+      ...(undrawn ? { states: design.states.filter((st) => st !== state) } : {}),
+    });
+    if (!updated) return fail(404, "design not found");
+    bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+    return ok({ stateOutlines });
+  }
+
+  // The user looked at a newer version of what's in use and keeps what they have.
+  // Nothing moves and nobody is told: it only stops asking until a newer one comes.
+  async function stayFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
+    const posts = await store.listPosts({ designId: design.id });
+    const chosen = chooseVariant(
+      design,
+      posts,
+      stateArg(body?.state),
+      str(body?.variant, MAX_LABEL),
+    );
+    if (isResult(chosen)) return chosen;
+    if (chosen.status !== "accepted") return fail(409, `${chosen.variant} is not in use`);
+    const updated = await store.setPostStayed(chosen.id, chosen.version);
+    if (!updated) return fail(404, "variant not found");
+    bus.broadcast({
+      type: "post-updated",
+      id: updated.id,
+      designId: design.id,
+      sessionId: updated.sessionId,
+      version: updated.version,
+      by: "user",
+    });
+    bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+    return ok({ state: updated.state, variant: updated.variant, version: inUseVersion(updated) });
+  }
+
+  async function restoreFlow(ref: unknown, body: any): Promise<FlowResult> {
+    const design = await resolveDesign(ref, body?.project);
+    if (isResult(design)) return design;
+    const posts = await store.listPosts({ designId: design.id });
+    const chosen = chooseVariant(
+      design,
+      posts,
+      stateArg(body?.state),
+      str(body?.variant, MAX_LABEL),
+    );
+    if (isResult(chosen)) return chosen;
+    const updated = await setStatus(design, chosen, "open");
+    if (!updated) return fail(404, "variant not found");
     return ok({
       state: updated.state,
       variant: updated.variant,
       status: variantStatus(updated.status),
     });
+  }
+
+  // Not by "agent", even when an agent's move did it: that would notify once per
+  // design, and the move's one Thread line already says it.
+  async function setStatus(design: Design, post: Post, status: "open" | "archived") {
+    const updated = await store.setPostStatus(post.id, status);
+    if (!updated) return null;
+    bus.broadcast({
+      type: "post-updated",
+      id: updated.id,
+      designId: design.id,
+      sessionId: updated.sessionId,
+      version: updated.version,
+      by: "user",
+    });
+    return updated;
+  }
+
+  // A pick of a design that just left: it would hold the stage on the version the
+  // draft was made on, and Send would put in use something nobody can see. Only
+  // those picks go; whatever the user wrote stays.
+  async function dropStalePicks(design: Design): Promise<void> {
+    const draft = (await store.getDesign(design.id))?.draft;
+    if (!draft) return;
+    const posts = await store.listPosts({ designId: design.id });
+    const answers: Record<string, AskAnswer> = {};
+    for (const [askId, value] of Object.entries(draft.answers)) {
+      const ask = askById(design, posts, askId);
+      const here = (variant: string) =>
+        posts.some(
+          (p) =>
+            p.variant === variant &&
+            isLive(p.status) &&
+            (ask?.state === undefined || p.state === ask.state),
+        );
+      const stays = (id: string) => {
+        const variant = ask?.options.find((o) => o.id === id)?.variant;
+        return !variant || here(variant);
+      };
+      if (Array.isArray(value)) {
+        const kept = value.filter(stays);
+        if (kept.length) answers[askId] = kept;
+      } else if (stays(value)) {
+        answers[askId] = value;
+      }
+    }
+    if (Object.keys(answers).length === Object.keys(draft.answers).length) return;
+    const next = { ...draft, answers, updatedAt: new Date().toISOString() };
+    const nothing =
+      Object.keys(answers).length === 0 &&
+      Object.keys(draft.borrowed).length === 0 &&
+      Object.keys(draft.tuned).length === 0 &&
+      draft.comments.length === 0 &&
+      Object.keys(draft.others ?? {}).length === 0 &&
+      Object.keys(draft.askComments ?? {}).length === 0;
+    await store.putDraft(design.id, nothing ? null : next);
+    bus.broadcast({ type: "draft-updated", designId: design.id });
   }
 
   // The user archives a variant they're done with, short of choosing another:
@@ -3360,22 +4421,20 @@ export function createApp({
   // and no reply saying why.
   async function archiveFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
-    const mock = await resolveMock(ref);
-    if (isResult(mock)) return mock;
-    const posts = await store.listPosts({ mockId: mock.id });
-    const chosen = chooseVariant(mock, posts, stateArg(body?.state), str(body?.variant, MAX_LABEL));
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
+    const posts = await store.listPosts({ designId: design.id });
+    const chosen = chooseVariant(
+      design,
+      posts,
+      stateArg(body?.state),
+      str(body?.variant, MAX_LABEL),
+    );
     if (isResult(chosen)) return chosen;
     if (variantStatus(chosen.status) === "inUse") return fail(409, `${chosen.variant} is in use`);
-    const updated = await store.setPostStatus(chosen.id, "archived");
+    const updated = await setStatus(design, chosen, "archived");
     if (!updated) return fail(404, "variant not found");
-    bus.broadcast({
-      type: "post-updated",
-      id: updated.id,
-      mockId: mock.id,
-      sessionId: updated.sessionId,
-      version: updated.version,
-      by: "user",
-    });
+    await dropStalePicks(design);
     return ok({
       state: updated.state,
       variant: updated.variant,
@@ -3383,28 +4442,715 @@ export function createApp({
     });
   }
 
-  // The user stars (or unstars) a variant: a favourite to come back to, which
-  // decides nothing. Viewer-only; the agent reads it as `starred`.
-  async function starFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+  // The user keeps an answer for later, hides it (with an optional why), or neither.
+  // Saved now and told to the agent with the next reply, so nothing waits for a
+  // Send. Viewer-only. `carried` instead says whether a kept screen is changed along
+  // with the one in use.
+  // Culling by key sends standings faster than one write finishes, and each rewrites
+  // the design's whole map: one at a time per design, or a later one drops an earlier.
+  const standingQueue = new Map<string, Promise<unknown>>();
+  function standingFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    const key = String(ref);
+    const run = (standingQueue.get(key) ?? Promise.resolve()).then(() =>
+      writeStanding(ref, body, ctx),
+    );
+    const settled = run.catch(() => {});
+    standingQueue.set(key, settled);
+    void settled.then(() => {
+      if (standingQueue.get(key) === settled) standingQueue.delete(key);
+    });
+    return run;
+  }
+  async function writeStanding(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
-    const mock = await resolveMock(ref);
-    if (isResult(mock)) return mock;
-    if (typeof body?.starred !== "boolean") return fail(400, '"starred" must be true or false');
-    const posts = await store.listPosts({ mockId: mock.id });
-    const chosen = chooseVariant(mock, posts, stateArg(body?.state), str(body?.variant, MAX_LABEL));
-    if (isResult(chosen)) return chosen;
-    const updated = await store.setPostStarred(chosen.id, body.starred);
-    if (!updated) return fail(404, "variant not found");
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
+    const posts = await store.listPosts({ designId: design.id });
+    const askId = str(body?.ask, MAX_LABEL);
+    const ask = askId ? askById(design, posts, askId) : undefined;
+    if (!ask) return fail(400, `${design.slug} has no question "${String(body?.ask)}"`);
+    const option = ask.options.find((o) => o.id === body?.option);
+    if (!option) return fail(400, `question "${ask.id}" has no answer "${String(body?.option)}"`);
+    let next = standingOf(design, ask.id);
+    if (typeof body?.carried === "boolean") {
+      if (!next.kept.includes(option.id) || !option.variant) {
+        return fail(400, "only a kept screen can be changed along with the one in use");
+      }
+      const carried = (next.carried ?? []).filter((id) => id !== option.id);
+      if (body.carried) carried.push(option.id);
+      const { carried: _, ...rest } = next;
+      next = { ...rest, ...(carried.length ? { carried } : {}), unsent: true };
+    } else {
+      const to = body?.to as StandingKind;
+      if (to !== "kept" && to !== "hidden" && to !== "open") {
+        return fail(400, '"to" must be kept, hidden or open');
+      }
+      next = withStanding(next, option, to, to === "hidden" ? str(body?.why, MAX_WHY) : undefined);
+    }
+    const standings = { ...design.standings, [ask.id]: next };
+    if (!next.kept.length && !next.hidden.length) delete standings[ask.id];
+    const updated = await store.updateDesign(design.id, { standings });
+    if (!updated) return fail(404, "design not found");
+    bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+    return ok({ ask: ask.id, standing: standings[ask.id] ?? { kept: [], hidden: [] } });
+  }
+
+  // A kept screen brought up to date once: the question and the kept answer.
+  function sanitizeUpdate(raw: unknown, design: Design): Reply["update"] | string | undefined {
+    if (raw === undefined || raw === null) return undefined;
+    const r = raw as Record<string, unknown>;
+    const ask = design.asks.find((a) => a.id === r.ask);
+    const option = ask?.options.find((o) => o.id === r.option);
+    if (!ask || !option?.variant) return "update names a question and one of its screen answers";
+    if (!standingOf(design, ask.id).kept.includes(option.id)) return `"${option.label}" isn't kept`;
+    return { ask: ask.id, option: option.id };
+  }
+
+  // The user saves the answers on screen as a named set, or removes one.
+  // A set decides nothing until it is put in use, which is a reply like any other.
+  async function setsFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
+    const posts = await store.listPosts({ designId: design.id });
+    const name = str(body?.name, MAX_LABEL);
+    if (!name) return fail(400, '"name" is required');
+    const sets = design.sets.filter((x) => x.name !== name);
+    if (body?.remove === true) {
+      if (sets.length === design.sets.length)
+        return fail(404, `${design.slug} has no set "${name}"`);
+    } else {
+      const answers = sanitizeAnswers(body?.answers, design, posts);
+      if (typeof answers === "string") return fail(400, answers);
+      if (!Object.keys(answers).length) return fail(400, "a set holds at least one answer");
+      const at = design.sets.findIndex((x) => x.name === name);
+      const entry: AnswerSet = { name, answers, at: new Date().toISOString() };
+      if (at >= 0) sets.splice(at, 0, entry);
+      else if (sets.length >= MAX_SETS) return fail(400, `at most ${MAX_SETS} sets`);
+      else sets.push(entry);
+    }
+    const updated = await store.updateDesign(design.id, { sets });
+    if (!updated) return fail(404, "design not found");
+    bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+    return ok({ sets });
+  }
+
+  // The user copies a version into an idea they are gathering (stored as a shortlist,
+  // the word `read` still carries), or into any other design or state of the project. It stays a copy of that one version, so its original and that
+  // design's decisions stay as they were, and an agent iterates on it like any other
+  // variant.
+  async function shortlistsFlow(project: string): Promise<FlowResult> {
+    const designs = (await store.listDesigns(project)).filter((m) => m.shortlist && !m.archivedAt);
+    designs.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    // One design at a time: every open design screen calls this, and a project's
+    // heads are far more than its few shortlists need.
+    const shortlists = [];
+    for (const m of designs) {
+      const posts = await store.listPosts({ designId: m.id });
+      shortlists.push({
+        id: m.id,
+        slug: m.slug,
+        title: m.title,
+        candidates: posts
+          .filter((p) => isLive(p.status))
+          .map((p) => ({ variant: p.variant, copiedFrom: p.copiedFrom ?? null })),
+      });
+    }
+    return ok({ shortlists, copies: await store.listCopies(project) });
+  }
+
+  async function uniqueSlug(project: string, wanted: string): Promise<string> {
+    const base = slugify(wanted) || "idea";
+    let slug = base;
+    for (let n = 2; await store.findDesign(project, slug); n++) slug = `${base}-${n}`;
+    return slug;
+  }
+
+  // Not announcePost: a shortlist embeds nothing new, and finding what embeds a
+  // design reads every post in the project before the response can leave.
+  function announceCopy(list: Design, post: Post, created: boolean) {
     bus.broadcast({
-      type: "post-updated",
-      id: updated.id,
-      mockId: mock.id,
-      sessionId: updated.sessionId,
-      version: updated.version,
+      type: created ? "post-created" : "post-updated",
+      id: post.id,
+      designId: list.id,
+      sessionId: post.sessionId,
+      version: post.version,
       by: "user",
     });
-    bus.broadcast({ type: "mock-updated", id: mock.id, project: mock.project });
-    return ok({ state: updated.state, variant: updated.variant, starred: !!updated.starred });
+  }
+
+  // A copy's name, which must not take another candidate's. Two labs can share
+  // a name, and two versions of one variant are two candidates.
+  function candidateName(wanted: string, version: number, origin: Design, taken: Set<string>) {
+    // A live "default" is what a component shows wherever it is embedded, so a copy
+    // must not take that name just by arriving first.
+    const name = wanted === DEFAULT_VARIANT ? origin.title : wanted;
+    const tries = [name, `${name} #${version}`, `${name} (${origin.title})`];
+    const free = tries.find((t) => !taken.has(t));
+    if (free) return free;
+    let n = 2;
+    while (taken.has(`${tries[2]} ${n}`)) n++;
+    return `${tries[2]} ${n}`;
+  }
+
+  async function saveCopiesFlow(body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    return copyCandidates(body);
+  }
+
+  async function copyCandidates(body: any): Promise<FlowResult> {
+    const picks: any[] = Array.isArray(body?.candidates) ? body.candidates : [];
+    if (picks.length === 0) return fail(400, 'provide "candidates": the versions to save');
+    if (picks.length > MAX_CANDIDATES) {
+      return fail(400, `save at most ${MAX_CANDIDATES} candidates at once`);
+    }
+    const origins = [];
+    for (const pick of picks) {
+      const design = await resolveDesign(pick?.design);
+      if (isResult(design)) return design;
+      const posts = await store.listPosts({ designId: design.id });
+      const post = chooseVariant(
+        design,
+        posts,
+        stateArg(pick?.state),
+        str(pick?.variant, MAX_LABEL),
+      );
+      if (isResult(post)) return post;
+      const version = Number.isInteger(pick?.version) ? (pick.version as number) : post.version;
+      const surfaces =
+        version === post.version
+          ? post.surfaces
+          : post.history.find((h) => h.version === version)?.surfaces;
+      if (!surfaces) return fail(404, `${post.variant} has no version ${version}`);
+      origins.push({ design, post, version, surfaces });
+    }
+    const first = origins[0].design;
+    const project = first.project;
+    if (origins.some((o) => o.design.project !== project)) {
+      return fail(400, "copy within one project");
+    }
+
+    let list: Design | undefined;
+    if (body.to !== undefined && body.to !== null) {
+      const named = await resolveDesign(body.to, project);
+      if (isResult(named)) return named;
+      if (named.project !== project) return fail(400, "copy within one project");
+      list = named;
+    } else {
+      const title = str(body.title, MAX_LABEL)?.trim();
+      if (!title) return fail(400, 'provide "to" or "title": where to gather them');
+      // The same name again means the same list, not a second one beside it.
+      list = titledDesigns(await store.listDesigns(project), slugify(title)).find(
+        (m) => m.shortlist,
+      );
+      if (!list) {
+        list = await store.createDesign({
+          project,
+          slug: await uniqueSlug(project, title),
+          title,
+          kind: "idea",
+          area: first.area,
+          widths: first.widths,
+          shortlist: true,
+        });
+        bus.broadcast({ type: "design-created", id: list.id, project });
+      }
+    }
+    // A shortlist is flat; anywhere else the copy lands in a state the design has.
+    const state = list.shortlist ? null : (stateArg(body.state) ?? null);
+    if (body.newState && state !== null && !list.shortlist && !list.states.includes(state)) {
+      // Named states would hide what a flat design already holds under no name.
+      const flat = (await store.listPosts({ designId: list.id })).some((p) => p.state === null);
+      if (flat) return fail(400, `${list.slug} has no states; move without "toState"`);
+      list = (await store.updateDesign(list.id, { states: [...list.states, state] })) ?? list;
+    }
+    if (state === null ? !list.shortlist && list.states.length > 0 : !list.states.includes(state)) {
+      return fail(400, `${list.slug} has no such state`, { states: list.states });
+    }
+    const target = list;
+    if (origins.some((o) => o.design.id === target.id && o.post.state === state)) {
+      return fail(400, `already in ${target.title}`);
+    }
+    if (list.archivedAt) list = (await store.updateDesign(list.id, { archivedAt: null })) ?? list;
+
+    const posts = (await store.listPosts({ designId: list.id })).filter((p) => p.state === state);
+    const taken = new Set(posts.map((p) => p.variant));
+    const saved: { state: string | null; variant: string; already: boolean }[] = [];
+    const copies: { from: (typeof origins)[number]; copy: Post }[] = [];
+    for (const origin of origins) {
+      const { design, post, version, surfaces } = origin;
+      const same = posts.find(
+        (p) =>
+          p.copiedFrom?.design === design.id &&
+          p.copiedFrom.state === post.state &&
+          p.copiedFrom.variant === post.variant &&
+          p.copiedFrom.version === version,
+      );
+      if (same) {
+        copies.push({ from: origin, copy: same });
+        saved.push({ state, variant: same.variant, already: isLive(same.status) });
+        if (isLive(same.status)) continue;
+        const back = await store.setPostStatus(same.id, "open");
+        if (back) {
+          posts[posts.indexOf(same)] = back;
+          announceCopy(list, back, false);
+        }
+        continue;
+      }
+      const knobs = { ...design.knobs, ...post.knobs };
+      // A shortlist can't loop, since nothing embeds it. A real design can.
+      const embeds = await publishEmbeds(project, list.slug, surfaces);
+      if (isResult(embeds)) return embeds;
+      const created = await store.createPost({
+        sessionId: post.sessionId,
+        design: list.id,
+        state,
+        variant: candidateName(post.variant, version, design, taken),
+        title: list.title,
+        surfaces,
+        ...(Object.keys(knobs).length ? { knobs } : {}),
+        ...(post.description ? { description: post.description } : {}),
+        embeds,
+        copiedFrom: { design: design.id, state: post.state, variant: post.variant, version },
+      });
+      if (!created) return fail(409, `${post.variant} has no agent session to copy it under`);
+      copies.push({ from: origin, copy: created });
+      posts.push(created);
+      taken.add(created.variant);
+      saved.push({ state, variant: created.variant, already: false });
+      if (list.shortlist) announceCopy(list, created, true);
+      else announcePost(list, created, true, "user");
+    }
+    // A group stays a group where it lands: a variation hangs under its lead's copy,
+    // whether that came along now or was saved here before.
+    for (const { from, copy } of copies) {
+      const lead = from.post.forkedFrom;
+      if (!lead || copy.forkedFrom) continue;
+      const under = posts.find(
+        (p) =>
+          isLive(p.status) &&
+          p.copiedFrom?.design === from.design.id &&
+          p.copiedFrom.state === from.post.state &&
+          p.copiedFrom.variant === lead.variant &&
+          p.copiedFrom.version === lead.version,
+      );
+      if (!under) continue;
+      const updated = await store.setForkedFrom(copy.id, {
+        variant: under.variant,
+        version: under.version,
+      });
+      if (updated) {
+        bus.broadcast({
+          type: "post-updated",
+          id: updated.id,
+          designId: list.id,
+          sessionId: updated.sessionId,
+          version: updated.version,
+          by: "user",
+        });
+      }
+    }
+    bus.broadcast({ type: "design-updated", id: list.id, project });
+    return ok({
+      to: { id: list.id, slug: list.slug, title: list.title, shortlist: list.shortlist },
+      saved,
+    });
+  }
+
+  // Undo, or taking a save back. A copy nobody acted on leaves no trace, and a
+  // shortlist left with nothing and no thread goes with it; anything else archives,
+  // since a reply may still name it. Only ever a copy, or a shortlist's own: the
+  // originals of a design leave through archive.
+  async function removeCopyFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
+    const posts = await store.listPosts({ designId: design.id });
+    const post = chooseVariant(
+      design,
+      posts,
+      stateArg(body?.state) ?? null,
+      str(body?.variant, MAX_LABEL),
+    );
+    if (isResult(post)) return post;
+    if (!design.shortlist && !post.copiedFrom) return fail(400, `${post.variant} is not a copy`);
+    if (variantStatus(post.status) === "inUse") return fail(409, `${post.variant} is in use`);
+    const thread = await store.listComments({ designId: design.id });
+    // A real design's thread is about the rest of it too, so only what touched this
+    // copy keeps it.
+    const kept = design.shortlist
+      ? design.draft || thread.some((c) => c.author === "user")
+      : await touchedBy(design, post);
+    if (post.history.length > 0 || kept) {
+      return archiveFlow(design.id, { state: post.state, variant: post.variant }, ctx);
+    }
+    const gone = await store.withdrawVersion(post.id, post.version, []);
+    if (!gone) return fail(409, `${post.variant} has a newer version`);
+    dropPostRenders(post.id);
+    bus.broadcast({
+      type: "post-deleted",
+      id: post.id,
+      designId: design.id,
+      sessionId: post.sessionId,
+    });
+    const empty = design.shortlist && posts.length === 1 && thread.length === 0;
+    if (empty) {
+      await store.removeDesign(design.id);
+      bus.broadcast({ type: "design-deleted", id: design.id, project: design.project });
+    } else {
+      bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+      if (!design.shortlist) await announceEmbedders(design);
+    }
+    return ok({ removed: post.variant, shortlistGone: empty });
+  }
+
+  // The agent tidies up: variants go to another design or tab, out of sight, or back.
+  // Nothing is destroyed, so the user can always undo it from Archived, and a variant
+  // in use stays, since which design is in use is the user's call. A group moves
+  // together, as it does when the user moves one.
+  // Why one older version can't be deleted, if anything points at it. A reply or comment
+  // made while it was the current one counts even when it names no version: it answered
+  // what was on screen, and that picture is the record of what the user meant.
+  async function deleteBlocker(
+    design: Design,
+    post: Post,
+    version: number,
+    siblings: Post[],
+    comments: Comment[],
+    elsewhere: { design: Design; posts: Post[] }[],
+  ): Promise<string | null> {
+    if (variantStatus(post.status) === "inUse" && inUseVersion(post) === version) return "in use";
+    if (post.stayedVersion === version) return "the user chose to stay on it";
+    const steps = post.history
+      .map((h) => [h.version, h.at] as const)
+      .concat([[post.version, post.updatedAt]])
+      .sort((a, b) => a[0] - b[0]);
+    const at = steps.findIndex(([v]) => v === version);
+    const from = steps[at][1];
+    const until = steps[at + 1]?.[1] ?? "￿";
+    const during = (when: string) => when >= from && when < until;
+    const inState = new Set(siblings.map((p) => p.id));
+
+    for (const c of comments) {
+      if (c.author !== "user") continue;
+      if (c.kind === "reply") {
+        const r = c.payload;
+        if (!r || r.edited) continue;
+        const names =
+          (r.verdict?.variant === post.variant &&
+            r.verdict.state === post.state &&
+            r.verdict.version === version) ||
+          r.comments.some(
+            (x) => x.variant === post.variant && x.state === post.state && x.version === version,
+          );
+        if (names) return "a reply names it";
+        if (during(c.createdAt) && speaksToState(r, design, post, siblings)) {
+          return "the user replied while it was current";
+        }
+        continue;
+      }
+      const anchorVersion =
+        c.anchor && "postVersion" in c.anchor ? c.anchor.postVersion : undefined;
+      if (
+        c.postId === post.id &&
+        (c.postVersion === version ||
+          anchorVersion === version ||
+          c.anchors.some((a) => a.postVersion === version))
+      ) {
+        return "the user commented on it";
+      }
+      const anchored = c.anchor?.kind === "part" ? c.anchor.state : undefined;
+      const other = c.postId
+        ? !inState.has(c.postId)
+        : anchored !== undefined && anchored !== post.state;
+      if (!other && during(c.createdAt)) return "the user commented while it was current";
+    }
+
+    // A note on a question is about the question, so only picks and comments hold a version.
+    const d = design.draft;
+    if (d) {
+      const here = d.comments.filter((x) => x.state === post.state);
+      if (here.some((x) => x.variant === post.variant && x.version === version)) {
+        return "the user's draft names it";
+      }
+      const holds =
+        here.length > 0 || Object.keys(d.answers).length > 0 || Object.keys(d.borrowed).length > 0;
+      if (holds && during(d.updatedAt)) return "the user's draft was made on it";
+    }
+
+    for (const ask of design.asks) {
+      if (ask.state !== undefined && ask.state !== post.state) continue;
+      if (ask.options.some((o) => o.variant === post.variant && o.version === version)) {
+        return `question "${ask.id}" offers it`;
+      }
+    }
+    const fork = siblings.find(
+      (p) => p.forkedFrom?.variant === post.variant && p.forkedFrom.version === version,
+    );
+    if (fork) return `${fork.variant} was forked from it`;
+
+    for (const { design: other, posts } of elsewhere) {
+      for (const p of posts) {
+        const copy = p.copiedFrom;
+        if (
+          copy?.design === design.id &&
+          copy.state === post.state &&
+          copy.variant === post.variant &&
+          copy.version === version
+        ) {
+          return `copied to ${other.slug}`;
+        }
+        const embeds = p.embeds.some(
+          (e) => e.slug === design.slug && e.variant === post.variant && e.version === version,
+        );
+        const pinned = [p, ...p.history].some((v) =>
+          v.surfaces.some(
+            (s) =>
+              s.kind === "html" &&
+              parseEmbedTags(s.html).some(
+                (t) =>
+                  t.slug === design.slug &&
+                  t.version === version &&
+                  (t.variant === null || t.variant === post.variant),
+              ),
+          ),
+        );
+        if (embeds || pinned) return `embedded in ${other.slug}`;
+      }
+    }
+    return null;
+  }
+
+  // `move`'s tidying of versions rather than variants, only when the user asks for it.
+  // Each variant keeps its latest, or its newest visible one if the user hid the latest,
+  // so no variant is left with nothing to show.
+  async function tidyVersionsFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    const deleting = body.deleteOlder === true;
+    const given: unknown[] = Array.isArray(body.variants) ? body.variants : [];
+    const names = [...new Set(given.flatMap((v) => str(v, MAX_LABEL) ?? []))];
+    const target = await commentTarget({
+      design: ref,
+      project: body.project,
+      session: body.session,
+    });
+    if (isResult(target)) return target;
+    const { design, session } = target;
+    const posts = await store.listPosts({ designId: design.id });
+    const state = stateArg(body.state);
+    const unknown = names.find((n) => !posts.some((p) => p.variant === n));
+    if (unknown) return fail(404, `${design.slug} has no variant "${unknown}"`);
+    const scope = posts.filter(
+      (p) => (!names.length || names.includes(p.variant)) && (state == null || p.state === state),
+    );
+
+    const comments = deleting ? await store.listComments({ designId: design.id }) : [];
+    const elsewhere = deleting
+      ? await Promise.all(
+          (await store.listDesigns(design.project))
+            .filter((d) => d.id !== design.id)
+            .map(async (d) => ({ design: d, posts: await store.listPosts({ designId: d.id }) })),
+        )
+      : [];
+
+    const versions: { state: string | null; variant: string; version: number }[] = [];
+    const skipped: { state: string | null; variant: string; version?: number; why: string }[] = [];
+    const changed = new Set<string>();
+    for (const post of scope) {
+      if (!isLive(post.status)) {
+        skipped.push({ state: post.state, variant: post.variant, why: "archived" });
+        continue;
+      }
+      const hidden = post.hiddenVersions ?? [];
+      const all = [post.version, ...post.history.map((h) => h.version)].sort((a, b) => b - a);
+      const keep = all.find((v) => !hidden.includes(v)) ?? post.version;
+      const older = all.filter((v) => v < keep);
+      const siblings = posts.filter((p) => p.state === post.state);
+      const going: number[] = [];
+      for (const version of older) {
+        const why = deleting
+          ? await deleteBlocker(design, post, version, siblings, comments, elsewhere)
+          : variantStatus(post.status) === "inUse" && inUseVersion(post) === version
+            ? "in use"
+            : hidden.includes(version)
+              ? "already hidden"
+              : null;
+        if (why) skipped.push({ state: post.state, variant: post.variant, version, why });
+        else going.push(version);
+      }
+      if (!going.length) continue;
+      changed.add(post.id);
+      if (deleting) {
+        await store.deleteOldVersions(post.id, going);
+        dropPostRenders(post.id);
+      } else {
+        for (const version of going) await store.setVersionHidden(post.id, version, true);
+      }
+      for (const version of going) {
+        versions.push({ state: post.state, variant: post.variant, version });
+      }
+      bus.broadcast({
+        type: "post-updated",
+        id: post.id,
+        designId: design.id,
+        sessionId: post.sessionId,
+        version: post.version,
+        by: "agent",
+      });
+    }
+
+    if (versions.length) {
+      bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+      const n = versions.length;
+      const word = `older version${n === 1 ? "" : "s"}`;
+      const line = deleting
+        ? `Deleted ${n} ${word} of ${changed.size} ${changed.size === 1 ? "render" : "renders"}. This can't be undone.`
+        : `Hid ${n} ${word} of ${changed.size} ${changed.size === 1 ? "render" : "renders"}. Studio brings them back.`;
+      const comment = await store.createComment({
+        sessionId: session.id,
+        designId: design.id,
+        postId: null,
+        author: reservedAgent(session.agent),
+        text: line,
+        kind: "comment",
+        anchors: [],
+        postVersion: null,
+        viewport: null,
+      });
+      if (comment) announceComment(comment);
+    }
+    return ok({
+      variants: [],
+      versions,
+      skipped,
+      url: designUrl(ctx.base, design),
+      feedback: await feedbackFor(body.session, ctx.base),
+    });
+  }
+
+  async function moveFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
+    const given: unknown[] = Array.isArray(body.variants) ? body.variants : [];
+    const names = [...new Set(given.flatMap((v) => str(v, MAX_LABEL) ?? []))];
+    const tidying = body.hideOlder === true || body.deleteOlder === true;
+    if (names.length === 0 && !tidying) return fail(400, 'provide "variants": which ones to move');
+    if (names.length > MAX_CANDIDATES) {
+      return fail(400, `move at most ${MAX_CANDIDATES} variants at once`);
+    }
+    const toState = stateArg(body.toState) ?? undefined;
+    const moving = (body.to !== undefined && body.to !== null) || toState !== undefined;
+    const actions = [
+      moving,
+      body.archive === true,
+      body.restore === true,
+      body.hideOlder === true,
+      body.deleteOlder === true,
+    ];
+    if (actions.filter(Boolean).length !== 1) {
+      return fail(
+        400,
+        'provide one of "to" or "toState", "archive", "restore", "hideOlder" or "deleteOlder"',
+      );
+    }
+    if (tidying) return tidyVersionsFlow(ref, body, ctx);
+    const target = await commentTarget({
+      design: ref,
+      project: body.project,
+      session: body.session,
+    });
+    if (isResult(target)) return target;
+    const { design, session } = target;
+    const posts = await store.listPosts({ designId: design.id });
+    const named: Post[] = [];
+    for (const name of names) {
+      const post = chooseVariant(design, posts, stateArg(body.state), name);
+      if (isResult(post)) return post;
+      named.push(post);
+    }
+
+    const skipped: { variant: string; why: string }[] = [];
+    const changing: Post[] = [];
+    const take = (post: Post) => {
+      if (changing.includes(post)) return;
+      if (body.restore === true ? isLive(post.status) : variantStatus(post.status) === "inUse") {
+        skipped.push({
+          variant: post.variant,
+          why: body.restore === true ? "not archived" : "in use",
+        });
+        return;
+      }
+      if (body.archive === true && !isLive(post.status)) {
+        skipped.push({ variant: post.variant, why: "already archived" });
+        return;
+      }
+      changing.push(post);
+      if (body.restore === true) return;
+      for (const p of posts) {
+        if (p.state === post.state && p.forkedFrom?.variant === post.variant && isLive(p.status)) {
+          take(p);
+        }
+      }
+    };
+    for (const post of named) take(post);
+
+    let to: { design: string; title: string; state: string | null } | undefined;
+    let saved: unknown;
+    let moved: Design = design;
+    if (moving && changing.length) {
+      const copied = await copyCandidates({
+        candidates: changing.map((p) => ({
+          design: design.id,
+          state: p.state,
+          variant: p.variant,
+        })),
+        to: body.to ?? design.id,
+        state: toState,
+        newState: true,
+      });
+      if (copied.status >= 400) return copied;
+      const { slug, title, id } = copied.body.to;
+      to = { design: slug, title, state: copied.body.saved[0]?.state ?? null };
+      saved = copied.body.saved;
+      moved = (await store.getDesign(id)) ?? design;
+    }
+    const done: { state: string | null; variant: string; status: string }[] = [];
+    for (const post of changing) {
+      const updated = await setStatus(design, post, body.restore === true ? "open" : "archived");
+      if (updated) {
+        done.push({
+          state: updated.state,
+          variant: updated.variant,
+          status: variantStatus(updated.status),
+        });
+      }
+    }
+    if (done.length) {
+      if (body.restore !== true) await dropStalePicks(design);
+      void announceEmbedders(design).catch((err) => console.warn("[mockpit] embedders", err));
+      const list = done.map((d) => d.variant).join(", ");
+      const where = to ? `${to.title}${to.state === null ? "" : ` · ${to.state}`}` : "";
+      const line = to
+        ? `Moved ${done.length} to ${where}: ${list}`
+        : `${body.restore === true ? "Restored" : "Archived"} ${done.length}: ${list}`;
+      const comment = await store.createComment({
+        sessionId: session.id,
+        designId: design.id,
+        postId: null,
+        author: reservedAgent(session.agent),
+        text: str(line, MAX_COMMENT_TEXT) ?? line,
+        kind: "comment",
+        anchors: [],
+        postVersion: null,
+        viewport: null,
+      });
+      if (comment) announceComment(comment);
+    }
+    return ok({
+      variants: done,
+      skipped,
+      ...(to ? { to, saved } : {}),
+      url: designUrl(ctx.base, moved),
+      feedback: await feedbackFor(body.session, ctx.base),
+    });
   }
 
   // D8 "restore as vN": the user brings an older version back as the newest
@@ -3417,10 +5163,11 @@ export function createApp({
     ctx: FlowContext,
   ): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
-    const mock = await resolveMock(ref);
-    if (isResult(mock)) return mock;
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
     const post = await store.getPost(postId);
-    if (!post || post.mock !== mock.id) return fail(404, `${mock.slug} has no variant "${postId}"`);
+    if (!post || post.design !== design.id)
+      return fail(404, `${design.slug} has no variant "${postId}"`);
     const version = Number(body?.version);
     if (!Number.isInteger(version) || version < 1) {
       return fail(400, '"version" must be a positive integer');
@@ -3436,8 +5183,8 @@ export function createApp({
       author: "user",
     });
     if (!updated) return fail(404, "variant not found");
-    const touched = (await store.updateMock(mock.id, {})) ?? mock;
-    bus.broadcast({ type: "mock-updated", id: touched.id, project: touched.project });
+    const touched = (await store.updateDesign(design.id, {})) ?? design;
+    bus.broadcast({ type: "design-updated", id: touched.id, project: touched.project });
     announcePost(touched, updated, false, "user");
     return ok({
       state: updated.state,
@@ -3447,11 +5194,11 @@ export function createApp({
     });
   }
 
-  async function removeMockFlow(ref: unknown, query: { project?: unknown }): Promise<FlowResult> {
-    const mock = await resolveMock(ref, query.project);
-    if (isResult(mock)) return mock;
-    await store.removeMock(mock.id);
-    bus.broadcast({ type: "mock-deleted", id: mock.id, project: mock.project });
+  async function removeDesignFlow(ref: unknown, query: { project?: unknown }): Promise<FlowResult> {
+    const design = await resolveDesign(ref, query.project);
+    if (isResult(design)) return design;
+    await store.removeDesign(design.id);
+    bus.broadcast({ type: "design-deleted", id: design.id, project: design.project });
     return ok({ ok: true });
   }
 
@@ -3460,83 +5207,129 @@ export function createApp({
   const feedbackFor = async (session: unknown, base: string): Promise<FeedbackBatch[]> =>
     typeof session === "string" && session ? collectFeedback(session, base) : [];
 
-  // `edit`: a mock's own fields, without a new version. A new slug rewrites
-  // every reference to the old one in the project (store.renameMock), so pages
+  // `edit`: a design's own fields, without a new version. A new slug rewrites
+  // every reference to the old one in the project (store.renameDesign), so pages
   // keep showing it and flows keep walking it.
-  async function editMockFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+  async function editDesignFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
-    const given = ["slug", "title", "kind", "area", "source"].filter((k) => body[k] !== undefined);
+    const given = ["slug", "title", "kind", "area", "source", "firstState", "notes"].filter(
+      (k) => body[k] !== undefined,
+    );
     if (given.length === 0) {
-      return fail(400, 'provide one of "slug", "title", "kind", "area" or "source"');
+      return fail(
+        400,
+        'provide one of "slug", "title", "kind", "area", "source", "firstState" or "notes"',
+      );
     }
-    const mock = await resolveMock(ref, body.project, body.session);
-    if (isResult(mock)) return mock;
+    const design = await resolveDesign(ref, body.project, body.session);
+    if (isResult(design)) return design;
     const slugIn = body.slug === undefined ? undefined : str(body.slug, MAX_TITLE);
     if (body.slug !== undefined && !slugIn)
-      return fail(400, '"slug" must name the mock, e.g. "onni"');
+      return fail(400, '"slug" must name the design, e.g. "onni"');
     const slug = slugIn === undefined ? undefined : slugify(slugIn);
     const title = str(body.title, MAX_TITLE);
     if (body.title !== undefined && !title) return fail(400, '"title" must be non-empty text');
-    if (body.kind !== undefined && !isMockKind(body.kind)) {
-      return fail(400, '"kind" must be page, component or sketch');
+    if (body.kind !== undefined && !isDesignKind(body.kind)) {
+      return fail(400, '"kind" must be screen, component or idea');
     }
-    const kind: MockKind | undefined = body.kind;
+    const kind: DesignKind | undefined = body.kind;
     const area = labelArg(body, "area", MAX_LABEL);
     if (isResult(area)) return area;
     const source = labelArg(body, "source", MAX_SOURCE);
     if (isResult(source)) return source;
 
-    const renaming = slug !== undefined && slug !== mock.slug;
-    if (renaming && (await store.findMock(mock.project, slug))) {
-      return fail(409, `${mock.project} already has a mock "${slug}"; pick another slug`);
+    const notesIn = notesArg(body.notes);
+    if (isResult(notesIn)) return notesIn;
+    // The user's words stand until they clear them, so a later draft can't quietly
+    // undo a correction. The agent is told, and shown what stands.
+    const notesKept = notesIn !== undefined && !ctx.viewer && design.notes?.by === "user";
+    // Saved as it was isn't an edit: it mustn't take an agent's draft for the user's.
+    const notesSame = notesIn === (design.notes?.text ?? "");
+    const notes =
+      notesIn === undefined || notesKept || notesSame
+        ? undefined
+        : notesIn
+          ? {
+              text: notesIn,
+              by: ctx.viewer ? ("user" as const) : ("agent" as const),
+              at: new Date().toISOString(),
+            }
+          : null;
+
+    const firstState = body.firstState === undefined ? undefined : str(body.firstState, MAX_LABEL);
+    if (body.firstState !== undefined && !firstState) {
+      return fail(400, '"firstState" must name the state, e.g. "Moss ball"');
     }
-    // Being embedded is what makes a mock a component: a sketch that is still
+    if (firstState !== undefined && design.states.length > 0) {
+      return fail(409, `${design.slug} already has states`, { states: design.states });
+    }
+
+    const renaming = slug !== undefined && slug !== design.slug;
+    if (renaming && (await store.findDesign(design.project, slug))) {
+      return fail(409, `${design.project} already has a design "${slug}"; pick another slug`);
+    }
+    // Being embedded is what makes a design a component: an idea that is still
     // embedded would be promoted back on its embedder's next publish.
-    if (kind === "sketch" && mock.kind !== "sketch") {
-      const embedders = await embeddersOf(mock.project, mock.slug);
+    if (kind === "idea" && design.kind !== "idea") {
+      const embedders = await embeddersOf(design.project, design.slug);
       if (embedders.length) {
         return fail(
           409,
-          `${mock.slug} is embedded in ${embedders.map((m) => m.slug).join(", ")}; being embedded makes it a component. Take the embeds out first`,
+          `${design.slug} is embedded in ${embedders.map((m) => m.slug).join(", ")}; being embedded makes it a component. Take the embeds out first`,
           { embeddedIn: embedders.map((m) => m.slug) },
         );
       }
     }
 
-    let next: Mock = mock;
+    let next: Design = design;
     // The rename goes first: it is the part that can still lose a race for the slug.
     if (renaming) {
-      const renamed = await store.renameMock(mock.id, slug);
-      if (!renamed) return fail(409, `${mock.project} already has a mock "${slug}"`);
+      const renamed = await store.renameDesign(design.id, slug);
+      if (!renamed) return fail(409, `${design.project} already has a design "${slug}"`);
       next = renamed;
       clearRenderCache();
     }
-    if (title !== undefined || kind !== undefined || area !== undefined || source !== undefined) {
+    if (
+      title !== undefined ||
+      kind !== undefined ||
+      area !== undefined ||
+      source !== undefined ||
+      notes !== undefined
+    ) {
       next =
-        (await store.updateMock(mock.id, {
+        (await store.updateDesign(design.id, {
           ...(title === undefined ? {} : { title }),
           ...(kind === undefined ? {} : { kind }),
           ...(area === undefined ? {} : { area }),
           ...(source === undefined ? {} : { source }),
+          ...(notes === undefined ? {} : { notes }),
         })) ?? next;
     }
-    bus.broadcast({ type: "mock-updated", id: next.id, project: next.project });
+    if (firstState !== undefined) {
+      next = (await store.nameFirstState(design.id, firstState)) ?? next;
+    }
+    bus.broadcast({ type: "design-updated", id: next.id, project: next.project });
     if (renaming) await announceEmbedders(next);
-    if (ctx.viewer) await tellAgentEdited(mock, next);
+    if (ctx.viewer) await tellAgentEdited(design, next);
 
     // Flows are declared apart from kind, so a page that stops being one stays
     // in them until the agent takes it out.
     const nudges: string[] = [...titleNudges(title)];
-    if (kind !== undefined && kind !== "page" && mock.kind === "page") {
+    if (notesKept) {
+      nudges.push(
+        "The user edited these notes by hand, so your draft was not applied: work from theirs, in notes.text. They stand until the user clears them",
+      );
+    }
+    if (kind !== undefined && kind !== "screen" && design.kind === "screen") {
       for (const f of await store.listFlows(next.project)) {
-        if (!f.steps.some((x) => x.mock === next.slug)) continue;
+        if (!f.steps.some((x) => x.design === next.slug)) continue;
         nudges.push(
           `${next.slug} is still a step of flow "${f.name}"; publish it with flow "${f.name}" and step 0 to take it out`,
         );
       }
     }
     return ok({
-      mock: {
+      design: {
         id: next.id,
         project: next.project,
         slug: next.slug,
@@ -3545,32 +5338,55 @@ export function createApp({
         ...placeOf(next),
         states: next.states,
       },
-      ...(renaming ? { renamed: { from: mock.slug, to: next.slug } } : {}),
-      url: mockUrl(ctx.base, next),
+      ...(renaming ? { renamed: { from: design.slug, to: next.slug } } : {}),
+      ...(notesIn === undefined
+        ? {}
+        : { notes: { applied: !notesKept, ...(notesKept ? { text: design.notes?.text } : {}) } }),
+      url: designUrl(ctx.base, next),
       ...(nudges.length ? { nudges } : {}),
       feedback: await feedbackFor(body.session, ctx.base),
     });
   }
 
-  // The user moved a mock from Home (another kind or area): the agent hears it
-  // once, through the same cursor as a Send, on the session driving the mock.
-  // Nothing to tell when no agent has written it.
-  async function tellAgentEdited(before: Mock, after: Mock): Promise<void> {
-    const edited: MockEdit = {
+  // `notes`: plain text and short, since agents read all of it on every read of the
+  // design. Refused rather than cut: a spec missing its end reads as a complete one.
+  function notesArg(v: unknown): string | undefined | FlowResult {
+    if (v === undefined) return undefined;
+    if (typeof v !== "string") return fail(400, '"notes" must be plain text; "" clears them');
+    const text = stripNul(v).trim();
+    if (text.length > MAX_NOTES) {
+      return fail(
+        400,
+        `notes are a short spec: at most ${MAX_NOTES} characters, got ${text.length}`,
+      );
+    }
+    return text;
+  }
+
+  // The user moved a design from Home (another kind or area), or corrected its notes:
+  // the agent hears it once, through the same cursor as a Send, on the session driving
+  // the design. Nothing to tell when no agent has written it.
+  async function tellAgentEdited(before: Design, after: Design): Promise<void> {
+    const notes = after.notes?.text ?? null;
+    const edited: DesignEdit = {
       ...(after.kind !== before.kind ? { kind: after.kind } : {}),
       ...(after.area !== before.area ? { area: after.area } : {}),
+      ...(notes !== (before.notes?.text ?? null) ? { notes } : {}),
     };
     if (Object.keys(edited).length === 0) return;
-    const posts = await store.listPosts({ mockId: after.id });
-    const latest = [...posts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-    const sessionId = after.sessionId ?? latest?.sessionId;
+    await tellAgentEdit(after, edited);
+  }
+
+  async function tellAgentEdit(after: Design, edited: DesignEdit): Promise<void> {
+    const posts = await store.listPosts({ designId: after.id });
+    const sessionId = await replySessionId(after, posts);
     if (!sessionId) return;
     const comment = await store.commitReply({
-      mockId: after.id,
+      designId: after.id,
       sessionId,
       text: "",
       payload: {
-        mockId: after.id,
+        designId: after.id,
         version: Math.max(1, ...posts.map((p) => p.version)),
         answers: {},
         borrowed: {},
@@ -3612,8 +5428,8 @@ export function createApp({
     return names;
   }
 
-  // `edit` on a project: a new name for it, carrying its mocks, sessions,
-  // flows and settings (refused onto a project that already has mocks), and
+  // `edit` on a project: a new name for it, carrying its designs, sessions,
+  // flows and settings (refused onto a project that already has designs), and
   // the order Home lists its areas in.
   async function editProjectFlow(name: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
@@ -3627,11 +5443,11 @@ export function createApp({
     if (to === from) return fail(400, `${from} already has that name`);
     const order = body.areaOrder === undefined ? undefined : areaOrderArg(body.areaOrder);
     if (isResult(order)) return order;
-    const mocks = await store.listMocks(from);
-    if (mocks.length === 0) return fail(404, `no project "${from}" with mocks`);
+    const designs = await store.listDesigns(from);
+    if (designs.length === 0) return fail(404, `no project "${from}" with designs`);
     if (to !== undefined) {
       if (!(await store.renameProject(from, to))) {
-        return fail(409, `${to} already has mocks; pick another name`);
+        return fail(409, `${to} already has designs; pick another name`);
       }
       clearRenderCache();
     }
@@ -3639,19 +5455,19 @@ export function createApp({
     if (order !== undefined) {
       await store.setSetting(`${AREA_ORDER_SETTING}:${project}`, JSON.stringify(order));
     }
-    for (const m of mocks) bus.broadcast({ type: "mock-updated", id: m.id, project });
-    const named = new Set(mocks.flatMap((m) => (m.area ? [m.area] : [])));
+    for (const m of designs) bus.broadcast({ type: "design-updated", id: m.id, project });
+    const named = new Set(designs.flatMap((m) => (m.area ? [m.area] : [])));
     const unnamed = (order ?? []).filter((a) => !named.has(a));
     return ok({
       project,
       ...(to === undefined ? {} : { renamed: { from, to } }),
       ...(order === undefined ? {} : { areaOrder: order }),
-      mocks: mocks.length,
+      designs: designs.length,
       url: `${ctx.base}/project/${encodeURIComponent(project)}`,
       ...(unnamed.length
         ? {
             nudges: [
-              `no mock in ${project} has area ${unnamed.map((a) => `"${a}"`).join(", ")} yet; Home lists it once one does`,
+              `no design in ${project} has area ${unnamed.map((a) => `"${a}"`).join(", ")} yet; Home lists it once one does`,
             ],
           }
         : {}),
@@ -3668,7 +5484,7 @@ export function createApp({
 
   function sanitizeCommentAnchor(
     raw: unknown,
-    mock: Mock,
+    design: Design,
     post: Post | null,
   ): CommentAnchor | undefined {
     if (!raw || typeof raw !== "object") return undefined;
@@ -3677,7 +5493,7 @@ export function createApp({
       const part = str(input.part, 200);
       if (!part) return undefined;
       const state = stateArg(input.state) ?? post?.state ?? null;
-      if (state !== null && !mock.states.includes(state)) return undefined;
+      if (state !== null && !design.states.includes(state)) return undefined;
       return { kind: "part", part, state, ...sanitizePartAnchor(input) };
     }
     if (!post) return undefined;
@@ -3784,31 +5600,31 @@ export function createApp({
       type: "comment-created",
       id: comment.id,
       sessionId: comment.sessionId,
-      mockId: comment.mockId,
+      designId: comment.designId,
       postId: comment.postId,
       seq: comment.seq,
     });
   }
 
-  // Where a thread comment lands: a mock, optionally one variant of it, and the
+  // Where a thread comment lands: a design, optionally one variant of it, and the
   // session whose stream carries it.
   async function commentTarget(
     body: any,
-  ): Promise<{ mock: Mock; post: Post | null; session: Session } | FlowResult> {
+  ): Promise<{ design: Design; post: Post | null; session: Session } | FlowResult> {
     let post: Post | null = null;
-    let mock: Mock | null = null;
+    let design: Design | null = null;
     if (typeof body.post === "string" && body.post) {
       post = await store.getPost(body.post);
       if (!post) return fail(404, "post not found");
-      mock = await store.getMock(post.mock);
-    } else if (body.mock !== undefined) {
-      const resolved = await resolveMock(body.mock, body.project, body.session);
+      design = await store.getDesign(post.design);
+    } else if (body.design !== undefined) {
+      const resolved = await resolveDesign(body.design, body.project, body.session);
       if (isResult(resolved)) return resolved;
-      mock = resolved;
+      design = resolved;
       if (body.variant !== undefined || body.state !== undefined) {
-        const posts = await store.listPosts({ mockId: mock.id });
+        const posts = await store.listPosts({ designId: design.id });
         const chosen = chooseVariant(
-          mock,
+          design,
           posts,
           stateArg(body.state),
           str(body.variant, MAX_LABEL),
@@ -3817,20 +5633,20 @@ export function createApp({
         post = chosen;
       }
     } else {
-      return fail(400, 'provide "mock" (or "post")');
+      return fail(400, 'provide "design" (or "post")');
     }
-    if (!mock) return fail(404, "mock not found");
+    if (!design) return fail(404, "design not found");
     let session: Session | null = null;
     if (typeof body.session === "string" && body.session) {
       session = await store.getSession(body.session);
       if (!session) return fail(404, `session "${body.session}" not found`);
     }
     if (!session) {
-      const sid = mock.sessionId ?? post?.sessionId;
+      const sid = design.sessionId ?? post?.sessionId;
       session = sid ? await store.getSession(sid) : null;
     }
-    if (!session) return fail(409, `${mock.slug} has no agent session`);
-    return { mock, post, session };
+    if (!session) return fail(409, `${design.slug} has no agent session`);
+    return { design, post, session };
   }
 
   // The user's comment in a thread: the trusted viewer's verb only. Sandboxed
@@ -3843,15 +5659,15 @@ export function createApp({
     if (!text) return fail(400, 'provide non-empty "text"');
     const target = await commentTarget(body);
     if (isResult(target)) return target;
-    const { mock, post, session } = target;
+    const { design, post, session } = target;
     const viewport = sanitizeViewport(body.viewport);
     const comment = await store.createComment({
       sessionId: session.id,
-      mockId: mock.id,
+      designId: design.id,
       postId: post?.id ?? null,
       author: body.author === "surface" ? "surface" : "user",
       text,
-      anchor: sanitizeCommentAnchor(body.anchor, mock, post),
+      anchor: sanitizeCommentAnchor(body.anchor, design, post),
       kind: "comment",
       anchors: sanitizeAnchors(body.anchors, post, viewport),
       postVersion: post ? sanitizePostVersion(body.postVersion, post) : null,
@@ -3863,18 +5679,18 @@ export function createApp({
     return ok(delivered, 201);
   }
 
-  // The agent's plain-text message in a mock's thread. Stored as text and
+  // The agent's plain-text message in a design's thread. Stored as text and
   // rendered as a text node, never as HTML. A write, so feedback rides along.
   async function sayFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
     const text = typeof body.message === "string" ? str(body.message, MAX_COMMENT_TEXT) : undefined;
     if (!text) return fail(400, 'provide non-empty "message" text');
-    const target = await commentTarget({ ...body, mock: ref, post: undefined });
+    const target = await commentTarget({ ...body, design: ref, post: undefined });
     if (isResult(target)) return target;
-    const { mock, post, session } = target;
+    const { design, post, session } = target;
     const comment = await store.createComment({
       sessionId: session.id,
-      mockId: mock.id,
+      designId: design.id,
       postId: post?.id ?? null,
       author: reservedAgent(session.agent),
       text,
@@ -3904,12 +5720,16 @@ export function createApp({
     if (afterSeq === undefined && q.author === "user" && q.sessionId) {
       afterSeq = (await store.getSession(q.sessionId))?.agentSeq;
     }
+    const peekFrom = q.peek && q.sessionId ? (noticed.get(q.sessionId) ?? 0) : 0;
+    if (q.peek) afterSeq = Math.max(afterSeq ?? 0, peekFrom);
     const takeOrphanedFor = async (id: string | undefined) => {
       const taker = id ? await store.getSession(id) : null;
-      return taker ? await takeOrphaned(taker) : [];
+      if (!taker) return [];
+      if (q.peek) return (await owedOrphans(taker)).filter((c) => c.seq > peekFrom);
+      return await takeOrphaned(taker);
     };
     let handedOff = await takeOrphanedFor(listener);
-    const query = { sessionId: q.sessionId, mockId: q.mockId, postId: q.postId, afterSeq };
+    const query = { sessionId: q.sessionId, designId: q.designId, postId: q.postId, afterSeq };
     const matches = (list: Comment[]) =>
       q.author ? list.filter((cm) => cm.author === q.author) : list;
     const wait = Math.min(Math.max(q.waitSeconds, 0), MAX_WAIT_SECONDS);
@@ -3923,7 +5743,7 @@ export function createApp({
         const unsubscribe = bus.subscribe((event) => {
           if (event.type !== "comment-created") return;
           if (q.sessionId && event.sessionId !== q.sessionId) return;
-          if (q.mockId && event.mockId !== q.mockId) return;
+          if (q.designId && event.designId !== q.designId) return;
           if (q.postId && event.postId !== q.postId) return;
           done();
         });
@@ -3956,6 +5776,13 @@ export function createApp({
     // The cursor advances past every comment in the window — not just the
     // filtered ones — so the next call doesn't re-read the agent's own comments.
     const lastSeq = all.length > 0 ? all[all.length - 1].seq : (afterSeq ?? 0);
+    if (q.peek) {
+      const seqs = [...comments, ...handedOff].map((c) => c.seq);
+      if (q.sessionId && seqs.length > 0) {
+        noticed.set(q.sessionId, Math.max(peekFrom, ...seqs));
+      }
+      return { comments, lastSeq, handedOff };
+    }
     // An author=user query is the agent listening (the viewer never filters by
     // author) — what it receives here must not be re-delivered as piggyback.
     if (q.agent && q.author === "user" && q.sessionId && all.length > 0) {
@@ -3977,22 +5804,24 @@ export function createApp({
     return ok({ ...result, feedback });
   }
 
-  // What the user is doing right now, per mock: derived from the SSE registry
+  // What the user is doing right now, per design: derived from the SSE registry
   // and the server-side draft, never stored. It is why an empty `feedback` still
   // tells the agent something ("2 of 3 answered", or nobody is looking).
-  const pendingOf = (mock: Mock, posts: Post[]) => ({
-    mock: mock.slug,
+  const pendingOf = (design: Design) => ({
+    design: design.slug,
     // Closed by the user: nothing there is waiting on them, or on you.
-    ...(mock.closedAt ? { closed: true } : {}),
-    viewerOpen: viewing.has(mock.id),
-    draft: mock.draft
-      ? {
-          answered: Object.keys(mock.draft.answers).length,
-          of: openCount(mock, posts),
-          comments: mock.draft.comments.length,
-          touchedAt: mock.draft.updatedAt,
-        }
-      : null,
+    ...(design.archivedAt ? { closed: true } : {}),
+    viewerOpen: viewing.has(design.id),
+    // One kept for an archived design's Undo isn't someone still answering.
+    draft:
+      design.draft && !design.archivedAt
+        ? {
+            answered: draftedCount(design) ?? 0,
+            of: openCount(design),
+            comments: design.draft.comments.length,
+            touchedAt: design.draft.updatedAt,
+          }
+        : null,
   });
 
   // The feedback verb: never blocks. Takes what the session has not heard yet
@@ -4006,6 +5835,8 @@ export function createApp({
     }
     const session = await store.getSession(query.session);
     if (!session) return fail(404, `session "${query.session}" not found`);
+    // Before the read: delivering tells the viewer to look, and this should be there.
+    noteAgentCall(session.id);
     const { comments, handedOff } = await waitForComments({
       sessionId: session.id,
       author: "user",
@@ -4015,17 +5846,13 @@ export function createApp({
     const project = str(query.project, MAX_TITLE) ?? session.project ?? undefined;
     return ok({
       feedback: await feedbackWithHandoffs(comments, handedOff, ctx.base),
-      pending: await Promise.all(
-        (await store.listMocks(project)).map(async (m) =>
-          pendingOf(m, await store.listPosts({ mockId: m.id })),
-        ),
-      ),
+      pending: (await store.listDesigns(project)).map(pendingOf),
     });
   }
 
   // Store an uploaded blob. An explicit session is validated and a missing one
   // is auto-created so an upload can precede the first publish. An image the
-  // user attaches names its mock instead, and belongs to the session that mock
+  // user attaches names its design instead, and belongs to the session that design
   // replies to. The asset's data is dropped from the result (it's bytes).
   async function uploadAsset(input: {
     data: Uint8Array;
@@ -4034,7 +5861,7 @@ export function createApp({
     kind?: AssetKind;
     session?: string;
     agent?: string;
-    mock?: string;
+    design?: string;
   }): Promise<
     { asset: Omit<Asset, "data"> } | { error: string; status: 400 | 404 | 409 | 413 | 415 }
   > {
@@ -4043,16 +5870,16 @@ export function createApp({
       return { error: `asset exceeds ${MAX_ASSET_BYTES} bytes`, status: 413 };
     }
     let sessionId = input.session;
-    if (input.mock !== undefined) {
+    if (input.design !== undefined) {
       if (!ATTACHABLE_IMAGE_TYPES.has(input.contentType)) {
         return { error: "attach a png, jpeg, webp or gif image", status: 415 };
       }
-      const mock = await store.getMock(input.mock);
-      if (!mock) return { error: `mock "${input.mock}" not found`, status: 404 };
-      const posts = await store.listPosts({ mockId: mock.id });
+      const design = await store.getDesign(input.design);
+      if (!design) return { error: `design "${input.design}" not found`, status: 404 };
+      const posts = await store.listPosts({ designId: design.id });
       const latest = [...posts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-      sessionId = mock.sessionId ?? latest?.sessionId;
-      if (!sessionId) return { error: `${mock.slug} has no agent session`, status: 409 };
+      sessionId = design.sessionId ?? latest?.sessionId;
+      if (!sessionId) return { error: `${design.slug} has no agent session`, status: 409 };
     }
     if (sessionId && !(await store.getSession(sessionId))) {
       return { error: `session "${sessionId}" not found`, status: 404 };
@@ -4089,13 +5916,6 @@ export function createApp({
   app.use("*", async (c, next) => {
     const path = new URL(c.req.url).pathname;
 
-    // Content-hashed static assets (the surface bridge script and the static
-    // stylesheets) are served unauthenticated on purpose: they are our own code,
-    // carry no workspace data, and the sandboxed frames that load them run at an
-    // opaque origin, so their subresource requests carry no SameSite cookie and
-    // could not authenticate even on a tokened workspace.
-    if (path.startsWith(STATIC_ASSET_PREFIX)) return next();
-
     if (authenticate) {
       const result = await authenticate(c.req.raw);
       if (result === true) return next();
@@ -4108,7 +5928,6 @@ export function createApp({
 
     if (!authToken) return next();
     if (path === "/guide" || path === "/setup" || path === "/agent-howto") return next();
-    if (path.startsWith(STATIC_ASSET_PREFIX)) return next();
     // The installable-app files carry no workspace data, and a browser may
     // fetch them without the cookie; the manifest adds the key only for a
     // caller that already holds it.
@@ -4220,11 +6039,11 @@ export function createApp({
 
   // --- viewer pages ---
 
-  // Link previews for a mock page: the first open variant's first surface,
+  // Link previews for a design page: the first open variant's first surface,
   // with every pixel-affecting input pinned in the image URL so the Worker can
   // cache it at the edge.
-  const mockPreviewHead = (
-    mock: Mock,
+  const designPreviewHead = (
+    design: Design,
     post: Post,
     request: Request,
     mode: Mode,
@@ -4232,7 +6051,7 @@ export function createApp({
   ) => {
     const origin = requestOrigin(request);
     const publicBasePath = requestBasePath(request);
-    const canonical = `${origin}${publicBasePath}/project/${encodeURIComponent(mock.project)}/${encodeURIComponent(mock.slug)}`;
+    const canonical = `${origin}${publicBasePath}/project/${encodeURIComponent(design.project)}/${encodeURIComponent(design.slug)}`;
     const imageUrl = new URL(`${origin}${publicBasePath}/s/${post.id}.png`);
     imageUrl.searchParams.set("card", "1");
     imageUrl.searchParams.set("theme", DEFAULT_THEME_ID);
@@ -4240,8 +6059,8 @@ export function createApp({
     imageUrl.searchParams.set("v", String(post.version));
     imageUrl.searchParams.set("g", rendererGeneration);
     const image = imageUrl.toString();
-    const title = escapeHtml(mock.title);
-    const description = "A https://mockpit.sh mock";
+    const title = escapeHtml(design.title);
+    const description = "A https://mockpit.sh design";
     return [
       `<link rel="canonical" href="${escapeHtml(canonical)}">`,
       `<meta property="og:type" content="website">`,
@@ -4260,7 +6079,7 @@ export function createApp({
 
   const configuredViewerHtml = async (
     c: Context,
-    opts: { title?: string | null; preview?: { mock: Mock; post: Post } } = {},
+    opts: { title?: string | null; preview?: { design: Design; post: Post } } = {},
   ) => {
     // The viewer HTML is the trusted app origin — it shares that origin with the
     // authenticated API and the comment→agent channel, so a cross-origin page
@@ -4284,10 +6103,10 @@ export function createApp({
       ),
     );
     if (!opts.preview) return html;
-    const { mock, post } = opts.preview;
+    const { design, post } = opts.preview;
     return injectHead(
       html,
-      mockPreviewHead(mock, post, c.req.raw, await workspaceMode(), version ?? "dev"),
+      designPreviewHead(design, post, c.req.raw, await workspaceMode(), version ?? "dev"),
     );
   };
   app.get("/", async (c) => c.html(await configuredViewerHtml(c)));
@@ -4324,23 +6143,31 @@ export function createApp({
   };
   for (const size of ICON_SIZES) app.get(`/icon-${size}.png`, iconPng(size));
   app.get("/apple-touch-icon.png", iconPng(180));
-  // The engine reads the project/mock out of the URL itself; these render the
+  // The engine reads the project/design out of the URL itself; these render the
   // same shell as "/".
   app.get("/project/:name", async (c) =>
     c.html(await configuredViewerHtml(c, { title: c.req.param("name") })),
   );
   app.get("/project/:name/:slug", async (c) => {
-    const mock = await store.findMock(c.req.param("name"), c.req.param("slug"));
-    if (!mock) return c.html(await configuredViewerHtml(c, { title: c.req.param("name") }));
-    const posts = await store.listPosts({ mockId: mock.id });
+    const design = await store.findDesign(c.req.param("name"), c.req.param("slug"));
+    if (!design) return c.html(await configuredViewerHtml(c, { title: c.req.param("name") }));
+    const posts = await store.listPosts({ designId: design.id });
     const post = posts.find((p) => isLive(p.status)) ?? posts[0];
     return c.html(
       await configuredViewerHtml(c, {
-        title: mock.title,
-        ...(post ? { preview: { mock, post } } : {}),
+        title: design.title,
+        ...(post ? { preview: { design, post } } : {}),
       }),
     );
   });
+
+  // Someone following a bad link gets the viewer's page with a way out; a client
+  // that isn't a browser keeps the plain 404.
+  app.notFound(async (c) =>
+    c.req.method === "GET" && c.req.header("accept")?.includes("text/html")
+      ? c.html(await configuredViewerHtml(c), 404)
+      : c.text("404 Not Found", 404),
+  );
 
   // --- REST plumbing for the shared flows ---
 
@@ -4398,7 +6225,7 @@ export function createApp({
       agent: str(body.agent, MAX_TITLE) ?? "agent",
       title: str(body.title, MAX_TITLE),
       cwd,
-      // Resolved once here so every mock this session publishes lands in the
+      // Resolved once here so every design this session publishes lands in the
       // same project.
       project: resolveProject(str(body.project, MAX_TITLE), cwd),
       key,
@@ -4425,39 +6252,56 @@ export function createApp({
     return c.json({ ok: true });
   });
 
-  // --- projects and mocks ---
+  // --- projects and designs ---
 
   app.get("/api/projects", async (c) => c.json(await store.listProjects()));
+  // Named by nothing unguessable, so in "session" mode this stays private
+  // (isPublicReadAllowed) like the rest of the workspace's listings.
+  app.get("/api/search", async (c) => {
+    const rows = await store.listJumpRows();
+    const recent = c.req.query("recent");
+    if (recent !== undefined) {
+      return c.json({ hits: recentHits(rows, recent.split(",").filter(Boolean).slice(0, 20)) });
+    }
+    const q = str(c.req.query("q"), MAX_LABEL) ?? "";
+    return c.json({ hits: jumpHits(rows, q, str(c.req.query("project"), MAX_TITLE) ?? null) });
+  });
 
-  app.get("/api/mocks", async (c) =>
-    send(c, await listMocksFlow({ project: c.req.query("project") })),
+  const withoutDecisions = (c: Context) =>
+    isViewerRequest(c.req.raw) || isUnauthenticatedSessionRead(c);
+  app.get("/api/designs", async (c) =>
+    send(
+      c,
+      await listDesignsFlow({ project: c.req.query("project"), noDecisions: withoutDecisions(c) }),
+    ),
   );
 
-  app.post("/api/mocks", async (c) => send(c, await publishFlow(await jsonBody(c), flowCtx(c))));
+  app.post("/api/designs", async (c) => send(c, await publishFlow(await jsonBody(c), flowCtx(c))));
 
-  // A session-scoped public read may only address a mock by its unguessable id.
-  const guardPublicMock = async (c: Context): Promise<Response | null> => {
+  // A session-scoped public read may only address a design by its unguessable id.
+  const guardPublicDesign = async (c: Context): Promise<Response | null> => {
     if (!isUnauthenticatedSessionRead(c)) return null;
-    return (await store.getMock(c.req.param("id") ?? ""))
+    return (await store.getDesign(c.req.param("id") ?? ""))
       ? null
-      : c.json({ error: "mock not found" }, 404);
+      : c.json({ error: "design not found" }, 404);
   };
 
-  app.get("/api/mocks/:id", async (c) => {
-    const denied = await guardPublicMock(c);
+  app.get("/api/designs/:id", async (c) => {
+    const denied = await guardPublicDesign(c);
     if (denied) return denied;
     return send(
       c,
-      await getMockFlow(c.req.param("id"), {
+      await getDesignFlow(c.req.param("id"), {
         project: c.req.query("project"),
         body: flag(c, "body"),
         history: flag(c, "history"),
+        noDecisions: withoutDecisions(c),
       }),
     );
   });
 
-  app.get("/api/mocks/:id/export", async (c) => {
-    const denied = await guardPublicMock(c);
+  app.get("/api/designs/:id/export", async (c) => {
+    const denied = await guardPublicDesign(c);
     if (denied) return denied;
     return send(
       c,
@@ -4473,7 +6317,7 @@ export function createApp({
     );
   });
 
-  app.patch("/api/mocks/:id", async (c) => {
+  app.patch("/api/designs/:id", async (c) => {
     const body = await jsonBody(c);
     // A slug names its project in the body or, as on the reads, in the query.
     const project = c.req.query("project");
@@ -4481,57 +6325,97 @@ export function createApp({
       body && typeof body === "object" && body.project === undefined && project
         ? { ...body, project }
         : body;
-    return send(c, await editMockFlow(c.req.param("id"), withProject, flowCtx(c)));
+    return send(c, await editDesignFlow(c.req.param("id"), withProject, flowCtx(c)));
   });
 
-  app.delete("/api/mocks/:id", async (c) =>
-    send(c, await removeMockFlow(c.req.param("id"), { project: c.req.query("project") })),
+  app.delete("/api/designs/:id", async (c) =>
+    send(c, await removeDesignFlow(c.req.param("id"), { project: c.req.query("project") })),
   );
 
-  app.post("/api/mocks/:id/asks", async (c) =>
+  app.post("/api/designs/:id/asks", async (c) =>
     send(c, await askFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
 
-  app.get("/api/mocks/:id/draft", async (c) =>
+  app.get("/api/designs/:id/draft", async (c) =>
     send(c, await getDraftFlow(c.req.param("id"), flowCtx(c))),
   );
-  app.put("/api/mocks/:id/draft", async (c) =>
+  app.put("/api/designs/:id/draft", async (c) =>
     send(c, await putDraftFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
-  app.delete("/api/mocks/:id/draft", async (c) =>
+  app.delete("/api/designs/:id/draft", async (c) =>
     send(c, await deleteDraftFlow(c.req.param("id"), flowCtx(c))),
   );
 
-  app.post("/api/mocks/:id/reply", async (c) =>
+  app.post("/api/designs/:id/reply", async (c) =>
     send(c, await replyFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
 
-  app.post("/api/mocks/:id/use", async (c) =>
+  // The viewer polls this while a design is open, so it only reads posts for a
+  // design that has no owner of its own.
+  app.get("/api/designs/:id/recipients", async (c) => {
+    const ctx = flowCtx(c);
+    if (!ctx.viewer) return send(c, viewerOnly());
+    const design = await resolveDesign(c.req.param("id"));
+    if (isResult(design)) return send(c, design);
+    const posts = design.sessionId ? [] : await store.listPosts({ designId: design.id });
+    const owner = await replySessionId(design, posts);
+    const found = owner ? await recipientsFor(design, owner) : null;
+    return send(c, ok(found ?? { default: null, recipients: [] }));
+  });
+
+  app.post("/api/designs/:id/use", async (c) =>
     send(c, await useFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
 
-  app.post("/api/mocks/:id/hide", async (c) =>
+  app.post("/api/designs/:id/hide", async (c) =>
     send(c, await hideFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
 
-  app.post("/api/mocks/:id/close", async (c) =>
-    send(c, await closeFlow(c.req.param("id"), flowCtx(c))),
+  app.post("/api/designs/:id/archive", async (c) =>
+    send(c, await archiveDesignFlow(c.req.param("id"), flowCtx(c))),
   );
-  app.post("/api/mocks/:id/reopen", async (c) =>
-    send(c, await reopenFlow(c.req.param("id"), flowCtx(c))),
+  app.post("/api/designs/:id/restore", async (c) =>
+    send(c, await restoreDesignFlow(c.req.param("id"), flowCtx(c))),
+  );
+  app.post("/api/designs/:id/rearchive", async (c) =>
+    send(c, await rearchiveFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+  app.post("/api/designs/:id/reason", async (c) =>
+    send(c, await reasonFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+  app.post("/api/designs/:id/outlines", async (c) =>
+    send(c, await outlineFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+  app.post("/api/designs/:id/stay", async (c) =>
+    send(c, await stayFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
 
-  app.post("/api/mocks/:id/star", async (c) =>
-    send(c, await starFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  app.get("/api/projects/:name/shortlists", async (c) =>
+    send(c, await shortlistsFlow(c.req.param("name"))),
   );
-  app.post("/api/mocks/:id/archive", async (c) =>
+  app.post("/api/copies", async (c) =>
+    send(c, await saveCopiesFlow(await jsonBody(c), flowCtx(c))),
+  );
+  app.post("/api/copies/:design/remove", async (c) =>
+    send(c, await removeCopyFlow(c.req.param("design"), await jsonBody(c), flowCtx(c))),
+  );
+  app.post("/api/designs/:id/standings", async (c) =>
+    send(c, await standingFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+  app.post("/api/designs/:id/sets", async (c) =>
+    send(c, await setsFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+  app.post("/api/designs/:id/variants/archive", async (c) =>
     send(c, await archiveFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
-  app.post("/api/mocks/:id/restore", async (c) =>
+  app.post("/api/designs/:id/variants/restore", async (c) =>
     send(c, await restoreFlow(c.req.param("id"), await jsonBody(c))),
   );
 
-  app.post("/api/mocks/:id/variants/:postId/restore", async (c) =>
+  app.post("/api/designs/:id/variants/:postId/poster", async (c) =>
+    send(c, await attachPosterFlow(c.req.param("id"), c.req.param("postId"), await jsonBody(c))),
+  );
+  app.post("/api/designs/:id/variants/:postId/restore", async (c) =>
     send(
       c,
       await restoreVersionFlow(
@@ -4543,7 +6427,10 @@ export function createApp({
     ),
   );
 
-  app.post("/api/mocks/:id/say", async (c) =>
+  app.post("/api/designs/:id/move", async (c) =>
+    send(c, await moveFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+  app.post("/api/designs/:id/say", async (c) =>
     send(c, await sayFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
 
@@ -4568,6 +6455,26 @@ export function createApp({
     return c.json({ ok: true });
   });
 
+  // What a phone opening this page would meet, for the QR code: how it gets in, and
+  // on a loopback viewer, the addresses that would reach this machine. Never the
+  // token, and the addresses only for someone signed in.
+  app.get("/api/reach", (c) => {
+    const net = isAuthenticated(c) ? networkHosts?.() : undefined;
+    return c.json({
+      hosts: net?.hosts ?? [],
+      localOnly: net?.localOnly ?? false,
+      // Session-level public read only opens what's addressed by id, which a link to a
+      // design by name isn't: only full public read gets a phone in without the key.
+      access: authenticate
+        ? "unknown"
+        : !authToken
+          ? "open"
+          : publicRead === "full"
+            ? "read"
+            : "key",
+    });
+  });
+
   // The viewer's update notice: running version vs latest published release.
   app.get("/api/version", async (c) => {
     if (!version) return c.json({ current: null, latest: null, updateAvailable: false });
@@ -4589,16 +6496,17 @@ export function createApp({
   // an instant ?wait=0 read does not.
   app.get("/api/comments", async (c) => {
     const sessionId = c.req.query("session");
-    const mockId = c.req.query("mock");
+    const designId = c.req.query("design");
     const postId = c.req.query("post");
     if (isUnauthenticatedSessionRead(c)) {
-      if (!sessionId && !mockId && !postId) {
-        return c.json({ error: "session, mock or post required" }, 401);
+      if (!sessionId && !designId && !postId) {
+        return c.json({ error: "session, design or post required" }, 401);
       }
       if (sessionId && !(await store.getSession(sessionId))) {
         return c.json({ error: "session not found" }, 404);
       }
-      if (mockId && !(await store.getMock(mockId))) return c.json({ error: "mock not found" }, 404);
+      if (designId && !(await store.getDesign(designId)))
+        return c.json({ error: "design not found" }, 404);
       if (postId && !(await store.getPost(postId))) return c.json({ error: "post not found" }, 404);
     }
     const waitSeconds = Number(c.req.query("wait") ?? 0) || 0;
@@ -4606,7 +6514,7 @@ export function createApp({
     const after = c.req.query("after");
     const query: CommentWait = {
       sessionId,
-      mockId,
+      designId,
       postId,
       author,
       afterSeq: after ? Number(after) : undefined,
@@ -4619,10 +6527,12 @@ export function createApp({
     // would silently lose the comments that reader "took".
     const isAgentRead = isAuthenticated(c) && (author === "user" || waitSeconds > 0);
     query.agent = isAgentRead;
+    query.peek = isAgentRead && c.req.query("peek") === "1";
     const respond = async (signal?: AbortSignal) => {
       if (isAgentRead) return send(c, await listenFlow(query, flowCtx(c).base, signal));
       const { handedOff: _none, ...result } = await waitForComments(query, signal);
-      return c.json({ ...result, comments: await withDelivered(result.comments) });
+      const live = isViewerRequest(c.req.raw) && isAuthenticated(c);
+      return c.json({ ...result, comments: await withDelivered(result.comments, live) });
     };
     if (waitSeconds <= 0) return respond();
     if (!acquireHold()) return c.json({ error: "too many concurrent connections" }, 503);
@@ -4636,16 +6546,6 @@ export function createApp({
     }
   });
 
-  // Content-hashed bridge/token assets the surface documents reference, so
-  // every surface doesn't re-inline the same ~11 KB. Without this route the
-  // in-frame bridge never loads and iframes never report their height.
-  app.get("/asset/:file", (c) => {
-    const asset = staticAsset(`/asset/${c.req.param("file")}`);
-    if (!asset) return c.text("Not found", 404);
-    c.header("Content-Type", asset.contentType);
-    c.header("Cache-Control", "public, max-age=31536000, immutable");
-    return c.body(asset.body);
-  });
   app.get("/guide", (c) => c.text(withOrigin(topics.html ?? "", c)));
   app.get("/setup", (c) => c.text(withOrigin(setupText, c)));
   // The brief without `?topic=`, one reference topic with it. Unknown topics
@@ -4663,7 +6563,9 @@ export function createApp({
   // `?project=`, that project's own kits follow the bundled ones.
   app.get("/api/kits", async (c) => {
     const project = c.req.query("project");
-    return c.json(kitSummaries(project ? ((await designFor(project))?.projectKits ?? []) : []));
+    return c.json(
+      kitSummaries(project ? ((await designSystemFor(project))?.projectKits ?? []) : []),
+    );
   });
 
   // --- theme: one palette, so the workspace setting is just its mode ---
@@ -4681,13 +6583,31 @@ export function createApp({
 
   // The project's design system, imported by `mockpit init` and injected into
   // every html surface of the project (see renderHtmlPage).
+  app.get("/api/projects/:name/decisions", async (c) =>
+    send(c, await decisionsFlow({ project: c.req.param("name") }, flowCtx(c))),
+  );
+  app.put("/api/projects/:name/decisions", async (c) =>
+    send(c, await editDecisionFlow(c.req.param("name"), await jsonBody(c), flowCtx(c))),
+  );
   app.get("/api/projects/:name/tree", async (c) =>
-    send(c, await treeFlow({ project: c.req.param("name") })),
+    send(
+      c,
+      await treeFlow({
+        project: c.req.param("name"),
+        live: isViewerRequest(c.req.raw) && isAuthenticated(c),
+        noDescriptions: isViewerRequest(c.req.raw),
+      }),
+    ),
+  );
+  app.get("/api/projects/:name/flows", async (c) =>
+    send(c, await flowOutlineFlow(c.req.param("name"))),
   );
   app.patch("/api/projects/:name", async (c) =>
     send(c, await editProjectFlow(c.req.param("name"), await jsonBody(c), flowCtx(c))),
   );
-  app.get("/api/projects/:name/design", async (c) => c.json(await designFor(c.req.param("name"))));
+  app.get("/api/projects/:name/design-system", async (c) =>
+    c.json(await designSystemFor(c.req.param("name"))),
+  );
   // A project's rules file (.mockpit/rules.md, sent by `mockpit rules` and
   // `mockpit init`) and the user's own (`mockpit rules --mine`).
   app.get("/api/projects/:name/rules", async (c) =>
@@ -4701,13 +6621,13 @@ export function createApp({
     send(c, await saveRules(USER_RULES_SETTING, await jsonBody(c))),
   );
 
-  app.put("/api/projects/:name/design", async (c) => {
+  app.put("/api/projects/:name/design-system", async (c) => {
     const body = await c.req.json().catch(() => null);
     if (!body || typeof body !== "object") return c.json({ error: "invalid JSON body" }, 400);
     const project = c.req.param("name");
     // `mockpit init` re-detects the repo and PUTs without iconSets; that must
     // not uninstall what `mockpit icons add` installed.
-    const previous = await designFor(project);
+    const previous = await designSystemFor(project);
     let iconSets = previous?.iconSets ?? [];
     if (body.iconSets !== undefined) {
       const checked = await checkIconSets(body.iconSets);
@@ -4727,7 +6647,7 @@ export function createApp({
       return c.json({ error: `unknown kit "${String(kit)}" — known: ${kitIds.join(", ")}` }, 400);
     const designFiles = checkDesignFiles(body.designFiles);
     if (typeof designFiles === "string") return c.json({ error: designFiles }, 400);
-    const design: DesignSettings = {
+    const designSystem: DesignSystem = {
       detected:
         body.detected && typeof body.detected === "object"
           ? {
@@ -4762,23 +6682,26 @@ export function createApp({
       designFiles,
       updatedAt: new Date().toISOString(),
     };
-    return c.json(await saveDesign(project, design));
+    return c.json(await saveDesignSystem(project, designSystem));
   });
 
-  async function saveDesign(project: string, design: DesignSettings): Promise<DesignSettings> {
-    await store.setSetting(`design:${project}`, JSON.stringify(design));
+  async function saveDesignSystem(
+    project: string,
+    designSystem: DesignSystem,
+  ): Promise<DesignSystem> {
+    await store.setSetting(`design:${project}`, JSON.stringify(designSystem));
     // Every rendered surface bakes the design into its document string, so a
     // design change invalidates them all.
     clearRenderCache();
     bus.broadcast({ type: "theme-changed", mode: await workspaceMode() });
-    return design;
+    return designSystem;
   }
 
   const MAX_PROJECT_KITS = 16;
-  function checkProjectKits(raw: unknown): DesignSettings["projectKits"] | string {
+  function checkProjectKits(raw: unknown): DesignSystem["projectKits"] | string {
     if (!Array.isArray(raw)) return "projectKits must be an array";
     if (raw.length > MAX_PROJECT_KITS) return `at most ${MAX_PROJECT_KITS} project kits`;
-    const kits: DesignSettings["projectKits"] = [];
+    const kits: DesignSystem["projectKits"] = [];
     for (const item of raw) {
       const kit = checkProjectKit(item);
       if (typeof kit === "string") return kit;
@@ -4788,7 +6711,7 @@ export function createApp({
     return kits;
   }
 
-  const emptyDesign = (): DesignSettings => ({
+  const emptyDesignSystem = (): DesignSystem => ({
     detected: null,
     palette: null,
     kit: "none",
@@ -4808,12 +6731,12 @@ export function createApp({
     const project = c.req.param("name");
     const kit = checkProjectKit({ ...body, id: c.req.param("id") });
     if (typeof kit === "string") return c.json({ error: kit }, 400);
-    const design = (await designFor(project)) ?? emptyDesign();
-    const others = design.projectKits.filter((k) => k.id !== kit.id);
+    const designSystem = (await designSystemFor(project)) ?? emptyDesignSystem();
+    const others = designSystem.projectKits.filter((k) => k.id !== kit.id);
     if (others.length >= MAX_PROJECT_KITS)
       return c.json({ error: `at most ${MAX_PROJECT_KITS} project kits` }, 400);
-    const saved = await saveDesign(project, {
-      ...design,
+    const saved = await saveDesignSystem(project, {
+      ...designSystem,
       projectKits: [...others, kit],
       updatedAt: new Date().toISOString(),
     });
@@ -4821,17 +6744,17 @@ export function createApp({
   });
 
   // Removing the project's default kit falls back to no kit rather than leaving
-  // design.kit naming something that no longer resolves.
+  // designSystem.kit naming something that no longer resolves.
   app.delete("/api/projects/:name/kits/:id", async (c) => {
     const project = c.req.param("name");
     const id = c.req.param("id");
-    const design = await designFor(project);
-    if (!design?.projectKits.some((k) => k.id === id))
+    const designSystem = await designSystemFor(project);
+    if (!designSystem?.projectKits.some((k) => k.id === id))
       return c.json({ error: `${project} has no kit "${id}"` }, 404);
-    const saved = await saveDesign(project, {
-      ...design,
-      kit: design.kit === id ? "none" : design.kit,
-      projectKits: design.projectKits.filter((k) => k.id !== id),
+    const saved = await saveDesignSystem(project, {
+      ...designSystem,
+      kit: designSystem.kit === id ? "none" : designSystem.kit,
+      projectKits: designSystem.projectKits.filter((k) => k.id !== id),
       updatedAt: new Date().toISOString(),
     });
     return c.json(saved);
@@ -4839,7 +6762,7 @@ export function createApp({
 
   // Every set an html surface of this project can name, installed first.
   app.get("/api/projects/:name/icons", async (c) => {
-    const sets = await iconSetsFor(await designFor(c.req.param("name")));
+    const sets = await iconSetsFor(await designSystemFor(c.req.param("name")));
     return c.json({
       sets: sets.map((s) => ({ prefix: s.prefix, count: iconCount(s.set), source: s.source })),
     });
@@ -5016,16 +6939,16 @@ export function createApp({
   // so both produce byte-identical output for one key.
   async function buildSurfaceDoc(args: {
     post: Post;
-    mock: Mock | null;
+    design: Design | null;
     surface: Surface;
     title: string;
     version: number;
     mode?: Mode;
     origin: string;
-    design: DesignSettings | null;
+    designSystem: DesignSystem | null;
     knobs?: Record<string, KnobValue>;
     composed?: string;
-  }): Promise<string> {
+  }): Promise<InlineResult> {
     const { surface, mode, origin } = args;
     const theme = themeById(DEFAULT_THEME_ID);
     const themeId = theme.id;
@@ -5033,22 +6956,37 @@ export function createApp({
       // Embedded components are expanded server-side (the caller passes the
       // expansion), so the whole page is still ONE sandboxed document rather
       // than nested frames.
-      const html = args.composed ?? surface.html;
-      return renderHtmlPage({
+      const html = withAnswerAdditions(
+        args.composed ?? surface.html,
+        args.design?.answerAdditions ?? [],
+      );
+      const page = renderHtmlPage({
         title: args.title,
         html,
         origin,
         theme,
         mode,
         kits: surface.kits,
-        design: args.design,
+        designSystem: args.designSystem,
         version: args.version,
         knobs: args.knobs,
-        resolveIcon: mayHaveIcons(html) ? (await iconResolverFor(args.design)).resolve : undefined,
+        resolveIcon: mayHaveIcons(html)
+          ? (await iconResolverFor(args.designSystem)).resolve
+          : undefined,
       });
+      return cdnInliner.inline(page, html);
     }
     if (surface.kind === "mermaid") {
-      return renderMermaidPage({ mermaid: surface.mermaid, origin, theme, mode });
+      return {
+        doc: renderMermaidPage({
+          mermaid: surface.mermaid,
+          origin,
+          theme,
+          mode,
+          version: args.version,
+        }),
+        complete: true,
+      };
     }
     // Load the rich renderers on first use, not at module load. richRender.ts
     // pulls in shiki, @pierre/diffs, markdown-it and ansi_up — measured at ~48 MB
@@ -5078,7 +7016,17 @@ export function createApp({
                 )}</div>`,
                 css: `.rich-error{color:var(--danger);font:13px/1.5 ui-monospace,monospace;padding:8px 12px;}`,
               }));
-    return renderSandboxedPart({ body: rendered.body, css: rendered.css, origin, theme, mode });
+    return {
+      doc: renderSandboxedPart({
+        body: rendered.body,
+        css: rendered.css,
+        origin,
+        theme,
+        mode,
+        version: args.version,
+      }),
+      complete: true,
+    };
   }
 
   // Render the current version of a post into the cache, off the write path.
@@ -5088,11 +7036,11 @@ export function createApp({
   // purpose: a render failure must never fail — or delay — the write. (The DO
   // stays alive for the duration; there is no ExecutionContext to hand this to.)
   const PREWARM_SURFACE_LIMIT = 4;
-  function warmPost(post: Post, mock: Mock): void {
+  function warmPost(post: Post, design: Design): void {
     const origin = lastOrigin;
     if (!origin) return;
     void (async () => {
-      const design = await designFor(mock.project);
+      const designSystem = await designSystemFor(design.project);
       let warmed = 0;
       for (const [idx, surface] of post.surfaces.entries()) {
         if (warmed >= PREWARM_SURFACE_LIMIT) break;
@@ -5100,7 +7048,7 @@ export function createApp({
         warmed++;
         const composed =
           surface.kind === "html" && hasEmbedTags(surface.html)
-            ? await composedHtml(mock.project, mock.slug, surface.html)
+            ? await composedHtml(design.project, design.slug, surface.html)
             : null;
         for (const mode of ["light", "dark"] as const) {
           const key = renderKey({
@@ -5116,13 +7064,13 @@ export function createApp({
           await cachedRender(key, () =>
             buildSurfaceDoc({
               post,
-              mock,
+              design,
               surface,
               title: post.title,
               version: post.version,
               mode,
               origin,
-              design,
+              designSystem,
               composed: composed?.html,
             }),
           );
@@ -5153,7 +7101,7 @@ export function createApp({
     // expensive part of this route (surfaces + every retained version). Only a
     // version-pinned request can take this path: without `ver` the current
     // version — and so the key — is unknown until the row is read. A `?k=`
-    // request never does: its values are checked against the mock's knobs,
+    // request never does: its values are checked against the design's knobs,
     // which can change under a pinned version.
     const pinned = Number(ver);
     // A document with embeds is stored only under the key its resolved embeds
@@ -5178,7 +7126,7 @@ export function createApp({
 
     const post = await store.getPost(c.req.param("id"));
     if (!post) return c.text("Post not found", 404);
-    const mock = await store.getMock(post.mock);
+    const design = await store.getDesign(post.design);
 
     let title = post.title;
     let surfaces = post.surfaces;
@@ -5198,7 +7146,7 @@ export function createApp({
       return c.text("No renderable surface at that index", 404);
     }
 
-    // Knob values are agent/user data: only values the mock (or this variant's
+    // Knob values are agent/user data: only values the design (or this variant's
     // per-part overrides) declares, within their schema, ever reach the document.
     let knobs: Record<string, KnobValue> | undefined;
     let knobsKey: string | undefined;
@@ -5214,7 +7162,7 @@ export function createApp({
       } catch {
         return bad("k must be URL-encoded JSON of {path: value}");
       }
-      const checked = checkKnobValues(raw, mock ?? { knobs: {} }, [post], "k");
+      const checked = checkKnobValues(raw, design ?? { knobs: {} }, [post], "k");
       if (!checked.ok) return bad(checked.error);
       const paths = Object.keys(checked.value).sort();
       if (paths.length > 0 && surface.kind === "html") {
@@ -5223,7 +7171,7 @@ export function createApp({
       }
     }
     let composed: Expanded | null = null;
-    if (surface.kind === "html" && hasEmbedTags(surface.html) && mock) {
+    if (surface.kind === "html" && hasEmbedTags(surface.html) && design) {
       let overrides: Record<string, number> | undefined;
       if (embedParam !== undefined) {
         let raw: unknown;
@@ -5243,17 +7191,9 @@ export function createApp({
         }
         overrides = raw as Record<string, number>;
       }
-      composed = await composedHtml(mock.project, mock.slug, surface.html, overrides);
+      composed = await composedHtml(design.project, design.slug, surface.html, overrides);
     }
     const eKey = composed ? embedsKey(composed) : undefined;
-    // Every input is in the URL (the palette is fixed, the mode is a query
-    // param), so a version-pinned document never changes, unless it follows a
-    // component's latest version and the URL does not name that state (`e`).
-    surfaceDocHeaders(
-      c,
-      ver != null && (eKey === undefined || eKey === eParam) && wParam === (post.rewrites ?? 0),
-    );
-
     // Cache the finished document under the same key the pre-warm uses; the
     // resolved `version` and embeds key make it immutable, so a hit is always
     // correct.
@@ -5267,20 +7207,31 @@ export function createApp({
       embeds: eKey,
       rewrites: post.rewrites,
     });
-    const design = mock ? await designFor(mock.project) : null;
-    const doc = await cachedRender(cacheKey, async () =>
+    const designSystem = design ? await designSystemFor(design.project) : null;
+    const { doc, complete } = await cachedRender(cacheKey, () =>
       buildSurfaceDoc({
         post,
-        mock,
+        design,
         surface,
         title,
         version,
         mode,
         origin,
-        design,
+        designSystem,
         knobs,
         composed: composed?.html,
       }),
+    );
+    // Every input is in the URL (the palette is fixed, the mode is a query
+    // param), so a version-pinned document never changes, unless it follows a
+    // component's latest version and the URL does not name that state (`e`), or
+    // a CDN it links failed this time and the next one may do better.
+    surfaceDocHeaders(
+      c,
+      complete &&
+        ver != null &&
+        (eKey === undefined || eKey === eParam) &&
+        wParam === (post.rewrites ?? 0),
     );
     return c.html(doc);
   };
@@ -5330,14 +7281,14 @@ export function createApp({
             kind: isAssetKind(kindQ) ? kindQ : undefined,
             session: c.req.query("session"),
             agent: c.req.query("agent"),
-            mock: c.req.query("mock"),
+            design: c.req.query("design"),
           };
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : "invalid upload" }, 400);
     }
-    // An attachment on a mock is the user's, so only the viewer may make one.
-    if (body.mock !== undefined && !flowCtx(c).viewer) {
-      return c.json({ error: "only the viewer can attach images to a mock" }, 403);
+    // An attachment on a design is the user's, so only the viewer may make one.
+    if (body.design !== undefined && !flowCtx(c).viewer) {
+      return c.json({ error: "only the viewer can attach images to a design" }, 403);
     }
     const result = await uploadAsset(body);
     if ("error" in result) return c.json({ error: result.error }, result.status);
@@ -5377,14 +7328,14 @@ export function createApp({
 
   app.get("/api/events", async (c) => {
     const sessionId = c.req.query("session");
-    const mockId = c.req.query("mock");
+    const designId = c.req.query("design");
     if (isUnauthenticatedSessionRead(c)) {
-      if (!sessionId && !mockId) return c.json({ error: "session or mock required" }, 401);
+      if (!sessionId && !designId) return c.json({ error: "session or design required" }, 401);
       if (sessionId && !(await store.getSession(sessionId))) {
         return c.json({ error: "session not found" }, 404);
       }
-      if (mockId && !(await store.getMock(mockId))) {
-        return c.json({ error: "mock not found" }, 404);
+      if (designId && !(await store.getDesign(designId))) {
+        return c.json({ error: "design not found" }, 404);
       }
     }
     if (!acquireHold()) return c.json({ error: "too many concurrent connections" }, 503);
@@ -5427,12 +7378,12 @@ export function createApp({
       }
       return undefined;
     };
-    const eventMockId = (event: FeedEvent) => {
-      if ("mockId" in event) return event.mockId;
+    const eventDesignId = (event: FeedEvent) => {
+      if ("designId" in event) return event.designId;
       if (
-        event.type === "mock-created" ||
-        event.type === "mock-updated" ||
-        event.type === "mock-deleted"
+        event.type === "design-created" ||
+        event.type === "design-updated" ||
+        event.type === "design-deleted"
       ) {
         return event.id;
       }
@@ -5443,7 +7394,7 @@ export function createApp({
       let wake: (() => void) | null = null;
       const unsubscribe = bus.subscribe((event) => {
         if (sessionId && eventSessionId(event) !== sessionId) return;
-        if (mockId && eventMockId(event) !== mockId) return;
+        if (designId && eventDesignId(event) !== designId) return;
         queue.push(event);
         wake?.();
       });
@@ -5460,7 +7411,7 @@ export function createApp({
       stream.onAbort(close);
       c.req.raw.signal.addEventListener("abort", close, { once: true });
       try {
-        await stream.writeSSE({ event: "hello", data: "{}" });
+        await stream.writeSSE({ event: "hello", data: JSON.stringify({ rev: revision }) });
         while (open) {
           while (queue.length > 0) {
             await stream.writeSSE({ data: JSON.stringify(queue.shift()) });
@@ -5490,14 +7441,16 @@ export function createApp({
 
   const mcpFlows: McpFlows = {
     publish: (body, ctx) => publishFlow(body, ctx),
-    list: (query) => listMocksFlow(query),
+    list: (query) => listDesignsFlow(query),
     tree: (query) => treeFlow(query),
-    get: (ref, query) => getMockFlow(ref, query),
+    decisions: (query) => decisionsFlow(query),
+    get: (ref, query) => getDesignFlow(ref, query),
     ask: (ref, body, ctx) => askFlow(ref, body, ctx),
-    exportMock: (ref, query, ctx) => exportFlow(ref, query, ctx),
+    exportDesign: (ref, query, ctx) => exportFlow(ref, query, ctx),
     say: (ref, body, ctx) => sayFlow(ref, body, ctx),
+    move: (ref, body, ctx) => moveFlow(ref, body, ctx),
     feedback: (query, ctx) => feedbackFlow(query, ctx),
-    edit: (ref, body, ctx) => editMockFlow(ref, body, ctx),
+    edit: (ref, body, ctx) => editDesignFlow(ref, body, ctx),
     editProject: (name, body, ctx) => editProjectFlow(name, body, ctx),
   };
   const guide = (project: string, topic?: GuideTopic) =>

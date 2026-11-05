@@ -11,7 +11,7 @@ Maintainer-only: requires a mockpit source checkout (the pipeline lives in
 Generates product videos where every app frame is the real mockpit viewer
 talking to a real server — no screen recording, no mockups. Unlike hunk's
 keyframe-compositing pipeline (`skills/launch-video` in the hunk repo),
-mockpit's product IS live motion — mocks arriving over SSE, sandboxed
+mockpit's product IS live motion — designs arriving over SSE, sandboxed
 iframes resizing, the comment loop — so this pipeline records **one real-time
 pass** instead of compositing stills:
 
@@ -68,7 +68,7 @@ ffmpeg -y -i "$RAW" -vf "fps=30,format=yuv420p" \
   delete it after.
 - **Custom:** any scene set works — tutorials, comparisons, announcements.
   Whatever runs in the viewer can be driven: publish over the API mid-recording
-  and the mock updates on camera; that's the money shot, use it.
+  and the design updates on camera; that's the money shot, use it.
 
 ## Storyboard model (record.mjs + stage.html)
 
@@ -83,15 +83,15 @@ ffmpeg -y -i "$RAW" -vf "fps=30,format=yuv420p" \
   `sub`, `cmds`/`cmd` (+ `span.p` for the prompt `$`), `foot`.
 - Interact with the viewer through `page.frameLocator("#app")`. Useful
   selectors:
-  `.home-step[data-mock="<slug>"]` (Home's screens), `.frame.on` (the frame on
+  `.home-step[data-design="<slug>"]` (Home's screens), `.frame.on` (the frame on
   stage), `.strip [role="tab"]` (states), `.opt[data-option="<id>"]` (question
   options), `button.send`, `.themebtn` (dark/light).
-- Publish content via the HTTP API while recording: `POST /api/mocks`
-  (`{project, mock, state, variant, html | surfaces, knobs}`; pass the returned
-  `sessionId` as `session` afterwards), `POST /api/mocks/:id/asks`,
-  `POST /api/mocks/:id/revise` to revise (bumps the version live), and
-  `POST /api/comments` (`{session, mock, text}`) for agent replies.
-  Seed background mocks _before_ opening the page; save the live publishes
+- Publish content via the HTTP API while recording: `POST /api/designs`
+  (`{project, design, state, variant, html | surfaces, knobs}`; pass the returned
+  `sessionId` as `session` afterwards), `POST /api/designs/:id/asks`,
+  `POST /api/designs/:id/revise` to revise (bumps the version live), and
+  `POST /api/comments` (`{session, design, text}`) for agent replies.
+  Seed background designs _before_ opening the page; save the live publishes
   for on-camera.
 - Target pacing: money shots hold 2.5–4s after content settles, transitions
   ~1s, typing at `pressSequentially(..., { delay: 34 })`. Intro card ~3s,
@@ -109,7 +109,7 @@ ffmpeg -y -i "$RAW" -vf "fps=30,format=yuv420p" \
   hit-target check runs in the top frame; an overlay that intercepts clicks
   aimed into the app iframe times every action out — even actions "behind" an
   intro card.
-- **Wait for iframes after opening a mock.** Every frame renders from
+- **Wait for iframes after opening a design.** Every frame renders from
   `/s/:id`; cut away too early and the last shot shows an empty stage.
   `waitFor` a `.frame.on iframe` and hold ~2–3s before the outro (this is also
   why "publish on camera" shots need their settle time).
@@ -140,7 +140,7 @@ ffmpeg -y -i "$RAW" -vf "fps=30,format=yuv420p" \
   ("up to 95% lighter" for the 0.13.0 hydrate change, not "95% faster").
 - The window chrome's URL pill shows the real server host:port — decorative
   but it must not lie; `record.mjs` fills it from the actual base URL.
-- Demo content is `bin/demoData.js` (the Writer mock `mockpit demo` seeds) — label
+- Demo content is `bin/demoData.js` (the Writer design `mockpit demo` seeds) — label
   anything invented beyond it honestly, and keep agent names real
   (`claude-code`, `pi`).
 - The video is silent — never imply audio in the video or announcement copy.

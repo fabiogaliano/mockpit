@@ -1,8 +1,8 @@
-// The bottom panel, opened from the version label: the state's History (one
-// line per variant, its versions along it, the one in use marked) and the
-// Thread with the agent.
+// A phone's bottom panel, opened from the version label: the state's History (one
+// line per variant, its versions along it, the one in use marked), the design's Notes
+// where it has them, and the Thread with the agent.
 
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js";
 import { surfaceUrl } from "./api.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
@@ -10,16 +10,18 @@ import {
   type HistoryCell,
   historyLayout,
   sameVersion,
+  variantName,
   type VersionStep,
   widthKind,
 } from "./logic.ts";
+import { Notes, notesShown } from "./Notes.tsx";
 import { Answered } from "./Questions.tsx";
-import type { MockScreenState } from "./state.ts";
+import type { DesignScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
 import { Thread } from "./Thread.tsx";
 import { Thumb } from "./Thumb.tsx";
 
-export function BottomPanel(props: { s: MockScreenState; onHeight: (h: number) => void }) {
+export function BottomPanel(props: { s: DesignScreenState; onHeight: (h: number) => void }) {
   const s = props.s;
   let el!: HTMLElement;
   const [body, setBody] = createSignal<HTMLElement>();
@@ -46,6 +48,17 @@ export function BottomPanel(props: { s: MockScreenState; onHeight: (h: number) =
           >
             History
           </button>
+          <Show when={notesShown(s)}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab() === "notes"}
+              classList={{ on: tab() === "notes" }}
+              onClick={() => s.setPanel("notes")}
+            >
+              Notes
+            </button>
+          </Show>
           <button
             type="button"
             role="tab"
@@ -70,27 +83,26 @@ export function BottomPanel(props: { s: MockScreenState; onHeight: (h: number) =
         </button>
       </div>
       <div class="bpbody" ref={setBody}>
-        <Show
-          when={tab() === "history"}
-          fallback={
+        <Switch>
+          <Match when={tab() === "history"}>
+            <History s={s} />
+          </Match>
+          <Match when={tab() === "notes"}>
+            <Notes s={s} />
+          </Match>
+          <Match when={tab() === "thread"}>
             <div class="bpthread">
               <Answered s={s} scope="all" />
               <Thread s={s} scroller={body} />
             </div>
-          }
-        >
-          <History s={s} />
-        </Show>
+          </Match>
+        </Switch>
       </div>
     </section>
   );
 }
 
-// Shared by the head's controls and the tree below them.
-const [showHidden, setShowHidden] = createSignal(false);
-const [usedOnly, setUsedOnly] = createSignal(false);
-
-function HistoryHead(props: { s: MockScreenState }) {
+function HistoryHead(props: { s: DesignScreenState }) {
   const s = props.s;
   const hidden = () => s.steps().filter((x) => x.hidden).length;
   const visible = () => s.steps().length - hidden();
@@ -99,11 +111,6 @@ function HistoryHead(props: { s: MockScreenState }) {
   return (
     <div class="hh">
       <span class="hcount">{`${visible()} ${visible() === 1 ? "version" : "versions"}`}</span>
-      <Show when={hidden()}>
-        <button type="button" class="hidlink" onClick={() => setShowHidden(!showHidden())}>
-          {showHidden() ? "Fold hidden" : `${hidden()} hidden`}
-        </button>
-      </Show>
       <Show when={!readonly() && step()}>
         {(st) => (
           <Show
@@ -136,14 +143,6 @@ function HistoryHead(props: { s: MockScreenState }) {
           </Show>
         )}
       </Show>
-      <label class="honly">
-        <input
-          type="checkbox"
-          checked={usedOnly()}
-          onChange={(e) => setUsedOnly(e.currentTarget.checked)}
-        />
-        Only ones I used
-      </label>
     </div>
   );
 }
@@ -153,74 +152,63 @@ const TALL = { w: 44, h: 88 };
 const FLAT = { w: 96, h: 64 };
 const GAP_X = 26;
 const GAP_Y = 30;
+const LINE_NAME_H = 20;
 
-function History(props: { s: MockScreenState }) {
+function History(props: { s: DesignScreenState }) {
   const s = props.s;
-  const used = (x: VersionStep) =>
-    sameVersion(x, s.inUse()) || s.usedBefore().some((r) => sameVersion(r, x));
-  const shown = createMemo(() =>
-    s
-      .steps()
-      .filter(
-        (x) =>
-          (showHidden() || !x.hidden || sameVersion(x, s.onStage())) && (!usedOnly() || used(x)),
-      ),
-  );
-  const layout = createMemo(() => historyLayout(shown()));
+  const layout = createMemo(() => historyLayout(s.steps()));
   const size = () => (widthKind(s.frameW()) === "phone" ? TALL : FLAT);
+  // Each variant numbers its own versions, so with several, "#1" alone says nothing
+  // until its line is named.
+  const lines = () => new Set(s.steps().map((st) => st.variant)).size > 1;
+  const nameH = () => (lines() ? LINE_NAME_H : 0);
+  const rowH = () => size().h + GAP_Y + nameH();
   const x = (c: HistoryCell) => 6 + c.col * (size().w + GAP_X);
-  const y = (c: HistoryCell) => 8 + c.row * (size().h + GAP_Y);
+  const y = (c: HistoryCell) => 8 + nameH() + c.row * rowH();
+  const startsLine = (c: HistoryCell) =>
+    lines() && layout().cells.find((o) => o.row === c.row) === c;
   return (
-    <Show
-      when={shown().length}
-      fallback={<p class="hempty">{usedOnly() ? "Nothing used yet." : "No versions yet."}</p>}
-    >
+    <Show when={s.steps().length} fallback={<p class="hempty">No versions yet.</p>}>
       <div class="hscroll">
-        <Show
-          when={!usedOnly()}
-          fallback={
-            <div class="hrow">
-              <For each={shown()}>{(st) => <HistoryThumb s={s} step={st} size={size()} />}</For>
-            </div>
-          }
+        <div
+          class="htree"
+          style={{
+            width: `${12 + layout().cols * (size().w + GAP_X)}px`,
+            height: `${8 + layout().rows * rowH()}px`,
+          }}
         >
-          <div
-            class="htree"
-            style={{
-              width: `${12 + layout().cols * (size().w + GAP_X)}px`,
-              height: `${8 + layout().rows * (size().h + GAP_Y)}px`,
-            }}
-          >
-            <svg aria-hidden="true">
-              <For each={layout().edges}>
-                {(e) => {
-                  const d = () => {
-                    const x1 = x(e.from) + size().w;
-                    const y1 = y(e.from) + size().h / 2;
-                    const x2 = x(e.to);
-                    const y2 = y(e.to) + size().h / 2;
-                    return `M${x1} ${y1} C ${x1 + 12} ${y1}, ${x2 - 12} ${y2}, ${x2} ${y2}`;
-                  };
-                  return <path d={d()} />;
-                }}
-              </For>
-            </svg>
-            <For each={layout().cells}>
-              {(c) => (
-                <div class="hcell" style={{ left: `${x(c)}px`, top: `${y(c)}px` }}>
-                  <HistoryThumb s={s} step={c.step} size={size()} />
-                </div>
-              )}
+          <svg aria-hidden="true">
+            <For each={layout().edges}>
+              {(e) => {
+                const d = () => {
+                  const x1 = x(e.from) + size().w;
+                  const y1 = y(e.from) + size().h / 2;
+                  const x2 = x(e.to);
+                  const y2 = y(e.to) + size().h / 2;
+                  return `M${x1} ${y1} C ${x1 + 12} ${y1}, ${x2 - 12} ${y2}, ${x2} ${y2}`;
+                };
+                return <path d={d()} />;
+              }}
             </For>
-          </div>
-        </Show>
+          </svg>
+          <For each={layout().cells}>
+            {(c) => (
+              <div class="hcell" style={{ left: `${x(c)}px`, top: `${y(c)}px` }}>
+                <Show when={startsLine(c)}>
+                  <span class="hline">{variantName(c.step.variant)}</span>
+                </Show>
+                <HistoryThumb s={s} step={c.step} size={size()} />
+              </div>
+            )}
+          </For>
+        </div>
       </div>
     </Show>
   );
 }
 
 function HistoryThumb(props: {
-  s: MockScreenState;
+  s: DesignScreenState;
   step: VersionStep;
   size: { w: number; h: number };
 }) {
@@ -246,6 +234,7 @@ function HistoryThumb(props: {
       style={{ width: `${props.size.w}px`, height: `${props.size.h}px` }}
       aria-label={`${s.nameOf(props.step)}${current() ? ", in use" : ""}${props.step.hidden ? ", hidden" : ""}`}
       aria-pressed={on()}
+      title={s.nameOf(props.step)}
       data-version={props.step.n}
       onClick={() => s.showVersion(props.step)}
     >

@@ -97,7 +97,7 @@ async function benchBackend(ctx: SuiteContext, backend: Backend) {
   // history here, so this is the one most likely to dominate a large workspace.
   await ctx.time(`${backend.id}/listPosts(all)`, () => store.listPosts(), { note: scale });
 
-  await ctx.time(`${backend.id}/listMocks`, () => store.listMocks(), { note: scale });
+  await ctx.time(`${backend.id}/listDesigns`, () => store.listDesigns(), { note: scale });
 
   await ctx.time(
     `${backend.id}/listComments(session)`,
@@ -159,7 +159,7 @@ async function benchBackend(ctx: SuiteContext, backend: Backend) {
       `${backend.id}/cold open + first read`,
       async () => {
         const fresh = reopen(store);
-        await fresh.listMocks();
+        await fresh.listDesigns();
       },
       { note: scale, minSamples: 7, minMs: 300 },
     );

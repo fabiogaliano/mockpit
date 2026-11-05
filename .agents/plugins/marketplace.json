@@ -1,0 +1,10 @@
+{
+  "name": "mockpit",
+  "plugins": [
+    {
+      "name": "mockpit",
+      "source": { "source": "local", "path": "./plugin" },
+      "description": "Publish designs to mockpit over MCP, and wake Codex when the user sends a reply from the browser."
+    }
+  ]
+}

@@ -1,11 +1,45 @@
 {
   "hooks": {
-    "SessionStart": [
+    "PostToolUse": [
+      {
+        "matcher": "mcp__(plugin_mockpit_)?mockpit__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/wait-for-reply.sh",
+            "asyncRewake": true,
+            "timeout": 86400
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(mockpit *)",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/wait-for-reply.sh",
+            "asyncRewake": true,
+            "timeout": 86400
+          },
+          {
+            "type": "command",
+            "if": "Bash(npx *mockpit *)",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/wait-for-reply.sh",
+            "asyncRewake": true,
+            "timeout": 86400
+          }
+        ]
+      }
+    ],
+    "Stop": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/remember-server.sh"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/wait-for-reply.sh --if-started",
+            "asyncRewake": true,
+            "timeout": 86400
           }
         ]
       }

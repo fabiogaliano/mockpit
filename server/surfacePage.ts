@@ -2,7 +2,7 @@ import { scanFills, slotCss } from "./fills.ts";
 import { CDN_ALLOWLIST, checkCdnUrl } from "./cdn.ts";
 import { CORE_CSS, KITS, kitAssets } from "./kits.ts";
 import { expandIcons, type IconResolver } from "./icons.ts";
-import type { DesignSettings, ProjectKit } from "./types.ts";
+import { type DesignSystem, PARAGRAPH_TEXT_MAX, PARAGRAPHS_MAX, type ProjectKit } from "./types.ts";
 import {
   type Mode,
   type Palette,
@@ -47,17 +47,11 @@ const cdns = CDN_ALLOWLIST.join(" ");
 // (served at <origin>/a/:id) embed by URL. It is needed because the iframe runs
 // at an opaque origin (sandbox without allow-same-origin), so `'self'` matches
 // nothing, and a local http origin isn't covered by the `https:` source.
-// `${origin}/asset/` is the fixed, content-hashed path the bridge script and the
-// static stylesheets are served from (see registerAsset). It is deliberately a
-// single directory of server-authored, workspace-data-free files: nothing an
-// agent or a user can write is ever reachable under it, so widening script-src
-// to it grants the sandbox no capability beyond running our own bridge.
 function buildCsp(origin: string): string {
-  const assets = `${origin}${STATIC_ASSET_PREFIX}`;
   return [
     `default-src 'none'`,
-    `script-src 'unsafe-inline' ${assets} ${cdns}`,
-    `style-src 'unsafe-inline' ${assets} ${cdns}`,
+    `script-src 'unsafe-inline' ${cdns}`,
+    `style-src 'unsafe-inline' ${cdns}`,
     `font-src ${cdns} data:`,
     `img-src https: data: blob: ${origin}`,
     `connect-src ${cdns}`,
@@ -282,6 +276,141 @@ if (window.ResizeObserver) {
 }
 `;
 
+// Freeze: a frame shown small (a wall, a grid, a cover, an option's picture) stops animating
+// once its page has settled, so a screenful of them costs nothing while they're looked at.
+// Opt-in by the fragment `#small`, so it's the same document and the same cache entry as the
+// page on Stage, which never has it. It runs first in <head>, ahead of the page's own
+// scripts, and asks nothing of them. Pinned down with pages built to trip it.
+//
+// The danger is a picture that freezes half-drawn, so stopping is the last thing that happens
+// to a page, and each way of drawing is handled for what it is:
+//
+//   - Settled: the page has loaded, and for QUIET_MS the DOM hasn't changed, no animation
+//     with an end is still running (its delay counts), and no frame has been asked for.
+//     An animation that loops forever doesn't hold this up: it never finishes.
+//   - Or CAP_MS have gone by. A frame loop can't be told apart from a page drawing in slowly
+//     (it may draw on a canvas or in a shadow root, neither of which the DOM check sees), so
+//     every loop gets that long, and the cap is where its cost ends. A draw-in longer than
+//     the cap is the one case that freezes part way.
+//   - Time here is time the frame was rendered: this clock ticks on animation frames, which a
+//     hidden or offscreen frame isn't given. A page that hasn't been seen hasn't had its
+//     chance to draw, so it doesn't get frozen before it has.
+//   - At the freeze, what has an end is finished rather than paused, since its end is what
+//     the page means to show. What loops is paused back at its start, its resting state in
+//     nearly every loop, and never midway through a fade. New animations get the same.
+//   - Frames stop. A frame loop's next frame is held and never handed out. A timer or event
+//     asking for a frame is the page doing something new, not a loop, so it thaws the page
+//     and settling starts over, within RUN_MAX_MS of rendered time in all, so a timer can't
+//     keep it awake. Timers themselves keep running: drawing by timer completes however late.
+//     Past that allowance only HELD_MAX requests are kept for a later thaw: a page asking by
+//     timer would otherwise pile them up for as long as it stays open.
+//   - New knob values always thaw, with a new allowance: the picture must follow them.
+export const FREEZE_JS = `
+(function () {
+  if (location.hash !== '#small' || !document.getAnimations) return;
+  var QUIET_MS = 800, CAP_MS = 10000, LOAD_CAP_MS = 15000, MAX_STEP_MS = 100, RUN_MAX_MS = 30000;
+  var HELD_MAX = 32;
+  var raf = window.requestAnimationFrame.bind(window);
+  var caf = window.cancelAnimationFrame.bind(window);
+  var asked = new Map(), nextId = 0;
+  var frozen = false, loaded = false;
+  var run = 0, last = 0, settleFrom = 0, active = 0, runUntil = RUN_MAX_MS;
+  var paused = [], sweepQueued = false;
+  window.addEventListener('load', function () { loaded = true; settleFrom = run; active = run; });
+
+  function fire(id, t) {
+    var entry = asked.get(id);
+    if (!entry) return;
+    entry.native = 0;
+    if (frozen) return;
+    asked.delete(id);
+    entry.cb(t);
+  }
+  function queue(id, entry) {
+    entry.native = raf(function (t) { fire(id, t); });
+  }
+  window.requestAnimationFrame = function (cb) {
+    if (frozen && run < runUntil) thaw();
+    var id = ++nextId, entry = { cb: cb, native: 0 };
+    if (frozen && asked.size >= HELD_MAX) return id;
+    asked.set(id, entry);
+    active = run;
+    if (!frozen) queue(id, entry);
+    return id;
+  };
+  window.cancelAnimationFrame = function (id) {
+    var entry = asked.get(id);
+    if (!entry) return;
+    if (entry.native) caf(entry.native);
+    asked.delete(id);
+  };
+  if (window.webkitRequestAnimationFrame) {
+    window.webkitRequestAnimationFrame = window.requestAnimationFrame;
+    window.webkitCancelAnimationFrame = window.cancelAnimationFrame;
+  }
+
+  function own(a) { return a.timeline === document.timeline && a.effect; }
+  function ends(a) { return isFinite(a.effect.getComputedTiming().endTime); }
+  function stillDrawing() {
+    return document.getAnimations().some(function (a) {
+      return own(a) && a.playState === 'running' && ends(a);
+    });
+  }
+  function sweep() {
+    sweepQueued = false;
+    if (!frozen) return;
+    document.getAnimations().forEach(function (a) {
+      if (!own(a)) return;
+      try {
+        if (ends(a)) a.finish();
+        else if (a.playState !== 'paused') { a.pause(); a.currentTime = 0; paused.push(a); }
+      } catch (e) {}
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('svg'), function (svg) {
+      if (svg.pauseAnimations) svg.pauseAnimations();
+    });
+  }
+  function queueSweep() {
+    if (frozen && !sweepQueued) { sweepQueued = true; setTimeout(sweep, 0); }
+  }
+  function freeze() { frozen = true; sweep(); }
+  function thaw() {
+    frozen = false;
+    active = settleFrom = run;
+    paused.splice(0).forEach(function (a) { try { a.play(); } catch (e) {} });
+    Array.prototype.forEach.call(document.querySelectorAll('svg'), function (svg) {
+      if (svg.unpauseAnimations) svg.unpauseAnimations();
+    });
+    asked.forEach(function (entry, id) { if (!entry.native) queue(id, entry); });
+    last = 0;
+    raf(tick);
+  }
+  function settled() {
+    return run - active >= QUIET_MS && !stillDrawing();
+  }
+  function tick(t) {
+    if (frozen) return;
+    run += last ? Math.min(t - last, MAX_STEP_MS) : 0;
+    last = t;
+    if (loaded ? settled() || run - settleFrom >= CAP_MS : run >= LOAD_CAP_MS) freeze();
+    else raf(tick);
+  }
+  new MutationObserver(function () {
+    active = run;
+    queueSweep();
+  }).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+  document.addEventListener('animationstart', queueSweep, true);
+  document.addEventListener('transitionstart', queueSweep, true);
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (e.source !== window.parent || !d || d.__mockpit !== true || d.type !== 'knobs') return;
+    runUntil = run + RUN_MAX_MS;
+    if (frozen) thaw();
+  });
+  raf(tick);
+})();
+`;
+
 // Hit test: the viewer's marker overlay lives in the trusted origin ABOVE the
 // sandboxed frame, so when the operator drops a pin it knows the normalized
 // point but nothing about what sits under it. This answers that question over
@@ -397,7 +526,7 @@ export const HIT_TEST_JS = `
 //   goto             {version, to}               a click on [data-goto] while the host
 //                                                has Try on (PARTS_JS); to is the
 //                                                attribute as written ("next", "prev",
-//                                                "<mock>:<state>"), ≤200 chars. The host
+//                                                "<design>:<state>"), ≤200 chars. The host
 //                                                honours it only while Try is on, from
 //                                                the frame on stage at its version, and
 //                                                only to a screen of this project:
@@ -406,6 +535,14 @@ export const HIT_TEST_JS = `
 //                                                a drag never reports
 //   ready            {version}                   the knob runtime is listening (KNOBS_JS,
 //                                                from <head>); values can be sent now
+//   paragraphs       {version, blocks, width}    a written surface's blocks (PARAGRAPHS_JS),
+//                                                only in a document opened with #read;
+//       blocks[i] = {i, kind, text, box:{x,y,w,h}}: place in the document, tag, clipped
+//       text, document px. Sent on load, on 50/150/400/1000ms timers and on any layout
+//       change; never twice alike. `version` as on a parts report.
+//   paragraph-tap    {version, i}                a click or tap on block i, which only opens
+//                                                the host's comment field; the host reads
+//                                                the text from its own last report
 //   pinch            {phase, a:{x,y}, b:{x,y}}   two fingers on the page, in viewport px
 //   zoom             {x, y, dy}                  ⌘/Ctrl+scroll or a trackpad pinch, in viewport px
 //                                                (PARTS_JS); phase start|move|end. The
@@ -427,8 +564,10 @@ export const HIT_TEST_JS = `
 //   try        {on}             Try is on or off: while on, [data-goto] elements are
 //                               outlined and a click on one reports goto instead
 //                               of reaching the page; a new document starts off
+//   paragraph-marks {marked:[i], on:i|null}  tint these blocks of a #read document: the
+//                               ones holding comments, and the one being commented on
 //
-// Knobs (`/s/:id?k=`, validated by the route against the mock's declared knobs,
+// Knobs (`/s/:id?k=`, validated by the route against the design's declared knobs,
 // and the `knobs` command): for each path, dots become "-" in names, and
 //   --k-<path>            on <html style>: numbers as-is, booleans 1/0, strings
 //                         raw when they are plain CSS tokens, else a quoted CSS
@@ -709,6 +848,162 @@ export const PARTS_JS = `
 })();
 `;
 
+// A written surface read as a document. Identity and geometry leave the frame as
+// data, the way parts do; the trusted viewer draws its pins from those numbers and
+// shows the text as text nodes. Opt-in by the fragment `#read`, so the same document
+// pictured on a card or stacked on the stage stays inert: a fragment reaches no
+// server and no render cache, and it is read before first paint, so the reading type
+// never flashes. A rich document is not scrollable in this mode: the host sizes the
+// frame to it and the reader is the page's one scroll.
+const READ_CSS = `
+html.mockpit-read,html.mockpit-read body{overflow:hidden}
+html.mockpit-read body{display:flow-root;box-sizing:border-box;padding:2px 28px 6px;font-size:16px;line-height:1.65;text-wrap:pretty}
+html.mockpit-read :is(p,ul,ol,blockquote,table){margin:.75em 0}
+html.mockpit-read table{display:block;max-width:100%;overflow-x:auto}
+html.mockpit-read pre{max-height:none}
+html.mockpit-read [data-mp]{border-radius:6px;cursor:pointer;transition:background-color .12s ease-out}
+html.mockpit-read .mockpit-p-hov{background-color:var(--hover);box-shadow:0 0 0 4px var(--hover)}
+html.mockpit-read .mockpit-p-mark{--t:color-mix(in srgb,var(--accent) 12%,transparent);background-color:var(--t);box-shadow:0 0 0 4px var(--t)}
+html.mockpit-read .mockpit-p-on{--t:color-mix(in srgb,var(--accent) 24%,transparent);background-color:var(--t);box-shadow:0 0 0 4px var(--t)}
+`;
+export const PARAGRAPHS_JS = `
+(function () {
+  if (window.parent === window || location.hash !== '#read') return;
+  var MAX_BLOCKS = ${PARAGRAPHS_MAX};
+  var MAX_TEXT = ${PARAGRAPH_TEXT_MAX};
+  // Outermost blocks only: a paragraph in a quote or a list item belongs to it. A
+  // list inside a list item is the one exception, so a sub-item can be commented on.
+  var BLOCKS = 'h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,table,figure,dl';
+  var html = document.documentElement;
+  var version = Number(html.getAttribute('data-mockpit-version')) || null;
+  html.classList.add('mockpit-read');
+  var sheet = document.createElement('style');
+  sheet.textContent = ${JSON.stringify(READ_CSS)};
+  document.head.appendChild(sheet);
+
+  function clean(t) { return String(t || '').replace(/\\s+/g, ' ').trim().slice(0, MAX_TEXT); }
+  function textOf(el) {
+    var from = el;
+    if (el.tagName === 'LI' && el.querySelector('ul,ol')) {
+      from = el.cloneNode(true);
+      var inner = from.querySelectorAll('ul,ol');
+      for (var i = 0; i < inner.length; i++) inner[i].remove();
+    }
+    var t = clean(from.textContent);
+    if (t) return t;
+    var pic = el.querySelector('img');
+    return pic ? clean(pic.getAttribute('alt')) || 'image' : '';
+  }
+  function found() {
+    // A mermaid page: the whole diagram is one block, once it has drawn.
+    var diagram = document.getElementById('m');
+    if (diagram) return diagram.firstChild ? [{ el: diagram, kind: 'diagram' }] : [];
+    var all = document.querySelectorAll(BLOCKS);
+    var out = [];
+    for (var i = 0; i < all.length && out.length < MAX_BLOCKS; i++) {
+      var el = all[i];
+      var up = el.parentElement && el.parentElement.closest(BLOCKS);
+      if (up && !(el.tagName === 'LI' && up.tagName === 'LI')) continue;
+      out.push({ el: el, kind: el.tagName.toLowerCase() });
+    }
+    return out.length || !document.body ? out : [{ el: document.body, kind: 'document' }];
+  }
+  function collect() {
+    var sx = window.scrollX || 0, sy = window.scrollY || 0;
+    var list = found();
+    var blocks = [];
+    for (var i = 0; i < list.length; i++) {
+      var el = list[i].el;
+      var t = textOf(el);
+      if (!t) continue;
+      el.setAttribute('data-mp', String(blocks.length));
+      var r = el.getBoundingClientRect();
+      blocks.push({
+        i: blocks.length,
+        kind: list[i].kind,
+        text: t,
+        box: { x: r.left + sx, y: r.top + sy, w: r.width, h: r.height },
+      });
+    }
+    return { version: version, blocks: blocks, width: innerWidth };
+  }
+  var last = '';
+  var timer = 0;
+  function schedule() {
+    if (timer) return;
+    timer = setTimeout(function () {
+      timer = 0;
+      var m = collect();
+      var key = JSON.stringify(m);
+      if (key === last) return;
+      last = key;
+      m.__mockpit = true;
+      m.type = 'paragraphs';
+      parent.postMessage(m, '*');
+    }, 0);
+  }
+  if (typeof ResizeObserver !== 'undefined') {
+    var ro = new ResizeObserver(schedule);
+    ro.observe(html);
+    if (document.body) ro.observe(document.body);
+  }
+  // No attributes: this script writes those, and only content arriving moves blocks.
+  new MutationObserver(schedule).observe(html, { subtree: true, childList: true, characterData: true });
+  window.addEventListener('resize', schedule);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(schedule);
+  document.addEventListener('load', schedule, true);
+  function settle() {
+    schedule();
+    [50, 150, 400, 1000].forEach(function (ms) { setTimeout(schedule, ms); });
+  }
+  if (document.readyState === 'complete') settle();
+  else window.addEventListener('load', settle);
+
+  var hovered = null;
+  function hover(el) {
+    if (el === hovered) return;
+    if (hovered) hovered.classList.remove('mockpit-p-hov');
+    hovered = el;
+    if (el) el.classList.add('mockpit-p-hov');
+  }
+  document.addEventListener('pointerover', function (e) {
+    if (e.pointerType !== 'mouse') return;
+    hover(e.target && e.target.closest ? e.target.closest('[data-mp]') : null);
+  }, true);
+  html.addEventListener('pointerleave', function () { hover(null); });
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || !t.closest || t.closest('a[href],button,summary,input,select,textarea,label')) return;
+    // Selecting text to copy it is reading, not commenting.
+    var picked = window.getSelection && window.getSelection();
+    if (picked && !picked.isCollapsed) return;
+    var block = t.closest('[data-mp]');
+    if (!block) return;
+    parent.postMessage({
+      __mockpit: true,
+      type: 'paragraph-tap',
+      version: version,
+      i: Number(block.getAttribute('data-mp')),
+    }, '*');
+  });
+  function tint(cls, list) {
+    var on = document.querySelectorAll('.' + cls);
+    for (var i = 0; i < on.length; i++) on[i].classList.remove(cls);
+    for (var k = 0; k < list.length && k < MAX_BLOCKS; k++) {
+      var el = document.querySelector('[data-mp="' + Number(list[k]) + '"]');
+      if (el) el.classList.add(cls);
+    }
+  }
+  window.addEventListener('message', function (e) {
+    if (e.source !== parent) return;
+    var d = e.data;
+    if (!d || d.__mockpit !== true || d.type !== 'paragraph-marks') return;
+    tint('mockpit-p-mark', Array.isArray(d.marked) ? d.marked : []);
+    tint('mockpit-p-on', d.on === null || d.on === undefined ? [] : [d.on]);
+  });
+})();
+`;
+
 // Knobs: the `?k=` values are already on <html> (see knobPreamble); this binds
 // text, announces them, and applies the host's live `knobs` commands.
 export const KNOBS_JS = `
@@ -871,78 +1166,46 @@ const TAILWIND_CDN = "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4";
 const ICON_CSS = `.icon{width:1em;height:1em;flex:none;vertical-align:-0.125em}`;
 
 // ---------------------------------------------------------------------------
-// Content-hashed static assets for surface documents
+// Mockpit's own scripts and stylesheets, inlined in every surface document
 // ---------------------------------------------------------------------------
 //
-// The bridge script and the theme-independent stylesheets used to be inlined
-// into EVERY surface document — ~11 KB of identical bytes per surface, paid
-// again for every post, every version, every theme and every mode. They are
-// served instead from `/asset/<name>.<hash>.<ext>`, so the browser fetches each
-// one once and reuses it across the whole workspace.
+// These were once served from content-hashed URLs so a browser would fetch each
+// file once. It doesn't: a frame's subresources are partitioned by its opaque
+// origin, so in Chrome nothing a frame fetches is cached or shared. Measured with
+// 8 frames, every file was fetched 8 times on first load and on every reload,
+// while the document itself came from disk cache. Bytes in the document cost
+// nothing past that document's one fetch, so that's where they live.
 //
-// The hash is derived from the content at module load (FNV-1a — no crypto, no
-// async, runtime-agnostic), so an upgrade that changes a byte changes the URL:
-// a surface document cached as immutable for a year can never pair with stale
-// asset bytes.
-//
-// Only content that does NOT depend on the theme or the resolved mode lives
-// here. Theme tokens are per (theme, mode) and stay inline in the document,
-// where they are already covered by its cache key.
+// Comments and indentation in these scripts are for this file's reader; every
+// frame would pay for them, so they're dropped once at load. Safe because no
+// script here holds a multi-line string.
+const compactJs = (js: string): string =>
+  js
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("//"))
+    .join("\n");
+const inlineScript = (js: string): string => `<script>${compactJs(js)}</script>`;
+const inlineStyle = (css: string): string => `<style>${css}</style>`;
 
-const fnv1a = (input: string): string => {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < input.length; i++) {
-    h ^= input.charCodeAt(i);
-    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
-  }
-  return h.toString(36);
-};
-
-export interface StaticAsset {
-  path: string;
-  contentType: string;
-  body: string;
-}
-
-// Every path is registered at module load, so a document served from a
-// long-lived cache after a restart always finds the asset it references.
-export const STATIC_ASSET_PREFIX = "/asset/";
-const STATIC_ASSETS = new Map<string, StaticAsset>();
-
-function registerAsset(name: string, ext: "js" | "css", body: string): string {
-  const path = `${STATIC_ASSET_PREFIX}${name}.${fnv1a(body)}.${ext}`;
-  STATIC_ASSETS.set(path, {
-    path,
-    contentType: ext === "js" ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8",
-    body,
-  });
-  return path;
-}
-
-export const staticAsset = (path: string): StaticAsset | null => STATIC_ASSETS.get(path) ?? null;
-
-const BRIDGE_PATH = registerAsset("bridge", "js", BRIDGE_JS);
-const HIT_TEST_PATH = registerAsset("hit-test", "js", HIT_TEST_JS);
-const PARTS_PATH = registerAsset("parts", "js", PARTS_JS);
-const KNOBS_PATH = registerAsset("knobs", "js", KNOBS_JS);
+const FREEZE_TAG = inlineScript(FREEZE_JS);
+const BRIDGE_TAG = inlineScript(BRIDGE_JS);
+const HIT_TEST_TAG = inlineScript(HIT_TEST_JS);
+const PARTS_TAG = inlineScript(PARTS_JS);
+const KNOBS_TAG = inlineScript(KNOBS_JS);
+const PARAGRAPHS_TAG = inlineScript(PARAGRAPHS_JS);
 // The base html-surface stylesheet: static design tokens + the surface kit.
-const BASE_CSS_PATH = registerAsset(
-  "base",
-  "css",
-  `${TOKENS_CSS}${KIT_CSS}${PART_HIGHLIGHT_CSS}${ICON_CSS}`,
-);
-const KIT_CORE_PATH = registerAsset("kit-core", "css", CORE_CSS);
-const KIT_PATHS = new Map(KITS.map((k) => [k.id, registerAsset(`kit-${k.id}`, "css", k.css)]));
+const BASE_CSS_TAG = inlineStyle(`${TOKENS_CSS}${KIT_CSS}${PART_HIGHLIGHT_CSS}${ICON_CSS}`);
+const KIT_CORE_TAG = inlineStyle(CORE_CSS);
 
-const scriptTag = (origin: string, path: string) => `<script src="${origin}${path}"></script>`;
-const styleTag = (origin: string, path: string) =>
-  `<link rel="stylesheet" href="${origin}${path}">`;
+const versionAttr = (version: number | undefined) =>
+  version === undefined ? "" : ` data-mockpit-version="${version}"`;
 
-// A kit as one document references it: our own content-hashed stylesheet,
-// a library on the CDN allowlist, or both (a reference kit's theme bridge).
+// A kit as one document references it: our own stylesheet, a library on the CDN
+// allowlist, or both (a reference kit's theme bridge).
 interface ResolvedKit {
   id: string;
-  cssPath?: string;
+  css?: string;
   href?: string;
   script?: string;
 }
@@ -963,7 +1226,7 @@ function resolveKits(
     const kit = KITS.find((k) => k.id === id);
     if (kit) {
       seen.add(id);
-      chosen.push({ id, cssPath: KIT_PATHS.get(id), href: kit.href, script: kit.script });
+      chosen.push({ id, css: kit.css, href: kit.href, script: kit.script });
       continue;
     }
     const own = projectKits.find((k) => k.id === id);
@@ -977,12 +1240,12 @@ function resolveKits(
   return chosen;
 }
 
-// Everything a project's DesignSettings contributes to one html-surface doc.
+// Everything a project's DesignSystem contributes to one html-surface doc.
 // Kept in one place so the ordering rule is visible: the project's own tokens
 // land AFTER mockpit's, because a repo that declares `--radius` or a brand
 // color should win inside its own project's surfaces.
 function designAssets(
-  design: DesignSettings | null | undefined,
+  designSystem: DesignSystem | null | undefined,
   mode: Mode | undefined,
 ): {
   css: string;
@@ -991,13 +1254,14 @@ function designAssets(
   headScripts: string;
   dark: boolean;
 } {
-  if (!design) return { css: "", kits: [], projectKits: [], headScripts: "", dark: false };
-  const tailwindCss = design.kit === "tailwind" ? (design.tailwindCss?.trim() ?? "") : "";
-  const raw = tailwindCss ? "" : (design.cssVars?.trim() ?? "");
+  if (!designSystem) return { css: "", kits: [], projectKits: [], headScripts: "", dark: false };
+  const tailwindCss =
+    designSystem.kit === "tailwind" ? (designSystem.tailwindCss?.trim() ?? "") : "";
+  const raw = tailwindCss ? "" : (designSystem.cssVars?.trim() ?? "");
   // `cssVars` is stored as the repo's raw block; accept either the full
   // `:root{…}` text or a bare declaration list.
   const vars = raw ? (raw.includes("{") ? raw : `:root{${raw}}`) : "";
-  const kit = design.kit;
+  const kit = designSystem.kit;
   // The browser build reads its input from the style tags present when its
   // script runs, so the stylesheet goes first. Its compiled output already
   // carries the repo's `:root` block, hence no `cssVars` beside it.
@@ -1008,7 +1272,7 @@ function designAssets(
   return {
     css: vars,
     kits: kit && kit !== "tailwind" && kit !== "none" ? [kit] : [],
-    projectKits: Array.isArray(design.projectKits) ? design.projectKits : [],
+    projectKits: Array.isArray(designSystem.projectKits) ? designSystem.projectKits : [],
     headScripts: tailwind,
     // Repos theme dark through a `.dark` ancestor (shadcn's `.dark {…}` block,
     // `@custom-variant dark (&:is(.dark *))`), so the frame wears the class.
@@ -1033,9 +1297,7 @@ export const escapeHtml = (s: string) =>
 function buildRichCsp(origin: string): string {
   return [
     `default-src 'none'`,
-    // Same fixed same-origin asset directory as buildCsp — only the bridge
-    // script lives there. Still no connect-src.
-    `script-src 'unsafe-inline' ${origin}${STATIC_ASSET_PREFIX}`,
+    `script-src 'unsafe-inline'`,
     `style-src 'unsafe-inline'`,
     `img-src https: data: blob: ${origin}`,
     `font-src data:`,
@@ -1064,11 +1326,13 @@ export function renderSandboxedPart(doc: {
   origin: string;
   theme?: Theme | string;
   mode?: Mode;
+  // The post version this document renders; tagged on its paragraph reports.
+  version?: number;
 }): string {
   const theme =
     typeof doc.theme === "string" || doc.theme == null ? themeById(doc.theme) : doc.theme;
   return `<!doctype html>
-<html lang="en">
+<html lang="en"${versionAttr(doc.version)}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1082,7 +1346,8 @@ export function renderSandboxedPart(doc: {
 </head>
 <body>
 ${doc.body}
-${scriptTag(doc.origin, BRIDGE_PATH)}
+${BRIDGE_TAG}
+${PARAGRAPHS_TAG}
 </body>
 </html>`;
 }
@@ -1211,6 +1476,7 @@ export function renderMermaidPage(doc: {
   origin: string;
   theme?: Theme | string;
   mode?: Mode;
+  version?: number;
 }): string {
   const theme =
     typeof doc.theme === "string" || doc.theme == null ? themeById(doc.theme) : doc.theme;
@@ -1256,7 +1522,7 @@ try {
   el.appendChild(pre);
 }`;
   return `<!doctype html>
-<html lang="en">
+<html lang="en"${versionAttr(doc.version)}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1267,7 +1533,8 @@ try {
 <body>
 <div id="m"></div>
 <script type="module">${loader}</script>
-${scriptTag(doc.origin, BRIDGE_PATH)}
+${BRIDGE_TAG}
+${PARAGRAPHS_TAG}
 </body>
 </html>`;
 }
@@ -1287,7 +1554,7 @@ export function renderHtmlPage(doc: {
   // The post's project design settings (`design:<project>`), imported from the
   // repo by `mockpit init`. Null/absent → the surface renders exactly as it
   // did before this existed.
-  design?: DesignSettings | null;
+  designSystem?: DesignSystem | null;
   // The post version this document renders; tagged on every parts report.
   version?: number;
   // Validated `?k=` values (the route checks them against the declared knobs).
@@ -1298,29 +1565,28 @@ export function renderHtmlPage(doc: {
 }): string {
   const theme =
     typeof doc.theme === "string" || doc.theme == null ? themeById(doc.theme) : doc.theme;
-  const design = designAssets(doc.design, doc.mode);
+  const designSystem = designAssets(doc.designSystem, doc.mode);
   const preamble = knobPreamble(doc.version, doc.knobs);
-  const htmlTag = design.dark
+  const htmlTag = designSystem.dark
     ? preamble.htmlTag.replace("<html ", '<html class="dark" ')
     : preamble.htmlTag;
   // The project kit is appended, so with both present its components win over
   // a surface-requested kit's same-named classes.
-  const kitIds = [...(doc.kits ?? []), ...design.kits];
-  const kits = resolveKits(kitIds, design.projectKits);
+  const kitIds = [...(doc.kits ?? []), ...designSystem.kits];
+  const kits = resolveKits(kitIds, designSystem.projectKits);
   const kit = kitAssets(kitIds);
-  // Document order still decides the cascade, so the externalized stylesheets
-  // sit exactly where their inlined text used to: theme tokens, base, kit
-  // accents, kit(s), then the project's own vars (which must win last).
+  // Document order decides the cascade: theme tokens, base, kit accents, kit(s),
+  // then the project's own vars (which must win last).
   const styles = [
     `<style>${tokenThemeCss(theme, doc.mode)}</style>`,
-    styleTag(doc.origin, BASE_CSS_PATH),
+    BASE_CSS_TAG,
     `<style>${kitAccentCss(doc.mode)}</style>`,
-    ...(kits.some((k) => !k.href) ? [styleTag(doc.origin, KIT_CORE_PATH)] : []),
+    ...(kits.some((k) => !k.href) ? [KIT_CORE_TAG] : []),
     ...kits.flatMap((k) => [
       ...(k.href ? [`<link rel="stylesheet" href="${escapeHtml(k.href)}">`] : []),
-      ...(k.cssPath ? [styleTag(doc.origin, k.cssPath)] : []),
+      ...(k.css ? [inlineStyle(k.css)] : []),
     ]),
-    `<style>${design.css}${colorSchemeCss(doc.mode)}</style>`,
+    `<style>${designSystem.css}${colorSchemeCss(doc.mode)}</style>`,
   ].join("\n");
   // Slots (fills.ts): only the chosen fill of each shows, keyed on the knob
   // attribute; with no value yet, the default fill.
@@ -1332,19 +1598,20 @@ ${htmlTag}
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${buildCsp(doc.origin)}">
 <title>${escapeHtml(doc.title)}</title>
+${FREEZE_TAG}
 ${preamble.headScript}
-${scriptTag(doc.origin, KNOBS_PATH)}
+${KNOBS_TAG}
 ${styles}
 ${fillCss ? `<style>${fillCss}</style>` : ""}
-${design.headScripts}
+${designSystem.headScripts}
 ${kits.flatMap((k) => (k.script ? [`<script src="${escapeHtml(k.script)}" defer></script>`] : [])).join("\n")}
 </head>
 <body>
 ${SVG_DEFS}
 ${expandIcons(doc.html, doc.resolveIcon ?? (() => null)).html}
-${scriptTag(doc.origin, BRIDGE_PATH)}
-${scriptTag(doc.origin, HIT_TEST_PATH)}
-${scriptTag(doc.origin, PARTS_PATH)}
+${BRIDGE_TAG}
+${HIT_TEST_TAG}
+${PARTS_TAG}
 ${kit.js ? `<script>${kit.js}</script>` : ""}
 </body>
 </html>`;

@@ -51,7 +51,7 @@ jobs:
           mockpit serve &
           for i in $(seq 1 20); do curl -sf localhost:8228/api/sessions > /dev/null && break; sleep 0.5; done
           echo '<p data-part="note">ci smoke</p>' > /tmp/smoke.html
-          mockpit publish --mock ci-smoke --title "CI smoke" --html /tmp/smoke.html --json | tee /tmp/out.json
+          mockpit publish --design ci-smoke --title "CI smoke" --html /tmp/smoke.html --json | tee /tmp/out.json
           grep -q '"sessionId"' /tmp/out.json
           mockpit demo | grep -q "Seeded"
           curl -sf localhost:8228/guide > /dev/null
@@ -108,6 +108,6 @@ jobs:
           mockpit serve &
           for i in $(seq 1 20); do curl -sf localhost:8228/api/sessions > /dev/null && break; sleep 0.5; done
           echo '<p data-part="note">ci smoke</p>' > "$RUNNER_TEMP/smoke.html"
-          mockpit publish --mock ci-smoke --title "CI smoke" --html "$RUNNER_TEMP/smoke.html" --json | tee "$RUNNER_TEMP/out.json"
+          mockpit publish --design ci-smoke --title "CI smoke" --html "$RUNNER_TEMP/smoke.html" --json | tee "$RUNNER_TEMP/out.json"
           grep -q '"sessionId"' "$RUNNER_TEMP/out.json"
           curl -sf localhost:8228/guide > /dev/null
