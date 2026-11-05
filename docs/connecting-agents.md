@@ -148,6 +148,36 @@ a turn even while the thread is idle, usually within about ten seconds. Set `MOC
 and `MOCKPIT_TOKEN` in the environment for a server other than `http://localhost:8228`.
 Requires Codex 0.149.0 or later.
 
+## OpenCode
+
+The plugin in `opencode/` wakes the agent with each Send. Add it next to the MCP server in
+`opencode.json`, using the path of `opencode/` in a mockpit checkout or install.
+
+OpenCode 2.x takes the directory:
+
+```json
+{
+  "plugins": ["file:///path/to/mockpit/opencode"],
+  "mcp": { "mockpit": { "type": "local", "command": ["npx", "-y", "mockpit", "mcp"] } }
+}
+```
+
+OpenCode 1.x takes the file:
+
+```json
+{
+  "plugin": ["file:///path/to/mockpit/opencode/mockpit.js"],
+  "mcp": {
+    "mockpit": { "type": "local", "command": ["npx", "-y", "mockpit", "mcp"], "enabled": true }
+  }
+}
+```
+
+Nothing runs until a session's first mockpit call, over MCP or the CLI. After that, a Send
+starts a turn in that session, even while it sits idle, and the agent reads the reply with
+`feedback`. Set `MOCKPIT_URL` and `MOCKPIT_TOKEN` in the environment for a server other than
+`http://localhost:8228`.
+
 ## Agents with nothing to wake them
 
 An agent with nothing watching hears a Send on its next call, in any write's

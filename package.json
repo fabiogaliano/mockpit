@@ -35,7 +35,8 @@
     "viewer/dist/",
     "guide/",
     "skills/",
-    "extensions/"
+    "extensions/",
+    "opencode/"
   ],
   "type": "module",
   "exports": {

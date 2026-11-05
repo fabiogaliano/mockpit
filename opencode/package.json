@@ -1,0 +1,8 @@
+{
+  "name": "mockpit-opencode",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server": "./mockpit.js"
+  }
+}

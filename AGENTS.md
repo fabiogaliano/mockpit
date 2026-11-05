@@ -218,6 +218,8 @@ consciously, not as a side effect):
 - `plugin/` — the Claude Code plugin (`.claude-plugin/`, `hooks/hooks.json`) and the Codex
   plugin (`.codex-plugin/`, `hooks/codex.json`, `mcp/codex.json`), sharing the skill and
   `scripts/wait-for-reply.sh`, which a harness's first mockpit call starts.
+- `opencode/` — the OpenCode plugin: one dependency-free file whose default export serves
+  1.x (`server`) and 2.x (`setup`), waiting from a session's first mockpit call.
 - `skills/mockpit/`, `plugin/` + `guide/` — teach agents to use a running mockpit.
   The brief (`server/designGuide.ts`) is core: how mockpit works, no taste.
   `server/guidance.ts` layers on top, lowest first: the packs in
