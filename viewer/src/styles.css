@@ -2767,8 +2767,12 @@ a.home-count {
 .optacts {
   right: 9px;
 }
-.optw.on .optacts {
-  right: 40px;
+/* A picked answer's tick sits in the same corner: the actions take it over while the
+   pointer is on the card, so they stay flush right. Without hover they are always
+   showing, so they make room for the tick instead. */
+.optw.on:hover .opt .tick,
+.optw.on:focus-within .opt .tick {
+  opacity: 0;
 }
 .optic {
   display: grid;
@@ -2810,6 +2814,12 @@ a.home-count {
 @media (hover: none) {
   .optic {
     opacity: 0.9;
+  }
+  .optw.on .optacts {
+    right: 40px;
+  }
+  .optw.on .opt .tick {
+    opacity: 1;
   }
 }
 .optic:focus-visible {
