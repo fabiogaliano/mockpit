@@ -51,7 +51,20 @@ export type CommentRow = Comment & {
   ownerGone?: boolean;
   listening?: boolean;
   calledAt?: string;
+  recipient?: string;
 };
+export interface SendRecipient {
+  id: string;
+  name: string;
+  lastCallAt: string;
+  listening: boolean;
+  asked: boolean;
+  designs: string[];
+}
+export interface SendRecipients {
+  default: string | null;
+  recipients: SendRecipient[];
+}
 export type { FeedEvent, JumpHit, ProjectSummary };
 
 // What the viewer edits: a Draft minus the server's timestamp.
@@ -182,8 +195,10 @@ export const api = {
     call<{ draft: Draft | null }>(`/api/designs/${encodeURIComponent(id)}/draft`),
   putDraft: (id: string, draft: DraftInput) =>
     call<{ draft: Draft }>(`/api/designs/${encodeURIComponent(id)}/draft`, json("PUT", draft)),
-  reply: (id: string, body: DraftInput & { text?: string; verdict?: ReplyVerdict }) =>
+  reply: (id: string, body: DraftInput & { text?: string; verdict?: ReplyVerdict; to?: string }) =>
     call<{ reply: CommentRow }>(`/api/designs/${encodeURIComponent(id)}/reply`, json("POST", body)),
+  recipients: (id: string) =>
+    call<SendRecipients>(`/api/designs/${encodeURIComponent(id)}/recipients`),
   // A new version of the variant made from an older one ("restore as vN").
   restoreVersion: (id: string, postId: string, version: number) =>
     call<unknown>(
@@ -191,7 +206,10 @@ export const api = {
       json("POST", { version }),
     ),
   // Use this: one exact version goes in use; the agent hears it as a reply.
-  use: (id: string, body: { state: string | null; variant: string; version: number }) =>
+  use: (
+    id: string,
+    body: { state: string | null; variant: string; version: number; to?: string },
+  ) =>
     call<{ reply: CommentRow | null }>(
       `/api/designs/${encodeURIComponent(id)}/use`,
       json("POST", body),

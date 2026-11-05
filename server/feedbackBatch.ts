@@ -4,6 +4,7 @@
 // comment list belongs to. Runtime-agnostic (no node imports).
 
 import { type Decisions, decisionsFor } from "./decisions.ts";
+import { ROUTED_NOTE } from "./handoff.ts";
 import {
   type AskOption,
   builtinAsk,
@@ -94,7 +95,7 @@ export interface FeedbackBatch {
   // The variants the reply left in use / archived (restorable).
   inUse: InUseRef[];
   archived: VariantRef[];
-  // Set when this batch was sent to an earlier, now quiet session (handoff.ts).
+  // Set when this batch reached a session that didn't ask it (handoff.ts).
   handoff?: string;
   // The user moved the design from Home: its kind or area as they left it
   // (area null: none). Build on it; don't move it back.
@@ -224,8 +225,10 @@ export function groupFeedback(
         askComments: _askComments,
         otherImages: _otherImages,
         askCommentImages: _askCommentImages,
+        routed,
         ...payload
       } = c.payload;
+      if (routed) batch.handoff = ROUTED_NOTE;
       const reactions = (payload.comments ?? []).filter(isReaction).map(reactionLine);
       batch.reply = {
         ...payload,

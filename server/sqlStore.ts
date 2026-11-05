@@ -2481,6 +2481,13 @@ export class SqlStore implements Store {
           JSON.stringify(input.asks),
           input.designId,
         );
+        if (input.owner) {
+          this.sql.exec(
+            "UPDATE designs SET sessionId = ? WHERE id = ?",
+            input.owner,
+            input.designId,
+          );
+        }
         for (const { id, version } of input.accept) {
           this.sql.exec(
             "UPDATE posts SET status = 'accepted', acceptedVersion = ?, archiveReason = NULL, stayedVersion = NULL, archivedAt = NULL WHERE id = ? AND designId = ?",

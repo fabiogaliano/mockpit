@@ -3267,6 +3267,117 @@ html.theming *:not(iframe) {
   color: var(--accent);
 }
 /* The line that wakes an agent nothing is listening for. */
+.sendto {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.rm-body > .sendto,
+.qcard.beside .sendto {
+  margin: 0 16px;
+}
+.sendto-k {
+  flex: none;
+  color: var(--t4);
+  font-size: 13px;
+}
+.sendto-btn {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--row);
+  color: var(--t2);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: start;
+  transition: background var(--ease);
+}
+.sendto-btn[aria-expanded="true"] {
+  background: var(--row-hover);
+  color: var(--t1);
+}
+@media (hover: hover) {
+  .sendto-btn:hover {
+    background: var(--row-hover);
+    color: var(--t1);
+  }
+}
+.sendto-btn svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--t4);
+  transition: transform var(--ease);
+}
+.sendto-btn[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+.sendto-cur {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sendto-when {
+  color: var(--t4);
+  font-weight: 400;
+}
+.dot.quiet {
+  background: var(--t6);
+}
+.cmenu.sendto-menu {
+  top: auto;
+  right: 0;
+  bottom: calc(100% + 6px);
+  left: 0;
+  width: auto;
+}
+.cmenu.sendto-menu > button {
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr) 15px;
+  justify-content: stretch;
+  gap: 10px;
+  min-height: 48px;
+  padding: 6px 10px;
+}
+.sendto-menu .dot {
+  align-self: start;
+  margin-top: 6px;
+}
+.sendto-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.sendto-name {
+  overflow: hidden;
+  color: var(--t2);
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sendto-sub {
+  color: var(--t4);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.sendto-menu svg {
+  align-self: center;
+  color: var(--t1);
+}
 .wake {
   display: flex;
   flex-direction: column;

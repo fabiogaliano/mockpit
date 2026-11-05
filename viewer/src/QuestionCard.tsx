@@ -11,6 +11,7 @@ import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { isBuiltinAsk, partLabel } from "./logic.ts";
 import { AskBody } from "./Questions.tsx";
+import { SendTo } from "./SendTo.tsx";
 import type { DesignScreenState } from "./state.ts";
 
 export function QuestionCard(props: {
@@ -146,6 +147,7 @@ export function QuestionCard(props: {
                   />
                   {props.below}
                 </div>
+                <SendTo s={s} />
                 <div class="qfoot">
                   <Show when={!readonly()}>
                     <button

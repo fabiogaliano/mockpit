@@ -27,7 +27,18 @@ export const HANDOFF_GRACE_MS = 2 * 60_000;
 export const HANDOFF_NOTE =
   "Sent to an earlier agent session in this project that has gone quiet; it is yours now. Read the design before acting.";
 
+export const ROUTED_NOTE =
+  "The agent that asked this wasn't listening, so the user sent it to you; it is yours now. Read the design before acting.";
+
+// A waiter stops between a wake and the end of that turn, so an owner that called
+// this recently is working, not gone, and keeps its replies. Same span as "Agent working".
+export const OWNER_BUSY_MS = 5 * 60_000;
+
 export const ownerActiveAt = (s: Session): string => s.agentActiveAt ?? s.lastActiveAt;
+
+// All the user can recognise a session by: most have no title, and ids mean nothing.
+export const sessionName = (s: Session): string =>
+  s.cwd?.split(/[\\/]/).filter(Boolean).pop() ?? s.agent;
 
 export function supersedes(taker: Session, owner: Session, listening: boolean): boolean {
   return (

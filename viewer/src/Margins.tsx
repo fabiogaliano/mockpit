@@ -45,6 +45,7 @@ import { PreviewTool } from "./PreviewTool.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
 import { Answered } from "./Questions.tsx";
 import { REACTION_LABEL } from "./reactionRules.ts";
+import { SendTo } from "./SendTo.tsx";
 import type { DesignScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
 import { Thread } from "./Thread.tsx";
@@ -660,6 +661,7 @@ function Talk(props: { s: DesignScreenState; m: Margins }) {
         <>
           <div class="qscroll rm-scroll">{below()}</div>
           <Show when={s.sendable()}>
+            <SendTo s={s} />
             <div class="qfoot">
               <span class="grow" />
               <button

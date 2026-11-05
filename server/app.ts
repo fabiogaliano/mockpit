@@ -34,7 +34,14 @@ import {
   RULES_SETTING,
   USER_RULES_SETTING,
 } from "./guidance.ts";
-import { HANDOFF_NOTE, handoffReady, supersedes } from "./handoff.ts";
+import {
+  HANDOFF_NOTE,
+  handoffReady,
+  OWNER_BUSY_MS,
+  ownerActiveAt,
+  sessionName,
+  supersedes,
+} from "./handoff.ts";
 import {
   bundledIconSets,
   expandIcons,
@@ -408,7 +415,20 @@ type DeliveredComment = Comment & {
   ownerGone?: true;
   listening?: true;
   calledAt?: string;
+  recipient?: string;
 };
+
+// A session the user could send to, in terms they can recognise it by.
+interface SendRecipient {
+  id: string;
+  name: string;
+  lastCallAt: string;
+  listening: boolean;
+  // It owns this design, so this is the agent that asked.
+  asked: boolean;
+  // The slugs of what else it owns in this project.
+  designs: string[];
+}
 
 export interface CommentWait {
   sessionId?: string;
@@ -769,6 +789,77 @@ export function createApp({
     return [...posts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]?.sessionId;
   }
 
+  const ownsDesigns = async (project: string) => {
+    const owned = new Map<string, string[]>();
+    for (const d of await store.listDesigns(project)) {
+      if (d.sessionId) owned.set(d.sessionId, [...(owned.get(d.sessionId) ?? []), d.slug]);
+    }
+    return owned;
+  };
+
+  // Who else could hear a Send when the owner can't: null while the owner is
+  // listening or working, or nobody else is listening. The default is a session
+  // started in this project; one from another repo only counts as a choice, since a
+  // design it owns here doesn't make it the right agent for this one.
+  async function recipientsFor(
+    design: Design,
+    ownerId: string,
+  ): Promise<{ default: string; recipients: SendRecipient[] } | null> {
+    if (listening.size === 0 || listening.has(ownerId)) return null;
+    const called = agentCalls.get(ownerId);
+    if (called !== undefined && Date.now() - called < OWNER_BUSY_MS) return null;
+    const owned = await ownsDesigns(design.project);
+    const live: Session[] = [];
+    for (const id of listening.keys()) {
+      const s = await store.getSession(id);
+      if (s && (s.project === design.project || owned.has(id))) live.push(s);
+    }
+    if (live.length === 0) return null;
+    const lastCall = (s: Session) =>
+      agentCalls.has(s.id) ? new Date(agentCalls.get(s.id)!).toISOString() : ownerActiveAt(s);
+    live.sort(
+      (a, b) =>
+        Number(b.project === design.project) - Number(a.project === design.project) ||
+        lastCall(b).localeCompare(lastCall(a)),
+    );
+    const owner = await store.getSession(ownerId);
+    const row = (s: Session, heard: boolean): SendRecipient => ({
+      id: s.id,
+      name: sessionName(s),
+      lastCallAt: lastCall(s),
+      listening: heard,
+      asked: s.id === ownerId,
+      designs: (owned.get(s.id) ?? []).filter((slug) => slug !== design.slug),
+    });
+    return {
+      default: live.find((s) => s.project === design.project)?.id ?? ownerId,
+      recipients: [...live.map((s) => row(s, true)), ...(owner ? [row(owner, false)] : [])],
+    };
+  }
+
+  // Where a Send goes: the user's pick, else the one the picker would have shown,
+  // which also covers what has no picker beside it (Use this, New version, a steer).
+  // `routed` when that isn't the owner, who then loses the design to it.
+  async function sendTarget(
+    design: Design,
+    posts: Post[],
+    to: unknown,
+  ): Promise<{ sessionId: string; routed: boolean } | FlowResult | undefined> {
+    const owner = await replySessionId(design, posts);
+    if (typeof to === "string" && to && to !== owner) {
+      const session = await store.getSession(to);
+      const here =
+        session &&
+        (session.project === design.project || (await ownsDesigns(design.project)).has(to));
+      if (!here) return fail(400, `session "${to}" isn't working on ${design.project}`);
+      return { sessionId: to, routed: true };
+    }
+    if (!owner) return undefined;
+    if (to === owner) return { sessionId: owner, routed: false };
+    const sessionId = (await recipientsFor(design, owner))?.default ?? owner;
+    return { sessionId, routed: sessionId !== owner };
+  }
+
   // User comments the agent has not seen yet ride along on its next write, so
   // agents hear feedback without blocking on the long-poll. The cursor also
   // advances past the agent's own comments to keep reads cheap.
@@ -888,6 +979,7 @@ export function createApp({
         ...(waiting ? { ownerGone: true as const } : {}),
         ...(live && heard ? { listening: true as const } : {}),
         ...(live && acted ? { calledAt: new Date(called).toISOString() } : {}),
+        ...(live && owner && c.kind === "reply" ? { recipient: sessionName(owner) } : {}),
       });
     }
     return out;
@@ -3495,11 +3587,14 @@ export function createApp({
       !Object.keys(draft.others ?? {}).length &&
       !Object.keys(draft.askComments ?? {}).length;
     if (empty) return fail(400, "nothing to send");
-    const sessionId = await replySessionId(design, posts);
-    if (!sessionId) return fail(409, `${design.slug} has no agent session to reply to`);
+    const target = await sendTarget(design, posts, body?.to);
+    if (isResult(target)) return target;
+    if (!target) return fail(409, `${design.slug} has no agent session to reply to`);
+    const { sessionId, routed } = target;
     const payload: Reply = {
       designId: design.id,
       version: draft.version,
+      ...(routed ? { routed: true as const } : {}),
       answers: draft.answers,
       borrowed: draft.borrowed,
       tuned: draft.tuned,
@@ -3525,6 +3620,7 @@ export function createApp({
       asks,
       accept: [...flips.accept].map(([id, version]) => ({ id, version })),
       archive: [...flips.archive],
+      ...(routed ? { owner: sessionId } : {}),
     });
     if (!comment) return fail(409, `${design.slug} has no agent session to reply to`);
     announceComment(comment);
@@ -3597,8 +3693,10 @@ export function createApp({
     if (chosen.status === "accepted" && chosen.acceptedVersion === version) {
       return ok({ reply: null, inUse, archived: [] });
     }
-    const sessionId = await replySessionId(design, posts);
-    if (!sessionId) return fail(409, `${design.slug} has no agent session to reply to`);
+    const target = await sendTarget(design, posts, body?.to);
+    if (isResult(target)) return target;
+    if (!target) return fail(409, `${design.slug} has no agent session to reply to`);
+    const { sessionId, routed } = target;
     const archive = posts.filter(
       (p) => p.state === chosen.state && p.id !== chosen.id && isLive(p.status),
     );
@@ -3614,11 +3712,13 @@ export function createApp({
         tuned: {},
         comments: [],
         verdict: { kind: "use", ...inUse },
+        ...(routed ? { routed: true as const } : {}),
       },
       asks: design.asks,
       accept: [{ id: chosen.id, version }],
       archive: archive.map((p) => p.id),
       keepDraft: true,
+      ...(routed ? { owner: sessionId } : {}),
     });
     if (!comment) return fail(409, `${design.slug} has no agent session to reply to`);
     announceComment(comment);
@@ -5876,6 +5976,19 @@ export function createApp({
   app.post("/api/designs/:id/reply", async (c) =>
     send(c, await replyFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
+
+  // The viewer polls this while a design is open, so it only reads posts for a
+  // design that has no owner of its own.
+  app.get("/api/designs/:id/recipients", async (c) => {
+    const ctx = flowCtx(c);
+    if (!ctx.viewer) return send(c, viewerOnly());
+    const design = await resolveDesign(c.req.param("id"));
+    if (isResult(design)) return send(c, design);
+    const posts = design.sessionId ? [] : await store.listPosts({ designId: design.id });
+    const owner = await replySessionId(design, posts);
+    const found = owner ? await recipientsFor(design, owner) : null;
+    return send(c, ok(found ?? { default: null, recipients: [] }));
+  });
 
   app.post("/api/designs/:id/use", async (c) =>
     send(c, await useFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),

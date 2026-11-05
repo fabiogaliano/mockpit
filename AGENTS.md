@@ -40,7 +40,8 @@ consciously, not as a side effect):
 
 - One workspace per person; one session per agent conversation. Sessions are
   metadata only — auth, the feedback cursor, and authorship on versions; they are
-  not a navigation unit. Accounts and multi-user are out of scope; auth is a
+  not a navigation unit, and the user meets one only as `SendTo`, while the agent
+  that asked isn't listening. Accounts and multi-user are out of scope; auth is a
   single deploy token.
 - Three integration tiers, most universal first: zero-dependency CLI, MCP
   (stdio and streamable HTTP at `/mcp`), raw HTTP. Features should work on
@@ -129,6 +130,11 @@ consciously, not as a side effect):
   and take the version out of where it is. Each is one version copied as a variant
   with `copiedFrom`, originals untouched unless the user moves it. Until an agent writes to it, replies go to
   the project's live agent (`replySessionId` in `server/app.ts`).
+- A Send goes to the design's owner unless the owner can't hear it: with no watch open and
+  no call in `OWNER_BUSY_MS`, it goes to the user's pick (`SendTo`, from
+  `GET /api/designs/:id/recipients`) or else to a session started in this project that is
+  listening (`sendTarget`, `recipientsFor`). That session becomes the owner and hears a
+  `handoff` note. A move from Home and a thread comment still go to the owner.
 - `server/kits.ts` — opt-in style/behavior bundles for html surfaces; listed at
   `/api/kits`, allowlisted in `server/postSurfaces.ts`. Adding a kit is a
   registry entry + a guide bullet. A reference kit (`href`/`script`, e.g.

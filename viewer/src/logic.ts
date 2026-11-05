@@ -1475,6 +1475,14 @@ export type DesignStatus =
 // an agent still busy is under-reported, never the reverse.
 export const WORKING_MS = 5 * 60_000;
 
+export function activeLabel(at: string, now: number): string {
+  const mins = Math.floor((now - Date.parse(at)) / 60_000);
+  if (mins < 1) return "active now";
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  return hours < 24 ? `${hours} h ago` : `${Math.floor(hours / 24)} d ago`;
+}
+
 export const stillWorking = (calledAt: string | undefined, now: number): boolean =>
   !!calledAt && now - Date.parse(calledAt) < WORKING_MS;
 

@@ -28,6 +28,7 @@ import {
   type DraftInput,
   type DesignDetail,
   type DesignSummary,
+  type SendRecipients,
   subscribe,
   type VariantView,
   watchDesign,
@@ -88,6 +89,8 @@ import {
 import { navigate, questionPath, type ScreenOpen } from "./route.ts";
 import { setTheme } from "./theme.ts";
 import { coarse, phoneLayout, win } from "./viewport.ts";
+
+const RECIPIENTS_MS = 10_000;
 
 // The canvas's tools: Try hands taps to the design, Mark leaves a comment
 // where you tap, Tune outlines the parts and opens one's knobs.
@@ -858,7 +861,7 @@ export function createDesignScreen(
 
   async function start() {
     await loadDesign();
-    await Promise.all([loadDraft(), loadComments()]);
+    await Promise.all([loadDraft(), loadComments(), loadRecipients()]);
     const m = design();
     if (!m) return;
     // Open on the first question still owed, on the state it is about; a draft
@@ -1587,6 +1590,31 @@ export function createDesignScreen(
   const sentDelivered = () => (sent() && sentId() ? (sentReply()?.delivered ?? false) : null);
   const beatPassed = () => beat() && sentDelivered() === false;
   const agentListening = () => !!sentReply()?.listening;
+
+  // Who else could hear a Send, while the agent that asked can't. A watcher opening
+  // or closing sends no event, so this is read on a timer.
+  const [recipients, setRecipients] = createSignal<SendRecipients>({
+    default: null,
+    recipients: [],
+  });
+  const [pickedTo, setPickedTo] = createSignal<string | null>(null);
+  const sendTo = createMemo(() => {
+    const { default: fallback, recipients: list } = recipients();
+    return list.find((r) => r.id === pickedTo()) ?? list.find((r) => r.id === fallback) ?? null;
+  });
+  // Only a pick still on offer is sent; otherwise the server applies the rule the row showed.
+  const toField = () => {
+    const to = pickedTo();
+    return to && recipients().recipients.some((r) => r.id === to) ? { to } : {};
+  };
+  async function loadRecipients() {
+    const id = designId;
+    if (!id || readonly() || host().window.document.hidden) return;
+    const next = await api.recipients(id).catch(() => null);
+    if (next && id === designId) setRecipients(next);
+  }
+  const recipientsTimer = host().window.setInterval(() => void loadRecipients(), RECIPIENTS_MS);
+  onCleanup(() => host().window.clearInterval(recipientsTimer));
   let beatTimer = 0;
   onCleanup(() => host().window.clearTimeout(beatTimer));
   // Read again at the beat: what was read straight after the Send may have caught a
@@ -1659,6 +1687,7 @@ export function createDesignScreen(
         others: keep(d.others),
         borrowed: allowedMix(d.borrowed),
         ...extra,
+        ...toField(),
       });
       // The draft holds the picks until the design carrying them as sent answers
       // arrives: dropping it first would put the stage on another variant for
@@ -1683,6 +1712,7 @@ export function createDesignScreen(
       setRevising({});
       record();
       armBeat();
+      void loadRecipients();
       void planNext();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -1884,7 +1914,7 @@ export function createDesignScreen(
     const m = design();
     if (!m || !ref || readonly()) return;
     try {
-      await api.use(m.id, { state: activeState(), ...ref });
+      await api.use(m.id, { state: activeState(), ...ref, ...toField() });
       await Promise.all([loadDesign(), loadComments()]);
       showVersion(ref);
       setToast({ text: `${nameOf(ref)} is in use` });
@@ -1960,6 +1990,7 @@ export function createDesignScreen(
         ...emptyDraft(boundVersion() ?? latest()),
         comments: body.comments ?? [],
         ...(body.text ? { text: body.text } : {}),
+        ...toField(),
       });
       // Every reply clears the stored draft; put the user's back before the
       // design is fetched again, so the screen never shows it gone.
@@ -2325,6 +2356,9 @@ export function createDesignScreen(
     sentDelivered,
     beatPassed,
     agentListening,
+    recipients,
+    sendTo,
+    setPickedTo,
     lastSend,
     sinceSend,
     seeSinceSend,

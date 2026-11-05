@@ -554,6 +554,8 @@ export interface Reply {
   otherImages?: Record<string, string[]>;
   askCommentImages?: Record<string, string[]>;
   text?: string;
+  // Sent to a session other than the design's owner, so it has to read up first.
+  routed?: true;
   verdict?: ReplyVerdict;
   // Only on stored rows, from when an archive was written to the agent's stream: the
   // thread still lists them, and they are never delivered (feedbackBatch.ts).
@@ -1086,6 +1088,8 @@ export interface CommitReplyInput {
   archive: string[];
   // A lone "use this version" is not a Send: the user's unsent draft stays.
   keepDraft?: true;
+  // The session taking the design over, when this reply went to one that isn't its owner.
+  owner?: string;
 }
 
 export interface PostQuery {

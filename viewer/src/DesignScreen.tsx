@@ -1181,9 +1181,11 @@ function SentNote(props: { s: DesignScreenState; project: string; slug: string; 
     s.activeState() === a.state && sameVersion(s.onStage(), a);
   const progress = () => {
     if (s.sentDelivered() === false) return "Not seen yet";
+    const to = s.sentReply()?.recipient;
+    const delivered = to ? `Delivered to ${to}` : "Delivered";
     return stillWorking(s.sentReply()?.calledAt, turnClock())
-      ? "Delivered · Agent working"
-      : "Delivered";
+      ? `${delivered} · Agent working`
+      : delivered;
   };
   return (
     <div class="sentnote">
@@ -1227,7 +1229,11 @@ function SentNote(props: { s: DesignScreenState; project: string; slug: string; 
             )}
           </Show>
           <Show when={s.beatPassed() && s.agentListening()}>
-            <span class="sent-hint">your agent's watcher is open</span>
+            <span class="sent-hint">
+              {s.sentReply()?.recipient
+                ? `${s.sentReply()?.recipient} is listening`
+                : "your agent's watcher is open"}
+            </span>
           </Show>
         </div>
         {/* The Thread says this itself when it's open beside the design, on Stage alone. */}
