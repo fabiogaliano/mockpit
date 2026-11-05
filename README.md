@@ -7,7 +7,7 @@ The agent publishes a screen in its states and a few variants, then ends its tur
 them from pictures, tune knobs, comment on parts and keep the runners-up. One Send gives the
 agent the whole reply. Nothing it calls waits for you.
 
-<a href="docs/mockpit-demo.gif"><img width="100%" alt="Animated demo: the agent publishes a shop's product grid in three card variants with four questions; the user previews and picks the Overlay card, pill buttons, a lime accent and hidden ratings, then presses Send; the reply shows Not seen yet, then Delivered, and the agent publishes version 2 with a sale badge" src="docs/mockpit-demo.gif"></a>
+<a href="docs/mockpit-demo.gif"><img width="100%" alt="Animated demo: on HALDE, a shop design with three product grids, the pointer hovers Gallery and Editorial, each previewing on the stage, then picks Gallery" src="docs/mockpit-demo.gif"></a>
 
 ## Quickstart
 
@@ -32,9 +32,9 @@ Then ask it to "design this up on mockpit". Claude Code, Codex, OpenCode, Pi and
 ## A turn
 
 ```sh
-mockpit publish --design shop --state Grid --variant classic --html classic.html
-mockpit publish --design shop --state Grid --variant overlay --html overlay.html
-mockpit ask --design shop "Which product card?" --option Classic=classic --option Overlay=overlay
+mockpit publish --design shop --state Grid --variant index --html index.html
+mockpit publish --design shop --state Grid --variant gallery --html gallery.html
+mockpit ask --design shop "Which grid?" --option Index=index --option Gallery=gallery
 # the agent says where to look and stops. After your Send:
 mockpit feedback
 ```
@@ -54,8 +54,8 @@ components, and Needs you lists what's waiting on you.
 
 <table>
   <tr>
-    <td width="50%"><a href="docs/mockpit-question.png"><img src="docs/mockpit-question.png" width="100%" alt="The Shop design asking Which product card?, with Classic, Overlay and Minimal as picture answers beside the stage"></a></td>
-    <td width="50%"><a href="docs/mockpit-accent.png"><img src="docs/mockpit-accent.png" width="100%" alt="The Quick view state previewing the Lime answer to Which accent? on the stage before it is picked"></a></td>
+    <td width="50%"><a href="docs/mockpit-question.png"><img src="docs/mockpit-question.png" width="100%" alt="The HALDE shop asking Which grid?, with Index, Gallery and Editorial as picture answers beside the stage"></a></td>
+    <td width="50%"><a href="docs/mockpit-preview.png"><img src="docs/mockpit-preview.png" width="100%" alt="The product page previewing the Bone answer to What colour behind the products? before it is picked"></a></td>
   </tr>
 </table>
 

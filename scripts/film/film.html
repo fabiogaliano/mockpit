@@ -1,0 +1,264 @@
+<!doctype html>
+<!-- The film's stage: compose.mjs calls draw() once per output frame and screenshots it.
+     Everything is laid out in 1920×1080 CSS px; the take is a window on a dark backdrop
+     that a camera (scale about a point) moves over. -->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #08080a;
+        font-family:
+          -apple-system, "SF Pro Display", system-ui, "Helvetica Neue", Helvetica, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      #bg {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(1200px 700px at 50% 38%, rgba(255, 255, 255, 0.07), transparent 70%),
+          radial-gradient(900px 500px at 85% 110%, rgba(249, 115, 22, 0.08), transparent 70%),
+          #08080a;
+      }
+      #world {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 1920px;
+        height: 1080px;
+        transform-origin: 0 0;
+        will-change: transform;
+      }
+      #win {
+        position: absolute;
+        border-radius: 14px;
+        overflow: hidden;
+        background: #111;
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.09),
+          0 40px 120px rgba(0, 0, 0, 0.6),
+          0 12px 30px rgba(0, 0, 0, 0.4);
+      }
+      #win img {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      #cap {
+        position: absolute;
+        left: 50%;
+        bottom: 70px;
+        transform: translateX(-50%);
+        padding: 18px 34px;
+        border-radius: 16px;
+        background: rgba(10, 10, 12, 0.9);
+        backdrop-filter: blur(16px);
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+        color: #fafafa;
+        font-size: 50px;
+        font-weight: 600;
+        letter-spacing: -0.015em;
+        white-space: nowrap;
+        opacity: 0;
+      }
+      #cap em {
+        font-style: normal;
+        color: #a1a1aa;
+        font-weight: 500;
+      }
+      #card {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        text-align: center;
+        color: #fafafa;
+        opacity: 0;
+      }
+      #card h1 {
+        font-size: 108px;
+        font-weight: 700;
+        letter-spacing: -0.035em;
+        line-height: 1.02;
+      }
+      #card p {
+        margin-top: 26px;
+        font-size: 34px;
+        color: #a1a1aa;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+      }
+      #card code {
+        display: inline-block;
+        margin-top: 40px;
+        padding: 16px 28px;
+        border-radius: 14px;
+        background: #17171a;
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+        font:
+          500 34px/1 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        color: #fafafa;
+      }
+      #card small {
+        display: block;
+        margin-top: 24px;
+        font-size: 26px;
+        color: #71717a;
+        font-weight: 500;
+      }
+      #term {
+        position: absolute;
+        width: 1060px;
+        border-radius: 14px;
+        background: #0e0e10;
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.1),
+          0 40px 100px rgba(0, 0, 0, 0.65);
+        overflow: hidden;
+        opacity: 0;
+      }
+      #term .bar {
+        height: 40px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 16px;
+        background: #17171a;
+      }
+      #term .bar i {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #3f3f46;
+      }
+      #term .bar span {
+        margin-left: 10px;
+        color: #71717a;
+        font:
+          500 15px/1 -apple-system,
+          system-ui,
+          sans-serif;
+      }
+      #term pre {
+        padding: 22px 26px 26px;
+        font:
+          22px/1.65 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        color: #e4e4e7;
+        white-space: pre;
+      }
+      #term pre b {
+        color: #f97316;
+        font-weight: 500;
+      }
+      #term pre s {
+        text-decoration: none;
+        display: inline-block;
+        width: 12px;
+        height: 24px;
+        vertical-align: -4px;
+        background: #e4e4e7;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="bg"></div>
+    <div id="world">
+      <div id="win"><img id="src" /></div>
+    </div>
+    <div id="term">
+      <div class="bar"><i></i><i></i><i></i><span>agent · ~/halde</span></div>
+      <pre id="tlines"></pre>
+    </div>
+    <div id="cap"></div>
+    <div id="card"><div id="cardin"></div></div>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      // The window at rest (camera zoom 1): the take, scaled to leave the backdrop around it.
+      let WIN = null;
+      window.setup = ({ w, h, x, y }) => {
+        WIN = { w, h, x, y };
+        Object.assign($("win").style, {
+          width: w + "px",
+          height: h + "px",
+          left: x + "px",
+          top: y + "px",
+        });
+      };
+      const esc = (s) =>
+        s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+      let lastSrc = "";
+      window.draw = async (s) => {
+        // Camera: zoom about a point given in window px, kept on screen centre.
+        const z = s.cam.z;
+        const px = WIN.x + s.cam.x,
+          py = WIN.y + s.cam.y;
+        const tx = 960 - px * z + (s.cam.ox ?? 0),
+          ty = 540 - py * z + (s.cam.oy ?? 0);
+        $("world").style.transform = `translate(${tx}px,${ty}px) scale(${z})`;
+        $("world").style.opacity = s.take ?? 1;
+        if (s.src && s.src !== lastSrc) {
+          lastSrc = s.src;
+          $("src").src = s.src;
+          await $("src")
+            .decode()
+            .catch(() => {});
+        }
+        const cap = $("cap");
+        cap.style.opacity = s.cap ? s.cap.a : 0;
+        if (s.cap) {
+          if (cap.dataset.t !== s.cap.text) {
+            cap.dataset.t = s.cap.text;
+            cap.innerHTML = s.cap.text;
+          }
+          cap.style.transform = `translateX(-50%) translateY(${(1 - s.cap.a) * 14}px)`;
+          cap.style.top = s.cap.top ? "70px" : "auto";
+          cap.style.bottom = s.cap.top ? "auto" : "70px";
+        }
+        const card = $("card");
+        card.style.opacity = s.card ? s.card.a : 0;
+        if (s.card) {
+          if (card.dataset.t !== s.card.html) {
+            card.dataset.t = s.card.html;
+            $("cardin").innerHTML = s.card.html;
+          }
+          $("cardin").style.transform =
+            `translateY(${(1 - s.card.a) * 18}px) scale(${0.985 + 0.015 * s.card.a})`;
+        }
+        const term = $("term");
+        term.style.opacity = s.term ? s.term.a : 0;
+        if (s.term) {
+          Object.assign(term.style, {
+            left: s.term.x + "px",
+            top: s.term.y + "px",
+            transform: `translateY(${(1 - s.term.a) * 20}px) scale(${s.term.scale ?? 1})`,
+            transformOrigin: "0 0",
+          });
+          // Typed: the lines up to the cursor, then the cursor.
+          let left = s.term.chars;
+          const out = [];
+          for (const line of s.term.lines) {
+            if (left <= 0) break;
+            const shown = line.slice(0, left);
+            left -= line.length;
+            out.push("<b>$</b> " + esc(shown));
+          }
+          $("tlines").innerHTML = out.join("\n") + (s.term.caret ? " <s></s>" : "");
+        }
+      };
+    </script>
+  </body>
+</html>

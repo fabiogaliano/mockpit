@@ -1,222 +1,208 @@
-// The design the README media records: a shop's product grid and quick view, each in
-// three card variants, with knobs the questions set (button style, accent, ratings).
-// Products are drawn in SVG so the render needs nothing from the network.
+// The design the README media records: HALDE, a technical-outdoor label's shop in the
+// spirit of ROA and the Yeezy store, as a product grid and a product page, each drawn in
+// three grids. The questions set knobs (tile colour, name case, prices). Products are
+// real photos cut out onto transparency (scripts/demo-products/, see CREDITS.md there),
+// inlined so the render needs nothing from the network.
 
-const ART = {
-  headphones: `<path d="M52 118v-14a48 48 0 0 1 96 0v14" fill="none" stroke="#1c1917" stroke-width="9" stroke-linecap="round"/>
-    <rect x="36" y="104" width="34" height="54" rx="14" fill="#1c1917"/><rect x="130" y="104" width="34" height="54" rx="14" fill="#1c1917"/>
-    <rect x="44" y="114" width="14" height="34" rx="7" fill="#57534e"/><rect x="142" y="114" width="14" height="34" rx="7" fill="#57534e"/>`,
-  sneaker: `<path d="M28 128c0-14 14-24 34-28l30-20c10-6 20-2 24 8l6 12c18 4 42 10 50 22 5 8 1 18-12 18H40c-7 0-12-4-12-12z" fill="#fafaf9" stroke="#1c1917" stroke-width="3"/>
-    <path d="M26 138h146a7 7 0 0 1 0 14H33a7 7 0 0 1-7-7z" fill="#1c1917"/>
-    <path d="M96 92l10 14M88 98l10 14M80 104l10 14" stroke="#ea580c" stroke-width="4" stroke-linecap="round"/>
-    <path d="M128 108c14 4 28 9 34 16" stroke="#ea580c" stroke-width="6" fill="none" stroke-linecap="round"/>`,
-  watch: `<rect x="84" y="26" width="32" height="148" rx="10" fill="#78716c"/>
-    <circle cx="100" cy="100" r="40" fill="#1c1917"/><circle cx="100" cy="100" r="32" fill="#f5f5f4"/>
-    <rect x="139" y="94" width="8" height="12" rx="2" fill="#1c1917"/>
-    <path d="M100 100V78M100 100l14 8" stroke="#1c1917" stroke-width="4" stroke-linecap="round"/>
-    <circle cx="100" cy="100" r="3.5" fill="#ea580c"/>`,
-  backpack: `<path d="M80 52a20 20 0 0 1 40 0" fill="none" stroke="#365314" stroke-width="7"/>
-    <rect x="52" y="50" width="96" height="122" rx="30" fill="#4d7c0f"/>
-    <rect x="68" y="108" width="64" height="46" rx="12" fill="#3f6212"/>
-    <path d="M74 120h52" stroke="#a3e635" stroke-width="3" stroke-linecap="round"/>
-    <path d="M70 70h60" stroke="#365314" stroke-width="4" stroke-linecap="round"/>`,
-  mug: `<path d="M136 92h8a20 20 0 0 1 0 40h-8" fill="none" stroke="#0e7490" stroke-width="10"/>
-    <rect x="58" y="72" width="82" height="88" rx="12" fill="#0891b2"/>
-    <path d="M58 92h82" stroke="#0e7490" stroke-width="5"/>
-    <path d="M84 60c-6-8 6-14 0-24M104 60c-6-8 6-14 0-24" stroke="#a8a29e" stroke-width="4" fill="none" stroke-linecap="round"/>`,
-  lamp: `<ellipse cx="74" cy="164" rx="34" ry="8" fill="#1c1917"/>
-    <path d="M74 160l26-58 34 18" stroke="#44403c" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M118 98l42 24-12 20-42-24z" fill="#eab308"/>
-    <circle cx="146" cy="146" r="14" fill="#fde68a" opacity=".8"/>`,
-};
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const DIR = join(dirname(fileURLToPath(import.meta.url)), "demo-products");
 
 const PRODUCTS = [
-  {
-    id: "headphones",
-    name: "Aurora Headphones",
-    price: 249,
-    rating: 4.8,
-    reviews: 312,
-    bg: "#e7e5e4",
-  },
-  { id: "sneaker", name: "Trail Runner", price: 145, rating: 4.6, reviews: 208, bg: "#e2e8f0" },
-  { id: "watch", name: "Field Watch", price: 189, rating: 4.9, reviews: 96, bg: "#ede5dc" },
-  { id: "backpack", name: "Daypack 22L", price: 98, rating: 4.7, reviews: 154, bg: "#e4ead9" },
-  { id: "mug", name: "Studio Mug", price: 28, rating: 4.5, reviews: 87, bg: "#dfeaec" },
-  { id: "lamp", name: "Arc Desk Lamp", price: 119, rating: 4.4, reviews: 61, bg: "#f1ead3" },
-];
+  { id: "boot", name: "Talus Boot", price: 390, kind: "Footwear" },
+  { id: "trail", name: "Scree Runner", price: 240, kind: "Footwear" },
+  { id: "shell", name: "Ridge Anorak", price: 520, kind: "Outerwear" },
+  { id: "fleece", name: "Col Long Sleeve", price: 120, kind: "Apparel" },
+  { id: "pants", name: "Moraine Trouser", price: 280, kind: "Apparel" },
+  { id: "bag", name: "Tarn Rolltop 22L", price: 240, kind: "Accessories" },
+  { id: "cap", name: "Fell Beanie", price: 65, kind: "Accessories" },
+  { id: "mule", name: "Cairn Slide", price: 110, kind: "Footwear" },
+].filter((p) => existsSync(join(DIR, `${p.id}.webp`)));
 
-const art = (p, style = "") =>
-  `<svg viewBox="0 0 200 200" role="img" aria-label="${p.name}" style="display:block;width:100%;height:100%;${style}">${ART[p.id]}</svg>`;
+const src = new Map(
+  PRODUCTS.map((p) => [
+    p.id,
+    `data:image/webp;base64,${readFileSync(join(DIR, `${p.id}.webp`)).toString("base64")}`,
+  ]),
+);
 
-const stars = (p) =>
-  `<span data-part="rating" data-part-label="Rating" data-part-key="${p.id}" class="rating">★ ${p.rating} <i>(${p.reviews})</i></span>`;
+const img = (p) => `<img src="${src.get(p.id)}" alt="${p.name}">`;
 
-const cta = (p, label = "Add to cart") =>
-  `<button data-part="cta" data-part-label="Add to cart" data-part-key="${p.id}" class="cta"><span class="cta-icon">+</span><span class="cta-text">${label}</span></button>`;
+const name = (p) =>
+  `<span class="nm" data-part="name" data-part-label="Product name" data-part-key="${p.id}">${p.name}</span>`;
+const price = (p) =>
+  `<span class="pr" data-part="price" data-part-label="Price" data-part-key="${p.id}">€ ${p.price}.00</span>`;
 
-// Each variant is a card: where the words sit around the picture and the button.
-const CARDS = {
-  classic: (p) => `<article class="card classic">
-      <div class="pic" style="background:${p.bg}">${art(p, "padding:10%")}</div>
-      <div class="info"><b>${p.name}</b>${stars(p)}<span class="price">$${p.price}</span></div>
-      ${cta(p)}
-    </article>`,
-  overlay: (p) => `<article class="card overlay" style="background:${p.bg}">
-      ${art(p, "padding:6% 14% 30%")}
-      <div class="info"><b>${p.name}</b><span class="row">${stars(p)}<span class="price">$${p.price}</span></span></div>
-      ${cta(p, "Add")}
-    </article>`,
-  minimal: (p) => `<article class="card minimal">
-      <div class="pic" style="background:${p.bg}">${art(p, "padding:12%")}</div>
-      <div class="row"><b>${p.name}</b><span class="price">$${p.price}</span></div>
-      <div class="row">${stars(p)}${cta(p, "Add")}</div>
-    </article>`,
+const tile = (p, extra = "") =>
+  `<a class="tile ${extra}"><span class="ph">${img(p)}</span><span class="cap">${name(p)}${price(p)}</span></a>`;
+
+const GRIDS = {
+  index: () => `<div class="grid index">${PRODUCTS.map((p) => tile(p)).join("")}</div>`,
+  gallery: () => `<div class="grid gallery">${PRODUCTS.map((p) => tile(p)).join("")}</div>`,
+  editorial: () =>
+    `<div class="grid editorial">${PRODUCTS.map((p, i) => tile(p, i === 0 ? "lead" : "")).join("")}</div>`,
 };
 
 const CSS = `
-*{box-sizing:border-box;margin:0}
-.shop{--accent:var(--k-accent,#f97316);background:#0c0c0e;color:#f4f4f5;font:14px/1.4 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;padding:22px 26px 28px;min-height:640px;position:relative}
-.top{display:flex;align-items:center;gap:22px;padding-bottom:18px;border-bottom:1px solid #1f1f23}
-.logo{font-weight:700;letter-spacing:-.01em;font-size:16px}
-.logo i{color:var(--accent);font-style:normal}
-.nav{display:flex;gap:18px;color:#a1a1aa;font-size:13px}
-.nav b{color:#f4f4f5;font-weight:500}
-.bag{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:#d4d4d8}
-.bag em{font-style:normal;background:var(--accent);color:#0c0c0e;border-radius:999px;padding:1px 7px;font-weight:600;font-size:12px}
-.filters{display:flex;gap:8px;margin:18px 0}
-.chip{border:1px solid #27272a;border-radius:999px;padding:5px 12px;font-size:12px;color:#a1a1aa}
-.chip.on{background:#f4f4f5;color:#0c0c0e;border-color:#f4f4f5}
-.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-.card b{font-weight:600;font-size:14px}
-.price{font-weight:600;font-variant-numeric:tabular-nums}
-.rating{color:#a1a1aa;font-size:12px}
-.rating i{font-style:normal;color:#71717a}
-.cta{font:600 13px/1 inherit;font-family:inherit;border:0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;background:var(--accent);color:#0c0c0e;border-radius:8px;padding:10px 14px}
-.cta-icon{font-size:16px;line-height:0}
-html[data-k-cta-style="outline"] .cta{background:transparent;color:var(--accent);box-shadow:inset 0 0 0 1.5px var(--accent)}
-html[data-k-cta-style="pill"] .cta{border-radius:999px}
-html[data-k-rating-show="false"] .rating{display:none}
-.classic{background:#141417;border:1px solid #1f1f23;border-radius:14px;padding:10px;display:flex;flex-direction:column;gap:10px}
-.classic .pic{border-radius:9px;aspect-ratio:4/3;overflow:hidden}
-.classic .info{display:grid;grid-template-columns:1fr auto;gap:2px 8px;padding:0 4px}
-.classic .price{grid-row:1/3;grid-column:2;align-self:center;font-size:15px}
-.classic .cta{width:100%}
-.classic .cta-icon{display:none}
-.overlay{position:relative;border-radius:16px;overflow:hidden;aspect-ratio:4/4.3}
-.overlay .info{position:absolute;inset:auto 0 0 0;padding:44px 14px 14px;background:linear-gradient(transparent,rgba(12,12,14,.92) 55%);display:flex;flex-direction:column;gap:3px}
-.overlay .row{display:flex;justify-content:space-between;align-items:center}
-.overlay .cta{position:absolute;top:10px;right:10px;padding:8px 11px}
-.overlay .rating,.overlay .rating i{color:#d4d4d8}
-.minimal{display:flex;flex-direction:column;gap:6px}
-.minimal .pic{border-radius:4px;aspect-ratio:4/3.4;overflow:hidden;margin-bottom:4px}
-.minimal .row{display:flex;justify-content:space-between;align-items:center}
-.minimal b{font-weight:500}
-.minimal .cta{padding:6px 10px;font-size:12px}
-.minimal .cta-icon{display:none}
-.dim{position:absolute;inset:0;background:rgba(5,5,7,.72)}
-.qv{position:absolute;left:50%;top:84px;transform:translateX(-50%);width:640px;max-width:calc(100% - 40px);background:#141417;border:1px solid #27272a;border-radius:18px;display:grid;grid-template-columns:1fr 1fr;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.5)}
-.qv .art{aspect-ratio:1}
-.qv .side{padding:26px 24px;display:flex;flex-direction:column;gap:12px}
-.qv h2{font-size:21px;letter-spacing:-.01em}
-.qv .price{font-size:20px}
-.qv p{color:#a1a1aa;font-size:13px;line-height:1.55}
-.swatches{display:flex;gap:8px}
-.swatches span{width:22px;height:22px;border-radius:50%;box-shadow:0 0 0 2px #141417,0 0 0 3px transparent}
-.swatches span.on{box-shadow:0 0 0 2px #141417,0 0 0 3.5px var(--accent)}
-.qv .cta{width:100%;padding:13px;font-size:14px;margin-top:auto}
-.qv .x{position:absolute;top:12px;right:14px;color:#71717a;font-size:18px}
-.qv.minimal-qv{border-radius:6px}
-.qv.overlay-qv .art{border-radius:0}
+*{box-sizing:border-box;margin:0;padding:0}
+html{background:#fff}
+.shop{--tile:var(--k-tile,#efefef);background:#fff;color:#111;font:12px/1.35 "Helvetica Neue",Helvetica,Arial,sans-serif;min-height:760px;position:relative;padding-bottom:40px}
+.top{display:grid;grid-template-columns:120px 1fr auto;align-items:start;padding:18px 20px 0}
+.logo{width:64px;height:64px;display:block}
+.nav,.util{display:flex;gap:20px;text-transform:uppercase;letter-spacing:.01em;font-size:12px;padding-top:4px}
+.util{gap:18px}
+.title{font:400 52px/1 "Times New Roman",Times,serif;letter-spacing:-.02em;margin:-26px 0 0 120px}
+.crumb{margin:10px 0 0 120px;font-size:11px;color:#666}
+.bar{display:flex;justify-content:space-between;padding:22px 20px 14px;font-size:11px;text-transform:uppercase;color:#777}
+.bar b{color:#111;font-weight:400;text-transform:none;margin-right:12px}
+.grid{display:grid;gap:10px;padding:0 10px}
+.tile{display:flex;flex-direction:column;color:inherit;text-decoration:none}
+.ph{display:block;aspect-ratio:4/5;background:var(--tile);overflow:hidden;position:relative}
+.ph img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;padding:12%}
+.cap{display:flex;flex-direction:column;gap:2px;padding:12px 14px 22px}
+.nm{text-transform:uppercase;font-size:12px;letter-spacing:.01em}
+html[data-k-name-case="sentence"] .nm{text-transform:none}
+.pr{font-size:11px}
+html[data-k-price-show="false"] .pr{display:none}
+.index{grid-template-columns:repeat(4,1fr)}
+.shop:has(.gallery),.shop:has(.gallery-pdp){background:var(--tile)}
+.gallery{grid-template-columns:repeat(4,1fr);gap:28px 18px;padding:12px 60px}
+.gallery .ph{background:transparent;aspect-ratio:1}
+.gallery .ph img{padding:6%}
+.gallery .cap{align-items:center;text-align:center;padding:4px 0 14px}
+.gallery .nm{font-size:10px;letter-spacing:.08em}
+.gallery .pr{font-size:10px;color:#777}
+.editorial{grid-template-columns:repeat(4,1fr)}
+.editorial .lead{grid-column:span 2;grid-row:span 2}
+.editorial .lead .ph{aspect-ratio:auto;flex:1}
+.editorial .lead .nm{font:400 30px/1 "Times New Roman",Times,serif;text-transform:none;letter-spacing:-.01em}
+.pdp{display:grid;grid-template-columns:1.35fr 1fr;gap:10px;padding:18px 10px 0}
+.pdp .pics{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pdp .pics .ph:first-child{grid-column:span 2;aspect-ratio:5/4}
+.pdp .pics .ph{aspect-ratio:1}
+.pdp .info{position:sticky;top:0;padding:10px 30px 0 30px;display:flex;flex-direction:column;gap:14px}
+.pdp h2{font:400 34px/1.05 "Times New Roman",Times,serif;letter-spacing:-.01em}
+.pdp .info .pr{font-size:13px}
+.sizes{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.sizes span{border:1px solid #ddd;padding:10px 0;text-align:center;font-size:11px}
+.sizes span.on{border-color:#111}
+.sizes span.out{color:#bbb;text-decoration:line-through}
+.bag{background:#111;color:#fff;text-transform:uppercase;font-size:12px;letter-spacing:.04em;padding:16px;text-align:center}
+.det{font-size:11.5px;color:#444;line-height:1.55;border-top:1px solid #e6e6e6;padding-top:12px}
+.det b{display:block;color:#111;font-weight:400;text-transform:uppercase;margin-bottom:4px;font-size:11px}
+.gallery-pdp .pics .ph,.gallery-pdp .pics .ph:first-child{background:transparent}
+.editorial-pdp h2{font-size:44px}
 `;
 
+const LOGO = `<svg class="logo" viewBox="0 0 64 64" fill="none" stroke="#111" stroke-width="1.2"><path d="M32 4 L60 58 H4 Z"/><path d="M16 58 L30 34 L38 46 L44 38 L54 58"/></svg>`;
+
+function header(title, crumb) {
+  return `<header class="top" data-part="header" data-part-label="Header">
+    ${LOGO}
+    <nav class="nav"><span>Fall Winter 26</span><span>Shop all</span><span>Apparel</span><span>Footwear</span><span>Accessories</span><span>Lookbook</span></nav>
+    <span class="util"><span>Search</span><span>Login</span><span>Bag(0)</span></span>
+  </header>
+  <h1 class="title">${title}</h1>
+  <p class="crumb">${crumb}</p>`;
+}
+
 function render(state, variant) {
-  const card = CARDS[variant.name];
-  const grid = `<div class="grid" data-part="grid" data-part-label="Product grid">${PRODUCTS.map(card).join("")}</div>`;
-  const quick =
-    state.label === "Quick view"
-      ? `<div class="dim"></div>
-  <section class="qv ${variant.name}-qv" data-part="quickview" data-part-label="Quick view">
-    <div class="art" style="background:${PRODUCTS[0].bg}">${art(PRODUCTS[0], "padding:12%")}</div>
-    <div class="side">
-      <span class="x">×</span>
-      <h2>${PRODUCTS[0].name}</h2>
-      ${stars(PRODUCTS[0])}
-      <span class="price">$${PRODUCTS[0].price}</span>
-      <p>Closed-back, 40-hour battery, folds flat into its case. Noise cancelling you can turn down to hear the room.</p>
-      <div class="swatches"><span class="on" style="background:#1c1917"></span><span style="background:#d6d3d1"></span><span style="background:#4d7c0f"></span></div>
-      ${cta(PRODUCTS[0])}
+  if (state.label === "Product") {
+    const p = PRODUCTS[0];
+    const alt = PRODUCTS.find((x) => x.kind === p.kind && x.id !== p.id) ?? PRODUCTS[1];
+    return `<style>${CSS}</style>
+<div class="shop">
+  ${header(" ", "Home › Footwear › " + p.name)}
+  <section class="pdp ${variant.name}-pdp" data-part="product" data-part-label="Product">
+    <div class="pics"><span class="ph">${img(p)}</span><span class="ph">${img(p)}</span><span class="ph">${img(alt)}</span></div>
+    <div class="info">
+      <h2 data-part="name" data-part-label="Product name" data-part-key="pdp" class="nm">${p.name}</h2>
+      ${price(p)}
+      <div class="sizes" data-part="sizes" data-part-label="Sizes"><span>EU 40</span><span>EU 41</span><span class="on">EU 42</span><span>EU 43</span><span class="out">EU 44</span><span>EU 45</span><span>EU 46</span><span class="out">EU 47</span></div>
+      <div class="bag" data-part="cta" data-part-label="Add to bag">Add to bag</div>
+      <div class="det"><b>Details</b>Waxed suede upper on a Vibram Megagrip sole. Gusseted tongue, speed hooks, a heel pull. Made in Italy.</div>
+      <div class="det"><b>Shipping &amp; returns</b>Free over € 250. Returns within 30 days.</div>
     </div>
-  </section>`
-      : "";
+  </section>
+</div>`;
+  }
   return `<style>${CSS}</style>
 <div class="shop">
-  <header class="top" data-part="header" data-part-label="Header">
-    <span class="logo">field<i>&amp;</i>form</span>
-    <nav class="nav"><b>Shop</b><span>New</span><span>Journal</span><span>About</span></nav>
-    <span class="bag">Bag <em>2</em></span>
-  </header>
-  <div class="filters" data-part="filters" data-part-label="Filters"><span class="chip on">All</span><span class="chip">Audio</span><span class="chip">Outdoor</span><span class="chip">Home</span><span class="chip">Under $100</span></div>
-  ${grid}
-  ${quick}
+  ${header("Products", "Home › Products")}
+  <div class="bar" data-part="filters" data-part-label="Filters"><span><b>Filters</b> Size &nbsp; Colour</span><span><b>Available products</b> In stock &nbsp; Out of stock</span></div>
+  <div data-part="grid" data-part-label="Product grid">${GRIDS[variant.name]()}</div>
 </div>`;
 }
 
 export const STORE = {
-  project: "demo/shop",
+  project: "demo/halde",
   agent: "designer",
-  sessionTitle: "Shop redesign",
+  sessionTitle: "HALDE shop",
   slug: "shop",
   title: "Shop",
-  states: [{ label: "Grid" }, { label: "Quick view" }],
-  variants: [{ name: "classic" }, { name: "overlay" }, { name: "minimal" }],
+  states: [{ label: "Grid" }, { label: "Product" }],
+  variants: [{ name: "index" }, { name: "gallery" }, { name: "editorial" }],
   knobs: {
-    accent: "#f97316",
-    "cta.style": { type: "select", options: ["solid", "outline", "pill"], value: "solid" },
-    "rating.show": true,
+    tile: "#efefef",
+    "name.case": { type: "select", options: ["upper", "sentence"], value: "upper" },
+    "price.show": true,
   },
   asks: [
     {
-      id: "card",
-      text: "Which product card?",
+      id: "grid",
+      text: "Which grid?",
       scope: "design",
       options: [
-        { label: "Classic", variant: "classic" },
-        { label: "Overlay", variant: "overlay" },
-        { label: "Minimal", variant: "minimal" },
+        { label: "Index", variant: "index" },
+        { label: "Gallery", variant: "gallery" },
+        { label: "Editorial", variant: "editorial" },
       ],
     },
     {
-      id: "cta",
-      text: "How should Add to cart look?",
-      scope: "part",
-      part: "cta",
-      options: [
-        { label: "Solid", set: { "cta.style": "solid" } },
-        { label: "Outline", set: { "cta.style": "outline" } },
-        { label: "Pill", set: { "cta.style": "pill" } },
-      ],
-    },
-    {
-      id: "accent",
-      text: "Which accent?",
+      id: "tile",
+      text: "What colour behind the products?",
       scope: "design",
       options: [
-        { label: "Orange", set: { accent: "#f97316" } },
-        { label: "Lime", set: { accent: "#a3e635" } },
-        { label: "Violet", set: { accent: "#a78bfa" } },
+        { label: "Grey", set: { tile: "#efefef" } },
+        { label: "Bone", set: { tile: "#e8e3d9" } },
+        { label: "White", set: { tile: "#ffffff" } },
       ],
     },
     {
-      id: "ratings",
-      text: "Show ratings on the cards?",
+      id: "case",
+      text: "How should names read?",
       scope: "part",
-      part: "rating",
+      part: "name",
       options: [
-        { label: "Show", set: { "rating.show": true } },
-        { label: "Hide", set: { "rating.show": false } },
+        { label: "UPPERCASE", set: { "name.case": "upper" } },
+        { label: "Sentence case", set: { "name.case": "sentence" } },
+      ],
+    },
+    {
+      id: "prices",
+      text: "Prices on the grid?",
+      scope: "part",
+      part: "price",
+      options: [
+        { label: "Show", set: { "price.show": true } },
+        { label: "Hide", set: { "price.show": false } },
       ],
     },
   ],
   render,
+};
+
+// Already on the project's Home when the film starts, so the shop lands beside something.
+export const LOOKBOOK = {
+  slug: "lookbook",
+  title: "Lookbook",
+  html: () => `<style>${CSS}
+.lb{display:grid;grid-template-columns:1.2fr 1fr;gap:10px;padding:10px}
+.lb .ph{aspect-ratio:3/4}
+.lb h2{font:400 64px/1 "Times New Roman",Times,serif;letter-spacing:-.02em;padding:40px 10px 0}
+.lb p{padding:14px 10px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#666}</style>
+<div class="shop"><h2>Fall Winter 26</h2><p>Lookbook · 8 looks</p>
+<div class="lb"><span class="ph">${img(PRODUCTS[2] ?? PRODUCTS[0])}</span><span class="ph">${img(PRODUCTS[0])}</span></div></div>`,
 };
