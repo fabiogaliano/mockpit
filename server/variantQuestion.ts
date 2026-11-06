@@ -122,14 +122,17 @@ export function archivedAnswer(
   return mine.length > 0 && !mine.some((r) => isLive(r.status));
 }
 
-// A state needs the built-in Which variant? when it has a real choice (2+ live variants)
-// that no question of the agent's makes: none chooses there, and none binds every one.
+// A state of an idea needs the built-in Which variant? when it has a real choice (2+ live
+// variants) that no question of the agent's makes: none chooses there, and none binds
+// every one.
 export function needsBuiltinAsk(
   asks: Ask[],
-  design: Pick<Design, "states">,
+  design: Pick<Design, "states" | "kind">,
   rows: VariantRow[],
   state: string | null,
 ): boolean {
+  // A screen or a component holds what ships: its alternatives belong in an idea.
+  if (design.kind !== "idea") return false;
   const live = [
     ...new Set(rows.filter((r) => r.state === state && isLive(r.status)).map((r) => r.variant)),
   ];

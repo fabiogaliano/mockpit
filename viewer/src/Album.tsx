@@ -92,12 +92,25 @@ export function AlbumWords(props: { node: TreeNode; fresh: boolean; extra?: stri
   const inside = createMemo(() =>
     [albumInside(props.node), props.extra].filter(Boolean).join(" · "),
   );
+  // A marked screen or component: where nothing hovers, the cover's dot can't open, so
+  // its word is here instead (styles.css shows one or the other).
+  const marked = () => {
+    const w = props.node.status;
+    return w === "Ready" || w === "Changed" ? w : null;
+  };
   return (
     <span class="alb-words">
       <Show when={said()}>
         {(t) => (
           <span class="alb-turn" data-turn={t().kind}>
             {t().text}
+          </span>
+        )}
+      </Show>
+      <Show when={marked()}>
+        {(w) => (
+          <span class="alb-turn alb-ready-word" data-ready={w()}>
+            {w()}
           </span>
         )}
       </Show>
@@ -109,6 +122,24 @@ export function AlbumWords(props: { node: TreeNode; fresh: boolean; extra?: stri
       </Show>
       <Show when={inside()}>{(text) => <span class="alb-inside">{text()}</span>}</Show>
     </span>
+  );
+}
+
+// Ready or Changed on a cover: a dot on the picture's corner that opens into its word when
+// pointed at or focused. Nothing for a screen in design, or an idea.
+function ReadyDot(props: { word: TreeNode["status"] }) {
+  const word = () => (props.word === "Ready" || props.word === "Changed" ? props.word : null);
+  return (
+    <Show when={word()}>
+      {(w) => (
+        <span class="alb-ready" data-ready={w()} tabIndex={0} role="img" aria-label={w()}>
+          <i aria-hidden="true" />
+          <span class="alb-ready-text" aria-hidden="true">
+            {w()}
+          </span>
+        </span>
+      )}
+    </Show>
   );
 }
 
@@ -181,6 +212,7 @@ export function Album(props: {
             </Show>
           </span>
         </a>
+        <ReadyDot word={n().status} />
         <Show when={props.onEnd}>
           <button
             type="button"

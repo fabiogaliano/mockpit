@@ -637,6 +637,8 @@ export interface DesignEdit {
   area?: string | null;
   // The sections of the spec the user just wrote by hand; null where they cleared one.
   spec?: { purpose?: string | null; behaviour?: SpecLine[] | null };
+  // The user marked the design Ready, or took the mark off.
+  ready?: { ready: boolean; at: string };
   // From when Studio could hang variants under a lead; stored rows still carry it.
 }
 
@@ -692,6 +694,20 @@ export interface DesignSpec {
 export const MAX_SPEC = 8000;
 export const MAX_SPEC_LINES = 60;
 
+// The user's one mark on a screen or component: this is the version. It records what
+// each state showed when they marked it, so a newer version arriving reads as Changed
+// (derived, never stored: ready.ts) until the design shows that again or they mark it
+// again. `name` is the entry's variant name as stored.
+export interface ReadyCover {
+  state: string | null;
+  name: string;
+  version: number;
+}
+export interface DesignReady {
+  at: string;
+  covers: ReadyCover[];
+}
+
 // What the user said about a state a declared screen doesn't have yet.
 export type StateOutline = "dismissed" | "requested";
 
@@ -734,6 +750,8 @@ export interface Design {
   // Kept as information; nothing reads it as an instruction.
   archiveReason: string | null;
   spec: DesignSpec | null;
+  // Only the user sets it, and only on a screen or component.
+  ready: DesignReady | null;
   // By state name, only what the user has said; {} when nothing. Kept apart from
   // `states` because a dismissed state isn't one of the design's.
   stateOutlines: Record<string, StateOutline>;
@@ -1083,6 +1101,7 @@ export interface UpdateDesignInput {
   archiveReason?: string | null;
   // null clears.
   spec?: DesignSpec | null;
+  ready?: DesignReady | null;
   stateOutlines?: Record<string, StateOutline>;
   answerAdditions?: AnswerAddition[];
   standings?: Record<string, AnswerStanding>;
@@ -1521,10 +1540,12 @@ export function draftedCount(design: Pick<Design, "asks" | "draft">): number | n
 export const BUILTIN_ASK_ID = "variant";
 
 export function builtinAsk(
-  design: Pick<Design, "states">,
+  design: Pick<Design, "states" | "kind">,
   posts: Pick<Post, "state" | "variant">[],
   id: string,
 ): Ask | undefined {
+  // A screen or a component holds what ships: there is nothing on it to choose.
+  if (design.kind !== "idea") return undefined;
   let state: string | null = null;
   if (id !== BUILTIN_ASK_ID) {
     if (!id.startsWith(`${BUILTIN_ASK_ID}:`)) return undefined;

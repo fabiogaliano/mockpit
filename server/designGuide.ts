@@ -559,6 +559,16 @@ or a feedback batch nudges when decisions are newer than the spec. Read it befor
 changing the design. The user can edit each section by hand, and their words stand:
 a later draft of that section isn't applied, and the result says so.
 
+## Ready
+
+A screen or component holds what ships, one entry a state, so nothing on it is chosen:
+its newest version is current, with no Use this, no Which variant? and nothing in use.
+Alternatives for it belong in an idea; \`read\` says \`holdsAlternatives\` until you
+\`move\` them there. Only the user marks it Ready, this is the version (a screen's mark
+carries to the components inside). \`read\` and \`export\` give \`ready\` (the versions it
+covers), \`changed\` (something newer shows since) and \`builtFrom\` (each component's own
+mark); \`export\` hands over the Ready versions with the spec, what a build plan points at.
+
 ## Parts
 
 \`<article data-part="body" data-part-label="Body">\`. Declare only what you want
@@ -688,7 +698,8 @@ A \`pending\` draft means the user is still answering. Send a nudge's
 \`suggestedAsk\` with \`ask\`.
 \`edited: {kind, area}\` means the user moved the design from Home; it is done,
 so build on it and don't move it back. \`edited: {spec}\` is the user's correction
-of the design's spec, by section (null where they cleared one). A batch's \`nudges\`
+of the design's spec, by section (null where they cleared one); \`edited: {ready}\` that
+they marked it Ready or took the mark off. A batch's \`nudges\`
 say what the design needs now, such as its spec updated.
 \`read\` shows what the user took away, as information: a design's \`archivedAt\` and
 \`archiveReason\`, a variant's \`archived\` status and \`archiveReason\`. A question

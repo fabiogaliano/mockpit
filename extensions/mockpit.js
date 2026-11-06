@@ -293,6 +293,13 @@ function feedbackLines(feedback) {
             : `- ${prefix}the user wrote how it works: ${e.spec.behaviour.map(specLineText).join(" / ")}`,
         );
       }
+      if (e.ready) {
+        lines.push(
+          e.ready.ready
+            ? `- ${prefix}the user marked it Ready`
+            : `- ${prefix}the user took Ready off`,
+        );
+      }
     }
     for (const n of batch.nudges ?? []) lines.push(`- ${prefix}nudge: ${n}`);
   }

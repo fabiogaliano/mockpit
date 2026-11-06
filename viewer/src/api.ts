@@ -347,6 +347,12 @@ export const api = {
   // Keep the version in use and stop asking about the newer one.
   stay: (id: string, state: string | null, variant: string) =>
     call<unknown>(`/api/designs/${encodeURIComponent(id)}/stay`, json("POST", { state, variant })),
+  // Ready: this is the version, recorded at what each state shows now; false takes it off.
+  ready: (id: string, ready: boolean) =>
+    call<{ carried: string[] }>(
+      `/api/designs/${encodeURIComponent(id)}/ready`,
+      json("POST", { ready }),
+    ),
   decisions: (project: string) =>
     call<DecisionListView>(`/api/projects/${encodeURIComponent(project)}/decisions`),
   // The user's hand on a line: reword it, remove it, or take that back.

@@ -126,7 +126,7 @@ export function albumInside(node: TreeNode): string {
   return parts.join(" · ");
 }
 
-export type TurnKind = DesignStatus["kind"] | "idle";
+export type TurnKind = DesignStatus["kind"] | "idle" | "inDesign";
 
 const TURN_TEXT: Record<Exclude<TurnKind, "open">, string> = {
   draft: "Draft to send",
@@ -138,7 +138,12 @@ const TURN_TEXT: Record<Exclude<TurnKind, "open">, string> = {
   sent: "Sent",
   exploring: "Exploring",
   idle: "Nothing waiting",
+  inDesign: "in design",
 };
+
+// What still says whose turn it is on a screen or a component. Nothing there is chosen or
+// in use, so the rest give way to its mark.
+const ACTIVITY = new Set<TurnKind>(["open", "draft", "unseen", "working", "sent"]);
 
 // A project this small is one or two things to look at, not a place to navigate.
 export const SIDEBAR_FROM = 3;
@@ -192,6 +197,21 @@ export const questions = (n: number) => plural(n, "question");
 // and its place in the Archive says so.
 export function turnWord(node: StatusNode, now: number): { kind: TurnKind; text: string } | null {
   if (node.archivedAt) return null;
+  if (node.status !== undefined) {
+    const status = designStatus(
+      { ...node, variants: node.variants.map((v) => ({ ...v, changedTo: undefined })) },
+      now,
+    );
+    if (status && ACTIVITY.has(status.kind)) {
+      return status.kind === "open"
+        ? { kind: "open", text: questions(status.n) }
+        : { kind: status.kind, text: TURN_TEXT[status.kind] };
+    }
+    // Marked, the cover's dot says Ready or Changed (and the status line, on a phone).
+    return node.status === "in design"
+      ? { kind: "inDesign", text: TURN_TEXT.inDesign }
+      : { kind: "idle", text: TURN_TEXT.idle };
+  }
   const status = designStatus(node, now);
   if (!status) return { kind: "idle", text: TURN_TEXT.idle };
   return status.kind === "open"

@@ -7,6 +7,7 @@ import { type Decisions, decisionsFor } from "./decisions.ts";
 import { ROUTED_NOTE } from "./handoff.ts";
 import { standingOf, type StandingView, standingView } from "./standings.ts";
 import { archivedAnswer, optionStates, withAddedAnswers } from "./variantQuestion.ts";
+import { shipped } from "./ready.ts";
 import {
   type AnswerStanding,
   type Ask,
@@ -399,7 +400,7 @@ export function groupFeedback(
       };
       const decisions = design ? decisionsFor(design, designPosts, c.payload) : null;
       if (decisions) batch.reply.decisions = decisions;
-      batch.inUse = designPosts
+      batch.inUse = (design ? shipped(design, designPosts) : designPosts)
         .filter((p) => p.status === "accepted")
         .map((p) => ({ ...ref(p), version: inUseVersion(p) }));
       batch.archived = designPosts.filter((p) => p.status === "archived").map(ref);

@@ -154,7 +154,7 @@ export const liveVariants = (variants: VariantRow[], state: string | null): stri
 // up, so the user answers once; one per needing state otherwise. Option ids
 // are variant names, as the server's reply handling expects.
 export function builtinAsks(
-  design: Pick<DesignDetail, "asks" | "states"> & { archivedAt?: string | null },
+  design: Pick<DesignDetail, "asks" | "states" | "kind"> & { archivedAt?: string | null },
   variants: VariantRow[],
 ): Ask[] {
   // Ending the design put its choices away with it.
@@ -861,8 +861,8 @@ const KIND_NAMES: Record<DesignKind, string> = {
   idea: "Ideas",
 };
 
-// A move made from Home, the spec corrected by hand, or a grouping from when Studio
-// could make one, as the thread lists it.
+// A move made from Home, the spec corrected by hand, the Ready mark, or a grouping from
+// when Studio could make one, as the thread lists it.
 export const editedLine = (e: DesignEdit): string =>
   [
     e.kind ? `Moved to ${KIND_NAMES[e.kind]}` : "",
@@ -877,6 +877,7 @@ export const editedLine = (e: DesignEdit): string =>
         ? "How it works cleared"
         : "How it works edited"
       : "",
+    e.ready ? (e.ready.ready ? "Marked Ready" : "Ready taken off") : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -1484,7 +1485,7 @@ export const stillWorking = (calledAt: string | undefined, now: number): boolean
 
 export type StatusNode = Pick<
   TreeNode,
-  "open" | "states" | "inUse" | "archivedAt" | "lastReplyAt" | "drafting" | "lastSend"
+  "open" | "states" | "inUse" | "archivedAt" | "lastReplyAt" | "drafting" | "lastSend" | "status"
 > & {
   variants: Pick<TreeNode["variants"][number], "state" | "status" | "updatedAt" | "changedTo">[];
 };

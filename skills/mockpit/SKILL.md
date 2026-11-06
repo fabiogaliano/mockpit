@@ -34,8 +34,10 @@ The loop never waits for the user:
    `mockpit read --area Food`. A screen or component carries a spec: what it is
    for (`edit --purpose`) and how it works where the picture can't show it
    (`edit --behaviour "…" --state Now --part river`); that goes there, never in
-   side files. A batch with `edited` is the user moving a design from Home
-   (kind, area) or correcting its spec: build on it.
+   side files. A screen or component has nothing to choose: its newest version is
+   current, alternatives belong in an idea, and the user marks it Ready (`read` and
+   `export`: `ready`, `changed`, `builtFrom`). A batch with `edited` is the user moving
+   a design from Home (kind, area), correcting its spec or marking it Ready: build on it.
 3. A choice is several variants plus one question that binds them: `mockpit ask`
    with options bound to variants. A variant decides everything it differs on;
    don't re-ask it. Visual options carry a `variant`, knob `set` or `palette`. One render

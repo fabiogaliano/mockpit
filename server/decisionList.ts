@@ -214,7 +214,9 @@ function standingAsks(design: Design, variants: DecisionVariant[]): Ask[] {
     const named = picks.filter((p) =>
       variants.some((v) => v.state === p.state && v.variant === p.variant),
     );
+    // A screen or a component puts nothing in use, so its answers stand as said.
     const replaced =
+      design.kind === "idea" &&
       named.length > 0 &&
       !named.some((p) =>
         variants.some(
@@ -267,7 +269,9 @@ export function deriveDecisionLines(
       asks.flatMap((a) => pickedVariants(design, a).map((p) => `${p.state}\n${p.variant}`)),
     );
     for (const v of variants) {
-      // The question that put it in use already says so, in better words.
+      // The question that put it in use already says so, in better words. Nothing is in
+      // use on a screen or a component, whatever an older reply put there.
+      if (design.kind !== "idea") break;
       if (v.status !== "accepted" || answered.has(`${v.state}\n${v.variant}`)) continue;
       const parts = useParts(
         v,

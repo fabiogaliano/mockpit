@@ -356,7 +356,9 @@ mockpit system --restore <rev>
   exiting; --exit-code sets the code it stops with (default 0).`,
   export: `mockpit export --design <slug> [--state s] [--variant v] [--out <dir>]
   Write index.html + history.json per state to .mockpit/accepted/<design>/<state>/;
-  with fills, index.html is the chosen state, plus all-fills.html and decisions.json.`,
+  with fills, index.html is the chosen state, plus all-fills.html and decisions.json.
+  A screen or component writes the versions marked Ready, and design.json: its mark,
+  its spec and the components it is built from, each with its own mark.`,
   upload: `mockpit upload <file> [--kind image|file] [--session <id>]
   Upload an asset; prints its id and URL. Use the id as an image surface's assetId.`,
   guide: `mockpit guide [--topic <id>] [--project <name>]
@@ -1415,6 +1417,13 @@ function watchLines(batch) {
           : `mockpit edited ${name}: the user wrote how it works: ${e.spec.behaviour.map(specLineText).join(" / ")}`,
       );
     }
+    if (e.ready) {
+      lines.push(
+        e.ready.ready
+          ? `mockpit edited ${name}: the user marked it Ready`
+          : `mockpit edited ${name}: the user took Ready off`,
+      );
+    }
   }
   if (batch.reply) {
     const r = batch.reply;
@@ -2036,6 +2045,20 @@ const commands = {
     );
     if (flags.json) return out(data);
     const root = join(flags.out ? flags.out : join(process.cwd(), ".mockpit", "accepted"), slug);
+    // A screen or a component: what a build plan points at, beside its states.
+    if (data.ready !== undefined) {
+      mkdirSync(root, { recursive: true });
+      const { ready, changed, spec, builtFrom } = data;
+      writeFileSync(
+        join(root, "design.json"),
+        JSON.stringify({ project, design: slug, ready, changed, spec, builtFrom }, null, 2) + "\n",
+      );
+      if (!flags.quiet) {
+        console.log(
+          `${slug} · ${ready ? (changed ? "Changed since Ready" : "Ready") : "in design"} · ${builtFrom.length} built from → ${join(root, "design.json")}`,
+        );
+      }
+    }
     for (const entry of data.states) {
       const dir = join(root, entry.state === null ? "default" : slugify(entry.state));
       mkdirSync(dir, { recursive: true });

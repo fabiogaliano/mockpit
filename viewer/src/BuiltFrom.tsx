@@ -100,13 +100,16 @@ export function BuiltFrom(props: {
                         </Show>
                         <span>
                           <span class="nm">{n.title}</span>
-                          <span class="sm">
-                            {n.inUse[0]
-                              ? `${versionName(
-                                  n.inUse[0],
-                                  n.variants.filter((v) => v.state === n.inUse[0].state).length > 1,
-                                )} in use`
-                              : `${n.variants.length} variants`}
+                          <span class="sm" data-ready={n.status}>
+                            {/* A component's own mark; an idea embedded here says what's in use. */}
+                            {n.status ??
+                              (n.inUse[0]
+                                ? `${versionName(
+                                    n.inUse[0],
+                                    n.variants.filter((v) => v.state === n.inUse[0].state).length >
+                                      1,
+                                  )} in use`
+                                : `${n.variants.length} variants`)}
                           </span>
                         </span>
                       </a>

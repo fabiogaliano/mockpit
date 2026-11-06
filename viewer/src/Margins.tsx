@@ -18,6 +18,7 @@ import {
   Show,
   Switch,
 } from "solid-js";
+import { isLive } from "../../server/types.ts";
 import { assetUrl, surfaceUrl } from "./api.ts";
 import { posterShown } from "./systemRev.ts";
 import { BuiltFrom } from "./BuiltFrom.tsx";
@@ -349,10 +350,28 @@ export function LeftMargin(props: { s: DesignScreenState; nav: FlowNav; m: Margi
         <Show when={m.statesShown()}>
           <StateList s={s} nav={props.nav} outlining={m.outlining()} />
         </Show>
+        <AlternativesLine s={s} />
         <Show when={s.steps().length > 1}>
           <VersionList s={s} open={m.versionsOpen()} onToggle={m.setVersionsOpen} />
         </Show>
       </aside>
+    </Show>
+  );
+}
+
+// A screen or a component holds one entry a state; what it holds beyond that are
+// alternatives, which the agent moves to an idea for it. Said once, quietly, with nothing
+// to press.
+function AlternativesLine(props: { s: DesignScreenState }) {
+  const s = props.s;
+  const most = () => {
+    const live = s.variants().filter((v) => isLive(v.status));
+    const states = s.design()?.states.length ? s.design()!.states : [null];
+    return Math.max(0, ...states.map((st) => live.filter((v) => v.state === st).length));
+  };
+  return (
+    <Show when={s.design()?.holdsAlternatives && most() > 1}>
+      <p class="alts-line">{`${most()} alternatives here; they belong in an idea`}</p>
     </Show>
   );
 }

@@ -45,6 +45,8 @@
   --keep: #f2b84b;
   --on-keep: #1a1406;
   --keep-ink: #f2b84b;
+  /* A screen's mark: Ready is --ok, Changed this blue, both ≥4.5:1 as text. */
+  --changed: #60a5fa;
   --sans: system-ui, -apple-system, "SF Pro Text", sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
   /* Icon buttons sit pressed into the chrome and light up under the pointer:
@@ -89,6 +91,7 @@
   --keep: #f2b84b;
   --on-keep: #1a1406;
   --keep-ink: #8a5a00;
+  --changed: #1d4ed8;
   --engrave: rgba(255, 255, 255, 0.95);
   --glow: rgba(0, 0, 0, 0.055);
   --danger: #dc2626;
@@ -10107,4 +10110,146 @@ body:has(.selp) .toast {
 }
 .dot.sys {
   background: var(--accent);
+}
+
+/* ---------- Ready (ReadyMark.tsx beside the name, Album.tsx on covers) ---------- */
+[data-ready="Ready"] {
+  --ready-c: var(--ok);
+}
+[data-ready="Changed"] {
+  --ready-c: var(--changed);
+}
+.ready-mark {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  margin-left: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--t4);
+  font: 500 12px/1 var(--sans);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--ease),
+    background-color var(--ease),
+    border-color var(--ease);
+}
+.ready-mark svg {
+  width: 12px;
+  height: 12px;
+}
+button.ready-mark:hover {
+  background: var(--row);
+  color: var(--t2);
+}
+.ready-mark:is([data-ready="Ready"], [data-ready="Changed"]) {
+  border-color: color-mix(in srgb, var(--ready-c) 45%, transparent);
+  background: color-mix(in srgb, var(--ready-c) 12%, transparent);
+  color: var(--ready-c);
+}
+button.ready-mark:is([data-ready="Ready"], [data-ready="Changed"]):hover {
+  background: color-mix(in srgb, var(--ready-c) 20%, transparent);
+  color: var(--ready-c);
+}
+.ready-mark:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* A component inside isn't Ready; its title names which. */
+.ready-inside {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--q);
+  box-shadow: 0 0 0 2px var(--page);
+}
+.chip .sm[data-ready="Ready"],
+.chip .sm[data-ready="Changed"] {
+  color: var(--ready-c);
+}
+.alb-ready {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  color: var(--ready-c);
+  font: 600 11px/1 var(--sans);
+  outline: none;
+  transition:
+    background-color 0.2s ease-out,
+    box-shadow 0.2s ease-out;
+}
+.alb-ready i {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ready-c);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--panel) 85%, transparent);
+}
+.alb-ready-text {
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  white-space: nowrap;
+  transition:
+    max-width 0.2s ease-out,
+    margin 0.2s ease-out,
+    opacity 0.2s ease-out;
+}
+.alb-ready:is(:hover, :focus-visible) {
+  background: var(--panel);
+  box-shadow: var(--tip-shadow);
+}
+.alb-ready:is(:hover, :focus-visible) .alb-ready-text {
+  max-width: 80px;
+  margin-left: 6px;
+  opacity: 1;
+}
+.alb-ready:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--accent),
+    var(--tip-shadow);
+}
+.alb-ready-word {
+  color: var(--ready-c);
+}
+@media (hover: hover) {
+  .alb-ready-word {
+    display: none;
+  }
+}
+@media (hover: none) {
+  .alb-ready {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .alb-ready,
+  .alb-ready-text {
+    transition: none;
+  }
+}
+/* A screen or component that still holds alternatives (Margins.tsx). */
+.alts-line {
+  margin: 6px 0 0;
+  /* Clear of the margin's close, when it is the first thing there. */
+  padding: 0 40px 0 12px;
+  color: var(--t5);
+  font-size: 12px;
+  line-height: 1.4;
 }

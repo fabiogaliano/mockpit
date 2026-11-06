@@ -139,7 +139,9 @@ area. You hear it once, as `edited` with the fields they changed (`area: null` m
 It is already done: don't edit it back, and publish under the new kind and area. It can
 ride in the same batch as a reply. `edited.spec` is the design's spec as the user
 corrected it, by section: `purpose` and `behaviour` (`null` where they cleared one).
-A batch's `nudges` say what the design needs now: a screen or component whose spec is
+`edited.ready` (`{ready, at}`) says they marked a screen or component Ready, or took the
+mark off: only they set it, and marking a screen marks the components inside it too, each
+heard on its own design. A batch's `nudges` say what the design needs now: a screen or component whose spec is
 missing, or older than what was just decided on it, is told to update it.
 
 ## Delivery
@@ -184,9 +186,18 @@ mockpit read    --decisions               # the whole decision list, when a read
   design. `held` names the sections the user wrote by hand: those stand, your next
   draft of them isn't applied until they clear them, and `edit` answers
   `spec: {purpose: {applied: false, text}}`. A list marks it `hasSpec`.
+- A screen or component has nothing to choose between: its newest version is current, and
+  nothing on it is put in use. Reads of one (the design, `--tree`, `--area`) say `ready`
+  (`{at, covers: [{state, name, version}]}` or `null`), `changed` (a version shown now
+  differs from `covers`, or something shows that it lacks), `status` (`in design`,
+  `Ready`, `Changed`) and `builtFrom` (`[{slug, ready, changed}]`, the components inside,
+  nested ones included). One holding more than one entry in a state says
+  `holdsAlternatives: true` with a nudge: move them to an idea for it (`move`). `export`
+  hands over the versions marked Ready, with `ready`, `changed`, the `spec` and `builtFrom`
+  (each component's variant, version and mark), and the CLI writes them to `design.json`.
 - A read with `area` (`mockpit read --area Food`) is one product area: `description`
   (the project's), `area` (`{name, description}`), `screens` and `components` (`{slug,
-  title, kind, purpose, states, ready}`), `flows`, `shared` (components with no area),
+  title, kind, purpose, states, ready, changed, status}`), `flows`, `shared` (components with no area),
   `decisions` (`{design, text, state?}`) and `ideasWaiting` (`{slug, title, status}`).
   Read it before drawing in the area. `mockpit edit --project <p> --area Food
   --description "…"` says what an area is for, without `--area` what the project is for.

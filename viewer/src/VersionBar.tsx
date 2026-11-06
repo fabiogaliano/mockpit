@@ -96,7 +96,8 @@ export function VersionStepper(props: {
 }
 
 // Use this, and the way back to the version in use. The question is the decision
-// while it is open: no Use this beside it.
+// while it is open: no Use this beside it. A screen or a component has nothing to put
+// in use: its newest version is current, and Ready is its mark.
 export function UseThis(props: { s: DesignScreenState; primary?: boolean }) {
   const s = props.s;
   const inUse = () => sameVersion(s.onStage(), s.inUse());
@@ -106,7 +107,7 @@ export function UseThis(props: { s: DesignScreenState; primary?: boolean }) {
   const noteHasIt = () =>
     !s.design()?.archivedAt && !!s.changed() && sameVersion(s.onStage(), s.changed()?.to);
   return (
-    <Show when={!readonly() && !questionOpen() && !noteHasIt()}>
+    <Show when={!readonly() && !questionOpen() && !noteHasIt() && !s.product()}>
       <Show when={usedStep() && !inUse()}>
         <button
           type="button"

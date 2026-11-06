@@ -38,11 +38,13 @@ diagrams and reviews stay plain.
 before drawing there. `--source apps/web/src/shell` names the code that implements a design.
 A screen or component carries a spec: what it is for (`mockpit edit --design <slug> --purpose`)
 and how it works where the picture can't show it (`--behaviour "…" --state Now --part river`).
-Behaviour goes there, never in side files.
+Behaviour goes there, never in side files. A screen or component has nothing to choose: its
+newest version is current, alternatives belong in an idea, and the user marks it Ready (`read`
+and `export`: `ready`, `changed`, `builtFrom`).
 `mockpit edit --design <slug> --slug <new>` renames it and rewrites every embed and flow step; it
 also retitles and reclassifies without a new version. Title a design, like a state, by what the
 user sees ("Hold menu"), never by your process ("Round 2 · …", "v2", "Prototype"). When the user
-moves a design from Home (kind, area), you hear it in `feedback` as `edited`.
+moves a design from Home (kind, area) or marks it Ready, you hear it in `feedback` as `edited`.
 
 Prefer the MCP tools when connected (`publish`, `ask`, `read`, `feedback`,
 `say`, `move`, `edit`, `system`, `export`, `upload`, `guide`); otherwise use the CLI.

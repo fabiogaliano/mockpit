@@ -30,6 +30,7 @@ import { BottomPanel } from "./BottomPanel.tsx";
 import { hasFiles } from "./attach.ts";
 import { BuiltFrom } from "./BuiltFrom.tsx";
 import { ChangedNote } from "./ChangedNote.tsx";
+import { ReadyMark } from "./ReadyMark.tsx";
 import { SystemNote } from "./SystemNote.tsx";
 import { useFlowKeys } from "./flowKeys.ts";
 import { createFlowNav, type FlowNav } from "./flowNav.ts";
@@ -881,6 +882,7 @@ function TopRow(props: {
               {(state) => <span class="crumb-far crumb-sit">{`· ${state()}`}</span>}
             </Show>
           </nav>
+          <ReadyMark s={s} />
         </div>
         <Show when={s.design()}>
           <Show

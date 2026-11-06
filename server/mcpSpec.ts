@@ -342,7 +342,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "export",
     description:
-      "The html in use (else current) per state, version history, screenshot URL, knobs, the settled values and the last reply. Without design: the project's system for code (sheet, tokens as CSS and JSON, settled project knobs, components' sources).",
+      "The html in use (else current; a screen or component's marked Ready) per state, version history, screenshot URL, knobs, the settled values and the last reply; a screen or component adds ready, its spec and builtFrom. Without design: the project's system for code (sheet, tokens as CSS and JSON, settled project knobs, components' sources).",
     params: { ...VARIANT_REF, design: { t: "string", d: field.design } },
   },
   {
@@ -489,9 +489,12 @@ const feedbackSchema = o({
     kind: str.optional(),
     area: nullStr.optional(),
     spec: bag.optional(),
+    ready: o({ ready: z.boolean(), at: str }).optional(),
   })
     .optional()
-    .describe("The user moved the design from Home (its kind or area now) or edited its spec"),
+    .describe(
+      "The user moved the design from Home (its kind or area now), edited its spec, or marked it Ready (or took it off)",
+    ),
   nudges: strs.optional(),
 }).meta({ id: "Feedback" });
 // Typed once, on feedback: repeating it on every write would cost more than
@@ -617,6 +620,12 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
     settled: bag.optional().describe("Every knob value the user has sent, later replies winning"),
     tree: z.array(bag).optional(),
     spec: bag.optional(),
+    ready: bag
+      .nullable()
+      .optional()
+      .describe("A screen or component: the user's mark, with the versions it covers"),
+    changed: z.boolean().optional().describe("Something newer than Ready shows"),
+    builtFrom: z.array(bag).optional(),
     flows: z.array(flowSchema).optional(),
     decisionList: o({
       total: num,

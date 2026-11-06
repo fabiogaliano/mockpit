@@ -37,7 +37,9 @@ kept only for it as `alphabetical`, never ranked, and the project has its own in
 **source** (the code path that implements it). The user can move a design too,
 from Home's ⋯ menu (kind, area, archive); the agent hears a move as a feedback
 batch's `edited`, through the same cursor as a Send. The user's is Send (or Use this / New version on a design whose
-state has one variant and no asks), which releases one **reply**.
+state has one variant and no asks), which releases one **reply**. A screen or component
+has nothing to choose between: no Use this, no Which variant?, nothing in use; its newest
+version is current, and the user's one mark on it is **Ready** (below).
 
 Current product stances (deliberate choices, not accidents — revisit
 consciously, not as a side effect):
@@ -160,6 +162,21 @@ consciously, not as a side effect):
   drawing fills it. `Design.stateOutlines` holds per-design answers to the outlines of
   missing states (`dismissed`, `requested`; `POST /api/designs/:id/outlines`, viewer only),
   and only a declared page with html offers them (`canOutline` in `viewer/src/logic.ts`).
+- **Ready** (`server/ready.ts`, shared with the viewer): `Design.ready` (`{at, covers:
+  [{state, name, version}]}`, a column) records what each state of a screen or component
+  showed when the user marked it (`POST /api/designs/:id/ready`, viewer only, never a tool;
+  a screen's mark carries to the components it embeds, nested ones included, at the
+  versions they resolve to there; taking it off clears one design). `changed`, `status`
+  (`in design`, `Ready`, `Changed`), `builtFrom` and `holdsAlternatives` are derived on
+  every read (`readyFields`). `shipped` reads an older reply's `accepted` rows on a product
+  design as open, so views, export, embeds and the decision list see nothing in use there;
+  `useFlow` and a `use` verdict refuse (409), and a Send's answers flip nothing.
+  `shownVersion` is the newest visible version, or the marked one after a stay
+  (`stayFlow`: Back to the Ready version, until something newer comes); export hands over
+  the covered versions with the spec and `builtFrom` (`buildHandover`). The agent hears a
+  mark as `edited.ready`. Viewer: `ReadyMark` beside the name in `TopRow`, the cover's dot
+  (`Album.tsx`, its word in the status line where nothing hovers), each instance's word in
+  `BuiltFrom`, and `ChangedNote`'s way back with no countdown.
 - `Design.spec` (`server/spec.ts`, `MAX_SPEC`) is a design's own record, under three
   headings: What it is for (`purpose`), How it works (`behaviour`, lines that may name a
   state and a `part`, which makes the line an **annotation**: a numbered pin on that part

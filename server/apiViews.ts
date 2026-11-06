@@ -9,8 +9,15 @@ import { withAddedAnswers } from "./variantQuestion.ts";
 import type { DecisionLine } from "./decisionList.ts";
 import { purposeLine, specView } from "./spec.ts";
 import {
+  type BuiltFrom,
+  readyFields,
+  readyNewer,
+  readyVersion,
+  shipped,
+  shownVersion,
+} from "./ready.ts";
+import {
   changedTo,
-  currentVersion,
   draftedCount,
   type Described,
   type Embed,
@@ -136,9 +143,13 @@ const inUsePoster = (p: PostHead) => {
   return poster ? { inUsePoster: poster } : {};
 };
 
-// The version Home shows when nothing is in use and the newest was hidden.
-const coverVersion = (p: PostHead): { coverVersion?: number; coverPoster?: string } => {
-  const at = currentVersion(p);
+// The version Home shows when nothing is in use and the newest was hidden, or a
+// product design went back to the version marked Ready.
+const coverVersion = (
+  p: PostHead,
+  design: Pick<Design, "kind" | "ready">,
+): { coverVersion?: number; coverPoster?: string } => {
+  const at = shownVersion(design, p);
   if (p.status === "accepted" || at === p.version) return {};
   const poster = posterAt(p, at);
   return { coverVersion: at, ...(poster ? { coverPoster: poster } : {}) };
@@ -183,6 +194,8 @@ export interface VariantViewOptions {
   embeds?: Map<string, EmbedView>;
   // The variants some question keeps (standings.ts keptVariants).
   kept?: Set<string>;
+  // Whose variants: a product design's say where its Ready mark stands.
+  design?: Pick<Design, "kind" | "ready">;
 }
 
 // A variant's embeds as they render now (nested ones included): each with the
@@ -191,6 +204,40 @@ export interface VariantViewOptions {
 export interface EmbedView {
   key: string;
   list: (Embed & { latest: number; versions: number[] })[];
+}
+
+// Where a variant stands against what was chosen. An idea's: a newer version than the
+// one in use (`changedTo`). A product design's, once marked Ready: the version the mark
+// recorded (`readyVersion`), a newer one (`changedTo`), and the one shown when the user
+// went back to the marked one (`shownVersion`).
+function versionMarks(
+  post: Pick<
+    Post,
+    | "state"
+    | "variant"
+    | "status"
+    | "version"
+    | "acceptedVersion"
+    | "hiddenVersions"
+    | "stayedVersion"
+  > & {
+    history: { version: number }[];
+  },
+  design: Pick<Design, "kind" | "ready"> | undefined,
+): { changedTo?: number; readyVersion?: number; shownVersion?: number } {
+  if (!design || design.kind === "idea") {
+    const to = changedTo(post);
+    return to === undefined ? {} : { changedTo: to };
+  }
+  const marked = readyVersion(design, post);
+  if (marked === undefined) return {};
+  const to = readyNewer(design, post);
+  const shown = shownVersion(design, post);
+  return {
+    readyVersion: marked,
+    ...(to === undefined ? {} : { changedTo: to }),
+    ...(shown === marked && shown !== post.version ? { shownVersion: shown } : {}),
+  };
 }
 
 export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
@@ -225,7 +272,7 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
   ...(post.copiedFrom ? { copiedFrom: post.copiedFrom } : {}),
   ...(opts.kept && isKeptVariant(opts.kept, post) ? { kept: true } : {}),
   ...(post.acceptedVersion === undefined ? {} : { inUseVersion: post.acceptedVersion }),
-  ...(changedTo(post) === undefined ? {} : { changedTo: changedTo(post) }),
+  ...versionMarks(post, opts.design),
   ...(post.archiveReason ? { archiveReason: post.archiveReason } : {}),
   // The part names this variant's own markup marks, so the viewer can tell
   // which variants render a part (Borrow) without the html bodies.
@@ -290,7 +337,8 @@ export const placeOf = (
 
 // What a design's first state looks like in a list: what's in use, else what the agent
 // recommends, else its first. Same rule as viewer/src/logic.ts screenPicture.
-function thumbnail(design: Design, posts: PostHead[]) {
+function thumbnail(design: Design, all: PostHead[]) {
+  const posts = shipped(design, all);
   const first = stateOrder(design)[0];
   const inState = posts.filter((p) => p.state === first);
   const recommended = recommendedVariant(design.asks, first);
@@ -302,7 +350,7 @@ function thumbnail(design: Design, posts: PostHead[]) {
     posts[0];
   if (!pick) return null;
   const surface = pick.surfaces.findIndex((s) => isSandboxedSurfaceKind(s.kind));
-  const version = currentVersion(pick);
+  const version = shownVersion(design, pick);
   const poster = posterAt(pick, version);
   return {
     postId: pick.id,
@@ -357,13 +405,29 @@ export const designSummaryView = (design: Design, posts: PostHead[]) => {
 // user's unsent work and never leaves through this view.
 export const designDetailView = (
   design: Design,
-  posts: Post[],
+  all: Post[],
   opts: VariantViewOptions & {
     settled?: Record<string, KnobValue>;
     repliesGoTo?: string;
     // This design's lines of the decision list; absent where the read carries none.
     decisions?: string[];
+    // The components it is built from, as their marks stand.
+    builtFrom?: BuiltFrom[];
   } = {},
+) => {
+  const posts = shipped(design, all);
+  return detailOf(design, posts, opts);
+};
+
+const detailOf = (
+  design: Design,
+  posts: Post[],
+  opts: VariantViewOptions & {
+    settled?: Record<string, KnobValue>;
+    repliesGoTo?: string;
+    decisions?: string[];
+    builtFrom?: BuiltFrom[];
+  },
 ) => ({
   id: design.id,
   project: design.project,
@@ -376,6 +440,9 @@ export const designDetailView = (
   ...(opts.repliesGoTo ? { repliesGoTo: opts.repliesGoTo } : {}),
   ...plannedOf(design, posts.length),
   states: design.states,
+  ...readyFields(design, posts),
+  // Undefined (left out of the JSON) when it embeds nothing.
+  builtFrom: opts.builtFrom?.length ? opts.builtFrom : undefined,
   ...specView(design.spec, opts.decisions),
   ...(Object.keys(design.stateOutlines).length ? { stateOutlines: design.stateOutlines } : {}),
   ...(design.answerAdditions.length ? { answerAdditions: design.answerAdditions } : {}),
@@ -392,7 +459,7 @@ export const designDetailView = (
   ...(design.archiveReason ? { archiveReason: design.archiveReason } : {}),
   createdAt: design.createdAt,
   updatedAt: design.updatedAt,
-  variants: ((kept) => posts.map((p) => variantView(p, { ...opts, kept })))(
+  variants: ((kept) => posts.map((p) => variantView(p, { ...opts, kept, design })))(
     keptVariants(design, posts),
   ),
   inUse: inUseByState(design, posts),
@@ -421,7 +488,7 @@ function leftOf(design: Design, posts: PostHead[]): { leftAt?: string } {
 
 export const treeNodeView = (
   design: Design,
-  posts: PostHead[],
+  all: PostHead[],
   extra: {
     settled: Record<string, KnobValue>;
     embeds: string[];
@@ -432,8 +499,15 @@ export const treeNodeView = (
     // The viewer's alone: where the last Send stands, and a draft waiting to go.
     lastSend?: { sessionId: string; at: string; delivered: boolean; calledAt?: string };
     drafting?: boolean;
+    // The components it is built from, nested ones included, as their marks stand.
+    builtFrom?: BuiltFrom[];
   },
-) => ({
+) => {
+  const posts = shipped(design, all);
+  return nodeOf(design, posts, extra);
+};
+
+const nodeOf = (design: Design, posts: PostHead[], extra: Parameters<typeof treeNodeView>[2]) => ({
   id: design.id,
   slug: design.slug,
   title: design.title,
@@ -441,6 +515,8 @@ export const treeNodeView = (
   ...placeOf(design),
   ...(design.shortlist ? { shortlist: true } : {}),
   ...plannedOf(design, posts.length),
+  ...readyFields(design, posts),
+  builtFrom: extra.builtFrom?.length ? extra.builtFrom : undefined,
   open: openCount(design),
   // Any question ever asked, answered or not: it tells an idea from a document.
   ...(design.asks.length ? { asked: design.asks.length } : {}),
@@ -475,11 +551,11 @@ export const treeNodeView = (
     surface: p.surfaces.findIndex((x) => isSandboxedSurfaceKind(x.kind)),
     ...posterOf(p.surfaces),
     ...inUsePoster(p),
-    ...coverVersion(p),
+    ...coverVersion(p, design),
     ...(p.description && !extra.noDescriptions ? { description: p.description } : {}),
     ...(p.forkedFrom ? { forkedFrom: p.forkedFrom } : {}),
     ...(p.acceptedVersion === undefined ? {} : { inUseVersion: p.acceptedVersion }),
-    ...(changedTo(p) === undefined ? {} : { changedTo: changedTo(p) }),
+    ...versionMarks(p, design),
     ...(p.archiveReason ? { archiveReason: p.archiveReason } : {}),
     ...(extra.embedViews.get(p.id) ? { embedsKey: extra.embedViews.get(p.id)!.key } : {}),
   })),
@@ -492,15 +568,15 @@ const offShelf = (design: Design, posts: PostHead[]) =>
   !!design.archivedAt ||
   (posts.length > 0 && !posts.some((p) => isLive(p.status)) && openCount(design) === 0);
 
-const productLine = (design: Design) => ({
+const productLine = (design: Design, posts: PostHead[], builtFrom: BuiltFrom[]) => ({
   slug: design.slug,
   title: design.title,
   kind: design.kind,
   purpose: purposeLine(design.spec),
   // A design of one unnamed state has that one, null, as a read of it names it.
   states: stateOrder(design),
-  // Phase 2's mark; null until a design can carry it.
-  ready: null,
+  ...readyFields(design, posts),
+  builtFrom: builtFrom.length ? builtFrom : undefined,
 });
 
 // An idea's standing in a word, the same for the agent and the area page.
@@ -523,6 +599,8 @@ export function areaView(input: {
   heads: Map<string, PostHead[]>;
   flows: { name: string; steps: FlowStep[] }[];
   lines: DecisionLine[];
+  // By slug: the components each design is built from, as their marks stand.
+  builtFrom: Map<string, BuiltFrom[]>;
 }) {
   const live = input.designs.filter((d) => !offShelf(d, input.heads.get(d.id) ?? []));
   const here = live.filter((d) => d.area === input.area.name);
@@ -530,16 +608,18 @@ export function areaView(input: {
   const components = here.filter((d) => d.kind === "component");
   const product = new Set([...screens, ...components].map((d) => d.slug));
   const kindOf = new Map(input.designs.map((d) => [d.slug, d]));
+  const line = (d: Design) =>
+    productLine(d, input.heads.get(d.id) ?? [], input.builtFrom.get(d.slug) ?? []);
   return {
     project: input.project,
     description: input.description?.text ?? null,
     area: { name: input.area.name, description: input.area.description || null },
-    screens: screens.map(productLine),
+    screens: screens.map(line),
     // A flow is in the area when one of its steps is.
     flows: input.flows
       .filter((f) => f.steps.some((x) => kindOf.get(x.design)?.area === input.area.name))
       .map((f) => ({ name: f.name, steps: f.steps })),
-    components: components.map(productLine),
+    components: components.map(line),
     shared: live
       .filter((d) => d.kind === "component" && !d.area)
       .map((d) => ({ slug: d.slug, title: d.title, purpose: purposeLine(d.spec) })),

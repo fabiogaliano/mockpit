@@ -468,6 +468,8 @@ export function createDesignScreen(
     if (picked?.variant === v.variant) return picked.version;
     const use = inUseOf(v.state);
     if (use?.variant === v.variant) return use.version;
+    // A screen or a component the user took back to the version marked Ready.
+    if (v.shownVersion !== undefined) return v.shownVersion;
     const n = frameVersion(v, stageVersion());
     const hidden = new Set(
       (v.history ?? []).filter((h) => "hidden" in h && h.hidden).map((h) => h.version),
@@ -1990,11 +1992,23 @@ export function createDesignScreen(
       fail(e);
     }
   }
+  // A screen or a component: nothing on it is chosen, its newest version is current,
+  // and Ready is the user's one mark.
+  const product = createMemo(() => {
+    const kind = design()?.kind;
+    return kind !== undefined && kind !== "idea";
+  });
   // The version in use has a newer one the user hasn't ruled on, which ChangedNote
-  // moves to by itself. Null when there is none.
+  // moves to by itself. On a screen or a component: a newer version than the one marked
+  // Ready, which is already current, and `use` is the way back to the marked one. Null
+  // when there is none.
   const changed = createMemo(() => {
     const v = inState(activeState()).find((x) => x.changedTo !== undefined);
-    const use = v && inUseOf(v.state);
+    const use = !v
+      ? null
+      : v.readyVersion !== undefined
+        ? { variant: v.variant, version: v.readyVersion }
+        : inUseOf(v.state);
     return v?.changedTo !== undefined && use
       ? { use, to: { variant: v.variant, version: v.changedTo } }
       : null;
@@ -2004,9 +2018,31 @@ export function createDesignScreen(
     const c = changed();
     if (!m || !c || readonly()) return;
     void api.stay(m.id, activeState(), c.use.variant).then(() => {
-      setToast({ text: `Staying on ${nameOf(c.use)}` });
+      setToast({
+        text: product() ? `Back to ${nameOf(c.use)}, marked Ready` : `Staying on ${nameOf(c.use)}`,
+      });
       return loadDesign();
     }, fail);
+  }
+  // Ready: this is the version, at what each state shows now; again takes it off, and on
+  // Changed marks it again. Marking a screen marks the components inside it too.
+  async function markReady() {
+    const m = design();
+    if (!m || readonly() || !product()) return;
+    const on = !m.ready || !!m.changed;
+    try {
+      const { carried } = await api.ready(m.id, on);
+      await loadDesign();
+      setToast({
+        text: !on
+          ? `${m.title} is in design again`
+          : carried.length
+            ? `${m.title} is Ready, with ${carried.join(", ")} inside`
+            : `${m.title} is Ready`,
+      });
+    } catch (e) {
+      fail(e);
+    }
   }
   // Dimmed where it stands, never removed; Undo brings it back.
   // Resolves to its undo, or to nothing if it stayed. Quiet for whoever tells it
@@ -2677,6 +2713,8 @@ export function createDesignScreen(
     listed,
     stepVersion,
     useThis,
+    product,
+    markReady,
     hideVersion,
     askNew,
     outlinable,
