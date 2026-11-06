@@ -382,6 +382,9 @@ export function decisionDetail(
     not: line.parts?.not,
     state: line.state,
   };
+  // Reworded by the user, the line is their words alone: the question it came from
+  // still holds the old answer, which their rewrite replaced.
+  if (line.edited) return { chose: [], ...(line.state ? { state: line.state } : {}) };
   const about = (state: string | null | undefined, variant: string | undefined) =>
     variant
       ? design?.variants.find(
