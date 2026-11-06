@@ -2530,6 +2530,12 @@ a.home-count {
 .opt.on {
   box-shadow: inset 0 0 0 1.5px var(--t2);
 }
+.opt .otext {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
 .opt .lbl {
   padding: 0 8px;
   font-weight: 500;
@@ -2870,9 +2876,41 @@ a.home-count {
 .qcard:not(.beside) .optw.on .optacts {
   right: 6px;
 }
-.qcard.beside .opts.aslist .optw .opt:not(.pill),
 .qcard:not(.beside) .optw .opt {
   padding-right: 92px;
+}
+/* With hover, the list's text has the row's full width and the actions fade in over its
+   end; without hover they always show, so the text makes room for them. */
+@media (hover: none) {
+  .qcard.beside .opts.aslist .optw .opt:not(.pill) {
+    padding-right: 92px;
+  }
+}
+@media (hover: hover) {
+  .opts.aslist .optw .optacts,
+  .opts.aslist .optw.on .optacts {
+    top: 2px;
+    bottom: 2px;
+    right: 2px;
+    translate: none;
+    align-items: center;
+    padding: 0 4px 0 32px;
+    border-radius: 0 8px 8px 0;
+    pointer-events: none;
+  }
+  .opts.aslist .optw .optic {
+    pointer-events: auto;
+  }
+  .opts.aslist .optw:focus-within .optacts {
+    background: linear-gradient(to right, transparent, var(--row) 24px);
+  }
+  .opts.aslist .optw:hover .optacts {
+    background: linear-gradient(to right, transparent, var(--row-hover) 24px);
+  }
+  /* The hold timer sits left of the actions, so the fade starts further in. */
+  .opts.aslist .optw:has(.holdtimer) .optacts {
+    padding-left: 56px;
+  }
 }
 .opts.aslist .optw .holdtimer {
   top: 50%;
@@ -3039,7 +3077,6 @@ a.home-count {
 
 .opt .onote {
   display: -webkit-box;
-  margin-top: -4px;
   padding: 0 8px;
   overflow: hidden;
   color: var(--t4);
@@ -3923,29 +3960,48 @@ html.theming *:not(iframe) {
 }
 .answered-row {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 6px 6px 12px;
-  border-radius: var(--r);
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 12px;
   background: var(--row);
+}
+.answered-row .review-text {
+  flex: none;
+  width: 100%;
+  gap: 4px;
+}
+.answered-row .review-name {
+  font-size: 12.5px;
+  line-height: 17px;
+  text-wrap: pretty;
 }
 .answered-row .review-said {
   font-weight: 500;
+  line-height: 19px;
 }
 .answered-row .review-said.dismissed {
   color: var(--t4);
   font-weight: 400;
 }
 .answered-note {
+  margin-top: 4px;
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid color-mix(in srgb, var(--t4) 35%, transparent);
   font-size: 13px;
-  color: var(--t4);
+  line-height: 18px;
+  color: var(--t3);
   overflow-wrap: anywhere;
+  text-wrap: pretty;
 }
 .answered-change {
   flex: none;
-  margin-top: 0;
+  height: 34px;
+  margin-top: 10px;
   padding: 0 12px;
+  border-radius: 8px;
   font-size: 13px;
+  font-weight: 500;
   background: var(--btn);
 }
 
@@ -5162,9 +5218,13 @@ html:has(.design-screen) {
 .qcard.beside .opts.aslist .opt:not(.pill) {
   flex-direction: row;
   align-items: center;
-  gap: 10px;
-  padding: 5px 32px 5px 5px;
+  gap: 12px;
+  padding: 6px 12px 6px 6px;
   border-radius: 10px;
+}
+/* No actions to fade over it: the hold timer keeps its own room. */
+.qcard.beside .opts.aslist > .opt:not(.pill) {
+  padding-right: 32px;
 }
 .qcard.beside .opts.aslist .opt .crop {
   flex: none;
@@ -5173,10 +5233,27 @@ html:has(.design-screen) {
   aspect-ratio: auto;
   border-radius: 6px;
 }
-.qcard.beside .opts.aslist .opt .lbl {
+.qcard.beside .opts.aslist .opt .otext {
   flex: 1;
+  gap: 2px;
+}
+.qcard.beside .opts.aslist .opt .lbl {
   padding: 0;
-  line-height: 17px;
+  line-height: 18px;
+}
+.qcard.beside .opts.aslist .opt .onote {
+  padding: 0;
+  line-height: 16px;
+}
+/* A row has no picture corner to ring it on: the pick follows the name. */
+.qcard.beside .opts.aslist .opt .pickdot {
+  position: static;
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-inline-start: 6px;
+  vertical-align: 1px;
+  box-shadow: none;
 }
 .opts.aslist .holdtimer {
   top: 50%;

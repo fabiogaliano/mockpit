@@ -87,7 +87,10 @@ export function Answered(props: { s: DesignScreenState; scope: "state" | "all" }
                       {said(a)}
                     </span>
                     <Show when={a.comment && !a.dismissed}>
-                      <span class="answered-note">{`Comment: ${a.comment}`}</span>
+                      <span class="answered-note">
+                        <span class="sr-only">Comment: </span>
+                        {a.comment}
+                      </span>
                     </Show>
                   </span>
                   <Show when={!readonly() && !a.dismissed}>
@@ -838,15 +841,22 @@ function OptionCard(props: {
       <Show when={props.isNew}>
         <span class="optnew">New</span>
       </Show>
-      <span class="lbl">{splitLabel(props.label).name}</span>
-      <Show when={props.note ?? splitLabel(props.label).sub}>
-        {(note) => <span class="onote">{note()}</span>}
-      </Show>
+      {/* One column, so a row layout keeps the description under the name, not beside it. */}
+      <span class="otext">
+        <span class="lbl">
+          {splitLabel(props.label).name}
+          <Show when={props.pick}>
+            <span class="pickdot" aria-hidden="true" />
+          </Show>
+        </span>
+        <Show when={props.note ?? splitLabel(props.label).sub}>
+          {(note) => <span class="onote">{note()}</span>}
+        </Show>
+      </span>
       <Show when={props.on}>
         <span class="tick">✓</span>
       </Show>
       <Show when={props.pick}>
-        <span class="pickdot" aria-hidden="true" />
         <span class="sr-only">, agent's pick</span>
       </Show>
       <Show when={props.actions?.kept}>
