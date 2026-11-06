@@ -10,7 +10,7 @@ const KEY = "mockpit:answers-view";
 const [chosen, setChosen] = createSignal<AnswersView | null>(null);
 
 export const answersView = (): AnswersView =>
-  chosen() ?? (host().storage?.getItem(KEY) === "list" ? "list" : "grid");
+  chosen() ?? (host().storage?.getItem(KEY) === "grid" ? "grid" : "list");
 
 export function setAnswersView(view: AnswersView) {
   setChosen(view);

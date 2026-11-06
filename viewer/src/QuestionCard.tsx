@@ -117,21 +117,21 @@ export function QuestionCard(props: {
                             <span class="vswitch qview" role="group" aria-label="Show answers as">
                               <button
                                 type="button"
-                                aria-label="Pictures"
-                                title="Pictures"
-                                aria-pressed={answersView() === "grid"}
-                                onClick={() => setAnswersView("grid")}
-                              >
-                                <Icon name="grid" />
-                              </button>
-                              <button
-                                type="button"
                                 aria-label="List"
                                 title="List"
                                 aria-pressed={answersView() === "list"}
                                 onClick={() => setAnswersView("list")}
                               >
                                 <Icon name="rows" />
+                              </button>
+                              <button
+                                type="button"
+                                aria-label="Pictures"
+                                title="Pictures"
+                                aria-pressed={answersView() === "grid"}
+                                onClick={() => setAnswersView("grid")}
+                              >
+                                <Icon name="grid" />
                               </button>
                             </span>
                           </Show>

@@ -747,7 +747,7 @@ function OptionCard(props: {
   label: string;
   // What the look is, in the agent's words, under its name.
   note?: string;
-  // The agent's own pick: a dot in the corner, the why on hover.
+  // The agent's own pick: a dot after the name, the why on hover.
   pick?: boolean;
   why?: string;
   on: boolean;

@@ -2541,16 +2541,16 @@ a.home-count {
   font-weight: 500;
   color: var(--t3);
 }
-/* The agent's pick: a dot on the corner, ringed in the page so it reads on a picture. */
+/* The agent's pick follows the name, inside the card: a corner mark outside it was
+   cut off by the scrolling question panel. */
 .opt .pickdot {
-  position: absolute;
-  top: -4px;
-  right: 8px;
-  width: 10px;
-  height: 10px;
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-inline-start: 6px;
+  vertical-align: 1px;
   border-radius: 50%;
   background: var(--accent);
-  box-shadow: 0 0 0 3px var(--panel);
   pointer-events: none;
 }
 .opt .tick {
@@ -5244,16 +5244,6 @@ html:has(.design-screen) {
 .qcard.beside .opts.aslist .opt .onote {
   padding: 0;
   line-height: 16px;
-}
-/* A row has no picture corner to ring it on: the pick follows the name. */
-.qcard.beside .opts.aslist .opt .pickdot {
-  position: static;
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  margin-inline-start: 6px;
-  vertical-align: 1px;
-  box-shadow: none;
 }
 .opts.aslist .holdtimer {
   top: 50%;
