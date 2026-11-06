@@ -485,17 +485,20 @@ export const treeNodeView = (
   })),
 });
 
-// Off the shelf: archived by hand, or drawn and with nothing live left. A plan has
-// nothing live because nothing is drawn yet, which is not the same.
+// Off the shelf: archived by hand, or drawn with nothing live left and no question
+// waiting, Home's rule (`nothingLeft`). A plan has nothing live because nothing is
+// drawn yet, which is not the same.
 const offShelf = (design: Design, posts: PostHead[]) =>
-  !!design.archivedAt || (posts.length > 0 && !posts.some((p) => isLive(p.status)));
+  !!design.archivedAt ||
+  (posts.length > 0 && !posts.some((p) => isLive(p.status)) && openCount(design) === 0);
 
 const productLine = (design: Design) => ({
   slug: design.slug,
   title: design.title,
   kind: design.kind,
   purpose: purposeLine(design.spec),
-  states: design.states,
+  // A design of one unnamed state has that one, null, as a read of it names it.
+  states: stateOrder(design),
   // Phase 2's mark; null until a design can carry it.
   ready: null,
 });

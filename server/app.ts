@@ -2963,10 +2963,7 @@ export function createApp({
       hasSystem: hasSystemContent(system),
       tree: nodes,
       flows: await flowsView(project, designs),
-      areas: (await areasOf(project)).map((a) => ({
-        name: a.name,
-        ...(a.description ? { description: a.description } : {}),
-      })),
+      areas: (await areasOf(project)).map(areaLine),
       ...(await projectDescriptionField(project)),
       pending,
     });
@@ -5959,6 +5956,7 @@ export function createApp({
                     name: x.name,
                     description: typeof x.description === "string" ? x.description : "",
                     ...(x.by === "user" || x.by === "agent" ? { by: x.by as Author } : {}),
+                    ...(x.alphabetical === true ? { alphabetical: true as const } : {}),
                   },
                 ]
               : [],
@@ -5968,6 +5966,13 @@ export function createApp({
       return [];
     }
   };
+
+  // An area as reads return it: ordered unless `alphabetical`, which only says what it is for.
+  const areaLine = (a: ProjectArea) => ({
+    name: a.name,
+    ...(a.description ? { description: a.description } : {}),
+    ...(a.alphabetical ? { alphabetical: true as const } : {}),
+  });
 
   const projectDescriptionOf = async (project: string): Promise<Described | null> => {
     const raw = await store.getSetting(`${PROJECT_DESCRIPTION_SETTING}:${project}`);
@@ -6052,13 +6057,16 @@ export function createApp({
     const areasBefore = JSON.stringify(areas);
     if (order !== undefined) {
       const known = new Map(areas.map((a) => [a.name, a]));
-      // Left out of the order, an area keeps its description, after the ordered ones and
-      // alphabetical, as Home lists every area the order doesn't name.
+      // Left out of the order, an area keeps its description and goes back to the
+      // alphabet with every other area the order doesn't name.
       areas = [
-        ...order.map((n) => known.get(n) ?? { name: n, description: "" }),
+        ...order.map((n) => {
+          const { alphabetical: _, ...a } = known.get(n) ?? { name: n, description: "" };
+          return a;
+        }),
         ...areas
           .filter((a) => !order.includes(a.name) && a.description)
-          .sort((a, b) => a.name.localeCompare(b.name)),
+          .map((a) => ({ ...a, alphabetical: true as const })),
       ];
     }
     let kept: { text: string } | null = null;
@@ -6071,9 +6079,13 @@ export function createApp({
           name: areaName,
           description,
           ...(description ? { by } : {}),
+          // Describing an area doesn't put it in the order.
+          ...(was && !was.alphabetical ? {} : { alphabetical: true as const }),
         };
         if (was) areas[at] = next;
         else areas.push(next);
+        // Neither ordered nor described: nothing left to keep.
+        areas = areas.filter((a) => !a.alphabetical || a.description);
       }
     }
     if (JSON.stringify(areas) !== areasBefore) {
@@ -6110,9 +6122,7 @@ export function createApp({
     return ok({
       project,
       ...(to === undefined ? {} : { renamed: { from, to } }),
-      ...(order === undefined && description === undefined
-        ? {}
-        : { areas: areas.map(({ name, description }) => ({ name, description })) }),
+      ...(order === undefined && description === undefined ? {} : { areas: areas.map(areaLine) }),
       ...(description === undefined
         ? {}
         : {

@@ -7,6 +7,7 @@ import { api } from "./api.ts";
 import { SIDEBAR_FROM, sidebarOf } from "./albums.ts";
 import { root } from "./host.ts";
 import { Icon } from "./icons.tsx";
+import { rankedAreas } from "./logic.ts";
 import { linkClick } from "./route.ts";
 import { Sidebar } from "./Sidebar.tsx";
 import { phoneLayout } from "./viewport.ts";
@@ -23,11 +24,7 @@ export function SideOver(props: { project: string }) {
   );
   const side = createMemo(() => {
     const t = tree();
-    return sidebarOf(
-      t?.tree ?? [],
-      t?.flows.length ?? 0,
-      (t?.areas ?? []).map((a) => a.name),
-    );
+    return sidebarOf(t?.tree ?? [], t?.flows.length ?? 0, rankedAreas(t?.areas));
   });
   const waiting = () => (tree()?.tree ?? []).reduce((n, m) => n + (m.archivedAt ? 0 : m.open), 0);
   const held = () => projects()?.find((p) => p.name === props.project)?.designs ?? 0;

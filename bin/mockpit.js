@@ -2343,7 +2343,7 @@ const commands = {
       if (flags.json) return out(result);
       if (flags.quiet) return;
       if (areas !== undefined && result.areas) {
-        const ordered = result.areas.map((a) => a.name);
+        const ordered = result.areas.filter((a) => !a.alphabetical).map((a) => a.name);
         console.log(
           `area order ${ordered.length ? ordered.join(", ") : "alphabetical"} · ${result.url}`,
         );

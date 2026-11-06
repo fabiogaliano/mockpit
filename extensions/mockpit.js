@@ -279,16 +279,30 @@ function feedbackLines(feedback) {
         e.area !== undefined ? (e.area ? `area ${e.area}` : "no area") : "",
       ].filter(Boolean);
       if (moved.length) lines.push(`- ${prefix}the user moved it from Home (${moved.join(", ")})`);
-      if (e.notes !== undefined) {
+      if (e.spec?.purpose !== undefined) {
         lines.push(
-          e.notes === null
-            ? `- ${prefix}the user cleared its notes`
-            : `- ${prefix}the user edited its notes: ${e.notes}`,
+          e.spec.purpose === null
+            ? `- ${prefix}the user cleared what it is for`
+            : `- ${prefix}the user wrote what it is for: ${e.spec.purpose}`,
+        );
+      }
+      if (e.spec?.behaviour !== undefined) {
+        lines.push(
+          e.spec.behaviour === null
+            ? `- ${prefix}the user cleared how it works`
+            : `- ${prefix}the user wrote how it works: ${e.spec.behaviour.map(specLineText).join(" / ")}`,
         );
       }
     }
+    for (const n of batch.nudges ?? []) lines.push(`- ${prefix}nudge: ${n}`);
   }
   return lines;
+}
+
+// One line of a spec's How it works, with where it applies.
+function specLineText(l) {
+  const where = [l.state, l.part].filter(Boolean).join(" · ");
+  return `${where ? `[${where}] ` : ""}${l.text}`;
 }
 
 // What the user is doing right now, per design, so the agent can say "take your time".
@@ -588,7 +602,7 @@ export default function mockpitExtension(pi) {
     name: "mockpit_read",
     label: "Mockpit Read",
     description:
-      "Without design: every design (slug, states, variants, open asks) plus pending. With design: its states, variants, asks with answers, parts, knobs and last tuned values, plus pending. Never consumes feedback.",
+      "Without design: every design (slug, states, variants, open asks) plus pending; with area, one product area, all settled in it (read it before drawing there). With design: its spec (purpose, behaviour, decisions; the user's edits stand), states, variants, asks with answers, parts, knobs and last tuned values, plus pending. Never consumes feedback.",
     promptSnippet: "Read mockpit designs.",
     promptGuidelines: [
       "Use mockpit_read to recover design slugs or a design's state when you lost track.",
@@ -598,12 +612,19 @@ export default function mockpitExtension(pi) {
       properties: {
         design: { type: "string", description: "Design slug; omit for every design" },
         project: designProps.project,
+        area: { type: "string", description: "Without design: one product area" },
         body: { type: "boolean", description: "Include each variant's surfaces" },
         history: { type: "boolean", description: "Include version rows" },
       },
     },
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const query = new URLSearchParams({ project: projectOf(params, ctx) });
+      if (params.design === undefined && typeof params.area === "string") {
+        const area = await requestJson(
+          `/api/projects/${encodeURIComponent(query.get("project"))}/areas/${encodeURIComponent(params.area)}`,
+        );
+        return { content: [{ type: "text", text: jsonText(area) }], details: area };
+      }
       if (params.design === undefined) {
         const result = await requestJson(`/api/designs?${query}`);
         const lines = result.designs.map(
@@ -697,8 +718,9 @@ export default function mockpitExtension(pi) {
     name: "mockpit_edit",
     label: "Mockpit Edit",
     description:
-      'Change a design without a new version: slug, title, kind, area, source ("" clears). A new slug rewrites every embed, data-goto and flow step naming the old one. Or, with no design, rename the project (rename) or order its areas on Home (areaOrder). Returns feedback.',
-    promptSnippet: "Rename, retitle or reclassify a mockpit design, or rename the project.",
+      'Change a design without a new version: slug, title, kind, area, source ("" clears), and its spec: purpose (what it is for) and behaviour (how it works where the picture can\'t show it; that goes here, never in side files). A new slug rewrites every embed, data-goto and flow step naming the old one. Or, with no design, rename the project (rename), order its areas on Home (areas), or say what the project, or with area one area, is for (description). Returns feedback.',
+    promptSnippet:
+      "Rename, retitle or reclassify a mockpit design, write its spec, or rename or describe the project.",
     promptGuidelines: [feedbackGuideline],
     parameters: {
       type: "object",
@@ -710,40 +732,95 @@ export default function mockpitExtension(pi) {
         kind: { type: "string", enum: ["screen", "component", "idea"] },
         area: { type: "string", description: 'Area in the product; "" clears' },
         source: { type: "string", description: 'Code path that implements it; "" clears' },
-        notes: {
+        purpose: {
           type: "string",
           description:
-            'A short plain-text spec; "" clears. Not applied over the user\'s own edit, and the result says so',
+            'What it is for; "" clears. Not applied over the user\'s own edit, and the result says so',
+        },
+        behaviour: {
+          type: "array",
+          description:
+            "How it works: every line, replacing the old ones; a line with part is pinned to it; [] clears. Not applied over the user's own edit",
+          items: {
+            type: "object",
+            properties: {
+              text: { type: "string" },
+              state: { type: "string" },
+              part: { type: "string" },
+            },
+            required: ["text"],
+          },
         },
         rename: { type: "string", description: "Without design: the project's new name" },
-        areaOrder: {
+        areas: {
           type: "array",
           items: { type: "string" },
           description: "Without design: Home's area order; unlisted areas follow alphabetically",
+        },
+        description: {
+          type: "string",
+          description:
+            'Without design: one line on what the project is for, or with area, that area; "" clears',
         },
       },
     },
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const project = projectOf(params, ctx);
-      const { rename, areaOrder, ...fields } = params;
-      const onProject = rename !== undefined || areaOrder !== undefined;
+      const { rename, areas, description, ...fields } = params;
+      const onProject = rename !== undefined || areas !== undefined || description !== undefined;
       if (onProject && params.design !== undefined) {
-        throw new Error('"rename" and "areaOrder" edit the project; edit the design without them');
+        throw new Error(
+          '"rename", "areas" and "description" edit the project (with "area", that area); edit the design without them',
+        );
       }
       const result = onProject
         ? await requestJson(`/api/projects/${encodeURIComponent(project)}`, {
             method: "PATCH",
-            body: JSON.stringify({ name: rename, areaOrder, session: state.sessionId }),
+            body: JSON.stringify({
+              name: rename,
+              areas,
+              description,
+              area: description === undefined ? undefined : params.area,
+              session: state.sessionId,
+            }),
           })
         : await requestJson(designPath(params.design ?? ""), {
             method: "PATCH",
             body: JSON.stringify({ ...fields, project, session: state.sessionId }),
           });
-      const text = result.renamed
-        ? `renamed ${result.renamed.from} → ${result.renamed.to} · ${result.url}`
-        : result.areaOrder
-          ? `area order ${result.areaOrder.join(", ") || "alphabetical"} · ${result.url}`
-          : `edited ${result.design.slug} · ${result.url}${result.notes?.applied === false ? `\nnotes.text: ${result.notes.text}` : ""}`;
+      const text = onProject
+        ? [
+            result.renamed ? `renamed ${result.renamed.from} → ${result.renamed.to}` : "",
+            areas !== undefined
+              ? `area order ${
+                  (result.areas ?? [])
+                    .filter((a) => !a.alphabetical)
+                    .map((a) => a.name)
+                    .join(", ") || "alphabetical"
+                }`
+              : "",
+            result.description
+              ? `${result.area ? `area ${result.area}` : "project"} description ${
+                  result.description.applied
+                    ? "saved"
+                    : `NOT applied, the user's stands: ${result.description.text}`
+                }`
+              : "",
+            result.url,
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : [
+            `edited ${result.design.slug} · ${result.url}`,
+            result.spec?.purpose?.applied === false
+              ? `what it is for, as the user wrote it: ${result.spec.purpose.text}`
+              : "",
+            result.spec?.behaviour?.applied === false
+              ? `how it works, as the user wrote it: ${(result.spec.behaviour.lines ?? []).map(specLineText).join(" / ")}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("\n");
       return {
         content: [
           {

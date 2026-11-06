@@ -1413,7 +1413,12 @@ export interface AreaGroup<T> {
   rows: T[];
 }
 
-// Areas in the project's order (`edit --area-order`), then the ones it leaves
+// The project's order of its areas: the ones listed in it, never one listed only for
+// what it is for.
+export const rankedAreas = (areas: { name: string; alphabetical?: true }[] | undefined) =>
+  (areas ?? []).flatMap((a) => (a.alphabetical ? [] : [a.name]));
+
+// Areas in the project's order (`edit --areas`), then the ones it leaves
 // out, alphabetical.
 export function orderAreas(names: Iterable<string>, order: string[]): string[] {
   const rank = new Map(order.map((a, i) => [a, i]));

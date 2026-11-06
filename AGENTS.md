@@ -31,7 +31,8 @@ source, spec, or the first name of its one unnamed state) without a new version,
 while the user hasn't acted on it (`touchedBy` in `server/app.ts`). A
 design may name its **area** (the project's own words, e.g. "Shell"; Home
 groups by it, in the order of the project's `areas:<project>` setting, then
-alphabetical; each area there has a one-line `description`, and the project its own in
+alphabetical; each area there has a one-line `description`, one the order leaves out is
+kept only for it as `alphabetical`, never ranked, and the project has its own in
 `description:<project>`, a user's standing against agents until cleared) and its
 **source** (the code path that implements it). The user can move a design too,
 from Home's ⋯ menu (kind, area, archive); the agent hears a move as a feedback

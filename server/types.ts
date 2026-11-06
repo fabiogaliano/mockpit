@@ -655,11 +655,14 @@ export interface Described {
   by: Author;
   at: string;
 }
-// One area as the project names it. An area listed with no description is only ordered.
+// One area as the project names it: listed in Home's order, or `alphabetical`, kept only
+// for its description among the areas the order leaves to the alphabet. A description
+// never ranks an area. An ordered area with no description is only ordered.
 export interface ProjectArea {
   name: string;
   description: string;
   by?: Author;
+  alphabetical?: true;
 }
 // One line, for the project and for each of its areas.
 export const MAX_PROJECT_DESCRIPTION = 300;

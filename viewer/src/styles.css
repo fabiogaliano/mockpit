@@ -9189,6 +9189,10 @@ body:has(.selp) .toast {
   color: var(--t2);
   overflow-wrap: anywhere;
 }
+.spec-decision-about {
+  display: block;
+  color: var(--t4);
+}
 .spec-input {
   display: block;
   width: 100%;

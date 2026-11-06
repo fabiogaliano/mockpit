@@ -68,8 +68,9 @@ export type DesignDetail = ReturnType<typeof designDetailView> & {
 export type TreeNode = ReturnType<typeof treeNodeView>;
 // One area as `read --area` returns it: the area page draws the same.
 export type AreaView = ReturnType<typeof areaView>;
-// A project's area in the order Home lists them, with what it is for.
-export type AreaLine = { name: string; description?: string };
+// A project's area in the order Home lists them, with what it is for. An `alphabetical`
+// one is in no order: it is listed for its description alone.
+export type AreaLine = { name: string; description?: string; alphabetical?: true };
 // A declared flow as `read` returns it: only steps whose screen exists.
 export type FlowView = { name: string; steps: FlowStep[] };
 export type VariantView = ReturnType<typeof variantView>;

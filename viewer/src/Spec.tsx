@@ -7,7 +7,8 @@
 
 import { createEffect, createMemo, createSignal, For, Index, on, Show } from "solid-js";
 import type { DecisionLine } from "../../server/decisionList.ts";
-import { MAX_SPEC, type SpecLine } from "../../server/types.ts";
+import { type AskAnswer, MAX_SPEC, type SpecLine } from "../../server/types.ts";
+import type { DesignDetail } from "./api.ts";
 import { createDecisions } from "./Decisions.tsx";
 import { readonly } from "./host.ts";
 import type { DesignScreenState } from "./state.ts";
@@ -201,7 +202,9 @@ export function Spec(props: { s: DesignScreenState }) {
           fallback={<p class="spec-none">Nothing decided here yet. Your answers land here.</p>}
         >
           <ul class="spec-decisions">
-            <For each={lines()}>{(l) => <DecisionRow line={l} />}</For>
+            <For each={lines()}>
+              {(l) => <DecisionRow line={l} design={s.design() ?? undefined} />}
+            </For>
           </ul>
         </Show>
       </section>
@@ -354,11 +357,94 @@ function LinesEditor(props: {
   );
 }
 
+// What an opened decision shows, resolved to the question (or the variant in use) it
+// came from, so the user's own comment and write-in are there whole, and each chosen
+// answer with what the agent said it is.
+interface DecisionDetail {
+  asked?: string;
+  chose: { label: string; about?: string }[];
+  kept?: string;
+  not?: string;
+  comment?: string;
+  other?: string;
+  state?: string;
+}
+
+const answerIdsOf = (a: AskAnswer | undefined): string[] =>
+  a === undefined ? [] : Array.isArray(a) ? a : [a];
+
+export function decisionDetail(
+  line: DecisionLine,
+  design: DesignDetail | undefined,
+): DecisionDetail {
+  const base = {
+    kept: line.parts?.kept,
+    not: line.parts?.not,
+    state: line.state,
+  };
+  const about = (state: string | null | undefined, variant: string | undefined) =>
+    variant
+      ? design?.variants.find(
+          (v) => v.variant === variant && (state === undefined || v.state === state),
+        )?.description
+      : undefined;
+  const [kind, designId, ...rest] = line.id.split(":");
+  if (design && designId === design.id && kind === "ask") {
+    const ask = design.asks.find((a) => a.id === rest.join(":"));
+    if (ask) {
+      const ids = answerIdsOf(ask.answer);
+      return {
+        ...base,
+        asked: ask.text,
+        chose: ask.options
+          .filter((o) => ids.includes(o.id))
+          .map((o) => {
+            const said = about(ask.scope === "state" ? (ask.state ?? null) : undefined, o.variant);
+            return { label: o.label, ...(said ? { about: said } : {}) };
+          }),
+        ...(ask.comment ? { comment: ask.comment } : {}),
+        ...(ask.other ? { other: ask.other } : {}),
+      };
+    }
+  }
+  if (design && designId === design.id && kind === "use") {
+    // State names can hold a colon ("Tapped: nudges"), so the id is matched, not split.
+    const v = design.variants.find(
+      (x) => line.id === `use:${design.id}:${x.state ?? ""}:${x.variant}`,
+    );
+    const said = v?.description;
+    return {
+      ...base,
+      asked: line.parts?.asked,
+      chose: line.parts?.chose
+        ? [{ label: line.parts.chose, ...(said ? { about: said } : {}) }]
+        : [],
+    };
+  }
+  // A line the user reworded keeps only their words.
+  return {
+    ...base,
+    asked: line.parts?.asked,
+    chose: line.parts?.chose ? [{ label: line.parts.chose }] : [],
+    ...(line.parts?.words ? { comment: line.parts.words } : {}),
+  };
+}
+
 // One line each; opened, the whole of it: the question, what was chosen and kept and
 // turned down, the user's own words, and the state it was made on.
-function DecisionRow(props: { line: DecisionLine }) {
+function DecisionRow(props: { line: DecisionLine; design: DesignDetail | undefined }) {
   const [open, setOpen] = createSignal(false);
-  const p = () => props.line.parts;
+  const d = createMemo(() => decisionDetail(props.line, props.design));
+  const term = (label: string, text: string | undefined) => (
+    <Show when={text}>
+      {(t) => (
+        <>
+          <dt>{label}</dt>
+          <dd>{t()}</dd>
+        </>
+      )}
+    </Show>
+  );
   return (
     <li class="spec-decision" classList={{ open: open() }}>
       <button
@@ -371,58 +457,28 @@ function DecisionRow(props: { line: DecisionLine }) {
       </button>
       <Show when={open()}>
         <dl class="spec-decision-more">
-          <Show when={p()?.asked}>
-            {(t) => (
-              <>
-                <dt>Asked</dt>
-                <dd>{t()}</dd>
-              </>
-            )}
-          </Show>
-          <Show when={p()?.chose}>
-            {(t) => (
+          {term("Asked", d().asked)}
+          <For each={d().chose}>
+            {(c) => (
               <>
                 <dt>Chose</dt>
-                <dd>{t()}</dd>
+                <dd>
+                  {c.label}
+                  <Show when={c.about}>
+                    {(a) => <span class="spec-decision-about">{a()}</span>}
+                  </Show>
+                </dd>
               </>
             )}
+          </For>
+          {term("Kept", d().kept)}
+          {term("Not", d().not)}
+          {term("Your comment", d().comment)}
+          {term("You wrote", d().other)}
+          <Show when={!d().asked && !d().chose.length}>
+            {term("As you wrote it", props.line.text)}
           </Show>
-          <Show when={p()?.kept}>
-            {(t) => (
-              <>
-                <dt>Kept</dt>
-                <dd>{t()}</dd>
-              </>
-            )}
-          </Show>
-          <Show when={p()?.not}>
-            {(t) => (
-              <>
-                <dt>Not</dt>
-                <dd>{t()}</dd>
-              </>
-            )}
-          </Show>
-          <Show when={p()?.words}>
-            {(t) => (
-              <>
-                <dt>You said</dt>
-                <dd>{t()}</dd>
-              </>
-            )}
-          </Show>
-          <Show when={!p()}>
-            <dt>As you wrote it</dt>
-            <dd>{props.line.text}</dd>
-          </Show>
-          <Show when={props.line.state}>
-            {(st) => (
-              <>
-                <dt>On</dt>
-                <dd>{st()}</dd>
-              </>
-            )}
-          </Show>
+          {term("On", d().state)}
         </dl>
       </Show>
     </li>

@@ -67,6 +67,7 @@ import {
   timeAgo,
   versionStamp,
   keepSame,
+  rankedAreas,
 } from "./logic.ts";
 import {
   type HomePlace,
@@ -196,7 +197,7 @@ export function Home(props: {
   const bySlug = createMemo(() => new Map(nodes().map((n) => [n.slug, n])));
   // Archived a moment ago, before the tree catches up.
   const [leaving, setLeaving] = createSignal<Record<string, true>>({});
-  const areaOrder = createMemo(() => (tree()?.areas ?? []).map((a) => a.name));
+  const areaRanks = createMemo(() => rankedAreas(tree()?.areas));
   // What each area is for, in the project's words: one line under its heading.
   const described = createMemo(
     () =>
@@ -217,7 +218,7 @@ export function Home(props: {
     sidebarOf(
       nodes().filter((n) => !leaving()[n.id]),
       allRows().length,
-      areaOrder(),
+      areaRanks(),
     ),
   );
   const onShow = () => side().onShow;
@@ -584,7 +585,7 @@ export function Home(props: {
         groups={
           noAreas()
             ? [{ area: null, rows: inSection(sec, area()) }]
-            : groupByArea(inSection(sec), (n) => n.area, areaOrder())
+            : groupByArea(inSection(sec), (n) => n.area, areaRanks())
         }
         level={2}
         describe={(a) => described().get(a)}
@@ -626,7 +627,7 @@ export function Home(props: {
   const flowsAll = () => {
     const groups = () =>
       area() === null
-        ? groupByArea(allRows(), rowArea, areaOrder())
+        ? groupByArea(allRows(), rowArea, areaRanks())
         : [{ area: null, rows: allRows().filter((r) => rowIn(r, area())) }];
     return (
       <Areas

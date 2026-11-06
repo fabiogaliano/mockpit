@@ -300,6 +300,15 @@ function answered(
   return out;
 }
 
+// Two edits of one design in one batch: the later wins field by field, and the spec
+// section by section, so a purpose and then a behaviour edit both reach the agent. A
+// null is a clear and stands like any other value.
+function mergeEdits(before: DesignEdit | undefined, edit: DesignEdit): DesignEdit {
+  const merged = { ...before, ...edit };
+  if (before?.spec && edit.spec) merged.spec = { ...before.spec, ...edit.spec };
+  return merged;
+}
+
 // Comments arrive in seq order; keep that order both between batches and inside
 // one. A design gets a fresh batch whenever a second reply arrives for it, so a
 // batch carries at most one reply and nothing is merged away. A comment whose
@@ -354,7 +363,7 @@ export function groupFeedback(
       batches.push(batch);
     }
     if (edit) {
-      batch.edited = { ...batch.edited, ...edit };
+      batch.edited = mergeEdits(batch.edited, edit);
       continue;
     }
     if (c.kind === "reply" && c.payload) {
