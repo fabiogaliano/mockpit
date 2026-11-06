@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.1.1
+
+### Patch Changes
+
+- 72c0c03: The design screen's top bar no longer repeats the design's status beside its name; the questions, notes and Thread already say it.
+
 ## 3.1.0
 
 ### Minor Changes
