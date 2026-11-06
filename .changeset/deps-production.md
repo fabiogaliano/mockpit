@@ -1,5 +1,0 @@
----
-"mockpit": patch
----
-
-Updated dependencies.
