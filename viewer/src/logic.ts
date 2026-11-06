@@ -16,6 +16,7 @@ import {
   type Reply,
   sameScreen,
 } from "../../server/types.ts";
+import { needsBuiltinAsk } from "../../server/variantQuestion.ts";
 import type {
   CommentRow,
   DraftInput,
@@ -148,23 +149,6 @@ export const liveVariants = (variants: VariantRow[], state: string | null): stri
   ...new Set(variants.filter((v) => v.state === state && isLive(v.status)).map((v) => v.variant)),
 ];
 
-// A state needs the built-in ask when it has a real choice (2+ live variants)
-// and no agent ask that applies there binds every one of them; otherwise the
-// user would have to Accept variants one by one.
-export function needsBuiltinAsk(
-  asks: Ask[],
-  variants: VariantRow[],
-  state: string | null,
-): boolean {
-  const live = liveVariants(variants, state);
-  if (live.length < 2) return false;
-  return !asks.some(
-    (a) =>
-      (a.scope === "design" || (a.scope === "state" && a.state === state)) &&
-      live.every((name) => a.options.some((o) => o.variant === name)),
-  );
-}
-
 // The built-in asks a design shows, under the ids the server reserves for them.
 // One design-wide ask when every state needs one and the live variant names line
 // up, so the user answers once; one per needing state otherwise. Option ids
@@ -176,7 +160,7 @@ export function builtinAsks(
   // Ending the design put its choices away with it.
   if (design.archivedAt) return [];
   const states = design.states.length ? design.states : [null];
-  const needing = states.filter((st) => needsBuiltinAsk(design.asks, variants, st));
+  const needing = states.filter((st) => needsBuiltinAsk(design.asks, design, variants, st));
   if (!needing.length) return [];
   const ask = (names: string[], state: string | null): Ask => ({
     id: state === null ? BUILTIN_ASK_ID : `${BUILTIN_ASK_ID}:${state}`,
@@ -1795,6 +1779,19 @@ export function keepSame<T>(was: readonly T[], next: readonly T[], key: (x: T) =
   return next.map((x) => {
     const prior = old.get(key(x));
     return prior !== undefined && JSON.stringify(prior) === JSON.stringify(x) ? prior : x;
+  });
+}
+
+// A refetch (a poster landing, a sibling published) rebuilds every ask, the built-in
+// Which variant? included. New option objects make each answer card a new element,
+// and a press on the old card released on the new one is no click: keep what held.
+export function keepSameAsks(was: readonly Ask[], next: readonly Ask[]): Ask[] {
+  const old = new Map(was.map((a) => [a.id, a]));
+  return next.map((a) => {
+    const prior = old.get(a.id);
+    if (!prior) return a;
+    if (JSON.stringify(prior) === JSON.stringify(a)) return prior;
+    return { ...a, options: keepSame(prior.options, a.options, (o) => o.id) };
   });
 }
 

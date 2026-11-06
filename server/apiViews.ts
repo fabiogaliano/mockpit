@@ -5,6 +5,7 @@ import { slotKnobs, slotsInSurfaces } from "./fills.ts";
 import type { Mode } from "./themes.ts";
 import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
 import { isKeptVariant, keptVariants } from "./standings.ts";
+import { withAddedAnswers } from "./variantQuestion.ts";
 import {
   changedTo,
   currentVersion,
@@ -369,7 +370,8 @@ export const designDetailView = (
   ...(design.notes ? { notes: design.notes } : {}),
   ...(Object.keys(design.stateOutlines).length ? { stateOutlines: design.stateOutlines } : {}),
   ...(design.answerAdditions.length ? { answerAdditions: design.answerAdditions } : {}),
-  asks: design.asks,
+  // With the variants each question chooses between added, as the user meets them.
+  asks: design.asks.map((a) => withAddedAnswers(a, design, posts)),
   // By question id: the answers the user kept for later and hid, with why.
   ...(Object.keys(design.standings).length ? { standings: design.standings } : {}),
   ...(design.sets.length ? { sets: design.sets } : {}),

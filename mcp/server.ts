@@ -172,6 +172,31 @@ let harnessKey = process.env.CLAUDE_CODE_SESSION_ID
   ? `claude-code:${process.env.CLAUDE_CODE_SESSION_ID}`
   : undefined;
 
+// /clear keeps this process but starts a new conversation, whose replies the
+// plugin's watcher and the CLI look for under the new id; staying on the spawn-time
+// id would split one conversation across two sessions, and a Send to one would be
+// a feedback call on the other that finds nothing. Built-ins only, like the posters.
+const claudeSession: Promise<(() => string | null) | null> = (async () => {
+  if (!process.env.CLAUDE_CODE_SESSION_ID) return null;
+  for (const rel of ["../bin/claudeSession.js", "../../bin/claudeSession.js"]) {
+    const path = join(dirname(fileURLToPath(import.meta.url)), rel);
+    if (existsSync(path)) {
+      const mod = await import(pathToFileURL(path).href);
+      return mod.currentClaudeSession as () => string | null;
+    }
+  }
+  return null;
+})().catch(() => null);
+
+async function followConversation() {
+  const current = (await claudeSession)?.();
+  if (!current) return;
+  const key = `claude-code:${current}`;
+  if (key === harnessKey) return;
+  harnessKey = key;
+  sessionId = process.env.MOCKPIT_SESSION ?? null;
+}
+
 // Codex gives a stdio server no conversation id in its environment, only on each
 // call, and the key must be right before the call that creates the session.
 function noteCaller(extra: { _meta?: Record<string, unknown> }) {
@@ -414,6 +439,7 @@ if (CODE_MODE) {
   const [{ name, ...config }] = STDIO_RUN_TOOLS;
   server.registerTool(name, config, async (args: any, extra: any) => {
     noteCaller(extra);
+    await followConversation();
     const envelope = await run(args);
     return withFeedbackImages(runToolResult(envelope), envelope, loadImage);
   });
@@ -423,6 +449,7 @@ if (CODE_MODE) {
     const { name, ...config } = tool;
     server.registerTool(name, config, async (args: any, extra: any) => {
       noteCaller(extra);
+      await followConversation();
       const value = await handler(args);
       return withFeedbackImages(toolResult(name, value), value, loadImage);
     });

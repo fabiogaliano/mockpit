@@ -9,9 +9,9 @@ import {
   builtinAsk,
   type Design,
   type HiddenAnswer,
-  optionState,
   type Post,
 } from "./types.ts";
+import { optionStates, type VariantRow, withAddedAnswers } from "./variantQuestion.ts";
 
 export const MAX_WHY = 300;
 export const MAX_SETS = 12;
@@ -33,7 +33,7 @@ export const hiddenAnswer = (s: AnswerStanding, id: string): HiddenAnswer | unde
 // an answer that stops being kept stops being carried.
 export function withStanding(
   s: AnswerStanding,
-  option: Pick<AskOption, "id" | "label">,
+  option: Pick<AskOption, "id" | "label" | "variant">,
   to: StandingKind,
   why?: string,
 ): AnswerStanding {
@@ -43,7 +43,14 @@ export function withStanding(
   const since = { ...s.since };
   if (to !== "kept") delete since[option.id];
   if (to === "kept") kept.push(option.id);
-  if (to === "hidden") hidden.push({ id: option.id, label: option.label, ...(why ? { why } : {}) });
+  if (to === "hidden") {
+    hidden.push({
+      id: option.id,
+      label: option.label,
+      ...(why ? { why } : {}),
+      ...(option.variant ? { variant: option.variant } : {}),
+    });
+  }
   return {
     kept,
     hidden,
@@ -102,29 +109,16 @@ export function reoffered(s: AnswerStanding, ask: Ask): HiddenAnswer[] {
   return s.hidden.filter((h) => ask.options.some((o) => o.id === h.id));
 }
 
-// The states a variant answer of this question puts in use.
-export function optionStates(
-  ask: Ask,
-  option: AskOption,
-  design: Pick<Design, "states">,
-): (string | null)[] {
-  if (option.version !== undefined) return [optionState(ask, design)];
-  if (ask.scope === "state") return [ask.state ?? null];
-  return design.states.length ? design.states : [null];
-}
-
 const variantKey = (state: string | null, variant: string) => `${state ?? ""}\n${variant}`;
 
 // Every variant some question keeps, by state and name: Send leaves them out of the
 // archive and `read` marks them kept.
-export function keptVariants(
-  design: Design,
-  posts: Pick<Post, "state" | "variant">[],
-): Set<string> {
+export function keptVariants(design: Design, posts: VariantRow[]): Set<string> {
   const out = new Set<string>();
   for (const [askId, s] of Object.entries(design.standings)) {
     if (!s.kept.length) continue;
-    const ask = design.asks.find((a) => a.id === askId) ?? builtinAsk(design, posts, askId);
+    const stored = design.asks.find((a) => a.id === askId);
+    const ask = stored ? withAddedAnswers(stored, design, posts) : builtinAsk(design, posts, askId);
     if (!ask || ask.scope === "part") continue;
     for (const id of s.kept) {
       const o = ask.options.find((x) => x.id === id);

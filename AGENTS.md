@@ -171,6 +171,14 @@ consciously, not as a side effect):
   answers). `MoreAnswers` sends `reply.more` through `sendAlone`, so the draft stays;
   `feedbackBatch.ts` resolves it to the question, its answers and what's settled around it, and
   the agent replies by asking the same id again. `answersView.ts` is the pictures or list choice.
+- One choice, one question (`server/variantQuestion.ts`, shared with the viewer): a Send
+  answering a variant question settles every live variant in the states it chooses in, so an
+  open question of the agent's that names some of a state's variants shows the rest as answers
+  mockpit added (`added: true`, id `added:<variant>`, stored on the ask once a Send answers
+  it), and the built-in Which variant? appears only where no such question chooses. Hiding a
+  variant answer archives the variant (the why as its reason; the one in use refuses), any
+  restore unhides it (`unhideRestored`), and a variant answer whose variant is archived reads
+  as hidden, so the question and Studio read one list.
 - Kept and hidden answers (`server/standings.ts`, `Design.standings` by ask id, the built-in
   Which variant? included): saved on the click through `POST /api/designs/:id/standings`
   (serialized per design), never waiting for a Send; the next reply of any kind carries the
@@ -491,6 +499,10 @@ What to look for:
   hadn't pressed Send.
 - A client version older than the server's: a stdio MCP server or CLI left
   running across an upgrade. `/clear` doesn't restart MCP servers.
+- One Claude Code process, two sessions keyed to two transcripts: `/clear` gives the
+  conversation a new id in the same process. The stdio MCP server, the CLI and
+  `watch` follow the id in `~/.claude/sessions/<pid>.json` (`bin/claudeSession.js`);
+  a client older than that stays on the old session, and its replies look lost.
 - What the agent said (`SAID`) right after a result: misreadings of `pending`,
   nudges or replies show up there first.
 

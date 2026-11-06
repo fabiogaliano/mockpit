@@ -6,6 +6,7 @@
 import { type Decisions, decisionsFor } from "./decisions.ts";
 import { ROUTED_NOTE } from "./handoff.ts";
 import { standingOf, type StandingView, standingView } from "./standings.ts";
+import { archivedAnswer, optionStates, withAddedAnswers } from "./variantQuestion.ts";
 import {
   type AnswerStanding,
   type Ask,
@@ -138,13 +139,29 @@ const ref = (p: Post): VariantRef => ({ state: p.state, variant: p.variant });
 
 function moreAnswers(
   design: Design,
+  posts: Post[],
   more: NonNullable<Reply["more"]>,
   sent: AnswerStanding | undefined,
 ): MoreAnswers | undefined {
-  const ask = design.asks.find((a) => a.id === more.ask);
-  if (!ask) return undefined;
+  const stored = design.asks.find((a) => a.id === more.ask);
+  if (!stored) return undefined;
+  const ask = withAddedAnswers(stored, design, posts);
   const st = sent ?? standingOf(design, ask.id);
   const view = standingView(ask, st);
+  // A variant answer whose variant is archived is as hidden as one the user hid, with
+  // the variant's reason as its why.
+  const archived = ask.options.filter(
+    (o) => archivedAnswer(ask, o, design, posts) && !st.hidden.some((h) => h.id === o.id),
+  );
+  const reason = (o: AskOption) => {
+    const states = optionStates(ask, o, design);
+    return posts.find((p) => p.variant === o.variant && states.includes(p.state) && p.archiveReason)
+      ?.archiveReason;
+  };
+  const hidden = [
+    ...(view?.hidden ?? []).map((h) => ({ label: h.label, ...(h.why ? { why: h.why } : {}) })),
+    ...archived.map((o) => ({ label: o.label, ...(reason(o) ? { why: reason(o)! } : {}) })),
+  ];
   const like = more.like ? ask.options.find((o) => o.id === more.like)?.label : undefined;
   const labels = (a: Ask): string[] => {
     const ids = a.answer === undefined ? [] : Array.isArray(a.answer) ? a.answer : [a.answer];
@@ -157,13 +174,13 @@ function moreAnswers(
     ask: ask.id,
     text: ask.text,
     // Hidden ones are out: asked again, they'd only fold away.
-    existing: ask.options.filter((o) => !st.hidden.some((h) => h.id === o.id)).map((o) => o.label),
+    existing: ask.options
+      .filter((o) => !st.hidden.some((h) => h.id === o.id) && !archived.includes(o))
+      .map((o) => o.label),
     ...(more.note ? { note: more.note } : {}),
     ...(like ? { like } : {}),
     ...(view?.kept ? { kept: view.kept.map((k) => k.label) } : {}),
-    ...(view?.hidden
-      ? { hidden: view.hidden.map((h) => ({ label: h.label, ...(h.why ? { why: h.why } : {}) })) }
-      : {}),
+    ...(hidden.length ? { hidden } : {}),
     answered: design.asks
       .filter((a) => a.id !== ask.id && labels(a).length > 0)
       .map((a) => ({
@@ -242,8 +259,11 @@ function answered(
   ]);
   const out: AnsweredAsk[] = [];
   for (const askId of askIds) {
+    const stored = design?.asks.find((a) => a.id === askId);
     const ask =
-      design?.asks.find((a) => a.id === askId) ?? (design && builtinAsk(design, posts, askId));
+      design && stored
+        ? withAddedAnswers(stored, design, posts)
+        : design && builtinAsk(design, posts, askId);
     const answer = reply.answers[askId];
     const ids = answer === undefined ? [] : Array.isArray(answer) ? answer : [answer];
     const chosen: AnsweredAsk["chosen"] = ids.map((id) => {
@@ -349,7 +369,9 @@ export function groupFeedback(
       } = c.payload;
       if (decidedHere) batch.system = { rev: decidedHere.rev, changes: decidedHere.changes };
       const more =
-        asked && design ? moreAnswers(design, asked, c.payload.standings?.[asked.ask]) : undefined;
+        asked && design
+          ? moreAnswers(design, designPosts, asked, c.payload.standings?.[asked.ask])
+          : undefined;
       const update = wanted && design ? updateRequest(design, wanted) : undefined;
       if (routed) batch.handoff = ROUTED_NOTE;
       const reactions = (payload.comments ?? []).filter(isReaction).map(reactionLine);

@@ -234,6 +234,12 @@ import {
   type StandingKind,
   withStanding,
 } from "./standings.ts";
+import {
+  addedAnswerId,
+  hiddenVariantAnswers,
+  optionStates,
+  withAddedAnswers,
+} from "./variantQuestion.ts";
 
 export type { FeedEvent } from "./events.ts";
 export type { FeedbackBatch } from "./feedbackBatch.ts";
@@ -1682,7 +1688,7 @@ export function createApp({
         ],
       };
       return {
-        nudge: `${where}: bind ${missing.map((m) => `"${m}"`).join(", ")} to your existing question "${existing.id}": call ask with suggestedAsk. Never ask in chat.`,
+        nudge: `${where}: "${existing.id}" shows ${missing.map((m) => `"${m}"`).join(", ")} as answers mockpit added, by name only: call ask with suggestedAsk to describe them, or archive what you don't mean to offer. Never ask in chat.`,
         ask,
       };
     }
@@ -3514,7 +3520,8 @@ export function createApp({
       if (typeof ask === "string") return fail(400, ask);
       const at = asks.findIndex((a) => a.id === ask.id);
       if (standings[ask.id]) {
-        standings[ask.id] = remapStanding(standings[ask.id]!, at >= 0 ? asks[at] : undefined, ask);
+        const before = at >= 0 ? withAddedAnswers(asks[at]!, design, posts) : undefined;
+        standings[ask.id] = remapStanding(standings[ask.id]!, before, ask);
         for (const h of reoffered(standings[ask.id]!, ask)) stillHidden.push(h.label);
       }
       if (at >= 0) asks[at] = ask;
@@ -3583,6 +3590,8 @@ export function createApp({
       });
     }
     bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+    // A pick of a variant mockpit had added follows it into the agent's own answer.
+    await dropStalePicks(design);
     // The questions also land in the thread, so the user reads them where they answer.
     const session = sessionId ? await store.getSession(sessionId) : null;
     if (session) {
@@ -3753,9 +3762,12 @@ export function createApp({
     };
   }
 
-  // A stored ask, else the viewer's built-in variant ask under its reserved id.
-  const askById = (design: Design, posts: Post[], id: string): Ask | undefined =>
-    design.asks.find((a) => a.id === id) ?? builtinAsk(design, posts, id);
+  // A stored ask with the variants it chooses between added, else the viewer's built-in
+  // variant ask under its reserved id.
+  const askById = (design: Design, posts: Post[], id: string): Ask | undefined => {
+    const stored = design.asks.find((a) => a.id === id);
+    return stored ? withAddedAnswers(stored, design, posts) : builtinAsk(design, posts, id);
+  };
 
   function sanitizeAnswers(
     raw: unknown,
@@ -3996,7 +4008,8 @@ export function createApp({
     const builtins = Object.keys(answers)
       .filter((id) => !design.asks.some((a) => a.id === id))
       .flatMap((id) => builtinAsk(design, posts, id) ?? []);
-    for (const ask of [...design.asks, ...builtins]) {
+    const asks = design.asks.map((a) => withAddedAnswers(a, design, posts));
+    for (const ask of [...asks, ...builtins]) {
       const answer = answers[ask.id];
       if (answer === undefined || ask.scope === "part") continue;
       const ids = Array.isArray(answer) ? answer : [answer];
@@ -4116,7 +4129,7 @@ export function createApp({
     ) {
       return fail(400, `question "${moreAsk}" has no answer "${moreLike}"`);
     }
-    const update = sanitizeUpdate(body?.update, design);
+    const update = sanitizeUpdate(body?.update, design, posts);
     if (typeof update === "string") return fail(400, update);
     const setName = str(body?.set, MAX_LABEL);
     if (setName && !design.sets.some((x) => x.name === setName)) {
@@ -4164,7 +4177,11 @@ export function createApp({
       ...(draft.askCommentImages ? { askCommentImages: draft.askCommentImages } : {}),
       ...(text ? { text } : {}),
     };
-    const asks = design.asks.map((a) => sentAsk(a, draft));
+    // A question this reply answers keeps the answers it was answered among, the
+    // variants mockpit added included, so it reads the same once they're archived.
+    const asks = design.asks.map((a) =>
+      sentAsk(draft.answers[a.id] === undefined ? a : withAddedAnswers(a, design, posts), draft),
+    );
     const flips = replyFlips(design, posts, draft.answers, verdict, draft.version);
     const standings = sentStandings(design, draft.answers);
     if (Object.keys(standings.payload).length) payload.standings = standings.payload;
@@ -4478,7 +4495,14 @@ export function createApp({
     const asks = design.asks.map(({ dismissed: _dismissed, ...a }) => a);
     const updated = await store.updateDesign(design.id, { asks, archivedAt: null });
     if (!updated) return fail(404, "design not found");
-    if (nothingLive) for (const post of posts) await setStatus(design, post, "open");
+    if (nothingLive) {
+      const back: Post[] = [];
+      for (const post of posts) {
+        const updated = await setStatus(design, post, "open");
+        if (updated) back.push(updated);
+      }
+      await unhideRestored(design.id, back);
+    }
     bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
     return ok({
       design: designSummaryView(updated, await store.listPosts({ designId: design.id })),
@@ -4642,6 +4666,7 @@ export function createApp({
     if (isResult(chosen)) return chosen;
     const updated = await setStatus(design, chosen, "open");
     if (!updated) return fail(404, "variant not found");
+    await unhideRestored(design.id, [updated]);
     return ok({
       state: updated.state,
       variant: updated.variant,
@@ -4682,18 +4707,24 @@ export function createApp({
             isLive(p.status) &&
             (ask?.state === undefined || p.state === ask.state),
         );
-      const stays = (id: string) => {
-        const variant = ask?.options.find((o) => o.id === id)?.variant;
-        return !variant || here(variant);
+      // An added answer the agent has since put in its question is that answer now, and
+      // one the question no longer has goes with the rest.
+      const pick = (id: string): string[] => {
+        if (!ask) return [id];
+        const o =
+          ask.options.find((x) => x.id === id) ??
+          ask.options.find((x) => x.variant !== undefined && addedAnswerId(x.variant) === id);
+        return o && (!o.variant || here(o.variant)) ? [o.id] : [];
       };
       if (Array.isArray(value)) {
-        const kept = value.filter(stays);
+        const kept = [...new Set(value.flatMap(pick))];
         if (kept.length) answers[askId] = kept;
-      } else if (stays(value)) {
-        answers[askId] = value;
+      } else {
+        const [kept] = pick(value);
+        if (kept !== undefined) answers[askId] = kept;
       }
     }
-    if (Object.keys(answers).length === Object.keys(draft.answers).length) return;
+    if (JSON.stringify(answers) === JSON.stringify(draft.answers)) return;
     const next = { ...draft, answers, updatedAt: new Date().toISOString() };
     const nothing =
       Object.keys(answers).length === 0 &&
@@ -4740,17 +4771,91 @@ export function createApp({
   // Culling by key sends standings faster than one write finishes, and each rewrites
   // the design's whole map: one at a time per design, or a later one drops an earlier.
   const standingQueue = new Map<string, Promise<unknown>>();
-  function standingFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
-    const key = String(ref);
-    const run = (standingQueue.get(key) ?? Promise.resolve()).then(() =>
-      writeStanding(ref, body, ctx),
-    );
+  function serialStanding<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const run = (standingQueue.get(key) ?? Promise.resolve()).then(fn);
     const settled = run.catch(() => {});
     standingQueue.set(key, settled);
     void settled.then(() => {
       if (standingQueue.get(key) === settled) standingQueue.delete(key);
     });
     return run;
+  }
+  const standingFlow = (ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> =>
+    serialStanding(String(ref), () => writeStanding(ref, body, ctx));
+
+  // A variant brought back, however: the answers hidden by archiving it are no longer
+  // hidden, or the agent would be told the user still rejects them.
+  async function unhideRestored(designId: string, restored: Post[]): Promise<void> {
+    if (!restored.length) return;
+    await serialStanding(designId, async () => {
+      const design = await store.getDesign(designId);
+      if (!design) return;
+      const back = (askId: string, variant: string) => {
+        const ask = design.asks.find((a) => a.id === askId);
+        return restored.some(
+          (p) =>
+            p.variant === variant &&
+            (ask?.scope !== "state" || (ask.state ?? null) === p.state) &&
+            (!askId.startsWith(`${BUILTIN_ASK_ID}:`) ||
+              askId === `${BUILTIN_ASK_ID}:${p.state ?? ""}`),
+        );
+      };
+      let changed = false;
+      const standings = { ...design.standings };
+      for (const [askId, st] of Object.entries(design.standings)) {
+        const hidden = st.hidden.filter((h) => !h.variant || !back(askId, h.variant));
+        if (hidden.length === st.hidden.length) continue;
+        changed = true;
+        standings[askId] = { ...st, hidden, unsent: true };
+        if (!standings[askId]!.kept.length && !hidden.length) delete standings[askId];
+      }
+      if (!changed) return;
+      await store.updateDesign(design.id, { standings });
+      bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+    });
+  }
+
+  // Hiding a variant answer archives the variant wherever the answer would put it in
+  // use, with the why as its reason; any way back from hidden restores it. The
+  // question and Studio then read one list, the variants'.
+  async function archiveForStanding(
+    design: Design,
+    posts: Post[],
+    ask: Ask,
+    option: AskOption,
+    to: StandingKind,
+    why: string | undefined,
+  ): Promise<FlowResult | null> {
+    if (!option.variant || ask.scope === "part") return null;
+    const states = optionStates(ask, option, design);
+    const mine = posts.filter((p) => p.variant === option.variant && states.includes(p.state));
+    if (to === "hidden" && mine.some((p) => p.status === "accepted")) {
+      return fail(409, `${option.variant} is in use: choose another before hiding it`);
+    }
+    const now = new Date().toISOString();
+    for (const p of mine) {
+      const updated =
+        to === "hidden"
+          ? isLive(p.status)
+            ? await store.setPostArchived(p.id, now, why ?? null)
+            : why !== undefined
+              ? await store.setPostReason(p.id, why)
+              : null
+          : isLive(p.status)
+            ? null
+            : await store.setPostStatus(p.id, "open");
+      if (updated) {
+        bus.broadcast({
+          type: "post-updated",
+          id: updated.id,
+          designId: design.id,
+          sessionId: updated.sessionId,
+          version: updated.version,
+          by: "user",
+        });
+      }
+    }
+    return null;
   }
   async function writeStanding(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
@@ -4760,9 +4865,12 @@ export function createApp({
     const askId = str(body?.ask, MAX_LABEL);
     const ask = askId ? askById(design, posts, askId) : undefined;
     if (!ask) return fail(400, `${design.slug} has no question "${String(body?.ask)}"`);
-    const option = ask.options.find((o) => o.id === body?.option);
+    const option = [...ask.options, ...hiddenVariantAnswers(ask, standingOf(design, ask.id))].find(
+      (o) => o.id === body?.option,
+    );
     if (!option) return fail(400, `question "${ask.id}" has no answer "${String(body?.option)}"`);
     let next = standingOf(design, ask.id);
+    let archived = false;
     if (typeof body?.carried === "boolean") {
       if (!next.kept.includes(option.id) || !option.variant) {
         return fail(400, "only a kept screen can be changed along with the one in use");
@@ -4776,21 +4884,31 @@ export function createApp({
       if (to !== "kept" && to !== "hidden" && to !== "open") {
         return fail(400, '"to" must be kept, hidden or open');
       }
-      next = withStanding(next, option, to, to === "hidden" ? str(body?.why, MAX_WHY) : undefined);
+      const why = to === "hidden" ? str(body?.why, MAX_WHY) : undefined;
+      const refused = await archiveForStanding(design, posts, ask, option, to, why);
+      if (refused) return refused;
+      archived = !!option.variant && ask.scope !== "part";
+      next = withStanding(next, option, to, why);
     }
     const standings = { ...design.standings, [ask.id]: next };
     if (!next.kept.length && !next.hidden.length) delete standings[ask.id];
     const updated = await store.updateDesign(design.id, { standings });
     if (!updated) return fail(404, "design not found");
     bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+    if (archived) await dropStalePicks(updated);
     return ok({ ask: ask.id, standing: standings[ask.id] ?? { kept: [], hidden: [] } });
   }
 
   // A kept screen brought up to date once: the question and the kept answer.
-  function sanitizeUpdate(raw: unknown, design: Design): Reply["update"] | string | undefined {
+  function sanitizeUpdate(
+    raw: unknown,
+    design: Design,
+    posts: Post[],
+  ): Reply["update"] | string | undefined {
     if (raw === undefined || raw === null) return undefined;
     const r = raw as Record<string, unknown>;
-    const ask = design.asks.find((a) => a.id === r.ask);
+    const stored = design.asks.find((a) => a.id === r.ask);
+    const ask = stored && withAddedAnswers(stored, design, posts);
     const option = ask?.options.find((o) => o.id === r.option);
     if (!ask || !option?.variant) return "update names a question and one of its screen answers";
     if (!standingOf(design, ask.id).kept.includes(option.id)) return `"${option.label}" isn't kept`;
@@ -5409,8 +5527,10 @@ export function createApp({
       moved = (await store.getDesign(id)) ?? design;
     }
     const done: { state: string | null; variant: string; status: string }[] = [];
+    const restored: Post[] = [];
     for (const post of changing) {
       const updated = await setStatus(design, post, body.restore === true ? "open" : "archived");
+      if (updated && body.restore === true) restored.push(updated);
       if (updated) {
         done.push({
           state: updated.state,
@@ -5421,6 +5541,7 @@ export function createApp({
     }
     if (done.length) {
       if (body.restore !== true) await dropStalePicks(design);
+      else await unhideRestored(design.id, restored);
       void announceEmbedders(design).catch((err) => console.warn("[mockpit] embedders", err));
       const list = done.map((d) => d.variant).join(", ");
       const where = to ? `${to.title}${to.state === null ? "" : ` · ${to.state}`}` : "";

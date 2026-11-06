@@ -14,6 +14,7 @@ import { homedir, tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { currentClaudeSession } from "./claudeSession.js";
 import { findBrowser, queuePoster, queueRetakes } from "./poster.js";
 import { serveUrl } from "./serveUrl.js";
 
@@ -512,7 +513,10 @@ async function resolveSession(flags, { create = false } = {}) {
   if (flags.session) return flags.session;
   if (process.env.MOCKPIT_SESSION) return process.env.MOCKPIT_SESSION;
   const state = readState();
-  if (state.session && !flags["new-session"]) {
+  const key = harnessKey();
+  // The state file is per process and cwd, which /clear keeps: a session made for
+  // the conversation before it isn't this one's, and the watcher waits on this one's.
+  if (state.session && !flags["new-session"] && state.key === key) {
     const ok = await fetch(`${BASE}/api/sessions/${state.session}`, {
       headers: HEADERS,
     }).then(
@@ -529,10 +533,10 @@ async function resolveSession(flags, { create = false } = {}) {
       title: flags["session-title"],
       cwd: process.cwd(),
       project: resolveProject(flags).name,
-      key: harnessKey(),
+      key,
     }),
   });
-  writeState({ session: session.id, agent: agentName(flags) });
+  writeState({ session: session.id, agent: agentName(flags), key });
   return session.id;
 }
 
@@ -2066,6 +2070,20 @@ const commands = {
       const parent = process.ppid;
       setInterval(() => {
         if (process.ppid !== parent || process.ppid === 1) process.exit(0);
+      }, 5000).unref();
+    }
+    // /clear keeps the Claude Code process, so the check above never fires for the
+    // conversation it ended. Its watcher would hold the old session "listening",
+    // which keeps a Send there instead of handing it to whoever listens now, and
+    // would wake the new conversation with a reply its feedback can't take.
+    const conversation =
+      !flags.session && !process.env.MOCKPIT_SESSION && !process.env.MOCKPIT_SESSION_KEY
+        ? process.env.CLAUDE_CODE_SESSION_ID
+        : undefined;
+    if (conversation) {
+      setInterval(() => {
+        const current = currentClaudeSession();
+        if (current && current !== conversation) process.exit(0);
       }, 5000).unref();
     }
     // A continuous long-poll that streams each piece of feedback as one line —

@@ -28,8 +28,8 @@ import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 import { Icon } from "./icons.tsx";
 
-// .holdtimer's two animations add up to this.
-const HOLD_MS = 2000;
+// Long enough that a pointer crossing the list on its way somewhere previews nothing.
+const HOLD_MS = 750;
 export const LIST_ABOVE = 4;
 
 // A design the user archived: what that did, the way back, and why, if they want to say.
@@ -322,11 +322,11 @@ export function AskBody(props: {
                   ) : null
                 }
                 label={o.label}
+                note={o.added ? "Not in the agent's question" : undefined}
                 pick={!!o.recommended}
                 why={pic()?.variant.description}
                 on={picked(o)}
-                previewing={s.preview()?.key === keyOf(o)}
-                held={s.heldPreview()?.key === keyOf(o) && !picked(o)}
+                held={s.heldPreview()?.key === keyOf(o)}
                 isNew={s.isNewOption(props.ask, o.id)}
                 data={o.id}
                 shortcut={i() < 9 ? String(i() + 1) : undefined}
@@ -388,7 +388,6 @@ export function AskBody(props: {
             label="Other…"
             other
             on={s.otherTicked(props.ask)}
-            previewing={false}
             data="other"
             shortcut={
               s.shownOptions(props.ask).length < 9
@@ -768,7 +767,6 @@ function OptionCard(props: {
   pick?: boolean;
   why?: string;
   on: boolean;
-  previewing: boolean;
   held?: boolean;
   isNew?: boolean;
   data: string;
@@ -805,7 +803,7 @@ function OptionCard(props: {
   };
   const startRest = () => {
     const hold = props.onHold;
-    if (!hold || props.on || props.held) return;
+    if (!hold || props.held) return;
     setResting(true);
     timer = host().window.setTimeout(() => {
       setResting(false);
@@ -820,8 +818,8 @@ function OptionCard(props: {
         on: props.on,
         pill: !props.picture,
         other: !!props.other,
-        previewing: props.previewing,
         held: !!props.held,
+        resting: resting(),
         "opt-static": readonly(),
       }}
       aria-disabled={readonly() || undefined}
@@ -848,20 +846,13 @@ function OptionCard(props: {
       }}
     >
       {props.picture}
-      <Show when={resting()}>
-        <span class="holdtimer" aria-hidden="true">
-          <svg viewBox="0 0 20 20">
-            <circle cx="10" cy="10" r="6" pathLength="1" />
-          </svg>
-        </span>
-      </Show>
-      <Show when={props.isNew}>
-        <span class="optnew">New</span>
-      </Show>
       {/* One column, so a row layout keeps the description under the name, not beside it. */}
       <span class="otext">
         <span class="lbl">
           {splitLabel(props.label).name}
+          <Show when={props.isNew}>
+            <span class="optnew">New</span>
+          </Show>
           <Show when={props.pick}>
             <span class="pickdot" aria-hidden="true" />
           </Show>

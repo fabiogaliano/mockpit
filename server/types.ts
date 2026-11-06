@@ -420,6 +420,9 @@ export interface AskOption {
   palette?: string;
   // The one the agent would pick: a quiet mark on it, never a label.
   recommended?: true;
+  // A live variant the question chooses between that the agent never put in it,
+  // added by mockpit (variantQuestion.ts). Stored once a Send answers the question.
+  added?: true;
 }
 
 // One knob value and what makes it draw: a style that holds only while it is chosen,
@@ -441,6 +444,8 @@ export interface HiddenAnswer {
   id: string;
   label: string;
   why?: string;
+  // A variant answer's variant: hiding it archived that, and restoring it unhides it.
+  variant?: string;
 }
 
 // What the user said about a question's answers besides choosing one: the ones kept

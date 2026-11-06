@@ -13,6 +13,7 @@ import {
   type AskAnswer,
   type AskOption,
   askAnswered,
+  type HiddenAnswer,
   isLive,
   recommendedVariant,
   type KnobValue,
@@ -25,6 +26,11 @@ import {
 } from "../../server/types.ts";
 import type { SlotInfo } from "../../server/fills.ts";
 import { hiddenAnswer, type StandingKind, withStanding } from "../../server/standings.ts";
+import {
+  archivedAnswer,
+  hiddenVariantAnswers,
+  optionStates,
+} from "../../server/variantQuestion.ts";
 import { reactionOf, reactionStatus, toggleReaction } from "./reactionRules.ts";
 import {
   api,
@@ -85,6 +91,7 @@ import {
   unanswered,
   canOutline,
   keepSame,
+  keepSameAsks,
   missingStates,
   stepKey,
   type VersionStep,
@@ -359,10 +366,10 @@ export function createDesignScreen(
   const stageVersion = createMemo(() => boundVersion() ?? latest());
   // The agent's asks plus the built-in "Which variant?" where the agent left a
   // choice between variants unasked; everything below reads asks from here.
-  const asks = createMemo<Ask[]>(() => {
+  const asks = createMemo<Ask[]>((was) => {
     const m = design();
-    return m ? [...m.asks, ...builtinAsks(m, variants())] : [];
-  });
+    return m ? keepSameAsks(was, [...m.asks, ...builtinAsks(m, variants())]) : [];
+  }, []);
   const withAsks = (m: DesignDetail) => ({ ...m, asks: asks() });
   const look = createMemo(() => lookAsk({ asks: asks() }));
 
@@ -2109,7 +2116,20 @@ export function createDesignScreen(
   const standingFor = (ask: Ask): AnswerStanding =>
     design()?.standings?.[ask.id] ?? { kept: [], hidden: [] };
   const isKept = (ask: Ask, id: string) => standingFor(ask).kept.includes(id);
-  const hiddenOf = (ask: Ask, id: string) => hiddenAnswer(standingFor(ask), id);
+  // Hidden by the user, or a variant answer whose variant is archived, which is what
+  // hiding one does (server/variantQuestion.ts): its reason is the why.
+  const hiddenOf = (ask: Ask, id: string): HiddenAnswer | undefined => {
+    const said = hiddenAnswer(standingFor(ask), id);
+    if (said) return said;
+    const m = design();
+    const o = ask.options.find((x) => x.id === id);
+    if (!m || !o || !archivedAnswer(ask, o, m, m.variants)) return undefined;
+    const states = optionStates(ask, o, m);
+    const why = m.variants.find(
+      (v) => v.variant === o.variant && states.includes(v.state) && v.archiveReason,
+    )?.archiveReason;
+    return { id, label: o.label, ...(why ? { why } : {}), variant: o.variant };
+  };
   const isCarried = (ask: Ask, id: string) => !!standingFor(ask).carried?.includes(id);
   function putStanding(ask: Ask, next: AnswerStanding) {
     const m = design();
@@ -2119,6 +2139,29 @@ export function createDesignScreen(
     const m = design();
     if (!m || readonly()) return;
     const was = standingFor(ask);
+    // A variant answer's variant follows it at once: hidden archives it, anything else
+    // brings it back. The server refuses to hide the one in use.
+    const wasVariants = m.variants;
+    if (o.variant && ask.scope !== "part") {
+      const states = optionStates(ask, o, m);
+      const mine = (v: VariantView) => v.variant === o.variant && states.includes(v.state);
+      if (to === "hidden" && m.variants.some((v) => mine(v) && v.status === "inUse")) {
+        fail(new Error(`${o.variant} is in use: choose another before hiding it`));
+        return;
+      }
+      setDesign({
+        ...m,
+        variants: m.variants.map((v) =>
+          !mine(v)
+            ? v
+            : to === "hidden" && v.status === "open"
+              ? { ...v, status: "archived" as const }
+              : to !== "hidden" && v.status === "archived"
+                ? { ...v, status: "open" as const }
+                : v,
+        ),
+      });
+    }
     putStanding(ask, withStanding(was, o, to, why));
     // A hidden answer is out of the running, so it can't stay the pick.
     if (to === "hidden" && drafted(ask) && answerIds(answerOf(ask)).includes(o.id)) {
@@ -2132,6 +2175,8 @@ export function createDesignScreen(
     try {
       await api.standing(m.id, { ask: ask.id, option: o.id, to, ...(why ? { why } : {}) });
     } catch (e) {
+      const now = design();
+      if (now) setDesign({ ...now, variants: wasVariants });
       putStanding(ask, was);
       fail(e);
     }
@@ -2140,14 +2185,16 @@ export function createDesignScreen(
   // ones left out (they fold away below), the rest as the agent asked.
   const shownOptions = (ask: Ask): AskOption[] => {
     const st = standingFor(ask);
-    const live = ask.options.filter((o) => !hiddenAnswer(st, o.id));
+    const live = ask.options.filter((o) => !hiddenOf(ask, o.id));
     return [
       ...live.filter((o) => st.kept.includes(o.id)),
       ...live.filter((o) => !st.kept.includes(o.id)),
     ];
   };
-  const hiddenOptions = (ask: Ask): AskOption[] =>
-    ask.options.filter((o) => hiddenAnswer(standingFor(ask), o.id));
+  const hiddenOptions = (ask: Ask): AskOption[] => [
+    ...ask.options.filter((o) => hiddenOf(ask, o.id)),
+    ...hiddenVariantAnswers(ask, standingFor(ask)),
+  ];
   const toggleKept = (ask: Ask, o: AskOption) =>
     void setStanding(ask, o, isKept(ask, o.id) ? "open" : "kept");
   function hideAnswer(ask: Ask, o: AskOption) {

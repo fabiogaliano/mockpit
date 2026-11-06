@@ -1192,6 +1192,10 @@ function SentNote(props: { s: DesignScreenState; project: string; slug: string; 
       ? `${delivered} · Agent working`
       : delivered;
   };
+  const listeningHint = () => {
+    const to = s.sentReply()?.recipient;
+    return to ? `${to} is listening` : "Your agent's watcher is open";
+  };
   return (
     <div class="sentnote">
       <Show when={s.design()?.archivedAt}>
@@ -1235,10 +1239,8 @@ function SentNote(props: { s: DesignScreenState; project: string; slug: string; 
             )}
           </Show>
           <Show when={s.beatPassed() && s.agentListening()}>
-            <span class="sent-hint">
-              {s.sentReply()?.recipient
-                ? `${s.sentReply()?.recipient} is listening`
-                : "your agent's watcher is open"}
+            <span class="sent-hint" title={listeningHint()}>
+              {listeningHint()}
             </span>
           </Show>
         </div>

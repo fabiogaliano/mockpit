@@ -30,12 +30,16 @@ const ACTION_WORD: Record<"default" | "kept" | "hidden", string> = {
   hidden: "Hide",
 };
 
+// The tab last open per project: going back from a component lands on Components.
+const [lastTab, setLastTab] = createSignal(new Map<string, Tab>(), { equals: false });
+
 const failText = (r: PairResult) =>
   `${r.fg} on ${r.bg}, ${r.mode}: ${r.ratio?.toFixed(2)}:1, needs ${r.min}`;
 
 export function SystemPlace(props: { project: string; toast: (t: ToastLine) => void }) {
   const [page, { refetch }] = createResource(() => props.project, api.system);
-  const [tab, setTab] = createSignal<Tab>("palettes");
+  const tab = () => lastTab().get(props.project) ?? "palettes";
+  const setTab = (t: Tab) => setLastTab((m) => m.set(props.project, t));
   const [busy, setBusy] = createSignal(false);
   const [at, setAt] = createSignal<360 | 1280>(360);
 
@@ -147,7 +151,7 @@ export function SystemPlace(props: { project: string; toast: (t: ToastLine) => v
       <div class="sys-prow">
         <span class="sys-nm">
           <span title={p.note}>{p.label || p.id}</span>
-          <Show when={p.status === "default" || p.status === "kept"}>
+          <Show when={readonly() && (p.status === "default" || p.status === "kept")}>
             <span class={`sys-st ${p.status}`}>{STATUS_WORD[p.status]}</span>
           </Show>
           <Show when={p.owner === "repo"}>
@@ -159,18 +163,18 @@ export function SystemPlace(props: { project: string; toast: (t: ToastLine) => v
         <span class="sys-modes">
           <span class="sys-mlab">Light</span>
           {strip(p.light, false)}
-        </span>
-        <span class="sys-modes">
           <span class="sys-mlab">Dark</span>
           {strip(p.dark, true)}
         </span>
         <Show
           when={f().length}
-          fallback={<span class="sys-ok">{page()?.color.pairs.length ? "Clears all" : ""}</span>}
+          fallback={
+            <span class="sys-ok">{page()?.color.pairs.length ? "Contrast passes" : ""}</span>
+          }
         >
           <span class="sys-fail" title={f().map(failText).join("\n")}>
             <Icon name="warn" />
-            {f().length} {f().length === 1 ? "check" : "checks"}
+            {f().length} contrast {f().length === 1 ? "fail" : "fails"}
           </span>
         </Show>
         <Show when={!readonly()}>
@@ -217,19 +221,15 @@ export function SystemPlace(props: { project: string; toast: (t: ToastLine) => v
       {(s) => (
         <div class="sys">
           <div class="home-head">
-            <h1>
-              System <span class="home-head-n">r{s().rev}</span>
-            </h1>
+            <h1>System</h1>
           </div>
           <div class="home-lead">
-            <span>Every render in {props.project} wears it</span>
+            <span>Every render in this project wears it</span>
             <Show when={s().revisions[0]}>
               {(r) => (
                 <>
                   <span class="sep">·</span>
-                  <span>
-                    {r().summary}, {timeAgo(r().at).toLowerCase()}
-                  </span>
+                  <span>Changed {timeAgo(r().at).toLowerCase()}</span>
                 </>
               )}
             </Show>
@@ -397,20 +397,24 @@ export function SystemPlace(props: { project: string; toast: (t: ToastLine) => v
                 when={s().components.length}
                 fallback={<p class="sys-empty">No components yet.</p>}
               >
-                <For each={s().components}>
-                  {(c) => {
-                    const href = () => designPath(props.project, c.slug);
-                    return (
-                      <a class="sys-comp" href={href()} onClick={(e) => linkClick(e, href())}>
-                        <span class="sys-mono">{c.slug}</span>
-                        <span class="p">{c.purpose || "No purpose line yet"}</span>
-                        <span class="n">
-                          in {c.screens} {c.screens === 1 ? "screen" : "screens"}
-                        </span>
-                      </a>
-                    );
-                  }}
-                </For>
+                <div class="sys-comps">
+                  <For each={s().components}>
+                    {(c) => {
+                      const href = () => designPath(props.project, c.slug);
+                      return (
+                        <a class="sys-comp" href={href()} onClick={(e) => linkClick(e, href())}>
+                          <span class="sys-mono">{c.slug}</span>
+                          <span class="n">
+                            in {c.screens} {c.screens === 1 ? "screen" : "screens"}
+                          </span>
+                          <Show when={c.purpose}>
+                            <span class="p">{c.purpose}</span>
+                          </Show>
+                        </a>
+                      );
+                    }}
+                  </For>
+                </div>
               </Show>
             </Show>
             <Show when={tab() === "revisions"}>

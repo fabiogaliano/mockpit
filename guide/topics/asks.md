@@ -189,7 +189,13 @@ the new variants. Send it with `ask`, or write your own with options bound to th
 variants; the CLI prints the `mockpit ask` command. Sending it stops the nudge and
 keeps your answered question on the design.
 
-Until then the viewer shows a built-in "Which variant?" with a picture of each
-variant, gone once answered. It doesn't count as open. Its answer reads like any
+An open question of yours that names some of a state's variants is that state's
+variant question: a Send answering it puts the pick in use and archives every other
+live variant there, so the viewer shows them all in it. One you left out appears as an
+answer mockpit added, by name only (`added: true`, id `added:<variant>`); ask again to
+describe it, or archive it if you don't mean to offer it.
+
+With no question of yours naming a state's variants, the viewer shows a built-in
+"Which variant?" with a picture of each variant, gone once answered. It doesn't count as open. Its answer reads like any
 other under the reserved id `variant` (per state: `variant:<state>`), and puts in
 use and archives per state. Your own question over those variants replaces it.

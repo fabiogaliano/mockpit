@@ -228,9 +228,20 @@ a {
     color: var(--t1);
   }
 }
+/* Why "Not seen yet" will clear by itself: a quieter chip of the pill's row, outlined
+   where the pill is filled, so it reads as a note on the pill and not a control. */
 .sent-hint {
-  font-size: 13px;
+  display: inline-block;
+  max-width: 260px;
+  height: 34px;
+  padding: 0 12px;
+  overflow: hidden;
+  border-radius: var(--r);
+  box-shadow: inset 0 0 0 1px var(--line);
   color: var(--t4);
+  font-size: 13px;
+  line-height: 34px;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .dot {
@@ -2737,9 +2748,6 @@ a.home-count {
   font-size: 11px;
   line-height: 18px;
 }
-.opt.previewing {
-  box-shadow: inset 0 0 0 1.5px var(--t4);
-}
 
 /* An answer with its actions: the bookmark on its left, more like this and hide on its
    right. They wait for a hover, except a kept answer's bookmark, which is how it reads
@@ -2833,17 +2841,6 @@ a.home-count {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
-/* The New badge sits in the left group, before the bookmark. */
-.optw .optnew {
-  left: 39px;
-}
-.optw:not(.kept):not(:hover):not(:focus-within) .optnew {
-  left: 9px;
-}
-.optw .opt:not(.pill) .holdtimer {
-  top: auto;
-  bottom: 38px;
-}
 /* A pill has no picture to sit on: the actions perch on its corners. */
 .optw.pillw .optleft {
   top: -9px;
@@ -2907,15 +2904,6 @@ a.home-count {
   .opts.aslist .optw:hover .optacts {
     background: linear-gradient(to right, transparent, var(--row-hover) 24px);
   }
-  /* The hold timer sits left of the actions, so the fade starts further in. */
-  .opts.aslist .optw:has(.holdtimer) .optacts {
-    padding-left: 56px;
-  }
-}
-.opts.aslist .optw .holdtimer {
-  top: 50%;
-  bottom: auto;
-  right: 66px;
 }
 .opt-arch > .optw {
   flex: 1;
@@ -4980,6 +4968,7 @@ html:has(.design-screen) {
 }
 .qtext {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
@@ -5149,67 +5138,39 @@ html:has(.design-screen) {
   width: 15px;
   height: 15px;
 }
+/* The outline comes in over the whole hold (HOLD_MS in Questions.tsx), so it is fully
+   there the moment the preview holds. */
+.opt.resting,
 .opt.held {
   outline: 1.5px dashed var(--t2);
   outline-offset: -3px;
 }
-/* Runs for HOLD_MS in Questions.tsx: waits so a pointer passing over stays quiet, then
-   counts at a constant speed, since it is a clock. Its colours sit on a picture, so they
-   don't follow the theme. */
-.holdtimer {
-  position: absolute;
-  top: 9px;
-  right: 9px;
-  z-index: 3;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: rgb(15 15 15 / 0.82);
-  opacity: 0;
-  pointer-events: none;
-  animation: holdtimer-in 120ms ease 300ms forwards;
+.opt.resting {
+  animation: held-in 750ms linear;
 }
-.holdtimer svg {
-  display: block;
-  width: 20px;
-  height: 20px;
-  transform: rotate(-90deg);
-  fill: none;
-  stroke: #f5f5f5;
-  stroke-width: 2.4;
+/* Picked and held at once: the dashed line goes outside the picked ring, since inside
+   it the picture would cover it. */
+.opt.on.resting,
+.opt.on.held {
+  outline-offset: 2px;
 }
-.holdtimer circle {
-  stroke-dasharray: 1 1;
-  stroke-dashoffset: 1;
-  animation: holdtimer-run 1700ms linear 300ms forwards;
-}
-@keyframes holdtimer-in {
-  to {
-    opacity: 1;
+@keyframes held-in {
+  from {
+    outline-color: transparent;
   }
 }
-@keyframes holdtimer-run {
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .holdtimer {
-    display: none;
-  }
-}
-.optnew {
-  position: absolute;
-  top: 9px;
-  left: 9px;
-  z-index: 2;
-  padding: 0 6px;
-  border-radius: 6px;
-  background: var(--t1);
-  color: var(--page);
-  font-size: 11px;
+/* Neutral beside the name: the purple on a card already means the agent's pick and kept. */
+.opt .optnew {
+  display: inline-block;
+  margin-inline-start: 6px;
+  padding: 0 5px;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px var(--t6);
+  color: var(--t4);
+  font-size: 10.5px;
   font-weight: 600;
-  line-height: 17px;
+  line-height: 15px;
+  vertical-align: 1px;
 }
 .qcard.beside .opts.aslist {
   grid-template-columns: minmax(0, 1fr);
@@ -5221,10 +5182,6 @@ html:has(.design-screen) {
   gap: 12px;
   padding: 6px 12px 6px 6px;
   border-radius: 10px;
-}
-/* No actions to fade over it: the hold timer keeps its own room. */
-.qcard.beside .opts.aslist > .opt:not(.pill) {
-  padding-right: 32px;
 }
 .qcard.beside .opts.aslist .opt .crop {
   flex: none;
@@ -5244,16 +5201,6 @@ html:has(.design-screen) {
 .qcard.beside .opts.aslist .opt .onote {
   padding: 0;
   line-height: 16px;
-}
-.opts.aslist .holdtimer {
-  top: 50%;
-  right: 6px;
-  margin-top: -10px;
-}
-.opts.aslist .optnew {
-  position: static;
-  order: 3;
-  flex: none;
 }
 .moreans {
   display: flex;
@@ -9568,13 +9515,15 @@ body:has(.selp) .toast {
   font-size: 13px;
   font-weight: 600;
 }
+/* Fixed name and contrast columns and same-length strips keep every row's
+   switch on one edge, packed left so a wide screen doesn't strand it. */
 .sys-prow {
   display: grid;
-  grid-template-columns: minmax(110px, 1fr) auto auto 92px auto;
+  grid-template-columns: 160px minmax(0, max-content) 120px auto;
+  justify-content: start;
   align-items: center;
-  gap: 14px;
-  min-height: 48px;
-  padding: 6px 10px;
+  gap: 8px 20px;
+  padding: 10px;
   border-radius: 10px;
 }
 @media (hover: hover) {
@@ -9590,10 +9539,17 @@ body:has(.selp) .toast {
   color: var(--t1);
   font-weight: 500;
 }
+.sys-nm > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .sys-modes {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, max-content);
   align-items: center;
-  gap: 6px;
+  gap: 4px 8px;
+  min-width: 0;
 }
 .sys-mlab {
   color: var(--t5);
@@ -9601,6 +9557,7 @@ body:has(.selp) .toast {
 }
 .sys-strip {
   display: flex;
+  min-width: 0;
   gap: 2px;
   padding: 2px;
   border-radius: 7px;
@@ -9611,8 +9568,9 @@ body:has(.selp) .toast {
 }
 .sys-strip i {
   width: 18px;
-  height: 18px;
-  border-radius: 4px;
+  min-width: 3px;
+  height: 16px;
+  border-radius: 3px;
 }
 .sys-st {
   display: inline-flex;
@@ -9772,12 +9730,17 @@ body:has(.selp) .toast {
 .sys-cls span:last-child {
   color: var(--t4);
 }
+.sys-comps {
+  display: grid;
+  max-width: 520px;
+}
 .sys-comp {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 40px;
-  padding: 0 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px 12px;
+  min-height: 36px;
+  padding: 8px 10px;
   border-radius: 8px;
   color: inherit;
   font-size: 14px;
@@ -9792,15 +9755,18 @@ body:has(.selp) .toast {
   }
 }
 .sys-comp .sys-mono {
-  min-width: 90px;
+  overflow: hidden;
   color: var(--t1);
   font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sys-comp .p {
-  color: var(--t3);
+  grid-column: 1 / -1;
+  color: var(--t4);
+  font-size: 13px;
 }
 .sys-comp .n {
-  margin-left: auto;
   color: var(--t5);
   font-size: 12px;
 }
@@ -9836,7 +9802,7 @@ body:has(.selp) .toast {
 }
 @media (max-width: 720px) {
   .sys-prow {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
   .sys-prow .sys-modes {
     grid-column: 1 / -1;

@@ -236,7 +236,9 @@ mockpit read    --decisions               # the whole decision list, when a read
   (each `{id, label, why}`) they don't want offered again, and `carried` names kept
   screens to change along with the one in use, every time. A reply's `asks` carry the
   same as labels when they changed since the last one. Never offer a hidden answer
-  again, and treat a `why` as taste that holds across the project. A variant a question
+  again, and treat a `why` as taste that holds across the project. Hiding a variant
+  answer archives that variant, with the `why` as its reason, and restoring the variant
+  unhides it: a variant answer whose variant is archived counts as hidden. A variant a question
   keeps reads `kept: true`; it is not archived when another is chosen, and nothing
   else changes it unless it is `carried`. Values follow every new version by themselves;
   a kept screen doesn't, so leave it as it is.
