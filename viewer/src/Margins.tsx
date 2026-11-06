@@ -41,7 +41,7 @@ import {
   type VersionStep,
   widthChoices,
 } from "./logic.ts";
-import { Notes, notesShown } from "./Notes.tsx";
+import { Spec, specShown } from "./Spec.tsx";
 import { OutlineRows } from "./Outlines.tsx";
 import { PaletteTool, paletteChoices } from "./PaletteTool.tsx";
 import { PreviewTool } from "./PreviewTool.tsx";
@@ -57,7 +57,7 @@ import type { TuneState } from "./tune.ts";
 import { CanvasTools } from "./VersionBar.tsx";
 import { NO_BOX, safeX, setCanvasBox, win } from "./viewport.ts";
 
-export type Side = "talk" | "notes" | "built" | "thread";
+export type Side = "talk" | "spec" | "built" | "thread";
 export type Margins = ReturnType<typeof createMargins>;
 
 // Past this many a list is names alone: every picture is a whole page loading, and
@@ -103,7 +103,7 @@ export function createMargins(
   const side = createMemo<Side | null>(() => {
     if (s.drawer()) return "built";
     if (s.panel() === "thread") return "thread";
-    if (s.panel() === "notes") return "notes";
+    if (s.panel() === "spec") return "spec";
     if (s.cardMin()) return null;
     return talkWants() || (pinned() && talkHas()) ? "talk" : null;
   });
@@ -180,7 +180,7 @@ export function createMargins(
     if (at === "built") {
       if (s.tool() === "tune") s.toggleTool("tune");
       else s.setDrawer(false);
-    } else if (at === "thread" || at === "notes") s.setPanel(null);
+    } else if (at === "thread" || at === "spec") s.setPanel(null);
     else {
       setPinned(false);
       s.setCardMin(true);
@@ -191,7 +191,7 @@ export function createMargins(
     if (to === "built") {
       s.setPanel(null);
       s.setDrawer(true);
-    } else if (to === "thread" || to === "notes") {
+    } else if (to === "thread" || to === "spec") {
       if (s.tool() === "tune") s.toggleTool("tune");
       s.setDrawer(false);
       s.setPanel(to);
@@ -275,7 +275,7 @@ export function ToolStrip(props: { s: DesignScreenState; m: Margins }) {
 
 const PANELS: { id: Side; icon: IconName; label: string }[] = [
   { id: "talk", icon: "question", label: "On this design" },
-  { id: "notes", icon: "notes", label: "Notes" },
+  { id: "spec", icon: "spec", label: "Spec" },
   { id: "built", icon: "layers", label: "Built from" },
   { id: "thread", icon: "thread", label: "Thread" },
 ];
@@ -291,8 +291,8 @@ export function PanelTabs(props: { s: DesignScreenState; m: Margins }) {
         ? m.talkHas()
         : p.id === "built"
           ? m.builtHas()
-          : p.id === "notes"
-            ? notesShown(s)
+          : p.id === "spec"
+            ? specShown(s)
             : true,
     );
   const asked = () =>
@@ -635,9 +635,9 @@ export function RightMargin(props: { s: DesignScreenState; t: TuneState; m: Marg
               <Match when={side() === "talk"}>
                 <Talk s={s} m={m} />
               </Match>
-              <Match when={side() === "notes"}>
+              <Match when={side() === "spec"}>
                 <div class="rm-scroll">
-                  <Notes s={s} />
+                  <Spec s={s} />
                 </div>
               </Match>
               <Match when={side() === "built"}>

@@ -53,6 +53,7 @@ import {
   spokenName,
 } from "./logic.ts";
 import { PartReactions } from "./Reactions.tsx";
+import { type Annotation, annotationsOn } from "./Spec.tsx";
 import type { DesignScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
 import {
@@ -1141,22 +1142,37 @@ function Overlay(props: {
     onCleanup(() => layer.removeEventListener("wheel", onWheel));
   });
 
-  // Two asks on one part would share a spot; layoutPins steps the later one aside.
-  const partPins = createMemo(() =>
-    props.report
-      ? layoutPins(
-          s.questions().flatMap((q, i) => {
-            if (q.kind !== "ask" || q.ask.scope !== "part" || !q.ask.part) return [];
-            const p = find(q.ask.part);
-            if (!p) return [];
-            return [
-              { index: i, ...partPinSpot(at(p), props.frameW * props.scale, PIN, pinEdge()) },
-            ];
-          }),
-          PIN,
-          pinGap(),
-        )
-      : [],
+  // A spec's annotations show only while the spec is open: the picture is the design,
+  // and they are the spec's, read beside it.
+  const annotations = createMemo<Annotation[]>(() =>
+    s.panel() === "spec" && !s.drawer() ? annotationsOn(s) : [],
+  );
+  // Two pins on one part would share a spot; layoutPins steps the later one aside.
+  // Questions are laid out first, so an annotation never moves one.
+  const laidPins = createMemo(() => {
+    if (!props.report) return [];
+    const spot = (part: string) => {
+      const p = find(part);
+      return p ? partPinSpot(at(p), props.frameW * props.scale, PIN, pinEdge()) : null;
+    };
+    const asks = s.questions().flatMap((q, i) => {
+      if (q.kind !== "ask" || q.ask.scope !== "part" || !q.ask.part) return [];
+      const xy = spot(q.ask.part);
+      return xy ? [{ index: i, ...xy }] : [];
+    });
+    // Annotations take negative indexes, -1 for the first, to tell them apart.
+    const notes = annotations().flatMap((a, i) => {
+      const xy = spot(a.part);
+      return xy ? [{ index: -1 - i, ...xy }] : [];
+    });
+    return layoutPins([...asks, ...notes], PIN, pinGap());
+  });
+  const partPins = createMemo(() => laidPins().filter((p) => p.index >= 0));
+  const annotationPins = createMemo(() =>
+    laidPins().flatMap((p) => {
+      const a = p.index < 0 ? annotations()[-1 - p.index] : undefined;
+      return a ? [{ a, x: p.x, y: p.y }] : [];
+    }),
   );
   const box = (name: string | null) => {
     const p = find(name);
@@ -1251,6 +1267,24 @@ function Overlay(props: {
         </Show>
         <Index each={partPins()}>
           {(p) => <Pin s={s} index={p().index} style={{ left: `${p().x}px`, top: `${p().y}px` }} />}
+        </Index>
+        <Index each={annotationPins()}>
+          {(p) => (
+            <button
+              type="button"
+              class="pin annotation"
+              style={{ left: `${p().x}px`, top: `${p().y}px` }}
+              title={`${p().a.part}: ${p().a.text}`}
+              aria-label={`Annotation ${p().a.n} on ${p().a.part}: ${p().a.text}`}
+              data-annotation={p().a.n}
+              onClick={(e) => {
+                e.stopPropagation();
+                s.selectPart(p().a.part);
+              }}
+            >
+              {String(p().a.n)}
+            </button>
+          )}
         </Index>
         <Index each={marks()}>
           {(m) => {

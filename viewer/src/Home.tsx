@@ -18,7 +18,7 @@ import {
   Show,
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import type { FlowStep } from "../../server/types.ts";
+import { type FlowStep, MAX_PROJECT_DESCRIPTION } from "../../server/types.ts";
 import {
   api,
   type DesignSummary,
@@ -148,7 +148,13 @@ export function Home(props: {
   };
   // The switcher's glow speaks for every project, so any change may move it.
   const refetch = () =>
-    Promise.all([refetchList(), refetchTree(), decisions.refetch(), refetchProjects()]);
+    Promise.all([
+      refetchList(),
+      refetchTree(),
+      decisions.refetch(),
+      refetchProjects(),
+      ...(area() ? [refetchArea()] : []),
+    ]);
   // An agent publishing a batch fires an event per variant; one read covers them.
   let refetchTimer = 0;
   const refetchSoon = () => {
@@ -190,7 +196,14 @@ export function Home(props: {
   const bySlug = createMemo(() => new Map(nodes().map((n) => [n.slug, n])));
   // Archived a moment ago, before the tree catches up.
   const [leaving, setLeaving] = createSignal<Record<string, true>>({});
-  const areaOrder = createMemo(() => tree()?.areaOrder ?? []);
+  const areaOrder = createMemo(() => (tree()?.areas ?? []).map((a) => a.name));
+  // What each area is for, in the project's words: one line under its heading.
+  const described = createMemo(
+    () =>
+      new Map(
+        (tree()?.areas ?? []).flatMap((a) => (a.description ? [[a.name, a.description]] : [])),
+      ),
+  );
   const allRows = createMemo<Row[]>(
     (was) =>
       keepSame(
@@ -214,6 +227,19 @@ export function Home(props: {
   const lit = () => side().lit;
   // An area the project no longer has is all of them.
   const area = createMemo(() => (props.area && areas().includes(props.area) ? props.area : null));
+  // The area page is what `read --area` returns an agent, drawn: one view, two readers.
+  const [rawAreaView, { refetch: refetchArea }] = createResource(
+    () => {
+      const p = project();
+      const a = area();
+      return p && a ? { p, a } : null;
+    },
+    ({ p, a }) => api.area(p, a).catch(() => null),
+  );
+  const areaView = () => {
+    const v = rawAreaView();
+    return v && v.project === project() && v.area.name === area() ? v : undefined;
+  };
 
   // A flow belongs to every area one of its screens is in.
   const rowIn = (r: Row, a: string | null) =>
@@ -561,6 +587,7 @@ export function Home(props: {
             : groupByArea(inSection(sec), (n) => n.area, areaOrder())
         }
         level={2}
+        describe={(a) => described().get(a)}
       >
         {(rows, name) => shelf(sec, rows, noAreas, name ?? area() ?? "")}
       </Areas>
@@ -602,40 +629,94 @@ export function Home(props: {
         ? groupByArea(allRows(), rowArea, areaOrder())
         : [{ area: null, rows: allRows().filter((r) => rowIn(r, area())) }];
     return (
-      <Areas groups={groups()} level={2} rest={restOfFlows(groups())}>
+      <Areas
+        groups={groups()}
+        level={2}
+        rest={restOfFlows(groups())}
+        describe={(a) => described().get(a)}
+      >
         {(rows) => <For each={rows()}>{flowRow}</For>}
       </Areas>
     );
   };
 
-  // Everything in one area, under the sections it spans; each heading narrows to it.
-  const SECTIONS_OF_AREA: Section[] = ["screens", "flows", "components", "ideas", "documents"];
+  // One area as the agent reads it: its screens, flows and components, what was
+  // decided on them, and the ideas waiting in it. Each heading narrows to its shelf.
   const inAreaCount = (sec: Section, a: string) =>
     sec === "flows" ? allRows().filter((r) => rowIn(r, a)).length : inSection(sec, a).length;
-  const wholeArea = () => (
-    <For each={SECTIONS_OF_AREA.filter((sec) => inAreaCount(sec, area() ?? "") > 0)}>
-      {(sec) => {
-        const path = () => projectPath(project()!, sec, area());
-        return (
+  const nodesOf = (rows: { slug: string }[] | undefined) =>
+    (rows ?? []).flatMap((r) => bySlug().get(r.slug) ?? []);
+  const kindHead = (sec: Section, label: string) => {
+    const path = () => projectPath(project()!, sec, area());
+    return (
+      <h2 class="home-kind-hd">
+        <a href={path()} onClick={(e) => swap(e, path())}>
+          {label}
+        </a>
+      </h2>
+    );
+  };
+  const wholeArea = () => {
+    const v = areaView;
+    const screens = () => nodesOf(v()?.screens);
+    const components = () => nodesOf(v()?.components);
+    const ideas = () => nodesOf(v()?.ideasWaiting);
+    const flows = () => (v()?.flows.length ?? 0) > 0;
+    return (
+      <>
+        <Show when={screens().length}>
           <section class="home-kind">
-            <h2 class="home-kind-hd">
-              <a href={path()} onClick={(e) => swap(e, path())}>
-                {SECTION_LABEL[sec]}
-              </a>
-            </h2>
-            {sec === "flows"
-              ? flowsAll()
-              : shelf(
-                  sec,
-                  () => inSection(sec, area()),
-                  () => true,
-                  area() ?? "",
-                )}
+            {kindHead("screens", SECTION_LABEL.screens)}
+            {shelf("screens", screens, () => true, area() ?? "")}
           </section>
-        );
-      }}
-    </For>
-  );
+        </Show>
+        <Show when={flows()}>
+          <section class="home-kind">
+            {kindHead("flows", SECTION_LABEL.flows)}
+            {flowsAll()}
+          </section>
+        </Show>
+        <Show when={components().length}>
+          <section class="home-kind">
+            {kindHead("components", SECTION_LABEL.components)}
+            {shelf("components", components, () => true, area() ?? "")}
+          </section>
+        </Show>
+        <Show when={v()?.decisions.length}>
+          <section class="home-kind" aria-label="Decisions">
+            <h2 class="home-kind-hd">{`Decisions · ${v()?.decisions.length ?? 0}`}</h2>
+            <ul class="home-decisions">
+              <For each={v()?.decisions ?? []}>
+                {(d) => {
+                  const href = () => designPath(project()!, d.design);
+                  return (
+                    <li class="home-decision">
+                      <a
+                        class="home-decision-on"
+                        href={href()}
+                        onClick={(e) => linkClick(e, href())}
+                      >
+                        {bySlug().get(d.design)?.title ?? d.design}
+                      </a>
+                      <span class="home-decision-text">{d.text}</span>
+                    </li>
+                  );
+                }}
+              </For>
+            </ul>
+          </section>
+        </Show>
+        <Show when={ideas().length}>
+          <section class="home-kind">
+            {kindHead("ideas", `Ideas · ${ideas().length}`)}
+            <div class="albums">
+              <For each={[...ideas()].sort(newestFirst)}>{album}</For>
+            </div>
+          </section>
+        </Show>
+      </>
+    );
+  };
 
   const heading = () => {
     const s = shown();
@@ -891,6 +972,19 @@ export function Home(props: {
               </header>
             </Show>
 
+            <Show when={shown() === "area" && area()}>
+              {(a) => (
+                <AreaLine
+                  project={project()!}
+                  area={a()}
+                  text={described().get(a()) ?? ""}
+                  onSaved={() => void refetch()}
+                  onFailed={(e) =>
+                    setToast({ text: `Couldn't keep that: ${e instanceof Error ? e.message : e}` })
+                  }
+                />
+              )}
+            </Show>
             <Show when={tree()}>
               <Show when={emptyInArea()}>
                 <p class="home-empty">
@@ -1021,6 +1115,87 @@ function Fold(props: {
 
 type Heading = "h2" | "h3" | "h4";
 
+// What an area is for, one line under its title, written in place. The user's words
+// stand against agents until they clear them.
+function AreaLine(props: {
+  project: string;
+  area: string;
+  text: string;
+  onSaved: () => void;
+  onFailed: (e: unknown) => void;
+}) {
+  const [writing, setWriting] = createSignal<string | null>(null);
+  const [busy, setBusy] = createSignal(false);
+  const save = async () => {
+    const text = writing();
+    if (text === null || busy()) return;
+    if (text.trim() === props.text) return setWriting(null);
+    setBusy(true);
+    try {
+      await api.describe(props.project, { area: props.area, description: text });
+      setWriting(null);
+      props.onSaved();
+    } catch (e) {
+      props.onFailed(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Show
+      when={writing() !== null}
+      fallback={
+        <Show
+          when={!readonly()}
+          fallback={
+            <Show when={props.text}>
+              <p class="home-area-line">{props.text}</p>
+            </Show>
+          }
+        >
+          <button
+            type="button"
+            class="home-area-line home-area-edit"
+            classList={{ empty: !props.text }}
+            title="What this area is for. Agents read it before they draw here."
+            onClick={() => setWriting(props.text)}
+          >
+            {props.text || `Say what ${props.area} is for`}
+          </button>
+        </Show>
+      }
+    >
+      <form
+        class="home-area-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <input
+          class="home-area-input"
+          aria-label={`What ${props.area} is for`}
+          maxLength={MAX_PROJECT_DESCRIPTION}
+          value={writing() ?? ""}
+          onInput={(e) => setWriting(e.currentTarget.value)}
+          on:keydown={(e) => {
+            if (e.key !== "Escape") return;
+            e.preventDefault();
+            setWriting(null);
+          }}
+          ref={(el) => queueMicrotask(() => el.focus())}
+        />
+        <button type="submit" class="btn" disabled={busy()}>
+          Save
+        </button>
+        <button type="button" class="btn" onClick={() => setWriting(null)}>
+          Cancel
+        </button>
+      </form>
+    </Show>
+  );
+}
+
 // Rows under their area headings, the unnamed under "No area"; with no area named,
 // just the rows, as if areas didn't exist.
 function Areas<T>(props: {
@@ -1028,6 +1203,8 @@ function Areas<T>(props: {
   level: 2 | 3;
   // The heading of the rows no area claims.
   rest?: string;
+  // What an area is for, one line under its heading.
+  describe?: (area: string) => string | undefined;
   children: (rows: () => T[], area: string | null) => JSX.Element;
 }) {
   const grouped = () => props.groups.some((g) => g.area !== null);
@@ -1044,6 +1221,9 @@ function Areas<T>(props: {
               <Dynamic component={`h${props.level}` as Heading} class="home-area-hd">
                 {area ?? props.rest ?? "No area"}
               </Dynamic>
+              <Show when={area !== null && props.describe?.(area)}>
+                {(line) => <p class="home-area-desc">{line()}</p>}
+              </Show>
               {props.children(rows, area)}
             </section>
           </Show>

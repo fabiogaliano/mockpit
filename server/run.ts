@@ -255,6 +255,11 @@ export function createRunFlow(deps: RunDeps) {
           const value = await take(flows.tree({ project: await projectOf() }));
           return [value, `${value.tree.length} designs`];
         }
+        if ((design === undefined || design === null) && typeof plain(opts).area === "string") {
+          const area = plain(opts).area as string;
+          const value = await take(flows.area({ project: await projectOf(), area }));
+          return [value, `area ${area}`];
+        }
         if (design === undefined || design === null) {
           const value = await take(flows.list({ project: await projectOf() }));
           return [value, `${value.designs.length} designs`];

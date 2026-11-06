@@ -3,6 +3,7 @@ import type { FlowContext, FlowResult } from "./app.ts";
 import { decodeBase64 } from "./base64.ts";
 import { type GuideTopic, isGuideTopic, unknownTopicMessage } from "./designGuide.ts";
 import {
+  editsProject,
   HTTP_MCP_TOOLS,
   HTTP_RUN_TOOLS,
   MCP_INSTRUCTIONS,
@@ -25,6 +26,7 @@ export interface McpFlows {
   publish: Flow<[body: any, ctx: FlowContext]>;
   list: Flow<[query: { project?: string }]>;
   tree: Flow<[query: { project?: string }]>;
+  area: Flow<[query: { project?: string; area?: string }]>;
   decisions: Flow<[query: { project?: string }]>;
   get: Flow<[ref: unknown, query: { project?: unknown; body?: boolean; history?: boolean }]>;
   ask: Flow<[ref: unknown, body: any, ctx: FlowContext]>;
@@ -73,22 +75,23 @@ export function unwrap(result: FlowResult): unknown {
   return result.body;
 }
 
-// `edit` is one verb with two shapes: `rename` or `areaOrder` edits the
-// project, anything else edits the design. Shared by both MCP transports' HTTP
-// side and `run`.
+// `edit` is one verb with two shapes: the project's fields (`editsProject`) edit the
+// project, anything else edits the design. Shared by both MCP transports' HTTP side
+// and `run`.
 export function editCall(
   flows: Pick<McpFlows, "edit" | "editProject">,
   args: any,
   ctx: FlowContext,
   project: string | undefined,
 ): Promise<FlowResult> {
-  if (args.rename === undefined && args.areaOrder === undefined) {
-    return flows.edit(args.design, args, ctx);
-  }
+  if (!editsProject(args)) return flows.edit(args.design, args, ctx);
   if (args.design !== undefined) {
     return Promise.resolve({
       status: 400,
-      body: { error: '"rename" and "areaOrder" edit the project; edit the design without them' },
+      body: {
+        error:
+          '"rename", "areas" and "description" edit the project (with "area", that area); edit the design without them',
+      },
     });
   }
   if (!project) {
@@ -99,7 +102,13 @@ export function editCall(
   }
   return flows.editProject(
     project,
-    { name: args.rename, areaOrder: args.areaOrder, session: args.session },
+    {
+      name: args.rename,
+      areas: args.areas,
+      area: args.area,
+      description: args.description,
+      session: args.session,
+    },
     ctx,
   );
 }
@@ -142,6 +151,9 @@ export function registerMcp(app: Hono, deps: McpDeps) {
         }
         if (args.design === undefined && args.tree === true) {
           return unwrap(await flows.tree({ project: args.project }));
+        }
+        if (args.design === undefined && typeof args.area === "string") {
+          return unwrap(await flows.area({ project: await projectOf(args), area: args.area }));
         }
         if (args.design === undefined) return unwrap(await flows.list({ project: args.project }));
         return unwrap(

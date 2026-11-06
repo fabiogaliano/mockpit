@@ -29,9 +29,13 @@ The loop never waits for the user:
    diagrams and reviews stay plain. `--area <name>` groups Home by the
    product's areas; `--source <path>` names the code that implements it.
    `mockpit edit --design <slug>` changes slug, title, kind, area or source
-   without a new version; `mockpit edit --project <p> --area-order
-   "Shell,Food"` orders Home's areas. A batch with `edited` is the user moving
-   a design from Home (kind, area): build on it.
+   without a new version; `mockpit edit --project <p> --areas
+   "Shell,Food"` orders Home's areas. Read an area before drawing in it:
+   `mockpit read --area Food`. A screen or component carries a spec: what it is
+   for (`edit --purpose`) and how it works where the picture can't show it
+   (`edit --behaviour "…" --state Now --part river`); that goes there, never in
+   side files. A batch with `edited` is the user moving a design from Home
+   (kind, area) or correcting its spec: build on it.
 3. A choice is several variants plus one question that binds them: `mockpit ask`
    with options bound to variants. A variant decides everything it differs on;
    don't re-ask it. Visual options carry a `variant`, knob `set` or `palette`. One render

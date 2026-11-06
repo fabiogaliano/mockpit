@@ -23,7 +23,11 @@ export function SideOver(props: { project: string }) {
   );
   const side = createMemo(() => {
     const t = tree();
-    return sidebarOf(t?.tree ?? [], t?.flows.length ?? 0, t?.areaOrder ?? []);
+    return sidebarOf(
+      t?.tree ?? [],
+      t?.flows.length ?? 0,
+      (t?.areas ?? []).map((a) => a.name),
+    );
   });
   const waiting = () => (tree()?.tree ?? []).reduce((n, m) => n + (m.archivedAt ? 0 : m.open), 0);
   const held = () => projects()?.find((p) => p.name === props.project)?.designs ?? 0;

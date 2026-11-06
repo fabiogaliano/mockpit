@@ -7,6 +7,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
+  editsProject,
   MCP_INSTRUCTIONS,
   MCP_SERVER_INFO,
   runToolResult,
@@ -297,13 +298,15 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
         ? `/api/projects/${enc(resolveProject(args.project))}/decisions`
         : args.design === undefined && args.tree === true
           ? `/api/projects/${enc(resolveProject(args.project))}/tree`
-          : args.design === undefined
-            ? `/api/designs${query({ project: resolveProject(args.project) })}`
-            : `/api/designs/${enc(args.design)}${query({
-                project: resolveProject(args.project),
-                body: args.body,
-                history: args.history,
-              })}`,
+          : args.design === undefined && typeof args.area === "string"
+            ? `/api/projects/${enc(resolveProject(args.project))}/areas/${enc(args.area)}`
+            : args.design === undefined
+              ? `/api/designs${query({ project: resolveProject(args.project) })}`
+              : `/api/designs/${enc(args.design)}${query({
+                  project: resolveProject(args.project),
+                  body: args.body,
+                  history: args.history,
+                })}`,
     ),
   // Never waits: the server reads from the session's cursor, shared with
   // piggyback and `mockpit watch`, so each Send is delivered exactly once.
@@ -332,18 +335,28 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
   async edit(args) {
     const session = await ensureSession();
     const project = resolveProject(args.project);
-    if (args.rename !== undefined || args.areaOrder !== undefined) {
+    if (editsProject(args)) {
       if (args.design !== undefined) {
-        throw new Error('"rename" and "areaOrder" edit the project; edit the design without them');
+        throw new Error(
+          '"rename", "areas" and "description" edit the project (with "area", that area); edit the design without them',
+        );
       }
       return post(
         `/api/projects/${enc(project)}`,
-        { name: args.rename, areaOrder: args.areaOrder, session },
+        {
+          name: args.rename,
+          areas: args.areas,
+          area: args.area,
+          description: args.description,
+          session,
+        },
         "PATCH",
       );
     }
     if (typeof args.design !== "string" || !args.design) {
-      throw new Error('provide "design", or "rename" / "areaOrder" to edit the project');
+      throw new Error(
+        'provide "design", or "rename", "areas" or "description" to edit the project',
+      );
     }
     return post(`/api/designs/${enc(args.design)}`, { ...args, project, session }, "PATCH");
   },

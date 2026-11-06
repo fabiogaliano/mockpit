@@ -358,6 +358,98 @@ a.home-count {
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
+/* What an area is for: one line under its heading, in the project's words. */
+.home-area-desc {
+  margin: -8px 0 16px;
+  color: var(--t3);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+/* The same line under an area page's title, written in place. */
+.home-area-line {
+  display: block;
+  max-width: 64ch;
+  margin: -18px 0 26px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--t2);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.home-area-edit {
+  cursor: text;
+}
+.home-area-edit.empty {
+  color: var(--t5);
+}
+@media (hover: hover) {
+  .home-area-edit:hover {
+    color: var(--t1);
+  }
+}
+.home-area-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 72ch;
+  margin: -18px 0 26px;
+}
+.home-area-input {
+  flex: 1 1 24ch;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--page);
+  color: var(--t1);
+  font: inherit;
+  font-size: 16px;
+}
+@media (min-width: 641px) {
+  .home-area-input {
+    font-size: 14px;
+  }
+}
+.home-decisions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 80ch;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.home-decision {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  color: var(--t2);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.home-decision-on {
+  flex: none;
+  width: 9em;
+  overflow: hidden;
+  color: var(--t4);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-decision-on:hover {
+  color: var(--t1);
+}
+.home-decision-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .home-sec :is(h2, h3, h4) {
   display: flex;
   gap: 10px;
@@ -988,9 +1080,7 @@ a.home-count {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 14px;
-  padding: 14px 4px 0;
-  border-top: 1px solid var(--line);
+  padding: 2px 4px 0;
 }
 .side-chip {
   display: inline-flex;
@@ -8981,11 +9071,27 @@ body:has(.selp) .toast {
   }
 }
 
-/* Notes: plain text, kept as written. */
-.notes {
+/* Spec: three sections, plain text kept as written. */
+.spec {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
   padding-top: 4px;
 }
-.notes-text {
+.spec-hd {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 6px;
+  color: var(--t3);
+  font-size: 12px;
+  font-weight: 600;
+}
+.spec-hd-n {
+  color: var(--t5);
+  font-weight: 500;
+}
+.spec-text {
   margin: 0;
   color: var(--t2);
   font-size: 13px;
@@ -8993,18 +9099,97 @@ body:has(.selp) .toast {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
-.notes-none {
+.spec-none {
   margin: 0;
   color: var(--t4);
   font-size: 13px;
   line-height: 1.45;
 }
-.notes-by {
-  margin: 10px 0 0;
+.spec-by {
+  margin: 8px 0 0;
   color: var(--t5);
   font-size: 12px;
 }
-.notes-input {
+.spec-lines,
+.spec-decisions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.spec-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  color: var(--t2);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.spec-line-text {
+  flex: 1 1 12em;
+  min-width: 0;
+}
+.spec-where {
+  color: var(--t5);
+  font-size: 12px;
+}
+.spec-n,
+.pin.annotation {
+  background: var(--t1);
+  color: var(--page);
+}
+.spec-n {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font: 600 11px/18px var(--sans);
+  text-align: center;
+}
+.spec-decision-hd {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--t2);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.spec-decision-hd:hover {
+  color: var(--t1);
+}
+.spec-decision.open .spec-decision-hd {
+  white-space: normal;
+  color: var(--t1);
+}
+.spec-decision-more {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  margin: 6px 0 4px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.spec-decision-more dt {
+  color: var(--t5);
+}
+.spec-decision-more dd {
+  margin: 0;
+  color: var(--t2);
+  overflow-wrap: anywhere;
+}
+.spec-input {
   display: block;
   width: 100%;
   padding: 8px 10px;
@@ -9017,20 +9202,50 @@ body:has(.selp) .toast {
   line-height: 1.45;
   resize: vertical;
 }
+.spec-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.spec-edit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.spec-edit-where {
+  display: flex;
+  gap: 6px;
+}
+.spec-select,
+.spec-part {
+  min-width: 0;
+  flex: 1;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--page);
+  color: var(--t2);
+  font: inherit;
+  font-size: 16px;
+}
+.spec-drop {
+  flex: none;
+}
+.spec-add {
+  align-self: flex-start;
+}
 @media (min-width: 641px) {
-  .notes-input {
+  .spec-input,
+  .spec-select,
+  .spec-part {
     font-size: 13px;
   }
 }
-.notes-acts {
+.spec-acts {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-top: 10px;
-}
-.notes-count {
-  color: var(--t4);
-  font-size: 12px;
 }
 .side-over .side-drawer {
   width: 248px;

@@ -133,6 +133,9 @@ export interface FeedbackBatch {
   // design), or by this design's Send (a palette made the default, a project knob
   // settled). The revision it made and what changed. Build on it.
   system?: { rev: number; changes: string[] };
+  // What this batch asks of the agent beyond answering it: a product design's spec
+  // left behind what was decided on it.
+  nudges?: string[];
 }
 
 const ref = (p: Post): VariantRef => ({ state: p.state, variant: p.variant });

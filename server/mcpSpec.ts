@@ -4,9 +4,14 @@ import { GUIDE_TOPICS } from "./designGuide.ts";
 import { type FeedbackBatch, feedbackImages, type ImageRef } from "./feedbackBatch.ts";
 import { KIT_IDS } from "./kits.ts";
 import { RUN_DESCRIPTION } from "./runApi.ts";
-import { MAX_NOTES, SURFACE_KINDS, type SurfaceKind } from "./types.ts";
+import { MAX_SPEC, SURFACE_KINDS, type SurfaceKind } from "./types.ts";
 
 export const MCP_SERVER_INFO = { name: "mockpit", version: "0.2.0" };
+
+// Without a design, `edit` edits the project: these name it, its areas' order, and
+// what it (or, with `area`, one area) is for. Both transports route on it.
+export const editsProject = (args: any) =>
+  args.rename !== undefined || args.areas !== undefined || args.description !== undefined;
 
 // The `kind` enum both MCP transports advertise — derived from the one canonical
 // list (types.ts) so the MCP tier can never fall behind what REST/CLI accept.
@@ -124,6 +129,12 @@ const askSchema = z.object({
   ),
 });
 
+const specLineSchema = z.object({
+  text: z.string(),
+  state: z.string().optional(),
+  part: z.string().optional().describe("Pins the line to it"),
+});
+
 // One parameter vocabulary generates both transports' schemas, so the HTTP
 // JSON Schema and the stdio zod shape cannot drift apart.
 type Param =
@@ -139,7 +150,8 @@ type Param =
         | "pairs"
         | "json"
         | "integers"
-        | "strings";
+        | "strings"
+        | "specLines";
       d?: string;
       req?: boolean;
     };
@@ -155,6 +167,9 @@ function zodParam(p: Param): z.ZodType {
       break;
     case "asks":
       s = z.array(askSchema);
+      break;
+    case "specLines":
+      s = z.array(specLineSchema);
       break;
     case "object":
       s = z.record(z.string(), z.unknown());
@@ -268,7 +283,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "read",
     description:
-      "Read this first. Both forms carry decisionList: what the user already settled in this project; it stands unless they say otherwise. Without design: every design (slug, states, variants, open questions), flows, plus pending. With design: its notes (a spec; the user's edits stand), states, variants, questions with answers, parts, knobs and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
+      "Read this first. Every form carries decisionList: what the user already settled in this project; it stands unless they say otherwise. Without design: every design (slug, states, variants, open questions), flows, plus pending. With area: all settled in it; read it before drawing there. With design: its spec (purpose, behaviour, decisions; the user's edits stand), states, variants, questions with answers, parts, knobs and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
     params: {
       design: { t: "string", d: field.design },
       project: P.project,
@@ -278,6 +293,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
         t: "boolean",
         d: "Without design: the project as a tree (each design's variants with status and forkedFrom, the designs it embeds and is embedded in)",
       },
+      area: { t: "string", d: "Without design: one product area" },
       decisions: {
         t: "boolean",
         d: "Only the whole decision list, when decisionList says it was cut",
@@ -332,7 +348,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "edit",
     description:
-      "Change a design without a new version; a new slug rewrites every reference to the old one. Without design, rename renames the project and areaOrder orders its areas. Returns feedback.",
+      "Change a design without a new version; a new slug rewrites every reference to the old one. purpose and behaviour write its spec; what the picture can't show goes there, not in side files. Without design: rename, areas (their order), description (the project's, or with area that area's). Returns feedback.",
     params: {
       design: { t: "string", d: field.design },
       project: P.project,
@@ -342,12 +358,14 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       area: { t: "string" },
       source: { t: "string" },
       firstState: { t: "string", d: "Names a design's one unnamed state, so it can have more" },
-      notes: {
+      purpose: {
         t: "string",
-        d: `A short plain-text spec, at most ${MAX_NOTES} characters; "" clears. Not applied over the user's own edit, and the result says so`,
+        d: `What it is for; with behaviour at most ${MAX_SPEC} chars. Not applied over the user's own edit`,
       },
+      behaviour: { t: "specLines", d: "How it works: every line, replacing the old" },
       rename: { t: "string", d: "New project name" },
-      areaOrder: { t: "strings", d: "Without design: Home's area order" },
+      areas: { t: "strings" },
+      description: { t: "string", d: "One line" },
       session: P.session,
     },
     httpOnly: ["session"],
@@ -470,10 +488,11 @@ const feedbackSchema = o({
   edited: o({
     kind: str.optional(),
     area: nullStr.optional(),
-    notes: nullStr.optional(),
+    spec: bag.optional(),
   })
     .optional()
-    .describe("The user moved the design from Home (its kind or area now) or edited its notes"),
+    .describe("The user moved the design from Home (its kind or area now) or edited its spec"),
+  nudges: strs.optional(),
 }).meta({ id: "Feedback" });
 // Typed once, on feedback: repeating it on every write would cost more than
 // the rest of the write's output schema.
@@ -561,7 +580,7 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
   },
   edit: {
     renamed: o({ from: str, to: str }).optional(),
-    areaOrder: strs.optional(),
+    areas: z.array(bag).optional(),
     url: str,
     nudges: strs.optional(),
     feedback: feedbackRide,
@@ -597,6 +616,7 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
       ),
     settled: bag.optional().describe("Every knob value the user has sent, later replies winning"),
     tree: z.array(bag).optional(),
+    spec: bag.optional(),
     flows: z.array(flowSchema).optional(),
     decisionList: o({
       total: num,

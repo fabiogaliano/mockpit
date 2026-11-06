@@ -6,11 +6,15 @@ import type { Mode } from "./themes.ts";
 import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
 import { isKeptVariant, keptVariants } from "./standings.ts";
 import { withAddedAnswers } from "./variantQuestion.ts";
+import type { DecisionLine } from "./decisionList.ts";
+import { purposeLine, specView } from "./spec.ts";
 import {
   changedTo,
   currentVersion,
   draftedCount,
+  type Described,
   type Embed,
+  type FlowStep,
   inUseVersion,
   isPlanned,
   isSandboxedSurfaceKind,
@@ -334,7 +338,7 @@ export const designSummaryView = (design: Design, posts: PostHead[]) => {
     ...placeOf(design),
     ...plannedOf(design, posts.length),
     // Text comes with a read of the design; a list only says there is some to read.
-    ...(design.notes ? { hasNotes: true as const } : {}),
+    ...(design.spec ? { hasSpec: true as const } : {}),
     states: design.states,
     stateCount: Math.max(design.states.length, 1),
     variants: posts.length,
@@ -354,7 +358,12 @@ export const designSummaryView = (design: Design, posts: PostHead[]) => {
 export const designDetailView = (
   design: Design,
   posts: Post[],
-  opts: VariantViewOptions & { settled?: Record<string, KnobValue>; repliesGoTo?: string } = {},
+  opts: VariantViewOptions & {
+    settled?: Record<string, KnobValue>;
+    repliesGoTo?: string;
+    // This design's lines of the decision list; absent where the read carries none.
+    decisions?: string[];
+  } = {},
 ) => ({
   id: design.id,
   project: design.project,
@@ -367,7 +376,7 @@ export const designDetailView = (
   ...(opts.repliesGoTo ? { repliesGoTo: opts.repliesGoTo } : {}),
   ...plannedOf(design, posts.length),
   states: design.states,
-  ...(design.notes ? { notes: design.notes } : {}),
+  ...specView(design.spec, opts.decisions),
   ...(Object.keys(design.stateOutlines).length ? { stateOutlines: design.stateOutlines } : {}),
   ...(design.answerAdditions.length ? { answerAdditions: design.answerAdditions } : {}),
   // With the variants each question chooses between added, as the user meets them.
@@ -475,3 +484,76 @@ export const treeNodeView = (
     ...(extra.embedViews.get(p.id) ? { embedsKey: extra.embedViews.get(p.id)!.key } : {}),
   })),
 });
+
+// Off the shelf: archived by hand, or drawn and with nothing live left. A plan has
+// nothing live because nothing is drawn yet, which is not the same.
+const offShelf = (design: Design, posts: PostHead[]) =>
+  !!design.archivedAt || (posts.length > 0 && !posts.some((p) => isLive(p.status)));
+
+const productLine = (design: Design) => ({
+  slug: design.slug,
+  title: design.title,
+  kind: design.kind,
+  purpose: purposeLine(design.spec),
+  states: design.states,
+  // Phase 2's mark; null until a design can carry it.
+  ready: null,
+});
+
+// An idea's standing in a word, the same for the agent and the area page.
+function ideaStatus(design: Design, posts: PostHead[]): string {
+  const open = openCount(design);
+  if (open) return `${open} question${open === 1 ? "" : "s"}`;
+  if (posts.some((p) => p.status === "accepted")) return "in use";
+  return "exploring";
+}
+
+// One area of a project, as `read --area` returns it and the viewer's area page draws
+// it: what it is for, its screens, flows and components, the shared components beside
+// them, what was decided on them, and the ideas waiting in it. Everything settled in
+// one place, so an agent reads the area before drawing in it.
+export function areaView(input: {
+  project: string;
+  description: Described | null;
+  area: { name: string; description: string };
+  designs: Design[];
+  heads: Map<string, PostHead[]>;
+  flows: { name: string; steps: FlowStep[] }[];
+  lines: DecisionLine[];
+}) {
+  const live = input.designs.filter((d) => !offShelf(d, input.heads.get(d.id) ?? []));
+  const here = live.filter((d) => d.area === input.area.name);
+  const screens = here.filter((d) => d.kind === "screen");
+  const components = here.filter((d) => d.kind === "component");
+  const product = new Set([...screens, ...components].map((d) => d.slug));
+  const kindOf = new Map(input.designs.map((d) => [d.slug, d]));
+  return {
+    project: input.project,
+    description: input.description?.text ?? null,
+    area: { name: input.area.name, description: input.area.description || null },
+    screens: screens.map(productLine),
+    // A flow is in the area when one of its steps is.
+    flows: input.flows
+      .filter((f) => f.steps.some((x) => kindOf.get(x.design)?.area === input.area.name))
+      .map((f) => ({ name: f.name, steps: f.steps })),
+    components: components.map(productLine),
+    shared: live
+      .filter((d) => d.kind === "component" && !d.area)
+      .map((d) => ({ slug: d.slug, title: d.title, purpose: purposeLine(d.spec) })),
+    decisions: input.lines
+      .filter((l) => !l.system && product.has(l.design))
+      .map((l) => ({
+        design: l.design,
+        text: l.text,
+        ...(l.state ? { state: l.state } : {}),
+        ...(l.edited ? { edited: true as const } : {}),
+      })),
+    ideasWaiting: here
+      .filter((d) => d.kind === "idea")
+      .map((d) => ({
+        slug: d.slug,
+        title: d.title,
+        status: ideaStatus(d, input.heads.get(d.id) ?? []),
+      })),
+  };
+}

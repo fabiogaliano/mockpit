@@ -6,7 +6,7 @@
 import { createSignal, For, Show } from "solid-js";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import { notesShown } from "./Notes.tsx";
+import { specShown } from "./Spec.tsx";
 import type { DesignScreenState } from "./state.ts";
 
 const MAX_NAME = 120;
@@ -185,9 +185,9 @@ export function PlannedStage(props: { s: DesignScreenState }) {
               Ask your agent to draw it
             </button>
           </Show>
-          <Show when={notesShown(s)}>
-            <button type="button" class="btn" onClick={() => s.setPanel("notes")}>
-              Notes
+          <Show when={specShown(s)}>
+            <button type="button" class="btn" onClick={() => s.setPanel("spec")}>
+              Spec
             </button>
           </Show>
           <Show when={!readonly() && !m()?.archivedAt}>

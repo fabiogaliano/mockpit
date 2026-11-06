@@ -294,10 +294,10 @@ export function pageChecks(system: System, htmls: string[], what = "page"): stri
   return out;
 }
 
-// A component's notes should open with one line saying what it is for: the
-// brief's component index prints that line.
-export function purposeNudge(slug: string, notes: string | null | undefined): string | null {
-  const first = (notes ?? "").split("\n")[0].trim();
+// A component's spec should open with one line saying what it is for: the brief's
+// component index prints that line.
+export function purposeNudge(slug: string, purpose: string | null | undefined): string | null {
+  const first = (purpose ?? "").split("\n")[0].trim();
   if (first && first.length <= 100) return null;
-  return `give ${slug} a one-line purpose as the first line of its notes (\`edit --notes\`); the brief lists it${first ? ` (now ${first.length} characters, at most 100)` : ""}`;
+  return `give ${slug} a one-line purpose as the first line of what it is for (\`edit --purpose\`); the brief lists it${first ? ` (now ${first.length} characters, at most 100)` : ""}`;
 }

@@ -861,13 +861,22 @@ const KIND_NAMES: Record<DesignKind, string> = {
   idea: "Ideas",
 };
 
-// A move made from Home, the notes corrected by hand, or a grouping from when Studio
+// A move made from Home, the spec corrected by hand, or a grouping from when Studio
 // could make one, as the thread lists it.
 export const editedLine = (e: DesignEdit): string =>
   [
     e.kind ? `Moved to ${KIND_NAMES[e.kind]}` : "",
     e.area !== undefined ? (e.area ? `Area ${e.area}` : "No area") : "",
-    e.notes !== undefined ? (e.notes === null ? "Notes cleared" : "Notes edited") : "",
+    e.spec?.purpose !== undefined
+      ? e.spec.purpose === null
+        ? "What it is for cleared"
+        : "What it is for edited"
+      : "",
+    e.spec?.behaviour !== undefined
+      ? e.spec.behaviour === null
+        ? "How it works cleared"
+        : "How it works edited"
+      : "",
   ]
     .filter(Boolean)
     .join(" · ");

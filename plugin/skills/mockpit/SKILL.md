@@ -33,8 +33,12 @@ Declare structure only when designing a product's screens: `--kind screen` for a
 own design embedded with `<mockpit-embed slug="card">`, which makes it a component. Ideas,
 diagrams and reviews stay plain.
 
-`--area Shell` (the project's own words) groups Home; `mockpit edit --project <p> --area-order
-"Shell,Food"` orders it. `--source apps/web/src/shell` names the code that implements a design.
+`--area Shell` (the project's own words) groups Home; `mockpit edit --project <p> --areas
+"Shell,Food"` orders it, and `mockpit read --area Shell` is everything settled in one area: read it
+before drawing there. `--source apps/web/src/shell` names the code that implements a design.
+A screen or component carries a spec: what it is for (`mockpit edit --design <slug> --purpose`)
+and how it works where the picture can't show it (`--behaviour "…" --state Now --part river`).
+Behaviour goes there, never in side files.
 `mockpit edit --design <slug> --slug <new>` renames it and rewrites every embed and flow step; it
 also retitles and reclassifies without a new version. Title a design, like a state, by what the
 user sees ("Hold menu"), never by your process ("Round 2 · …", "v2", "Prototype"). When the user

@@ -9,13 +9,16 @@ Every verb takes the same fields on the CLI, MCP and raw HTTP. None waits for th
 | `mockpit ask`                  | `ask`                                       | `POST /api/designs/:id/asks`                                                   |
 | `mockpit read [slug]`          | `read`                                      | `GET /api/designs?project=…`, `GET /api/designs/:id` (`?body=1` adds the html) |
 | `mockpit read --decisions`     | `read({decisions: true})`                   | `GET /api/projects/:name/decisions`                                            |
+| `mockpit read --area <a>`      | `read({ area })`                            | `GET /api/projects/:name/areas/:area`                                          |
 | `mockpit feedback`             | `feedback`                                  | `GET /api/feedback?session=…`                                                  |
 | `mockpit say`                  | `say`                                       | `POST /api/designs/:id/say`                                                    |
 | `mockpit move`                 | `move`                                      | `POST /api/designs/:id/move`                                                   |
 | `mockpit edit --design <slug>` | `edit`                                      | `PATCH /api/designs/:id`                                                       |
-| `mockpit edit --notes <t>`     | `edit({ notes })`                           | `PATCH /api/designs/:id` `{notes}`                                             |
+| `mockpit edit --purpose <t>`   | `edit({ purpose })`                         | `PATCH /api/designs/:id` `{purpose}`                                           |
+| `mockpit edit --behaviour <t>` | `edit({ behaviour })`                       | `PATCH /api/designs/:id` `{behaviour: [{text, state?, part?}]}`                |
 | `mockpit edit --rename <n>`    | `edit({ rename })`                          | `PATCH /api/projects/:name` `{name}`                                           |
-| `mockpit edit --area-order`    | `edit({ areaOrder })`                       | `PATCH /api/projects/:name` `{areaOrder}`                                      |
+| `mockpit edit --areas`         | `edit({ areas })`                           | `PATCH /api/projects/:name` `{areas}`                                          |
+| `mockpit edit --description`   | `edit({ description, area? })`              | `PATCH /api/projects/:name` `{description, area?}`                             |
 | `mockpit system`               | `system`                                    | `GET`, `PUT /api/projects/:name/system`                                        |
 | `mockpit export`               | `export`                                    | `GET /api/designs/:id/export`                                                  |
 | `mockpit export` (no design)   | `export` (no design)                        | `GET /api/projects/:name/system/export`                                        |

@@ -1,5 +1,5 @@
 // A phone's bottom panel, opened from the version label: the state's History (one
-// line per variant, its versions along it, the one in use marked), the design's Notes
+// line per variant, its versions along it, the one in use marked), the design's Spec
 // where it has them, and the Thread with the agent.
 
 import { createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js";
@@ -14,7 +14,7 @@ import {
   type VersionStep,
   widthKind,
 } from "./logic.ts";
-import { Notes, notesShown } from "./Notes.tsx";
+import { Spec, specShown } from "./Spec.tsx";
 import { Answered } from "./Questions.tsx";
 import type { DesignScreenState } from "./state.ts";
 import { theme } from "./theme.ts";
@@ -48,15 +48,15 @@ export function BottomPanel(props: { s: DesignScreenState; onHeight: (h: number)
           >
             History
           </button>
-          <Show when={notesShown(s)}>
+          <Show when={specShown(s)}>
             <button
               type="button"
               role="tab"
-              aria-selected={tab() === "notes"}
-              classList={{ on: tab() === "notes" }}
-              onClick={() => s.setPanel("notes")}
+              aria-selected={tab() === "spec"}
+              classList={{ on: tab() === "spec" }}
+              onClick={() => s.setPanel("spec")}
             >
-              Notes
+              Spec
             </button>
           </Show>
           <button
@@ -87,8 +87,8 @@ export function BottomPanel(props: { s: DesignScreenState; onHeight: (h: number)
           <Match when={tab() === "history"}>
             <History s={s} />
           </Match>
-          <Match when={tab() === "notes"}>
-            <Notes s={s} />
+          <Match when={tab() === "spec"}>
+            <Spec s={s} />
           </Match>
           <Match when={tab() === "thread"}>
             <div class="bpthread">

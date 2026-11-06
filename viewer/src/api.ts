@@ -3,6 +3,7 @@
 // viewer's typecheck instead of its runtime.
 
 import type {
+  areaView,
   designDetailView,
   designSummaryView,
   treeNodeView,
@@ -25,6 +26,7 @@ import type {
   PartComment,
   ProjectSummary,
   ReplyVerdict,
+  SpecLine,
 } from "../../server/types.ts";
 import { basePath, host, renderRev } from "./host.ts";
 import {
@@ -64,6 +66,10 @@ export type DesignDetail = ReturnType<typeof designDetailView> & {
   palettes?: PaletteChoice[];
 };
 export type TreeNode = ReturnType<typeof treeNodeView>;
+// One area as `read --area` returns it: the area page draws the same.
+export type AreaView = ReturnType<typeof areaView>;
+// A project's area in the order Home lists them, with what it is for.
+export type AreaLine = { name: string; description?: string };
 // A declared flow as `read` returns it: only steps whose screen exists.
 export type FlowView = { name: string; steps: FlowStep[] };
 export type VariantView = ReturnType<typeof variantView>;
@@ -221,8 +227,17 @@ export const api = {
       hasSystem?: boolean;
       tree: TreeNode[];
       flows: FlowView[];
-      areaOrder: string[];
+      areas: AreaLine[];
+      description?: string;
     }>(`/api/projects/${encodeURIComponent(project)}/tree`).then(seenRev),
+  area: (project: string, area: string) =>
+    call<AreaView>(
+      `/api/projects/${encodeURIComponent(project)}/areas/${encodeURIComponent(area)}`,
+    ),
+  // The user's words on what an area (or, with no area, the project) is for. They
+  // stand against agents until the user clears them.
+  describe: (project: string, body: { area?: string; description: string }) =>
+    call<unknown>(`/api/projects/${encodeURIComponent(project)}`, json("PATCH", body)),
   // What a phone opening this page would meet (the QR code).
   reach: () =>
     call<{ hosts: string[]; localOnly: boolean; access: "open" | "key" | "read" | "unknown" }>(
@@ -342,9 +357,12 @@ export const api = {
       `/api/projects/${encodeURIComponent(project)}/decisions`,
       json("PUT", body),
     ),
-  // The user moves a design from Home: another kind or area (null: none). The
-  // agent hears it in its next feedback.
-  editDesign: (id: string, body: { kind?: DesignKind; area?: string | null; notes?: string }) =>
+  // The user moves a design from Home (another kind or area, null: none), or writes a
+  // section of its spec. The agent hears it in its next feedback.
+  editDesign: (
+    id: string,
+    body: { kind?: DesignKind; area?: string | null; purpose?: string; behaviour?: SpecLine[] },
+  ) =>
     call<{ design: { kind: DesignKind; area?: string } }>(
       `/api/designs/${encodeURIComponent(id)}`,
       json("PATCH", body),

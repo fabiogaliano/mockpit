@@ -137,8 +137,10 @@ area. You hear it once, as `edited` with the fields they changed (`area: null` m
 ```
 
 It is already done: don't edit it back, and publish under the new kind and area. It can
-ride in the same batch as a reply. `edited.notes` is the design's notes as the user
-corrected them (`null` if cleared).
+ride in the same batch as a reply. `edited.spec` is the design's spec as the user
+corrected it, by section: `purpose` and `behaviour` (`null` where they cleared one).
+A batch's `nudges` say what the design needs now: a screen or component whose spec is
+missing, or older than what was just decided on it, is told to update it.
 
 ## Delivery
 
@@ -170,13 +172,24 @@ mockpit export  --design writer             # .mockpit/accepted/writer/<state>/{
 mockpit read                              # one line per design, plus pending, then what is already decided
 mockpit read    writer                    # states, variants, questions and answers, parts, knobs, settled
 mockpit read    --tree                    # the project as a tree: variants, forkedFrom, embeds / embeddedIn
+mockpit read    --area Food               # one area: what it is for, its designs, decisions, ideas waiting
 mockpit read    --decisions               # the whole decision list, when a read cut it
 ```
 
-- `notes` (`{text, by, at}`) on a read of one design is its short spec, drafted with
-  `mockpit edit --notes` and editable by the user. Read it before changing the design.
-  `by: "user"` means their words stand: your next draft isn't applied until they clear
-  them, and `edit` answers `notes: {applied: false, text}`. A list marks it `hasNotes`.
+- `spec` (`{purpose, behaviour: [{text, state?, part?}], by, at, held?, decisions}`) on a
+  read of one design is its record: what it is for, how it works where the picture can't
+  show it (a line with `part` is an annotation on it), and `decisions`, its own lines of
+  the decision list. Write the first two with `mockpit edit --purpose` and
+  `--behaviour`; behaviour goes here, never in side files. Read it before changing the
+  design. `held` names the sections the user wrote by hand: those stand, your next
+  draft of them isn't applied until they clear them, and `edit` answers
+  `spec: {purpose: {applied: false, text}}`. A list marks it `hasSpec`.
+- A read with `area` (`mockpit read --area Food`) is one product area: `description`
+  (the project's), `area` (`{name, description}`), `screens` and `components` (`{slug,
+  title, kind, purpose, states, ready}`), `flows`, `shared` (components with no area),
+  `decisions` (`{design, text, state?}`) and `ideasWaiting` (`{slug, title, status}`).
+  Read it before drawing in the area. `mockpit edit --project <p> --area Food
+  --description "…"` says what an area is for, without `--area` what the project is for.
 - `planned: true` is a declared screen or component with nothing drawn; your first publish
   draws it. `stateOutlines` says which missing states the user dismissed or asked for by
   name (`{"Loading": "dismissed"}`).

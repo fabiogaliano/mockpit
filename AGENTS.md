@@ -25,12 +25,14 @@ archives or restores them (never touches one in use, and says so in the Thread),
 when the user asks, hides or deletes their older versions (`hideOlder`, `deleteOlder`:
 deleting skips any version a reply, comment, question, embed, copy or fork points at,
 `deleteBlocker` in `server/app.ts`); `edit` changes a design (slug, title, kind, area,
-source, notes, or the first name of its one unnamed state) without a new version, renames a project, or sets its area order;
+source, spec, or the first name of its one unnamed state) without a new version, renames a project, sets its area order, or says what the project or one area is for;
 `publish` with `amend` replaces a variant's latest version in place and with
 `withdraw` deletes it, both only from the session that published it and only
 while the user hasn't acted on it (`touchedBy` in `server/app.ts`). A
 design may name its **area** (the project's own words, e.g. "Shell"; Home
-groups by it, in the project's `areaOrder` setting, then alphabetical) and its
+groups by it, in the order of the project's `areas:<project>` setting, then
+alphabetical; each area there has a one-line `description`, and the project its own in
+`description:<project>`, a user's standing against agents until cleared) and its
 **source** (the code path that implements it). The user can move a design too,
 from Home's ⋯ menu (kind, area, archive); the agent hears a move as a feedback
 batch's `edited`, through the same cursor as a Send. The user's is Send (or Use this / New version on a design whose
@@ -149,16 +151,28 @@ consciously, not as a side effect):
   (items → single-state designs, draft comments → design drafts, traces dropped,
   `resolvedAt` → `archivedAt`, the 2.0 contract words in stored replies, drafts
   and html, situations → ordinary states named `state · situation`, leaving an inert
-  `situations` column, each project's design settings → its system at rev 1).
+  `situations` column, each project's design settings → its system at rev 1, a design's
+  notes → its spec's purpose, leaving an inert `notes` column, and each project's area
+  order → its `areas`).
 - A design with a declared `kind` and no posts is **planned** (`isPlanned` in `types.ts`,
   derived, never stored): `publish` with a kind and no body declares one, and the first
   drawing fills it. `Design.stateOutlines` holds per-design answers to the outlines of
   missing states (`dismissed`, `requested`; `POST /api/designs/:id/outlines`, viewer only),
   and only a declared page with html offers them (`canOutline` in `viewer/src/logic.ts`).
-- `Design.notes` is a plain-text spec (`MAX_NOTES`): `edit` writes it, `read` returns it,
-  the viewer shows it in text nodes. A hand edit holds against agents until the user
-  clears it (`editDesignFlow`), the agent is told when its draft didn't apply, and it
-  hears the user's edit as `edited.notes`.
+- `Design.spec` (`server/spec.ts`, `MAX_SPEC`) is a design's own record, under three
+  headings: What it is for (`purpose`), How it works (`behaviour`, lines that may name a
+  state and a `part`, which makes the line an **annotation**: a numbered pin on that part
+  while the Spec panel is open, never otherwise) and Decisions (the design's lines of the
+  decision list, derived on every read, never stored). `edit` writes the first two, `read`
+  returns all three, the viewer shows them in text nodes. A hand edit holds against agents
+  per section (`held`) until the user clears it (`editDesignFlow`), the agent is told when
+  its draft didn't apply, and it hears the user's edit as `edited.spec`. A product design
+  with no spec, or with decisions newer than `spec.at`, is nudged on publish and in its
+  feedback batch (`specNudge`).
+- `read --area <name>` (`GET /api/projects/:name/areas/:area`, `areaView` in
+  `server/apiViews.ts`) is one area, everything settled in it: what the project and the
+  area are for, its screens, flows and components (purpose, states, `ready`), the shared
+  components, their decisions and `ideasWaiting`. Home's area page draws the same view.
 - A **gathered idea** is a design with `shortlist` set (the stored name, which is also in
   `read`), gathered by the user from the project's other designs: New idea on Home's
   shelves (`AddCandidates`), or a Studio bookmark (`SaveMenu`,
@@ -245,8 +259,9 @@ consciously, not as a side effect):
   components and revisions with Restore. `albums.ts` holds the rules:
   `sectionOf` keeps declared screens and components and derives idea or document
   from what a design contains (one render, nothing asked and no width is a document),
-  and only lit sections show. Ideas and Screens come first, larger first; Documents
-  sit at the sidebar's foot unless they're the largest. A project of 1 or 2 designs
+  and only lit sections show. The sidebar has two groups: Product (Screens, Flows,
+  Components, System) first, where Home opens, then the areas as chips under their own
+  heading, then Ideas; Documents sit at the foot. A project of 1 or 2 designs
   has no sidebar and large covers; one small section lists its designs instead of
   section rows; a phone gets the sidebar as a drawer. `Album` is one thing and all
   its pictures: a cover by shape (phone, wide, both, part, or text for something to
@@ -255,8 +270,10 @@ consciously, not as a side effect):
   waiting glow on the cover and on the project's name (`ProjectSwitcher`), in words
   too, and `seen.ts` (localStorage) marks new work "New". Written pages are a dated
   list (`DocRow`, `dateGroups`). Section rows sit above the areas a project names, a
-  project with none looks as if areas did not exist, and `?area=` alone shows all of
-  one area. Flows are rows of screens opened with `?flow=`. Components say "in N
+  project with none looks as if areas did not exist, and `?area=` alone is the area page:
+  its description (written in place), screens, flows, components, decisions and ideas,
+  from `GET /api/projects/:name/areas/:area`. An area's description is one line under its
+  heading wherever a shelf groups by area. Flows are rows of screens opened with `?flow=`. Components say "in N
   screens". The Archive holds what left the shelves, one concept however it left: ended
   by hand (the × on an idea, ⋯, a swipe in Needs you; `archivedAt`, with an optional
   `archiveReason`) or with everything archived and no question waiting (`nothingLeft`).
@@ -272,7 +289,7 @@ consciously, not as a side effect):
   with what's missing shown (`?view=grid`, an arrangement offered where names repeat across states, and
   how a component with several forms opens unless it is wall-sized), sharing Studio's
   live-frame limit; `Outlines` (missing states in the margin or flow bar, `StateAsk`,
-  `PlannedStage` where nothing is drawn); `Notes`; `Studio`, the state zoomed
+  `PlannedStage` where nothing is drawn); `Spec`; `Studio`, the state zoomed
   out with every variant side by side, entered from the top bar's Stage | Studio switch and
   remembered per design, with one row of controls in the header (`StudioBar`: states, filter, what's live, in use, hidden or archived, and Wall | Columns | Palettes | Grid; `PalettesBoard` is the state on stage in each visible palette, a column per palette, light over dark, offered once there are two), each steer its own reply (`steer`, `sendAlone`), with `SelectBar` acting on
   several versions at once. A fork is a column of its own saying where it came from.
@@ -289,7 +306,7 @@ consciously, not as a side effect):
   pins and comments built from the blocks they report;
   `Stage`, a pannable canvas whose design's other `widths` spread out as
   picture-only artboards under "All widths", between the margins), `Margins` (states
-  and versions on the left, On this design, Notes, Built from and Thread on the right, Try,
+  and versions on the left, On this design, Spec, Built from and Thread on the right, Try,
   Comment, Tune and the preview in a strip by the design; each there only with content, and
   `marginLayout` in `logic.ts` turns one into a tab that floats over the canvas when
   it would take a design below 80%; a phone has none of this: `VersionBar`,
@@ -519,7 +536,7 @@ the finding needs.
   alternatives is "a part with fills", and a variant the user picked is "in
   use". A design's **kind** is idea, screen or component; a part is a named bit inside
   one design, a component a whole design others embed. A variant has a `description`,
-  a design has `notes`, an answer has a `comment`. Retired words — item, group,
+  a design has a `spec`, an area and a project a `description`, an answer has a `comment`. Retired words — item, group,
   snippet, board, stream, `part` for a surface, trace, look (for a variant), slot, mix
   (now borrow), resolve, close and end (now archive), mock (now design), `page` and
   `sketch` as kinds (now screen and idea), note for a variant or an answer, screen for

@@ -23,7 +23,8 @@ import {
   type Knobs,
   MAX_WORKSPACE_ASSET_BYTES,
   type Design,
-  type DesignNotes,
+  type DesignSpec,
+  type ProjectArea,
   type AnswerAddition,
   type AnswerSet,
   type AnswerStanding,
@@ -41,8 +42,9 @@ import {
   type PostVersion,
   projectFromCwd,
   type Reply,
-  AREA_ORDER_SETTING,
+  AREAS_SETTING,
   DECISION_EDITS_SETTING,
+  PROJECT_DESCRIPTION_SETTING,
   reservedAgent,
   sameScreen,
   selectEvictions,
@@ -78,7 +80,12 @@ import { RULES_SETTING } from "./guidance.ts";
 type Row = Record<string, SqlStorageValue>;
 
 // The settings keyed `<prefix>:<project>`, which a project rename carries.
-const PROJECT_SETTINGS = [AREA_ORDER_SETTING, RULES_SETTING, DECISION_EDITS_SETTING] as const;
+const PROJECT_SETTINGS = [
+  AREAS_SETTING,
+  PROJECT_DESCRIPTION_SETTING,
+  RULES_SETTING,
+  DECISION_EDITS_SETTING,
+] as const;
 
 // An optional free-text label: blank means none.
 const label = (v: string | null | undefined): string | null => stripNul(v ?? "").trim() || null;
@@ -486,6 +493,7 @@ export class SqlStore implements Store {
     if (designCols.has("resolvedAt") && !designCols.has("archivedAt")) {
       this.sql.exec("ALTER TABLE designs RENAME COLUMN resolvedAt TO archivedAt");
     }
+    const specced = this.columns("designs").has("spec");
     this.addMissing("designs", {
       widths: "TEXT NOT NULL DEFAULT '[]'",
       archivedAt: "TEXT",
@@ -493,12 +501,14 @@ export class SqlStore implements Store {
       area: "TEXT",
       source: "TEXT",
       shortlist: "INTEGER NOT NULL DEFAULT 0",
-      notes: "TEXT",
+      spec: "TEXT",
       stateOutlines: "TEXT NOT NULL DEFAULT '{}'",
       answerAdditions: "TEXT NOT NULL DEFAULT '[]'",
       standings: "TEXT NOT NULL DEFAULT '{}'",
       sets: "TEXT NOT NULL DEFAULT '[]'",
     });
+    if (!specced) this.migrateNotesToSpec();
+    this.migrateAreaOrder();
     this.migrateSituations();
     // Before the legacy lift, whose history rows are written with every column.
     this.addMissing("post_versions", {
@@ -550,6 +560,63 @@ export class SqlStore implements Store {
       );
     }
     this.createIndexes();
+  }
+
+  // Notes were one block of text, and they become the spec's purpose: what it is for
+  // was what a note mostly said. The column stays, empty, on a workspace that has it;
+  // new workspaces never get one. A stored reply that told the agent of a hand edit
+  // says so in the spec's words, so the Thread and an undelivered batch still read.
+  private migrateNotesToSpec() {
+    if (this.columns("designs").has("notes")) {
+      // A user's notes were their words, which stood against agents: the purpose holds.
+      this.sql.exec(
+        `UPDATE designs SET spec = json_object(
+           'purpose', json_extract(notes, '$.text'), 'behaviour', json('[]'),
+           'by', json_extract(notes, '$.by'), 'at', json_extract(notes, '$.at')
+         ), notes = NULL
+         WHERE notes IS NOT NULL AND json_valid(notes) AND json_extract(notes, '$.text') != ''
+           AND json_extract(notes, '$.by') IS NOT 'user'`,
+      );
+      this.sql.exec(
+        `UPDATE designs SET spec = json_object(
+           'purpose', json_extract(notes, '$.text'), 'behaviour', json('[]'),
+           'by', 'user', 'at', json_extract(notes, '$.at'), 'held', json('["purpose"]')
+         ), notes = NULL
+         WHERE notes IS NOT NULL AND json_valid(notes) AND json_extract(notes, '$.text') != ''
+           AND json_extract(notes, '$.by') = 'user'`,
+      );
+      this.sql.exec("UPDATE designs SET notes = NULL WHERE notes IS NOT NULL");
+    }
+    this.sql.exec(
+      `UPDATE comments SET payload = json_remove(
+         json_set(payload, '$.edited.spec', json_object('purpose', json_extract(payload, '$.edited.notes'))),
+         '$.edited.notes')
+       WHERE kind = 'reply' AND json_valid(payload) AND json_type(payload, '$.edited.notes') IS NOT NULL`,
+    );
+  }
+
+  // The order Home lists a project's areas in became the areas themselves, each with
+  // room for what it is for. Done on every boot: a key is moved once and then gone.
+  private migrateAreaOrder() {
+    const prefix = "areaOrder:";
+    for (const row of this.sql
+      .exec("SELECT key, value FROM settings WHERE key LIKE 'areaOrder:%'")
+      .toArray()) {
+      const project = (row.key as string).slice(prefix.length);
+      const target = `${AREAS_SETTING}:${project}`;
+      if (this.settingSync(target) === null) {
+        const names = parseJson<unknown[]>(row.value, []).filter(
+          (x): x is string => typeof x === "string",
+        );
+        const areas: ProjectArea[] = names.map((name) => ({ name, description: "" }));
+        this.sql.exec(
+          "INSERT INTO settings (key, value) VALUES (?, ?)",
+          target,
+          JSON.stringify(areas),
+        );
+      }
+      this.sql.exec("DELETE FROM settings WHERE key = ?", row.key);
+    }
   }
 
   // A situation was already a state of its own, filed in `states` under the name
@@ -1065,7 +1132,7 @@ export class SqlStore implements Store {
       shortlist: !!r.shortlist,
       archivedAt: (r.archivedAt as string) ?? null,
       archiveReason: (r.archiveReason as string) ?? null,
-      notes: parseJson<DesignNotes | null>(r.notes, null),
+      spec: parseJson<DesignSpec | null>(r.spec, null),
       stateOutlines: parseJson<Record<string, StateOutline>>(r.stateOutlines, {}),
       answerAdditions: parseJson<AnswerAddition[]>(r.answerAdditions, []),
       standings: parseJson<Record<string, AnswerStanding>>(r.standings, {}),
@@ -1398,7 +1465,7 @@ export class SqlStore implements Store {
       shortlist: !!input.shortlist,
       archivedAt: null,
       archiveReason: null,
-      notes: null,
+      spec: null,
       stateOutlines: {},
       answerAdditions: [],
       standings: {},
@@ -1443,7 +1510,7 @@ export class SqlStore implements Store {
       ...(patch.archivedAt !== undefined && { archivedAt: patch.archivedAt }),
       ...(patch.archivedAt === null && { archiveReason: null }),
       ...(patch.archiveReason !== undefined && { archiveReason: patch.archiveReason }),
-      ...(patch.notes !== undefined && { notes: patch.notes }),
+      ...(patch.spec !== undefined && { spec: patch.spec }),
       ...(patch.stateOutlines !== undefined && { stateOutlines: patch.stateOutlines }),
       ...(patch.answerAdditions !== undefined && { answerAdditions: patch.answerAdditions }),
       ...(patch.standings !== undefined && { standings: patch.standings }),
@@ -1451,7 +1518,7 @@ export class SqlStore implements Store {
       updatedAt: new Date().toISOString(),
     };
     this.sql.exec(
-      "UPDATE designs SET title = ?, kind = ?, area = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, archivedAt = ?, archiveReason = ?, notes = ?, stateOutlines = ?, answerAdditions = ?, standings = ?, sets = ?, updatedAt = ? WHERE id = ?",
+      "UPDATE designs SET title = ?, kind = ?, area = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, archivedAt = ?, archiveReason = ?, spec = ?, stateOutlines = ?, answerAdditions = ?, standings = ?, sets = ?, updatedAt = ? WHERE id = ?",
       next.title,
       next.kind,
       next.area,
@@ -1463,7 +1530,7 @@ export class SqlStore implements Store {
       next.sessionId,
       next.archivedAt,
       next.archiveReason,
-      next.notes ? JSON.stringify(next.notes) : null,
+      next.spec ? JSON.stringify(next.spec) : null,
       JSON.stringify(next.stateOutlines),
       JSON.stringify(next.answerAdditions),
       JSON.stringify(next.standings),

@@ -46,19 +46,17 @@ export function sectionOf(node: {
   return "documents";
 }
 
-// The sections a project has lit, largest shelf first. Documents wait at the foot
-// of the sidebar unless they're most of what the project holds.
+// The product is what ships: its sections come first, and Home opens on them.
+export const PRODUCT_SECTIONS: Section[] = ["screens", "flows", "components"];
+
+// The sections a project has lit: the product's first, then Ideas, where exploring
+// happens. Documents wait at the foot of the sidebar.
 export function litSections(count: Record<Section, number>): {
   rows: Section[];
   foot: Section | null;
 } {
-  const shelves: Section[] =
-    count.screens > count.ideas ? ["screens", "ideas"] : ["ideas", "screens"];
-  const rest = (["flows", "components"] as Section[]).filter((s) => count[s] > 0);
-  const main = [...shelves.filter((s) => count[s] > 0), ...rest];
-  if (!count.documents) return { rows: main, foot: null };
-  const mostly = main.every((s) => count.documents > count[s]);
-  return mostly ? { rows: ["documents", ...main], foot: null } : { rows: main, foot: "documents" };
+  const rows = [...PRODUCT_SECTIONS, "ideas" as const].filter((s) => count[s] > 0);
+  return { rows, foot: count.documents ? "documents" : null };
 }
 
 export type CoverShape = "phone" | "wide" | "both" | "part" | "text";
@@ -152,7 +150,8 @@ const TREE_UP_TO = 12;
 export const inArchive = (n: TreeNode) => !!n.archivedAt || (nothingLeft(n) && !n.planned);
 
 // What the sidebar holds, for Home and for the one that opens over a design.
-export function sidebarOf(nodes: TreeNode[], flows: number, areaOrder: string[]) {
+// `order`: the project's areas in the order it lists them.
+export function sidebarOf(nodes: TreeNode[], flows: number, order: string[]) {
   const onShow = nodes.filter((n) => !inArchive(n));
   const inSection = (sec: ShelfSection) => onShow.filter((n) => sectionOf(n) === sec);
   const counts: Record<Section, number> = {
@@ -177,11 +176,11 @@ export function sidebarOf(nodes: TreeNode[], flows: number, areaOrder: string[])
     lit,
     areas: orderAreas(
       onShow.flatMap((n) => (n.area ? [n.area] : [])),
-      areaOrder,
+      order,
     ),
     tree:
       lone && lone.length <= TREE_UP_TO
-        ? groupByArea(lone, (n) => n.area, areaOrder).map((g) => ({ area: g.area, nodes: g.rows }))
+        ? groupByArea(lone, (n) => n.area, order).map((g) => ({ area: g.area, nodes: g.rows }))
         : null,
   };
 }

@@ -635,25 +635,59 @@ export interface Reply {
 export interface DesignEdit {
   kind?: DesignKind;
   area?: string | null;
-  // The notes as the user just wrote them; null when they cleared them.
-  notes?: string | null;
+  // The sections of the spec the user just wrote by hand; null where they cleared one.
+  spec?: { purpose?: string | null; behaviour?: SpecLine[] | null };
   // From when Studio could hang variants under a lead; stored rows still carry it.
 }
 
-// The settings key prefix of a project's area order (`areaOrder:<project>`): a
-// JSON array of area names, the order Home lists them in.
-export const AREA_ORDER_SETTING = "areaOrder";
+// The settings key prefix of a project's areas (`areas:<project>`): a JSON array of
+// `ProjectArea`, in the order Home lists them, each with what it is for.
+export const AREAS_SETTING = "areas";
+// A project's own description (`description:<project>`), a `Described`.
+export const PROJECT_DESCRIPTION_SETTING = "description";
 // The user's hand edits to a project's decision list (`decisions:<project>`).
 export const DECISION_EDITS_SETTING = "decisions";
 
-// A short spec of a design: an agent drafts it, the user corrects it by hand, and later
-// agents read it. Whoever wrote it last is kept because a hand edit outranks a draft.
-export interface DesignNotes {
+// Whoever wrote a description last: a user's stands against agents until they clear it.
+export type Author = "agent" | "user";
+export interface Described {
   text: string;
-  by: "agent" | "user";
+  by: Author;
   at: string;
 }
-export const MAX_NOTES = 4000;
+// One area as the project names it. An area listed with no description is only ordered.
+export interface ProjectArea {
+  name: string;
+  description: string;
+  by?: Author;
+}
+// One line, for the project and for each of its areas.
+export const MAX_PROJECT_DESCRIPTION = 300;
+
+// A design's own record, what a build agent reads beside the picture: what it is for,
+// and how it works where the picture can't show it. An agent drafts it, the user
+// corrects it by hand, later agents read it. The decisions are not stored here: they
+// are the design's lines of the decision list, derived on every read.
+export type SpecSection = "purpose" | "behaviour";
+export interface SpecLine {
+  text: string;
+  // The state it is about, when it is about one.
+  state?: string;
+  // A data-part: the line is an annotation, pinned to that part while the spec is open.
+  part?: string;
+}
+export interface DesignSpec {
+  purpose: string;
+  behaviour: SpecLine[];
+  // Whoever wrote it last, and when.
+  by: Author;
+  at: string;
+  // The sections the user wrote by hand: each stands against agents until they clear it.
+  held?: SpecSection[];
+}
+// Purpose and every line together; agents read all of it on every read of the design.
+export const MAX_SPEC = 8000;
+export const MAX_SPEC_LINES = 60;
 
 // What the user said about a state a declared screen doesn't have yet.
 export type StateOutline = "dismissed" | "requested";
@@ -696,7 +730,7 @@ export interface Design {
   // Why, if there is a why: their own line, or the note on what they last sent.
   // Kept as information; nothing reads it as an instruction.
   archiveReason: string | null;
-  notes: DesignNotes | null;
+  spec: DesignSpec | null;
   // By state name, only what the user has said; {} when nothing. Kept apart from
   // `states` because a dismissed state isn't one of the design's.
   stateOutlines: Record<string, StateOutline>;
@@ -1045,7 +1079,7 @@ export interface UpdateDesignInput {
   archivedAt?: string | null;
   archiveReason?: string | null;
   // null clears.
-  notes?: DesignNotes | null;
+  spec?: DesignSpec | null;
   stateOutlines?: Record<string, StateOutline>;
   answerAdditions?: AnswerAddition[];
   standings?: Record<string, AnswerStanding>;

@@ -1,13 +1,15 @@
-// A project's Home, one step away from everything in it. mockpit's own words are
-// rows and the project's areas are chips, so the two never read as one list and
-// neither nests under the other. Each is here only when there's something behind it:
-// a project that names no area has no chips. With a single section there are no
-// section rows, just the designs; a project of one or two designs gets no sidebar at all
-// (Home). On a phone the same column is a drawer.
+// A project's Home, one step away from everything in it, in two groups: the product
+// (screens, flows, components, system) and then Ideas, where exploring happens. The
+// project's areas sit between them as chips under their own heading: they are the way
+// into the area pages, the product's map. mockpit's own words are rows and the areas
+// are chips, so the two never read as one list. Each is here only when there's
+// something behind it: a project that names no area has no chips. With a single
+// section there are no section rows, just the designs; a project of one or two designs
+// gets no sidebar at all (Home). On a phone the same column is a drawer.
 
 import { For, type JSX, Show } from "solid-js";
 import type { ProjectSummary, TreeNode } from "./api.ts";
-import { type Section, SECTION_LABEL } from "./albums.ts";
+import { PRODUCT_SECTIONS, type Section, SECTION_LABEL } from "./albums.ts";
 import { ChromeButtons } from "./TopBar.tsx";
 import { Icon, type IconName } from "./icons.tsx";
 import { openJump } from "./Jump.tsx";
@@ -61,6 +63,20 @@ export function Sidebar(props: {
       {body}
     </a>
   );
+  // With one section and nothing at the foot there is no choice to offer: the
+  // designs are listed instead.
+  const sectionRows = () => props.rows.length + (props.foot ? 1 : 0) > 1;
+  const product = () => props.rows.filter((r) => PRODUCT_SECTIONS.includes(r));
+  const sectionRow = (sec: Section) =>
+    link(
+      () => projectPath(props.project, sec),
+      () => props.place === sec,
+      <span class="side-nm">
+        <Icon name={SECTION_ICON[sec]} />
+        {SECTION_LABEL[sec]}
+      </span>,
+      "side-row side-kind",
+    );
   return (
     <aside
       class="side"
@@ -102,21 +118,10 @@ export function Sidebar(props: {
             "side-row side-needs",
           )}
         </Show>
-        <Show when={props.rows.length + (props.foot ? 1 : 0) > 1 || props.system}>
-          <nav class="side-group" aria-label="Sections">
-            <For each={props.rows.length + (props.foot ? 1 : 0) > 1 ? props.rows : []}>
-              {(sec) =>
-                link(
-                  () => projectPath(props.project, sec),
-                  () => props.place === sec,
-                  <span class="side-nm">
-                    <Icon name={SECTION_ICON[sec]} />
-                    {SECTION_LABEL[sec]}
-                  </span>,
-                  "side-row side-kind",
-                )
-              }
-            </For>
+        <Show when={(sectionRows() && product().length > 0) || props.system}>
+          <nav class="side-group" aria-label="Product">
+            <h6 class="side-hd">Product</h6>
+            <For each={sectionRows() ? product() : []}>{sectionRow}</For>
             <Show when={props.system}>
               {link(
                 () => projectPath(props.project, "system"),
@@ -166,21 +171,29 @@ export function Sidebar(props: {
           )}
         </Show>
         <Show when={!props.tree && props.areas.length}>
-          <nav class="side-chips" aria-label="Areas">
-            <For each={props.areas}>
-              {(a) =>
-                link(
-                  // Pressing the area you're in takes the filter off again.
-                  () =>
-                    props.area === a
-                      ? projectPath(props.project)
-                      : projectPath(props.project, null, a),
-                  () => props.area === a,
-                  <>{a}</>,
-                  "side-chip",
-                )
-              }
-            </For>
+          <nav class="side-group" aria-label="Areas">
+            <h6 class="side-hd">Areas</h6>
+            <div class="side-chips">
+              <For each={props.areas}>
+                {(a) =>
+                  link(
+                    // Pressing the area you're in takes the filter off again.
+                    () =>
+                      props.area === a
+                        ? projectPath(props.project)
+                        : projectPath(props.project, null, a),
+                    () => props.area === a,
+                    <>{a}</>,
+                    "side-chip",
+                  )
+                }
+              </For>
+            </div>
+          </nav>
+        </Show>
+        <Show when={sectionRows() && props.rows.includes("ideas")}>
+          <nav class="side-group" aria-label="Ideas">
+            {sectionRow("ideas")}
           </nav>
         </Show>
       </div>

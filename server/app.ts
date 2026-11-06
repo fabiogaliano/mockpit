@@ -8,6 +8,7 @@ import { decodeBase64 } from "./base64.ts";
 import {
   type EmbedView,
   draftHolds,
+  areaView,
   designDetailView,
   postersFor,
   treeNodeView,
@@ -79,10 +80,21 @@ import {
 } from "./system.ts";
 import { pageChecks, pairResults, purposeNudge, systemChecks } from "./systemChecks.ts";
 import { specimenHtml } from "./systemSpecimen.ts";
+import {
+  applySpec,
+  isProduct,
+  lineTimes,
+  purposeLine,
+  specEdit,
+  specInput,
+  specNudge,
+  specSize,
+} from "./spec.ts";
 import { checkCdnUrl } from "./cdn.ts";
 import {
   agentDecisionList,
   applyDecisionEdits,
+  type DecisionLine,
   deriveDecisionLines,
   fullAgentDecisionList,
   parseDecisionEdits,
@@ -175,7 +187,8 @@ import {
   isLive,
   isDesignKind,
   isPlanned,
-  MAX_NOTES,
+  MAX_PROJECT_DESCRIPTION,
+  MAX_SPEC,
   optionState,
   type Design,
   type DesignKind,
@@ -192,9 +205,13 @@ import {
   REACTIONS,
   projectFromCwd,
   type Reply,
-  AREA_ORDER_SETTING,
+  AREAS_SETTING,
+  type Author,
   DECISION_EDITS_SETTING,
+  type Described,
   type DesignEdit,
+  PROJECT_DESCRIPTION_SETTING,
+  type ProjectArea,
   stripNul,
   postAtVersion,
   versionAt,
@@ -944,9 +961,26 @@ export function createApp({
     base: string,
   ): Promise<FeedbackBatch[]> {
     const mine = own.length > 0 ? await buildFeedbackBatches(store, own, base) : [];
-    if (handedOff.length === 0) return mine;
-    const theirs = await buildFeedbackBatches(store, handedOff, base);
-    return [...mine, ...theirs.map((b) => ({ ...b, handoff: HANDOFF_NOTE }))];
+    const theirs = handedOff.length > 0 ? await buildFeedbackBatches(store, handedOff, base) : [];
+    return withSpecNudges([...mine, ...theirs.map((b) => ({ ...b, handoff: HANDOFF_NOTE }))]);
+  }
+
+  // A Send on a product design decides things its spec doesn't say yet: the batch that
+  // carries it says so, once per design, and the agent updates the spec itself.
+  async function withSpecNudges(batches: FeedbackBatch[]): Promise<FeedbackBatch[]> {
+    const lines = new Map<string, DecisionLine[]>();
+    const told = new Set<string>();
+    for (const b of batches) {
+      if (!b.designId || !b.reply || told.has(b.designId)) continue;
+      const design = await store.getDesign(b.designId);
+      if (!design || !isProduct(design)) continue;
+      told.add(b.designId);
+      let known = lines.get(design.project);
+      if (!known) lines.set(design.project, (known = await decisionLines(design.project)));
+      const nudge = await specNudgeFor(design, known);
+      if (nudge) b.nudges = [nudge];
+    }
+    return batches;
   }
 
   // What takeOrphaned would take right now, with no cursor moved.
@@ -1745,10 +1779,14 @@ export function createApp({
     const system = await systemFor(design.project);
     const pages = post.surfaces.flatMap((x) => (x.kind === "html" ? [x.html] : []));
     const purpose =
-      design.kind === "component" ? purposeNudge(design.slug, design.notes?.text) : null;
+      design.kind === "component" && design.spec
+        ? purposeNudge(design.slug, design.spec.purpose)
+        : null;
+    const spec = await specNudgeFor(design);
     const nudges = [
       ...(extra.nudges ?? []),
       ...(system && pages.length ? pageChecks(system, pages) : []),
+      ...(spec ? [spec] : []),
       ...(purpose ? [purpose] : []),
       ...(unbound ? [unbound.nudge] : []),
       ...(slotAsks.length
@@ -2744,6 +2782,33 @@ export function createApp({
     return lines.length ? { decisionList: agentDecisionList(lines, here) } : {};
   }
 
+  // The questions a reply answered, so a spec can tell which of its lines came after it.
+  const answeredAsks = (r: Reply | undefined): string[] =>
+    r
+      ? [
+          ...new Set([
+            ...Object.keys(r.answers ?? {}),
+            ...Object.keys(r.others ?? {}),
+            ...Object.keys(r.askComments ?? {}),
+          ]),
+        ]
+      : [];
+
+  // A product design whose spec is missing, or older than what was decided on it.
+  async function specNudgeFor(design: Design, known?: DecisionLine[]): Promise<string | null> {
+    if (!isProduct(design)) return null;
+    if (!design.spec) return specNudge(design, [], () => undefined);
+    const lines = (known ?? (await decisionLines(design.project))).filter(
+      (l) => l.design === design.slug && !l.system,
+    );
+    if (!lines.length) return null;
+    const replies = (await replyComments(design.id)).map((c) => ({
+      createdAt: c.createdAt,
+      answers: answeredAsks(c.payload as Reply | undefined),
+    }));
+    return specNudge(design, lines, lineTimes(design, replies));
+  }
+
   async function decisionsFlow(query: { project?: unknown }, ctx?: { viewer: boolean }) {
     const project = str(query.project, MAX_TITLE);
     if (!project) return fail(400, '"project" is required');
@@ -2898,9 +2963,44 @@ export function createApp({
       hasSystem: hasSystemContent(system),
       tree: nodes,
       flows: await flowsView(project, designs),
-      areaOrder: await areaOrderOf(project),
+      areas: (await areasOf(project)).map((a) => ({
+        name: a.name,
+        ...(a.description ? { description: a.description } : {}),
+      })),
+      ...(await projectDescriptionField(project)),
       pending,
     });
+  }
+
+  async function projectDescriptionField(project: string) {
+    const d = await projectDescriptionOf(project);
+    return d ? { description: d.text } : {};
+  }
+
+  // One area, everything settled in it: what `read --area` returns and the viewer's
+  // area page draws (apiViews.ts areaView).
+  async function areaFlow(query: { project?: unknown; area?: unknown }): Promise<FlowResult> {
+    const project = str(query.project, MAX_TITLE);
+    if (!project) return fail(400, 'provide "project"');
+    const name = str(query.area, MAX_LABEL);
+    if (!name) return fail(400, 'provide "area", e.g. "Food"');
+    const designs = await store.listDesigns(project);
+    const named = [...new Set(designs.flatMap((d) => (d.area ? [d.area] : [])))];
+    if (!named.includes(name)) {
+      return fail(404, `no design in ${project} has area "${name}"`, { areas: named });
+    }
+    const described = (await areasOf(project)).find((a) => a.name === name);
+    return ok(
+      areaView({
+        project,
+        description: await projectDescriptionOf(project),
+        area: { name, description: described?.description ?? "" },
+        designs,
+        heads: headsByDesign(await store.listPostHeads(project)),
+        flows: await flowsView(project, designs),
+        lines: await decisionLines(project, designs),
+      }),
+    );
   }
 
   // The flows and what names a step, without the tree's pictures and counts:
@@ -2947,9 +3047,15 @@ export function createApp({
       await workspaceMode(),
       (await systemFor(design.project))?.rev ?? 0,
     );
+    const lines = query.noDecisions ? null : await decisionLines(design.project);
+    const list = lines?.length ? agentDecisionList(lines, design.slug) : null;
     return ok({
-      ...(query.noDecisions ? {} : await decisionListField(design.project, design.slug)),
+      ...(list ? { decisionList: list } : {}),
       ...designDetailView(design, posts, {
+        // The design's own lines, as the list above carries them: the spec's third part.
+        ...(lines
+          ? { decisions: (list?.lines ?? []).filter((l) => l.here).map((l) => l.text) }
+          : {}),
         body: query.body,
         history: query.history,
         settled: settledValues(await replyPayloads(design.id), design, posts),
@@ -3005,7 +3111,7 @@ export function createApp({
         .filter((d) => d.kind === "component" && !d.archivedAt)
         .map((d) => ({
           slug: d.slug,
-          purpose: (d.notes?.text ?? "").split("\n")[0].trim(),
+          purpose: purposeLine(d.spec),
           source: d.source ?? null,
         })),
     });
@@ -5632,13 +5738,26 @@ export function createApp({
   // keep showing it and flows keep walking it.
   async function editDesignFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
-    const given = ["slug", "title", "kind", "area", "source", "firstState", "notes"].filter(
-      (k) => body[k] !== undefined,
-    );
+    const given = [
+      "slug",
+      "title",
+      "kind",
+      "area",
+      "source",
+      "firstState",
+      "purpose",
+      "behaviour",
+    ].filter((k) => body[k] !== undefined);
+    if (body.description !== undefined) {
+      return fail(
+        400,
+        '"description" describes the project, or an area with "area", and takes no design',
+      );
+    }
     if (given.length === 0) {
       return fail(
         400,
-        'provide one of "slug", "title", "kind", "area", "source", "firstState" or "notes"',
+        'provide one of "slug", "title", "kind", "area", "source", "firstState", "purpose" or "behaviour"',
       );
     }
     const design = await resolveDesign(ref, body.project, body.session);
@@ -5658,23 +5777,22 @@ export function createApp({
     const source = labelArg(body, "source", MAX_SOURCE);
     if (isResult(source)) return source;
 
-    const notesIn = notesArg(body.notes);
-    if (isResult(notesIn)) return notesIn;
-    // The user's words stand until they clear them, so a later draft can't quietly
-    // undo a correction. The agent is told, and shown what stands.
-    const notesKept = notesIn !== undefined && !ctx.viewer && design.notes?.by === "user";
-    // Saved as it was isn't an edit: it mustn't take an agent's draft for the user's.
-    const notesSame = notesIn === (design.notes?.text ?? "");
-    const notes =
-      notesIn === undefined || notesKept || notesSame
-        ? undefined
-        : notesIn
-          ? {
-              text: notesIn,
-              by: ctx.viewer ? ("user" as const) : ("agent" as const),
-              at: new Date().toISOString(),
-            }
-          : null;
+    const specIn = specInput(body, design);
+    if ("error" in specIn) return fail(400, specIn.error, specIn.extra);
+    const specGiven = specIn.purpose !== undefined || specIn.behaviour !== undefined;
+    // The user's words stand, section by section, until they clear them, so a later
+    // draft can't quietly undo a correction. The agent is told, and shown what stands.
+    const specOut = specGiven
+      ? applySpec(design.spec, specIn, ctx.viewer ? "user" : "agent", new Date().toISOString())
+      : null;
+    if (specOut?.spec && specSize(specOut.spec) > MAX_SPEC) {
+      return fail(
+        400,
+        `a spec is short: what it is for and how it works, at most ${MAX_SPEC} characters together, got ${specSize(specOut.spec)}`,
+      );
+    }
+    const spec = specOut?.changed ? specOut.spec : undefined;
+    const specKept = specOut?.kept ?? [];
 
     const firstState = body.firstState === undefined ? undefined : str(body.firstState, MAX_LABEL);
     if (body.firstState !== undefined && !firstState) {
@@ -5714,7 +5832,7 @@ export function createApp({
       kind !== undefined ||
       area !== undefined ||
       source !== undefined ||
-      notes !== undefined
+      spec !== undefined
     ) {
       next =
         (await store.updateDesign(design.id, {
@@ -5722,7 +5840,7 @@ export function createApp({
           ...(kind === undefined ? {} : { kind }),
           ...(area === undefined ? {} : { area }),
           ...(source === undefined ? {} : { source }),
-          ...(notes === undefined ? {} : { notes }),
+          ...(spec === undefined ? {} : { spec }),
         })) ?? next;
     }
     if (firstState !== undefined) {
@@ -5735,11 +5853,12 @@ export function createApp({
     // Flows are declared apart from kind, so a page that stops being one stays
     // in them until the agent takes it out.
     const nudges: string[] = [...titleNudges(title)];
-    const purpose = next.kind === "component" ? purposeNudge(next.slug, next.notes?.text) : null;
+    const purpose =
+      next.kind === "component" && next.spec ? purposeNudge(next.slug, next.spec.purpose) : null;
     if (purpose) nudges.push(purpose);
-    if (notesKept) {
+    for (const section of specKept) {
       nudges.push(
-        "The user edited these notes by hand, so your draft was not applied: work from theirs, in notes.text. They stand until the user clears them",
+        `The user wrote ${section === "purpose" ? "what it is for" : "how it works"} by hand, so your ${section} was not applied: work from theirs, in spec.${section}. It stands until the user clears it`,
       );
     }
     if (kind !== undefined && kind !== "screen" && design.kind === "screen") {
@@ -5761,39 +5880,41 @@ export function createApp({
         states: next.states,
       },
       ...(renaming ? { renamed: { from: design.slug, to: next.slug } } : {}),
-      ...(notesIn === undefined
-        ? {}
-        : { notes: { applied: !notesKept, ...(notesKept ? { text: design.notes?.text } : {}) } }),
+      ...(specGiven
+        ? {
+            spec: {
+              ...(specIn.purpose === undefined
+                ? {}
+                : {
+                    purpose: specKept.includes("purpose")
+                      ? { applied: false, text: design.spec?.purpose ?? "" }
+                      : { applied: true },
+                  }),
+              ...(specIn.behaviour === undefined
+                ? {}
+                : {
+                    behaviour: specKept.includes("behaviour")
+                      ? { applied: false, lines: design.spec?.behaviour ?? [] }
+                      : { applied: true },
+                  }),
+            },
+          }
+        : {}),
       url: designUrl(ctx.base, next),
       ...(nudges.length ? { nudges } : {}),
       feedback: await feedbackFor(body.session, ctx.base),
     });
   }
 
-  // `notes`: plain text and short, since agents read all of it on every read of the
-  // design. Refused rather than cut: a spec missing its end reads as a complete one.
-  function notesArg(v: unknown): string | undefined | FlowResult {
-    if (v === undefined) return undefined;
-    if (typeof v !== "string") return fail(400, '"notes" must be plain text; "" clears them');
-    const text = stripNul(v).trim();
-    if (text.length > MAX_NOTES) {
-      return fail(
-        400,
-        `notes are a short spec: at most ${MAX_NOTES} characters, got ${text.length}`,
-      );
-    }
-    return text;
-  }
-
-  // The user moved a design from Home (another kind or area), or corrected its notes:
+  // The user moved a design from Home (another kind or area), or corrected its spec:
   // the agent hears it once, through the same cursor as a Send, on the session driving
   // the design. Nothing to tell when no agent has written it.
   async function tellAgentEdited(before: Design, after: Design): Promise<void> {
-    const notes = after.notes?.text ?? null;
+    const spec = specEdit(before.spec, after.spec);
     const edited: DesignEdit = {
       ...(after.kind !== before.kind ? { kind: after.kind } : {}),
       ...(after.area !== before.area ? { area: after.area } : {}),
-      ...(notes !== (before.notes?.text ?? null) ? { notes } : {}),
+      ...(spec ? { spec } : {}),
     };
     if (Object.keys(edited).length === 0) return;
     await tellAgentEdit(after, edited);
@@ -5824,49 +5945,101 @@ export function createApp({
     if (comment) announceComment(comment);
   }
 
-  const areaOrderOf = async (project: string): Promise<string[]> => {
-    const raw = await store.getSetting(`${AREA_ORDER_SETTING}:${project}`);
+  // The project's areas, in the order Home lists them, each with what it is for.
+  const areasOf = async (project: string): Promise<ProjectArea[]> => {
+    const raw = await store.getSetting(`${AREAS_SETTING}:${project}`);
     if (!raw) return [];
     try {
       const v: unknown = JSON.parse(raw);
-      return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+      return Array.isArray(v)
+        ? v.flatMap((x): ProjectArea[] =>
+            x && typeof x === "object" && typeof x.name === "string"
+              ? [
+                  {
+                    name: x.name,
+                    description: typeof x.description === "string" ? x.description : "",
+                    ...(x.by === "user" || x.by === "agent" ? { by: x.by as Author } : {}),
+                  },
+                ]
+              : [],
+          )
+        : [];
     } catch {
       return [];
     }
   };
 
-  // `areaOrder`: the areas in the order Home lists them; [] (or "") hands the
-  // order back to the alphabet.
-  function areaOrderArg(v: unknown): string[] | FlowResult {
+  const projectDescriptionOf = async (project: string): Promise<Described | null> => {
+    const raw = await store.getSetting(`${PROJECT_DESCRIPTION_SETTING}:${project}`);
+    if (!raw) return null;
+    try {
+      const v = JSON.parse(raw);
+      return v && typeof v.text === "string" && v.text ? (v as Described) : null;
+    } catch {
+      return null;
+    }
+  };
+
+  // `areas`: the areas in the order Home lists them; [] (or "") hands the order back to
+  // the alphabet. A description stays with its area wherever the order puts it.
+  function areaNamesArg(v: unknown): string[] | FlowResult {
     const list: unknown = typeof v === "string" ? v.split(",") : v;
     if (!Array.isArray(list) || list.some((x) => typeof x !== "string")) {
-      return fail(400, '"areaOrder" must be a list of area names, e.g. ["Shell", "Food"]');
+      return fail(400, '"areas" must be a list of area names, e.g. ["Shell", "Food"]');
     }
     const names = [...new Set((list as string[]).map((x) => stripNul(x).trim()).filter(Boolean))];
-    if (names.length > MAX_AREAS) return fail(400, `"areaOrder" takes at most ${MAX_AREAS} areas`);
+    if (names.length > MAX_AREAS) return fail(400, `"areas" takes at most ${MAX_AREAS} areas`);
     if (names.some((x) => x.length > MAX_LABEL)) {
       return fail(400, `an area name is at most ${MAX_LABEL} characters`);
     }
     return names;
   }
 
-  // `edit` on a project: a new name for it, carrying its designs, sessions,
-  // flows and settings (refused onto a project that already has designs), and
-  // the order Home lists its areas in.
+  function descriptionArg(v: unknown): string | FlowResult {
+    if (typeof v !== "string") return fail(400, '"description" must be plain text; "" clears it');
+    const text = stripNul(v).replace(/\s+/g, " ").trim();
+    if (text.length > MAX_PROJECT_DESCRIPTION) {
+      return fail(
+        400,
+        `a description is one line: at most ${MAX_PROJECT_DESCRIPTION} characters, got ${text.length}`,
+      );
+    }
+    return text;
+  }
+
+  // `edit` on a project: a new name for it, carrying its designs, sessions, flows and
+  // settings (refused onto a project that already has designs); the order Home lists
+  // its areas in; what the project is for; and, with `area`, what that area is for.
+  // A description the user wrote stands against agents until they clear it.
   async function editProjectFlow(name: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
     const from = str(name, MAX_TITLE);
     if (!from) return fail(400, "provide the project to edit");
-    if (body.name === undefined && body.areaOrder === undefined) {
-      return fail(400, 'provide "name" (the project\'s new name) or "areaOrder"');
+    if (body.name === undefined && body.areas === undefined && body.description === undefined) {
+      return fail(
+        400,
+        'provide "name" (the project\'s new name), "areas" (their order) or "description" (with "area": that area\'s)',
+      );
+    }
+    if (body.area !== undefined && body.description === undefined) {
+      return fail(400, '"area" without a design names the area "description" describes');
     }
     const to = body.name === undefined ? undefined : str(body.name, MAX_TITLE);
     if (body.name !== undefined && !to) return fail(400, '"name" must be the project\'s new name');
     if (to === from) return fail(400, `${from} already has that name`);
-    const order = body.areaOrder === undefined ? undefined : areaOrderArg(body.areaOrder);
+    const order = body.areas === undefined ? undefined : areaNamesArg(body.areas);
     if (isResult(order)) return order;
+    const description =
+      body.description === undefined ? undefined : descriptionArg(body.description);
+    if (isResult(description)) return description;
+    const areaName = body.area === undefined ? undefined : str(body.area, MAX_LABEL);
+    if (body.area !== undefined && !areaName) return fail(400, '"area" must name an area');
     const designs = await store.listDesigns(from);
     if (designs.length === 0) return fail(404, `no project "${from}" with designs`);
+    const named = new Set(designs.flatMap((m) => (m.area ? [m.area] : [])));
+    if (areaName !== undefined && !named.has(areaName)) {
+      return fail(404, `no design in ${from} has area "${areaName}"`, { areas: [...named] });
+    }
     if (to !== undefined) {
       if (!(await store.renameProject(from, to))) {
         return fail(409, `${to} already has designs; pick another name`);
@@ -5874,25 +6047,81 @@ export function createApp({
       clearRenderCache();
     }
     const project = to ?? from;
+    const by: Author = ctx.viewer ? "user" : "agent";
+    let areas = await areasOf(project);
+    const areasBefore = JSON.stringify(areas);
     if (order !== undefined) {
-      await store.setSetting(`${AREA_ORDER_SETTING}:${project}`, JSON.stringify(order));
+      const known = new Map(areas.map((a) => [a.name, a]));
+      // Left out of the order, an area keeps its description, after the ordered ones and
+      // alphabetical, as Home lists every area the order doesn't name.
+      areas = [
+        ...order.map((n) => known.get(n) ?? { name: n, description: "" }),
+        ...areas
+          .filter((a) => !order.includes(a.name) && a.description)
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      ];
+    }
+    let kept: { text: string } | null = null;
+    if (description !== undefined && areaName !== undefined) {
+      const at = areas.findIndex((a) => a.name === areaName);
+      const was = at >= 0 ? areas[at] : null;
+      if (by === "agent" && was?.by === "user" && was.description) kept = { text: was.description };
+      else if (description !== (was?.description ?? "")) {
+        const next: ProjectArea = {
+          name: areaName,
+          description,
+          ...(description ? { by } : {}),
+        };
+        if (was) areas[at] = next;
+        else areas.push(next);
+      }
+    }
+    if (JSON.stringify(areas) !== areasBefore) {
+      await store.setSetting(`${AREAS_SETTING}:${project}`, JSON.stringify(areas));
+    }
+    let projectDescription = await projectDescriptionOf(project);
+    if (description !== undefined && areaName === undefined) {
+      if (by === "agent" && projectDescription?.by === "user")
+        kept = { text: projectDescription.text };
+      else if (description !== (projectDescription?.text ?? "")) {
+        projectDescription = description
+          ? { text: description, by, at: new Date().toISOString() }
+          : null;
+        await store.setSetting(
+          `${PROJECT_DESCRIPTION_SETTING}:${project}`,
+          projectDescription ? JSON.stringify(projectDescription) : "",
+        );
+      }
     }
     for (const m of designs) bus.broadcast({ type: "design-updated", id: m.id, project });
-    const named = new Set(designs.flatMap((m) => (m.area ? [m.area] : [])));
     const unnamed = (order ?? []).filter((a) => !named.has(a));
+    const nudges = [
+      ...(unnamed.length
+        ? [
+            `no design in ${project} has area ${unnamed.map((a) => `"${a}"`).join(", ")} yet; Home lists it once one does`,
+          ]
+        : []),
+      ...(kept
+        ? [
+            `The user wrote ${areaName === undefined ? `what ${project} is for` : `what ${areaName} is for`} by hand, so your description was not applied: work from theirs. It stands until the user clears it`,
+          ]
+        : []),
+    ];
     return ok({
       project,
       ...(to === undefined ? {} : { renamed: { from, to } }),
-      ...(order === undefined ? {} : { areaOrder: order }),
+      ...(order === undefined && description === undefined
+        ? {}
+        : { areas: areas.map(({ name, description }) => ({ name, description })) }),
+      ...(description === undefined
+        ? {}
+        : {
+            ...(areaName === undefined ? {} : { area: areaName }),
+            description: kept ? { applied: false, text: kept.text } : { applied: true },
+          }),
       designs: designs.length,
-      url: `${ctx.base}/project/${encodeURIComponent(project)}`,
-      ...(unnamed.length
-        ? {
-            nudges: [
-              `no design in ${project} has area ${unnamed.map((a) => `"${a}"`).join(", ")} yet; Home lists it once one does`,
-            ],
-          }
-        : {}),
+      url: `${ctx.base}/project/${encodeURIComponent(project)}${areaName ? `?area=${encodeURIComponent(areaName)}` : ""}`,
+      ...(nudges.length ? { nudges } : {}),
       feedback: await feedbackFor(body.session, ctx.base),
     });
   }
@@ -7021,6 +7250,9 @@ export function createApp({
       }),
     ),
   );
+  app.get("/api/projects/:name/areas/:area", async (c) =>
+    send(c, await areaFlow({ project: c.req.param("name"), area: c.req.param("area") })),
+  );
   app.get("/api/projects/:name/flows", async (c) =>
     send(c, await flowOutlineFlow(c.req.param("name"))),
   );
@@ -7411,7 +7643,7 @@ export function createApp({
     });
   }
 
-  // Components by slug, with the first line of their notes and how many screens
+  // Components by slug, with the first line of what each is for and how many screens
   // embed them: the brief's index of what to reuse.
   async function componentIndex(project: string): Promise<ComponentLine[]> {
     const designs = await store.listDesigns(project);
@@ -7431,7 +7663,7 @@ export function createApp({
     }
     return components.map((d) => ({
       slug: d.slug,
-      purpose: (d.notes?.text ?? "").split("\n")[0].trim(),
+      purpose: purposeLine(d.spec),
       screens: screens.get(d.slug)?.size ?? 0,
     }));
   }
@@ -8165,6 +8397,7 @@ export function createApp({
     list: (query) => listDesignsFlow(query),
     exportSystem: (project) => exportSystemFlow(project),
     tree: (query) => treeFlow(query),
+    area: (query) => areaFlow(query),
     decisions: (query) => decisionsFlow(query),
     get: (ref, query) => getDesignFlow(ref, query),
     ask: (ref, body, ctx) => askFlow(ref, body, ctx),

@@ -229,7 +229,7 @@ function detectedLine(system: System | null): string {
 
 export interface ComponentLine {
   slug: string;
-  // The first line of its notes: what it is for.
+  // The first line of its spec's purpose: what it is for.
   purpose: string;
   screens: number;
 }
@@ -544,12 +544,20 @@ and edited by them. Treat each as settled unless they say otherwise: don't ask i
 again or design against it. If one seems wrong for this work, raise it in your
 question. \`archived\` marks a line from an archived design, which may be older thinking.
 
-## Notes
+## The spec
 
-\`mockpit edit --design <slug> --notes "..."\` drafts a short plain-text spec of a
-design: what it's for, what must hold. \`read\` of the design returns it as \`notes\`.
-Read them before changing the design. The user can edit them by hand, and their
-words stand: a later draft isn't applied, and the result says so.
+A screen or component carries its own record, \`spec\` in \`read\` of the design, under
+three headings: What it is for (\`purpose\`), How it works (\`behaviour\`, one line each)
+and Decisions (\`decisions\`, the design's lines of the decision list, which the server
+writes from the user's replies). Behaviour the picture can't show (a gesture, timing,
+what happens next) goes in the spec, never in side files:
+\`mockpit edit --design <slug> --purpose "..."\`, and
+\`--behaviour "Pinch zooms between Now and the whole day" --state Now --part river\`
+adds a line about a state, pinned to a part (an annotation, shown while the user has
+the spec open); a JSON list replaces every line. Keep it current yourself: a publish
+or a feedback batch nudges when decisions are newer than the spec. Read it before
+changing the design. The user can edit each section by hand, and their words stand:
+a later draft of that section isn't applied, and the result says so.
 
 ## Parts
 
@@ -599,11 +607,16 @@ you use adds its section to Home:
 
 A product with several areas names them: \`--area Shell\` (the project's own
 words) groups each Home section by area, and \`--source apps/web/src/shell\` says
-which code implements the design. An idea that becomes a screen is promoted
+which code implements the design. Read an area before drawing in it:
+\`mockpit read --area Food\` is what the project and the area are for, its screens,
+flows and components, the shared components, what was decided on them and the
+ideas waiting there. \`mockpit edit --project <p> --area Food --description "..."\`
+says in one line what an area is for, and without \`--area\` what the project is
+for; the user's own stands. An idea that becomes a screen is promoted
 with \`mockpit edit --design <slug> --kind screen\` (no new version), and
 \`--slug\`, \`--title\`, \`--area\` and \`--source\` change the same way; a new
 slug rewrites every embed and flow step that names the old one. Home lists
-areas alphabetically unless \`mockpit edit --project <p> --area-order
+areas alphabetically unless \`mockpit edit --project <p> --areas
 "Shell,Food"\` sets the order (unlisted ones follow, alphabetical).
 
 Tidying up is yours too when the user asks: \`mockpit move --design <slug> --variant
@@ -674,8 +687,9 @@ the user's next message is the wake-up.
 A \`pending\` draft means the user is still answering. Send a nudge's
 \`suggestedAsk\` with \`ask\`.
 \`edited: {kind, area}\` means the user moved the design from Home; it is done,
-so build on it and don't move it back. \`edited: {notes}\` is the user's correction
-of the design's notes.
+so build on it and don't move it back. \`edited: {spec}\` is the user's correction
+of the design's spec, by section (null where they cleared one). A batch's \`nudges\`
+say what the design needs now, such as its spec updated.
 \`read\` shows what the user took away, as information: a design's \`archivedAt\` and
 \`archiveReason\`, a variant's \`archived\` status and \`archiveReason\`. A question
 you ask on an archived design brings it back to their list.

@@ -41,9 +41,9 @@ type Pending = { design: string; archived?: true; viewerOpen: boolean; draft: nu
 declare const mockpit: {
   guide(topic?: "system" | "knobs" | "asks" | "surfaces" | "html" | "feedback" | "http" | "scripts"): Promise<string>;
   /** Read first: decisionList is what the user already settled; it stands unless they say otherwise.
-   * No design: every design, the flows, plus pending. With one: its states, variants, asks, parts, knobs.
+   * No design: every design, the flows, plus pending; opts.area: one area. With one: its spec, states, variants, asks, parts, knobs.
    * opts.decisions: only the whole list, when a read cut it. */
-  read(design?: string, opts?: { body?: boolean; history?: boolean; decisions?: boolean }): Promise<unknown>;
+  read(design?: string, opts?: { body?: boolean; history?: boolean; decisions?: boolean; area?: string }): Promise<unknown>;
   /** Creates or versions (design, state, variant). One of: html; surfaces, the full ordered list
    * ({id} alone keeps that surface, a missing id is removed); parts {"name"|"name#key": outer html};
    * fills {"part#fill": outer html}, replacing or adding one fill of a part.
@@ -55,9 +55,9 @@ declare const mockpit: {
   say(v: Ref, message: string): Promise<void>;
   /** to or toState moves variants there; archive hides them; restore brings them back. */
   move(v: Ref & { variants: string[]; to?: string; toState?: string; archive?: boolean; restore?: boolean }): Promise<{ variants: { state: string | null; variant: string; status: string }[]; skipped: { variant: string; why: string }[]; url: string }>;
-  /** No new version; "" clears. { rename } or { areaOrder } without design edits the project.
-   * notes: a short plain-text spec; not applied over the user's own edit (notes.applied says). */
-  edit(v: { design?: string; slug?: string; title?: string; kind?: string; area?: string; source?: string; firstState?: string; notes?: string; rename?: string; areaOrder?: string[] }): Promise<{ url: string; notes?: { applied: boolean; text?: string } }>;
+  /** No new version; "" clears. Without design, rename, areas or description (with area: its) edit the project.
+   * purpose, behaviour: the spec; not applied over the user's own edit (spec.*.applied). */
+  edit(v: { design?: string; slug?: string; title?: string; kind?: string; area?: string; source?: string; firstState?: string; purpose?: string; behaviour?: { text: string; state?: string; part?: string }[]; rename?: string; areas?: string[]; description?: string }): Promise<{ url: string; spec?: unknown }>;
   /** The project's system: sheet, tokens, scales, palettes, project knobs. No argument reads it;
    * each key replaces its part (tokens, scales, palettes upsert by name). Applies to every design at once. */
   system(v?: { sheet?: string; classes?: { name: string; note: string }[]; fonts?: { family: string; href?: string }[]; tokens?: unknown[]; scales?: unknown[]; roles?: { name: string; note: string }[]; palettes?: unknown[]; pairs?: [string, string, number][]; as?: Record<string, string>; knobs?: Knobs; remove?: { tokens?: string[]; palettes?: string[]; scales?: string[] }; restore?: number }): Promise<{ rev: number; changed?: string[]; kept?: string[]; checks: string[]; url: string }>;

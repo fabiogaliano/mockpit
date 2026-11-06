@@ -105,10 +105,11 @@ verbs:
       --multi           allow several answers
       --id <id>         stable id; reusing one replaces that question
       --asks <json|file>  several questions at once, full shape
-  mockpit read [slug] [--body] [--history] [--decisions]
+  mockpit read [slug] [--body] [--history] [--decisions] [--area <name>]
                                           what the user already decided, then
                                           no slug: every design plus what the user
-                                          is doing now; a slug: that design
+                                          is doing now; a slug: that design and its
+                                          spec; --area: one area, all settled in it
   mockpit feedback                       what the user sent since you last heard,
                                           plus pending; returns at once
   mockpit say "<text>" --design <slug> [--state s] [--variant v]
@@ -116,11 +117,15 @@ verbs:
   mockpit move --design <slug> --variant <v>... (--to <design> [--to-state s] | --archive | --restore)
                                           move variants elsewhere, archive or restore them
   mockpit edit --design <slug> [--slug s] [--title t] [--kind k] [--area a] [--source p]
-                                          change a design without a new version ("" clears)
+          [--purpose t] [--behaviour t [--state s] [--part p]]
+                                          change a design or its spec without a new
+                                          version ("" clears)
   mockpit edit --project <name> --rename <new>
                                           rename a project
-  mockpit edit --project <name> --area-order "Shell,Food"
+  mockpit edit --project <name> --areas "Shell,Food"
                                           the order Home lists areas in
+  mockpit edit --project <name> [--area a] --description <line>
+                                          what the project, or one area, is for
   mockpit system [--sheet f.css] [--classes j] [--tokens j] [--scales j] [--palettes j] ...
                                           the project's system: read it, or change a part
                                           (applies to every design at once)
@@ -262,12 +267,17 @@ mockpit publish --design <slug> [--state s] [--variant v] --withdraw
   Ask the user. A choice is several variants plus one question that binds them.
   Then tell the user where to look and end your turn.`,
   read: `mockpit read [slug] [--project <name>] [--body] [--history] [--tree] [--decisions]
-  Read this first. Both forms carry the project's decision list, what the user
+mockpit read --area <name> [--project <name>]
+  Read this first. Every form carries the project's decision list, what the user
   already settled, from their replies: treat each line as settled unless they say
   otherwise. No slug: one line per design (states, variants, open questions), one per
   flow, plus pending, what the user is doing now, then the decisions. A slug: the
-  design's states, variants, questions with answers, parts, knobs and settled values,
-  plus its pending and decisionList (its own lines marked here), as JSON.
+  design's spec (purpose: what it is for; behaviour: how it works; decisions: what was
+  settled on it), states, variants, questions with answers, parts, knobs and settled
+  values, plus its pending and decisionList (its own lines marked here), as JSON.
+  --area: one product area, read before drawing in it: what the project and the area
+  are for, its screens, flows and components (purpose, states), the shared components,
+  their decisions and the ideas waiting there, as JSON.
   --body includes surfaces, --history version rows. --tree (no slug): the
   project as a tree, each design's variants with status and forkedFrom, and the
   designs it embeds and is embedded in, as JSON. --decisions: the whole list, when
@@ -293,22 +303,31 @@ mockpit move --design <slug> [--state s] [--variant <v>...] --hide-older | --del
   skipping and listing any that a reply, comment, question, embed, copy or fork still
   points at, or that is in use. It can't be undone: confirm first.`,
   edit: `mockpit edit --design <slug> [--slug <new>] [--title <t>] [--kind screen|component|idea]
-  [--first-state <name>] [--notes <text>|""]
+  [--first-state <name>] [--purpose <text>|""]
+  [--behaviour <text> [--state <s>] [--part <p>] | --behaviour <json|file>|""]
   [--area <name>|""] [--source <path>|""] [--project <name>]
 mockpit edit --project <name> --rename <new name>
-mockpit edit --project <name> --area-order "Shell,Food,Chat"
+mockpit edit --project <name> --areas "Shell,Food,Chat"
+mockpit edit --project <name> [--area <name>] --description <one line>|""
   Change a design without publishing a new version; "" clears area or source. A new
   slug rewrites every embed, data-goto and flow step that names the old one, in
   every version. A design still embedded somewhere stays a component, not an idea.
-  --notes drafts the design's short plain-text spec, which read returns; the user's own
-  edit of it stands, so the draft is then not applied and the result says so.
+  --purpose and --behaviour write the design's spec, which read returns: what it is for,
+  and how it works where the picture can't show it (pinch, timing, what happens next).
+  That goes here, never in side files. --behaviour with text adds one line, about
+  --state and pinned to --part (an annotation); with a JSON list
+  ('[{"text":"…","state":"Now","part":"river"}]') it replaces every line; "" clears. A
+  section the user wrote by hand stands, so a draft is then not applied and the
+  result says so.
   --first-state names a design's one unnamed state, and every variant it holds goes
   there, so the design can then have more states.
   --rename moves the project's designs, sessions, flows, system and settings to the
   new name (refused if that project has designs); pass --project <new> or set
   MOCKPIT_PROJECT afterwards if the repo still resolves to the old name.
-  --area-order lists the project's areas in the order Home shows them; areas it
-  leaves out follow alphabetically, "" goes back to alphabetical.`,
+  --areas lists the project's areas in the order Home shows them; areas it leaves
+  out follow alphabetically, "" goes back to alphabetical. --description says in one
+  line what the project is for, or with --area what that area is for; the user's own
+  stands until they clear it.`,
   system: `mockpit system [--project <name>] [--json]
 mockpit system [--sheet <file.css>|""] [--classes <json>] [--fonts <json>] [--tokens <json>]
   [--scales <json>] [--roles <json>] [--palettes <json>] [--pairs <json>] [--as <json>]
@@ -990,6 +1009,35 @@ function requireDesign(flags, example) {
   return slug;
 }
 
+// `--behaviour`: "" clears, a JSON list (inline or a file) replaces every line, and
+// plain text is one more line, about --state and pinned to --part. A line with the
+// same text is replaced, so running it again doesn't repeat it.
+async function behaviourLines(slug, project, flags) {
+  const value = flags.behaviour;
+  if (value === "") return [];
+  const looksJson = /^\s*\[/.test(value) || (existsSync(value) && /\.json$/i.test(value));
+  if (looksJson) {
+    if (flags.state !== undefined || flags.part !== undefined) {
+      die("--state and --part go with one --behaviour line, not a list", "mockpit edit --help");
+    }
+    const list = readJsonFlag("behaviour", value);
+    if (!Array.isArray(list)) die("--behaviour takes a JSON list of lines", "mockpit edit --help");
+    return list;
+  }
+  const design = await api(
+    `${designPath(slug)}${query({ project })}`,
+    {},
+    { report: "die", fix: `mockpit read --project ${project}` },
+  );
+  const line = {
+    text: value.trim(),
+    ...(flags.state ? { state: flags.state } : {}),
+    ...(flags.part ? { part: flags.part } : {}),
+  };
+  const lines = (design.spec?.behaviour ?? []).filter((l) => l.text !== line.text);
+  return [...lines, line];
+}
+
 // A value that may be inline JSON or a file holding it.
 function readJsonFlag(name, value) {
   const text = existsSync(value) ? readFileSync(value, "utf8") : value;
@@ -1338,6 +1386,10 @@ function printRun(r) {
   if (r.truncated) console.log("(output truncated)");
 }
 
+// One line of a spec's How it works, with where it applies.
+const specLineText = (l) =>
+  `${[l.state, l.part].filter(Boolean).length ? `[${[l.state, l.part].filter(Boolean).join(" · ")}] ` : ""}${l.text}`;
+
 function watchLines(batch) {
   const lines = [];
   const name = batch.design ?? "a design";
@@ -1349,11 +1401,18 @@ function watchLines(batch) {
       e.area !== undefined ? (e.area ? `area ${e.area}` : "no area") : "",
     ].filter(Boolean);
     if (bits.length) lines.push(`mockpit edited ${name}: the user moved it (${bits.join(", ")})`);
-    if (e.notes !== undefined) {
+    if (e.spec?.purpose !== undefined) {
       lines.push(
-        e.notes === null
-          ? `mockpit edited ${name}: the user cleared its notes`
-          : `mockpit edited ${name}: the user edited its notes: ${e.notes}`,
+        e.spec.purpose === null
+          ? `mockpit edited ${name}: the user cleared what it is for`
+          : `mockpit edited ${name}: the user wrote what it is for: ${e.spec.purpose}`,
+      );
+    }
+    if (e.spec?.behaviour !== undefined) {
+      lines.push(
+        e.spec.behaviour === null
+          ? `mockpit edited ${name}: the user cleared how it works`
+          : `mockpit edited ${name}: the user wrote how it works: ${e.spec.behaviour.map(specLineText).join(" / ")}`,
       );
     }
   }
@@ -1882,10 +1941,21 @@ const commands = {
         history: { type: "boolean" },
         tree: { type: "boolean" },
         decisions: { type: "boolean" },
+        area: { type: "string" },
       },
     });
     const project = resolveProject(flags).name;
     if (positionals.length > 1) die("read takes one design slug", "mockpit read writer");
+    if (flags.area !== undefined) {
+      if (positionals.length) die("--area reads an area, not a design", "mockpit read --area Food");
+      return out(
+        await api(
+          `/api/projects/${encodeURIComponent(project)}/areas/${encodeURIComponent(flags.area)}`,
+          {},
+          { report: "die", fix: `mockpit read --project ${project}` },
+        ),
+      );
+    }
     if (flags.decisions) {
       return out(
         await api(
@@ -2233,18 +2303,22 @@ const commands = {
         area: { type: "string" },
         source: { type: "string" },
         "first-state": { type: "string" },
-        notes: { type: "string" },
+        purpose: { type: "string" },
+        behaviour: { type: "string" },
+        state: { type: "string" },
+        part: { type: "string" },
         rename: { type: "string" },
-        "area-order": { type: "string" },
+        areas: { type: "string" },
+        description: { type: "string" },
       },
     });
     const project = resolveProject(flags).name;
     const session = (await resolveSession(flags)) ?? undefined;
-    const areaOrder = flags["area-order"];
-    if (flags.rename !== undefined || areaOrder !== undefined) {
+    const areas = flags.areas;
+    if (flags.rename !== undefined || areas !== undefined || flags.description !== undefined) {
       if (flags.design) {
         die(
-          "--rename and --area-order edit the project; edit the design without them",
+          "--rename, --areas and --description edit the project (with --area, that area); edit the design without them",
           "mockpit edit --help",
         );
       }
@@ -2257,7 +2331,10 @@ const commands = {
           method: "PATCH",
           body: JSON.stringify({
             name: flags.rename,
-            ...(areaOrder === undefined ? {} : { areaOrder: areaOrder.split(",") }),
+            ...(areas === undefined ? {} : { areas: areas ? areas.split(",") : [] }),
+            ...(flags.description === undefined
+              ? {}
+              : { description: flags.description, area: flags.area }),
             session,
           }),
         },
@@ -2265,9 +2342,18 @@ const commands = {
       );
       if (flags.json) return out(result);
       if (flags.quiet) return;
-      if (result.areaOrder) {
+      if (areas !== undefined && result.areas) {
+        const ordered = result.areas.map((a) => a.name);
         console.log(
-          `area order ${result.areaOrder.length ? result.areaOrder.join(", ") : "alphabetical"} · ${result.url}`,
+          `area order ${ordered.length ? ordered.join(", ") : "alphabetical"} · ${result.url}`,
+        );
+      }
+      if (result.description) {
+        const what = result.area ? `area ${result.area}` : `project ${result.project}`;
+        console.log(
+          result.description.applied
+            ? `${what}: description saved · ${result.url}`
+            : `${what}: description NOT applied, the user's stands: ${result.description.text}`,
         );
       }
       for (const nudge of result.nudges ?? []) console.log(`nudge: ${nudge}`);
@@ -2284,15 +2370,23 @@ const commands = {
       return;
     }
     const slug = requireDesign(flags, "mockpit edit --design writer --area Shell");
-    const fields = ["slug", "title", "kind", "area", "source", "notes"].filter(
+    const fields = ["slug", "title", "kind", "area", "source", "purpose"].filter(
       (k) => flags[k] !== undefined,
     );
-    if (!fields.length && flags["first-state"] === undefined) {
+    if (!fields.length && flags["first-state"] === undefined && flags.behaviour === undefined) {
       die(
-        "edit needs --slug, --title, --kind, --area, --source, --notes or --first-state",
+        "edit needs --slug, --title, --kind, --area, --source, --purpose, --behaviour or --first-state",
         "mockpit edit --help",
       );
     }
+    if ((flags.state !== undefined || flags.part !== undefined) && flags.behaviour === undefined) {
+      die(
+        "--state and --part place a --behaviour line",
+        `mockpit edit ${slug} --behaviour "…" --state Now`,
+      );
+    }
+    const behaviour =
+      flags.behaviour === undefined ? undefined : await behaviourLines(slug, project, flags);
     const result = await api(
       designPath(slug),
       {
@@ -2301,6 +2395,7 @@ const commands = {
           project,
           session,
           ...Object.fromEntries(fields.map((k) => [k, flags[k]])),
+          ...(behaviour === undefined ? {} : { behaviour }),
           firstState: flags["first-state"],
         }),
       },
@@ -2315,14 +2410,23 @@ const commands = {
         m.kind,
         m.area && `area ${m.area}`,
         m.source && `source ${m.source}`,
-        result.notes && (result.notes.applied ? "notes saved" : "notes NOT applied"),
+        result.spec?.purpose &&
+          (result.spec.purpose.applied ? "purpose saved" : "purpose NOT applied"),
+        result.spec?.behaviour &&
+          (result.spec.behaviour.applied ? "behaviour saved" : "behaviour NOT applied"),
         result.url,
       ]
         .filter(Boolean)
         .join(" · "),
     );
     for (const nudge of result.nudges ?? []) console.log(`nudge: ${nudge}`);
-    if (result.notes && !result.notes.applied) console.log(`notes: ${result.notes.text}`);
+    if (result.spec?.purpose && !result.spec.purpose.applied) {
+      console.log(`what it is for, as the user wrote it: ${result.spec.purpose.text}`);
+    }
+    if (result.spec?.behaviour && !result.spec.behaviour.applied) {
+      console.log("how it works, as the user wrote it:");
+      for (const l of result.spec.behaviour.lines ?? []) console.log(`  ${specLineText(l)}`);
+    }
     printFeedback(result.feedback);
   },
   async demo() {

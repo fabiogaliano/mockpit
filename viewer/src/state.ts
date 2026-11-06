@@ -22,6 +22,7 @@ import {
   type PartCommentAnchor,
   type Reaction,
   type ReplyVerdict,
+  type SpecLine,
   type StateOutline,
 } from "../../server/types.ts";
 import type { SlotInfo } from "../../server/fills.ts";
@@ -108,8 +109,12 @@ const RECIPIENTS_MS = 10_000;
 // where you tap, Tune outlines the parts and opens one's knobs.
 export type Tool = "try" | "mark" | "tune";
 // The bottom panel, opened from the version label.
-export type PanelTab = "history" | "thread" | "notes";
+export type PanelTab = "history" | "thread" | "spec";
 export type AskField = "other" | "comment";
+// A section of the spec being written: what it is for, or the lines of how it works.
+export type SpecDraft =
+  | { section: "purpose"; text: string }
+  | { section: "behaviour"; lines: SpecLine[] };
 
 // An image on its way up (a local preview), or one that failed (with why).
 export interface PendingImage {
@@ -2488,13 +2493,14 @@ export function createDesignScreen(
     const state = activeState();
     return sendAlone({ text: `Please draw ${m.title}${state ? `, ${state}` : ""}.` });
   }
-  // What's being written stays while the panel shuts or another opens.
-  const [notesWriting, setNotesWriting] = createSignal<string | null>(null);
+  // What's being written stays while the panel shuts or another opens: one section of
+  // the spec at a time, each its own edit.
+  const [specWriting, setSpecWriting] = createSignal<SpecDraft | null>(null);
   // A hand edit: what later agents read, and what an active one hears in its feedback.
-  function saveNotes(text: string) {
+  function saveSpec(edit: { purpose: string } | { behaviour: SpecLine[] }) {
     const m = design();
     if (!m || readonly()) return Promise.resolve(false);
-    return api.editDesign(m.id, { notes: text }).then(
+    return api.editDesign(m.id, edit).then(
       async () => {
         await loadDesign();
         return true;
@@ -2675,15 +2681,15 @@ export function createDesignScreen(
     askNew,
     outlinable,
     stateOutlines,
-    notesWriting,
-    setNotesWriting,
+    specWriting,
+    setSpecWriting,
     askingState,
     setAskingState,
     dismissOutline,
     dropPlannedState,
     askForState,
     askToDraw,
-    saveNotes,
+    saveSpec,
     viewNewVersion,
     toast,
     setToast,
