@@ -1,6 +1,7 @@
 // Shared data model — no runtime imports, safe for any platform.
 
-import type { Mode, Palette } from "./themes.ts";
+import type { System, SystemRevisionHead } from "./system.ts";
+import type { Mode } from "./themes.ts";
 
 export interface Session {
   id: string;
@@ -120,6 +121,9 @@ export interface HtmlSurface {
   // Set on a still mockpit took itself: the mode the page was in. Overviews in the other
   // mode run the page instead. An agent's own poster names none and always shows.
   posterMode?: Mode;
+  // With posterMode: the project system's revision it was taken under. Under any
+  // other the page runs instead (absent: taken before systems, good through rev 1).
+  posterSystem?: number;
 }
 
 // A markdown surface is prose — explanations, plans, tradeoff write-ups. The
@@ -379,7 +383,7 @@ export function postAtVersion(post: Post, version: number): Post | null {
   if (version === post.version) return post;
   const old = post.history.find((h) => h.version === version);
   if (!old) return null;
-  const { from: _f, prompt: _p, author: _a, ...rest } = post;
+  const { from: _f, prompt: _p, author: _a, contract: _c, system: _s, ...rest } = post;
   return {
     ...rest,
     version: old.version,
@@ -389,6 +393,8 @@ export function postAtVersion(post: Post, version: number): Post | null {
     ...(old.from === undefined ? {} : { from: old.from }),
     ...(old.prompt === undefined ? {} : { prompt: old.prompt }),
     ...(old.author === undefined ? {} : { author: old.author }),
+    ...(old.contract === undefined ? {} : { contract: old.contract }),
+    ...(old.system === undefined ? {} : { system: old.system }),
   };
 }
 
@@ -410,6 +416,8 @@ export interface AskOption {
   version?: number;
   // Picking this option means "these knob values".
   set?: Record<string, KnobValue>;
+  // Picking this option makes this palette of the project's system the default.
+  palette?: string;
   // The one the agent would pick: a quiet mark on it, never a label.
   recommended?: true;
 }
@@ -421,6 +429,8 @@ export interface AnswerAddition {
   value: string;
   style?: string;
   fill?: string;
+  // Bumped each time the agent revises what the value draws; absent is the first.
+  rev?: number;
 }
 
 export type AskAnswer = string | string[];
@@ -612,6 +622,9 @@ export interface Reply {
   // Neither an answer nor an archive: the user moved the design from Home
   // (another kind, another area; null area: none), which the agent must hear.
   edited?: DesignEdit;
+  // What this reply changed on the project's system: the revision it made and how.
+  // Alone (no design) it is the user's hand on the System page.
+  system?: { project: string; rev: number; changes: string[] };
 }
 
 export interface DesignEdit {
@@ -718,6 +731,10 @@ export interface PostVersion {
   publishedBy?: string;
   // Set when the agent replaced it in place before the user acted on it.
   amendedAt?: string;
+  // The render contract it was published under (absent: 1, before cascade
+  // layers) and the project system's revision at the time.
+  contract?: number;
+  system?: number;
 }
 
 // A variant of one state of a design.
@@ -782,6 +799,8 @@ export interface Post {
   author?: string;
   publishedBy?: string;
   amendedAt?: string;
+  contract?: number;
+  system?: number;
   // How often a version of this variant was rewritten in place (amended or
   // withdrawn). A version number alone no longer names fixed content, so
   // render caches and frame URLs carry this too.
@@ -838,36 +857,6 @@ export interface ProjectSummary {
   sessions: number;
 }
 
-// Per-project design system state, imported from the repo by `mockpit init`
-// and rendered into every html surface's sandbox (see renderHtmlPage). Stored
-// as JSON under the settings key `design:<project>`.
-export interface DesignSystem {
-  detected: { tailwind: boolean; shadcn: boolean; cssVars: number; fonts: string[] } | null;
-  palette: { light: Palette; dark: Palette } | null;
-  // "tailwind" (the repo's own utilities), "none", or a bundled or project kit
-  // id injected into every html surface of the project.
-  kit: string;
-  // Raw `:root{...}` block imported from the repo, injected into the frame.
-  cssVars: string;
-  // The repo's Tailwind entry stylesheet, reduced to what the browser build
-  // compiles, so the repo's theme classes work in the frame. Empty when the
-  // project is not on Tailwind v4. Older settings predate it; read as "".
-  tailwindCss: string;
-  // What init removed from it (non-core imports, plugins, configs): the
-  // utilities those provide are missing in the frame.
-  strippedImports: string[];
-  // Iconify sets installed for this project (`mockpit icons add`), on top of
-  // the ones bundled with the server. Older settings predate it; read as [].
-  iconSets: IconSetRef[];
-  // Kits this project defined (`mockpit kit add`). Older settings predate it;
-  // read as [].
-  projectKits: ProjectKit[];
-  // What the repo's DESIGN.md, DTCG token files and shadcn components.json
-  // say, read by init for the brief. Older settings predate it; read as null.
-  designFiles?: DesignFiles | null;
-  updatedAt: string;
-}
-
 // A team's own component CSS on the CDN allowlist: addressable in
 // `surfaces[].kits` like a bundled kit. `doc` is the class cheat sheet the brief
 // prints when this kit is the project's default.
@@ -897,6 +886,8 @@ export interface DesignFiles {
     // Every token name, dots as dashes, is declared in the frame's stylesheet.
     cssVars: boolean;
     values: Record<string, string>;
+    // Each token's DTCG `$type`, where the file gave one.
+    types?: Record<string, string>;
   };
   shadcn?: { style: string; baseColor: string; iconLibrary: string; components: string[] };
 }
@@ -1072,6 +1063,9 @@ export interface CreatePostInput {
   prompt?: string;
   author?: string;
   publishedBy?: string;
+  // Absent: the current contract. A copy passes its original's.
+  contract?: number;
+  system?: number;
 }
 
 export interface UpdatePostInput {
@@ -1089,6 +1083,8 @@ export interface UpdatePostInput {
   // first named state).
   state?: string | null;
   publishedBy?: string;
+  contract?: number;
+  system?: number;
 }
 
 // An in-place replacement of a variant's latest version: same number and
@@ -1112,6 +1108,8 @@ export interface CreateCommentInput {
 export interface CommentQuery {
   sessionId?: string;
   designId?: string;
+  // Only comments on no design: the user's decisions on the project's system.
+  noDesign?: boolean;
   postId?: string;
   afterSeq?: number;
 }
@@ -1149,6 +1147,8 @@ export interface CommitReplyInput {
   keepDraft?: true;
   // The session taking the design over, when this reply went to one that isn't its owner.
   owner?: string;
+  // What the reply decided for the project's system, written in the same transaction.
+  system?: { next: System; summary: string };
 }
 
 export interface PostQuery {
@@ -1202,8 +1202,24 @@ export interface Store {
   // the design is missing or already has states.
   nameFirstState(id: string, state: string): Promise<Design | null>;
   // Moves everything keyed by the project name (designs, sessions, flows, the
-  // design settings) to `to`. False when `to` already has designs.
+  // system) to `to`. False when `to` already has designs.
   renameProject(from: string, to: string): Promise<boolean>;
+
+  // The project's system, or null when nothing was ever written to it.
+  getSystem(project: string): Promise<System | null>;
+  // Stores it at `system.rev` and keeps it as a revision, dropping the oldest
+  // past the limit. The caller bumps the rev.
+  putSystem(system: System, meta: { sessionId: string | null; summary: string }): Promise<System>;
+  // The user's own change to the system and the reply that tells the agent, as one
+  // write; no reply when the project has no agent to tell.
+  commitSystemDecision(input: {
+    system: System;
+    summary: string;
+    tell: { sessionId: string; payload: Reply } | null;
+  }): Promise<Comment | null>;
+  // Newest first.
+  listSystemRevisions(project: string): Promise<SystemRevisionHead[]>;
+  getSystemRevision(project: string, rev: number): Promise<System | null>;
 
   // One project's flows, in the order they were first declared.
   listFlows(project: string): Promise<Flow[]>;
@@ -1240,7 +1256,13 @@ export interface Store {
   amendPost(id: string, version: number, patch: AmendPostInput): Promise<Post | null>;
   // On a variant's latest version, if its first page has no poster yet. Touches nothing else:
   // not the version, not when it was updated, so it reads as nothing having happened.
-  setPosterOnce(id: string, version: number, poster: string, mode?: Mode): Promise<boolean>;
+  setPosterOnce(
+    id: string,
+    version: number,
+    poster: string,
+    mode?: Mode,
+    system?: number,
+  ): Promise<boolean>;
   withdrawVersion(
     id: string,
     version: number,
@@ -1306,6 +1328,7 @@ export interface SurfaceHead {
   kind: Surface["kind"];
   poster?: string;
   posterMode?: Mode;
+  posterSystem?: number;
   marked?: boolean;
 }
 

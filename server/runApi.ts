@@ -22,7 +22,7 @@ type Surface =
   | { kind: "code"; code: string; language?: string; lineStart?: number };
 type Ask = {
   id?: string; text: string; scope?: "design" | "state" | "part"; state?: string; part?: string; multi?: boolean;
-  options: { id?: string; label: string; variant?: string; set?: Knobs; recommended?: boolean }[];
+  options: { id?: string; label: string; variant?: string; set?: Knobs; palette?: string; recommended?: boolean }[];
 };
 type Written = {
   post?: { state: string | null; variant: string; version: number }; planned?: true; url: string;
@@ -35,10 +35,11 @@ type Feedback = {
   reply: null | { asks: { ask: string; chosen: { id: string; label: string; other?: true }[]; comment?: string }[]; borrowed: Record<string, string>; tuned: Knobs; comments: { part: string | null; text: string }[]; verdict?: { kind: "use" | "revise"; state: string | null; variant: string; version?: number } };
   messages: { text: string; state: string | null; variant: string | null }[];
   inUse: { state: string | null; variant: string; version: number }[]; archived: { state: string | null; variant: string }[];
+  system?: { rev: number; changes: string[] };
 };
 type Pending = { design: string; archived?: true; viewerOpen: boolean; draft: null | { answered: number; of: number; comments: number; touchedAt: string } };
 declare const mockpit: {
-  guide(topic?: "knobs" | "asks" | "surfaces" | "html" | "feedback" | "http" | "scripts"): Promise<string>;
+  guide(topic?: "system" | "knobs" | "asks" | "surfaces" | "html" | "feedback" | "http" | "scripts"): Promise<string>;
   /** Read first: decisionList is what the user already settled; it stands unless they say otherwise.
    * No design: every design, the flows, plus pending. With one: its states, variants, asks, parts, knobs.
    * opts.decisions: only the whole list, when a read cut it. */
@@ -57,7 +58,12 @@ declare const mockpit: {
   /** No new version; "" clears. { rename } or { areaOrder } without design edits the project.
    * notes: a short plain-text spec; not applied over the user's own edit (notes.applied says). */
   edit(v: { design?: string; slug?: string; title?: string; kind?: string; area?: string; source?: string; firstState?: string; notes?: string; rename?: string; areaOrder?: string[] }): Promise<{ url: string; notes?: { applied: boolean; text?: string } }>;
+  /** The project's system: sheet, tokens, scales, palettes, project knobs. No argument reads it;
+   * each key replaces its part (tokens, scales, palettes upsert by name). Applies to every design at once. */
+  system(v?: { sheet?: string; classes?: { name: string; note: string }[]; fonts?: { family: string; href?: string }[]; tokens?: unknown[]; scales?: unknown[]; roles?: { name: string; note: string }[]; palettes?: unknown[]; pairs?: [string, string, number][]; as?: Record<string, string>; knobs?: Knobs; remove?: { tokens?: string[]; palettes?: string[]; scales?: string[] }; restore?: number }): Promise<{ rev: number; changed?: string[]; kept?: string[]; checks: string[]; url: string }>;
   export(v: Ref): Promise<{ states: { state: string | null; variant: string; version: number; html: string; allFills?: string }[]; reply: unknown }>;
+  /** Without design: the project's system for code. css holds the default palette on :root and kept ones by [data-palette]. */
+  export(v: {}): Promise<{ rev: number; sheet: string; css: string; tokens: unknown; knobs: Record<string, unknown>; additions: { knob: string; value: string; style: string }[]; components: { slug: string; purpose: string; source: string | null }[] }>;
   /** data: base64 bytes. Use id as an image surface's assetId. */
   upload(data: string, opts: { contentType: string; filename?: string; kind?: "image" | "file" }): Promise<{ id: string; url: string }>;
 };
@@ -73,6 +79,7 @@ export const RUN_FUNCTIONS = [
   "say",
   "move",
   "edit",
+  "system",
   "export",
   "upload",
 ] as const;

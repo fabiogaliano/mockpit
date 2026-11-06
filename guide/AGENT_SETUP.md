@@ -9,7 +9,9 @@ design questions. Before your first publish, read the brief:
     MOCKPIT_URL=http://localhost:8228 mockpit guide
 
 Then `mockpit read`: its `decisionList` is what the user already settled, and
-stands unless they say otherwise.
+stands unless they say otherwise. What every design of the project shares (a
+sheet, tokens, scales, palettes, project knobs) is its system: `mockpit system`
+reads and changes it (MCP `system`), for every design at once.
 
 Without the CLI: `curl -s http://localhost:8228/agent-howto`. Over MCP: the
 `guide` tool. The brief never overrides system, developer, project or user

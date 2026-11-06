@@ -21,7 +21,7 @@ export interface Accent {
   onSolid?: string;
 }
 
-export interface Palette {
+export interface ChromeColors {
   bg: string; // app background (deepest chrome)
   panel: string; // raised panel / code-block background
   surface: string; // card / html-part body background
@@ -42,8 +42,8 @@ export interface Theme {
   label: string;
   // Shiki theme names (bundled) for markdown code + diffs, by color scheme.
   shiki: { light: string; dark: string };
-  light: Palette;
-  dark: Palette;
+  light: ChromeColors;
+  dark: ChromeColors;
 }
 
 // A resolved color scheme. The chrome resolves this from the OS via a CSS
@@ -53,7 +53,7 @@ export interface Theme {
 export type Mode = "light" | "dark";
 
 // Viewer chrome variables (styles.css names). Accent maps to the info state.
-function viewerVars(p: Palette): Record<string, string> {
+function viewerVars(p: ChromeColors): Record<string, string> {
   return {
     bg: p.bg,
     panel: p.panel,
@@ -74,7 +74,7 @@ function viewerVars(p: Palette): Record<string, string> {
 
 // Html-part design tokens (surfacePage names — the agent-facing contract).
 // Same variable NAMES in both schemes; only the values change.
-function tokenVars(p: Palette): Record<string, string> {
+function tokenVars(p: ChromeColors): Record<(typeof CHROME_TOKENS)[number], string> {
   return {
     "color-background-primary": p.surface,
     "color-background-secondary": p.panel,
@@ -100,10 +100,35 @@ function tokenVars(p: Palette): Record<string, string> {
   };
 }
 
+// The names of mockpit's own html tokens, reserved in a project's system.
+export const CHROME_TOKENS = [
+  "color-background-primary",
+  "color-background-secondary",
+  "color-background-tertiary",
+  "color-background-info",
+  "color-background-success",
+  "color-background-warning",
+  "color-background-danger",
+  "color-text-primary",
+  "color-text-secondary",
+  "color-text-tertiary",
+  "color-text-info",
+  "color-text-success",
+  "color-text-warning",
+  "color-text-danger",
+  "color-border-primary",
+  "color-border-secondary",
+  "color-border-tertiary",
+  "color-border-info",
+  "color-border-success",
+  "color-border-warning",
+  "color-border-danger",
+] as const;
+
 // Terminal chrome. Always sourced from the theme's DARK palette (a terminal
 // reads as a terminal — ANSI output assumes a dark backdrop — so it stays dark
 // in light mode too), but tinted to the theme so it doesn't look foreign.
-function termVars(dark: Palette): Record<string, string> {
+function termVars(dark: ChromeColors): Record<string, string> {
   return {
     "term-bg": dark.bg,
     "term-bar": dark.panel,
@@ -219,24 +244,16 @@ export function themeById(_id?: string | null): Theme {
 
 export const themeOptions = () => THEMES.map((t) => ({ id: t.id, label: t.label }));
 
-// --- Imported project palettes -------------------------------------------
+// --- A repo's own custom properties -----------------------------------------
 //
-// `mockpit init` reads a repo's own design tokens (a `:root{}` / `@theme`
-// block from Tailwind or shadcn) and stores them per project. The raw text is
-// injected verbatim into the html-surface sandbox, but the VIEWER chrome and
-// the `--color-*` contract still need a Palette — so the recognised token
-// names are mapped onto one here, runtime-agnostic like the rest of this file.
-//
-// Anything the repo doesn't declare falls back per field to the default theme,
-// so a partial import can never leave a color undefined (an undefined token
-// renders as unstyled black-on-white, which reads as "mockpit is broken"
-// rather than "your repo declares no border color").
+// `mockpit init` stores a repo's raw `:root{}` / `.dark{}` / `@theme{}` text per
+// project; the system (server/system.ts) types what it can of it.
 
 // Colour values arrive in three dialects: real CSS colors (`#fff`,
 // `oklch(...)`), shadcn's channel-only triplets (`0 0% 100%`, meant to be
 // wrapped by `hsl(var(--x))` at the use site), and bare rgb triplets. Only the
 // first is usable as-is, so the other two are re-wrapped into a function.
-function normalizeCssColor(raw: string): string | null {
+export function normalizeCssColor(raw: string): string | null {
   const v = raw.trim().replace(/\s*!important$/, "");
   if (!v) return null;
   if (v.startsWith("var(")) return null; // an indirection we can't resolve here
@@ -300,117 +317,25 @@ function readCustomProps(declarations: string): Record<string, string> {
   return vars;
 }
 
-// Ordered lookup: first declared name wins, so a repo that defines both
-// `--card` and `--background` gets the more specific one for a surface.
-function pick(vars: Record<string, string>, names: string[]): string | null {
-  for (const name of names) {
-    const raw = vars[name];
-    if (raw == null) continue;
-    const color = normalizeCssColor(raw);
-    if (color) return color;
-  }
-  return null;
-}
-
-function accentFrom(
-  vars: Record<string, string>,
-  bg: string[],
-  text: string[],
-  border: string[],
-  fallback: Accent,
-): Accent {
-  const ink = pick(vars, text);
-  return {
-    bg: pick(vars, bg) ?? fallback.bg,
-    text: ink ?? fallback.text,
-    border: pick(vars, border) ?? fallback.border,
-    // The default's solid pair belongs to the default's ink; a repo's own ink
-    // fills with itself.
-    ...(ink ? {} : { solid: fallback.solid, onSolid: fallback.onSolid }),
-  };
-}
-
-function paletteFrom(vars: Record<string, string>, fallback: Palette): Palette {
-  return {
-    bg: pick(vars, ["background", "color-background", "body-background"]) ?? fallback.bg,
-    panel: pick(vars, ["muted", "secondary", "color-muted", "popover"]) ?? fallback.panel,
-    surface: pick(vars, ["card", "popover", "background", "color-background"]) ?? fallback.surface,
-    text: pick(vars, ["foreground", "color-foreground", "card-foreground"]) ?? fallback.text,
-    muted: pick(vars, ["muted-foreground", "secondary-foreground"]) ?? fallback.muted,
-    faint: pick(vars, ["muted-foreground", "secondary-foreground"]) ?? fallback.faint,
-    border: pick(vars, ["border", "color-border", "input"]) ?? fallback.border,
-    border2: pick(vars, ["input", "ring", "border", "color-border"]) ?? fallback.border2,
-    hover: pick(vars, ["accent", "muted", "secondary"]) ?? fallback.hover,
-    // `info` doubles as the accent/link color everywhere in the viewer, so it
-    // is the one that must track the project's brand: primary for ink, accent
-    // for the wash, ring for the focus edge.
-    info: accentFrom(
-      vars,
-      ["accent", "primary-foreground", "secondary"],
-      ["primary", "ring", "accent-foreground"],
-      ["ring", "primary", "border"],
-      fallback.info,
-    ),
-    // Tailwind/shadcn ship no success or warning token, so these stay on the
-    // default theme unless a repo happens to declare them.
-    success: accentFrom(
-      vars,
-      ["success-background", "success-bg"],
-      ["success", "success-foreground"],
-      ["success-border", "success"],
-      fallback.success,
-    ),
-    warning: accentFrom(
-      vars,
-      ["warning-background", "warning-bg"],
-      ["warning", "warning-foreground"],
-      ["warning-border", "warning"],
-      fallback.warning,
-    ),
-    danger: accentFrom(
-      vars,
-      ["destructive-background", "destructive-bg", "danger-bg"],
-      ["destructive", "danger", "destructive-foreground"],
-      ["destructive-border", "destructive", "danger"],
-      fallback.danger,
-    ),
-  };
-}
-
-// Map a repo's CSS custom properties onto the two Palettes a theme needs.
-// Returns null when the text declares no recognisable color token at all —
-// the caller (`mockpit init`) then keeps the default theme rather than
-// storing a palette that is 100% fallback.
-//
-// `--radius` is intentionally NOT mapped: Palette carries colors only, and the
-// raw block is injected into the sandbox verbatim, so the repo's radius reaches
-// surfaces through `var(--radius)` without a second source of truth.
-export function paletteFromCssVars(cssVars: string): { light: Palette; dark: Palette } | null {
-  if (!cssVars || !cssVars.trim()) return null;
-  const blocks: CssBlock[] = [];
-  // Strip comments first so a commented-out token can't win the ordered pick.
-  collectBlocks(cssVars.replace(/\/\*[\s\S]*?\*\//g, ""), false, blocks);
-  // A bare declaration list (no selector) is treated as the light root, so
-  // callers may pass either `:root{…}` or just its contents.
-  if (blocks.length === 0) blocks.push({ selector: ":root", dark: false, declarations: cssVars });
-
+// The custom properties a repo's root-level blocks declare, light and dark. Only
+// blocks that set page-wide values count (`:root`, `html`, `@theme`, `.dark`, a
+// dark media query), so a component's local `--x` isn't read as a project token.
+const ROOT_SELECTOR =
+  /^(:root|html|:host|@theme\b|\.dark\b|:root\.dark|html\.dark|\[data-theme=["']?dark["']?\]|:root\[data-theme=["']?dark["']?\])/i;
+export function repoCustomProps(css: string): {
+  light: Record<string, string>;
+  dark: Record<string, string>;
+} {
   const light: Record<string, string> = {};
   const dark: Record<string, string> = {};
+  if (!css.trim()) return { light, dark };
+  const blocks: CssBlock[] = [];
+  collectBlocks(css.replace(/\/\*[\s\S]*?\*\//g, ""), false, blocks);
+  if (blocks.length === 0) blocks.push({ selector: ":root", dark: false, declarations: css });
   for (const b of blocks) {
-    const vars = readCustomProps(b.declarations);
-    Object.assign(b.dark ? dark : light, vars);
+    if (!ROOT_SELECTOR.test(b.selector.trim()) && !(b.dark && /:root|html/.test(b.selector)))
+      continue;
+    Object.assign(b.dark ? dark : light, readCustomProps(b.declarations));
   }
-  const base = themeById(DEFAULT_THEME_ID);
-  const lightPalette = paletteFrom(light, base.light);
-  // Dark inherits the light declarations first: a repo that only overrides
-  // `--background`/`--foreground` in `.dark` still gets its brand `--primary`.
-  // A repo with no dark block at all is single-palette (Loom, for one, is
-  // dark-only with everything in `:root`) — reusing the same values in both
-  // schemes keeps it looking like itself, where falling back to the default
-  // theme's dark would make the two modes look like two different products.
-  const darkPalette = paletteFrom({ ...light, ...dark }, base.dark);
-  const recognised =
-    JSON.stringify(lightPalette) !== JSON.stringify(base.light) ||
-    JSON.stringify(darkPalette) !== JSON.stringify(base.dark);
-  return recognised ? { light: lightPalette, dark: darkPalette } : null;
+  return { light, dark };
 }

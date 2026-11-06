@@ -8,7 +8,8 @@
 // capture means the page runs live in the overviews, which is what it did before posters.
 //
 // The worker renders the served document and doesn't take a poster's place: one sent by the
-// agent wins, and the server refuses a still of a version that has since changed.
+// agent wins, and the server refuses a still of a version that has since changed. A system
+// write retakes the project's stills: one taken under an older revision no longer shows.
 
 import { spawn } from "node:child_process";
 import {
@@ -34,6 +35,8 @@ const CAPTURE_MS = 15_000;
 const LOAD_MS = 8_000;
 // A job this old describes a burst long past, and its version has likely moved on.
 const JOB_MAX_AGE_MS = 2 * 60_000;
+// Stills one system change retakes, latest variants first: the rest run live until then.
+const RETAKE_MAX = 40;
 // Stays up briefly for the next publish of a burst, which saves starting a browser again.
 const WORKER_IDLE_MS = 3_000;
 const WORKER_MAX_MS = 10 * 60_000;
@@ -109,6 +112,12 @@ export function queuePoster(job) {
   } catch {
     // A poster is never worth a failed publish.
   }
+}
+
+// { base, token, client, session, project }: after a system write that changed something.
+// The worker reads which variants need a new still, so this never waits either.
+export function queueRetakes(job) {
+  queuePoster({ ...job, retake: true });
 }
 
 // --- the browser, over the DevTools protocol on a local port ---
@@ -251,12 +260,48 @@ async function shoot(port, job, url, width) {
 
 // --- one job, end to end ---
 
+const headersOf = (job) => ({
+  "content-type": "application/json",
+  "x-mockpit-client": job.client,
+  ...(job.token ? { authorization: `Bearer ${job.token}` } : {}),
+});
+
+// A retake becomes one job per live variant whose page shows no still now: the views
+// already leave out one taken under another revision, and keep the agent's own.
+async function expandRetake(dir, job) {
+  const res = await fetch(`${job.base}/api/projects/${encodeURIComponent(job.project)}/tree`, {
+    headers: headersOf(job),
+  });
+  if (!res.ok) return;
+  const { tree } = await res.json();
+  const wanted = (tree ?? [])
+    .filter((d) => !d.archivedAt)
+    .flatMap((d) =>
+      (d.variants ?? [])
+        .filter((v) => v.status !== "archived" && v.surface >= 0 && !v.poster)
+        .map((v) => ({ design: d.id, postId: v.postId, version: v.version, at: v.updatedAt })),
+    )
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)))
+    .slice(0, RETAKE_MAX);
+  const { retake: _r, project: _p, ...base } = job;
+  for (const [i, v] of wanted.entries()) {
+    const name = `${Date.now()}-${String(i).padStart(3, "0")}-retake.job`;
+    writeFileSync(
+      join(dir, name),
+      JSON.stringify({
+        ...base,
+        design: v.design,
+        postId: v.postId,
+        version: v.version,
+        queuedAt: Date.now(),
+      }),
+      { mode: 0o600 },
+    );
+  }
+}
+
 async function capture(port, job) {
-  const headers = {
-    "content-type": "application/json",
-    "x-mockpit-client": job.client,
-    ...(job.token ? { authorization: `Bearer ${job.token}` } : {}),
-  };
+  const headers = headersOf(job);
   const get = async (path) => {
     const res = await fetch(`${job.base}${path}`, { headers });
     if (!res.ok) throw new Error(`${path}: ${res.status}`);
@@ -283,6 +328,7 @@ async function capture(port, job) {
     ver: String(job.version),
     ...(mode ? { mode } : {}),
     ...(rewrites ? { w: String(rewrites) } : {}),
+    ...(design.systemRev ? { y: String(design.systemRev) } : {}),
   });
   const width = design.widths?.[0] ?? DEFAULT_WIDTH;
   const data = await shoot(
@@ -299,7 +345,14 @@ async function capture(port, job) {
   });
   await post(
     `/api/designs/${encodeURIComponent(job.design)}/variants/${encodeURIComponent(job.postId)}/poster`,
-    { version: job.version, rewrites, poster: asset.id, mode, session: job.session },
+    {
+      version: job.version,
+      rewrites,
+      poster: asset.id,
+      mode,
+      system: design.systemRev ?? 0,
+      session: job.session,
+    },
   );
 }
 
@@ -350,6 +403,10 @@ async function work() {
     }
     rmSync(file, { force: true });
     if (!job || !path || Date.now() - job.queuedAt > JOB_MAX_AGE_MS) continue;
+    if (job.retake) {
+      await expandRetake(dir, job).catch(() => {});
+      continue;
+    }
     try {
       if (!browser?.alive()) browser = await launchBrowser(path);
       if (browser) {

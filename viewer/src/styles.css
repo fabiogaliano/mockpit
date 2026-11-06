@@ -9539,3 +9539,433 @@ body:has(.selp) .toast {
   font-size: 12px;
   color: var(--t4);
 }
+
+/* The System place in Home: one tab per family. */
+.sys-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 16px 0 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+}
+.sys-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--t4);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sys-tabs button[aria-selected="true"] {
+  background: var(--row);
+  color: var(--t1);
+}
+@media (hover: hover) {
+  .sys-tabs button:hover {
+    color: var(--t1);
+  }
+}
+.sys-tabs .n,
+.sys-h2 .n {
+  color: var(--t5);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.sys-tabs .q {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--q);
+  font-size: 12px;
+  font-weight: 500;
+}
+.sys-tabs .q .icon,
+.sys-fail .icon,
+.sys-chk .icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.sys-panel {
+  margin-top: 12px;
+}
+.sys-empty,
+.sys-sub {
+  color: var(--t4);
+  font-size: 13px;
+}
+.sys-mono {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+.sys-h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 22px 0 6px;
+  color: var(--t2);
+  font-size: 13px;
+  font-weight: 600;
+}
+.sys-prow {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) auto auto 92px auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 48px;
+  padding: 6px 10px;
+  border-radius: 10px;
+}
+@media (hover: hover) {
+  .sys-prow:hover {
+    background: var(--row);
+  }
+}
+.sys-nm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--t1);
+  font-weight: 500;
+}
+.sys-modes {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sys-mlab {
+  color: var(--t5);
+  font-size: 11px;
+}
+.sys-strip {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.sys-strip.dk {
+  background: #000;
+}
+.sys-strip i {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+}
+.sys-st {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.sys-st.default {
+  background: var(--t1);
+  color: var(--page);
+}
+.sys-st.kept {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--keep) 60%, transparent);
+  color: var(--keep-ink);
+}
+.sys-repo {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--row);
+  color: var(--t4);
+  font-size: 11px;
+  font-weight: 500;
+}
+.sys-fail {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--q);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.sys-ok {
+  color: var(--t5);
+  font-size: 12px;
+}
+.sys-stswitch button {
+  padding: 3px 9px;
+  font-size: 12px;
+}
+.sys-stswitch button:disabled {
+  cursor: default;
+}
+.sys-stswitch button[aria-pressed="false"]:disabled {
+  opacity: 0.45;
+}
+.sys-hiddenfold {
+  margin-top: 4px;
+  color: var(--t4);
+  font-size: 13px;
+}
+.sys-hiddenfold summary {
+  width: max-content;
+  padding: 6px 10px;
+  border-radius: 8px;
+  list-style: none;
+  cursor: pointer;
+}
+.sys-hiddenfold summary::-webkit-details-marker {
+  display: none;
+}
+.sys-chk {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 6px 8px;
+  border-radius: 8px;
+  color: var(--t2);
+  font-size: 13px;
+}
+.sys-chk .icon {
+  margin-top: 2px;
+  color: var(--q);
+}
+.sys-spec-hd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: var(--t4);
+}
+.sys-spec-box {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.sys-spec-box iframe {
+  display: block;
+  border: 0;
+}
+.sys-fam {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px 24px;
+}
+.sys-fam h3 {
+  margin: 0 0 6px;
+  color: var(--t2);
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.sys-tok {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  font-size: 13px;
+}
+.sys-tok .sys-mono {
+  color: var(--t2);
+}
+.sys-tok .v {
+  max-width: 140px;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--t5);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sys-sw {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.2);
+}
+.sys-cls {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 2px 18px;
+}
+.sys-cls div {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-height: 28px;
+  font-size: 13px;
+}
+.sys-cls .sys-mono {
+  flex: none;
+  width: 100px;
+  color: var(--t1);
+}
+.sys-cls span:last-child {
+  color: var(--t4);
+}
+.sys-comp {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: inherit;
+  font-size: 14px;
+  text-decoration: none;
+}
+@media (hover: hover) {
+  .sys-comp:hover,
+  .sys-rev:hover,
+  .sys-hiddenfold summary:hover {
+    background: var(--row);
+    color: var(--t1);
+  }
+}
+.sys-comp .sys-mono {
+  min-width: 90px;
+  color: var(--t1);
+  font-size: 13px;
+}
+.sys-comp .p {
+  color: var(--t3);
+}
+.sys-comp .n {
+  margin-left: auto;
+  color: var(--t5);
+  font-size: 12px;
+}
+.sys-rev {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 10px;
+  min-height: 44px;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+.sys-rev .r {
+  color: var(--t5);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+.sys-rev .s {
+  color: var(--t2);
+  font-size: 13px;
+}
+.sys-rev .w {
+  grid-column: 2;
+  color: var(--t5);
+  font-size: 12px;
+}
+.sys-rev .now {
+  color: var(--t5);
+  font-size: 12px;
+}
+.sys-rev .btn {
+  grid-row: span 2;
+}
+@media (max-width: 720px) {
+  .sys-prow {
+    grid-template-columns: 1fr auto;
+  }
+  .sys-prow .sys-modes {
+    grid-column: 1 / -1;
+  }
+}
+
+/* The palette switcher: a tiny swatch of the palette on screen (its first roles). */
+.pdot {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 18px;
+  height: 18px;
+  overflow: hidden;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--line);
+}
+.pdot i {
+  display: block;
+}
+.pdot.sm {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+}
+.ppick.off .pdot {
+  box-shadow:
+    0 0 0 1px var(--panel),
+    0 0 0 2.5px var(--t3);
+}
+.pmenu > button {
+  min-height: 36px;
+}
+.pmenu-hd {
+  padding: 6px 10px 2px;
+  color: var(--t5);
+  font-size: 12px;
+}
+.pmenu-note {
+  max-width: 220px;
+  padding: 6px 10px 4px;
+  color: var(--t5);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+/* Studio's Palettes: a column per palette, light over dark; wraps rather than scrolls. */
+.pboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 24px 18px;
+  padding: 18px 24px 60px;
+}
+.pboard-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.pboard-hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  color: var(--t1);
+  font-size: 14px;
+}
+.pboard-hd b {
+  font-weight: 500;
+}
+.pboard-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pboard-mode {
+  color: var(--t5);
+  font-size: 11px;
+}
+.pboard-empty {
+  padding: 24px;
+  color: var(--t4);
+  font-size: 13px;
+}
+.dot.sys {
+  background: var(--accent);
+}

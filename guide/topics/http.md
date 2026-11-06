@@ -4,7 +4,7 @@ Every verb takes the same fields on the CLI, MCP and raw HTTP. None waits for th
 
 | CLI                            | MCP                                         | HTTP                                                                           |
 | ------------------------------ | ------------------------------------------- | ------------------------------------------------------------------------------ |
-| `mockpit init`                 | none                                        | `PUT /api/projects/:name/design`                                               |
+| `mockpit init`                 | none                                        | `PUT /api/projects/:name/system` `{repo, kit}`                                 |
 | `mockpit publish`              | `publish`                                   | `POST /api/designs`                                                            |
 | `mockpit ask`                  | `ask`                                       | `POST /api/designs/:id/asks`                                                   |
 | `mockpit read [slug]`          | `read`                                      | `GET /api/designs?project=…`, `GET /api/designs/:id` (`?body=1` adds the html) |
@@ -16,7 +16,9 @@ Every verb takes the same fields on the CLI, MCP and raw HTTP. None waits for th
 | `mockpit edit --notes <t>`     | `edit({ notes })`                           | `PATCH /api/designs/:id` `{notes}`                                             |
 | `mockpit edit --rename <n>`    | `edit({ rename })`                          | `PATCH /api/projects/:name` `{name}`                                           |
 | `mockpit edit --area-order`    | `edit({ areaOrder })`                       | `PATCH /api/projects/:name` `{areaOrder}`                                      |
+| `mockpit system`               | `system`                                    | `GET`, `PUT /api/projects/:name/system`                                        |
 | `mockpit export`               | `export`                                    | `GET /api/designs/:id/export`                                                  |
+| `mockpit export` (no design)   | `export` (no design)                        | `GET /api/projects/:name/system/export`                                        |
 | `mockpit upload`               | `upload`                                    | `POST /api/assets`                                                             |
 | `mockpit guide`                | `guide`                                     | `GET /agent-howto?project=…`                                                   |
 | `mockpit guide --topic <id>`   | `guide({ topic })`                          | `GET /agent-howto?topic=<id>`                                                  |

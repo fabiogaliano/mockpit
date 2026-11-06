@@ -128,6 +128,10 @@ export interface FeedbackBatch {
   // The user moved the design from Home: its kind or area as they left it
   // (area null: none). Build on it; don't move it back.
   edited?: DesignEdit;
+  // What changed in the project's system: by the user's hand (a project batch, no
+  // design), or by this design's Send (a palette made the default, a project knob
+  // settled). The revision it made and what changed. Build on it.
+  system?: { rev: number; changes: string[] };
 }
 
 const ref = (p: Post): VariantRef => ({ state: p.state, variant: p.variant });
@@ -290,6 +294,22 @@ export function groupFeedback(
     // Stored from when a close wrote to this stream. Ending something tells the agent
     // nothing, so one still ahead of the cursor stays unsaid.
     if (c.kind === "reply" && c.payload?.archived) continue;
+    // The user's hand on the system page: one project batch each, never merged.
+    const decided = c.kind === "reply" && !c.designId ? c.payload?.system : undefined;
+    if (decided) {
+      batches.push({
+        designId: null,
+        project: decided.project,
+        design: null,
+        title: null,
+        reply: null,
+        messages: [],
+        inUse: [],
+        archived: [],
+        system: { rev: decided.rev, changes: decided.changes },
+      });
+      continue;
+    }
     const key = c.designId ?? "";
     const design = c.designId ? designs.get(c.designId) : undefined;
     const designPosts = (c.designId && posts.get(c.designId)) || [];
@@ -324,8 +344,10 @@ export function groupFeedback(
         more: asked,
         standings: _standings,
         update: wanted,
+        system: decidedHere,
         ...payload
       } = c.payload;
+      if (decidedHere) batch.system = { rev: decidedHere.rev, changes: decidedHere.changes };
       const more =
         asked && design ? moreAnswers(design, asked, c.payload.standings?.[asked.ask]) : undefined;
       const update = wanted && design ? updateRequest(design, wanted) : undefined;

@@ -33,6 +33,7 @@ import {
 import type { CopyRef } from "../../server/types.ts";
 import { AddCandidates } from "./AddCandidates.tsx";
 import { api, assetUrl, surfaceUrl, type VariantView } from "./api.ts";
+import { posterShown } from "./systemRev.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import {
@@ -546,7 +547,7 @@ export function Studio(props: {
   onCleanup(() => props.onLooking(null));
   const barPic = (st: VersionStep, large = false) => (
     <Show
-      when={st.poster}
+      when={posterShown(st.poster)}
       fallback={
         // A canvas page is a whole live context: one large, never a row of them.
         <Show when={(large || !st.canvas) && pictureOf(st)}>
@@ -1370,9 +1371,9 @@ function StudioCard(props: {
       data-state={props.b.state ?? ""}
       // A poster is an image: it holds no context, so it takes no budget.
       // On a wall any page counts: there can be a screenful of them with no canvas at all.
-      data-canvas={(st().canvas || props.wall) && !st().poster ? "" : undefined}
-      data-frame={st().poster ? undefined : ""}
-      data-gl={st().canvas && !st().poster ? "" : undefined}
+      data-canvas={(st().canvas || props.wall) && !posterShown(st().poster) ? "" : undefined}
+      data-frame={posterShown(st().poster) ? undefined : ""}
+      data-gl={st().canvas && !posterShown(st().poster) ? "" : undefined}
       ref={props.ref}
       // While selecting the whole card is the target, not only its picture and tick.
       onClick={(e) => {
@@ -1404,7 +1405,7 @@ function StudioCard(props: {
         onFocus={() => !props.live && props.onWake()}
       >
         <Show
-          when={st().poster}
+          when={posterShown(st().poster)}
           fallback={
             <Show when={props.live && src()}>
               {/* Columns are for comparing, motion included; a wall is a screenful of small ones. */}
@@ -1833,7 +1834,7 @@ function Look(props: {
           <Show
             when={pictureOf(st())}
             keyed
-            fallback={<Show when={st().poster}>{(p) => <Poster id={p()} />}</Show>}
+            fallback={<Show when={posterShown(st().poster)}>{(p) => <Poster id={p()} />}</Show>}
           >
             {(u) => <Thumb src={u} width={s.frameW()} fit whole large title={name()} />}
           </Show>

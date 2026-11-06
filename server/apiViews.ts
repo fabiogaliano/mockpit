@@ -56,21 +56,34 @@ export const hydratedSurfaceView = (surface: Surface, index: number) => {
 // would be the one picture in the wrong colours among live pages, so it is left out and the
 // page runs as it did before posters. Applied to posts before any view reads them, so every
 // view agrees. Posts come from the store's cache: copied where changed, never written to.
-const otherMode = (s: { kind: string }, mode: Mode) => {
-  const taken = (s as { posterMode?: Mode }).posterMode;
-  return s.kind === "html" && taken !== undefined && taken !== mode;
+// The same goes for a still taken under another revision of the project's system.
+const otherMode = (s: { kind: string }, mode: Mode, rev: number | undefined) => {
+  const { posterMode: taken, posterSystem: under } = s as {
+    posterMode?: Mode;
+    posterSystem?: number;
+  };
+  if (s.kind !== "html" || taken === undefined) return false;
+  if (taken !== mode) return true;
+  if (rev === undefined) return false;
+  return under === undefined ? rev > 1 : under !== rev;
 };
-const surfacesFor = <S extends { kind: string }>(surfaces: S[], mode: Mode): S[] =>
-  surfaces.some((s) => otherMode(s, mode))
+const surfacesFor = <S extends { kind: string }>(
+  surfaces: S[],
+  mode: Mode,
+  rev: number | undefined,
+): S[] =>
+  surfaces.some((s) => otherMode(s, mode, rev))
     ? surfaces.map((s) => {
-        if (!otherMode(s, mode)) return s;
+        if (!otherMode(s, mode, rev)) return s;
         const {
           poster: _poster,
           posterMode: _mode,
+          posterSystem: _system,
           ...rest
         } = s as S & {
           poster?: string;
           posterMode?: Mode;
+          posterSystem?: number;
         };
         return rest as unknown as S;
       })
@@ -81,11 +94,13 @@ export const postersFor = <
 >(
   posts: P[],
   mode: Mode,
+  // The project system's revision; undefined across projects, where it isn't one.
+  rev?: number,
 ): P[] =>
   posts.map((p) => {
-    const surfaces = surfacesFor(p.surfaces, mode);
+    const surfaces = surfacesFor(p.surfaces, mode, rev);
     const history = p.history.map((h) => {
-      const own = surfacesFor(h.surfaces, mode);
+      const own = surfacesFor(h.surfaces, mode, rev);
       return own === h.surfaces ? h : { ...h, surfaces: own };
     });
     return surfaces === p.surfaces && history.every((h, i) => h === p.history[i])

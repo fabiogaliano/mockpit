@@ -76,6 +76,8 @@ without taking any feedback.
    variant in use and archived its siblings (`inUse`, `archived`). Each `inUse` entry
    is pinned at the `version` the user put in use (`read` → `inUse`): `export` and
    embeds show that one, not your newer publishes, until the user picks again.
+   A batch's `system` (`{rev, changes}`) is what its Send decided for the whole project:
+   a palette made the default, a project knob settled. Every design wears it now.
    `read --history` flags a version the user hid `hidden`. The question `variant` (per
    state `variant:<state>`) is the built-in variant question. A `chosen` entry with
    `other: true` is the user's own answer (its `label`); it flips no variant and sets

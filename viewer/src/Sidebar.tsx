@@ -35,6 +35,8 @@ export function Sidebar(props: {
   tree: { area: string | null; nodes: TreeNode[] }[] | null;
   archived: number;
   recent: boolean;
+  // The project has a system: its place sits after the sections.
+  system: boolean;
   // A plain click swaps what Home shows, keeping one history entry.
   go: (e: MouseEvent, path: string) => void;
   onNav: () => void;
@@ -100,9 +102,9 @@ export function Sidebar(props: {
             "side-row side-needs",
           )}
         </Show>
-        <Show when={props.rows.length + (props.foot ? 1 : 0) > 1}>
+        <Show when={props.rows.length + (props.foot ? 1 : 0) > 1 || props.system}>
           <nav class="side-group" aria-label="Sections">
-            <For each={props.rows}>
+            <For each={props.rows.length + (props.foot ? 1 : 0) > 1 ? props.rows : []}>
               {(sec) =>
                 link(
                   () => projectPath(props.project, sec),
@@ -115,6 +117,17 @@ export function Sidebar(props: {
                 )
               }
             </For>
+            <Show when={props.system}>
+              {link(
+                () => projectPath(props.project, "system"),
+                () => props.place === "system",
+                <span class="side-nm">
+                  <Icon name="palette" />
+                  System
+                </span>,
+                "side-row side-kind",
+              )}
+            </Show>
           </nav>
         </Show>
         <Show when={props.tree}>

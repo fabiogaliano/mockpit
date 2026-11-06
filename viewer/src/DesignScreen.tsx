@@ -30,6 +30,7 @@ import { BottomPanel } from "./BottomPanel.tsx";
 import { hasFiles } from "./attach.ts";
 import { BuiltFrom } from "./BuiltFrom.tsx";
 import { ChangedNote } from "./ChangedNote.tsx";
+import { SystemNote } from "./SystemNote.tsx";
 import { useFlowKeys } from "./flowKeys.ts";
 import { createFlowNav, type FlowNav } from "./flowNav.ts";
 import { Grid } from "./Grid.tsx";
@@ -81,6 +82,8 @@ import {
   route,
 } from "./route.ts";
 import { usePopover } from "./popover.ts";
+import { PaletteTool } from "./PaletteTool.tsx";
+import { boardPalettes, PalettesBoard } from "./PalettesBoard.tsx";
 import { PreviewTool } from "./PreviewTool.tsx";
 import { Stage } from "./Stage.tsx";
 import { Studio } from "./Studio.tsx";
@@ -100,6 +103,7 @@ import {
   setCardInset,
   win,
 } from "./viewport.ts";
+import { setPeek } from "./systemRev.ts";
 
 type View = "stage" | "studio" | "grid";
 const isView = (v: string | null | undefined): v is View =>
@@ -113,6 +117,8 @@ export function DesignScreen(props: {
 }) {
   const opening = new URLSearchParams(host().window.location.search);
   const s = createDesignScreen(props.project, props.slug, props.open ?? null, opening.has("owed"));
+  // See before is a look from this screen's note; nowhere else says it is on.
+  onCleanup(() => setPeek(null));
   const shortlists = createShortlists(props.project, s.setToast);
   // Stage, Studio or Grid: one version up close, the state zoomed out, or every state
   // against every variant. The URL's ?view= wins and isn't remembered, so a link can't
@@ -261,21 +267,30 @@ export function DesignScreen(props: {
     !!askOnBoard() &&
     (answersPick() ??
       askOnBoard()!.options.filter((o) => !s.hiddenOf(askOnBoard()!, o.id)).length > LIST_ABOVE);
+  // Palettes is a way to look at the state on stage, picked by hand and never by default.
+  const [palettesPick, setPalettesPick] = createSignal(false);
+  const palettesOffered = () => boardPalettes(s).length > 1;
+  const palettesOn = () => palettesPick() && palettesOffered() && shownView() === "studio";
   const arrangement = (): Arrangement =>
     shownView() === "grid"
       ? "grid"
-      : answersOn()
-        ? "answers"
-        : wallSized() && !columns()
-          ? "wall"
-          : "columns";
+      : palettesOn()
+        ? "palettes"
+        : answersOn()
+          ? "answers"
+          : wallSized() && !columns()
+            ? "wall"
+            : "columns";
   const arrangements = (): Arrangement[] => [
     ...(askOnBoard() ? (["answers"] as const) : []),
     ...(wallSized() ? (["wall"] as const) : []),
     "columns",
+    ...(palettesOffered() ? (["palettes"] as const) : []),
     ...(gridOffered() ? (["grid"] as const) : []),
   ];
   const arrange = (to: Arrangement) => {
+    setPalettesPick(to === "palettes");
+    if (to === "palettes") return setView("studio");
     setAnswersPick(to === "answers");
     if (to === "answers") return setView("studio");
     if (to === "grid") return setView("grid");
@@ -546,6 +561,18 @@ export function DesignScreen(props: {
                   <Ghost s={s} nav={nav} by={1} />
                 </Show>
               </Show>
+            </Match>
+            <Match when={palettesOn()}>
+              <div class="aboard-wrap" style={{ top: `${canvasTop()}px` }}>
+                <Show when={barSlot()}>
+                  {(slot) => (
+                    <Portal mount={slot()}>
+                      <div class="sbar">{arrangeSwitch}</div>
+                    </Portal>
+                  )}
+                </Show>
+                <PalettesBoard s={s} />
+              </div>
             </Match>
             <Match when={shownView() === "studio" && answersOn() && askOnBoard()}>
               {(ask) => (
@@ -1017,6 +1044,7 @@ function TopRow(props: {
           {pill()}
           <Show when={props.view === "stage" && !props.reading && s.design()}>
             <PreviewTool s={s} qr={false} />
+            <PaletteTool s={s} />
           </Show>
         </Show>
         <Show when={props.compare || props.view !== "stage"}>
@@ -1216,6 +1244,7 @@ function SentNote(props: { s: DesignScreenState; project: string; slug: string; 
       <Show when={s.design()?.archivedAt}>
         <ArchivedNote s={s} />
       </Show>
+      <SystemNote s={s} />
       <ChangedNote s={s} onStageView={props.view === "stage"} />
       <Show when={s.sent()} fallback={<CarriedChip project={props.project} slug={props.slug} />}>
         <div class="sentrow" role="status">

@@ -8,12 +8,13 @@ import { Icon, type IconName } from "./icons.tsx";
 import { usePopover } from "./popover.ts";
 import { phoneLayout } from "./viewport.ts";
 
-export type Arrangement = "answers" | "wall" | "columns" | "grid";
+export type Arrangement = "answers" | "wall" | "columns" | "palettes" | "grid";
 
 const ARRANGEMENTS: Record<Arrangement, { icon: IconName; label: string }> = {
   answers: { icon: "question", label: "Answers" },
   wall: { icon: "grid", label: "Wall" },
   columns: { icon: "columns", label: "Columns" },
+  palettes: { icon: "palette", label: "Palettes" },
   grid: { icon: "table", label: "Grid" },
 };
 

@@ -193,6 +193,53 @@ const BASECOAT_THEME_CSS = `
 :root{--radius:var(--border-radius-md);--background:var(--color-background-primary);--foreground:var(--color-text-primary);--card:var(--color-background-primary);--card-foreground:var(--color-text-primary);--popover:var(--color-background-primary);--popover-foreground:var(--color-text-primary);--primary:var(--color-text-primary);--primary-foreground:var(--color-background-primary);--secondary:var(--color-background-secondary);--secondary-foreground:var(--color-text-primary);--muted:var(--color-background-secondary);--muted-foreground:var(--color-text-secondary);--accent:var(--color-background-secondary);--accent-foreground:var(--color-text-primary);--destructive:var(--color-text-danger);--border:var(--color-border-secondary);--input:var(--color-border-secondary);--ring:var(--color-border-info)}
 `;
 
+// layout: composition primitives that say how boxes relate, never how they look. Every
+// gap is `--space`, which falls back to `--layout-space`: the base step of the
+// project's space scale when its system has one (system.ts), else 1rem. Each takes
+// its measure from a custom property on the element (`style="--space: var(--space-l)"`),
+// so a page sets a step without a new class. Those properties don't inherit, so a
+// layout nested in another starts from the defaults, not its parent's measure; what
+// a primitive's children read, it passes down as its own `--l-*`.
+//
+// A cover fills the screen, but a frame is sized from its content, so 100vh grows with
+// the cover it sizes: the cap ends that, and border-box keeps the padding inside.
+const LAYOUT_CSS = `
+@property --space{syntax:"*";inherits:false}
+@property --measure{syntax:"*";inherits:false}
+@property --side{syntax:"*";inherits:false}
+@property --threshold{syntax:"*";inherits:false}
+@property --min{syntax:"*";inherits:false}
+@property --item{syntax:"*";inherits:false}
+.l-stack,.l-cluster,.l-sidebar,.l-switcher,.l-grid,.l-reel{gap:var(--space,var(--layout-space,1rem))}
+.l-stack{display:flex;flex-direction:column}
+.l-stack>*{margin-block:0}
+.l-box{padding:var(--space,var(--layout-space,1rem))}
+.l-center{box-sizing:content-box;max-inline-size:var(--measure,65ch);margin-inline:auto;padding-inline:var(--gutter,0)}
+.l-cluster{display:flex;flex-wrap:wrap;justify-content:var(--justify,flex-start);align-items:var(--align,center)}
+.l-sidebar{display:flex;flex-wrap:wrap;align-items:var(--align,stretch);--l-side:var(--side,16rem)}
+.l-sidebar>*{flex-grow:1}
+.l-sidebar>:first-child{flex-basis:var(--l-side)}
+.l-sidebar>:last-child{flex-basis:0;flex-grow:999;min-inline-size:var(--content-min,55%)}
+.l-sidebar.end>:first-child{flex-basis:0;flex-grow:999;min-inline-size:var(--content-min,55%)}
+.l-sidebar.end>:last-child{flex-basis:var(--l-side);flex-grow:1;min-inline-size:0}
+.l-switcher{display:flex;flex-wrap:wrap;--l-threshold:var(--threshold,32rem)}
+.l-switcher>*{flex-grow:1;flex-basis:calc((var(--l-threshold) - 100%) * 999)}
+.l-cover{display:flex;flex-direction:column;box-sizing:border-box;min-block-size:var(--min-height,min(100vh,50rem));--l-space:var(--space,var(--layout-space,1rem));padding:var(--l-space)}
+.l-cover>*{margin-block:var(--l-space)}
+.l-cover>:first-child{margin-block-start:0}
+.l-cover>:last-child{margin-block-end:0}
+.l-cover>.main{margin-block:auto}
+.l-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(var(--min,14rem),100%),1fr))}
+.l-frame{aspect-ratio:var(--ratio,16 / 9);overflow:hidden;display:flex;align-items:center;justify-content:center}
+.l-frame>img,.l-frame>video{inline-size:100%;block-size:100%;object-fit:cover}
+.l-reel{display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;padding-block-end:var(--scroll-room,0);--l-item:var(--item,auto)}
+.l-reel>*{flex:0 0 var(--l-item);scroll-snap-align:start}
+.l-imposter{position:absolute;inset-block-start:50%;inset-inline-start:50%;translate:-50% -50%;max-inline-size:calc(100% - 2 * var(--margin,0px));max-block-size:calc(100% - 2 * var(--margin,0px));overflow:auto}
+.l-imposter.fixed{position:fixed}
+.l-icon{inline-size:.75em;block-size:.75em;inline-size:1cap;block-size:1cap;flex:none}
+.l-with-icon{display:inline-flex;align-items:baseline;gap:var(--icon-space,.5ch)}
+`;
+
 // Pinned to a major so fixes arrive without a server release. 1.x moved
 // variants from `.btn-primary` classes to `data-variant`.
 const BASECOAT_CDN = "https://cdn.jsdelivr.net/npm/basecoat-css@1/dist";
@@ -201,7 +248,7 @@ export const KITS: Kit[] = [
   {
     id: "builtin",
     label: "Builtin",
-    summary: "shadcn-shaped components (CSS only) for projects with no design system",
+    summary: "shadcn-shaped components (CSS only) for projects with no components of their own",
     classes: "btn · card · input · label · badge · tabs · dialog · table",
     css: BUILTIN_CSS,
   },
@@ -232,6 +279,15 @@ export const KITS: Kit[] = [
     // Tabs (advertised above) switch only with Basecoat's script; the bundle
     // also drives dropdown-menu, select and popover markup.
     script: `${BASECOAT_CDN}/js/all.min.js`,
+  },
+  {
+    id: "layout",
+    label: "Layout",
+    summary:
+      'composition primitives on the space scale; set a step with style="--space: var(--space-l)"',
+    classes:
+      "l-stack · l-box · l-center (--measure) · l-cluster · l-sidebar[.end] (--side) · l-switcher (--threshold) · l-cover (>.main) · l-grid (--min) · l-frame (--ratio) · l-reel (--item) · l-imposter[.fixed] · l-icon · l-with-icon",
+    css: LAYOUT_CSS,
   },
 ];
 

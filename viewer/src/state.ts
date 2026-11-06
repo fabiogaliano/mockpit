@@ -134,6 +134,8 @@ export interface Preview {
   version?: number;
   state?: string | null;
   knobs?: Record<string, KnobValue>;
+  // An answer that chooses a palette of the project's system.
+  palette?: string;
   // A Mix borrow: the part outlined on the donor look while it previews.
   part?: string;
 }
@@ -471,6 +473,21 @@ export function createDesignScreen(
     return use?.variant === v.variant ? use.version : frameVersion(v, stageVersion());
   }
   const activeVariant = createMemo(() => variantFor(activeState()));
+  // The palette the stage wears for an answer that chooses one: previewed, else picked
+  // in the draft. Only the stage: the tool strip's stored pick is left as it is.
+  const stagePalette = createMemo<string | undefined>(() => {
+    const p = preview();
+    if (p?.palette) return p.palette;
+    const m = design();
+    const d = draft();
+    if (!m || !d) return undefined;
+    for (const a of m.asks) {
+      const ids = answerIds(d.answers[a.id]);
+      const o = a.options.find((x) => x.palette && ids.includes(x.id));
+      if (o) return o.palette;
+    }
+    return undefined;
+  });
   // The version a bound stage is holding back and the one it stays on, named
   // after the variant that moved: "Dark #3 arrived", "stay on Dark #2". The
   // draft stays bound to the design-wide number; only these labels name a variant.
@@ -945,6 +962,10 @@ export function createDesignScreen(
             comments().some((c) => c.sessionId === e.sessionId)
           )
             refetch("comments");
+          break;
+        case "system-changed":
+          // Its palettes and which stills still hold come with the design.
+          if (id && e.project === design()?.project) refetch("design");
           break;
         case "theme-changed":
           setTheme(e.mode === "light" ? "light" : "dark");
@@ -1808,6 +1829,8 @@ export function createDesignScreen(
     if (o.variant && o.version) {
       return { key, label, variant: o.variant, version: o.version, state: optionState(ask, m) };
     }
+    // A palette is the whole project's: every state wears it.
+    if (o.palette) return { key, label, palette: o.palette };
     // The stage would show nothing of it, and moving it on a hover would jump the
     // screen: the card's Show is the way there.
     const about = askAbout(ask, m);
@@ -2238,7 +2261,11 @@ export function createDesignScreen(
       for (const id of answerIds(answer)) {
         const p = ask ? previewOf(ask, id) : null;
         if (!p) continue;
-        out = { ...out, ...(p.variant ? { variant: p.variant, state: p.state } : {}) };
+        out = {
+          ...out,
+          ...(p.variant ? { variant: p.variant, state: p.state } : {}),
+          ...(p.palette ? { palette: p.palette } : {}),
+        };
         if (p.version) out.version = p.version;
         out.knobs = { ...out.knobs, ...p.knobs };
       }
@@ -2519,6 +2546,7 @@ export function createDesignScreen(
     choose,
     chooseNth,
     previewOf,
+    stagePalette,
     hoveredPreview,
     setHoveredPreview,
     heldPreview,

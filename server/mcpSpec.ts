@@ -114,6 +114,10 @@ const askSchema = z.object({
       set: z.record(z.string(), z.unknown()).optional().describe("Or to knob values {path: value}"),
       style: z.string().optional().describe("With a set of a new value: its CSS"),
       fill: z.string().optional().describe("With a set of {part: new fill}: its html"),
+      palette: z
+        .string()
+        .optional()
+        .describe("Or a palette id of the project's system; the answer makes it the default"),
       html: z.string().optional().describe("Or a whole page"),
       recommended: z.boolean().optional().describe("The one you would pick; one per ask"),
     }),
@@ -125,7 +129,20 @@ const askSchema = z.object({
 type Param =
   | { t: "string" | "number" | "boolean" | "integer"; d?: string; req?: boolean }
   | { t: "enum"; values: readonly [string, ...string[]]; d?: string; req?: boolean }
-  | { t: "surfaces" | "asks" | "object" | "integers" | "strings"; d?: string; req?: boolean };
+  | {
+      t:
+        | "surfaces"
+        | "asks"
+        | "object"
+        | "objects"
+        | "named"
+        | "pairs"
+        | "json"
+        | "integers"
+        | "strings";
+      d?: string;
+      req?: boolean;
+    };
 
 function zodParam(p: Param): z.ZodType {
   let s: z.ZodType;
@@ -141,6 +158,25 @@ function zodParam(p: Param): z.ZodType {
       break;
     case "object":
       s = z.record(z.string(), z.unknown());
+      break;
+    case "objects":
+      s = z.array(z.record(z.string(), z.unknown()));
+      break;
+    // A list of objects where a bare name stands for {name}.
+    case "named":
+      s = z.array(z.union([z.string(), z.record(z.string(), z.unknown())]));
+      break;
+    // [foreground, background, minimum?]
+    case "pairs":
+      s = z.array(
+        z
+          .array(z.union([z.string(), z.number()]))
+          .min(2)
+          .max(3),
+      );
+      break;
+    case "json":
+      s = z.unknown();
       break;
     case "integer":
       s = z.number().int();
@@ -290,8 +326,8 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "export",
     description:
-      "The html in use (else current) per state, version history, screenshot URL, knobs, the settled values and the last reply.",
-    params: VARIANT_REF,
+      "The html in use (else current) per state, version history, screenshot URL, knobs, the settled values and the last reply. Without design: the project's system for code (sheet, tokens as CSS and JSON, settled project knobs, components' sources).",
+    params: { ...VARIANT_REF, design: { t: "string", d: field.design } },
   },
   {
     name: "edit",
@@ -330,10 +366,35 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
     stdioExtra: { path: { t: "string", d: "Local file path; use instead of data" } },
   },
   {
+    name: "system",
+    description:
+      "Read or change the project's system (sheet, tokens, scales, palettes, project knobs), which every render wears at once. No arguments reads it; each argument replaces its part, tokens, scales and palettes upsert. Shapes: topic system.",
+    params: {
+      project: P.project,
+      sheet: { t: "string", d: "CSS; no @import" },
+      classes: { t: "named", d: "[{name, note}] or names" },
+      fonts: { t: "objects", d: "[{family, href?}]" },
+      tokens: { t: "objects", d: "[{name, type, value, note?}]" },
+      scales: {
+        t: "objects",
+        d: "[{id, family: type|space, prefix, steps, zero, base, ratio, fluid?}]",
+      },
+      roles: { t: "named", d: "[{name, note}] or names" },
+      palettes: { t: "objects", d: "[{id, label, note, light, dark}]" },
+      pairs: { t: "pairs", d: "[[fg, bg, min?]]" },
+      as: { t: "object" },
+      knobs: { t: "object", d: "Project knobs" },
+      remove: { t: "object", d: "{tokens?, palettes?, scales?}" },
+      restore: { t: "integer", d: "A revision, alone" },
+      session: P.session,
+    },
+    httpOnly: ["session"],
+  },
+  {
     name: "guide",
     description:
       "Fetch the brief: the loop, parts, asks and knobs, feedback, the html contract, and this " +
-      "project's palette, kit and icons. Read it before the first publish. Pass topic for one " +
+      "project's system, kit and icons. Read it before the first publish. Pass topic for one " +
       `reference section (${GUIDE_TOPICS.join(", ")}).`,
     params: {
       project: P.project,
@@ -490,6 +551,14 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
     url: str,
     feedback: feedbackRide,
   },
+  system: {
+    rev: num,
+    changed: strs.optional().describe("What this write changed, as the Thread says it"),
+    checks: strs,
+    nudges: strs.optional(),
+    url: str,
+    feedback: feedbackRide.optional(),
+  },
   edit: {
     renamed: o({ from: str, to: str }).optional(),
     areaOrder: strs.optional(),
@@ -521,6 +590,11 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
       .optional()
       .describe("Per state, the version the user put in use; export and embeds resolve to it"),
     knobs: bag.optional(),
+    system: str
+      .optional()
+      .describe(
+        "Without design: what the project's renders wear (rev, palettes, counts, failing checks)",
+      ),
     settled: bag.optional().describe("Every knob value the user has sent, later replies winning"),
     tree: z.array(bag).optional(),
     flows: z.array(flowSchema).optional(),
@@ -531,6 +605,7 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
           design: str,
           text: str,
           here: z.boolean().optional().describe("From the design read"),
+          system: z.boolean().optional().describe("The project's own, on every design"),
           edited: z.boolean().optional(),
           archived: z.boolean().optional(),
         }),
@@ -542,19 +617,30 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
     pending: z.union([z.array(pendingSchema), pendingSchema]).optional(),
   },
   export: {
-    states: z.array(
-      o({
-        state: nullStr,
-        variant: str,
-        version: num,
-        latest: num.optional().describe("Your newer version, not in use yet"),
-        html: str.describe("With fills: only the chosen ones"),
-        allFills: str.optional().describe("With fills: the html with every fill"),
-        markdown: str,
-      }),
-    ),
-    settled: bag,
-    reply: bag.nullable(),
+    states: z
+      .array(
+        o({
+          state: nullStr,
+          variant: str,
+          version: num,
+          latest: num.optional().describe("Your newer version, not in use yet"),
+          html: str.describe("With fills: only the chosen ones"),
+          allFills: str.optional().describe("With fills: the html with every fill"),
+          markdown: str,
+        }),
+      )
+      .optional(),
+    settled: bag.optional(),
+    reply: bag.nullable().optional(),
+    sheet: str.optional().describe("Without design: the project's sheet"),
+    css: str
+      .optional()
+      .describe(
+        "Without design: tokens as CSS, the default palette on :root, kept ones by [data-palette]",
+      ),
+    tokens: bag.optional().describe("Without design: the same as data"),
+    knobs: bag.optional().describe("Without design: the project knobs' values"),
+    components: z.array(bag).optional(),
   },
 };
 
@@ -572,9 +658,11 @@ function shapeFor(tool: ToolDef, transport: "http" | "stdio"): z.ZodRawShape {
     shape[key] =
       transport === "stdio" && key === "html" && tool.name === "publish"
         ? z.string().optional().describe(`${field.html}; or a file path`)
-        : transport === "stdio" && key === "poster" && tool.name === "publish"
-          ? z.string().optional().describe(`${p.d}; or an image file path`)
-          : zodParam(p);
+        : transport === "stdio" && key === "sheet" && tool.name === "system"
+          ? z.string().optional().describe(`${p.d}; or a file path`)
+          : transport === "stdio" && key === "poster" && tool.name === "publish"
+            ? z.string().optional().describe(`${p.d}; or an image file path`)
+            : zodParam(p);
   }
   return shape;
 }

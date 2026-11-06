@@ -6,13 +6,13 @@
 //
 // Runtime-agnostic (no node imports): the Worker builds the brief too.
 
-export const GUIDE_PACKS = ["design-craft"] as const;
+export const GUIDE_PACKS = ["design-craft", "foundations"] as const;
 export type GuidePack = (typeof GUIDE_PACKS)[number];
 
 const isGuidePack = (id: string): id is GuidePack =>
   (GUIDE_PACKS as readonly string[]).includes(id);
 
-// `rules:<project>` sits beside `design:<project>` and moves with a project
+// `rules:<project>` is a project setting and moves with a project
 // rename. The user's own rules are not a project, so their key has no colon:
 // a project named "user" can't collide with it.
 export const RULES_SETTING = "rules";

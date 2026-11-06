@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  statSync,
   writeFileSync,
   writeSync,
 } from "node:fs";
@@ -13,7 +14,7 @@ import { homedir, tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { findBrowser, queuePoster } from "./poster.js";
+import { findBrowser, queuePoster, queueRetakes } from "./poster.js";
 import { serveUrl } from "./serveUrl.js";
 
 const BASE = (process.env.MOCKPIT_URL ?? "http://localhost:8228").replace(/\/$/, "");
@@ -53,8 +54,8 @@ the loop (never blocks on the user):
 
 verbs:
   mockpit init [--project name] [--kit <id>] [--kit-url <url> --kit-doc <file|text>]
-                                          detect the repo's design system, store
-                                          palette/kit/icon sets, write .mockpit/starter.html
+                                          read the repo's tokens, kit and icon sets
+                                          into the project's system, write .mockpit/starter.html
   mockpit publish --design <slug> --html <file> [options]
                                           create or version one variant of one state
       --state <label>   state, in the user's words (omit for a single-state design)
@@ -92,7 +93,8 @@ verbs:
   mockpit ask --design <slug> "<question>" --option <label[=variant]> ...
                                           ask the user; bind options to variants
       --option <l[=v]>  an option (repeatable); "=variant" binds it to a variant,
-                        "=variant@3" to its version 3, "=knob:path=value" sets one knob
+                        "=variant@3" to its version 3, "=knob:path=value" sets one knob,
+                        "=palette:id" chooses a palette of the project's system
       --recommend <l>   the option you would pick, by label; a quiet mark on it
       --scope <s>       design|state|part (default design)
       --state <label>   the state a state-scoped question is about
@@ -118,6 +120,9 @@ verbs:
                                           rename a project
   mockpit edit --project <name> --area-order "Shell,Food"
                                           the order Home lists areas in
+  mockpit system [--sheet f.css] [--classes j] [--tokens j] [--scales j] [--palettes j] ...
+                                          the project's system: read it, or change a part
+                                          (applies to every design at once)
   mockpit export --design <slug> [--state s] [--variant v] [--out <dir>]
                                           write the html in use + history per state
                                           to .mockpit/accepted/<design>/<state>/
@@ -169,7 +174,7 @@ environment:
 const COMMAND_HELP = {
   init: `mockpit init [--project <name>] [--kit <id>]
   [--kit-url <https url> [--kit-script <url>] --kit-doc <file.md|text>]
-  Detect the repo's design system, store palette + kit for the project, add the
+  Read the repo's tokens and kit into the project's system, add the
   Iconify sets matching its icon packages, and write .mockpit/starter.html
   (gitignored). --kit makes a bundled or project kit the default for every html
   surface. --kit-url defines the project's own kit (id from --kit, else
@@ -178,7 +183,8 @@ const COMMAND_HELP = {
 mockpit rules --mine
   Guidance on top of the core brief, highest first: the project's
   .mockpit/rules.md (committed with the repo), your ~/.mockpit/rules.md, then
-  the packs either names (\`packs: [design-craft]\` in its frontmatter). A file
+  the packs either names (\`packs: [design-craft, foundations]\` in its frontmatter:
+  design-craft for how to design, foundations for starting a project's system). A file
   has "## Rules" (always followed) and "## Suggestions" (aimed for).
   This sends the file as it is on disk; a missing file clears the stored copy.
   init sends the project's too. A local server reads yours live, so --mine is
@@ -297,11 +303,24 @@ mockpit edit --project <name> --area-order "Shell,Food,Chat"
   edit of it stands, so the draft is then not applied and the result says so.
   --first-state names a design's one unnamed state, and every variant it holds goes
   there, so the design can then have more states.
-  --rename moves the project's designs, sessions, flows and design settings to the
+  --rename moves the project's designs, sessions, flows, system and settings to the
   new name (refused if that project has designs); pass --project <new> or set
   MOCKPIT_PROJECT afterwards if the repo still resolves to the old name.
   --area-order lists the project's areas in the order Home shows them; areas it
   leaves out follow alphabetically, "" goes back to alphabetical.`,
+  system: `mockpit system [--project <name>] [--json]
+mockpit system [--sheet <file.css>|""] [--classes <json>] [--fonts <json>] [--tokens <json>]
+  [--scales <json>] [--roles <json>] [--palettes <json>] [--pairs <json>] [--as <json>]
+  [--knobs <json>] [--remove <json>]
+mockpit system --restore <rev>
+  The project's system: a shared stylesheet, typed tokens, type and space scales, colour
+  palettes and project knobs that every render of the project wears. With no flags it
+  prints the system, its checks and its latest revisions (--json: all of it). Each flag
+  replaces that part and leaves the rest; --tokens, --scales and --palettes upsert by
+  name or id, --remove '{"tokens":["x"]}' takes them out. A JSON flag may name a file.
+  Every change is a new revision the user can restore. The repo's own tokens (from
+  mockpit init) can't be written here: change the code and rerun init.
+  mockpit guide --topic system has the contract.`,
   run: `mockpit run <file|-> [--session <id>] [--project <name>] [--json]
   Run a script (the body of an async function, plain JavaScript) in the server's
   sandbox against the mockpit API; see mockpit guide --topic scripts. Prints each
@@ -322,8 +341,8 @@ mockpit edit --project <name> --area-order "Shell,Food,Chat"
   Upload an asset; prints its id and URL. Use the id as an image surface's assetId.`,
   guide: `mockpit guide [--topic <id>] [--project <name>]
   No flag prints the brief: the loop, parts, questions and knobs, feedback, and
-  this project's palette, kit and icons. --topic prints one reference topic
-  (knobs, asks, surfaces, html, feedback, http, scripts).`,
+  this project's system, kit and icons. --topic prints one reference topic
+  (system, knobs, asks, surfaces, html, feedback, http, scripts).`,
 };
 
 // `console.log(...)` on a pipe is asynchronous, so exiting on the next line
@@ -728,18 +747,53 @@ async function installIconSets(project, prefixes) {
       errors.push({ prefix, message: err instanceof Error ? err.message : String(err) });
     }
   }
-  if (added.length === 0) return { added: [], errors, designSystem: null };
-  const stored = (await api(`${projectPath(project)}/design-system`)) ?? {};
+  if (added.length === 0) return { added: [], errors, system: null };
+  const stored = (await api(`${projectPath(project)}/system`)) ?? {};
   const keep = (stored.iconSets ?? []).filter((s) => !added.some((a) => a.prefix === s.prefix));
-  const designSystem = await api(`${projectPath(project)}/design-system`, {
+  await api(`${projectPath(project)}/system`, {
     method: "PUT",
-    body: JSON.stringify({ ...stored, iconSets: [...keep, ...added] }),
+    body: JSON.stringify({ iconSets: [...keep, ...added] }),
   });
+  const system = await api(`${projectPath(project)}/system`);
   return {
-    added: designSystem.iconSets.filter((s) => added.some((a) => a.prefix === s.prefix)),
+    added: system.iconSets.filter((s) => added.some((a) => a.prefix === s.prefix)),
     errors,
-    designSystem,
+    system,
   };
+}
+
+// Every page of the project looks different after a system change, so its stills are
+// taken again in the background; until then the overviews run the pages live.
+function retakeStills(project, session) {
+  queueRetakes({ base: BASE, token: TOKEN, client: HEADERS["x-mockpit-client"], session, project });
+}
+
+// The system at a glance; `--json` prints all of it.
+function printSystem(s) {
+  const palettes = s.color?.palettes ?? [];
+  const lines = [
+    `${s.project} · r${s.rev}${s.kit && s.kit !== "none" ? ` · kit ${s.kit}` : ""}`,
+    s.sheet
+      ? `sheet ${(s.sheet.css.length / 1000).toFixed(1)} KB · ${s.sheet.classes.length} classes`
+      : null,
+    s.fonts?.length ? `fonts ${s.fonts.map((f) => f.family).join(", ")}` : null,
+    s.scales?.length
+      ? `scales ${s.scales.map((x) => `${x.id} (${x.steps.join(" ")})`).join(", ")}`
+      : null,
+    s.tokens?.length
+      ? `tokens ${s.tokens.filter((t) => !t.scale).length} (+${s.tokens.filter((t) => t.scale).length} from scales)`
+      : null,
+    s.color?.roles?.length ? `roles ${s.color.roles.map((r) => r.name).join(", ")}` : null,
+    palettes.length
+      ? `palettes ${palettes.map((p) => `${p.label} (${p.status})`).join(", ")}`
+      : null,
+    Object.keys(s.knobs ?? {}).length ? `knobs ${Object.keys(s.knobs).join(", ")}` : null,
+  ].filter(Boolean);
+  for (const l of lines) console.log(l);
+  for (const c of s.checks ?? []) console.log(`check: ${c}`);
+  for (const r of (s.revisions ?? []).slice(0, 5))
+    console.log(`r${r.rev} ${r.at.slice(0, 16)} ${r.summary}`);
+  if (s.url) console.log(s.url);
 }
 
 // `--doc` is a file when one exists at that path, else the cheat sheet itself.
@@ -754,9 +808,9 @@ function readKitDoc(doc) {
 // The server checks the URLs against the CDN allowlist and the doc's length;
 // its one-line error is the message.
 function putProjectKit(project, id, { url, script, doc }) {
-  return api(`${projectPath(project)}/kits/${encodeURIComponent(id)}`, {
+  return api(`${projectPath(project)}/system`, {
     method: "PUT",
-    body: JSON.stringify({ href: url, script, doc: readKitDoc(doc) }),
+    body: JSON.stringify({ projectKits: [{ id, href: url, script, doc: readKitDoc(doc) }] }),
   });
 }
 
@@ -901,6 +955,30 @@ const DESIGN_FLAGS = {
   project: { type: "string" },
   session: { type: "string" },
 };
+
+// `mockpit export` with no design: the project's system as files code can import.
+async function exportSystem(flags) {
+  const project = resolveProject(flags).name;
+  const data = await api(
+    `/api/projects/${encodeURIComponent(project)}/system/export`,
+    {},
+    { report: "die", fix: "mockpit system" },
+  );
+  if (flags.json) return out(data);
+  const dir = flags.out ? flags.out : join(process.cwd(), ".mockpit", "system");
+  mkdirSync(dir, { recursive: true });
+  const files = [];
+  const write = (name, text) => {
+    if (!text) return;
+    writeFileSync(join(dir, name), text);
+    files.push(name);
+  };
+  write("sheet.css", data.sheet);
+  write("tokens.css", data.css);
+  const { sheet: _s, css: _c, ...rest } = data;
+  write("system.json", JSON.stringify(rest, null, 2) + "\n");
+  if (!flags.quiet) console.log(`${project} system r${data.rev} → ${dir} (${files.join(", ")})`);
+}
 
 function requireDesign(flags, example) {
   const slug = flags.design ? slugify(flags.design) : "";
@@ -1208,7 +1286,14 @@ async function publishDesign() {
 // "Before=quiet@2" to its version 2 ("=@2" names the state's only variant);
 // "Above=knob:trim.position=top" sets one knob. The value is JSON when it
 // parses (17, true), else a string, so slider and toggle values keep their type.
+// "Grape=palette:grape" chooses a palette of the project's system.
 function parseOption(raw) {
+  const palette = raw.indexOf("=palette:");
+  if (palette > 0) {
+    const id = raw.slice(palette + "=palette:".length);
+    if (!id) die(`option "${raw}" needs palette:<id>`, "--option Grape=palette:grape");
+    return { label: raw.slice(0, palette), palette: id };
+  }
   const knob = raw.indexOf("=knob:");
   if (knob > 0) {
     const pair = raw.slice(knob + "=knob:".length);
@@ -1530,7 +1615,7 @@ const commands = {
     child.on("exit", (code) => process.exit(code ?? 0));
   },
 
-  // Detect the repo's design system once, store it on the project, and leave a
+  // Read the repo's tokens and kit once into the project's system, and leave a
   // starter file behind — so every later publish is markup only, with no CSS or
   // icon paths pasted into the agent's context.
   async init() {
@@ -1553,7 +1638,7 @@ const commands = {
     const designSystem = await detectDesignSystem(process.cwd());
     const d = designSystem.detected;
     // `detected` is always an object, so emptiness has to be read off the
-    // fields — otherwise a repo with no design system printed a blank line.
+    // fields — otherwise a repo with nothing to read printed a blank line.
     const stripped = designSystem.strippedImports?.length
       ? ` (stripped: ${designSystem.strippedImports.join(", ")})`
       : "";
@@ -1573,14 +1658,18 @@ const commands = {
       found.length ? found.join(" · ") : "nothing detected — using the built-in palette",
     );
     let kit = flags.kit ?? designSystem.kit ?? "builtin";
-    // The project kit is stored first so the design PUT can name it as default.
+    // A project kit goes in the same write, so the system can name it as default.
+    let projectKits;
     if (flags["kit-url"] !== undefined) {
       kit = flags.kit ?? "project";
-      await putProjectKit(project, kit, {
-        url: flags["kit-url"],
-        script: flags["kit-script"],
-        doc: flags["kit-doc"],
-      });
+      projectKits = [
+        {
+          id: kit,
+          href: flags["kit-url"],
+          script: flags["kit-script"],
+          doc: readKitDoc(flags["kit-doc"]),
+        },
+      ];
     }
     say("kit:", kit);
     const files = designSystem.designFiles;
@@ -1598,18 +1687,45 @@ const commands = {
       );
     }
 
-    let stored = await api(`${projectPath(project)}/design-system`, {
+    const wrote = await api(`${projectPath(project)}/system`, {
       method: "PUT",
       body: JSON.stringify({
-        detected: designSystem.detected ?? null,
-        palette: designSystem.palette ?? null,
-        cssVars: designSystem.cssVars ?? "",
-        tailwindCss: designSystem.tailwindCss ?? "",
-        strippedImports: designSystem.strippedImports ?? [],
+        repo: {
+          detected: designSystem.detected ?? null,
+          cssVars: designSystem.cssVars ?? "",
+          tailwindCss: designSystem.tailwindCss ?? "",
+          strippedImports: designSystem.strippedImports ?? [],
+          designFiles: designSystem.designFiles ?? null,
+        },
         kit,
-        designFiles: designSystem.designFiles ?? null,
+        ...(projectKits ? { projectKits } : {}),
       }),
     });
+    if (wrote?.changed?.length) {
+      const session = await resolveSession(flags);
+      if (session) retakeStills(project, session);
+    }
+    const derived = wrote?.derived;
+    if (derived) {
+      say(
+        "system:",
+        [
+          `r${wrote.rev}`,
+          derived.roles
+            ? `${derived.roles} colour role${derived.roles === 1 ? "" : "s"} (palette repo)`
+            : null,
+          derived.tokens
+            ? `${derived.tokens} token${derived.tokens === 1 ? "" : "s"}, repo-owned`
+            : null,
+          derived.untyped?.length
+            ? `${derived.untyped.length} untyped, from the raw block only`
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      );
+    }
+    let stored = await api(`${projectPath(project)}/system`);
 
     // Sets the repo already uses are added the same way `icons add` does; one
     // that cannot be fetched (offline) is reported, never fatal to init.
@@ -1630,7 +1746,7 @@ const commands = {
         if (added) say("icons:", `${f.prefix} (${added.count} icons, from ${f.from})`);
         else say("icons:", `${f.prefix} not added: ${error?.message ?? "unknown error"}`);
       }
-      if (result.designSystem) stored = result.designSystem;
+      if (result.system) stored = result.system;
     }
     const iconSets = [
       ...new Set([...(stored?.iconSets ?? []).map((s) => s.prefix), ...BUNDLED_ICON_SETS]),
@@ -1647,7 +1763,7 @@ const commands = {
       say("rules:", rulesSummary(await sendRules(rulesFile, `${projectPath(project)}/rules`)));
     }
     say("next:", "mockpit guide");
-    if (flags.json) out({ project, designSystem: stored, starter });
+    if (flags.json) out({ project, system: stored, derived: derived ?? null, starter });
   },
 
   async publish() {
@@ -1808,6 +1924,7 @@ const commands = {
           ? ` · ${list.open} open question${list.open === 1 ? "" : "s"}`
           : " · nothing waiting on the user"),
     );
+    if (list.system) console.log(`  system ${list.system}`);
     for (const m of designs) {
       const states = m.states.length ? m.states.join(" / ") : "single state";
       console.log(
@@ -1820,7 +1937,8 @@ const commands = {
       console.log(
         `Decided, ${list.decisionList.total}. Treat as settled unless the user says otherwise:`,
       );
-      for (const d of list.decisionList.lines) console.log(`  ${d.design}: ${d.text}`);
+      for (const d of list.decisionList.lines)
+        console.log(`  ${d.system ? "project" : d.design}: ${d.text}`);
       if (list.decisionList.more) console.log(`  ${list.decisionList.more} (--decisions)`);
     }
   },
@@ -1834,6 +1952,7 @@ const commands = {
         out: { type: "string" },
       },
     });
+    if (!flags.design) return exportSystem(flags);
     const slug = requireDesign(flags, "mockpit export --design writer");
     const project = resolveProject(flags).name;
     const data = await api(
@@ -2268,14 +2387,14 @@ const commands = {
     if (sub === "add") {
       const result = await installIconSets(project, sets);
       if (result.errors.length) fail(result.errors.map((e) => e.message).join("; "));
-      if (flags.json) return out(result.designSystem);
+      if (flags.json) return out(result.system);
       for (const a of result.added) {
         if (!flags.quiet) console.log(`added ${a.prefix} (${a.count} icons)`);
       }
       return;
     }
     if (sub === "remove") {
-      const stored = await api(`${projectPath(project)}/design-system`);
+      const stored = await api(`${projectPath(project)}/system`);
       const installed = stored?.iconSets ?? [];
       for (const set of sets) {
         if (installed.some((s) => s.prefix === set)) continue;
@@ -2285,14 +2404,11 @@ const commands = {
             : `${set} is not installed for ${project}`,
         );
       }
-      const designSystem = await api(`${projectPath(project)}/design-system`, {
+      const result = await api(`${projectPath(project)}/system`, {
         method: "PUT",
-        body: JSON.stringify({
-          ...stored,
-          iconSets: installed.filter((s) => !sets.includes(s.prefix)),
-        }),
+        body: JSON.stringify({ iconSets: installed.filter((s) => !sets.includes(s.prefix)) }),
       });
-      if (flags.json) return out(designSystem);
+      if (flags.json) return out(result);
       if (!flags.quiet) console.log(`removed ${sets.join(", ")}`);
       return;
     }
@@ -2319,21 +2435,93 @@ const commands = {
     const { name: project } = resolveProject(flags);
     if ((sub !== "add" && sub !== "remove") || !id)
       fail("usage: mockpit kit add <id> --url <url> --doc <file|text> | mockpit kit remove <id>");
-    const designSystem =
+    const result =
       sub === "add"
         ? await putProjectKit(project, id, flags)
-        : await api(`${projectPath(project)}/kits/${encodeURIComponent(id)}`, {
-            method: "DELETE",
+        : await api(`${projectPath(project)}/system`, {
+            method: "PUT",
+            body: JSON.stringify({ removeKits: [id] }),
           });
-    if (flags.json) return out(designSystem);
+    if (flags.json) return out(result);
     if (!flags.quiet) console.log(`${sub === "add" ? "added" : "removed"} kit ${id} (${project})`);
+  },
+
+  // The project's system: no flags reads it, any flag writes that part.
+  async system() {
+    const JSON_FLAGS = [
+      "classes",
+      "fonts",
+      "tokens",
+      "scales",
+      "roles",
+      "palettes",
+      "pairs",
+      "as",
+      "knobs",
+      "remove",
+    ];
+    const { values: flags } = parse({
+      options: {
+        project: { type: "string" },
+        session: { type: "string" },
+        sheet: { type: "string" },
+        restore: { type: "string" },
+        ...Object.fromEntries(JSON_FLAGS.map((f) => [f, { type: "string" }])),
+      },
+    });
+    const project = resolveProject(flags).name;
+    const body = {};
+    if (flags.sheet !== undefined) {
+      // CSS text has a block; anything else is a path, which must be a file.
+      const sheet = flags.sheet;
+      if (sheet === "") body.sheet = null;
+      else if (sheet.includes("{")) body.sheet = sheet;
+      else if (!existsSync(sheet))
+        die(`--sheet: no file at ${sheet}`, "mockpit system --sheet sheet.css");
+      else if (!statSync(sheet).isFile())
+        die(`--sheet: ${sheet} is not a file`, "mockpit system --sheet sheet.css");
+      else body.sheet = readFileSync(sheet, "utf8");
+    }
+    for (const f of JSON_FLAGS) {
+      if (flags[f] === undefined) continue;
+      const raw = existsSync(flags[f]) ? readFileSync(flags[f], "utf8") : flags[f];
+      try {
+        body[f] = JSON.parse(raw);
+      } catch {
+        die(`--${f} must be JSON (or a JSON file)`, `mockpit guide --topic system`);
+      }
+    }
+    if (flags.restore !== undefined) body.restore = Number(flags.restore);
+    if (Object.keys(body).length === 0) {
+      const system = await api(`${projectPath(project)}/system`, {}, { report: "die" });
+      if (flags.json || !process.stdout.isTTY) return out(system);
+      printSystem(system);
+      return;
+    }
+    const session = (await resolveSession(flags, { create: true })) ?? undefined;
+    const result = await api(
+      `${projectPath(project)}/system`,
+      { method: "PUT", body: JSON.stringify({ ...body, session }) },
+      { report: "die", fix: "mockpit guide --topic system" },
+    );
+    if (result.changed?.length) retakeStills(project, session);
+    if (flags.json) return out(result);
+    if (flags.quiet) return;
+    console.log(
+      result.changed?.length
+        ? `r${result.rev}: ${result.changed.join("; ")}`
+        : `r${result.rev}: nothing changed`,
+    );
+    for (const c of result.checks ?? []) console.log(`check: ${c}`);
+    console.log(result.url);
+    printFeedback(result.feedback);
   },
 
   async guide() {
     const { values: flags } = parse({
       options: { topic: { type: "string" }, project: { type: "string" } },
     });
-    if (flags.topic !== undefined) return printTopic(flags.topic);
+    if (flags.topic !== undefined) return printTopic(flags.topic, flags);
     return printBrief(flags);
   },
 
@@ -2400,7 +2588,7 @@ const commands = {
 // no server running.
 const TOPICS_DIR = join(ROOT, "guide", "topics");
 
-async function printTopic(topic) {
+async function printTopic(topic, flags = {}) {
   const topics = readdirSync(TOPICS_DIR)
     .filter((f) => f.endsWith(".md"))
     .map((f) => f.slice(0, -3))
@@ -2411,11 +2599,13 @@ async function printTopic(topic) {
       `mockpit guide --topic ${topics[0]}`,
     );
   }
-  const path = `/agent-howto?${new URLSearchParams({ topic })}`;
+  const path = `/agent-howto?${new URLSearchParams(
+    topic === "system" ? { topic, project: resolveProject(flags).name } : { topic },
+  )}`;
   console.log(await fetchTextWithFallback(path, join(TOPICS_DIR, `${topic}.md`)));
 }
 
-// The brief is rendered from the project's stored design settings, so the
+// The brief is rendered from the project's stored system, so the
 // server's copy is the real one. With no server it still has to print: an
 // agent reads it before anything else, so render the generic brief locally
 // (the same code the server runs) and say where the project-aware one comes from.
@@ -2428,7 +2618,7 @@ async function printBrief(flags) {
   const { renderBriefGuide } = await import(entrypoint("server", "designGuide.ts"));
   console.log(renderBriefGuide(null));
   console.error(
-    `note: no mockpit at ${BASE}; this is the generic brief. Run mockpit serve, then mockpit init for this project's palette, kit and icons.`,
+    `note: no mockpit at ${BASE}; this is the generic brief. Run mockpit serve, then mockpit init for this project's system, kit and icons.`,
   );
 }
 

@@ -13,12 +13,15 @@ then presses **Send** once.
 Instructions live on the running server:
 
 ```sh
-mockpit guide                 # the brief: the loop, feedback, this project's palette, kit and icons
-mockpit guide --topic knobs   # one reference topic: knobs, asks, surfaces, html, feedback, http, scripts
+mockpit guide                 # the brief: the loop, feedback, this project's system, kit and icons
+mockpit guide --topic knobs   # one reference topic: knobs, asks, surfaces, html, feedback, http, scripts, system
 ```
 
-Once per repo run `mockpit init`: it stores the repo's palette, kit and icon sprite on the
-server and writes `.mockpit/starter.html` to copy from. Never assemble a design set by hand.
+Once per repo run `mockpit init`: it stores what the repo's code says (colours, tokens, kit,
+icons) on the project's system and writes `.mockpit/starter.html` to copy from. Never assemble
+a design set by hand. The system is what every design shares: a sheet, tokens, scales,
+palettes and project knobs, read and changed with `mockpit system` (`system` over MCP), for
+every design at once.
 
 ## The loop
 
@@ -38,7 +41,7 @@ user sees ("Hold menu"), never by your process ("Round 2 · …", "v2", "Prototy
 moves a design from Home (kind, area), you hear it in `feedback` as `edited`.
 
 Prefer the MCP tools when connected (`publish`, `ask`, `read`, `feedback`,
-`say`, `move`, `edit`, `export`, `upload`, `guide`); otherwise use the CLI.
+`say`, `move`, `edit`, `system`, `export`, `upload`, `guide`); otherwise use the CLI.
 
 ```sh
 mockpit publish --design writer --state "Writing" --variant quiet --html quiet.html
@@ -72,7 +75,7 @@ Rules of thumb:
   (design, state, variant) again makes a new version.
 - A choice is several variants plus one question that binds them. A variant decides
   everything it differs on; don't re-ask it. Visual options carry a `variant`
-  or knob `set`. One render plus a control → declare a knob; declare knobs for
+  or knob `set`, or a `palette` of the system. One render plus a control → declare a knob; declare knobs for
   what is worth fine-tuning even unasked. When a publish result nudges, send
   its `suggestedAsk`.
 - The html is the UI alone. Say what a variant is in `description`, never as text

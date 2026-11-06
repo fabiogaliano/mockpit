@@ -85,6 +85,7 @@ import { createShortlists } from "./shortlist.ts";
 import { unseen } from "./seen.ts";
 import { setTheme } from "./theme.ts";
 import { Sidebar } from "./Sidebar.tsx";
+import { SystemPlace } from "./SystemPlace.tsx";
 import { Toast, type ToastLine } from "./toast.tsx";
 import { TopBar } from "./TopBar.tsx";
 import { phoneLayout } from "./viewport.ts";
@@ -264,6 +265,7 @@ export function Home(props: {
     if (sec === "needs" && waiting().length) return sec;
     if (sec === "archive" && archived().length) return sec;
     if (sec === "recent" && nodes().length) return sec;
+    if (sec === "system" && tree()?.hasSystem) return sec;
     if (tiny()) return loaded ? "tiny" : null;
     if (sec && isLit(sec)) return sec;
     if (area()) return "area";
@@ -377,6 +379,10 @@ export function Home(props: {
       setTheme(e.mode === "light" ? "light" : "dark");
       // Which stills show depends on the mode they were taken in.
       void refetch();
+    } else if (e.type === "system-changed") {
+      // The System place appears with a first write, and stills taken under the
+      // old revision stop showing.
+      if (e.project === project()) refetchSoon();
     } else if (
       e.type.startsWith("design-") ||
       e.type.startsWith("post-") ||
@@ -458,6 +464,7 @@ export function Home(props: {
       tree={side().tree}
       archived={archived().length}
       recent={nodes().length > 0}
+      system={!!tree()?.hasSystem}
       go={swap}
       onNav={() => setDrawer(false)}
       drawer={inDrawer}
@@ -642,7 +649,10 @@ export function Home(props: {
           ? "Archive"
           : s === "recent"
             ? "Recent"
-            : SECTION_LABEL[s];
+            : s === "system"
+              ? null
+              : SECTION_LABEL[s];
+    if (label === null) return null;
     return a && shelfOn() ? `${label} in ${a}` : label;
   };
   // How much of the shelf is still only a plan.
@@ -680,7 +690,8 @@ export function Home(props: {
   // Beside a sidebar its Needs you row already says this; the Needs you page still
   // offers the next one, and without a column in view this is the only place to.
   const leadTellsOpen = () => open() > 0 && (!hasSidebar() || phoneLayout() || shown() === "needs");
-  const leadHasWords = () => leadTellsOpen() || (tiny() && decisionCount() > 0);
+  const tinySystem = () => tiny() && !!tree()?.hasSystem && shown() !== "system";
+  const leadHasWords = () => leadTellsOpen() || (tiny() && decisionCount() > 0) || tinySystem();
 
   const [archivedOpen, setArchivedOpen] = createSignal(false);
   const archive = () => (
@@ -854,6 +865,18 @@ export function Home(props: {
                       {`Decisions ${decisionCount()} ›`}
                     </a>
                   </Show>
+                  <Show when={tinySystem()}>
+                    <Show when={leadTellsOpen() || (decisionCount() > 0 && shown() !== "recent")}>
+                      <span class="sep">·</span>
+                    </Show>
+                    <a
+                      class="home-next"
+                      href={projectPath(project()!, "system")}
+                      onClick={(e) => swap(e, projectPath(project()!, "system"))}
+                    >
+                      System ›
+                    </a>
+                  </Show>
                   <Show when={shelfOn() && !readonly()}>
                     <button
                       type="button"
@@ -933,6 +956,10 @@ export function Home(props: {
                   </For>
                 </ol>
               </div>
+            </Show>
+
+            <Show when={shown() === "system" && project()}>
+              {(p) => <SystemPlace project={p()} toast={setToast} />}
             </Show>
 
             <Show when={shown() === "recent"}>

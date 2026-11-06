@@ -7,7 +7,9 @@ import knobs from "../guide/topics/knobs.md";
 import feedback from "../guide/topics/feedback.md";
 import scripts from "../guide/topics/scripts.md";
 import surfaces from "../guide/topics/surfaces.md";
+import system from "../guide/topics/system.md";
 import designCraft from "../guide/packs/design-craft.md";
+import foundations from "../guide/packs/foundations.md";
 import pkg from "../package.json" with { type: "json" };
 import { createApp } from "../server/app.ts";
 import type { GuideTopic } from "../server/designGuide.ts";
@@ -39,12 +41,12 @@ export class MockpitBoard extends DurableObject<Env> {
       store: new SqlStore(ctx.storage.sql),
       viewerHtml,
       setupText,
-      topics: { knobs, asks, surfaces, html, feedback, http, scripts } satisfies Record<
+      topics: { system, knobs, asks, surfaces, html, feedback, http, scripts } satisfies Record<
         GuideTopic,
         string
       >,
       // No home folder here: the user's rules are the copy `mockpit rules --mine` stored.
-      packs: { "design-craft": designCraft } satisfies Record<GuidePack, string>,
+      packs: { "design-craft": designCraft, foundations } satisfies Record<GuidePack, string>,
       authToken: env.MOCKPIT_TOKEN,
       publicRead,
       // This Worker deploys with the Browser Rendering binding (wrangler.jsonc),

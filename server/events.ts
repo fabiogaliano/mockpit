@@ -32,6 +32,9 @@ export type FeedEvent =
   // The session's agent made a call of its own, as opposed to a watch re-arming.
   // At most one every few seconds per session.
   | { type: "agent-called"; sessionId: string }
+  // A project's system changed: every frame of the project renders anew.
+  // `by` says whose: the viewer tells the user only of what an agent changed.
+  | { type: "system-changed"; project: string; rev: number; summary: string; by: "user" | "agent" }
   // Workspace light/dark mode changed. Other open tabs re-theme.
   | { type: "theme-changed"; mode: Mode };
 

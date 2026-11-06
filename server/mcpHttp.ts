@@ -40,6 +40,8 @@ export interface McpFlows {
   feedback: Flow<[query: { session?: unknown; project?: unknown }, ctx: FlowContext]>;
   edit: Flow<[ref: unknown, body: any, ctx: FlowContext]>;
   editProject: Flow<[name: unknown, body: any, ctx: FlowContext]>;
+  system: Flow<[project: unknown, body: any, ctx: FlowContext]>;
+  exportSystem: Flow<[project: unknown]>;
 }
 
 export interface McpDeps {
@@ -156,9 +158,22 @@ export function registerMcp(app: Hono, deps: McpDeps) {
       case "move":
         return unwrap(await flows.move(args.design, args, ctx));
       case "export":
+        if (args.design === undefined) {
+          return unwrap(await flows.exportSystem(await projectOf(args)));
+        }
         return unwrap(await flows.exportDesign(args.design, args, ctx));
       case "edit":
         return unwrap(await editCall(flows, args, ctx, await namedProject(args)));
+      case "system": {
+        const writing = Object.keys(args).some((k) => !["session", "project", "agent"].includes(k));
+        if (!writing) return unwrap(await flows.system(await projectOf(args), args, ctx));
+        const project = await namedProject(args);
+        if (!project)
+          throw new Error(
+            "system writes need a project: pass project, or call from a session that has one",
+          );
+        return unwrap(await flows.system(project, args, ctx));
+      }
       case "upload": {
         if (typeof args.data !== "string" || args.data.length === 0) {
           throw new Error("upload needs base64 `data`");
@@ -183,7 +198,7 @@ export function registerMcp(app: Hono, deps: McpDeps) {
       case "guide": {
         if (args.topic === undefined) return await deps.guide(await projectOf(args));
         if (!isGuideTopic(args.topic)) throw new Error(unknownTopicMessage(String(args.topic)));
-        return await deps.guide("", args.topic);
+        return await deps.guide(args.topic === "system" ? await projectOf(args) : "", args.topic);
       }
       default:
         throw new Error(`unknown tool: ${name}`);

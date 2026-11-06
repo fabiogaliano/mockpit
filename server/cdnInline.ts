@@ -456,9 +456,11 @@ export function createCdnInliner() {
         last = at + m[0].length;
         const raw = m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5] ?? "";
         const url = onCdn(raw, base);
-        // A media or layer qualifier would need wrapping, so it keeps its link.
-        const qualified = !!m[6]?.trim();
-        if (!url || qualified || depth >= MAX_IMPORT_DEPTH) {
+        // A layer is wrapped as a block, which says the same; a media or
+        // supports qualifier would need more, so it keeps its link.
+        const qualifier = m[6]?.trim() ?? "";
+        const layer = /^layer\(\s*([A-Za-z_][\w.-]*)\s*\)$/.exec(qualifier)?.[1];
+        if (!url || (qualifier && !layer) || depth >= MAX_IMPORT_DEPTH) {
           imports += `${m[0]}\n`;
           continue;
         }
@@ -468,7 +470,7 @@ export function createCdnInliner() {
           continue;
         }
         imports += inlined.imports;
-        importedBody += `${inlined.body}\n`;
+        importedBody += layer ? `@layer ${layer}{${inlined.body}}\n` : `${inlined.body}\n`;
       }
       rest += absolute.slice(last);
       return { imports, body: `${importedBody}${await rewriteFaces(rest, base)}` };

@@ -15,6 +15,7 @@ import {
   optionState,
 } from "./types.ts";
 import { standingOf } from "./standings.ts";
+import type { System } from "./system.ts";
 
 // The words of a derived line, so the viewer can weigh the answer over the
 // question. `text` below is exactly these, joined.
@@ -40,6 +41,8 @@ export interface DecisionLine {
   edited?: true;
   // The design is archived: its answers stand, but the work there has stopped.
   archived?: true;
+  // About the project's system rather than one design (`design` is empty).
+  system?: true;
   at?: string;
 }
 
@@ -237,6 +240,7 @@ function standingBasis(design: Design, ask: Ask): string[] {
 export function deriveDecisionLines(
   designs: Design[],
   sources: DecisionSources,
+  system: System | null = null,
 ): (DecisionLine & { basis: string })[] {
   const byDesign = new Map<string, DecisionVariant[]>();
   for (const v of sources.variants) {
@@ -249,7 +253,7 @@ export function deriveDecisionLines(
       Number(!!a.archivedAt) - Number(!!b.archivedAt) ||
       (sources.decidedAt[b.id] ?? "").localeCompare(sources.decidedAt[a.id] ?? ""),
   );
-  const out: (DecisionLine & { basis: string })[] = [];
+  const out: (DecisionLine & { basis: string })[] = systemLines(system);
   for (const design of order) {
     const variants = byDesign.get(design.id) ?? [];
     const base = {
@@ -299,6 +303,39 @@ export function deriveDecisionLines(
   return out;
 }
 
+// The project's own decisions, first: they hold on every design. A palette line
+// only once there are palettes to choose between.
+function systemLines(system: System | null): (DecisionLine & { basis: string })[] {
+  if (!system) return [];
+  const base = { design: "", title: "System", system: true as const };
+  const out: (DecisionLine & { basis: string })[] = [];
+  const palettes = system.color.palettes;
+  const def = palettes.find((p) => p.status === "default");
+  if (def && palettes.length > 1) {
+    const named = (status: string) =>
+      palettes.filter((p) => p.status === status).map((p) => p.label || p.id);
+    const kept = named("kept");
+    const hidden = named("hidden");
+    const text = [
+      `Palette: ${def.label || def.id} by default.`,
+      kept.length ? ` Kept: ${kept.join(", ")}.` : "",
+      hidden.length ? ` Not: ${hidden.join(", ")}.` : "",
+    ].join("");
+    out.push({
+      ...base,
+      id: "system:palette",
+      text,
+      basis: JSON.stringify(palettes.map((p) => [p.id, p.status])),
+    });
+  }
+  for (const [path, value] of Object.entries(system.settled)) {
+    if (!Object.hasOwn(system.knobs, path)) continue;
+    const text = `Project knob ${path}: ${typeof value === "string" ? value : JSON.stringify(value)}.`;
+    out.push({ ...base, id: `system:knob:${path}`, text, basis: JSON.stringify(value) });
+  }
+  return out;
+}
+
 // The hand edits laid over the derived lines. An edit made on an older answer
 // no longer applies: the user has decided again since.
 export function applyDecisionEdits(
@@ -321,6 +358,7 @@ export function applyDecisionEdits(
 export interface AgentDecisionLine {
   design: string;
   text: string;
+  system?: true;
   // Comes from the design this read asked about.
   here?: true;
   edited?: true;
@@ -341,9 +379,12 @@ const AGENT_LINE_CHARS = 280;
 const AGENT_LIST_CHARS = 6000;
 
 export function agentDecisionList(lines: DecisionLine[], here?: string): AgentDecisionList {
-  const ordered = here
-    ? [...lines.filter((l) => l.design === here), ...lines.filter((l) => l.design !== here)]
-    : lines;
+  // The project's own come first wherever the read is: they hold on every design.
+  const ordered = [
+    ...lines.filter((l) => l.system),
+    ...lines.filter((l) => !l.system && here && l.design === here),
+    ...lines.filter((l) => !l.system && !(here && l.design === here)),
+  ];
   const kept: AgentDecisionLine[] = [];
   let used = 0;
   let clipped = false;
@@ -356,6 +397,7 @@ export function agentDecisionList(lines: DecisionLine[], here?: string): AgentDe
     kept.push({
       design: l.design,
       text,
+      ...(l.system ? { system: true as const } : {}),
       ...(l.design === here ? { here: true as const } : {}),
       ...(l.edited ? { edited: true as const } : {}),
       ...(l.archived ? { archived: true as const } : {}),
@@ -380,6 +422,7 @@ export function fullAgentDecisionList(lines: DecisionLine[]): AgentDecisionList 
     lines: lines.map((l) => ({
       design: l.design,
       text: l.text,
+      ...(l.system ? { system: true as const } : {}),
       ...(l.edited ? { edited: true as const } : {}),
       ...(l.archived ? { archived: true as const } : {}),
     })),

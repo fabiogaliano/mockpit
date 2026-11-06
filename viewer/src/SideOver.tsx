@@ -83,6 +83,7 @@ export function SideOver(props: { project: string }) {
           tree={side().tree}
           archived={side().archived.length}
           recent={(tree()?.tree.length ?? 0) > 0}
+          system={!!tree()?.hasSystem}
           go={linkClick}
           onNav={() => setOpen(false)}
           drawer

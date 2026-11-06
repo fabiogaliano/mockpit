@@ -27,10 +27,42 @@ import type {
   ReplyVerdict,
 } from "../../server/types.ts";
 import { basePath, host, renderRev } from "./host.ts";
+import {
+  framePalette,
+  notePalettes,
+  noteSystemRev,
+  peekRev,
+  systemChanged,
+  systemRev,
+} from "./systemRev.ts";
 
 import type { JumpHit } from "../../server/jump.ts";
+import type { PaletteStatus, System, SystemRevisionHead } from "../../server/system.ts";
+import type { PairResult } from "../../server/systemChecks.ts";
+import type { ComponentLine } from "../../server/designGuide.ts";
+
+// The System page's read: the system with its checks, the latest revisions, every
+// palette's contrast and the components.
+export type SystemPage = System & {
+  checks: string[];
+  revisions: SystemRevisionHead[];
+  contrast: PairResult[];
+  components: ComponentLine[];
+  // The user's own decisions that reached an agent, by the revision each made.
+  told?: { rev: number; delivered: boolean }[];
+};
 export type DesignSummary = ReturnType<typeof designSummaryView>;
-export type DesignDetail = ReturnType<typeof designDetailView>;
+// A palette of the project's system as the switcher shows it: a swatch of its first roles.
+export type PaletteChoice = {
+  id: string;
+  label: string;
+  status: "default" | "kept" | "open" | "hidden";
+  swatch: { light: string[]; dark: string[] };
+};
+export type DesignDetail = ReturnType<typeof designDetailView> & {
+  systemRev?: number;
+  palettes?: PaletteChoice[];
+};
 export type TreeNode = ReturnType<typeof treeNodeView>;
 // A declared flow as `read` returns it: only steps whose screen exists.
 export type FlowView = { name: string; steps: FlowStep[] };
@@ -170,21 +202,46 @@ export const api = {
       `/api/copies/${encodeURIComponent(design)}/remove`,
       json("POST", { state, variant }),
     ),
+  system: (project: string) =>
+    call<SystemPage>(`/api/projects/${encodeURIComponent(project)}/system`),
+  // The user's hand on the system: one revision, one reply to the project's agent.
+  systemDecide: (
+    project: string,
+    body: { palette: string; status: PaletteStatus } | { restore: number },
+  ) =>
+    call<{ rev: number; changes: string[]; told?: string | null }>(
+      `/api/projects/${encodeURIComponent(project)}/system/decide`,
+      json("POST", body),
+    ),
   // The project as a tree: what the canvas and the phone's drill-down lay out.
   tree: (project: string) =>
-    call<{ project: string; tree: TreeNode[]; flows: FlowView[]; areaOrder: string[] }>(
-      `/api/projects/${encodeURIComponent(project)}/tree`,
-    ),
+    call<{
+      project: string;
+      systemRev?: number;
+      hasSystem?: boolean;
+      tree: TreeNode[];
+      flows: FlowView[];
+      areaOrder: string[];
+    }>(`/api/projects/${encodeURIComponent(project)}/tree`).then(seenRev),
   // What a phone opening this page would meet (the QR code).
   reach: () =>
     call<{ hosts: string[]; localOnly: boolean; access: "open" | "key" | "read" | "unknown" }>(
       "/api/reach",
     ),
-  design: (id: string) => call<DesignDetail>(`/api/designs/${encodeURIComponent(id)}?history=1`),
+  design: (id: string) =>
+    call<DesignDetail>(`/api/designs/${encodeURIComponent(id)}?history=1`)
+      .then(seenRev)
+      .then((d) => {
+        notePalettes(
+          d.project,
+          (d.palettes ?? []).filter((p) => p.status !== "hidden").map((p) => p.id),
+        );
+        return d;
+      }),
   designIn: (project: string, slug: string) =>
     call<DesignDetail>(
       `/api/designs/${encodeURIComponent(slug)}?history=1&project=${encodeURIComponent(project)}`,
-    ),
+    ).then(seenRev),
   // What the flow bar needs on every design screen, far lighter than the tree.
   flowOutline: (project: string) =>
     call<{
@@ -340,6 +397,8 @@ export function surfaceUrl(
     embed?: Record<string, number>;
     // The variant's rewrites: an amended version keeps its number.
     w?: number;
+    // A palette of the project's system other than its default.
+    p?: string;
   } = {},
 ): string {
   const q = new URLSearchParams({ surface: String(surface) });
@@ -349,13 +408,34 @@ export function surfaceUrl(
   if (opts.e) q.set("e", opts.e);
   if (opts.embed && Object.keys(opts.embed).length) q.set("embed", JSON.stringify(opts.embed));
   if (opts.w) q.set("w", String(opts.w));
+  const p = opts.p ?? framePalette();
+  if (p) q.set("p", p);
+  const y = systemRev();
+  if (y) q.set("y", String(y));
+  const sys = peekRev();
+  if (sys) q.set("sys", String(sys));
   // The renderer's revision: a new one is a new URL, past the browser's cache.
   const r = renderRev();
   if (r) q.set("r", r);
   return url(`/s/${encodeURIComponent(postId)}?${q}`);
 }
 
+// A view of a project says which system revision its frames wear.
+function seenRev<T extends { project: string; systemRev?: number }>(view: T): T {
+  noteSystemRev(view.project, view.systemRev);
+  return view;
+}
+
 export const assetUrl = (id: string) => url(`/a/${encodeURIComponent(id)}`);
+
+// The System page's type and space specimen, a sandboxed document of its own.
+export const specimenUrl = (project: string, mode: string, palette: string | null) => {
+  const q = new URLSearchParams({ mode });
+  if (palette) q.set("p", palette);
+  const y = systemRev();
+  if (y) q.set("y", String(y));
+  return url(`/api/projects/${encodeURIComponent(project)}/system/specimen?${q}`);
+};
 
 // The live feed: one EventSource per tab, shared by every subscriber, since
 // browsers hold at most six HTTP/1.1 connections per origin across all tabs.
@@ -383,6 +463,7 @@ function connect(): { close: () => void } | null {
       // A malformed frame is dropped; the next event or reconnect refetches.
       return;
     }
+    if (event.type === "system-changed") systemChanged(event);
     for (const l of listeners) l.onEvent(event);
   };
   es.addEventListener("hello", (m: MessageEvent<string>) => {

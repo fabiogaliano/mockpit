@@ -11,7 +11,8 @@ mockpit ask --design writer "Trim?" --option Above=knob:trim.position=top --opti
 mockpit ask --design writer --asks asks.json
 ```
 
-`=knob:` sets one knob; for an option that sets several, use `--asks` JSON.
+`=knob:` sets one knob; for an option that sets several, use `--asks` JSON. `=palette:<id>`
+(JSON `palette`) chooses a palette of the project's system: see the `system` topic.
 `--recommend Quiet` (`"recommended": true` on one option) marks the one you
 would pick with a quiet dot; hovering shows the variant's description as why.
 

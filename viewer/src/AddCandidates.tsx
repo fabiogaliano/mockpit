@@ -6,6 +6,7 @@
 import { createMemo, createResource, createSignal, For, onMount, Show } from "solid-js";
 import { isLive } from "../../server/types.ts";
 import { api, assetUrl, surfaceUrl, type SaveCandidate, type TreeNode } from "./api.ts";
+import { posterShown } from "./systemRev.ts";
 import { Icon } from "./icons.tsx";
 import { designPath, navigate } from "./route.ts";
 import { phoneLayout } from "./viewport.ts";
@@ -283,7 +284,7 @@ function CandidateCard(props: {
     >
       <span class="slcard-art">
         <Show
-          when={v().poster}
+          when={posterShown(v().poster)}
           fallback={
             <Show when={src()}>
               {(u) => <Thumb src={u()} width={props.card.node.widths[0] ?? FRAME_W} fit whole />}

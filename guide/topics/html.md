@@ -1,7 +1,7 @@
 # mockpit topic: html
 
 An `html` surface is a blank canvas: custom SVG, bespoke layout, small interactions and
-animation are all fine. `mockpit guide` prints this project's palette, kit, icons and rules.
+animation are all fine. `mockpit guide` prints this project's system, kit, icons and rules.
 
 ## Contract
 
@@ -60,7 +60,7 @@ Every html surface has these, re-resolved when the user switches dark and light:
   plus the semantic set
 - Type: `--font-sans|serif|mono`. Radius: `--border-radius-md|lg|xl` (8/12/16px)
 
-If `mockpit init` imported a design system, the project's own `:root` block is
+If `mockpit init` read the repo's tokens, the project's own `:root` block is
 injected too, so `var(--radius)`, `var(--primary)` and its font tokens resolve.
 
 ## Base kit (always on)

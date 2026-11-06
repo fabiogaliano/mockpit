@@ -17,9 +17,10 @@ The model is **project › design › state › variant › version**: a project
 (from the agent's cwd/git remote), a design is a screen or component by stable slug
 owning ordered **states**, **asks** and global **knobs**; a variant (a `Post`) is
 a parallel take on one state; versions are its history. A **part** is a
-`data-part` element in a render. The agent's eleven verbs are `publish`, `ask`,
-`read`, `feedback`, `say`, `move`, `edit`, `export`, `upload`, `guide` and `run` (the
-CLI adds `init` and `watch`); `move` takes variants to another design or state,
+`data-part` element in a render. The agent's twelve verbs are `publish`, `ask`,
+`read`, `feedback`, `say`, `move`, `edit`, `system`, `export`, `upload`, `guide` and `run`
+(the CLI adds `init` and `watch`); `system` reads and changes the project's **system**
+(below); `move` takes variants to another design or state,
 archives or restores them (never touches one in use, and says so in the Thread), and,
 when the user asks, hides or deletes their older versions (`hideOlder`, `deleteOlder`:
 deleting skips any version a reply, comment, question, embed, copy or fork points at,
@@ -85,11 +86,46 @@ consciously, not as a side effect):
   `Draft`, `Reply`. Assets are a separate entity; `selectEvictions` is the
   reference-aware LRU policy.
 - `server/decisionList.ts` — the project's decision list: plain lines derived from
-  what replies left on designs (answered asks, variants in use), never summarised,
+  what replies left on designs (answered asks, variants in use) and the system's palettes
+  and settled project knobs (`system: true`, first on every read), never summarised,
   with the user's hand edits laid over them (`decisions:<project>` setting, each
   edit bound to the answer it was made on, so a new answer outranks it). `read`
   carries a bounded copy on every agent tier. Not `server/decisions.ts`, which is
   what one reply chose, state by state.
+- `server/system.ts` — a project's **system**, what every render of the project wears:
+  a sheet and its classes, fonts, typed tokens, scales (type and space, fixed or fluid
+  `clamp()`), colour roles and palettes (`default`, `kept`, `open`, `hidden`), contrast
+  pairs, `as` (mockpit's `--color-*` pointed at roles), project knobs with `settled` values
+  and their answer `additions`, the kit, project kits and icon sets, and `repo` (what
+  `mockpit init` read, from which `deriveRepoTokens` makes the repo-owned tokens, roles
+  and `repo` palette no `system` write can change). One row per project in `systems`; every
+  write is a revision in `system_revisions` (30 kept), restore keeps repo-owned entries
+  (the `repo` palette keeps its status across rereads too), and an agent's restore also keeps
+  what the user decided: palette statuses, `settled` and the knobs and `additions` those values
+  need (`kept` in its result). The user's Restore brings back everything else. A name has one
+  owner (`nameOwners`): a write giving a token, scale step, text-token field, role or a name
+  the repo declares a second owner fails, naming both.
+  `systemCss` builds what a frame wears; `systemAfterAnswers` is what a Send decides for
+  the project (a `palette` answer becomes the default, the old one kept; a `set` on a
+  project knob settles it), written in the reply's transaction; `systemExport` hands it to
+  code. The user's own changes (`POST /api/projects/:name/system/decide`, viewer only) are
+  a reply with no design to `systemReplySession`, a project batch in `feedbackBatch.ts`.
+  `server/systemChecks.ts` (contrast through `server/contrast.ts`, WCAG 2.2, five colour
+  notations, never passing what it can't parse; the sheet; pages and answer styles against
+  the system) returns nudges and never blocks.
+- Render contract: a version records the `contract` and the system revision it was
+  published under (absent contract = 1). Contract 2 renders in cascade layers,
+  `@layer mockpit, kit, system`, with tokens and the page unlayered, so a page rule wins at
+  plain specificity (with the `tailwind` kit, `theme, base, mockpit, kit, system, components,
+  utilities`, so preflight sits under the sheet and utilities over it); contract 1 keeps the old order, so an approved version looks as it
+  did. Frame URLs carry `y` (the system's rev), `sys` (peek at an older revision) and `p` (a
+  palette other than the default); a poster taken under another rev is dropped.
+  `viewer/src/systemRev.ts` holds all three for the viewer. `y` comes from each view and
+  the `system-changed` event, `p` is the tool strip's `PaletteTool` (localStorage per
+  project, settles nothing), and `sys` is the System changed note's See before. While
+  `p` or `sys` is set, frames draw live and no poster is shown (`posterShown`). The
+  event's `by` says whose change it was: only an agent's raises `SystemNote` (See
+  before, Restore, which is the user's own change through `/system/decide`).
 - `server/knobs.ts` — knob schema and value validation (Q3): every declared knob
   and every value (`?k=`, drafts, replies, ask `set`s) is checked here;
   `discreteChoices` drives the ask-not-knob nudge.
@@ -113,7 +149,7 @@ consciously, not as a side effect):
   (items → single-state designs, draft comments → design drafts, traces dropped,
   `resolvedAt` → `archivedAt`, the 2.0 contract words in stored replies, drafts
   and html, situations → ordinary states named `state · situation`, leaving an inert
-  `situations` column).
+  `situations` column, each project's design settings → its system at rev 1).
 - A design with a declared `kind` and no posts is **planned** (`isPlanned` in `types.ts`,
   derived, never stored): `publish` with a kind and no body declares one, and the first
   drawing fills it. `Design.stateOutlines` holds per-design answers to the outlines of
@@ -155,7 +191,8 @@ consciously, not as a side effect):
   `handoff` note. A move from Home and a thread comment still go to the owner.
 - `server/answerAdditions.ts` — what an answer brings so it can draw itself, with no new
   version: `style` or `fill` beside a `set` of a new value, kept on `Design.answerAdditions`
-  (never removed or redefined) and laid over every render in `buildSurfaceDoc`. Adding one
+  (never removed; asked again with a new style or fill, revised under the same value) and
+  laid over every render in `buildSurfaceDoc`, the system's `additions` after them. Adding one
   bumps every post's `rewrites`, which is how open frames reload. An answer's `html` is a
   whole page: a hidden version (`addAnswerPage`) that joins the versions only if chosen, so
   `newestVisible`, not `post.version`, is what `parts`, `fills` and kept surfaces build on.
@@ -163,7 +200,8 @@ consciously, not as a side effect):
   `/api/kits`, allowlisted in `server/postSurfaces.ts`. Adding a kit is a
   registry entry + a guide bullet. A reference kit (`href`/`script`, e.g.
   basecoat) loads from the CDN allowlist in `server/cdn.ts`; project kits live
-  on `DesignSettings.projectKits` and pass the same URL check.
+  on `System.projectKits` and pass the same URL check. The `layout` kit places boxes
+  only, its gaps from `--layout-space`, which the system points at its space scale's base.
 - `server/richRender.ts` — server-side renderers for markdown/code/diff/terminal
   (`{body, css}`), runtime-agnostic (shiki JS regex engine, @pierre/diffs SSR,
   markdown-it, ansi_up — no WASM/DOM).
@@ -190,8 +228,13 @@ consciously, not as a side effect):
   `mcp/server.ts` — stdio MCP, a thin client over the HTTP API.
 - `viewer/` — Solid + TypeScript in `viewer/src/`, Vite-built into one
   self-contained `viewer/dist/index.html`. `Home` is a `Sidebar` beside one place,
-  named by `?sec=needs|ideas|screens|flows|components|documents|archive|recent`
-  and `?area=` (absent: the first section lit). `albums.ts` holds the rules:
+  named by `?sec=needs|ideas|screens|flows|components|documents|archive|recent|system`
+  and `?area=` (absent: the first section lit). `SystemPlace` (`?sec=system`, in the
+  sidebar after the sections once the system holds anything, `hasSystem` on the tree)
+  is the project's system in tabs per family: palettes as swatch rows with Default /
+  Keep / Hide, their checks, a type and space specimen (`server/systemSpecimen.ts`, a
+  sandboxed document from `GET /api/projects/:name/system/specimen`), tokens, classes,
+  components and revisions with Restore. `albums.ts` holds the rules:
   `sectionOf` keeps declared screens and components and derives idea or document
   from what a design contains (one render, nothing asked and no width is a document),
   and only lit sections show. Ideas and Screens come first, larger first; Documents
@@ -223,7 +266,7 @@ consciously, not as a side effect):
   live-frame limit; `Outlines` (missing states in the margin or flow bar, `StateAsk`,
   `PlannedStage` where nothing is drawn); `Notes`; `Studio`, the state zoomed
   out with every variant side by side, entered from the top bar's Stage | Studio switch and
-  remembered per design, with one row of controls in the header (`StudioBar`: states, filter, what's live, in use, hidden or archived, and Wall | Columns | Grid), each steer its own reply (`steer`, `sendAlone`), with `SelectBar` acting on
+  remembered per design, with one row of controls in the header (`StudioBar`: states, filter, what's live, in use, hidden or archived, and Wall | Columns | Palettes | Grid; `PalettesBoard` is the state on stage in each visible palette, a column per palette, light over dark, offered once there are two), each steer its own reply (`steer`, `sendAlone`), with `SelectBar` acting on
   several versions at once. A fork is a column of its own saying where it came from.
   Past Use this a newer version takes over by itself (`changedTo`, `ChangedNote`): the stage
   moves to it when the tab has focus and it goes in use ten seconds later, writing nothing
@@ -252,7 +295,10 @@ consciously, not as a side effect):
   `presets.ts` (Tune presets in localStorage), `theme.ts`, `host.ts`.
 - `bin/poster.js` — automatic posters for the CLI and stdio MCP: a publish leaves a job, a
   detached worker renders it in one headless browser and attaches the still with
-  `POST /api/designs/:id/variants/:postId/poster`, which makes no new version. Built-ins only.
+  `POST /api/designs/:id/variants/:postId/poster`, which makes no new version. A `system`
+  write that changed something leaves a retake: the worker queues the project's latest live
+  variants that show no still now, and a still mockpit took under another revision may be
+  replaced, by any session (`setPosterOnce`); an agent's own poster never is. Built-ins only.
 - `bin/mockpit.js` — CLI, Node built-ins only; `bin/demoData.js` — the Writer
   design `mockpit demo` seeds.
 - `viewer/src/qr.ts` + `QrTool.tsx` — the QR code in `PreviewTool`, with the widths, in the tool strip: a local encoder, and
@@ -454,7 +500,8 @@ the finding needs.
 ## Conventions
 
 - **Naming.** project › design › state › variant › version; part, ask, knob,
-  reply, draft. A variant is stored as a `Post` (an ordered list of
+  reply, draft. A project has one **system**: sheet, token, scale, role, palette, pair,
+  project knob. Its revisions are `rev`. A variant is stored as a `Post` (an ordered list of
   **surfaces**); the tenant DB is a **workspace**. To agents and users an ask
   is a "question" (`ask` stays the tool and key name), a part with
   alternatives is "a part with fills", and a variant the user picked is "in
@@ -464,7 +511,8 @@ the finding needs.
   snippet, board, stream, `part` for a surface, trace, look (for a variant), slot, mix
   (now borrow), resolve, close and end (now archive), mock (now design), `page` and
   `sketch` as kinds (now screen and idea), note for a variant or an answer, screen for
-  a state, moment, accepted and dropped in anything an agent reads — appear nowhere in new code, routes,
+  a state, moment, design system and design settings (now system), accepted and dropped
+  in anything an agent reads — appear nowhere in new code, routes,
   tools or docs. There is no back-compat beyond `SqlStore`'s in-place
   migration: no legacy routes, aliases or query keys.
 - Conventional Commits: `type(scope): description`.

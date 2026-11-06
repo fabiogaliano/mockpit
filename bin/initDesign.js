@@ -14,17 +14,6 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, relative } from "node:path";
 
-// The palette mapper lives in server/themes.ts so the server and the CLI can
-// never disagree about what a repo's tokens mean. Node type-strips the .ts in a
-// checkout; the packed CLI has only the compiled tree, hence the fallback.
-async function loadThemes() {
-  try {
-    return await import("../server/themes.ts");
-  } catch {
-    return await import("../dist/server/themes.js");
-  }
-}
-
 // Where repos actually keep their global stylesheet. Ordered by how likely the
 // first hit is to be THE token file, because the first file with the most
 // custom properties wins.
@@ -262,7 +251,6 @@ function hasTailwind(cwd) {
  * builtin kit with no palette, which is a perfectly good starting point.
  */
 export async function detectDesignSystem(cwd) {
-  const { paletteFromCssVars } = await loadThemes();
   const budget = { left: MAX_FILES };
   const cssFiles = findCssFiles(cwd, budget);
 
@@ -309,7 +297,6 @@ export async function detectDesignSystem(cwd) {
       cssVars: best ? best.count : 0,
       fonts: [...fonts].slice(0, 8),
     },
-    palette: cssVars ? paletteFromCssVars(cssVars) : null,
     cssVars,
     // Where the tokens came from, relative to the repo — `init` prints it so
     // the operator can see which file was imported.
@@ -494,6 +481,7 @@ export function readTokenFiles(files) {
     if (isMap(json)) collectTokens(json, [], undefined, all);
   }
   const values = {};
+  const types = {};
   let count = 0;
   for (const [name, token] of all) {
     let { type, value } = token;
@@ -508,9 +496,12 @@ export function readTokenFiles(files) {
     const text = ref ? `{${ref}}` : tokenText(value);
     if (text === null) continue;
     count++;
-    if (count <= TOKENS_MAX) values[name] = text.slice(0, VALUE_MAX);
+    if (count <= TOKENS_MAX) {
+      values[name] = text.slice(0, VALUE_MAX);
+      types[name] = type;
+    }
   }
-  return count ? { count, values } : null;
+  return count ? { count, values, types } : null;
 }
 
 // tsconfig is JSONC: comments and trailing commas, outside strings.
@@ -613,10 +604,14 @@ export function readDesignFiles(cwd, css = "") {
       cssVars:
         tokens.count === names.length && names.every((n) => declared.has(n.replace(/\./g, "-"))),
       values: tokens.values,
+      types: tokens.types,
     };
     // Tokens are the one unbounded part; shed them until the blob fits.
     while (JSON.stringify(files).length > DESIGN_FILES_MAX && names.length) {
-      for (const n of names.splice(Math.floor(names.length / 2))) delete files.tokens.values[n];
+      for (const n of names.splice(Math.floor(names.length / 2))) {
+        delete files.tokens.values[n];
+        delete files.tokens.types[n];
+      }
     }
   }
   const shadcn = readShadcn(cwd);

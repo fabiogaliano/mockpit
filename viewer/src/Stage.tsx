@@ -26,6 +26,7 @@ import {
 import { createStore } from "solid-js/store";
 import { isLive, isSandboxedSurfaceKind, type Surface } from "../../server/types.ts";
 import { assetUrl, surfaceUrl, type VariantView } from "./api.ts";
+import { palettePick } from "./systemRev.ts";
 import { host, readonly, root } from "./host.ts";
 import { useInspectGestures } from "./gestures.ts";
 import { JsonTree } from "./JsonTree.tsx";
@@ -143,6 +144,12 @@ const pinEdge = () => (coarse() ? (44 - PIN) / 2 : 2);
 
 export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => void }) {
   const s = props.s;
+  // A palette other than the default is named on the artboard, so a screenshot says so.
+  const viewedIn = () => {
+    const id = palettePick(s.design()?.project);
+    const p = id ? s.design()?.palettes?.find((x) => x.id === id && x.status !== "hidden") : null;
+    return p && p.status !== "default" ? p.label : null;
+  };
   const { reports, setReports } = s;
   // Per frame, the version whose knob runtime has said it is listening.
   const [ready, setReady] = createStore<Record<string, number | undefined>>({});
@@ -545,7 +552,7 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
             >
               {`${widthLabel(frameW())} · ${frameW()}${
                 scale() < 1 ? ` · ${Math.round(scale() * 100)}%` : ""
-              }`}
+              }${viewedIn() ? ` · ${viewedIn()}` : ""}`}
             </div>
           </Show>
           <Show when={s.activeVariant()}>
@@ -557,7 +564,7 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
                       class="board-label"
                       style={{ left: `${Math.max(10, xOf(w))}px`, top: `${padT() + LABEL_AT}px` }}
                     >
-                      {`${widthLabel(w)} · ${w}`}
+                      {`${widthLabel(w)} · ${w}${viewedIn() ? ` · ${viewedIn()}` : ""}`}
                     </div>
                     <Board
                       s={s}
@@ -673,6 +680,7 @@ function Board(props: {
       knobs,
       e: props.variant.embedsKey,
       w: props.variant.rewrites,
+      p: s.stagePalette(),
     });
   };
   const onMessage = (e: MessageEvent) => {
@@ -959,6 +967,7 @@ function VariantFrame(props: {
                   mode: theme(),
                   e: props.variant.embedsKey,
                   w: props.variant.rewrites,
+                  p: s.stagePalette(),
                   knobs: isPrimary
                     ? untrack(() => {
                         const m = s.design();

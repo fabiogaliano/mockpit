@@ -47,8 +47,8 @@ const PRELUDE = `(function (call, out) {
   };
   globalThis.mockpit = Object.freeze({
     guide: fn("guide"), read: fn("read"), publish: fn("publish"), ask: fn("ask"),
-    feedback: fn("feedback"), say: fn("say"), move: fn("move"), edit: fn("edit"), export: fn("export"),
-    upload: fn("upload"),
+    feedback: fn("feedback"), say: fn("say"), move: fn("move"), edit: fn("edit"), system: fn("system"),
+    export: fn("export"), upload: fn("upload"),
   });
   globalThis.print = print;
   globalThis.console = Object.freeze({ log: print, info: print, warn: print, error: print });

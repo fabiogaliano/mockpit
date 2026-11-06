@@ -19,6 +19,7 @@ import {
   Switch,
 } from "solid-js";
 import { assetUrl, surfaceUrl } from "./api.ts";
+import { posterShown } from "./systemRev.ts";
 import { BuiltFrom } from "./BuiltFrom.tsx";
 import { AnswerSets, KeptAnswers, keptGroups } from "./Kept.tsx";
 import type { FlowNav } from "./flowNav.ts";
@@ -42,6 +43,7 @@ import {
 } from "./logic.ts";
 import { Notes, notesShown } from "./Notes.tsx";
 import { OutlineRows } from "./Outlines.tsx";
+import { PaletteTool, paletteChoices } from "./PaletteTool.tsx";
 import { PreviewTool } from "./PreviewTool.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
 import { Answered } from "./Questions.tsx";
@@ -259,6 +261,12 @@ export function ToolStrip(props: { s: DesignScreenState; m: Margins }) {
             <span class="toolstrip-sep" />
           </Show>
           <PreviewTool s={s} qr={m.page()} />
+        </Show>
+        <Show when={paletteChoices(s).length > 1}>
+          <Show when={tools() || m.previewHas()}>
+            <span class="toolstrip-sep" />
+          </Show>
+          <PaletteTool s={s} />
         </Show>
       </div>
     </Show>
@@ -532,7 +540,7 @@ function VersionRow(props: { s: DesignScreenState; step: VersionStep }) {
         <Show when={s.steps().length <= PICTURED_UP_TO}>
           <span class="lm-pic" classList={{ flat: s.frameW() > 600 }}>
             <Show
-              when={props.step.poster}
+              when={posterShown(props.step.poster)}
               fallback={
                 <Show
                   when={src()}

@@ -50,6 +50,7 @@ function packageVersion(): string {
 interface Posters {
   findBrowser(): string | null;
   queuePoster(job: Record<string, unknown>): void;
+  queueRetakes(job: Record<string, unknown>): void;
 }
 const posters: Promise<Posters | null> = (async () => {
   for (const rel of ["../bin/poster.js", "../../bin/poster.js"]) {
@@ -80,6 +81,20 @@ async function api(path: string, init: RequestInit = {}) {
 
 // Stdio runs on the agent's machine, so a value may name a file: markup and
 // asset bytes never have to travel through the model's context.
+// A sheet is CSS text when it has a block, else a path: a mistyped path must fail
+// rather than be sent as the project's stylesheet.
+function readSheet(value: string): string {
+  if (value === "" || value.includes("{")) return value;
+  let stat;
+  try {
+    stat = statSync(value);
+  } catch {
+    throw new Error(`sheet: no file at ${value} (pass CSS text, or a path to a .css file)`);
+  }
+  if (!stat.isFile()) throw new Error(`sheet: ${value} is not a file`);
+  return readFileSync(value, "utf8");
+}
+
 function readMaybeFile(value: string): string {
   if (value.includes("\n") || value.length > 512) return value;
   try {
@@ -307,14 +322,37 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
     }
     return post(`/api/designs/${enc(args.design)}`, { ...args, project, session }, "PATCH");
   },
+  async system(args) {
+    const session = await ensureSession();
+    const { project: named, ...rest } = args;
+    const project = resolveProject(named);
+    const writes = Object.keys(rest).filter((k) => rest[k] !== undefined);
+    if (writes.length === 0) return json(`/api/projects/${enc(project)}/system`);
+    const body = typeof rest.sheet === "string" ? { ...rest, sheet: readSheet(rest.sheet) } : rest;
+    const result = await post(`/api/projects/${enc(project)}/system`, { ...body, session }, "PUT");
+    // Every page looks different now: its stills are taken again in the background.
+    const taking = (result as { changed?: string[] })?.changed?.length ? await posters : null;
+    if (taking) {
+      taking.queueRetakes({
+        base: API.replace(/\/$/, ""),
+        token: TOKEN,
+        client: CLIENT,
+        session,
+        project,
+      });
+    }
+    return result;
+  },
   export: (args) =>
-    json(
-      `/api/designs/${enc(args.design)}/export${query({
-        project: resolveProject(args.project),
-        state: args.state,
-        variant: args.variant,
-      })}`,
-    ),
+    args.design === undefined
+      ? json(`/api/projects/${enc(resolveProject(args.project))}/system/export`)
+      : json(
+          `/api/designs/${enc(args.design)}/export${query({
+            project: resolveProject(args.project),
+            state: args.state,
+            variant: args.variant,
+          })}`,
+        ),
   async upload({ path, data, contentType, filename, kind }) {
     const session = await ensureSession();
     // Stdio shares the agent's filesystem, so a path beats base64 in context.
@@ -333,7 +371,9 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
       `/agent-howto${query(
         args.topic === undefined
           ? { project: resolveProject(args.project) }
-          : { topic: args.topic },
+          : args.topic === "system"
+            ? { topic: args.topic, project: resolveProject(args.project) }
+            : { topic: args.topic },
       )}`,
     ),
 };

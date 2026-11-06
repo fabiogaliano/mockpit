@@ -241,7 +241,10 @@ export function createRunFlow(deps: RunDeps) {
         if (topic === undefined || topic === null)
           return [await deps.guide(await projectOf()), "brief"];
         if (!isGuideTopic(topic)) throw new Error(unknownTopicMessage(String(topic)));
-        return [await deps.guide("", topic), String(topic)];
+        return [
+          await deps.guide(topic === "system" ? await projectOf() : "", topic),
+          String(topic),
+        ];
       },
       async read([design, opts]) {
         if (plain(opts).decisions === true) {
@@ -285,6 +288,24 @@ export function createRunFlow(deps: RunDeps) {
         const value = await take(flows.move(r.design, await mine(r), flowCtx));
         return [value, `${value.variants.length} moved`];
       },
+      async system([v]) {
+        const given = plain(v ?? {});
+        const named = project ?? (typeof given.project === "string" ? given.project : undefined);
+        const writing = Object.keys(given).some(
+          (k) => !["session", "project", "agent"].includes(k),
+        );
+        // A write lands on a project the script names, never on whichever is first.
+        if (writing && !named)
+          throw new Error(
+            "system writes need a project: pass {project} to run, or run in a session that has one",
+          );
+        const r = await mine(given);
+        const value = await take(flows.system(named ?? (await projectOf()), r, flowCtx));
+        return [
+          value,
+          value.changed?.length ? `r${value.rev}: ${value.changed.join("; ")}` : `r${value.rev}`,
+        ];
+      },
       async edit([v]) {
         const r = await mine(plain(v));
         const value = await take(editCall(flows, r, flowCtx, project));
@@ -306,6 +327,10 @@ export function createRunFlow(deps: RunDeps) {
       },
       async export([v]) {
         const r = plain(v);
+        if (r.design === undefined) {
+          const value = await take(flows.exportSystem(r.project ?? project ?? (await projectOf())));
+          return [value, `${value.project} system r${value.rev}`];
+        }
         const value = await take(flows.exportDesign(r.design, { ...r, project }, flowCtx));
         return [value, `${value.design} ${value.states.length} state(s)`];
       },

@@ -65,18 +65,20 @@ import {
   type DecisionVariant,
 } from "./types.ts";
 import { renameSlugRefs } from "./embeds.ts";
+import {
+  CURRENT_CONTRACT,
+  normalizeSystem,
+  SYSTEM_LIMITS,
+  type System,
+  systemFromDesignSettings,
+} from "./system.ts";
 import type { Mode } from "./themes.ts";
 import { RULES_SETTING } from "./guidance.ts";
 
 type Row = Record<string, SqlStorageValue>;
 
 // The settings keyed `<prefix>:<project>`, which a project rename carries.
-const PROJECT_SETTINGS = [
-  "design",
-  AREA_ORDER_SETTING,
-  RULES_SETTING,
-  DECISION_EDITS_SETTING,
-] as const;
+const PROJECT_SETTINGS = [AREA_ORDER_SETTING, RULES_SETTING, DECISION_EDITS_SETTING] as const;
 
 // An optional free-text label: blank means none.
 const label = (v: string | null | undefined): string | null => stripNul(v ?? "").trim() || null;
@@ -129,6 +131,9 @@ const surfaceHeads = (surfaces: Surface[]): string =>
         kind: s.kind,
         ...(s.poster ? { poster: s.poster } : {}),
         ...(s.poster && s.posterMode ? { posterMode: s.posterMode } : {}),
+        ...(s.poster && s.posterMode && s.posterSystem !== undefined
+          ? { posterSystem: s.posterSystem }
+          : {}),
         ...(/<mockpit-embed|data-fill/i.test(s.html) ? { marked: true } : {}),
       };
     }),
@@ -461,6 +466,14 @@ export class SqlStore implements Store {
         createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL,
         PRIMARY KEY (project, name)
       );
+      CREATE TABLE IF NOT EXISTS systems (
+        project TEXT PRIMARY KEY, rev INTEGER NOT NULL, json TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS system_revisions (
+        project TEXT NOT NULL, rev INTEGER NOT NULL, json TEXT NOT NULL, at TEXT NOT NULL,
+        sessionId TEXT, summary TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (project, rev)
+      );
     `);
     this.addMissing("sessions", {
       agentSeq: "INTEGER NOT NULL DEFAULT 0",
@@ -488,7 +501,12 @@ export class SqlStore implements Store {
     });
     this.migrateSituations();
     // Before the legacy lift, whose history rows are written with every column.
-    this.addMissing("post_versions", { sessionId: "TEXT", amendedAt: "TEXT" });
+    this.addMissing("post_versions", {
+      sessionId: "TEXT",
+      amendedAt: "TEXT",
+      contract: "INTEGER",
+      system: "INTEGER",
+    });
     if (legacy) this.migrateLegacy();
     // After the legacy lift, which rebuilds posts from POST_COLUMNS alone.
     const pinned = this.columns("posts").has("acceptedVersion");
@@ -507,6 +525,8 @@ export class SqlStore implements Store {
       archiveReason: "TEXT",
       stayedVersion: "INTEGER",
       archivedAt: "TEXT",
+      curContract: "INTEGER",
+      curSystem: "INTEGER",
     });
     // Before the pin, accepted meant "its latest": freeze that as the version in use.
     if (!pinned) {
@@ -518,6 +538,7 @@ export class SqlStore implements Store {
       this.sql.exec(`UPDATE ${table} SET head = ${SURFACE_HEADS_SQL}`);
     }
     if (this.settingSync("sketchKind") !== "1") this.migrateToSketches();
+    this.migrateSystems();
     if (this.settingSync("contractTerms") !== "1") this.migrateToContractTerms();
     if (this.settingSync("designWords") !== "1") this.migrateToDesignWords();
     if (this.settingSync("askScopeWord") !== "1") this.migrateAskScopeWord();
@@ -950,7 +971,7 @@ export class SqlStore implements Store {
 
   private insertVersion(postId: string, v: PostVersion) {
     this.sql.exec(
-      "INSERT OR REPLACE INTO post_versions (postId, version, title, surfaces, head, at, fromVersion, prompt, author, sessionId, amendedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT OR REPLACE INTO post_versions (postId, version, title, surfaces, head, at, fromVersion, prompt, author, sessionId, amendedAt, contract, system) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       postId,
       v.version,
       v.title,
@@ -962,6 +983,8 @@ export class SqlStore implements Store {
       v.author ?? null,
       v.publishedBy ?? null,
       v.amendedAt ?? null,
+      v.contract ?? null,
+      v.system ?? null,
     );
   }
 
@@ -977,6 +1000,8 @@ export class SqlStore implements Store {
       ...(r.author == null ? {} : { author: r.author as string }),
       ...(r.sessionId == null ? {} : { publishedBy: r.sessionId as string }),
       ...(r.amendedAt == null ? {} : { amendedAt: r.amendedAt as string }),
+      ...(r.contract == null ? {} : { contract: r.contract as number }),
+      ...(r.system == null ? {} : { system: r.system as number }),
     };
   }
 
@@ -1084,6 +1109,8 @@ export class SqlStore implements Store {
       ...(r.curAuthor == null ? {} : { author: r.curAuthor as string }),
       ...(r.curSession == null ? {} : { publishedBy: r.curSession as string }),
       ...(r.amendedAt == null ? {} : { amendedAt: r.amendedAt as string }),
+      ...(r.curContract == null ? {} : { contract: r.curContract as number }),
+      ...(r.curSystem == null ? {} : { system: r.curSystem as number }),
       ...(r.rewrites ? { rewrites: r.rewrites as number } : {}),
     };
   }
@@ -1280,7 +1307,6 @@ export class SqlStore implements Store {
   }
 
   async setSetting(key: string, value: string) {
-    if (key.startsWith("design:")) this.invalidateAssetRefs();
     this.sql.exec(
       "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
       stripNul(key),
@@ -1612,10 +1638,139 @@ export class SqlStore implements Store {
           value,
         );
         this.sql.exec("DELETE FROM settings WHERE key = ?", `${prefix}:${from}`);
-        if (prefix === "design") this.invalidateAssetRefs();
+      }
+      if (this.sql.exec("SELECT 1 FROM systems WHERE project = ?", from).toArray().length) {
+        this.sql.exec("DELETE FROM systems WHERE project = ?", target);
+        this.sql.exec("DELETE FROM system_revisions WHERE project = ?", target);
+        for (const table of ["systems", "system_revisions"]) {
+          for (const r of this.sql
+            .exec(`SELECT rowid AS id, json FROM ${table} WHERE project = ?`, from)
+            .toArray()) {
+            const moved = { ...parseJson<Record<string, unknown>>(r.json, {}), project: target };
+            this.sql.exec(
+              `UPDATE ${table} SET project = ?, json = ? WHERE rowid = ?`,
+              target,
+              JSON.stringify(moved),
+              r.id as number,
+            );
+          }
+        }
       }
       return true;
     });
+  }
+
+  // --- systems ---
+
+  async getSystem(project: string) {
+    const rows = this.sql.exec("SELECT json FROM systems WHERE project = ?", project).toArray();
+    return rows.length ? normalizeSystem(project, parseJson(rows[0].json, null)) : null;
+  }
+
+  async putSystem(system: System, meta: { sessionId: string | null; summary: string }) {
+    this.atomic(() => this.writeSystem(system, meta));
+    this.invalidateAssetRefs();
+    return system;
+  }
+
+  async commitSystemDecision(input: {
+    system: System;
+    summary: string;
+    tell: { sessionId: string; payload: Reply } | null;
+  }) {
+    const tell = input.tell;
+    const comment = this.atomic(() => {
+      this.writeSystem(input.system, { sessionId: null, summary: input.summary });
+      return tell
+        ? this.insertComment({
+            sessionId: tell.sessionId,
+            author: "user",
+            text: "",
+            kind: "reply",
+            payload: tell.payload,
+          })
+        : null;
+    });
+    this.invalidateAssetRefs();
+    return comment;
+  }
+
+  // Unwrapped, so a reply's transaction can carry it.
+  private writeSystem(system: System, meta: { sessionId: string | null; summary: string }) {
+    const json = JSON.stringify(system);
+    const at = new Date().toISOString();
+    {
+      this.sql.exec(
+        "INSERT INTO systems (project, rev, json) VALUES (?, ?, ?) ON CONFLICT(project) DO UPDATE SET rev = excluded.rev, json = excluded.json",
+        system.project,
+        system.rev,
+        json,
+      );
+      this.sql.exec(
+        "INSERT OR REPLACE INTO system_revisions (project, rev, json, at, sessionId, summary) VALUES (?, ?, ?, ?, ?, ?)",
+        system.project,
+        system.rev,
+        json,
+        at,
+        meta.sessionId,
+        stripNul(meta.summary).slice(0, SYSTEM_LIMITS.summary),
+      );
+      this.sql.exec(
+        "DELETE FROM system_revisions WHERE project = ? AND rev <= ?",
+        system.project,
+        system.rev - SYSTEM_LIMITS.revisions,
+      );
+    }
+  }
+
+  async listSystemRevisions(project: string) {
+    return this.sql
+      .exec(
+        "SELECT rev, at, sessionId, summary FROM system_revisions WHERE project = ? ORDER BY rev DESC",
+        project,
+      )
+      .toArray()
+      .map((r) => ({
+        rev: r.rev as number,
+        at: r.at as string,
+        sessionId: (r.sessionId as string | null) ?? null,
+        summary: r.summary as string,
+      }));
+  }
+
+  async getSystemRevision(project: string, rev: number) {
+    const rows = this.sql
+      .exec("SELECT json FROM system_revisions WHERE project = ? AND rev = ?", project, rev)
+      .toArray();
+    return rows.length ? normalizeSystem(project, parseJson(rows[0].json, null)) : null;
+  }
+
+  // Each project's old design settings become its system, with the repo's
+  // tokens derived, and the setting goes.
+  private migrateSystems() {
+    const rows = this.sql
+      .exec("SELECT key, value FROM settings WHERE key LIKE 'design:%'")
+      .toArray();
+    if (rows.length === 0) return;
+    const at = new Date().toISOString();
+    for (const r of rows) {
+      const project = (r.key as string).slice("design:".length);
+      const have = this.sql.exec("SELECT 1 FROM systems WHERE project = ?", project).toArray();
+      if (have.length === 0) {
+        const system = { ...systemFromDesignSettings(project, parseJson(r.value, null)), rev: 1 };
+        const json = JSON.stringify(system);
+        this.sql.exec("INSERT INTO systems (project, rev, json) VALUES (?, 1, ?)", project, json);
+        this.sql.exec(
+          "INSERT INTO system_revisions (project, rev, json, at, sessionId, summary) VALUES (?, 1, ?, ?, NULL, ?)",
+          project,
+          json,
+          at,
+          "from what the project stored before",
+        );
+      }
+      this.sql.exec("DELETE FROM settings WHERE key = ?", r.key as string);
+    }
+    this.invalidateAssetRefs();
   }
 
   // --- flows ---
@@ -1903,10 +2058,12 @@ export class SqlStore implements Store {
       ...(input.prompt === undefined ? {} : { prompt: stripNul(input.prompt) }),
       ...(input.author === undefined ? {} : { author: stripNul(input.author) }),
       publishedBy: input.publishedBy ?? input.sessionId,
+      contract: input.contract ?? CURRENT_CONTRACT,
+      ...(input.system === undefined ? {} : { system: input.system }),
     };
     this.writingPosts(post.design, [post.id], () =>
       this.sql.exec(
-        "INSERT INTO posts (id, sessionId, designId, state, variant, status, title, surfaces, head, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, description, forkedFrom, copiedFrom, curSession) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO posts (id, sessionId, designId, state, variant, status, title, surfaces, head, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, description, forkedFrom, copiedFrom, curSession, curContract, curSystem) VALUES (?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         post.id,
         post.sessionId,
         post.design,
@@ -1926,6 +2083,8 @@ export class SqlStore implements Store {
         post.forkedFrom ? JSON.stringify(post.forkedFrom) : null,
         post.copiedFrom ? JSON.stringify(post.copiedFrom) : null,
         post.publishedBy ?? null,
+        post.contract ?? null,
+        post.system ?? null,
       ),
     );
     this.touch(input.sessionId);
@@ -1950,6 +2109,8 @@ export class SqlStore implements Store {
         ...(post.author === undefined ? {} : { author: post.author }),
         ...(post.publishedBy === undefined ? {} : { publishedBy: post.publishedBy }),
         ...(post.amendedAt === undefined ? {} : { amendedAt: post.amendedAt }),
+        ...(post.contract === undefined ? {} : { contract: post.contract }),
+        ...(post.system === undefined ? {} : { system: post.system }),
       };
       // The version in use is kept past the limit: export and embeds resolve to it.
       const pin = post.acceptedVersion ?? -1;
@@ -1974,9 +2135,11 @@ export class SqlStore implements Store {
       const prompt = stripNul(patch.prompt ?? "");
       const author = patch.author === undefined ? null : stripNul(patch.author);
       const publishedBy = patch.publishedBy ?? null;
+      const contract = patch.contract ?? CURRENT_CONTRACT;
+      const system = patch.system ?? null;
       const wrote = this.writingPosts(post.design, [id], () => {
         this.sql.exec(
-          "UPDATE posts SET title = ?, surfaces = ?, head = ?, knobs = ?, description = ?, slots = ?, state = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, curSession = ?, amendedAt = NULL WHERE id = ? AND version = ?",
+          "UPDATE posts SET title = ?, surfaces = ?, head = ?, knobs = ?, description = ?, slots = ?, state = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, curSession = ?, amendedAt = NULL, curContract = ?, curSystem = ? WHERE id = ? AND version = ?",
           title,
           JSON.stringify(surfaces),
           surfaceHeads(surfaces),
@@ -1990,6 +2153,8 @@ export class SqlStore implements Store {
           prompt,
           author,
           publishedBy,
+          contract,
+          system,
           id,
           post.version,
         );
@@ -2013,10 +2178,14 @@ export class SqlStore implements Store {
           author: _author,
           publishedBy: _by,
           amendedAt: _amended,
+          contract: _contract,
+          system: _system,
           ...rest
         } = post;
         return {
           ...rest,
+          contract,
+          ...(system === null ? {} : { system }),
           title,
           surfaces,
           ...(knobs ? { knobs } : {}),
@@ -2054,9 +2223,11 @@ export class SqlStore implements Store {
     const author = patch.author === undefined ? post.author : stripNul(patch.author);
     const amendedAt = new Date().toISOString();
     const rewrites = (post.rewrites ?? 0) + 1;
+    const contract = patch.contract ?? CURRENT_CONTRACT;
+    const system = patch.system ?? post.system;
     const wrote = this.writingPosts(post.design, [id], () => {
       this.sql.exec(
-        "UPDATE posts SET title = ?, surfaces = ?, head = ?, knobs = ?, description = ?, slots = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, amendedAt = ?, rewrites = ? WHERE id = ? AND version = ?",
+        "UPDATE posts SET title = ?, surfaces = ?, head = ?, knobs = ?, description = ?, slots = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, amendedAt = ?, rewrites = ?, curContract = ?, curSystem = ? WHERE id = ? AND version = ?",
         title,
         JSON.stringify(surfaces),
         surfaceHeads(surfaces),
@@ -2068,6 +2239,8 @@ export class SqlStore implements Store {
         author ?? null,
         amendedAt,
         rewrites,
+        contract,
+        system ?? null,
         id,
         version,
       );
@@ -2098,17 +2271,33 @@ export class SqlStore implements Store {
       ...(author === undefined ? {} : { author }),
       amendedAt,
       rewrites,
+      contract,
+      ...(system === undefined ? {} : { system }),
     };
   }
 
-  async setPosterOnce(id: string, version: number, poster: string, mode?: Mode) {
+  async setPosterOnce(id: string, version: number, poster: string, mode?: Mode, system?: number) {
     const post = await this.getPost(id);
     if (!post || post.version !== version) return false;
     const at = post.surfaces.findIndex((s) => s.kind === "html");
     const page = post.surfaces[at];
-    if (!page || page.kind !== "html" || page.poster) return false;
+    if (!page || page.kind !== "html") return false;
+    // A still mockpit took under another system revision no longer shows, so a new
+    // one may take its place; an agent's own, or a current one, stays.
+    const stale =
+      page.posterMode !== undefined &&
+      system !== undefined &&
+      (page.posterSystem === undefined ? system > 1 : page.posterSystem !== system);
+    if (page.poster && !stale) return false;
     const surfaces = post.surfaces.map((s, i) =>
-      i === at ? { ...page, poster, ...(mode ? { posterMode: mode } : {}) } : s,
+      i === at
+        ? {
+            ...page,
+            poster,
+            ...(mode ? { posterMode: mode } : {}),
+            ...(mode && system !== undefined ? { posterSystem: system } : {}),
+          }
+        : s,
     );
     const wrote = this.writingPosts(post.design, [id], () => {
       this.sql.exec(
@@ -2148,7 +2337,7 @@ export class SqlStore implements Store {
     this.writingPosts(post.design, [id], () =>
       this.atomic(() => {
         this.sql.exec(
-          "UPDATE posts SET title = ?, surfaces = ?, head = ?, slots = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, curSession = ?, amendedAt = ?, rewrites = ?, hiddenVersions = ? WHERE id = ? AND version = ?",
+          "UPDATE posts SET title = ?, surfaces = ?, head = ?, slots = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, curSession = ?, amendedAt = ?, rewrites = ?, hiddenVersions = ?, curContract = ?, curSystem = ? WHERE id = ? AND version = ?",
           previous.title,
           JSON.stringify(previous.surfaces),
           surfaceHeads(previous.surfaces),
@@ -2162,6 +2351,8 @@ export class SqlStore implements Store {
           previous.amendedAt ?? null,
           rewrites,
           hidden.length ? JSON.stringify(hidden) : null,
+          previous.contract ?? null,
+          previous.system ?? null,
           id,
           version,
         );
@@ -2181,6 +2372,8 @@ export class SqlStore implements Store {
       publishedBy: _by,
       amendedAt: _amended,
       hiddenVersions: _hidden,
+      contract: _contract,
+      system: _system,
       ...rest
     } = post;
     return {
@@ -2198,6 +2391,8 @@ export class SqlStore implements Store {
         ...(previous.publishedBy === undefined ? {} : { publishedBy: previous.publishedBy }),
         ...(previous.amendedAt === undefined ? {} : { amendedAt: previous.amendedAt }),
         ...(hidden.length ? { hiddenVersions: hidden } : {}),
+        ...(previous.contract === undefined ? {} : { contract: previous.contract }),
+        ...(previous.system === undefined ? {} : { system: previous.system }),
         rewrites,
       },
     };
@@ -2358,6 +2553,7 @@ export class SqlStore implements Store {
   async listComments(query: CommentQuery) {
     const clauses: string[] = [];
     const params: SqlStorageValue[] = [];
+    if (query.noDesign) clauses.push("designId IS NULL");
     if (query.sessionId !== undefined) {
       clauses.push("sessionId = ?");
       params.push(query.sessionId);
@@ -2487,6 +2683,12 @@ export class SqlStore implements Store {
           postVersion: input.payload.version,
           payload: input.payload,
         });
+        if (input.system) {
+          this.writeSystem(input.system.next, {
+            sessionId: input.sessionId,
+            summary: input.system.summary,
+          });
+        }
         this.sql.exec(
           input.keepDraft
             ? "UPDATE designs SET asks = ? WHERE id = ?"
@@ -2574,15 +2776,10 @@ export class SqlStore implements Store {
       .toArray()) {
       collectAttachedIds(parseJson<Reply | null>(r.payload, null), out);
     }
-    // An installed icon set is referenced by its project's design, not by a
+    // An installed icon set is referenced by its project's system, not by a
     // surface; evicting it would blank that project's icons.
-    for (const r of this.sql
-      .exec("SELECT value FROM settings WHERE key LIKE 'design:%'")
-      .toArray()) {
-      const sets = parseJson<{ iconSets?: { assetId?: unknown }[] } | null>(
-        r.value,
-        null,
-      )?.iconSets;
+    for (const r of this.sql.exec("SELECT json FROM systems").toArray()) {
+      const sets = parseJson<{ iconSets?: { assetId?: unknown }[] } | null>(r.json, null)?.iconSets;
       for (const ref of Array.isArray(sets) ? sets : []) {
         if (typeof ref?.assetId === "string") out.add(ref.assetId);
       }

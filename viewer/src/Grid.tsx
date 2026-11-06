@@ -10,6 +10,7 @@ import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-j
 import { isLive } from "../../server/types.ts";
 import { type AboutState, aboutOf } from "./About.tsx";
 import { assetUrl, type VariantView } from "./api.ts";
+import { posterShown } from "./systemRev.ts";
 import { Icon } from "./icons.tsx";
 import {
   CANVAS_MAX,
@@ -256,7 +257,7 @@ function Tile(props: {
             onFocus={props.onPoint}
           >
             <Show
-              when={st().poster}
+              when={posterShown(st().poster)}
               fallback={
                 <span
                   class="gv-art"

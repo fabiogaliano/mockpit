@@ -2,10 +2,11 @@ import { scanFills, slotCss } from "./fills.ts";
 import { CDN_ALLOWLIST, checkCdnUrl } from "./cdn.ts";
 import { CORE_CSS, KITS, kitAssets } from "./kits.ts";
 import { expandIcons, type IconResolver } from "./icons.ts";
-import { type DesignSystem, PARAGRAPH_TEXT_MAX, PARAGRAPHS_MAX, type ProjectKit } from "./types.ts";
+import { CURRENT_CONTRACT, type System, systemCss } from "./system.ts";
+import { PARAGRAPH_TEXT_MAX, PARAGRAPHS_MAX, type ProjectKit } from "./types.ts";
 import {
   type Mode,
-  type Palette,
+  type ChromeColors,
   schemeCss,
   type Theme,
   themeById,
@@ -1156,7 +1157,7 @@ const PART_HIGHLIGHT_CSS = `.mockpit-part-hl{outline:2px solid #8b7bff !importan
 
 // Tailwind's browser build, pinned to a major (jsdelivr is already on the CDN
 // allowlist, so this needs no CSP widening). Injected only when a project's
-// design settings say `kit: "tailwind"`, i.e. the repo itself is a Tailwind
+// system says `kit: "tailwind"`, i.e. the repo itself is a Tailwind
 // repo — so the agent writes the same classes it writes in the codebase.
 const TAILWIND_CDN = "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4";
 
@@ -1197,6 +1198,18 @@ const PARAGRAPHS_TAG = inlineScript(PARAGRAPHS_JS);
 // The base html-surface stylesheet: static design tokens + the surface kit.
 const BASE_CSS_TAG = inlineStyle(`${TOKENS_CSS}${KIT_CSS}${PART_HIGHLIGHT_CSS}${ICON_CSS}`);
 const KIT_CORE_TAG = inlineStyle(CORE_CSS);
+const LAYER_ORDER_TAG = inlineStyle("@layer mockpit, kit, system;");
+// Tailwind's browser build declares `theme, base, components, utilities` after
+// this tag, so layers it names first would come last and preflight (`base`)
+// would undo the sheet. Naming them here keeps preflight under the sheet and
+// utilities over it, as in the repo.
+const LAYER_ORDER_TAILWIND_TAG = inlineStyle(
+  "@layer theme, base, mockpit, kit, system, components, utilities;",
+);
+const BASE_CSS_LAYERED_TAG = inlineStyle(
+  `@layer mockpit{${TOKENS_CSS}${KIT_CSS}${PART_HIGHLIGHT_CSS}${ICON_CSS}}`,
+);
+const KIT_CORE_LAYERED_TAG = inlineStyle(`@layer kit{${CORE_CSS}}`);
 
 const versionAttr = (version: number | undefined) =>
   version === undefined ? "" : ` data-mockpit-version="${version}"`;
@@ -1240,28 +1253,43 @@ function resolveKits(
   return chosen;
 }
 
-// Everything a project's DesignSystem contributes to one html-surface doc.
-// Kept in one place so the ordering rule is visible: the project's own tokens
-// land AFTER mockpit's, because a repo that declares `--radius` or a brand
-// color should win inside its own project's surfaces.
-function designAssets(
-  designSystem: DesignSystem | null | undefined,
-  mode: Mode | undefined,
+// Everything a project's system contributes to one html-surface doc.
+function systemAssets(
+  system: System | null | undefined,
+  opts: { mode?: Mode; palette?: string; contract: number },
 ): {
-  css: string;
+  repoVars: string;
+  sheet: string;
+  tokens: string;
+  fonts: string[];
   kits: string[];
   projectKits: ProjectKit[];
   headScripts: string;
+  tailwind: boolean;
   dark: boolean;
+  attrs: string;
+  scheme?: Mode;
 } {
-  if (!designSystem) return { css: "", kits: [], projectKits: [], headScripts: "", dark: false };
-  const tailwindCss =
-    designSystem.kit === "tailwind" ? (designSystem.tailwindCss?.trim() ?? "") : "";
-  const raw = tailwindCss ? "" : (designSystem.cssVars?.trim() ?? "");
+  if (!system)
+    return {
+      repoVars: "",
+      sheet: "",
+      tokens: "",
+      fonts: [],
+      kits: [],
+      projectKits: [],
+      headScripts: "",
+      tailwind: false,
+      dark: false,
+      attrs: "",
+    };
+  const repo = system.repo;
+  const tailwindCss = system.kit === "tailwind" ? (repo?.tailwindCss?.trim() ?? "") : "";
+  const raw = tailwindCss ? "" : (repo?.cssVars?.trim() ?? "");
   // `cssVars` is stored as the repo's raw block; accept either the full
   // `:root{…}` text or a bare declaration list.
   const vars = raw ? (raw.includes("{") ? raw : `:root{${raw}}`) : "";
-  const kit = designSystem.kit;
+  const kit = system.kit;
   // The browser build reads its input from the style tags present when its
   // script runs, so the stylesheet goes first. Its compiled output already
   // carries the repo's `:root` block, hence no `cssVars` beside it.
@@ -1269,14 +1297,21 @@ function designAssets(
     kit !== "tailwind"
       ? ""
       : `${tailwindCss ? `<style type="text/tailwindcss">${tailwindCss.replace(/<\/style/gi, "<\\/style")}</style>\n` : ""}<script src="${TAILWIND_CDN}"></script>`;
+  const css = systemCss(system, opts);
   return {
-    css: vars,
+    repoVars: vars,
+    sheet: css.sheet.replace(/<\/style/gi, "<\\/style"),
+    tokens: css.tokens,
+    fonts: css.fonts,
     kits: kit && kit !== "tailwind" && kit !== "none" ? [kit] : [],
-    projectKits: Array.isArray(designSystem.projectKits) ? designSystem.projectKits : [],
+    projectKits: Array.isArray(system.projectKits) ? system.projectKits : [],
     headScripts: tailwind,
+    tailwind: kit === "tailwind",
     // Repos theme dark through a `.dark` ancestor (shadcn's `.dark {…}` block,
     // `@custom-variant dark (&:is(.dark *))`), so the frame wears the class.
-    dark: mode === "dark" && /\.dark\b/.test(tailwindCss || raw),
+    dark: (css.attrs.scheme ?? opts.mode) === "dark" && /\.dark\b/.test(tailwindCss || raw),
+    attrs: `${css.attrs.scheme ? ` data-scheme="${css.attrs.scheme}"` : ""}${css.attrs.palette ? ` data-palette="${escapeHtml(css.attrs.palette)}"` : ""}`,
+    ...(css.attrs.scheme ? { scheme: css.attrs.scheme } : {}),
   };
 }
 
@@ -1389,7 +1424,7 @@ svg { max-width: 100%; height: auto; }
 // Leave it unset and they're all computed for a light canvas, so they never
 // flip — "some of the diagram changes on toggle, but not all of it."
 function mermaidThemeVars(
-  p: Palette,
+  p: ChromeColors,
   mode?: Mode,
 ): {
   themeVariables: Record<string, string | boolean>;
@@ -1551,10 +1586,14 @@ export function renderHtmlPage(doc: {
   // is plain inline script — same trust level as the bridge, already covered by
   // the html-surface CSP's `script-src 'unsafe-inline'`. Unknown ids are ignored.
   kits?: string[];
-  // The post's project design settings (`design:<project>`), imported from the
-  // repo by `mockpit init`. Null/absent → the surface renders exactly as it
-  // did before this existed.
-  designSystem?: DesignSystem | null;
+  // The project's system (server/system.ts). Null/absent → the surface renders
+  // with mockpit's own styles alone.
+  system?: System | null;
+  // The palette id the frame wears (`?p=`); absent → the system's default.
+  palette?: string;
+  // The render contract of the version (absent: the current one). 1 is the
+  // cascade from before layers, kept so an approved version never changes look.
+  contract?: number;
   // The post version this document renders; tagged on every parts report.
   version?: number;
   // Validated `?k=` values (the route checks them against the declared knobs).
@@ -1565,29 +1604,52 @@ export function renderHtmlPage(doc: {
 }): string {
   const theme =
     typeof doc.theme === "string" || doc.theme == null ? themeById(doc.theme) : doc.theme;
-  const designSystem = designAssets(doc.designSystem, doc.mode);
+  const contract = doc.contract ?? CURRENT_CONTRACT;
+  const project = systemAssets(doc.system, { mode: doc.mode, palette: doc.palette, contract });
   const preamble = knobPreamble(doc.version, doc.knobs);
-  const htmlTag = designSystem.dark
+  let htmlTag = project.dark
     ? preamble.htmlTag.replace("<html ", '<html class="dark" ')
     : preamble.htmlTag;
+  if (project.attrs && contract >= 2) htmlTag = htmlTag.replace("<html ", `<html${project.attrs} `);
   // The project kit is appended, so with both present its components win over
   // a surface-requested kit's same-named classes.
-  const kitIds = [...(doc.kits ?? []), ...designSystem.kits];
-  const kits = resolveKits(kitIds, designSystem.projectKits);
+  const kitIds = [...(doc.kits ?? []), ...project.kits];
+  const kits = resolveKits(kitIds, project.projectKits);
   const kit = kitAssets(kitIds);
-  // Document order decides the cascade: theme tokens, base, kit accents, kit(s),
-  // then the project's own vars (which must win last).
-  const styles = [
-    `<style>${tokenThemeCss(theme, doc.mode)}</style>`,
-    BASE_CSS_TAG,
-    `<style>${kitAccentCss(doc.mode)}</style>`,
-    ...(kits.some((k) => !k.href) ? [KIT_CORE_TAG] : []),
-    ...kits.flatMap((k) => [
-      ...(k.href ? [`<link rel="stylesheet" href="${escapeHtml(k.href)}">`] : []),
-      ...(k.css ? [inlineStyle(k.css)] : []),
-    ]),
-    `<style>${designSystem.css}${colorSchemeCss(doc.mode)}</style>`,
-  ].join("\n");
+  const scheme = colorSchemeCss(project.scheme ?? doc.mode);
+  const fonts = project.fonts.map((href) => `<link rel="stylesheet" href="${escapeHtml(href)}">`);
+  const styles =
+    contract >= 2
+      ? // Layers decide the cascade: mockpit's own styles, then kits, then the
+        // project sheet. The tokens and the page are unlayered, so they win
+        // over all three without extra specificity.
+        [
+          project.tailwind ? LAYER_ORDER_TAILWIND_TAG : LAYER_ORDER_TAG,
+          `<style>@layer mockpit{${tokenThemeCss(theme, doc.mode)}${kitAccentCss(doc.mode)}}</style>`,
+          BASE_CSS_LAYERED_TAG,
+          ...(kits.some((k) => !k.href) ? [KIT_CORE_LAYERED_TAG] : []),
+          ...kits.flatMap((k) => [
+            ...(k.href ? [`<style>@import url("${escapeHtml(k.href)}") layer(kit);</style>`] : []),
+            ...(k.css ? [inlineStyle(`@layer kit{${k.css}}`)] : []),
+          ]),
+          ...(project.sheet ? [`<style>@layer system{${project.sheet}}</style>`] : []),
+          `<style>${project.repoVars}${project.tokens}${scheme}</style>`,
+          ...fonts,
+        ].join("\n")
+      : // Document order decides the cascade: theme tokens, base, kit accents,
+        // kit(s), then the project's own vars (which must win last).
+        [
+          `<style>${tokenThemeCss(theme, doc.mode)}</style>`,
+          BASE_CSS_TAG,
+          `<style>${kitAccentCss(doc.mode)}</style>`,
+          ...(kits.some((k) => !k.href) ? [KIT_CORE_TAG] : []),
+          ...kits.flatMap((k) => [
+            ...(k.href ? [`<link rel="stylesheet" href="${escapeHtml(k.href)}">`] : []),
+            ...(k.css ? [inlineStyle(k.css)] : []),
+          ]),
+          `<style>${project.repoVars}${project.sheet}${project.tokens}${scheme}</style>`,
+          ...fonts,
+        ].join("\n");
   // Slots (fills.ts): only the chosen fill of each shows, keyed on the knob
   // attribute; with no value yet, the default fill.
   const fillCss = slotCss(scanFills(doc.html).slots);
@@ -1603,7 +1665,7 @@ ${preamble.headScript}
 ${KNOBS_TAG}
 ${styles}
 ${fillCss ? `<style>${fillCss}</style>` : ""}
-${designSystem.headScripts}
+${project.headScripts}
 ${kits.flatMap((k) => (k.script ? [`<script src="${escapeHtml(k.script)}" defer></script>`] : [])).join("\n")}
 </head>
 <body>

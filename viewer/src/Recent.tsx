@@ -6,6 +6,7 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import type { DecisionLine } from "../../server/decisionList.ts";
 import { assetUrl, type DecisionListView, type DesignSummary, surfaceUrl } from "./api.ts";
+import { posterShown } from "./systemRev.ts";
 import { byDay, plural, questions } from "./albums.ts";
 import { DecisionRow, createDecisionEdits } from "./Decisions.tsx";
 import { Icon } from "./icons.tsx";
@@ -26,7 +27,7 @@ export function DesignThumb(props: { design: DesignSummary }) {
     <Show when={props.design.thumbnail}>
       {(t) => (
         <Show
-          when={t().poster}
+          when={posterShown(t().poster)}
           fallback={
             <Thumb
               src={surfaceUrl(t().postId, t().surface, {

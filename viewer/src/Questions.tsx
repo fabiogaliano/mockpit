@@ -177,6 +177,23 @@ export function optionPicture(
       state,
     };
   }
+  if (o.palette) {
+    const v = s.variantFor(state, false);
+    const idx = html(v);
+    if (!v || idx < 0) return null;
+    return {
+      src: surfaceUrl(v.postId, idx, {
+        version: s.frameVersionOf(v),
+        mode: theme(),
+        e: v.embedsKey,
+        w: v.rewrites,
+        p: o.palette,
+      }),
+      knobs: withoutSiblings(draftValues(s, v), ask, o),
+      variant: v,
+      state,
+    };
+  }
   if (o.set && Object.keys(o.set).length) {
     const v = s.variantFor(state, false);
     const idx = html(v);

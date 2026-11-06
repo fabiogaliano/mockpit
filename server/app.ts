@@ -22,7 +22,9 @@ import {
   GUIDE_TOPICS,
   type GuideTopic,
   isGuideTopic,
+  type ComponentLine,
   renderBriefGuide,
+  renderSystemTopic,
   unknownTopicMessage,
 } from "./designGuide.ts";
 import { buildFeedbackBatches, type FeedbackBatch } from "./feedbackBatch.ts";
@@ -54,6 +56,30 @@ import {
   resolverFor,
 } from "./icons.ts";
 import { checkProjectKit, KIT_IDS, kitSummaries } from "./kits.ts";
+import {
+  activePalette,
+  applySystemWrite,
+  defaultPalette,
+  describeChange,
+  systemDiffers,
+  emptySystem,
+  type RepoRead,
+  restoreSystem,
+  type System,
+  SYSTEM_WRITE_KEYS,
+  PALETTE_STATUSES,
+  type PaletteStatus,
+  hasSystemContent,
+  projectKnobValues,
+  systemAfterAnswers,
+  systemExport,
+  systemLine,
+  type SystemAddition,
+  type SystemWrite,
+} from "./system.ts";
+import { pageChecks, pairResults, purposeNudge, systemChecks } from "./systemChecks.ts";
+import { specimenHtml } from "./systemSpecimen.ts";
+import { checkCdnUrl } from "./cdn.ts";
 import {
   agentDecisionList,
   applyDecisionEdits,
@@ -129,7 +155,6 @@ import {
   DEFAULT_PROJECT,
   DEFAULT_VARIANT,
   type DesignFiles,
-  type DesignSystem,
   type DiffSurface,
   type Draft,
   htmlSurface,
@@ -1019,27 +1044,11 @@ export function createApp({
     return isMode(stored) ? stored : DEFAULT_MODE;
   }
 
-  // A project's imported design system (settings key `design:<project>`), or
-  // null when `mockpit init` has never run for it.
-  async function designSystemFor(project: string): Promise<DesignSystem | null> {
-    const raw = await store.getSetting(`design:${project}`);
-    if (!raw) return null;
-    try {
-      const designSystem = JSON.parse(raw) as DesignSystem;
-      return {
-        ...designSystem,
-        tailwindCss: typeof designSystem.tailwindCss === "string" ? designSystem.tailwindCss : "",
-        strippedImports: Array.isArray(designSystem.strippedImports)
-          ? designSystem.strippedImports
-          : [],
-        iconSets: Array.isArray(designSystem.iconSets) ? designSystem.iconSets : [],
-        projectKits: Array.isArray(designSystem.projectKits) ? designSystem.projectKits : [],
-        designFiles: designSystem.designFiles ?? null,
-      };
-    } catch {
-      return null;
-    }
-  }
+  // A project's system, or null when nothing was ever written to it.
+  const systemFor = (project: string): Promise<System | null> => store.getSystem(project);
+  // The revision a version is published under; absent while there is none.
+  const systemRevOf = async (project: string): Promise<number | undefined> =>
+    (await store.getSystem(project))?.rev;
 
   // Parsed installed icon sets by asset id. Asset bytes are immutable (the id
   // is their hash), so an entry never goes stale; the bound only caps memory.
@@ -1061,10 +1070,10 @@ export function createApp({
   // The project's installed sets first, so installing a set under a bundled
   // prefix (a newer lucide) overrides the bundled copy.
   async function iconSetsFor(
-    designSystem: DesignSystem | null,
+    system: System | null,
   ): Promise<{ prefix: string; set: IconifyJSON; source: "installed" | "bundled" }[]> {
     const out: { prefix: string; set: IconifyJSON; source: "installed" | "bundled" }[] = [];
-    for (const ref of designSystem?.iconSets ?? []) {
+    for (const ref of system?.iconSets ?? []) {
       const set = await installedIconSet(ref.assetId);
       if (set) out.push({ prefix: ref.prefix, set, source: "installed" });
     }
@@ -1075,9 +1084,9 @@ export function createApp({
   }
 
   async function iconResolverFor(
-    designSystem: DesignSystem | null,
+    system: System | null,
   ): Promise<{ resolve: IconResolver; prefixes: string[] }> {
-    const sets = await iconSetsFor(designSystem);
+    const sets = await iconSetsFor(system);
     return { resolve: resolverFor(sets.map((s) => s.set)), prefixes: sets.map((s) => s.prefix) };
   }
 
@@ -1088,7 +1097,7 @@ export function createApp({
       s.kind === "html" && mayHaveIcons(s.html) ? [s.html] : [],
     );
     if (html.length === 0) return [];
-    const { resolve, prefixes } = await iconResolverFor(await designSystemFor(project));
+    const { resolve, prefixes } = await iconResolverFor(await systemFor(project));
     const unknown = new Set<string>();
     for (const h of html) for (const u of expandIcons(h, resolve).unknown) unknown.add(u);
     return [...unknown].map((u) => `unknown icon ${u} (sets: ${prefixes.join(", ")})`);
@@ -1099,11 +1108,25 @@ export function createApp({
   async function briefFor(project: string | undefined): Promise<string> {
     try {
       const name = project ?? (await store.listProjects())[0]?.name ?? DEFAULT_PROJECT;
-      return renderBriefGuide(await designSystemFor(name), await guidanceFor(name));
+      return renderBriefGuide(
+        await systemFor(name),
+        await guidanceFor(name),
+        await componentIndex(name),
+      );
     } catch (err) {
       console.warn("[mockpit] project design unavailable for the brief", err);
       return renderBriefGuide(null);
     }
+  }
+
+  // The `system` topic: its contract and this project's full lists.
+  async function systemTopicFor(project: string | undefined): Promise<string> {
+    const name = project || (await store.listProjects())[0]?.name || DEFAULT_PROJECT;
+    return renderSystemTopic(
+      topics.system ?? "",
+      await systemFor(name),
+      await componentIndex(name),
+    );
   }
 
   // The user's file wins over the stored copy when the host can read it: the
@@ -1238,7 +1261,7 @@ export function createApp({
 
   // The kit ids a surface of this project may name beyond the bundled ones.
   const kitScope = async (project: string): Promise<SurfaceKitScope> => ({
-    projectKits: ((await designSystemFor(project))?.projectKits ?? []).map((k) => k.id),
+    projectKits: ((await systemFor(project))?.projectKits ?? []).map((k) => k.id),
   });
 
   async function parseSurfaceInput(
@@ -1383,11 +1406,26 @@ export function createApp({
     const post = await store.getPost(postId);
     if (!post || post.design !== design.id) return fail(404, "variant not found");
     const session = typeof body?.session === "string" ? body.session : "";
-    if (publisherOf(post) !== session) {
+    const rev = (await systemFor(design.project))?.rev ?? 0;
+    // A still mockpit took under an older system no longer shows; any agent's session
+    // may retake it, since a system write changes every variant's look at once.
+    const page = post.surfaces.find((s) => s.kind === "html");
+    const retake =
+      page?.kind === "html" &&
+      !!page.poster &&
+      page.posterMode !== undefined &&
+      (page.posterSystem === undefined ? rev > 1 : page.posterSystem !== rev);
+    if (
+      publisherOf(post) !== session &&
+      !(retake && session && (await store.getSession(session)))
+    ) {
       return fail(403, `v${post.version} of ${post.variant} was published by another session`);
     }
     if (body?.version !== post.version || (body?.rewrites ?? 0) !== (post.rewrites ?? 0)) {
       return fail(409, `${post.variant} has changed since this still was taken`);
+    }
+    if (body?.system !== undefined && body.system !== rev) {
+      return fail(409, `${design.project}'s system has changed since this still was taken`);
     }
     const poster = str(body?.poster, MAX_LABEL);
     if (!poster) return fail(400, '"poster" must be the asset id of an uploaded image');
@@ -1400,6 +1438,7 @@ export function createApp({
       post.version,
       poster,
       isMode(body?.mode) ? body.mode : undefined,
+      rev,
     );
     if (!attached) return fail(409, `${post.variant} already has a poster`);
     bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
@@ -1697,8 +1736,14 @@ export function createApp({
         part: sl.part,
         options: sl.fills.map((f) => ({ label: f.label ?? f.name, set: { [sl.part]: f.name } })),
       }));
+    const system = await systemFor(design.project);
+    const pages = post.surfaces.flatMap((x) => (x.kind === "html" ? [x.html] : []));
+    const purpose =
+      design.kind === "component" ? purposeNudge(design.slug, design.notes?.text) : null;
     const nudges = [
       ...(extra.nudges ?? []),
+      ...(system && pages.length ? pageChecks(system, pages) : []),
+      ...(purpose ? [purpose] : []),
       ...(unbound ? [unbound.nudge] : []),
       ...(slotAsks.length
         ? [
@@ -1858,6 +1903,18 @@ export function createApp({
         session?.project ||
         projectFromCwd(session?.cwd) ||
         resolveProject(undefined, str(body.cwd, 4096)));
+    {
+      const projectKnobs = (await systemFor(project))?.knobs ?? {};
+      const clash = [...Object.keys(knobs.value), ...Object.keys(variantKnobs.value)].find((p) =>
+        Object.hasOwn(projectKnobs, p),
+      );
+      if (clash) {
+        return fail(
+          400,
+          `knob "${clash}" is a project knob of ${project}'s system; name the design's knob something else`,
+        );
+      }
+    }
     let slug = design?.slug ?? slugify(slugIn);
     design ??= await store.findDesign(project, slug);
     // Told a design by its title, the agent means that design, not a new one named
@@ -2138,6 +2195,7 @@ export function createApp({
         from,
         prompt,
         author,
+        system: await systemRevOf(project),
       });
       if (!created) return fail(404, "session not found");
       design = await updateDesignAfterWrite(design, {
@@ -2167,6 +2225,7 @@ export function createApp({
         from,
         prompt,
         author,
+        system: await systemRevOf(project),
       });
       if (!amended) {
         return fail(409, `${variant} has a newer version than v${target.version}`, {
@@ -2219,6 +2278,7 @@ export function createApp({
       prompt,
       author,
       ...(session ? { publishedBy: session.id } : {}),
+      system: await systemRevOf(project),
     });
     if (!updated) return fail(404, "variant not found");
     const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
@@ -2662,6 +2722,7 @@ export function createApp({
     deriveDecisionLines(
       designs ?? (await store.listDesigns(project)),
       await store.listDecisionSources(project),
+      await systemFor(project),
     );
   const decisionEdits = async (project: string) =>
     parseDecisionEdits(await store.getSetting(`${DECISION_EDITS_SETTING}:${project}`));
@@ -2720,7 +2781,13 @@ export function createApp({
     const project = str(query.project, MAX_TITLE);
     const designs = await store.listDesigns(project);
     const mode = await workspaceMode();
-    const heads = headsByDesign(postersFor(await store.listPostHeads(project), mode));
+    const heads = headsByDesign(
+      postersFor(
+        await store.listPostHeads(project),
+        mode,
+        project ? ((await systemFor(project))?.rev ?? 0) : undefined,
+      ),
+    );
     const rows = [];
     const pending = [];
     for (const m of designs) {
@@ -2729,8 +2796,12 @@ export function createApp({
       pending.push(pendingOf(m));
     }
     const open = rows.reduce((n, r) => n + r.open, 0);
+    const system = project && !query.noDecisions ? await systemFor(project) : null;
     return ok({
       ...(project ? { project, flows: await flowsView(project, designs) } : {}),
+      ...(system && hasSystemContent(system)
+        ? { system: systemLine(system, systemChecks(system).length) }
+        : {}),
       ...(project && !query.noDecisions
         ? await decisionListField(project, undefined, designs)
         : {}),
@@ -2754,7 +2825,9 @@ export function createApp({
     if (!project) return fail(400, 'provide "project"');
     const designs = await store.listDesigns(project);
     const mode = await workspaceMode();
-    const heads = headsByDesign(postersFor(await store.listPostHeads(project), mode));
+    const system = await systemFor(project);
+    const rev = system?.rev ?? 0;
+    const heads = headsByDesign(postersFor(await store.listPostHeads(project), mode, rev));
     const nodes = [];
     const pending = [];
     for (const m of designs) {
@@ -2762,7 +2835,9 @@ export function createApp({
       // Only embeds and fills need the html: most of a workspace's bytes are
       // pages with neither, which this list has no reason to read.
       const marked = designHeads.some((p) => p.surfaces.some((x) => x.marked));
-      const posts = marked ? postersFor(await store.listPosts({ designId: m.id }), mode) : null;
+      const posts = marked
+        ? postersFor(await store.listPosts({ designId: m.id }), mode, rev)
+        : null;
       const views = posts ? await embedViews(m, posts) : new Map<string, EmbedView>();
       const embeds = new Set<string>();
       for (const p of posts ?? []) {
@@ -2812,6 +2887,9 @@ export function createApp({
     }
     return ok({
       project,
+      systemRev: rev,
+      // Lights the System place in Home.
+      hasSystem: hasSystemContent(system),
       tree: nodes,
       flows: await flowsView(project, designs),
       areaOrder: await areaOrderOf(project),
@@ -2853,11 +2931,16 @@ export function createApp({
       body?: boolean;
       history?: boolean;
       noDecisions?: boolean;
+      viewer?: boolean;
     },
   ): Promise<FlowResult> {
     const design = await resolveDesign(ref, query.project, query.session);
     if (isResult(design)) return design;
-    const posts = postersFor(await store.listPosts({ designId: design.id }), await workspaceMode());
+    const posts = postersFor(
+      await store.listPosts({ designId: design.id }),
+      await workspaceMode(),
+      (await systemFor(design.project))?.rev ?? 0,
+    );
     return ok({
       ...(query.noDecisions ? {} : await decisionListField(design.project, design.slug)),
       ...designDetailView(design, posts, {
@@ -2867,6 +2950,7 @@ export function createApp({
         embeds: await embedViews(design, posts),
         ...(await shortlistReach(design)),
       }),
+      ...(await systemPalettesField(design.project, query.viewer === true)),
       pending: pendingOf(design),
     });
   }
@@ -2875,6 +2959,50 @@ export function createApp({
     if (!design.shortlist || design.sessionId) return {};
     const agent = await projectAgent(design.project);
     return agent ? { repliesGoTo: agent.title ?? agent.agent } : {};
+  }
+
+  // What a design view says about the system its frames wear: the revision, and for
+  // the viewer the palettes to switch between (each a swatch of its first roles).
+  async function systemPalettesField(project: string, viewer: boolean) {
+    const system = await systemFor(project);
+    const roles = (system?.color.roles ?? []).slice(0, 4).map((r) => r.name);
+    return {
+      systemRev: system?.rev ?? 0,
+      ...(viewer && system && system.color.palettes.length > 1
+        ? {
+            palettes: system.color.palettes.map((p) => ({
+              id: p.id,
+              label: p.label || p.id,
+              status: p.status,
+              swatch: {
+                light: roles.map((r) => p.light[r] ?? "transparent"),
+                dark: roles.map((r) => p.dark[r] ?? "transparent"),
+              },
+            })),
+          }
+        : {}),
+    };
+  }
+
+  // Without a design, export hands the project's system to code.
+  async function exportSystemFlow(projectArg: unknown): Promise<FlowResult> {
+    const project = str(projectArg, MAX_TITLE);
+    if (!project) return fail(400, 'provide "project", or "design" to export one');
+    const system = await systemFor(project);
+    if (!system || !hasSystemContent(system)) {
+      return fail(404, `${project} has no system yet; start one with \`system\``);
+    }
+    const designs = await store.listDesigns(project);
+    return ok({
+      ...systemExport(system),
+      components: designs
+        .filter((d) => d.kind === "component" && !d.archivedAt)
+        .map((d) => ({
+          slug: d.slug,
+          purpose: (d.notes?.text ?? "").split("\n")[0].trim(),
+          source: d.source ?? null,
+        })),
+    });
   }
 
   async function exportFlow(
@@ -2969,7 +3097,13 @@ export function createApp({
 
   // --- asks ---
 
-  function sanitizeAsk(raw: any, design: Design, posts: Post[], taken: Set<string>): Ask | string {
+  function sanitizeAsk(
+    raw: any,
+    design: Design,
+    posts: Post[],
+    taken: Set<string>,
+    palettes: Set<string> = new Set(),
+  ): Ask | string {
     if (!raw || typeof raw !== "object") return "each ask must be an object";
     const text = str(raw.text, MAX_COMMENT_TEXT);
     if (!text) return 'each ask needs "text"';
@@ -3032,6 +3166,17 @@ export function createApp({
         set = checked.value;
       }
       const pick = opt.recommended === true ? { recommended: true as const } : {};
+      let palette: string | undefined;
+      if (opt.palette !== undefined) {
+        palette = str(opt.palette, 48);
+        if (!palette || !palettes.has(palette)) {
+          return `option "${label}" names palette "${String(opt.palette)}", which the project's system doesn't have${palettes.size ? ` (${[...palettes].join(", ")})` : ""}`;
+        }
+        if (variant || opt.version !== undefined)
+          return `option "${label}": a palette option pictures every variant; name no variant`;
+        if (scope === "part")
+          return `option "${label}": a palette is the whole page's; ask with scope "design" or "state"`;
+      }
       if (opt.version !== undefined) {
         const pinned = versionOption(opt.version, label, variant, { scope, state }, design, posts);
         if (typeof pinned === "string") return pinned;
@@ -3043,6 +3188,7 @@ export function createApp({
         label,
         ...(variant ? { variant } : {}),
         ...(set ? { set } : {}),
+        ...(palette ? { palette } : {}),
         ...pick,
       });
     }
@@ -3122,16 +3268,28 @@ export function createApp({
     raw: any[],
     design: Design,
     posts: Post[],
+    system: System | null,
   ):
     | {
         entries: any[];
         knobs: Knobs;
         additions: AnswerAddition[];
         pages: { ask: number; option: number; target: Post; html: string }[];
+        // A project knob's new values and styles, which go on the system.
+        project: { knobs: Knobs; additions: SystemAddition[]; changed: boolean };
+        // Values whose style or fill was asked again with something new: "knob=value".
+        revised: string[];
       }
     | string {
     const knobs: Knobs = { ...design.knobs };
     const additions = [...design.answerAdditions];
+    const project = {
+      knobs: { ...system?.knobs },
+      additions: [...(system?.additions ?? [])],
+      changed: false,
+    };
+    const nextRev = (system?.rev ?? 0) + 1;
+    const revised: string[] = [];
     const pages: { ask: number; option: number; target: Post; html: string }[] = [];
     const renders = posts.flatMap((p) =>
       (postAtVersion(p, currentVersion(p)) ?? p).surfaces.flatMap((s) =>
@@ -3179,6 +3337,38 @@ export function createApp({
           return `option "${name}": style and fill go with a set of one new value`;
         }
         const knob = set[0][0];
+        if (system && Object.hasOwn(system.knobs, knob)) {
+          if (fill !== undefined)
+            return `option "${name}": "${knob}" is a project knob; it takes style, not fill`;
+          const bad =
+            typeof style === "string" ? checkAnswerStyle(style) : "style must be a string";
+          if (bad) return `option "${name}": ${bad}`;
+          const at = project.additions.findIndex((a) => a.knob === knob && a.value === value);
+          if (at >= 0) {
+            // Asked again with a new style, the value stays and its style is revised.
+            if (project.additions[at].style !== style) {
+              project.additions[at] = { knob, value, style, rev: nextRev };
+              project.changed = true;
+              revised.push(`${knob}=${value}`);
+            }
+            options.push(rest);
+            continue;
+          }
+          const config = explicitKnob(system.knobs[knob]);
+          if (config.type !== "select") {
+            return `option "${name}": project knob "${knob}" is a ${config.type}, which already carries its value; send the set alone`;
+          }
+          const known = (config.options ?? []).map((v) =>
+            typeof v === "object" && v !== null && "value" in v ? String(v.value) : String(v),
+          );
+          if (!known.includes(value)) {
+            project.knobs[knob] = { ...config, options: [...(config.options ?? []), value] };
+          }
+          project.additions.push({ knob, value, style, rev: nextRev });
+          project.changed = true;
+          options.push(rest);
+          continue;
+        }
         const addition: AnswerAddition = { knob, value };
         if (style !== undefined) {
           const bad =
@@ -3195,11 +3385,14 @@ export function createApp({
           }
           addition.fill = fill;
         }
-        const same = additions.find((a) => a.knob === knob && a.value === value);
-        if (same) {
-          // Asking again with what is already there is how a question grows.
+        const at = additions.findIndex((a) => a.knob === knob && a.value === value);
+        if (at >= 0) {
+          // Asking again with what is already there is how a question grows; with a
+          // new style or fill, the value keeps its name and what it draws is revised.
+          const same = additions[at];
           if (same.style !== addition.style || same.fill !== addition.fill) {
-            return `option "${name}": "${value}" already means something else; use a new value`;
+            additions[at] = { ...addition, rev: (same.rev ?? 1) + 1 };
+            revised.push(`${knob}=${value}`);
           }
           options.push(rest);
           continue;
@@ -3226,7 +3419,7 @@ export function createApp({
       }
       entries.push({ ...entry, options });
     }
-    return { entries, knobs, additions, pages };
+    return { entries, knobs, additions, pages, project, revised };
   }
 
   // A whole page an answer brought: a version the user only meets if they choose it.
@@ -3258,6 +3451,7 @@ export function createApp({
       embeds,
       from: seen.version,
       ...(sessionId ? { publishedBy: sessionId } : {}),
+      system: await systemRevOf(design.project),
     });
     if (!updated) return fail(404, "variant not found");
     await store.setVersionHidden(updated.id, updated.version, true);
@@ -3303,8 +3497,12 @@ export function createApp({
     if (!raw || raw.length === 0) return fail(400, 'provide "asks": [{text, options}]');
     if (raw.length > MAX_ASKS) return fail(400, `at most ${MAX_ASKS} asks per call`);
     const posts = await store.listPosts({ designId: design.id });
-    const brought = answersBringing(raw, design, posts);
+    const system = await systemFor(design.project);
+    const brought = answersBringing(raw, design, posts, system);
     if (typeof brought === "string") return fail(400, brought);
+    // Options may set the project's knobs too, and choose its palettes.
+    const askKnobs = { ...brought.project.knobs, ...brought.knobs };
+    const palettes = new Set((system?.color.palettes ?? []).map((p) => p.id));
     const asks = [...design.asks];
     const taken = new Set(asks.map((a) => a.id));
     const added: Ask[] = [];
@@ -3312,7 +3510,7 @@ export function createApp({
     const standings = { ...design.standings };
     const stillHidden: string[] = [];
     for (const entry of brought.entries) {
-      const ask = sanitizeAsk(entry, { ...design, knobs: brought.knobs }, posts, taken);
+      const ask = sanitizeAsk(entry, { ...design, knobs: askKnobs }, posts, taken, palettes);
       if (typeof ask === "string") return fail(400, ask);
       const at = asks.findIndex((a) => a.id === ask.id);
       if (standings[ask.id]) {
@@ -3337,7 +3535,8 @@ export function createApp({
     // would wait where they no longer look. Asked again, a question it left
     // unanswered is simply open again: guidance about what to ask lives in the
     // conversation, not in a refusal here.
-    const additionsGrew = brought.additions.length > design.answerAdditions.length;
+    const additionsGrew =
+      brought.additions.length > design.answerAdditions.length || brought.revised.length > 0;
     const updated = await store.updateDesign(design.id, {
       asks,
       sessionId,
@@ -3349,6 +3548,40 @@ export function createApp({
     design = updated;
     // Every render carries these now, and frames key on `rewrites`: open ones reload.
     if (additionsGrew) await store.bumpRewrites(design.id);
+    if (system && brought.project.changed) {
+      const made = brought.project.additions.filter((a) => a.rev === system.rev + 1);
+      const summary = `answer styles for ${made.map((a) => `${a.knob}=${a.value}`).join(", ")}`;
+      await serialSystem(design.project, async () => {
+        // Another write may have landed since the read above: lay these over it.
+        const fresh = (await systemFor(design.project)) ?? system;
+        const rev = fresh.rev + 1;
+        const key = (a: { knob: string; value: string }) => `${a.knob}\u0000${a.value}`;
+        const ours = new Set(made.map(key));
+        const knobs = { ...fresh.knobs };
+        for (const [path, config] of Object.entries(brought.project.knobs)) {
+          if (JSON.stringify(config) !== JSON.stringify(system.knobs[path])) knobs[path] = config;
+        }
+        const next: System = {
+          ...fresh,
+          knobs,
+          additions: [
+            ...fresh.additions.filter((a) => !ours.has(key(a))),
+            ...made.map((a) => ({ ...a, rev })),
+          ],
+          rev,
+          updatedAt: new Date().toISOString(),
+        };
+        const saved = await store.putSystem(next, { sessionId: sessionId ?? null, summary });
+        clearRenderCache();
+        bus.broadcast({
+          type: "system-changed",
+          project: design.project,
+          rev: saved.rev,
+          summary,
+          by: "agent",
+        });
+      });
+    }
     bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
     // The questions also land in the thread, so the user reads them where they answer.
     const session = sessionId ? await store.getSession(sessionId) : null;
@@ -3377,6 +3610,23 @@ export function createApp({
       ...unprovenValueNudges(added, design, posts),
       ...(stillHidden.length
         ? [`The user hid ${stillHidden.join(", ")}: they stay folded away. Offer something else.`]
+        : []),
+      ...(brought.revised.length
+        ? [
+            `revised what ${brought.revised.join(", ")} draw${brought.revised.length === 1 ? "s" : ""}: the value keeps its name, every render wearing it changes`,
+          ]
+        : []),
+      ...(system
+        ? added.flatMap((a) =>
+            a.options.flatMap((o) => {
+              const style = (raw as any[])
+                .flatMap((e) => e?.options ?? [])
+                .find((x: any) => x?.label === o.label)?.style;
+              return typeof style === "string"
+                ? pageChecks(system, [`<style>${style}</style>`], `option "${o.label}"'s style`)
+                : [];
+            }),
+          )
         : []),
     ];
     return ok({
@@ -3613,7 +3863,13 @@ export function createApp({
     if (typeof answers === "string") return answers;
     const borrowed = sanitizeBorrowed(pick("borrowed"), posts);
     if (typeof borrowed === "string") return borrowed;
-    const tuned = checkKnobValues(pick("tuned"), design, posts, "tuned");
+    const projectKnobs = (await systemFor(design.project))?.knobs;
+    const tuned = checkKnobValues(
+      pick("tuned"),
+      { knobs: { ...projectKnobs, ...design.knobs } },
+      posts,
+      "tuned",
+    );
     if (!tuned.ok) return tuned.error;
     const comments = sanitizePartComments(pick("comments"), design, posts);
     if (typeof comments === "string") return comments;
@@ -3912,25 +4168,60 @@ export function createApp({
     const flips = replyFlips(design, posts, draft.answers, verdict, draft.version);
     const standings = sentStandings(design, draft.answers);
     if (Object.keys(standings.payload).length) payload.standings = standings.payload;
-    if (verdict) {
-      const target = posts.find((p) => p.state === verdict.state && p.variant === verdict.variant);
-      const pinned = verdict.kind === "use" && target ? flips.accept.get(target.id) : undefined;
-      payload.verdict = pinned === undefined ? verdict : { ...verdict, version: pinned };
-    }
-    const comment = await store.commitReply({
-      designId: design.id,
-      sessionId,
-      text: text ?? "",
-      payload,
-      asks,
-      accept: [...flips.accept].map(([id, version]) => ({ id, version })),
-      archive: [...flips.archive],
-      release: [...flips.release],
-      standings: standings.next,
-      ...(routed ? { owner: sessionId } : {}),
+    // Serialized with the project's other system writes: the revision it makes is
+    // built on the one it read.
+    const { comment, systemWrite } = await serialSystem(design.project, async () => {
+      const system = await systemFor(design.project);
+      const decided = system
+        ? systemAfterAnswers(system, design.asks, draft.answers, standings.payload)
+        : null;
+      const systemWrite = decided
+        ? {
+            next: { ...decided.system, rev: system!.rev + 1, updatedAt: new Date().toISOString() },
+            summary: decided.changes.join("; "),
+          }
+        : undefined;
+      if (systemWrite) {
+        payload.system = {
+          project: design.project,
+          rev: systemWrite.next.rev,
+          changes: decided!.changes,
+        };
+      }
+      if (verdict) {
+        const target = posts.find(
+          (p) => p.state === verdict.state && p.variant === verdict.variant,
+        );
+        const pinned = verdict.kind === "use" && target ? flips.accept.get(target.id) : undefined;
+        payload.verdict = pinned === undefined ? verdict : { ...verdict, version: pinned };
+      }
+      const comment = await store.commitReply({
+        designId: design.id,
+        sessionId,
+        text: text ?? "",
+        payload,
+        asks,
+        accept: [...flips.accept].map(([id, version]) => ({ id, version })),
+        archive: [...flips.archive],
+        release: [...flips.release],
+        standings: standings.next,
+        ...(routed ? { owner: sessionId } : {}),
+        ...(systemWrite ? { system: systemWrite } : {}),
+      });
+      return { comment, systemWrite };
     });
     if (!comment) return fail(409, `${design.slug} has no agent session to reply to`);
     announceComment(comment);
+    if (systemWrite) {
+      clearRenderCache();
+      bus.broadcast({
+        type: "system-changed",
+        project: design.project,
+        rev: systemWrite.next.rev,
+        summary: systemWrite.summary,
+        by: "user",
+      });
+    }
     bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
     bus.broadcast({ type: "draft-updated", designId: design.id });
     void announceEmbedders(design).catch((err) => console.warn("[mockpit] embedders", err));
@@ -4712,6 +5003,11 @@ export function createApp({
         ...(post.description ? { description: post.description } : {}),
         embeds,
         copiedFrom: { design: design.id, state: post.state, variant: post.variant, version },
+        // A copy looks as its original did.
+        contract: postAtVersion(post, version)?.contract ?? 1,
+        ...(postAtVersion(post, version)?.system === undefined
+          ? {}
+          : { system: postAtVersion(post, version)!.system }),
       });
       if (!created) return fail(409, `${post.variant} has no agent session to copy it under`);
       copies.push({ from: origin, copy: created });
@@ -5181,6 +5477,9 @@ export function createApp({
       from: version,
       prompt: `restored v${version}`,
       author: "user",
+      // Restored, it looks as it did.
+      contract: old.contract ?? 1,
+      ...(old.system === undefined ? {} : { system: old.system }),
     });
     if (!updated) return fail(404, "variant not found");
     const touched = (await store.updateDesign(design.id, {})) ?? design;
@@ -5315,6 +5614,8 @@ export function createApp({
     // Flows are declared apart from kind, so a page that stops being one stays
     // in them until the agent takes it out.
     const nudges: string[] = [...titleNudges(title)];
+    const purpose = next.kind === "component" ? purposeNudge(next.slug, next.notes?.text) : null;
+    if (purpose) nudges.push(purpose);
     if (notesKept) {
       nudges.push(
         "The user edited these notes by hand, so your draft was not applied: work from theirs, in notes.text. They stand until the user clears them",
@@ -6296,6 +6597,7 @@ export function createApp({
         body: flag(c, "body"),
         history: flag(c, "history"),
         noDecisions: withoutDecisions(c),
+        viewer: isViewerRequest(c.req.raw),
       }),
     );
   });
@@ -6555,6 +6857,8 @@ export function createApp({
     if (topic === undefined) return c.text(withOrigin(await briefFor(c.req.query("project")), c));
     if (!isGuideTopic(topic))
       return c.json({ error: unknownTopicMessage(topic), topics: GUIDE_TOPICS }, 400);
+    if (topic === "system")
+      return c.text(withOrigin(await systemTopicFor(c.req.query("project")), c));
     return c.text(withOrigin(topics[topic] ?? "", c));
   });
 
@@ -6563,9 +6867,7 @@ export function createApp({
   // `?project=`, that project's own kits follow the bundled ones.
   app.get("/api/kits", async (c) => {
     const project = c.req.query("project");
-    return c.json(
-      kitSummaries(project ? ((await designSystemFor(project))?.projectKits ?? []) : []),
-    );
+    return c.json(kitSummaries(project ? ((await systemFor(project))?.projectKits ?? []) : []));
   });
 
   // --- theme: one palette, so the workspace setting is just its mode ---
@@ -6581,8 +6883,7 @@ export function createApp({
     return c.json({ mode });
   });
 
-  // The project's design system, imported by `mockpit init` and injected into
-  // every html surface of the project (see renderHtmlPage).
+  // The project's decision list (server/decisionList.ts).
   app.get("/api/projects/:name/decisions", async (c) =>
     send(c, await decisionsFlow({ project: c.req.param("name") }, flowCtx(c))),
   );
@@ -6605,9 +6906,51 @@ export function createApp({
   app.patch("/api/projects/:name", async (c) =>
     send(c, await editProjectFlow(c.req.param("name"), await jsonBody(c), flowCtx(c))),
   );
-  app.get("/api/projects/:name/design-system", async (c) =>
-    c.json(await designSystemFor(c.req.param("name"))),
+  app.get("/api/projects/:name/system", async (c) =>
+    send(c, await systemFlow(c.req.param("name"), undefined, flowCtx(c))),
   );
+  app.put("/api/projects/:name/system", async (c) =>
+    send(c, await systemFlow(c.req.param("name"), await jsonBody(c), flowCtx(c))),
+  );
+  app.post("/api/projects/:name/system/decide", async (c) =>
+    send(c, await systemDecideFlow(c.req.param("name"), await jsonBody(c), flowCtx(c))),
+  );
+  // The System page's specimen: the scales in the project's fonts, as a sandboxed
+  // document. Addressed by project name, so it sits under /api (never public),
+  // not /s/.
+  app.get("/api/projects/:name/system/specimen", async (c) => {
+    const system = await systemFor(c.req.param("name"));
+    if (!system) return c.text("No system", 404);
+    const mode =
+      c.req.query("mode") === "dark"
+        ? "dark"
+        : c.req.query("mode") === "light"
+          ? "light"
+          : undefined;
+    const palette = activePalette(system, c.req.query("p"))?.id;
+    const page = renderHtmlPage({
+      title: "System",
+      html: specimenHtml(system),
+      origin: new URL(c.req.url).origin,
+      theme: themeById(DEFAULT_THEME_ID),
+      mode,
+      system,
+      palette,
+    });
+    const { doc } = await cdnInliner.inline(page, "");
+    surfaceDocHeaders(c, false);
+    return c.html(doc);
+  });
+  app.get("/api/projects/:name/system/export", async (c) =>
+    send(c, await exportSystemFlow(c.req.param("name"))),
+  );
+  app.get("/api/projects/:name/system/revisions", async (c) =>
+    c.json({ revisions: await store.listSystemRevisions(c.req.param("name")) }),
+  );
+  app.get("/api/projects/:name/system/revisions/:rev", async (c) => {
+    const system = await store.getSystemRevision(c.req.param("name"), Number(c.req.param("rev")));
+    return system ? c.json(system) : c.json({ error: "no such revision" }, 404);
+  });
   // A project's rules file (.mockpit/rules.md, sent by `mockpit rules` and
   // `mockpit init`) and the user's own (`mockpit rules --mine`).
   app.get("/api/projects/:name/rules", async (c) =>
@@ -6621,148 +6964,360 @@ export function createApp({
     send(c, await saveRules(USER_RULES_SETTING, await jsonBody(c))),
   );
 
-  app.put("/api/projects/:name/design-system", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    if (!body || typeof body !== "object") return c.json({ error: "invalid JSON body" }, 400);
-    const project = c.req.param("name");
-    // `mockpit init` re-detects the repo and PUTs without iconSets; that must
-    // not uninstall what `mockpit icons add` installed.
-    const previous = await designSystemFor(project);
-    let iconSets = previous?.iconSets ?? [];
-    if (body.iconSets !== undefined) {
-      const checked = await checkIconSets(body.iconSets);
-      if (typeof checked === "string") return c.json({ error: checked }, 400);
-      iconSets = checked;
+  // --- the project's system ---
+
+  // Writes to one project's system run one at a time: each reads the revision
+  // it bumps.
+  const systemQueue = new Map<string, Promise<unknown>>();
+  function serialSystem<T>(project: string, fn: () => Promise<T>): Promise<T> {
+    const prev = systemQueue.get(project) ?? Promise.resolve();
+    const run = prev.then(fn, fn);
+    const settled = run.catch(() => {});
+    systemQueue.set(project, settled);
+    void settled.then(() => {
+      if (systemQueue.get(project) === settled) systemQueue.delete(project);
+    });
+    return run;
+  }
+
+  // Who hears the user's hand on the system: the agent that last wrote it if it is
+  // listening, else one listening in the project, else that writer or the project's
+  // latest session, which hears it on its next call. Null: no agent to tell yet.
+  async function systemReplySession(project: string): Promise<string | null> {
+    const writer =
+      (await store.listSystemRevisions(project)).find((r) => r.sessionId)?.sessionId ?? null;
+    if (writer && listening.has(writer)) return writer;
+    for (const id of listening.keys()) {
+      if ((await store.getSession(id))?.project === project) return id;
     }
-    // Same rule as iconSets: a PUT that omits projectKits keeps them.
-    let projectKits = previous?.projectKits ?? [];
-    if (body.projectKits !== undefined) {
-      const checked = checkProjectKits(body.projectKits);
-      if (typeof checked === "string") return c.json({ error: checked }, 400);
-      projectKits = checked;
+    if (writer && (await store.getSession(writer))) return writer;
+    const sessions = await store.listSessions(project);
+    sessions.sort((a, b) => ownerActiveAt(b).localeCompare(ownerActiveAt(a)));
+    return sessions[0]?.id ?? null;
+  }
+
+  // The System page: the user sets a palette's status or restores a revision. One
+  // new revision, and one reply through the agent's cursor in the same write.
+  async function systemDecideFlow(name: string, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const project = str(name, MAX_TITLE);
+    if (!project) return fail(400, 'provide "project"');
+    if (!isRecord(body)) return fail(400, "invalid JSON body");
+    const restoring = body.restore !== undefined;
+    if (restoring === (body.palette !== undefined)) {
+      return fail(400, "send {palette, status} or {restore}");
     }
-    const kitIds = ["tailwind", "none", ...KIT_IDS, ...projectKits.map((k) => k.id)];
-    const kit = body.kit === undefined || body.kit === null ? "none" : body.kit;
-    if (typeof kit !== "string" || !kitIds.includes(kit))
-      return c.json({ error: `unknown kit "${String(kit)}" — known: ${kitIds.join(", ")}` }, 400);
-    const designFiles = checkDesignFiles(body.designFiles);
-    if (typeof designFiles === "string") return c.json({ error: designFiles }, 400);
-    const designSystem: DesignSystem = {
-      detected:
-        body.detected && typeof body.detected === "object"
+    const status = body.status as PaletteStatus;
+    if (!restoring && !PALETTE_STATUSES.includes(status)) {
+      return fail(400, `"status" must be one of ${PALETTE_STATUSES.join(", ")}`);
+    }
+    return serialSystem(project, async () => {
+      const current = await systemFor(project);
+      if (!current) return fail(404, `${project} has no system`);
+      let next: System;
+      let changes: string[];
+      if (restoring) {
+        const rev = Number(body.restore);
+        const old = Number.isInteger(rev) ? await store.getSystemRevision(project, rev) : null;
+        if (!old) return fail(404, `no revision ${String(body.restore)} of ${project}'s system`);
+        next = restoreSystem(current, old).system;
+        if (!systemDiffers(current, next)) return ok({ rev: current.rev, changes: [] });
+        const what = describeChange(current, next);
+        changes = [`restored r${rev}: ${what.join("; ")}`];
+      } else {
+        const target = current.color.palettes.find((p) => p.id === body.palette);
+        if (!target)
+          return fail(404, `${project}'s system has no palette "${String(body.palette)}"`);
+        if (target.status === status) return ok({ rev: current.rev, changes: [] });
+        if (target.status === "default") {
+          return fail(400, "make another palette the default first: a project always has one");
+        }
+        const was = defaultPalette(current);
+        next = {
+          ...current,
+          color: {
+            ...current.color,
+            palettes: current.color.palettes.map((p) =>
+              p.id === target.id
+                ? { ...p, status }
+                : status === "default" && p.status === "default"
+                  ? { ...p, status: "kept" as const }
+                  : p,
+            ),
+          },
+        };
+        changes = [
+          status === "default"
+            ? `palette "${target.id}" is the default${was ? ` ("${was.id}" kept)` : ""}`
+            : `palette "${target.id}" ${status}`,
+        ];
+      }
+      const rev = current.rev + 1;
+      const sessionId = await systemReplySession(project);
+      const summary = `by the user: ${changes.join("; ")}`;
+      const comment = await store.commitSystemDecision({
+        system: { ...next, rev, updatedAt: new Date().toISOString() },
+        summary,
+        tell: sessionId
           ? {
-              tailwind: body.detected.tailwind === true,
-              shadcn: body.detected.shadcn === true,
-              cssVars: Number(body.detected.cssVars) || 0,
-              fonts: Array.isArray(body.detected.fonts)
-                ? body.detected.fonts.filter((f: unknown) => typeof f === "string").slice(0, 20)
-                : [],
+              sessionId,
+              payload: {
+                designId: "",
+                version: 0,
+                answers: {},
+                borrowed: {},
+                tuned: {},
+                comments: [],
+                system: { project, rev, changes },
+              },
             }
           : null,
-      palette:
-        body.palette && typeof body.palette === "object" && body.palette.light && body.palette.dark
-          ? body.palette
-          : null,
-      kit,
-      cssVars: typeof body.cssVars === "string" ? body.cssVars.slice(0, 64_000) : "",
+      });
+      if (comment) announceComment(comment);
+      clearRenderCache();
+      bus.broadcast({ type: "system-changed", project, rev, summary, by: "user" });
+      return ok({ rev, changes, told: sessionId });
+    });
+  }
+
+  // Knob paths the project's designs declare, so a project knob can't take one.
+  async function designKnobPaths(project: string): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    for (const d of await store.listDesigns(project)) {
+      for (const path of Object.keys(d.knobs)) if (!out.has(path)) out.set(path, d.slug);
+    }
+    return out;
+  }
+
+  // What init read, cut to the sizes a frame and a brief can carry.
+  function checkRepo(raw: unknown): RepoRead | null | string {
+    if (raw === null) return null;
+    if (!isRecord(raw)) return "repo is what `mockpit init` read";
+    const designFiles = checkDesignFiles(raw.designFiles);
+    if (typeof designFiles === "string") return designFiles;
+    const d = raw.detected;
+    return {
+      detected: isRecord(d)
+        ? {
+            tailwind: d.tailwind === true,
+            shadcn: d.shadcn === true,
+            cssVars: Number(d.cssVars) || 0,
+            fonts: Array.isArray(d.fonts)
+              ? d.fonts.filter((f: unknown): f is string => typeof f === "string").slice(0, 20)
+              : [],
+          }
+        : null,
+      cssVars: typeof raw.cssVars === "string" ? raw.cssVars.slice(0, 64_000) : "",
       // A cut stylesheet would not compile, so an oversized one is dropped
       // whole and the frame falls back to `cssVars`.
       tailwindCss:
-        typeof body.tailwindCss === "string" && body.tailwindCss.length <= 128_000
-          ? body.tailwindCss
+        typeof raw.tailwindCss === "string" && raw.tailwindCss.length <= 128_000
+          ? raw.tailwindCss
           : "",
-      strippedImports: Array.isArray(body.strippedImports)
-        ? body.strippedImports
-            .filter((s: unknown) => typeof s === "string")
+      strippedImports: Array.isArray(raw.strippedImports)
+        ? raw.strippedImports
+            .filter((s: unknown): s is string => typeof s === "string")
             .map((s: string) => s.slice(0, 200))
             .slice(0, 50)
         : [],
-      iconSets,
-      projectKits,
       designFiles,
-      updatedAt: new Date().toISOString(),
     };
-    return c.json(await saveDesignSystem(project, designSystem));
-  });
-
-  async function saveDesignSystem(
-    project: string,
-    designSystem: DesignSystem,
-  ): Promise<DesignSystem> {
-    await store.setSetting(`design:${project}`, JSON.stringify(designSystem));
-    // Every rendered surface bakes the design into its document string, so a
-    // design change invalidates them all.
-    clearRenderCache();
-    bus.broadcast({ type: "theme-changed", mode: await workspaceMode() });
-    return designSystem;
   }
 
-  const MAX_PROJECT_KITS = 16;
-  function checkProjectKits(raw: unknown): DesignSystem["projectKits"] | string {
-    if (!Array.isArray(raw)) return "projectKits must be an array";
-    if (raw.length > MAX_PROJECT_KITS) return `at most ${MAX_PROJECT_KITS} project kits`;
-    const kits: DesignSystem["projectKits"] = [];
-    for (const item of raw) {
-      const kit = checkProjectKit(item);
-      if (typeof kit === "string") return kit;
-      if (kits.some((k) => k.id === kit.id)) return `kit "${kit.id}" is listed twice`;
-      kits.push(kit);
+  // The user's own system decisions that went to an agent, and whether it has them.
+  async function systemTold(project: string): Promise<{ rev: number; delivered: boolean }[]> {
+    const decided = (await store.listComments({ noDesign: true })).filter(
+      (c) => c.kind === "reply" && c.payload?.system?.project === project,
+    );
+    return (await withDelivered(decided)).map((c) => ({
+      rev: c.payload!.system!.rev,
+      delivered: c.delivered,
+    }));
+  }
+
+  // The system as an agent reads it: everything, with the repo's compiled
+  // Tailwind input said by size, plus its revisions and what fails its checks.
+  async function systemView(project: string, system: System | null, ctx: FlowContext) {
+    const s = system ?? emptySystem(project);
+    return {
+      ...s,
+      ...(s.repo?.tailwindCss
+        ? {
+            repo: {
+              ...s.repo,
+              tailwindCss: `${s.repo.tailwindCss.length} characters, compiled in every frame`,
+            },
+          }
+        : {}),
+      checks: systemChecks(s),
+      revisions: (await store.listSystemRevisions(project)).slice(0, 10),
+      // What the System page draws beside the palettes; agents read the checks.
+      ...(ctx.viewer
+        ? {
+            contrast: pairResults(s, true),
+            components: await componentIndex(project),
+            told: await systemTold(project),
+          }
+        : {}),
+      url: `${ctx.base}/project/${encodeURIComponent(project)}?sec=system`,
+    };
+  }
+
+  async function systemFlow(projectArg: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    const project = str(projectArg, MAX_TITLE);
+    if (!project) return fail(400, 'provide "project"');
+    if (body === undefined) return ok(await systemView(project, await systemFor(project), ctx));
+    if (!isRecord(body)) return fail(400, "invalid JSON body");
+    const known = new Set<string>([...SYSTEM_WRITE_KEYS, "restore", "session", "project", "agent"]);
+    const unknown = Object.keys(body).filter((k) => !known.has(k));
+    if (unknown.length) {
+      return fail(
+        400,
+        `unknown ${unknown.length === 1 ? "argument" : "arguments"} ${unknown.map((k) => `"${k}"`).join(", ")}`,
+        {
+          arguments: [
+            ...SYSTEM_WRITE_KEYS.filter(
+              (k) => !["repo", "projectKits", "removeKits", "iconSets", "kit"].includes(k),
+            ),
+            "restore",
+          ],
+        },
+      );
     }
-    return kits;
+    const writing = Object.keys(body).some(
+      (k) => k !== "session" && k !== "project" && k !== "agent",
+    );
+    if (!writing) return ok(await systemView(project, await systemFor(project), ctx));
+    // The user's changes go through decide, which tells the agent.
+    if (ctx.viewer) return fail(400, "the viewer changes the system through /system/decide");
+    const sessionId =
+      typeof body.session === "string" && (await store.getSession(body.session))
+        ? body.session
+        : null;
+    if (sessionId) await store.touchAgent(sessionId);
+
+    let write: SystemWrite = body;
+    if (body.iconSets !== undefined) {
+      const checked = await checkIconSets(body.iconSets);
+      if (typeof checked === "string") return fail(400, checked);
+      write = { ...write, iconSets: checked };
+    }
+    if (body.repo !== undefined) {
+      const repo = checkRepo(body.repo);
+      if (typeof repo === "string") return fail(400, repo);
+      write = { ...write, repo };
+    }
+    const kitPaths = body.knobs !== undefined ? await designKnobPaths(project) : new Map();
+
+    return serialSystem(project, async () => {
+      const current = (await systemFor(project)) ?? emptySystem(project);
+      let next: System;
+      let summary: string;
+      let changed: string[];
+      // What the user decided, which an agent's restore leaves standing.
+      let keptOnRestore: string[] = [];
+      if (body.restore !== undefined) {
+        if (Object.keys(body).some((k) => !["restore", "session", "project", "agent"].includes(k)))
+          return fail(400, "restore stands alone: restore first, then write");
+        const rev = Number(body.restore);
+        const old = Number.isInteger(rev) ? await store.getSystemRevision(project, rev) : null;
+        if (!old) {
+          const kept = (await store.listSystemRevisions(project)).map((r) => r.rev);
+          return fail(404, `no revision ${String(body.restore)} of ${project}'s system`, { kept });
+        }
+        const restored = restoreSystem(current, old, { keepDecided: true });
+        next = restored.system;
+        keptOnRestore = restored.kept;
+        changed = describeChange(current, next);
+        summary = `restored r${rev}${changed.length ? `: ${changed.join("; ")}` : ""}`;
+      } else {
+        const applied = applySystemWrite(current, write, {
+          checkUrl: (url) => {
+            const r = checkCdnUrl(url, "font url");
+            return "error" in r ? r.error : null;
+          },
+          checkKnobs: (raw) => checkKnobs(raw),
+          checkKit: (raw) => checkProjectKit(raw),
+          kitIds: KIT_IDS,
+          designKnobPaths: kitPaths,
+        });
+        if ("error" in applied) return fail(400, applied.error);
+        next = applied.system;
+        changed = describeChange(current, next);
+        summary = changed.join("; ");
+      }
+      const checks = systemChecks(next);
+      // What init derived, said on every rerun, changed or not.
+      const derivedOf = (sys: System) =>
+        body.repo !== undefined
+          ? {
+              derived: {
+                tokens: sys.tokens.filter((t) => t.owner === "repo").length,
+                roles: sys.color.roles.filter((r) => r.owner === "repo").length,
+                palette: sys.color.palettes.some((p) => p.owner === "repo"),
+                untyped: sys.repo?.untyped ?? [],
+              },
+            }
+          : {};
+      if (!systemDiffers(current, next)) {
+        return ok({
+          rev: current.rev,
+          changed: [],
+          ...(keptOnRestore.length ? { kept: keptOnRestore } : {}),
+          checks,
+          ...derivedOf(current),
+          url: `${ctx.base}/project/${encodeURIComponent(project)}?sec=system`,
+          feedback: await feedbackFor(body.session, ctx.base),
+        });
+      }
+      const saved = await store.putSystem(
+        { ...next, rev: current.rev + 1 },
+        { sessionId, summary },
+      );
+      // Every rendered surface of the project wears the system, so none stays.
+      clearRenderCache();
+      bus.broadcast({ type: "system-changed", project, rev: saved.rev, summary, by: "agent" });
+      return ok({
+        rev: saved.rev,
+        changed,
+        ...(keptOnRestore.length ? { kept: keptOnRestore } : {}),
+        checks,
+        ...derivedOf(saved),
+        ...(checks.length ? { nudges: checks } : {}),
+        url: `${ctx.base}/project/${encodeURIComponent(project)}?sec=system`,
+        feedback: await feedbackFor(body.session, ctx.base),
+      });
+    });
   }
 
-  const emptyDesignSystem = (): DesignSystem => ({
-    detected: null,
-    palette: null,
-    kit: "none",
-    cssVars: "",
-    tailwindCss: "",
-    strippedImports: [],
-    iconSets: [],
-    projectKits: [],
-    updatedAt: new Date().toISOString(),
-  });
-
-  // Add or replace one project kit (`mockpit kit add`). A project that never ran
-  // init gets a design holding just the kit.
-  app.put("/api/projects/:name/kits/:id", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    if (!body || typeof body !== "object") return c.json({ error: "invalid JSON body" }, 400);
-    const project = c.req.param("name");
-    const kit = checkProjectKit({ ...body, id: c.req.param("id") });
-    if (typeof kit === "string") return c.json({ error: kit }, 400);
-    const designSystem = (await designSystemFor(project)) ?? emptyDesignSystem();
-    const others = designSystem.projectKits.filter((k) => k.id !== kit.id);
-    if (others.length >= MAX_PROJECT_KITS)
-      return c.json({ error: `at most ${MAX_PROJECT_KITS} project kits` }, 400);
-    const saved = await saveDesignSystem(project, {
-      ...designSystem,
-      projectKits: [...others, kit],
-      updatedAt: new Date().toISOString(),
-    });
-    return c.json(saved);
-  });
-
-  // Removing the project's default kit falls back to no kit rather than leaving
-  // designSystem.kit naming something that no longer resolves.
-  app.delete("/api/projects/:name/kits/:id", async (c) => {
-    const project = c.req.param("name");
-    const id = c.req.param("id");
-    const designSystem = await designSystemFor(project);
-    if (!designSystem?.projectKits.some((k) => k.id === id))
-      return c.json({ error: `${project} has no kit "${id}"` }, 404);
-    const saved = await saveDesignSystem(project, {
-      ...designSystem,
-      kit: designSystem.kit === id ? "none" : designSystem.kit,
-      projectKits: designSystem.projectKits.filter((k) => k.id !== id),
-      updatedAt: new Date().toISOString(),
-    });
-    return c.json(saved);
-  });
+  // Components by slug, with the first line of their notes and how many screens
+  // embed them: the brief's index of what to reuse.
+  async function componentIndex(project: string): Promise<ComponentLine[]> {
+    const designs = await store.listDesigns(project);
+    const components = designs.filter((d) => d.kind === "component" && !d.archivedAt);
+    if (components.length === 0) return [];
+    const kindOf = new Map(designs.map((d) => [d.id, d]));
+    const screens = new Map<string, Set<string>>();
+    for (const head of await store.listPostHeads(project)) {
+      if (!isLive(head.status)) continue;
+      const d = kindOf.get(head.design);
+      if (!d || d.kind !== "screen") continue;
+      for (const e of head.embeds) {
+        let set = screens.get(e.slug);
+        if (!set) screens.set(e.slug, (set = new Set()));
+        set.add(d.slug);
+      }
+    }
+    return components.map((d) => ({
+      slug: d.slug,
+      purpose: (d.notes?.text ?? "").split("\n")[0].trim(),
+      screens: screens.get(d.slug)?.size ?? 0,
+    }));
+  }
 
   // Every set an html surface of this project can name, installed first.
   app.get("/api/projects/:name/icons", async (c) => {
-    const sets = await iconSetsFor(await designSystemFor(c.req.param("name")));
+    const sets = await iconSetsFor(await systemFor(c.req.param("name")));
     return c.json({
       sets: sets.map((s) => ({ prefix: s.prefix, count: iconCount(s.set), source: s.source })),
     });
@@ -6820,6 +7375,7 @@ export function createApp({
         count: Math.max(0, Math.floor(Number(tokens.count) || 0)),
         cssVars: tokens.cssVars === true,
         values: flat(tokens.values, 400),
+        ...(isRecord(tokens.types) ? { types: flat(tokens.types, 400) } : {}),
       };
     }
     const shadcn = raw.shadcn;
@@ -6926,8 +7482,13 @@ export function createApp({
     knobs?: string;
     embeds?: string;
     rewrites?: number;
+    // The system revision rendered with, and the palette asked for (`p`; absent: the
+    // default). With the revision, the request fixes which palette is worn, so the
+    // cache-first lookup, which reads no system, keys on the same value.
+    system?: number;
+    palette?: string;
   }) =>
-    `${o.postId}:${o.idx}:${o.version}:${o.mode ?? "os"}:${o.origin}:${o.knobs ?? ""}:${o.embeds ?? ""}${o.rewrites ? `:w${o.rewrites}` : ""}`;
+    `${o.postId}:${o.idx}:${o.version}:${o.mode ?? "os"}:${o.origin}:${o.knobs ?? ""}:${o.embeds ?? ""}${o.rewrites ? `:w${o.rewrites}` : ""}:y${o.system ?? 0}:${o.palette ?? ""}`;
 
   // After a version is rewritten in place: a frame still naming the old `w`
   // must miss the cache and get the version as it is now.
@@ -6945,7 +7506,9 @@ export function createApp({
     version: number;
     mode?: Mode;
     origin: string;
-    designSystem: DesignSystem | null;
+    system: System | null;
+    palette?: string;
+    contract?: number;
     knobs?: Record<string, KnobValue>;
     composed?: string;
   }): Promise<InlineResult> {
@@ -6956,10 +7519,11 @@ export function createApp({
       // Embedded components are expanded server-side (the caller passes the
       // expansion), so the whole page is still ONE sandboxed document rather
       // than nested frames.
-      const html = withAnswerAdditions(
-        args.composed ?? surface.html,
-        args.design?.answerAdditions ?? [],
-      );
+      const html = withAnswerAdditions(args.composed ?? surface.html, [
+        ...(args.design?.answerAdditions ?? []),
+        ...(args.system?.additions ?? []),
+      ]);
+      const knobs = { ...projectKnobValues(args.system), ...args.knobs };
       const page = renderHtmlPage({
         title: args.title,
         html,
@@ -6967,12 +7531,13 @@ export function createApp({
         theme,
         mode,
         kits: surface.kits,
-        designSystem: args.designSystem,
+        system: args.system,
+        palette: args.palette,
+        // A version from before contracts stored none: it renders as it was approved.
+        contract: args.contract ?? 1,
         version: args.version,
-        knobs: args.knobs,
-        resolveIcon: mayHaveIcons(html)
-          ? (await iconResolverFor(args.designSystem)).resolve
-          : undefined,
+        knobs: Object.keys(knobs).length ? knobs : undefined,
+        resolveIcon: mayHaveIcons(html) ? (await iconResolverFor(args.system)).resolve : undefined,
       });
       return cdnInliner.inline(page, html);
     }
@@ -7040,7 +7605,8 @@ export function createApp({
     const origin = lastOrigin;
     if (!origin) return;
     void (async () => {
-      const designSystem = await designSystemFor(design.project);
+      const system = await systemFor(design.project);
+      const palette = system ? activePalette(system, undefined)?.id : undefined;
       let warmed = 0;
       for (const [idx, surface] of post.surfaces.entries()) {
         if (warmed >= PREWARM_SURFACE_LIMIT) break;
@@ -7059,6 +7625,7 @@ export function createApp({
             origin,
             embeds: composed ? embedsKey(composed) : undefined,
             rewrites: post.rewrites,
+            system: system?.rev,
           });
           if (renderCache.has(key)) continue;
           await cachedRender(key, () =>
@@ -7070,7 +7637,9 @@ export function createApp({
               version: post.version,
               mode,
               origin,
-              designSystem,
+              system,
+              palette,
+              contract: post.contract,
               composed: composed?.html,
             }),
           );
@@ -7095,6 +7664,12 @@ export function createApp({
     const embedParam: string | undefined = c.req.query("embed");
     // `w`: the variant's rewrites the caller saw, since an amend keeps the number.
     const wParam = Number(c.req.query("w") ?? 0) || 0;
+    // `y`: the system revision the caller saw; `sys`: a peek at an older one;
+    // `p`: the palette to wear (absent: the default).
+    const yParam = Number(c.req.query("y") ?? 0) || 0;
+    const sysParam = Number(c.req.query("sys") ?? 0) || 0;
+    const pRaw = c.req.query("p");
+    const pParam = pRaw && /^[a-z][a-z0-9-]{0,47}$/.test(pRaw) ? pRaw : undefined;
     const origin = requestOrigin(c.req.raw);
 
     // Cache-first. A hit needs nothing from the post row, and the row is the
@@ -7116,6 +7691,8 @@ export function createApp({
           origin,
           embeds: eParam,
           rewrites: wParam,
+          system: sysParam || yParam,
+          palette: pParam,
         }),
       );
       if (hit !== undefined) {
@@ -7131,12 +7708,14 @@ export function createApp({
     let title = post.title;
     let surfaces = post.surfaces;
     let version = post.version;
+    let contract = post.contract;
     if (ver && Number(ver) !== post.version) {
       const old = post.history.find((h) => h.version === Number(ver));
       if (!old) return c.text(`Version ${ver} not available`, 404);
       title = old.title;
       surfaces = old.surfaces;
       version = old.version;
+      contract = old.contract;
     }
     const idx = Number(surfaceParam ?? 0);
     const surface = surfaces[idx];
@@ -7162,7 +7741,13 @@ export function createApp({
       } catch {
         return bad("k must be URL-encoded JSON of {path: value}");
       }
-      const checked = checkKnobValues(raw, design ?? { knobs: {} }, [post], "k");
+      const project = design ? (await systemFor(design.project))?.knobs : undefined;
+      const checked = checkKnobValues(
+        raw,
+        { knobs: { ...project, ...design?.knobs } },
+        [post],
+        "k",
+      );
       if (!checked.ok) return bad(checked.error);
       const paths = Object.keys(checked.value).sort();
       if (paths.length > 0 && surface.kind === "html") {
@@ -7197,6 +7782,16 @@ export function createApp({
     // Cache the finished document under the same key the pre-warm uses; the
     // resolved `version` and embeds key make it immutable, so a hit is always
     // correct.
+    let system = design ? await systemFor(design.project) : null;
+    const currentRev = system?.rev ?? 0;
+    if (sysParam && design) {
+      system = await store.getSystemRevision(design.project, sysParam);
+      if (!system) {
+        surfaceDocHeaders(c, false);
+        return c.text(`System revision ${sysParam} not available`, 404);
+      }
+    }
+    const palette = system ? activePalette(system, pParam)?.id : undefined;
     const cacheKey = renderKey({
       postId: post.id,
       idx,
@@ -7206,8 +7801,9 @@ export function createApp({
       knobs: knobsKey,
       embeds: eKey,
       rewrites: post.rewrites,
+      system: system?.rev,
+      palette: pParam,
     });
-    const designSystem = design ? await designSystemFor(design.project) : null;
     const { doc, complete } = await cachedRender(cacheKey, () =>
       buildSurfaceDoc({
         post,
@@ -7217,7 +7813,9 @@ export function createApp({
         version,
         mode,
         origin,
-        designSystem,
+        system,
+        palette,
+        contract,
         knobs,
         composed: composed?.html,
       }),
@@ -7231,7 +7829,9 @@ export function createApp({
       complete &&
         ver != null &&
         (eKey === undefined || eKey === eParam) &&
-        wParam === (post.rewrites ?? 0),
+        wParam === (post.rewrites ?? 0) &&
+        // The system follows its latest revision unless the URL names one.
+        (sysParam > 0 || !system || yParam === currentRev),
     );
     return c.html(doc);
   };
@@ -7442,6 +8042,7 @@ export function createApp({
   const mcpFlows: McpFlows = {
     publish: (body, ctx) => publishFlow(body, ctx),
     list: (query) => listDesignsFlow(query),
+    exportSystem: (project) => exportSystemFlow(project),
     tree: (query) => treeFlow(query),
     decisions: (query) => decisionsFlow(query),
     get: (ref, query) => getDesignFlow(ref, query),
@@ -7452,9 +8053,14 @@ export function createApp({
     feedback: (query, ctx) => feedbackFlow(query, ctx),
     edit: (ref, body, ctx) => editDesignFlow(ref, body, ctx),
     editProject: (name, body, ctx) => editProjectFlow(name, body, ctx),
+    system: (project, body, ctx) => systemFlow(project, body, ctx),
   };
   const guide = (project: string, topic?: GuideTopic) =>
-    topic ? (topics[topic] ?? "") : briefFor(project);
+    topic === "system"
+      ? systemTopicFor(project)
+      : topic
+        ? (topics[topic] ?? "")
+        : briefFor(project);
 
   // --- run: an agent script over the same flows (server/run.ts) ---
 

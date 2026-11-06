@@ -6,6 +6,7 @@
 
 import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import { assetUrl, surfaceUrl, type TreeNode } from "./api.ts";
+import { posterShown } from "./systemRev.ts";
 import {
   albumInside,
   albumPicture,
@@ -34,7 +35,7 @@ import { Thumb } from "./Thumb.tsx";
 export function Picture(props: { pic: ScreenPicture; width: number; whole: boolean }) {
   return (
     <Show
-      when={props.pic.poster}
+      when={posterShown(props.pic.poster)}
       fallback={
         <Thumb
           src={surfaceUrl(props.pic.postId, props.pic.surface, {

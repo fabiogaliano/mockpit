@@ -17,6 +17,7 @@ export const HOME_PLACES = [
   "flows",
   "components",
   "documents",
+  "system",
   "needs",
   "archive",
   "recent",
