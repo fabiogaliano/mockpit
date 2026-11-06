@@ -51,7 +51,7 @@ import {
   WALL_FROM,
 } from "./logic.ts";
 import { questions, sectionOf } from "./albums.ts";
-import { turnClock, useTurn } from "./Album.tsx";
+import { turnClock } from "./Album.tsx";
 import {
   createMargins,
   LeftMargin,
@@ -501,7 +501,6 @@ export function DesignScreen(props: {
               <PanelTabs s={s} m={m} />
             </Show>
           }
-          panelsShown={m.active()}
           onView={(v) => {
             if (v === "stage" ? shownView() === "stage" : shownView() !== "stage") return;
             s.setDrawer(false);
@@ -760,8 +759,6 @@ function TopRow(props: {
   onView: (v: "stage" | "studio") => void;
   // The right margin's tabs: in this row they cost the design no room.
   panels: JSX.Element;
-  // They're showing, so they carry the count of questions.
-  panelsShown: boolean;
 }) {
   const s = props.s;
   const sl = props.shortlists;
@@ -796,28 +793,9 @@ function TopRow(props: {
   };
   const openAsked = () =>
     new Set(s.flow().flatMap((e) => (isBuiltinAsk(e.ask) ? [] : [e.ask.id]))).size;
-  // Whose turn it is, by the rule the covers use, from what this screen already holds.
-  const shelved = useTurn(() => {
-    const m = s.design();
-    if (!m) return null;
-    const send = s.lastSend();
-    return {
-      open: openAsked(),
-      states: m.states.length ? m.states : [null],
-      variants: m.variants,
-      inUse: m.inUse,
-      archivedAt: m.archivedAt,
-      drafting: s.sendable(),
-      ...(send ? { lastReplyAt: send.at, lastSend: send } : {}),
-    };
-  });
-  const turn = () =>
-    s.design()?.archivedAt ? { kind: "closed" as const, text: "Archived" } : shelved();
-  // The words about a Send have their detail in the Thread, which only Stage has.
-  const opensThread = (kind: string) =>
-    props.view === "stage" && (kind === "unseen" || kind === "working" || kind === "sent");
   // Off Stage the panels are gone, but questions keep the corner their tab has there.
-  const questionsTab = () => !phoneLayout() && props.view !== "stage" && turn()?.kind === "open";
+  const questionsTab = () =>
+    !phoneLayout() && props.view !== "stage" && !s.design()?.archivedAt && openAsked() > 0;
   const toQuestions = () => {
     s.showTalk();
     if (!s.curAsk()) s.goOwed();
@@ -903,31 +881,6 @@ function TopRow(props: {
               {(state) => <span class="crumb-far crumb-sit">{`· ${state()}`}</span>}
             </Show>
           </nav>
-          {/* A tab says how many questions wait, so the name needn't too. */}
-          <Show
-            when={(props.panelsShown || questionsTab()) && turn()?.kind === "open" ? null : turn()}
-          >
-            {(t) => (
-              <Show
-                when={opensThread(t().kind)}
-                fallback={
-                  <span class="mturn alb-turn" data-turn={t().kind}>
-                    {t().text}
-                  </span>
-                }
-              >
-                <button
-                  type="button"
-                  class="mturn alb-turn"
-                  data-turn={t().kind}
-                  title="See it in the Thread"
-                  onClick={() => s.setPanel("thread")}
-                >
-                  {t().text}
-                </button>
-              </Show>
-            )}
-          </Show>
         </div>
         <Show when={s.design()}>
           <Show

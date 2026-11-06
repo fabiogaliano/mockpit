@@ -5845,40 +5845,11 @@ html:has(.design-screen) {
 .mup {
   display: none;
 }
-/* The name and whose turn it is: side by side while the path is in the row, and the
-   word under the name once it isn't, so it's there at every width at no cost in height. */
 .mname {
   display: flex;
   flex: 0 1 auto;
   align-items: center;
-  gap: 6px;
   min-width: 0;
-}
-.mturn {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 6px;
-  margin-left: 2px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--t4);
-  font: inherit;
-  font-size: 13px;
-  white-space: nowrap;
-}
-button.mturn {
-  cursor: pointer;
-}
-button.mturn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-@media (hover: hover) {
-  button.mturn:hover {
-    color: var(--t1);
-  }
 }
 .qrpop {
   position: absolute;
@@ -6611,20 +6582,11 @@ button.mturn:focus-visible {
     display: grid;
   }
   .mname {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0;
-    /* Room for the longest word, however little the row leaves the name. */
+    /* Some of the name stays, however little the row leaves it. */
     min-width: 108px;
   }
   .mname .mcrumb {
     max-width: 100%;
-  }
-  .mturn {
-    /* Lines up with the name, inside the path's pads. */
-    margin-left: 10px;
-    font-size: 12px;
-    line-height: 15px;
   }
 }
 @media (max-width: 900px) {
@@ -6671,17 +6633,9 @@ button.mturn:focus-visible {
     gap: 2px;
     padding: 0 4px;
   }
-  /* The row can leave less than the longest word here: it would rather clip its last
-     letters than push the view switch off the screen. */
+  /* Less of the name here, rather than push the view switch off the screen. */
   .mname {
     min-width: 88px;
-  }
-  .mturn {
-    display: block;
-    max-width: 100%;
-    margin-left: 6px;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
   /* Three views have to fit beside the name; the count can wait for Studio itself. */
   .vswitch .num {
