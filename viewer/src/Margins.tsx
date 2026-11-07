@@ -22,7 +22,7 @@ import { isLive } from "../../server/types.ts";
 import { assetUrl, surfaceUrl } from "./api.ts";
 import { posterShown } from "./systemRev.ts";
 import { BuiltFrom } from "./BuiltFrom.tsx";
-import { AnswerSets, KeptAnswers, keptGroups } from "./Kept.tsx";
+import { AnswerCombos, KeptAnswers, keptGroups } from "./Kept.tsx";
 import type { FlowNav } from "./flowNav.ts";
 import { host, readonly } from "./host.ts";
 import { Icon, type IconName } from "./icons.tsx";
@@ -809,7 +809,7 @@ export function WithThisSend(props: { s: DesignScreenState; m: Margins }) {
       </Show>
       <KeptAnswers s={s} />
       <Answered s={s} scope="state" />
-      <AnswerSets s={s} />
+      <AnswerCombos s={s} />
     </>
   );
 }

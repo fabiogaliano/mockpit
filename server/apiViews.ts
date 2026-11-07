@@ -7,7 +7,7 @@ import type { Mode } from "./themes.ts";
 import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
 import { isKeptAlternative, keptAlternatives } from "./standings.ts";
 import { withAddedAnswers } from "./alternativeQuestion.ts";
-import type { DecisionLine } from "./decisionList.ts";
+import type { DecisionLine } from "./decisionLog.ts";
 import { purposeLine, specView } from "./spec.ts";
 import {
   type BuiltFrom,
@@ -417,7 +417,7 @@ export const designDetailView = (
   opts: AlternativeViewOptions & {
     settled?: Record<string, KnobValue>;
     repliesGoTo?: string;
-    // This design's lines of the decision list; absent where the read carries none.
+    // This design's lines of the decision log; absent where the read carries none.
     decisions?: string[];
     // The components it is built from, as their marks stand.
     builtFrom?: BuiltFrom[];
@@ -458,7 +458,7 @@ const detailOf = (
   asks: design.asks.map((a) => withAddedAnswers(a, design, posts)),
   // By question id: the answers the user kept for later and hid, with why.
   ...(Object.keys(design.standings).length ? { standings: design.standings } : {}),
-  ...(design.sets.length ? { sets: design.sets } : {}),
+  ...(design.combos.length ? { combos: design.combos } : {}),
   open: openCount(design),
   knobs: design.knobs,
   widths: design.widths,

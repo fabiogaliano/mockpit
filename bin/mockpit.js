@@ -282,13 +282,13 @@ mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
   Then tell the user where to look and end your turn.`,
   read: `mockpit read [slug] [--project <name>] [--body] [--history] [--tree] [--decisions]
 mockpit read --area <name> [--project <name>]
-  Read this first. Every form carries the project's decision list, what the user
+  Read this first. Every form carries the project's decision log, what the user
   already settled, from their replies: treat each line as settled unless they say
   otherwise. No slug: one line per design (states, alternatives, open questions), one per
   flow, plus pending, what the user is doing now, then the decisions. A slug: the
   design's spec (purpose: what it is for; behaviour: how it works; decisions: what was
   settled on it), states, alternatives, questions with answers, parts, knobs and settled
-  values, plus its pending and decisionList (its own lines marked here), as JSON.
+  values, plus its pending and decisionLog (its own lines marked here), as JSON.
   --area: one product area, read before drawing in it: what the project and the area
   are for, its screens, flows and components (purpose, states), the shared components,
   their decisions and the ideas waiting there, as JSON.
@@ -2068,13 +2068,13 @@ const commands = {
     }
     for (const flow of list.flows ?? []) console.log(`  ${flowLine(flow)}`);
     for (const line of pendingLines(list.pending)) console.log(line);
-    if (list.decisionList) {
+    if (list.decisionLog) {
       console.log(
-        `Decided, ${list.decisionList.total}. Treat as settled unless the user says otherwise:`,
+        `Decided, ${list.decisionLog.total}. Treat as settled unless the user says otherwise:`,
       );
-      for (const d of list.decisionList.lines)
+      for (const d of list.decisionLog.lines)
         console.log(`  ${d.system ? "project" : d.design}: ${d.text}`);
-      if (list.decisionList.more) console.log(`  ${list.decisionList.more} (--decisions)`);
+      if (list.decisionLog.more) console.log(`  ${list.decisionLog.more} (--decisions)`);
     }
   },
   async export() {

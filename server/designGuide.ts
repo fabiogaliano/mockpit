@@ -550,7 +550,7 @@ MCP tools share the verb names.
 
 ## What is already decided
 
-\`mockpit read\` first, in every new session. Its \`decisionList\` is what the user
+\`mockpit read\` first, in every new session. Its \`decisionLog\` is what the user
 settled across the project, one line each, written by the server from their replies
 and edited by them. Treat each as settled unless they say otherwise: don't ask it
 again or design against it. If one seems wrong for this work, raise it in your
@@ -560,7 +560,7 @@ question. \`archived\` marks a line from an archived design, which may be older 
 
 A screen or component carries its own record, \`spec\` in \`read\` of the design, under
 three headings: What it is for (\`purpose\`), How it works (\`behaviour\`, one line each)
-and Decisions (\`decisions\`, the design's lines of the decision list, which the server
+and Decisions (\`decisions\`, the design's lines of the decision log, which the server
 writes from the user's replies). Behaviour the picture can't show (a gesture, timing,
 what happens next) goes in the spec, never in side files:
 \`mockpit edit --design <slug> --purpose "..."\`, and

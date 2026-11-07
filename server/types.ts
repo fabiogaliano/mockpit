@@ -465,7 +465,7 @@ export interface AnswerStanding {
 
 // A combination of answers across questions under the user's name for it ("Warm",
 // "Quiet"): a theme is more than one answer.
-export interface AnswerSet {
+export interface AnswerCombo {
   name: string;
   answers: Record<string, AskAnswer>;
   at: string;
@@ -618,8 +618,8 @@ export interface Reply {
   standings?: Record<string, AnswerStanding>;
   // A kept screen brought up to date with the one in use, once.
   update?: { ask: string; option: string };
-  // A saved set the user put in use, by name.
-  set?: string;
+  // A saved combo the user put in use, by name.
+  combo?: string;
   verdict?: ReplyVerdict;
   // Only on stored rows, from when an archive was written to the agent's stream: the
   // thread still lists them, and they are never delivered (feedbackBatch.ts).
@@ -669,7 +669,7 @@ export interface DesignEdit {
 export const AREAS_SETTING = "areas";
 // A project's own description (`description:<project>`), a `Described`.
 export const PROJECT_DESCRIPTION_SETTING = "description";
-// The user's hand edits to a project's decision list (`decisions:<project>`).
+// The user's hand edits to a project's decision log (`decisions:<project>`).
 export const DECISION_EDITS_SETTING = "decisions";
 
 // Whoever wrote a description last: a user's stands against agents until they clear it.
@@ -694,7 +694,7 @@ export const MAX_PROJECT_DESCRIPTION = 300;
 // A design's own record, what a build agent reads beside the picture: what it is for,
 // and how it works where the picture can't show it. An agent drafts it, the user
 // corrects it by hand, later agents read it. The decisions are not stored here: they
-// are the design's lines of the decision list, derived on every read.
+// are the design's lines of the decision log, derived on every read.
 export type SpecSection = "purpose" | "behaviour";
 export interface SpecLine {
   text: string;
@@ -793,7 +793,7 @@ export interface Design {
   // By ask id (the built-in Which alternative? included): kept and hidden answers.
   standings: Record<string, AnswerStanding>;
   // The user's named combinations of answers, in the order they made them.
-  sets: AnswerSet[];
+  combos: AnswerCombo[];
   createdAt: string;
   updatedAt: string;
 }
@@ -1142,7 +1142,7 @@ export interface UpdateDesignInput {
   stateOutlines?: Record<string, StateOutline>;
   answerAdditions?: AnswerAddition[];
   standings?: Record<string, AnswerStanding>;
-  sets?: AnswerSet[];
+  combos?: AnswerCombo[];
 }
 
 export interface CreatePostInput {
@@ -1214,7 +1214,7 @@ export interface CommentQuery {
 
 // Everything one Send writes. The store applies it atomically: the reply
 // comment, the answers recorded on the asks, the status flips, the cleared draft.
-// What the decision list needs beyond the designs, without any alternative's body.
+// What the decision log needs beyond the designs, without any alternative's body.
 export interface DecisionAlternative {
   designId: string;
   state: string | null;
@@ -1379,7 +1379,7 @@ export interface Store {
   setPostReason(id: string, reason: string | null): Promise<Post | null>;
   setPostStayed(id: string, version: number): Promise<Post | null>;
 
-  // One project's alternative statuses and reply times, for the decision list.
+  // One project's alternative statuses and reply times, for the decision log.
   listDecisionSources(project: string): Promise<DecisionSources>;
 
   listComments(query: CommentQuery): Promise<Comment[]>;

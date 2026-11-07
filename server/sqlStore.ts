@@ -27,7 +27,7 @@ import {
   type DesignSpec,
   type ProjectArea,
   type AnswerAddition,
-  type AnswerSet,
+  type AnswerCombo,
   type AnswerStanding,
   type StateOutline,
   isDesignKind,
@@ -604,6 +604,25 @@ export class SqlStore implements Store {
     this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('instanceWords', '1')");
   }
 
+  // A saved combination of answers is a combo: a reply that put one in use names it so.
+  // The designs column keeps its first name, `sets`.
+  private migrateToComboWords() {
+    this.rewriteJson(
+      "comments",
+      "seq",
+      "payload",
+      (p) => {
+        const reply = p as Record<string, unknown>;
+        if (typeof reply.set !== "string") return false;
+        reply.combo = reply.set;
+        delete reply.set;
+        return true;
+      },
+      "kind = 'reply' AND payload LIKE '%\"set\":%'",
+    );
+    this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('comboWords', '1')");
+  }
+
   private renameMocksToDesigns() {
     if (!this.tables().has("mocks") || this.tables().has("designs")) return;
     for (const name of [
@@ -800,6 +819,7 @@ export class SqlStore implements Store {
     if (this.settingSync("alternativeWords") !== "1") this.migrateToAlternativeWords();
     if (this.settingSync("swapWords") !== "1") this.migrateToSwapWords();
     if (this.settingSync("instanceWords") !== "1") this.migrateToInstanceWords();
+    if (this.settingSync("comboWords") !== "1") this.migrateToComboWords();
     // The day it went was never kept, and the design's last change is the nearest thing.
     // Frozen now, or the next reason or draft on the design would move it to that day.
     if (!dated) {
@@ -1415,7 +1435,7 @@ export class SqlStore implements Store {
       stateOutlines: parseJson<Record<string, StateOutline>>(r.stateOutlines, {}),
       answerAdditions: parseJson<AnswerAddition[]>(r.answerAdditions, []),
       standings: parseJson<Record<string, AnswerStanding>>(r.standings, {}),
-      sets: parseJson<AnswerSet[]>(r.sets, []),
+      combos: parseJson<AnswerCombo[]>(r.sets, []),
       createdAt: r.createdAt as string,
       updatedAt: r.updatedAt as string,
     };
@@ -1751,7 +1771,7 @@ export class SqlStore implements Store {
       stateOutlines: {},
       answerAdditions: [],
       standings: {},
-      sets: [],
+      combos: [],
       createdAt: now,
       updatedAt: now,
     };
@@ -1801,7 +1821,7 @@ export class SqlStore implements Store {
       ...(patch.stateOutlines !== undefined && { stateOutlines: patch.stateOutlines }),
       ...(patch.answerAdditions !== undefined && { answerAdditions: patch.answerAdditions }),
       ...(patch.standings !== undefined && { standings: patch.standings }),
-      ...(patch.sets !== undefined && { sets: patch.sets }),
+      ...(patch.combos !== undefined && { combos: patch.combos }),
       updatedAt: new Date().toISOString(),
     };
     this.sql.exec(
@@ -1824,7 +1844,7 @@ export class SqlStore implements Store {
       JSON.stringify(next.stateOutlines),
       JSON.stringify(next.answerAdditions),
       JSON.stringify(next.standings),
-      JSON.stringify(next.sets),
+      JSON.stringify(next.combos),
       next.updatedAt,
       id,
     );

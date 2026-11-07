@@ -1,11 +1,11 @@
 // What happened lately, newest day first: designs that changed, and what the user
 // decided. A day folds what's past its first few of each, since one sitting can leave
-// sixty answers. This is also the one place to correct the decision list, because
+// sixty answers. This is also the one place to correct the decision log, because
 // agents read it first and treat it as settled.
 
 import { createMemo, createSignal, For, Show } from "solid-js";
-import type { DecisionLine } from "../../server/decisionList.ts";
-import { assetUrl, type DecisionListView, type DesignSummary, surfaceUrl } from "./api.ts";
+import type { DecisionLine } from "../../server/decisionLog.ts";
+import { assetUrl, type DecisionLogView, type DesignSummary, surfaceUrl } from "./api.ts";
 import { posterShown } from "./systemRev.ts";
 import { byDay, plural, questions } from "./albums.ts";
 import { DecisionRow, createDecisionEdits } from "./Decisions.tsx";
@@ -56,7 +56,7 @@ export function Recent(props: {
   lines: DecisionLine[];
   show: RecentShow | null;
   go: (e: MouseEvent, path: string) => void;
-  onDecisions: (list: DecisionListView) => void;
+  onDecisions: (list: DecisionLogView) => void;
 }) {
   const edits = createDecisionEdits(
     () => props.project,

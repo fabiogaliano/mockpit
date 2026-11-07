@@ -1,10 +1,10 @@
 // What stays reachable after a question is answered: the answers kept for later beside
 // the design, as pills on its top edge to look at without changing anything, and the
-// user's saved sets of answers. Values follow every new version by themselves; a kept
+// user's saved combos of answers. Values follow every new version by themselves; a kept
 // screen doesn't, so it says how far behind it is and how to bring it along.
 
 import { createSignal, For, Show } from "solid-js";
-import type { AnswerSet, Ask, AskOption } from "../../server/types.ts";
+import type { AnswerCombo, Ask, AskOption } from "../../server/types.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { answerIds, splitLabel } from "./logic.ts";
@@ -177,11 +177,11 @@ function KeptRow(props: { s: DesignScreenState; group: KeptGroup; option: AskOpt
   );
 }
 
-// On the design's top edge: the answer in use and the kept ones, and the saved sets.
+// On the design's top edge: the answer in use and the kept ones, and the saved combos.
 // Hovering one shows it; a click holds it there. Neither changes anything.
 export function AnswerPills(props: { s: DesignScreenState }) {
   const s = props.s;
-  const sets = () => s.sets();
+  const combos = () => s.combos();
   const hold = (p: ReturnType<typeof s.previewOf>) => {
     if (!p) return;
     if (s.heldPreview()?.key === p.key) s.setPreview(null);
@@ -206,8 +206,8 @@ export function AnswerPills(props: { s: DesignScreenState }) {
     </button>
   );
   return (
-    <Show when={keptGroups(s).length || sets().length}>
-      <div class="apills" role="group" aria-label="Kept answers and sets: look without changing">
+    <Show when={keptGroups(s).length || combos().length}>
+      <div class="apills" role="group" aria-label="Kept answers and combos: look without changing">
         <For each={keptGroups(s)}>
           {(g) => (
             <span class="apills-row">
@@ -227,10 +227,10 @@ export function AnswerPills(props: { s: DesignScreenState }) {
             </span>
           )}
         </For>
-        <Show when={sets().length}>
+        <Show when={combos().length}>
           <span class="apills-row">
-            <For each={sets()}>
-              {(set) => pill(`set:${set.name}`, set.name, () => s.previewSet(set))}
+            <For each={combos()}>
+              {(combo) => pill(`combo:${combo.name}`, combo.name, () => s.previewCombo(combo))}
             </For>
           </span>
         </Show>
@@ -243,29 +243,29 @@ export function AnswerPills(props: { s: DesignScreenState }) {
 }
 
 // Named combinations of answers across questions: a theme is more than one answer.
-export function AnswerSets(props: { s: DesignScreenState }) {
+export function AnswerCombos(props: { s: DesignScreenState }) {
   const s = props.s;
   const [naming, setNaming] = createSignal(false);
   const [name, setName] = createSignal("");
   const answers = () => Object.keys(s.answersNow()).length;
-  const show = () => s.sets().length > 0 || (answers() > 1 && !readonly());
+  const show = () => s.combos().length > 0 || (answers() > 1 && !readonly());
   async function save() {
     const n = name().trim();
     if (!n) return;
-    if (await s.saveSet(n)) {
+    if (await s.saveCombo(n)) {
       setNaming(false);
       setName("");
     }
   }
   return (
     <Show when={show()}>
-      <section class="asets" aria-label="Saved sets">
+      <section class="asets" aria-label="Saved combos">
         <h4 class="keptans-hd">
-          <span>{`Sets${s.sets().length ? ` · ${s.sets().length}` : ""}`}</span>
+          <span>{`Combos${s.combos().length ? ` · ${s.combos().length}` : ""}`}</span>
           <small>Answers across questions, under one name</small>
         </h4>
         <ul>
-          <For each={s.sets()}>{(set) => <SetRow s={s} set={set} />}</For>
+          <For each={s.combos()}>{(combo) => <ComboRow s={s} combo={combo} />}</For>
         </ul>
         <Show when={!readonly() && answers() > 0}>
           <Show
@@ -273,7 +273,7 @@ export function AnswerSets(props: { s: DesignScreenState }) {
             fallback={
               <button type="button" class="moreans" onClick={() => setNaming(true)}>
                 <Icon name="plus" />
-                Save these answers as a set
+                Save these answers as a combo
               </button>
             }
           >
@@ -288,7 +288,7 @@ export function AnswerSets(props: { s: DesignScreenState }) {
                 type="text"
                 maxLength={60}
                 placeholder="Name it, like Warm or Quiet"
-                aria-label="Set name"
+                aria-label="Combo name"
                 value={name()}
                 ref={(el) => queueMicrotask(() => el.focus())}
                 onInput={(e) => setName(e.currentTarget.value)}
@@ -311,11 +311,11 @@ export function AnswerSets(props: { s: DesignScreenState }) {
   );
 }
 
-function SetRow(props: { s: DesignScreenState; set: AnswerSet }) {
+function ComboRow(props: { s: DesignScreenState; combo: AnswerCombo }) {
   const s = props.s;
   const summary = () => {
     const asks = s.design()?.asks ?? [];
-    return Object.entries(props.set.answers)
+    return Object.entries(props.combo.answers)
       .map(([id, x]) => {
         const a = asks.find((q) => q.id === id);
         return answerIds(x)
@@ -324,7 +324,7 @@ function SetRow(props: { s: DesignScreenState; set: AnswerSet }) {
       })
       .join(" · ");
   };
-  const p = () => s.previewSet(props.set);
+  const p = () => s.previewCombo(props.combo);
   const [busy, setBusy] = createSignal(false);
   return (
     <li
@@ -335,8 +335,8 @@ function SetRow(props: { s: DesignScreenState; set: AnswerSet }) {
     >
       <div class="keptrow-col">
         <span class="keptrow-name">
-          {props.set.name}
-          <Show when={s.setInUse(props.set)}>
+          {props.combo.name}
+          <Show when={s.comboInUse(props.combo)}>
             <span class="setrow-use">In use</span>
           </Show>
         </span>
@@ -344,26 +344,26 @@ function SetRow(props: { s: DesignScreenState; set: AnswerSet }) {
       </div>
       <Show when={!readonly()}>
         <span class="keptrow-acts">
-          <Show when={!s.setInUse(props.set)}>
+          <Show when={!s.comboInUse(props.combo)}>
             <button
               type="button"
               class="btn"
               disabled={busy()}
               onClick={async () => {
                 setBusy(true);
-                await s.useSet(props.set);
+                await s.useCombo(props.combo);
                 setBusy(false);
               }}
             >
-              Use this set
+              Use this combo
             </button>
           </Show>
           <button
             type="button"
             class="optic"
-            aria-label={`Remove the set ${props.set.name}`}
+            aria-label={`Remove the combo ${props.combo.name}`}
             title="Remove"
-            onClick={() => s.removeSet(props.set)}
+            onClick={() => s.removeCombo(props.combo)}
           >
             <Icon name="close" />
           </button>

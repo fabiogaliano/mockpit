@@ -92,7 +92,7 @@ consciously, not as a side effect):
   `Ask`/`AskOption`, the knob shapes (tunekit's `usePane` config as data),
   `Draft`, `Reply`. Assets are a separate entity; `selectEvictions` is the
   reference-aware LRU policy.
-- `server/decisionList.ts` — the project's decision list: plain lines derived from
+- `server/decisionLog.ts` — the project's decision log: plain lines derived from
   what replies left on designs (answered asks, alternatives in use) and the system's palettes
   and settled project knobs (`system: true`, first on every read), never summarised,
   with the user's hand edits laid over them (`decisions:<project>` setting, each
@@ -194,7 +194,7 @@ consciously, not as a side effect):
   headings: What it is for (`purpose`), How it works (`behaviour`, lines that may name a
   state and a `part`, which makes the line an **annotation**: a numbered pin on that part
   while the Spec panel is open, never otherwise) and Decisions (the design's lines of the
-  decision list, derived on every read, never stored). `edit` writes the first two, `read`
+  decision log, derived on every read, never stored). `edit` writes the first two, `read`
   returns all three, the viewer shows them in text nodes. A hand edit holds against agents
   per section (`held`) until the user clears it (`editDesignFlow`), the agent is told when
   its draft didn't apply, and it hears the user's edit as `edited.spec`. A product design

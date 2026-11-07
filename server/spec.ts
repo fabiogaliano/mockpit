@@ -1,9 +1,9 @@
 // A design's spec: what it is for, how it works where the picture can't show it, and
 // the decisions its replies left. The first two are written (by an agent, corrected by
 // the user, a hand edit standing per section); the decisions are derived on every read
-// from the decision list, never stored. Runtime-agnostic (no node imports).
+// from the decision log, never stored. Runtime-agnostic (no node imports).
 
-import type { DecisionLine } from "./decisionList.ts";
+import type { DecisionLine } from "./decisionLog.ts";
 import {
   type Author,
   type Design,

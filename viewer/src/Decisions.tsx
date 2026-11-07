@@ -1,12 +1,12 @@
-// One line of the project's decision list: what the user settled, written by the
+// One line of the project's decision log: what the user settled, written by the
 // server from their replies and read first by every agent. The user has the last
 // word on every line, so each can be reworded or taken out here. Replies are
 // untrusted: everything below is text nodes and attributes, and a line's words stay
 // plain text however they read.
 
 import { createResource, createSignal, onCleanup, Show } from "solid-js";
-import type { DecisionLine } from "../../server/decisionList.ts";
-import { api, type DecisionListView } from "./api.ts";
+import type { DecisionLine } from "../../server/decisionLog.ts";
+import { api, type DecisionLogView } from "./api.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { linkClick, designPath, projectPath } from "./route.ts";
@@ -26,7 +26,7 @@ export function createDecisions(project: () => string | null) {
 // rows shows that line too.
 export function createDecisionEdits(
   project: () => string,
-  onChange: (list: DecisionListView) => void,
+  onChange: (list: DecisionLogView) => void,
 ) {
   const [toast, setToast] = createSignal<ToastLine | null>(null);
   const [editing, setEditing] = createSignal<string | null>(null);

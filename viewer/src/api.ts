@@ -9,10 +9,10 @@ import type {
   treeNodeView,
   alternativeView,
 } from "../../server/apiViews.ts";
-import type { DecisionLine } from "../../server/decisionList.ts";
+import type { DecisionLine } from "../../server/decisionLog.ts";
 import type { FeedEvent } from "../../server/events.ts";
 import type {
-  AnswerSet,
+  AnswerCombo,
   AnswerStanding,
   AskAnswer,
   Comment,
@@ -82,7 +82,7 @@ export type RestoreUndo = {
   dismissed: string[];
   alternatives: { id: string; archivedAt: string; reason: string | null }[];
 };
-export type DecisionListView = { project: string; total: number; lines: DecisionLine[] };
+export type DecisionLogView = { project: string; total: number; lines: DecisionLine[] };
 // `ownerGone`: undelivered, and a newer agent session in the project superseded
 // the one it was sent to, so the next agent there will get it. `listening`:
 // undelivered, with a `mockpit watch` open that will take it. `calledAt`: delivered,
@@ -281,11 +281,14 @@ export const api = {
       `/api/designs/${encodeURIComponent(id)}/standings`,
       json("POST", body),
     ),
-  saveSet: (
+  saveCombo: (
     id: string,
     body: { name: string } & ({ answers: Record<string, AskAnswer> } | { remove: true }),
   ) =>
-    call<{ sets: AnswerSet[] }>(`/api/designs/${encodeURIComponent(id)}/sets`, json("POST", body)),
+    call<{ combos: AnswerCombo[] }>(
+      `/api/designs/${encodeURIComponent(id)}/combos`,
+      json("POST", body),
+    ),
   reply: (
     id: string,
     body: DraftInput & {
@@ -294,7 +297,7 @@ export const api = {
       to?: string;
       more?: { ask: string; note?: string; like?: string };
       update?: { ask: string; option: string };
-      set?: string;
+      combo?: string;
     },
   ) =>
     call<{ reply: CommentRow }>(`/api/designs/${encodeURIComponent(id)}/reply`, json("POST", body)),
@@ -356,13 +359,13 @@ export const api = {
       carried: { slug: string; alternative: string; version: number; alsoShown?: number[] }[];
     }>(`/api/designs/${encodeURIComponent(id)}/ready`, json("POST", { ready })),
   decisions: (project: string) =>
-    call<DecisionListView>(`/api/projects/${encodeURIComponent(project)}/decisions`),
+    call<DecisionLogView>(`/api/projects/${encodeURIComponent(project)}/decisions`),
   // The user's hand on a line: reword it, remove it, or take that back.
   editDecision: (
     project: string,
     body: { id: string } & ({ text: string } | { removed: true } | { reset: true }),
   ) =>
-    call<DecisionListView>(
+    call<DecisionLogView>(
       `/api/projects/${encodeURIComponent(project)}/decisions`,
       json("PUT", body),
     ),

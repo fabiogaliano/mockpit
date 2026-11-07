@@ -184,13 +184,13 @@ mockpit read                              # one line per design, plus pending, t
 mockpit read    writer                    # states, alternatives, questions and answers, parts, knobs, settled
 mockpit read    --tree                    # the project as a tree: alternatives, forkedFrom, instances / instanceIn
 mockpit read    --area Food               # one area: what it is for, its designs, decisions, ideas waiting
-mockpit read    --decisions               # the whole decision list, when a read cut it
+mockpit read    --decisions               # the whole decision log, when a read cut it
 ```
 
 - `spec` (`{purpose, behaviour: [{text, state?, part?}], by, at, held?, decisions}`) on a
   read of one design is its record: what it is for, how it works where the picture can't
   show it (a line with `part` is an annotation on it), and `decisions`, its own lines of
-  the decision list. Write the first two with `mockpit edit --purpose` and
+  the decision log. Write the first two with `mockpit edit --purpose` and
   `--behaviour`; behaviour goes here, never in side files. Read it before changing the
   design. `held` names the sections the user wrote by hand: those stand, your next
   draft of them isn't applied until they clear them, and `edit` answers
@@ -219,7 +219,7 @@ mockpit read    --decisions               # the whole decision list, when a read
 - `planned: true` is a declared screen or component with nothing drawn; your first publish
   draws it. `stateOutlines` says which missing states the user dismissed or asked for by
   name (`{"Loading": "dismissed"}`).
-- `decisionList` (`{total, lines: [{design, text, here, edited, archived}], more}`) on both
+- `decisionLog` (`{total, lines: [{design, text, here, edited, archived}], more}`) on both
   reads is what the user already settled across the project, written by the server from
   replies and edited by the user, so a later reply replaces its line. Read it first and
   treat it as settled unless they say otherwise. `here` marks lines from the design you
@@ -284,8 +284,8 @@ mockpit read    --decisions               # the whole decision list, when a read
 - `update: {ask, text, kept, inUse}` asks you to bring one kept screen up to date with
   the one in use, once: publish a new version of `kept.alternative` with the changes made
   to the one in use since.
-- `set` names a saved set the user put in use: a combination of answers across
-  questions (`sets` on `read`, each `{name, answers}`). The reply's answers are its
+- `combo` names a saved combo the user put in use: a combination of answers across
+  questions (`combos` on `read`, each `{name, answers}`). The reply's answers are its
   answers.
 - An alternative's `status` is `open`, `inUse` (with `inUseVersion`) or `archived`
   (with `archiveReason` if the user gave one). `changedTo` is a newer version

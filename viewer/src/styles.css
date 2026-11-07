@@ -582,7 +582,7 @@ a.home-count {
   color: var(--t2);
   font-weight: 500;
 }
-/* The decision list: a reading column, the answer heavier than its question. It
+/* The decision log: a reading column, the answer heavier than its question. It
    carries no width of its own, so it can sit in a page or a narrower column. */
 .decisions {
   max-width: 760px;
@@ -9355,7 +9355,7 @@ body:has(.selp) .toast {
   opacity: 0.6;
 }
 
-/* Kept answers beside the design, and saved sets (Kept.tsx). */
+/* Kept answers beside the design, and saved combos (Kept.tsx). */
 .keptans,
 .asets {
   margin-top: 12px;

@@ -7,7 +7,7 @@ import type { ToastLine } from "./toast.tsx";
 import { batch, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js";
 import { createStore } from "solid-js/store";
 import {
-  type AnswerSet,
+  type AnswerCombo,
   type AnswerStanding,
   type Ask,
   type AskAnswer,
@@ -2119,7 +2119,7 @@ export function createDesignScreen(
     more?: { ask: string; note?: string; like?: string };
     answers?: Record<string, AskAnswer>;
     update?: { ask: string; option: string };
-    set?: string;
+    combo?: string;
   }): Promise<boolean> {
     const m = design();
     if (!m || readonly()) return false;
@@ -2133,7 +2133,7 @@ export function createDesignScreen(
         ...(body.text ? { text: body.text } : {}),
         ...(body.more ? { more: body.more } : {}),
         ...(body.update ? { update: body.update } : {}),
-        ...(body.set ? { set: body.set } : {}),
+        ...(body.combo ? { combo: body.combo } : {}),
         ...toField(),
       });
       // Every reply clears the stored draft; put the user's back before the
@@ -2337,8 +2337,8 @@ export function createDesignScreen(
         : `Leave ${splitLabel(o.label).name} as it is`,
     });
   }
-  // Saved sets: the answers on screen under a name, to come back to whole.
-  const sets = (): AnswerSet[] => design()?.sets ?? [];
+  // Saved combos: the answers on screen under a name, to come back to whole.
+  const combos = (): AnswerCombo[] => design()?.combos ?? [];
   const answersNow = (): Record<string, AskAnswer> => {
     const out: Record<string, AskAnswer> = {};
     for (const a of design()?.asks ?? []) {
@@ -2347,37 +2347,37 @@ export function createDesignScreen(
     }
     return out;
   };
-  async function writeSet(body: Parameters<typeof api.saveSet>[1]) {
+  async function writeCombo(body: Parameters<typeof api.saveCombo>[1]) {
     const m = design();
     if (!m || readonly()) return false;
     try {
-      const { sets: next } = await api.saveSet(m.id, body);
+      const { combos: next } = await api.saveCombo(m.id, body);
       const now = design();
-      if (now) setDesign({ ...now, sets: next });
+      if (now) setDesign({ ...now, combos: next });
       return true;
     } catch (e) {
       fail(e);
       return false;
     }
   }
-  const saveSet = (name: string) => writeSet({ name, answers: answersNow() });
-  function removeSet(set: AnswerSet) {
-    void writeSet({ name: set.name, remove: true });
+  const saveCombo = (name: string) => writeCombo({ name, answers: answersNow() });
+  function removeCombo(combo: AnswerCombo) {
+    void writeCombo({ name: combo.name, remove: true });
     setToast({
-      text: `Removed ${set.name}`,
+      text: `Removed ${combo.name}`,
       undo: () => {
         setToast(null);
-        void writeSet({ name: set.name, answers: set.answers });
+        void writeCombo({ name: combo.name, answers: combo.answers });
       },
     });
   }
-  // What a set looks like on the stage: every answer's values, and its screen if one
+  // What a combo looks like on the stage: every answer's values, and its screen if one
   // of them picks a screen.
-  function previewSet(set: AnswerSet): Preview | null {
+  function previewCombo(combo: AnswerCombo): Preview | null {
     const m = design();
     if (!m) return null;
-    let out: Preview = { key: `set:${set.name}`, label: set.name, knobs: {} };
-    for (const [askId, answer] of Object.entries(set.answers)) {
+    let out: Preview = { key: `combo:${combo.name}`, label: combo.name, knobs: {} };
+    for (const [askId, answer] of Object.entries(combo.answers)) {
       const ask = m.asks.find((a) => a.id === askId);
       for (const id of answerIds(answer)) {
         const p = ask ? previewOf(ask, id) : null;
@@ -2393,13 +2393,13 @@ export function createDesignScreen(
     }
     return out;
   }
-  const setInUse = (set: AnswerSet) =>
-    Object.entries(set.answers).every(([id, x]) => {
+  const comboInUse = (combo: AnswerCombo) =>
+    Object.entries(combo.answers).every(([id, x]) => {
       const a = design()?.asks.find((q) => q.id === id);
       return !!a && JSON.stringify(answerIds(a.answer)) === JSON.stringify(answerIds(x));
     });
-  const useSet = (set: AnswerSet) =>
-    sendAlone({ answers: set.answers, set: set.name, text: `Use ${set.name}` });
+  const useCombo = (combo: AnswerCombo) =>
+    sendAlone({ answers: combo.answers, combo: combo.name, text: `Use ${combo.name}` });
   // A steer names the version, since Studio shows older ones side by side.
   // Several go as one reply, with `text` for what is said about all of them.
   function steer(c: SteerNote) {
@@ -2691,13 +2691,13 @@ export function createDesignScreen(
     useInstead,
     updateOnce,
     carryKept,
-    sets,
+    combos,
     answersNow,
-    saveSet,
-    removeSet,
-    previewSet,
-    setInUse,
-    useSet,
+    saveCombo,
+    removeCombo,
+    previewCombo,
+    comboInUse,
+    useCombo,
     moreWaiting,
     isNewOption,
     answeredAround,

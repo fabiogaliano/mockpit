@@ -93,7 +93,7 @@ Rules of thumb:
   beside the design; name the widths it ships at once with `widths`.
 - Ask when a decision is genuinely the user's, not after every publish.
 - Use the kit, tokens and icons from `mockpit guide` before writing CSS.
-- `mockpit read` first in a new session: its `decisionList` is what the user
+- `mockpit read` first in a new session: its `decisionLog` is what the user
   already settled. Treat it as settled unless they say otherwise; don't re-ask it.
 - After a context loss: `mockpit read`, then `mockpit read <slug>`.
 

@@ -1,4 +1,4 @@
-// The project's decision list: what the user has settled, as plain lines any
+// The project's decision log: what the user has settled, as plain lines any
 // agent can read first, so a new session stops contradicting it. Nothing here
 // summarises and no agent has to keep it: every line is built from what replies
 // already left on the design, the answers on its questions and the alternatives in
@@ -372,7 +372,7 @@ export interface AgentDecisionLine {
   archived?: true;
 }
 
-export interface AgentDecisionList {
+export interface AgentDecisionLog {
   total: number;
   lines: AgentDecisionLine[];
   // Set when lines were cut to stay small, and says how to get them all.
@@ -385,7 +385,7 @@ export interface AgentDecisionList {
 const AGENT_LINE_CHARS = 280;
 const AGENT_LIST_CHARS = 6000;
 
-export function agentDecisionList(lines: DecisionLine[], here?: string): AgentDecisionList {
+export function agentDecisionLog(lines: DecisionLine[], here?: string): AgentDecisionLog {
   // The project's own come first wherever the read is: they hold on every design.
   const ordered = [
     ...lines.filter((l) => l.system),
@@ -423,7 +423,7 @@ export function agentDecisionList(lines: DecisionLine[], here?: string): AgentDe
 
 // The list as an agent asked for it whole: nothing cut, without what only the
 // viewer's layout needs.
-export function fullAgentDecisionList(lines: DecisionLine[]): AgentDecisionList {
+export function fullAgentDecisionLog(lines: DecisionLine[]): AgentDecisionLog {
   return {
     total: lines.length,
     lines: lines.map((l) => ({

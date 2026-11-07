@@ -1,12 +1,12 @@
 // A design's spec: what it is for, how it works where the picture can't show it, and
 // what was decided on it. An agent drafts the first two, the user corrects either by
 // hand (each section its own edit, which then stands against agents), and later agents
-// read all three. Decisions come from the project's decision list and are read-only
+// read all three. Decisions come from the project's decision log and are read-only
 // here. Everything is text nodes. A How it works line pinned to a part is an
 // annotation: numbered here, and a pin with that number on the stage while this is open.
 
 import { createEffect, createMemo, createSignal, For, Index, on, Show } from "solid-js";
-import type { DecisionLine } from "../../server/decisionList.ts";
+import type { DecisionLine } from "../../server/decisionLog.ts";
 import { type AskAnswer, MAX_SPEC, type SpecLine } from "../../server/types.ts";
 import type { DesignDetail } from "./api.ts";
 import { createDecisions } from "./Decisions.tsx";

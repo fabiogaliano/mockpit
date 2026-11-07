@@ -107,13 +107,13 @@ import {
   shownVersion,
 } from "./ready.ts";
 import {
-  agentDecisionList,
+  agentDecisionLog,
   applyDecisionEdits,
   type DecisionLine,
   deriveDecisionLines,
-  fullAgentDecisionList,
+  fullAgentDecisionLog,
   parseDecisionEdits,
-} from "./decisionList.ts";
+} from "./decisionLog.ts";
 import { chosenSwaps, decisionsFor, settledValues } from "./decisions.ts";
 import {
   checkAnswerSwap,
@@ -190,7 +190,7 @@ import {
   type IconSetRef,
   isSandboxedSurfaceKind,
   type AnswerAddition,
-  type AnswerSet,
+  type AnswerCombo,
   type AnswerStanding,
   type Knobs,
   type KnobValue,
@@ -263,7 +263,7 @@ import { jumpHits, recentHits } from "./jump.ts";
 import {
   isKeptAlternative,
   keptAlternatives,
-  MAX_SETS,
+  MAX_COMBOS,
   MAX_WHY,
   remapStanding,
   reoffered,
@@ -3015,7 +3015,7 @@ export function createApp({
     return out;
   }
 
-  // --- the decision list ---
+  // --- the decision log ---
 
   const derivedDecisions = async (project: string, designs?: Design[]) =>
     deriveDecisionLines(
@@ -3032,9 +3032,9 @@ export function createApp({
   // new session needs is what it must not contradict. Omitted for the viewer,
   // which shows it on its own, and for a session-scoped public read, which may
   // see one design and not the project around it.
-  async function decisionListField(project: string, here?: string, designs?: Design[]) {
+  async function decisionLogField(project: string, here?: string, designs?: Design[]) {
     const lines = await decisionLines(project, designs);
-    return lines.length ? { decisionList: agentDecisionList(lines, here) } : {};
+    return lines.length ? { decisionLog: agentDecisionLog(lines, here) } : {};
   }
 
   // The questions a reply answered, so a spec can tell which of its lines came after it.
@@ -3071,7 +3071,7 @@ export function createApp({
     return ok(
       ctx?.viewer
         ? { project, total: lines.length, lines }
-        : { project, ...fullAgentDecisionList(lines) },
+        : { project, ...fullAgentDecisionLog(lines) },
     );
   }
 
@@ -3129,9 +3129,7 @@ export function createApp({
       ...(system && hasSystemContent(system)
         ? { system: systemLine(system, systemChecks(system).length) }
         : {}),
-      ...(project && !query.noDecisions
-        ? await decisionListField(project, undefined, designs)
-        : {}),
+      ...(project && !query.noDecisions ? await decisionLogField(project, undefined, designs) : {}),
       designs: query.viewer ? rows : rows.map(agentWords),
       open,
       openDesigns: rows.filter((r) => r.open > 0).length,
@@ -3347,7 +3345,7 @@ export function createApp({
       (await systemFor(design.project))?.rev ?? 0,
     );
     const lines = query.noDecisions ? null : await decisionLines(design.project);
-    const list = lines?.length ? agentDecisionList(lines, design.slug) : null;
+    const list = lines?.length ? agentDecisionLog(lines, design.slug) : null;
     const instances = await instanceViews(design, posts);
     const view = designDetailView(design, posts, {
       // The design's own lines, as the list above carries them: the spec's third part.
@@ -3363,7 +3361,7 @@ export function createApp({
       ...(await shortlistReach(design)),
     });
     return ok({
-      ...(list ? { decisionList: list } : {}),
+      ...(list ? { decisionLog: list } : {}),
       ...(query.viewer ? view : agentWords(view)),
       ...(await systemPalettesField(design.project, query.viewer === true)),
       pending: pendingOf(design),
@@ -4660,14 +4658,14 @@ export function createApp({
     }
     const update = sanitizeUpdate(body?.update, design, posts);
     if (typeof update === "string") return fail(400, update);
-    const setName = str(body?.set, MAX_LABEL);
-    if (setName && !design.sets.some((x) => x.name === setName)) {
-      return fail(400, `${design.slug} has no set "${setName}"`);
+    const comboName = str(body?.combo, MAX_LABEL);
+    if (comboName && !design.combos.some((x) => x.name === comboName)) {
+      return fail(400, `${design.slug} has no combo "${comboName}"`);
     }
     const empty =
       !moreAsk &&
       !update &&
-      !setName &&
+      !comboName &&
       !text &&
       !verdict &&
       !Object.keys(draft.answers).length &&
@@ -4695,7 +4693,7 @@ export function createApp({
           }
         : {}),
       ...(update ? { update } : {}),
-      ...(setName ? { set: setName } : {}),
+      ...(comboName ? { combo: comboName } : {}),
       answers: draft.answers,
       borrowed: draft.borrowed,
       tuned: draft.tuned,
@@ -5620,33 +5618,33 @@ export function createApp({
     return { ask: ask.id, option: option.id };
   }
 
-  // The user saves the answers on screen as a named set, or removes one.
-  // A set decides nothing until it is put in use, which is a reply like any other.
-  async function setsFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+  // The user saves the answers on screen as a named combo, or removes one.
+  // A combo decides nothing until it is put in use, which is a reply like any other.
+  async function combosFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
     const design = await resolveDesign(ref);
     if (isResult(design)) return design;
     const posts = await store.listPosts({ designId: design.id });
     const name = str(body?.name, MAX_LABEL);
     if (!name) return fail(400, '"name" is required');
-    const sets = design.sets.filter((x) => x.name !== name);
+    const combos = design.combos.filter((x) => x.name !== name);
     if (body?.remove === true) {
-      if (sets.length === design.sets.length)
-        return fail(404, `${design.slug} has no set "${name}"`);
+      if (combos.length === design.combos.length)
+        return fail(404, `${design.slug} has no combo "${name}"`);
     } else {
       const answers = sanitizeAnswers(body?.answers, design, posts);
       if (typeof answers === "string") return fail(400, answers);
-      if (!Object.keys(answers).length) return fail(400, "a set holds at least one answer");
-      const at = design.sets.findIndex((x) => x.name === name);
-      const entry: AnswerSet = { name, answers, at: new Date().toISOString() };
-      if (at >= 0) sets.splice(at, 0, entry);
-      else if (sets.length >= MAX_SETS) return fail(400, `at most ${MAX_SETS} sets`);
-      else sets.push(entry);
+      if (!Object.keys(answers).length) return fail(400, "a combo holds at least one answer");
+      const at = design.combos.findIndex((x) => x.name === name);
+      const entry: AnswerCombo = { name, answers, at: new Date().toISOString() };
+      if (at >= 0) combos.splice(at, 0, entry);
+      else if (combos.length >= MAX_COMBOS) return fail(400, `at most ${MAX_COMBOS} combos`);
+      else combos.push(entry);
     }
-    const updated = await store.updateDesign(design.id, { sets });
+    const updated = await store.updateDesign(design.id, { combos });
     if (!updated) return fail(404, "design not found");
     bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
-    return ok({ sets });
+    return ok({ combos });
   }
 
   // The user copies a version into an idea they are gathering (stored as a shortlist,
@@ -7716,8 +7714,8 @@ export function createApp({
   app.post("/api/designs/:id/standings", async (c) =>
     send(c, await standingFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
-  app.post("/api/designs/:id/sets", async (c) =>
-    send(c, await setsFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  app.post("/api/designs/:id/combos", async (c) =>
+    send(c, await combosFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
   app.post("/api/designs/:id/alternatives/archive", async (c) =>
     send(c, await archiveFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
@@ -7895,7 +7893,7 @@ export function createApp({
     return c.json({ mode });
   });
 
-  // The project's decision list (server/decisionList.ts).
+  // The project's decision log (server/decisionLog.ts).
   app.get("/api/projects/:name/decisions", async (c) =>
     send(c, await decisionsFlow({ project: c.req.param("name") }, flowCtx(c))),
   );

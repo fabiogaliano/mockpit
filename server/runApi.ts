@@ -40,7 +40,7 @@ type Feedback = {
 type Pending = { design: string; archived?: true; viewerOpen: boolean; draft: null | { answered: number; of: number; comments: number; touchedAt: string } };
 declare const mockpit: {
   guide(topic?: "system" | "knobs" | "asks" | "surfaces" | "html" | "feedback" | "http" | "scripts"): Promise<string>;
-  /** Read first: decisionList is what the user already settled; it stands unless they say otherwise.
+  /** Read first: decisionLog is what the user already settled; it stands unless they say otherwise.
    * No design: every design, the flows, plus pending; opts.area: one area. With one: its spec, states, alternatives, asks, parts, knobs.
    * opts.decisions: only the whole list, when a read cut it. */
   read(design?: string, opts?: { body?: boolean; history?: boolean; decisions?: boolean; area?: string }): Promise<unknown>;
