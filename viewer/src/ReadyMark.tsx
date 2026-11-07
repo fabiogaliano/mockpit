@@ -1,11 +1,14 @@
 // Ready, beside a screen's or a component's name: the user's one mark that this is the
 // version. It turns to Changed by itself when something newer shows, and a dot on it
 // says a component inside isn't Ready. Ideas have none: they are where choosing happens.
+// On a phone it is an icon alone, the word in its label: beside a device toggle and the
+// view switch, the word left the design's name one letter.
 
 import { createMemo, Show } from "solid-js";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import type { DesignScreenState } from "./state.ts";
+import { phoneLayout } from "./viewport.ts";
 
 export function ReadyMark(props: { s: DesignScreenState }) {
   const s = props.s;
@@ -34,8 +37,16 @@ export function ReadyMark(props: { s: DesignScreenState }) {
         when={!readonly()}
         fallback={
           <Show when={set()}>
-            <span class="ready-mark" data-ready={word()}>
-              {word()}
+            <span
+              class="ready-mark"
+              classList={{ compact: phoneLayout() }}
+              data-ready={word()}
+              title={word()}
+            >
+              <Show when={phoneLayout()} fallback={word()}>
+                <Icon name={word() === "Changed" ? "recent" : "check"} />
+                <span class="sr-only">{word()}</span>
+              </Show>
             </span>
           </Show>
         }
@@ -43,16 +54,26 @@ export function ReadyMark(props: { s: DesignScreenState }) {
         <button
           type="button"
           class="ready-mark"
+          classList={{ compact: phoneLayout() }}
           data-ready={word()}
           aria-pressed={set()}
           title={title()}
           aria-label={title()}
           onClick={() => void s.markReady()}
         >
-          <Show when={word() === "Ready"}>
-            <Icon name="check" />
+          <Show
+            when={phoneLayout()}
+            fallback={
+              <>
+                <Show when={word() === "Ready"}>
+                  <Icon name="check" />
+                </Show>
+                <span>{word() === "Changed" ? "Changed" : "Ready"}</span>
+              </>
+            }
+          >
+            <Icon name={word() === "Changed" ? "recent" : "check"} />
           </Show>
-          <span>{word() === "Changed" ? "Changed" : "Ready"}</span>
           <Show when={notReady().length}>
             <i class="ready-inside" aria-hidden="true" />
           </Show>

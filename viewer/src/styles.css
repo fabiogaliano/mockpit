@@ -517,7 +517,10 @@ a.home-count {
   border: 4.5px solid transparent;
   border-left-color: var(--t6);
 }
+/* Positioned so a step's sr-only words are clipped by the row's scroller instead of widening
+   the page. */
 .home-step {
+  position: relative;
   display: flex;
   flex: none;
   flex-direction: column;
@@ -10220,6 +10223,12 @@ body:has(.selp) .toast {
 .ready-mark svg {
   width: 12px;
   height: 12px;
+}
+.ready-mark.compact {
+  width: 24px;
+  margin-left: 6px;
+  padding: 0;
+  justify-content: center;
 }
 button.ready-mark:hover {
   background: var(--row);
