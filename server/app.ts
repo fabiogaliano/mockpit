@@ -620,6 +620,28 @@ const posterNudges = (surfaces: Surface[]): string[] =>
       ]
     : [];
 
+// Markup in the words before 4.0 publishes without the structure it meant: no swaps, no
+// instances. Named, never aliased. data-fill alone stays a page's own hook (a meter's
+// [data-fill="10"]); beside data-part it was a swap.
+const OLD_SWAP =
+  /<[a-z][^>]*(\sdata-part\s*=[^>]*\sdata-fill[\s=>-]|\sdata-fill[\s=-][^>]*\sdata-part\s*=)/i;
+const OLD_INSTANCE = /<mockpit-embed[\s>/]|\bdata-mockpit-embed\b/i;
+const oldWordNudges = (surfaces: Surface[]): string[] => {
+  const pages = surfaces.flatMap((s) => (s.kind === "html" ? [s.html] : []));
+  return [
+    ...(pages.some((h) => OLD_SWAP.test(h))
+      ? [
+          "data-fill on a part is the old word and makes no swap: name each swap data-swap (data-swap-label, data-swap-default)",
+        ]
+      : []),
+    ...(pages.some((h) => OLD_INSTANCE.test(h))
+      ? [
+          '<mockpit-embed> is the old tag and includes nothing: include a component with <mockpit-instance slug="…">, and select it in CSS or scripts as [data-mockpit-instance]',
+        ]
+      : []),
+  ];
+};
+
 const titleNudges = (title: string | undefined): string[] =>
   title && PROCESS_TITLE.test(title)
     ? [
@@ -2721,6 +2743,7 @@ export function createApp({
     const nudges = [
       ...knobNudges({ ...knobs.value, ...alternativeKnobs.value }),
       ...titleNudges(title),
+      ...oldWordNudges(surfaces),
       // The CLI or stdio server has a browser and is taking the still itself.
       ...(target || body.posterComing === true ? [] : posterNudges(surfaces)),
     ];
