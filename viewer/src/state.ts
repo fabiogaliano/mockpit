@@ -14,6 +14,7 @@ import {
   type AskOption,
   askAnswered,
   type HiddenAnswer,
+  isFlowIdea,
   isLive,
   recommendedAlternative,
   type KnobValue,
@@ -2029,7 +2030,9 @@ export function createDesignScreen(
             ? `${nameOf(ref)} is in use in ${target}`
             : apply
               ? `${nameOf(ref)} is in use. ${target} has no ${lacks}, so the agent brings it over`
-              : `${nameOf(ref)} is in use`,
+              : isFlowIdea(m)
+                ? `${nameOf(ref)} is in use. The agent places the flow on screens`
+                : `${nameOf(ref)} is in use`,
       });
     } catch (e) {
       fail(e);

@@ -52,7 +52,7 @@ const field = {
   group:
     'A component\'s library group: Actions, Inputs, Navigation, Feedback, Containers or your word. "" clears',
   source: 'Code path implementing it. "" clears',
-  for: "An idea's screen or component; Use this changes it",
+  for: "An idea's screen or component (Use this changes it), or flow:<name>",
   becomes: "An idea for nothing yet: screen, component, flow or system",
   flow: "Flow this state is a step of; alone, only places it",
   step: "1-based place; 0 removes",
@@ -502,6 +502,9 @@ const followUpsSchema = o({
   lift: o({ parts: z.array(bag), likeLibrary: z.array(bag) })
     .optional()
     .describe("A screen just marked Ready: its own parts to lift, copies of library components"),
+  placeFlow: o({ flow: str, steps: z.array(bag), screens: z.array(bag) })
+    .optional()
+    .describe("A flow idea used: put each step on a screen, then ask"),
 }).describe("What the decision now requires");
 const feedbackSchema = o({
   design: nullStr,

@@ -47,6 +47,8 @@ The loop never waits for the user:
    A batch's `followUps` is what a decision now requires (topic `feedback`): edit the
    `spec` yourself; publish `apply` on its target; draw the `gaps` there; for `lift`,
    swap copies for library instances, lift the rest into components, then ask `lift`;
+   for `placeFlow` (a flow idea used), put each step on a screen, place it with `--flow`,
+   `edit --for flow:<name>` the idea and ask `placement` there;
    for each design in `instanceIn`, and anything else touching another design, publish
    an idea for it with one question, never a direct change. `read` lists open ones.
 3. A choice is several alternatives plus one question that binds them: `mockpit ask`

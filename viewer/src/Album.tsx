@@ -320,7 +320,7 @@ export function FlowStepTile(props: {
       data-state={props.state ?? ""}
     >
       <span class="home-pic">
-        <Show when={pic()} fallback={planned() ? <span class="alb-plan">Planned</span> : null}>
+        <Show when={pic()} fallback={planned() ? <span class="alb-plan">Not drawn</span> : null}>
           {(p) => <Picture pic={p()} width={width()} whole={false} />}
         </Show>
         <Show when={pic()?.inUse}>
@@ -334,6 +334,9 @@ export function FlowStepTile(props: {
         {props.state === null ? "" : ` · ${props.state}`}
         <Show when={pic()?.inUse}>
           <span class="sr-only">, in use</span>
+        </Show>
+        <Show when={planned()}>
+          <span class="sr-only">, not drawn</span>
         </Show>
       </span>
     </a>

@@ -417,7 +417,7 @@ function StateList(props: { s: DesignScreenState; nav: FlowNav; outlining: boole
           nav.owes(x)
             ? `${nav.label(x)}, a question is waiting`
             : nav.planned(x)
-              ? `${nav.label(x)}, planned`
+              ? `${nav.label(x)}, not drawn`
               : nav.label(x)
         }
         onClick={() => nav.go(x)}
@@ -432,7 +432,7 @@ function StateList(props: { s: DesignScreenState; nav: FlowNav; outlining: boole
         <span class="lm-text">
           <b>{nav.label(x)}</b>
           <Show when={nav.planned(x)}>
-            <small>Planned</small>
+            <small>Not drawn</small>
           </Show>
         </span>
         <Show when={nav.owes(x)}>

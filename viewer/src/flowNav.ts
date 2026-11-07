@@ -5,7 +5,7 @@
 // the current history entry first, so Back returns to it.
 
 import { createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js";
-import type { FlowStep } from "../../server/types.ts";
+import { type FlowStep, isFlowIdea } from "../../server/types.ts";
 import { api, subscribe, surfaceUrl } from "./api.ts";
 import { host } from "./host.ts";
 import { flowFor, gotoTarget, screenPicture } from "./logic.ts";
@@ -52,12 +52,19 @@ export function createFlowNav(
   // there would take the way back with it.
   type Flow = NonNullable<ReturnType<typeof flowOf>>;
   const flowOf = () => flowFor(data()?.flows ?? [], here(), cameThrough);
+  // A flow idea is a flow of its own: its states are the steps, in order, all of them.
+  const ideaFlow = createMemo<Flow | null>(() => {
+    const m = s.design();
+    return m && isFlowIdea(m)
+      ? { name: m.title, steps: s.states().map((state) => ({ design: slug, state })) }
+      : null;
+  });
   const flow = createMemo<Flow | null>((was) => {
     const flows = data()?.flows ?? [];
     return (
       flowOf() ??
       flows.find((f) => f.name === was?.name && f.steps.some((x) => x.design === slug)) ??
-      null
+      ideaFlow()
     );
   }, null);
   // Only a step in another design takes its picture from the tree.
@@ -164,11 +171,11 @@ export function createFlowNav(
 
   // Whether the agent still waits on a step; known only for this design's own steps.
   const owes = (x: FlowStep) => x.design === slug && s.askedIn(x.state) > 0;
-  // Declared, with nothing drawn there yet. Another design's says so once the tree is in.
-  const planned = (x: FlowStep) =>
+  // Declared, with nothing drawn there yet. Another design's step says so itself.
+  const planned = (x: FlowStep & { planned?: true }) =>
     x.design === slug
       ? !s.alternatives().some((v) => v.state === x.state)
-      : !!pictured().get(x.design)?.planned;
+      : !!x.planned || !!pictured().get(x.design)?.planned;
 
   return {
     flow,

@@ -165,7 +165,8 @@ consciously, not as a side effect):
   a follow-up names by its id, `usedIn.targetId`).
 - **Follow-ups** (`followUps` on a feedback batch, `FollowUps` in `server/types.ts`): what a
   decision now requires, each by what and where, never prose. A reply stores only what the
-  moment knew (`StoredFollowUps`: `apply` with the target's id, a Ready mark's `lift`) and a
+  moment knew (`StoredFollowUps`: `apply` with the target's id, a Ready mark's `lift`, a flow
+  idea's `placeFlow`) and a
   use's `usedIn` with `targetId` and `drawn`. Everything else is worked out at delivery from the
   designs as they stand (`withFollowUps` → `decisionFollowUps`): `apply`'s states still
   missing, `gaps` (`gapsOf` in `server/ideas.ts`) and `instanceIn` (`hostsShowing`: live
@@ -264,6 +265,18 @@ consciously, not as a side effect):
   (`IdeasFor.tsx`), a product cover's count opening `?sec=ideas&for=<slug>`, the Ideas shelf's
   Group by (Area · For · In use, localStorage per project), and New idea for this in the
   design's ⋯.
+- A **flow idea** (`becomes: flow`, or `for: "flow:<name>"`: `isFlowIdea`, `flowFor` in
+  `server/types.ts`; the flow's name is stored in the `forDesign` column with that prefix) is a
+  flow told as a story: its states are the steps, in order. The viewer opens it on Stage with
+  the flow bar named after it (`flowNav.ts`'s `ideaFlow`), walkable with Try. Using it copies
+  nothing: the reply stores `followUps.placeFlow: true`, and delivery works out `placeFlow`
+  (`placeFlowOf`: the steps with the alternative each shows, the live screens of the idea's
+  area), open until the idea is for a flow written since the use. The agent places each step
+  (an existing state, a new state, or a planned screen), sets `for`, and asks `placement` on
+  the idea. A flow step may name a declared state with nothing drawn: `flow` alone on a screen's
+  new state declares it (`publishFlow`'s `planning`), and `read` marks the step `planned`
+  (`flowsView`, `SqlStore.drawnStates`). Home draws such a step as Not drawn, and the Flows shelf
+  says "N states in no flow" under each area; a screen's cover says nothing of it.
 - A **gathered idea** is a design with `shortlist` set (the stored name, which is also in
   `read`), gathered by the user from the project's other designs: New idea on Home's
   shelves (`AddCandidates`), or a Studio bookmark, Keep, with Move beside it (`SaveMenu`,
@@ -389,7 +402,7 @@ consciously, not as a side effect):
   All states on a screen or component, whose second view is the grid). A design opens by what it is,
   nothing remembered per design: a question the agent waits on opens Answers (Stage when its
   answers have no pictures), something to read opens to read, a variants design as its grid, a
-  screen or component on Stage, an idea in Studio. Studio has one row of controls in the header (`StudioBar`: states, filter, what's live, in use, hidden or archived, and Wall | Columns | Palettes | Grid; `PalettesBoard` is the state on stage in each visible palette, a column per palette, light over dark, offered once there are two), each steer its own reply (`steer`, `sendAlone`), with `SelectBar` acting on
+  screen or component on Stage, a flow idea on Stage, any other idea in Studio. Studio has one row of controls in the header (`StudioBar`: states, filter, what's live, in use, hidden or archived, and Wall | Columns | Palettes | Grid; `PalettesBoard` is the state on stage in each visible palette, a column per palette, light over dark, offered once there are two), each steer its own reply (`steer`, `sendAlone`), with `SelectBar` acting on
   several versions at once. A fork is a column of its own saying where it came from.
   Past Use this a newer version takes over by itself (`changedTo`, `ChangedNote`): the stage
   moves to it when the tab has focus and it goes in use ten seconds later, writing nothing

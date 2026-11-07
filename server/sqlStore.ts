@@ -2760,6 +2760,16 @@ export class SqlStore implements Store {
     if (entry) entry.posts = entry.posts.map((p) => (p.id === post.id ? post : p));
   }
 
+  async drawnStates(project: string) {
+    return this.sql
+      .exec(
+        "SELECT DISTINCT designId, state FROM posts WHERE designId IN (SELECT id FROM designs WHERE project = ?)",
+        project,
+      )
+      .toArray()
+      .map((r) => ({ designId: r.designId as string, state: (r.state as string | null) ?? null }));
+  }
+
   async countPostsBySession() {
     const counts = new Map<string, number>();
     for (const row of this.sql

@@ -665,6 +665,19 @@ export interface ApplyTo {
 export interface StoredFollowUps {
   apply?: { targetId: string; states: ApplyTo["states"] };
   lift?: Lift;
+  // A flow idea used: its steps are placed on screens by the agent, worked out at delivery.
+  placeFlow?: true;
+}
+
+// A flow idea in use, for the agent to place: its steps in order, each with the
+// alternative it shows, and the screens it could land on (the idea's area, else all).
+export interface PlaceFlow {
+  flow: string;
+  steps: { name: string; alternative?: string }[];
+  area: string | null;
+  screens: { slug: string; title: string; states: (string | null)[]; planned?: true }[];
+  // Screens past the 40 listed (`read --area` or `read` without a design has all).
+  more?: number;
 }
 
 // What the design an idea is for has that the alternative used there doesn't draw: its
@@ -704,6 +717,7 @@ export interface FollowUps {
   spec?: SpecFollowUp[];
   // A screen just marked Ready: what it draws itself (lift.ts).
   lift?: Lift;
+  placeFlow?: PlaceFlow;
 }
 
 // What a design an idea is for has ruled out, handed to whoever explores for it so it
@@ -852,7 +866,7 @@ export interface Design {
   // in `read`'s contract, so it waits for the words release.
   shortlist: boolean;
   // Only on an idea: the screen or component (by id) it explores, which Use this
-  // changes. null: for nothing yet.
+  // changes, or a flow it was placed as (`flow:<name>`, flowFor). null: for nothing yet.
   for: string | null;
   // Only on an idea for nothing yet: what it would become.
   becomes: IdeaBecomes | null;
@@ -1003,6 +1017,14 @@ export interface Flow {
 }
 export const sameScreen = (a: FlowStep, b: FlowStep) =>
   a.design === b.design && a.state === b.state;
+
+// An idea placed as a flow names it in `for` with this prefix; a design id never has a colon.
+export const FLOW_FOR = "flow:";
+export const flowFor = (v: string | null | undefined): string | null =>
+  v?.startsWith(FLOW_FOR) ? v.slice(FLOW_FOR.length) : null;
+// An idea that tells a flow: its states are the steps, in order.
+export const isFlowIdea = (d: { kind: string; becomes?: string | null; for?: string | null }) =>
+  d.kind === "idea" && (d.becomes === "flow" || flowFor(d.for) !== null);
 
 // What search reads: every name a design goes by, and none of its surfaces.
 export interface JumpRows {
@@ -1433,6 +1455,9 @@ export interface Store {
   listCopies(project: string): Promise<LiveCopy[]>;
   // Alternatives per session, without loading bodies or history.
   countPostsBySession(): Promise<Map<string, number>>;
+  // Every (design id, state) of a project that holds an alternative, archived ones included:
+  // what a flow step needs to tell a drawn state from a planned one.
+  drawnStates(project: string): Promise<{ designId: string; state: string | null }[]>;
   getPost(id: string): Promise<Post | null>;
   setForkedFrom(id: string, from: ForkRef | null): Promise<Post | null>;
   findPost(designId: string, state: string | null, alternative: string): Promise<Post | null>;

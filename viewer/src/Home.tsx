@@ -18,7 +18,12 @@ import {
   Show,
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import { type FlowStep, type IdeaBecomes, MAX_PROJECT_DESCRIPTION } from "../../server/types.ts";
+import {
+  type FlowStep,
+  flowFor,
+  type IdeaBecomes,
+  MAX_PROJECT_DESCRIPTION,
+} from "../../server/types.ts";
 import {
   api,
   type DesignSummary,
@@ -630,6 +635,8 @@ export function Home(props: {
     const by = props.for ? null : ideasBy();
     if (by === "for") {
       const named = (n: TreeNode) => {
+        const flow = flowFor(n.for);
+        if (flow !== null) return `For flow ${flow}`;
         const t = n.for ? bySlug().get(n.for) : undefined;
         return t ? `For ${t.title}` : null;
       };
@@ -763,19 +770,43 @@ export function Home(props: {
       </div>
     </section>
   );
+  // The states of an area's screens no flow walks, counted on the Flows shelf alone: a
+  // screen's cover says nothing of it.
+  const walked = createMemo(
+    () =>
+      new Set(allRows().flatMap((r) => r.steps.map((x) => JSON.stringify([x.design, x.state])))),
+  );
+  const statesInNoFlow = (a: string | null) =>
+    onShow()
+      .filter((n) => n.kind === "screen" && (n.area ?? null) === a)
+      .flatMap((n) => n.states.map((st) => JSON.stringify([n.slug, st])))
+      .filter((k) => !walked().has(k)).length;
   const flowsAll = () => {
     const groups = () =>
       area() === null
         ? groupByArea(allRows(), rowArea, areaRanks())
         : [{ area: null, rows: allRows().filter((r) => rowIn(r, area())) }];
+    const rest = () => restOfFlows(groups());
+    // The group no one area claims is either Across areas, which has no screens of its own
+    // to count, or the screens with no area.
+    const counted = (a: string | null) =>
+      a ?? area() ?? (rest() === undefined || !groups().some((g) => g.area) ? null : undefined);
     return (
-      <Areas
-        groups={groups()}
-        level={2}
-        rest={restOfFlows(groups())}
-        describe={(a) => described().get(a)}
-      >
-        {(rows) => <For each={rows()}>{flowRow}</For>}
+      <Areas groups={groups()} level={2} rest={rest()} describe={(a) => described().get(a)}>
+        {(rows, a) => {
+          const n = () => {
+            const where = counted(a);
+            return where === undefined ? 0 : statesInNoFlow(where);
+          };
+          return (
+            <>
+              <For each={rows()}>{flowRow}</For>
+              <Show when={n()}>
+                <p class="home-noflow">{`${n()} ${n() === 1 ? "state" : "states"} in no flow`}</p>
+              </Show>
+            </>
+          );
+        }}
       </Areas>
     );
   };

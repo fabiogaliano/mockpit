@@ -211,6 +211,10 @@ import {
   isLive,
   isDesignKind,
   isIdeaBecomes,
+  FLOW_FOR,
+  flowFor,
+  isFlowIdea,
+  type PlaceFlow,
   type IdeaBecomes,
   type FollowUps,
   type InstanceIn,
@@ -1245,6 +1249,44 @@ export function createApp({
     return { usedIn, followUps: out };
   }
 
+  // A flow idea's use, while it stands: the steps (its states, in order, each with the
+  // alternative it shows) and the live screens of its area, else of the project, to place
+  // them on. It is done once the idea is for a flow that was written since the use.
+  async function placeFlowOf(ideaId: string, since: string): Promise<PlaceFlow | null> {
+    const idea = await store.getDesign(ideaId);
+    if (!idea || !isFlowIdea(idea) || idea.archivedAt) return null;
+    const placed = flowFor(idea.for);
+    if (placed !== null) {
+      const flow = (await store.listFlows(idea.project)).find((f) => f.name === placed);
+      if (flow && flow.updatedAt > since) return null;
+    }
+    const posts = await store.listPosts({ designId: idea.id });
+    const steps = (idea.states.length ? idea.states : [null]).map((state) => {
+      const here = posts.filter((p) => p.state === state && isLive(p.status));
+      const shown =
+        here.find((p) => p.status === "accepted") ?? (here.length === 1 ? here[0] : null);
+      return { name: state ?? idea.title, ...(shown ? { alternative: shown.alternative } : {}) };
+    });
+    const designs = await store.listDesigns(idea.project);
+    const drawn = new Set((await store.drawnStates(idea.project)).map((x) => x.designId));
+    const screens = designs.filter(
+      (d) => d.kind === "screen" && !d.archivedAt && (idea.area === null || d.area === idea.area),
+    );
+    const { list, more } = capped(screens);
+    return {
+      flow: placed ?? idea.title,
+      steps,
+      area: idea.area,
+      screens: list.map((d) => ({
+        slug: d.slug,
+        title: d.title,
+        states: d.states.length ? d.states : [null],
+        ...(isPlanned(d, drawn.has(d.id) ? 1 : 0) ? { planned: true as const } : {}),
+      })),
+      ...(more ? { more } : {}),
+    };
+  }
+
   // Each batch of a reply that used an alternative in a design (or couldn't): what it
   // requires now, from what the reply stored (`comments` holds the stored payloads).
   async function withFollowUps(
@@ -1255,7 +1297,12 @@ export function createApp({
     const postsOf = postsOnce();
     for (const b of batches) {
       if (!b.reply) continue;
-      const payload = bySeq.get(b.reply.seq)?.payload;
+      const comment = bySeq.get(b.reply.seq);
+      const payload = comment?.payload;
+      if (payload?.followUps?.placeFlow && comment?.designId) {
+        const placeFlow = await placeFlowOf(comment.designId, b.reply.at);
+        if (placeFlow) b.followUps = { ...b.followUps, placeFlow };
+      }
       if (!payload?.usedIn && !payload?.followUps?.apply) continue;
       const { usedIn, followUps } = await decisionFollowUps(payload, b.reply.at, postsOf);
       if (usedIn) b.reply.usedIn = usedIn;
@@ -2120,7 +2167,7 @@ export function createApp({
   // session that wrote, which on a new version may not be the alternative's own.
   // The screen or component an idea is for, while it is one.
   async function targetOf(design: Design): Promise<Design | null> {
-    if (design.kind !== "idea" || !design.for) return null;
+    if (design.kind !== "idea" || !design.for || flowFor(design.for) !== null) return null;
     const target = await store.getDesign(design.for);
     return target && isProduct(target) ? target : null;
   }
@@ -2423,12 +2470,15 @@ export function createApp({
     const screen: FlowStep = { design: slug, state };
     // Nothing to draw and nothing there yet: the plan itself is the write. A body-less
     // publish naming an alternative, or landing on what is already drawn, is a forgotten body.
+    // A flow may walk a screen's state before it is drawn: `flow` alone declares it there.
     const planning =
       given.length === 0 &&
       !forkIn &&
       alternativeIn === undefined &&
       inState.length === 0 &&
-      (declaring || (!!design && isPlanned(design, posts.length)));
+      (declaring ||
+        (!!design && isPlanned(design, posts.length)) ||
+        (flowOnly && !!design && isProduct(design)));
     if (planning) {
       if (flowIn) {
         const full = await flowFull(project, flowIn.name, screen, flowIn.step);
@@ -2498,6 +2548,7 @@ export function createApp({
             states: design.states,
           },
           planned: true,
+          ...(state === null ? {} : { state }),
           sessionId: session.id,
           url: designUrl(ctx.base, design),
           ...(flow ? { flow } : {}),
@@ -2547,7 +2598,7 @@ export function createApp({
       if (!design || inState.length === 0) {
         return fail(
           404,
-          `${slug} has no ${state === null ? "design" : `state "${state}"`} yet: publish it with "flow" to place it`,
+          `${slug} has no ${state === null ? "design" : `state "${state}"`} yet: publish it with "flow" to place it, or plan it there with "kind": "screen" and no body`,
         );
       }
       if (!target) return missing();
@@ -3095,19 +3146,37 @@ export function createApp({
       at = i >= 0 ? i + 1 : MAX_FLOW_STEPS + 1;
     }
     const flow = await store.placeFlowStep(project, name, screen, at);
-    return { name, steps: flow?.steps ?? [] };
+    if (!flow) return { name, steps: [] };
+    // As `read` has it, so a step placed before it is drawn says so in the write's result.
+    const shown = (await flowsView(project, await store.listDesigns(project))).find(
+      (f) => f.name === name,
+    );
+    return { name, steps: shown?.steps ?? flow.steps };
   }
 
-  // The project's flows as `read` returns them: only steps whose screen exists.
+  // The project's flows as `read` returns them: only steps whose screen exists, and
+  // `planned` on a step whose state is declared and not drawn yet.
   async function flowsView(project: string, designs: Design[]) {
     const bySlug = new Map(designs.map((m) => [m.slug, m]));
     const exists = (x: FlowStep) => {
       const m = bySlug.get(x.design);
       return !!m && (x.state === null ? m.states.length === 0 : m.states.includes(x.state));
     };
-    return (await store.listFlows(project))
+    const flows = (await store.listFlows(project))
       .map((f: Flow) => ({ name: f.name, steps: f.steps.filter(exists) }))
       .filter((f) => f.steps.length > 0);
+    if (!flows.length) return flows;
+    const drawn = new Set(
+      (await store.drawnStates(project)).map((p) => JSON.stringify([p.designId, p.state])),
+    );
+    return flows.map((f) => ({
+      name: f.name,
+      steps: f.steps.map((x) =>
+        drawn.has(JSON.stringify([bySlug.get(x.design)!.id, x.state]))
+          ? x
+          : { ...x, planned: true as const },
+      ),
+    }));
   }
 
   // `fork`: "alternative" or "alternative@N", the sibling version a new alternative starts
@@ -3162,18 +3231,30 @@ export function createApp({
     return v;
   }
 
-  // `for`: the screen or component an idea explores, by slug, title or id; "" or null
-  // clears it. Only an idea is for something, and never for another idea.
+  // `for`: the screen or component an idea explores, by slug, title or id, or the flow a
+  // flow idea was placed as (`flow:<name>`, a flow of the project); "" or null clears it.
+  // Only an idea is for something, and never for another idea.
   async function forArg(
     body: any,
     project: string,
     self: string | null,
-  ): Promise<Design | null | undefined | FlowResult> {
+  ): Promise<Design | { flow: string } | null | undefined | FlowResult> {
     const v = body?.for;
     if (v === undefined) return undefined;
     if (v === null || v === "") return null;
     if (typeof v !== "string")
       return fail(400, '"for" must name a screen or component; "" clears it');
+    const flowName = flowFor(v.trim());
+    if (flowName !== null) {
+      const flows = await store.listFlows(project);
+      if (!flows.some((f) => f.name === flowName.trim())) {
+        return fail(404, `${project} has no flow "${flowName.trim()}"`, {
+          flows: flows.map((f) => f.name),
+          fix: 'place its steps first: publish each with "flow" (alone, it only places it)',
+        });
+      }
+      return { flow: flowName.trim() };
+    }
     const target = await resolveDesign(v, project);
     if (isResult(target)) return target;
     if (target.project !== project) return fail(400, `"for" names a design of ${project}`);
@@ -3198,16 +3279,16 @@ export function createApp({
 
   // An idea is for a design or would become one, never both: naming one clears the other.
   function ideaTyping(
-    forIn: Design | null | undefined,
+    forIn: Design | { flow: string } | null | undefined,
     becomes: IdeaBecomes | null | undefined,
   ): { for?: string | null; becomes?: IdeaBecomes | null } | FlowResult {
     if (forIn && becomes) {
       return fail(
         400,
-        `pass "for" or "becomes", not both: an idea for ${forIn.slug} changes it rather than becoming something new`,
+        `pass "for" or "becomes", not both: an idea for ${"flow" in forIn ? `flow "${forIn.flow}"` : forIn.slug} changes it rather than becoming something new`,
       );
     }
-    if (forIn) return { for: forIn.id, becomes: null };
+    if (forIn) return { for: "flow" in forIn ? FLOW_FOR + forIn.flow : forIn.id, becomes: null };
     if (becomes) return { for: null, becomes };
     return {
       ...(forIn === undefined ? {} : { for: null }),
@@ -3545,11 +3626,20 @@ export function createApp({
       let at = "";
       if (m.kind === "idea") {
         const last = (
-          await store.latestReplies(m.id, ['"usedIn":{', '"apply":{"targetId"'], 5)
-        ).find((c) => c.payload?.usedIn || c.payload?.followUps?.apply);
+          await store.latestReplies(
+            m.id,
+            ['"usedIn":{', '"apply":{"targetId"', '"placeFlow":true'],
+            5,
+          )
+        ).find(
+          (c) =>
+            c.payload?.usedIn || c.payload?.followUps?.apply || c.payload?.followUps?.placeFlow,
+        );
         if (last?.payload) {
           at = last.createdAt;
           Object.assign(open, (await decisionFollowUps(last.payload, at, postsOf)).followUps);
+          const placeFlow = last.payload.followUps?.placeFlow ? await placeFlowOf(m.id, at) : null;
+          if (placeFlow) open.placeFlow = placeFlow;
         }
       }
       if (m.kind === "screen" && m.ready) {
@@ -5364,6 +5454,9 @@ export function createApp({
       (u) => !(u.post.status === "accepted" && u.post.acceptedVersion === u.version),
     );
     if (!used.length || idea.kind !== "idea") return {};
+    // A flow's steps land on screens the agent picks, so nothing is copied: the batch says
+    // which steps and which screens (placeFlowOf).
+    if (isFlowIdea(idea)) return { followUps: { placeFlow: true } };
     let target = await targetOf(idea);
     const making =
       !target && (idea.becomes === "screen" || idea.becomes === "component") ? idea.becomes : null;
@@ -6458,6 +6551,7 @@ export function createApp({
       // it would join, the area in view.
       const forIn = await forArg(body, project, null);
       if (isResult(forIn)) return forIn;
+      const forDesign = forIn && !("flow" in forIn) ? forIn : null;
       const becomes = becomesArg(body);
       if (isResult(becomes)) return becomes;
       const areaIn = labelArg(body, "area", MAX_LABEL);
@@ -6479,8 +6573,8 @@ export function createApp({
           slug: await uniqueSlug(project, title),
           title,
           kind: "idea",
-          area: areaIn !== undefined ? areaIn : forIn ? forIn.area : first.area,
-          widths: forIn?.widths.length ? forIn.widths : first.widths,
+          area: areaIn !== undefined ? areaIn : forDesign ? forDesign.area : first.area,
+          widths: forDesign?.widths.length ? forDesign.widths : first.widths,
           shortlist: true,
           ...(typing.for ? { for: typing.for } : {}),
           ...(typing.becomes ? { becomes: typing.becomes } : {}),

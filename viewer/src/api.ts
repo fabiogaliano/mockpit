@@ -75,7 +75,8 @@ export type AreaView = ReturnType<typeof areaView>;
 // one is in no order: it is listed for its description alone.
 export type AreaLine = { name: string; description?: string; alphabetical?: true };
 // A declared flow as `read` returns it: only steps whose screen exists.
-export type FlowView = { name: string; steps: FlowStep[] };
+// `planned`: the step's state is declared and not drawn yet.
+export type FlowView = { name: string; steps: (FlowStep & { planned?: true })[] };
 export type AlternativeView = ReturnType<typeof alternativeView>;
 export type HistoryRow = NonNullable<AlternativeView["history"]>[number];
 // What a restore changed, sent back as it is by its Undo.

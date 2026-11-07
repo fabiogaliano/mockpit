@@ -27,7 +27,7 @@ import {
   untrack,
 } from "solid-js";
 import { isProduct } from "../../server/spec.ts";
-import { isLive } from "../../server/types.ts";
+import { isFlowIdea, isLive } from "../../server/types.ts";
 import { About, type AboutState, createAbout } from "./About.tsx";
 import { BottomPanel } from "./BottomPanel.tsx";
 import { hasFiles } from "./attach.ts";
@@ -177,7 +177,8 @@ export function DesignScreen(props: {
       // A gathered idea stays for comparing, below, even if what it holds is written.
       if (reading() && !m.shortlist) return "stage";
       if (m.variants && gridOffered()) return "grid";
-      return isProduct(m) ? "stage" : "studio";
+      // A flow idea is a story to walk, step by step, with Try.
+      return isProduct(m) || isFlowIdea(m) ? "stage" : "studio";
     });
   }, null);
   // A grid left by the last archive falls back rather than show an empty table.
@@ -1119,7 +1120,7 @@ function FlowBar(props: { nav: FlowNav; children?: JSX.Element }) {
                 nav.owes(x)
                   ? `${nav.label(x)}, a question is waiting`
                   : nav.planned(x)
-                    ? `${nav.label(x)}, planned`
+                    ? `${nav.label(x)}, not drawn`
                     : nav.label(x)
               }
               title={nav.label(x)}

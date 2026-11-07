@@ -350,6 +350,12 @@ function followUpTexts(f) {
     out.push(
       `spec: ${x.design} has ${x.decisions} decision${x.decisions === 1 ? "" : "s"} ${x.noSpec ? "and no spec" : "newer than its spec"}; edit it`,
     );
+  if (f.placeFlow) {
+    const p = f.placeFlow;
+    out.push(
+      `placeFlow: put ${p.flow}'s steps (${p.steps.map((x) => x.name).join(" → ")}) on screens${p.area ? ` in ${p.area}` : ""} (${p.screens.map((x) => x.slug).join(", ") || "none yet"}${p.more ? `, ${p.more} more` : ""}), place them with --flow, set --for flow:<name>, and ask to confirm`,
+    );
+  }
   if (f.lift) {
     const { parts, likeLibrary } = f.lift;
     if (parts.length)
@@ -602,7 +608,7 @@ export default function mockpitExtension(pi) {
           content: [
             {
               type: "text",
-              text: `${result.design.slug}: planned, nothing drawn yet · ${result.url}${feedbackSummary(result.feedback)}`,
+              text: `${result.design.slug}${result.state ? `/${result.state}` : ""}: planned, nothing drawn yet · ${result.url}${feedbackSummary(result.feedback)}`,
             },
           ],
           details: { ...result, baseUrl: baseUrl() },

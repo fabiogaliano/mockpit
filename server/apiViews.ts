@@ -28,6 +28,7 @@ import {
   isPlanned,
   isSandboxedSurfaceKind,
   isLive,
+  flowFor,
   type KnobValue,
   type Design,
   type IdeaBecomes,
@@ -352,10 +353,11 @@ export interface IdeaPlace {
   becomes?: IdeaBecomes;
 }
 export const ideaPlaceOf = (
-  design: Pick<Design, "becomes">,
+  design: Pick<Design, "becomes" | "for">,
   target: Pick<Design, "slug"> | null,
 ): IdeaPlace => ({
-  ...(target ? { for: target.slug } : {}),
+  // A flow it was placed as reads as stored, `flow:<name>`; a design by its slug now.
+  ...(target ? { for: target.slug } : flowFor(design.for) !== null ? { for: design.for! } : {}),
   ...(design.becomes ? { becomes: design.becomes } : {}),
 });
 

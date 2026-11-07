@@ -164,7 +164,8 @@ what and where:
   "gaps": { "target": "onni", "states": ["Lumpy moss"], "variants": [{ "state": "Moss ball", "names": ["puck"] }] },
   "instanceIn": { "component": "onni", "ready": true, "designs": [{ "slug": "socket", "kind": "component", "ready": true }, { "slug": "food", "kind": "screen", "ready": false }] },
   "spec": [{ "design": "today", "decisions": 2 }],
-  "lift": { "parts": [], "likeLibrary": [] }
+  "lift": { "parts": [], "likeLibrary": [] },
+  "placeFlow": { "flow": "Morning run", "steps": [{ "name": "Running", "alternative": "default" }], "area": "Shell", "screens": [{ "slug": "today", "title": "Today", "states": ["Now", "Day"] }] }
 }
 ```
 
@@ -178,6 +179,14 @@ what and where:
   and on a variants design the other `variants` of the states it landed in. Draw them on
   the target so they follow the choice.
 - `lift`: a screen just marked Ready (above).
+- `placeFlow`: a flow idea (`becomes: flow`) was used, and nothing was copied. Its `steps`
+  are the idea's states in order; `screens` are the live screens of its area (else of the
+  project; `planned` ones aren't drawn yet). Put each step on a screen: an existing state,
+  a new state (publish with `flow` and `state` and no body: the state is declared there,
+  not drawn) or a planned screen (`kind: "screen"`, no body). Place them in order with
+  `flow` and `step`, set the idea's `for` to `flow:<name>`, and ask one question on the idea,
+  id `placement`, `multi`: one answer per step, `Running → today · Now`, so the user keeps
+  the ones that fit. It stays open until the idea is for a flow written since the use.
 - `instanceIn`: the designs that show a component that just changed, a use or your own
   publish of a new current version (that write's result carries `followUps` and a batch of
   its own for the component), each Ready or not as it stands; a Ready component now reads

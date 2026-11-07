@@ -619,6 +619,10 @@ that becomes a screen or component makes it on its first use (\`usedIn.created\`
 with \`edit --slug\`) and is then for it. A system change is a palette answer or a project
 knob (\`mockpit guide system\`). \`read\` of a screen or component lists \`ideasFor\`.
 
+A flow can start as an idea: \`--becomes flow\`, a story in rough steps, its states the
+steps in order (the viewer walks it). Using it copies nothing: the batch's \`followUps\`
+carry \`placeFlow\` (Follow-ups).
+
 ## Follow-ups
 
 A batch's \`followUps\` is what a decision now requires, each by what and where. Do
@@ -628,6 +632,12 @@ publish it on the target in each of those states, which takes over as any newer 
 does (each state leaves the list once drawn). \`gaps\` (\`{target,
 states?, variants?}\`): what the target has that the used alternative doesn't draw; draw
 those states or variants there so they follow the choice. \`lift\`: The library.
+\`placeFlow\` (\`{flow, steps: [{name, alternative?}], area, screens: [{slug, states}]}\`): a
+flow idea was used. Put each step on a screen: an existing state, a new state (\`publish
+--design today --state "Lunch logged" --flow "Log lunch" --step 3\`, no body, declares it
+there undrawn) or a planned screen (\`--kind screen\`, no body). Then \`edit --design <idea>
+--for "flow:Log lunch"\` and ask one question on the idea, id \`placement\`, \`multi\`: one
+answer per step, "Lunch logged → today · Lunch logged", the user keeps those that fit.
 \`instanceIn\` (\`{component, ready, designs: [{slug, kind, ready}]}\`): the designs showing a
 component that just changed, by a use or by your publish of a new version (its result and
 a batch of its own say so), Ready or not (a Ready component now reads Changed). Fixing
@@ -674,7 +684,8 @@ you use adds its section to Home:
   and Failed until each is drawn or the user says it doesn't apply
   (\`stateOutlines\` in \`read\`).
 - A screen or component before it's drawn: \`--kind screen\` with no html plans it,
-  with \`--flow\` if you like; your first publish to it draws it.
+  with \`--flow\` if you like; your first publish to it draws it. \`--flow\` alone on a
+  screen's new state declares that state undrawn; \`read\` marks the step \`planned\`.
 - A reusable design for those screens (a button, a card, a header): its own
   design, included in screens as an **instance**, an included component:
   \`<mockpit-instance slug="card">\`. Being included makes it a component (\`--kind component\` says so up front).

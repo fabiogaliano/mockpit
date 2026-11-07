@@ -369,6 +369,12 @@ a.home-count {
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+/* Under an area's flows: how many of its screens' states no flow walks. */
+.home-noflow {
+  margin: 4px 0 20px;
+  color: var(--t4);
+  font-size: 12px;
+}
 /* The same line under an area page's title, written in place. */
 .home-area-line {
   display: block;
