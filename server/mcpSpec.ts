@@ -392,7 +392,10 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       },
       behaviour: { t: "specLines", d: "How it works: every line, replacing the old" },
       rename: { t: "string", d: "New project name" },
-      areas: { t: "strings" },
+      areas: {
+        t: "named",
+        d: "Their order: names, or the {name, description} read returns (only the order is taken)",
+      },
       description: { t: "string", d: "One line" },
       session: P.session,
     },

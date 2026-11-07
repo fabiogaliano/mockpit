@@ -358,8 +358,9 @@ mockpit edit --project <name> [--area <name>] --description <one line>|""
   --rename moves the project's designs, sessions, flows, system and settings to the
   new name (refused if that project has designs); pass --project <new> or set
   MOCKPIT_PROJECT afterwards if the repo still resolves to the old name.
-  --areas lists the project's areas in the order Home shows them; areas it leaves
-  out follow alphabetically, "" goes back to alphabetical. --description says in one
+  --areas lists the project's areas in the order Home shows them, as "Shell,Food" or
+  the JSON list read returns ('[{"name":"Shell","description":"…"}]', only the order
+  is taken); areas it leaves out follow alphabetically, "" goes back to alphabetical. --description says in one
   line what the project is for, or with --area what that area is for; the user's own
   stands until they clear it.`,
   system: `mockpit system [--project <name>] [--json]
@@ -2520,7 +2521,15 @@ const commands = {
           method: "PATCH",
           body: JSON.stringify({
             name: flags.rename,
-            ...(areas === undefined ? {} : { areas: areas ? areas.split(",") : [] }),
+            ...(areas === undefined
+              ? {}
+              : {
+                  areas: /^\s*\[/.test(areas)
+                    ? readJsonFlag("areas", areas)
+                    : areas
+                      ? areas.split(",")
+                      : [],
+                }),
             ...(flags.description === undefined
               ? {}
               : { description: flags.description, area: flags.area }),

@@ -7599,11 +7599,23 @@ export function createApp({
   };
 
   // `areas`: the areas in the order Home lists them; [] (or "") hands the order back to
-  // the alphabet. A description stays with its area wherever the order puts it.
+  // the alphabet. A description stays with its area wherever the order puts it. Each may
+  // be a name or the {name, description} `read` returns, so a read sent back round-trips;
+  // only the order is taken from it, a description being written with `description`.
   function areaNamesArg(v: unknown): string[] | FlowResult {
-    const list: unknown = typeof v === "string" ? v.split(",") : v;
+    const raw: unknown = typeof v === "string" ? v.split(",") : v;
+    const list = Array.isArray(raw)
+      ? raw.map((x) =>
+          x && typeof x === "object" && typeof (x as { name?: unknown }).name === "string"
+            ? (x as { name: string }).name
+            : x,
+        )
+      : raw;
     if (!Array.isArray(list) || list.some((x) => typeof x !== "string")) {
-      return fail(400, '"areas" must be a list of area names, e.g. ["Shell", "Food"]');
+      return fail(
+        400,
+        '"areas" must be a list of area names or {name} objects, e.g. ["Shell", "Food"]',
+      );
     }
     const names = [...new Set((list as string[]).map((x) => stripNul(x).trim()).filter(Boolean))];
     if (names.length > MAX_AREAS) return fail(400, `"areas" takes at most ${MAX_AREAS} areas`);

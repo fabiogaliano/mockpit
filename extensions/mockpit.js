@@ -1100,8 +1100,14 @@ export default function mockpitExtension(pi) {
         rename: { type: "string", description: "Without design: the project's new name" },
         areas: {
           type: "array",
-          items: { type: "string" },
-          description: "Without design: Home's area order; unlisted areas follow alphabetically",
+          items: {
+            anyOf: [
+              { type: "string" },
+              { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+            ],
+          },
+          description:
+            "Without design: Home's area order, as names or the {name, description} read returns (only the order is taken); unlisted areas follow alphabetically",
         },
         description: {
           type: "string",
