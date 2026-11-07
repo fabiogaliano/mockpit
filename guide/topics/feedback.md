@@ -99,7 +99,8 @@ without taking any feedback.
    keep it, 👎 rework it, "more like this" means publish 2–3 new alternatives forked from
    that version (`fork: "felt@2"`), each a different step the same way. A reaction
    without a part is about the whole alternative; one may end with the user's words in quotes.
-5. `verdict` (`{kind: use|revise, state, alternative}`) is the user's word on one alternative
+5. `verdict` (`{kind: use|revise, state, alternative}`; on a variants design `variant`, as
+   are its batch's `inUse`, `archived` and messages, and `move`'s result) is the user's word on one alternative
    outside any question. `use` is Use this, with the `version` now in use; `revise` is
    New version: publish another version of that alternative (its `text` says from which).
    Archived alternatives stay in view, muted, and the user can restore them.

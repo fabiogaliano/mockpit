@@ -481,7 +481,6 @@ const num = z.number();
 const nullStr = z.string().nullable();
 const strs = z.array(z.string());
 const bag = z.record(z.string(), z.unknown());
-const alternativeRef = o({ state: nullStr, alternative: str });
 // An entry named as its design names them: an alternative, or a variants design's
 // variant. Exactly one of the two, so a correct result of either kind validates.
 const entryNamed = <T extends z.ZodRawShape>(shape: T) =>
@@ -532,9 +531,9 @@ const feedbackSchema = o({
     tuned: bag,
     comments: z.array(o({ part: nullStr, text: str })),
     reactions: strs.optional().describe('One-tap reactions, e.g. 👍 part "hero" (alternative B)'),
-    verdict: o({ kind: z.enum(["use", "revise"]), state: nullStr, alternative: str })
+    verdict: entryNamed({ kind: z.enum(["use", "revise"]), state: nullStr })
       .optional()
-      .describe("Use this or New version on one alternative"),
+      .describe("Use this or New version on one alternative (a variants design's variant)"),
     more: o({
       ask: str,
       text: str,
@@ -548,8 +547,10 @@ const feedbackSchema = o({
     .nullable()
     .describe("The user's Send; null if only messages"),
   messages: z.array(o({ seq: num, text: str })).describe("What the user wrote in the thread"),
-  inUse: z.array(inUseRef).describe("In use, each at the version the user put in use"),
-  archived: z.array(alternativeRef),
+  inUse: z
+    .array(entryNamed({ state: nullStr, version: num }))
+    .describe("In use, each at the version the user put in use"),
+  archived: z.array(entryNamed({ state: nullStr })),
   edited: o({
     kind: str.optional(),
     area: nullStr.optional(),
@@ -627,17 +628,21 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
   },
   say: { feedback: feedbackRide },
   move: {
-    alternatives: z.array(o({ state: str.nullable(), alternative: str, status: str })),
+    alternatives: z
+      .array(entryNamed({ state: str.nullable(), status: str }))
+      .optional()
+      .describe("What moved; a variants design says variants"),
+    variants: z.array(entryNamed({ state: str.nullable(), status: str })).optional(),
     versions: z
-      .array(o({ state: str.nullable(), alternative: str, version: num }))
+      .array(entryNamed({ state: str.nullable(), version: num }))
       .optional()
       .describe("With hideOlder or deleteOlder: what was hidden or deleted"),
     skipped: z.array(
-      o({ state: str.nullable().optional(), alternative: str, version: num.optional(), why: str }),
+      entryNamed({ state: str.nullable().optional(), version: num.optional(), why: str }),
     ),
     to: o({ design: str, title: str, state: str.nullable() }).optional(),
     saved: z
-      .array(o({ state: str.nullable(), alternative: str, already: z.boolean() }))
+      .array(entryNamed({ state: str.nullable(), already: z.boolean() }))
       .optional()
       .describe("What each is called there"),
     url: str,

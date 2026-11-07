@@ -347,6 +347,13 @@ type VersionLine = Pick<
   "status" | "version" | "acceptedVersion" | "hiddenVersions" | "stayedVersion"
 > & { history: { version: number }[] };
 
+// One entry ref as a variants design names it to the agent: `variant`, not `alternative`.
+export const asVariant = <T extends { alternative?: string | null }>(x: T) => {
+  const { alternative, ...rest } = x;
+  return { ...rest, variant: alternative };
+};
+export const asVariants = <T extends { alternative?: string | null }>(xs: T[]) => xs.map(asVariant);
+
 export const newestVisible = (post: VersionLine): number => {
   const hidden = post.hiddenVersions ?? [];
   const visible = [post.version, ...post.history.map((h) => h.version)].filter(

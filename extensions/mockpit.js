@@ -296,12 +296,12 @@ function feedbackLines(feedback) {
     for (const c of batch.messages ?? []) lines.push(`- ${prefix}${c.text}`);
     if (batch.inUse?.length) {
       lines.push(
-        `- ${prefix}in use: ${batch.inUse.map((r) => `${r.state ? `${r.state} · ` : ""}${r.alternative} v${r.version}`).join(", ")}`,
+        `- ${prefix}in use: ${batch.inUse.map((r) => `${r.state ? `${r.state} · ` : ""}${r.alternative ?? r.variant} v${r.version}`).join(", ")}`,
       );
     }
     if (batch.archived?.length) {
       lines.push(
-        `- ${prefix}archived: ${batch.archived.map((r) => `${r.state ? `${r.state} · ` : ""}${r.alternative}`).join(", ")}`,
+        `- ${prefix}archived: ${batch.archived.map((r) => `${r.state ? `${r.state} · ` : ""}${r.alternative ?? r.variant}`).join(", ")}`,
       );
     }
     if (batch.system) {

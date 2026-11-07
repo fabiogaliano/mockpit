@@ -1565,13 +1565,20 @@ function watchLines(batch) {
         return n ? `${n} comment${n === 1 ? "" : "s"}` : "";
       })(),
       r.reactions?.length ? r.reactions.join(", ") : "",
-      r.verdict ? `${r.verdict.kind} ${r.verdict.alternative}` : "",
+      r.verdict ? `${r.verdict.kind} ${r.verdict.alternative ?? r.verdict.variant}` : "",
       r.usedIn
         ? `${r.usedIn.created ? "made" : "used in"} ${r.usedIn.target} (${r.usedIn.copies.map((c) => `${c.state ?? c.alternative} v${c.version}`).join(", ")})`
         : "",
       r.text ?? "",
     ].filter(Boolean);
     lines.push(`mockpit reply on ${name}: ${bits.join(" · ").replace(/\s+/g, " ")}`);
+  }
+  // The user's hand on the System page arrives as a batch with no design: a decision too.
+  if (batch.system) {
+    const where = batch.design ? ` on ${name}` : batch.project ? ` in ${batch.project}` : "";
+    lines.push(
+      `mockpit system${where}: the user changed the project's system (rev ${batch.system.rev}): ${batch.system.changes.join("; ")}`,
+    );
   }
   for (const t of followUpTexts(batch.followUps)) lines.push(`mockpit follow-up ${name}: ${t}`);
   for (const c of batch.messages ?? []) {
@@ -2454,19 +2461,24 @@ const commands = {
       console.log(`${verb} ${result.versions.length} older versions`);
       for (const s of result.skipped) {
         const which = s.version ? ` v${s.version}` : "";
-        console.log(`stayed: ${s.state ? `${s.state}/` : ""}${s.alternative}${which} (${s.why})`);
+        console.log(
+          `stayed: ${s.state ? `${s.state}/` : ""}${s.alternative ?? s.variant}${which} (${s.why})`,
+        );
       }
       printFeedback(result.feedback);
       return;
     }
-    const names = result.alternatives.map((v) => v.alternative).join(", ") || "nothing";
+    const names =
+      (result.alternatives ?? result.variants ?? [])
+        .map((v) => v.alternative ?? v.variant)
+        .join(", ") || "nothing";
     const done = result.to
       ? `moved to ${result.to.design}`
       : flags.restore
         ? "restored"
         : "archived";
     console.log(`${done}: ${names}`);
-    for (const s of result.skipped) console.log(`stayed: ${s.alternative} (${s.why})`);
+    for (const s of result.skipped) console.log(`stayed: ${s.alternative ?? s.variant} (${s.why})`);
     printFeedback(result.feedback);
   },
   async edit() {

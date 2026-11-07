@@ -11,6 +11,7 @@ import { shipped } from "./ready.ts";
 import type { IdeaTarget } from "./apiViews.ts";
 import {
   type AnswerStanding,
+  asVariant,
   type Ask,
   type AskOption,
   builtinAsk,
@@ -448,7 +449,26 @@ export function groupFeedback(
       ...(c.viewport != null ? { viewport: c.viewport } : {}),
     });
   }
-  return batches;
+  return batches.map((b) =>
+    b.designId && designs.get(b.designId)?.variants ? variantsBatch(b) : b,
+  );
+}
+
+// A variants design's entries are variants to the agent, as every read of it names them:
+// the batch's verdict, in-use and archived refs and messages say `variant`.
+function variantsBatch(batch: FeedbackBatch): FeedbackBatch {
+  const named = {
+    ...batch,
+    ...(batch.reply?.verdict
+      ? { reply: { ...batch.reply, verdict: asVariant(batch.reply.verdict) } }
+      : {}),
+    inUse: batch.inUse.map(asVariant),
+    archived: batch.archived.map(asVariant),
+    messages: batch.messages.map(asVariant),
+  };
+  // The renamed refs are the agent's words for the same fields; nothing on the server
+  // reads a batch's refs after this, so the type stays the one the tiers return.
+  return named as unknown as FeedbackBatch;
 }
 
 export async function buildFeedbackBatches(

@@ -214,6 +214,7 @@ import {
   inUseVersion,
   currentVersion,
   newestVisible,
+  asVariants,
   isLive,
   isDesignKind,
   isIdeaBecomes,
@@ -3388,13 +3389,13 @@ export function createApp({
     };
   }
 
-  // Both say what an idea is for, so a screen or a component takes neither.
   // A group files a component in the library; nothing else is listed there.
   const groupNotComponent = (slug: string, kind: DesignKind) =>
     fail(
       400,
       `${slug} is ${kind === "idea" ? "an" : "a"} ${kind}: only a component has a library group. Pass "kind": "component", or leave "group" out`,
     );
+  // Both say what an idea is for, so a screen or a component takes neither.
   const notAnIdea = (slug: string, kind: DesignKind) =>
     fail(
       400,
@@ -7046,6 +7047,24 @@ export function createApp({
   // `move`'s tidying of versions rather than alternatives, only when the user asks for it.
   // Each alternative keeps its latest, or its newest visible one if the user hid the latest,
   // so no alternative is left with nothing to show.
+  // A move's result names entries as its design does: a variants design's are variants
+  // (`variants`, each `variant`), every other design's alternatives.
+  function entriesNamed<A extends { alternative: string }, B extends { alternative: string }>(
+    design: Design,
+    entries: A[],
+    versions: B[] | undefined,
+    skipped: { alternative: string }[],
+  ) {
+    if (!design.variants) {
+      return { alternatives: entries, ...(versions ? { versions } : {}), skipped };
+    }
+    return {
+      variants: asVariants(entries),
+      ...(versions ? { versions: asVariants(versions) } : {}),
+      skipped: asVariants(skipped),
+    };
+  }
+
   async function tidyVersionsFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     const deleting = body.deleteOlder === true;
     const target = await commentTarget({
@@ -7144,9 +7163,7 @@ export function createApp({
       if (comment) announceComment(comment);
     }
     return ok({
-      alternatives: [],
-      versions,
-      skipped,
+      ...entriesNamed(design, [], versions, skipped),
       url: designUrl(ctx.base, design),
       feedback: await feedbackFor(body.session, ctx.base),
     });
@@ -7285,9 +7302,8 @@ export function createApp({
       if (comment) announceComment(comment);
     }
     return ok({
-      alternatives: done,
-      skipped,
-      ...(to ? { to, saved } : {}),
+      ...entriesNamed(design, done, undefined, skipped),
+      ...(to ? { to, saved: moved.variants ? asVariants(saved as never[]) : saved } : {}),
       url: designUrl(ctx.base, moved),
       feedback: await feedbackFor(body.session, ctx.base),
     });
