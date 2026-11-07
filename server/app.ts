@@ -2719,85 +2719,149 @@ export function createApp({
       // The CLI or stdio server has a browser and is taking the still itself.
       ...(target || body.posterComing === true ? [] : posterNudges(surfaces)),
     ];
-    const instances = await publishInstances(project, slug, surfaces);
-    if (isResult(instances)) return instances;
-    await promoteIncluded(project, instances);
+    // A use copies into components under the project's copy queue, checking for instance
+    // loops as it goes; a publish with instances checks and writes in the same queue, so the
+    // two can't each pass the check and close a loop together. It holds no other queue here.
+    const write = async (): Promise<FlowResult> => {
+      const instances = await publishInstances(project, slug, surfaces);
+      if (isResult(instances)) return instances;
+      await promoteIncluded(project, instances);
 
-    if (!target) {
-      // A new alternative: carried by the session the agent is writing from.
-      session ??= await newWriter();
-      // The first drawing of a plan with no state name yet gives it one, and the
-      // steps of any flow that planned it follow.
-      if (design && state !== null && design.states.length === 0 && posts.length === 0) {
-        design = (await store.nameFirstState(design.id, state)) ?? design;
-      }
-      if (!design) {
-        design = await store.createDesign({
-          project,
-          slug,
-          title: title ?? titleFromSlug(slug),
-          kind: kind ?? "idea",
-          ...(area === undefined ? {} : { area }),
-          ...(group === undefined ? {} : { group }),
-          ...(variants === undefined ? {} : { variants }),
-          ...(forId ? { for: forId } : {}),
-          ...(becomes ? { becomes } : {}),
-          ...(source === undefined ? {} : { source }),
-          states: state === null ? [] : [state],
-          knobs: knobs.value,
-          ...(widths ? { widths } : {}),
+      if (!target) {
+        // A new alternative: carried by the session the agent is writing from.
+        session ??= await newWriter();
+        // The first drawing of a plan with no state name yet gives it one, and the
+        // steps of any flow that planned it follow.
+        if (design && state !== null && design.states.length === 0 && posts.length === 0) {
+          design = (await store.nameFirstState(design.id, state)) ?? design;
+        }
+        if (!design) {
+          design = await store.createDesign({
+            project,
+            slug,
+            title: title ?? titleFromSlug(slug),
+            kind: kind ?? "idea",
+            ...(area === undefined ? {} : { area }),
+            ...(group === undefined ? {} : { group }),
+            ...(variants === undefined ? {} : { variants }),
+            ...(forId ? { for: forId } : {}),
+            ...(becomes ? { becomes } : {}),
+            ...(source === undefined ? {} : { source }),
+            states: state === null ? [] : [state],
+            knobs: knobs.value,
+            ...(widths ? { widths } : {}),
+            sessionId: session.id,
+          });
+          bus.broadcast({ type: "design-created", id: design.id, project });
+        }
+        const created = await store.createPost({
           sessionId: session.id,
+          design: design.id,
+          state,
+          alternative,
+          title: title ?? design.title,
+          surfaces,
+          ...(Object.keys(alternativeKnobs.value).length
+            ? { knobs: alternativeKnobs.value }
+            : fork?.knobs
+              ? { knobs: fork.knobs }
+              : {}),
+          ...(description
+            ? { description }
+            : description === undefined && fork?.description
+              ? { description: fork.description }
+              : {}),
+          instances,
+          ...(fork ? { forkedFrom: fork.ref } : {}),
+          from,
+          prompt,
+          author,
+          system: await systemRevOf(project),
         });
-        bus.broadcast({ type: "design-created", id: design.id, project });
+        if (!created) return fail(404, "session not found");
+        design = await updateDesignAfterWrite(design, {
+          state,
+          kind,
+          title,
+          knobs: knobs.value,
+          widths,
+          area,
+          group,
+          variants,
+          for: forId,
+          becomes,
+          source,
+          session,
+        });
+        const flow = flowIn
+          ? await placeFlow(project, flowIn.name, screen, flowIn.step)
+          : undefined;
+        announcePost(design, created, true);
+        if (prompt && ctx.request) notifyPublish(design, created, prompt, ctx);
+        return writeResult(design, created, ctx, { nudges, status: 201, flow, current: true });
       }
-      const created = await store.createPost({
-        sessionId: session.id,
-        design: design.id,
-        state,
-        alternative,
-        title: title ?? design.title,
-        surfaces,
-        ...(Object.keys(alternativeKnobs.value).length
-          ? { knobs: alternativeKnobs.value }
-          : fork?.knobs
-            ? { knobs: fork.knobs }
-            : {}),
-        ...(description
-          ? { description }
-          : description === undefined && fork?.description
-            ? { description: fork.description }
-            : {}),
-        instances,
-        ...(fork ? { forkedFrom: fork.ref } : {}),
-        from,
-        prompt,
-        author,
-        system: await systemRevOf(project),
-      });
-      if (!created) return fail(404, "session not found");
-      design = await updateDesignAfterWrite(design, {
-        state,
-        kind,
-        title,
-        knobs: knobs.value,
-        widths,
-        area,
-        group,
-        variants,
-        for: forId,
-        becomes,
-        source,
-        session,
-      });
-      const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
-      announcePost(design, created, true);
-      if (prompt && ctx.request) notifyPublish(design, created, prompt, ctx);
-      return writeResult(design, created, ctx, { nudges, status: 201, flow, current: true });
-    }
 
-    if (!design) return missing();
-    if (amend) {
-      const amended = await store.amendPost(target.id, target.version, {
+      if (!design) return missing();
+      if (amend) {
+        const amended = await store.amendPost(target.id, target.version, {
+          surfaces,
+          title,
+          ...(body.alternativeKnobs !== undefined ? { knobs: alternativeKnobs.value } : {}),
+          ...(description !== undefined ? { description } : {}),
+          instances,
+          from,
+          prompt,
+          author,
+          system: await systemRevOf(project),
+        });
+        if (!amended) {
+          return fail(409, `${alternative} has a newer version than v${target.version}`, {
+            fix: `mockpit read ${slug} --history, then amend that one`,
+          });
+        }
+        dropPostRenders(amended.id);
+        const flow = flowIn
+          ? await placeFlow(project, flowIn.name, screen, flowIn.step)
+          : undefined;
+        design = await updateDesignAfterWrite(design, {
+          state,
+          kind,
+          knobs: knobs.value,
+          widths,
+          area,
+          group,
+          variants,
+          for: forId,
+          becomes,
+          source,
+          session,
+        });
+        announcePost(design, amended, false);
+        return writeResult(design, amended, ctx, {
+          previous: target.surfaces,
+          applied,
+          nudges,
+          writer: session,
+          flow,
+        });
+      }
+      // A new version is written by whoever writes it; without an explicit
+      // session the alternative's own session carries it.
+      session ??= await store.getSession(target.sessionId);
+      // A second version moments after the first, before the user did anything
+      // with it, is almost always the agent fixing its own mistake: the user
+      // would get two near-identical versions to tell apart.
+      if (
+        session &&
+        publisherOf(target) === session.id &&
+        Date.now() - Date.parse(target.updatedAt) < AMEND_WINDOW_MS &&
+        !(await touchedBy(design, target))
+      ) {
+        nudges.push(
+          `v${target.version} of ${alternative} was minutes old and untouched by the user: one request gets one version. Fix a version the user hasn't acted on with amend (CLI --amend) instead of adding one; withdraw takes this one back`,
+        );
+      }
+      const updated = await store.updatePost(target.id, {
         surfaces,
         title,
         ...(body.alternativeKnobs !== undefined ? { knobs: alternativeKnobs.value } : {}),
@@ -2806,14 +2870,10 @@ export function createApp({
         from,
         prompt,
         author,
+        ...(session ? { publishedBy: session.id } : {}),
         system: await systemRevOf(project),
       });
-      if (!amended) {
-        return fail(409, `${alternative} has a newer version than v${target.version}`, {
-          fix: `mockpit read ${slug} --history, then amend that one`,
-        });
-      }
-      dropPostRenders(amended.id);
+      if (!updated) return fail(404, "alternative not found");
       const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
       design = await updateDesignAfterWrite(design, {
         state,
@@ -2828,68 +2888,18 @@ export function createApp({
         source,
         session,
       });
-      announcePost(design, amended, false);
-      return writeResult(design, amended, ctx, {
+      announcePost(design, updated, false);
+      if (prompt && ctx.request) notifyPublish(design, updated, prompt, ctx);
+      return writeResult(design, updated, ctx, {
         previous: target.surfaces,
         applied,
         nudges,
         writer: session,
         flow,
+        current: true,
       });
-    }
-    // A new version is written by whoever writes it; without an explicit
-    // session the alternative's own session carries it.
-    session ??= await store.getSession(target.sessionId);
-    // A second version moments after the first, before the user did anything
-    // with it, is almost always the agent fixing its own mistake: the user
-    // would get two near-identical versions to tell apart.
-    if (
-      session &&
-      publisherOf(target) === session.id &&
-      Date.now() - Date.parse(target.updatedAt) < AMEND_WINDOW_MS &&
-      !(await touchedBy(design, target))
-    ) {
-      nudges.push(
-        `v${target.version} of ${alternative} was minutes old and untouched by the user: one request gets one version. Fix a version the user hasn't acted on with amend (CLI --amend) instead of adding one; withdraw takes this one back`,
-      );
-    }
-    const updated = await store.updatePost(target.id, {
-      surfaces,
-      title,
-      ...(body.alternativeKnobs !== undefined ? { knobs: alternativeKnobs.value } : {}),
-      ...(description !== undefined ? { description } : {}),
-      instances,
-      from,
-      prompt,
-      author,
-      ...(session ? { publishedBy: session.id } : {}),
-      system: await systemRevOf(project),
-    });
-    if (!updated) return fail(404, "alternative not found");
-    const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
-    design = await updateDesignAfterWrite(design, {
-      state,
-      kind,
-      knobs: knobs.value,
-      widths,
-      area,
-      group,
-      variants,
-      for: forId,
-      becomes,
-      source,
-      session,
-    });
-    announcePost(design, updated, false);
-    if (prompt && ctx.request) notifyPublish(design, updated, prompt, ctx);
-    return writeResult(design, updated, ctx, {
-      previous: target.surfaces,
-      applied,
-      nudges,
-      writer: session,
-      flow,
-      current: true,
-    });
+    };
+    return firstHtmlInstances(surfaces) ? serialDecision(`copy:${project}`, write) : write();
   }
 
   // Versions from before the publisher was kept count as the alternative's own session's.
