@@ -176,8 +176,10 @@ what and where:
   every state listed; it takes over as any newer version does, and each state leaves the
   list once it shows a version drawn after the decision.
 - `gaps`: what `target` has that the used alternative doesn't draw: its other `states`,
-  and on a variants design the other `variants` of the states it landed in. Draw them on
-  the target so they follow the choice.
+  and on a variants design the other `variants` of the states it landed in. The user fills
+  them by choosing: publish an idea for the target (`for`) with those states or variants
+  drawn and one question. Never write onto a product design for a gap; each leaves the
+  list once the target shows a version drawn after the decision.
 - `lift`: a screen just marked Ready (above).
 - `placeFlow`: a flow idea (`becomes: flow`) was used, and nothing was copied. Its `steps`
   are the idea's states in order; `screens` are the live screens of its area (else of the

@@ -1478,7 +1478,9 @@ function followUpTexts(f) {
         (v) => `variants of ${stateName(v.state)}: ${v.names.join(", ")}`,
       ),
     ].filter(Boolean);
-    out.push(`gaps: draw on ${f.gaps.target} what the choice lacks (${bits.join("; ")})`);
+    out.push(
+      `gaps: the choice doesn't draw ${f.gaps.target}'s ${bits.join("; ")}. Publish an idea for ${f.gaps.target} with them drawn and one question`,
+    );
   }
   if (f.instanceIn) {
     const i = f.instanceIn;

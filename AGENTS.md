@@ -181,8 +181,8 @@ consciously, not as a side effect):
   latest Ready edit, read with `SqlStore.latestReplies`, bounded; a lift stands while that
   edit is the latest and no `lift` question came after it). Every list stops at 40 with
   `more`; 40 designs carry follow-ups, `followUpsMore` counts the rest. The guide says the
-  agent does `spec`, `apply` and `gaps` itself and publishes an idea with one question for
-  anything touching another design. The viewer shows nothing new.
+  agent does `spec` and `apply` itself, and publishes an idea with one question for `gaps`
+  (never writing onto the product design) and for anything touching another design. The viewer shows nothing new.
 - A design with a declared `kind` and no posts is **planned** (`isPlanned` in `types.ts`,
   derived, never stored): `publish` with a kind and no body declares one, and the first
   drawing fills it. `Design.stateOutlines` holds per-design answers to the outlines of

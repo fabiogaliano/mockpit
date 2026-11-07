@@ -634,8 +634,9 @@ A batch's \`followUps\` is what a decision now requires, each by what and where.
 than its spec; edit it). \`apply\` (\`{target, states: {matched, missing}}\`): nothing was copied;
 publish it on the target in each of those states, which takes over as any newer version
 does (each state leaves the list once drawn). \`gaps\` (\`{target,
-states?, variants?}\`): what the target has that the used alternative doesn't draw; draw
-those states or variants there so they follow the choice. \`lift\`: The library.
+states?, variants?}\`): what the target has that the used alternative doesn't draw. The
+user fills them by choosing: publish an idea for the target (\`--for <slug>\`) with those
+states or variants drawn and one question. Never write onto a product design for a gap. \`lift\`: The library.
 \`placeFlow\` (\`{flow, steps: [{name, alternative?}], area, screens: [{slug, states}]}\`): a
 flow idea was used. Put each step on a screen: an existing state, a new state (\`publish
 --design today --state "Lunch logged" --flow "Log lunch" --step 3\`, no body, declares it

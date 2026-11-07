@@ -53,7 +53,8 @@ would become (`--becomes screen|component|flow|system`). Its read and replies ca
 `target.ruledOut`: what that design turned down; never offer it again. Using an alternative
 there copies it onto the design (`usedIn`).
 A batch's `followUps` is what a decision now requires (`mockpit guide --topic feedback`):
-edit the `spec` yourself; publish `apply` on its target; draw the `gaps` there; for `lift`,
+edit the `spec` yourself; publish `apply` on its target; for `gaps`, publish an idea for the
+target with the missing states drawn and one question, never write onto the product design; for `lift`,
 swap copies for library instances, lift the rest into components, then ask `lift`; for
 `placeFlow` (a flow idea used), put each step on a screen, place it with `--flow`,
 `edit --for flow:<name>` the idea and ask `placement` there; for each

@@ -373,7 +373,7 @@ function followUpTexts(f) {
       ),
     ].filter(Boolean);
     out.push(
-      `gaps: draw on ${f.gaps.target} what the choice lacks (${bits.join("; ")}${f.gaps.more ? `; ${f.gaps.more} more` : ""})`,
+      `gaps: the choice doesn't draw ${f.gaps.target}'s ${bits.join("; ")}${f.gaps.more ? `; ${f.gaps.more} more` : ""}. Publish an idea for ${f.gaps.target} with them drawn and one question`,
     );
   }
   if (f.instanceIn) {
