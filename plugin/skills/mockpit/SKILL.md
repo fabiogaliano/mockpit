@@ -47,14 +47,16 @@ and `export`: `ready`, `changed`, `builtFrom`).
 `mockpit edit --design <slug> --slug <new>` renames it and rewrites every instance and flow step; it
 also retitles and reclassifies without a new version. Title a design, like a state, by what the
 user sees ("Hold menu"), never by your process ("Round 2 · …", "v2", "Prototype"). When the user
-moves a design from Home (kind, area) or marks it Ready, you hear it in `feedback` as `edited`;
-a screen's mark brings `lift`: swap copies for library instances, lift the rest into
-components, then ask `lift` (`mockpit guide --topic feedback`).
+moves a design from Home (kind, area) or marks it Ready, you hear it in `feedback` as `edited`.
 Explore for a screen or component in an idea for it (`--for <slug>`), or say what an idea
 would become (`--becomes screen|component|flow|system`). Its read and replies carry
 `target.ruledOut`: what that design turned down; never offer it again. Using an alternative
-there copies it onto the design (`usedIn`), or, when its states don't match, says `apply`:
-then publish the next version there yourself.
+there copies it onto the design (`usedIn`).
+A batch's `followUps` is what a decision now requires (`mockpit guide --topic feedback`):
+edit the `spec` yourself; publish `apply` on its target; draw the `gaps` there; for `lift`,
+swap copies for library instances, lift the rest into components, then ask `lift`; for each
+design in `instanceIn`, and anything else touching another design, publish an idea for it
+with one question, never a direct change. `read` lists the open ones under `pending`.
 
 Prefer the MCP tools when connected (`publish`, `ask`, `read`, `feedback`,
 `say`, `move`, `edit`, `system`, `export`, `upload`, `guide`); otherwise use the CLI.

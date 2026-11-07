@@ -1175,15 +1175,16 @@ function printFeedback(feedback) {
 
 // What the user is doing right now, per design.
 function pendingLines(pending) {
-  return (pending ?? []).flatMap((p) =>
-    p.draft
+  return (pending ?? []).flatMap((p) => [
+    ...(p.draft
       ? [
           `pending: ${p.design} — the user is answering (${p.draft.answered} of ${p.draft.of} answered, ${p.draft.comments} comment${p.draft.comments === 1 ? "" : "s"})`,
         ]
       : p.viewerOpen
         ? [`pending: ${p.design} — open in the viewer`]
-        : [],
-  );
+        : []),
+    ...followUpTexts(p.followUps).map((t) => `pending: ${p.design} — follow-up ${t}`),
+  ]);
 }
 
 function parsePublishFlags() {
@@ -1444,6 +1445,39 @@ const liftText = (lift) =>
     .filter(Boolean)
     .join("; ");
 
+const stateName = (x) => x ?? "the one unnamed state";
+
+// What a decision requires next, one line each, as `watch` and `read` print them.
+function followUpTexts(f) {
+  if (!f) return [];
+  const out = [];
+  if (f.apply)
+    out.push(
+      `apply: publish it on ${f.apply.target}, which lacks ${f.apply.states.missing.map(stateName).join(", ")}`,
+    );
+  if (f.gaps) {
+    const bits = [
+      f.gaps.states?.length ? `states ${f.gaps.states.map(stateName).join(", ")}` : "",
+      ...(f.gaps.variants ?? []).map(
+        (v) => `variants of ${stateName(v.state)}: ${v.names.join(", ")}`,
+      ),
+    ].filter(Boolean);
+    out.push(`gaps: draw on ${f.gaps.target} what the choice lacks (${bits.join("; ")})`);
+  }
+  if (f.instanceIn) {
+    const i = f.instanceIn;
+    out.push(
+      `instanceIn: ${i.component}${i.ready ? " (was Ready, now Changed)" : ""} shows in ${i.designs.map((d) => `${d.slug}${d.ready ? " (Ready)" : ""}`).join(", ")}; an idea for each, with a question`,
+    );
+  }
+  for (const x of f.spec ?? [])
+    out.push(
+      `spec: ${x.design} has ${x.decisions} decision${x.decisions === 1 ? "" : "s"} ${x.noSpec ? "and no spec" : "newer than its spec"}; edit it`,
+    );
+  if (f.lift) out.push(liftText(f.lift));
+  return out;
+}
+
 // One line of a spec's How it works, with where it applies.
 const specLineText = (l) =>
   `${[l.state, l.part].filter(Boolean).length ? `[${[l.state, l.part].filter(Boolean).join(" · ")}] ` : ""}${l.text}`;
@@ -1481,7 +1515,6 @@ function watchLines(batch) {
       );
     }
   }
-  if (batch.lift) lines.push(`mockpit lift ${name}: ${liftText(batch.lift)}`);
   if (batch.reply) {
     const r = batch.reply;
     const bits = [
@@ -1514,13 +1547,11 @@ function watchLines(batch) {
       r.usedIn
         ? `${r.usedIn.created ? "made" : "used in"} ${r.usedIn.target} (${r.usedIn.copies.map((c) => `${c.state ?? c.alternative} v${c.version}`).join(", ")})`
         : "",
-      r.apply
-        ? `bring it over to ${r.apply.target}: it lacks ${r.apply.states.missing.map((x) => x ?? "the one unnamed state").join(", ")}`
-        : "",
       r.text ?? "",
     ].filter(Boolean);
     lines.push(`mockpit reply on ${name}: ${bits.join(" · ").replace(/\s+/g, " ")}`);
   }
+  for (const t of followUpTexts(batch.followUps)) lines.push(`mockpit follow-up ${name}: ${t}`);
   for (const c of batch.messages ?? []) {
     lines.push(
       `mockpit message on ${name}: “${String(c.text ?? "")

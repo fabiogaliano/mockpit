@@ -36,8 +36,9 @@ type Feedback = {
   messages: { text: string; state: string | null; alternative: string | null }[];
   inUse: { state: string | null; alternative: string; version: number }[]; archived: { state: string | null; alternative: string }[];
   system?: { rev: number; changes: string[] };
+  followUps?: Record<string, unknown>;
 };
-type Pending = { design: string; archived?: true; viewerOpen: boolean; draft: null | { answered: number; of: number; comments: number; touchedAt: string } };
+type Pending = { design: string; archived?: true; viewerOpen: boolean; draft: null | { answered: number; of: number; comments: number; touchedAt: string }; followUps?: Record<string, unknown> };
 declare const mockpit: {
   guide(topic?: "system" | "knobs" | "asks" | "surfaces" | "html" | "feedback" | "http" | "scripts"): Promise<string>;
   /** Read first: decisionLog is what the user already settled; it stands unless they say otherwise.

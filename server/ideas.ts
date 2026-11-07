@@ -8,6 +8,7 @@ import type { DecisionLine } from "./decisionLog.ts";
 import {
   type ApplyTo,
   type Design,
+  type Gaps,
   isLive,
   type PostHead,
   type RuledOut,
@@ -90,6 +91,39 @@ export function statesFor(
   return {
     matched: states.filter((s) => has.includes(s)),
     missing: states.filter((s) => !has.includes(s)),
+  };
+}
+
+// What the design an idea is for has that the used alternative doesn't draw: the target's
+// other states, and on a variants design, in each state it lands in, the variants other
+// than the ones it became. Those still show what came before the choice.
+export function gapsOf(
+  target: Pick<Design, "slug" | "states" | "variants">,
+  posts: Pick<PostHead, "state" | "alternative" | "status">[],
+  states: ApplyTo["states"],
+  landed: { state: string | null; alternative: string }[],
+): Gaps | null {
+  const drawn = new Set([...states.matched, ...states.missing]);
+  const has: (string | null)[] = target.states.length ? target.states : [null];
+  const missing = has.filter((s) => !drawn.has(s));
+  const variants = target.variants
+    ? states.matched.flatMap((state) => {
+        const here = new Set(landed.filter((l) => l.state === state).map((l) => l.alternative));
+        const names = [
+          ...new Set(
+            posts
+              .filter((p) => p.state === state && isLive(p.status) && !here.has(p.alternative))
+              .map((p) => p.alternative),
+          ),
+        ];
+        return names.length ? [{ state, names }] : [];
+      })
+    : [];
+  if (!missing.length && !variants.length) return null;
+  return {
+    target: target.slug,
+    ...(missing.length ? { states: missing } : {}),
+    ...(variants.length ? { variants } : {}),
   };
 }
 

@@ -161,7 +161,19 @@ consciously, not as a side effect):
   order → its `areas`, and the 4.0 words: `alternative` for a choice's `variant` in
   stored JSON (asks, drafts, replies, standings, forks and copies), `data-swap` on every part
   that had `data-fill`, `<mockpit-instance>` and `data-mockpit-instance` in every stored
-  version, and a reply's `combo`).
+  version, a reply's `combo`, and a reply's `apply` and `lift` under its `followUps`).
+- **Follow-ups** (`followUps` on a feedback batch, `FollowUps` in `server/types.ts`): what a
+  decision now requires, each by what and where, never prose. A use in the design an idea is for
+  (`useInTarget`) stores `apply` (states it couldn't drop into), `gaps` (`gapsOf` in
+  `server/ideas.ts`: the target's other states, and a variants design's other variants) and
+  `instanceIn` (`showingNow`: the product designs whose shown versions show the entries just
+  written, nested included, each with its `ready` then) on `Reply.followUps`; a Ready mark
+  stores `lift` there. `spec` (`specFollowUp`, `specBehind` in `server/spec.ts`) is never stored:
+  `withSpecNudges` reads it at delivery for the batch's product design and the use's target.
+  The guide says the agent does `spec`, `apply` and `gaps` itself and publishes an idea with one
+  question for anything touching another design (`instanceIn`). `read` without a design carries
+  each design's still-open ones under `pending` (`openFollowUps`: the last stored ones, less
+  what was drawn, revisited, given an idea or asked since). The viewer shows nothing new.
 - A design with a declared `kind` and no posts is **planned** (`isPlanned` in `types.ts`,
   derived, never stored): `publish` with a kind and no body declares one, and the first
   drawing fills it. `Design.stateOutlines` holds per-design answers to the outlines of
@@ -221,7 +233,7 @@ consciously, not as a side effect):
   or holding only instances in plain boxes and no text, is an instance's place), split into
   `parts` and `likeLibrary` (named like a live component), each with `alsoIn` (other live
   designs whose shown versions have the name). It rides on the mark's stored edit as
-  `Reply.lift` and reaches the agent as a batch's `lift`. The agent lifts and asks `lift`; a
+  `Reply.followUps.lift` and reaches the agent as a batch's `followUps.lift`. The agent lifts and asks `lift`; a
   Send answering it on a Ready screen (`settleLift` in `replyFlow`) marks the screen again at
   what it shows and carries Ready (`carryReady`) to each lifted component not chosen.
 - **What an idea is for** (`server/ideas.ts`): an idea's `Design.for` (a
@@ -237,8 +249,8 @@ consciously, not as a side effect):
   design as the next version of the entry of the same name in the state of the same name
   (`entryFor`), `copiedFrom.asVersion` naming the version it became and `author: "user"`, so it
   is current at once and amend refuses it; the reply says `usedIn`. When the idea draws the
-  alternative in a state the design lacks (`statesFor`), nothing is copied and the reply says
-  `apply`. An idea that `becomes` a screen or component makes it on first use and is then for
+  alternative in a state the design lacks (`statesFor`), nothing is copied and the batch's
+  `followUps` say `apply`. An idea that `becomes` a screen or component makes it on first use and is then for
   it. New idea is typed by where it starts (`POST /api/copies` with `for`, `becomes`, `area`).
   Viewer: Use in <target> (`UseThis`), the ideas folded under the states and in Studio's bar
   (`IdeasFor.tsx`), a product cover's count opening `?sec=ideas&for=<slug>`, the Ideas shelf's

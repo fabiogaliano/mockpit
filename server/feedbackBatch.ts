@@ -20,7 +20,7 @@ import {
   DEFAULT_ALTERNATIVE,
   type Design,
   type DesignEdit,
-  type Lift,
+  type FollowUps,
   OTHER_ID,
   type PartComment,
   type Post,
@@ -101,7 +101,14 @@ export interface UpdateRequest {
 // The write-ins, comments and their images ride in `asks`, not again as id maps.
 export interface FeedbackReply extends Omit<
   Reply,
-  "others" | "askComments" | "otherImages" | "askCommentImages" | "more" | "standings" | "update"
+  | "others"
+  | "askComments"
+  | "otherImages"
+  | "askCommentImages"
+  | "more"
+  | "standings"
+  | "update"
+  | "followUps"
 > {
   more?: MoreAnswers;
   update?: UpdateRequest;
@@ -139,9 +146,12 @@ export interface FeedbackBatch {
   // What this batch asks of the agent beyond answering it: a product design's spec
   // left behind what was decided on it, a component more than one area shows.
   nudges?: string[];
-  // With a screen just marked Ready: what it draws itself, to lift into components
-  // (parts) or to swap for the library's instance (likeLibrary). Then ask `lift`.
-  lift?: Lift;
+  // What the decision now requires, each by what and where: an alternative to bring over
+  // (`apply`), what the target still lacks (`gaps`), the designs showing a component that
+  // changed (`instanceIn`), specs behind their decisions (`spec`), and with a screen just
+  // marked Ready what it draws itself (`lift`: parts to lift into components, likeLibrary
+  // copies to swap for the library's instance).
+  followUps?: FollowUps;
   // With a reply on an idea for a design: that design, and what it has turned down.
   target?: IdeaTarget;
 }
@@ -376,8 +386,11 @@ export function groupFeedback(
       // The latest mark says what there is to lift: a later one with nothing (taken off,
       // or over versions that draw nothing of their own) leaves nothing.
       if (edit.ready) {
-        if (c.payload?.lift) batch.lift = c.payload.lift;
-        else delete batch.lift;
+        const { lift: _lift, ...rest } = batch.followUps ?? {};
+        const lift = c.payload?.followUps?.lift;
+        const next = lift ? { ...rest, lift } : rest;
+        if (Object.keys(next).length) batch.followUps = next;
+        else delete batch.followUps;
       }
       continue;
     }
@@ -392,9 +405,11 @@ export function groupFeedback(
         standings: _standings,
         update: wanted,
         system: decidedHere,
+        followUps,
         ...payload
       } = c.payload;
       if (decidedHere) batch.system = { rev: decidedHere.rev, changes: decidedHere.changes };
+      if (followUps) batch.followUps = { ...batch.followUps, ...followUps };
       const more =
         asked && design
           ? moreAnswers(design, designPosts, asked, c.payload.standings?.[asked.ask])

@@ -16,7 +16,7 @@ import type {
   AnswerStanding,
   AskAnswer,
   Comment,
-  ApplyTo,
+  FollowUps,
   CopyRef,
   IdeaBecomes,
   LiveCopy,
@@ -321,7 +321,7 @@ export const api = {
     id: string,
     body: { state: string | null; alternative: string; version: number; to?: string },
   ) =>
-    call<{ reply: CommentRow | null; usedIn?: UsedIn; apply?: ApplyTo }>(
+    call<{ reply: CommentRow | null; usedIn?: UsedIn; followUps?: FollowUps }>(
       `/api/designs/${encodeURIComponent(id)}/use`,
       json("POST", body),
     ),

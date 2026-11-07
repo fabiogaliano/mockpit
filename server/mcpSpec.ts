@@ -485,6 +485,24 @@ const inUseRef = o({ state: nullStr, alternative: str, version: num });
 const partsByState = z.array(o({ state: nullStr, parts: z.array(o({ name: str })) }));
 const flowSchema = o({ name: str, steps: z.array(o({ design: str, state: nullStr })) });
 
+const followUpsSchema = o({
+  apply: o({ target: str, states: o({ matched: z.array(nullStr), missing: z.array(nullStr) }) })
+    .optional()
+    .describe("Not copied: publish it on target"),
+  gaps: o({ target: str, states: z.array(nullStr).optional(), variants: z.array(bag).optional() })
+    .optional()
+    .describe("What target has that the use lacks: draw it there"),
+  instanceIn: o({ component: str, ready: z.boolean(), designs: z.array(bag) })
+    .optional()
+    .describe("Designs showing the changed component: an idea for each, with a question"),
+  spec: z
+    .array(o({ design: str, decisions: num }))
+    .optional()
+    .describe("Specs to update"),
+  lift: o({ parts: z.array(bag), likeLibrary: z.array(bag) })
+    .optional()
+    .describe("A screen just marked Ready: its own parts to lift, copies of library components"),
+}).describe("What the decision now requires");
 const feedbackSchema = o({
   design: nullStr,
   reply: o({
@@ -511,9 +529,6 @@ const feedbackSchema = o({
     })
       .optional()
       .describe("The user wants more answers to this question: ask it again, same id, with them"),
-    apply: o({ target: str, states: o({ matched: z.array(nullStr), missing: z.array(nullStr) }) })
-      .optional()
-      .describe("Not copied: bring it to target"),
   })
     .nullable()
     .describe("The user's Send; null if only messages"),
@@ -531,9 +546,7 @@ const feedbackSchema = o({
       "The user moved the design from Home (its kind or area now), edited its spec, or marked it Ready (or took it off)",
     ),
   nudges: strs.optional(),
-  lift: o({ parts: z.array(bag), likeLibrary: z.array(bag) })
-    .optional()
-    .describe("A screen just marked Ready: its own parts to lift, copies of library components"),
+  followUps: followUpsSchema.optional(),
   target: o({ slug: str, ruledOut: z.array(o({ name: str })).optional() })
     .optional()
     .describe("What the idea's design turned down"),
@@ -546,6 +559,7 @@ const pendingSchema = o({
   archived: z.literal(true).optional(),
   viewerOpen: z.boolean(),
   draft: o({ answered: num, of: num, comments: num, touchedAt: str }).nullable(),
+  followUps: bag.optional().describe("Still open from its last decision"),
 }).meta({ id: "Pending" });
 
 const writeOutput = {

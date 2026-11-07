@@ -276,12 +276,6 @@ function feedbackLines(feedback) {
           `- ${prefix}${reply.usedIn.created ? "made" : "used in"} ${reply.usedIn.target} (${at.join(", ")})`,
         );
       }
-      if (reply.apply) {
-        const missing = reply.apply.states.missing.map((x) => x ?? "the one unnamed state");
-        lines.push(
-          `- ${prefix}not copied: bring it over to ${reply.apply.target}, which lacks ${missing.join(", ")}`,
-        );
-      }
       if (reply.text) lines.push(`- ${prefix}${reply.text}`);
     }
     for (const c of batch.messages ?? []) lines.push(`- ${prefix}${c.text}`);
@@ -314,19 +308,7 @@ function feedbackLines(feedback) {
         );
       }
     }
-    if (batch.lift) {
-      const { parts, likeLibrary } = batch.lift;
-      if (parts.length) {
-        lines.push(
-          `- ${prefix}lift into components: ${parts.map((p) => `${p.name}${p.alsoIn ? ` (also in ${p.alsoIn.join(", ")})` : ""}`).join(", ")}`,
-        );
-      }
-      if (likeLibrary.length) {
-        lines.push(
-          `- ${prefix}swap for the library's instance: ${likeLibrary.map((p) => `${p.name} → ${p.component}`).join(", ")}`,
-        );
-      }
-    }
+    for (const t of followUpTexts(batch.followUps)) lines.push(`- ${prefix}follow-up ${t}`);
     if (batch.target?.ruledOut?.length) {
       lines.push(
         `- ${prefix}${batch.target.slug} already turned down: ${batch.target.ruledOut.map((r) => `${r.name}${r.reason ? ` (${r.reason})` : ""}`).join("; ")}`,
@@ -335,6 +317,49 @@ function feedbackLines(feedback) {
     for (const n of batch.nudges ?? []) lines.push(`- ${prefix}nudge: ${n}`);
   }
   return lines;
+}
+
+const stateName = (x) => x ?? "the one unnamed state";
+
+// What a decision requires next, one line each.
+function followUpTexts(f) {
+  if (!f) return [];
+  const out = [];
+  if (f.apply)
+    out.push(
+      `apply: publish it on ${f.apply.target}, which lacks ${f.apply.states.missing.map(stateName).join(", ")}`,
+    );
+  if (f.gaps) {
+    const bits = [
+      f.gaps.states?.length ? `states ${f.gaps.states.map(stateName).join(", ")}` : "",
+      ...(f.gaps.variants ?? []).map(
+        (v) => `variants of ${stateName(v.state)}: ${v.names.join(", ")}`,
+      ),
+    ].filter(Boolean);
+    out.push(`gaps: draw on ${f.gaps.target} what the choice lacks (${bits.join("; ")})`);
+  }
+  if (f.instanceIn) {
+    const i = f.instanceIn;
+    out.push(
+      `instanceIn: ${i.component}${i.ready ? " (was Ready, now Changed)" : ""} shows in ${i.designs.map((d) => `${d.slug}${d.ready ? " (Ready)" : ""}`).join(", ")}; an idea for each, with a question`,
+    );
+  }
+  for (const x of f.spec ?? [])
+    out.push(
+      `spec: ${x.design} has ${x.decisions} decision${x.decisions === 1 ? "" : "s"} ${x.noSpec ? "and no spec" : "newer than its spec"}; edit it`,
+    );
+  if (f.lift) {
+    const { parts, likeLibrary } = f.lift;
+    if (parts.length)
+      out.push(
+        `lift into components: ${parts.map((p) => `${p.name}${p.alsoIn ? ` (also in ${p.alsoIn.join(", ")})` : ""}`).join(", ")}`,
+      );
+    if (likeLibrary.length)
+      out.push(
+        `lift: swap for the library's instance: ${likeLibrary.map((p) => `${p.name} → ${p.component}`).join(", ")}`,
+      );
+  }
+  return out;
 }
 
 // One line of a spec's How it works, with where it applies.
@@ -347,15 +372,16 @@ function specLineText(l) {
 function pendingLines(pending) {
   const lines = [pending ?? []]
     .flat()
-    .flatMap((p) =>
-      p.draft
+    .flatMap((p) => [
+      ...(p.draft
         ? [
             `- ${p.design}: the user is answering (${p.draft.answered} of ${p.draft.of} answered, ${p.draft.comments} comments)`,
           ]
         : p.viewerOpen
           ? [`- ${p.design}: open in the viewer`]
-          : [],
-    );
+          : []),
+      ...followUpTexts(p.followUps).map((t) => `- ${p.design}: follow-up ${t}`),
+    ]);
   return lines.length ? ["Pending:", ...lines] : [];
 }
 

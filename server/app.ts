@@ -93,6 +93,7 @@ import {
   purposeLine,
   specEdit,
   specInput,
+  specBehind,
   specNudge,
   specSize,
   specView,
@@ -136,7 +137,7 @@ import {
 import { checkKnobs, checkKnobValues, discreteChoices, explicitKnob, knobFor } from "./knobs.ts";
 import { diffParts, type PartChanges, partsInSurfaces, spliceParts } from "./parts.ts";
 import { LIFT_ASK, liftedComponent, liftOf } from "./lift.ts";
-import { forNudge, likelyTarget, ruledOutOf, statesFor } from "./ideas.ts";
+import { forNudge, gapsOf, likelyTarget, ruledOutOf, statesFor } from "./ideas.ts";
 import { areasShowing, isShared, sharedNudge, spansAreas } from "./library.ts";
 import { postToMarkdown } from "./postMarkdown.ts";
 import {
@@ -211,7 +212,9 @@ import {
   isDesignKind,
   isIdeaBecomes,
   type IdeaBecomes,
-  type ApplyTo,
+  type FollowUps,
+  type InstanceIn,
+  type SpecFollowUp,
   type UsedIn,
   type CopyRef,
   isPlanned,
@@ -1011,24 +1014,40 @@ export function createApp({
   }
 
   // A Send on a product design decides things its spec doesn't say yet: the batch that
-  // carries it says so, once per design, and the agent updates the spec itself. A
-  // component screens of several areas show is offered a move to shared, on any batch
-  // of it or of a design showing it, once per component.
+  // carries it says so, once per design, and the agent updates the spec itself. So does a
+  // Ready mark, and a use in the design an idea is for: each names, under followUps.spec,
+  // the product designs whose decisions are now newer than their spec. A component
+  // screens of several areas show is offered a move to shared, on any batch of it or of a
+  // design showing it, once per component.
   async function withSpecNudges(batches: FeedbackBatch[]): Promise<FeedbackBatch[]> {
     const lines = new Map<string, DecisionLine[]>();
+    const linesOf = async (project: string) => {
+      let known = lines.get(project);
+      if (!known) lines.set(project, (known = await decisionLines(project)));
+      return known;
+    };
     const told = new Set<string>();
     const shownIn = new Map<string, Map<string, string[]>>();
     const toldShared = new Set<string>();
     for (const b of batches) {
       if (!b.designId) continue;
       const design = await store.getDesign(b.designId);
-      if (!design || !isProduct(design)) continue;
+      if (!design) continue;
+      const behind: SpecFollowUp[] = [];
+      const decided = !!b.reply || !!b.edited?.ready;
+      const used = b.reply?.usedIn?.target ?? b.followUps?.apply?.target;
+      const target = used ? await store.findDesign(design.project, used) : null;
+      for (const m of [decided ? design : null, target]) {
+        if (!m || !isProduct(m) || behind.some((x) => x.design === m.slug)) continue;
+        const spec = await specFollowUp(m, await linesOf(m.project));
+        if (spec) behind.push(spec);
+      }
+      if (behind.length) b.followUps = { ...b.followUps, spec: behind };
+      if (!isProduct(design)) continue;
       const nudges: string[] = [];
       if (b.reply && !told.has(b.designId)) {
         told.add(b.designId);
-        let known = lines.get(design.project);
-        if (!known) lines.set(design.project, (known = await decisionLines(design.project)));
-        const nudge = await specNudgeFor(design, known);
+        const nudge = await specNudgeFor(design, await linesOf(design.project));
         if (nudge) nudges.push(nudge);
       }
       let areas = shownIn.get(design.project);
@@ -1061,6 +1080,33 @@ export function createApp({
       });
     }
     return areasShowing(screens);
+  }
+
+  // The screens and components whose shown versions show these entries of a component
+  // at these versions, nested ones included: they look different once it changed. Each as
+  // it stood, Ready or not, and the component's own mark, which the change now reads Changed.
+  async function showingNow(
+    component: Design,
+    entries: { alternative: string; version: number }[],
+  ): Promise<InstanceIn | null> {
+    const heads = headsByDesign(await store.listPostHeads(component.project));
+    const designs: InstanceIn["designs"] = [];
+    for (const m of await store.listDesigns(component.project)) {
+      if (!isProduct(m) || m.archivedAt || m.id === component.id) continue;
+      const mine = heads.get(m.id) ?? [];
+      if (
+        !mine.some((p) => p.surfaces.some((x) => x.marked) || shownHead(m, p).some((x) => x.marked))
+      )
+        continue;
+      const shown = await shownInstances(m, await store.listPosts({ designId: m.id }));
+      const shows = shown.some(
+        (e) =>
+          e.slug === component.slug &&
+          entries.some((c) => c.alternative === e.variant && c.version === e.version),
+      );
+      if (shows) designs.push({ slug: m.slug, kind: m.kind, ready: !!m.ready });
+    }
+    return designs.length ? { component: component.slug, ready: !!component.ready, designs } : null;
   }
 
   // The move to shared offered for this component, or for each component this design
@@ -3179,6 +3225,32 @@ export function createApp({
         ]
       : [];
 
+  // A product design whose decisions are newer than its spec, with how many, or whose
+  // decisions no spec holds yet. Nothing when the spec holds them all.
+  async function specFollowUp(
+    design: Design,
+    known?: DecisionLine[],
+  ): Promise<SpecFollowUp | null> {
+    const lines = (known ?? (await decisionLines(design.project))).filter(
+      (l) => l.design === design.slug && !l.system,
+    );
+    if (!isProduct(design) || !lines.length) return null;
+    const replies = design.spec
+      ? (await replyComments(design.id)).map((c) => ({
+          createdAt: c.createdAt,
+          answers: answeredAsks(c.payload as Reply | undefined),
+        }))
+      : [];
+    const behind = specBehind(design, lines, lineTimes(design, replies));
+    return behind?.decisions
+      ? {
+          design: design.slug,
+          decisions: behind.decisions,
+          ...(behind.noSpec ? { noSpec: true as const } : {}),
+        }
+      : null;
+  }
+
   // A product design whose spec is missing, or older than what was decided on it.
   async function specNudgeFor(design: Design, known?: DecisionLine[]): Promise<string | null> {
     if (!isProduct(design)) return null;
@@ -3247,10 +3319,12 @@ export function createApp({
     );
     const rows = [];
     const pending = [];
+    const owed = project ? await openFollowUps(project, designs, heads) : new Map();
     for (const m of designs) {
       const posts = heads.get(m.id) ?? [];
       rows.push(designSummaryView(m, posts));
-      pending.push(pendingOf(m));
+      const followUps = owed.get(m.id);
+      pending.push({ ...pendingOf(m), ...(followUps ? { followUps } : {}) });
     }
     const open = rows.reduce((n, r) => n + r.open, 0);
     const system = project && !query.noDecisions ? await systemFor(project) : null;
@@ -3265,6 +3339,79 @@ export function createApp({
       openDesigns: rows.filter((r) => r.open > 0).length,
       pending,
     });
+  }
+
+  // What each design's last decision still requires, so an agent that restarts sees it:
+  // the follow-ups its latest batch carried, less what has been done since (the target
+  // drawn again in those states, a host revisited or given an idea, `lift` asked after
+  // the mark), and every product design whose spec is behind its decisions now.
+  async function openFollowUps(
+    project: string,
+    designs: Design[],
+    heads: Map<string, PostHead[]>,
+  ): Promise<Map<string, FollowUps>> {
+    const out = new Map<string, FollowUps>();
+    const bySlug = new Map(designs.map((m) => [m.slug, m]));
+    const wroteSince = (m: Design | undefined, since: string, states?: (string | null)[]) =>
+      !!m &&
+      (heads.get(m.id) ?? []).some(
+        (p) => isLive(p.status) && p.updatedAt > since && (!states || states.includes(p.state)),
+      );
+    const exploredSince = (m: Design, since: string) =>
+      designs.some((d) => d.kind === "idea" && d.for === m.id && wroteSince(d, since));
+    const lines = await decisionLines(project);
+    for (const m of designs) {
+      if (m.archivedAt) continue;
+      const open: FollowUps = {};
+      const last = (await store.listComments({ designId: m.id }))
+        .filter((c) => c.kind === "reply" && c.payload?.followUps)
+        .at(-1);
+      const stored = last?.payload?.followUps;
+      const since = last?.createdAt ?? "";
+      if (stored?.apply) {
+        const { matched, missing } = stored.apply.states;
+        if (!wroteSince(bySlug.get(stored.apply.target), since, [...matched, ...missing]))
+          open.apply = stored.apply;
+      }
+      if (stored?.gaps) {
+        const target = bySlug.get(stored.gaps.target);
+        const states = (stored.gaps.states ?? []).filter((st) => !wroteSince(target, since, [st]));
+        const variants = (stored.gaps.variants ?? []).flatMap((v) => {
+          const names = v.names.filter(
+            (n) =>
+              !(target ? (heads.get(target.id) ?? []) : []).some(
+                (p) => p.state === v.state && p.alternative === n && p.updatedAt > since,
+              ),
+          );
+          return names.length ? [{ state: v.state, names }] : [];
+        });
+        if (states.length || variants.length)
+          open.gaps = {
+            target: stored.gaps.target,
+            ...(states.length ? { states } : {}),
+            ...(variants.length ? { variants } : {}),
+          };
+      }
+      if (stored?.instanceIn) {
+        const left = stored.instanceIn.designs.filter((d) => {
+          const host = bySlug.get(d.slug);
+          return host && !wroteSince(host, since) && !exploredSince(host, since);
+        });
+        if (left.length) open.instanceIn = { ...stored.instanceIn, designs: left };
+      }
+      // A later mark, or the answer that marked it again, supersedes it; so does asking.
+      if (
+        stored?.lift &&
+        m.ready &&
+        m.ready.at <= since &&
+        !m.asks.some((a) => a.id === LIFT_ASK && a.at > since)
+      )
+        open.lift = stored.lift;
+      const spec = isProduct(m) ? await specFollowUp(m, lines) : null;
+      if (spec) open.spec = [spec];
+      if (Object.keys(open).length) out.set(m.id, open);
+    }
+    return out;
   }
 
   // The project as a tree: every design with its alternatives per state (status,
@@ -5052,7 +5199,7 @@ export function createApp({
     idea: Design,
     posts: Post[],
     chosen: { post: Post; version: number }[],
-  ): Promise<{ usedIn?: UsedIn; apply?: ApplyTo } | FlowResult> {
+  ): Promise<{ usedIn?: UsedIn; followUps?: FollowUps } | FlowResult> {
     // What was in use at that version already changes nothing, there or here.
     const used = chosen.filter(
       (u) => !(u.post.status === "accepted" && u.post.acceptedVersion === u.version),
@@ -5062,14 +5209,24 @@ export function createApp({
     const making =
       !target && (idea.becomes === "screen" || idea.becomes === "component") ? idea.becomes : null;
     if (!target && !making) return {};
-    if (target) {
-      const states = statesFor(
-        idea,
-        posts,
-        used.map((u) => u.post),
+    const states = target
+      ? statesFor(
+          idea,
+          posts,
+          used.map((u) => u.post),
+          target,
+        )
+      : null;
+    if (target && states?.missing.length) {
+      const gaps = gapsOf(
         target,
+        await store.listPosts({ designId: target.id }),
+        states,
+        used.map((u) => u.post),
       );
-      if (states.missing.length) return { apply: { target: target.slug, states } };
+      return {
+        followUps: { apply: { target: target.slug, states }, ...(gaps ? { gaps } : {}) },
+      };
     }
     // One project's copies land one at a time, whichever ideas they come from: each checks
     // its instances against the graph as the last copy left it, so two uses onto different
@@ -5172,8 +5329,17 @@ export function createApp({
         });
       }
       bus.broadcast({ type: "design-updated", id: into.id, project: into.project });
+      // A design made by this use has exactly the states used and nothing showing it yet.
+      const gaps = !created && states ? gapsOf(into, here, states, copies) : null;
+      const instanceIn =
+        !created && into.kind === "component" ? await showingNow(into, copies) : null;
+      const followUps: FollowUps = {
+        ...(gaps ? { gaps } : {}),
+        ...(instanceIn ? { instanceIn } : {}),
+      };
       return {
         usedIn: { target: into.slug, ...(created ? { created: true as const } : {}), copies },
+        ...(Object.keys(followUps).length ? { followUps } : {}),
       };
     });
   }
@@ -6985,7 +7151,7 @@ export function createApp({
         tuned: {},
         comments: [],
         edited,
-        ...(lift ? { lift } : {}),
+        ...(lift ? { followUps: { lift } } : {}),
       },
       asks: after.asks,
       accept: [],

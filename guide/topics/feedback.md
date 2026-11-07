@@ -141,7 +141,7 @@ ride in the same batch as a reply. `edited.spec` is the design's spec as the use
 corrected it, by section: `purpose` and `behaviour` (`null` where they cleared one).
 `edited.ready` (`{ready, at}`) says they marked a screen or component Ready, or took the
 mark off: only they set it, and marking a screen marks the components inside it too, each
-heard on its own design. A screen's mark carries `lift`: `parts` (`[{name, label?, states,
+heard on its own design. A screen's mark carries `followUps.lift`: `parts` (`[{name, label?, states,
 alsoIn?}]`, the parts its marked versions draw themselves, not an instance's place, with the
 other designs showing a part of that name) and `likeLibrary` (the same, plus `component`: a
 part named like a library component, a copy drawn where an instance belongs). Swap each copy
@@ -152,6 +152,39 @@ component not chosen Ready. A batch's `nudges` say what the design needs now: a 
 component whose spec is missing, or older than what was just decided on it, is told to
 update it, and a component of one area that screens of two or more areas show is offered a
 move to shared (`edit <slug> --area ''`).
+
+## Follow-ups
+
+A batch's `followUps` says what a decision now requires, worked out by mockpit, each by
+what and where:
+
+```json
+"followUps": {
+  "apply": { "target": "onni", "states": { "matched": [], "missing": ["Fin"] } },
+  "gaps": { "target": "onni", "states": ["Lumpy moss"], "variants": [{ "state": "Moss ball", "names": ["puck"] }] },
+  "instanceIn": { "component": "onni", "ready": true, "designs": [{ "slug": "socket", "kind": "component", "ready": true }, { "slug": "food", "kind": "screen", "ready": false }] },
+  "spec": [{ "design": "today", "decisions": 2 }],
+  "lift": { "parts": [], "likeLibrary": [] }
+}
+```
+
+- `spec`: that design's decisions are newer than its spec (`noSpec: true`: it has none).
+  Edit it yourself.
+- `apply`: an alternative used in a design whose states it couldn't drop into, so nothing
+  was copied. Publish the next version on `target` yourself; it takes over as any newer
+  version does.
+- `gaps`: what `target` has that the used alternative doesn't draw: its other `states`,
+  and on a variants design the other `variants` of the states it landed in. Draw them on
+  the target so they follow the choice.
+- `lift`: a screen just marked Ready (above).
+- `instanceIn`: the designs that show a component that just changed (a use put a new
+  version on it), each as it stood (`ready`); a Ready component now reads Changed. For each
+  that the change breaks, publish an idea for it (`--for <slug>`) with one question; never
+  change another design directly. The same goes for anything else a choice touches
+  elsewhere: the user chooses, the way ideas work.
+
+`read` without a design carries what is still open under `pending`, each design's
+`followUps` from its last decision, less what was done since, so a restart finds them.
 
 ## Delivery
 
@@ -180,7 +213,7 @@ Never poll `feedback` in a loop.
 mockpit publish --design writer --state "Writing" --alternative dark --html dark-v2.html --prompt "bigger title"
 mockpit say "Went dark; body at 19px" --design writer
 mockpit export  --design writer             # .mockpit/accepted/writer/<state>/{index.html,history.json,…}
-mockpit read                              # one line per design, plus pending, then what is already decided
+mockpit read                              # one line per design, plus pending (open follow-ups too), then what is decided
 mockpit read    writer                    # states, alternatives, questions and answers, parts, knobs, settled
 mockpit read    --tree                    # the project as a tree: alternatives, forkedFrom, instances / instanceIn
 mockpit read    --area Food               # one area: what it is for, its designs, decisions, ideas waiting
@@ -226,8 +259,8 @@ mockpit read    --decisions               # the whole decision log, when a read 
   next version of the entry of the same name (else the state's one entry, else a new one),
   `copiedFrom: {design, state, alternative, version, asVersion}`; the reply says
   `usedIn: {target, created?, copies: [{state, alternative, version}]}`. When it is drawn in
-  a state the target lacks, nothing is copied: `apply: {target, states: {matched,
-  missing}}`, and the next version there is yours to publish. A screen's or component's
+  a state the target lacks, nothing is copied and the batch carries `followUps.apply`
+  (Follow-ups): the next version there is yours to publish. A screen's or component's
   reads list `ideasFor` (`[{slug, title, status}]`).
 - `planned: true` is a declared screen or component with nothing drawn; your first publish
   draws it. `stateOutlines` says which missing states the user dismissed or asked for by

@@ -40,13 +40,15 @@ The loop never waits for the user:
    `--variants`, each named `--variant <name>`), and the user marks it Ready (`read` and
    `export`: `ready`, `changed`, `builtFrom`). A batch with `edited` is the user moving
    a design from Home (kind, area), correcting its spec or marking it Ready: build on it.
-   A screen's mark brings `lift`: swap copies for library instances, lift the rest
-   into components, then ask `lift` (topic `feedback`).
    Explore for a screen or component in an idea for it (`--for <slug>`), or say what an
    idea would become (`--becomes screen|component|flow|system`). Its read and replies
    carry `target.ruledOut`: what that design turned down; never offer it again. Using
-   an alternative there copies it onto the design (`usedIn`), or, when its states don't
-   match, says `apply`: then publish the next version there yourself.
+   an alternative there copies it onto the design (`usedIn`).
+   A batch's `followUps` is what a decision now requires (topic `feedback`): edit the
+   `spec` yourself; publish `apply` on its target; draw the `gaps` there; for `lift`,
+   swap copies for library instances, lift the rest into components, then ask `lift`;
+   for each design in `instanceIn`, and anything else touching another design, publish
+   an idea for it with one question, never a direct change. `read` lists open ones.
 3. A choice is several alternatives plus one question that binds them: `mockpit ask`
    with options bound to alternatives. An alternative decides everything it differs on;
    don't re-ask it. Visual options carry an `alternative`, knob `set` or `palette`. One render

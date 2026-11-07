@@ -179,24 +179,37 @@ export function lineTimes(
     line.at;
 }
 
+// How far a product design's spec is behind what was decided on it: the decisions newer
+// than it (all of them when there is none). Null for an idea, where exploring happens.
+export function specBehind(
+  design: Pick<Design, "slug" | "kind" | "spec">,
+  lines: DecisionLine[],
+  at: (line: DecisionLine) => string | undefined,
+): { decisions: number; noSpec: boolean } | null {
+  if (!isProduct(design)) return null;
+  const spec = design.spec;
+  const own = lines.filter((l) => l.design === design.slug && !l.system);
+  if (!spec) return { decisions: own.length, noSpec: true };
+  const decisions = own.filter((l) => {
+    const t = at(l);
+    return !!t && t > spec.at;
+  }).length;
+  return { decisions, noSpec: false };
+}
+
 // A product design's spec should hold what was decided on it. Told on a publish and in
-// a feedback batch; never blocks. Nothing for an idea, where exploring happens.
+// a feedback batch; never blocks.
 export function specNudge(
   design: Pick<Design, "slug" | "kind" | "spec">,
   lines: DecisionLine[],
   at: (line: DecisionLine) => string | undefined,
 ): string | null {
-  if (!isProduct(design)) return null;
-  const spec = design.spec;
-  if (!spec) {
+  const behind = specBehind(design, lines, at);
+  if (!behind) return null;
+  if (behind.noSpec) {
     return `${design.slug} has no spec: say what it is for (\`edit --purpose\`) and how it works where the picture can't show it (\`edit --behaviour\`)`;
   }
-  const newer = lines
-    .filter((l) => l.design === design.slug && !l.system)
-    .filter((l) => {
-      const t = at(l);
-      return !!t && t > spec.at;
-    }).length;
+  const newer = behind.decisions;
   if (!newer) return null;
   return `${design.slug} has ${newer} decision${newer === 1 ? "" : "s"} newer than its spec; update it (\`edit --purpose\`, \`edit --behaviour\`)`;
 }

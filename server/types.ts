@@ -633,14 +633,11 @@ export interface Reply {
   // Neither an answer nor an archive: the user moved the design from Home
   // (another kind, another area; null area: none), which the agent must hear.
   edited?: DesignEdit;
-  // With a screen's Ready mark: the pieces it draws itself, worked out from the versions
-  // the mark covers.
-  lift?: Lift;
   // On an idea for a design: what the alternative put in use became there.
   usedIn?: UsedIn;
-  // On an idea for a design whose states don't all match the alternative put in use:
-  // nothing was copied, and the agent brings it over.
-  apply?: ApplyTo;
+  // What this decision now requires elsewhere, worked out when it was made, so it says
+  // what stood then (a host was Ready). `spec` is never stored: it is read at delivery.
+  followUps?: FollowUps;
   // What this reply changed on the project's system: the revision it made and how.
   // Alone (no design) it is the user's hand on the System page.
   system?: { project: string; rev: number; changes: string[] };
@@ -657,6 +654,41 @@ export interface ApplyTo {
   target: string;
   // The states the alternative is drawn in, those the target has and those it lacks.
   states: { matched: (string | null)[]; missing: (string | null)[] };
+}
+
+// What the design an idea is for has that the alternative used there doesn't draw: its
+// other states, and on a variants design the other variants of the states it landed in.
+export interface Gaps {
+  target: string;
+  states?: (string | null)[];
+  variants?: { state: string | null; names: string[] }[];
+}
+
+// The designs that show a component that just changed, each as it stood: Ready or not.
+// The component's own `ready` was its mark before the change, which it now reads Changed.
+export interface InstanceIn {
+  component: string;
+  ready: boolean;
+  designs: { slug: string; kind: DesignKind; ready: boolean }[];
+}
+
+// A product design whose decisions are newer than its spec (or that has none).
+export interface SpecFollowUp {
+  design: string;
+  decisions: number;
+  noSpec?: true;
+}
+
+// What a decision requires beyond answering it, by what and where, never as prose:
+// mockpit works out each from the reply and what it changed (feedbackBatch.ts).
+export interface FollowUps {
+  // An alternative used in a design whose states it couldn't drop into.
+  apply?: ApplyTo;
+  gaps?: Gaps;
+  instanceIn?: InstanceIn;
+  spec?: SpecFollowUp[];
+  // A screen just marked Ready: what it draws itself (lift.ts).
+  lift?: Lift;
 }
 
 // What a design an idea is for has ruled out, handed to whoever explores for it so it

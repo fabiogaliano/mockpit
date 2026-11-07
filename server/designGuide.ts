@@ -592,9 +592,9 @@ is there while a component is in it. A component of one area that screens of sev
 areas show is offered a move to shared in a nudge (\`edit <slug> --area ''\`); nothing
 moves by itself.
 
-When the user marks a screen Ready, its batch carries \`lift\`: \`parts\`, what the
-screen draws itself (each with its \`states\` and \`alsoIn\`, other designs showing a part
-of that name), and \`likeLibrary\`, parts named like a library component. Replace each
+When the user marks a screen Ready, its batch's \`followUps\` carry \`lift\`: \`parts\`,
+what the screen draws itself (each with its \`states\` and \`alsoIn\`, other designs
+showing a part of that name), and \`likeLibrary\`, parts named like a library component. Replace each
 \`likeLibrary\` copy with an instance of its \`component\`. Lift each piece of \`parts\`
 worth keeping into a component of its own, included back so the screen looks the same,
 in one new version. Then ask one question on the screen, id \`lift\`, \`multi\`, "Still
@@ -613,11 +613,25 @@ down (archived alternatives, hidden answers, its decisions' "Not:"), each with i
 \`reason\`. Never offer those again. When the user uses an alternative there, the version is
 copied onto the design as the next version of the state of the same name (its
 \`copiedFrom\` names the idea), current at once; the reply says \`usedIn\`. When the idea
-draws it in a state the design lacks, nothing is copied and the reply carries \`apply:
-{target, states: {matched, missing}}\`: publish the next version there yourself. An idea
+draws it in a state the design lacks, nothing is copied and the batch's \`followUps\`
+carry \`apply\` (Follow-ups). An idea
 that becomes a screen or component makes it on its first use (\`usedIn.created\`; rename it
 with \`edit --slug\`) and is then for it. A system change is a palette answer or a project
 knob (\`mockpit guide system\`). \`read\` of a screen or component lists \`ideasFor\`.
+
+## Follow-ups
+
+A batch's \`followUps\` is what a decision now requires, each by what and where. Do
+\`spec\` yourself (\`[{design, decisions, noSpec?}]\`: that design's decisions are newer
+than its spec; edit it). \`apply\` (\`{target, states: {matched, missing}}\`): publish the
+next version on the target, which takes over as any newer one does. \`gaps\` (\`{target,
+states?, variants?}\`): what the target has that the used alternative doesn't draw; draw
+those states or variants there so they follow the choice. \`lift\`: The library.
+\`instanceIn\` (\`{component, ready, designs: [{slug, kind, ready}]}\`): the designs showing a
+component that just changed, Ready or not (a Ready component now reads Changed). Fixing
+what a choice breaks there, or anything else touching another design, is the user's to
+choose: publish an idea for that design (\`--for <slug>\`) with one question, never change
+it directly. \`read\` without a design lists the ones still open under \`pending\`.
 
 ## Parts
 
@@ -749,8 +763,8 @@ A \`pending\` draft means the user is still answering. Send a nudge's
 \`edited: {kind, area}\` means the user moved the design from Home; it is done,
 so build on it and don't move it back. \`edited: {spec}\` is the user's correction
 of the design's spec, by section (null where they cleared one); \`edited: {ready}\` that
-they marked it Ready or took the mark off, with \`lift\` on a screen (The library). A
-batch's \`nudges\` say what the design needs now, such as its spec updated.
+they marked it Ready or took the mark off. A batch's \`nudges\` say what the design
+needs now, and its \`followUps\` what a decision requires (Follow-ups).
 \`read\` shows what the user took away, as information: a design's \`archivedAt\` and
 \`archiveReason\`, an alternative's \`archived\` status and \`archiveReason\`. A question
 you ask on an archived design brings it back to their list.

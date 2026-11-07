@@ -2020,13 +2020,14 @@ export function createDesignScreen(
       await Promise.all([loadDesign(), loadComments()]);
       showVersion(ref);
       const target = design()?.target?.title ?? used.usedIn?.target;
-      const lacks = used.apply?.states.missing.map((x) => x ?? m.title).join(", ");
+      const apply = used.followUps?.apply;
+      const lacks = apply?.states.missing.map((x) => x ?? m.title).join(", ");
       setToast({
         text: used.usedIn?.created
           ? `${nameOf(ref)} is in use, and made ${target}`
           : used.usedIn
             ? `${nameOf(ref)} is in use in ${target}`
-            : used.apply
+            : apply
               ? `${nameOf(ref)} is in use. ${target} has no ${lacks}, so the agent brings it over`
               : `${nameOf(ref)} is in use`,
       });

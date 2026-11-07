@@ -793,6 +793,30 @@ export class SqlStore implements Store {
     this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('comboWords', '1')");
   }
 
+  // What a decision requires next is one object on the reply: an alternative to bring
+  // over (`apply`) and a Ready screen's pieces to lift (`lift`) move under `followUps`.
+  private migrateToFollowUps() {
+    this.rewriteJson(
+      "comments",
+      "seq",
+      "payload",
+      (p) => {
+        const reply = p as Record<string, unknown>;
+        const moved: Record<string, unknown> = {};
+        for (const key of ["apply", "lift"]) {
+          if (reply[key] === undefined) continue;
+          moved[key] = reply[key];
+          delete reply[key];
+        }
+        if (!Object.keys(moved).length) return false;
+        reply.followUps = { ...(reply.followUps as object | undefined), ...moved };
+        return true;
+      },
+      "kind = 'reply' AND (payload LIKE '%\"apply\":%' OR payload LIKE '%\"lift\":%')",
+    );
+    this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('followUpWords', '1')");
+  }
+
   private renameMocksToDesigns() {
     if (!this.tables().has("mocks") || this.tables().has("designs")) return;
     for (const name of [
@@ -993,6 +1017,7 @@ export class SqlStore implements Store {
     if (this.settingSync("swapWords") !== "1") this.migrateToSwapWords();
     if (this.settingSync("instanceWords") !== "1") this.migrateToInstanceWords();
     if (this.settingSync("comboWords") !== "1") this.migrateToComboWords();
+    if (this.settingSync("followUpWords") !== "1") this.migrateToFollowUps();
     // The day it went was never kept, and the design's last change is the nearest thing.
     // Frozen now, or the next reason or draft on the design would move it to that day.
     if (!dated) {
