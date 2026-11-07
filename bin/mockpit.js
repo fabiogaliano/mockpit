@@ -2628,7 +2628,8 @@ const commands = {
     parse();
     const { DEMO } = await import("./demoData.js");
     // The demo goes in through the same path an agent uses: one session, one
-    // publish per (state, alternative), then the asks.
+    // publish per (state, alternative), then the asks. Writer stays an idea: a screen has
+    // nothing to choose between, and the demo is a choice.
     const session = await api("/api/sessions", {
       method: "POST",
       body: JSON.stringify({ agent: DEMO.agent, title: DEMO.sessionTitle, project: DEMO.project }),
@@ -2641,7 +2642,6 @@ const commands = {
             session: session.id,
             project: DEMO.project,
             design: DEMO.slug,
-            kind: "screen",
             title: DEMO.title,
             state: state.label,
             alternative: alternative.name,

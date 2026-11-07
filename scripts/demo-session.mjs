@@ -63,7 +63,6 @@ export async function publishShop(api, asks = DEMO.asks) {
         session: session.id,
         project: DEMO.project,
         design: DEMO.slug,
-        kind: "screen",
         title: DEMO.title,
         state: state.label,
         alternative: alternative.name,
