@@ -94,6 +94,8 @@ import {
   specEdit,
   specInput,
   specBehind,
+  specLines,
+  specLineText,
   specNudge,
   specSize,
   specView,
@@ -3557,23 +3559,45 @@ export function createApp({
         ]
       : [];
 
+  // The ideas whose decisions a product design's spec holds: every idea for it, archived
+  // ones too, since what was settled there still stands.
+  async function ideasDecidingFor(design: Design): Promise<Design[]> {
+    if (!isProduct(design)) return [];
+    return (await store.listDesigns(design.project)).filter(
+      (d) => d.kind === "idea" && d.for === design.id,
+    );
+  }
+
+  // A product design's spec lines, and when each was decided: a question's line by the
+  // last reply on its own design that answered it.
+  async function specInputs(design: Design, known?: DecisionLine[], timed = true) {
+    const ideas = await ideasDecidingFor(design);
+    const lines = specLines(design, known ?? (await decisionLines(design.project)), ideas);
+    const times = new Map<string, (line: DecisionLine) => string | undefined>();
+    if (timed && lines.length) {
+      for (const d of [design, ...ideas]) {
+        if (!lines.some((l) => l.design === d.slug)) continue;
+        const replies = (await replyComments(d.id)).map((c) => ({
+          createdAt: c.createdAt,
+          answers: answeredAsks(c.payload as Reply | undefined),
+        }));
+        times.set(d.slug, lineTimes(d, replies));
+      }
+    }
+    const at = (l: DecisionLine) => times.get(l.design)?.(l) ?? l.at;
+    return { lines, at };
+  }
+
   // A product design whose decisions are newer than its spec, with how many, or whose
   // decisions no spec holds yet. Nothing when the spec holds them all.
   async function specFollowUp(
     design: Design,
     known?: DecisionLine[],
   ): Promise<SpecFollowUp | null> {
-    const lines = (known ?? (await decisionLines(design.project))).filter(
-      (l) => l.design === design.slug && !l.system,
-    );
-    if (!isProduct(design) || !lines.length) return null;
-    const replies = design.spec
-      ? (await replyComments(design.id)).map((c) => ({
-          createdAt: c.createdAt,
-          answers: answeredAsks(c.payload as Reply | undefined),
-        }))
-      : [];
-    const behind = specBehind(design, lines, lineTimes(design, replies));
+    if (!isProduct(design)) return null;
+    const { lines, at } = await specInputs(design, known, !!design.spec);
+    if (!lines.length) return null;
+    const behind = specBehind(design, lines, at);
     return behind?.decisions
       ? {
           design: design.slug,
@@ -3587,15 +3611,9 @@ export function createApp({
   async function specNudgeFor(design: Design, known?: DecisionLine[]): Promise<string | null> {
     if (!isProduct(design)) return null;
     if (!design.spec) return specNudge(design, [], () => undefined);
-    const lines = (known ?? (await decisionLines(design.project))).filter(
-      (l) => l.design === design.slug && !l.system,
-    );
+    const { lines, at } = await specInputs(design, known);
     if (!lines.length) return null;
-    const replies = (await replyComments(design.id)).map((c) => ({
-      createdAt: c.createdAt,
-      answers: answeredAsks(c.payload as Reply | undefined),
-    }));
-    return specNudge(design, lines, lineTimes(design, replies));
+    return specNudge(design, lines, at);
   }
 
   async function decisionsFlow(query: { project?: unknown }, ctx?: { viewer: boolean }) {
@@ -3958,9 +3976,24 @@ export function createApp({
     const lines = query.noDecisions ? null : await decisionLines(design.project);
     const list = lines?.length ? agentDecisionLog(lines, design.slug) : null;
     const instances = await instanceViews(design, posts);
+    const ideas = await ideasDecidingFor(design);
     const view = designDetailView(design, posts, {
-      // The design's own lines, as the list above carries them: the spec's third part.
-      ...(lines ? { decisions: (list?.lines ?? []).filter((l) => l.here).map((l) => l.text) } : {}),
+      // The spec's third part: the design's own lines and those of the ideas for it,
+      // bounded as the list above is.
+      ...(lines
+        ? {
+            decisions: agentDecisionLog(specLines(design, lines, ideas), design.slug).lines.map(
+              (l) =>
+                specLineText(design, {
+                  ...l,
+                  title: lines.find((x) => x.design === l.design)?.title ?? l.design,
+                }),
+            ),
+          }
+        : {}),
+      // The viewer builds the spec's decisions from the project's list: these are the
+      // ideas whose lines it holds besides the design's own.
+      ...(query.viewer && ideas.length ? { decisionsFrom: ideas.map((i) => i.slug) } : {}),
       body: query.body,
       history: query.history,
       settled: settledValues(await replyPayloads(design.id), design, posts),
@@ -4076,9 +4109,11 @@ export function createApp({
   // moved, its spec with its decisions, and the components inside the versions handed
   // over, each with its own mark.
   async function buildHandover(design: Design, posts: Post[], picked: Post[]) {
-    const decisions = (await decisionLines(design.project))
-      .filter((l) => !l.system && l.design === design.slug)
-      .map((l) => l.text);
+    const decisions = specLines(
+      design,
+      await decisionLines(design.project),
+      await ideasDecidingFor(design),
+    ).map((l) => specLineText(design, l));
     const builtFrom = [];
     for (const e of await instancesIn(design, picked)) {
       const m = await store.findDesign(design.project, e.slug);

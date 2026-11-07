@@ -466,6 +466,8 @@ export const designDetailView = (
     repliesGoTo?: string;
     // This design's lines of the decision log; absent where the read carries none.
     decisions?: string[];
+    // The viewer's: the ideas whose decision lines the spec holds besides the design's own.
+    decisionsFrom?: string[];
     // The components it is built from, as their marks stand.
     builtFrom?: BuiltFrom[];
     idea?: IdeaPlace;
@@ -485,6 +487,7 @@ const detailOf = (
     settled?: Record<string, KnobValue>;
     repliesGoTo?: string;
     decisions?: string[];
+    decisionsFrom?: string[];
     builtFrom?: BuiltFrom[];
     idea?: IdeaPlace;
     target?: IdeaTarget;
@@ -509,6 +512,7 @@ const detailOf = (
   // Undefined (left out of the JSON) when it includes nothing.
   builtFrom: opts.builtFrom?.length ? opts.builtFrom : undefined,
   ...specView(design.spec, opts.decisions),
+  ...(opts.decisionsFrom?.length ? { decisionsFrom: opts.decisionsFrom } : {}),
   ...(Object.keys(design.stateOutlines).length ? { stateOutlines: design.stateOutlines } : {}),
   ...(design.answerAdditions.length ? { answerAdditions: design.answerAdditions } : {}),
   // With the alternatives each question chooses between added, as the user meets them.

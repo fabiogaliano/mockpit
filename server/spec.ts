@@ -179,8 +179,30 @@ export function lineTimes(
     line.at;
 }
 
+// The decision lines a product design's spec holds: its own, then those of the ideas that
+// are for it, since that is where most of what it shows was chosen.
+export function specLines(
+  design: Pick<Design, "slug">,
+  lines: DecisionLine[],
+  ideas: Pick<Design, "slug">[],
+): DecisionLine[] {
+  const from = new Set(ideas.map((i) => i.slug));
+  return [
+    ...lines.filter((l) => !l.system && l.design === design.slug),
+    ...lines.filter((l) => !l.system && l.design !== design.slug && from.has(l.design)),
+  ];
+}
+
+// A line decided on an idea says which, so the spec's reader can tell it from the
+// design's own.
+export const specLineText = (
+  design: Pick<Design, "slug">,
+  line: Pick<DecisionLine, "design" | "title" | "text">,
+) => (line.design === design.slug ? line.text : `From ${line.title}: ${line.text}`);
+
 // How far a product design's spec is behind what was decided on it: the decisions newer
-// than it (all of them when there is none). Null for an idea, where exploring happens.
+// than it (all of them when there is none). `lines` are its spec's (specLines). Null for
+// an idea, where exploring happens.
 export function specBehind(
   design: Pick<Design, "slug" | "kind" | "spec">,
   lines: DecisionLine[],
@@ -188,7 +210,7 @@ export function specBehind(
 ): { decisions: number; noSpec: boolean } | null {
   if (!isProduct(design)) return null;
   const spec = design.spec;
-  const own = lines.filter((l) => l.design === design.slug && !l.system);
+  const own = lines.filter((l) => !l.system);
   if (!spec) return { decisions: own.length, noSpec: true };
   const decisions = own.filter((l) => {
     const t = at(l);

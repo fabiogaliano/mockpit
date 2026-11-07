@@ -7,6 +7,7 @@
 
 import { createEffect, createMemo, createSignal, For, Index, on, Show } from "solid-js";
 import type { DecisionLine } from "../../server/decisionLog.ts";
+import { specLines, specLineText } from "../../server/spec.ts";
 import { type AskAnswer, MAX_SPEC, type SpecLine } from "../../server/types.ts";
 import type { DesignDetail } from "./api.ts";
 import { createDecisions } from "./Decisions.tsx";
@@ -70,9 +71,12 @@ export function Spec(props: { s: DesignScreenState }) {
   const lines = createMemo(() => {
     const m = s.design();
     const list = decisions.list();
-    return m && list && list.project === m.project
-      ? list.lines.filter((l) => !l.system && l.design === m.slug)
-      : [];
+    if (!m || !list || list.project !== m.project) return [];
+    return specLines(
+      m,
+      list.lines,
+      (m.decisionsFrom ?? []).map((slug) => ({ slug })),
+    );
   });
   const behaviour = () => spec()?.behaviour ?? [];
   const numbers = createMemo(() => {
@@ -460,7 +464,7 @@ function DecisionRow(props: { line: DecisionLine; design: DesignDetail | undefin
         aria-expanded={open()}
         onClick={() => setOpen(!open())}
       >
-        {props.line.text}
+        {props.design ? specLineText(props.design, props.line) : props.line.text}
       </button>
       <Show when={open()}>
         <dl class="spec-decision-more">

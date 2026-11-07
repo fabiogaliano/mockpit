@@ -560,8 +560,8 @@ question. \`archived\` marks a line from an archived design, which may be older 
 
 A screen or component carries its own record, \`spec\` in \`read\` of the design, under
 three headings: What it is for (\`purpose\`), How it works (\`behaviour\`, one line each)
-and Decisions (\`decisions\`, the design's lines of the decision log, which the server
-writes from the user's replies). Behaviour the picture can't show (a gesture, timing,
+and Decisions (\`decisions\`, the design's lines of the decision log and those of the
+ideas for it, each "From <idea>: …", which the server writes from the user's replies). Behaviour the picture can't show (a gesture, timing,
 what happens next) goes in the spec, never in side files:
 \`mockpit edit --design <slug> --purpose "..."\`, and
 \`--behaviour "Pinch zooms between Now and the whole day" --state Now --part river\`

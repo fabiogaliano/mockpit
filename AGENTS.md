@@ -218,7 +218,8 @@ consciously, not as a side effect):
   headings: What it is for (`purpose`), How it works (`behaviour`, lines that may name a
   state and a `part`, which makes the line an **annotation**: a numbered pin on that part
   while the Spec panel is open, never otherwise) and Decisions (the design's lines of the
-  decision log, derived on every read, never stored). `edit` writes the first two, `read`
+  decision log, then those of the ideas `for` it, each "From <idea>: …" (`specLines`,
+  `specLineText`), derived on every read, never stored; `specBehind` counts both). `edit` writes the first two, `read`
   returns all three, the viewer shows them in text nodes. A hand edit holds against agents
   per section (`held`) until the user clears it (`editDesignFlow`), the agent is told when
   its draft didn't apply, and it hears the user's edit as `edited.spec`. A product design

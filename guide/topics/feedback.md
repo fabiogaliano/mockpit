@@ -241,7 +241,7 @@ mockpit read    --decisions               # the whole decision log, when a read 
 - `spec` (`{purpose, behaviour: [{text, state?, part?}], by, at, held?, decisions}`) on a
   read of one design is its record: what it is for, how it works where the picture can't
   show it (a line with `part` is an annotation on it), and `decisions`, its own lines of
-  the decision log. Write the first two with `mockpit edit --purpose` and
+  the decision log, then those of the ideas for it, each "From <idea>: …". Write the first two with `mockpit edit --purpose` and
   `--behaviour`; behaviour goes here, never in side files. Read it before changing the
   design. `held` names the sections the user wrote by hand: those stand, your next
   draft of them isn't applied until they clear them, and `edit` answers
