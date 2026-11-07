@@ -1242,6 +1242,9 @@ export interface UpdateDesignInput {
   becomes?: IdeaBecomes | null;
   source?: string | null;
   states?: string[];
+  // Appended to the states as the row stands at the write, unless it is there already, so
+  // two writes adding states at once each keep theirs. Ignored when `states` is given.
+  addState?: string;
   asks?: Ask[];
   knobs?: Knobs;
   widths?: number[];

@@ -3444,13 +3444,9 @@ export function createApp({
   ): Promise<Design> {
     // What an idea is for means nothing once it is a screen or a component.
     const product = !!w.kind && w.kind !== "idea";
-    const states =
-      w.state !== null && !design.states.includes(w.state)
-        ? [...design.states, w.state]
-        : undefined;
     const knobs = Object.keys(w.knobs).length ? { ...design.knobs, ...w.knobs } : undefined;
     const updated = await store.updateDesign(design.id, {
-      ...(states ? { states } : {}),
+      ...(w.state !== null ? { addState: w.state } : {}),
       ...(w.kind ? { kind: w.kind } : {}),
       ...(w.title ? { title: w.title } : {}),
       ...(knobs ? { knobs } : {}),
@@ -6626,7 +6622,7 @@ export function createApp({
       // Named states would hide what a flat design already holds under no name.
       const flat = (await store.listPosts({ designId: list.id })).some((p) => p.state === null);
       if (flat) return fail(400, `${list.slug} has no states; move without "toState"`);
-      list = (await store.updateDesign(list.id, { states: [...list.states, state] })) ?? list;
+      list = (await store.updateDesign(list.id, { addState: state })) ?? list;
     }
     if (state === null ? !list.shortlist && list.states.length > 0 : !list.states.includes(state)) {
       return fail(400, `${list.slug} has no such state`, { states: list.states });

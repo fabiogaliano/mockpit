@@ -2173,9 +2173,15 @@ export class SqlStore implements Store {
     return design;
   }
 
+  // Read and written in one synchronous step: nothing another write does can land between.
   async updateDesign(id: string, patch: UpdateDesignInput) {
-    const design = await this.getDesign(id);
-    if (!design) return null;
+    const rows = this.sql.exec("SELECT * FROM designs WHERE id = ?", id).toArray();
+    if (rows.length === 0) return null;
+    const design = this.rowToDesign(rows[0]);
+    const added =
+      patch.states === undefined && patch.addState !== undefined
+        ? stripNul(patch.addState)
+        : undefined;
     const next: Design = {
       ...design,
       ...(patch.title !== undefined && { title: stripNul(patch.title).trim() || design.title }),
@@ -2187,6 +2193,8 @@ export class SqlStore implements Store {
       ...(patch.becomes !== undefined && { becomes: patch.becomes }),
       ...(patch.source !== undefined && { source: label(patch.source) }),
       ...(patch.states !== undefined && { states: patch.states.map((s) => stripNul(s)) }),
+      ...(added !== undefined &&
+        !design.states.includes(added) && { states: [...design.states, added] }),
       ...(patch.asks !== undefined && { asks: patch.asks }),
       ...(patch.knobs !== undefined && { knobs: patch.knobs }),
       ...(patch.widths !== undefined && { widths: patch.widths }),
