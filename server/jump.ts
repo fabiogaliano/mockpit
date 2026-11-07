@@ -1,5 +1,5 @@
 // Search to jump: find a design by anything the user might remember it by, its
-// title, a state, an alternative's name or note, a question, or its area. It reads
+// title, a state, an alternative's name or description, a question, or its area. It reads
 // what `listJumpRows` hands it, which never includes surfaces, so a big
 // workspace costs its metadata and not its pages. This project comes first, then
 // the others. Runtime-agnostic (no node imports).

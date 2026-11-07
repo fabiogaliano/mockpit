@@ -82,6 +82,7 @@ verbs:
       --becomes <what>  an idea for nothing yet: screen|component|flow|system
       --source <path>   the code path that implements it
       --knobs <json|file>  knobs in tunekit usePane shape, keyed by path
+      --alternative-knobs <json|file>  knobs this alternative alone has
       --from <N>        branch from version N
       --amend           replace the latest version in place: a fix before the
                         user has acted on it (one request, one version)
@@ -113,16 +114,17 @@ verbs:
       --multi           allow several answers
       --id <id>         stable id; reusing one replaces that question
       --asks <json|file>  several questions at once, full shape
-  mockpit read [slug] [--body] [--history] [--decisions] [--area <name>]
+  mockpit read [slug] [--body] [--history] [--decisions] [--tree] [--area <name>]
                                           what the user already decided, then
                                           no slug: every design plus what the user
                                           is doing now; a slug: that design and its
-                                          spec; --area: one area, all settled in it
+                                          spec; --area: one area, all settled in it;
+                                          --tree: the project as a tree
   mockpit feedback                       what the user sent since you last heard,
                                           plus pending; returns at once
-  mockpit say "<text>" --design <slug> [--state s] [--alternative v]
+  mockpit say "<text>" --design <slug> [--state s] [--alternative v | --variant v]
                                           a plain-text message in a design's thread
-  mockpit move --design <slug> --alternative <v>... (--to <design> [--to-state s] | --archive | --restore)
+  mockpit move --design <slug> (--alternative <v>... | --variant <v>...) (--to <design> [--to-state s] | --archive | --restore)
                                           move alternatives elsewhere, archive or restore them
   mockpit edit <slug> [--slug s] [--title t] [--kind k] [--area a] [--group g] [--[no-]variants] [--source p]
           [--for d] [--becomes k] [--purpose t] [--behaviour t [--state s] [--part p]]
@@ -137,7 +139,7 @@ verbs:
   mockpit system [--sheet f.css] [--classes j] [--tokens j] [--scales j] [--palettes j] ...
                                           the project's system: read it, or change a part
                                           (applies to every design at once)
-  mockpit export --design <slug> [--state s] [--alternative v] [--out <dir>]
+  mockpit export --design <slug> [--state s] [--alternative v | --variant v] [--out <dir>]
                                           write the html in use + history per state
                                           to .mockpit/accepted/<design>/<state>/
   mockpit upload <file> [--kind image|file]
@@ -258,6 +260,7 @@ mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
                      one from what is used), flow or system. "" clears
   --source <path>    the code path that implements it (apps/web/src/shell). "" clears
   --knobs <json|file>  knobs in tunekit usePane shape
+  --alternative-knobs <json|file>  knobs this alternative alone has, same shape
   --from <N>         branch from version N
   --fork <v[@N]>     start this new alternative from sibling v (its version N, else
                      its latest); alone it copies v, with --parts/--swaps it
@@ -310,14 +313,16 @@ mockpit read --area <name> [--project <name>]
   every write; and pending ({design, viewerOpen, draft}) so you can tell the
   user "take your time" or "2 of 3 answered". Run it when the user says they
   answered.`,
-  say: `mockpit say "<text>" --design <slug> [--state s] [--alternative v]
-  A plain-text message in the design's thread, as your session's agent.`,
+  say: `mockpit say "<text>" --design <slug> [--state s] [--alternative v | --variant v]
+  A plain-text message in the design's thread, as your session's agent. --variant names
+  an entry of a variants design.`,
   move: `mockpit move --design <slug> [--state s] --alternative <v> [--alternative <v>...]
+  (or --variant <v>..., a variants design's entries)
   --to <design> [--to-state <s>] | --to-state <s> | --archive | --restore
 mockpit move --design <slug> [--state s] [--alternative <v>...] --hide-older | --delete-older
   Tidy up. --to or --to-state moves them to another design or tab (a new state is
   created) and takes them out of here; --archive takes them out of sight; --restore
-  brings them back. Their group goes along; one in use stays and is reported. The
+  brings them back. One in use stays and is reported. The
   thread says what happened, so the user can undo it.
   Only when the user asks: --hide-older hides all but each alternative's newest visible
   version (no --alternative: every alternative), and --delete-older deletes them for good,
@@ -382,7 +387,7 @@ mockpit system --restore <rev>
   feedback or the next write delivers it, once.
   --once stops after the first Send, for a harness whose wake is a process
   exiting; --exit-code sets the code it stops with (default 0).`,
-  export: `mockpit export --design <slug> [--state s] [--alternative v] [--out <dir>]
+  export: `mockpit export --design <slug> [--state s] [--alternative v | --variant v] [--out <dir>]
   Write index.html + history.json per state to .mockpit/accepted/<design>/<state>/;
   with swaps, index.html is the chosen state, plus all-swaps.html and decisions.json.
   A screen or component writes every entry marked Ready (unmarked: every live one as it
@@ -1212,6 +1217,7 @@ function parsePublishFlags() {
       parts: { type: "string", multiple: true },
       swaps: { type: "string", multiple: true },
       knobs: { type: "string" },
+      "alternative-knobs": { type: "string" },
       from: { type: "string" },
       fork: { type: "string" },
       prompt: { type: "string" },
@@ -1345,6 +1351,9 @@ async function publishDesign() {
     becomes: flags.becomes,
     source: flags.source,
     ...(flags.knobs !== undefined && { knobs: readJsonFlag("knobs", flags.knobs) }),
+    ...(flags["alternative-knobs"] !== undefined && {
+      alternativeKnobs: readJsonFlag("alternative-knobs", flags["alternative-knobs"]),
+    }),
     ...(from !== undefined && { from }),
     ...(flags.fork !== undefined && { fork: flags.fork }),
     prompt: flags.prompt,

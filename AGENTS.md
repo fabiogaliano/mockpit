@@ -25,7 +25,7 @@ archives or restores them (never touches one in use, and says so in the Thread),
 when the user asks, hides or deletes their older versions (`hideOlder`, `deleteOlder`:
 deleting skips any version a reply, comment, question, instance, copy, fork or Ready mark points at,
 `deleteBlocker` in `server/app.ts`); `edit` changes a design (slug, title, kind, area,
-source, spec, or the first name of its one unnamed state) without a new version, renames a project, sets its area order, or says what the project or one area is for;
+group, variants, for, becomes, source, spec, or the first name of its one unnamed state) without a new version, renames a project, sets its area order, or says what the project or one area is for;
 `publish` with `amend` replaces an alternative's latest version in place and with
 `withdraw` deletes it, both only from the session that published it and only
 while the user hasn't acted on it (`touchedBy` in `server/app.ts`). A
@@ -136,7 +136,7 @@ consciously, not as a side effect):
 - `server/knobs.ts` — knob schema and value validation (Q3): every declared knob
   and every value (`?k=`, drafts, replies, ask `set`s) is checked here;
   `discreteChoices` drives the ask-not-knob nudge.
-- `server/jump.ts` — search to jump, over names, states, alternatives, notes,
+- `server/jump.ts` — search to jump, over names, states, alternatives, descriptions,
   questions and areas read by `SqlStore.listJumpRows`, never surfaces.
 - `server/parts.ts` — reads part identity (`data-part`, `-label`, `-key`) from
   html strings with a regex, and diffs versions into vanished/renamed. Never
@@ -466,7 +466,7 @@ consciously, not as a side effect):
 
 - `server/{app,events,knobs,mcpHttp,parts,surfacePage,types}.ts` stay runtime-agnostic
   (and any other server file imported by Workers: no `node:` imports);
-  `tsconfig.workers.json` typechecks them. Node wiring belongs in `server/index.ts` / `server/storage.ts`.
+  `tsconfig.workers.json` typechecks them. Node wiring belongs in `server/index.ts` / `server/sqliteStorage.ts`.
 - Server/CLI TypeScript runs directly on Node ≥22.18 via type stripping:
   erasable syntax only (no enums, no parameter properties), `.ts` extensions
   in relative imports, no build step (`npm pack` compiles `dist/` for the
@@ -662,7 +662,7 @@ the finding needs.
   alternative is Kept, In use or Archived; a version is current or, older ones, Hidden.
   Hide only ever means a version, taking an alternative out is Archive, and the bookmark
   is Keep. An alternative has a `description`,
-  a design has a `spec`, an area and a project a `description`, an answer has a `comment`. Retired words — item, group,
+  a design has a `spec`, an area and a project a `description`, an answer has a `comment`. Retired words — item, group (for a lead's followers; a component's library `group` is live),
   snippet, board, stream, `part` for a surface, trace, look (for an alternative), slot, mix
   (now borrow), resolve, close and end (now archive), mock (now design), `page` and
   `sketch` as kinds (now screen and idea), note for an alternative or an answer, screen for

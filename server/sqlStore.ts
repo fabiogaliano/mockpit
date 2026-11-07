@@ -644,10 +644,11 @@ export class SqlStore implements Store {
       const nearPart = /\[\s*data-part(?![\w-])/i.test(text);
       return text.replace(OLD_SELECTOR, (all, space: string, suffix = "", rest: string) => {
         const equals = /^\s*=\s*(\\?["']?)([\s\S]*?)\1(?:\s+[is])?\s*$/i.exec(rest);
+        // A value built in a template (`${v}`) beside a part's selector was one of its swaps.
         const swap = suffix
           ? nearPart
           : equals
-            ? values.has(equals[2])
+            ? values.has(equals[2]) || (nearPart && equals[2].includes("${"))
             : rest.trim() === "" && nearPart;
         return swap ? `[${space}data-swap${suffix}${rest}]` : all;
       });
@@ -665,9 +666,12 @@ export class SqlStore implements Store {
       }
       return out + css.slice(from);
     };
-    const JS_STRING = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\[\s\S])*`/g;
+    // Comments and regex literals are read past, so a quote inside one ("don't", /'/) doesn't
+    // put the strings after it out of step. A slash opens a regex only where a value starts.
+    const JS_STRING =
+      /\/\/[^\n]*|\/\*[\s\S]*?\*\/|(?<=(?:^|[(,=:[!&|?{};]|\breturn|\btypeof)\s*)\/(?![*/])(?:[^/\\\n[]|\\.|\[(?:[^\]\\\n]|\\.)*\])+\/[a-z]*|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\[\s\S])*`/g;
     const inScript = (js: string, values: Set<string>): string =>
-      js.replace(JS_STRING, (s) => selector(s, values));
+      js.replace(JS_STRING, (s) => (s[0] === "/" ? s : selector(s, values)));
     const page = (html: string, values: Set<string>): string => {
       const own = new Set<string>();
       let marked = false;
