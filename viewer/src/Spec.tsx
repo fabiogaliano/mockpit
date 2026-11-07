@@ -382,8 +382,9 @@ export function decisionDetail(
     not: line.parts?.not,
     state: line.state,
   };
-  // Reworded by the user, the line is their words alone: the question it came from
-  // still holds the old answer, which their rewrite replaced.
+  // Reworded by the user, the line is their words alone, and the opened header already
+  // shows them whole: the question it came from still holds the old answer, which their
+  // rewrite replaced.
   if (line.edited) return { chose: [], ...(line.state ? { state: line.state } : {}) };
   const about = (state: string | null | undefined, alternative: string | undefined) =>
     alternative
@@ -427,7 +428,7 @@ export function decisionDetail(
         : [],
     };
   }
-  // A line the user reworded keeps only their words.
+  // A line that names no question or use of this design: what its own parts say.
   return {
     ...base,
     asked: line.parts?.asked,
@@ -481,9 +482,6 @@ function DecisionRow(props: { line: DecisionLine; design: DesignDetail | undefin
           {term("Not", d().not)}
           {term("Your comment", d().comment)}
           {term("You wrote", d().other)}
-          <Show when={!d().asked && !d().chose.length}>
-            {term("As you wrote it", props.line.text)}
-          </Show>
           {term("On", d().state)}
         </dl>
       </Show>

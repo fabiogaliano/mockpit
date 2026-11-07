@@ -108,7 +108,7 @@ export function createShortlists(project: string, toast: (t: Toast) => void) {
     } catch (e) {
       await undoAll().catch(() => {});
       await load();
-      toast({ text: `Couldn't save ${name}. ${e instanceof Error ? e.message : e}` });
+      toast({ text: `Couldn't keep ${name}. ${e instanceof Error ? e.message : e}` });
       return;
     }
     const undoLeave = leave ? await leave.run() : undefined;
@@ -116,13 +116,15 @@ export function createShortlists(project: string, toast: (t: Toast) => void) {
     const where = adds.length === 1 ? adds[0].label : `${adds.length} places`;
     const dropped = new Set(drops.map((d) => d.label));
     if (leave && !undoLeave) {
-      if (adds.length) toast({ text: `Saved ${name} to ${where}, but it is still here` });
+      if (adds.length) toast({ text: `Kept ${name} in ${where}, but it is still here` });
       return;
     }
     const stays = leave?.stays ? `, ${leave.stays} in use stays` : "";
     toast({
       text: adds.length
-        ? `${leave ? "Moved" : "Saved"} ${name} to ${where}${stays}`
+        ? leave
+          ? `Moved ${name} to ${where}${stays}`
+          : `Kept ${name} in ${where}${stays}`
         : leave
           ? `${leave.verb} ${name}${stays}`
           : `Removed ${name} from ${dropped.size === 1 ? [...dropped][0] : `${dropped.size} places`}`,

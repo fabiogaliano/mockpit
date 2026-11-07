@@ -1595,7 +1595,7 @@ const IDEAS_BY: { id: IdeasBy; label: string }[] = [
 const IDEAS_BY_KEY = "mockpit:ideas-by:";
 function readIdeasBy(project: string): IdeasBy {
   try {
-    const v = host().window.localStorage.getItem(IDEAS_BY_KEY + project);
+    const v = host().storage?.getItem(IDEAS_BY_KEY + project);
     return v === "for" || v === "use" ? v : "area";
   } catch {
     return "area";
@@ -1603,7 +1603,7 @@ function readIdeasBy(project: string): IdeasBy {
 }
 function saveIdeasBy(project: string, by: IdeasBy) {
   try {
-    host().window.localStorage.setItem(IDEAS_BY_KEY + project, by);
+    host().storage?.setItem(IDEAS_BY_KEY + project, by);
   } catch {
     // Private mode: nothing to keep it in.
   }

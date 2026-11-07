@@ -125,7 +125,8 @@ export function albumInside(node: TreeNode): string {
   if (states > 1) parts.push(`${states} states`);
   const notYet = node.planned ? 0 : undrawnStates(node);
   if (notYet) parts.push(`${notYet} not drawn`);
-  if (live > 1 && live !== states)
+  // Against the states drawn: one picture in each is no choice, however many are declared.
+  if (live > 1 && live !== states - notYet)
     parts.push(`${live} ${node.variants ? "variants" : "alternatives"}`);
   if (bothWidths(node)) parts.push("Phone and desktop");
   return parts.join(" · ");
