@@ -1210,6 +1210,7 @@ export function createApp({
           target: target?.slug ?? used.target,
           ...(used.created ? { created: true as const } : {}),
           copies: used.copies,
+          ...(used.note ? { note: used.note } : {}),
         }
       : undefined;
     if (!target || !isProduct(target)) return { usedIn, followUps: out };
@@ -5495,16 +5496,31 @@ export function createApp({
     );
   }
 
-  // The entry of a state a used version lands on: the one of the same name, else the
-  // state's one entry, else none and a new one is made.
-  function entryFor(target: Design, posts: Post[], state: string | null, name: string) {
+  // The entry of a state a used version lands on: the one of the same name, else the one
+  // this idea's last use there landed on (so a later use revises it rather than adding
+  // another), else the state's one entry, else none and a new one is made.
+  function entryFor(
+    target: Design,
+    posts: Post[],
+    state: string | null,
+    name: string,
+    last: string | undefined,
+  ) {
     const inState = posts.filter((p) => p.state === state);
-    const named =
-      inState.find((p) => p.alternative === name && isLive(p.status)) ??
-      inState.find((p) => p.alternative === name);
-    if (named) return named;
+    const named = (n: string) =>
+      inState.find((p) => p.alternative === n && isLive(p.status)) ??
+      inState.find((p) => p.alternative === n);
+    const found = named(name) ?? (last === undefined ? undefined : named(last));
+    if (found) return found;
     const live = inState.filter((p) => isLive(p.status));
     return !target.variants && live.length === 1 ? live[0] : null;
+  }
+
+  // Where this idea's latest use onto the target landed, state by state.
+  async function lastLanding(idea: Design, target: Design) {
+    const replies = await store.latestReplies(idea.id, ['"usedIn":{'], 20);
+    const last = replies.find((c) => c.payload?.usedIn?.targetId === target.id)?.payload?.usedIn;
+    return new Map((last?.copies ?? []).map((c) => [c.state, c.alternative]));
   }
 
   // Using an alternative of an idea that is for a screen or a component changes that
@@ -5581,7 +5597,9 @@ export function createApp({
       }
       const into = target;
       const here = await store.listPosts({ designId: into.id });
+      const landed = created ? new Map<string | null, string>() : await lastLanding(idea, into);
       const copies: UsedIn["copies"] = [];
+      const besides: string[] = [];
       for (const { post, version, surfaces, instances } of plans) {
         const at = postAtVersion(post, version);
         const knobs = { ...idea.knobs, ...post.knobs };
@@ -5596,7 +5614,12 @@ export function createApp({
           ...(at?.system === undefined ? {} : { system: at.system }),
         };
         const prompt = `Used from ${idea.title}: ${post.alternative} v${version}`;
-        const entry = created ? null : entryFor(into, here, post.state, post.alternative);
+        const entry = created
+          ? null
+          : entryFor(into, here, post.state, post.alternative, landed.get(post.state));
+        const others = created
+          ? []
+          : here.filter((p) => p.state === post.state && isLive(p.status));
         let written: Post | null;
         if (entry) {
           written = await store.updatePost(entry.id, {
@@ -5635,10 +5658,18 @@ export function createApp({
         if (!written) return fail(409, `${into.slug} has no agent session to copy it under`);
         await promoteIncluded(idea.project, instances);
         announcePost(into, written, !entry, "user");
+        const added = !entry && others.length > 0;
+        if (added) {
+          const where = written.state ? ` in ${written.state}` : "";
+          besides.push(
+            `${written.alternative}${where}, beside ${others.map((p) => p.alternative).join(", ")}`,
+          );
+        }
         copies.push({
           state: written.state,
           alternative: written.alternative,
           version: written.version,
+          ...(added ? { added: true as const } : {}),
         });
       }
       bus.broadcast({ type: "design-updated", id: into.id, project: into.project });
@@ -5648,6 +5679,11 @@ export function createApp({
           targetId: into.id,
           ...(created ? { created: true as const } : {}),
           copies,
+          ...(besides.length
+            ? {
+                note: `Added to ${into.title} as a new ${into.variants ? "variant" : "entry"}, since no entry there has its name: ${besides.join("; ")}. A later use from this idea replaces it.`,
+              }
+            : {}),
           drawn: states?.matched ?? copies.map((c) => c.state),
         },
       };

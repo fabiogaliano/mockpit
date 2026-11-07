@@ -2031,13 +2031,15 @@ export function createDesignScreen(
       setToast({
         text: used.usedIn?.created
           ? `${nameOf(ref)} is in use, and made ${target}`
-          : used.usedIn
-            ? `${nameOf(ref)} is in use in ${target}`
-            : apply
-              ? `${nameOf(ref)} is in use. ${target} has no ${lacks}, so the agent brings it over`
-              : isFlowIdea(m)
-                ? `${nameOf(ref)} is in use. The agent places the flow on screens`
-                : `${nameOf(ref)} is in use`,
+          : used.usedIn?.copies.some((c) => c.added)
+            ? `${nameOf(ref)} is in use, added to ${target} beside what it had`
+            : used.usedIn
+              ? `${nameOf(ref)} is in use in ${target}`
+              : apply
+                ? `${nameOf(ref)} is in use. ${target} has no ${lacks}, so the agent brings it over`
+                : isFlowIdea(m)
+                  ? `${nameOf(ref)} is in use. The agent places the flow on screens`
+                  : `${nameOf(ref)} is in use`,
       });
     } catch (e) {
       fail(e);

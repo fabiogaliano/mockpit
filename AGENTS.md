@@ -255,9 +255,11 @@ consciously, not as a side effect):
   `ideasFor`, and `read --area` groups `ideasWaiting` by `for`. Using an alternative there
   (`useInTarget`, from `useFlow` and `replyFlow`, one decision per design at a time and one copy
   per project at a time, instance checks included, `serialDecision`) copies each version put in use onto the
-  design as the next version of the entry of the same name in the state of the same name
-  (`entryFor`), `copiedFrom.asVersion` naming the version it became and `author: "user"`, so it
-  is current at once and amend refuses it; the reply says `usedIn`. When the idea draws the
+  design as the next version of the entry of the same name in the state of the same name, else
+  the entry the idea's last use there landed on (`entryFor`, `lastLanding`), so a later use
+  replaces it, `copiedFrom.asVersion` naming the version it became and `author: "user"`, so it
+  is current at once and amend refuses it; the reply says `usedIn`, with `added` and a `note`
+  where it made a new entry beside others (a variants design, a state holding several). When the idea draws the
   alternative in a state the design lacks (`statesFor`), nothing is copied and the batch's
   `followUps` say `apply`. An idea that `becomes` a screen or component makes it on first use and is then for
   it. New idea is typed by where it starts (`POST /api/copies` with `for`, `becomes`, `area`).

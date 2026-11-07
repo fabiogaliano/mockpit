@@ -649,7 +649,11 @@ export interface UsedIn {
   target: string;
   // Made by this use, from an idea that was to become it.
   created?: true;
-  copies: { state: string | null; alternative: string; version: number }[];
+  // `added`: a new entry beside the state's others, which no entry's name matched and
+  // no earlier use from the idea had landed on; a later use from the idea replaces it.
+  copies: { state: string | null; alternative: string; version: number; added?: true }[];
+  // Says in words what `added` means, so nobody reads a new shipped entry as a revision.
+  note?: string;
 }
 // As a reply stores it: the target by id, so a rename changes nothing stored, and where
 // the used alternative is drawn, which the batch's gaps are read against.

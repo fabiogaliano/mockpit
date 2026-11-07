@@ -613,7 +613,10 @@ batch of a reply on it, carry \`target: {slug, ruledOut}\`: what that design alr
 down (archived alternatives, hidden answers, its decisions' "Not:"), each with its
 \`reason\`. Never offer those again. When the user uses an alternative there, the version is
 copied onto the design as the next version of the state of the same name (its
-\`copiedFrom\` names the idea), current at once; the reply says \`usedIn\`. When the idea
+\`copiedFrom\` names the idea), current at once; the reply says \`usedIn\`. A later use
+from the same idea replaces the entry the last one landed on. A first use whose name no
+entry has, on a variants design or a state with several entries, adds an entry
+(\`usedIn.copies[].added\`, \`usedIn.note\` says it in words). When the idea
 draws it in a state the design lacks, nothing is copied and the batch's \`followUps\`
 carry \`apply\` (Follow-ups). An idea
 that becomes a screen or component makes it on its first use (\`usedIn.created\`; rename it

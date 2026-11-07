@@ -274,9 +274,12 @@ mockpit read    --decisions               # the whole decision log, when a read 
   carry `target: {slug, title, kind, ruledOut: [{name, reason?, when?}], more?}`: that
   design's archived alternatives, hidden answers and decisions' "Not:", newest first.
   Using an alternative in it copies the version onto the target, state by state, as the
-  next version of the entry of the same name (else the state's one entry, else a new one),
+  next version of the entry of the same name (else the entry this idea's last use there
+  landed on, else the state's one entry, else a new one),
   `copiedFrom: {design, state, alternative, version, asVersion}`; the reply says
-  `usedIn: {target, created?, copies: [{state, alternative, version}]}`. When it is drawn in
+  `usedIn: {target, created?, copies: [{state, alternative, version, added?}], note?}`.
+  `added` is a new entry beside the state's others (a variants design, or a state holding
+  several), and `note` says so in words; a later use from the idea replaces it. When it is drawn in
   a state the target lacks, nothing is copied and the batch carries `followUps.apply`
   (Follow-ups): the next version there is yours to publish. A screen's or component's
   reads list `ideasFor` (`[{slug, title, status}]`).
