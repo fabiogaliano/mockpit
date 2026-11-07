@@ -2417,6 +2417,17 @@ export function createApp({
         );
       }
     }
+    // A write with no session starts one, so every result names the session it was made in.
+    const newWriter = async () => {
+      const made = await store.createSession({
+        agent: str(body.agent, MAX_TITLE) ?? "agent",
+        title: str(body.sessionTitle, MAX_TITLE),
+        cwd: str(body.cwd, 4096),
+        project,
+      });
+      bus.broadcast({ type: "session-created", id: made.id });
+      return made;
+    };
     let slug = design?.slug ?? slugify(slugIn);
     design ??= await store.findDesign(project, slug);
     // Told a design by its title, the agent means that design, not a new one named
@@ -2474,6 +2485,7 @@ export function createApp({
           design ? { states: design.states } : {},
         );
       }
+      const writer = (session ??= await newWriter());
       const flow = await placeFlow(project, flowIn.name, screen, 0);
       bus.broadcast({ type: "design-updated", id: design.id, project });
       return ok({
@@ -2488,10 +2500,10 @@ export function createApp({
         },
         planned: true,
         ...(state === null ? {} : { state }),
-        ...(session ? { sessionId: session.id } : {}),
+        sessionId: writer.id,
         url: designUrl(ctx.base, design),
         flow,
-        ...(session ? { feedback: await collectFeedback(session.id, ctx.base) } : {}),
+        feedback: await collectFeedback(writer.id, ctx.base),
       });
     }
     // Nothing to draw and nothing there yet: the plan itself is the write. A body-less
@@ -2510,15 +2522,7 @@ export function createApp({
         const full = await flowFull(project, flowIn.name, screen, flowIn.step);
         if (full) return full;
       }
-      if (!session) {
-        session = await store.createSession({
-          agent: str(body.agent, MAX_TITLE) ?? "agent",
-          title: str(body.sessionTitle, MAX_TITLE),
-          cwd: str(body.cwd, 4096),
-          project,
-        });
-        bus.broadcast({ type: "session-created", id: session.id });
-      }
+      session ??= await newWriter();
       const created = !design;
       if (!design) {
         design = await store.createDesign({
@@ -2721,15 +2725,7 @@ export function createApp({
 
     if (!target) {
       // A new alternative: carried by the session the agent is writing from.
-      if (!session) {
-        session = await store.createSession({
-          agent: str(body.agent, MAX_TITLE) ?? "agent",
-          title: str(body.sessionTitle, MAX_TITLE),
-          cwd: str(body.cwd, 4096),
-          project,
-        });
-        bus.broadcast({ type: "session-created", id: session.id });
-      }
+      session ??= await newWriter();
       // The first drawing of a plan with no state name yet gives it one, and the
       // steps of any flow that planned it follow.
       if (design && state !== null && design.states.length === 0 && posts.length === 0) {
@@ -3115,6 +3111,7 @@ export function createApp({
           version: v,
         },
         removed: true,
+        sessionId: session!.id,
         url: designUrl(ctx.base, design),
         feedback: await collectFeedback(session!.id, ctx.base),
       });
