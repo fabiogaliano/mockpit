@@ -68,6 +68,7 @@ import {
   type DecisionAlternative,
 } from "./types.ts";
 import { renameSlugRefs } from "./instances.ts";
+import { AS_IS_SWAP } from "./swaps.ts";
 import {
   CURRENT_CONTRACT,
   normalizeSystem,
@@ -379,14 +380,14 @@ export class SqlStore implements Store {
     table: string,
     key: string,
     column: string,
-    fix: (value: unknown) => boolean,
+    fix: (value: unknown, id: string | number) => boolean,
     where = `${column} IS NOT NULL`,
   ) {
     for (const r of this.sql
       .exec(`SELECT ${key}, ${column} FROM ${table} WHERE ${where}`)
       .toArray()) {
       const value = parseJson<unknown>(r[column], null);
-      if (value === null || !fix(value)) continue;
+      if (value === null || !fix(value, r[key] as string | number)) continue;
       this.sql.exec(
         `UPDATE ${table} SET ${column} = ? WHERE ${key} = ?`,
         JSON.stringify(value),
@@ -562,15 +563,13 @@ export class SqlStore implements Store {
 
   // Rewrites the html of every stored version, current and past, through `fix`. Only
   // rows `like` matches are read, and each rewritten row's head is worked out again.
-  // Returns the designs whose versions changed.
-  private rewriteStoredHtml(like: string, fix: (html: string) => string): Set<string> {
-    const touched = new Set<string>();
-    const rewrite = (raw: SqlStorageValue): string | null => {
+  private rewriteStoredHtml(like: string, fix: (html: string, designId: string | null) => string) {
+    const rewrite = (raw: SqlStorageValue, designId: string | null): string | null => {
       const surfaces = parseJson<Surface[]>(raw, []);
       let changed = false;
       for (const s of surfaces) {
         if (s.kind !== "html") continue;
-        const next = fix(s.html);
+        const next = fix(s.html, designId);
         if (next !== s.html) {
           s.html = next;
           changed = true;
@@ -581,9 +580,8 @@ export class SqlStore implements Store {
     for (const r of this.sql
       .exec("SELECT id, designId, surfaces FROM posts WHERE surfaces LIKE ?", like)
       .toArray()) {
-      const next = rewrite(r.surfaces);
+      const next = rewrite(r.surfaces, r.designId as string);
       if (!next) continue;
-      touched.add(r.designId as string);
       this.sql.exec("UPDATE posts SET surfaces = ? WHERE id = ?", next, r.id as string);
       this.sql.exec(`UPDATE posts SET head = ${SURFACE_HEADS_SQL} WHERE id = ?`, r.id as string);
     }
@@ -593,9 +591,8 @@ export class SqlStore implements Store {
         like,
       )
       .toArray()) {
-      const next = rewrite(r.surfaces);
+      const next = rewrite(r.surfaces, (r.designId as string | null) ?? null);
       if (!next) continue;
-      if (r.designId) touched.add(r.designId as string);
       this.sql.exec(
         "UPDATE post_versions SET surfaces = ? WHERE postId = ? AND version = ?",
         next,
@@ -608,19 +605,20 @@ export class SqlStore implements Store {
         r.version as number,
       );
     }
-    return touched;
   }
 
   // What can go in a part is a swap: `data-swap` in every stored version, and `swap`
   // on the answers that bring one. Only an element that is a part was ever one: a page's
   // own `data-fill` elsewhere (a meter's level) stays as it is, and so do its selectors.
-  // On a page that had swaps, the selectors in its styles and scripts follow the marks,
-  // and so do the styles its answers brought.
   private migrateToSwapWords() {
     const OLD_MARK = /^data-fill(-label|-default)?$/i;
+    const unquote = (value: string) => {
+      const v = value.replace(/^\s*=\s*/, "");
+      return /^["']/.test(v) ? v.slice(1, -1) : v;
+    };
     // One open tag's attributes, renamed by their name alone: a quoted value is read
-    // whole, so text inside it never changes.
-    const marks = (tag: string): string => {
+    // whole, so text inside it never changes. What a part's `data-fill` held goes in `values`.
+    const marks = (tag: string, values: Set<string>): string => {
       const name = /^<[A-Za-z][\w:-]*/.exec(tag)?.[0];
       if (!name) return tag;
       const body = tag.slice(name.length);
@@ -628,62 +626,108 @@ export class SqlStore implements Store {
       if (!attrs.includes("data-part") || !attrs.some((a) => OLD_MARK.test(a))) return tag;
       return (
         name +
-        body.replace(TAG_ATTR, (all, space: string, attr: string, value = "") =>
-          OLD_MARK.test(attr) ? `${space}data-swap${attr.slice("data-fill".length)}${value}` : all,
-        )
+        body.replace(TAG_ATTR, (all, space: string, attr: string, value = "") => {
+          if (!OLD_MARK.test(attr)) return all;
+          if (attr.toLowerCase() === "data-fill") values.add(unquote(value));
+          return `${space}data-swap${attr.slice("data-fill".length)}${value}`;
+        })
       );
     };
-    const selectors = (css: string) =>
-      css.replace(/\[(\s*)data-fill(-label|-default)?(?=[\s\]=~|^$*])/gi, "[$1data-swap$2");
-    const page = (html: string): string => {
+    // A `[data-fill…]` in one selector (a rule's whole prelude, or one string in a script)
+    // was a swap's only where nothing else could be meant: compared to a value some part
+    // carried, or, without one, beside a `data-part`. Every other one is the page's own.
+    const OLD_SELECTOR =
+      /\[(\s*)data-fill(-label|-default)?(?![\w-])((?:[^\]"']|"[^"]*"|'[^']*')*)\]/gi;
+    const selector = (text: string, values: Set<string>): string => {
+      if (!/data-fill/i.test(text)) return text;
+      const nearPart = /\[\s*data-part(?![\w-])/i.test(text);
+      return text.replace(OLD_SELECTOR, (all, space: string, suffix = "", rest: string) => {
+        const equals = /^\s*=\s*(\\?["']?)([\s\S]*?)\1(?:\s+[is])?\s*$/i.exec(rest);
+        const swap = suffix
+          ? nearPart
+          : equals
+            ? values.has(equals[2])
+            : rest.trim() === "" && nearPart;
+        return swap ? `[${space}data-swap${suffix}${rest}]` : all;
+      });
+    };
+    // Each rule's prelude, read past strings and comments so a brace inside one isn't a rule.
+    const CSS_TOKEN = /"(?:[^"\\]|\\[\s\S])*"|'(?:[^'\\]|\\[\s\S])*'|\/\*[\s\S]*?\*\/|[{};]/g;
+    const inCss = (css: string, values: Set<string>): string => {
+      let out = "";
+      let from = 0;
+      for (const m of css.matchAll(CSS_TOKEN)) {
+        if (m[0].length !== 1) continue;
+        const prelude = css.slice(from, m.index);
+        out += (m[0] === "{" ? selector(prelude, values) : prelude) + m[0];
+        from = m.index + 1;
+      }
+      return out + css.slice(from);
+    };
+    const JS_STRING = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\[\s\S])*`/g;
+    const inScript = (js: string, values: Set<string>): string =>
+      js.replace(JS_STRING, (s) => selector(s, values));
+    const page = (html: string, values: Set<string>): string => {
+      const own = new Set<string>();
       let marked = false;
       const next = html.replace(OPEN_TAG, (tag) => {
-        const renamed = marks(tag);
+        const renamed = marks(tag, own);
         if (renamed !== tag) marked = true;
         return renamed;
       });
       if (!marked) return html;
+      for (const v of own) values.add(v);
       return next.replace(
         /(<(style|script)\b[^>]*>)([\s\S]*?)(<\/\2\s*>)/gi,
-        (_, open: string, _tag: string, body: string, close: string) =>
-          open + selectors(body) + close,
+        (_, open: string, tag: string, body: string, close: string) =>
+          open + (tag.toLowerCase() === "style" ? inCss(body, own) : inScript(body, own)) + close,
       );
     };
-    const swapped = this.rewriteStoredHtml("%data-fill%", page);
-    const swapKey = (o: Record<string, unknown>): boolean => {
-      if (!("fill" in o)) return false;
-      o.swap = typeof o.fill === "string" ? page(o.fill) : o.fill;
-      delete o.fill;
-      return true;
+    // The values each design's parts carried, in any version: an answer's style may name them.
+    const carried = new Map<string, Set<string>>();
+    const valuesOf = (designId: string): Set<string> => {
+      let values = carried.get(designId);
+      if (!values) carried.set(designId, (values = new Set()));
+      return values;
     };
-    this.rewriteJson("designs", "id", "asks", (asks) => {
+    this.rewriteStoredHtml("%data-fill%", (html, designId) =>
+      page(html, designId ? valuesOf(designId) : new Set()),
+    );
+    // An answer: its swap renamed, and its style read against what its swap and its
+    // design's pages carried. A swap a render adds is marked with the answer's value, and
+    // the part it joins with the as-is one, so those were carried too.
+    const answer = (o: Record<string, unknown>, designId: string): boolean => {
+      const values = new Set(carried.get(designId));
+      let changed = false;
+      if ("fill" in o) {
+        const set = o.set && typeof o.set === "object" ? Object.values(o.set) : [];
+        for (const v of [o.value, ...set, AS_IS_SWAP]) if (typeof v === "string") values.add(v);
+        o.swap = typeof o.fill === "string" ? page(o.fill, values) : o.fill;
+        delete o.fill;
+        changed = true;
+      }
+      if (values.size > 0 && typeof o.style === "string") {
+        const next = inCss(o.style, values);
+        if (next !== o.style) {
+          o.style = next;
+          changed = true;
+        }
+      }
+      return changed;
+    };
+    this.rewriteJson("designs", "id", "asks", (asks, id) => {
       let changed = false;
       for (const a of asks as { options?: Record<string, unknown>[] }[]) {
-        for (const o of a.options ?? []) changed = swapKey(o) || changed;
+        for (const o of a.options ?? []) changed = answer(o, id as string) || changed;
       }
       return changed;
     });
-    for (const r of this.sql.exec("SELECT id, answerAdditions FROM designs").toArray()) {
-      const list = parseJson<Record<string, unknown>[]>(r.answerAdditions, []);
+    this.rewriteJson("designs", "id", "answerAdditions", (list, id) => {
       let changed = false;
-      for (const a of list) {
-        changed = swapKey(a) || changed;
-        if (swapped.has(r.id as string) && typeof a.style === "string") {
-          const next = selectors(a.style);
-          if (next !== a.style) {
-            a.style = next;
-            changed = true;
-          }
-        }
-      }
-      if (changed) {
-        this.sql.exec(
-          "UPDATE designs SET answerAdditions = ? WHERE id = ?",
-          JSON.stringify(list),
-          r.id as string,
-        );
-      }
-    }
+      for (const a of list as Record<string, unknown>[])
+        changed = answer(a, id as string) || changed;
+      return changed;
+    });
     this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('swapWords', '1')");
   }
 
