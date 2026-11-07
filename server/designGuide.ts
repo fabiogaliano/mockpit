@@ -565,8 +565,9 @@ ideas for it, each "From <idea>: …", which the server writes from the user's r
 what happens next) goes in the spec, never in side files:
 \`mockpit edit --design <slug> --purpose "..."\`, and
 \`--behaviour "Pinch zooms between Now and the whole day" --state Now --part river\`
-adds a line about a state, pinned to a part (an annotation, shown while the user has
-the spec open); a JSON list replaces every line. Keep it current yourself: a publish
+is a line about a state, pinned to a part (an annotation, shown while the user has
+the spec open). \`--behaviour\` is every line on every tier: text is the one line, a JSON
+list keeps several, so to add one send the lines you read with it. Keep it current yourself: a publish
 or a feedback batch nudges when decisions are newer than the spec. Read it before
 changing the design. The user can edit each section by hand, and their words stand:
 a later draft of that section isn't applied, and the result says so.

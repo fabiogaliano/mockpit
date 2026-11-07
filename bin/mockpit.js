@@ -347,9 +347,10 @@ mockpit edit --project <name> [--area <name>] --description <one line>|""
   every version. A design still included somewhere stays a component, not an idea.
   --purpose and --behaviour write the design's spec, which read returns: what it is for,
   and how it works where the picture can't show it (pinch, timing, what happens next).
-  That goes here, never in side files. --behaviour with text adds one line, about
-  --state and pinned to --part (an annotation); with a JSON list
-  ('[{"text":"…","state":"Now","part":"river"}]') it replaces every line; "" clears. A
+  That goes here, never in side files. --behaviour replaces every line, as MCP and
+  HTTP do: with text it is the one line, about --state and pinned to --part (an
+  annotation); a JSON list ('[{"text":"…","state":"Now","part":"river"}]') keeps
+  several, so read the spec and send them all to add one; "" clears. A
   section the user wrote by hand stands, so a draft is then not applied and the
   result says so.
   --first-state names a design's one unnamed state, and every alternative it holds goes
@@ -1048,10 +1049,10 @@ function requireDesign(flags, example) {
   return slug;
 }
 
-// `--behaviour`: "" clears, a JSON list (inline or a file) replaces every line, and
-// plain text is one more line, about --state and pinned to --part. A line with the
-// same text is replaced, so running it again doesn't repeat it.
-async function behaviourLines(slug, project, flags) {
+// `--behaviour` is the whole list, as on MCP and HTTP, so nothing is read first and an
+// edit made in between is never lost: "" clears, a JSON list (inline or a file) is every
+// line, and plain text is the one line, about --state and pinned to --part.
+function behaviourLines(flags) {
   const value = flags.behaviour;
   if (value === "") return [];
   const looksJson = /^\s*\[/.test(value) || (existsSync(value) && /\.json$/i.test(value));
@@ -1063,18 +1064,13 @@ async function behaviourLines(slug, project, flags) {
     if (!Array.isArray(list)) die("--behaviour takes a JSON list of lines", "mockpit edit --help");
     return list;
   }
-  const design = await api(
-    `${designPath(slug)}${query({ project })}`,
-    {},
-    { report: "die", fix: `mockpit read --project ${project}` },
-  );
-  const line = {
-    text: value.trim(),
-    ...(flags.state ? { state: flags.state } : {}),
-    ...(flags.part ? { part: flags.part } : {}),
-  };
-  const lines = (design.spec?.behaviour ?? []).filter((l) => l.text !== line.text);
-  return [...lines, line];
+  return [
+    {
+      text: value.trim(),
+      ...(flags.state ? { state: flags.state } : {}),
+      ...(flags.part ? { part: flags.part } : {}),
+    },
+  ];
 }
 
 // A value that may be inline JSON or a file holding it.
@@ -2587,8 +2583,7 @@ const commands = {
         `mockpit edit ${slug} --behaviour "…" --state Now`,
       );
     }
-    const behaviour =
-      flags.behaviour === undefined ? undefined : await behaviourLines(slug, project, flags);
+    const behaviour = flags.behaviour === undefined ? undefined : behaviourLines(flags);
     const result = await api(
       designPath(slug),
       {
