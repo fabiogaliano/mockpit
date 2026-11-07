@@ -50,7 +50,7 @@ user sees ("Hold menu"), never by your process ("Round 2 · …", "v2", "Prototy
 moves a design from Home (kind, area) or marks it Ready, you hear it in `feedback` as `edited`.
 Explore for a screen or component in an idea for it (`--for <slug>`), or say what an idea
 would become (`--becomes screen|component|flow|system`). Its read and replies carry
-`target.ruledOut`: what that design turned down; never offer it again. Using an alternative
+`target.ruledOut`: what that design turned down; don't offer it again unless the user asks. Using an alternative
 there copies it onto the design (`usedIn`).
 A batch's `followUps` is what a decision now requires (`mockpit guide --topic feedback`):
 edit the `spec` yourself; publish `apply` on its target; for `gaps`, publish an idea for the

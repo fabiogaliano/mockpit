@@ -612,7 +612,7 @@ Explore for a screen or component in an idea for it: \`--for <slug>\` on publish
 says neither and looks like it is for a design. \`read\` of an idea for a design, and each
 batch of a reply on it, carry \`target: {slug, ruledOut}\`: what that design already turned
 down (archived alternatives, hidden answers, its decisions' "Not:"), each with its
-\`reason\`. Never offer those again. When the user uses an alternative there, the version is
+\`reason\`. Don't offer them again unless the user asks. When the user uses an alternative there, the version is
 copied onto the design as the next version of the state of the same name (its
 \`copiedFrom\` names the idea), current at once; the reply says \`usedIn\`. A later use
 from the same idea replaces the entry the last one landed on. A first use whose name no

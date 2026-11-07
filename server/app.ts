@@ -2474,6 +2474,7 @@ export function createApp({
     if (isResult(becomesIn)) return becomesIn;
     const kindNow = kind ?? design?.kind ?? "idea";
     if (kindNow !== "idea" && (forIn || becomesIn)) return notAnIdea(slug, kindNow);
+    if (group && kindNow !== "component") return groupNotComponent(slug, kindNow);
     const typing = ideaTyping(forIn, becomesIn);
     if (isResult(typing)) return typing;
     const { for: forId, becomes } = typing;
@@ -3373,6 +3374,12 @@ export function createApp({
   }
 
   // Both say what an idea is for, so a screen or a component takes neither.
+  // A group files a component in the library; nothing else is listed there.
+  const groupNotComponent = (slug: string, kind: DesignKind) =>
+    fail(
+      400,
+      `${slug} is ${kind === "idea" ? "an" : "a"} ${kind}: only a component has a library group. Pass "kind": "component", or leave "group" out`,
+    );
   const notAnIdea = (slug: string, kind: DesignKind) =>
     fail(
       400,
@@ -7367,6 +7374,7 @@ export function createApp({
     if (isResult(becomesIn)) return becomesIn;
     const kindNow = kind ?? design.kind;
     if (kindNow !== "idea" && (forIn || becomesIn)) return notAnIdea(design.slug, kindNow);
+    if (group && kindNow !== "component") return groupNotComponent(design.slug, kindNow);
     const typing = ideaTyping(forIn, becomesIn);
     if (isResult(typing)) return typing;
     // A screen or a component is for nothing: what the idea was for goes with the move.
