@@ -300,6 +300,9 @@ export function Home(props: {
     if (sec === "recent" && nodes().length) return sec;
     if (sec === "system" && tree()?.hasSystem) return sec;
     if (sec === "shared" && shared().length) return sec;
+    // A cover's count asks for one design's ideas, even where a project is small enough
+    // to show everything at once.
+    if (sec === "ideas" && props.for) return sec;
     if (tiny()) return loaded ? "tiny" : null;
     if (sec && isLit(sec)) return sec;
     if (area()) return "area";
@@ -1040,7 +1043,7 @@ export function Home(props: {
                     {`All of ${area()}`}
                   </a>
                 </Show>
-                <Show when={shown() === "ideas" && props.for}>
+                <Show when={shown() === "ideas" && props.for && !tiny()}>
                   <a
                     class="home-next home-unfilter"
                     href={projectPath(project()!, "ideas", area())}

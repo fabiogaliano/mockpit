@@ -1708,7 +1708,12 @@ export function createApp({
     for (const slug of new Set(instances.map((e) => e.slug))) {
       const m = await store.findDesign(project, slug);
       if (m?.kind !== "idea") continue;
-      const updated = await store.updateDesign(m.id, { kind: "component" });
+      // A component is for nothing: what the idea was for goes with it, as on any move.
+      const updated = await store.updateDesign(m.id, {
+        kind: "component",
+        for: null,
+        becomes: null,
+      });
       if (updated) bus.broadcast({ type: "design-updated", id: updated.id, project });
     }
   }
@@ -4816,9 +4821,29 @@ export function createApp({
   // Send: the user's one batched answer becomes one kind:"reply" comment on the
   // design's session, delivered through the same cursor as everything else. The
   // draft is cleared and statuses flip in the same store transaction.
+  // A decision reads what is in use, copies onto the design an idea is for and commits, so
+  // two of one design's decisions run one at a time: a second identical Send then finds
+  // the first already in use and copies nothing.
+  const decisionQueue = new Map<string, Promise<unknown>>();
+  function serialDecision<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const run = (decisionQueue.get(key) ?? Promise.resolve()).then(fn);
+    const settled = run.catch(() => {});
+    decisionQueue.set(key, settled);
+    void settled.then(() => {
+      if (decisionQueue.get(key) === settled) decisionQueue.delete(key);
+    });
+    return run;
+  }
+
   async function replyFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
-    const design = await resolveDesign(ref);
+    const found = await resolveDesign(ref);
+    if (isResult(found)) return found;
+    return serialDecision(found.id, () => replyNow(found.id, body, ctx));
+  }
+
+  async function replyNow(id: string, body: any, ctx: FlowContext): Promise<FlowResult> {
+    const design = await resolveDesign(id);
     if (isResult(design)) return design;
     const posts = await store.listPosts({ designId: design.id });
     const draft = await sanitizeDraft(body ?? {}, design, posts, design.draft);
@@ -5049,7 +5074,7 @@ export function createApp({
     // Everything is checked before anything is written: a page that can't be included
     // where it lands stops the whole use.
     const slug = target?.slug ?? (await uniqueSlug(idea.project, idea.title));
-    const plans = [];
+    const plans: { post: Post; version: number; surfaces: Surface[]; instances: Instance[] }[] = [];
     for (const u of used) {
       const surfaces =
         u.version === u.post.version
@@ -5077,71 +5102,76 @@ export function createApp({
       const linked = await store.updateDesign(idea.id, { for: target.id, becomes: null });
       if (linked) bus.broadcast({ type: "design-updated", id: idea.id, project: idea.project });
     }
-    const here = await store.listPosts({ designId: target.id });
-    const copies: UsedIn["copies"] = [];
-    for (const { post, version, surfaces, instances } of plans) {
-      const at = postAtVersion(post, version);
-      const knobs = { ...idea.knobs, ...post.knobs };
-      const from: CopyRef = {
-        design: idea.id,
-        state: post.state,
-        alternative: post.alternative,
-        version,
-      };
-      const look = {
-        contract: at?.contract ?? 1,
-        ...(at?.system === undefined ? {} : { system: at.system }),
-      };
-      const prompt = `Used from ${idea.title}: ${post.alternative} v${version}`;
-      const entry = created ? null : entryFor(target, here, post.state, post.alternative);
-      let written: Post | null;
-      if (entry) {
-        written = await store.updatePost(entry.id, {
-          surfaces,
-          knobs: Object.keys(knobs).length ? knobs : null,
-          instances,
-          prompt,
-          author: "user",
-          ...look,
-          copiedFrom: { ...from, asVersion: entry.version + 1 },
-        });
-        if (written && entry.status === "archived") {
-          written = (await store.setPostStatus(written.id, "open")) ?? written;
-        }
-      } else {
-        const inState = here.filter((p) => p.state === post.state);
-        written = await store.createPost({
-          sessionId: target.sessionId ?? post.sessionId,
-          design: target.id,
+    // One design's copies land one at a time, whichever ideas they come from: each reads
+    // the entries it lands on as they are now.
+    const into = target;
+    return serialDecision(`copy:${into.id}`, async () => {
+      const here = await store.listPosts({ designId: into.id });
+      const copies: UsedIn["copies"] = [];
+      for (const { post, version, surfaces, instances } of plans) {
+        const at = postAtVersion(post, version);
+        const knobs = { ...idea.knobs, ...post.knobs };
+        const from: CopyRef = {
+          design: idea.id,
           state: post.state,
-          alternative:
-            created || (!target.variants && inState.length === 0)
-              ? DEFAULT_ALTERNATIVE
-              : post.alternative,
-          title: target.title,
-          surfaces,
-          ...(Object.keys(knobs).length ? { knobs } : {}),
-          ...(post.description ? { description: post.description } : {}),
-          instances,
-          copiedFrom: { ...from, asVersion: 1 },
-          prompt,
-          author: "user",
-          ...look,
+          alternative: post.alternative,
+          version,
+        };
+        const look = {
+          contract: at?.contract ?? 1,
+          ...(at?.system === undefined ? {} : { system: at.system }),
+        };
+        const prompt = `Used from ${idea.title}: ${post.alternative} v${version}`;
+        const entry = created ? null : entryFor(into, here, post.state, post.alternative);
+        let written: Post | null;
+        if (entry) {
+          written = await store.updatePost(entry.id, {
+            surfaces,
+            knobs: Object.keys(knobs).length ? knobs : null,
+            instances,
+            prompt,
+            author: "user",
+            ...look,
+            copiedFrom: from,
+          });
+          if (written && entry.status === "archived") {
+            written = (await store.setPostStatus(written.id, "open")) ?? written;
+          }
+        } else {
+          const inState = here.filter((p) => p.state === post.state);
+          written = await store.createPost({
+            sessionId: into.sessionId ?? post.sessionId,
+            design: into.id,
+            state: post.state,
+            alternative:
+              created || (!into.variants && inState.length === 0)
+                ? DEFAULT_ALTERNATIVE
+                : post.alternative,
+            title: into.title,
+            surfaces,
+            ...(Object.keys(knobs).length ? { knobs } : {}),
+            ...(post.description ? { description: post.description } : {}),
+            instances,
+            copiedFrom: { ...from, asVersion: 1 },
+            prompt,
+            author: "user",
+            ...look,
+          });
+        }
+        if (!written) return fail(409, `${into.slug} has no agent session to copy it under`);
+        await promoteIncluded(idea.project, instances);
+        announcePost(into, written, !entry, "user");
+        copies.push({
+          state: written.state,
+          alternative: written.alternative,
+          version: written.version,
         });
       }
-      if (!written) return fail(409, `${target.slug} has no agent session to copy it under`);
-      await promoteIncluded(idea.project, instances);
-      announcePost(target, written, !entry, "user");
-      copies.push({
-        state: written.state,
-        alternative: written.alternative,
-        version: written.version,
-      });
-    }
-    bus.broadcast({ type: "design-updated", id: target.id, project: target.project });
-    return {
-      usedIn: { target: target.slug, ...(created ? { created: true as const } : {}), copies },
-    };
+      bus.broadcast({ type: "design-updated", id: into.id, project: into.project });
+      return {
+        usedIn: { target: into.slug, ...(created ? { created: true as const } : {}), copies },
+      };
+    });
   }
 
   // "Use this": the user puts one exact version of an alternative in use. It
@@ -5150,7 +5180,13 @@ export function createApp({
   // the user's unsent draft is left for their next Send.
   async function useFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
-    const design = await resolveDesign(ref);
+    const found = await resolveDesign(ref);
+    if (isResult(found)) return found;
+    return serialDecision(found.id, () => useNow(found.id, body, ctx));
+  }
+
+  async function useNow(id: string, body: any, ctx: FlowContext): Promise<FlowResult> {
+    const design = await resolveDesign(id);
     if (isResult(design)) return design;
     if (isProduct(design)) return nothingToUse(design);
     const posts = await store.listPosts({ designId: design.id });
@@ -6096,9 +6132,16 @@ export function createApp({
       if (isResult(becomes)) return becomes;
       const areaIn = labelArg(body, "area", MAX_LABEL);
       if (isResult(areaIn)) return areaIn;
-      // The same name again means the same list, not a second one beside it.
+      const typing = ideaTyping(forIn, becomes);
+      if (isResult(typing)) return typing;
+      // The same name again means the same list, not a second one beside it, unless it
+      // was started somewhere else: an idea for one design never gathers for another.
+      const agrees = (m: Design) =>
+        (typing.for === undefined || m.for === typing.for) &&
+        (typing.becomes === undefined || m.becomes === typing.becomes) &&
+        (areaIn === undefined || m.area === areaIn);
       list = titledDesigns(await store.listDesigns(project), slugify(title)).find(
-        (m) => m.shortlist,
+        (m) => m.shortlist && agrees(m),
       );
       if (!list) {
         list = await store.createDesign({
@@ -6109,8 +6152,8 @@ export function createApp({
           area: areaIn !== undefined ? areaIn : forIn ? forIn.area : first.area,
           widths: forIn?.widths.length ? forIn.widths : first.widths,
           shortlist: true,
-          ...(forIn ? { for: forIn.id } : {}),
-          ...(becomes && !forIn ? { becomes } : {}),
+          ...(typing.for ? { for: typing.for } : {}),
+          ...(typing.becomes ? { becomes: typing.becomes } : {}),
         });
         bus.broadcast({ type: "design-created", id: list.id, project });
       }

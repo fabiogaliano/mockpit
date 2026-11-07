@@ -2712,7 +2712,10 @@ export class SqlStore implements Store {
       const publishedBy = patch.publishedBy ?? null;
       const contract = patch.contract ?? CURRENT_CONTRACT;
       const system = patch.system ?? null;
-      const copiedFrom = patch.copiedFrom ?? post.copiedFrom;
+      // A copy names the version it became, which is only known here.
+      const copiedFrom = patch.copiedFrom
+        ? { ...patch.copiedFrom, asVersion: version }
+        : post.copiedFrom;
       const wrote = this.writingPosts(post.design, [id], () => {
         this.sql.exec(
           "UPDATE posts SET title = ?, surfaces = ?, head = ?, knobs = ?, description = ?, slots = ?, state = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, curSession = ?, amendedAt = NULL, curContract = ?, curSystem = ?, copiedFrom = ? WHERE id = ? AND version = ?",

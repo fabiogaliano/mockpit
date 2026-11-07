@@ -30,10 +30,13 @@ export const SECTION_LABEL: Record<Section, string> = {
 
 // One render, nothing asked and no design width is something to read. A declared
 // width means someone is designing for a device, however few pictures it has so
-// far; on the real data that keeps a lone phone idea out of Documents.
+// far; on the real data that keeps a lone phone idea out of Documents. An idea that says
+// what it is for, or would become, is exploring for the product, however it looks.
 export function sectionOf(node: {
   kind: TreeNode["kind"];
   shortlist?: boolean;
+  for?: string;
+  becomes?: string;
   asked?: number;
   states: (string | null)[];
   alternatives: unknown[];
@@ -41,6 +44,7 @@ export function sectionOf(node: {
 }): ShelfSection {
   if (node.kind === "screen") return "screens";
   if (node.kind === "component") return "components";
+  if (node.for || node.becomes) return "ideas";
   if (node.shortlist || node.asked || node.alternatives.length > 1) return "ideas";
   if (node.states.filter((s) => s !== null).length > 1 || node.widths.length) return "ideas";
   return "documents";

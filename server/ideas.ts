@@ -140,7 +140,16 @@ export function ruledOutOf(
     });
   }
   out.sort((a, b) => (b.when ?? "").localeCompare(a.when ?? ""));
-  return out.length > MAX_RULED_OUT
-    ? { ruledOut: out.slice(0, MAX_RULED_OUT), more: out.length - MAX_RULED_OUT }
-    : { ruledOut: out };
+  // The same answer hidden on two questions, for the same reason, is one thing turned
+  // down: said twice it would only crowd out the rest. The newest is kept.
+  const seen = new Set<string>();
+  const distinct = out.filter((r) => {
+    const key = `${r.name}\n${r.reason ?? ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return distinct.length > MAX_RULED_OUT
+    ? { ruledOut: distinct.slice(0, MAX_RULED_OUT), more: distinct.length - MAX_RULED_OUT }
+    : { ruledOut: distinct };
 }
