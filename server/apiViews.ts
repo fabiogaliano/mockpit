@@ -21,7 +21,7 @@ import {
   changedTo,
   draftedCount,
   type Described,
-  type Embed,
+  type Instance,
   type FlowStep,
   inUseVersion,
   isPlanned,
@@ -191,20 +191,20 @@ export interface AlternativeViewOptions {
   body?: boolean;
   // Version rows, newest first, current version included.
   history?: boolean;
-  // What each post's embeds resolve to now, by post id.
-  embeds?: Map<string, EmbedView>;
+  // What each post's instances resolve to now, by post id.
+  instances?: Map<string, InstanceView>;
   // The alternatives some question keeps (standings.ts keptAlternatives).
   kept?: Set<string>;
   // Whose alternatives: a product design's say where its Ready mark stands.
   design?: Pick<Design, "kind" | "ready">;
 }
 
-// An alternative's embeds as they render now (nested ones included): each with the
+// An alternative's instances as they render now (nested ones included): each with the
 // component's latest version and every version it has, for peeking back; and
 // the key that changes whenever any of them does.
-export interface EmbedView {
+export interface InstanceView {
   key: string;
-  list: (Embed & { latest: number; versions: number[] })[];
+  list: (Instance & { latest: number; versions: number[] })[];
 }
 
 // Where an alternative stands against what was chosen. An idea's: a newer version than the
@@ -263,12 +263,15 @@ export const alternativeView = (post: Post, opts: AlternativeViewOptions = {}) =
     : {}),
   ...(slotsInSurfaces(post.surfaces).length ? { swaps: slotsInSurfaces(post.surfaces) } : {}),
   ...(post.description ? { description: post.description } : {}),
-  // Embedded components as they render now (server/embeds.ts); `publishedWith`
+  // Included components as they render now (server/instances.ts); `publishedWith`
   // is what this version rendered with when it was published.
-  ...(opts.embeds?.get(post.id)
-    ? { embeds: opts.embeds.get(post.id)!.list, embedsKey: opts.embeds.get(post.id)!.key }
+  ...(opts.instances?.get(post.id)
+    ? {
+        instances: opts.instances.get(post.id)!.list,
+        instancesKey: opts.instances.get(post.id)!.key,
+      }
     : {}),
-  ...(post.embeds.length ? { publishedWith: post.embeds } : {}),
+  ...(post.instances.length ? { publishedWith: post.instances } : {}),
   ...(post.forkedFrom ? { forkedFrom: post.forkedFrom } : {}),
   ...(post.copiedFrom ? { copiedFrom: post.copiedFrom } : {}),
   ...(opts.kept && isKeptAlternative(opts.kept, post) ? { kept: true } : {}),
@@ -303,7 +306,7 @@ export const alternativeView = (post: Post, opts: AlternativeViewOptions = {}) =
 const stateOrder = (design: Design) => (design.states.length ? design.states : [null]);
 
 // What the user put in use, per state, in the design's order; a state with
-// nothing accepted is absent. Export and embeds resolve to exactly these.
+// nothing accepted is absent. Export and instances resolve to exactly these.
 export const inUseByState = (design: Design, posts: PostHead[]) =>
   stateOrder(design).flatMap((state) => {
     const p = posts.find((x) => x.state === state && x.status === "accepted");
@@ -446,7 +449,7 @@ const detailOf = (
   ...plannedOf(design, posts.length),
   states: design.states,
   ...readyFields(design, posts),
-  // Undefined (left out of the JSON) when it embeds nothing.
+  // Undefined (left out of the JSON) when it includes nothing.
   builtFrom: opts.builtFrom?.length ? opts.builtFrom : undefined,
   ...specView(design.spec, opts.decisions),
   ...(Object.keys(design.stateOutlines).length ? { stateOutlines: design.stateOutlines } : {}),
@@ -480,8 +483,8 @@ export const sessionRowView = (session: Session, postCount: number) => ({
 });
 
 // One design as a node of the project tree (GET /api/projects/:name/tree): its
-// alternatives per state with status and lineage, and the designs it embeds (`embeds`);
-// `embeddedIn` is filled in once every node is known.
+// alternatives per state with status and lineage, and the designs it includes (`instances`);
+// `instanceIn` is filled in once every node is known.
 // When it left the shelf: archived by hand, or with the last of its alternatives archived.
 // Designs archived before the date was kept fall back on the design's last change.
 function leftOf(design: Design, posts: PostHead[]): { leftAt?: string } {
@@ -496,8 +499,8 @@ export const treeNodeView = (
   all: PostHead[],
   extra: {
     settled: Record<string, KnobValue>;
-    embeds: string[];
-    embedViews: Map<string, EmbedView>;
+    instances: string[];
+    instanceViews: Map<string, InstanceView>;
     lastReplyAt?: string;
     // About half of a tree's bytes, and no screen of the viewer's reads them from one.
     noDescriptions?: boolean;
@@ -539,8 +542,8 @@ const nodeOf = (design: Design, posts: PostHead[], extra: Parameters<typeof tree
   ...leftOf(design, posts),
   ...(design.archiveReason ? { archiveReason: design.archiveReason } : {}),
   settled: extra.settled,
-  embeds: extra.embeds,
-  embeddedIn: [] as string[],
+  instances: extra.instances,
+  instanceIn: [] as string[],
   inUse: inUseByState(design, posts),
   // What the agent recommends where nothing is in use: a cover shows it.
   recommended: stateOrder(design).flatMap((state) => {
@@ -564,7 +567,7 @@ const nodeOf = (design: Design, posts: PostHead[], extra: Parameters<typeof tree
     ...(p.acceptedVersion === undefined ? {} : { inUseVersion: p.acceptedVersion }),
     ...versionMarks(p, design),
     ...(p.archiveReason ? { archiveReason: p.archiveReason } : {}),
-    ...(extra.embedViews.get(p.id) ? { embedsKey: extra.embedViews.get(p.id)!.key } : {}),
+    ...(extra.instanceViews.get(p.id) ? { instancesKey: extra.instanceViews.get(p.id)!.key } : {}),
   })),
 });
 

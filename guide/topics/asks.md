@@ -124,8 +124,8 @@ that draws it:
   same page it keeps its version.
 - A chosen answer's `brought` in the reply and `answerAdditions` in `read` say what isn't
   in any version yet. Fold them into your next version if you make one.
-- A component embedded in a screen draws its own html only: answers on it show on its own
-  page, not in the screens that embed it.
+- A component included in a screen draws its own html only: answers on it show on its own
+  page, not in the screens that include it.
 - nothing: a plain pill.
 
 Options that change how something looks carry an `alternative` or a knob `set`, so

@@ -242,7 +242,7 @@ mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
                      that part's other swaps; the marks are added if missing
   --title <t>        design title
   --kind <k>         screen|component|idea: screen for a screen of the product,
-                     component for a reusable design screens embed (embedding makes one);
+                     component for a reusable design screens include (being included makes one);
                      omit for ideas, diagrams, reviews (default idea)
   --area <name>      where in the product it belongs, in the project's words
                      ("Shell", "Food"); Home groups each tab by it. "" clears
@@ -294,7 +294,7 @@ mockpit read --area <name> [--project <name>]
   their decisions and the ideas waiting there, as JSON.
   --body includes surfaces, --history version rows. --tree (no slug): the
   project as a tree, each design's alternatives with status and forkedFrom, and the
-  designs it embeds and is embedded in, as JSON. --decisions: the whole list, when
+  designs it includes and is included in, as JSON. --decisions: the whole list, when
   a read says lines were left out. Never consumes feedback.`,
   feedback: `mockpit feedback [--project <name>] [--session <id>]
   Returns at once with {feedback, pending} as JSON: one batch per design the user
@@ -314,7 +314,7 @@ mockpit move --design <slug> [--state s] [--alternative <v>...] --hide-older | -
   thread says what happened, so the user can undo it.
   Only when the user asks: --hide-older hides all but each alternative's newest visible
   version (no --alternative: every alternative), and --delete-older deletes them for good,
-  skipping and listing any that a reply, comment, question, embed, copy or fork still
+  skipping and listing any that a reply, comment, question, instance, copy or fork still
   points at, or that is in use. It can't be undone: confirm first.`,
   edit: `mockpit edit <slug> [--slug <new>] [--title <t>] [--kind screen|component|idea]
   [--first-state <name>] [--purpose <text>|""]
@@ -329,8 +329,8 @@ mockpit edit --project <name> [--area <name>] --description <one line>|""
   Feedback, Containers, or the project's own word). --variants says a screen's or
   component's entries all ship, so they are named with --variant and nothing on it is
   chosen; --no-variants makes them alternatives again. A new
-  slug rewrites every embed, data-goto and flow step that names the old one, in
-  every version. A design still embedded somewhere stays a component, not an idea.
+  slug rewrites every instance, data-goto and flow step that names the old one, in
+  every version. A design still included somewhere stays a component, not an idea.
   --purpose and --behaviour write the design's spec, which read returns: what it is for,
   and how it works where the picture can't show it (pinch, timing, what happens next).
   That goes here, never in side files. --behaviour with text adds one line, about
@@ -2108,7 +2108,7 @@ const commands = {
       );
       if (!flags.quiet) {
         console.log(
-          `${slug} · ${ready ? (changed ? "Changed since Ready" : "Ready") : "in design"} · ${builtFrom.length} built from → ${join(root, "design.json")}`,
+          `${slug} · ${ready ? (changed ? "Changed since Ready" : "Ready") : "in design"} · ${builtFrom.length} instances → ${join(root, "design.json")}`,
         );
       }
     }

@@ -751,7 +751,7 @@ export default function mockpitExtension(pi) {
     name: "mockpit_edit",
     label: "Mockpit Edit",
     description:
-      'Change a design without a new version: slug, title, kind, area, group, source ("" clears), and its spec: purpose (what it is for) and behaviour (how it works where the picture can\'t show it; that goes here, never in side files). A new slug rewrites every embed, data-goto and flow step naming the old one. Or, with no design, rename the project (rename), order its areas on Home (areas), or say what the project, or with area one area, is for (description). Returns feedback.',
+      'Change a design without a new version: slug, title, kind, area, group, source ("" clears), and its spec: purpose (what it is for) and behaviour (how it works where the picture can\'t show it; that goes here, never in side files). A new slug rewrites every instance, data-goto and flow step naming the old one. Or, with no design, rename the project (rename), order its areas on Home (areas), or say what the project, or with area one area, is for (description). Returns feedback.',
     promptSnippet:
       "Rename, retitle or reclassify a mockpit design, write its spec, or rename or describe the project.",
     promptGuidelines: [feedbackGuideline],
@@ -896,7 +896,7 @@ export default function mockpitExtension(pi) {
     name: "mockpit_upload",
     label: "Mockpit Upload",
     description:
-      "Upload an asset to mockpit and get an id and URL. Use the id as an image surface's assetId, or embed the URL in html.",
+      "Upload an asset to mockpit and get an id and URL. Use the id as an image surface's assetId, or put the URL in html.",
     promptSnippet: "Upload an image or file asset for use in a design.",
     promptGuidelines: [
       "Use mockpit_upload before referencing local images or files in mockpit_publish.",

@@ -24,8 +24,8 @@ The loop never waits for the user:
    widths it ships at once with `--widths 390,1280`.
    Declare structure only when designing a product's screens: `--kind screen`
    for a screen, `--flow <name> --step N` for states the user moves between,
-   and each reusable component as its own design embedded with
-   `<mockpit-embed slug="card">` (that makes it a component). Ideas,
+   and each reusable component as its own design included with
+   `<mockpit-instance slug="card">` (that makes it a component). Ideas,
    diagrams and reviews stay plain. `--area <name>` groups Home by the
    product's areas; `--source <path>` names the code that implements it.
    `mockpit edit <slug>` changes slug, title, kind, area, group or source

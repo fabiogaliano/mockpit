@@ -145,7 +145,7 @@ export function createFlowNav(
         ? surfaceUrl(v.postId, i, {
             version: s.frameVersionOf(v),
             mode: theme(),
-            e: v.embedsKey,
+            e: v.instancesKey,
             w: v.rewrites,
           })
         : null;
@@ -156,7 +156,7 @@ export function createFlowNav(
       ? surfaceUrl(pic.postId, pic.surface, {
           version: pic.version,
           mode: theme(),
-          e: pic.embedsKey,
+          e: pic.instancesKey,
           w: pic.rewrites,
         })
       : null;

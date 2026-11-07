@@ -41,7 +41,7 @@ export function Picture(props: { pic: ScreenPicture; width: number; whole: boole
           src={surfaceUrl(props.pic.postId, props.pic.surface, {
             version: props.pic.version,
             mode: theme(),
-            e: props.pic.embedsKey,
+            e: props.pic.instancesKey,
             w: props.pic.rewrites,
           })}
           width={props.width}

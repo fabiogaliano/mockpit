@@ -154,10 +154,10 @@ export function Grid(props: {
     >
       <div class="gv-head">
         <span class="gv-count">{count()}</span>
-        <Show when={rel.embeddedIn().length}>
+        <Show when={rel.instanceIn().length}>
           <span class="gv-used">
             <span>Appears in</span>
-            <For each={rel.embeddedIn()}>
+            <For each={rel.instanceIn()}>
               {(n) => (
                 <a
                   href={designPath(props.project, n.slug)}
@@ -169,7 +169,7 @@ export function Grid(props: {
             </For>
           </span>
         </Show>
-        <Show when={isComponent() && rel.loaded() && !rel.embeddedIn().length}>
+        <Show when={isComponent() && rel.loaded() && !rel.instanceIn().length}>
           <span class="gv-used">Not used in a design yet</span>
         </Show>
         <span class="grow" />

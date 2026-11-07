@@ -30,7 +30,7 @@ then end your turn. The question lives in the design (`ask`), never in chat. Nev
 
 Declare structure only when designing a product's screens: `--kind screen` for a screen,
 `--flow <name> --step N` for states the user moves between, and each reusable component as its
-own design embedded with `<mockpit-embed slug="card">`, which makes it a component. Ideas,
+own design included with `<mockpit-instance slug="card">`, which makes it a component. Ideas,
 diagrams and reviews stay plain.
 
 `--area Shell` (the project's own words) groups Home; `mockpit edit --project <p> --areas
@@ -44,7 +44,7 @@ Behaviour goes there, never in side files. A screen or component has nothing to 
 newest version is current, alternatives belong in an idea (entries that all ship are variants:
 `--variants`, each named `--variant <name>`), and the user marks it Ready (`read`
 and `export`: `ready`, `changed`, `builtFrom`).
-`mockpit edit --design <slug> --slug <new>` renames it and rewrites every embed and flow step; it
+`mockpit edit --design <slug> --slug <new>` renames it and rewrites every instance and flow step; it
 also retitles and reclassifies without a new version. Title a design, like a state, by what the
 user sees ("Hold menu"), never by your process ("Round 2 · …", "v2", "Prototype"). When the user
 moves a design from Home (kind, area) or marks it Ready, you hear it in `feedback` as `edited`;

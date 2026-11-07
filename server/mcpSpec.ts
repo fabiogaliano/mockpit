@@ -47,7 +47,7 @@ const field = {
   prompt: "What prompted this version; usually omit",
   description: "What this alternative is; shown beside it, never in the html",
   widths: "Widths it ships at, side by side: [390,1280]",
-  kind: "Only when building the product's screens: screen, component (a reusable design screens embed). With no html it plans one, drawn by a later publish. Omit for ideas, diagrams and reviews",
+  kind: "Only when building the product's screens: screen, component (a reusable design screens include). With no html it plans one, drawn by a later publish. Omit for ideas, diagrams and reviews",
   area: 'Product area in the project\'s words; Home groups by it. "" clears',
   group:
     'A component\'s library group: Actions, Inputs, Navigation, Feedback, Containers or your word. "" clears',
@@ -304,7 +304,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       history: { t: "boolean", d: "Include version rows" },
       tree: {
         t: "boolean",
-        d: "Without design: the project as a tree (each design's alternatives with status and forkedFrom, the designs it embeds and is embedded in)",
+        d: "Without design: the project as a tree (each design's alternatives with status and forkedFrom, the designs it includes and is included in)",
       },
       area: { t: "string", d: "Without design: one product area" },
       decisions: {
@@ -336,7 +336,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "move",
     description:
-      "Tidy up alternatives: to or toState moves them there and out of here; archive takes them out of view; restore brings them back; a group goes along; one in use stays. Only when the user asks: hideOlder hides each alternative's older versions (alternatives optional: all of them), and deleteOlder deletes them for good, skipping any that a reply, comment, question, embed, copy or fork still points at, or that is in use. Confirm a delete first: it can't be undone. Returns feedback.",
+      "Tidy up alternatives: to or toState moves them there and out of here; archive takes them out of view; restore brings them back; a group goes along; one in use stays. Only when the user asks: hideOlder hides each alternative's older versions (alternatives optional: all of them), and deleteOlder deletes them for good, skipping any that a reply, comment, question, instance, copy or fork still points at, or that is in use. Confirm a delete first: it can't be undone. Returns feedback.",
     params: {
       design: P.design,
       state: P.state,
@@ -634,7 +634,7 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
     inUse: z
       .array(inUseRef)
       .optional()
-      .describe("Per state, the version the user put in use; export and embeds resolve to it"),
+      .describe("Per state, the version the user put in use; export and instances resolve to it"),
     knobs: bag.optional(),
     system: str
       .optional()

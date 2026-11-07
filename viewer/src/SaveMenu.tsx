@@ -200,18 +200,18 @@ export function SaveMenu(props: {
     return drops().length ? "Remove" : "Done";
   };
   const idle = () => !adds().length && !drops().length && !removes();
-  // What a screen embedding this design shows, which leaving would change: the rule
-  // is the server's embedTarget.
+  // What a screen including this design shows, which leaving would change: the rule
+  // is the server's instanceTarget.
   const showsIn = () => {
     const n = hereNode();
-    if (!n?.embeddedIn.length || first.state !== n.states[0]) return [];
+    if (!n?.instanceIn.length || first.state !== n.states[0]) return [];
     const inState = n.alternatives.filter((v) => v.state === first.state);
     const shown =
       inState.find((v) => v.status === "inUse") ??
       inState.find((v) => v.alternative === "default" && isLive(v.status)) ??
       inState.find((v) => isLive(v.status));
     if (!shown || !it.archives.includes(shown.alternative)) return [];
-    return n.embeddedIn.map((slug) => nodes().find((x) => x.slug === slug)?.title ?? slug);
+    return n.instanceIn.map((slug) => nodes().find((x) => x.slug === slug)?.title ?? slug);
   };
   const leaveNote = () => {
     const they = many ? "they" : "it";

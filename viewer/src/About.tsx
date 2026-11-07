@@ -1,6 +1,6 @@
 // About: what sits around this design, opened from the info button beside its name.
 // A component's place in the library (shared and its group, or its area), Appears in
-// (the designs that embed it), Built from (what it embeds), Flows (each flow it is a
+// (the designs that include it), Instances (what it includes), Flows (each flow it is a
 // step of) and where its code lives. Its states are the tabs' job. A bottom sheet on a
 // phone.
 
@@ -21,7 +21,7 @@ export interface AboutState {
 }
 
 // One per design screen. The tree is fetched again whenever the design changes, so
-// a new embed or flow step shows.
+// a new instance or flow step shows.
 export function createAbout(project: () => string, designKey: () => string | null): AboutState {
   // Not before it is first opened: most visits to a design never do.
   const [woken, setWoken] = createSignal(false);
@@ -48,7 +48,7 @@ function nodePicture(node: TreeNode, state: string | null): string | null {
     ? surfaceUrl(pic.postId, pic.surface, {
         version: pic.version,
         mode: theme(),
-        e: pic.embedsKey,
+        e: pic.instancesKey,
         w: pic.rewrites,
       })
     : null;
@@ -57,8 +57,8 @@ function nodePicture(node: TreeNode, state: string | null): string | null {
 export function aboutOf(r: AboutState, slug: string) {
   const bySlug = createMemo(() => new Map((r.tree()?.tree ?? []).map((n) => [n.slug, n])));
   const me = () => bySlug().get(slug);
-  const embeddedIn = () => (me()?.embeddedIn ?? []).flatMap((s) => bySlug().get(s) ?? []);
-  const embeds = () => (me()?.embeds ?? []).flatMap((s) => bySlug().get(s) ?? []);
+  const instanceIn = () => (me()?.instanceIn ?? []).flatMap((s) => bySlug().get(s) ?? []);
+  const instances = () => (me()?.instances ?? []).flatMap((s) => bySlug().get(s) ?? []);
   const flows = createMemo<FlowRow[]>(() =>
     (r.tree()?.flows ?? []).flatMap((f) =>
       f.steps.flatMap((x, i) =>
@@ -69,7 +69,7 @@ export function aboutOf(r: AboutState, slug: string) {
     ),
   );
   const loaded = () => r.tree() !== undefined;
-  return { me, embeddedIn, embeds, flows, loaded };
+  return { me, instanceIn, instances, flows, loaded };
 }
 
 export function About(props: {
@@ -145,8 +145,8 @@ export function About(props: {
   const empty = () =>
     rel.loaded() &&
     !shelf() &&
-    !rel.embeddedIn().length &&
-    !rel.embeds().length &&
+    !rel.instanceIn().length &&
+    !rel.instances().length &&
     !rel.flows().length &&
     !s.design()?.source;
   return (
@@ -194,20 +194,20 @@ export function About(props: {
       {section(
         "Appears in",
         () => (
-          <For each={rel.embeddedIn()}>
+          <For each={rel.instanceIn()}>
             {(n) => row(n, null, designPath(props.project, n.slug), states(n))}
           </For>
         ),
-        () => rel.embeddedIn().length,
+        () => rel.instanceIn().length,
       )}
       {section(
-        "Built from",
+        "Instances",
         () => (
-          <For each={rel.embeds()}>
+          <For each={rel.instances()}>
             {(n) => row(n, null, designPath(props.project, n.slug), states(n))}
           </For>
         ),
-        () => rel.embeds().length,
+        () => rel.instances().length,
       )}
       {section(
         "Flows",

@@ -23,7 +23,7 @@ a parallel take on one state; versions are its history. A **part** is a
 (below); `move` takes alternatives to another design or state,
 archives or restores them (never touches one in use, and says so in the Thread), and,
 when the user asks, hides or deletes their older versions (`hideOlder`, `deleteOlder`:
-deleting skips any version a reply, comment, question, embed, copy, fork or Ready mark points at,
+deleting skips any version a reply, comment, question, instance, copy, fork or Ready mark points at,
 `deleteBlocker` in `server/app.ts`); `edit` changes a design (slug, title, kind, area,
 source, spec, or the first name of its one unnamed state) without a new version, renames a project, sets its area order, or says what the project or one area is for;
 `publish` with `amend` replaces an alternative's latest version in place and with
@@ -74,7 +74,7 @@ consciously, not as a side effect):
   archiving an alternative writes nothing to the agent's stream and instructs no one:
   `read` shows `archivedAt`, `archiveReason`, `status` and `archiveReason` as information,
   and a question on an archived design brings it back. Guidance over hard rules.
-- Self-hosted only; the embeddable viewer engine was dropped. Keep the
+- Self-hosted only; the instancedable viewer engine was dropped. Keep the
   `root()`/`host()` habit in `viewer/src` anyway.
 
 ## Map
@@ -83,8 +83,8 @@ consciously, not as a side effect):
   `/api/comments` long-poll, SSE `/api/events`, renderer `/s/:id`, assets
   `/api/assets` + `/a/:id`), and the flow functions REST and MCP share
   (publish, asks, read, feedback, say, edit, draft, reply, export). A slug
-  rename rewrites every stored version's embeds in place (`SqlStore.renameDesign`):
-  embeds resolve by slug at render time, so history must name the new one.
+  rename rewrites every stored version's instances in place (`SqlStore.renameDesign`):
+  instances resolve by slug at render time, so history must name the new one.
 - `server/types.ts` — data model + `Store` interface; no runtime imports.
   `Design` (states, asks, knobs, draft), `Post` (one alternative of one state: an
   ordered list of surfaces — `html` | `markdown` | `diff` | `terminal` | `image`
@@ -169,22 +169,22 @@ consciously, not as a side effect):
   covers name, `migrateReadyStates`) records what each state of a screen or
   component showed when the user marked it, and the states it declared then
   (`POST /api/designs/:id/ready`, viewer only, never a tool; a screen's mark carries to the
-  components it embeds, nested ones included, at the versions they resolve to there; taking
+  components it includes, nested ones included, at the versions they resolve to there; taking
   it off clears one design). A covered version is acted on (`touchedBy`: amend and withdraw
   refuse) and kept past history's limit (`SqlStore.pinnedVersions`, `deleteBlocker`); one
   gone anyway reads `missing: true` (`readyView`), never replaced. `changed` (another
   version or entry shows, or a state was declared since), `status` (`in design`, `Ready`,
   `Changed`), `builtFrom` and `holdsAlternatives` are derived on every read
   (`readyFields`). `shipped` reads an older reply's `accepted` rows on a product design as
-  open, so every current-status path (views, export, embeds, Jump, decisions, option
+  open, so every current-status path (views, export, instances, Jump, decisions, option
   targeting, the hide, copy and tidy guards) sees nothing in use there; `useFlow` and a
   `use` verdict refuse (409), a Send's answers flip nothing, and a draft's pick for the
   retired built-in question is dropped (`dropBuiltinPicks`). `shownVersion` is the newest
   visible version, or the marked one after a stay (`stayFlow`: Back to the Ready version,
   until something newer comes); export hands over every covered entry with the spec and
-  the `builtFrom` of those versions (`buildHandover`, `embedsIn`, every distinct alternative and
-  version referenced), and reads and the tree take `builtFrom` and embed edges from the
-  versions they show (`shownEmbeds`), once per design. A screen's mark carries to each
+  the `builtFrom` of those versions (`buildHandover`, `instancesIn`, every distinct alternative and
+  version referenced), and reads and the tree take `builtFrom` and instance edges from the
+  versions they show (`shownInstances`), once per design. A screen's mark carries to each
   component once, at the newest version its entries show (`carried` names the others). The agent hears a mark as
   `edited.ready`. Viewer: `ReadyMark` beside the name in `TopRow`, the cover's dot
   (`Album.tsx`, its word in the status line where nothing hovers), each instance's word in
@@ -209,12 +209,12 @@ consciously, not as a side effect):
   area is shared (`shared: true` in every view, `placeOf`), `Design.group` names its group
   (stored as the `libraryGroup` column, `group` being an SQL keyword), and a group is there
   only while a component names it. A component of one area that live screens of two or more
-  areas show (`areasShowing`, from their shown versions' embeds, nested included) is offered a
+  areas show (`areasShowing`, from their shown versions' instances, nested included) is offered a
   move to shared: `inAreas` on its tree node (About's note), and a nudge on publish and in a
   feedback batch (`sharedNudgesFor`, `withSpecNudges`). Nothing moves by itself. The system's
   component index (`componentIndex`) lists the shared first, by group.
 - **Lift** (`server/lift.ts`): marking a screen Ready works out what its covered versions draw
-  themselves (`partsOutsideInstances` in `server/parts.ts`: a part on a `<mockpit-embed>` tag,
+  themselves (`partsOutsideInstances` in `server/parts.ts`: a part on a `<mockpit-instance>` tag,
   or holding only instances in plain boxes and no text, is an instance's place), split into
   `parts` and `likeLibrary` (named like a live component), each with `alsoIn` (other live
   designs whose shown versions have the name). It rides on the mark's stored edit as
@@ -336,7 +336,7 @@ consciously, not as a side effect):
   (`VersionCaption`: the version and New version / Use this on the design's top edge, or a document's column; `TopRow`, in three zones with the views centred: the path is the way up, project and area as links, ending at the
   design's name, with a ⋯ menu (Copy name, Archive for an idea) opening `About` (a component's
   place in the library, "Shared · Cards" or its area, with Make it shared where screens of
-  several areas show it / Appears in / Built from / flows / code), and `SideOver`, the project's sidebar opening over the design from a button; the state tabs alone say which state;
+  several areas show it / Appears in / Instances / flows / code), and `SideOver`, the project's sidebar opening over the design from a button; the state tabs alone say which state;
   `BuiltFrom` is Tune's drawer, open while Tune is; `Grid`, states against alternatives
   with what's missing shown (`?view=grid`, an arrangement offered where names repeat across states, and
   how a component with several forms opens unless it is wall-sized), sharing Studio's
@@ -358,7 +358,7 @@ consciously, not as a side effect):
   pins and comments built from the blocks they report;
   `Stage`, a pannable canvas whose design's other `widths` spread out as
   picture-only artboards under "All widths", between the margins), `Margins` (states
-  and versions on the left, On this design, Spec, Built from and Thread on the right, Try,
+  and versions on the left, On this design, Spec, Instances and Thread on the right, Try,
   Comment, Tune and the preview in a strip by the design; each there only with content, and
   `marginLayout` in `logic.ts` turns one into a tab that floats over the canvas when
   it would take a design below 80%; a phone has none of this: `VersionBar`,
@@ -449,7 +449,7 @@ consciously, not as a side effect):
   in-memory render cache (single-instance DO; swap for KV/Cache API if
   multi-instance). The one rewritable version is an alternative's latest, before
   the user acts on it: amend and withdraw bump `Post.rewrites`, which frame
-  URLs (`w`), render keys and embed stamps carry, since the number stays.
+  URLs (`w`), render keys and instance stamps carry, since the number stays.
   `?k=` values are re-validated against the knobs declared
   now on every request, so a `?k=` request never takes the early cache hit.
 - Parts bridge: identity is declared (`data-part`), geometry is measured inside
@@ -587,7 +587,7 @@ the finding needs.
   is a "question" (`ask` stays the tool and key name), a part with
   alternatives is "a part with swaps", and an alternative the user picked is "in
   use". A design's **kind** is idea, screen or component; a part is a named bit inside
-  one design, a component a whole design others embed. An alternative has a `description`,
+  one design, a component a whole design others include as instances. An alternative has a `description`,
   a design has a `spec`, an area and a project a `description`, an answer has a `comment`. Retired words — item, group,
   snippet, board, stream, `part` for a surface, trace, look (for an alternative), slot, mix
   (now borrow), resolve, close and end (now archive), mock (now design), `page` and

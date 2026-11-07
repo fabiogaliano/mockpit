@@ -418,10 +418,10 @@ export function surfaceUrl(
     version?: number;
     mode?: string;
     knobs?: Record<string, KnobValue>;
-    // The alternative's embedsKey: a component's new version is a new URL.
+    // The alternative's instancesKey: a component's new version is a new URL.
     e?: string;
     // Older component versions to show instead of the latest, slug → version.
-    embed?: Record<string, number>;
+    instance?: Record<string, number>;
     // The alternative's rewrites: an amended version keeps its number.
     w?: number;
     // A palette of the project's system other than its default.
@@ -433,7 +433,8 @@ export function surfaceUrl(
   if (opts.mode) q.set("mode", opts.mode);
   if (opts.knobs && Object.keys(opts.knobs).length) q.set("k", JSON.stringify(opts.knobs));
   if (opts.e) q.set("e", opts.e);
-  if (opts.embed && Object.keys(opts.embed).length) q.set("embed", JSON.stringify(opts.embed));
+  if (opts.instance && Object.keys(opts.instance).length)
+    q.set("instance", JSON.stringify(opts.instance));
   if (opts.w) q.set("w", String(opts.w));
   const p = opts.p ?? framePalette();
   if (p) q.set("p", p);

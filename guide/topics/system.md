@@ -113,7 +113,7 @@ The result's `kept` lists it. Only the user's own Restore brings back everything
 
 New versions render with cascade layers: `@layer mockpit, kit, system`. Mockpit's base and
 the kits sit below the sheet, and the tokens and your page are unlayered, so a page rule beats
-a sheet rule at plain specificity, and an embedded component needs no copy of the kit. With the
+a sheet rule at plain specificity, and an included component needs no copy of the kit. With the
 `tailwind` kit the order is `theme, base, mockpit, kit, system, components, utilities`: preflight
 sits under the sheet, and a utility on an element still beats a sheet rule, as in the repo.
 `!important` inside a layer inverts that: keep it out of the sheet. `<html>` carries

@@ -1,6 +1,6 @@
 // An album's ⋯ menu on Home: the user moves the design themselves (another kind,
 // another area) or closes it. Moves go through the same edit the agent uses,
-// with its rules (a design still embedded stays a component), and the agent
+// with its rules (a design still included stays a component), and the agent
 // hears each one in its next feedback; a refusal shows here, briefly.
 
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";

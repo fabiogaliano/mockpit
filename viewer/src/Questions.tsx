@@ -169,7 +169,7 @@ export function optionPicture(
       src: surfaceUrl(v.postId, idx, {
         version: o.version ?? s.frameVersionOf(v),
         mode: theme(),
-        e: v.embedsKey,
+        e: v.instancesKey,
         w: v.rewrites,
       }),
       knobs: withoutSiblings(draftValues(s, v), ask, o),
@@ -185,7 +185,7 @@ export function optionPicture(
       src: surfaceUrl(v.postId, idx, {
         version: s.frameVersionOf(v),
         mode: theme(),
-        e: v.embedsKey,
+        e: v.instancesKey,
         w: v.rewrites,
         p: o.palette,
       }),
@@ -205,7 +205,7 @@ export function optionPicture(
         version: s.answersBaseOf(v),
         mode: theme(),
         knobs: o.set,
-        e: v.embedsKey,
+        e: v.instancesKey,
         w: v.rewrites,
       }),
       knobs: { ...withoutSiblings(draftValues(s, v), ask, o), ...o.set },

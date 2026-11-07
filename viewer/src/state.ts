@@ -225,10 +225,10 @@ export function createDesignScreen(
   // open questions until the next Send. A sent answer is otherwise read-only.
   const [revising, setRevising] = createSignal<Record<string, true>>({});
   const [afterSend, setAfterSend] = createSignal<AfterSend | null>(null);
-  // The part picked on the stage, open in Built from's Tune; null is the page.
+  // The part picked on the stage, open in Instances' Tune; null is the page.
   const [selectedPart, setSelectedPart] = createSignal<string | null>(null);
   const [hoverPart, setHoverPart] = createSignal<string | null>(null);
-  // The part whose knobs are open in Built from (null is the page's own
+  // The part whose knobs are open in Instances (null is the page's own
   // knobs), or false with none open.
   const [tuneOpen, setTuneOpen] = createSignal<string | null | false>(false);
   // The parts with knobs (or a borrow) to open, as Tune lists them (tune.ts).
@@ -260,13 +260,13 @@ export function createDesignScreen(
   // The exact version on stage per state (String(state) → ref), once the user
   // steps to one; otherwise the stage shows the version in use, else the latest.
   const [shown, setShown] = createSignal<Record<string, VersionRef>>({});
-  // Built from (the side drawer), the bottom panel and the question card's
+  // Instances (the side drawer), the bottom panel and the question card's
   // minimised tab.
   const [drawer, setDrawerSignal] = createSignal(false);
   const [panel, setPanelSignal] = createSignal<PanelTab | null>(null);
   const [cardMin, setCardMin] = createSignal(false);
   // The question can't be seen, so it takes no keys and marks no part. Beside the
-  // design Built from takes the question's place; on a phone it is a sheet over it.
+  // design Instances takes the question's place; on a phone it is a sheet over it.
   const questionHidden = () => cardMin() || !!panel() || (drawer() && !phoneLayout());
   // The last thing done to a version, with its undo while it is offered.
   const [toast, showToast] = createSignal<ToastLine | null>(null);
@@ -1289,7 +1289,7 @@ export function createDesignScreen(
     rememberPlace();
   }
   // A tap on a part outlines it and offers its reactions; with Tune on it
-  // opens that part's knobs in Built from instead.
+  // opens that part's knobs in Instances instead.
   function selectPart(part: string | null) {
     setSelectedPart(part);
     if (tuning()) {
@@ -1393,7 +1393,7 @@ export function createDesignScreen(
     const picked = ask.options.find((o) => o.id === optionId)?.alternative;
     if (picked) setShown({});
     // A look picked now means that look as it stands. Left on an older draft's
-    // version, Send would put a version nobody meant in use, on every screen embedding it.
+    // version, Send would put a version nobody meant in use, on every screen including it.
     if (picked && boundVersion() !== null) viewNewVersion();
     const wasOpen = otherTicked(ask);
     const typed = { text: otherOf(ask) ?? "", images: otherImagesOf(ask) };

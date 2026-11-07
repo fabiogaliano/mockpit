@@ -1131,7 +1131,7 @@ export function knobPreamble(
 }
 
 // Knob values as an element's `data-k-*` attributes and `--k-*` style vars, the
-// same marks the preamble puts on <html>; an embedded component's wrapper
+// same marks the preamble puts on <html>; an included component's wrapper
 // carries its own settled values this way.
 export function knobAttributes(knobs: Record<string, unknown> | undefined): {
   attrs: string;

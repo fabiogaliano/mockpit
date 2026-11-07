@@ -223,9 +223,9 @@ export function turnWord(node: StatusNode, now: number): { kind: TurnKind; text:
 // Where a component appears. Hosts needn't be declared screens, and calling a
 // idea a screen would make the count say something untrue.
 export function usedIn(node: TreeNode, kindOf: (slug: string) => string | undefined): string {
-  const n = node.embeddedIn.length;
+  const n = node.instanceIn.length;
   if (!n) return "";
-  const screens = node.embeddedIn.every((s) => kindOf(s) === "screen");
+  const screens = node.instanceIn.every((s) => kindOf(s) === "screen");
   const word = screens ? "screen" : "design";
   return `in ${n} ${word}${n === 1 ? "" : "s"}`;
 }

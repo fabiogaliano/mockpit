@@ -680,7 +680,7 @@ function Board(props: {
       version: version(),
       mode: theme(),
       knobs,
-      e: props.alternative.embedsKey,
+      e: props.alternative.instancesKey,
       w: props.alternative.rewrites,
       p: s.stagePalette(),
     });
@@ -968,7 +968,7 @@ function AlternativeFrame(props: {
                 surfaceUrl(props.alternative.postId, i(), {
                   version: version(),
                   mode: theme(),
-                  e: props.alternative.embedsKey,
+                  e: props.alternative.instancesKey,
                   w: props.alternative.rewrites,
                   p: s.stagePalette(),
                   knobs: isPrimary

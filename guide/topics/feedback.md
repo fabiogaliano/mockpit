@@ -75,7 +75,7 @@ without taking any feedback.
 1. `answers` and `asks` decide structure. An alternative-bound answer has already put that
    alternative in use and archived its siblings (`inUse`, `archived`). Each `inUse` entry
    is pinned at the `version` the user put in use (`read` → `inUse`): `export` and
-   embeds show that one, not your newer publishes, until the user picks again.
+   instances show that one, not your newer publishes, until the user picks again.
    A batch's `system` (`{rev, changes}`) is what its Send decided for the whole project:
    a palette made the default, a project knob settled. Every design wears it now.
    `read --history` flags a version the user hid `hidden`. The question `alternative` (per
@@ -145,7 +145,7 @@ heard on its own design. A screen's mark carries `lift`: `parts` (`[{name, label
 alsoIn?}]`, the parts its marked versions draw themselves, not an instance's place, with the
 other designs showing a part of that name) and `likeLibrary` (the same, plus `component`: a
 part named like a library component, a copy drawn where an instance belongs). Swap each copy
-for an instance, lift the pieces worth keeping into components embedded back in one new
+for an instance, lift the pieces worth keeping into components included back in one new
 version, then ask `lift` (multi, one answer per lifted component, its id the component's
 slug, and one for none): its answer marks the screen Ready again at what it shows and each
 component not chosen Ready. A batch's `nudges` say what the design needs now: a screen or
@@ -182,7 +182,7 @@ mockpit say "Went dark; body at 19px" --design writer
 mockpit export  --design writer             # .mockpit/accepted/writer/<state>/{index.html,history.json,…}
 mockpit read                              # one line per design, plus pending, then what is already decided
 mockpit read    writer                    # states, alternatives, questions and answers, parts, knobs, settled
-mockpit read    --tree                    # the project as a tree: alternatives, forkedFrom, embeds / embeddedIn
+mockpit read    --tree                    # the project as a tree: alternatives, forkedFrom, instances / instanceIn
 mockpit read    --area Food               # one area: what it is for, its designs, decisions, ideas waiting
 mockpit read    --decisions               # the whole decision list, when a read cut it
 ```
@@ -205,7 +205,7 @@ mockpit read    --decisions               # the whole decision list, when a read
   `holdsAlternatives: true` with a nudge: move them to an idea for it (`move`). `export`
   hands over every entry marked Ready at its marked version (unmarked: every live entry as
   it shows; a marked version that is gone is listed in `missing`, never replaced), with
-  `ready`, `changed`, the `spec` and `builtFrom` (the components those versions embed, one per
+  `ready`, `changed`, the `spec` and `builtFrom` (the components those versions include, one per
   alternative and version referenced, each with its mark). The CLI writes each entry as
   `<alternative>.html` in its state's directory (two names that would collide each get the start
   of their post id), and the rest to `design.json`.

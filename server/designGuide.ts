@@ -397,7 +397,7 @@ export function systemSection(system: System | null, components: ComponentLine[]
   }
   if (components.length) {
     lines.push(
-      `Components (embed with \`<mockpit-embed slug="slug">\`, don't redraw):\n${components
+      `Components (include an instance with \`<mockpit-instance slug="slug">\`, don't redraw):\n${components
         .slice(0, 30)
         .map(
           (c) =>
@@ -596,7 +596,7 @@ When the user marks a screen Ready, its batch carries \`lift\`: \`parts\`, what 
 screen draws itself (each with its \`states\` and \`alsoIn\`, other designs showing a part
 of that name), and \`likeLibrary\`, parts named like a library component. Replace each
 \`likeLibrary\` copy with an instance of its \`component\`. Lift each piece of \`parts\`
-worth keeping into a component of its own, embedded back so the screen looks the same,
+worth keeping into a component of its own, included back so the screen looks the same,
 in one new version. Then ask one question on the screen, id \`lift\`, \`multi\`, "Still
 iterating on any of these?": one answer per lifted component, its id the component's
 slug, and a last one for none. Answering it marks the screen Ready again at that version
@@ -642,8 +642,8 @@ you use adds its section to Home:
 - A screen or component before it's drawn: \`--kind screen\` with no html plans it,
   with \`--flow\` if you like; your first publish to it draws it.
 - A reusable design for those screens (a button, a card, a header): its own
-  design, embedded in screens with \`<mockpit-embed slug="card">\`. Being
-  embedded makes it a component (\`--kind component\` says so up front).
+  design, included in screens as an **instance**, an included component:
+  \`<mockpit-instance slug="card">\`. Being included makes it a component (\`--kind component\` says so up front).
   Vary a component in its own design, not by copying it into every screen: a
   decision on it reaches every screen it is in. Topic \`surfaces\` has the
   details.
@@ -658,7 +658,7 @@ says in one line what an area is for, and without \`--area\` what the project is
 for; the user's own stands. An idea that becomes a screen is promoted
 with \`mockpit edit --design <slug> --kind screen\` (no new version), and
 \`--slug\`, \`--title\`, \`--area\` and \`--source\` change the same way; a new
-slug rewrites every embed and flow step that names the old one. Home lists
+slug rewrites every instance and flow step that names the old one. Home lists
 areas alphabetically unless \`mockpit edit --project <p> --areas
 "Shell,Food"\` sets the order (unlisted ones follow, alphabetical).
 
@@ -672,7 +672,7 @@ so use this instead. A design with no states takes tabs after
 To clear out older versions, only when the user asks: \`mockpit move --design <slug>
 --hide-older\` hides all but each alternative's newest, and the user can bring them back.
 \`--delete-older\` deletes them for good and skips any that a reply, comment, question,
-embed, copy or fork points at, or that is in use, listing why. It can't be undone, so
+instance, copy or fork points at, or that is in use, listing why. It can't be undone, so
 confirm first; \`--withdraw\` is still how you take back your own latest version.
 
 ## Question, swaps or knob

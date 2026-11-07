@@ -100,7 +100,7 @@ export function createMargins(
   // Kept answers wait beside the design, so they hold the side open after a Send.
   const talkWants = () => !closed() && (!!s.curAsk() || s.sendable() || keptGroups(s).length > 0);
   const talkHas = () => talkWants() || s.flow().length > 0 || s.closedAsks("state").length > 0;
-  const builtHas = () => s.tunable().length > 0 || !!s.activeAlternative()?.embedsKey;
+  const builtHas = () => s.tunable().length > 0 || !!s.activeAlternative()?.instancesKey;
   const side = createMemo<Side | null>(() => {
     if (s.drawer()) return "built";
     if (s.panel() === "thread") return "thread";
@@ -277,7 +277,7 @@ export function ToolStrip(props: { s: DesignScreenState; m: Margins }) {
 const PANELS: { id: Side; icon: IconName; label: string }[] = [
   { id: "talk", icon: "question", label: "On this design" },
   { id: "spec", icon: "spec", label: "Spec" },
-  { id: "built", icon: "layers", label: "Built from" },
+  { id: "built", icon: "layers", label: "Instances" },
   { id: "thread", icon: "thread", label: "Thread" },
 ];
 

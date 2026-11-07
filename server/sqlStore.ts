@@ -50,7 +50,7 @@ import {
   sameScreen,
   selectEvictions,
   type Session,
-  type Embed,
+  type Instance,
   type Flow,
   type FlowStep,
   type ForkRef,
@@ -67,7 +67,7 @@ import {
   type AmendPostInput,
   type DecisionAlternative,
 } from "./types.ts";
-import { renameSlugRefs } from "./embeds.ts";
+import { renameSlugRefs } from "./instances.ts";
 import {
   CURRENT_CONTRACT,
   normalizeSystem,
@@ -114,15 +114,15 @@ function contractReply(payload: Record<string, unknown>): Record<string, unknown
   return out;
 }
 
-// `surfaces` with every `<mockpit-slot>` tag spelled `<mockpit-embed>`, or null
+// `surfaces` with every `<mockpit-slot>` tag spelled `<mockpit-instance>`, or null
 // when none has one. Only html is markup; a code or markdown surface may quote
 // the tag as text.
-function slotTagsToEmbed(surfaces: Surface[]): Surface[] | null {
+function slotTagsToInstance(surfaces: Surface[]): Surface[] | null {
   let changed = false;
   const out = surfaces.map((s) => {
     if (s.kind !== "html" || !/<\/?mockpit-slot\b/i.test(s.html)) return s;
     changed = true;
-    return { ...s, html: s.html.replace(/<(\/?)mockpit-slot\b/gi, "<$1mockpit-embed") };
+    return { ...s, html: s.html.replace(/<(\/?)mockpit-slot\b/gi, "<$1mockpit-instance") };
   });
   return changed ? out : null;
 }
@@ -142,7 +142,7 @@ const surfaceHeads = (surfaces: Surface[]): string =>
         ...(s.poster && s.posterMode && s.posterSystem !== undefined
           ? { posterSystem: s.posterSystem }
           : {}),
-        ...(/<mockpit-embed|data-swap/i.test(s.html) ? { marked: true } : {}),
+        ...(/<mockpit-instance|data-swap/i.test(s.html) ? { marked: true } : {}),
       };
     }),
   );
@@ -159,7 +159,7 @@ const SURFACE_HEADS_SQL = `CASE WHEN json_valid(surfaces) THEN (
       || CASE WHEN json_extract(value, '$.kind') = 'html' AND json_extract(value, '$.poster') <> ''
            THEN ',"poster":' || json_quote(json_extract(value, '$.poster')) ELSE '' END
       || CASE WHEN json_extract(value, '$.kind') = 'html'
-             AND (json_extract(value, '$.html') LIKE '%<mockpit-embed%'
+             AND (json_extract(value, '$.html') LIKE '%<mockpit-instance%'
                OR json_extract(value, '$.html') LIKE '%data-swap%')
            THEN ',"marked":true' ELSE '' END
       || '}' AS h
@@ -199,8 +199,8 @@ export class SqlStore implements Store {
   // an asset id once referenced stays referenced until its post is deleted.
   private assetRefCache: Set<string> | undefined;
   // Parsed posts per design, least recently used first. A component is read again
-  // for every embed that shows it, and parsing its bodies each time is what a
-  // page full of embeds would wait on. A statement that writes posts or versions
+  // for every instance that shows it, and parsing its bodies each time is what a
+  // page full of instances would wait on. A statement that writes posts or versions
   // drops all of it unless `writingPosts` says which posts it touches; the byte
   // budget keeps a Durable Object's memory bounded.
   private postCache = new Map<string, { posts: Post[]; bytes: number }>();
@@ -569,6 +569,41 @@ export class SqlStore implements Store {
     this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('swapWords', '1')");
   }
 
+  // An included component is an instance: every stored version, and every answer that
+  // brings a page or a swap, spells its tag `<mockpit-instance>`, and the pages that style
+  // the wrapper it renders into name `data-mockpit-instance`.
+  private migrateToInstanceWords() {
+    const tags = (html: string) =>
+      html
+        .replace(/<(\/?)mockpit-embed(?=[\s/>])/gi, "<$1mockpit-instance")
+        .replace(/data-mockpit-embed\b/g, "data-mockpit-instance");
+    this.rewriteStoredHtml("%mockpit-embed%", tags);
+    const pages = (o: Record<string, unknown>): boolean => {
+      let changed = false;
+      for (const field of ["html", "swap"]) {
+        const v = o[field];
+        if (typeof v === "string" && tags(v) !== v) {
+          o[field] = tags(v);
+          changed = true;
+        }
+      }
+      return changed;
+    };
+    this.rewriteJson("designs", "id", "asks", (asks) => {
+      let changed = false;
+      for (const a of asks as { options?: Record<string, unknown>[] }[]) {
+        for (const o of a.options ?? []) changed = pages(o) || changed;
+      }
+      return changed;
+    });
+    this.rewriteJson("designs", "id", "answerAdditions", (list) => {
+      let changed = false;
+      for (const a of list as Record<string, unknown>[]) changed = pages(a) || changed;
+      return changed;
+    });
+    this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('instanceWords', '1')");
+  }
+
   private renameMocksToDesigns() {
     if (!this.tables().has("mocks") || this.tables().has("designs")) return;
     for (const name of [
@@ -764,6 +799,7 @@ export class SqlStore implements Store {
     if (this.settingSync("askScopeWord") !== "1") this.migrateAskScopeWord();
     if (this.settingSync("alternativeWords") !== "1") this.migrateToAlternativeWords();
     if (this.settingSync("swapWords") !== "1") this.migrateToSwapWords();
+    if (this.settingSync("instanceWords") !== "1") this.migrateToInstanceWords();
     // The day it went was never kept, and the design's last change is the nearest thing.
     // Frozen now, or the next reason or draft on the design would move it to that day.
     if (!dated) {
@@ -887,11 +923,11 @@ export class SqlStore implements Store {
 
   // The agent contract renamed what replies and drafts store (mix → borrowed,
   // decision → verdict with accept → use, resolved → archived) and retired drop
-  // and the `<mockpit-slot>` embed alias. Stored data is rewritten once, here,
+  // and the `<mockpit-slot>` instance alias. Stored data is rewritten once, here,
   // so nothing past the store reads an old name: a dropped alternative is archived
   // (both were hidden from the choice and restorable), a drop verdict loses its
   // verdict (the alternative's archived status says the rest), and every stored
-  // version spells its embeds `<mockpit-embed>` so it still renders them.
+  // version spells its instances `<mockpit-instance>` so it still renders them.
   private migrateToContractTerms() {
     this.sql.exec(
       "UPDATE posts SET status = 'archived', acceptedVersion = NULL WHERE status = 'dropped'",
@@ -920,7 +956,7 @@ export class SqlStore implements Store {
     for (const r of this.sql
       .exec("SELECT id, surfaces FROM posts WHERE surfaces LIKE '%mockpit-slot%'")
       .toArray()) {
-      const surfaces = slotTagsToEmbed(parseJson<Surface[]>(r.surfaces, []));
+      const surfaces = slotTagsToInstance(parseJson<Surface[]>(r.surfaces, []));
       if (surfaces) {
         this.sql.exec(
           "UPDATE posts SET surfaces = ? WHERE id = ?",
@@ -934,7 +970,7 @@ export class SqlStore implements Store {
         "SELECT postId, version, surfaces FROM post_versions WHERE surfaces LIKE '%mockpit-slot%'",
       )
       .toArray()) {
-      const surfaces = slotTagsToEmbed(parseJson<Surface[]>(r.surfaces, []));
+      const surfaces = slotTagsToInstance(parseJson<Surface[]>(r.surfaces, []));
       if (surfaces) {
         this.sql.exec(
           "UPDATE post_versions SET surfaces = ? WHERE postId = ? AND version = ?",
@@ -1244,7 +1280,7 @@ export class SqlStore implements Store {
   }
 
   // A design no one declared used to be a component. Keep that only where it acts
-  // as one, embedded somewhere or a step of a flow; the rest become sketches.
+  // as one, included somewhere or a step of a flow; the rest become sketches.
   private migrateToSketches() {
     const projectOf = new Map<string, string>();
     for (const r of this.sql.exec("SELECT id, project FROM designs").toArray()) {
@@ -1253,7 +1289,7 @@ export class SqlStore implements Store {
     const used = new Set<string>();
     for (const r of this.sql.exec("SELECT designId, slots FROM posts").toArray()) {
       const project = projectOf.get(r.designId as string);
-      for (const e of parseJson<Embed[]>(r.slots, [])) used.add(`${project}\u0000${e.slug}`);
+      for (const e of parseJson<Instance[]>(r.slots, [])) used.add(`${project}\u0000${e.slug}`);
     }
     for (const r of this.sql.exec("SELECT project, steps FROM flows").toArray()) {
       for (const x of parseJson<FlowStep[]>(r.steps, [])) {
@@ -1403,8 +1439,8 @@ export class SqlStore implements Store {
       history,
       ...(knobs ? { knobs } : {}),
       ...(r.description == null ? {} : { description: r.description as string }),
-      // The column keeps its first name, from when embeds were called slots.
-      embeds: parseJson<Embed[]>(r.slots, []),
+      // The column keeps its first name, from when instances were called slots.
+      instances: parseJson<Instance[]>(r.slots, []),
       ...(r.forkedFrom == null ? {} : { forkedFrom: parseJson<ForkRef>(r.forkedFrom, null!) }),
       ...(r.copiedFrom == null ? {} : { copiedFrom: parseJson<CopyRef>(r.copiedFrom, null!) }),
       ...(r.status === "accepted" && r.acceptedVersion != null
@@ -1883,7 +1919,7 @@ export class SqlStore implements Store {
       if (taken.length > 0) return null;
       const updatedAt = new Date().toISOString();
       this.sql.exec("UPDATE designs SET slug = ?, updatedAt = ? WHERE id = ?", to, updatedAt, id);
-      // History is rewritten too: embeds resolve by slug at render time, so an
+      // History is rewritten too: instances resolve by slug at render time, so an
       // old version left naming the old slug would show its components missing.
       const rewrite = (raw: SqlStorageValue): string | null => {
         let changed = false;
@@ -1906,11 +1942,11 @@ export class SqlStore implements Store {
         const postId = r.id as string;
         const surfaces = rewrite(r.surfaces);
         if (surfaces) this.sql.exec("UPDATE posts SET surfaces = ? WHERE id = ?", surfaces, postId);
-        const embeds = parseJson<Embed[]>(r.slots, []);
-        if (embeds.some((e) => e.slug === from)) {
+        const instances = parseJson<Instance[]>(r.slots, []);
+        if (instances.some((e) => e.slug === from)) {
           this.sql.exec(
             "UPDATE posts SET slots = ? WHERE id = ?",
-            JSON.stringify(embeds.map((e) => (e.slug === from ? { ...e, slug: to } : e))),
+            JSON.stringify(instances.map((e) => (e.slug === from ? { ...e, slug: to } : e))),
             postId,
           );
         }
@@ -2373,7 +2409,7 @@ export class SqlStore implements Store {
       ...(stripNul(input.description ?? "").trim()
         ? { description: stripNul(input.description ?? "").trim() }
         : {}),
-      embeds: input.embeds ?? [],
+      instances: input.instances ?? [],
       ...(input.forkedFrom ? { forkedFrom: input.forkedFrom } : {}),
       ...(input.copiedFrom ? { copiedFrom: input.copiedFrom } : {}),
       ...(input.from === undefined ? {} : { from: input.from }),
@@ -2395,7 +2431,7 @@ export class SqlStore implements Store {
         JSON.stringify(post.surfaces),
         surfaceHeads(post.surfaces),
         post.knobs ? JSON.stringify(post.knobs) : null,
-        JSON.stringify(post.embeds),
+        JSON.stringify(post.instances),
         post.createdAt,
         post.updatedAt,
         post.from ?? null,
@@ -2446,7 +2482,7 @@ export class SqlStore implements Store {
         ...(post.system === undefined ? {} : { system: post.system }),
       };
       // The version in use, and any version a Ready mark names, are kept past the limit:
-      // export and embeds resolve to them.
+      // export and instances resolve to them.
       const pins = this.pinnedVersions(post);
       const history = [...post.history, archived];
       const prunable = history.filter((h) => !pins.includes(h.version));
@@ -2460,7 +2496,7 @@ export class SqlStore implements Store {
         patch.description === undefined
           ? post.description
           : stripNul(patch.description).trim() || undefined;
-      const embeds = patch.embeds ?? post.embeds;
+      const instances = patch.instances ?? post.instances;
       const state = patch.state === undefined ? post.state : patch.state;
       const version = post.version + 1;
       const updatedAt = new Date().toISOString();
@@ -2479,7 +2515,7 @@ export class SqlStore implements Store {
           surfaceHeads(surfaces),
           knobs ? JSON.stringify(knobs) : null,
           description ?? null,
-          JSON.stringify(embeds),
+          JSON.stringify(instances),
           state,
           updatedAt,
           version,
@@ -2524,7 +2560,7 @@ export class SqlStore implements Store {
           surfaces,
           ...(knobs ? { knobs } : {}),
           ...(description ? { description } : {}),
-          embeds,
+          instances,
           state,
           version,
           updatedAt,
@@ -2551,7 +2587,7 @@ export class SqlStore implements Store {
       patch.description === undefined
         ? post.description
         : stripNul(patch.description).trim() || undefined;
-    const embeds = patch.embeds ?? post.embeds;
+    const instances = patch.instances ?? post.instances;
     const from = patch.from ?? post.from;
     const prompt = patch.prompt === undefined ? post.prompt : stripNul(patch.prompt);
     const author = patch.author === undefined ? post.author : stripNul(patch.author);
@@ -2567,7 +2603,7 @@ export class SqlStore implements Store {
         surfaceHeads(surfaces),
         knobs ? JSON.stringify(knobs) : null,
         description ?? null,
-        JSON.stringify(embeds),
+        JSON.stringify(instances),
         from ?? null,
         prompt ?? null,
         author ?? null,
@@ -2599,7 +2635,7 @@ export class SqlStore implements Store {
       surfaces,
       ...(knobs ? { knobs } : {}),
       ...(description ? { description } : {}),
-      embeds,
+      instances,
       ...(from === undefined ? {} : { from }),
       ...(prompt === undefined ? {} : { prompt }),
       ...(author === undefined ? {} : { author }),
@@ -2647,7 +2683,7 @@ export class SqlStore implements Store {
     return wrote;
   }
 
-  async withdrawVersion(id: string, version: number, embeds: Embed[]) {
+  async withdrawVersion(id: string, version: number, instances: Instance[]) {
     const post = await this.getPost(id);
     if (!post || post.version !== version) return null;
     const previous = post.history.at(-1);
@@ -2675,7 +2711,7 @@ export class SqlStore implements Store {
           previous.title,
           JSON.stringify(previous.surfaces),
           surfaceHeads(previous.surfaces),
-          JSON.stringify(embeds),
+          JSON.stringify(instances),
           previous.at,
           previous.version,
           previous.from ?? null,
@@ -2715,7 +2751,7 @@ export class SqlStore implements Store {
         ...rest,
         title: previous.title,
         surfaces: previous.surfaces,
-        embeds,
+        instances,
         updatedAt: previous.at,
         version: previous.version,
         history: post.history.slice(0, -1),

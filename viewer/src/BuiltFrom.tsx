@@ -1,5 +1,5 @@
-// Built from, in the right margin (a bottom sheet on a phone), open while Tune is:
-// the components this state embeds and its own parts, each opening its knobs
+// Instances, in the right margin (a bottom sheet on a phone), open while Tune is:
+// the components this state includes and its own parts, each opening its knobs
 // (tunekit, see tune.ts) with what is tuned riding in the next answer. What
 // sits around the design is in About, under its name.
 
@@ -21,7 +21,7 @@ function nodePicture(node: TreeNode): string | null {
     ? surfaceUrl(pic.postId, pic.surface, {
         version: pic.version,
         mode: theme(),
-        e: pic.embedsKey,
+        e: pic.instancesKey,
         w: pic.rewrites,
       })
     : null;
@@ -36,14 +36,14 @@ export function BuiltFrom(props: {
   const s = props.s;
   const t = props.t;
   const project = () => s.design()?.project ?? s.project;
-  // Refetched whenever the design changes, so a newly embedded component shows.
+  // Refetched whenever the design changes, so a newly included component shows.
   const [tree] = createResource(
     () => (s.drawer() ? `${project()}\u0000${s.design()?.updatedAt ?? ""}` : null),
     () => api.tree(project()).then((r) => r.tree),
   );
   const bySlug = createMemo(() => new Map((tree() ?? []).map((n) => [n.slug, n])));
   const me = () => bySlug().get(s.slug);
-  const uses = () => (me()?.embeds ?? []).flatMap((slug) => bySlug().get(slug) ?? []);
+  const uses = () => (me()?.instances ?? []).flatMap((slug) => bySlug().get(slug) ?? []);
   const parts = () =>
     t.components().filter((c) => c.paths.length || s.mixOpts().some((o) => o.part === c.part));
   const tuned = () => Object.keys(s.draft()?.tuned ?? {}).length;
@@ -84,7 +84,7 @@ export function BuiltFrom(props: {
       </Show>
       <Show when={uses().length}>
         <section>
-          <h3>Components</h3>
+          <h3>Instances</h3>
           <div class="chips">
             <For each={uses()}>
               {(n) => {
@@ -101,7 +101,7 @@ export function BuiltFrom(props: {
                         <span>
                           <span class="nm">{n.title}</span>
                           <span class="sm" data-ready={n.status}>
-                            {/* A component's own mark; an idea embedded here says what's in use. */}
+                            {/* A component's own mark; an idea included here says what's in use. */}
                             {n.status ??
                               (n.inUse[0]
                                 ? `${versionName(

@@ -29,7 +29,7 @@ export function PalettesBoard(props: { s: DesignScreenState }) {
       version: s.frameVersionOf(v),
       mode,
       p: palette,
-      e: v.embedsKey,
+      e: v.instancesKey,
       w: v.rewrites,
     });
   };

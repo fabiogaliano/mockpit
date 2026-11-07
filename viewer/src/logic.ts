@@ -1997,7 +1997,7 @@ export interface ScreenPicture {
   postId: string;
   surface: number;
   version: number;
-  embedsKey?: string;
+  instancesKey?: string;
   inUse: boolean;
   poster?: string;
   rewrites?: number;
@@ -2027,7 +2027,7 @@ export function screenPicture(
     surface: v.surface,
     version,
     ...(poster ? { poster } : {}),
-    ...(v.embedsKey ? { embedsKey: v.embedsKey } : {}),
+    ...(v.instancesKey ? { instancesKey: v.instancesKey } : {}),
     ...(v.rewrites ? { rewrites: v.rewrites } : {}),
     inUse: !!used,
   };

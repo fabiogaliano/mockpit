@@ -5684,7 +5684,7 @@ html:has(.design-screen) {
   border: 1.5px solid var(--keep);
   background: var(--page);
 }
-/* Built from: a drawer beside the canvas, a sheet on a phone. */
+/* Instances: a drawer beside the canvas, a sheet on a phone. */
 .drawer {
   position: fixed;
   top: 0;

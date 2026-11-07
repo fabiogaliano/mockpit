@@ -223,7 +223,7 @@ export function Reader(props: { s: DesignScreenState; head?: JSX.Element }) {
               const url = surfaceUrl(v.postId, i(), {
                 version: version(),
                 mode: theme(),
-                e: v.embedsKey,
+                e: v.instancesKey,
                 w: v.rewrites,
               });
               return `${url}#read`;

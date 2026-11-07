@@ -1,19 +1,19 @@
-// Composition: `<mockpit-embed slug="…" variant="…" version="…">` tags in any
+// Composition: `<mockpit-instance slug="…" variant="…" version="…">` tags in any
 // design's html are expanded server-side by inlining the referenced variant
 // version's first html surface body, recursively, so a component can be built
 // from components. A tag without `version` follows the version in use when the
 // variant it resolves to is accepted, else its latest; one without `variant`
 // follows the component's accepted variant.
-// Publish records the versions it saw on the post (`Post.embeds`), so what a
+// Publish records the versions it saw on the post (`Post.instances`), so what a
 // version rendered with stays answerable.
 //
 // Runtime-agnostic (no node imports) and string-only: the result is handed to
 // renderHtmlPage, which serves it from /s/:id under the sandbox CSP header, so
 // an inlined component body is exactly as contained as the page's own markup.
 
-import type { Embed, Surface } from "./types.ts";
+import type { Instance, Surface } from "./types.ts";
 
-export interface EmbedTag {
+export interface InstanceTag {
   slug: string;
   // null: the component's accepted variant.
   variant: string | null;
@@ -24,8 +24,8 @@ export interface EmbedTag {
 // What a tag resolved to: the variant and version shown, and its html body.
 // `attrs` (pre-escaped) go on the wrapper: the component's settled knob values,
 // so the page shows the component as decided. `stamp` names those values for
-// the embeds key, so deciding something on a component re-renders its screens.
-export interface ResolvedEmbed {
+// the instances key, so deciding something on a component re-renders its screens.
+export interface ResolvedInstance {
   variant: string;
   version: number;
   html: string;
@@ -33,13 +33,13 @@ export interface ResolvedEmbed {
   stamp?: string;
 }
 
-export type EmbedResolver = (tag: EmbedTag) => Promise<ResolvedEmbed | null>;
+export type InstanceResolver = (tag: InstanceTag) => Promise<ResolvedInstance | null>;
 
 // Deep enough for page › section › component › control; past it a chain is
 // almost certainly a mistake and costs a render each time.
-export const MAX_EMBED_DEPTH = 6;
+export const MAX_INSTANCE_DEPTH = 6;
 
-const EMBED_TAG = /<mockpit-embed\b([^>]*?)(?:\/>|>\s*<\/mockpit-embed\s*>|>)/gi;
+const INSTANCE_TAG = /<mockpit-instance\b([^>]*?)(?:\/>|>\s*<\/mockpit-instance\s*>|>)/gi;
 const ATTR = /([a-z-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/gi;
 
 function attributes(raw: string): Record<string, string> {
@@ -50,7 +50,7 @@ function attributes(raw: string): Record<string, string> {
   return out;
 }
 
-function tagOf(attrRaw: string): EmbedTag | null {
+function tagOf(attrRaw: string): InstanceTag | null {
   const attrs = attributes(attrRaw);
   const slug = attrs.slug ?? "";
   if (!slug) return null;
@@ -62,40 +62,40 @@ function tagOf(attrRaw: string): EmbedTag | null {
   };
 }
 
-export function parseEmbedTags(html: string): EmbedTag[] {
-  const tags: EmbedTag[] = [];
-  EMBED_TAG.lastIndex = 0;
+export function parseInstanceTags(html: string): InstanceTag[] {
+  const tags: InstanceTag[] = [];
+  INSTANCE_TAG.lastIndex = 0;
   let m: RegExpExecArray | null;
-  while ((m = EMBED_TAG.exec(html))) {
+  while ((m = INSTANCE_TAG.exec(html))) {
     const tag = tagOf(m[1] ?? "");
     if (tag) tags.push(tag);
   }
   return tags;
 }
 
-export const hasEmbedTags = (html: string): boolean => /<mockpit-embed\b/i.test(html);
+export const hasInstanceTags = (html: string): boolean => /<mockpit-instance\b/i.test(html);
 
-// Whether a post's first html surface embeds anything, cached per surfaces array
+// Whether a post's first html surface includes any instance, cached per surfaces array
 // (a stored post never mutates it): a design's view asks on every read.
-const embedsBySurfaces = new WeakMap<Surface[], boolean>();
-export function firstHtmlEmbeds(surfaces: Surface[]): boolean {
-  const hit = embedsBySurfaces.get(surfaces);
+const instancesBySurfaces = new WeakMap<Surface[], boolean>();
+export function firstHtmlInstances(surfaces: Surface[]): boolean {
+  const hit = instancesBySurfaces.get(surfaces);
   if (hit !== undefined) return hit;
   const html = surfaces.find((x) => x.kind === "html");
-  const found = !!html && html.kind === "html" && hasEmbedTags(html.html);
-  embedsBySurfaces.set(surfaces, found);
+  const found = !!html && html.kind === "html" && hasInstanceTags(html.html);
+  instancesBySurfaces.set(surfaces, found);
   return found;
 }
 
 // The html with every reference to design `from` pointed at `to`: the slug of
-// each embed tag naming it, and each data-goto naming it ("from" or
+// each instance tag naming it, and each data-goto naming it ("from" or
 // "from:<state>"). What a slug rename writes into every stored version, so
 // each version still renders the same component it did.
 export function renameSlugRefs(html: string, from: string, to: string): string {
   if (!html.includes(from)) return html;
-  EMBED_TAG.lastIndex = 0;
+  INSTANCE_TAG.lastIndex = 0;
   return html
-    .replace(EMBED_TAG, (tag: string, raw: string = "") => {
+    .replace(INSTANCE_TAG, (tag: string, raw: string = "") => {
       if ((attributes(raw).slug ?? "") !== from) return tag;
       const next = raw.replace(
         /(^|\s)(slug\s*=\s*)(?:"[^"]*"|'[^']*'|[^\s"'>]+)/i,
@@ -122,9 +122,9 @@ const escapeAttr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;
 
 export interface Expanded {
   html: string;
-  // Every embed rendered, nested ones included, in document order.
-  used: Embed[];
-  // Each used embed's settled-values stamp, in the same order.
+  // Every instance rendered, nested ones included, in document order.
+  used: Instance[];
+  // Each used instance's settled-values stamp, in the same order.
   stamps: string[];
   // The first slug chain that loops back on itself (["page", "card", "page"]).
   cycle: string[] | null;
@@ -133,21 +133,21 @@ export interface Expanded {
 // Replace each tag with its resolved body, expanding that body's own tags in
 // turn. `stack` is the chain of slugs being expanded (the root design's first),
 // so a component that reaches back up renders a marked placeholder instead of
-// recursing. An unresolvable embed renders as an empty marked-up placeholder
+// recursing. An unresolvable instance renders as an empty marked-up placeholder
 // rather than vanishing, so a broken reference is visible in review instead of
 // silently changing the layout.
 export async function expandHtml(
   html: string,
-  resolve: EmbedResolver,
+  resolve: InstanceResolver,
   stack: string[],
 ): Promise<Expanded> {
-  const used: Embed[] = [];
+  const used: Instance[] = [];
   const stamps: string[] = [];
   let cycle: string[] | null = null;
-  const matches: { tag: EmbedTag | null }[] = [];
-  EMBED_TAG.lastIndex = 0;
+  const matches: { tag: InstanceTag | null }[] = [];
+  INSTANCE_TAG.lastIndex = 0;
   let m: RegExpExecArray | null;
-  while ((m = EMBED_TAG.exec(html))) matches.push({ tag: tagOf(m[1] ?? "") });
+  while ((m = INSTANCE_TAG.exec(html))) matches.push({ tag: tagOf(m[1] ?? "") });
 
   const bodies: (string | null)[] = [];
   for (const { tag } of matches) {
@@ -156,7 +156,7 @@ export async function expandHtml(
       continue;
     }
     const label = (variant: string | null, version: number | null) =>
-      `data-mockpit-embed="${escapeAttr(tag.slug)}"${
+      `data-mockpit-instance="${escapeAttr(tag.slug)}"${
         variant ? ` data-mockpit-variant="${escapeAttr(variant)}"` : ""
       }${version == null ? "" : ` data-mockpit-version="${version}"`}`;
     if (stack.includes(tag.slug)) {
@@ -164,7 +164,7 @@ export async function expandHtml(
       bodies.push(`<div ${label(tag.variant, tag.version)} data-mockpit-cycle="1"></div>`);
       continue;
     }
-    if (stack.length >= MAX_EMBED_DEPTH) {
+    if (stack.length >= MAX_INSTANCE_DEPTH) {
       bodies.push(`<div ${label(tag.variant, tag.version)} data-mockpit-too-deep="1"></div>`);
       continue;
     }
@@ -189,8 +189,8 @@ export async function expandHtml(
     );
   }
   let i = 0;
-  EMBED_TAG.lastIndex = 0;
-  const out = html.replace(EMBED_TAG, (raw) => bodies[i++] ?? raw);
+  INSTANCE_TAG.lastIndex = 0;
+  const out = html.replace(INSTANCE_TAG, (raw) => bodies[i++] ?? raw);
   return { html: out, used, stamps, cycle };
 }
 
@@ -208,10 +208,10 @@ export function dropRepeatedStyles(html: string): string {
   });
 }
 
-// A short, stable key for what a document's embeds resolved to: part of the
+// A short, stable key for what a document's instances resolved to: part of the
 // render cache key and of the frame URL, so a component's new version reloads
 // every page that shows it and a stale document is never served as current.
-export function embedsKey({ used, stamps }: Pick<Expanded, "used" | "stamps">): string {
+export function instancesKey({ used, stamps }: Pick<Expanded, "used" | "stamps">): string {
   let h = 0x811c9dc5;
   const s = used.map((e, i) => `${e.slug}:${e.variant}@${e.version}:${stamps[i] ?? ""}`).join("|");
   for (let i = 0; i < s.length; i++) {

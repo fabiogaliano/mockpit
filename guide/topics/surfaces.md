@@ -24,7 +24,7 @@ On the CLI: `--html`, `--md`, `--diff`, `--mermaid`, `--terminal`, `--code`,
 - `html`: you are drawing: UI, diagrams, data viz, anything interactive. Topic `html` has its
   contract.
 - `markdown`: prose, plans, tradeoffs. Tag fenced code to highlight it.
-  `![caption](/a/<id>)` embeds an uploaded image. Raw HTML in the source is
+  `![caption](/a/<id>)` shows an uploaded image. Raw HTML in the source is
   escaped.
 - `mermaid`: the shape of a system, described rather than drawn. Prefer
   `flowchart TD` or `TB`; wide `LR` maps shrink until unreadable. Don't set
@@ -44,22 +44,23 @@ A version can combine surfaces. `[html, diff]` is a design with its code review;
 html is sandboxed because you author the markup. Every other kind is rendered
 from data, so send data, never markup.
 
-## Composition: embeds
+## Composition: instances
 
-Any design can embed another of the project in its html with
-`<mockpit-embed slug="button"></mockpit-embed>`. The server inlines that design's html body in
-place and expands its own embeds (up to 6 levels), so build a screen from sections and sections
+An **instance** is an included component: any design can include another of the project in
+its html with `<mockpit-instance slug="button"></mockpit-instance>`. The server inlines that design's html body in
+place and expands its own instances (up to 6 levels), so build a screen from sections and sections
 from components, each its own design with its own alternatives and questions.
 
 - No `version`: follows the component's version in use, else its latest, without republishing
-  what embeds it. `version="3"` pins it.
-- No `alternative`: the component's alternative in use (else `default`). Name one to
-  show a specific alternative.
+  what includes it. `version="3"` pins it.
+- No `variant`: the component's entry named `default`, else its first (an idea's: the
+  alternative in use). `variant="small"` shows that one, a variant of a variants design or
+  an alternative of any other.
 - The component shows as decided: its parts with swaps keep only the swaps the user
-  settled on, and its other settled knob values ride on the embed's wrapper
+  settled on, and its other settled knob values ride on the instance's wrapper
   (`data-k-<path>` and `--k-<path>`), so write its knob CSS as
   `[data-k-tone="loud"] .chip`, not `html[data-k-tone=…]`.
-- `read` lists each alternative's `embeds` as they render now (nested included,
+- `read` lists each alternative's `instances` as they render now (nested included,
   with every version, for the user to peek back) and `publishedWith`, the
   versions it rendered with when you published it.
 - A chain that loops back is refused at publish. An unknown slug renders as an empty placeholder.

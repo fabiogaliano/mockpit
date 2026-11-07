@@ -276,15 +276,15 @@ function elementRange(html: string, el: PartElement): Range {
 }
 
 // Boxes that only place what they hold: around an instance, still the instance's place.
-const WRAPPERS = new Set(["div", "span", "section", "mockpit-embed"]);
+const WRAPPERS = new Set(["div", "span", "section", "mockpit-instance"]);
 
 // The parts a design draws itself: not an instance's place. A `data-part` on a
-// `<mockpit-embed>` tag, or on an element holding such tags in nothing but plain boxes
+// `<mockpit-instance>` tag, or on an element holding such tags in nothing but plain boxes
 // and no text, is where a component sits, and the component draws it.
 export function partsOutsideInstances(html: string): PartInfo[] {
   const own = new Set<string>();
   for (const el of partElements(html)) {
-    if (own.has(el.name) || el.open.name === "mockpit-embed") continue;
+    if (own.has(el.name) || el.open.name === "mockpit-instance") continue;
     const range = elementRange(html, el);
     if ("error" in range) {
       own.add(el.name);
@@ -304,7 +304,7 @@ export function partsOutsideInstances(html: string): PartInfo[] {
     }
     text += inner.slice(at, close ? close.start : inner.length);
     const placesOnly =
-      inside.some((t) => t.name === "mockpit-embed") &&
+      inside.some((t) => t.name === "mockpit-instance") &&
       inside.every((t) => WRAPPERS.has(t.name)) &&
       !text.replace(/<!--[\s\S]*?-->|<![^>]*>/g, "").trim();
     if (!placesOnly) own.add(el.name);

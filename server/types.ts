@@ -314,7 +314,7 @@ export type KnobValue = number | boolean | string | PadValue | SpringKnob | Easi
 
 // Structure is declared, never assumed: a design is an idea until the agent
 // calls it a screen (one of the product's) or a component (a reusable design screens
-// embed; being embedded makes an idea one). Home shows a tab per kind in use.
+// instance; being included makes an idea one). Home shows a tab per kind in use.
 export type DesignKind = "screen" | "component" | "idea";
 export const isDesignKind = (k: unknown): k is DesignKind =>
   k === "screen" || k === "component" || k === "idea";
@@ -801,7 +801,7 @@ export interface Design {
 // One component included in a page, pinned to an exact version (snapshot
 // semantics: pulling a newer version is an explicit new page version). `slug`
 // names a design in the same project.
-export interface Embed {
+export interface Instance {
   slug: string;
   variant: string;
   version: number;
@@ -863,19 +863,19 @@ export interface Post {
   // carries no captions. Stays across versions until replaced.
   description?: string;
   // The component versions this version rendered with when published, nested
-  // ones included (embeds.ts); rendering follows the latest unless pinned.
-  embeds: Embed[];
+  // ones included (instances.ts); rendering follows the latest unless pinned.
+  instances: Instance[];
   // The alternative (in the same state) and version this one was forked from: the
   // lineage tree. Absent on an alternative started from scratch.
   forkedFrom?: ForkRef;
   // Set on a shortlist's candidates; stays across the versions an agent adds.
   copiedFrom?: CopyRef;
   // Set only while accepted: the version the user put in use. The agent may
-  // publish newer ones; export and embeds keep showing this one until the user
+  // publish newer ones; export and instances keep showing this one until the user
   // chooses again, so a decision never drifts under them.
   acceptedVersion?: number;
   // Versions hidden from the history, by the user or by an agent asked to tidy up.
-  // Hidden, not removed: replies, embeds and the version in use may still point at
+  // Hidden, not removed: replies, instances and the version in use may still point at
   // one, so it still renders.
   hiddenVersions?: number[];
   // Why it was archived, if the user said. Goes when it comes back.
@@ -1154,7 +1154,7 @@ export interface CreatePostInput {
   surfaces: Surface[];
   knobs?: Knobs;
   description?: string;
-  embeds?: Embed[];
+  instances?: Instance[];
   forkedFrom?: ForkRef;
   copiedFrom?: CopyRef;
   from?: number;
@@ -1173,7 +1173,7 @@ export interface UpdatePostInput {
   knobs?: Knobs | null;
   // undefined keeps, "" clears.
   description?: string;
-  embeds?: Embed[];
+  instances?: Instance[];
   from?: number;
   prompt?: string;
   author?: string;
@@ -1291,8 +1291,8 @@ export interface Store {
   // Cascades the design's posts and comments, and takes its screens out of flows.
   removeDesign(id: string): Promise<boolean>;
   // A new slug, and every reference to the old one in the project rewritten
-  // with it, atomically: embed tags and data-goto in every version of every
-  // alternative (current and history), recorded embeds, flow steps. Null when the
+  // with it, atomically: instance tags and data-goto in every version of every
+  // alternative (current and history), recorded instances, flow steps. Null when the
   // design is missing or the slug is taken.
   renameDesign(id: string, slug: string): Promise<Design | null>;
   // Gives a design with no states its first one, and everything it holds moves
@@ -1349,7 +1349,7 @@ export interface Store {
   // Both rewrite the latest version, so both expect it to still be `version`
   // (null otherwise, or when the post is missing). Amend replaces it in place;
   // withdraw deletes it and makes the version before it current again, with
-  // `embeds` (what that version renders with now), or removes the alternative
+  // `instances` (what that version renders with now), or removes the alternative
   // when it had no other ({ post: null }). The alternative's comments stay, on the design.
   amendPost(id: string, version: number, patch: AmendPostInput): Promise<Post | null>;
   // On an alternative's latest version, if its first page has no poster yet. Touches nothing else:
@@ -1364,7 +1364,7 @@ export interface Store {
   withdrawVersion(
     id: string,
     version: number,
-    embeds: Embed[],
+    instances: Instance[],
   ): Promise<{ post: Post | null } | null>;
   // Accepting pins `acceptedVersion` (default: the current version); any other
   // status clears it.
@@ -1420,7 +1420,7 @@ export interface SqlStorage {
 
 // A surface as overviews read it, stored beside its body so that listing a
 // project never reads the bodies, which hold nearly all of a workspace's bytes.
-// `marked` says the html has embeds or swaps, the two things an overview must
+// `marked` says the html has instances or swaps, the two things an overview must
 // read the body to resolve.
 export interface SurfaceHead {
   kind: Surface["kind"];
@@ -1453,7 +1453,7 @@ export function reservedAgent(name: string): string {
   return name === "user" ? "agent" : name;
 }
 
-// SQLite terminates a TEXT value at the first embedded NUL byte. A NUL has no
+// SQLite terminates a TEXT value at the first included NUL byte. A NUL has no
 // place in a title/comment/label anyway, so stored text is stripped of it
 // (removing the byte, not truncating). Returns the input untouched when there's
 // nothing to strip, so the common path is free.
@@ -1666,7 +1666,7 @@ export function surfacesByteLength(surfaces: Surface[]): number {
 
 // Collect the asset ids an ordered surfaces list references (image surfaces
 // and html posters).
-// Used to keep referenced assets out of eviction's first wave. Assets embedded
+// Used to keep referenced assets out of eviction's first wave. Assets included
 // by raw URL inside html markup are invisible here — touch-on-serve keeps those
 // warm instead.
 export function collectAssetIds(surfaces: Surface[], out: Set<string>): void {
@@ -1699,7 +1699,7 @@ export interface EvictionCandidate {
 
 // Pick the assets to evict so `incomingBytes` fits under `budget`. Oldest
 // (lastAccessedAt) first, but unreferenced assets go before referenced ones —
-// a live embed is only evicted as a last resort, once unreferenced candidates
+// a live instance is only evicted as a last resort, once unreferenced candidates
 // are exhausted. Returns the ids to remove (possibly empty).
 export function selectEvictions(
   candidates: EvictionCandidate[],

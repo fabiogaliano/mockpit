@@ -6,7 +6,7 @@ import { ICON_SIZES, ICON_SVG, themeColor, webManifest } from "./appIcon.ts";
 import { ICON_PNG_BASE64 } from "./appIconPng.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
-  type EmbedView,
+  type InstanceView,
   agentWords,
   draftHolds,
   areaView,
@@ -147,14 +147,14 @@ import {
 } from "./push.ts";
 import {
   dropRepeatedStyles,
-  embedsKey,
+  instancesKey,
   expandHtml,
-  firstHtmlEmbeds,
-  hasEmbedTags,
-  parseEmbedTags,
-  type EmbedResolver,
+  firstHtmlInstances,
+  hasInstanceTags,
+  parseInstanceTags,
+  type InstanceResolver,
   type Expanded,
-} from "./embeds.ts";
+} from "./instances.ts";
 import { createCdnInliner, type InlineResult } from "./cdnInline.ts";
 import { type McpFlows, registerMcp } from "./mcpHttp.ts";
 import { createRunFlow, DEFAULT_RUN_LIMITS, type Executor, type RunLimits } from "./run.ts";
@@ -239,7 +239,7 @@ import {
   alternativeStatus,
   reservedAgent,
   type Session,
-  type Embed,
+  type Instance,
   type Flow,
   type FlowStep,
   type ForkRef,
@@ -1030,7 +1030,10 @@ export function createApp({
       )
         continue;
       const posts = await store.listPosts({ designId: m.id });
-      screens.push({ area: m.area, builtFrom: (await shownEmbeds(m, posts)).map((e) => e.slug) });
+      screens.push({
+        area: m.area,
+        builtFrom: (await shownInstances(m, posts)).map((e) => e.slug),
+      });
     }
     return areasShowing(screens);
   }
@@ -1042,7 +1045,7 @@ export function createApp({
     areas: Map<string, string[]>,
   ): Promise<{ slug: string; nudge: string }[]> {
     const slugs = new Set<string>(design.kind === "component" ? [design.slug] : []);
-    for (const e of await shownEmbeds(design, await store.listPosts({ designId: design.id }))) {
+    for (const e of await shownInstances(design, await store.listPosts({ designId: design.id }))) {
       slugs.add(e.slug);
     }
     const out = [];
@@ -1573,10 +1576,10 @@ export function createApp({
     return null;
   }
 
-  // The component post an embed shows: the named alternative of its first state,
+  // The component post an instance shows: the named alternative of its first state,
   // else the accepted one there (an idea's; a component has nothing in use), else
   // "default", else the first live one.
-  async function embedTarget(
+  async function instanceTarget(
     project: string,
     slug: string,
     alternative: string | null,
@@ -1601,9 +1604,12 @@ export function createApp({
   // (`overrides`, slug → version) the viewer asked for, else the latest. The
   // body shows the component as decided: its slots composed to the swaps its
   // settled values chose, its other settled values on the wrapper.
-  function embedResolver(project: string, overrides: Record<string, number> = {}): EmbedResolver {
+  function instanceResolver(
+    project: string,
+    overrides: Record<string, number> = {},
+  ): InstanceResolver {
     return async (tag) => {
-      const post = await embedTarget(project, tag.slug, tag.variant);
+      const post = await instanceTarget(project, tag.slug, tag.variant);
       if (!post) return null;
       const design = await store.getDesign(post.design);
       const version =
@@ -1643,38 +1649,38 @@ export function createApp({
     };
   }
 
-  // A surface's html with its embeds expanded, and what they resolved to.
+  // A surface's html with its instances expanded, and what they resolved to.
   async function composedHtml(
     project: string,
     slug: string,
     html: string,
     overrides?: Record<string, number>,
   ): Promise<Expanded> {
-    if (!hasEmbedTags(html)) return { html, used: [], stamps: [], cycle: null };
-    const expanded = await expandHtml(html, embedResolver(project, overrides), [slug]);
+    if (!hasInstanceTags(html)) return { html, used: [], stamps: [], cycle: null };
+    const expanded = await expandHtml(html, instanceResolver(project, overrides), [slug]);
     return { ...expanded, html: dropRepeatedStyles(expanded.html) };
   }
 
   // The component versions a publish renders with, recorded on the version;
-  // an embed chain that loops back to this design is refused.
-  async function publishEmbeds(
+  // an instance chain that loops back to this design is refused.
+  async function publishInstances(
     project: string,
     slug: string,
     surfaces: Surface[],
-  ): Promise<Embed[] | FlowResult> {
+  ): Promise<Instance[] | FlowResult> {
     const html = surfaces.find((x) => x.kind === "html");
     if (!html || html.kind !== "html") return [];
     const { used, cycle } = await composedHtml(project, slug, html.html);
     if (cycle) {
-      return fail(400, `embeds loop back on themselves: ${cycle.join(" → ")}`, { cycle });
+      return fail(400, `instances loop back on themselves: ${cycle.join(" → ")}`, { cycle });
     }
     return used;
   }
 
-  // Being embedded is what makes a design a component, so an idea another design
-  // embeds becomes one; a declared screen stays a screen.
-  async function promoteEmbedded(project: string, embeds: Embed[]) {
-    for (const slug of new Set(embeds.map((e) => e.slug))) {
+  // Being included is what makes a design a component, so an idea another design
+  // instances becomes one; a declared screen stays a screen.
+  async function promoteIncluded(project: string, instances: Instance[]) {
+    for (const slug of new Set(instances.map((e) => e.slug))) {
       const m = await store.findDesign(project, slug);
       if (m?.kind !== "idea") continue;
       const updated = await store.updateDesign(m.id, { kind: "component" });
@@ -1682,39 +1688,39 @@ export function createApp({
     }
   }
 
-  // What the alternatives of a design show through their embeds now: per post, the
+  // What the alternatives of a design show through their instances now: per post, the
   // resolved list (nested included) with each component's versions, and the
   // key that changes when any of them does.
-  async function embedViews(design: Design, posts: Post[]): Promise<Map<string, EmbedView>> {
-    const out = new Map<string, EmbedView>();
+  async function instanceViews(design: Design, posts: Post[]): Promise<Map<string, InstanceView>> {
+    const out = new Map<string, InstanceView>();
     for (const post of posts) {
-      if (!firstHtmlEmbeds(post.surfaces)) continue;
+      if (!firstHtmlInstances(post.surfaces)) continue;
       const html = post.surfaces.find((x) => x.kind === "html");
       if (html?.kind !== "html") continue;
       const composed = await composedHtml(design.project, design.slug, html.html);
       const { used } = composed;
       const list = [];
       for (const e of used) {
-        const target = await embedTarget(design.project, e.slug, e.variant);
+        const target = await instanceTarget(design.project, e.slug, e.variant);
         const versions = target
           ? [target.version, ...target.history.map((h) => h.version)].sort((a, b) => b - a)
           : [e.version];
         list.push({ ...e, latest: target?.version ?? e.version, versions });
       }
-      out.set(post.id, { key: embedsKey(composed), list });
+      out.set(post.id, { key: instancesKey(composed), list });
     }
     return out;
   }
 
-  // The components the given versions of a design embed, nested ones included, each at
+  // The components the given versions of a design include, nested ones too, each at
   // the alternative and version it resolves to there.
   // Every distinct reference is kept: two entries may pin two versions of one component,
   // and a handover needs both. A list of designs dedupes by slug where it reads them.
-  async function embedsIn(design: Design, picked: Post[]): Promise<Embed[]> {
-    const out = new Map<string, Embed>();
+  async function instancesIn(design: Design, picked: Post[]): Promise<Instance[]> {
+    const out = new Map<string, Instance>();
     for (const at of picked) {
       const html = at.surfaces.find((x) => x.kind === "html");
-      if (html?.kind !== "html" || !hasEmbedTags(html.html)) continue;
+      if (html?.kind !== "html" || !hasInstanceTags(html.html)) continue;
       const { used } = await composedHtml(design.project, design.slug, html.html);
       for (const e of used) {
         const key = `${e.slug}\n${e.variant}\n${e.version}`;
@@ -1739,9 +1745,9 @@ export function createApp({
       isLive(post.status) ? [postAtVersion(post, shownVersion(design, post)) ?? post] : [],
     );
 
-  // The components a design shows through its embeds now.
-  const shownEmbeds = async (design: Design, posts: Post[]) =>
-    embedsIn(design, shownPosts(design, posts));
+  // The components a design shows through its instances now.
+  const shownInstances = async (design: Design, posts: Post[]) =>
+    instancesIn(design, shownPosts(design, posts));
 
   // Where the marks of the components a design is built from stand.
   async function builtFromOf(project: string, slugs: string[]): Promise<BuiltFrom[]> {
@@ -1758,20 +1764,20 @@ export function createApp({
     return out;
   }
 
-  // The designs whose html embeds this slug, directly or through other
+  // The designs whose html includes this slug, directly or through other
   // components: they render differently once it changes.
-  async function embeddersOf(project: string, slug: string): Promise<Design[]> {
+  async function hostsOf(project: string, slug: string): Promise<Design[]> {
     const designs = await store.listDesigns(project);
     const heads = headsByDesign(await store.listPostHeads(project));
     const tagsOf = new Map<string, Set<string>>();
     for (const m of designs) {
       // Every publish comes through here, and most of a project's bytes are
-      // designs with no embed.
+      // designs with no instance.
       if (!heads.get(m.id)?.some((p) => p.surfaces.some((x) => x.marked))) continue;
       const slugs = new Set<string>();
       for (const p of await store.listPosts({ designId: m.id })) {
         for (const x of p.surfaces) {
-          if (x.kind === "html") for (const t of parseEmbedTags(x.html)) slugs.add(t.slug);
+          if (x.kind === "html") for (const t of parseInstanceTags(x.html)) slugs.add(t.slug);
         }
       }
       tagsOf.set(m.id, slugs);
@@ -2000,13 +2006,13 @@ export function createApp({
       by,
     });
     warmPost(post, design);
-    void announceEmbedders(design).catch((err) => console.warn("[mockpit] embedders", err));
+    void announceHosts(design).catch((err) => console.warn("[mockpit] hosts", err));
   }
 
   // A component's new version changes every design that shows it: their views
-  // carry a new embeds key, so open viewers refetch and reload those frames.
-  async function announceEmbedders(design: Design): Promise<void> {
-    for (const m of await embeddersOf(design.project, design.slug)) {
+  // carry a new instances key, so open viewers refetch and reload those frames.
+  async function announceHosts(design: Design): Promise<void> {
+    for (const m of await hostsOf(design.project, design.slug)) {
       bus.broadcast({ type: "design-updated", id: m.id, project: m.project });
     }
   }
@@ -2339,9 +2345,9 @@ export function createApp({
       // The CLI or stdio server has a browser and is taking the still itself.
       ...(target || body.posterComing === true ? [] : posterNudges(surfaces)),
     ];
-    const embeds = await publishEmbeds(project, slug, surfaces);
-    if (isResult(embeds)) return embeds;
-    await promoteEmbedded(project, embeds);
+    const instances = await publishInstances(project, slug, surfaces);
+    if (isResult(instances)) return instances;
+    await promoteIncluded(project, instances);
 
     if (!target) {
       // A new alternative: carried by the session the agent is writing from.
@@ -2393,7 +2399,7 @@ export function createApp({
           : description === undefined && fork?.description
             ? { description: fork.description }
             : {}),
-        embeds,
+        instances,
         ...(fork ? { forkedFrom: fork.ref } : {}),
         from,
         prompt,
@@ -2426,7 +2432,7 @@ export function createApp({
         title,
         ...(body.alternativeKnobs !== undefined ? { knobs: alternativeKnobs.value } : {}),
         ...(description !== undefined ? { description } : {}),
-        embeds,
+        instances,
         from,
         prompt,
         author,
@@ -2480,7 +2486,7 @@ export function createApp({
       title,
       ...(body.alternativeKnobs !== undefined ? { knobs: alternativeKnobs.value } : {}),
       ...(description !== undefined ? { description } : {}),
-      embeds,
+      instances,
       from,
       prompt,
       author,
@@ -2562,7 +2568,7 @@ export function createApp({
     if (post.status === "accepted" && post.acceptedVersion === post.version)
       return `${v} is in use`;
     // The mark approved this very version, whether set here or carried from a screen
-    // that embeds it: rewriting it would change what the user said Ready to.
+    // that includes it: rewriting it would change what the user said Ready to.
     if (readyVersion(design, post) === post.version) return `the user marked ${v} Ready`;
     if (post.author === "user") return `the user made ${v}`;
     if (post.hiddenVersions?.includes(post.version)) return `the user hid ${v}`;
@@ -2592,7 +2598,7 @@ export function createApp({
     }
     // A screen that shows this component can't say which of its parts a word
     // was about, so anything the user said there counts.
-    for (const m of await embeddersOf(design.project, design.slug)) {
+    for (const m of await hostsOf(design.project, design.slug)) {
       const said = (await store.listComments({ designId: m.id })).some(
         (c) => c.author === "user" && c.createdAt >= since && !c.payload?.edited,
       );
@@ -2704,10 +2710,10 @@ export function createApp({
         });
       }
     }
-    const embeds = previous
-      ? await publishEmbeds(design.project, design.slug, previous.surfaces)
+    const instances = previous
+      ? await publishInstances(design.project, design.slug, previous.surfaces)
       : [];
-    const result = await store.withdrawVersion(post.id, v, isResult(embeds) ? [] : embeds);
+    const result = await store.withdrawVersion(post.id, v, isResult(instances) ? [] : instances);
     if (!result) {
       return fail(409, `${post.alternative} has a newer version than v${v}`, {
         fix: `mockpit read ${design.slug} --history`,
@@ -2722,7 +2728,7 @@ export function createApp({
         sessionId: post.sessionId,
       });
       bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
-      void announceEmbedders(design).catch((err) => console.warn("[mockpit] embedders", err));
+      void announceHosts(design).catch((err) => console.warn("[mockpit] hosts", err));
       return ok({
         withdrawn: {
           state: post.state,
@@ -3134,8 +3140,8 @@ export function createApp({
   }
 
   // The project as a tree: every design with its alternatives per state (status,
-  // lineage, what its embeds resolve to) and the components it embeds and is
-  // embedded in, and the declared flows. What the viewer's Home and an agent's
+  // lineage, what its instances resolve to) and the components it includes and is
+  // included in, and the declared flows. What the viewer's Home and an agent's
   // `read --tree` lay out.
   async function treeFlow(query: {
     project?: string;
@@ -3162,7 +3168,7 @@ export function createApp({
     const builtFrom = new Map<string, string[]>();
     for (const m of designs) {
       const designHeads = heads.get(m.id) ?? [];
-      // Only embeds and swaps need the html: most of a workspace's bytes are
+      // Only instances and swaps need the html: most of a workspace's bytes are
       // pages with neither, which this list has no reason to read. The version a design
       // shows may be an older one than its latest (a stay, a version in use), so both count.
       const marked = designHeads.some(
@@ -3171,20 +3177,20 @@ export function createApp({
       const posts = marked
         ? postersFor(await store.listPosts({ designId: m.id }), mode, rev)
         : null;
-      const views = posts ? await embedViews(m, posts) : new Map<string, EmbedView>();
-      // What it embeds, from the versions it shows.
-      const embeds = new Set<string>();
+      const views = posts ? await instanceViews(m, posts) : new Map<string, InstanceView>();
+      // What it includes, from the versions it shows.
+      const instances = new Set<string>();
       for (const p of posts ? shownPosts(m, posts) : []) {
         for (const x of p.surfaces) {
-          if (x.kind === "html") for (const t of parseEmbedTags(x.html)) embeds.add(t.slug);
+          if (x.kind === "html") for (const t of parseInstanceTags(x.html)) instances.add(t.slug);
         }
       }
-      // What it is built from: what the versions it shows embed, nested ones included,
+      // What it is built from: what the versions it shows instance, nested ones included,
       // as they resolve there.
       if (posts)
         builtFrom.set(
           m.slug,
-          (await shownEmbeds(m, posts)).map((e) => e.slug),
+          (await shownInstances(m, posts)).map((e) => e.slug),
         );
       const replies = await replyComments(m.id);
       const lastReplyAt = replies[replies.length - 1]?.createdAt;
@@ -3201,8 +3207,8 @@ export function createApp({
             m,
             posts ?? designHeads.map((p) => ({ knobs: p.knobs })),
           ),
-          embeds: [...embeds],
-          embedViews: views,
+          instances: [...instances],
+          instanceViews: views,
           noDescriptions: query.noDescriptions,
           ...(lastReplyAt ? { lastReplyAt } : {}),
           ...(lastSend
@@ -3222,8 +3228,8 @@ export function createApp({
     }
     const bySlug = new Map(nodes.map((n) => [n.slug, n]));
     for (const n of nodes) {
-      n.embeds = n.embeds.filter((s) => bySlug.has(s));
-      for (const s of n.embeds) bySlug.get(s)!.embeddedIn.push(n.slug);
+      n.instances = n.instances.filter((s) => bySlug.has(s));
+      for (const s of n.instances) bySlug.get(s)!.instanceIn.push(n.slug);
     }
     for (const n of nodes) {
       const from = [...new Set(builtFrom.get(n.slug) ?? [])].filter(
@@ -3278,7 +3284,7 @@ export function createApp({
       const posts = await store.listPosts({ designId: d.id });
       const list = await builtFromOf(
         project,
-        (await shownEmbeds(d, posts)).map((e) => e.slug),
+        (await shownInstances(d, posts)).map((e) => e.slug),
       );
       if (list.length) builtFrom.set(d.slug, list);
     }
@@ -3342,17 +3348,17 @@ export function createApp({
     );
     const lines = query.noDecisions ? null : await decisionLines(design.project);
     const list = lines?.length ? agentDecisionList(lines, design.slug) : null;
-    const embeds = await embedViews(design, posts);
+    const instances = await instanceViews(design, posts);
     const view = designDetailView(design, posts, {
       // The design's own lines, as the list above carries them: the spec's third part.
       ...(lines ? { decisions: (list?.lines ?? []).filter((l) => l.here).map((l) => l.text) } : {}),
       body: query.body,
       history: query.history,
       settled: settledValues(await replyPayloads(design.id), design, posts),
-      embeds,
+      instances,
       builtFrom: await builtFromOf(
         design.project,
-        (await shownEmbeds(design, posts)).map((e) => e.slug),
+        (await shownInstances(design, posts)).map((e) => e.slug),
       ),
       ...(await shortlistReach(design)),
     });
@@ -3422,7 +3428,7 @@ export function createApp({
       .filter((l) => !l.system && l.design === design.slug)
       .map((l) => l.text);
     const builtFrom = [];
-    for (const e of await embedsIn(design, picked)) {
+    for (const e of await instancesIn(design, picked)) {
       const m = await store.findDesign(design.project, e.slug);
       if (!m) continue;
       const own = await store.listPosts({ designId: m.id });
@@ -3930,12 +3936,12 @@ export function createApp({
     ];
     const bad = checkSurfaces(surfaces);
     if (bad) return bad;
-    const embeds = await publishEmbeds(design.project, design.slug, surfaces);
-    if (isResult(embeds)) return embeds;
-    await promoteEmbedded(design.project, embeds);
+    const instances = await publishInstances(design.project, design.slug, surfaces);
+    if (isResult(instances)) return instances;
+    await promoteIncluded(design.project, instances);
     const updated = await store.updatePost(post.id, {
       surfaces,
-      embeds,
+      instances,
       from: seen.version,
       ...(sessionId ? { publishedBy: sessionId } : {}),
       system: await systemRevOf(design.project),
@@ -4769,7 +4775,7 @@ export function createApp({
     }
     bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
     bus.broadcast({ type: "draft-updated", designId: design.id });
-    void announceEmbedders(design).catch((err) => console.warn("[mockpit] embedders", err));
+    void announceHosts(design).catch((err) => console.warn("[mockpit] hosts", err));
     const after = await store.listPosts({ designId: design.id });
     for (const p of after) {
       if (flips.accept.has(p.id) || flips.archive.has(p.id) || flips.release.has(p.id)) {
@@ -4869,7 +4875,7 @@ export function createApp({
     if (!comment) return fail(409, `${design.slug} has no agent session to reply to`);
     announceComment(comment);
     bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
-    void announceEmbedders(design).catch((err) => console.warn("[mockpit] embedders", err));
+    void announceHosts(design).catch((err) => console.warn("[mockpit] hosts", err));
     for (const p of [chosen, ...archive, ...release]) {
       bus.broadcast({
         type: "post-updated",
@@ -4901,7 +4907,7 @@ export function createApp({
   }
 
   // The user hides one version of an alternative from the history, or brings it
-  // back; an agent asked to tidy up hides through `move`. Hidden, not removed: replies and embeds may point at it, so it still
+  // back; an agent asked to tidy up hides through `move`. Hidden, not removed: replies and instances may point at it, so it still
   // renders by URL. The version in use can't be hidden, nor a state's last.
   async function hideFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
@@ -4948,8 +4954,8 @@ export function createApp({
       version: updated.version,
       by: "user",
     });
-    // An embed following this alternative passes over a version the user hid.
-    void announceEmbedders(design).catch((err) => console.warn("[mockpit] embedders", err));
+    // An instance following this alternative passes over a version the user hid.
+    void announceHosts(design).catch((err) => console.warn("[mockpit] hosts", err));
     return ok({
       state: updated.state,
       alternative: updated.alternative,
@@ -5193,7 +5199,7 @@ export function createApp({
     });
     bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
     if (isProduct(design))
-      void announceEmbedders(design).catch((err) => console.warn("[mockpit] embedders", err));
+      void announceHosts(design).catch((err) => console.warn("[mockpit] hosts", err));
     return ok({
       state: updated.state,
       alternative: updated.alternative,
@@ -5239,7 +5245,7 @@ export function createApp({
     const carried: { slug: string; alternative: string; version: number; alsoShown?: number[] }[] =
       [];
     const inside = new Map<string, Map<string, number[]>>();
-    for (const e of await shownEmbeds(design, posts)) {
+    for (const e of await shownInstances(design, posts)) {
       if (only && !only.has(e.slug)) continue;
       const byAlternative = inside.get(e.slug) ?? new Map<string, number[]>();
       byAlternative.set(e.variant, [...(byAlternative.get(e.variant) ?? []), e.version]);
@@ -5339,7 +5345,7 @@ export function createApp({
     const updated = await store.updateDesign(design.id, { ready });
     if (!updated) return null;
     bus.broadcast({ type: "design-updated", id: updated.id, project: updated.project });
-    void announceEmbedders(updated).catch((err) => console.warn("[mockpit] embedders", err));
+    void announceHosts(updated).catch((err) => console.warn("[mockpit] hosts", err));
     if (!same) await tellAgentEdit(updated, { ready: { ready: !!ready, at } }, lift);
     return ready;
   }
@@ -5674,7 +5680,7 @@ export function createApp({
     return slug;
   }
 
-  // Not announcePost: a shortlist embeds nothing new, and finding what embeds a
+  // Not announcePost: a shortlist includes nothing new, and finding what includes a
   // design reads every post in the project before the response can leave.
   function announceCopy(list: Design, post: Post, created: boolean) {
     bus.broadcast({
@@ -5690,7 +5696,7 @@ export function createApp({
   // A copy's name, which must not take another candidate's. Two labs can share
   // a name, and two versions of one alternative are two candidates.
   function candidateName(wanted: string, version: number, origin: Design, taken: Set<string>) {
-    // A live "default" is what a component shows wherever it is embedded, so a copy
+    // A live "default" is what a component shows wherever it is included, so a copy
     // must not take that name just by arriving first.
     const name = wanted === DEFAULT_ALTERNATIVE ? origin.title : wanted;
     const tries = [name, `${name} #${version}`, `${name} (${origin.title})`];
@@ -5806,9 +5812,9 @@ export function createApp({
         continue;
       }
       const knobs = { ...design.knobs, ...post.knobs };
-      // A shortlist can't loop, since nothing embeds it. A real design can.
-      const embeds = await publishEmbeds(project, list.slug, surfaces);
-      if (isResult(embeds)) return embeds;
+      // A shortlist can't loop, since nothing includes it. A real design can.
+      const instances = await publishInstances(project, list.slug, surfaces);
+      if (isResult(instances)) return instances;
       const created = await store.createPost({
         sessionId: post.sessionId,
         design: list.id,
@@ -5818,7 +5824,7 @@ export function createApp({
         surfaces,
         ...(Object.keys(knobs).length ? { knobs } : {}),
         ...(post.description ? { description: post.description } : {}),
-        embeds,
+        instances,
         copiedFrom: {
           design: design.id,
           state: post.state,
@@ -5920,7 +5926,7 @@ export function createApp({
       bus.broadcast({ type: "design-deleted", id: design.id, project: design.project });
     } else {
       bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
-      if (!design.shortlist) await announceEmbedders(design);
+      if (!design.shortlist) await announceHosts(design);
     }
     return ok({ removed: post.alternative, shortlistGone: empty });
   }
@@ -6024,14 +6030,14 @@ export function createApp({
         ) {
           return `copied to ${other.slug}`;
         }
-        const embeds = p.embeds.some(
+        const instances = p.instances.some(
           (e) => e.slug === design.slug && e.variant === post.alternative && e.version === version,
         );
         const pinned = [p, ...p.history].some((v) =>
           v.surfaces.some(
             (s) =>
               s.kind === "html" &&
-              parseEmbedTags(s.html).some(
+              parseInstanceTags(s.html).some(
                 (t) =>
                   t.slug === design.slug &&
                   t.version === version &&
@@ -6039,7 +6045,7 @@ export function createApp({
               ),
           ),
         );
-        if (embeds || pinned) return `embedded in ${other.slug}`;
+        if (instances || pinned) return `included in ${other.slug}`;
       }
     }
     return null;
@@ -6267,7 +6273,7 @@ export function createApp({
     if (done.length) {
       if (body.restore !== true) await dropStalePicks(design);
       else await unhideRestored(design.id, restored);
-      void announceEmbedders(design).catch((err) => console.warn("[mockpit] embedders", err));
+      void announceHosts(design).catch((err) => console.warn("[mockpit] hosts", err));
       const list = done.map((d) => d.alternative).join(", ");
       const where = to ? `${to.title}${to.state === null ? "" : ` · ${to.state}`}` : "";
       const line = to
@@ -6431,15 +6437,15 @@ export function createApp({
     if (renaming && (await store.findDesign(design.project, slug))) {
       return fail(409, `${design.project} already has a design "${slug}"; pick another slug`);
     }
-    // Being embedded is what makes a design a component: an idea that is still
-    // embedded would be promoted back on its embedder's next publish.
+    // Being included is what makes a design a component: an idea that is still
+    // included would be promoted back on its host's next publish.
     if (kind === "idea" && design.kind !== "idea") {
-      const embedders = await embeddersOf(design.project, design.slug);
-      if (embedders.length) {
+      const hosts = await hostsOf(design.project, design.slug);
+      if (hosts.length) {
         return fail(
           409,
-          `${design.slug} is embedded in ${embedders.map((m) => m.slug).join(", ")}; being embedded makes it a component. Take the embeds out first`,
-          { embeddedIn: embedders.map((m) => m.slug) },
+          `${design.slug} is included in ${hosts.map((m) => m.slug).join(", ")}; being included makes it a component. Take the instances out first`,
+          { instanceIn: hosts.map((m) => m.slug) },
         );
       }
     }
@@ -6476,7 +6482,7 @@ export function createApp({
       next = (await store.nameFirstState(design.id, firstState)) ?? next;
     }
     bus.broadcast({ type: "design-updated", id: next.id, project: next.project });
-    if (renaming) await announceEmbedders(next);
+    if (renaming) await announceHosts(next);
     if (ctx.viewer) await tellAgentEdited(design, next);
 
     // Flows are declared apart from kind, so a page that stops being one stays
@@ -8301,7 +8307,7 @@ export function createApp({
   }
 
   // Components by slug, with the first line of what each is for and how many screens
-  // embed them: the brief's index of what to reuse.
+  // include them: the brief's index of what to reuse.
   async function componentIndex(project: string): Promise<ComponentLine[]> {
     const designs = await store.listDesigns(project);
     const components = designs.filter((d) => d.kind === "component" && !d.archivedAt);
@@ -8312,7 +8318,7 @@ export function createApp({
       if (!isLive(head.status)) continue;
       const d = kindOf.get(head.design);
       if (!d || d.kind !== "screen") continue;
-      for (const e of head.embeds) {
+      for (const e of head.instances) {
         let set = screens.get(e.slug);
         if (!set) screens.set(e.slug, (set = new Set()));
         set.add(d.slug);
@@ -8500,7 +8506,7 @@ export function createApp({
     mode?: Mode;
     origin: string;
     knobs?: string;
-    embeds?: string;
+    instances?: string;
     rewrites?: number;
     // The system revision rendered with, and the palette asked for (`p`; absent: the
     // default). With the revision, the request fixes which palette is worn, so the
@@ -8508,7 +8514,7 @@ export function createApp({
     system?: number;
     palette?: string;
   }) =>
-    `${o.postId}:${o.idx}:${o.version}:${o.mode ?? "os"}:${o.origin}:${o.knobs ?? ""}:${o.embeds ?? ""}${o.rewrites ? `:w${o.rewrites}` : ""}:y${o.system ?? 0}:${o.palette ?? ""}`;
+    `${o.postId}:${o.idx}:${o.version}:${o.mode ?? "os"}:${o.origin}:${o.knobs ?? ""}:${o.instances ?? ""}${o.rewrites ? `:w${o.rewrites}` : ""}:y${o.system ?? 0}:${o.palette ?? ""}`;
 
   // After a version is rewritten in place: a frame still naming the old `w`
   // must miss the cache and get the version as it is now.
@@ -8536,7 +8542,7 @@ export function createApp({
     const theme = themeById(DEFAULT_THEME_ID);
     const themeId = theme.id;
     if (surface.kind === "html") {
-      // Embedded components are expanded server-side (the caller passes the
+      // Included components are expanded server-side (the caller passes the
       // expansion), so the whole page is still ONE sandboxed document rather
       // than nested frames.
       const html = withAnswerAdditions(args.composed ?? surface.html, [
@@ -8633,7 +8639,7 @@ export function createApp({
         if (!isSandboxedSurfaceKind(surface.kind)) continue;
         warmed++;
         const composed =
-          surface.kind === "html" && hasEmbedTags(surface.html)
+          surface.kind === "html" && hasInstanceTags(surface.html)
             ? await composedHtml(design.project, design.slug, surface.html)
             : null;
         for (const mode of ["light", "dark"] as const) {
@@ -8643,7 +8649,7 @@ export function createApp({
             version: post.version,
             mode,
             origin,
-            embeds: composed ? embedsKey(composed) : undefined,
+            instances: composed ? instancesKey(composed) : undefined,
             rewrites: post.rewrites,
             system: system?.rev,
           });
@@ -8678,10 +8684,10 @@ export function createApp({
     const mode: Mode | undefined =
       modeParam === "light" || modeParam === "dark" ? modeParam : undefined;
     const kParam: string | undefined = c.req.query("k");
-    // `e`: the embeds key the caller saw (cache identity); `embed`: a peek at
+    // `e`: the instances key the caller saw (cache identity); `instance`: a peek at
     // older component versions, JSON {slug: version}.
     const eParam: string | undefined = c.req.query("e");
-    const embedParam: string | undefined = c.req.query("embed");
+    const instanceParam: string | undefined = c.req.query("instance");
     // `w`: the alternative's rewrites the caller saw, since an amend keeps the number.
     const wParam = Number(c.req.query("w") ?? 0) || 0;
     // `y`: the system revision the caller saw; `sys`: a peek at an older one;
@@ -8699,9 +8705,9 @@ export function createApp({
     // request never does: its values are checked against the design's knobs,
     // which can change under a pinned version.
     const pinned = Number(ver);
-    // A document with embeds is stored only under the key its resolved embeds
+    // A document with instances is stored only under the key its resolved instances
     // give, so a hit here was rendered with exactly the `e` this URL names.
-    if (Number.isInteger(pinned) && pinned > 0 && kParam === undefined && !embedParam) {
+    if (Number.isInteger(pinned) && pinned > 0 && kParam === undefined && !instanceParam) {
       const hit = renderCacheHit(
         renderKey({
           postId: c.req.param("id"),
@@ -8709,7 +8715,7 @@ export function createApp({
           version: pinned,
           mode,
           origin,
-          embeds: eParam,
+          instances: eParam,
           rewrites: wParam,
           system: sysParam || yParam,
           palette: pParam,
@@ -8776,12 +8782,12 @@ export function createApp({
       }
     }
     let composed: Expanded | null = null;
-    if (surface.kind === "html" && hasEmbedTags(surface.html) && design) {
+    if (surface.kind === "html" && hasInstanceTags(surface.html) && design) {
       let overrides: Record<string, number> | undefined;
-      if (embedParam !== undefined) {
+      if (instanceParam !== undefined) {
         let raw: unknown;
         try {
-          raw = JSON.parse(embedParam);
+          raw = JSON.parse(instanceParam);
         } catch {
           raw = null;
         }
@@ -8790,17 +8796,17 @@ export function createApp({
           typeof raw === "object" &&
           !Array.isArray(raw) &&
           Object.values(raw).every((v) => Number.isInteger(v) && (v as number) > 0);
-        if (!ok || embedParam.length > MAX_KNOB_QUERY) {
+        if (!ok || instanceParam.length > MAX_KNOB_QUERY) {
           surfaceDocHeaders(c, false);
-          return c.text("embed must be URL-encoded JSON of {slug: version}", 400);
+          return c.text("instance must be URL-encoded JSON of {slug: version}", 400);
         }
         overrides = raw as Record<string, number>;
       }
       composed = await composedHtml(design.project, design.slug, surface.html, overrides);
     }
-    const eKey = composed ? embedsKey(composed) : undefined;
+    const eKey = composed ? instancesKey(composed) : undefined;
     // Cache the finished document under the same key the pre-warm uses; the
-    // resolved `version` and embeds key make it immutable, so a hit is always
+    // resolved `version` and instances key make it immutable, so a hit is always
     // correct.
     let system = design ? await systemFor(design.project) : null;
     const currentRev = system?.rev ?? 0;
@@ -8819,7 +8825,7 @@ export function createApp({
       mode,
       origin,
       knobs: knobsKey,
-      embeds: eKey,
+      instances: eKey,
       rewrites: post.rewrites,
       system: system?.rev,
       palette: pParam,
