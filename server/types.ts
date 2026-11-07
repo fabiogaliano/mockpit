@@ -768,6 +768,9 @@ export const AREAS_SETTING = "areas";
 export const PROJECT_DESCRIPTION_SETTING = "description";
 // The user's hand edits to a project's decision log (`decisions:<project>`).
 export const DECISION_EDITS_SETTING = "decisions";
+// By design id: when the agent was told, once, to move a product design's alternatives
+// into an idea for it.
+export const ALTERNATIVES_NUDGED_SETTING = "alternativesNudged";
 
 // Whoever wrote a description last: a user's stands against agents until they clear it.
 export type Author = "agent" | "user";

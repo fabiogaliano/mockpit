@@ -576,8 +576,9 @@ a later draft of that section isn't applied, and the result says so.
 
 A screen or component holds what ships, one entry a state, so nothing on it is chosen:
 its newest version is current, with no Use this, no Which alternative? and nothing in use.
-Alternatives for it belong in an idea; \`read\` says \`holdsAlternatives\` until you
-\`move\` them there, or, when they all ship, make it a variants design (\`edit <slug>
+Alternatives for it belong in an idea; \`read\` says \`holdsAlternatives\` (and a nudge
+says so once) until you publish an idea for it and \`move\` them there, or the user presses
+Move into an idea (you hear it in the Thread), or, when they all ship, make it a variants design (\`edit <slug>
 --variants\`): \`read\` then lists them as \`variants\`. Only the user marks it Ready, this is the version (a screen's mark
 carries to the components inside); a version it marked is acted on, so amend and withdraw
 refuse it. \`read\` and \`export\` give \`ready\` (the versions it

@@ -189,17 +189,17 @@ export function alternativesHeld(
   return most > 1 ? most : 0;
 }
 
-export const alternativesNudge = (design: Pick<Design, "title">, n: number) =>
-  `${design.title} holds ${n} alternatives; move them to an idea for it (\`move\`), or, if they all ship, make it a variants design (\`edit --variants\`).`;
+export const alternativesNudge = (design: Pick<Design, "title" | "slug">, n: number) =>
+  `${design.title} holds ${n} alternatives; they belong in an idea for it: publish one (\`--for ${design.slug}\`) and \`move\` them there, or the user can press Move into an idea. If they all ship, make it a variants design (\`edit --variants\`). Said once.`;
 
 // What a product design says about its mark on every read: the mark, whether it moved,
-// and whether it still holds alternatives. Nothing on an idea.
+// and whether it still holds alternatives. Nothing on an idea. The nudge to move the
+// alternatives out is said once per design, by the server (alternativesNudgeOnce).
 export interface ReadyFields {
   ready?: ReturnType<typeof readyView>;
   changed?: boolean;
   status?: ReadyWord;
   holdsAlternatives?: true;
-  nudges?: string[];
 }
 export function readyFields(
   design: Pick<Design, "kind" | "ready" | "states" | "title" | "variants">,
@@ -212,9 +212,7 @@ export function readyFields(
     ready: readyView(design, posts),
     changed,
     status: readyWord(design, changed)!,
-    ...(held
-      ? { holdsAlternatives: true as const, nudges: [alternativesNudge(design, held)] }
-      : {}),
+    ...(held ? { holdsAlternatives: true as const } : {}),
   };
 }
 

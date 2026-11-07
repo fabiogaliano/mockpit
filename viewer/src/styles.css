@@ -10339,6 +10339,19 @@ button.ready-mark:is([data-ready="Ready"], [data-ready="Changed"]):hover {
   font-size: 12px;
   line-height: 1.4;
 }
+.alts-move {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--t2);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.alts-move:hover {
+  color: var(--t1);
+}
 
 /* A screen's or a component's ideas: folded under the states, a quiet row that opens. */
 .ideas-for {

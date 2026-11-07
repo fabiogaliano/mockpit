@@ -255,7 +255,9 @@ mockpit read    --decisions               # the whole decision log, when a read 
   something shows that it lacks, or a state was added since), `status` (`In design`,
   `Ready`, `Changed`) and `builtFrom` (`[{slug, ready, changed}]`, the components inside,
   nested ones included). One holding more than one entry in a state says
-  `holdsAlternatives: true` with a nudge: move them to an idea for it (`move`). `export`
+  `holdsAlternatives: true`, and a nudge says once per design to move them to an idea for
+  it (publish one with `for`, then `move`); the user can also press Move into an idea,
+  which makes the idea and moves them in one action, and you hear it in the Thread. `export`
   hands over every entry marked Ready at its marked version (unmarked: every live entry as
   it shows; a marked version that is gone is listed in `missing`, never replaced), with
   `ready`, `changed`, the `spec` and `builtFrom` (the components those versions include, one per

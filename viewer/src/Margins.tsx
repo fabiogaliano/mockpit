@@ -365,8 +365,8 @@ export function LeftMargin(props: { s: DesignScreenState; nav: FlowNav; m: Margi
 }
 
 // A screen or a component holds one entry a state; what it holds beyond that are
-// alternatives, which the agent moves to an idea for it. Said once, quietly, with nothing
-// to press.
+// alternatives, which belong in an idea for it. Said quietly, with the one action that
+// moves them there.
 function AlternativesLine(props: { s: DesignScreenState }) {
   const s = props.s;
   const most = () => {
@@ -376,7 +376,14 @@ function AlternativesLine(props: { s: DesignScreenState }) {
   };
   return (
     <Show when={s.design()?.holdsAlternatives && most() > 1}>
-      <p class="alts-line">{`${most()} alternatives here; they belong in an idea`}</p>
+      <p class="alts-line">
+        {`${most()} alternatives here; they belong in an idea. `}
+        <Show when={!readonly()}>
+          <button type="button" class="alts-move" onClick={() => void s.moveIntoIdea()}>
+            Move into an idea
+          </button>
+        </Show>
+      </p>
     </Show>
   );
 }

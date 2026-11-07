@@ -199,7 +199,11 @@ consciously, not as a side effect):
   gone anyway reads `missing: true` (`readyView`), never replaced. `changed` (another
   version or entry shows, or a state was declared since), `status` (`In design`, `Ready`,
   `Changed`), `builtFrom` and `holdsAlternatives` are derived on every read
-  (`readyFields`). `shipped` reads an older reply's `accepted` rows on a product design as
+  (`readyFields`); the nudge to move the alternatives into an idea is said once per design
+  (`alternativesNudgeOnce`, the `alternativesNudged:<id>` setting), and the margin's Move into
+  an idea (`POST /api/designs/:id/to-idea`, viewer only, `toIdeaFlow`) makes an idea for the
+  design, copies every live entry of each over-full state there and archives all but its
+  `default` (else the oldest), says so in the Thread, and opens the idea. `shipped` reads an older reply's `accepted` rows on a product design as
   open, so every current-status path (views, export, instances, Jump, decisions, option
   targeting, the hide, copy and tidy guards) sees nothing in use there; `useFlow` and a
   `use` verdict refuse (409), a Send's answers flip nothing, and a draft's pick for the

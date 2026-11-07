@@ -100,7 +100,7 @@ import {
   shortLabel,
   splitLabel,
 } from "./logic.ts";
-import { navigate, questionPath, type ScreenOpen } from "./route.ts";
+import { designPath, navigate, questionPath, type ScreenOpen } from "./route.ts";
 import { setTheme } from "./theme.ts";
 import { coarse, phoneLayout, win } from "./viewport.ts";
 
@@ -2105,6 +2105,19 @@ export function createDesignScreen(
       return loadDesign();
     }, fail);
   }
+  // Move into an idea: what a screen or a component holds beyond one entry a state goes
+  // to a new idea for it, which then opens, so the choice is made there.
+  async function moveIntoIdea() {
+    const m = design();
+    if (!m || readonly() || !product()) return;
+    try {
+      const { idea, moved } = await api.toIdea(m.id);
+      setToast({ text: `Moved ${moved.length} into ${idea.title}` });
+      navigate(designPath(m.project, idea.slug));
+    } catch (e) {
+      fail(e);
+    }
+  }
   // Ready: this is the version, at what each state shows now; again takes it off, and on
   // Changed marks it again. Marking a screen marks the components inside it too.
   async function markReady() {
@@ -2715,6 +2728,7 @@ export function createDesignScreen(
     stayOnUse,
     followShown,
     keepNewest,
+    moveIntoIdea,
     step,
     stepTarget,
     curAsk,

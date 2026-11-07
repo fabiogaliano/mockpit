@@ -252,6 +252,7 @@ import {
   AREAS_SETTING,
   type Author,
   DECISION_EDITS_SETTING,
+  ALTERNATIVES_NUDGED_SETTING,
   type Described,
   type DesignEdit,
   type DesignReady,
@@ -2216,7 +2217,7 @@ export function createApp({
     // A screen or a component has nothing to choose between: what it holds beyond one
     // entry a state belongs in an idea for it.
     const unbound = isProduct(design) ? null : unboundAlternatives(design, posts, post.state);
-    const held = alternativesHeld(design, posts);
+    const held = await alternativesNudgeOnce(design, posts);
     // A part with swaps that no ask sets is a decision nobody was asked; hand over the ask.
     const slots = slotsInSurfaces(post.surfaces);
     const setPaths = new Set(
@@ -2250,7 +2251,7 @@ export function createApp({
       ...(shared ? [shared] : []),
       ...(purpose ? [purpose] : []),
       ...(unbound ? [unbound.nudge] : []),
-      ...(held ? [alternativesNudge(design, held)] : []),
+      ...(held ? [held] : []),
       ...(slotAsks.length
         ? [
             `${slotAsks.map((a) => `part "${a.part}"`).join(", ")} ${slotAsks.length === 1 ? "has" : "have"} swaps and no question sets ${slotAsks.length === 1 ? "it" : "them"}: send suggestedSwapAsks with ask (reword the text in the user's terms)`,
@@ -4026,12 +4027,25 @@ export function createApp({
       ...(await shortlistReach(design)),
       ...(await ideaFields(design, { ruledOut: !query.viewer, lines })),
     });
+    const held = query.viewer ? null : await alternativesNudgeOnce(design, posts);
     return ok({
       ...(list ? { decisionLog: list } : {}),
       ...(query.viewer ? view : agentWords(view)),
+      ...(held ? { nudges: [held] } : {}),
       ...(await systemPalettesField(design.project, query.viewer === true)),
       pending: pendingOf(design),
     });
+  }
+
+  // A product design holding alternatives is told to move them to an idea once: a line
+  // on every read and write would only be ignored. Recorded per design as a setting.
+  async function alternativesNudgeOnce(design: Design, posts: Post[]): Promise<string | null> {
+    const held = alternativesHeld(design, posts);
+    if (!held) return null;
+    const key = `${ALTERNATIVES_NUDGED_SETTING}:${design.id}`;
+    if (await store.getSetting(key)) return null;
+    await store.setSetting(key, new Date().toISOString());
+    return alternativesNudge(design, held);
   }
 
   // An idea's `for` and `becomes`, with the design it is for and, for an agent, what
@@ -7279,6 +7293,71 @@ export function createApp({
     });
   }
 
+  // Move into an idea: the user takes what a screen or a component holds beyond one entry
+  // a state into a new idea for it, in one action. Every live entry of such a state is
+  // copied there, so the choice can be made among all of them, and on the design all but
+  // one is archived: its "default", else the oldest. The agent hears it in the Thread.
+  async function toIdeaFlow(ref: unknown, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const found = await resolveDesign(ref);
+    if (isResult(found)) return found;
+    return serialDecision(found.id, async () => {
+      const design = (await store.getDesign(found.id)) ?? found;
+      const posts = await store.listPosts({ designId: design.id });
+      if (!alternativesHeld(design, posts)) {
+        return fail(409, `${design.slug} holds no alternatives to move`);
+      }
+      const order = design.states.length ? design.states : [null];
+      const full = order.flatMap((state) => {
+        const live = posts.filter((p) => p.state === state && isLive(p.status));
+        return live.length > 1 ? [{ state, live }] : [];
+      });
+      const title = `${design.title} ideas`;
+      const idea = await store.createDesign({
+        project: design.project,
+        slug: await uniqueSlug(design.project, title),
+        title,
+        kind: "idea",
+        area: design.area,
+        states: full.flatMap((f) => (f.state === null ? [] : [f.state])),
+        widths: design.widths,
+        sessionId: design.sessionId,
+        for: design.id,
+      });
+      bus.broadcast({ type: "design-created", id: idea.id, project: idea.project });
+      const moved: string[] = [];
+      for (const { state, live } of full) {
+        const copied = await copyCandidates({
+          candidates: live.map((p) => ({
+            design: design.id,
+            state,
+            alternative: p.alternative,
+            version: newestVisible(p),
+          })),
+          to: idea.id,
+          state,
+        });
+        if (copied.status >= 400) return copied;
+        const stays = live.find((p) => p.alternative === DEFAULT_ALTERNATIVE) ?? live[0];
+        for (const p of live) {
+          if (p === stays) continue;
+          if (await setStatus(design, p, "archived")) moved.push(p.alternative);
+        }
+      }
+      await dropStalePicks(design);
+      void announceHosts(design).catch((err) => console.warn("[mockpit] hosts", err));
+      bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+      await commentFlow(
+        {
+          design: design.id,
+          text: `Moved the alternatives into ${idea.title} (${idea.slug}), an idea for ${design.slug}: ${moved.join(", ")}. Choose there.`,
+        },
+        ctx,
+      );
+      return ok({ idea: { id: idea.id, slug: idea.slug, title: idea.title }, moved }, 201);
+    });
+  }
+
   // D8 "restore as vN": the user brings an older version back as the newest
   // one. Distinct from restoreFlow, which un-archives an alternative. Viewer-only
   // because the version is authored by the user; an agent restoring publishes.
@@ -8711,6 +8790,9 @@ export function createApp({
   );
   app.post("/api/designs/:id/ready", async (c) =>
     send(c, await readyFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+  app.post("/api/designs/:id/to-idea", async (c) =>
+    send(c, await toIdeaFlow(c.req.param("id"), flowCtx(c))),
   );
 
   app.get("/api/projects/:name/shortlists", async (c) =>

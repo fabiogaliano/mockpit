@@ -368,6 +368,12 @@ export const api = {
       json("POST", { state, alternative }),
     ),
   // Ready: this is the version, recorded at what each state shows now; false takes it off.
+  // Move into an idea: a new idea for the design takes its alternatives.
+  toIdea: (id: string) =>
+    call<{ idea: { id: string; slug: string; title: string }; moved: string[] }>(
+      `/api/designs/${encodeURIComponent(id)}/to-idea`,
+      json("POST", {}),
+    ),
   ready: (id: string, ready: boolean) =>
     call<{
       carried: { slug: string; alternative: string; version: number; alsoShown?: number[] }[];
