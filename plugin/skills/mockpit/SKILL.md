@@ -37,7 +37,7 @@ diagrams and reviews stay plain.
 "Shell,Food"` orders it, and `mockpit read --area Shell` is everything settled in one area: read it
 before drawing there. `--source apps/web/src/shell` names the code that implements a design.
 A component with no area is shared; `--group Actions` (or the project's word) files it in the
-library.
+library. When a nudge offers to move a component to shared, ask the user before `--area ''`.
 A screen or component carries a spec: what it is for (`mockpit edit --design <slug> --purpose`)
 and how it works where the picture can't show it (`--behaviour "…" --state Now --part river`).
 Behaviour goes there, never in side files. A screen or component has nothing to choose: its

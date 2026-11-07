@@ -235,7 +235,7 @@ consciously, not as a side effect):
   only while a component names it. A component of one area that live screens of two or more
   areas show (`areasShowing`, from their shown versions' instances, nested included) is offered a
   move to shared: `inAreas` on its tree node (About's note), and a nudge on publish and in a
-  feedback batch (`sharedNudgesFor`, `withSpecNudges`). Nothing moves by itself. The system's
+  feedback batch of the component itself (`sharedNudgeFor`, `withSpecNudges`), saying the user decides. Nothing moves by itself. The system's
   component index (`componentIndex`) lists the shared first, by group.
 - **Lift** (`server/lift.ts`): marking a screen Ready works out what its covered versions draw
   themselves (`partsOutsideInstances` in `server/parts.ts`: a part on a `<mockpit-instance>` tag,

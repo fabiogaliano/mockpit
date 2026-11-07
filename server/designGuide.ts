@@ -589,8 +589,9 @@ A component with no area is shared; one with an area is that area's own. Give a 
 one a group by what it does: \`--group Actions\` (Actions, Inputs, Navigation, Feedback,
 Containers, or the project's own word; \`edit <slug> --group Cards\` the same). A group
 is there while a component is in it. A component of one area that screens of several
-areas show is offered a move to shared in a nudge (\`edit <slug> --area ''\`); nothing
-moves by itself.
+areas show is offered a move to shared in a nudge on its own publish and batch. The move is
+the user's call: ask them first, and only then \`edit <slug> --area ''\`. Nothing moves by
+itself.
 
 When the user marks a screen Ready, its batch's \`followUps\` carry \`lift\`: \`parts\`,
 what the screen draws itself (each with its \`states\` and \`alsoIn\`, other designs

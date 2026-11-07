@@ -30,7 +30,8 @@ The loop never waits for the user:
    product's areas; `--source <path>` names the code that implements it.
    `mockpit edit <slug>` changes slug, title, kind, area, group or source
    without a new version (a component with no area is shared; `--group Actions`
-   files it in the library); `mockpit edit --project <p> --areas
+   files it in the library; when a nudge offers the move to shared, ask the user
+   before `--area ''`); `mockpit edit --project <p> --areas
    "Shell,Food"` orders Home's areas. Read an area before drawing in it:
    `mockpit read --area Food`. A screen or component carries a spec: what it is
    for (`edit --purpose`) and how it works where the picture can't show it

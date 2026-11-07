@@ -151,7 +151,7 @@ slug, and one for none): its answer marks the screen Ready again at what it show
 component not chosen Ready. A batch's `nudges` say what the design needs now: a screen or
 component whose spec is missing, or older than what was just decided on it, is told to
 update it, and a component of one area that screens of two or more areas show is offered a
-move to shared (`edit <slug> --area ''`).
+move to shared on its own batch. The user decides that move: ask them before `edit <slug> --area ''`.
 
 ## Follow-ups
 

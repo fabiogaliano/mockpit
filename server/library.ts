@@ -39,4 +39,4 @@ const listed = (names: string[]) =>
 export const inAreasLine = (title: string, areas: string[]) => `${title} is in ${listed(areas)}`;
 
 export const sharedNudge = (design: Pick<Design, "slug" | "title">, areas: string[]) =>
-  `${inAreasLine(design.title, areas)}; make it shared: \`edit ${design.slug} --area ''\``;
+  `${inAreasLine(design.title, areas)}: it could be shared, if the user agrees. Ask them before \`edit ${design.slug} --area ''\``;

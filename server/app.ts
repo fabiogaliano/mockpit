@@ -1028,8 +1028,8 @@ export function createApp({
   // carries it says so, once per design, and the agent updates the spec itself. So does a
   // Ready mark, and a use in the design an idea is for: each names, under followUps.spec,
   // the product designs whose decisions are now newer than their spec. A component
-  // screens of several areas show is offered a move to shared, on any batch of it or of a
-  // design showing it, once per component.
+  // screens of several areas show is offered a move to shared on its own batch, once: on a
+  // screen's batch the line would repeat on every write there, for a move only the user decides.
   async function withSpecNudges(batches: FeedbackBatch[]): Promise<FeedbackBatch[]> {
     const lines = new Map<string, DecisionLine[]>();
     const linesOf = async (project: string) => {
@@ -1061,12 +1061,12 @@ export function createApp({
         const nudge = await specNudgeFor(design, await linesOf(design.project));
         if (nudge) nudges.push(nudge);
       }
-      let areas = shownIn.get(design.project);
-      if (!areas) shownIn.set(design.project, (areas = await areasShowingIn(design.project)));
-      for (const n of await sharedNudgesFor(design, areas)) {
-        if (toldShared.has(n.slug)) continue;
-        toldShared.add(n.slug);
-        nudges.push(n.nudge);
+      if (mayGoShared(design) && !toldShared.has(design.id)) {
+        toldShared.add(design.id);
+        let areas = shownIn.get(design.project);
+        if (!areas) shownIn.set(design.project, (areas = await areasShowingIn(design.project)));
+        const nudge = sharedNudgeFor(design, areas);
+        if (nudge) nudges.push(nudge);
       }
       if (nudges.length) b.nudges = [...(b.nudges ?? []), ...nudges];
     }
@@ -1311,24 +1311,16 @@ export function createApp({
     return batches;
   }
 
-  // The move to shared offered for this component, or for each component this design
-  // shows that screens of several areas show.
-  async function sharedNudgesFor(
-    design: Design,
-    areas: Map<string, string[]>,
-  ): Promise<{ slug: string; nudge: string }[]> {
-    const slugs = new Set<string>(design.kind === "component" ? [design.slug] : []);
-    for (const e of await shownInstances(design, await store.listPosts({ designId: design.id }))) {
-      slugs.add(e.slug);
-    }
-    const out = [];
-    for (const slug of slugs) {
-      const m = slug === design.slug ? design : await store.findDesign(design.project, slug);
-      const spans = m && spansAreas(m, areas.get(slug));
-      if (m && spans) out.push({ slug, nudge: sharedNudge(m, spans) });
-    }
-    return out;
-  }
+  // Only a component of one area can be offered the move, and only then is it worth reading
+  // every live screen of the project.
+  const mayGoShared = (design: Design) =>
+    design.kind === "component" && !!design.area && !design.archivedAt;
+
+  // The move to shared offered for this component, when screens of several areas show it.
+  const sharedNudgeFor = (design: Design, areas: Map<string, string[]>) => {
+    const spans = spansAreas(design, areas.get(design.slug));
+    return spans ? sharedNudge(design, spans) : null;
+  };
 
   // What takeOrphaned would take right now, with no cursor moved.
   async function owedOrphans(taker: Session): Promise<Comment[]> {
@@ -2217,16 +2209,16 @@ export function createApp({
         ? purposeNudge(design.slug, design.spec.purpose)
         : null;
     const spec = await specNudgeFor(design);
-    const shared = isProduct(design)
-      ? await sharedNudgesFor(design, await areasShowingIn(design.project))
-      : [];
+    const shared = mayGoShared(design)
+      ? sharedNudgeFor(design, await areasShowingIn(design.project))
+      : null;
     const likely = likelyTarget(design, await store.listDesigns(design.project));
     const nudges = [
       ...(extra.nudges ?? []),
       ...(likely ? [forNudge(design, likely)] : []),
       ...(system && pages.length ? pageChecks(system, pages) : []),
       ...(spec ? [spec] : []),
-      ...shared.map((n) => n.nudge),
+      ...(shared ? [shared] : []),
       ...(purpose ? [purpose] : []),
       ...(unbound ? [unbound.nudge] : []),
       ...(held ? [alternativesNudge(design, held)] : []),
