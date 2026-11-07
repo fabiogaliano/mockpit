@@ -15,8 +15,8 @@ curl -s http://localhost:8228/setup >> AGENTS.md
 No dependencies. Keeps one session per agent conversation.
 
 ```sh
-mockpit publish --design cache --state "Cold" --variant grid --html grid.html   # or --md / --diff …
-mockpit publish --design cache --state "Cold" --variant list --html list.html
+mockpit publish --design cache --state "Cold" --alternative grid --html grid.html   # or --md / --diff …
+mockpit publish --design cache --state "Cold" --alternative list --html list.html
 mockpit ask --design cache "Which layout?" --option Grid=grid --option List=list
 mockpit feedback            # after the user answers; returns at once
 mockpit watch               # one line per Send, for a background monitor

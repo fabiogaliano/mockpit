@@ -157,8 +157,11 @@ consciously, not as a side effect):
   `resolvedAt` → `archivedAt`, the 2.0 contract words in stored replies, drafts
   and html, situations → ordinary states named `state · situation`, leaving an inert
   `situations` column, each project's design settings → its system at rev 1, a design's
-  notes → its spec's purpose, leaving an inert `notes` column, and each project's area
-  order → its `areas`).
+  notes → its spec's purpose, leaving an inert `notes` column, each project's area
+  order → its `areas`, and the 4.0 words: `alternative` for a choice's `variant` in
+  stored JSON (asks, drafts, replies, standings, forks and copies), `data-swap` on every part
+  that had `data-fill`, `<mockpit-instance>` and `data-mockpit-instance` in every stored
+  version, and a reply's `combo`).
 - A design with a declared `kind` and no posts is **planned** (`isPlanned` in `types.ts`,
   derived, never stored): `publish` with a kind and no body declares one, and the first
   drawing fills it. `Design.stateOutlines` holds per-design answers to the outlines of
@@ -223,7 +226,7 @@ consciously, not as a side effect):
   what it shows and carries Ready (`carryReady`) to each lifted component not chosen.
 - A **gathered idea** is a design with `shortlist` set (the stored name, which is also in
   `read`), gathered by the user from the project's other designs: New idea on Home's
-  shelves (`AddCandidates`), or a Studio bookmark (`SaveMenu`,
+  shelves (`AddCandidates`), or a Studio bookmark, Keep, with Move beside it (`SaveMenu`,
   `viewer/src/shortlist.ts`), which can also copy into any other design or state
   and take the version out of where it is. Each is one version copied as an alternative
   with `copiedFrom`, originals untouched unless the user moves it. Until an agent writes to it, replies go to
@@ -237,21 +240,21 @@ consciously, not as a side effect):
   answering an alternative question settles every live alternative in the states it chooses in, so an
   open question of the agent's that names some of a state's alternatives shows the rest as answers
   mockpit added (`added: true`, id `added:<alternative>`, stored on the ask once a Send answers
-  it), and the built-in Which alternative? appears only where no such question chooses. Hiding a
-  alternative answer archives the alternative (the why as its reason; the one in use refuses), any
+  it), and the built-in Which alternative? appears only where no such question chooses. Archiving
+  an alternative answer archives the alternative (the why as its reason; the one in use refuses), any
   restore unhides it (`unhideRestored`), and an alternative answer whose alternative is archived reads
   as hidden, so the question and Studio read one list.
-- Kept and hidden answers (`server/standings.ts`, `Design.standings` by ask id, the built-in
+- Kept and archived answers (stored as `hidden`; `server/standings.ts`, `Design.standings` by ask id, the built-in
   Which alternative? included): saved on the click through `POST /api/designs/:id/standings`
   (serialized per design), never waiting for a Send; the next reply of any kind carries the
   changed ones (`Reply.standings`, `unsent`). A re-ask remaps them to the new option ids; a
   hidden answer stays folded and `existing` in `more` leaves it out. An alternative some question
   keeps is never archived by a Send or Use this, only released from use (`release` in
   `commitReply`). The cards (`OptionCard`'s actions, `flipCards` for the fade and slide) put
-  kept ones first and hidden ones in `HiddenAnswers`; `Kept.tsx` holds what waits after a
+  kept ones first and archived ones in `HiddenAnswers` ("Archived · N"); `Kept.tsx` holds what waits after a
   Send: `KeptAnswers` beside the design (Use this instead, a kept screen's missing updates
   counted from `since`, Update it now, `carried`), `AnswerPills` on the design's top edge,
-  and `AnswerSets` (`Design.sets`, `POST /api/designs/:id/sets`, put in use as `Reply.set`).
+  and `AnswerCombos` (`Design.combos`, `POST /api/designs/:id/combos`, put in use as `Reply.combo`).
   `AnswerBoard.tsx` is Studio's Answers arrangement: the open question laid out whole, with
   keys and On every state. The old `starred` column is inert.
 - A Send goes to the design's owner unless the owner can't hear it: with no watch open and
@@ -338,12 +341,15 @@ consciously, not as a side effect):
   place in the library, "Shared · Cards" or its area, with Make it shared where screens of
   several areas show it / Appears in / Instances / flows / code), and `SideOver`, the project's sidebar opening over the design from a button; the state tabs alone say which state;
   `BuiltFrom` is Tune's drawer, open while Tune is; `Grid`, states against alternatives
-  with what's missing shown (`?view=grid`, an arrangement offered where names repeat across states, and
-  how a component with several forms opens unless it is wall-sized), sharing Studio's
+  with what's missing shown (`?view=grid`, an arrangement offered where names repeat across states,
+  a screen's or component's All states, and how a variants design opens), sharing Studio's
   live-frame limit; `Outlines` (missing states in the margin or flow bar, `StateAsk`,
   `PlannedStage` where nothing is drawn); `Spec`; `Studio`, the state zoomed
-  out with every alternative side by side, entered from the top bar's Stage | Studio switch and
-  remembered per design, with one row of controls in the header (`StudioBar`: states, filter, what's live, in use, hidden or archived, and Wall | Columns | Palettes | Grid; `PalettesBoard` is the state on stage in each visible palette, a column per palette, light over dark, offered once there are two), each steer its own reply (`steer`, `sendAlone`), with `SelectBar` acting on
+  out with every alternative side by side, entered from the top bar's Stage | Studio switch (Stage |
+  All states on a screen or component, whose second view is the grid). A design opens by what it is,
+  nothing remembered per design: a question the agent waits on opens Answers (Stage when its
+  answers have no pictures), something to read opens to read, a variants design as its grid, a
+  screen or component on Stage, an idea in Studio. Studio has one row of controls in the header (`StudioBar`: states, filter, what's live, in use, hidden or archived, and Wall | Columns | Palettes | Grid; `PalettesBoard` is the state on stage in each visible palette, a column per palette, light over dark, offered once there are two), each steer its own reply (`steer`, `sendAlone`), with `SelectBar` acting on
   several versions at once. A fork is a column of its own saying where it came from.
   Past Use this a newer version takes over by itself (`changedTo`, `ChangedNote`): the stage
   moves to it when the tab has focus and it goes in use ten seconds later, writing nothing
@@ -581,20 +587,34 @@ the finding needs.
 ## Conventions
 
 - **Naming.** project › design › state › alternative › version; part, ask, knob,
-  reply, draft. A project has one **system**: sheet, token, scale, role, palette, pair,
-  project knob. Its revisions are `rev`. An alternative is stored as a `Post` (an ordered list of
+  reply, draft. The words follow the design tools: an **alternative** is one of several
+  to choose between; a **variant** is a form that ships, on a design whose entries all ship
+  (`Design.variants`, named with `--variant`); a state is what the user meets, a variant
+  what the product picks. A part's **swaps** are what can go in it (`data-swap`); an
+  **instance** is an included component (`<mockpit-instance>`); a **combo** is a named
+  combination of answers; the project's **decision log** is what replies settled. A
+  project has one **system**: sheet, token, scale, role, palette, pair, project knob. Its
+  revisions are `rev`. An alternative is stored as a `Post` (an ordered list of
   **surfaces**); the tenant DB is a **workspace**. To agents and users an ask
   is a "question" (`ask` stays the tool and key name), a part with
   alternatives is "a part with swaps", and an alternative the user picked is "in
   use". A design's **kind** is idea, screen or component; a part is a named bit inside
-  one design, a component a whole design others include as instances. An alternative has a `description`,
+  one design, a component a whole design others include as instances. Each level has one
+  status ladder: a screen or component is In design, Ready or Changed (or Archived); an
+  alternative is Kept, In use or Archived; a version is current or, older ones, Hidden.
+  Hide only ever means a version, taking an alternative out is Archive, and the bookmark
+  is Keep. An alternative has a `description`,
   a design has a `spec`, an area and a project a `description`, an answer has a `comment`. Retired words — item, group,
   snippet, board, stream, `part` for a surface, trace, look (for an alternative), slot, mix
   (now borrow), resolve, close and end (now archive), mock (now design), `page` and
   `sketch` as kinds (now screen and idea), note for an alternative or an answer, screen for
   a state, moment, design system and design settings (now system), accepted and dropped
-  in anything an agent reads — appear nowhere in new code, routes,
-  tools or docs. There is no back-compat beyond `SqlStore`'s in-place
+  in anything an agent reads, variant for one of several to choose between (now
+  alternative), fill (now swap), embed (now instance), set for saved answers (now combo),
+  decision list (now decision log) — appear nowhere in new code, routes,
+  tools or docs. The SQL columns keep their first names (`posts.variant`,
+  `posts.slots`, `designs.sets`, `status = 'accepted'`), and a component instance's
+  `variant="…"` names the form it shows. There is no back-compat beyond `SqlStore`'s in-place
   migration: no legacy routes, aliases or query keys.
 - Conventional Commits: `type(scope): description`.
 - Changesets drive release notes. For user-visible changes run

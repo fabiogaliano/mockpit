@@ -43,11 +43,11 @@ One JSON line per agent call, viewer write and live-feed connection goes to Work
 
 ## Link previews
 
-Design pages (`/project/:project/:design`) include Open Graph/Twitter metadata. Crawlers get a useful preview only when the page is publicly readable; `?key=` secrets never go into the metadata. The image is `/s/:postId.png?card=1` (the design's first open variant), which needs the Browser Rendering binding below.
+Design pages (`/project/:project/:design`) include Open Graph/Twitter metadata. Crawlers get a useful preview only when the page is publicly readable; `?key=` secrets never go into the metadata. The image is `/s/:postId.png?card=1` (the design's first open alternative), which needs the Browser Rendering binding below.
 
-## Variant screenshots
+## Alternative screenshots
 
-`/s/:postId.png` renders a variant's first renderable surface to a PNG. Agents get the URL as `screenshotUrl` from `export` (`/api/designs/:id/export`) when the deployment can render it. `?card=1` gives the 1200×630 preview image.
+`/s/:postId.png` renders an alternative's first renderable surface to a PNG. Agents get the URL as `screenshotUrl` from `export` (`/api/designs/:id/export`) when the deployment can render it. `?card=1` gives the 1200×630 preview image.
 
 A headless browser captures it through Cloudflare's [Browser Rendering](https://developers.cloudflare.com/browser-rendering/) binding in `wrangler.jsonc`:
 
@@ -55,7 +55,7 @@ A headless browser captures it through Cloudflare's [Browser Rendering](https://
 "browser": { "binding": "BROWSER" }
 ```
 
-The route is Workers-only: the Node server has no headless browser, so local exports carry `screenshotUrl: null`. The Worker first forwards the request to the variant's read route, so screenshots are protected like the workspace.
+The route is Workers-only: the Node server has no headless browser, so local exports carry `screenshotUrl: null`. The Worker first forwards the request to the alternative's read route, so screenshots are protected like the workspace.
 
 ## Architecture
 
