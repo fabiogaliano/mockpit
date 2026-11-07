@@ -129,6 +129,8 @@ import {
 } from "./fills.ts";
 import { checkKnobs, checkKnobValues, discreteChoices, explicitKnob, knobFor } from "./knobs.ts";
 import { diffParts, type PartChanges, partsInSurfaces, spliceParts } from "./parts.ts";
+import { LIFT_ASK, liftedComponent, liftOf } from "./lift.ts";
+import { areasShowing, isShared, sharedNudge, spansAreas } from "./library.ts";
 import { postToMarkdown } from "./postMarkdown.ts";
 import {
   addHook,
@@ -226,6 +228,7 @@ import {
   type Described,
   type DesignEdit,
   type DesignReady,
+  type Lift,
   PROJECT_DESCRIPTION_SETTING,
   type ProjectArea,
   stripNul,
@@ -982,21 +985,72 @@ export function createApp({
   }
 
   // A Send on a product design decides things its spec doesn't say yet: the batch that
-  // carries it says so, once per design, and the agent updates the spec itself.
+  // carries it says so, once per design, and the agent updates the spec itself. A
+  // component screens of several areas show is offered a move to shared, on any batch
+  // of it or of a design showing it, once per component.
   async function withSpecNudges(batches: FeedbackBatch[]): Promise<FeedbackBatch[]> {
     const lines = new Map<string, DecisionLine[]>();
     const told = new Set<string>();
+    const shownIn = new Map<string, Map<string, string[]>>();
+    const toldShared = new Set<string>();
     for (const b of batches) {
-      if (!b.designId || !b.reply || told.has(b.designId)) continue;
+      if (!b.designId) continue;
       const design = await store.getDesign(b.designId);
       if (!design || !isProduct(design)) continue;
-      told.add(b.designId);
-      let known = lines.get(design.project);
-      if (!known) lines.set(design.project, (known = await decisionLines(design.project)));
-      const nudge = await specNudgeFor(design, known);
-      if (nudge) b.nudges = [nudge];
+      const nudges: string[] = [];
+      if (b.reply && !told.has(b.designId)) {
+        told.add(b.designId);
+        let known = lines.get(design.project);
+        if (!known) lines.set(design.project, (known = await decisionLines(design.project)));
+        const nudge = await specNudgeFor(design, known);
+        if (nudge) nudges.push(nudge);
+      }
+      let areas = shownIn.get(design.project);
+      if (!areas) shownIn.set(design.project, (areas = await areasShowingIn(design.project)));
+      for (const n of await sharedNudgesFor(design, areas)) {
+        if (toldShared.has(n.slug)) continue;
+        toldShared.add(n.slug);
+        nudges.push(n.nudge);
+      }
+      if (nudges.length) b.nudges = [...(b.nudges ?? []), ...nudges];
     }
     return batches;
+  }
+
+  // By component slug, the areas of the live screens that show it now.
+  async function areasShowingIn(project: string): Promise<Map<string, string[]>> {
+    const heads = headsByDesign(await store.listPostHeads(project));
+    const screens = [];
+    for (const m of await store.listDesigns(project)) {
+      if (m.kind !== "screen" || !m.area || m.archivedAt) continue;
+      const mine = heads.get(m.id) ?? [];
+      if (
+        !mine.some((p) => p.surfaces.some((x) => x.marked) || shownHead(m, p).some((x) => x.marked))
+      )
+        continue;
+      const posts = await store.listPosts({ designId: m.id });
+      screens.push({ area: m.area, builtFrom: (await shownEmbeds(m, posts)).map((e) => e.slug) });
+    }
+    return areasShowing(screens);
+  }
+
+  // The move to shared offered for this component, or for each component this design
+  // shows that screens of several areas show.
+  async function sharedNudgesFor(
+    design: Design,
+    areas: Map<string, string[]>,
+  ): Promise<{ slug: string; nudge: string }[]> {
+    const slugs = new Set<string>(design.kind === "component" ? [design.slug] : []);
+    for (const e of await shownEmbeds(design, await store.listPosts({ designId: design.id }))) {
+      slugs.add(e.slug);
+    }
+    const out = [];
+    for (const slug of slugs) {
+      const m = slug === design.slug ? design : await store.findDesign(design.project, slug);
+      const spans = m && spansAreas(m, areas.get(slug));
+      if (m && spans) out.push({ slug, nudge: sharedNudge(m, spans) });
+    }
+    return out;
   }
 
   // What takeOrphaned would take right now, with no cursor moved.
@@ -1858,10 +1912,14 @@ export function createApp({
         ? purposeNudge(design.slug, design.spec.purpose)
         : null;
     const spec = await specNudgeFor(design);
+    const shared = isProduct(design)
+      ? await sharedNudgesFor(design, await areasShowingIn(design.project))
+      : [];
     const nudges = [
       ...(extra.nudges ?? []),
       ...(system && pages.length ? pageChecks(system, pages) : []),
       ...(spec ? [spec] : []),
+      ...shared.map((n) => n.nudge),
       ...(purpose ? [purpose] : []),
       ...(unbound ? [unbound.nudge] : []),
       ...(held ? [alternativesNudge(design, held)] : []),
@@ -2005,6 +2063,8 @@ export function createApp({
     if (isResult(widths)) return widths;
     const area = labelArg(body, "area", MAX_LABEL);
     if (isResult(area)) return area;
+    const group = labelArg(body, "group", MAX_LABEL);
+    if (isResult(group)) return group;
     const source = labelArg(body, "source", MAX_SOURCE);
     if (isResult(source)) return source;
 
@@ -2100,6 +2160,7 @@ export function createApp({
           title: title ?? titleFromSlug(slug),
           kind,
           ...(area === undefined ? {} : { area }),
+          ...(group === undefined ? {} : { group }),
           ...(source === undefined ? {} : { source }),
           states: state === null ? [] : [state],
           knobs: knobs.value,
@@ -2115,6 +2176,7 @@ export function createApp({
           knobs: knobs.value,
           widths,
           area,
+          group,
           source,
           session,
         });
@@ -2285,6 +2347,7 @@ export function createApp({
           title: title ?? titleFromSlug(slug),
           kind: kind ?? "idea",
           ...(area === undefined ? {} : { area }),
+          ...(group === undefined ? {} : { group }),
           ...(source === undefined ? {} : { source }),
           states: state === null ? [] : [state],
           knobs: knobs.value,
@@ -2325,6 +2388,7 @@ export function createApp({
         knobs: knobs.value,
         widths,
         area,
+        group,
         source,
         session,
       });
@@ -2360,6 +2424,7 @@ export function createApp({
         knobs: knobs.value,
         widths,
         area,
+        group,
         source,
         session,
       });
@@ -2408,6 +2473,7 @@ export function createApp({
       knobs: knobs.value,
       widths,
       area,
+      group,
       source,
       session,
     });
@@ -2733,7 +2799,7 @@ export function createApp({
     return version === undefined ? { variant } : { variant, version };
   }
 
-  // An optional free-text field of the design (`area`, `source`): absent keeps
+  // An optional free-text field of the design (`area`, `group`, `source`): absent keeps
   // it, "" or null clears it.
   function labelArg(body: any, key: string, max: number): string | null | undefined | FlowResult {
     const v = body?.[key];
@@ -2793,6 +2859,7 @@ export function createApp({
       knobs: Knobs;
       widths?: number[];
       area?: string | null;
+      group?: string | null;
       source?: string | null;
       session: Session | null;
     },
@@ -2809,6 +2876,7 @@ export function createApp({
       ...(knobs ? { knobs } : {}),
       ...(w.widths ? { widths: w.widths } : {}),
       ...(w.area === undefined ? {} : { area: w.area }),
+      ...(w.group === undefined ? {} : { group: w.group }),
       ...(w.source === undefined ? {} : { source: w.source }),
       ...(w.session ? { sessionId: w.session.id } : {}),
     });
@@ -3058,6 +3126,16 @@ export function createApp({
         (s) => s !== n.slug && marks.has(s),
       );
       if (from.length) n.builtFrom = from.map((slug) => ({ slug, ...marks.get(slug)! }));
+    }
+    // A component of one area that screens of several show: offered a move to shared.
+    const shownIn = areasShowing(
+      designs
+        .filter((m) => m.kind === "screen" && !m.archivedAt)
+        .map((m) => ({ area: m.area, builtFrom: builtFrom.get(m.slug) ?? [] })),
+    );
+    for (const m of designs) {
+      const spans = spansAreas(m, shownIn.get(m.slug));
+      if (spans) bySlug.get(m.slug)!.inAreas = spans;
     }
     return ok({
       project,
@@ -4554,6 +4632,11 @@ export function createApp({
     });
     if (!comment) return fail(409, `${design.slug} has no agent session to reply to`);
     announceComment(comment);
+    // After the reply, so the agent hears the answer before the marks it settled.
+    const liftAnswer = draft.answers[LIFT_ASK];
+    if (liftAnswer !== undefined && design.kind === "screen" && design.ready) {
+      await settleLift(design, liftAnswer);
+    }
     if (systemWrite) {
       clearRenderCache();
       bus.broadcast({
@@ -5015,36 +5098,101 @@ export function createApp({
     }
     const covers = shownCovers(design, posts);
     if (!covers.length) return fail(409, `${design.slug} isn't drawn yet`);
-    const ready = await setReady(design, readyMark(design, covers, at));
-    const carried: { slug: string; variant: string; version: number; alsoShown?: number[] }[] = [];
-    if (design.kind === "screen") {
-      // Each component inside, once, by the variants the screen shows of it.
-      const inside = new Map<string, Map<string, number[]>>();
-      for (const e of await shownEmbeds(design, posts)) {
-        const byVariant = inside.get(e.slug) ?? new Map<string, number[]>();
-        byVariant.set(e.variant, [...(byVariant.get(e.variant) ?? []), e.version]);
-        inside.set(e.slug, byVariant);
-      }
-      for (const [slug, byVariant] of inside) {
-        const m = await store.findDesign(design.project, slug);
-        if (!m || !isProduct(m) || m.id === design.id) continue;
-        const state = m.states[0] ?? null;
-        let shown = shownCovers(m, await store.listPosts({ designId: m.id }));
-        for (const [variant, versions] of byVariant) {
-          // Two entries of the screen pinning two versions of it: a mark records one, so
-          // the newest, and the response names the others.
-          const version = Math.max(...versions);
-          const others = [...new Set(versions)].filter((v) => v !== version).sort((a, b) => a - b);
-          // What the screen shows of it, where that is another version than its own.
-          shown = shown.some((c) => c.state === state && c.name === variant)
-            ? shown.map((c) => (c.state === state && c.name === variant ? { ...c, version } : c))
-            : [...shown, { state, name: variant, version }];
-          carried.push({ slug, variant, version, ...(others.length ? { alsoShown: others } : {}) });
-        }
-        await setReady(m, readyMark(m, shown, at));
-      }
-    }
+    const mark = readyMark(design, covers, at);
+    const lift = design.kind === "screen" ? await liftFor(design, posts, mark) : null;
+    const ready = await setReady(design, mark, at, lift);
+    const carried = design.kind === "screen" ? await carryReady(design, posts, at) : [];
     return ok({ ready, changed: isChanged({ ...design, ready }, posts), carried });
+  }
+
+  // A screen's mark carries to each component inside, once, by the variants the screen
+  // shows of it; `only` narrows it to those slugs.
+  async function carryReady(
+    design: Design,
+    posts: Post[],
+    at: string,
+    only?: Set<string>,
+  ): Promise<{ slug: string; variant: string; version: number; alsoShown?: number[] }[]> {
+    const carried: { slug: string; variant: string; version: number; alsoShown?: number[] }[] = [];
+    const inside = new Map<string, Map<string, number[]>>();
+    for (const e of await shownEmbeds(design, posts)) {
+      if (only && !only.has(e.slug)) continue;
+      const byVariant = inside.get(e.slug) ?? new Map<string, number[]>();
+      byVariant.set(e.variant, [...(byVariant.get(e.variant) ?? []), e.version]);
+      inside.set(e.slug, byVariant);
+    }
+    for (const [slug, byVariant] of inside) {
+      const m = await store.findDesign(design.project, slug);
+      if (!m || !isProduct(m) || m.id === design.id) continue;
+      const state = m.states[0] ?? null;
+      let shown = shownCovers(m, await store.listPosts({ designId: m.id }));
+      for (const [variant, versions] of byVariant) {
+        // Two entries of the screen pinning two versions of it: a mark records one, so
+        // the newest, and the response names the others.
+        const version = Math.max(...versions);
+        const others = [...new Set(versions)].filter((v) => v !== version).sort((a, b) => a - b);
+        // What the screen shows of it, where that is another version than its own.
+        shown = shown.some((c) => c.state === state && c.name === variant)
+          ? shown.map((c) => (c.state === state && c.name === variant ? { ...c, version } : c))
+          : [...shown, { state, name: variant, version }];
+        carried.push({ slug, variant, version, ...(others.length ? { alsoShown: others } : {}) });
+      }
+      await setReady(m, readyMark(m, shown, at));
+    }
+    return carried;
+  }
+
+  // What a screen marked Ready draws itself, from the versions the mark covers: the
+  // pieces to lift into components, and the copies of library components to swap for
+  // instances. Each name is looked for in the versions every other live design shows.
+  async function liftFor(design: Design, posts: Post[], mark: DesignReady) {
+    const covered = mark.covers.flatMap((c) => {
+      const post = posts.find((p) => p.state === c.state && p.variant === c.name);
+      const at = post && postAtVersion(post, c.version);
+      return at ? [{ state: c.state, surfaces: at.surfaces }] : [];
+    });
+    const others = (await store.listDesigns(design.project)).filter(
+      (d) => d.id !== design.id && !d.archivedAt,
+    );
+    const elsewhere = [];
+    for (const d of others) {
+      const names = new Set(
+        shownPosts(d, await store.listPosts({ designId: d.id })).flatMap((p) =>
+          partsInSurfaces(p.surfaces).map((x) => x.name),
+        ),
+      );
+      if (names.size) elsewhere.push({ slug: d.slug, names });
+    }
+    return liftOf(
+      covered,
+      others.filter((d) => d.kind === "component"),
+      elsewhere,
+    );
+  }
+
+  // The user answered the lift question on a screen they marked Ready: what they are
+  // still iterating on stays in design, and the rest is Ready. The screen is marked again
+  // at what it shows now, the version with the instances, and Ready carries to every
+  // lifted component they didn't choose.
+  async function settleLift(design: Design, answer: AskAnswer): Promise<void> {
+    const fresh = await store.getDesign(design.id);
+    const ask = fresh?.asks.find((a) => a.id === LIFT_ASK);
+    if (!fresh || !ask || fresh.kind !== "screen" || !fresh.ready) return;
+    const components = (await store.listDesigns(fresh.project)).filter(
+      (d) => d.kind === "component" && !d.archivedAt,
+    );
+    const chosen = new Set(Array.isArray(answer) ? answer : [answer]);
+    const lifted = new Set<string>();
+    for (const o of ask.options) {
+      const slug = liftedComponent(o, components);
+      if (slug && !chosen.has(o.id)) lifted.add(slug);
+    }
+    const posts = await store.listPosts({ designId: fresh.id });
+    const covers = shownCovers(fresh, posts);
+    if (!covers.length) return;
+    const at = new Date().toISOString();
+    await setReady(fresh, readyMark(fresh, covers, at), at);
+    if (lifted.size) await carryReady(fresh, posts, at, lifted);
   }
 
   // Records the mark (null takes it off), tells the open viewers and the designs built
@@ -5053,6 +5201,7 @@ export function createApp({
     design: Design,
     ready: DesignReady | null,
     at = ready?.at ?? new Date().toISOString(),
+    lift: Lift | null = null,
   ): Promise<DesignReady | null> {
     const same =
       !!design.ready === !!ready &&
@@ -5062,7 +5211,7 @@ export function createApp({
     if (!updated) return null;
     bus.broadcast({ type: "design-updated", id: updated.id, project: updated.project });
     void announceEmbedders(updated).catch((err) => console.warn("[mockpit] embedders", err));
-    if (!same) await tellAgentEdit(updated, { ready: { ready: !!ready, at } });
+    if (!same) await tellAgentEdit(updated, { ready: { ready: !!ready, at } }, lift);
     return ready;
   }
 
@@ -6056,6 +6205,7 @@ export function createApp({
       "title",
       "kind",
       "area",
+      "group",
       "source",
       "firstState",
       "purpose",
@@ -6070,7 +6220,7 @@ export function createApp({
     if (given.length === 0) {
       return fail(
         400,
-        'provide one of "slug", "title", "kind", "area", "source", "firstState", "purpose" or "behaviour"',
+        'provide one of "slug", "title", "kind", "area", "group", "source", "firstState", "purpose" or "behaviour"',
       );
     }
     const design = await resolveDesign(ref, body.project, body.session);
@@ -6087,6 +6237,8 @@ export function createApp({
     const kind: DesignKind | undefined = body.kind;
     const area = labelArg(body, "area", MAX_LABEL);
     if (isResult(area)) return area;
+    const group = labelArg(body, "group", MAX_LABEL);
+    if (isResult(group)) return group;
     const source = labelArg(body, "source", MAX_SOURCE);
     if (isResult(source)) return source;
 
@@ -6144,6 +6296,7 @@ export function createApp({
       title !== undefined ||
       kind !== undefined ||
       area !== undefined ||
+      group !== undefined ||
       source !== undefined ||
       spec !== undefined
     ) {
@@ -6152,6 +6305,7 @@ export function createApp({
           ...(title === undefined ? {} : { title }),
           ...(kind === undefined ? {} : { kind }),
           ...(area === undefined ? {} : { area }),
+          ...(group === undefined ? {} : { group }),
           ...(source === undefined ? {} : { source }),
           ...(spec === undefined ? {} : { spec }),
         })) ?? next;
@@ -6233,7 +6387,11 @@ export function createApp({
     await tellAgentEdit(after, edited);
   }
 
-  async function tellAgentEdit(after: Design, edited: DesignEdit): Promise<void> {
+  async function tellAgentEdit(
+    after: Design,
+    edited: DesignEdit,
+    lift: Lift | null = null,
+  ): Promise<void> {
     const posts = await store.listPosts({ designId: after.id });
     const sessionId = await replySessionId(after, posts);
     if (!sessionId) return;
@@ -6249,6 +6407,7 @@ export function createApp({
         tuned: {},
         comments: [],
         edited,
+        ...(lift ? { lift } : {}),
       },
       asks: after.asks,
       accept: [],
@@ -7990,11 +8149,21 @@ export function createApp({
         set.add(d.slug);
       }
     }
-    return components.map((d) => ({
-      slug: d.slug,
-      purpose: purposeLine(d.spec),
-      screens: screens.get(d.slug)?.size ?? 0,
-    }));
+    // The library's order: the shared ones first, by group (the ungrouped after), then
+    // each area's own.
+    const rank = (d: Design) => (isShared(d) ? (d.group ? 0 : 1) : 2);
+    return components
+      .toSorted(
+        (a, b) =>
+          rank(a) - rank(b) || (rank(a) === 0 ? (a.group ?? "").localeCompare(b.group ?? "") : 0),
+      )
+      .map((d) => ({
+        slug: d.slug,
+        purpose: purposeLine(d.spec),
+        screens: screens.get(d.slug)?.size ?? 0,
+        ...(d.area ? { area: d.area } : {}),
+        ...(d.group ? { group: d.group } : {}),
+      }));
   }
 
   // Every set an html surface of this project can name, installed first.

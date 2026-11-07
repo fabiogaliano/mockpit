@@ -1,6 +1,7 @@
 // Response shapes shared by every tier (REST, both MCP transports, the CLI), so
 // one design reads the same however an agent asks for it.
 
+import { isShared } from "./library.ts";
 import { slotKnobs, slotsInSurfaces } from "./fills.ts";
 import type { Mode } from "./themes.ts";
 import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
@@ -326,12 +327,15 @@ export function partsByState(design: Design, posts: Post[]): StateParts[] {
   }));
 }
 
-// Where a design sits in the product and the code that implements it, only once
+// Where a design sits in the product, its library group and the code that implements it, only once
 // declared, so the views of a project that names neither cost nothing.
 export const placeOf = (
-  design: Pick<Design, "area" | "source">,
-): { area?: string; source?: string } => ({
+  design: Pick<Design, "kind" | "area" | "group" | "source">,
+): { area?: string; shared?: true; group?: string; source?: string } => ({
   ...(design.area ? { area: design.area } : {}),
+  // A component of no area: the library's shared part.
+  ...(isShared(design) ? { shared: true as const } : {}),
+  ...(design.group ? { group: design.group } : {}),
   ...(design.source ? { source: design.source } : {}),
 });
 
@@ -517,6 +521,8 @@ const nodeOf = (design: Design, posts: PostHead[], extra: Parameters<typeof tree
   ...plannedOf(design, posts.length),
   ...readyFields(design, posts),
   builtFrom: extra.builtFrom?.length ? extra.builtFrom : undefined,
+  // A component of one area that screens of several areas show, those areas.
+  inAreas: undefined as string[] | undefined,
   open: openCount(design),
   // Any question ever asked, answered or not: it tells an idea from a document.
   ...(design.asks.length ? { asked: design.asks.length } : {}),
@@ -622,7 +628,12 @@ export function areaView(input: {
     components: components.map(line),
     shared: live
       .filter((d) => d.kind === "component" && !d.area)
-      .map((d) => ({ slug: d.slug, title: d.title, purpose: purposeLine(d.spec) })),
+      .map((d) => ({
+        slug: d.slug,
+        title: d.title,
+        ...(d.group ? { group: d.group } : {}),
+        purpose: purposeLine(d.spec),
+      })),
     decisions: input.lines
       .filter((l) => !l.system && product.has(l.design))
       .map((l) => ({

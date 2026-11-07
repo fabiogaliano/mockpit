@@ -39,6 +39,9 @@ export function Sidebar(props: {
   recent: boolean;
   // The project has a system: its place sits after the sections.
   system: boolean;
+  // The library's shelves: shared components, and the areas that have their own. Over a
+  // design, where no shelf is shown, there are none to open.
+  library?: { shared: boolean; areas: string[] };
   // A plain click swaps what Home shows, keeping one history entry.
   go: (e: MouseEvent, path: string) => void;
   onNav: () => void;
@@ -67,16 +70,53 @@ export function Sidebar(props: {
   // designs are listed instead.
   const sectionRows = () => props.rows.length + (props.foot ? 1 : 0) > 1;
   const product = () => props.rows.filter((r) => PRODUCT_SECTIONS.includes(r));
-  const sectionRow = (sec: Section) =>
-    link(
-      () => projectPath(props.project, sec),
-      () => props.place === sec,
-      <span class="side-nm">
-        <Icon name={SECTION_ICON[sec]} />
-        {SECTION_LABEL[sec]}
-      </span>,
-      "side-row side-kind",
-    );
+  // Components opens into its shelves while one of them is shown: Shared, then each
+  // area with components of its own, each a page. One shelf alone is the whole page.
+  const libraryRows = () => {
+    const lib = props.library;
+    return lib && lib.areas.length + (lib.shared ? 1 : 0) > 1 ? lib : null;
+  };
+  const inLibrary = () =>
+    props.place === "shared" || (props.place === "components" && !!libraryRows());
+  const sectionRow = (sec: Section) => (
+    <>
+      {link(
+        () => projectPath(props.project, sec),
+        () =>
+          props.place === sec &&
+          !(sec === "components" && props.area && libraryRows()?.areas.includes(props.area)),
+        <span class="side-nm">
+          <Icon name={SECTION_ICON[sec]} />
+          {SECTION_LABEL[sec]}
+        </span>,
+        "side-row side-kind",
+      )}
+      <Show when={sec === "components" && inLibrary() && libraryRows()}>
+        {(lib) => (
+          <div class="side-subs">
+            <Show when={lib().shared}>
+              {link(
+                () => projectPath(props.project, "shared"),
+                () => props.place === "shared",
+                <span class="side-nm">Shared</span>,
+                "side-row side-sub",
+              )}
+            </Show>
+            <For each={lib().areas}>
+              {(a) =>
+                link(
+                  () => projectPath(props.project, "components", a),
+                  () => props.place === "components" && props.area === a,
+                  <span class="side-nm">{a}</span>,
+                  "side-row side-sub",
+                )
+              }
+            </For>
+          </div>
+        )}
+      </Show>
+    </>
+  );
   return (
     <aside
       class="side"

@@ -1,7 +1,8 @@
 // URL ⇄ screen. Home is /project/:name, a design is /project/:name/:slug; "/" is
 // the home of the most recently active project. Home's place is `?sec=`: a
-// section (ideas, screens, flows, components, documents), or needs, archive or
-// recent; absent, or a section the project hasn't lit, is its first. `?show=` narrows
+// section (ideas, screens, flows, components, documents), shared (the library's shared
+// components, by group), or needs, archive or recent; absent, or a section the project
+// hasn't lit, is its first. `?show=` narrows
 // recent to its decisions or designs.
 // `?area=` alone is everything in one of the project's areas, and with `?sec=`
 // that section of it. On a design the URL is the whole place: `?state=`,
@@ -17,6 +18,7 @@ export const HOME_PLACES = [
   "flows",
   "components",
   "documents",
+  "shared",
   "system",
   "needs",
   "archive",

@@ -251,6 +251,11 @@ export function Home(props: {
 
   const inSection = (sec: ShelfSection, a: string | null = null) =>
     onShow().filter((n) => sectionOf(n) === sec && (a === null || n.area === a));
+  // The library: the shared components (no area) by group, then each area's own.
+  const shared = createMemo(() => inSection("components").filter((n) => n.shared));
+  const libraryAreas = createMemo(() =>
+    areas().filter((a) => inSection("components").some((n) => n.area === a)),
+  );
   const landing = (): Section | null => lit().rows[0] ?? lit().foot;
   const isLit = (s: HomePlace): s is Section =>
     lit().rows.includes(s as Section) || lit().foot === s;
@@ -293,6 +298,7 @@ export function Home(props: {
     if (sec === "archive" && archived().length) return sec;
     if (sec === "recent" && nodes().length) return sec;
     if (sec === "system" && tree()?.hasSystem) return sec;
+    if (sec === "shared" && shared().length) return sec;
     if (tiny()) return loaded ? "tiny" : null;
     if (sec && isLit(sec)) return sec;
     if (area()) return "area";
@@ -492,6 +498,7 @@ export function Home(props: {
       archived={archived().length}
       recent={nodes().length > 0}
       system={!!tree()?.hasSystem}
+      library={{ shared: shared().length > 0, areas: libraryAreas() }}
       go={swap}
       onNav={() => setDrawer(false)}
       drawer={inDrawer}
@@ -594,6 +601,69 @@ export function Home(props: {
       </Areas>
     );
   };
+
+  // The shared components under their groups, each group only while it holds one; the
+  // ungrouped last, under a heading only beside groups.
+  const sharedShelf = (level: 2 | 3) => {
+    const groups = createMemo(() => {
+      const by = new Map<string | null, TreeNode[]>();
+      for (const n of shared()) by.set(n.group ?? null, [...(by.get(n.group ?? null) ?? []), n]);
+      return [...by.keys()]
+        .toSorted((a, b) => (a === null ? 1 : b === null ? -1 : a.localeCompare(b)))
+        .map((group) => ({ area: group, rows: by.get(group) ?? [] }));
+    });
+    return (
+      <Areas
+        groups={groups()}
+        level={level}
+        rest="Other"
+        {...(level === 3 ? { class: "home-group" } : {})}
+      >
+        {(rows, name) =>
+          shelf(
+            "components",
+            rows,
+            // Headings by group or by date, not both.
+            () => level === 2 && groups().every((g) => g.area === null),
+            `shared|${name ?? ""}`,
+          )
+        }
+      </Areas>
+    );
+  };
+  // Components: the library on one page, Shared first, then each area's own.
+  // With no area holding a component, all of them are shared, and the page reads as if
+  // areas didn't exist: just the groups.
+  const componentsShelf = () => (
+    <Show when={area() === null} fallback={sectionShelf("components")}>
+      <Show when={libraryAreas().length} fallback={sharedShelf(2)}>
+        <Show when={shared().length}>
+          <section class="home-area home-library-shared">
+            <h2 class="home-area-hd">
+              <a
+                href={projectPath(project()!, "shared")}
+                onClick={(e) => swap(e, projectPath(project()!, "shared"))}
+              >
+                Shared
+              </a>
+            </h2>
+            {sharedShelf(3)}
+          </section>
+        </Show>
+        <Areas
+          groups={groupByArea(
+            inSection("components").filter((n) => !n.shared),
+            (n) => n.area,
+            areaRanks(),
+          )}
+          level={2}
+          describe={(a) => described().get(a)}
+        >
+          {(rows, name) => shelf("components", rows, () => false, name ?? "")}
+        </Areas>
+      </Show>
+    </Show>
+  );
 
   // A flow no one area claims may still walk several: it is across them.
   const restOfFlows = (groups: AreaGroup<Row>[]) =>
@@ -733,7 +803,9 @@ export function Home(props: {
             ? "Recent"
             : s === "system"
               ? null
-              : SECTION_LABEL[s];
+              : s === "shared"
+                ? "Shared components"
+                : SECTION_LABEL[s];
     if (label === null) return null;
     return a && shelfOn() ? `${label} in ${a}` : label;
   };
@@ -756,6 +828,7 @@ export function Home(props: {
     }
     if (s === "area" && a) return countIn(a);
     if (s === "archive") return archived().length;
+    if (s === "shared") return shared().length;
     return null;
   };
   // A place reached from a link, with no sidebar to leave by, brings its own way back.
@@ -1023,7 +1096,8 @@ export function Home(props: {
               <Show when={shown() === "area"}>{wholeArea()}</Show>
               <Show when={shown() === "ideas"}>{sectionShelf("ideas")}</Show>
               <Show when={shown() === "screens"}>{sectionShelf("screens")}</Show>
-              <Show when={shown() === "components"}>{sectionShelf("components")}</Show>
+              <Show when={shown() === "components"}>{componentsShelf()}</Show>
+              <Show when={shown() === "shared"}>{sharedShelf(2)}</Show>
               <Show when={shown() === "documents"}>{sectionShelf("documents")}</Show>
               <Show when={shown() === "flows"}>{flowsAll()}</Show>
               <Show when={shown() === "archive"}>{archive()}</Show>
@@ -1204,6 +1278,8 @@ function Areas<T>(props: {
   level: 2 | 3;
   // The heading of the rows no area claims.
   rest?: string;
+  // In place of `home-area`, for groups that aren't areas.
+  class?: string;
   // What an area is for, one line under its heading.
   describe?: (area: string) => string | undefined;
   children: (rows: () => T[], area: string | null) => JSX.Element;
@@ -1218,8 +1294,11 @@ function Areas<T>(props: {
         const rows = () => props.groups.find((g) => g.area === area)?.rows ?? [];
         return (
           <Show when={grouped()} fallback={props.children(rows, area)}>
-            <section class="home-area">
-              <Dynamic component={`h${props.level}` as Heading} class="home-area-hd">
+            <section class={props.class ?? "home-area"}>
+              <Dynamic
+                component={`h${props.level}` as Heading}
+                class={props.class ? `${props.class}-hd` : "home-area-hd"}
+              >
                 {area ?? props.rest ?? "No area"}
               </Dynamic>
               <Show when={area !== null && props.describe?.(area)}>

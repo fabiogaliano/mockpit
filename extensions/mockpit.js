@@ -301,6 +301,19 @@ function feedbackLines(feedback) {
         );
       }
     }
+    if (batch.lift) {
+      const { parts, likeLibrary } = batch.lift;
+      if (parts.length) {
+        lines.push(
+          `- ${prefix}lift into components: ${parts.map((p) => `${p.name}${p.alsoIn ? ` (also in ${p.alsoIn.join(", ")})` : ""}`).join(", ")}`,
+        );
+      }
+      if (likeLibrary.length) {
+        lines.push(
+          `- ${prefix}swap for the library's instance: ${likeLibrary.map((p) => `${p.name} → ${p.component}`).join(", ")}`,
+        );
+      }
+    }
     for (const n of batch.nudges ?? []) lines.push(`- ${prefix}nudge: ${n}`);
   }
   return lines;
@@ -476,6 +489,11 @@ export default function mockpitExtension(pi) {
         area: {
           type: "string",
           description: 'Where in the product it belongs ("Shell"); Home groups by it. "" clears',
+        },
+        group: {
+          type: "string",
+          description:
+            "A component's library group: Actions, Inputs, Navigation, Feedback, Containers or the project's word. \"\" clears",
         },
         source: { type: "string", description: 'Code path that implements it. "" clears' },
         html: { type: "string", description: "HTML body fragment; declare parts with data-part" },
@@ -725,7 +743,7 @@ export default function mockpitExtension(pi) {
     name: "mockpit_edit",
     label: "Mockpit Edit",
     description:
-      'Change a design without a new version: slug, title, kind, area, source ("" clears), and its spec: purpose (what it is for) and behaviour (how it works where the picture can\'t show it; that goes here, never in side files). A new slug rewrites every embed, data-goto and flow step naming the old one. Or, with no design, rename the project (rename), order its areas on Home (areas), or say what the project, or with area one area, is for (description). Returns feedback.',
+      'Change a design without a new version: slug, title, kind, area, group, source ("" clears), and its spec: purpose (what it is for) and behaviour (how it works where the picture can\'t show it; that goes here, never in side files). A new slug rewrites every embed, data-goto and flow step naming the old one. Or, with no design, rename the project (rename), order its areas on Home (areas), or say what the project, or with area one area, is for (description). Returns feedback.',
     promptSnippet:
       "Rename, retitle or reclassify a mockpit design, write its spec, or rename or describe the project.",
     promptGuidelines: [feedbackGuideline],
@@ -737,7 +755,11 @@ export default function mockpitExtension(pi) {
         slug: { type: "string", description: "New slug" },
         title: { type: "string", description: "Design title" },
         kind: { type: "string", enum: ["screen", "component", "idea"] },
-        area: { type: "string", description: 'Area in the product; "" clears' },
+        area: {
+          type: "string",
+          description: 'Area in the product; "" clears (a component: shared)',
+        },
+        group: { type: "string", description: 'A component\'s library group; "" clears' },
         source: { type: "string", description: 'Code path that implements it; "" clears' },
         purpose: {
           type: "string",

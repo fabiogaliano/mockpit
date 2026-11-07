@@ -627,9 +627,31 @@ export interface Reply {
   // Neither an answer nor an archive: the user moved the design from Home
   // (another kind, another area; null area: none), which the agent must hear.
   edited?: DesignEdit;
+  // With a screen's Ready mark: the pieces it draws itself, worked out from the versions
+  // the mark covers.
+  lift?: Lift;
   // What this reply changed on the project's system: the revision it made and how.
   // Alone (no design) it is the user's hand on the System page.
   system?: { project: string; rev: number; changes: string[] };
+}
+
+// What a screen marked Ready draws itself, for the agent to lift into components
+// (lift.ts): told once, in the mark's feedback batch.
+export interface LiftPart {
+  name: string;
+  label?: string;
+  // The states whose covered versions show it.
+  states: (string | null)[];
+  // The other designs whose versions show a part of the same name.
+  alsoIn?: string[];
+}
+// A part named like a library component: a copy drawn where an instance belongs.
+export interface LibraryCopy extends LiftPart {
+  component: string;
+}
+export interface Lift {
+  parts: LiftPart[];
+  likeLibrary: LibraryCopy[];
 }
 
 export interface DesignEdit {
@@ -728,6 +750,10 @@ export interface Design {
   // Where in the product it belongs, in the project's own words ("Shell",
   // "Food"): Home groups each tab by it. null leaves it ungrouped.
   area: string | null;
+  // What a component does, in any word ("Actions", "Cards"): the library's heading for
+  // it. A component with no area is shared, and the shared ones are listed by group.
+  // Nothing is stored for a group itself: it is there while a component names it.
+  group: string | null;
   // The code path that implements it (e.g. "apps/web/src/shell"), shown as
   // plain text; never checked against a filesystem.
   source: string | null;
@@ -1080,6 +1106,7 @@ export interface CreateDesignInput {
   title?: string;
   kind?: DesignKind;
   area?: string | null;
+  group?: string | null;
   source?: string | null;
   states?: string[];
   knobs?: Knobs;
@@ -1093,6 +1120,7 @@ export interface UpdateDesignInput {
   kind?: DesignKind;
   // undefined keeps, null clears.
   area?: string | null;
+  group?: string | null;
   source?: string | null;
   states?: string[];
   asks?: Ask[];

@@ -16,6 +16,7 @@ Every verb takes the same fields on the CLI, MCP and raw HTTP. None waits for th
 | `mockpit edit --design <slug>` | `edit`                                      | `PATCH /api/designs/:id`                                                       |
 | `mockpit edit --purpose <t>`   | `edit({ purpose })`                         | `PATCH /api/designs/:id` `{purpose}`                                           |
 | `mockpit edit --behaviour <t>` | `edit({ behaviour })`                       | `PATCH /api/designs/:id` `{behaviour: [{text, state?, part?}]}`                |
+| `mockpit edit <slug> --group`  | `edit({ group })`                           | `PATCH /api/designs/:id` `{group}`                                             |
 | `mockpit edit --rename <n>`    | `edit({ rename })`                          | `PATCH /api/projects/:name` `{name}`                                           |
 | `mockpit edit --areas`         | `edit({ areas })`                           | `PATCH /api/projects/:name` `{areas}`                                          |
 | `mockpit edit --description`   | `edit({ description, area? })`              | `PATCH /api/projects/:name` `{description, area?}`                             |

@@ -48,7 +48,7 @@ declare const mockpit: {
    * ({id} alone keeps that surface, a missing id is removed); parts {"name"|"name#key": outer html};
    * fills {"part#fill": outer html}, replacing or adding one fill of a part.
    * None of them, with kind screen or component: plans it, for a later publish to draw. */
-  publish(v: Ref & { title?: string; kind?: "screen" | "component" | "idea"; area?: string; source?: string; html?: string; poster?: string; surfaces?: (Surface | { id: string })[]; parts?: Record<string, string>; fills?: Record<string, string>; knobs?: Knobs; variantKnobs?: Knobs; from?: number; prompt?: string; description?: string; widths?: number[]; flow?: string; step?: number }): Promise<Written>;
+  publish(v: Ref & { title?: string; kind?: "screen" | "component" | "idea"; area?: string; group?: string; source?: string; html?: string; poster?: string; surfaces?: (Surface | { id: string })[]; parts?: Record<string, string>; fills?: Record<string, string>; knobs?: Knobs; variantKnobs?: Knobs; from?: number; prompt?: string; description?: string; widths?: number[]; flow?: string; step?: number }): Promise<Written>;
   ask(design: string, asks: Ask[]): Promise<{ asks: { id: string; text: string }[]; url: string; nudges?: string[] }>;
   /** Never waits: what the user sent since you last heard, and what they are doing now. */
   feedback(): Promise<{ feedback: Feedback[]; pending: Pending[] }>;
@@ -57,7 +57,7 @@ declare const mockpit: {
   move(v: Ref & { variants: string[]; to?: string; toState?: string; archive?: boolean; restore?: boolean }): Promise<{ variants: { state: string | null; variant: string; status: string }[]; skipped: { variant: string; why: string }[]; url: string }>;
   /** No new version; "" clears. Without design, rename, areas or description (with area: its) edit the project.
    * purpose, behaviour: the spec; not applied over the user's own edit (spec.*.applied). */
-  edit(v: { design?: string; slug?: string; title?: string; kind?: string; area?: string; source?: string; firstState?: string; purpose?: string; behaviour?: { text: string; state?: string; part?: string }[]; rename?: string; areas?: string[]; description?: string }): Promise<{ url: string; spec?: unknown }>;
+  edit(v: { design?: string; slug?: string; title?: string; kind?: string; area?: string; group?: string; source?: string; firstState?: string; purpose?: string; behaviour?: { text: string; state?: string; part?: string }[]; rename?: string; areas?: string[]; description?: string }): Promise<{ url: string; spec?: unknown }>;
   /** The project's system: sheet, tokens, scales, palettes, project knobs. No argument reads it;
    * each key replaces its part (tokens, scales, palettes upsert by name). Applies to every design at once. */
   system(v?: { sheet?: string; classes?: { name: string; note: string }[]; fonts?: { family: string; href?: string }[]; tokens?: unknown[]; scales?: unknown[]; roles?: { name: string; note: string }[]; palettes?: unknown[]; pairs?: [string, string, number][]; as?: Record<string, string>; knobs?: Knobs; remove?: { tokens?: string[]; palettes?: string[]; scales?: string[] }; restore?: number }): Promise<{ rev: number; changed?: string[]; kept?: string[]; checks: string[]; url: string }>;

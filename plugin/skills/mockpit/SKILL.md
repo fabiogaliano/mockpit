@@ -36,6 +36,8 @@ diagrams and reviews stay plain.
 `--area Shell` (the project's own words) groups Home; `mockpit edit --project <p> --areas
 "Shell,Food"` orders it, and `mockpit read --area Shell` is everything settled in one area: read it
 before drawing there. `--source apps/web/src/shell` names the code that implements a design.
+A component with no area is shared; `--group Actions` (or the project's word) files it in the
+library.
 A screen or component carries a spec: what it is for (`mockpit edit --design <slug> --purpose`)
 and how it works where the picture can't show it (`--behaviour "…" --state Now --part river`).
 Behaviour goes there, never in side files. A screen or component has nothing to choose: its
@@ -44,7 +46,9 @@ and `export`: `ready`, `changed`, `builtFrom`).
 `mockpit edit --design <slug> --slug <new>` renames it and rewrites every embed and flow step; it
 also retitles and reclassifies without a new version. Title a design, like a state, by what the
 user sees ("Hold menu"), never by your process ("Round 2 · …", "v2", "Prototype"). When the user
-moves a design from Home (kind, area) or marks it Ready, you hear it in `feedback` as `edited`.
+moves a design from Home (kind, area) or marks it Ready, you hear it in `feedback` as `edited`;
+a screen's mark brings `lift`: swap copies for library instances, lift the rest into
+components, then ask `lift` (`mockpit guide --topic feedback`).
 
 Prefer the MCP tools when connected (`publish`, `ask`, `read`, `feedback`,
 `say`, `move`, `edit`, `system`, `export`, `upload`, `guide`); otherwise use the CLI.

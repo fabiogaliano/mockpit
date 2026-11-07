@@ -47,6 +47,8 @@ const field = {
   widths: "Widths it ships at, side by side: [390,1280]",
   kind: "Only when building the product's screens: screen, component (a reusable design screens embed). With no html it plans one, drawn by a later publish. Omit for ideas, diagrams and reviews",
   area: 'Product area in the project\'s words; Home groups by it. "" clears',
+  group:
+    'A component\'s library group: Actions, Inputs, Navigation, Feedback, Containers or your word. "" clears',
   source: 'Code path implementing it. "" clears',
   flow: "Flow this state is a step of; alone, only places it",
   step: "1-based place; 0 removes",
@@ -239,6 +241,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       title: { t: "string", d: field.title },
       kind: { t: "enum", values: ["screen", "component", "idea"], d: field.kind },
       area: { t: "string", d: field.area },
+      group: { t: "string", d: field.group },
       source: { t: "string", d: field.source },
       html: { t: "string", d: field.html },
       poster: { t: "string", d: field.poster },
@@ -356,6 +359,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       title: { t: "string" },
       kind: { t: "enum", values: ["screen", "component", "idea"] },
       area: { t: "string" },
+      group: { t: "string" },
       source: { t: "string" },
       firstState: { t: "string", d: "Names a design's one unnamed state, so it can have more" },
       purpose: {
@@ -496,6 +500,9 @@ const feedbackSchema = o({
       "The user moved the design from Home (its kind or area now), edited its spec, or marked it Ready (or took it off)",
     ),
   nudges: strs.optional(),
+  lift: o({ parts: z.array(bag), likeLibrary: z.array(bag) })
+    .optional()
+    .describe("A screen just marked Ready: its own parts to lift, copies of library components"),
 }).meta({ id: "Feedback" });
 // Typed once, on feedback: repeating it on every write would cost more than
 // the rest of the write's output schema.

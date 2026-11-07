@@ -28,8 +28,9 @@ The loop never waits for the user:
    `<mockpit-embed slug="card">` (that makes it a component). Ideas,
    diagrams and reviews stay plain. `--area <name>` groups Home by the
    product's areas; `--source <path>` names the code that implements it.
-   `mockpit edit --design <slug>` changes slug, title, kind, area or source
-   without a new version; `mockpit edit --project <p> --areas
+   `mockpit edit <slug>` changes slug, title, kind, area, group or source
+   without a new version (a component with no area is shared; `--group Actions`
+   files it in the library); `mockpit edit --project <p> --areas
    "Shell,Food"` orders Home's areas. Read an area before drawing in it:
    `mockpit read --area Food`. A screen or component carries a spec: what it is
    for (`edit --purpose`) and how it works where the picture can't show it
@@ -38,6 +39,8 @@ The loop never waits for the user:
    current, alternatives belong in an idea, and the user marks it Ready (`read` and
    `export`: `ready`, `changed`, `builtFrom`). A batch with `edited` is the user moving
    a design from Home (kind, area), correcting its spec or marking it Ready: build on it.
+   A screen's mark brings `lift`: swap copies for library instances, lift the rest
+   into components, then ask `lift` (topic `feedback`).
 3. A choice is several variants plus one question that binds them: `mockpit ask`
    with options bound to variants. A variant decides everything it differs on;
    don't re-ask it. Visual options carry a `variant`, knob `set` or `palette`. One render

@@ -19,6 +19,7 @@ import {
   DEFAULT_VARIANT,
   type Design,
   type DesignEdit,
+  type Lift,
   OTHER_ID,
   type PartComment,
   type Post,
@@ -135,8 +136,11 @@ export interface FeedbackBatch {
   // settled). The revision it made and what changed. Build on it.
   system?: { rev: number; changes: string[] };
   // What this batch asks of the agent beyond answering it: a product design's spec
-  // left behind what was decided on it.
+  // left behind what was decided on it, a component more than one area shows.
   nudges?: string[];
+  // With a screen just marked Ready: what it draws itself, to lift into components
+  // (parts) or to swap for the library's instance (likeLibrary). Then ask `lift`.
+  lift?: Lift;
 }
 
 const ref = (p: Post): VariantRef => ({ state: p.state, variant: p.variant });
@@ -365,6 +369,9 @@ export function groupFeedback(
     }
     if (edit) {
       batch.edited = mergeEdits(batch.edited, edit);
+      // A mark taken off again in the same batch leaves nothing to lift.
+      if (c.payload?.lift) batch.lift = c.payload.lift;
+      else if (edit.ready && !edit.ready.ready) delete batch.lift;
       continue;
     }
     if (c.kind === "reply" && c.payload) {

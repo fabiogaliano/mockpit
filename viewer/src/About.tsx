@@ -1,19 +1,23 @@
 // About: what sits around this design, opened from the info button beside its name.
-// Appears in (the designs that embed it), Built from (what it embeds), Flows
-// (each flow it is a step of) and where its code lives. Its states are the tabs'
-// job. A bottom sheet on a phone.
+// A component's place in the library (shared and its group, or its area), Appears in
+// (the designs that embed it), Built from (what it embeds), Flows (each flow it is a
+// step of) and where its code lives. Its states are the tabs' job. A bottom sheet on a
+// phone.
 
 import { createMemo, createResource, createSignal, For, type JSX, Show } from "solid-js";
 import { api, type FlowView, surfaceUrl, type TreeNode } from "./api.ts";
+import { inAreasLine } from "../../server/library.ts";
 import { designWidth, screenPicture } from "./logic.ts";
 import { linkClick, designPath } from "./route.ts";
 import type { DesignScreenState } from "./state.ts";
+import { readonly } from "./host.ts";
 import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 
 export interface AboutState {
   tree: () => { tree: TreeNode[]; flows: FlowView[] } | undefined;
   wake: () => void;
+  refetch: () => void;
 }
 
 // One per design screen. The tree is fetched again whenever the design changes, so
@@ -21,14 +25,14 @@ export interface AboutState {
 export function createAbout(project: () => string, designKey: () => string | null): AboutState {
   // Not before it is first opened: most visits to a design never do.
   const [woken, setWoken] = createSignal(false);
-  const [tree] = createResource(
+  const [tree, { refetch }] = createResource(
     () => {
       const k = designKey();
       return k === null || !woken() ? null : `${project()}\u0000${k}`;
     },
     () => api.tree(project()),
   );
-  return { tree, wake: () => setWoken(true) };
+  return { tree, wake: () => setWoken(true), refetch: () => void refetch() };
 }
 
 interface FlowRow {
@@ -116,8 +120,31 @@ export function About(props: {
       : n.kind === "component"
         ? "component"
         : "";
+  // "Shared · Cards", "Shared", or the area it belongs to.
+  const shelf = () => {
+    const n = rel.me();
+    if (n?.kind !== "component") return null;
+    if (n.area) return n.area;
+    return n.group ? `Shared · ${n.group}` : "Shared";
+  };
+  const [moving, setMoving] = createSignal(false);
+  const [moveError, setMoveError] = createSignal<string | null>(null);
+  // Offered, never done by itself: the user's click is the move, as from Home's ⋯ menu.
+  async function makeShared(id: string) {
+    setMoving(true);
+    setMoveError(null);
+    try {
+      await api.editDesign(id, { area: null });
+      props.r.refetch();
+    } catch (e) {
+      setMoveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setMoving(false);
+    }
+  }
   const empty = () =>
     rel.loaded() &&
+    !shelf() &&
     !rel.embeddedIn().length &&
     !rel.embeds().length &&
     !rel.flows().length &&
@@ -132,6 +159,38 @@ export function About(props: {
       inert={!props.open || undefined}
       ref={props.ref}
     >
+      <Show when={shelf()}>
+        {(where) => (
+          <section class="about-library">
+            <h3>Library</h3>
+            <p class="about-shelf">{where()}</p>
+            <Show when={rel.me()?.inAreas}>
+              {(areas) => (
+                <div class="about-note">
+                  <p>{`${inAreasLine(rel.me()?.title ?? props.slug, areas())}; make it shared.`}</p>
+                  <Show when={!readonly()}>
+                    <button
+                      type="button"
+                      class="btn"
+                      disabled={moving()}
+                      onClick={() => void makeShared(rel.me()!.id)}
+                    >
+                      Make it shared
+                    </button>
+                  </Show>
+                  <Show when={moveError()}>
+                    {(msg) => (
+                      <p class="about-err" role="alert">
+                        {msg()}
+                      </p>
+                    )}
+                  </Show>
+                </div>
+              )}
+            </Show>
+          </section>
+        )}
+      </Show>
       {section(
         "Appears in",
         () => (

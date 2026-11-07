@@ -141,8 +141,17 @@ ride in the same batch as a reply. `edited.spec` is the design's spec as the use
 corrected it, by section: `purpose` and `behaviour` (`null` where they cleared one).
 `edited.ready` (`{ready, at}`) says they marked a screen or component Ready, or took the
 mark off: only they set it, and marking a screen marks the components inside it too, each
-heard on its own design. A batch's `nudges` say what the design needs now: a screen or component whose spec is
-missing, or older than what was just decided on it, is told to update it.
+heard on its own design. A screen's mark carries `lift`: `parts` (`[{name, label?, states,
+alsoIn?}]`, the parts its marked versions draw themselves, not an instance's place, with the
+other designs showing a part of that name) and `likeLibrary` (the same, plus `component`: a
+part named like a library component, a copy drawn where an instance belongs). Swap each copy
+for an instance, lift the pieces worth keeping into components embedded back in one new
+version, then ask `lift` (multi, one answer per lifted component, its id the component's
+slug, and one for none): its answer marks the screen Ready again at what it shows and each
+component not chosen Ready. A batch's `nudges` say what the design needs now: a screen or
+component whose spec is missing, or older than what was just decided on it, is told to
+update it, and a component of one area that screens of two or more areas show is offered a
+move to shared (`edit <slug> --area ''`).
 
 ## Delivery
 
@@ -202,7 +211,8 @@ mockpit read    --decisions               # the whole decision list, when a read
   of their post id), and the rest to `design.json`.
 - A read with `area` (`mockpit read --area Food`) is one product area: `description`
   (the project's), `area` (`{name, description}`), `screens` and `components` (`{slug,
-  title, kind, purpose, states, ready, changed, status}`), `flows`, `shared` (components with no area),
+  title, kind, purpose, states, ready, changed, status}`), `flows`, `shared` (components with no
+  area, `{slug, title, group?, purpose}`),
   `decisions` (`{design, text, state?}`) and `ideasWaiting` (`{slug, title, status}`).
   Read it before drawing in the area. `mockpit edit --project <p> --area Food
   --description "…"` says what an area is for, without `--area` what the project is for.

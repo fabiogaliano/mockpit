@@ -34,7 +34,9 @@ groups by it, in the order of the project's `areas:<project>` setting, then
 alphabetical; each area there has a one-line `description`, one the order leaves out is
 kept only for it as `alphabetical`, never ranked, and the project has its own in
 `description:<project>`, a user's standing against agents until cleared) and its
-**source** (the code path that implements it). The user can move a design too,
+**source** (the code path that implements it); a component may name its **group** (what
+it does, any word; a component with no area is **shared**, and the library lists the shared
+ones by group). The user can move a design too,
 from Home's ⋯ menu (kind, area, archive); the agent hears a move as a feedback
 batch's `edited`, through the same cursor as a Send. The user's is Send (or Use this / New version on a design whose
 state has one variant and no asks), which releases one **reply**. A screen or component
@@ -201,7 +203,24 @@ consciously, not as a side effect):
 - `read --area <name>` (`GET /api/projects/:name/areas/:area`, `areaView` in
   `server/apiViews.ts`) is one area, everything settled in it: what the project and the
   area are for, its screens, flows and components (purpose, states, `ready`), the shared
-  components, their decisions and `ideasWaiting`. Home's area page draws the same view.
+  components (with their `group`), their decisions and `ideasWaiting`. Home's area page
+  draws the same view.
+- The component library (`server/library.ts`, shared with the viewer): a component with no
+  area is shared (`shared: true` in every view, `placeOf`), `Design.group` names its group
+  (stored as the `libraryGroup` column, `group` being an SQL keyword), and a group is there
+  only while a component names it. A component of one area that live screens of two or more
+  areas show (`areasShowing`, from their shown versions' embeds, nested included) is offered a
+  move to shared: `inAreas` on its tree node (About's note), and a nudge on publish and in a
+  feedback batch (`sharedNudgesFor`, `withSpecNudges`). Nothing moves by itself. The system's
+  component index (`componentIndex`) lists the shared first, by group.
+- **Lift** (`server/lift.ts`): marking a screen Ready works out what its covered versions draw
+  themselves (`partsOutsideInstances` in `server/parts.ts`: a part on a `<mockpit-embed>` tag,
+  or holding only instances in plain boxes and no text, is an instance's place), split into
+  `parts` and `likeLibrary` (named like a live component), each with `alsoIn` (other live
+  designs whose shown versions have the name). It rides on the mark's stored edit as
+  `Reply.lift` and reaches the agent as a batch's `lift`. The agent lifts and asks `lift`; a
+  Send answering it on a Ready screen (`settleLift` in `replyFlow`) marks the screen again at
+  what it shows and carries Ready (`carryReady`) to each lifted component not chosen.
 - A **gathered idea** is a design with `shortlist` set (the stored name, which is also in
   `read`), gathered by the user from the project's other designs: New idea on Home's
   shelves (`AddCandidates`), or a Studio bookmark (`SaveMenu`,
@@ -279,8 +298,11 @@ consciously, not as a side effect):
   `mcp/server.ts` — stdio MCP, a thin client over the HTTP API.
 - `viewer/` — Solid + TypeScript in `viewer/src/`, Vite-built into one
   self-contained `viewer/dist/index.html`. `Home` is a `Sidebar` beside one place,
-  named by `?sec=needs|ideas|screens|flows|components|documents|archive|recent|system`
-  and `?area=` (absent: the first section lit). `SystemPlace` (`?sec=system`, in the
+  named by `?sec=needs|ideas|screens|flows|components|shared|documents|archive|recent|system`
+  and `?area=` (absent: the first section lit). Components is the library on one page:
+  Shared first, its groups as headings, then each area's own; while it is shown, its sidebar
+  row opens into Shared (`?sec=shared`) and each area with components
+  (`?sec=components&area=`). `SystemPlace` (`?sec=system`, in the
   sidebar after the sections once the system holds anything, `hasSystem` on the tree)
   is the project's system in tabs per family: palettes as swatch rows with Default /
   Keep / Hide, their checks, a type and space specimen (`server/systemSpecimen.ts`, a
@@ -312,8 +334,9 @@ consciously, not as a side effect):
   from anywhere (`/` or ⌘K), through `GET /api/search` (`server/jump.ts`), which
   never reads surfaces; results are text nodes. `DesignScreen`
   (`VersionCaption`: the version and New version / Use this on the design's top edge, or a document's column; `TopRow`, in three zones with the views centred: the path is the way up, project and area as links, ending at the
-  design's name, with a ⋯ menu (Copy name, Archive for an idea) opening `About` (Appears in / Built from /
-  flows / code), and `SideOver`, the project's sidebar opening over the design from a button; the state tabs alone say which state;
+  design's name, with a ⋯ menu (Copy name, Archive for an idea) opening `About` (a component's
+  place in the library, "Shared · Cards" or its area, with Make it shared where screens of
+  several areas show it / Appears in / Built from / flows / code), and `SideOver`, the project's sidebar opening over the design from a button; the state tabs alone say which state;
   `BuiltFrom` is Tune's drawer, open while Tune is; `Grid`, states against variants
   with what's missing shown (`?view=grid`, an arrangement offered where names repeat across states, and
   how a component with several forms opens unless it is wall-sized), sharing Studio's

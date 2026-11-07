@@ -232,7 +232,14 @@ export interface ComponentLine {
   // The first line of its spec's purpose: what it is for.
   purpose: string;
   screens: number;
+  // Absent: shared. Its group in the library, by what it does.
+  area?: string;
+  group?: string;
 }
+
+// Where a component sits in the library: "shared · Cards", or its area.
+const shelfOf = (c: ComponentLine) =>
+  c.area ? c.area : c.group ? `shared · ${c.group}` : "shared";
 
 const FAMILY: Record<TokenType, string> = {
   color: "colour",
@@ -394,7 +401,7 @@ export function systemSection(system: System | null, components: ComponentLine[]
         .slice(0, 30)
         .map(
           (c) =>
-            `- ${c.slug}${c.purpose ? ` — ${oneLine(c.purpose).slice(0, 120)}` : " — (no purpose line yet)"}${c.screens ? ` (in ${c.screens} screen${c.screens === 1 ? "" : "s"})` : ""}`,
+            `- ${c.slug} [${shelfOf(c)}]${c.purpose ? ` — ${oneLine(c.purpose).slice(0, 120)}` : " — (no purpose line yet)"}${c.screens ? ` (in ${c.screens} screen${c.screens === 1 ? "" : "s"})` : ""}`,
         )
         .join("\n")}${components.length > 30 ? `\n- +${components.length - 30} more` : ""}`,
     );
@@ -469,7 +476,7 @@ export function renderSystemTopic(
     out.push(`### Project knobs\n\n\`\`\`json\n${JSON.stringify(system.knobs, null, 2)}\n\`\`\``);
   if (components.length)
     out.push(
-      `### Components\n\n${components.map((c) => `- ${c.slug} — ${oneLine(c.purpose) || "(no purpose line)"}${c.screens ? ` (in ${c.screens} screens)` : ""}`).join("\n")}`,
+      `### Components\n\n${components.map((c) => `- ${c.slug} [${shelfOf(c)}] — ${oneLine(c.purpose) || "(no purpose line)"}${c.screens ? ` (in ${c.screens} screens)` : ""}`).join("\n")}`,
     );
   if (system.repo?.untyped?.length)
     out.push(
@@ -569,6 +576,25 @@ carries to the components inside); a version it marked is acted on, so amend and
 refuse it. \`read\` and \`export\` give \`ready\` (the versions it
 covers), \`changed\` (something newer shows since) and \`builtFrom\` (each component's own
 mark); \`export\` hands over the Ready versions with the spec, what a build plan points at.
+
+## The library
+
+A component with no area is shared; one with an area is that area's own. Give a shared
+one a group by what it does: \`--group Actions\` (Actions, Inputs, Navigation, Feedback,
+Containers, or the project's own word; \`edit <slug> --group Cards\` the same). A group
+is there while a component is in it. A component of one area that screens of several
+areas show is offered a move to shared in a nudge (\`edit <slug> --area ''\`); nothing
+moves by itself.
+
+When the user marks a screen Ready, its batch carries \`lift\`: \`parts\`, what the
+screen draws itself (each with its \`states\` and \`alsoIn\`, other designs showing a part
+of that name), and \`likeLibrary\`, parts named like a library component. Replace each
+\`likeLibrary\` copy with an instance of its \`component\`. Lift each piece of \`parts\`
+worth keeping into a component of its own, embedded back so the screen looks the same,
+in one new version. Then ask one question on the screen, id \`lift\`, \`multi\`, "Still
+iterating on any of these?": one answer per lifted component, its id the component's
+slug, and a last one for none. Answering it marks the screen Ready again at that version
+and the components not chosen Ready; the chosen ones stay in design.
 
 ## Parts
 
@@ -700,8 +726,8 @@ A \`pending\` draft means the user is still answering. Send a nudge's
 \`edited: {kind, area}\` means the user moved the design from Home; it is done,
 so build on it and don't move it back. \`edited: {spec}\` is the user's correction
 of the design's spec, by section (null where they cleared one); \`edited: {ready}\` that
-they marked it Ready or took the mark off. A batch's \`nudges\`
-say what the design needs now, such as its spec updated.
+they marked it Ready or took the mark off, with \`lift\` on a screen (The library). A
+batch's \`nudges\` say what the design needs now, such as its spec updated.
 \`read\` shows what the user took away, as information: a design's \`archivedAt\` and
 \`archiveReason\`, a variant's \`archived\` status and \`archiveReason\`. A question
 you ask on an archived design brings it back to their list.

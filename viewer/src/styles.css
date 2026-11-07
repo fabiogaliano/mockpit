@@ -1078,6 +1078,38 @@ a.home-count {
   color: var(--t1);
   font-weight: 500;
 }
+/* The library's shelves, under Components while one of them is open. */
+.side-subs {
+  display: flex;
+  flex-direction: column;
+}
+.side-sub {
+  min-height: 28px;
+  padding-left: 34px;
+  font-size: 13px;
+}
+.home-phone .side-sub {
+  min-height: 40px;
+}
+/* A library group: a smaller label inside the Shared shelf. */
+.home-group {
+  margin-bottom: 28px;
+}
+.home-group-hd {
+  margin: 0 0 12px;
+  color: var(--t3);
+  font-size: 13px;
+  font-weight: 500;
+}
+.home-area-hd a {
+  color: inherit;
+  text-decoration: none;
+}
+@media (hover: hover) {
+  .home-area-hd a:hover {
+    color: var(--t1);
+  }
+}
 /* The project's words, in a shape of their own beside mockpit's rows. */
 .side-chips {
   display: flex;
@@ -6831,6 +6863,31 @@ html:has(.design-screen) {
   font: 400 12px var(--mono);
   overflow-wrap: anywhere;
 }
+.about-shelf {
+  margin: 0 6px;
+  color: var(--t2);
+  font-size: 13px;
+}
+/* A component more than one area shows: offered a move to shared. */
+.about-note {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 6px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--t3);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.about-note p {
+  margin: 0;
+}
+.about-err {
+  color: var(--danger);
+}
 .about-none {
   margin: 2px 6px;
   color: var(--t4);
@@ -9958,7 +10015,7 @@ body:has(.selp) .toast {
 }
 .sys-comp {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: baseline;
   gap: 2px 12px;
   min-height: 36px;
@@ -9988,9 +10045,13 @@ body:has(.selp) .toast {
   color: var(--t4);
   font-size: 13px;
 }
-.sys-comp .n {
+.sys-comp .n,
+.sys-comp .w {
   color: var(--t5);
   font-size: 12px;
+}
+.sys-comp .w {
+  color: var(--t3);
 }
 .sys-rev {
   display: grid;

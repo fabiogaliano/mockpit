@@ -72,6 +72,7 @@ verbs:
       --kind <k>        screen|component, only for an app's screens (default idea);
                         with no html it plans one, drawn by a later publish
       --area <name>     where in the product it belongs ("Shell"); Home groups by it
+      --group <word>    a component's library group (Actions, Inputs, Navigation, ...)
       --source <path>   the code path that implements it
       --knobs <json|file>  knobs in tunekit usePane shape, keyed by path
       --from <N>        branch from version N
@@ -116,7 +117,7 @@ verbs:
                                           a plain-text message in a design's thread
   mockpit move --design <slug> --variant <v>... (--to <design> [--to-state s] | --archive | --restore)
                                           move variants elsewhere, archive or restore them
-  mockpit edit --design <slug> [--slug s] [--title t] [--kind k] [--area a] [--source p]
+  mockpit edit <slug> [--slug s] [--title t] [--kind k] [--area a] [--group g] [--source p]
           [--purpose t] [--behaviour t [--state s] [--part p]]
                                           change a design or its spec without a new
                                           version ("" clears)
@@ -235,6 +236,9 @@ mockpit publish --design <slug> [--state s] [--variant v] --withdraw
                      omit for ideas, diagrams, reviews (default idea)
   --area <name>      where in the product it belongs, in the project's words
                      ("Shell", "Food"); Home groups each tab by it. "" clears
+  --group <word>     a component's group in the library, by what it does: Actions,
+                     Inputs, Navigation, Feedback, Containers, or the project's own
+                     word. A component with no area is shared. "" clears
   --source <path>    the code path that implements it (apps/web/src/shell). "" clears
   --knobs <json|file>  knobs in tunekit usePane shape
   --from <N>         branch from version N
@@ -302,14 +306,17 @@ mockpit move --design <slug> [--state s] [--variant <v>...] --hide-older | --del
   version (no --variant: every variant), and --delete-older deletes them for good,
   skipping and listing any that a reply, comment, question, embed, copy or fork still
   points at, or that is in use. It can't be undone: confirm first.`,
-  edit: `mockpit edit --design <slug> [--slug <new>] [--title <t>] [--kind screen|component|idea]
+  edit: `mockpit edit <slug> [--slug <new>] [--title <t>] [--kind screen|component|idea]
   [--first-state <name>] [--purpose <text>|""]
   [--behaviour <text> [--state <s>] [--part <p>] | --behaviour <json|file>|""]
-  [--area <name>|""] [--source <path>|""] [--project <name>]
+  [--area <name>|""] [--group <word>|""] [--source <path>|""] [--project <name>]
 mockpit edit --project <name> --rename <new name>
 mockpit edit --project <name> --areas "Shell,Food,Chat"
 mockpit edit --project <name> [--area <name>] --description <one line>|""
-  Change a design without publishing a new version; "" clears area or source. A new
+  Change a design without publishing a new version; "" clears area, group or source.
+  The design is named first, or with --design. A component with no area is shared;
+  --group files it in the library by what it does (Actions, Inputs, Navigation,
+  Feedback, Containers, or the project's own word). A new
   slug rewrites every embed, data-goto and flow step that names the old one, in
   every version. A design still embedded somewhere stays a component, not an idea.
   --purpose and --behaviour write the design's spec, which read returns: what it is for,
@@ -1164,6 +1171,7 @@ function parsePublishFlags() {
       title: { type: "string" },
       kind: { type: "string" },
       area: { type: "string" },
+      group: { type: "string" },
       source: { type: "string" },
       html: { type: "string" },
       poster: { type: "string" },
@@ -1297,6 +1305,7 @@ async function publishDesign() {
     title: flags.title,
     kind: flags.kind,
     area: flags.area,
+    group: flags.group,
     source: flags.source,
     ...(flags.knobs !== undefined && { knobs: readJsonFlag("knobs", flags.knobs) }),
     ...(from !== undefined && { from }),
@@ -1390,6 +1399,20 @@ function printRun(r) {
   if (r.truncated) console.log("(output truncated)");
 }
 
+// What a screen just marked Ready draws itself: its parts to lift, and the copies of
+// library components to swap for instances.
+const liftText = (lift) =>
+  [
+    lift.parts.length
+      ? `lift ${lift.parts.map((p) => `${p.name}${p.alsoIn ? ` (also in ${p.alsoIn.join(", ")})` : ""}`).join(", ")}`
+      : "",
+    lift.likeLibrary.length
+      ? `swap for instances ${lift.likeLibrary.map((p) => `${p.name} → ${p.component}`).join(", ")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("; ");
+
 // One line of a spec's How it works, with where it applies.
 const specLineText = (l) =>
   `${[l.state, l.part].filter(Boolean).length ? `[${[l.state, l.part].filter(Boolean).join(" · ")}] ` : ""}${l.text}`;
@@ -1427,6 +1450,7 @@ function watchLines(batch) {
       );
     }
   }
+  if (batch.lift) lines.push(`mockpit lift ${name}: ${liftText(batch.lift)}`);
   if (batch.reply) {
     const r = batch.reply;
     const bits = [
@@ -2341,7 +2365,8 @@ const commands = {
     printFeedback(result.feedback);
   },
   async edit() {
-    const { values: flags } = parse({
+    const { values: flags, positionals } = parse({
+      allowPositionals: true,
       options: {
         design: { type: "string" },
         project: { type: "string" },
@@ -2350,6 +2375,7 @@ const commands = {
         title: { type: "string" },
         kind: { type: "string" },
         area: { type: "string" },
+        group: { type: "string" },
         source: { type: "string" },
         "first-state": { type: "string" },
         purpose: { type: "string" },
@@ -2361,6 +2387,14 @@ const commands = {
         description: { type: "string" },
       },
     });
+    // `edit receipt --area ''` names the design as --design does.
+    if (positionals.length > 1) die("edit takes one design", "mockpit edit --help");
+    if (positionals[0] !== undefined) {
+      if (flags.design !== undefined && slugify(flags.design) !== slugify(positionals[0])) {
+        die("name the design once", `mockpit edit ${positionals[0]} --area Shell`);
+      }
+      flags.design = positionals[0];
+    }
     const project = resolveProject(flags).name;
     const session = (await resolveSession(flags)) ?? undefined;
     const areas = flags.areas;
@@ -2419,12 +2453,12 @@ const commands = {
       return;
     }
     const slug = requireDesign(flags, "mockpit edit --design writer --area Shell");
-    const fields = ["slug", "title", "kind", "area", "source", "purpose"].filter(
+    const fields = ["slug", "title", "kind", "area", "group", "source", "purpose"].filter(
       (k) => flags[k] !== undefined,
     );
     if (!fields.length && flags["first-state"] === undefined && flags.behaviour === undefined) {
       die(
-        "edit needs --slug, --title, --kind, --area, --source, --purpose, --behaviour or --first-state",
+        "edit needs --slug, --title, --kind, --area, --group, --source, --purpose, --behaviour or --first-state",
         "mockpit edit --help",
       );
     }
@@ -2457,7 +2491,8 @@ const commands = {
       [
         result.renamed ? `${result.renamed.from} → ${m.slug}` : m.slug,
         m.kind,
-        m.area && `area ${m.area}`,
+        m.kind === "component" && !m.area ? "shared" : m.area && `area ${m.area}`,
+        m.group && `group ${m.group}`,
         m.source && `source ${m.source}`,
         result.spec?.purpose &&
           (result.spec.purpose.applied ? "purpose saved" : "purpose NOT applied"),

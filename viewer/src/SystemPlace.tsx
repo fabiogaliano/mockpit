@@ -404,6 +404,10 @@ export function SystemPlace(props: { project: string; toast: (t: ToastLine) => v
                       return (
                         <a class="sys-comp" href={href()} onClick={(e) => linkClick(e, href())}>
                           <span class="sys-mono">{c.slug}</span>
+                          {/* The library's order: shared first, by group, then each area's own. */}
+                          <span class="w">
+                            {c.area ?? (c.group ? `Shared · ${c.group}` : "Shared")}
+                          </span>
                           <span class="n">
                             in {c.screens} {c.screens === 1 ? "screen" : "screens"}
                           </span>
