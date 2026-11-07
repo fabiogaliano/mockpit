@@ -2,7 +2,8 @@
 // tab has focus, and ten seconds later it goes in use. Nothing is written until then,
 // because Use wakes the agent and records a decision, so going back costs only a stay and
 // the agent hears nothing. On a screen or a component the newer version is already
-// current, so nothing counts down: the note is the way back to the version marked Ready.
+// current, so nothing counts down: the note is the way back, to the version marked Ready
+// or, unmarked, to the one shown before, until the user keeps the newest.
 
 import { createEffect, createMemo, createSignal, on, onCleanup, Show } from "solid-js";
 import { host, readonly, root } from "./host.ts";
@@ -167,12 +168,23 @@ export function ChangedNote(props: { s: DesignScreenState; onStageView: boolean 
                   </>
                 }
               >
-                <Show when={s.product()}>
+                <Show when={c().marked}>
                   <span class="changed-name changed-text">Changed since Ready</span>
                 </Show>
                 <button type="button" class="btn" onClick={goBack}>
                   <span class="changed-name">{`Back to ${name(c().use)}`}</span>
                 </button>
+                <Show when={s.product() && !c().marked}>
+                  <button
+                    type="button"
+                    class="ib"
+                    aria-label={`Keep ${name(c().to)}`}
+                    title={`Keep ${name(c().to)}`}
+                    onClick={s.keepNewest}
+                  >
+                    <Icon name="close" />
+                  </button>
+                </Show>
                 <Show when={!s.product()}>
                   <button type="button" class="btn go" onClick={() => void s.useThis(c().to)}>
                     <span class="changed-name">{`Use ${name(c().to)}`}</span>

@@ -13,7 +13,8 @@ import { ideaStatus } from "./ideas.ts";
 import {
   type BuiltFrom,
   readyFields,
-  readyNewer,
+  backNewer,
+  backVersion,
   readyVersion,
   shipped,
   shownVersion,
@@ -213,8 +214,9 @@ export interface InstanceView {
 
 // Where an alternative stands against what was chosen. An idea's: a newer version than the
 // one in use (`changedTo`). A product design's, once marked Ready: the version the mark
-// recorded (`readyVersion`), a newer one (`changedTo`), and the one shown when the user
-// went back to the marked one (`shownVersion`).
+// recorded (`readyVersion`) and a newer one (`changedTo`). Marked or not, the one shown
+// when the user went back (`shownVersion`) and, on a detail read, the way back the viewer
+// offers (`back`: the version it goes to, from the newest).
 function versionMarks(
   post: Pick<
     Post,
@@ -229,19 +231,28 @@ function versionMarks(
     history: { version: number }[];
   },
   design: Pick<Design, "kind" | "ready"> | undefined,
-): { changedTo?: number; readyVersion?: number; shownVersion?: number } {
+  detail = false,
+): {
+  changedTo?: number;
+  readyVersion?: number;
+  shownVersion?: number;
+  back?: { version: number; from: number };
+} {
   if (!design || design.kind === "idea") {
     const to = changedTo(post);
     return to === undefined ? {} : { changedTo: to };
   }
+  const back = backVersion(design, post);
+  if (back === undefined) return {};
   const marked = readyVersion(design, post);
-  if (marked === undefined) return {};
-  const to = readyNewer(design, post);
+  const to = backNewer(design, post);
   const shown = shownVersion(design, post);
   return {
-    readyVersion: marked,
-    ...(to === undefined ? {} : { changedTo: to }),
-    ...(shown === marked && shown !== post.version ? { shownVersion: shown } : {}),
+    ...(marked === undefined ? {} : { readyVersion: marked }),
+    // Only a Ready mark makes a newer version news: unmarked, the newest is just current.
+    ...(marked === undefined || to === undefined ? {} : { changedTo: to }),
+    ...(detail && to !== undefined ? { back: { version: back, from: to } } : {}),
+    ...(shown === back && shown !== post.version ? { shownVersion: shown } : {}),
   };
 }
 
@@ -280,7 +291,7 @@ export const alternativeView = (post: Post, opts: AlternativeViewOptions = {}) =
   ...(post.copiedFrom ? { copiedFrom: post.copiedFrom } : {}),
   ...(opts.kept && isKeptAlternative(opts.kept, post) ? { kept: true } : {}),
   ...(post.acceptedVersion === undefined ? {} : { inUseVersion: post.acceptedVersion }),
-  ...versionMarks(post, opts.design),
+  ...versionMarks(post, opts.design, !!opts.history),
   ...(post.archiveReason ? { archiveReason: post.archiveReason } : {}),
   // The part names this alternative's own markup marks, so the viewer can tell
   // which alternatives render a part (Borrow) without the html bodies.

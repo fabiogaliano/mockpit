@@ -51,25 +51,52 @@ export const readyVersion = (
   post: Pick<Line, "state" | "alternative">,
 ) => coverOf(design.ready, post);
 
+// The visible version before an entry's newest: what showed until the newest came.
+function previousVisible(post: Line): number | undefined {
+  const hidden = new Set(post.hiddenVersions ?? []);
+  const newest = newestVisible(post);
+  const older = [post.version, ...post.history.map((h) => h.version)].filter(
+    (v) => v < newest && !hidden.has(v),
+  );
+  return older.length ? Math.max(...older) : undefined;
+}
+
+// Where a product design's entry goes back to: the version marked Ready, else the one
+// shown before its newest, so a new version or a use is never a one-way door.
+export function backVersion(
+  design: Pick<Design, "kind" | "ready">,
+  post: Line,
+): number | undefined {
+  if (!isProduct(design)) return undefined;
+  return coverOf(design.ready, post) ?? previousVisible(post);
+}
+
+// Whether the user went back from the newest and nothing newer has come. A stay records
+// the newest there was then. Past the Ready version it holds over a hidden newest too;
+// past an unmarked one it must name the newest exactly, or hiding the newest would send
+// the entry back one more.
+const stayedBack = (marked: boolean, post: Line, newest: number) =>
+  marked ? (post.stayedVersion ?? 0) >= newest : post.stayedVersion === newest;
+
 // The version an entry shows. An idea's: the one in use, else its newest. A product
-// design's: its newest, unless the user went back to the version they marked Ready
-// (a stay, at the newest there was then) and nothing newer has come since.
+// design's: its newest, unless the user went back (to the version they marked Ready,
+// else to the one before) and nothing newer has come since.
 export function shownVersion(design: Pick<Design, "kind" | "ready">, post: Line): number {
   if (!isProduct(design)) return currentVersion(post);
   const newest = newestVisible(post);
-  const back = coverOf(design.ready, post);
-  return back !== undefined && back < newest && (post.stayedVersion ?? 0) >= newest ? back : newest;
+  const back = backVersion(design, post);
+  const marked = coverOf(design.ready, post) !== undefined;
+  return back !== undefined && back < newest && stayedBack(marked, post, newest) ? back : newest;
 }
 
-// On a product design marked Ready: a newer version than the marked one that the user
-// hasn't gone back from, which the viewer offers the way back to.
-export function readyNewer(design: Pick<Design, "kind" | "ready">, post: Line): number | undefined {
-  if (!isProduct(design)) return undefined;
-  const back = coverOf(design.ready, post);
+// On a product design: a newer version than the one Back goes to that the user hasn't
+// gone back from, which the viewer offers the way back from.
+export function backNewer(design: Pick<Design, "kind" | "ready">, post: Line): number | undefined {
+  const back = backVersion(design, post);
+  if (back === undefined) return undefined;
   const newest = newestVisible(post);
-  return back !== undefined && newest > Math.max(back, post.stayedVersion ?? 0)
-    ? newest
-    : undefined;
+  const marked = coverOf(design.ready, post) !== undefined;
+  return newest > back && !stayedBack(marked, post, newest) ? newest : undefined;
 }
 
 const stateOrder = (design: Pick<Design, "states">) =>

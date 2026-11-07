@@ -204,16 +204,18 @@ consciously, not as a side effect):
   targeting, the hide, copy and tidy guards) sees nothing in use there; `useFlow` and a
   `use` verdict refuse (409), a Send's answers flip nothing, and a draft's pick for the
   retired built-in question is dropped (`dropBuiltinPicks`). `shownVersion` is the newest
-  visible version, or the marked one after a stay (`stayFlow`: Back to the Ready version,
-  until something newer comes); export hands over every covered entry with the spec and
+  visible version, or after a stay the one Back goes to (`backVersion`: the Ready version, else
+  the visible one before the newest; `stayFlow`, until something newer comes, an unmarked
+  entry's stay naming the newest exactly so hiding it doesn't go back further); export hands over every covered entry with the spec and
   the `builtFrom` of those versions (`buildHandover`, `instancesIn`, every distinct alternative and
   version referenced), and reads and the tree take `builtFrom` and instance edges from the
   versions they show (`shownInstances`), once per design. A screen's mark carries to each
   component once, at the newest version its entries show (`carried` names the others). The agent hears a mark as
   `edited.ready`. Viewer: `ReadyMark` beside the name in `TopRow`, the cover's dot
   (`Album.tsx`, its word in the status line where nothing hovers), each instance's word in
-  `BuiltFrom`, and `ChangedNote`'s way back with no countdown, which follows the server's
-  shown version (`followShown`) so a newer one takes the stage again.
+  `BuiltFrom`, and `ChangedNote`'s way back with no countdown, marked or not (a detail read's
+  `back: {version, from}`; unmarked, × keeps the newest, `keepNewest`, localStorage per post),
+  which follows the server's shown version (`followShown`) so a newer one takes the stage again.
 - `Design.spec` (`server/spec.ts`, `MAX_SPEC`) is a design's own record, under three
   headings: What it is for (`purpose`), How it works (`behaviour`, lines that may name a
   state and a `part`, which makes the line an **annotation**: a numbered pin on that part
@@ -415,7 +417,7 @@ consciously, not as a side effect):
   answers have no pictures), something to read opens to read, a variants design as its grid, a
   screen or component on Stage, a flow idea on Stage, any other idea in Studio. Studio has one row of controls in the header (`StudioBar`: states, filter, what's live, in use, hidden or archived, and Wall | Columns | Palettes | Grid; `PalettesBoard` is the state on stage in each visible palette, a column per palette, light over dark, offered once there are two), each steer its own reply (`steer`, `sendAlone`), with `SelectBar` acting on
   several versions at once. A fork is a column of its own saying where it came from.
-  Past Use this a newer version takes over by itself (`changedTo`, `ChangedNote`): the stage
+  On an idea, past Use this a newer version takes over by itself (`changedTo`, `ChangedNote`): the stage
   moves to it when the tab has focus and it goes in use ten seconds later, writing nothing
   before then. Back to the old one is a stay, which `stayedVersion` remembers until a newer one
   comes, as does Use this on an older version. Anything underway (a draft, an open question, a

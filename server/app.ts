@@ -105,6 +105,7 @@ import {
   alternativesHeld,
   alternativesNudge,
   type BuiltFrom,
+  backVersion,
   coverMissing,
   flowWord,
   isChanged,
@@ -6130,18 +6131,23 @@ export function createApp({
       str(body?.alternative, MAX_LABEL),
     );
     if (isResult(chosen)) return chosen;
-    // On a screen or a component the way back is to the version marked Ready: staying
-    // there holds until something newer comes.
-    const back = isProduct(design) ? readyVersion(design, chosen) : undefined;
+    // On a screen or a component the way back is to the version marked Ready, else to the
+    // one before the newest: staying there holds until something newer comes.
+    const back = isProduct(design) ? backVersion(design, chosen) : undefined;
     if (isProduct(design) ? back === undefined : chosen.status !== "accepted") {
       return fail(
         409,
         isProduct(design)
-          ? `${chosen.alternative} has no version marked Ready to go back to`
+          ? `${chosen.alternative} has no earlier version to go back to`
           : `${chosen.alternative} is not in use`,
       );
     }
-    const updated = await store.setPostStayed(chosen.id, chosen.version);
+    // A product design's stay names the newest visible version it went back from, which
+    // an unmarked entry must match exactly (ready.ts stayedBack).
+    const updated = await store.setPostStayed(
+      chosen.id,
+      isProduct(design) ? newestVisible(chosen) : chosen.version,
+    );
     if (!updated) return fail(404, "alternative not found");
     bus.broadcast({
       type: "post-updated",

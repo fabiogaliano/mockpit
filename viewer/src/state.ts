@@ -2051,19 +2051,43 @@ export function createDesignScreen(
     const kind = design()?.kind;
     return kind !== undefined && kind !== "idea";
   });
+  // The newest version the user said to keep on an unmarked screen or component, by post:
+  // its Back pill has nothing to count down to, so only this puts it away.
+  const [keptNewest, setKeptNewest] = createSignal<Record<string, number>>({});
+  const keptKey = (postId: string) => `mockpit-keep-newest:${postId}`;
+  const keptOf = (postId: string) =>
+    keptNewest()[postId] ?? Number(host().storage?.getItem(keptKey(postId)) ?? 0);
+  function keepNewest() {
+    const c = changed();
+    if (!c?.postId || readonly()) return;
+    host().storage?.setItem(keptKey(c.postId), String(c.to.version));
+    setKeptNewest({ ...keptNewest(), [c.postId]: c.to.version });
+  }
   // The version in use has a newer one the user hasn't ruled on, which ChangedNote
-  // moves to by itself. On a screen or a component: a newer version than the one marked
-  // Ready, which is already current, and `use` is the way back to the marked one. Null
-  // when there is none.
+  // moves to by itself. On a screen or a component the newer version is already current
+  // and `use` is the way back: to the version marked Ready, else to the one shown before
+  // it (`back`), until the user keeps the newest. Null when there is none.
   const changed = createMemo(() => {
+    if (product()) {
+      const v = inState(activeState()).find((x) => x.back !== undefined);
+      if (!v?.back) return null;
+      if (v.readyVersion === undefined && keptOf(v.postId) >= v.back.from) return null;
+      return {
+        use: { alternative: v.alternative, version: v.back.version },
+        to: { alternative: v.alternative, version: v.back.from },
+        marked: v.readyVersion !== undefined,
+        postId: v.postId,
+      };
+    }
     const v = inState(activeState()).find((x) => x.changedTo !== undefined);
-    const use = !v
-      ? null
-      : v.readyVersion !== undefined
-        ? { alternative: v.alternative, version: v.readyVersion }
-        : inUseOf(v.state);
+    const use = v ? inUseOf(v.state) : null;
     return v?.changedTo !== undefined && use
-      ? { use, to: { alternative: v.alternative, version: v.changedTo } }
+      ? {
+          use,
+          to: { alternative: v.alternative, version: v.changedTo },
+          marked: false,
+          postId: v.postId,
+        }
       : null;
   });
   function stayOnUse() {
@@ -2072,7 +2096,11 @@ export function createDesignScreen(
     if (!m || !c || readonly()) return;
     void api.stay(m.id, activeState(), c.use.alternative).then(() => {
       setToast({
-        text: product() ? `Back to ${nameOf(c.use)}, marked Ready` : `Staying on ${nameOf(c.use)}`,
+        text: !product()
+          ? `Staying on ${nameOf(c.use)}`
+          : c.marked
+            ? `Back to ${nameOf(c.use)}, marked Ready`
+            : `Back to ${nameOf(c.use)}`,
       });
       return loadDesign();
     }, fail);
@@ -2686,6 +2714,7 @@ export function createDesignScreen(
     changed,
     stayOnUse,
     followShown,
+    keepNewest,
     step,
     stepTarget,
     curAsk,
