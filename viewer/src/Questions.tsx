@@ -915,8 +915,8 @@ function OptionCard(props: {
             <button
               type="button"
               class="optic"
-              aria-label={`Hide ${props.label}`}
-              title="Hide"
+              aria-label={`Archive ${props.label}`}
+              title="Archive"
               onClick={(e) => a.onHide?.(e.currentTarget.closest(".optw"), byKey(e))}
             >
               <Icon name="close" />
@@ -936,7 +936,8 @@ function KeptMark() {
   );
 }
 
-// Hidden answers, folded after the rest: each with its why, and the way back.
+// Archived answers, folded after the rest: each with its why, and the way back. Taking
+// an answer out is archiving it; hiding is only ever a version's.
 function HiddenAnswers(props: {
   s: DesignScreenState;
   ask: Ask;
@@ -959,7 +960,7 @@ function HiddenAnswers(props: {
           <span class="answered-chev" aria-hidden="true">
             ›
           </span>
-          {`Hidden · ${list().length}`}
+          {`Archived · ${list().length}`}
         </button>
         <Show when={open()}>
           <ul class="hiddenans-list" id={id}>

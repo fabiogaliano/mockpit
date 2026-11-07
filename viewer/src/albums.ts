@@ -139,7 +139,7 @@ const TURN_TEXT: Record<Exclude<TurnKind, "open">, string> = {
   sent: "Sent",
   exploring: "Exploring",
   idle: "Nothing waiting",
-  inDesign: "in design",
+  inDesign: "In design",
 };
 
 // What still says whose turn it is on a screen or a component. Nothing there is chosen or
@@ -209,7 +209,7 @@ export function turnWord(node: StatusNode, now: number): { kind: TurnKind; text:
         : { kind: status.kind, text: TURN_TEXT[status.kind] };
     }
     // Marked, the cover's dot says Ready or Changed (and the status line, on a phone).
-    return node.status === "in design"
+    return node.status === "In design"
       ? { kind: "inDesign", text: TURN_TEXT.inDesign }
       : { kind: "idle", text: TURN_TEXT.idle };
   }

@@ -2108,7 +2108,7 @@ const commands = {
       );
       if (!flags.quiet) {
         console.log(
-          `${slug} · ${ready ? (changed ? "Changed since Ready" : "Ready") : "in design"} · ${builtFrom.length} instances → ${join(root, "design.json")}`,
+          `${slug} · ${ready ? (changed ? "Changed since Ready" : "Ready") : "In design"} · ${builtFrom.length} instances → ${join(root, "design.json")}`,
         );
       }
     }

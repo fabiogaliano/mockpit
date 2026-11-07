@@ -199,7 +199,7 @@ mockpit read    --decisions               # the whole decision log, when a read 
   nothing on it is put in use. Reads of one (the design, `--tree`, `--area`) say `ready`
   (`{at, covers: [{state, name, version}], states}` or `null`; a cover whose version is
   gone says `missing: true`), `changed` (a version shown now differs from `covers`,
-  something shows that it lacks, or a state was added since), `status` (`in design`,
+  something shows that it lacks, or a state was added since), `status` (`In design`,
   `Ready`, `Changed`) and `builtFrom` (`[{slug, ready, changed}]`, the components inside,
   nested ones included). One holding more than one entry in a state says
   `holdsAlternatives: true` with a nudge: move them to an idea for it (`move`). `export`

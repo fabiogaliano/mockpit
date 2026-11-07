@@ -1,6 +1,6 @@
 // Studio's Answers: the open question with every answer laid out at once, for when
 // there are too many to weigh in the margin. The cards are the margin's, with keep,
-// hide and more like this; keys cull fast. On every state shows each answer down the
+// archive and more like this; keys cull fast. On every state shows each answer down the
 // states, since an answer fine on one can fail on another.
 
 import { createSignal, For, Show } from "solid-js";
@@ -78,14 +78,14 @@ export function AnswerBoard(props: { s: DesignScreenState; ask: Ask }) {
           <Show when={!readonly()}>
             <span class="aboard-keys" aria-hidden="true">
               <kbd>←</kbd>
-              <kbd>→</kbd> move · <kbd>K</kbd> keep · <kbd>X</kbd> hide · <kbd>Enter</kbd> choose ·{" "}
-              <kbd>Z</kbd> undo
+              <kbd>→</kbd> move · <kbd>K</kbd> keep · <kbd>X</kbd> archive · <kbd>Enter</kbd> choose
+              · <kbd>Z</kbd> undo
             </span>
             <button
               type="button"
               class="btn go aboard-send"
               disabled={!s.sendable()}
-              title={s.sendable() ? undefined : "Choose one first. Kept and hidden are saved."}
+              title={s.sendable() ? undefined : "Choose one first. Kept and archived are saved."}
               onClick={() => void s.send()}
             >
               Send
@@ -139,7 +139,7 @@ function EveryState(props: { s: DesignScreenState; ask: Ask; states: (string | n
                 <button
                   type="button"
                   class="optic"
-                  aria-label={`Hide ${o.label}`}
+                  aria-label={`Archive ${o.label}`}
                   onClick={(e) =>
                     flipCards(
                       box,

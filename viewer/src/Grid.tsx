@@ -1,6 +1,7 @@
 // A set read whole: states one way, alternatives the other, one tile per render, with what
-// isn't drawn left visibly missing. Offered wherever names repeat across states, and how
-// a component's forms are compared, with where the component is used above it. A tile is
+// isn't drawn left visibly missing. Offered wherever names repeat across states, and a
+// screen's or component's All states: its states side by side, its variants as rows when
+// it has them, with where a component is used above it. A tile is
 // a picture that opens that render on Stage. The pictures obey Studio's limit: a poster
 // costs nothing, and of the pages near the screen only a budget are live at once, the
 // one pointed at first, the rest waiting blank. One scrolled away stays loaded for a while
@@ -43,7 +44,8 @@ export function Grid(props: {
   const flat = () => axes().cols.length === 1;
   const size = () => wallCard(s.frameW());
 
-  // What stands for a render: the version in use, else its newest that isn't hidden.
+  // What stands for a render: the version in use, else the one a product design shows,
+  // else its newest that isn't hidden.
   const cells = createMemo(() => {
     const out = new Map<string, Cell>();
     for (const state of s.states()) {
@@ -55,7 +57,7 @@ export function Grid(props: {
           .design()
           ?.inUse.find((u) => u.state === state && u.alternative === v.alternative);
         const step =
-          own.find((x) => x.version === used?.version) ??
+          own.find((x) => x.version === (used?.version ?? v.shownVersion)) ??
           [...own].reverse().find((x) => !x.hidden) ??
           own.at(-1);
         out.set(keyOf(state, v.alternative), { v, step });
@@ -122,8 +124,12 @@ export function Grid(props: {
   const rel = aboutOf(props.about, props.slug);
   const isComponent = () => s.design()?.kind === "component";
   const count = () => {
-    const forms = `${axes().rows.length} ${isComponent() ? "forms" : "alternatives"}`;
-    return flat() ? forms : `${forms}, ${axes().cols.length} states`;
+    const states = `${axes().cols.length} states`;
+    const m = s.design();
+    // One entry a state: there is nothing to count but the states.
+    if (m && m.kind !== "idea" && !m.variants && axes().rows.length === 1) return states;
+    const forms = `${axes().rows.length} ${m?.variants ? "variants" : "alternatives"}`;
+    return flat() ? forms : `${forms}, ${states}`;
   };
 
   const tile = (state: string | null, alternative: string) => (

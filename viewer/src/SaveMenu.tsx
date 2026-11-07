@@ -49,6 +49,8 @@ export function SaveMenu(props: {
   project: string;
   anchor: HTMLElement;
   item: SaveFor;
+  // Opened to Move: the switch that takes them from here starts on.
+  move?: boolean;
   onClose: () => void;
   // Once a change is on its way.
   onDone?: () => void;
@@ -132,10 +134,10 @@ export function SaveMenu(props: {
   const [opened, setOpened] = createSignal(new Set<string>());
   const [query, setQuery] = createSignal("");
   const [fresh, setFresh] = createSignal("");
-  // Moving is what this menu is mostly for, so the switch starts on. Left alone it only
-  // applies once a place is added: unticking a copy, or pressing on with nowhere
-  // picked, must not take the design away from here.
-  const [leaving, setLeaving] = createSignal(!!it.leaves);
+  // Opened to Move, the switch starts on; to Keep, off. Left on alone it only applies
+  // once a place is added: unticking a copy, or pressing on with nowhere picked, must
+  // not take the design away from here.
+  const [leaving, setLeaving] = createSignal(!!props.move && !!it.leaves);
   const [switched, setSwitched] = createSignal(false);
   const removes = () => leaving() && (switched() || adds().length > 0);
   const q = () => query().trim().toLowerCase();
@@ -195,7 +197,7 @@ export function SaveMenu(props: {
   const action = () => {
     const a = adds();
     const where = a.length === 1 ? a[0].label : `${a.length} places`;
-    if (a.length) return `${leaving() ? "Move" : "Save"} ${counted}to ${where}`;
+    if (a.length) return leaving() ? `Move ${counted}to ${where}` : `Keep ${counted}in ${where}`;
     if (removes()) return `${leaveVerb()}${many ? ` ${it.out}` : ""}`;
     return drops().length ? "Remove" : "Done";
   };
@@ -260,12 +262,12 @@ export function SaveMenu(props: {
       class="savemenu"
       classList={{ phone: phoneLayout() }}
       role="dialog"
-      aria-label={`${leaving() ? "Move" : "Save"} ${many ? `${items.length} alternatives` : items[0].name}`}
+      aria-label={`${leaving() ? "Move" : "Keep"} ${many ? `${items.length} alternatives` : items[0].name}`}
       ref={(el) => (menu = el)}
       style={phoneLayout() ? undefined : place()}
     >
       <div class="save-h">
-        {`${leaving() ? "Move" : "Save"} ${many ? `${items.length} alternatives` : items[0].name} to`}
+        {`${leaving() ? "Move" : "Keep"} ${many ? `${items.length} alternatives` : items[0].name} ${leaving() ? "to" : "in"}`}
       </div>
       <input
         class="save-find"

@@ -24,6 +24,7 @@ import {
   Switch,
   untrack,
 } from "solid-js";
+import { isProduct } from "../../server/spec.ts";
 import { isLive } from "../../server/types.ts";
 import { About, type AboutState, createAbout } from "./About.tsx";
 import { BottomPanel } from "./BottomPanel.tsx";
@@ -39,7 +40,7 @@ import { host, readonly, root } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import {
   GHOST_W,
-  gridComparesForms,
+  gridComparesVariants,
   historyRow,
   isBuiltinAsk,
   READING_W,
@@ -122,26 +123,10 @@ export function DesignScreen(props: {
   onCleanup(() => setPeek(null));
   const shortlists = createShortlists(props.project, s.setToast);
   // Stage, Studio or Grid: one version up close, the state zoomed out, or every state
-  // against every alternative. The URL's ?view= wins and isn't remembered, so a link can't
-  // move your place. Else the agent's unanswered question opens on Stage, where it is
-  // asked (a question that picks an alternative doesn't count: Studio is the other way to
-  // compare them). Else the view last switched to in this browser, then Studio when
-  // there is a choice to look at, or Grid when those are a component's forms.
+  // against every alternative. The URL's ?view= wins, so a link can't move your place.
+  // Else a design opens by what it is, and nothing is remembered per design (see opened).
   const asked = opening.get("view");
   const [view, setViewSignal] = createSignal<View | null>(isView(asked) ? asked : null);
-  const viewKey = (id: string) => `mockpit-view:${id}`;
-  const remembered = (): View | null => {
-    const id = s.design()?.id;
-    const v = id ? host().storage?.getItem(viewKey(id)) : null;
-    return isView(v) ? v : null;
-  };
-  const stateAlternatives = () =>
-    new Set(
-      s
-        .alternatives()
-        .filter((v) => v.state === s.activeState() && isLive(v.status))
-        .map((v) => v.alternative),
-    ).size;
   // What's on stage is written: it opens as a column instead of on the canvas. By the
   // version on stage, which can differ from its neighbours (markdown, then a page).
   const reading = createMemo(() => {
@@ -157,27 +142,40 @@ export function DesignScreen(props: {
     new URLSearchParams(host().window.location.search).get("cols") === "1",
   );
   const [barSlot, setBarSlot] = createSignal<HTMLDivElement>();
-  // The arrangement left off in, for the Studio button to come back to.
+  // The arrangement left off in, for the second view's button to come back to.
   const [compared, setCompared] = createSignal<"studio" | "grid" | null>(null);
-  const comparesForms = () => gridComparesForms(s.design()?.kind ?? "idea", s.alternatives());
-  const gridOffered = () => repeatsAcrossStates(s.alternatives()) || comparesForms();
-  // The grid stands in for Studio on a component. Not on a wall: a component with 85
-  // alternatives (onni's) is more than a table can show, and Studio's wall is how it's read.
-  const gridFirst = () => comparesForms() && !wallSized();
-  // Decided once per visit: answering the last question or moving to another
-  // state must not swap the view under you.
+  // A screen or component holds what ships, so its second view is All states, the grid:
+  // every state side by side, with its variants as rows when it has them.
+  const product = () => {
+    const m = s.design();
+    return !!m && isProduct(m);
+  };
+  const allStates = () =>
+    product() &&
+    (s.states().length > 1 || gridComparesVariants(!!s.design()?.variants, s.alternatives()));
+  const gridOffered = () => allStates() || repeatsAcrossStates(s.alternatives());
+  // An open question with many pictured answers opens Studio on them, until the user
+  // picks another arrangement.
+  const askOnBoard = () => boardAsk(s);
+  const [answersPick, setAnswersPick] = createSignal<boolean | null>(null);
+  // A design opens by what it is, decided once per visit so answering the last question
+  // or moving to another state doesn't swap the view under you. A question the agent is
+  // waiting on opens Answers (Stage, where it is asked, when its answers have no
+  // pictures); something to read opens to read; a variants design as the grid of its
+  // forms; a screen or component on Stage; an idea in Studio.
   const opened = createMemo<View | null>((before) => {
     if (before || !s.design()) return before;
     return untrack(() => {
-      if (s.waitsOnStage()) return "stage";
-      // Too many to reach any other way, whichever view was last used here.
-      if (wallSized()) return "studio";
+      const m = s.design()!;
+      if (s.owed().some((a) => !isBuiltinAsk(a))) {
+        if (!askOnBoard()) return "stage";
+        setAnswersPick(true);
+        return "studio";
+      }
       // A gathered idea stays for comparing, below, even if what it holds is written.
-      if (reading() && !s.design()?.shortlist) return "stage";
-      const was = remembered();
-      if (gridFirst()) return was === "stage" ? "stage" : "grid";
-      // A gathered idea is for comparing, and its Add candidate lives in Studio.
-      return was ?? (stateAlternatives() > 1 || s.design()?.shortlist ? "studio" : "stage");
+      if (reading() && !m.shortlist) return "stage";
+      if (m.variants && gridOffered()) return "grid";
+      return isProduct(m) ? "stage" : "studio";
     });
   }, null);
   // A grid left by the last archive falls back rather than show an empty table.
@@ -202,12 +200,6 @@ export function DesignScreen(props: {
     // entry, and the one being left must keep naming the view it was.
     w.history.pushState(w.history.state, "", `${w.location.pathname}?${q}`);
     setViewSignal(v);
-    const id = s.design()?.id;
-    try {
-      if (id) host().storage?.setItem(viewKey(id), v);
-    } catch {
-      // Storage refused: the URL still holds it for this visit.
-    }
   };
   // The route ignores ?view=, so Back between the views keeps this screen mounted;
   // the view follows the URL here.
@@ -260,10 +252,6 @@ export function DesignScreen(props: {
       { defer: true },
     ),
   );
-  // An open question with many pictured answers opens Studio on them, until the user
-  // picks another arrangement.
-  const askOnBoard = () => boardAsk(s);
-  const [answersPick, setAnswersPick] = createSignal<boolean | null>(null);
   const answersOn = () =>
     !!askOnBoard() &&
     (answersPick() ??
@@ -494,7 +482,12 @@ export function DesignScreen(props: {
           about={about}
           view={shownView()}
           reading={reading()}
-          compare={s.alternatives().length > 1 || s.alternatives().some((v) => v.version > 1)}
+          compare={
+            product()
+              ? allStates()
+              : s.alternatives().length > 1 || s.alternatives().some((v) => v.version > 1)
+          }
+          second={product() ? "All states" : "Studio"}
           tabs={m.statesShown() || (shownView() !== "stage" && s.states().length > 1)}
           shortlists={shortlists}
           panels={
@@ -506,8 +499,7 @@ export function DesignScreen(props: {
             if (v === "stage" ? shownView() === "stage" : shownView() !== "stage") return;
             s.setDrawer(false);
             if (v === "stage" && openLooked) openLooked();
-            else
-              setView(v === "stage" ? "stage" : (compared() ?? (gridFirst() ? "grid" : "studio")));
+            else setView(v === "stage" ? "stage" : (compared() ?? (product() ? "grid" : "studio")));
           }}
         />
         {/* Beside a docked left margin the same steps are its first list. */}
@@ -758,6 +750,8 @@ function TopRow(props: {
   tabs: boolean;
   shortlists: Shortlists;
   onView: (v: "stage" | "studio") => void;
+  // What the second view is called: Studio, or a product design's All states.
+  second: "Studio" | "All states";
   // The right margin's tabs: in this row they cost the design no room.
   panels: JSX.Element;
 }) {
@@ -1024,7 +1018,7 @@ function TopRow(props: {
               aria-pressed={props.view !== "stage"}
               onClick={() => props.onView("studio")}
             >
-              Studio
+              {props.second}
             </button>
           </div>
         </Show>

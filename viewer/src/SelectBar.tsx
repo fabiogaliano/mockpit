@@ -24,7 +24,8 @@ export function SelectBar(props: {
   pic: (st: VersionStep, large?: boolean) => JSX.Element;
   onAll: () => void;
   onClear: () => void;
-  onSave: (from: HTMLElement) => void;
+  // Keep copies them elsewhere; Move takes them from here too.
+  onSave: (from: HTMLElement, move: boolean) => void;
   onArchive: () => void;
   onSend: (notes: SteerNote[], text: string | undefined, sent: string) => void;
 }) {
@@ -133,9 +134,13 @@ export function SelectBar(props: {
           () => steps().length < 2,
         )}
         <span class="selbar-sep" />
-        {tool("move", "Move or save", (e) => {
+        {tool("bookmark", "Keep", (e) => {
           setPanel(null);
-          props.onSave(e.currentTarget);
+          props.onSave(e.currentTarget, false);
+        })}
+        {tool("move", "Move", (e) => {
+          setPanel(null);
+          props.onSave(e.currentTarget, true);
         })}
         {tool(
           "archive",

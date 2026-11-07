@@ -2105,12 +2105,12 @@ export function repeatsAcrossStates(
   return names.size > 1 && [...names.values()].some((states) => states.size > 1);
 }
 
-// A component's alternatives are its forms, all kept, so they're compared in a grid even
-// with one state.
-export const gridComparesForms = (
-  kind: string,
+// A variants design's entries are its forms, all shipping, so they're compared in a grid
+// even with one state.
+export const gridComparesVariants = (
+  variants: boolean,
   alternatives: Pick<AlternativeView, "alternative" | "state" | "status">[],
-): boolean => kind === "component" && liveNames(alternatives).size > 1;
+): boolean => variants && liveNames(alternatives).size > 1;
 
 // Rows and columns: every name still in play, in the order they were made, against every
 // state that has one or hasn't been drawn yet, so a whole missing state shows too. A

@@ -2275,7 +2275,7 @@ export function createDesignScreen(
     if (preview()?.key === optionKey(ask, o.id)) setPreview(null);
     void setStanding(ask, o, "hidden");
     setToast({
-      text: `Hid ${o.label}`,
+      text: `Archived ${o.label}`,
       undo: () => {
         setToast(null);
         void setStanding(ask, o, "open");

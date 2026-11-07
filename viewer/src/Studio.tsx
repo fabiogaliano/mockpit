@@ -105,8 +105,9 @@ type Acts = Record<
   (st: VersionStep) => void
 > & {
   saved: (st: VersionStep) => boolean;
-  // `leave` is how it goes from here, for a view that has to step off it first.
-  save: (st: VersionStep, from: HTMLElement, leave?: SaveFor["leave"]) => void;
+  // `leave` is how it goes from here, for a view that has to step off it first. `move`
+  // opens it to take the version away from here, else to keep a copy elsewhere.
+  save: (st: VersionStep, from: HTMLElement, leave?: SaveFor["leave"], move?: boolean) => void;
   leave: (st: VersionStep) => ReturnType<SaveFor["leave"]>;
   family: (st: VersionStep) => VersionStep[];
   selecting: () => boolean;
@@ -241,6 +242,7 @@ export function Studio(props: {
   const [saving, setSaving] = createSignal<{
     item: SaveFor;
     from: HTMLElement;
+    move: boolean;
     onDone?: () => void;
   } | null>(null);
   const [adding, setAdding] = createSignal(false);
@@ -1011,10 +1013,10 @@ export function Studio(props: {
           b,
           [st, ...b.familyOf(st)].filter((x) => !sameVersion(b.inUse(), x)),
         ),
-      save(st, from, leave) {
+      save(st, from, leave, move = false) {
         if (saving()?.from === from) return setSaving(null);
         const item = saveFor(b, [st, ...b.familyOf(st)], leave);
-        if (item) setSaving({ item, from });
+        if (item) setSaving({ item, from, move });
       },
     };
   };
@@ -1233,6 +1235,7 @@ export function Studio(props: {
             project={s.design()?.project ?? ""}
             anchor={m.from}
             item={m.item}
+            move={m.move}
             onClose={() => setSaving(null)}
             onDone={m.onDone}
           />
@@ -1253,10 +1256,10 @@ export function Studio(props: {
             )
           }
           onClear={() => setPicked([])}
-          onSave={(from) => {
+          onSave={(from, move) => {
             if (saving()?.from === from) return setSaving(null);
             const item = saveFor(active(), chosen());
-            if (item) setSaving({ item, from, onDone: () => setPicked([]) });
+            if (item) setSaving({ item, from, move, onDone: () => setPicked([]) });
           }}
           onArchive={() => void archiveChosen()}
           onSend={(notes, text, sent) => {
@@ -1517,9 +1520,18 @@ function StudioCard(props: {
           type="button"
           class="ib sk-save"
           aria-pressed={props.act.saved(st())}
-          aria-label={`Move or save ${name()}`}
-          title={props.act.saved(st()) ? "Saved elsewhere too" : "Move or save"}
+          aria-label={`Keep ${name()}`}
+          title={props.act.saved(st()) ? "Kept elsewhere too" : "Keep"}
           onClick={(e) => props.act.save(st(), e.currentTarget)}
+        >
+          <Icon name="bookmark" />
+        </button>
+        <button
+          type="button"
+          class="ib sk-save sk-move"
+          aria-label={`Move ${name()}`}
+          title="Move"
+          onClick={(e) => props.act.save(st(), e.currentTarget, undefined, true)}
         >
           <Icon name="move" />
         </button>
@@ -1902,8 +1914,19 @@ function Look(props: {
               props.act.save(from, e.currentTarget, () => leave(from));
             }}
           >
+            <Icon name="bookmark" />
+            {props.act.saved(st()) ? "Kept" : "Keep"}
+          </button>
+          <button
+            type="button"
+            class="btn look-save"
+            onClick={(e) => {
+              const from = st();
+              props.act.save(from, e.currentTarget, () => leave(from), true);
+            }}
+          >
             <Icon name="move" />
-            {props.act.saved(st()) ? "Saved" : "Move"}
+            Move
           </button>
           <Show when={!inUse()}>
             <button type="button" class="btn quiet" onClick={hide}>

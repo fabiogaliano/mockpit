@@ -11,13 +11,13 @@ export function ReadyMark(props: { s: DesignScreenState }) {
   const s = props.s;
   const m = () => s.design();
   const drawn = () => (m()?.alternatives.length ?? 0) > 0;
-  const word = () => m()?.status ?? "in design";
-  const set = () => word() !== "in design";
+  const word = () => m()?.status ?? "In design";
+  const set = () => word() !== "In design";
   // The components inside whose own mark isn't Ready, in the words their covers use.
   const notReady = createMemo(() =>
     (m()?.builtFrom ?? [])
       .filter((b) => !b.ready || b.changed)
-      .map((b) => `${b.slug} (${b.ready ? "Changed" : "in design"})`),
+      .map((b) => `${b.slug} (${b.ready ? "Changed" : "In design"})`),
   );
   const title = () => {
     const what =

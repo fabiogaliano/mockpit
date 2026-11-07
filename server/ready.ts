@@ -128,13 +128,13 @@ export function readyView(
 }
 
 // A product design's standing in a word, for its cover and for reads.
-export type ReadyWord = "in design" | "Ready" | "Changed";
+export type ReadyWord = "In design" | "Ready" | "Changed";
 export function readyWord(
   design: Pick<Design, "kind" | "ready">,
   changed: boolean,
 ): ReadyWord | undefined {
   if (!isProduct(design)) return undefined;
-  if (!design.ready) return "in design";
+  if (!design.ready) return "In design";
   return changed ? "Changed" : "Ready";
 }
 

@@ -7894,6 +7894,13 @@ body:has(.selp) .toast {
   width: 24px;
   height: 24px;
 }
+/* Move stands beside Keep. */
+.sk-move {
+  left: 38px;
+}
+.sk.small .sk-move {
+  left: 28px;
+}
 .sk-save[aria-pressed="true"] {
   color: var(--t1);
   opacity: 1;
@@ -8596,10 +8603,13 @@ body:has(.selp) .toast {
 .wall-grid .sk-art {
   aspect-ratio: var(--wall-art);
 }
-/* In a small card the tick has the corner, so Move stands next to the ×. */
+/* In a small card the tick has the corner, so Keep and Move stand next to the ×. */
 .wall-grid .sk.small .sk-save {
   left: auto;
   right: 28px;
+}
+.wall-grid .sk.small .sk-move {
+  right: 54px;
 }
 .wall-grid .sk.peek:not(.on) {
   box-shadow: 0 0 0 2px var(--accent);

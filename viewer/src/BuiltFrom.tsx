@@ -84,7 +84,7 @@ export function BuiltFrom(props: {
       </Show>
       <Show when={uses().length}>
         <section>
-          <h3>Instances</h3>
+          <h3>Components</h3>
           <div class="chips">
             <For each={uses()}>
               {(n) => {
