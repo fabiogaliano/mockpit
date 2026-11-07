@@ -2862,9 +2862,12 @@ a.home-count {
   display: flex;
   flex-wrap: wrap;
 }
+/* `height: auto` undoes the global `.pill` chip's fixed height, which clipped an answer
+   with a description to one line. */
 .opt.pill {
   flex-direction: row;
   align-items: center;
+  height: auto;
   padding: 10px 14px;
   border-radius: 999px;
 }
@@ -2872,7 +2875,8 @@ a.home-count {
   grid-column: 1 / -1;
   justify-self: start;
 }
-.opt.pill .lbl {
+.opt.pill .lbl,
+.opt.pill .onote {
   padding: 0;
 }
 .opt.pill .tick {
