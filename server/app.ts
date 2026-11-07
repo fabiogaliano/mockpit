@@ -2637,10 +2637,15 @@ export function createApp({
       if (full) return full;
     }
     if (flowOnly) {
+      // A screen's new state is declared by the planning path before this. An idea's can only
+      // be drawn: planning it with a kind would make the idea a screen and lose what it is for.
       if (!design || inState.length === 0) {
+        const what = state === null ? "design" : `state "${state}"`;
         return fail(
           404,
-          `${slug} has no ${state === null ? "design" : `state "${state}"`} yet: publish it with "flow" to place it, or plan it there with "kind": "screen" and no body`,
+          design
+            ? `${slug} has no ${what} yet: draw it, publishing it with a body and "flow" to place it`
+            : `${slug} has no ${what} yet: publish it with a body and "flow" to place it, or plan it as a screen with "kind": "screen" and no body`,
         );
       }
       if (!target) return missing();
