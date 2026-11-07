@@ -106,14 +106,17 @@ function KeptRow(props: { s: DesignScreenState; group: KeptGroup; option: AskOpt
         </Show>
         <Show when={!readonly()}>
           <span class="keptrow-acts">
-            <button
-              type="button"
-              class="btn"
-              disabled={busy()}
-              onClick={() => void run(() => s.useInstead(ask(), o()))}
-            >
-              {ask().multi ? "Use this too" : "Use this instead"}
-            </button>
+            {/* A screen or a component has no entry to choose: its newest is current. */}
+            <Show when={!(screen() && s.product())}>
+              <button
+                type="button"
+                class="btn"
+                disabled={busy()}
+                onClick={() => void run(() => s.useInstead(ask(), o()))}
+              >
+                {ask().multi ? "Use this too" : "Use this instead"}
+              </button>
+            </Show>
             <Show when={screen() && late() > 0 && !carried()}>
               <button
                 type="button"

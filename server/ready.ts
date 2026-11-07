@@ -87,14 +87,44 @@ export function shownCovers(design: Pick<Design, "kind" | "ready" | "states">, p
 
 const coverKey = (c: ReadyCover) => `${c.state ?? ""}\n${c.name}\n${c.version}`;
 
+// The mark as recorded, for what it records the states the design declared then.
+export const readyMark = (
+  design: Pick<Design, "states">,
+  covers: ReadyCover[],
+  at: string,
+): DesignReady => ({ at, covers, states: [...design.states] });
+
 // Marked Ready and showing something else now: another version of an entry, an entry
-// or a state the mark didn't record, or one it recorded that is gone. False again as
-// soon as everything shown matches, so going back clears it.
+// the mark didn't record or one it recorded that is gone, or a state declared since,
+// drawn or not. A state declared and undrawn at the mark says nothing until it is drawn.
+// False again as soon as everything shown matches, so going back clears it.
 export function isChanged(design: Pick<Design, "kind" | "ready" | "states">, posts: Line[]) {
   if (!design.ready || !isProduct(design)) return false;
+  const declared = new Set(design.ready.states);
+  if (design.states.some((s) => !declared.has(s))) return true;
   const now = shownCovers(design, posts);
   const marked = new Set(design.ready.covers.map(coverKey));
   return now.length !== marked.size || now.some((c) => !marked.has(coverKey(c)));
+}
+
+// A cover whose version history no longer holds (deleted before covers were kept, or
+// its entry deleted): said, never stood in for by another version.
+export type ReadyCoverView = ReadyCover & { missing?: true };
+export function coverMissing(c: ReadyCover, posts: Line[]): boolean {
+  const p = posts.find((x) => x.state === c.state && x.variant === c.name);
+  return !p || (p.version !== c.version && !p.history.some((h) => h.version === c.version));
+}
+export function readyView(
+  design: Pick<Design, "ready">,
+  posts: Line[],
+): (Omit<DesignReady, "covers"> & { covers: ReadyCoverView[] }) | null {
+  if (!design.ready) return null;
+  return {
+    ...design.ready,
+    covers: design.ready.covers.map((c) =>
+      coverMissing(c, posts) ? { ...c, missing: true as const } : c,
+    ),
+  };
 }
 
 // A product design's standing in a word, for its cover and for reads.
@@ -126,7 +156,7 @@ export const alternativesNudge = (design: Pick<Design, "title">, n: number) =>
 // What a product design says about its mark on every read: the mark, whether it moved,
 // and whether it still holds alternatives. Nothing on an idea.
 export interface ReadyFields {
-  ready?: DesignReady | null;
+  ready?: ReturnType<typeof readyView>;
   changed?: boolean;
   status?: ReadyWord;
   holdsAlternatives?: true;
@@ -140,7 +170,7 @@ export function readyFields(
   const changed = isChanged(design, posts);
   const held = alternativesHeld(design, posts);
   return {
-    ready: design.ready,
+    ready: readyView(design, posts),
     changed,
     status: readyWord(design, changed)!,
     ...(held

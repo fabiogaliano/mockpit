@@ -96,8 +96,11 @@ import {
   alternativesHeld,
   alternativesNudge,
   type BuiltFrom,
+  coverMissing,
   isChanged,
+  readyMark,
   readyVersion,
+  readyView,
   shipped,
   shownCovers,
   shownVersion,
@@ -222,7 +225,6 @@ import {
   type Described,
   type DesignEdit,
   type DesignReady,
-  type ReadyCover,
   PROJECT_DESCRIPTION_SETTING,
   type ProjectArea,
   stripNul,
@@ -1639,13 +1641,11 @@ export function createApp({
     return out;
   }
 
-  // The components a design shows through its embeds now, nested ones included, each at
-  // the variant and version it resolves to in the version each live entry shows.
-  async function shownEmbeds(design: Design, posts: Post[]): Promise<Embed[]> {
+  // The components the given versions of a design embed, nested ones included, each at
+  // the variant and version it resolves to there.
+  async function embedsIn(design: Design, picked: Post[]): Promise<Embed[]> {
     const out = new Map<string, Embed>();
-    for (const post of shipped(design, posts)) {
-      if (!isLive(post.status)) continue;
-      const at = postAtVersion(post, shownVersion(design, post)) ?? post;
+    for (const at of picked) {
       const html = at.surfaces.find((x) => x.kind === "html");
       if (html?.kind !== "html" || !hasEmbedTags(html.html)) continue;
       const { used } = await composedHtml(design.project, design.slug, html.html);
@@ -1653,6 +1653,16 @@ export function createApp({
     }
     return [...out.values()];
   }
+
+  // Each live entry at the version it shows: what a read describes.
+  const shownPosts = (design: Design, posts: Post[]): Post[] =>
+    shipped(design, posts).flatMap((post) =>
+      isLive(post.status) ? [postAtVersion(post, shownVersion(design, post)) ?? post] : [],
+    );
+
+  // The components a design shows through its embeds now.
+  const shownEmbeds = async (design: Design, posts: Post[]) =>
+    embedsIn(design, shownPosts(design, posts));
 
   // Where the marks of the components a design is built from stand.
   async function builtFromOf(project: string, slugs: string[]): Promise<BuiltFrom[]> {
@@ -1668,11 +1678,6 @@ export function createApp({
     }
     return out;
   }
-
-  const embeddedSlugs = (views: Map<string, EmbedView>, posts: Post[]): string[] =>
-    posts.flatMap((p) =>
-      isLive(p.status) ? (views.get(p.id)?.list ?? []).map((e) => e.slug) : [],
-    );
 
   // The designs whose html embeds this slug, directly or through other
   // components: they render differently once it changes.
@@ -2452,6 +2457,9 @@ export function createApp({
     const v = `v${post.version} of ${post.variant}`;
     if (post.status === "accepted" && post.acceptedVersion === post.version)
       return `${v} is in use`;
+    // The mark approved this very version, whether set here or carried from a screen
+    // that embeds it: rewriting it would change what the user said Ready to.
+    if (readyVersion(design, post) === post.version) return `the user marked ${v} Ready`;
     if (post.author === "user") return `the user made ${v}`;
     if (post.hiddenVersions?.includes(post.version)) return `the user hid ${v}`;
     const since = post.updatedAt;
@@ -2964,7 +2972,7 @@ export function createApp({
         { ready: !!m.ready, changed: isChanged(m, heads.get(m.id) ?? []) },
       ]),
     );
-    const embedsOf = new Map<string, string[]>();
+    const builtFrom = new Map<string, string[]>();
     for (const m of designs) {
       const designHeads = heads.get(m.id) ?? [];
       // Only embeds and fills need the html: most of a workspace's bytes are
@@ -2981,7 +2989,13 @@ export function createApp({
           if (x.kind === "html") for (const t of parseEmbedTags(x.html)) embeds.add(t.slug);
         }
       }
-      embedsOf.set(m.slug, [...embeds]);
+      // What it is built from: what the versions it shows embed, nested ones included,
+      // as they resolve there.
+      if (posts)
+        builtFrom.set(
+          m.slug,
+          (await shownEmbeds(m, posts)).map((e) => e.slug),
+        );
       const replies = await replyComments(m.id);
       const lastReplyAt = replies[replies.length - 1]?.createdAt;
       // Whose turn, for the viewer's covers. Not an agent's concern, and an ended
@@ -3021,18 +3035,9 @@ export function createApp({
       n.embeds = n.embeds.filter((s) => bySlug.has(s));
       for (const s of n.embeds) bySlug.get(s)!.embeddedIn.push(n.slug);
     }
-    // What a design is built from: what it embeds, and what those embed in turn.
     for (const n of nodes) {
-      const reached = new Set<string>();
-      const walk = (slug: string) => {
-        for (const s of embedsOf.get(slug) ?? []) {
-          if (reached.has(s) || s === n.slug || !marks.has(s)) continue;
-          reached.add(s);
-          walk(s);
-        }
-      };
-      walk(n.slug);
-      if (reached.size) n.builtFrom = [...reached].map((slug) => ({ slug, ...marks.get(slug)! }));
+      const from = (builtFrom.get(n.slug) ?? []).filter((s) => s !== n.slug && marks.has(s));
+      if (from.length) n.builtFrom = from.map((slug) => ({ slug, ...marks.get(slug)! }));
     }
     return ok({
       project,
@@ -3071,7 +3076,7 @@ export function createApp({
       const posts = await store.listPosts({ designId: d.id });
       const list = await builtFromOf(
         project,
-        embeddedSlugs(await embedViews(d, posts), shipped(d, posts)),
+        (await shownEmbeds(d, posts)).map((e) => e.slug),
       );
       if (list.length) builtFrom.set(d.slug, list);
     }
@@ -3147,7 +3152,10 @@ export function createApp({
         history: query.history,
         settled: settledValues(await replyPayloads(design.id), design, posts),
         embeds,
-        builtFrom: await builtFromOf(design.project, embeddedSlugs(embeds, shipped(design, posts))),
+        builtFrom: await builtFromOf(
+          design.project,
+          (await shownEmbeds(design, posts)).map((e) => e.slug),
+        ),
         ...(await shortlistReach(design)),
       }),
       ...(await systemPalettesField(design.project, query.viewer === true)),
@@ -3206,13 +3214,14 @@ export function createApp({
   }
 
   // What a build plan points at on a screen or a component: its mark and whether it
-  // moved, its spec with its decisions, and the components inside, each with its own.
-  async function buildHandover(design: Design, posts: Post[]) {
+  // moved, its spec with its decisions, and the components inside the versions handed
+  // over, each with its own mark.
+  async function buildHandover(design: Design, posts: Post[], picked: Post[]) {
     const decisions = (await decisionLines(design.project))
       .filter((l) => !l.system && l.design === design.slug)
       .map((l) => l.text);
     const builtFrom = [];
-    for (const e of await shownEmbeds(design, posts)) {
+    for (const e of await embedsIn(design, picked)) {
       const m = await store.findDesign(design.project, e.slug);
       if (!m) continue;
       const own = await store.listPosts({ designId: m.id });
@@ -3227,7 +3236,7 @@ export function createApp({
       });
     }
     return {
-      ready: design.ready,
+      ready: readyView(design, posts),
       changed: isChanged(design, posts),
       spec: specView(design.spec, decisions).spec ?? null,
       builtFrom,
@@ -3253,67 +3262,96 @@ export function createApp({
     const lastReply = replies[replies.length - 1] ?? null;
     const settled = settledValues(replies, design, posts);
     const entries = [];
+    const missing = [];
+    const picked: Post[] = [];
     for (const state of states) {
       const inState = posts.filter((p) => p.state === state);
-      // A design marked Ready hands over what was marked: a build plan points at it.
-      const marked = (p: Post) => readyVersion(design, p) !== undefined && isLive(p.status);
-      const found =
-        (wantedVariant && inState.find((p) => p.variant === wantedVariant)) ||
-        inState.find((p) => p.status === "accepted") ||
-        inState.find(marked) ||
-        inState.find((p) => p.status === "open") ||
-        inState[0];
-      if (!found) continue;
-      if (wantedVariant && found.variant !== wantedVariant) continue;
-      const version = isProduct(design)
-        ? (readyVersion(design, found) ?? shownVersion(design, found))
-        : inUseVersion(found);
-      const post = postAtVersion(found, version) ?? found;
-      const html = post.surfaces.find((s) => s.kind === "html");
-      // With fills, the state as decided: only the chosen fills, by every
-      // value sent so far (defaults before any reply). The authored markup with
-      // every fill stays available as `allFills`.
-      const raw =
-        html && html.kind === "html" ? withAnswerAdditions(html.html, design.answerAdditions) : "";
-      const slots = slotsInSurfaces([{ kind: "html", html: raw }]);
-      const composed = slots.length ? composeFills(raw, chosenFills(slots, settled)) : raw;
-      entries.push({
-        state,
-        variant: post.variant,
-        postId: post.id,
-        version: post.version,
-        // The agent's newer versions wait until the user puts one in use, or marks the
-        // design Ready again.
-        ...(newestVisible(found) !== post.version ? { latest: newestVisible(found) } : {}),
-        status: variantStatus(post.status),
-        html: composed,
-        ...(slots.length ? { allFills: raw } : {}),
-        markdown: postToMarkdown(post, {
-          postUrl: `${ctx.base}/s/${post.id}`,
-          assetBase: ctx.base,
-        }),
-        history: [
-          ...[...found.history]
-            .filter((h) => !(found.hiddenVersions ?? []).includes(h.version))
-            .sort((a, b) => a.version - b.version)
-            .map((h) => ({
-              version: h.version,
-              at: h.at,
-              from: h.from ?? null,
-              prompt: h.prompt ?? "",
-            })),
-          {
-            version: found.version,
-            at: found.updatedAt,
-            from: found.from ?? null,
-            prompt: found.prompt ?? "",
-          },
-        ],
-        screenshotUrl: screenshots ? `${ctx.base}/s/${post.id}.png?v=${post.version}` : null,
-      });
+      const take: { found: Post; version: number }[] = [];
+      if (isProduct(design)) {
+        // A screen or a component hands over every entry of the state: the ones its Ready
+        // mark recorded, at the versions it recorded, else, unmarked, every live one as
+        // it shows. A recorded version that is gone is named, never replaced.
+        const wanted = (name: string) => !wantedVariant || name === wantedVariant;
+        if (design.ready) {
+          for (const c of design.ready.covers) {
+            if (c.state !== state || !wanted(c.name)) continue;
+            const found = inState.find((p) => p.variant === c.name);
+            if (!found || coverMissing(c, inState)) missing.push({ ...c, missing: true as const });
+            else take.push({ found, version: c.version });
+          }
+        } else {
+          for (const found of inState) {
+            if (!isLive(found.status) || !wanted(found.variant)) continue;
+            take.push({ found, version: shownVersion(design, found) });
+          }
+        }
+      } else {
+        const found =
+          (wantedVariant && inState.find((p) => p.variant === wantedVariant)) ||
+          inState.find((p) => p.status === "accepted") ||
+          inState.find((p) => p.status === "open") ||
+          inState[0];
+        if (!found || (wantedVariant && found.variant !== wantedVariant)) continue;
+        take.push({ found, version: inUseVersion(found) });
+      }
+      for (const { found, version } of take) {
+        const post = postAtVersion(found, version) ?? found;
+        picked.push(post);
+        const html = post.surfaces.find((s) => s.kind === "html");
+        // With fills, the state as decided: only the chosen fills, by every
+        // value sent so far (defaults before any reply). The authored markup with
+        // every fill stays available as `allFills`.
+        const raw =
+          html && html.kind === "html"
+            ? withAnswerAdditions(html.html, design.answerAdditions)
+            : "";
+        const slots = slotsInSurfaces([{ kind: "html", html: raw }]);
+        const composed = slots.length ? composeFills(raw, chosenFills(slots, settled)) : raw;
+        entries.push({
+          state,
+          variant: post.variant,
+          postId: post.id,
+          version: post.version,
+          // The agent's newer versions wait until the user puts one in use, or marks the
+          // design Ready again.
+          ...(newestVisible(found) !== post.version ? { latest: newestVisible(found) } : {}),
+          status: variantStatus(post.status),
+          html: composed,
+          ...(slots.length ? { allFills: raw } : {}),
+          markdown: postToMarkdown(post, {
+            postUrl: `${ctx.base}/s/${post.id}`,
+            assetBase: ctx.base,
+          }),
+          history: [
+            ...[...found.history]
+              .filter((h) => !(found.hiddenVersions ?? []).includes(h.version))
+              .sort((a, b) => a.version - b.version)
+              .map((h) => ({
+                version: h.version,
+                at: h.at,
+                from: h.from ?? null,
+                prompt: h.prompt ?? "",
+              })),
+            {
+              version: found.version,
+              at: found.updatedAt,
+              from: found.from ?? null,
+              prompt: found.prompt ?? "",
+            },
+          ],
+          screenshotUrl: screenshots ? `${ctx.base}/s/${post.id}.png?v=${post.version}` : null,
+        });
+      }
     }
-    if (entries.length === 0) {
+    if (entries.length === 0 && missing.length === 0) {
       if (posts.length === 0) return fail(404, `${design.slug} isn't drawn yet`);
+      if (isProduct(design) && design.ready) {
+        return fail(
+          404,
+          `${design.slug}'s Ready mark records nothing${wantedVariant ? ` of "${wantedVariant}"` : ""}${wantedState == null ? "" : ` on "${wantedState}"`}`,
+          { covers: design.ready.covers },
+        );
+      }
       return fail(404, `${design.slug} has no variant "${wantedVariant}"`, {
         variants: posts.map(variantLabel),
       });
@@ -3324,8 +3362,9 @@ export function createApp({
       design: design.slug,
       title: design.title,
       kind: design.kind,
-      ...(isProduct(design) ? await buildHandover(design, all) : {}),
+      ...(isProduct(design) ? await buildHandover(design, all, picked) : {}),
       states: entries,
+      ...(missing.length ? { missing } : {}),
       knobs: design.knobs,
       settled,
       reply: lastReply,
@@ -3475,7 +3514,8 @@ export function createApp({
       return `option "${label}" names a version: give the ask a state (${design.slug} has ${design.states.map((x) => `"${x}"`).join(", ")})`;
     }
     const state = optionState(ask, design);
-    const inState = posts.filter((p) => p.state === state);
+    // A screen or a component has nothing in use to stand for the state.
+    const inState = shipped(design, posts).filter((p) => p.state === state);
     const accepted = inState.filter((p) => p.status === "accepted");
     const post = variant
       ? inState.find((p) => p.variant === variant)
@@ -3530,7 +3570,7 @@ export function createApp({
     const revised: string[] = [];
     const pages: { ask: number; option: number; target: Post; html: string }[] = [];
     const renders = posts.flatMap((p) =>
-      (postAtVersion(p, currentVersion(p)) ?? p).surfaces.flatMap((s) =>
+      (postAtVersion(p, shownVersion(design, p)) ?? p).surfaces.flatMap((s) =>
         s.kind === "html" ? [s.html] : [],
       ),
     );
@@ -3557,7 +3597,7 @@ export function createApp({
             return `option "${name}" brings html: give the question a state (${design.slug} has ${design.states.length})`;
           }
           const state = entry.state ?? design.states[0] ?? null;
-          const inState = posts.filter((p) => p.state === state);
+          const inState = shipped(design, posts).filter((p) => p.state === state);
           const target = rest.variant
             ? inState.find((p) => p.variant === rest.variant)
             : (inState.find((p) => p.status === "accepted") ??
@@ -3674,7 +3714,7 @@ export function createApp({
         v.surfaces.some((s) => s.kind === "html" && s.html === page.html),
     );
     if (same) return same.version;
-    const seen = postAtVersion(post, currentVersion(post)) ?? post;
+    const seen = postAtVersion(post, shownVersion(design, post)) ?? post;
     const kits = seen.surfaces.find((s) => s.kind === "html");
     const surfaces: Surface[] = [
       htmlSurface(page.html, kits?.kind === "html" ? kits.kits : undefined),
@@ -3704,7 +3744,7 @@ export function createApp({
     for (const ask of asks) {
       const shown = posts
         .filter((p) => ask.state === undefined || p.state === ask.state)
-        .map((p) => postAtVersion(p, currentVersion(p)) ?? p);
+        .map((p) => postAtVersion(p, shownVersion(design, p)) ?? p);
       const html = shown.flatMap((p) =>
         p.surfaces.flatMap((s) => (s.kind === "html" ? [s.html] : [])),
       );
@@ -4094,14 +4134,36 @@ export function createApp({
     return out;
   }
 
+  // A screen or a component has no built-in Which variant?, so a pick for it (or a note on
+  // it) that a draft saved before is dropped wherever the draft comes back, and the rest
+  // of the draft kept. Unchanged, the same object, so callers can tell.
+  function dropBuiltinPicks<D>(design: Design, d: D): D {
+    if (!isProduct(design) || !d || typeof d !== "object") return d;
+    const stale = (id: string) =>
+      (id === BUILTIN_ASK_ID || id.startsWith(`${BUILTIN_ASK_ID}:`)) &&
+      !design.asks.some((a) => a.id === id);
+    let out = d;
+    for (const key of ["answers", "others", "askComments", "otherImages", "askCommentImages"]) {
+      const byAsk = (d as Record<string, unknown>)[key];
+      if (!byAsk || typeof byAsk !== "object" || !Object.keys(byAsk).some(stale)) continue;
+      if (out === d) out = { ...d };
+      (out as Record<string, unknown>)[key] = Object.fromEntries(
+        Object.entries(byAsk).filter(([id]) => !stale(id)),
+      );
+    }
+    return out;
+  }
+
   // A draft, validated against the design as it is now: unknown asks, options,
   // variants, knob paths or out-of-range values are refused, never stored.
   async function sanitizeDraft(
-    raw: any,
+    given: any,
     design: Design,
     posts: Post[],
-    base: Draft | null,
+    stored: Draft | null,
   ): Promise<Draft | string> {
+    const raw = dropBuiltinPicks(design, given);
+    const base = dropBuiltinPicks(design, stored);
     const pick = (key: keyof Draft) => (raw?.[key] !== undefined ? raw[key] : base?.[key]);
     const answers = sanitizeAnswers(pick("answers"), design, posts);
     if (typeof answers === "string") return answers;
@@ -4167,7 +4229,9 @@ export function createApp({
     if (!ctx.viewer) return viewerOnly();
     const design = await resolveDesign(ref);
     if (isResult(design)) return design;
-    return ok({ draft: design.draft });
+    const draft = dropBuiltinPicks(design, design.draft);
+    if (draft !== design.draft) await store.putDraft(design.id, draft);
+    return ok({ draft });
   }
 
   async function putDraftFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
@@ -4931,7 +4995,7 @@ export function createApp({
     }
     const covers = shownCovers(design, posts);
     if (!covers.length) return fail(409, `${design.slug} isn't drawn yet`);
-    const ready = await setReady(design, covers, at);
+    const ready = await setReady(design, readyMark(design, covers, at));
     const carried: string[] = [];
     if (design.kind === "screen") {
       for (const e of await shownEmbeds(design, posts)) {
@@ -4945,24 +5009,24 @@ export function createApp({
               c.state === state && c.name === e.variant ? { ...c, version: e.version } : c,
             )
           : [...own, { state, name: e.variant, version: e.version }];
-        await setReady(inside, shown, at);
+        await setReady(inside, readyMark(inside, shown, at));
         carried.push(inside.slug);
       }
     }
-    return ok({ ready, changed: false, carried });
+    return ok({ ready, changed: isChanged({ ...design, ready }, posts), carried });
   }
 
   // Records the mark (null takes it off), tells the open viewers and the designs built
   // from it, and the agent once when the mark itself changed.
   async function setReady(
     design: Design,
-    covers: ReadyCover[] | null,
-    at: string,
+    ready: DesignReady | null,
+    at = ready?.at ?? new Date().toISOString(),
   ): Promise<DesignReady | null> {
-    const ready = covers ? { at, covers } : null;
     const same =
       !!design.ready === !!ready &&
-      JSON.stringify(design.ready?.covers ?? null) === JSON.stringify(ready?.covers ?? null);
+      JSON.stringify([design.ready?.covers, design.ready?.states]) ===
+        JSON.stringify([ready?.covers, ready?.states]);
     const updated = await store.updateDesign(design.id, { ready });
     if (!updated) return null;
     bus.broadcast({ type: "design-updated", id: updated.id, project: updated.project });
@@ -5147,7 +5211,8 @@ export function createApp({
     if (!option.variant || ask.scope === "part") return null;
     const states = optionStates(ask, option, design);
     const mine = posts.filter((p) => p.variant === option.variant && states.includes(p.state));
-    if (to === "hidden" && mine.some((p) => p.status === "accepted")) {
+    // Nothing is in use on a screen or a component, whatever an older reply put there.
+    if (to === "hidden" && shipped(design, mine).some((p) => p.status === "accepted")) {
       return fail(409, `${option.variant} is in use: choose another before hiding it`);
     }
     const now = new Date().toISOString();
@@ -5506,7 +5571,8 @@ export function createApp({
     );
     if (isResult(post)) return post;
     if (!design.shortlist && !post.copiedFrom) return fail(400, `${post.variant} is not a copy`);
-    if (variantStatus(post.status) === "inUse") return fail(409, `${post.variant} is in use`);
+    const now = shipped(design, [post])[0];
+    if (variantStatus(now.status) === "inUse") return fail(409, `${post.variant} is in use`);
     const thread = await store.listComments({ designId: design.id });
     // A real design's thread is about the rest of it too, so only what touched this
     // copy keeps it.
@@ -5553,6 +5619,7 @@ export function createApp({
   ): Promise<string | null> {
     if (variantStatus(post.status) === "inUse" && inUseVersion(post) === version) return "in use";
     if (post.stayedVersion === version) return "the user chose to stay on it";
+    if (readyVersion(design, post) === version) return "the user marked it Ready";
     const steps = post.history
       .map((h) => [h.version, h.at] as const)
       .concat([[post.version, post.updatedAt]])
@@ -5667,7 +5734,8 @@ export function createApp({
     });
     if (isResult(target)) return target;
     const { design, session } = target;
-    const posts = await store.listPosts({ designId: design.id });
+    // A screen's or a component's older use is history: it keeps no version from tidying.
+    const posts = shipped(design, await store.listPosts({ designId: design.id }));
     const state = stateArg(body.state);
     const unknown = names.find((n) => !posts.some((p) => p.variant === n));
     if (unknown) return fail(404, `${design.slug} has no variant "${unknown}"`);

@@ -357,8 +357,9 @@ mockpit system --restore <rev>
   export: `mockpit export --design <slug> [--state s] [--variant v] [--out <dir>]
   Write index.html + history.json per state to .mockpit/accepted/<design>/<state>/;
   with fills, index.html is the chosen state, plus all-fills.html and decisions.json.
-  A screen or component writes the versions marked Ready, and design.json: its mark,
-  its spec and the components it is built from, each with its own mark.`,
+  A screen or component writes every entry marked Ready (unmarked: every live one as it
+  shows) as <variant>.html + <variant>.history.json, and design.json: its mark, its spec
+  and the components those versions are built from, each with its own mark.`,
   upload: `mockpit upload <file> [--kind image|file] [--session <id>]
   Upload an asset; prints its id and URL. Use the id as an image surface's assetId.`,
   guide: `mockpit guide [--topic <id>] [--project <name>]
@@ -2059,12 +2060,16 @@ const commands = {
         );
       }
     }
+    // A screen or a component hands over every entry of a state, so each is named by its
+    // variant beside its siblings; an idea's one entry a state stays index.html.
+    const product = data.ready !== undefined;
     for (const entry of data.states) {
       const dir = join(root, entry.state === null ? "default" : slugify(entry.state));
+      const name = (file) => (product ? `${slugify(entry.variant)}.${file}` : file);
       mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, "index.html"), entry.html ?? "");
-      // The state with every fill, when index.html is the composed choice.
-      if (entry.allFills) writeFileSync(join(dir, "all-fills.html"), entry.allFills);
+      writeFileSync(join(dir, product ? name("html") : "index.html"), entry.html ?? "");
+      // The state with every fill, when the html is the composed choice.
+      if (entry.allFills) writeFileSync(join(dir, name("all-fills.html")), entry.allFills);
       const decided = data.decisions?.states?.[entry.state ?? ""];
       if (decided) {
         writeFileSync(
@@ -2073,7 +2078,7 @@ const commands = {
         );
       }
       writeFileSync(
-        join(dir, "history.json"),
+        join(dir, name("history.json")),
         JSON.stringify(
           {
             project,
@@ -2095,6 +2100,12 @@ const commands = {
           `${slug}/${stateLabel(entry.state)}${entry.variant} v${entry.version} → ${dir}`,
         );
       }
+    }
+    // A version the Ready mark records that history no longer holds: said, not replaced.
+    for (const c of data.missing ?? []) {
+      console.error(
+        `${slug}/${stateLabel(c.state)}${c.name} v${c.version}: marked Ready, and that version is gone`,
+      );
     }
   },
 

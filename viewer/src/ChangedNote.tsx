@@ -119,7 +119,8 @@ export function ChangedNote(props: { s: DesignScreenState; onStageView: boolean 
   function goBack() {
     const c = s.changed();
     if (!c) return;
-    s.showVersion(c.use);
+    if (s.product()) s.followShown();
+    else s.showVersion(c.use);
     s.stayOnUse();
   }
 

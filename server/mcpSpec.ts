@@ -342,7 +342,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "export",
     description:
-      "The html in use (else current; a screen or component's marked Ready) per state, version history, screenshot URL, knobs, the settled values and the last reply; a screen or component adds ready, its spec and builtFrom. Without design: the project's system for code (sheet, tokens as CSS and JSON, settled project knobs, components' sources).",
+      "The html in use (else current; a screen or component's every entry marked Ready) per state, version history, screenshot URL, knobs, the settled values and the last reply; a screen or component adds ready, its spec and builtFrom. Without design: the project's system for code (sheet, tokens as CSS and JSON, settled project knobs, components' sources).",
     params: { ...VARIANT_REF, design: { t: "string", d: field.design } },
   },
   {

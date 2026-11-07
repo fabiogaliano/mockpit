@@ -188,13 +188,17 @@ mockpit read    --decisions               # the whole decision list, when a read
   `spec: {purpose: {applied: false, text}}`. A list marks it `hasSpec`.
 - A screen or component has nothing to choose between: its newest version is current, and
   nothing on it is put in use. Reads of one (the design, `--tree`, `--area`) say `ready`
-  (`{at, covers: [{state, name, version}]}` or `null`), `changed` (a version shown now
-  differs from `covers`, or something shows that it lacks), `status` (`in design`,
+  (`{at, covers: [{state, name, version}], states}` or `null`; a cover whose version is
+  gone says `missing: true`), `changed` (a version shown now differs from `covers`,
+  something shows that it lacks, or a state was added since), `status` (`in design`,
   `Ready`, `Changed`) and `builtFrom` (`[{slug, ready, changed}]`, the components inside,
   nested ones included). One holding more than one entry in a state says
   `holdsAlternatives: true` with a nudge: move them to an idea for it (`move`). `export`
-  hands over the versions marked Ready, with `ready`, `changed`, the `spec` and `builtFrom`
-  (each component's variant, version and mark), and the CLI writes them to `design.json`.
+  hands over every entry marked Ready at its marked version (unmarked: every live entry as
+  it shows; a marked version that is gone is listed in `missing`, never replaced), with
+  `ready`, `changed`, the `spec` and `builtFrom` (the components those versions embed, each
+  with its variant, version and mark). The CLI writes each entry as `<variant>.html` in its
+  state's directory, and the rest to `design.json`.
 - A read with `area` (`mockpit read --area Food`) is one product area: `description`
   (the project's), `area` (`{name, description}`), `screens` and `components` (`{slug,
   title, kind, purpose, states, ready, changed, status}`), `flows`, `shared` (components with no area),

@@ -23,7 +23,7 @@ a parallel take on one state; versions are its history. A **part** is a
 (below); `move` takes variants to another design or state,
 archives or restores them (never touches one in use, and says so in the Thread), and,
 when the user asks, hides or deletes their older versions (`hideOlder`, `deleteOlder`:
-deleting skips any version a reply, comment, question, embed, copy or fork points at,
+deleting skips any version a reply, comment, question, embed, copy, fork or Ready mark points at,
 `deleteBlocker` in `server/app.ts`); `edit` changes a design (slug, title, kind, area,
 source, spec, or the first name of its one unnamed state) without a new version, renames a project, sets its area order, or says what the project or one area is for;
 `publish` with `amend` replaces a variant's latest version in place and with
@@ -163,20 +163,28 @@ consciously, not as a side effect):
   missing states (`dismissed`, `requested`; `POST /api/designs/:id/outlines`, viewer only),
   and only a declared page with html offers them (`canOutline` in `viewer/src/logic.ts`).
 - **Ready** (`server/ready.ts`, shared with the viewer): `Design.ready` (`{at, covers:
-  [{state, name, version}]}`, a column) records what each state of a screen or component
-  showed when the user marked it (`POST /api/designs/:id/ready`, viewer only, never a tool;
-  a screen's mark carries to the components it embeds, nested ones included, at the
-  versions they resolve to there; taking it off clears one design). `changed`, `status`
-  (`in design`, `Ready`, `Changed`), `builtFrom` and `holdsAlternatives` are derived on
-  every read (`readyFields`). `shipped` reads an older reply's `accepted` rows on a product
-  design as open, so views, export, embeds and the decision list see nothing in use there;
-  `useFlow` and a `use` verdict refuse (409), and a Send's answers flip nothing.
-  `shownVersion` is the newest visible version, or the marked one after a stay
-  (`stayFlow`: Back to the Ready version, until something newer comes); export hands over
-  the covered versions with the spec and `builtFrom` (`buildHandover`). The agent hears a
-  mark as `edited.ready`. Viewer: `ReadyMark` beside the name in `TopRow`, the cover's dot
+  [{state, name, version}], states}`, a column) records what each state of a screen or
+  component showed when the user marked it, and the states it declared then
+  (`POST /api/designs/:id/ready`, viewer only, never a tool; a screen's mark carries to the
+  components it embeds, nested ones included, at the versions they resolve to there; taking
+  it off clears one design). A covered version is acted on (`touchedBy`: amend and withdraw
+  refuse) and kept past history's limit (`SqlStore.pinnedVersions`, `deleteBlocker`); one
+  gone anyway reads `missing: true` (`readyView`), never replaced. `changed` (another
+  version or entry shows, or a state was declared since), `status` (`in design`, `Ready`,
+  `Changed`), `builtFrom` and `holdsAlternatives` are derived on every read
+  (`readyFields`). `shipped` reads an older reply's `accepted` rows on a product design as
+  open, so every current-status path (views, export, embeds, Jump, decisions, option
+  targeting, the hide, copy and tidy guards) sees nothing in use there; `useFlow` and a
+  `use` verdict refuse (409), a Send's answers flip nothing, and a draft's pick for the
+  retired built-in question is dropped (`dropBuiltinPicks`). `shownVersion` is the newest
+  visible version, or the marked one after a stay (`stayFlow`: Back to the Ready version,
+  until something newer comes); export hands over every covered entry with the spec and
+  the `builtFrom` of those versions (`buildHandover`, `embedsIn`), and reads take
+  `builtFrom` from the versions they show (`shownEmbeds`). The agent hears a mark as
+  `edited.ready`. Viewer: `ReadyMark` beside the name in `TopRow`, the cover's dot
   (`Album.tsx`, its word in the status line where nothing hovers), each instance's word in
-  `BuiltFrom`, and `ChangedNote`'s way back with no countdown.
+  `BuiltFrom`, and `ChangedNote`'s way back with no countdown, which follows the server's
+  shown version (`followShown`) so a newer one takes the stage again.
 - `Design.spec` (`server/spec.ts`, `MAX_SPEC`) is a design's own record, under three
   headings: What it is for (`purpose`), How it works (`behaviour`, lines that may name a
   state and a `part`, which makes the line an **annotation**: a numbered pin on that part

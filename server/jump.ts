@@ -92,7 +92,8 @@ function allHits(rows: JumpRows, terms: string[], whole: string): Ranked[] {
       area: m.area,
       open: openAsks(m).length,
       designArchived: !!m.archivedAt,
-      inUse: variants.some((v) => v.status === "accepted"),
+      // Nothing is in use on a screen or a component, whatever an older reply put there.
+      inUse: m.kind === "idea" && variants.some((v) => v.status === "accepted"),
       text: null,
       state: null,
       variant: null,
@@ -181,8 +182,11 @@ export function jumpHits(rows: JumpRows, query: string, project: string | null):
 // renamed one follows, and a deleted one drops out.
 export function recentHits(rows: JumpRows, ids: string[]): JumpHit[] {
   const wanted = new Map(ids.map((id, i) => [id, i]));
+  const ideas = new Set(rows.designs.filter((m) => m.kind === "idea").map((m) => m.id));
   const inUse = new Set(
-    rows.variants.filter((v) => v.status === "accepted").map((v) => v.designId),
+    rows.variants
+      .filter((v) => v.status === "accepted" && ideas.has(v.designId))
+      .map((v) => v.designId),
   );
   return rows.designs
     .filter((m) => wanted.has(m.id))

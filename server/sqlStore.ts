@@ -2166,6 +2166,17 @@ export class SqlStore implements Store {
     return post;
   }
 
+  // The versions of a post history keeps past its limit: the one in use and the ones
+  // its design's Ready mark records for it. Never empty, so the SQL list is valid.
+  private pinnedVersions(post: Pick<Post, "design" | "state" | "variant" | "acceptedVersion">) {
+    const row = this.sql.exec("SELECT ready FROM designs WHERE id = ?", post.design).toArray()[0];
+    const ready = parseJson<DesignReady | null>(row?.ready, null);
+    const covered = (ready?.covers ?? [])
+      .filter((c) => c.state === post.state && c.name === post.variant)
+      .map((c) => c.version);
+    return [post.acceptedVersion ?? -1, ...covered];
+  }
+
   async updatePost(id: string, patch: UpdatePostInput) {
     // Compare-and-set on the version: two concurrent updates serialize without
     // a read-then-write gap. The loser sees 0 rows changed and retries.
@@ -2185,10 +2196,11 @@ export class SqlStore implements Store {
         ...(post.contract === undefined ? {} : { contract: post.contract }),
         ...(post.system === undefined ? {} : { system: post.system }),
       };
-      // The version in use is kept past the limit: export and embeds resolve to it.
-      const pin = post.acceptedVersion ?? -1;
+      // The version in use, and any version a Ready mark names, are kept past the limit:
+      // export and embeds resolve to them.
+      const pins = this.pinnedVersions(post);
       const history = [...post.history, archived];
-      const prunable = history.filter((h) => h.version !== pin);
+      const prunable = history.filter((h) => !pins.includes(h.version));
       if (prunable.length > HISTORY_LIMIT) history.splice(history.indexOf(prunable[0]), 1);
       const title =
         patch.title !== undefined ? stripNul(patch.title).trim() || post.title : post.title;
@@ -2234,10 +2246,10 @@ export class SqlStore implements Store {
         if ((this.sql.exec("SELECT changes() AS n").one().n as number) === 0) return false;
         this.insertVersion(id, archived);
         this.sql.exec(
-          "DELETE FROM post_versions WHERE postId = ? AND version <= ? AND version != ?",
+          `DELETE FROM post_versions WHERE postId = ? AND version <= ? AND version NOT IN (${pins.map(() => "?").join(",")})`,
           id,
           version - 1 - HISTORY_LIMIT,
-          pin,
+          ...pins,
         );
         return true;
       });

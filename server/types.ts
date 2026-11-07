@@ -706,6 +706,9 @@ export interface ReadyCover {
 export interface DesignReady {
   at: string;
   covers: ReadyCover[];
+  // The states the design declared then, drawn or not: one declared since is a change
+  // even before anything is drawn on it.
+  states: (string | null)[];
 }
 
 // What the user said about a state a declared screen doesn't have yet.

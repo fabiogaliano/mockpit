@@ -565,7 +565,8 @@ A screen or component holds what ships, one entry a state, so nothing on it is c
 its newest version is current, with no Use this, no Which variant? and nothing in use.
 Alternatives for it belong in an idea; \`read\` says \`holdsAlternatives\` until you
 \`move\` them there. Only the user marks it Ready, this is the version (a screen's mark
-carries to the components inside). \`read\` and \`export\` give \`ready\` (the versions it
+carries to the components inside); a version it marked is acted on, so amend and withdraw
+refuse it. \`read\` and \`export\` give \`ready\` (the versions it
 covers), \`changed\` (something newer shows since) and \`builtFrom\` (each component's own
 mark); \`export\` hands over the Ready versions with the spec, what a build plan points at.
 

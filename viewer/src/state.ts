@@ -1973,6 +1973,16 @@ export function createDesignScreen(
     });
     rememberPlace();
   }
+  // Lets go of the version the user stepped to on the state on stage, so it shows what
+  // the design says it shows. A screen's or a component's Back is the server's stay,
+  // which holds only until something newer comes; a version held here would outlast it.
+  function followShown() {
+    const key = String(activeState());
+    if (!(key in shown())) return;
+    const { [key]: _, ...rest } = shown();
+    setShown(rest);
+    rememberPlace();
+  }
   const listed = createMemo(() => listedSteps(steps()));
   function stepVersion(by: 1 | -1) {
     const to = neighbourStep(listed(), onStage(), by);
@@ -2627,6 +2637,7 @@ export function createDesignScreen(
     saveArchiveReason,
     changed,
     stayOnUse,
+    followShown,
     step,
     stepTarget,
     curAsk,

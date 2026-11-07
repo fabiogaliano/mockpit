@@ -8,6 +8,7 @@
 
 import { type SlotInfo, slotsInSurfaces } from "./fills.ts";
 import { checkKnobValue, knobFor } from "./knobs.ts";
+import { shipped, shownVersion } from "./ready.ts";
 import {
   inUseVersion,
   type KnobValue,
@@ -87,14 +88,21 @@ export function chosenFills(
 }
 
 // The post a state is decided by: the accepted look at its version in use,
-// else the open one.
-export function postForState(posts: Post[], state: string | null): Post | undefined {
-  const inState = posts.filter((p) => p.state === state);
+// else the open one. A screen or a component has nothing in use: its first live
+// entry, at the version it shows.
+export function postForState(
+  posts: Post[],
+  state: string | null,
+  design?: Pick<Design, "kind" | "ready">,
+): Post | undefined {
+  const inState = (design ? shipped(design, posts) : posts).filter((p) => p.state === state);
   const post =
     inState.find((p) => p.status === "accepted") ??
     inState.find((p) => p.status === "open") ??
     inState[0];
-  return post && (postAtVersion(post, inUseVersion(post)) ?? post);
+  if (!post) return undefined;
+  const product = design && design.kind !== "idea";
+  return postAtVersion(post, product ? shownVersion(design, post) : inUseVersion(post)) ?? post;
 }
 
 function tree(
@@ -133,7 +141,7 @@ export function decisionsFor(
   const states: Record<string, StateDecision> = {};
   const slotPaths = new Set<string>();
   for (const state of design.states.length ? design.states : [null]) {
-    const post = postForState(posts, state);
+    const post = postForState(posts, state, design);
     if (!post) continue;
     const slots = slotsInSurfaces(post.surfaces);
     for (const s of slots) slotPaths.add(s.part);
