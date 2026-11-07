@@ -224,6 +224,25 @@ consciously, not as a side effect):
   `Reply.lift` and reaches the agent as a batch's `lift`. The agent lifts and asks `lift`; a
   Send answering it on a Ready screen (`settleLift` in `replyFlow`) marks the screen again at
   what it shows and carries Ready (`carryReady`) to each lifted component not chosen.
+- **What an idea is for** (`server/ideas.ts`): an idea's `Design.for` (a
+  screen's or component's id, the `forDesign` column, `for` being an SQL keyword; set and read
+  by slug) or `Design.becomes` (`screen`, `component`, `flow`, `system`; the `becomes` column),
+  never both and never on a product design. `publish` nudges an idea that says neither and
+  looks like it is for one (`likelyTarget`: same area and code path, then name). `read` of such
+  an idea and each batch of a reply on it carry `target` (`ruledOutOf`: the design's archived
+  alternatives, hidden answers and decisions' "Not:"); a product design's reads carry
+  `ideasFor`, and `read --area` groups `ideasWaiting` by `for`. Using an alternative there
+  (`useInTarget`, from `useFlow` and `replyFlow`) copies each version put in use onto the
+  design as the next version of the entry of the same name in the state of the same name
+  (`entryFor`), `copiedFrom.asVersion` naming the version it became and `author: "user"`, so it
+  is current at once and amend refuses it; the reply says `usedIn`. When the idea draws the
+  alternative in a state the design lacks (`statesFor`), nothing is copied and the reply says
+  `apply`. An idea that `becomes` a screen or component makes it on first use and is then for
+  it. New idea is typed by where it starts (`POST /api/copies` with `for`, `becomes`, `area`).
+  Viewer: Use in <target> (`UseThis`), the ideas folded under the states and in Studio's bar
+  (`IdeasFor.tsx`), a product cover's count opening `?sec=ideas&for=<slug>`, the Ideas shelf's
+  Group by (Area · For · In use, localStorage per project), and New idea for this in the
+  design's ⋯.
 - A **gathered idea** is a design with `shortlist` set (the stored name, which is also in
   `read`), gathered by the user from the project's other designs: New idea on Home's
   shelves (`AddCandidates`), or a Studio bookmark, Keep, with Move beside it (`SaveMenu`,
@@ -302,7 +321,7 @@ consciously, not as a side effect):
 - `viewer/` — Solid + TypeScript in `viewer/src/`, Vite-built into one
   self-contained `viewer/dist/index.html`. `Home` is a `Sidebar` beside one place,
   named by `?sec=needs|ideas|screens|flows|components|shared|documents|archive|recent|system`
-  and `?area=` (absent: the first section lit). Components is the library on one page:
+  and `?area=` (absent: the first section lit), with `?for=` narrowing Ideas to one design's. Components is the library on one page:
   Shared first, its groups as headings, then each area's own; while it is shown, its sidebar
   row opens into Shared (`?sec=shared`) and each area with components
   (`?sec=components&area=`). `SystemPlace` (`?sec=system`, in the

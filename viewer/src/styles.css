@@ -10324,3 +10324,77 @@ button.ready-mark:is([data-ready="Ready"], [data-ready="Changed"]):hover {
   font-size: 12px;
   line-height: 1.4;
 }
+
+/* A screen's or a component's ideas: folded under the states, a quiet row that opens. */
+.ideas-for {
+  margin-top: 10px;
+}
+.ideas-fold {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 4px 0 6px;
+  border-radius: 9px;
+  color: var(--t4);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: start;
+  transition:
+    background var(--ease),
+    color var(--ease);
+}
+.ideas-fold > span {
+  flex: 1;
+}
+.ideas-fold svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  transition: transform var(--ease);
+}
+.ideas-fold[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+@media (hover: hover) {
+  .ideas-fold:hover,
+  a.ideas-row:hover {
+    background: var(--row);
+    color: var(--t2);
+  }
+}
+a.ideas-row {
+  min-height: 0;
+  padding: 6px;
+  text-decoration: none;
+}
+.ideas-menu {
+  min-width: 240px;
+}
+.ideas-menu a.ideas-row {
+  border-radius: 8px;
+}
+/* On a product cover: how many ideas are for it, which opens them on the Ideas shelf. */
+.alb-ideas {
+  display: inline-block;
+  margin-top: 2px;
+  color: var(--t5);
+  font-size: 12px;
+  text-decoration: none;
+}
+@media (hover: hover) {
+  .alb-ideas:hover {
+    color: var(--t2);
+    text-decoration: underline;
+  }
+}
+.home-groupby {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.home-groupby .vswitch button {
+  font-size: 13px;
+}

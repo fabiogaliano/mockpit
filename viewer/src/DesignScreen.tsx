@@ -9,6 +9,8 @@
 import type { Shortlist } from "./api.ts";
 import { rememberRecent } from "./Jump.tsx";
 import { ArrangeSwitch, type Arrangement, StudioBar } from "./StudioBar.tsx";
+import { IdeasForMenu } from "./IdeasFor.tsx";
+import { AddCandidates } from "./AddCandidates.tsx";
 import { createShortlists, type Shortlists } from "./shortlist.ts";
 import {
   createEffect,
@@ -291,6 +293,11 @@ export function DesignScreen(props: {
       <ArrangeSwitch on={arrangement()} options={arrangements()} onPick={arrange} />
     </Show>
   );
+  // A screen's or a component's ideas, offered where its versions are compared.
+  const ideasMenu = () => {
+    const ideas = s.design()?.ideasFor;
+    return ideas?.length ? <IdeasForMenu project={props.project} ideas={ideas} /> : null;
+  };
   const nav = createFlowNav(s, props.project, props.slug, props.flow ?? null);
   const t = createTune(s);
   const m = createMargins(
@@ -511,8 +518,8 @@ export function DesignScreen(props: {
           </FlowBar>
         </Show>
         <div ref={setBarSlot} />
-        <Show when={shownView() === "grid" && arrangements().length > 1}>
-          <StudioBar arrange={arrangeSwitch} />
+        <Show when={shownView() === "grid" && (arrangements().length > 1 || ideasMenu() !== null)}>
+          <StudioBar ideas={ideasMenu()} arrange={arrangeSwitch} />
         </Show>
       </header>
       <Show
@@ -590,6 +597,7 @@ export function DesignScreen(props: {
                 columns={columns}
                 barSlot={barSlot()}
                 arrange={arrangeSwitch}
+                ideas={ideasMenu()}
                 arrangeable={arrangements().length > 1}
               />
             </Match>
@@ -757,6 +765,8 @@ function TopRow(props: {
 }) {
   const s = props.s;
   const sl = props.shortlists;
+  // A new idea started here is for this screen or component.
+  const [ideaFor, setIdeaFor] = createSignal(false);
   const home = () => homePath(props.project);
   const areaHome = (area: string) => homePath(props.project, area);
   const up = () => {
@@ -957,6 +967,19 @@ function TopRow(props: {
                     <Icon name="copy" />
                     Copy name
                   </button>
+                  <Show when={s.product() && !readonly()}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setMore(false);
+                        setIdeaFor(true);
+                      }}
+                    >
+                      <Icon name="idea" />
+                      New idea for this
+                    </button>
+                  </Show>
                   <Show when={archive()}>
                     <button
                       type="button"
@@ -974,6 +997,16 @@ function TopRow(props: {
               </Show>
             </div>
           </Show>
+        </Show>
+        <Show when={ideaFor() && s.design()}>
+          {(m) => (
+            <AddCandidates
+              sl={sl}
+              project={props.project}
+              typed={{ for: { id: m().id, title: m().title } }}
+              onClose={() => setIdeaFor(false)}
+            />
+          )}
         </Show>
         <About
           s={s}

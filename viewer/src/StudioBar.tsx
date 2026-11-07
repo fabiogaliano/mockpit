@@ -110,6 +110,8 @@ export function StudioBar(props: {
   showOn?: string;
   onShow?: (id: string) => void;
   onAdd?: () => void;
+  // A screen's or a component's ideas, folded into one button.
+  ideas?: JSX.Element;
   arrange?: JSX.Element;
 }) {
   const tabs = () => props.tabs ?? [];
@@ -162,6 +164,7 @@ export function StudioBar(props: {
       <Show when={shows().length > 1}>
         <ShowMenu options={shows()} on={props.showOn ?? ""} onPick={(id) => props.onShow?.(id)} />
       </Show>
+      {props.ideas}
       {props.arrange}
     </div>
   );

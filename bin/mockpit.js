@@ -78,6 +78,8 @@ verbs:
                         with no html it plans one, drawn by a later publish
       --area <name>     where in the product it belongs ("Shell"); Home groups by it
       --group <word>    a component's library group (Actions, Inputs, Navigation, ...)
+      --for <slug>      an idea's screen or component: Use this changes it
+      --becomes <what>  an idea for nothing yet: screen|component|flow|system
       --source <path>   the code path that implements it
       --knobs <json|file>  knobs in tunekit usePane shape, keyed by path
       --from <N>        branch from version N
@@ -123,7 +125,7 @@ verbs:
   mockpit move --design <slug> --alternative <v>... (--to <design> [--to-state s] | --archive | --restore)
                                           move alternatives elsewhere, archive or restore them
   mockpit edit <slug> [--slug s] [--title t] [--kind k] [--area a] [--group g] [--[no-]variants] [--source p]
-          [--purpose t] [--behaviour t [--state s] [--part p]]
+          [--for d] [--becomes k] [--purpose t] [--behaviour t [--state s] [--part p]]
                                           change a design or its spec without a new
                                           version ("" clears)
   mockpit edit --project <name> --rename <new>
@@ -249,6 +251,11 @@ mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
   --group <word>     a component's group in the library, by what it does: Actions,
                      Inputs, Navigation, Feedback, Containers, or the project's own
                      word. A component with no area is shared. "" clears
+  --for <slug>       an idea only: the screen or component it explores. Use this on
+                     it copies the version used onto that design, state by state;
+                     read then hands you what that design turned down. "" clears
+  --becomes <what>   an idea for nothing yet: screen or component (Use this makes
+                     one from what is used), flow or system. "" clears
   --source <path>    the code path that implements it (apps/web/src/shell). "" clears
   --knobs <json|file>  knobs in tunekit usePane shape
   --from <N>         branch from version N
@@ -319,7 +326,8 @@ mockpit move --design <slug> [--state s] [--alternative <v>...] --hide-older | -
   edit: `mockpit edit <slug> [--slug <new>] [--title <t>] [--kind screen|component|idea]
   [--first-state <name>] [--purpose <text>|""]
   [--behaviour <text> [--state <s>] [--part <p>] | --behaviour <json|file>|""]
-  [--area <name>|""] [--group <word>|""] [--[no-]variants] [--source <path>|""] [--project <name>]
+  [--area <name>|""] [--group <word>|""] [--[no-]variants] [--source <path>|""]
+  [--for <slug>|""] [--becomes screen|component|flow|system|""] [--project <name>]
 mockpit edit --project <name> --rename <new name>
 mockpit edit --project <name> --areas "Shell,Food,Chat"
 mockpit edit --project <name> [--area <name>] --description <one line>|""
@@ -328,7 +336,8 @@ mockpit edit --project <name> [--area <name>] --description <one line>|""
   --group files it in the library by what it does (Actions, Inputs, Navigation,
   Feedback, Containers, or the project's own word). --variants says a screen's or
   component's entries all ship, so they are named with --variant and nothing on it is
-  chosen; --no-variants makes them alternatives again. A new
+  chosen; --no-variants makes them alternatives again. --for says which screen or
+  component an idea is for, --becomes what an idea for nothing yet would become. A new
   slug rewrites every instance, data-goto and flow step that names the old one, in
   every version. A design still included somewhere stays a component, not an idea.
   --purpose and --behaviour write the design's spec, which read returns: what it is for,
@@ -1188,6 +1197,8 @@ function parsePublishFlags() {
       area: { type: "string" },
       group: { type: "string" },
       variants: { type: "boolean" },
+      for: { type: "string" },
+      becomes: { type: "string" },
       source: { type: "string" },
       html: { type: "string" },
       poster: { type: "string" },
@@ -1324,6 +1335,8 @@ async function publishDesign() {
     area: flags.area,
     group: flags.group,
     variants: flags.variants,
+    for: flags.for,
+    becomes: flags.becomes,
     source: flags.source,
     ...(flags.knobs !== undefined && { knobs: readJsonFlag("knobs", flags.knobs) }),
     ...(from !== undefined && { from }),
@@ -1498,6 +1511,12 @@ function watchLines(batch) {
       })(),
       r.reactions?.length ? r.reactions.join(", ") : "",
       r.verdict ? `${r.verdict.kind} ${r.verdict.alternative}` : "",
+      r.usedIn
+        ? `${r.usedIn.created ? "made" : "used in"} ${r.usedIn.target} (${r.usedIn.copies.map((c) => `${c.state ?? c.alternative} v${c.version}`).join(", ")})`
+        : "",
+      r.apply
+        ? `bring it over to ${r.apply.target}: it lacks ${r.apply.states.missing.map((x) => x ?? "the one unnamed state").join(", ")}`
+        : "",
       r.text ?? "",
     ].filter(Boolean);
     lines.push(`mockpit reply on ${name}: ${bits.join(" · ").replace(/\s+/g, " ")}`);
@@ -2410,6 +2429,8 @@ const commands = {
         area: { type: "string" },
         group: { type: "string" },
         variants: { type: "boolean" },
+        for: { type: "string" },
+        becomes: { type: "string" },
         source: { type: "string" },
         "first-state": { type: "string" },
         purpose: { type: "string" },
@@ -2494,12 +2515,14 @@ const commands = {
       "area",
       "group",
       "variants",
+      "for",
+      "becomes",
       "source",
       "purpose",
     ].filter((k) => flags[k] !== undefined);
     if (!fields.length && flags["first-state"] === undefined && flags.behaviour === undefined) {
       die(
-        "edit needs --slug, --title, --kind, --area, --group, --variants, --source, --purpose, --behaviour or --first-state",
+        "edit needs --slug, --title, --kind, --area, --group, --variants, --for, --becomes, --source, --purpose, --behaviour or --first-state",
         "mockpit edit --help",
       );
     }
@@ -2535,6 +2558,8 @@ const commands = {
         m.kind === "component" && !m.area ? "shared" : m.area && `area ${m.area}`,
         m.group && `group ${m.group}`,
         m.variants && "variants",
+        m.for && `for ${m.for}`,
+        m.becomes && `becomes ${m.becomes}`,
         m.source && `source ${m.source}`,
         result.spec?.purpose &&
           (result.spec.purpose.applied ? "purpose saved" : "purpose NOT applied"),

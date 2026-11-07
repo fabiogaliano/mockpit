@@ -316,6 +316,12 @@ export type KnobValue = number | boolean | string | PadValue | SpringKnob | Easi
 // calls it a screen (one of the product's) or a component (a reusable design screens
 // instance; being included makes an idea one). Home shows a tab per kind in use.
 export type DesignKind = "screen" | "component" | "idea";
+// What an idea would become once used, when it is for no design yet: a screen or a
+// component is made from what the user uses, a flow or a system change is the agent's.
+export type IdeaBecomes = "screen" | "component" | "flow" | "system";
+export const IDEA_BECOMES: readonly IdeaBecomes[] = ["screen", "component", "flow", "system"];
+export const isIdeaBecomes = (v: unknown): v is IdeaBecomes =>
+  IDEA_BECOMES.includes(v as IdeaBecomes);
 export const isDesignKind = (k: unknown): k is DesignKind =>
   k === "screen" || k === "component" || k === "idea";
 // An alternative's review state. An alternative-bound answer puts the chosen alternative in
@@ -630,9 +636,35 @@ export interface Reply {
   // With a screen's Ready mark: the pieces it draws itself, worked out from the versions
   // the mark covers.
   lift?: Lift;
+  // On an idea for a design: what the alternative put in use became there.
+  usedIn?: UsedIn;
+  // On an idea for a design whose states don't all match the alternative put in use:
+  // nothing was copied, and the agent brings it over.
+  apply?: ApplyTo;
   // What this reply changed on the project's system: the revision it made and how.
   // Alone (no design) it is the user's hand on the System page.
   system?: { project: string; rev: number; changes: string[] };
+}
+
+export interface UsedIn {
+  // The design's slug as it was then.
+  target: string;
+  // Made by this use, from an idea that was to become it.
+  created?: true;
+  copies: { state: string | null; alternative: string; version: number }[];
+}
+export interface ApplyTo {
+  target: string;
+  // The states the alternative is drawn in, those the target has and those it lacks.
+  states: { matched: (string | null)[]; missing: (string | null)[] };
+}
+
+// What a design an idea is for has ruled out, handed to whoever explores for it so it
+// isn't offered again: an archived alternative, a hidden answer, a decision's "Not:".
+export interface RuledOut {
+  name: string;
+  reason?: string;
+  when?: string;
 }
 
 // What a screen marked Ready draws itself, for the agent to lift into components
@@ -772,6 +804,11 @@ export interface Design {
   // one an agent started. It has no session until an agent writes to it. The name is
   // in `read`'s contract, so it waits for the words release.
   shortlist: boolean;
+  // Only on an idea: the screen or component (by id) it explores, which Use this
+  // changes. null: for nothing yet.
+  for: string | null;
+  // Only on an idea for nothing yet: what it would become.
+  becomes: IdeaBecomes | null;
   // Its entries are variants that all ship (a component's sizes or tones), not
   // alternatives to choose between: nothing on it is chosen, and agents name them
   // as variants. Only a screen or a component holds variants.
@@ -842,6 +879,9 @@ export interface CopyRef {
   state: string | null;
   alternative: string;
   version: number;
+  // Used from an idea onto the screen or component it is for: the version of this
+  // alternative the copy became. A gathered candidate is a copy from its first version.
+  asVersion?: number;
 }
 
 export interface Post {
@@ -1118,6 +1158,8 @@ export interface CreateDesignInput {
   sessionId?: string | null;
   shortlist?: boolean;
   variants?: boolean;
+  for?: string | null;
+  becomes?: IdeaBecomes | null;
 }
 
 export interface UpdateDesignInput {
@@ -1127,6 +1169,8 @@ export interface UpdateDesignInput {
   area?: string | null;
   group?: string | null;
   variants?: boolean;
+  for?: string | null;
+  becomes?: IdeaBecomes | null;
   source?: string | null;
   states?: string[];
   asks?: Ask[];
@@ -1183,11 +1227,13 @@ export interface UpdatePostInput {
   publishedBy?: string;
   contract?: number;
   system?: number;
+  // The version is a copy of an idea's, used on the design the idea is for.
+  copiedFrom?: CopyRef;
 }
 
 // An in-place replacement of an alternative's latest version: same number and
 // creation time. undefined keeps a field, as in UpdatePostInput.
-export type AmendPostInput = Omit<UpdatePostInput, "state" | "publishedBy">;
+export type AmendPostInput = Omit<UpdatePostInput, "state" | "publishedBy" | "copiedFrom">;
 
 export interface CreateCommentInput {
   sessionId: string;

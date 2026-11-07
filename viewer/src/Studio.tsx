@@ -226,6 +226,7 @@ export function Studio(props: {
   // Where the bar goes: the design's header, which a preview doesn't narrow.
   barSlot: HTMLElement | undefined;
   arrange: JSX.Element;
+  ideas?: JSX.Element;
   arrangeable: boolean;
   top: number;
   shortlists: Shortlists;
@@ -380,6 +381,7 @@ export function Studio(props: {
     filterable() ||
     showing().length > 1 ||
     props.arrangeable ||
+    !!props.ideas ||
     (wall() && isShortlist() && !readonly());
   const clearFilters = () =>
     batch(() => {
@@ -1093,6 +1095,7 @@ export function Studio(props: {
               {...(wall() && isShortlist() && !readonly() && !borrowFrom()
                 ? { onAdd: () => setAdding(true) }
                 : {})}
+              ideas={props.ideas}
               arrange={props.arrange}
             />
           </Portal>

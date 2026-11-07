@@ -1,10 +1,11 @@
 // Gathering versions into an idea from the project's other designs: a design at a
 // time, a state at a time, or by name across all of them. With no idea to add to, it
-// starts one and goes there. The dialog is the browser's own, so the page behind it is
+// starts one and goes there, typed by where it was started: the design it is for, what
+// it would become, the area it is in. The dialog is the browser's own, so the page behind it is
 // inert and Esc closes it.
 
 import { createMemo, createResource, createSignal, For, onMount, Show } from "solid-js";
-import { isLive } from "../../server/types.ts";
+import { type IdeaBecomes, isLive } from "../../server/types.ts";
 import { api, assetUrl, surfaceUrl, type SaveCandidate, type TreeNode } from "./api.ts";
 import { posterShown } from "./systemRev.ts";
 import { Icon } from "./icons.tsx";
@@ -18,6 +19,12 @@ import { FRAME_W, Thumb } from "./Thumb.tsx";
 const MATCHES_SHOWN = 24;
 
 type Row = TreeNode["alternatives"][number];
+
+export interface NewIdeaTyping {
+  for?: { id: string; title: string };
+  becomes?: IdeaBecomes;
+  area?: string;
+}
 type Card = { node: TreeNode; v: Row };
 const keyOf = (c: Card) => JSON.stringify([c.node.id, c.v.state, c.v.alternative]);
 
@@ -26,11 +33,18 @@ export function AddCandidates(props: {
   project: string;
   // The idea to add to; none starts a new one, named here.
   list?: { id: string; title: string };
+  typed?: NewIdeaTyping;
   onDone?: (added: number) => void;
   onClose: () => void;
 }) {
   const [name, setName] = createSignal("");
-  const title = () => props.list?.title ?? "New idea";
+  const title = () =>
+    props.list?.title ??
+    (props.typed?.for
+      ? `New idea for ${props.typed.for.title}`
+      : props.typed?.becomes
+        ? `New idea for a ${props.typed.becomes}`
+        : "New idea");
   let dialog!: HTMLDialogElement;
   let filterEl!: HTMLInputElement;
   let nameEl: HTMLInputElement | undefined;
@@ -44,7 +58,8 @@ export function AddCandidates(props: {
       .filter((n) => !n.shortlist && !n.archivedAt && n.alternatives.some((v) => isLive(v.status)))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
   );
-  const [picked, setPicked] = createSignal<string | null>(null);
+  // An idea for a design starts from that design's own versions.
+  const [picked, setPicked] = createSignal<string | null>(props.typed?.for?.id ?? null);
   const node = () => sources().find((n) => n.id === picked()) ?? sources()[0];
   const liveOf = (n: TreeNode) => n.alternatives.filter((v) => isLive(v.status));
   const statesOf = (n: TreeNode) => [...new Set(liveOf(n).map((v) => v.state))];
@@ -106,8 +121,17 @@ export function AddCandidates(props: {
     setError(null);
     try {
       const candidates = [...chosen().values()];
+      const typed = props.typed ?? {};
       const { to } = await api.saveCopies(
-        props.list ? { to: props.list.id, candidates } : { title: name().trim(), candidates },
+        props.list
+          ? { to: props.list.id, candidates }
+          : {
+              title: name().trim(),
+              ...(typed.for ? { for: typed.for.id } : {}),
+              ...(typed.becomes ? { becomes: typed.becomes } : {}),
+              ...(typed.area ? { area: typed.area } : {}),
+              candidates,
+            },
       );
       await props.sl.load();
       props.onDone?.(chosen().size);

@@ -16,8 +16,11 @@ import type {
   AnswerStanding,
   AskAnswer,
   Comment,
+  ApplyTo,
   CopyRef,
+  IdeaBecomes,
   LiveCopy,
+  UsedIn,
   Draft,
   FlowStep,
   KnobValue,
@@ -198,6 +201,10 @@ export const api = {
     to?: string;
     state?: string | null;
     title?: string;
+    // A new idea, typed by where it was started.
+    for?: string;
+    becomes?: IdeaBecomes;
+    area?: string;
     candidates: SaveCandidate[];
   }) =>
     call<{
@@ -314,7 +321,7 @@ export const api = {
     id: string,
     body: { state: string | null; alternative: string; version: number; to?: string },
   ) =>
-    call<{ reply: CommentRow | null }>(
+    call<{ reply: CommentRow | null; usedIn?: UsedIn; apply?: ApplyTo }>(
       `/api/designs/${encodeURIComponent(id)}/use`,
       json("POST", body),
     ),

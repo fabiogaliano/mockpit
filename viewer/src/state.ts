@@ -2016,10 +2016,20 @@ export function createDesignScreen(
     const m = design();
     if (!m || !ref || readonly()) return;
     try {
-      await api.use(m.id, { state: activeState(), ...ref, ...toField() });
+      const used = await api.use(m.id, { state: activeState(), ...ref, ...toField() });
       await Promise.all([loadDesign(), loadComments()]);
       showVersion(ref);
-      setToast({ text: `${nameOf(ref)} is in use` });
+      const target = design()?.target?.title ?? used.usedIn?.target;
+      const lacks = used.apply?.states.missing.map((x) => x ?? m.title).join(", ");
+      setToast({
+        text: used.usedIn?.created
+          ? `${nameOf(ref)} is in use, and made ${target}`
+          : used.usedIn
+            ? `${nameOf(ref)} is in use in ${target}`
+            : used.apply
+              ? `${nameOf(ref)} is in use. ${target} has no ${lacks}, so the agent brings it over`
+              : `${nameOf(ref)} is in use`,
+      });
     } catch (e) {
       fail(e);
     }

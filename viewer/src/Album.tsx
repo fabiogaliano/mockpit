@@ -69,11 +69,11 @@ const [turnClock, setTurnClock] = createSignal(Date.now());
 host().window.setInterval(() => setTurnClock(Date.now()), 30_000);
 export { turnClock };
 
-export function useTurn(node: () => StatusNode | null) {
+export function useTurn(node: () => StatusNode | null, target?: () => string | undefined) {
   return createMemo(
     () => {
       const n = node();
-      return n ? turnWord(n, turnClock()) : null;
+      return n ? turnWord(n, turnClock(), target?.()) : null;
     },
     undefined,
     { equals: (a, b) => a?.kind === b?.kind && a?.text === b?.text },
@@ -82,8 +82,17 @@ export function useTurn(node: () => StatusNode | null) {
 
 // The words every album and row carries: whose turn, what's inside, and whether
 // there's work this browser hasn't opened (a word and a mark, not just a colour).
-export function AlbumWords(props: { node: TreeNode; fresh: boolean; extra?: string }) {
-  const turn = useTurn(() => props.node);
+export function AlbumWords(props: {
+  node: TreeNode;
+  fresh: boolean;
+  extra?: string;
+  // The title of the design the idea is for.
+  target?: string;
+}) {
+  const turn = useTurn(
+    () => props.node,
+    () => props.target,
+  );
   // Most of a list has nothing waiting. Said on every row, it hides the rows that do.
   const said = () => {
     const t = turn();
@@ -150,6 +159,10 @@ export function Album(props: {
   menu: JSX.Element | undefined;
   // Words that only the shelf knows: where a component appears.
   extra?: string;
+  // An idea's: the title of the design it is for.
+  target?: string;
+  // A screen's or a component's: how many ideas are for it, and where they are listed.
+  ideas?: { n: number; href: string };
   // Ideas end with a quiet × on the cover, as a design leaves Studio, and an outline
   // nobody needs goes the same way.
   onEnd?: () => void;
@@ -231,7 +244,14 @@ export function Album(props: {
             {n().title}
           </a>
         </Show>
-        <AlbumWords node={n()} fresh={props.fresh} extra={props.extra} />
+        <AlbumWords node={n()} fresh={props.fresh} extra={props.extra} target={props.target} />
+        <Show when={props.ideas}>
+          {(ideas) => (
+            <a class="alb-ideas" href={ideas().href} onClick={(e) => linkClick(e, ideas().href)}>
+              {ideas().n === 1 ? "1 idea" : `${ideas().n} ideas`}
+            </a>
+          )}
+        </Show>
         <Show when={n().source}>
           {(src) => (
             <span class="home-src alb-src" title={src()}>

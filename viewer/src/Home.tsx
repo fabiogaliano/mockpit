@@ -18,7 +18,7 @@ import {
   Show,
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import { type FlowStep, MAX_PROJECT_DESCRIPTION } from "../../server/types.ts";
+import { type FlowStep, type IdeaBecomes, MAX_PROJECT_DESCRIPTION } from "../../server/types.ts";
 import {
   api,
   type DesignSummary,
@@ -48,7 +48,7 @@ import { createDecisions } from "./Decisions.tsx";
 import { DesignThumb, Recent } from "./Recent.tsx";
 import { setCarried } from "./carry.ts";
 import { useSwipeAction } from "./gestures.ts";
-import { AddCandidates } from "./AddCandidates.tsx";
+import { AddCandidates, type NewIdeaTyping } from "./AddCandidates.tsx";
 import {
   readHomeProjects,
   readHomeSnapshot,
@@ -110,6 +110,7 @@ export function Home(props: {
   sec: HomePlace | null;
   area: string | null;
   show: RecentShow | null;
+  for: string | null;
 }) {
   // Home shows where every design stands; a Send carried from a design ends here.
   setCarried(null);
@@ -523,6 +524,15 @@ export function Home(props: {
       fresh={fresh().has(n.id)}
       menu={menuFor(n)}
       extra={n.kind === "component" ? usedIn(n, (s) => bySlug().get(s)?.kind) : undefined}
+      target={n.for ? bySlug().get(n.for)?.title : undefined}
+      {...(n.ideasFor?.length
+        ? {
+            ideas: {
+              n: n.ideasFor.length,
+              href: projectPath(project()!, "ideas", null, null, n.slug),
+            },
+          }
+        : {})}
       {...(readonly()
         ? {}
         : n.planned
@@ -598,6 +608,62 @@ export function Home(props: {
         describe={(a) => described().get(a)}
       >
         {(rows, name) => shelf(sec, rows, noAreas, name ?? area() ?? "")}
+      </Areas>
+    );
+  };
+
+  // The Ideas shelf, grouped one way of three, remembered per project; or only the ideas
+  // for one design, which a product cover's count opens.
+  const [ideasBy, setIdeasBy] = createSignal<IdeasBy>("area");
+  createEffect(on(project, (p) => setIdeasBy(p ? readIdeasBy(p) : "area")));
+  const pickIdeasBy = (by: IdeasBy) => {
+    setIdeasBy(by);
+    const p = project();
+    if (p) saveIdeasBy(p, by);
+  };
+  const forNode = () => (props.for ? (bySlug().get(props.for) ?? null) : null);
+  const ideaGroups = createMemo((): AreaGroup<TreeNode>[] => {
+    const rows = inSection("ideas", area()).filter((n) => !props.for || n.for === props.for);
+    const by = props.for ? null : ideasBy();
+    if (by === "for") {
+      const named = (n: TreeNode) => {
+        const t = n.for ? bySlug().get(n.for) : undefined;
+        return t ? `For ${t.title}` : null;
+      };
+      const keys = [...new Set(rows.map(named))].toSorted((a, b) =>
+        a === null ? 1 : b === null ? -1 : a.localeCompare(b),
+      );
+      return keys.map((key) => ({ area: key, rows: rows.filter((n) => named(n) === key) }));
+    }
+    if (by === "use") {
+      const used = rows.filter((n) => n.inUse.length > 0);
+      return [
+        ...(used.length ? [{ area: "In use", rows: used }] : []),
+        { area: null, rows: rows.filter((n) => n.inUse.length === 0) },
+      ].filter((g) => g.rows.length);
+    }
+    return by === "area" && area() === null && areas().length
+      ? groupByArea(rows, (n) => n.area, areaRanks())
+      : [{ area: null, rows }];
+  });
+  const ideasShelf = () => {
+    const grouped = () => ideaGroups().some((g) => g.area !== null);
+    return (
+      <Areas
+        groups={ideaGroups()}
+        level={2}
+        rest={
+          ideasBy() === "for"
+            ? "Not for a design yet"
+            : ideasBy() === "use"
+              ? "Not in use"
+              : undefined
+        }
+        {...(ideasBy() === "area" ? { describe: (a: string) => described().get(a) } : {})}
+      >
+        {(rows, name) =>
+          shelf("ideas", rows, () => !grouped(), `${ideasBy()}|${name ?? area() ?? ""}`)
+        }
       </Areas>
     );
   };
@@ -731,7 +797,7 @@ export function Home(props: {
     const v = areaView;
     const screens = () => nodesOf(v()?.screens);
     const components = () => nodesOf(v()?.components);
-    const ideas = () => nodesOf(v()?.ideasWaiting);
+    const ideas = () => nodesOf(v()?.ideasWaiting.flatMap((g) => g.ideas));
     const flows = () => (v()?.flows.length ?? 0) > 0;
     return (
       <>
@@ -807,6 +873,7 @@ export function Home(props: {
                 ? "Shared components"
                 : SECTION_LABEL[s];
     if (label === null) return null;
+    if (s === "ideas" && forNode()) return `Ideas for ${forNode()!.title}`;
     return a && shelfOn() ? `${label} in ${a}` : label;
   };
   // How much of the shelf is still only a plan.
@@ -819,6 +886,7 @@ export function Home(props: {
     const s = shown();
     const a = area();
     const sec = shelfOn();
+    if (sec === "ideas" && props.for) return ideaGroups().reduce((n, g) => n + g.rows.length, 0);
     if (sec) {
       return a && sec !== "flows"
         ? inSection(sec, a).length
@@ -972,6 +1040,15 @@ export function Home(props: {
                     {`All of ${area()}`}
                   </a>
                 </Show>
+                <Show when={shown() === "ideas" && props.for}>
+                  <a
+                    class="home-next home-unfilter"
+                    href={projectPath(project()!, "ideas", area())}
+                    onClick={(e) => swap(e, projectPath(project()!, "ideas", area()))}
+                  >
+                    All ideas
+                  </a>
+                </Show>
                 <Show when={noWayBack()}>
                   <a
                     class="home-next home-unfilter"
@@ -1032,7 +1109,25 @@ export function Home(props: {
                       System ›
                     </a>
                   </Show>
-                  <Show when={shelfOn() && !readonly()}>
+                  <Show when={shown() === "ideas" && !props.for && !tiny()}>
+                    <div class="home-groupby" role="group" aria-label="Group by">
+                      <span>Group by</span>
+                      <div class="vswitch">
+                        <For each={IDEAS_BY}>
+                          {(by) => (
+                            <button
+                              type="button"
+                              aria-pressed={ideasBy() === by.id}
+                              onClick={() => pickIdeasBy(by.id)}
+                            >
+                              {by.label}
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                  </Show>
+                  <Show when={(shelfOn() || shown() === "area") && !readonly()}>
                     <button
                       type="button"
                       class="btn home-gather"
@@ -1094,7 +1189,7 @@ export function Home(props: {
                 </Show>
               </Show>
               <Show when={shown() === "area"}>{wholeArea()}</Show>
-              <Show when={shown() === "ideas"}>{sectionShelf("ideas")}</Show>
+              <Show when={shown() === "ideas"}>{ideasShelf()}</Show>
               <Show when={shown() === "screens"}>{sectionShelf("screens")}</Show>
               <Show when={shown() === "components"}>{componentsShelf()}</Show>
               <Show when={shown() === "shared"}>{sharedShelf(2)}</Show>
@@ -1150,7 +1245,19 @@ export function Home(props: {
       </main>
       <Toast toast={toast()} onDismiss={() => setToast(null)} />
       <Show when={gathering() && project()} keyed>
-        {(p) => <NewIdea project={p} onClose={() => setGathering(false)} />}
+        {(p) => (
+          <NewIdea
+            project={p}
+            typed={{
+              ...(area() ? { area: area()! } : {}),
+              ...(shown() === "ideas" && forNode()
+                ? { for: { id: forNode()!.id, title: forNode()!.title } }
+                : {}),
+              ...(BECOMES_ON[shown() ?? ""] ? { becomes: BECOMES_ON[shown() ?? ""] } : {}),
+            }}
+            onClose={() => setGathering(false)}
+          />
+        )}
       </Show>
     </div>
   );
@@ -1413,8 +1520,40 @@ function DesignRow(props: {
 
 // New idea: pick versions from across the project into an idea of their own. They come
 // as copies, so the originals stay as they are, and replies reach whichever agent is
-// working in the project until one writes to it.
-function NewIdea(props: { project: string; onClose: () => void }) {
+// working in the project until one writes to it. It is typed by where it was started.
+function NewIdea(props: { project: string; typed: NewIdeaTyping; onClose: () => void }) {
   const sl = createShortlists(props.project, () => {});
-  return <AddCandidates sl={sl} project={props.project} onClose={props.onClose} />;
+  return (
+    <AddCandidates sl={sl} project={props.project} typed={props.typed} onClose={props.onClose} />
+  );
+}
+
+// What an idea started on a shelf would become.
+const BECOMES_ON: Record<string, IdeaBecomes | undefined> = {
+  screens: "screen",
+  components: "component",
+  flows: "flow",
+};
+
+type IdeasBy = "area" | "for" | "use";
+const IDEAS_BY: { id: IdeasBy; label: string }[] = [
+  { id: "area", label: "Area" },
+  { id: "for", label: "For" },
+  { id: "use", label: "In use" },
+];
+const IDEAS_BY_KEY = "mockpit:ideas-by:";
+function readIdeasBy(project: string): IdeasBy {
+  try {
+    const v = host().window.localStorage.getItem(IDEAS_BY_KEY + project);
+    return v === "for" || v === "use" ? v : "area";
+  } catch {
+    return "area";
+  }
+}
+function saveIdeasBy(project: string, by: IdeasBy) {
+  try {
+    host().window.localStorage.setItem(IDEAS_BY_KEY + project, by);
+  } catch {
+    // Private mode: nothing to keep it in.
+  }
 }

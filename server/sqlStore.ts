@@ -31,6 +31,7 @@ import {
   type AnswerStanding,
   type StateOutline,
   isDesignKind,
+  isIdeaBecomes,
   newId,
   normalizeSurfaceIds,
   type Post,
@@ -932,6 +933,9 @@ export class SqlStore implements Store {
       source: "TEXT",
       shortlist: "INTEGER NOT NULL DEFAULT 0",
       variants: "INTEGER NOT NULL DEFAULT 0",
+      // A design's `for`, another SQL keyword.
+      forDesign: "TEXT",
+      becomes: "TEXT",
       spec: "TEXT",
       ready: "TEXT",
       stateOutlines: "TEXT NOT NULL DEFAULT '{}'",
@@ -1597,6 +1601,8 @@ export class SqlStore implements Store {
       sessionId: (r.sessionId as string) ?? null,
       shortlist: !!r.shortlist,
       variants: !!r.variants,
+      for: (r.forDesign as string) ?? null,
+      becomes: isIdeaBecomes(r.becomes) ? r.becomes : null,
       archivedAt: (r.archivedAt as string) ?? null,
       archiveReason: (r.archiveReason as string) ?? null,
       spec: parseJson<DesignSpec | null>(r.spec, null),
@@ -1933,6 +1939,8 @@ export class SqlStore implements Store {
       sessionId: input.sessionId ?? null,
       shortlist: !!input.shortlist,
       variants: !!input.variants,
+      for: input.for ?? null,
+      becomes: input.becomes ?? null,
       archivedAt: null,
       archiveReason: null,
       spec: null,
@@ -1945,7 +1953,7 @@ export class SqlStore implements Store {
       updatedAt: now,
     };
     this.sql.exec(
-      "INSERT INTO designs (id, project, slug, title, kind, area, libraryGroup, source, states, asks, knobs, widths, draft, sessionId, shortlist, variants, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, NULL, ?, ?, ?, ?, ?)",
+      "INSERT INTO designs (id, project, slug, title, kind, area, libraryGroup, source, states, asks, knobs, widths, draft, sessionId, shortlist, variants, forDesign, becomes, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)",
       design.id,
       design.project,
       design.slug,
@@ -1960,6 +1968,8 @@ export class SqlStore implements Store {
       design.sessionId,
       design.shortlist ? 1 : 0,
       design.variants ? 1 : 0,
+      design.for,
+      design.becomes,
       design.createdAt,
       design.updatedAt,
     );
@@ -1976,6 +1986,8 @@ export class SqlStore implements Store {
       ...(patch.area !== undefined && { area: label(patch.area) }),
       ...(patch.group !== undefined && { group: label(patch.group) }),
       ...(patch.variants !== undefined && { variants: patch.variants }),
+      ...(patch.for !== undefined && { for: patch.for }),
+      ...(patch.becomes !== undefined && { becomes: patch.becomes }),
       ...(patch.source !== undefined && { source: label(patch.source) }),
       ...(patch.states !== undefined && { states: patch.states.map((s) => stripNul(s)) }),
       ...(patch.asks !== undefined && { asks: patch.asks }),
@@ -1994,12 +2006,14 @@ export class SqlStore implements Store {
       updatedAt: new Date().toISOString(),
     };
     this.sql.exec(
-      "UPDATE designs SET title = ?, kind = ?, area = ?, libraryGroup = ?, variants = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, archivedAt = ?, archiveReason = ?, spec = ?, ready = ?, stateOutlines = ?, answerAdditions = ?, standings = ?, sets = ?, updatedAt = ? WHERE id = ?",
+      "UPDATE designs SET title = ?, kind = ?, area = ?, libraryGroup = ?, variants = ?, forDesign = ?, becomes = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, archivedAt = ?, archiveReason = ?, spec = ?, ready = ?, stateOutlines = ?, answerAdditions = ?, standings = ?, sets = ?, updatedAt = ? WHERE id = ?",
       next.title,
       next.kind,
       next.area,
       next.group,
       next.variants ? 1 : 0,
+      next.for,
+      next.becomes,
       next.source,
       JSON.stringify(next.states),
       JSON.stringify(next.asks),
@@ -2032,6 +2046,8 @@ export class SqlStore implements Store {
       );
       this.sql.exec("DELETE FROM posts WHERE designId = ?", id);
       this.sql.exec("DELETE FROM designs WHERE id = ?", id);
+      // The ideas that were for it are for nothing now.
+      this.sql.exec("UPDATE designs SET forDesign = NULL WHERE forDesign = ?", id);
       for (const flow of this.flowsOf(design.project)) {
         const steps = flow.steps.filter((x) => x.design !== design.slug);
         if (steps.length !== flow.steps.length) this.writeFlow(flow, steps);
@@ -2696,9 +2712,10 @@ export class SqlStore implements Store {
       const publishedBy = patch.publishedBy ?? null;
       const contract = patch.contract ?? CURRENT_CONTRACT;
       const system = patch.system ?? null;
+      const copiedFrom = patch.copiedFrom ?? post.copiedFrom;
       const wrote = this.writingPosts(post.design, [id], () => {
         this.sql.exec(
-          "UPDATE posts SET title = ?, surfaces = ?, head = ?, knobs = ?, description = ?, slots = ?, state = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, curSession = ?, amendedAt = NULL, curContract = ?, curSystem = ? WHERE id = ? AND version = ?",
+          "UPDATE posts SET title = ?, surfaces = ?, head = ?, knobs = ?, description = ?, slots = ?, state = ?, updatedAt = ?, version = ?, curFrom = ?, curPrompt = ?, curAuthor = ?, curSession = ?, amendedAt = NULL, curContract = ?, curSystem = ?, copiedFrom = ? WHERE id = ? AND version = ?",
           title,
           JSON.stringify(surfaces),
           surfaceHeads(surfaces),
@@ -2714,6 +2731,7 @@ export class SqlStore implements Store {
           publishedBy,
           contract,
           system,
+          copiedFrom ? JSON.stringify(copiedFrom) : null,
           id,
           post.version,
         );
@@ -2758,6 +2776,7 @@ export class SqlStore implements Store {
           prompt,
           ...(author === null ? {} : { author }),
           ...(publishedBy === null ? {} : { publishedBy }),
+          ...(copiedFrom ? { copiedFrom } : {}),
         };
       }
     }

@@ -270,6 +270,18 @@ function feedbackLines(feedback) {
       }
       if (reply.verdict)
         lines.push(`- ${prefix}${reply.verdict.kind} ${reply.verdict.alternative}`);
+      if (reply.usedIn) {
+        const at = reply.usedIn.copies.map((c) => `${c.state ?? c.alternative} v${c.version}`);
+        lines.push(
+          `- ${prefix}${reply.usedIn.created ? "made" : "used in"} ${reply.usedIn.target} (${at.join(", ")})`,
+        );
+      }
+      if (reply.apply) {
+        const missing = reply.apply.states.missing.map((x) => x ?? "the one unnamed state");
+        lines.push(
+          `- ${prefix}not copied: bring it over to ${reply.apply.target}, which lacks ${missing.join(", ")}`,
+        );
+      }
       if (reply.text) lines.push(`- ${prefix}${reply.text}`);
     }
     for (const c of batch.messages ?? []) lines.push(`- ${prefix}${c.text}`);
@@ -314,6 +326,11 @@ function feedbackLines(feedback) {
           `- ${prefix}swap for the library's instance: ${likeLibrary.map((p) => `${p.name} → ${p.component}`).join(", ")}`,
         );
       }
+    }
+    if (batch.target?.ruledOut?.length) {
+      lines.push(
+        `- ${prefix}${batch.target.slug} already turned down: ${batch.target.ruledOut.map((r) => `${r.name}${r.reason ? ` (${r.reason})` : ""}`).join("; ")}`,
+      );
     }
     for (const n of batch.nudges ?? []) lines.push(`- ${prefix}nudge: ${n}`);
   }
@@ -501,6 +518,14 @@ export default function mockpitExtension(pi) {
           type: "boolean",
           description:
             "Its entries are variants that all ship (screen or component), not alternatives",
+        },
+        for: {
+          type: "string",
+          description: 'An idea\'s screen or component: Use this changes it. "" clears',
+        },
+        becomes: {
+          type: "string",
+          description: 'An idea for nothing yet: screen, component, flow or system. "" clears',
         },
         source: { type: "string", description: 'Code path that implements it. "" clears' },
         html: { type: "string", description: "HTML body fragment; declare parts with data-part" },
@@ -772,6 +797,14 @@ export default function mockpitExtension(pi) {
           type: "boolean",
           description:
             "Its entries are variants that all ship (screen or component), not alternatives",
+        },
+        for: {
+          type: "string",
+          description: 'An idea\'s screen or component: Use this changes it. "" clears',
+        },
+        becomes: {
+          type: "string",
+          description: 'An idea for nothing yet: screen, component, flow or system. "" clears',
         },
         source: { type: "string", description: 'Code path that implements it; "" clears' },
         purpose: {

@@ -9,6 +9,7 @@ import { isKeptAlternative, keptAlternatives } from "./standings.ts";
 import { withAddedAnswers } from "./alternativeQuestion.ts";
 import type { DecisionLine } from "./decisionLog.ts";
 import { purposeLine, specView } from "./spec.ts";
+import { ideaStatus } from "./ideas.ts";
 import {
   type BuiltFrom,
   readyFields,
@@ -29,7 +30,9 @@ import {
   isLive,
   type KnobValue,
   type Design,
+  type IdeaBecomes,
   openCount,
+  type RuledOut,
   type Post,
   type PostHead,
   type PostVersion,
@@ -343,6 +346,48 @@ export const placeOf = (
   ...(design.source ? { source: design.source } : {}),
 });
 
+// What an idea is for, by the design's slug, or what it would become: only once said.
+export interface IdeaPlace {
+  for?: string;
+  becomes?: IdeaBecomes;
+}
+export const ideaPlaceOf = (
+  design: Pick<Design, "becomes">,
+  target: Pick<Design, "slug"> | null,
+): IdeaPlace => ({
+  ...(target ? { for: target.slug } : {}),
+  ...(design.becomes ? { becomes: design.becomes } : {}),
+});
+
+// One idea for a design, as that design lists it.
+export interface IdeaLink {
+  slug: string;
+  title: string;
+  status: string;
+  becomes?: IdeaBecomes;
+}
+export const ideaLink = (
+  idea: Design,
+  posts: Pick<PostHead, "status">[],
+  target: Pick<Design, "title"> | null,
+): IdeaLink => ({
+  slug: idea.slug,
+  title: idea.title,
+  status: ideaStatus(posts, openCount(idea), target),
+  ...(idea.becomes ? { becomes: idea.becomes } : {}),
+});
+
+// The design an idea is for, as a read of the idea carries it: with what that design
+// has turned down for an agent, so it isn't offered again.
+export interface IdeaTarget {
+  slug: string;
+  title: string;
+  kind: Design["kind"];
+  ruledOut?: RuledOut[];
+  // How many more were left out to keep the read small.
+  more?: number;
+}
+
 // What a design's first state looks like in a list: what's in use, else what the agent
 // recommends, else its first. Same rule as viewer/src/logic.ts screenPicture.
 function thumbnail(design: Design, all: PostHead[]) {
@@ -421,6 +466,10 @@ export const designDetailView = (
     decisions?: string[];
     // The components it is built from, as their marks stand.
     builtFrom?: BuiltFrom[];
+    idea?: IdeaPlace;
+    target?: IdeaTarget;
+    // On a screen or a component: the ideas that are for it.
+    ideasFor?: IdeaLink[];
   } = {},
 ) => {
   const posts = shipped(design, all);
@@ -435,6 +484,9 @@ const detailOf = (
     repliesGoTo?: string;
     decisions?: string[];
     builtFrom?: BuiltFrom[];
+    idea?: IdeaPlace;
+    target?: IdeaTarget;
+    ideasFor?: IdeaLink[];
   },
 ) => ({
   id: design.id,
@@ -443,6 +495,9 @@ const detailOf = (
   title: design.title,
   kind: design.kind,
   ...placeOf(design),
+  ...opts.idea,
+  ...(opts.target ? { target: opts.target } : {}),
+  ...(opts.ideasFor?.length ? { ideasFor: opts.ideasFor } : {}),
   ...(design.shortlist ? { shortlist: true } : {}),
   // No agent has written to this shortlist yet: who its replies reach for now.
   ...(opts.repliesGoTo ? { repliesGoTo: opts.repliesGoTo } : {}),
@@ -509,6 +564,8 @@ export const treeNodeView = (
     drafting?: boolean;
     // The components it is built from, nested ones included, as their marks stand.
     builtFrom?: BuiltFrom[];
+    idea?: IdeaPlace;
+    ideasFor?: IdeaLink[];
   },
 ) => {
   const posts = shipped(design, all);
@@ -521,6 +578,8 @@ const nodeOf = (design: Design, posts: PostHead[], extra: Parameters<typeof tree
   title: design.title,
   kind: design.kind,
   ...placeOf(design),
+  ...extra.idea,
+  ...(extra.ideasFor?.length ? { ideasFor: extra.ideasFor } : {}),
   ...(design.shortlist ? { shortlist: true } : {}),
   ...plannedOf(design, posts.length),
   ...readyFields(design, posts),
@@ -574,7 +633,7 @@ const nodeOf = (design: Design, posts: PostHead[], extra: Parameters<typeof tree
 // Off the shelf: archived by hand, or drawn with nothing live left and no question
 // waiting, Home's rule (`nothingLeft`). A plan has nothing live because nothing is
 // drawn yet, which is not the same.
-const offShelf = (design: Design, posts: PostHead[]) =>
+export const offShelf = (design: Design, posts: Pick<PostHead, "status">[]) =>
   !!design.archivedAt ||
   (posts.length > 0 && !posts.some((p) => isLive(p.status)) && openCount(design) === 0);
 
@@ -588,14 +647,6 @@ const productLine = (design: Design, posts: PostHead[], builtFrom: BuiltFrom[]) 
   ...readyFields(design, posts),
   builtFrom: builtFrom.length ? builtFrom : undefined,
 });
-
-// An idea's standing in a word, the same for the agent and the area page.
-function ideaStatus(design: Design, posts: PostHead[]): string {
-  const open = openCount(design);
-  if (open) return `${open} question${open === 1 ? "" : "s"}`;
-  if (posts.some((p) => p.status === "accepted")) return "in use";
-  return "exploring";
-}
 
 // One area of a project, as `read --area` returns it and the viewer's area page draws
 // it: what it is for, its screens, flows and components, the shared components beside
@@ -616,6 +667,24 @@ export function areaView(input: {
   const here = live.filter((d) => d.area === input.area.name);
   const screens = here.filter((d) => d.kind === "screen");
   const components = here.filter((d) => d.kind === "component");
+  const byId = new Map(input.designs.map((d) => [d.id, d]));
+  const targetOf = (d: Design) => {
+    const t = d.for ? byId.get(d.for) : undefined;
+    return t && t.kind !== "idea" ? t : null;
+  };
+  // The ideas waiting here, and those elsewhere for a design of the area, by what they are for.
+  const productIds = new Set([...screens, ...components].map((d) => d.id));
+  const ideas = live.filter(
+    (d) =>
+      d.kind === "idea" &&
+      (d.area === input.area.name || (!!targetOf(d) && productIds.has(targetOf(d)!.id))),
+  );
+  const forOrder = [...screens, ...components, ...input.designs].map((d) => d.slug);
+  const ideaGroups = new Map<string | null, Design[]>();
+  for (const d of ideas) {
+    const key = targetOf(d)?.slug ?? null;
+    ideaGroups.set(key, [...(ideaGroups.get(key) ?? []), d]);
+  }
   const product = new Set([...screens, ...components].map((d) => d.slug));
   const kindOf = new Map(input.designs.map((d) => [d.slug, d]));
   const line = (d: Design) =>
@@ -646,13 +715,21 @@ export function areaView(input: {
         ...(l.state ? { state: l.state } : {}),
         ...(l.edited ? { edited: true as const } : {}),
       })),
-    ideasWaiting: here
-      .filter((d) => d.kind === "idea")
-      .map((d) => ({
-        slug: d.slug,
-        title: d.title,
-        status: ideaStatus(d, input.heads.get(d.id) ?? []),
-      })),
+    // Grouped by the design each is for; those for nothing last.
+    ideasWaiting: [...ideaGroups.keys()]
+      .toSorted((a, b) =>
+        a === null ? 1 : b === null ? -1 : forOrder.indexOf(a) - forOrder.indexOf(b),
+      )
+      .map((key) => {
+        const target = key === null ? null : (input.designs.find((d) => d.slug === key) ?? null);
+        return {
+          for: key,
+          ...(target ? { title: target.title } : {}),
+          ideas: (ideaGroups.get(key) ?? []).map((d) =>
+            ideaLink(d, input.heads.get(d.id) ?? [], targetOf(d)),
+          ),
+        };
+      }),
   };
 }
 

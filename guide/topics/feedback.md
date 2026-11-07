@@ -213,9 +213,22 @@ mockpit read    --decisions               # the whole decision log, when a read 
   (the project's), `area` (`{name, description}`), `screens` and `components` (`{slug,
   title, kind, purpose, states, ready, changed, status}`), `flows`, `shared` (components with no
   area, `{slug, title, group?, purpose}`),
-  `decisions` (`{design, text, state?}`) and `ideasWaiting` (`{slug, title, status}`).
+  `decisions` (`{design, text, state?}`) and `ideasWaiting`, grouped by the design each is
+  for (`[{for, title?, ideas: [{slug, title, status, becomes?}]}]`, `for: null` last), with
+  the ideas elsewhere that are for a design of the area.
   Read it before drawing in the area. `mockpit edit --project <p> --area Food
   --description "…"` says what an area is for, without `--area` what the project is for.
+- An idea says `for` (the slug of the screen or component it explores) or `becomes`
+  (`screen`, `component`, `flow` or `system`). Its read, and each batch of a reply on it,
+  carry `target: {slug, title, kind, ruledOut: [{name, reason?, when?}], more?}`: that
+  design's archived alternatives, hidden answers and decisions' "Not:", newest first.
+  Using an alternative in it copies the version onto the target, state by state, as the
+  next version of the entry of the same name (else the state's one entry, else a new one),
+  `copiedFrom: {design, state, alternative, version, asVersion}`; the reply says
+  `usedIn: {target, created?, copies: [{state, alternative, version}]}`. When it is drawn in
+  a state the target lacks, nothing is copied: `apply: {target, states: {matched,
+  missing}}`, and the next version there is yours to publish. A screen's or component's
+  reads list `ideasFor` (`[{slug, title, status}]`).
 - `planned: true` is a declared screen or component with nothing drawn; your first publish
   draws it. `stateOutlines` says which missing states the user dismissed or asked for by
   name (`{"Loading": "dismissed"}`).

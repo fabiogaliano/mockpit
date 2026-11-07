@@ -5,7 +5,7 @@
 // hasn't lit, is its first. `?show=` narrows
 // recent to its decisions or designs.
 // `?area=` alone is everything in one of the project's areas, and with `?sec=`
-// that section of it. On a design the URL is the whole place: `?state=`,
+// that section of it. `?for=` narrows the ideas to those for one design. On a design the URL is the whole place: `?state=`,
 // `?alternative=`, `?version=`, `?view=`. The design screen keeps them current, so Back
 // and a reload land where the entry was.
 
@@ -39,6 +39,8 @@ export type Route =
       area: string | null;
       // null: all of recent.
       show: RecentShow | null;
+      // The ideas for one design, by slug; null: every idea.
+      for: string | null;
     }
   | {
       screen: "design";
@@ -76,6 +78,7 @@ export function parseRoute(pathname: string, base = "", search = ""): Route {
     sec: isHomePlace(q.get("sec")) ? (q.get("sec") as HomePlace) : null,
     area: q.get("area") || null,
     show: isRecentShow(q.get("show")) ? (q.get("show") as RecentShow) : null,
+    for: q.get("for") || null,
   });
   if (seg.length && (seg[0] !== "project" || !seg[1] || seg.length > 3)) {
     return { screen: "missing" };
@@ -109,11 +112,13 @@ export const projectPath = (
   sec: HomePlace | null = null,
   area: string | null = null,
   show: RecentShow | null = null,
+  forSlug: string | null = null,
 ) => {
   const q = new URLSearchParams();
   if (sec) q.set("sec", sec);
   if (area) q.set("area", area);
   if (show) q.set("show", show);
+  if (forSlug) q.set("for", forSlug);
   const qs = q.toString();
   return `${basePath()}/project/${encodeURIComponent(project)}${qs ? `?${qs}` : ""}`;
 };

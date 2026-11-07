@@ -52,6 +52,8 @@ const field = {
   group:
     'A component\'s library group: Actions, Inputs, Navigation, Feedback, Containers or your word. "" clears',
   source: 'Code path implementing it. "" clears',
+  for: "An idea's screen or component; Use this changes it",
+  becomes: "An idea for nothing yet: screen, component, flow or system",
   flow: "Flow this state is a step of; alone, only places it",
   step: "1-based place; 0 removes",
   kits: `Opt-in bundles: ${KIT_IDS.join("|")}`,
@@ -252,6 +254,8 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       area: { t: "string", d: field.area },
       group: { t: "string", d: field.group },
       variants: { t: "boolean", d: field.variants },
+      for: { t: "string", d: field.for },
+      becomes: { t: "string", d: field.becomes },
       source: { t: "string", d: field.source },
       html: { t: "string", d: field.html },
       poster: { t: "string", d: field.poster },
@@ -375,6 +379,8 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       area: { t: "string" },
       group: { t: "string" },
       variants: { t: "boolean", d: field.variants },
+      for: { t: "string" },
+      becomes: { t: "string" },
       source: { t: "string" },
       firstState: { t: "string", d: "Names a design's one unnamed state, so it can have more" },
       purpose: {
@@ -505,6 +511,9 @@ const feedbackSchema = o({
     })
       .optional()
       .describe("The user wants more answers to this question: ask it again, same id, with them"),
+    apply: o({ target: str, states: o({ matched: z.array(nullStr), missing: z.array(nullStr) }) })
+      .optional()
+      .describe("Not copied: bring it to target"),
   })
     .nullable()
     .describe("The user's Send; null if only messages"),
@@ -525,6 +534,9 @@ const feedbackSchema = o({
   lift: o({ parts: z.array(bag), likeLibrary: z.array(bag) })
     .optional()
     .describe("A screen just marked Ready: its own parts to lift, copies of library components"),
+  target: o({ slug: str, ruledOut: z.array(o({ name: str })).optional() })
+    .optional()
+    .describe("What the idea's design turned down"),
 }).meta({ id: "Feedback" });
 // Typed once, on feedback: repeating it on every write would cost more than
 // the rest of the write's output schema.

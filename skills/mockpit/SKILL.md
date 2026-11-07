@@ -42,6 +42,11 @@ The loop never waits for the user:
    a design from Home (kind, area), correcting its spec or marking it Ready: build on it.
    A screen's mark brings `lift`: swap copies for library instances, lift the rest
    into components, then ask `lift` (topic `feedback`).
+   Explore for a screen or component in an idea for it (`--for <slug>`), or say what an
+   idea would become (`--becomes screen|component|flow|system`). Its read and replies
+   carry `target.ruledOut`: what that design turned down; never offer it again. Using
+   an alternative there copies it onto the design (`usedIn`), or, when its states don't
+   match, says `apply`: then publish the next version there yourself.
 3. A choice is several alternatives plus one question that binds them: `mockpit ask`
    with options bound to alternatives. An alternative decides everything it differs on;
    don't re-ask it. Visual options carry an `alternative`, knob `set` or `palette`. One render

@@ -106,6 +106,8 @@ export function UseThis(props: { s: DesignScreenState; primary?: boolean }) {
   // On a newer version taking over, ChangedNote holds both ways out, so they'd show twice.
   const noteHasIt = () =>
     !s.design()?.archivedAt && !!s.changed() && sameVersion(s.onStage(), s.changed()?.to);
+  // An idea for a screen or a component changes it: the button says which.
+  const into = () => s.design()?.target?.title;
   return (
     <Show when={!readonly() && !questionOpen() && !noteHasIt() && !s.product()}>
       <Show when={usedStep() && !inUse()}>
@@ -127,18 +129,23 @@ export function UseThis(props: { s: DesignScreenState; primary?: boolean }) {
             type="button"
             class="btn use"
             classList={{ go: props.primary }}
-            aria-label="Use this version"
+            aria-label={into() ? `Use this version in ${into()}` : "Use this version"}
             disabled={!s.onStage()}
             onClick={() => void s.useThis()}
           >
-            <span class="lbl">Use this</span>
+            <span class="lbl">{into() ? `Use in ${into()}` : "Use this"}</span>
             <span class="sh">Use</span>
           </button>
         }
       >
-        <button type="button" class="btn use on" disabled aria-label="In use">
+        <button
+          type="button"
+          class="btn use on"
+          disabled
+          aria-label={into() ? `In use in ${into()}` : "In use"}
+        >
           <Icon name="check" />
-          <span class="lbl">In use</span>
+          <span class="lbl">{into() ? `In use in ${into()}` : "In use"}</span>
         </button>
       </Show>
     </Show>

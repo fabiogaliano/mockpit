@@ -50,6 +50,11 @@ user sees ("Hold menu"), never by your process ("Round 2 · …", "v2", "Prototy
 moves a design from Home (kind, area) or marks it Ready, you hear it in `feedback` as `edited`;
 a screen's mark brings `lift`: swap copies for library instances, lift the rest into
 components, then ask `lift` (`mockpit guide --topic feedback`).
+Explore for a screen or component in an idea for it (`--for <slug>`), or say what an idea
+would become (`--becomes screen|component|flow|system`). Its read and replies carry
+`target.ruledOut`: what that design turned down; never offer it again. Using an alternative
+there copies it onto the design (`usedIn`), or, when its states don't match, says `apply`:
+then publish the next version there yourself.
 
 Prefer the MCP tools when connected (`publish`, `ask`, `read`, `feedback`,
 `say`, `move`, `edit`, `system`, `export`, `upload`, `guide`); otherwise use the CLI.

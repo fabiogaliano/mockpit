@@ -195,8 +195,12 @@ export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" :
 export const questions = (n: number) => plural(n, "question");
 
 // Whose turn it is, in a word, on anything still on a shelf: an archived design has left,
-// and its place in the Archive says so.
-export function turnWord(node: StatusNode, now: number): { kind: TurnKind; text: string } | null {
+// and its place in the Archive says so. An idea in use for a design says which (`target`).
+export function turnWord(
+  node: StatusNode,
+  now: number,
+  target?: string,
+): { kind: TurnKind; text: string } | null {
   if (node.archivedAt) return null;
   if (node.status !== undefined) {
     const status = designStatus(
@@ -215,6 +219,9 @@ export function turnWord(node: StatusNode, now: number): { kind: TurnKind; text:
   }
   const status = designStatus(node, now);
   if (!status) return { kind: "idle", text: TURN_TEXT.idle };
+  if (status.kind === "decided" && target) {
+    return { kind: "decided", text: `${TURN_TEXT.decided} in ${target}` };
+  }
   return status.kind === "open"
     ? { kind: "open", text: questions(status.n) }
     : { kind: status.kind, text: TURN_TEXT[status.kind] };

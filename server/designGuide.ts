@@ -602,6 +602,23 @@ iterating on any of these?": one answer per lifted component, its id the compone
 slug, and a last one for none. Answering it marks the screen Ready again at that version
 and the components not chosen Ready; the chosen ones stay in design.
 
+## What an idea is for
+
+Explore for a screen or component in an idea for it: \`--for <slug>\` on publish or
+\`edit\` (MCP and HTTP \`"for"\`). An idea for nothing yet says what it would become:
+\`--becomes screen\`, \`component\`, \`flow\` or \`system\`. A publish nudges when an idea
+says neither and looks like it is for a design. \`read\` of an idea for a design, and each
+batch of a reply on it, carry \`target: {slug, ruledOut}\`: what that design already turned
+down (archived alternatives, hidden answers, its decisions' "Not:"), each with its
+\`reason\`. Never offer those again. When the user uses an alternative there, the version is
+copied onto the design as the next version of the state of the same name (its
+\`copiedFrom\` names the idea), current at once; the reply says \`usedIn\`. When the idea
+draws it in a state the design lacks, nothing is copied and the reply carries \`apply:
+{target, states: {matched, missing}}\`: publish the next version there yourself. An idea
+that becomes a screen or component makes it on its first use (\`usedIn.created\`; rename it
+with \`edit --slug\`) and is then for it. A system change is a palette answer or a project
+knob (\`mockpit guide system\`). \`read\` of a screen or component lists \`ideasFor\`.
+
 ## Parts
 
 \`<article data-part="body" data-part-label="Body">\`. Declare only what you want

@@ -43,6 +43,7 @@ import {
   widthChoices,
 } from "./logic.ts";
 import { Spec, specShown } from "./Spec.tsx";
+import { IdeasForList } from "./IdeasFor.tsx";
 import { OutlineRows } from "./Outlines.tsx";
 import { PaletteTool, paletteChoices } from "./PaletteTool.tsx";
 import { PreviewTool } from "./PreviewTool.tsx";
@@ -85,7 +86,8 @@ export function createMargins(
   const walkable = () =>
     (nav.steps().length + nav.outside().length > 1 || nav.emptied().length > 0) && onList();
   const statesShown = () => walkable() || (outlining() && onList());
-  const leftHas = () => statesShown() || s.steps().length > 1;
+  const ideasFor = () => s.design()?.ideasFor ?? [];
+  const leftHas = () => statesShown() || s.steps().length > 1 || ideasFor().length > 0;
   const page = () => {
     const kinds: readonly string[] =
       s.stageStep()?.kinds ?? s.activeAlternative()?.surfaces.map((x) => String(x.kind)) ?? [];
@@ -351,6 +353,9 @@ export function LeftMargin(props: { s: DesignScreenState; nav: FlowNav; m: Margi
           <StateList s={s} nav={props.nav} outlining={m.outlining()} />
         </Show>
         <AlternativesLine s={s} />
+        <Show when={s.design()?.ideasFor}>
+          {(ideas) => <IdeasForList project={s.project} ideas={ideas()} />}
+        </Show>
         <Show when={s.steps().length > 1}>
           <VersionList s={s} open={m.versionsOpen()} onToggle={m.setVersionsOpen} />
         </Show>

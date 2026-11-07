@@ -14,6 +14,11 @@ import {
   postersFor,
   treeNodeView,
   designSummaryView,
+  ideaLink,
+  type IdeaLink,
+  offShelf,
+  ideaPlaceOf,
+  type IdeaTarget,
   placeOf,
   sessionRowView,
   surfaceRef,
@@ -131,6 +136,7 @@ import {
 import { checkKnobs, checkKnobValues, discreteChoices, explicitKnob, knobFor } from "./knobs.ts";
 import { diffParts, type PartChanges, partsInSurfaces, spliceParts } from "./parts.ts";
 import { LIFT_ASK, liftedComponent, liftOf } from "./lift.ts";
+import { forNudge, likelyTarget, ruledOutOf, statesFor } from "./ideas.ts";
 import { areasShowing, isShared, sharedNudge, spansAreas } from "./library.ts";
 import { postToMarkdown } from "./postMarkdown.ts";
 import {
@@ -203,6 +209,11 @@ import {
   newestVisible,
   isLive,
   isDesignKind,
+  isIdeaBecomes,
+  type IdeaBecomes,
+  type ApplyTo,
+  type UsedIn,
+  type CopyRef,
   isPlanned,
   MAX_PROJECT_DESCRIPTION,
   MAX_SPEC,
@@ -982,7 +993,21 @@ export function createApp({
   ): Promise<FeedbackBatch[]> {
     const mine = own.length > 0 ? await buildFeedbackBatches(store, own, base) : [];
     const theirs = handedOff.length > 0 ? await buildFeedbackBatches(store, handedOff, base) : [];
-    return withSpecNudges([...mine, ...theirs.map((b) => ({ ...b, handoff: HANDOFF_NOTE }))]);
+    return withTargets(
+      await withSpecNudges([...mine, ...theirs.map((b) => ({ ...b, handoff: HANDOFF_NOTE }))]),
+    );
+  }
+
+  // A reply on an idea for a design comes with what that design has turned down, so the
+  // agent's next round doesn't offer it again.
+  async function withTargets(batches: FeedbackBatch[]): Promise<FeedbackBatch[]> {
+    for (const b of batches) {
+      if (!b.reply || !b.designId) continue;
+      const design = await store.getDesign(b.designId);
+      const target = design && (await targetOf(design));
+      if (target) b.target = await ideaTarget(target, { ruledOut: true });
+    }
+    return batches;
   }
 
   // A Send on a product design decides things its spec doesn't say yet: the batch that
@@ -1887,6 +1912,15 @@ export function createApp({
   // The answer to every write: what was published, the parts found per state,
   // what moved since the previous version, and any feedback waiting — for the
   // session that wrote, which on a new version may not be the alternative's own.
+  // The screen or component an idea is for, while it is one.
+  async function targetOf(design: Design): Promise<Design | null> {
+    if (design.kind !== "idea" || !design.for) return null;
+    const target = await store.getDesign(design.for);
+    return target && isProduct(target) ? target : null;
+  }
+
+  const ideaPlace = async (design: Design) => ideaPlaceOf(design, await targetOf(design));
+
   async function writeResult(
     design: Design,
     post: Post,
@@ -1931,8 +1965,10 @@ export function createApp({
     const shared = isProduct(design)
       ? await sharedNudgesFor(design, await areasShowingIn(design.project))
       : [];
+    const likely = likelyTarget(design, await store.listDesigns(design.project));
     const nudges = [
       ...(extra.nudges ?? []),
+      ...(likely ? [forNudge(design, likely)] : []),
       ...(system && pages.length ? pageChecks(system, pages) : []),
       ...(spec ? [spec] : []),
       ...shared.map((n) => n.nudge),
@@ -1960,6 +1996,7 @@ export function createApp({
           title: design.title,
           kind: design.kind,
           ...placeOf(design),
+          ...(await ideaPlace(design)),
           states: design.states,
         },
         post: {
@@ -2125,6 +2162,15 @@ export function createApp({
     const posts = design ? await store.listPosts({ designId: design.id }) : [];
     const variants = variantsArg(body, slug, kind ?? design?.kind ?? "idea", !!design?.variants);
     if (isResult(variants)) return variants;
+    const forIn = await forArg(body, project, design?.id ?? null);
+    if (isResult(forIn)) return forIn;
+    const becomesIn = becomesArg(body);
+    if (isResult(becomesIn)) return becomesIn;
+    const kindNow = kind ?? design?.kind ?? "idea";
+    if (kindNow !== "idea" && (forIn || becomesIn)) return notAnIdea(slug, kindNow);
+    const typing = ideaTyping(forIn, becomesIn);
+    if (isResult(typing)) return typing;
+    const { for: forId, becomes } = typing;
     const alternativeIn = entryArg(body, slug, variants ?? design?.variants ?? false);
     if (isResult(alternativeIn)) return alternativeIn;
     let state: string | null;
@@ -2181,6 +2227,8 @@ export function createApp({
           ...(area === undefined ? {} : { area }),
           ...(group === undefined ? {} : { group }),
           ...(variants === undefined ? {} : { variants }),
+          ...(forId ? { for: forId } : {}),
+          ...(becomes ? { becomes } : {}),
           ...(source === undefined ? {} : { source }),
           states: state === null ? [] : [state],
           knobs: knobs.value,
@@ -2198,6 +2246,8 @@ export function createApp({
           area,
           group,
           variants,
+          for: forId,
+          becomes,
           source,
           session,
         });
@@ -2374,6 +2424,8 @@ export function createApp({
           ...(area === undefined ? {} : { area }),
           ...(group === undefined ? {} : { group }),
           ...(variants === undefined ? {} : { variants }),
+          ...(forId ? { for: forId } : {}),
+          ...(becomes ? { becomes } : {}),
           ...(source === undefined ? {} : { source }),
           states: state === null ? [] : [state],
           knobs: knobs.value,
@@ -2416,6 +2468,8 @@ export function createApp({
         area,
         group,
         variants,
+        for: forId,
+        becomes,
         source,
         session,
       });
@@ -2453,6 +2507,8 @@ export function createApp({
         area,
         group,
         variants,
+        for: forId,
+        becomes,
         source,
         session,
       });
@@ -2503,6 +2559,8 @@ export function createApp({
       area,
       group,
       variants,
+      for: forId,
+      becomes,
       source,
       session,
     });
@@ -2872,6 +2930,66 @@ export function createApp({
     return v;
   }
 
+  // `for`: the screen or component an idea explores, by slug, title or id; "" or null
+  // clears it. Only an idea is for something, and never for another idea.
+  async function forArg(
+    body: any,
+    project: string,
+    self: string | null,
+  ): Promise<Design | null | undefined | FlowResult> {
+    const v = body?.for;
+    if (v === undefined) return undefined;
+    if (v === null || v === "") return null;
+    if (typeof v !== "string")
+      return fail(400, '"for" must name a screen or component; "" clears it');
+    const target = await resolveDesign(v, project);
+    if (isResult(target)) return target;
+    if (target.project !== project) return fail(400, `"for" names a design of ${project}`);
+    if (target.id === self) return fail(400, "an idea isn't for itself");
+    if (!isProduct(target)) {
+      return fail(
+        400,
+        `${target.slug} is an idea: "for" names the screen or component this idea would change`,
+      );
+    }
+    return target;
+  }
+
+  // `becomes`: what an idea for nothing yet would become once used; "" or null clears it.
+  function becomesArg(body: any): IdeaBecomes | null | undefined | FlowResult {
+    const v = body?.becomes;
+    if (v === undefined) return undefined;
+    if (v === null || v === "") return null;
+    if (!isIdeaBecomes(v)) return fail(400, '"becomes" must be screen, component, flow or system');
+    return v;
+  }
+
+  // An idea is for a design or would become one, never both: naming one clears the other.
+  function ideaTyping(
+    forIn: Design | null | undefined,
+    becomes: IdeaBecomes | null | undefined,
+  ): { for?: string | null; becomes?: IdeaBecomes | null } | FlowResult {
+    if (forIn && becomes) {
+      return fail(
+        400,
+        `pass "for" or "becomes", not both: an idea for ${forIn.slug} changes it rather than becoming something new`,
+      );
+    }
+    if (forIn) return { for: forIn.id, becomes: null };
+    if (becomes) return { for: null, becomes };
+    return {
+      ...(forIn === undefined ? {} : { for: null }),
+      ...(becomes === undefined ? {} : { becomes: null }),
+    };
+  }
+
+  // Both say what an idea is for, so a screen or a component takes neither.
+  const notAnIdea = (slug: string, kind: DesignKind) =>
+    fail(
+      400,
+      `${slug} is a ${kind}: only an idea is for a design or becomes one. Pass "kind": "idea", or leave "for" and "becomes" out`,
+    );
+
   // The word an agent names an entry by: a variants design's entries are variants,
   // every other design's are alternatives. The other word fails, naming the right one.
   function entryArg(
@@ -2967,10 +3085,14 @@ export function createApp({
       area?: string | null;
       group?: string | null;
       variants?: boolean;
+      for?: string | null;
+      becomes?: IdeaBecomes | null;
       source?: string | null;
       session: Session | null;
     },
   ): Promise<Design> {
+    // What an idea is for means nothing once it is a screen or a component.
+    const product = !!w.kind && w.kind !== "idea";
     const states =
       w.state !== null && !design.states.includes(w.state)
         ? [...design.states, w.state]
@@ -2985,6 +3107,9 @@ export function createApp({
       ...(w.area === undefined ? {} : { area: w.area }),
       ...(w.group === undefined ? {} : { group: w.group }),
       ...(w.variants === undefined ? {} : { variants: w.variants }),
+      ...(product ? { for: null, becomes: null } : {}),
+      ...(!product && w.for !== undefined ? { for: w.for } : {}),
+      ...(!product && w.becomes !== undefined ? { becomes: w.becomes } : {}),
       ...(w.source === undefined ? {} : { source: w.source }),
       ...(w.session ? { sessionId: w.session.id } : {}),
     });
@@ -3164,6 +3289,11 @@ export function createApp({
       ]),
     );
     const builtFrom = new Map<string, string[]>();
+    const byId = new Map(designs.map((m) => [m.id, m]));
+    const productOf = (id: string | null) => {
+      const t = id ? byId.get(id) : undefined;
+      return t && isProduct(t) ? t : null;
+    };
     for (const m of designs) {
       const designHeads = heads.get(m.id) ?? [];
       // Only instances and swaps need the html: most of a workspace's bytes are
@@ -3208,6 +3338,16 @@ export function createApp({
           instances: [...instances],
           instanceViews: views,
           noDescriptions: query.noDescriptions,
+          ...(isProduct(m)
+            ? {
+                ideasFor: designs
+                  .filter(
+                    (d) =>
+                      d.kind === "idea" && d.for === m.id && !offShelf(d, heads.get(d.id) ?? []),
+                  )
+                  .map((d) => ideaLink(d, heads.get(d.id) ?? [], m)),
+              }
+            : { idea: ideaPlaceOf(m, productOf(m.for)) }),
           ...(lastReplyAt ? { lastReplyAt } : {}),
           ...(lastSend
             ? {
@@ -3359,6 +3499,7 @@ export function createApp({
         (await shownInstances(design, posts)).map((e) => e.slug),
       ),
       ...(await shortlistReach(design)),
+      ...(await ideaFields(design, { ruledOut: !query.viewer, lines })),
     });
     return ok({
       ...(list ? { decisionLog: list } : {}),
@@ -3366,6 +3507,48 @@ export function createApp({
       ...(await systemPalettesField(design.project, query.viewer === true)),
       pending: pendingOf(design),
     });
+  }
+
+  // An idea's `for` and `becomes`, with the design it is for and, for an agent, what
+  // that design has turned down; a screen's or a component's ideas for it.
+  async function ideaFields(
+    design: Design,
+    opts: { ruledOut: boolean; lines?: DecisionLine[] | null },
+  ): Promise<{
+    idea?: ReturnType<typeof ideaPlaceOf>;
+    target?: IdeaTarget;
+    ideasFor?: IdeaLink[];
+  }> {
+    if (isProduct(design)) return { ideasFor: await ideasForOf(design) };
+    const target = await targetOf(design);
+    return {
+      idea: ideaPlaceOf(design, target),
+      ...(target ? { target: await ideaTarget(target, opts) } : {}),
+    };
+  }
+
+  async function ideaTarget(
+    target: Design,
+    opts: { ruledOut: boolean; lines?: DecisionLine[] | null },
+  ): Promise<IdeaTarget> {
+    const base = { slug: target.slug, title: target.title, kind: target.kind };
+    if (!opts.ruledOut) return base;
+    const posts = await store.listPosts({ designId: target.id });
+    const lines = opts.lines ?? (await decisionLines(target.project));
+    return { ...base, ...ruledOutOf(target, posts, lines) };
+  }
+
+  // The ideas for a design that are still on a shelf: one in the Archive is not waiting.
+  async function ideasForOf(design: Design): Promise<IdeaLink[]> {
+    const ideas = (await store.listDesigns(design.project)).filter(
+      (d) => d.kind === "idea" && d.for === design.id,
+    );
+    const out: IdeaLink[] = [];
+    for (const d of ideas) {
+      const posts = await store.listPosts({ designId: d.id });
+      if (!offShelf(d, posts)) out.push(ideaLink(d, posts, design));
+    }
+    return out;
   }
 
   async function shortlistReach(design: Design): Promise<{ repliesGoTo?: string }> {
@@ -4710,6 +4893,16 @@ export function createApp({
       sentAsk(draft.answers[a.id] === undefined ? a : withAddedAnswers(a, design, posts), draft),
     );
     const flips = replyFlips(design, posts, draft.answers, verdict, draft.version);
+    const usedHere = await useInTarget(
+      design,
+      posts,
+      [...flips.accept].flatMap(([id, version]) => {
+        const post = posts.find((p) => p.id === id);
+        return post ? [{ post, version }] : [];
+      }),
+    );
+    if (isResult(usedHere)) return usedHere;
+    Object.assign(payload, usedHere);
     const standings = sentStandings(design, draft.answers);
     if (Object.keys(standings.payload).length) payload.standings = standings.payload;
     // Serialized with the project's other system writes: the revision it makes is
@@ -4806,9 +4999,149 @@ export function createApp({
         archived: after
           .filter((p) => flips.archive.has(p.id))
           .map((p) => ({ state: p.state, alternative: p.alternative })),
+        ...usedHere,
       },
       201,
     );
+  }
+
+  // The entry of a state a used version lands on: the one of the same name, else the
+  // state's one entry, else none and a new one is made.
+  function entryFor(target: Design, posts: Post[], state: string | null, name: string) {
+    const inState = posts.filter((p) => p.state === state);
+    const named =
+      inState.find((p) => p.alternative === name && isLive(p.status)) ??
+      inState.find((p) => p.alternative === name);
+    if (named) return named;
+    const live = inState.filter((p) => isLive(p.status));
+    return !target.variants && live.length === 1 ? live[0] : null;
+  }
+
+  // Using an alternative of an idea that is for a screen or a component changes that
+  // design: each version put in use becomes the next version of the state of the same
+  // name there, a copy that names where it came from, current at once as any newer
+  // version is. When the idea draws the alternative in a state the design lacks, nothing is
+  // copied and the agent is told what to bring over. An idea that would become a screen
+  // or a component, and is for nothing yet, makes it from what is used and is then for it.
+  async function useInTarget(
+    idea: Design,
+    posts: Post[],
+    chosen: { post: Post; version: number }[],
+  ): Promise<{ usedIn?: UsedIn; apply?: ApplyTo } | FlowResult> {
+    // What was in use at that version already changes nothing, there or here.
+    const used = chosen.filter(
+      (u) => !(u.post.status === "accepted" && u.post.acceptedVersion === u.version),
+    );
+    if (!used.length || idea.kind !== "idea") return {};
+    let target = await targetOf(idea);
+    const making =
+      !target && (idea.becomes === "screen" || idea.becomes === "component") ? idea.becomes : null;
+    if (!target && !making) return {};
+    if (target) {
+      const states = statesFor(
+        idea,
+        posts,
+        used.map((u) => u.post),
+        target,
+      );
+      if (states.missing.length) return { apply: { target: target.slug, states } };
+    }
+    // Everything is checked before anything is written: a page that can't be included
+    // where it lands stops the whole use.
+    const slug = target?.slug ?? (await uniqueSlug(idea.project, idea.title));
+    const plans = [];
+    for (const u of used) {
+      const surfaces =
+        u.version === u.post.version
+          ? u.post.surfaces
+          : u.post.history.find((h) => h.version === u.version)?.surfaces;
+      if (!surfaces) return fail(404, `${u.post.alternative} has no version ${u.version}`);
+      const instances = await publishInstances(idea.project, slug, surfaces);
+      if (isResult(instances)) return instances;
+      plans.push({ ...u, surfaces, instances });
+    }
+    const created = !target;
+    if (!target) {
+      const order = idea.states.filter((st) => used.some((u) => u.post.state === st));
+      target = await store.createDesign({
+        project: idea.project,
+        slug,
+        title: idea.title,
+        kind: making!,
+        area: idea.area,
+        states: order,
+        widths: idea.widths,
+        sessionId: idea.sessionId,
+      });
+      bus.broadcast({ type: "design-created", id: target.id, project: target.project });
+      const linked = await store.updateDesign(idea.id, { for: target.id, becomes: null });
+      if (linked) bus.broadcast({ type: "design-updated", id: idea.id, project: idea.project });
+    }
+    const here = await store.listPosts({ designId: target.id });
+    const copies: UsedIn["copies"] = [];
+    for (const { post, version, surfaces, instances } of plans) {
+      const at = postAtVersion(post, version);
+      const knobs = { ...idea.knobs, ...post.knobs };
+      const from: CopyRef = {
+        design: idea.id,
+        state: post.state,
+        alternative: post.alternative,
+        version,
+      };
+      const look = {
+        contract: at?.contract ?? 1,
+        ...(at?.system === undefined ? {} : { system: at.system }),
+      };
+      const prompt = `Used from ${idea.title}: ${post.alternative} v${version}`;
+      const entry = created ? null : entryFor(target, here, post.state, post.alternative);
+      let written: Post | null;
+      if (entry) {
+        written = await store.updatePost(entry.id, {
+          surfaces,
+          knobs: Object.keys(knobs).length ? knobs : null,
+          instances,
+          prompt,
+          author: "user",
+          ...look,
+          copiedFrom: { ...from, asVersion: entry.version + 1 },
+        });
+        if (written && entry.status === "archived") {
+          written = (await store.setPostStatus(written.id, "open")) ?? written;
+        }
+      } else {
+        const inState = here.filter((p) => p.state === post.state);
+        written = await store.createPost({
+          sessionId: target.sessionId ?? post.sessionId,
+          design: target.id,
+          state: post.state,
+          alternative:
+            created || (!target.variants && inState.length === 0)
+              ? DEFAULT_ALTERNATIVE
+              : post.alternative,
+          title: target.title,
+          surfaces,
+          ...(Object.keys(knobs).length ? { knobs } : {}),
+          ...(post.description ? { description: post.description } : {}),
+          instances,
+          copiedFrom: { ...from, asVersion: 1 },
+          prompt,
+          author: "user",
+          ...look,
+        });
+      }
+      if (!written) return fail(409, `${target.slug} has no agent session to copy it under`);
+      await promoteIncluded(idea.project, instances);
+      announcePost(target, written, !entry, "user");
+      copies.push({
+        state: written.state,
+        alternative: written.alternative,
+        version: written.version,
+      });
+    }
+    bus.broadcast({ type: "design-updated", id: target.id, project: target.project });
+    return {
+      usedIn: { target: target.slug, ...(created ? { created: true as const } : {}), copies },
+    };
   }
 
   // "Use this": the user puts one exact version of an alternative in use. It
@@ -4845,6 +5178,8 @@ export function createApp({
     if (isResult(target)) return target;
     if (!target) return fail(409, `${design.slug} has no agent session to reply to`);
     const { sessionId, routed } = target;
+    const usedHere = await useInTarget(design, posts, [{ post: chosen, version }]);
+    if (isResult(usedHere)) return usedHere;
     const kept = keptAlternatives(design, posts);
     const siblings = posts.filter((p) => p.state === chosen.state && p.id !== chosen.id);
     const archive = siblings.filter((p) => isLive(p.status) && !isKeptAlternative(kept, p));
@@ -4861,6 +5196,7 @@ export function createApp({
         tuned: {},
         comments: [],
         verdict: { kind: "use", ...inUse },
+        ...usedHere,
         ...(routed ? { routed: true as const } : {}),
       },
       asks: design.asks,
@@ -4899,6 +5235,7 @@ export function createApp({
         reply: delivered,
         inUse,
         archived: archive.map((p) => ({ state: p.state, alternative: p.alternative })),
+        ...usedHere,
       },
       201,
     );
@@ -5751,6 +6088,14 @@ export function createApp({
     } else {
       const title = str(body.title, MAX_LABEL)?.trim();
       if (!title) return fail(400, 'provide "to" or "title": where to gather them');
+      // A new idea is typed by where it was started: the design it is for, the shelf
+      // it would join, the area in view.
+      const forIn = await forArg(body, project, null);
+      if (isResult(forIn)) return forIn;
+      const becomes = becomesArg(body);
+      if (isResult(becomes)) return becomes;
+      const areaIn = labelArg(body, "area", MAX_LABEL);
+      if (isResult(areaIn)) return areaIn;
       // The same name again means the same list, not a second one beside it.
       list = titledDesigns(await store.listDesigns(project), slugify(title)).find(
         (m) => m.shortlist,
@@ -5761,9 +6106,11 @@ export function createApp({
           slug: await uniqueSlug(project, title),
           title,
           kind: "idea",
-          area: first.area,
-          widths: first.widths,
+          area: areaIn !== undefined ? areaIn : forIn ? forIn.area : first.area,
+          widths: forIn?.widths.length ? forIn.widths : first.widths,
           shortlist: true,
+          ...(forIn ? { for: forIn.id } : {}),
+          ...(becomes && !forIn ? { becomes } : {}),
         });
         bus.broadcast({ type: "design-created", id: list.id, project });
       }
@@ -6368,6 +6715,8 @@ export function createApp({
       "area",
       "group",
       "variants",
+      "for",
+      "becomes",
       "source",
       "firstState",
       "purpose",
@@ -6382,7 +6731,7 @@ export function createApp({
     if (given.length === 0) {
       return fail(
         400,
-        'provide one of "slug", "title", "kind", "area", "group", "variants", "source", "firstState", "purpose" or "behaviour"',
+        'provide one of "slug", "title", "kind", "area", "group", "variants", "for", "becomes", "source", "firstState", "purpose" or "behaviour"',
       );
     }
     const design = await resolveDesign(ref, body.project, body.session);
@@ -6405,6 +6754,17 @@ export function createApp({
     if (isResult(source)) return source;
     const variants = variantsArg(body, design.slug, kind ?? design.kind, design.variants);
     if (isResult(variants)) return variants;
+    const forIn = await forArg(body, design.project, design.id);
+    if (isResult(forIn)) return forIn;
+    const becomesIn = becomesArg(body);
+    if (isResult(becomesIn)) return becomesIn;
+    const kindNow = kind ?? design.kind;
+    if (kindNow !== "idea" && (forIn || becomesIn)) return notAnIdea(design.slug, kindNow);
+    const typing = ideaTyping(forIn, becomesIn);
+    if (isResult(typing)) return typing;
+    // A screen or a component is for nothing: what the idea was for goes with the move.
+    const forNext = kindNow !== "idea" ? (design.for ? null : undefined) : typing.for;
+    const becomesNext = kindNow !== "idea" ? (design.becomes ? null : undefined) : typing.becomes;
 
     const specIn = specInput(body, design);
     if ("error" in specIn) return fail(400, specIn.error, specIn.extra);
@@ -6462,6 +6822,8 @@ export function createApp({
       area !== undefined ||
       group !== undefined ||
       variants !== undefined ||
+      forNext !== undefined ||
+      becomesNext !== undefined ||
       source !== undefined ||
       spec !== undefined
     ) {
@@ -6472,6 +6834,8 @@ export function createApp({
           ...(area === undefined ? {} : { area }),
           ...(group === undefined ? {} : { group }),
           ...(variants === undefined ? {} : { variants }),
+          ...(forNext === undefined ? {} : { for: forNext }),
+          ...(becomesNext === undefined ? {} : { becomes: becomesNext }),
           ...(source === undefined ? {} : { source }),
           ...(spec === undefined ? {} : { spec }),
         })) ?? next;
@@ -6510,6 +6874,7 @@ export function createApp({
         title: next.title,
         kind: next.kind,
         ...placeOf(next),
+        ...(await ideaPlace(next)),
         states: next.states,
       },
       ...(renaming ? { renamed: { from: design.slug, to: next.slug } } : {}),

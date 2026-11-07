@@ -8,6 +8,7 @@ import { ROUTED_NOTE } from "./handoff.ts";
 import { standingOf, type StandingView, standingView } from "./standings.ts";
 import { archivedAnswer, optionStates, withAddedAnswers } from "./alternativeQuestion.ts";
 import { shipped } from "./ready.ts";
+import type { IdeaTarget } from "./apiViews.ts";
 import {
   type AnswerStanding,
   type Ask,
@@ -141,6 +142,8 @@ export interface FeedbackBatch {
   // With a screen just marked Ready: what it draws itself, to lift into components
   // (parts) or to swap for the library's instance (likeLibrary). Then ask `lift`.
   lift?: Lift;
+  // With a reply on an idea for a design: that design, and what it has turned down.
+  target?: IdeaTarget;
 }
 
 const ref = (p: Post): AlternativeRef => ({ state: p.state, alternative: p.alternative });
