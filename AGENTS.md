@@ -161,19 +161,27 @@ consciously, not as a side effect):
   order → its `areas`, and the 4.0 words: `alternative` for a choice's `variant` in
   stored JSON (asks, drafts, replies, standings, forks and copies), `data-swap` on every part
   that had `data-fill`, `<mockpit-instance>` and `data-mockpit-instance` in every stored
-  version, a reply's `combo`, and a reply's `apply` and `lift` under its `followUps`).
+  version, a reply's `combo`, a reply's `apply` and `lift` under its `followUps`, and the design
+  a follow-up names by its id, `usedIn.targetId`).
 - **Follow-ups** (`followUps` on a feedback batch, `FollowUps` in `server/types.ts`): what a
-  decision now requires, each by what and where, never prose. A use in the design an idea is for
-  (`useInTarget`) stores `apply` (states it couldn't drop into), `gaps` (`gapsOf` in
-  `server/ideas.ts`: the target's other states, and a variants design's other variants) and
-  `instanceIn` (`showingNow`: the product designs whose shown versions show the entries just
-  written, nested included, each with its `ready` then) on `Reply.followUps`; a Ready mark
-  stores `lift` there. `spec` (`specFollowUp`, `specBehind` in `server/spec.ts`) is never stored:
-  `withSpecNudges` reads it at delivery for the batch's product design and the use's target.
-  The guide says the agent does `spec`, `apply` and `gaps` itself and publishes an idea with one
-  question for anything touching another design (`instanceIn`). `read` without a design carries
-  each design's still-open ones under `pending` (`openFollowUps`: the last stored ones, less
-  what was drawn, revisited, given an idea or asked since). The viewer shows nothing new.
+  decision now requires, each by what and where, never prose. A reply stores only what the
+  moment knew (`StoredFollowUps`: `apply` with the target's id, a Ready mark's `lift`) and a
+  use's `usedIn` with `targetId` and `drawn`. Everything else is worked out at delivery from the
+  designs as they stand (`withFollowUps` → `decisionFollowUps`): `apply`'s states still
+  missing, `gaps` (`gapsOf` in `server/ideas.ts`) and `instanceIn` (`hostsShowing`: live
+  product designs whose shown versions show the entries at those versions or newer, nested
+  included; each host's `ready` now), slugs resolved from ids, so a rename changes nothing
+  stored. `spec` (`specFollowUp`, `specBehind` in `server/spec.ts`) comes from
+  `withSpecNudges`. A publish of a component's new current version (not amend or withdraw)
+  says `instanceIn` in its result and in a batch of its own in the feedback it carries
+  (`writeResult`, nothing stored). "Done since" is judged by the shown version's write time
+  (`shownAt`, stays and Ready covers respected). `read` without a design carries each
+  design's open ones under `pending` (`openFollowUps`: an idea's latest use and a screen's
+  latest Ready edit, read with `SqlStore.latestReplies`, bounded; a lift stands while that
+  edit is the latest and no `lift` question came after it). Every list stops at 40 with
+  `more`; 40 designs carry follow-ups, `followUpsMore` counts the rest. The guide says the
+  agent does `spec`, `apply` and `gaps` itself and publishes an idea with one question for
+  anything touching another design. The viewer shows nothing new.
 - A design with a declared `kind` and no posts is **planned** (`isPlanned` in `types.ts`,
   derived, never stored): `publish` with a kind and no body declares one, and the first
   drawing fills it. `Design.stateOutlines` holds per-design answers to the outlines of

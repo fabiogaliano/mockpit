@@ -405,11 +405,12 @@ export function groupFeedback(
         standings: _standings,
         update: wanted,
         system: decidedHere,
-        followUps,
+        // What a use requires is worked out at delivery, from the designs as they stand
+        // (withFollowUps in app.ts); a reply never carries a lift.
+        followUps: _followUps,
         ...payload
       } = c.payload;
       if (decidedHere) batch.system = { rev: decidedHere.rev, changes: decidedHere.changes };
-      if (followUps) batch.followUps = { ...batch.followUps, ...followUps };
       const more =
         asked && design
           ? moreAnswers(design, designPosts, asked, c.payload.standings?.[asked.ask])

@@ -215,6 +215,8 @@ import {
   type FollowUps,
   type InstanceIn,
   type SpecFollowUp,
+  type StoredFollowUps,
+  type StoredUsedIn,
   type UsedIn,
   type CopyRef,
   isPlanned,
@@ -997,7 +999,12 @@ export function createApp({
     const mine = own.length > 0 ? await buildFeedbackBatches(store, own, base) : [];
     const theirs = handedOff.length > 0 ? await buildFeedbackBatches(store, handedOff, base) : [];
     return withTargets(
-      await withSpecNudges([...mine, ...theirs.map((b) => ({ ...b, handoff: HANDOFF_NOTE }))]),
+      await withSpecNudges(
+        await withFollowUps(
+          [...mine, ...theirs.map((b) => ({ ...b, handoff: HANDOFF_NOTE }))],
+          [...own, ...handedOff],
+        ),
+      ),
     );
   }
 
@@ -1082,15 +1089,51 @@ export function createApp({
     return areasShowing(screens);
   }
 
-  // The screens and components whose shown versions show these entries of a component
-  // at these versions, nested ones included: they look different once it changed. Each as
-  // it stood, Ready or not, and the component's own mark, which the change now reads Changed.
-  async function showingNow(
+  // Each design's posts read once per delivery or read, however many follow-ups name it.
+  const postsOnce = () => {
+    const seen = new Map<string, Promise<Post[]>>();
+    return (design: Design) => {
+      let posts = seen.get(design.id);
+      if (!posts) seen.set(design.id, (posts = store.listPosts({ designId: design.id })));
+      return posts;
+    };
+  };
+  type PostsOnce = ReturnType<typeof postsOnce>;
+
+  // When the version a live entry shows was written. "Done since" is judged by it, so a newer
+  // version the user went back from (a stay, a Ready cover) doesn't count as done.
+  const shownAt = (design: Design, post: Post) =>
+    postAtVersion(post, shownVersion(design, shipped(design, [post])[0]))?.updatedAt ?? "";
+  const drawnSince = (
+    design: Design,
+    posts: Post[],
+    since: string,
+    where: { state?: string | null; name?: string } = {},
+  ) =>
+    posts.some(
+      (p) =>
+        isLive(p.status) &&
+        (where.state === undefined || p.state === where.state) &&
+        (where.name === undefined || p.alternative === where.name) &&
+        shownAt(design, p) > since,
+    );
+
+  // A list as a follow-up carries it: the first 40, and how many more there are.
+  const MAX_FOLLOW_UP_LIST = 40;
+  const capped = <T>(list: T[]) => ({
+    list: list.slice(0, MAX_FOLLOW_UP_LIST),
+    more: Math.max(0, list.length - MAX_FOLLOW_UP_LIST),
+  });
+
+  // The live screens and components whose shown versions show these entries of a component
+  // at these versions or newer, nested ones included: they look different since it changed.
+  // One pinned to an older version doesn't.
+  async function hostsShowing(
     component: Design,
     entries: { alternative: string; version: number }[],
-  ): Promise<InstanceIn | null> {
+  ): Promise<Design[]> {
     const heads = headsByDesign(await store.listPostHeads(component.project));
-    const designs: InstanceIn["designs"] = [];
+    const hosts: Design[] = [];
     for (const m of await store.listDesigns(component.project)) {
       if (!isProduct(m) || m.archivedAt || m.id === component.id) continue;
       const mine = heads.get(m.id) ?? [];
@@ -1102,11 +1145,119 @@ export function createApp({
       const shows = shown.some(
         (e) =>
           e.slug === component.slug &&
-          entries.some((c) => c.alternative === e.variant && c.version === e.version),
+          entries.some((c) => c.alternative === e.variant && e.version >= c.version),
       );
-      if (shows) designs.push({ slug: m.slug, kind: m.kind, ready: !!m.ready });
+      if (shows) hosts.push(m);
     }
-    return designs.length ? { component: component.slug, ready: !!component.ready, designs } : null;
+    return hosts;
+  }
+
+  // The hosts as a follow-up names them, each Ready or not as it stands, and the
+  // component's own mark, which the change makes read Changed.
+  function instanceInView(component: Design, hosts: Design[]): InstanceIn {
+    const { list, more } = capped(hosts);
+    return {
+      component: component.slug,
+      ready: !!component.ready,
+      designs: list.map((m) => ({ slug: m.slug, kind: m.kind, ready: !!m.ready })),
+      ...(more ? { more } : {}),
+    };
+  }
+
+  // What a use (or an alternative that couldn't drop in) still requires, worked out from
+  // what the reply stored and the designs as they stand now: the states left to bring over
+  // (`apply`), what the target still lacks (`gaps`), and the designs showing a component
+  // that changed and that nobody has revisited or given an idea since (`instanceIn`).
+  // The target is stored by id and named by its slug now.
+  async function decisionFollowUps(
+    decided: { usedIn?: StoredUsedIn; followUps?: StoredFollowUps },
+    since: string,
+    postsOf: PostsOnce,
+  ): Promise<{ usedIn?: UsedIn; followUps: FollowUps }> {
+    const out: FollowUps = {};
+    const used = decided.usedIn;
+    const apply = decided.followUps?.apply;
+    const targetId = used?.targetId ?? apply?.targetId;
+    const target = targetId ? await store.getDesign(targetId) : null;
+    const usedIn = used
+      ? {
+          target: target?.slug ?? used.target,
+          ...(used.created ? { created: true as const } : {}),
+          copies: used.copies,
+        }
+      : undefined;
+    if (!target || !isProduct(target)) return { usedIn, followUps: out };
+    const posts = await postsOf(target);
+    if (apply) {
+      const missing = apply.states.missing.filter(
+        (state) => !drawnSince(target, posts, since, { state }),
+      );
+      if (missing.length)
+        out.apply = { target: target.slug, states: { matched: apply.states.matched, missing } };
+    }
+    const drawn = used
+      ? (used.drawn ?? used.copies.map((c) => c.state))
+      : apply
+        ? [...apply.states.matched, ...apply.states.missing]
+        : [];
+    const gaps = gapsOf(target, posts, drawn, used?.copies ?? []);
+    if (gaps) {
+      const states = capped(
+        (gaps.states ?? []).filter((state) => !drawnSince(target, posts, since, { state })),
+      );
+      let more = states.more;
+      const open = (gaps.variants ?? []).flatMap((v) => {
+        const names = capped(
+          v.names.filter((name) => !drawnSince(target, posts, since, { state: v.state, name })),
+        );
+        more += names.more;
+        return names.list.length ? [{ state: v.state, names: names.list }] : [];
+      });
+      const variants = capped(open);
+      more += variants.more;
+      if (states.list.length || variants.list.length)
+        out.gaps = {
+          target: target.slug,
+          ...(states.list.length ? { states: states.list } : {}),
+          ...(variants.list.length ? { variants: variants.list } : {}),
+          ...(more ? { more } : {}),
+        };
+    }
+    if (used && target.kind === "component") {
+      const ideas = (await store.listDesigns(target.project)).filter(
+        (d) => d.kind === "idea" && d.for && !d.archivedAt,
+      );
+      const open: Design[] = [];
+      for (const host of await hostsShowing(target, used.copies)) {
+        if (drawnSince(host, await postsOf(host), since)) continue;
+        let explored = false;
+        for (const idea of ideas) {
+          if (idea.for === host.id && drawnSince(idea, await postsOf(idea), since)) explored = true;
+        }
+        if (!explored) open.push(host);
+      }
+      if (open.length) out.instanceIn = instanceInView(target, open);
+    }
+    return { usedIn, followUps: out };
+  }
+
+  // Each batch of a reply that used an alternative in a design (or couldn't): what it
+  // requires now, from what the reply stored (`comments` holds the stored payloads).
+  async function withFollowUps(
+    batches: FeedbackBatch[],
+    comments: Comment[],
+  ): Promise<FeedbackBatch[]> {
+    const bySeq = new Map(comments.map((c) => [c.seq, c]));
+    const postsOf = postsOnce();
+    for (const b of batches) {
+      if (!b.reply) continue;
+      const payload = bySeq.get(b.reply.seq)?.payload;
+      if (!payload?.usedIn && !payload?.followUps?.apply) continue;
+      const { usedIn, followUps } = await decisionFollowUps(payload, b.reply.at, postsOf);
+      if (usedIn) b.reply.usedIn = usedIn;
+      if (Object.keys(followUps).length) b.followUps = { ...b.followUps, ...followUps };
+    }
+    return batches;
   }
 
   // The move to shared offered for this component, or for each component this design
@@ -1984,6 +2135,8 @@ export function createApp({
       writer?: Session | null;
       flow?: { name: string; steps: FlowStep[] };
       withdrawn?: number;
+      // A new current version (not an amend or a withdraw): a component's hosts now show it.
+      current?: boolean;
     } = {},
   ): Promise<FlowResult> {
     const posts = await store.listPosts({ designId: design.id });
@@ -2038,6 +2191,28 @@ export function createApp({
     }
     const warnings = await iconWarnings(design.project, post.surfaces);
     const feedback = await collectFeedback(extra.writer?.id ?? post.sessionId, ctx.base);
+    // A component's new current version changes every design that shows it. Said in the
+    // result and as a batch of its own in the feedback it brings, so every tier that reads
+    // feedback hears it; nothing is stored.
+    const hosts =
+      extra.current && design.kind === "component"
+        ? await hostsShowing(design, [{ alternative: post.alternative, version: post.version }])
+        : [];
+    const followUps: FollowUps | null = hosts.length
+      ? { instanceIn: instanceInView(design, hosts) }
+      : null;
+    if (followUps)
+      feedback.push({
+        designId: design.id,
+        project: design.project,
+        design: design.slug,
+        title: design.title,
+        reply: null,
+        messages: [],
+        inUse: [],
+        archived: [],
+        followUps,
+      });
     return ok(
       {
         design: {
@@ -2073,6 +2248,7 @@ export function createApp({
         ...(slotAsks.length ? { suggestedSwapAsks: slotAsks } : {}),
         ...(warnings.length ? { warnings } : {}),
         ...(extra.flow ? { flow: extra.flow } : {}),
+        ...(followUps ? { followUps } : {}),
         feedback,
       },
       extra.status ?? 200,
@@ -2527,7 +2703,7 @@ export function createApp({
       const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
       announcePost(design, created, true);
       if (prompt && ctx.request) notifyPublish(design, created, prompt, ctx);
-      return writeResult(design, created, ctx, { nudges, status: 201, flow });
+      return writeResult(design, created, ctx, { nudges, status: 201, flow, current: true });
     }
 
     if (!design) return missing();
@@ -2623,6 +2799,7 @@ export function createApp({
       nudges,
       writer: session,
       flow,
+      current: true,
     });
   }
 
@@ -3319,11 +3496,13 @@ export function createApp({
     );
     const rows = [];
     const pending = [];
-    const owed = project ? await openFollowUps(project, designs, heads) : new Map();
+    const owed = project
+      ? await openFollowUps(project, designs)
+      : { byDesign: new Map<string, FollowUps>(), more: 0 };
     for (const m of designs) {
       const posts = heads.get(m.id) ?? [];
       rows.push(designSummaryView(m, posts));
-      const followUps = owed.get(m.id);
+      const followUps = owed.byDesign.get(m.id);
       pending.push({ ...pendingOf(m), ...(followUps ? { followUps } : {}) });
     }
     const open = rows.reduce((n, r) => n + r.open, 0);
@@ -3338,80 +3517,56 @@ export function createApp({
       open,
       openDesigns: rows.filter((r) => r.open > 0).length,
       pending,
+      // Designs with open follow-ups past the 40 that carry them.
+      ...(owed.more ? { followUpsMore: owed.more } : {}),
     });
   }
 
   // What each design's last decision still requires, so an agent that restarts sees it:
-  // the follow-ups its latest batch carried, less what has been done since (the target
-  // drawn again in those states, a host revisited or given an idea, `lift` asked after
-  // the mark), and every product design whose spec is behind its decisions now.
+  // an idea's latest use, worked out as a batch would be now, less what was drawn, revisited
+  // or given an idea since (by the versions shown); a Ready screen's lift, while the mark
+  // that brought it stands (no Ready edit since) and no lift question was asked after it;
+  // and every product design whose spec is behind its decisions. The 40 designs with the
+  // newest follow-ups carry them, and `more` says how many others have some.
   async function openFollowUps(
     project: string,
     designs: Design[],
-    heads: Map<string, PostHead[]>,
-  ): Promise<Map<string, FollowUps>> {
-    const out = new Map<string, FollowUps>();
-    const bySlug = new Map(designs.map((m) => [m.slug, m]));
-    const wroteSince = (m: Design | undefined, since: string, states?: (string | null)[]) =>
-      !!m &&
-      (heads.get(m.id) ?? []).some(
-        (p) => isLive(p.status) && p.updatedAt > since && (!states || states.includes(p.state)),
-      );
-    const exploredSince = (m: Design, since: string) =>
-      designs.some((d) => d.kind === "idea" && d.for === m.id && wroteSince(d, since));
+  ): Promise<{ byDesign: Map<string, FollowUps>; more: number }> {
+    const postsOf = postsOnce();
     const lines = await decisionLines(project);
+    const found: { id: string; at: string; followUps: FollowUps }[] = [];
     for (const m of designs) {
       if (m.archivedAt) continue;
       const open: FollowUps = {};
-      const last = (await store.listComments({ designId: m.id }))
-        .filter((c) => c.kind === "reply" && c.payload?.followUps)
-        .at(-1);
-      const stored = last?.payload?.followUps;
-      const since = last?.createdAt ?? "";
-      if (stored?.apply) {
-        const { matched, missing } = stored.apply.states;
-        if (!wroteSince(bySlug.get(stored.apply.target), since, [...matched, ...missing]))
-          open.apply = stored.apply;
+      let at = "";
+      if (m.kind === "idea") {
+        const last = (
+          await store.latestReplies(m.id, ['"usedIn":{', '"apply":{"targetId"'], 5)
+        ).find((c) => c.payload?.usedIn || c.payload?.followUps?.apply);
+        if (last?.payload) {
+          at = last.createdAt;
+          Object.assign(open, (await decisionFollowUps(last.payload, at, postsOf)).followUps);
+        }
       }
-      if (stored?.gaps) {
-        const target = bySlug.get(stored.gaps.target);
-        const states = (stored.gaps.states ?? []).filter((st) => !wroteSince(target, since, [st]));
-        const variants = (stored.gaps.variants ?? []).flatMap((v) => {
-          const names = v.names.filter(
-            (n) =>
-              !(target ? (heads.get(target.id) ?? []) : []).some(
-                (p) => p.state === v.state && p.alternative === n && p.updatedAt > since,
-              ),
-          );
-          return names.length ? [{ state: v.state, names }] : [];
-        });
-        if (states.length || variants.length)
-          open.gaps = {
-            target: stored.gaps.target,
-            ...(states.length ? { states } : {}),
-            ...(variants.length ? { variants } : {}),
-          };
+      if (m.kind === "screen" && m.ready) {
+        // The latest Ready edit is the mark standing: pressing Ready over the same covers
+        // writes none, so an unfulfilled lift survives it.
+        const mark = (await store.latestReplies(m.id, ['"ready":{"ready"'], 5)).find(
+          (c) => c.payload?.edited?.ready,
+        );
+        const lift = mark?.payload?.edited?.ready?.ready ? mark.payload.followUps?.lift : undefined;
+        if (mark && lift && !m.asks.some((a) => a.id === LIFT_ASK && a.at > mark.createdAt)) {
+          open.lift = lift;
+          if (mark.createdAt > at) at = mark.createdAt;
+        }
       }
-      if (stored?.instanceIn) {
-        const left = stored.instanceIn.designs.filter((d) => {
-          const host = bySlug.get(d.slug);
-          return host && !wroteSince(host, since) && !exploredSince(host, since);
-        });
-        if (left.length) open.instanceIn = { ...stored.instanceIn, designs: left };
-      }
-      // A later mark, or the answer that marked it again, supersedes it; so does asking.
-      if (
-        stored?.lift &&
-        m.ready &&
-        m.ready.at <= since &&
-        !m.asks.some((a) => a.id === LIFT_ASK && a.at > since)
-      )
-        open.lift = stored.lift;
       const spec = isProduct(m) ? await specFollowUp(m, lines) : null;
       if (spec) open.spec = [spec];
-      if (Object.keys(open).length) out.set(m.id, open);
+      if (Object.keys(open).length) found.push({ id: m.id, at, followUps: open });
     }
-    return out;
+    found.sort((a, b) => b.at.localeCompare(a.at));
+    const { list, more } = capped(found);
+    return { byDesign: new Map(list.map((f) => [f.id, f.followUps])), more };
   }
 
   // The project as a tree: every design with its alternatives per state (status,
@@ -5171,7 +5326,7 @@ export function createApp({
         archived: after
           .filter((p) => flips.archive.has(p.id))
           .map((p) => ({ state: p.state, alternative: p.alternative })),
-        ...usedHere,
+        ...(await usedHereView(usedHere)),
       },
       201,
     );
@@ -5199,7 +5354,7 @@ export function createApp({
     idea: Design,
     posts: Post[],
     chosen: { post: Post; version: number }[],
-  ): Promise<{ usedIn?: UsedIn; followUps?: FollowUps } | FlowResult> {
+  ): Promise<{ usedIn?: StoredUsedIn; followUps?: StoredFollowUps } | FlowResult> {
     // What was in use at that version already changes nothing, there or here.
     const used = chosen.filter(
       (u) => !(u.post.status === "accepted" && u.post.acceptedVersion === u.version),
@@ -5218,15 +5373,7 @@ export function createApp({
         )
       : null;
     if (target && states?.missing.length) {
-      const gaps = gapsOf(
-        target,
-        await store.listPosts({ designId: target.id }),
-        states,
-        used.map((u) => u.post),
-      );
-      return {
-        followUps: { apply: { target: target.slug, states }, ...(gaps ? { gaps } : {}) },
-      };
+      return { followUps: { apply: { targetId: target.id, states } } };
     }
     // One project's copies land one at a time, whichever ideas they come from: each checks
     // its instances against the graph as the last copy left it, so two uses onto different
@@ -5329,19 +5476,28 @@ export function createApp({
         });
       }
       bus.broadcast({ type: "design-updated", id: into.id, project: into.project });
-      // A design made by this use has exactly the states used and nothing showing it yet.
-      const gaps = !created && states ? gapsOf(into, here, states, copies) : null;
-      const instanceIn =
-        !created && into.kind === "component" ? await showingNow(into, copies) : null;
-      const followUps: FollowUps = {
-        ...(gaps ? { gaps } : {}),
-        ...(instanceIn ? { instanceIn } : {}),
-      };
       return {
-        usedIn: { target: into.slug, ...(created ? { created: true as const } : {}), copies },
-        ...(Object.keys(followUps).length ? { followUps } : {}),
+        usedIn: {
+          target: into.slug,
+          targetId: into.id,
+          ...(created ? { created: true as const } : {}),
+          copies,
+          drawn: states?.matched ?? copies.map((c) => c.state),
+        },
       };
     });
+  }
+
+  // What a use tells the viewer that made it: the target by its slug now.
+  async function usedHereView(stored: {
+    usedIn?: StoredUsedIn;
+    followUps?: StoredFollowUps;
+  }): Promise<{ usedIn?: UsedIn; followUps?: FollowUps }> {
+    const { usedIn, followUps } = await decisionFollowUps(stored, "", postsOnce());
+    return {
+      ...(usedIn ? { usedIn } : {}),
+      ...(followUps.apply ? { followUps: { apply: followUps.apply } } : {}),
+    };
   }
 
   // "Use this": the user puts one exact version of an alternative in use. It
@@ -5441,7 +5597,7 @@ export function createApp({
         reply: delivered,
         inUse,
         archived: archive.map((p) => ({ state: p.state, alternative: p.alternative })),
-        ...usedHere,
+        ...(await usedHereView(usedHere)),
       },
       201,
     );

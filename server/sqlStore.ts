@@ -817,6 +817,67 @@ export class SqlStore implements Store {
     this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('followUpWords', '1')");
   }
 
+  // A reply names the design a use landed on by id, so a rename changes nothing stored, and
+  // keeps only what the moment alone knew (`apply`, `lift`): gaps and the designs showing a
+  // changed component are worked out at delivery. A slug whose design is gone stays a label.
+  private migrateFollowUpIds() {
+    const idOf = new Map<string, string>();
+    for (const r of this.sql.exec("SELECT id, project, slug FROM designs").toArray()) {
+      idOf.set(`${r.project}\n${r.slug}`, r.id as string);
+    }
+    const projectOf = new Map<string, string>();
+    for (const r of this.sql.exec("SELECT id, project FROM designs").toArray()) {
+      projectOf.set(r.id as string, r.project as string);
+    }
+    const designOf = new Map<number, string>();
+    for (const r of this.sql
+      .exec(
+        "SELECT seq, designId FROM comments WHERE kind = 'reply' AND designId IS NOT NULL AND (instr(payload, '\"usedIn\":') > 0 OR instr(payload, '\"followUps\":') > 0)",
+      )
+      .toArray()) {
+      designOf.set(r.seq as number, r.designId as string);
+    }
+    this.rewriteJson(
+      "comments",
+      "seq",
+      "payload",
+      (p, seq) => {
+        const reply = p as Record<string, any>;
+        const project = projectOf.get(designOf.get(seq as number) ?? "");
+        const find = (slug: unknown) =>
+          project && typeof slug === "string" ? idOf.get(`${project}\n${slug}`) : undefined;
+        let changed = false;
+        const used = reply.usedIn;
+        if (used && typeof used === "object" && !used.targetId) {
+          const id = find(used.target);
+          if (id) {
+            used.targetId = id;
+            changed = true;
+          }
+        }
+        const f = reply.followUps;
+        if (f && typeof f === "object") {
+          if (f.apply && !f.apply.targetId) {
+            const id = find(f.apply.target);
+            if (id) f.apply = { targetId: id, states: f.apply.states };
+            else delete f.apply;
+            changed = true;
+          }
+          for (const key of ["gaps", "instanceIn", "spec"]) {
+            if (key in f) {
+              delete f[key];
+              changed = true;
+            }
+          }
+          if (!Object.keys(f).length) delete reply.followUps;
+        }
+        return changed;
+      },
+      "kind = 'reply' AND (instr(payload, '\"usedIn\":') > 0 OR instr(payload, '\"followUps\":') > 0)",
+    );
+    this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('followUpIds', '1')");
+  }
+
   private renameMocksToDesigns() {
     if (!this.tables().has("mocks") || this.tables().has("designs")) return;
     for (const name of [
@@ -1018,6 +1079,7 @@ export class SqlStore implements Store {
     if (this.settingSync("instanceWords") !== "1") this.migrateToInstanceWords();
     if (this.settingSync("comboWords") !== "1") this.migrateToComboWords();
     if (this.settingSync("followUpWords") !== "1") this.migrateToFollowUps();
+    if (this.settingSync("followUpIds") !== "1") this.migrateFollowUpIds();
     // The day it went was never kept, and the design's last change is the nearest thing.
     // Frozen now, or the next reason or draft on the design would move it to that day.
     if (!dated) {
@@ -3179,6 +3241,20 @@ export class SqlStore implements Store {
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
     return this.sql
       .exec(`SELECT * FROM comments ${where} ORDER BY seq ASC`, ...params)
+      .toArray()
+      .map((r) => this.rowToComment(r));
+  }
+
+  async latestReplies(designId: string, contains: string[], limit: number) {
+    if (!contains.length) return [];
+    const like = contains.map(() => "instr(payload, ?) > 0").join(" OR ");
+    return this.sql
+      .exec(
+        `SELECT * FROM comments WHERE designId = ? AND kind = 'reply' AND (${like}) ORDER BY seq DESC LIMIT ?`,
+        designId,
+        ...contains,
+        limit,
+      )
       .toArray()
       .map((r) => this.rowToComment(r));
   }

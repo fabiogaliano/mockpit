@@ -634,10 +634,11 @@ export interface Reply {
   // (another kind, another area; null area: none), which the agent must hear.
   edited?: DesignEdit;
   // On an idea for a design: what the alternative put in use became there.
-  usedIn?: UsedIn;
-  // What this decision now requires elsewhere, worked out when it was made, so it says
-  // what stood then (a host was Ready). `spec` is never stored: it is read at delivery.
-  followUps?: FollowUps;
+  usedIn?: StoredUsedIn;
+  // What this decision requires that only the moment knew: the states an alternative
+  // couldn't drop into, and a Ready mark's pieces. Everything else a batch says it needs
+  // (gaps, instanceIn, spec) is worked out at delivery from the designs as they stand.
+  followUps?: StoredFollowUps;
   // What this reply changed on the project's system: the revision it made and how.
   // Alone (no design) it is the user's hand on the System page.
   system?: { project: string; rev: number; changes: string[] };
@@ -650,10 +651,20 @@ export interface UsedIn {
   created?: true;
   copies: { state: string | null; alternative: string; version: number }[];
 }
+// As a reply stores it: the target by id, so a rename changes nothing stored, and where
+// the used alternative is drawn, which the batch's gaps are read against.
+export interface StoredUsedIn extends UsedIn {
+  targetId?: string;
+  drawn?: (string | null)[];
+}
 export interface ApplyTo {
   target: string;
   // The states the alternative is drawn in, those the target has and those it lacks.
   states: { matched: (string | null)[]; missing: (string | null)[] };
+}
+export interface StoredFollowUps {
+  apply?: { targetId: string; states: ApplyTo["states"] };
+  lift?: Lift;
 }
 
 // What the design an idea is for has that the alternative used there doesn't draw: its
@@ -662,14 +673,18 @@ export interface Gaps {
   target: string;
   states?: (string | null)[];
   variants?: { state: string | null; names: string[] }[];
+  // How many states and variant names past the 40 a list says (`read <target>` has all).
+  more?: number;
 }
 
-// The designs that show a component that just changed, each as it stood: Ready or not.
-// The component's own `ready` was its mark before the change, which it now reads Changed.
+// The designs that show a component that just changed, Ready or not as they stand. The
+// component's own `ready` is its mark, which the change makes read Changed.
 export interface InstanceIn {
   component: string;
   ready: boolean;
   designs: { slug: string; kind: DesignKind; ready: boolean }[];
+  // Hosts past the 40 listed (`read --tree` names every one in instanceIn).
+  more?: number;
 }
 
 // A product design whose decisions are newer than its spec (or that has none).
@@ -680,7 +695,7 @@ export interface SpecFollowUp {
 }
 
 // What a decision requires beyond answering it, by what and where, never as prose:
-// mockpit works out each from the reply and what it changed (feedbackBatch.ts).
+// mockpit works out each from the reply and what it changed, at delivery.
 export interface FollowUps {
   // An alternative used in a design whose states it couldn't drop into.
   apply?: ApplyTo;
@@ -1461,6 +1476,9 @@ export interface Store {
   listDecisionSources(project: string): Promise<DecisionSources>;
 
   listComments(query: CommentQuery): Promise<Comment[]>;
+  // A design's newest replies whose payload holds one of `contains`, newest first, at most
+  // `limit`: what an open follow-up is read from without loading the whole thread.
+  latestReplies(designId: string, contains: string[], limit: number): Promise<Comment[]>;
   createComment(input: CreateCommentInput): Promise<Comment | null>;
   removeComment(id: string): Promise<Comment | null>;
   commitReply(input: CommitReplyInput): Promise<Comment | null>;

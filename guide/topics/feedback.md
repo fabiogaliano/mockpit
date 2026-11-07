@@ -177,14 +177,22 @@ what and where:
   and on a variants design the other `variants` of the states it landed in. Draw them on
   the target so they follow the choice.
 - `lift`: a screen just marked Ready (above).
-- `instanceIn`: the designs that show a component that just changed (a use put a new
-  version on it), each as it stood (`ready`); a Ready component now reads Changed. For each
-  that the change breaks, publish an idea for it (`--for <slug>`) with one question; never
-  change another design directly. The same goes for anything else a choice touches
-  elsewhere: the user chooses, the way ideas work.
+- `instanceIn`: the designs that show a component that just changed, a use or your own
+  publish of a new current version (that write's result carries `followUps` and a batch of
+  its own for the component), each Ready or not as it stands; a Ready component now reads
+  Changed. For each that the change breaks, publish an idea for it (`--for <slug>`) with one
+  question; never change another design directly. The same goes for anything else a choice
+  touches elsewhere: the user chooses, the way ideas work.
+
+Each is worked out when the batch is delivered, from the designs as they stand, so a design
+that no longer shows the component isn't named, and every slug is the design's slug now. A
+list stops at 40 and says how many more (`more`): `read --tree` names every design in
+`instanceIn`, `read <target>` every state.
 
 `read` without a design carries what is still open under `pending`, each design's
-`followUps` from its last decision, less what was done since, so a restart finds them.
+`followUps` from its last decision, less what was done since by the versions the designs
+show (one state of `apply` drawn drops that state), so a restart finds them. Up to 40
+designs carry them, newest first; `followUpsMore` counts the rest.
 
 ## Delivery
 

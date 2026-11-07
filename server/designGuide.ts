@@ -628,10 +628,12 @@ next version on the target, which takes over as any newer one does. \`gaps\` (\`
 states?, variants?}\`): what the target has that the used alternative doesn't draw; draw
 those states or variants there so they follow the choice. \`lift\`: The library.
 \`instanceIn\` (\`{component, ready, designs: [{slug, kind, ready}]}\`): the designs showing a
-component that just changed, Ready or not (a Ready component now reads Changed). Fixing
+component that just changed, by a use or by your publish of a new version (its result and
+a batch of its own say so), Ready or not (a Ready component now reads Changed). Fixing
 what a choice breaks there, or anything else touching another design, is the user's to
 choose: publish an idea for that design (\`--for <slug>\`) with one question, never change
-it directly. \`read\` without a design lists the ones still open under \`pending\`.
+it directly. A list stops at 40 and says \`more\`. \`read\` without a design lists the ones
+still open under \`pending\`.
 
 ## Parts
 
