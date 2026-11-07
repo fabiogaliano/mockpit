@@ -877,13 +877,14 @@ export class SqlStore implements Store {
       .toArray();
     const ideaOf = new Map(replies.map((r) => [r.seq as number, r.designId as string]));
     type Copy = { state: string | null; alternative: string };
-    // The project's design a reply's slug named: by the slug, else by what the idea's uses
-    // copied (the copies this one made first), else by what the idea is for.
+    // The project's design a reply's slug named. What the use itself copied comes first, then
+    // the slug, then what the idea's other uses copied, then what the idea is for: a target
+    // renamed before the upgrade may have left its old slug to an unrelated design, so the
+    // slug counts only for a screen or component that the idea's own history doesn't contradict.
     const targetOf = (idea: string, slug: unknown, copies: Copy[]) => {
       const project = designs.get(idea)?.project;
       if (!project) return undefined;
       const bySlug = typeof slug === "string" ? idOf.get(`${project}\n${slug}`) : undefined;
-      if (bySlug) return bySlug;
       // A gathered idea's candidates are copies too: only a screen or a component is a target.
       const made = (copiesFrom.get(idea) ?? []).filter((c) => {
         const t = designs.get(c.target);
@@ -897,11 +898,13 @@ export class SqlStore implements Store {
         copies.some((x) => x.state === c.state && x.alternative === c.alternative),
       );
       const forId = designs.get(idea)?.for;
-      return (
-        one(fromThisUse) ??
-        one(made) ??
-        (forId && designs.get(forId)?.project === project ? forId : undefined)
-      );
+      const fromThis = one(fromThisUse);
+      if (fromThis) return fromThis;
+      const known =
+        one(made) ?? (forId && designs.get(forId)?.project === project ? forId : undefined);
+      const slugFits =
+        !!bySlug && designs.get(bySlug)?.kind !== "idea" && (!known || known === bySlug);
+      return slugFits ? bySlug : known;
     };
     const livePosts = new Map<string, { state: string | null; alternative: string }[]>();
     const liveOf = (idea: string) => {
