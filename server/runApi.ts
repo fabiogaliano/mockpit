@@ -28,7 +28,7 @@ type Written = {
   post?: { state: string | null; alternative: string; version: number }; planned?: true; url: string;
   parts?: { state: string | null; parts: { name: string }[] }[];
   partChanges?: { vanished: string[]; renamed: { from: string; to: string }[] };
-  nudges?: string[]; suggestedAsk?: Ask; suggestedFillAsks?: Ask[]; // send with ask when nudged
+  nudges?: string[]; suggestedAsk?: Ask; suggestedSwapAsks?: Ask[]; // send with ask when nudged
 };
 type Feedback = {
   design: string | null;
@@ -46,9 +46,9 @@ declare const mockpit: {
   read(design?: string, opts?: { body?: boolean; history?: boolean; decisions?: boolean; area?: string }): Promise<unknown>;
   /** Creates or versions (design, state, alternative). One of: html; surfaces, the full ordered list
    * ({id} alone keeps that surface, a missing id is removed); parts {"name"|"name#key": outer html};
-   * fills {"part#fill": outer html}, replacing or adding one fill of a part.
+   * swaps {"part#swap": outer html}, replacing or adding one swap of a part.
    * None of them, with kind screen or component: plans it, for a later publish to draw. */
-  publish(v: Ref & { title?: string; kind?: "screen" | "component" | "idea"; area?: string; group?: string; variants?: boolean; source?: string; html?: string; poster?: string; surfaces?: (Surface | { id: string })[]; parts?: Record<string, string>; fills?: Record<string, string>; knobs?: Knobs; alternativeKnobs?: Knobs; from?: number; prompt?: string; description?: string; widths?: number[]; flow?: string; step?: number }): Promise<Written>;
+  publish(v: Ref & { title?: string; kind?: "screen" | "component" | "idea"; area?: string; group?: string; variants?: boolean; source?: string; html?: string; poster?: string; surfaces?: (Surface | { id: string })[]; parts?: Record<string, string>; swaps?: Record<string, string>; knobs?: Knobs; alternativeKnobs?: Knobs; from?: number; prompt?: string; description?: string; widths?: number[]; flow?: string; step?: number }): Promise<Written>;
   ask(design: string, asks: Ask[]): Promise<{ asks: { id: string; text: string }[]; url: string; nudges?: string[] }>;
   /** Never waits: what the user sent since you last heard, and what they are doing now. */
   feedback(): Promise<{ feedback: Feedback[]; pending: Pending[] }>;
@@ -61,7 +61,7 @@ declare const mockpit: {
   /** The project's system: sheet, tokens, scales, palettes, project knobs. No argument reads it;
    * each key replaces its part (tokens, scales, palettes upsert by name). Applies to every design at once. */
   system(v?: { sheet?: string; classes?: { name: string; note: string }[]; fonts?: { family: string; href?: string }[]; tokens?: unknown[]; scales?: unknown[]; roles?: { name: string; note: string }[]; palettes?: unknown[]; pairs?: [string, string, number][]; as?: Record<string, string>; knobs?: Knobs; remove?: { tokens?: string[]; palettes?: string[]; scales?: string[] }; restore?: number }): Promise<{ rev: number; changed?: string[]; kept?: string[]; checks: string[]; url: string }>;
-  export(v: Ref): Promise<{ states: { state: string | null; alternative: string; version: number; html: string; allFills?: string }[]; reply: unknown }>;
+  export(v: Ref): Promise<{ states: { state: string | null; alternative: string; version: number; html: string; allSwaps?: string }[]; reply: unknown }>;
   /** Without design: the project's system for code. css holds the default palette on :root and kept ones by [data-palette]. */
   export(v: {}): Promise<{ rev: number; sheet: string; css: string; tokens: unknown; knobs: Record<string, unknown>; additions: { knob: string; value: string; style: string }[]; components: { slug: string; purpose: string; source: string | null }[] }>;
   /** data: base64 bytes. Use id as an image surface's assetId. */

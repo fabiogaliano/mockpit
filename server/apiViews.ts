@@ -2,7 +2,7 @@
 // one design reads the same however an agent asks for it.
 
 import { isShared } from "./library.ts";
-import { slotKnobs, slotsInSurfaces } from "./fills.ts";
+import { slotKnobs, slotsInSurfaces } from "./swaps.ts";
 import type { Mode } from "./themes.ts";
 import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
 import { isKeptAlternative, keptAlternatives } from "./standings.ts";
@@ -257,11 +257,11 @@ export const alternativeView = (post: Post, opts: AlternativeViewOptions = {}) =
   ...(post.amendedAt ? { amendedAt: post.amendedAt } : {}),
   // Frame URLs carry it (`w`): an amended version keeps its number.
   ...(post.rewrites ? { rewrites: post.rewrites } : {}),
-  // A part with fills is a select knob on its part (fills.ts); declared knobs win.
+  // A part with swaps is a select knob on its part (swaps.ts); declared knobs win.
   ...(slotsInSurfaces(post.surfaces).length || post.knobs
     ? { knobs: { ...slotKnobs(slotsInSurfaces(post.surfaces)), ...post.knobs } }
     : {}),
-  ...(slotsInSurfaces(post.surfaces).length ? { fills: slotsInSurfaces(post.surfaces) } : {}),
+  ...(slotsInSurfaces(post.surfaces).length ? { swaps: slotsInSurfaces(post.surfaces) } : {}),
   ...(post.description ? { description: post.description } : {}),
   // Embedded components as they render now (server/embeds.ts); `publishedWith`
   // is what this version rendered with when it was published.

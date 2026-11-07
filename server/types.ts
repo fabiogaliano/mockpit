@@ -426,12 +426,12 @@ export interface AskOption {
 }
 
 // One knob value and what makes it draw: a style that holds only while it is chosen,
-// or, with the knob at a part's path, a new fill of that part.
+// or, with the knob at a part's path, a new swap of that part.
 export interface AnswerAddition {
   knob: string;
   value: string;
   style?: string;
-  fill?: string;
+  swap?: string;
   // Bumped each time the agent revises what the value draws; absent is the first.
   rev?: number;
 }
@@ -737,7 +737,7 @@ export interface DesignReady {
 export type StateOutline = "dismissed" | "requested";
 
 // Declared and not drawn yet: a screen or component the agent planned, which its next
-// publish fills. An undeclared design with nothing in it is no plan, only empty.
+// publish swaps. An undeclared design with nothing in it is no plan, only empty.
 export const isPlanned = (design: { kind: DesignKind }, alternatives: number): boolean =>
   design.kind !== "idea" && alternatives === 0;
 
@@ -1420,7 +1420,7 @@ export interface SqlStorage {
 
 // A surface as overviews read it, stored beside its body so that listing a
 // project never reads the bodies, which hold nearly all of a workspace's bytes.
-// `marked` says the html has embeds or fills, the two things an overview must
+// `marked` says the html has embeds or swaps, the two things an overview must
 // read the body to resolve.
 export interface SurfaceHead {
   kind: Surface["kind"];

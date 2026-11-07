@@ -43,7 +43,7 @@ const field = {
   from: "Branch from this version",
   amend: "Replace the latest version in place: a fix before the user acts on it",
   withdraw: "Take the latest version back, before the user acts on it",
-  fork: 'Start this new alternative from a sibling: "alternative" or "alternative@N"; alone it copies it, with parts/fills it edits the copy',
+  fork: 'Start this new alternative from a sibling: "alternative" or "alternative@N"; alone it copies it, with parts/swaps it edits the copy',
   prompt: "What prompted this version; usually omit",
   description: "What this alternative is; shown beside it, never in the html",
   widths: "Widths it ships at, side by side: [390,1280]",
@@ -122,7 +122,7 @@ const askSchema = z.object({
       version: z.number().int().optional().describe("And one version of it"),
       set: z.record(z.string(), z.unknown()).optional().describe("Or to knob values {path: value}"),
       style: z.string().optional().describe("With a set of a new value: its CSS"),
-      fill: z.string().optional().describe("With a set of {part: new fill}: its html"),
+      swap: z.string().optional().describe("With a set of {part: new swap}: its html"),
       palette: z
         .string()
         .optional()
@@ -244,7 +244,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "publish",
     description:
-      "Create or version one alternative of one state of a design. One of html, surfaces (the full ordered list), parts or fills (splice the latest version); or kind screen or component and none of them, to plan it. Returns parts per state, nudges, feedback.",
+      "Create or version one alternative of one state of a design. One of html, surfaces (the full ordered list), parts or swaps (splice the latest version); or kind screen or component and none of them, to plan it. Returns parts per state, nudges, feedback.",
     params: {
       ...ALTERNATIVE_REF,
       title: { t: "string", d: field.title },
@@ -260,9 +260,9 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
         d: "Full ordered list: {id} keeps a surface, a missing id removes it",
       },
       parts: { t: "object", d: '{"name"|"name#key": outer html}; splices declared parts' },
-      fills: {
+      swaps: {
         t: "object",
-        d: '{"part#fill": outer html}; replaces that fill of a part, or adds it after its others',
+        d: '{"part#swap": outer html}; replaces that swap of a part, or adds it after its others',
       },
       knobs: { t: "object", d: field.knobs },
       alternativeKnobs: { t: "object", d: field.alternativeKnobs },
@@ -540,10 +540,10 @@ const writeOutput = {
   partChanges: o({ vanished: strs, renamed: z.array(o({ from: str, to: str })) }).optional(),
   nudges: strs.optional(),
   suggestedAsk: bag.optional().describe("Send with ask when a nudge names it"),
-  suggestedFillAsks: z
+  suggestedSwapAsks: z
     .array(bag)
     .optional()
-    .describe("A question per part with fills that none sets; send with ask"),
+    .describe("A question per part with swaps that none sets; send with ask"),
   flow: flowSchema.optional(),
   feedback: feedbackRide,
 };
@@ -677,8 +677,8 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
           alternative: str,
           version: num,
           latest: num.optional().describe("Your newer version, not in use yet"),
-          html: str.describe("With fills: only the chosen ones"),
-          allFills: str.optional().describe("With fills: the html with every fill"),
+          html: str.describe("With swaps: only the chosen ones"),
+          allSwaps: str.optional().describe("With swaps: the html with every swap"),
           markdown: str,
         }),
       )

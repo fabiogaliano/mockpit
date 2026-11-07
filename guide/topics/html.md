@@ -37,8 +37,8 @@ Mark the components you want feedback on with `data-part="name"` (optional
 apart and keep comments anchored across a rename). The viewer measures their
 boxes, so never hard-code geometry for it. Knob values arrive as unitless
 `--k-<path>` custom properties and `data-k-<path>` attributes on `<html>`; topic
-`knobs` has the details. Alternatives of one region are a part with fills: the same
-`data-part` with a `data-fill` each; topic `asks`.
+`knobs` has the details. Alternatives of one region are a part with swaps: the same
+`data-part` with a `data-swap` each; topic `asks`.
 
 The page must read before any web font or remote stylesheet loads; a slow one delays the
 frame's layout.

@@ -300,7 +300,7 @@ export function AskBody(props: {
               const p = pic();
               if (!p) return null;
               const report = s.reports[frameKey(p.state, p.alternative.alternative)];
-              // An answer that sets a part's fill changes only that part: a whole-page
+              // An answer that sets a part's swap changes only that part: a whole-page
               // picture could crop it off, leaving a card that looks like its neighbours.
               const r = region() ?? Object.keys(o.set ?? {}).find((path) => partBox(report, path));
               return r ? (partBox(report, r) ?? null) : null;

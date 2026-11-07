@@ -110,8 +110,8 @@ export interface FeedbackReply extends Omit<
   // One-tap reactions as one line each (`👍 part "hero" (alternative B)`); they are
   // left out of `comments`, which keeps only what the user typed.
   reactions?: string[];
-  // The state as decided: per state the alternative and each part's chosen fill,
-  // nested under the fill that holds it, plus the knob values set (decisions.ts).
+  // The state as decided: per state the alternative and each part's chosen swap,
+  // nested under the swap that holds it, plus the knob values set (decisions.ts).
   decisions?: Decisions;
 }
 

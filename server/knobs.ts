@@ -2,7 +2,7 @@
 // declared schema before they are stored or used). Runtime-agnostic. The config
 // shape mirrors tunekit's usePane config; see the knob types in types.ts.
 
-import { slotKnobs, slotsInSurfaces } from "./fills.ts";
+import { slotKnobs, slotsInSurfaces } from "./swaps.ts";
 import type {
   ExplicitKnob,
   KnobAxis,
@@ -304,8 +304,8 @@ export function checkKnobValue(
 }
 
 // The declared knob for a path: the design's own, else an alternative's override,
-// else the knob an alternative's slot implies (fills.ts), so an option can `set` a
-// slot's fill without the agent declaring anything.
+// else the knob an alternative's slot implies (swaps.ts), so an option can `set` a
+// slot's swap without the agent declaring anything.
 export function knobFor(
   path: string,
   design: Pick<Design, "knobs">,

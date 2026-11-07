@@ -260,7 +260,7 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
       ...args,
       html,
       parts: readPartFiles(args.parts),
-      fills: readPartFiles(args.fills),
+      swaps: readPartFiles(args.swaps),
       poster: await posterId(args.poster, session),
       session,
       agent: AGENT,

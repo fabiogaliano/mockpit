@@ -96,7 +96,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 export function createTune(s: DesignScreenState) {
   const components = createMemo(() => {
     const m = s.design();
-    const slots = (s.activeAlternative()?.fills ?? []).map((sl) => sl.part);
+    const slots = (s.activeAlternative()?.swaps ?? []).map((sl) => sl.part);
     const borrowable = s.mixOpts().map((o) => o.part);
     return m ? tuneComponents(m, s.knobContext().knobs, slots, borrowable) : [];
   });

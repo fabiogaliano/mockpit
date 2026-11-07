@@ -90,7 +90,7 @@ that draws it:
 | ------------------------------ | -------------------------------------------- | ------------------------ |
 | A value the page already knows | `set` alone                                  | Same version             |
 | A colour or other styling      | `set` of one new value, plus `style`         | Same version             |
-| Different content in one part  | `set: {"<part>": "<new fill>"}`, plus `fill` | Same version             |
+| Different content in one part  | `set: {"<part>": "<new swap>"}`, plus `swap` | Same version             |
 | A different page or behaviour  | `html`, the whole page                       | Becomes the next version |
 
 ```json
@@ -103,7 +103,7 @@ that draws it:
   {
     "label": "Shorter",
     "set": { "proposal": "shorter" },
-    "fill": "<div data-part=\"proposal\"><p>Lunch at 13:00?</p></div>"
+    "swap": "<div data-part=\"proposal\"><p>Lunch at 13:00?</p></div>"
   },
   { "label": "Before and after", "html": "<main>…</main>" }
 ]
@@ -112,13 +112,13 @@ that draws it:
 - `style` holds only while its value is chosen, on every state, so write rules as if
   already inside that value. `&` is `<html>`, for combining with another value. Only
   `@media`, `@supports` and `@container` are allowed.
-- `fill` is the part's alternative outer html, added after the part. The part's own markup
-  becomes the fill `as-is`, the default. A part must be one element in some state. A fill
+- `swap` is the part's alternative outer html, added after the part. The part's own markup
+  becomes the swap `as-is`, the default. A part must be one element in some state. A swap
   can't hold `<script>`, `<style>` or `<link>`, since it acts while unchosen: pair it with
   `style`, or send `html`.
 - A new value's knob is added or extended for you. A value already there can't take
-  `style` or `fill`: changing what it means is a new version. Asked again with the same
-  `style` or `fill` it is unchanged, so a question can keep growing under its id.
+  `style` or `swap`: changing what it means is a new version. Asked again with the same
+  `style` or `swap` it is unchanged, so a question can keep growing under its id.
 - `html` needs a state when the design has several, and takes the state's alternative in use
   unless `alternative` names one. The user only meets it as this answer; asked again with the
   same page it keeps its version.
@@ -142,33 +142,33 @@ replaces it. The viewer adds an "Other…" write-in and a comment to every quest
 (both take attached images), so don't add your own; the option id `other` is
 reserved.
 
-## Parts with fills
+## Parts with swaps
 
-A part with fills is one region with alternatives, in one html. Give each
-alternative the same `data-part` and its own `data-fill`:
+A part with swaps is one region with alternatives, in one html. Give each
+alternative the same `data-part` and its own `data-swap`:
 
 ```html
-<section data-part="entry" data-part-label="Entry" data-fill="dots" data-fill-label="Typing dots">
+<section data-part="entry" data-part-label="Entry" data-swap="dots" data-swap-label="Typing dots">
   …
 </section>
-<section data-part="entry" data-fill="skeleton">…</section>
-<section data-part="entry" data-fill="filling" data-fill-default>…</section>
+<section data-part="entry" data-swap="skeleton">…</section>
+<section data-part="entry" data-swap="filling" data-swap-default>…</section>
 ```
 
-The first fill is the default unless one carries `data-fill-default`. The server
-derives a select knob at the part's name and shows only the chosen fill, so write
-no switching CSS; give each fill the display it needs. A fill can hold anything,
-including further parts with fills: one inside a fill is asked only while that
-fill is chosen, right after its parent's question.
+The first swap is the default unless one carries `data-swap-default`. The server
+derives a select knob at the part's name and shows only the chosen swap, so write
+no switching CSS; give each swap the display it needs. A swap can hold anything,
+including further parts with swaps: one inside a swap is asked only while that
+swap is chosen, right after its parent's question.
 
-Publish returns the parts with fills it found (`fills`) and, for each one no
-question sets, a ready `suggestedFillAsks` entry: `scope: "part"`, one option per
-fill with `set: {"entry": "<fill>"}`. Send them with `ask`, relabelled if you
-like. On a pick the viewer outlines the fill on stage. `fills` in publish replaces
-or adds one fill without resending the page (topic `feedback`).
+Publish returns the parts with swaps it found (`swaps`) and, for each one no
+question sets, a ready `suggestedSwapAsks` entry: `scope: "part"`, one option per
+swap with `set: {"entry": "<swap>"}`. Send them with `ask`, relabelled if you
+like. On a pick the viewer outlines the swap on stage. `swaps` in publish replaces
+or adds one swap without resending the page (topic `feedback`).
 
-Use fills when alternatives differ in one region, alternatives when the whole design
-differs. Each alternative may have parts with fills.
+Use swaps when alternatives differ in one region, alternatives when the whole design
+differs. Each alternative may have parts with swaps.
 
 ## The alternative question
 

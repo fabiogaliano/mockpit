@@ -1,12 +1,12 @@
 // What a reply decided, as the state is built: per state, the alternative and the
-// chosen fill of each part with fills, with the parts inside a fill listed
-// under it only when that fill was chosen; plus every other knob value the
+// chosen swap of each part with swaps, with the parts inside a swap listed
+// under it only when that swap was chosen; plus every other knob value the
 // reply set. The agent
 // reads "entry → skeleton → rows → shimmer" instead of reassembling it from
 // option ids, and `export` composes the same choice into one screen.
 // Runtime-agnostic (no node imports).
 
-import { type SlotInfo, slotsInSurfaces } from "./fills.ts";
+import { type SlotInfo, slotsInSurfaces } from "./swaps.ts";
 import { checkKnobValue, knobFor } from "./knobs.ts";
 import { shipped, shownVersion } from "./ready.ts";
 import {
@@ -18,24 +18,24 @@ import {
   type Reply,
 } from "./types.ts";
 
-export interface FillDecision {
-  fill: string;
+export interface SwapDecision {
+  swap: string;
   label?: string;
   // Set when the user borrowed this part from another alternative.
   borrowedFrom?: string;
-  parts?: Record<string, FillDecision>;
+  parts?: Record<string, SwapDecision>;
 }
 
 export interface StateDecision {
   alternative: string;
-  // Each part with fills, by part name.
-  parts: Record<string, FillDecision>;
+  // Each part with swaps, by part name.
+  parts: Record<string, SwapDecision>;
 }
 
 export interface Decisions {
   // Keyed by state label; a single-state design uses "".
   states: Record<string, StateDecision>;
-  // Values the reply set (answers' knob sets, then tuning) that pick no fill.
+  // Values the reply set (answers' knob sets, then tuning) that pick no swap.
   knobs: Record<string, KnobValue>;
 }
 
@@ -73,16 +73,16 @@ export function settledValues(
   return out;
 }
 
-// The fill each slot shows under these values: a value naming one of its
-// fills, else its default.
-export function chosenFills(
+// The swap each slot shows under these values: a value naming one of its
+// swaps, else its default.
+export function chosenSwaps(
   slots: SlotInfo[],
   values: Record<string, KnobValue>,
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const s of slots) {
     const v = values[s.part];
-    out[s.part] = typeof v === "string" && s.fills.some((f) => f.name === v) ? v : s.default;
+    out[s.part] = typeof v === "string" && s.swaps.some((f) => f.name === v) ? v : s.default;
   }
   return out;
 }
@@ -110,18 +110,18 @@ function tree(
   chosen: Record<string, string>,
   parent: SlotInfo["parent"],
   borrowed: Record<string, string>,
-): Record<string, FillDecision> {
-  const out: Record<string, FillDecision> = {};
+): Record<string, SwapDecision> {
+  const out: Record<string, SwapDecision> = {};
   for (const s of slots) {
     const same = parent
-      ? s.parent?.part === parent.part && s.parent.fill === parent.fill
+      ? s.parent?.part === parent.part && s.parent.swap === parent.swap
       : s.parent === null;
     if (!same) continue;
-    const fill = chosen[s.part];
-    const label = s.fills.find((f) => f.name === fill)?.label;
-    const inner = tree(slots, chosen, { part: s.part, fill }, borrowed);
+    const swap = chosen[s.part];
+    const label = s.swaps.find((f) => f.name === swap)?.label;
+    const inner = tree(slots, chosen, { part: s.part, swap }, borrowed);
     out[s.part] = {
-      fill,
+      swap,
       ...(label ? { label } : {}),
       ...(borrowed[s.part] ? { borrowedFrom: borrowed[s.part] } : {}),
       ...(Object.keys(inner).length ? { parts: inner } : {}),
@@ -130,7 +130,7 @@ function tree(
   return out;
 }
 
-// Null when the design has no fills and the reply set no knobs: then the
+// Null when the design has no swaps and the reply set no knobs: then the
 // answered asks already say everything.
 export function decisionsFor(
   design: Design,
@@ -147,7 +147,7 @@ export function decisionsFor(
     for (const s of slots) slotPaths.add(s.part);
     states[state ?? ""] = {
       alternative: post.alternative,
-      parts: tree(slots, chosenFills(slots, values), null, reply.borrowed ?? {}),
+      parts: tree(slots, chosenSwaps(slots, values), null, reply.borrowed ?? {}),
     };
   }
   const knobs = Object.fromEntries(Object.entries(values).filter(([p]) => !slotPaths.has(p)));

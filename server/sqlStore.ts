@@ -142,10 +142,14 @@ const surfaceHeads = (surfaces: Surface[]): string =>
         ...(s.poster && s.posterMode && s.posterSystem !== undefined
           ? { posterSystem: s.posterSystem }
           : {}),
-        ...(/<mockpit-embed|data-fill/i.test(s.html) ? { marked: true } : {}),
+        ...(/<mockpit-embed|data-swap/i.test(s.html) ? { marked: true } : {}),
       };
     }),
   );
+
+// An open tag, its quoted attribute values read whole so a ">" inside one doesn't end it.
+const OPEN_TAG =
+  /<[A-Za-z][\w:-]*(?:\s+[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*\/?>/g;
 
 // surfaceHeads in SQL, for the rows written before heads were: it runs without
 // bringing a workspace's bodies into memory, which a Durable Object can't hold.
@@ -156,7 +160,7 @@ const SURFACE_HEADS_SQL = `CASE WHEN json_valid(surfaces) THEN (
            THEN ',"poster":' || json_quote(json_extract(value, '$.poster')) ELSE '' END
       || CASE WHEN json_extract(value, '$.kind') = 'html'
              AND (json_extract(value, '$.html') LIKE '%<mockpit-embed%'
-               OR json_extract(value, '$.html') LIKE '%data-fill%')
+               OR json_extract(value, '$.html') LIKE '%data-swap%')
            THEN ',"marked":true' ELSE '' END
       || '}' AS h
     FROM json_each(surfaces) ORDER BY key
@@ -488,6 +492,83 @@ export class SqlStore implements Store {
     this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('alternativeWords', '1')");
   }
 
+  // Rewrites the html of every stored version, current and past, through `fix`. Only
+  // rows `like` matches are read, and each rewritten row's head is worked out again.
+  private rewriteStoredHtml(like: string, fix: (html: string) => string) {
+    const rewrite = (raw: SqlStorageValue): string | null => {
+      const surfaces = parseJson<Surface[]>(raw, []);
+      let changed = false;
+      for (const s of surfaces) {
+        if (s.kind !== "html") continue;
+        const next = fix(s.html);
+        if (next !== s.html) {
+          s.html = next;
+          changed = true;
+        }
+      }
+      return changed ? JSON.stringify(surfaces) : null;
+    };
+    for (const r of this.sql
+      .exec("SELECT id, surfaces FROM posts WHERE surfaces LIKE ?", like)
+      .toArray()) {
+      const next = rewrite(r.surfaces);
+      if (!next) continue;
+      this.sql.exec("UPDATE posts SET surfaces = ? WHERE id = ?", next, r.id as string);
+      this.sql.exec(`UPDATE posts SET head = ${SURFACE_HEADS_SQL} WHERE id = ?`, r.id as string);
+    }
+    for (const r of this.sql
+      .exec("SELECT postId, version, surfaces FROM post_versions WHERE surfaces LIKE ?", like)
+      .toArray()) {
+      const next = rewrite(r.surfaces);
+      if (!next) continue;
+      this.sql.exec(
+        "UPDATE post_versions SET surfaces = ? WHERE postId = ? AND version = ?",
+        next,
+        r.postId as string,
+        r.version as number,
+      );
+      this.sql.exec(
+        `UPDATE post_versions SET head = ${SURFACE_HEADS_SQL} WHERE postId = ? AND version = ?`,
+        r.postId as string,
+        r.version as number,
+      );
+    }
+  }
+
+  // What can go in a part is a swap: `data-swap` in every stored version, and `swap`
+  // on the answers that bring one. Only an element that is a part was ever one: a
+  // page's own `data-fill` elsewhere (a meter's level) stays as it is.
+  private migrateToSwapWords() {
+    const marks = (tag: string) =>
+      /\sdata-part\s*=/.test(tag)
+        ? tag.replace(
+            /(\s)data-fill(-label|-default)?(?=[\s=/>]|$)/g,
+            (_, space: string, rest = "") => `${space}data-swap${rest}`,
+          )
+        : tag;
+    const attrs = (html: string) => html.replace(OPEN_TAG, marks);
+    this.rewriteStoredHtml("%data-fill%", attrs);
+    const swapKey = (o: Record<string, unknown>): boolean => {
+      if (!("fill" in o)) return false;
+      o.swap = typeof o.fill === "string" ? attrs(o.fill) : o.fill;
+      delete o.fill;
+      return true;
+    };
+    this.rewriteJson("designs", "id", "asks", (asks) => {
+      let changed = false;
+      for (const a of asks as { options?: Record<string, unknown>[] }[]) {
+        for (const o of a.options ?? []) changed = swapKey(o) || changed;
+      }
+      return changed;
+    });
+    this.rewriteJson("designs", "id", "answerAdditions", (list) => {
+      let changed = false;
+      for (const a of list as Record<string, unknown>[]) changed = swapKey(a) || changed;
+      return changed;
+    });
+    this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('swapWords', '1')");
+  }
+
   private renameMocksToDesigns() {
     if (!this.tables().has("mocks") || this.tables().has("designs")) return;
     for (const name of [
@@ -682,6 +763,7 @@ export class SqlStore implements Store {
     if (this.settingSync("designWords") !== "1") this.migrateToDesignWords();
     if (this.settingSync("askScopeWord") !== "1") this.migrateAskScopeWord();
     if (this.settingSync("alternativeWords") !== "1") this.migrateToAlternativeWords();
+    if (this.settingSync("swapWords") !== "1") this.migrateToSwapWords();
     // The day it went was never kept, and the design's last change is the nearest thing.
     // Frozen now, or the next reason or draft on the design would move it to that day.
     if (!dated) {

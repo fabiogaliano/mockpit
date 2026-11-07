@@ -1057,7 +1057,7 @@ export function tuneComponents(
     if (part !== null && !names.includes(part)) names.push(part);
   }
   for (const name of names) {
-    // The slot's fill first, then the part's own knobs.
+    // The slot's swap first, then the part's own knobs.
     const own = paths
       .filter((p) => partOf(p) === name)
       .sort((a, b) => Number(b === name) - Number(a === name));

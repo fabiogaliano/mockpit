@@ -25,7 +25,7 @@ import {
   type SpecLine,
   type StateOutline,
 } from "../../server/types.ts";
-import type { SlotInfo } from "../../server/fills.ts";
+import type { SlotInfo } from "../../server/swaps.ts";
 import { hiddenAnswer, type StandingKind, withStanding } from "../../server/standings.ts";
 import {
   archivedAnswer,
@@ -244,7 +244,7 @@ export function createDesignScreen(
   // never changes the screen out of sight. Armed by a pick or preview; the
   // stage finds the part from the next parts report.
   const [flash, setFlash] = createSignal<string | null>(null);
-  // "entry · skeleton" when the flashed part is a slot and the fill is known.
+  // "entry · skeleton" when the flashed part is a slot and the swap is known.
   const [flashLabel, setFlashLabel] = createSignal<string | null>(null);
   let flashArmedAt = 0;
   let flashTimer = 0;
@@ -532,11 +532,11 @@ export function createDesignScreen(
     };
   });
 
-  // --- slots (server/fills.ts): a part with alternative fills ---
+  // --- slots (server/swaps.ts): a part with alternative swaps ---
 
   // The slots of the look on stage for a state, never a hovered one: a preview
   // must not make questions appear and vanish under the pointer.
-  const slotsIn = (state: string | null): SlotInfo[] => alternativeFor(state, false)?.fills ?? [];
+  const slotsIn = (state: string | null): SlotInfo[] => alternativeFor(state, false)?.swaps ?? [];
   // The slot an ask chooses: every option sets exactly that one slot's path.
   function askSlot(ask: Ask): SlotInfo | null {
     const m = design();
@@ -555,9 +555,9 @@ export function createDesignScreen(
       knobs: { ...m.knobs, ...alternativeFor(state, false)?.knobs },
     });
   }
-  // A slot inside a fill that isn't chosen: its question doesn't apply now.
-  // Walks up, so a slot two fills deep is dormant when either is unchosen.
-  function dormantOf(ask: Ask): { part: string; fill: string; label: string } | null {
+  // A slot inside a swap that isn't chosen: its question doesn't apply now.
+  // Walks up, so a slot two swaps deep is dormant when either is unchosen.
+  function dormantOf(ask: Ask): { part: string; swap: string; label: string } | null {
     const m = design();
     let slot = askSlot(ask);
     if (!m || !slot?.parent) return null;
@@ -565,11 +565,11 @@ export function createDesignScreen(
     const slots = slotsIn(state);
     const values = valuesIn(state);
     while (slot?.parent) {
-      const { part, fill }: { part: string; fill: string } = slot.parent;
+      const { part, swap }: { part: string; swap: string } = slot.parent;
       const parent: SlotInfo | undefined = slots.find((sl) => sl.part === part);
-      if ((values[part] ?? parent?.default) !== fill) {
-        const label = parent?.fills.find((f) => f.name === fill)?.label ?? fill;
-        return { part, fill, label };
+      if ((values[part] ?? parent?.default) !== swap) {
+        const label = parent?.swaps.find((f) => f.name === swap)?.label ?? swap;
+        return { part, swap, label };
       }
       slot = parent ?? null;
     }
@@ -740,7 +740,7 @@ export function createDesignScreen(
       settled: m?.settled ?? {},
     };
   });
-  // The part the current question is about: the slot it chooses a fill for,
+  // The part the current question is about: the slot it chooses a swap for,
   // else the part it is scoped to.
   const focusPart = createMemo(() => {
     if (questionHidden()) return null;
@@ -1746,7 +1746,7 @@ export function createDesignScreen(
     const d = draft() ?? emptyDraft(stageVersion());
     setSending(true);
     try {
-      // A question inside a fill that isn't chosen doesn't apply: its answer stays out.
+      // A question inside a swap that isn't chosen doesn't apply: its answer stays out.
       const asleep = new Set(
         asks()
           .filter((a) => dormantOf(a))
@@ -1882,12 +1882,12 @@ export function createDesignScreen(
     if (readonly()) return;
     const p = previewOf(ask, optionId);
     if (p?.knobs) {
-      // A slot ask names its part and fill; a part-scoped ask its part;
+      // A slot ask names its part and swap; a part-scoped ask its part;
       // otherwise the stage works it out from the parts reports.
       const slot = askSlot(ask);
-      const fill = slot ? p.knobs[slot.part] : undefined;
-      if (slot && typeof fill === "string") {
-        const label = slot.fills.find((f) => f.name === fill)?.label ?? fill;
+      const swap = slot ? p.knobs[slot.part] : undefined;
+      if (slot && typeof swap === "string") {
+        const label = slot.swaps.find((f) => f.name === swap)?.label ?? swap;
         showFlash(slot.part, `${slot.label ?? slot.part} · ${label}`);
       } else if (ask.scope === "part" && ask.part) showFlash(ask.part);
       else armFlash();

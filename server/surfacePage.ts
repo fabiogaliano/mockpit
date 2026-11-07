@@ -1,4 +1,4 @@
-import { scanFills, slotCss } from "./fills.ts";
+import { scanSwaps, slotCss } from "./swaps.ts";
 import { CDN_ALLOWLIST, checkCdnUrl } from "./cdn.ts";
 import { CORE_CSS, KITS, kitAssets } from "./kits.ts";
 import { expandIcons, type IconResolver } from "./icons.ts";
@@ -1650,9 +1650,9 @@ export function renderHtmlPage(doc: {
           `<style>${project.repoVars}${project.sheet}${project.tokens}${scheme}</style>`,
           ...fonts,
         ].join("\n");
-  // Slots (fills.ts): only the chosen fill of each shows, keyed on the knob
-  // attribute; with no value yet, the default fill.
-  const fillCss = slotCss(scanFills(doc.html).slots);
+  // Slots (swaps.ts): only the chosen swap of each shows, keyed on the knob
+  // attribute; with no value yet, the default swap.
+  const swapCss = slotCss(scanSwaps(doc.html).slots);
   return `<!doctype html>
 ${htmlTag}
 <head>
@@ -1664,7 +1664,7 @@ ${FREEZE_TAG}
 ${preamble.headScript}
 ${KNOBS_TAG}
 ${styles}
-${fillCss ? `<style>${fillCss}</style>` : ""}
+${swapCss ? `<style>${swapCss}</style>` : ""}
 ${project.headScripts}
 ${kits.flatMap((k) => (k.script ? [`<script src="${escapeHtml(k.script)}" defer></script>`] : [])).join("\n")}
 </head>

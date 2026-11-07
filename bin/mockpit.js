@@ -71,7 +71,7 @@ verbs:
                         alone keeps a surface, a missing id removes it
       --parts <name=file|->  instead: replace just that data-part's element in
                         the latest version (repeatable; name#key targets one instance)
-      --fills <part#fill=file|->  instead: replace or add one fill of a part in
+      --swaps <part#swap=file|->  instead: replace or add one swap of a part in
                         the latest version (repeatable)
       --title <t>       design title
       --kind <k>        screen|component, only for an app's screens (default idea);
@@ -215,7 +215,7 @@ mockpit icons remove <set> [<set>...]
   publish: `mockpit publish --design <slug> --html <file> [options]
 mockpit publish --design <slug> --surfaces <json|file> [options]
 mockpit publish --design <slug> --parts <name=file|-> ... [options]
-mockpit publish --design <slug> --fills <part#fill=file|-> ... [options]
+mockpit publish --design <slug> --swaps <part#swap=file|-> ... [options]
 mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
   Creates the design, state or alternative, or the next version of an existing one.
   One request gets one version: fixes to it before the user acts use --amend.
@@ -237,9 +237,9 @@ mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
                      a missing id removes it, order is the list order
   --parts <name=file|->   replace only the element carrying data-part="name"
                      (name#key for one instance) in the latest version; repeatable
-  --fills <part#fill=file|->  replace the element carrying data-part="part"
-                     data-fill="fill" in the latest version, or add it after
-                     that part's other fills; the marks are added if missing
+  --swaps <part#swap=file|->  replace the element carrying data-part="part"
+                     data-swap="swap" in the latest version, or add it after
+                     that part's other swaps; the marks are added if missing
   --title <t>        design title
   --kind <k>         screen|component|idea: screen for a screen of the product,
                      component for a reusable design screens embed (embedding makes one);
@@ -253,7 +253,7 @@ mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
   --knobs <json|file>  knobs in tunekit usePane shape
   --from <N>         branch from version N
   --fork <v[@N]>     start this new alternative from sibling v (its version N, else
-                     its latest); alone it copies v, with --parts/--fills it
+                     its latest); alone it copies v, with --parts/--swaps it
                      edits the copy
   --prompt <text>    what prompted this version
   --description <text>  one line on what this alternative is, shown beside it (never
@@ -268,7 +268,7 @@ mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
   --project <name>   project (default: git remote, else directory name)
   --poster <file>    a still of the page (png, jpg) that Studio and Home show; without
                      one, a local Chrome or Chromium takes it just after the publish
-                     instead of running it; with --parts or --fills it is the
+                     instead of running it; with --parts or --swaps it is the
                      still of the spliced page. A version that changes the page
                      without one drops the old still
   --md/--mermaid/--diff/--terminal/--data/--code/--image <file>  more surfaces
@@ -375,7 +375,7 @@ mockpit system --restore <rev>
   exiting; --exit-code sets the code it stops with (default 0).`,
   export: `mockpit export --design <slug> [--state s] [--alternative v] [--out <dir>]
   Write index.html + history.json per state to .mockpit/accepted/<design>/<state>/;
-  with fills, index.html is the chosen state, plus all-fills.html and decisions.json.
+  with swaps, index.html is the chosen state, plus all-swaps.html and decisions.json.
   A screen or component writes every entry marked Ready (unmarked: every live one as it
   shows) as <alternative>.html + <alternative>.history.json (with the start of the post id where two
   alternative names would share a file), and design.json: its mark, its spec
@@ -1193,7 +1193,7 @@ function parsePublishFlags() {
       poster: { type: "string" },
       surfaces: { type: "string" },
       parts: { type: "string", multiple: true },
-      fills: { type: "string", multiple: true },
+      swaps: { type: "string", multiple: true },
       knobs: { type: "string" },
       from: { type: "string" },
       fork: { type: "string" },
@@ -1222,20 +1222,20 @@ function parsePublishFlags() {
 
 // `--parts name=file` (repeatable; `name#key` targets one instance): the new
 // outer html of one part, spliced server-side into the latest version.
-// `--fills part#fill=file` is the same for one fill of a part.
+// `--swaps part#swap=file` is the same for one swap of a part.
 function readPartFlags(values, slug, flag = "parts") {
   if (!values?.length) return undefined;
   const example =
     flag === "parts"
       ? `mockpit publish --design ${slug} --parts body=body.html`
-      : `mockpit publish --design ${slug} --fills entry#skeleton=skeleton.html`;
+      : `mockpit publish --design ${slug} --swaps entry#skeleton=skeleton.html`;
   const parts = {};
   let stdin = false;
   for (const raw of values) {
     const at = raw.indexOf("=");
     if (at <= 0 || at === raw.length - 1) {
       die(
-        `--${flag} needs ${flag === "parts" ? "name" : "part#fill"}=file (got "${raw}")`,
+        `--${flag} needs ${flag === "parts" ? "name" : "part#swap"}=file (got "${raw}")`,
         example,
       );
     }
@@ -1273,11 +1273,11 @@ async function publishDesign() {
     composed && "--html",
     flags.surfaces !== undefined && "--surfaces",
     flags.parts?.length && "--parts",
-    flags.fills?.length && "--fills",
+    flags.swaps?.length && "--swaps",
   ].filter(Boolean);
   if (given.length > 1) {
     die(
-      `pass one of --html, --surfaces, --parts or --fills, not ${given.join(" and ")}`,
+      `pass one of --html, --surfaces, --parts or --swaps, not ${given.join(" and ")}`,
       `mockpit publish --help`,
     );
   }
@@ -1287,7 +1287,7 @@ async function publishDesign() {
     die(`cannot read ${flags.poster}`, `ls ${flags.poster}`);
   }
   const parts = readPartFlags(flags.parts, slug);
-  const fills = readPartFlags(flags.fills, slug, "fills");
+  const swaps = readPartFlags(flags.swaps, slug, "swaps");
   let surfaces =
     flags.surfaces === undefined ? undefined : readJsonFlag("surfaces", flags.surfaces);
   if (surfaces !== undefined && !Array.isArray(surfaces)) {
@@ -1308,7 +1308,7 @@ async function publishDesign() {
     surfaces.push(...(await surfacesFromFlags(flags, tokens, { session, layout: flags.layout })));
   }
   const declaring = flags.kind === "screen" || flags.kind === "component";
-  if (!surfaces && !parts && !fills && !flags.fork && flags.flow === undefined && !declaring)
+  if (!surfaces && !parts && !swaps && !flags.fork && flags.flow === undefined && !declaring)
     die(`no html for ${slug}`, `mockpit publish --design ${slug} --html <file>`);
   const poster =
     flags.poster === undefined ? undefined : (await uploadFile(flags.poster, { session })).id;
@@ -1340,7 +1340,7 @@ async function publishDesign() {
     ...(step !== undefined && { step }),
     ...(surfaces && { surfaces }),
     ...(parts && { parts }),
-    ...(fills && { fills }),
+    ...(swaps && { swaps }),
     ...(poster && { poster }),
     ...(!poster && findBrowser() && { posterComing: true }),
     ...(flags.amend && { amend: true }),
@@ -2133,8 +2133,8 @@ const commands = {
       const page = join(dir, product ? name("html") : "index.html");
       mkdirSync(dir, { recursive: true });
       writeFileSync(page, entry.html ?? "");
-      // The state with every fill, when the html is the composed choice.
-      if (entry.allFills) writeFileSync(join(dir, name("all-fills.html")), entry.allFills);
+      // The state with every swap, when the html is the composed choice.
+      if (entry.allSwaps) writeFileSync(join(dir, name("all-swaps.html")), entry.allSwaps);
       const decided = data.decisions?.states?.[entry.state ?? ""];
       if (decided) {
         writeFileSync(
@@ -2162,7 +2162,7 @@ const commands = {
         ) + "\n",
       );
       if (!flags.quiet) {
-        const files = [page, ...(entry.allFills ? [join(dir, name("all-fills.html"))] : [])];
+        const files = [page, ...(entry.allSwaps ? [join(dir, name("all-swaps.html"))] : [])];
         console.log(
           `${slug}/${stateLabel(entry.state)}${entry.alternative ?? entry.variant} v${entry.version} → ${files.join(", ")} (+ ${name("history.json")})`,
         );

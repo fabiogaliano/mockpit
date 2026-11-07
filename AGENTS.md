@@ -260,12 +260,12 @@ consciously, not as a side effect):
   listening (`sendTarget`, `recipientsFor`). That session becomes the owner and hears a
   `handoff` note. A move from Home and a thread comment still go to the owner.
 - `server/answerAdditions.ts` — what an answer brings so it can draw itself, with no new
-  version: `style` or `fill` beside a `set` of a new value, kept on `Design.answerAdditions`
-  (never removed; asked again with a new style or fill, revised under the same value) and
+  version: `style` or `swap` beside a `set` of a new value, kept on `Design.answerAdditions`
+  (never removed; asked again with a new style or swap, revised under the same value) and
   laid over every render in `buildSurfaceDoc`, the system's `additions` after them. Adding one
   bumps every post's `rewrites`, which is how open frames reload. An answer's `html` is a
   whole page: a hidden version (`addAnswerPage`) that joins the versions only if chosen, so
-  `newestVisible`, not `post.version`, is what `parts`, `fills` and kept surfaces build on.
+  `newestVisible`, not `post.version`, is what `parts`, `swaps` and kept surfaces build on.
 - `server/kits.ts` — opt-in style/behavior bundles for html surfaces; listed at
   `/api/kits`, allowlisted in `server/postSurfaces.ts`. Adding a kit is a
   registry entry + a guide bullet. A reference kit (`href`/`script`, e.g.
@@ -585,7 +585,7 @@ the finding needs.
   project knob. Its revisions are `rev`. An alternative is stored as a `Post` (an ordered list of
   **surfaces**); the tenant DB is a **workspace**. To agents and users an ask
   is a "question" (`ask` stays the tool and key name), a part with
-  alternatives is "a part with fills", and an alternative the user picked is "in
+  alternatives is "a part with swaps", and an alternative the user picked is "in
   use". A design's **kind** is idea, screen or component; a part is a named bit inside
   one design, a component a whole design others embed. An alternative has a `description`,
   a design has a `spec`, an area and a project a `description`, an answer has a `comment`. Retired words — item, group,

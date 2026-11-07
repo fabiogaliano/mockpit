@@ -114,20 +114,20 @@ import {
   fullAgentDecisionList,
   parseDecisionEdits,
 } from "./decisionList.ts";
-import { chosenFills, decisionsFor, settledValues } from "./decisions.ts";
+import { chosenSwaps, decisionsFor, settledValues } from "./decisions.ts";
 import {
-  checkAnswerFill,
+  checkAnswerSwap,
   checkAnswerStyle,
   MAX_ANSWER_ADDITIONS,
   withAnswerAdditions,
 } from "./answerAdditions.ts";
 import {
-  AS_IS_FILL,
-  composeFills,
+  AS_IS_SWAP,
+  composeSwaps,
   partOccurrences,
   slotsInSurfaces,
-  spliceFills,
-} from "./fills.ts";
+  spliceSwaps,
+} from "./swaps.ts";
 import { checkKnobs, checkKnobValues, discreteChoices, explicitKnob, knobFor } from "./knobs.ts";
 import { diffParts, type PartChanges, partsInSurfaces, spliceParts } from "./parts.ts";
 import { LIFT_ASK, liftedComponent, liftOf } from "./lift.ts";
@@ -1470,7 +1470,7 @@ export function createApp({
   });
 
   // A poster is a still of the html beside it. Carried over unchanged onto
-  // changed html (a parts or fills splice, a fork with edits) it would show an
+  // changed html (a parts or swaps splice, a fork with edits) it would show an
   // old page, so it goes unless the write brings one; `poster` names the still
   // of the page this write produces.
   async function withPoster(
@@ -1599,7 +1599,7 @@ export function createApp({
 
   // Resolves tags to bodies: the tag's version if it pins one, else a peek
   // (`overrides`, slug → version) the viewer asked for, else the latest. The
-  // body shows the component as decided: its slots composed to the fills its
+  // body shows the component as decided: its slots composed to the swaps its
   // settled values chose, its other settled values on the wrapper.
   function embedResolver(project: string, overrides: Record<string, number> = {}): EmbedResolver {
     return async (tag) => {
@@ -1624,12 +1624,12 @@ export function createApp({
           )
         : {};
       const slots = slotsInSurfaces(surfaces);
-      const fills = new Set(slots.map((sl) => sl.part));
-      const rest = Object.fromEntries(Object.entries(settled).filter(([p]) => !fills.has(p)));
+      const swaps = new Set(slots.map((sl) => sl.part));
+      const rest = Object.fromEntries(Object.entries(settled).filter(([p]) => !swaps.has(p)));
       return {
         variant: post.alternative,
         version,
-        html: slots.length ? composeFills(body.html, chosenFills(slots, settled)) : body.html,
+        html: slots.length ? composeSwaps(body.html, chosenSwaps(slots, settled)) : body.html,
         attrs: knobAttributes(rest).attrs,
         // A rewritten component version keeps its number; its screens re-render on it.
         ...(Object.keys(settled).length || post.rewrites
@@ -1901,7 +1901,7 @@ export function createApp({
     // entry a state belongs in an idea for it.
     const unbound = isProduct(design) ? null : unboundAlternatives(design, posts, post.state);
     const held = alternativesHeld(design, posts);
-    // A part with fills that no ask sets is a decision nobody was asked; hand over the ask.
+    // A part with swaps that no ask sets is a decision nobody was asked; hand over the ask.
     const slots = slotsInSurfaces(post.surfaces);
     const setPaths = new Set(
       design.asks.flatMap((a) => a.options.flatMap((o) => Object.keys(o.set ?? {}))),
@@ -1913,7 +1913,7 @@ export function createApp({
         text: `Which ${sl.label ?? sl.part}?`,
         scope: "part" as const,
         part: sl.part,
-        options: sl.fills.map((f) => ({ label: f.label ?? f.name, set: { [sl.part]: f.name } })),
+        options: sl.swaps.map((f) => ({ label: f.label ?? f.name, set: { [sl.part]: f.name } })),
       }));
     const system = await systemFor(design.project);
     const pages = post.surfaces.flatMap((x) => (x.kind === "html" ? [x.html] : []));
@@ -1935,7 +1935,7 @@ export function createApp({
       ...(held ? [alternativesNudge(design, held)] : []),
       ...(slotAsks.length
         ? [
-            `${slotAsks.map((a) => `part "${a.part}"`).join(", ")} ${slotAsks.length === 1 ? "has" : "have"} fills and no question sets ${slotAsks.length === 1 ? "it" : "them"}: send suggestedFillAsks with ask (reword the text in the user's terms)`,
+            `${slotAsks.map((a) => `part "${a.part}"`).join(", ")} ${slotAsks.length === 1 ? "has" : "have"} swaps and no question sets ${slotAsks.length === 1 ? "it" : "them"}: send suggestedSwapAsks with ask (reword the text in the user's terms)`,
           ]
         : []),
     ];
@@ -1969,14 +1969,14 @@ export function createApp({
         sessionId: post.sessionId,
         url: designUrl(ctx.base, design, post),
         parts: detail.parts,
-        ...(slots.length ? { fills: slots } : {}),
+        ...(slots.length ? { swaps: slots } : {}),
         ...(extra.applied ? { applied: extra.applied } : {}),
         ...(partChanges && (partChanges.vanished.length || partChanges.renamed.length)
           ? { partChanges }
           : {}),
         ...(nudges.length ? { nudges } : {}),
         ...(unbound ? { suggestedAsk: unbound.ask } : {}),
-        ...(slotAsks.length ? { suggestedFillAsks: slotAsks } : {}),
+        ...(slotAsks.length ? { suggestedSwapAsks: slotAsks } : {}),
         ...(warnings.length ? { warnings } : {}),
         ...(extra.flow ? { flow: extra.flow } : {}),
         feedback,
@@ -2014,14 +2014,14 @@ export function createApp({
   // The one write: publish one alternative of one state of a design. An existing
   // (design, state, alternative) becomes a new version; anything else is created.
   // Exactly one body: `html`, the full ordered `surfaces` list, or `parts` or
-  // `fills` spliced into the alternative's latest (or `from`) version.
+  // `swaps` spliced into the alternative's latest (or `from`) version.
   async function publishFlow(body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
     if (body.withdraw === true) return withdrawFlow(body, ctx);
     const amend = body.amend === true;
     const slugIn = str(body.design, MAX_TITLE);
     if (!slugIn) return fail(400, 'provide "design": the design slug, e.g. "writer"');
-    const given = ["html", "surfaces", "parts", "fills"].filter((k) => body[k] !== undefined);
+    const given = ["html", "surfaces", "parts", "swaps"].filter((k) => body[k] !== undefined);
     const forkIn = forkArg(body.fork);
     if (isResult(forkIn)) return forkIn;
     const flowIn = flowArg(body);
@@ -2031,12 +2031,12 @@ export function createApp({
     // With no body, a declared kind plans the screen or component instead of drawing it.
     const declaring = body.kind === "screen" || body.kind === "component";
     const noBody =
-      'provide "html", "surfaces", "parts" or "fills" (or "fork" alone, or "kind" screen or component to plan it)';
+      'provide "html", "surfaces", "parts" or "swaps" (or "fork" alone, or "kind" screen or component to plan it)';
     if (given.length === 0 && !forkIn && !flowIn && !declaring) return fail(400, noBody);
     if (given.length > 1) {
       return fail(
         400,
-        `pass one of "html", "surfaces", "parts" or "fills", not ${given.join(" and ")}`,
+        `pass one of "html", "surfaces", "parts" or "swaps", not ${given.join(" and ")}`,
       );
     }
     if (amend && (forkIn || given.length === 0)) {
@@ -2044,13 +2044,13 @@ export function createApp({
         400,
         forkIn
           ? '"amend" replaces an alternative\'s latest version; "fork" starts a new alternative'
-          : '"amend" needs the new "html", "surfaces", "parts" or "fills"',
+          : '"amend" needs the new "html", "surfaces", "parts" or "swaps"',
       );
     }
     const partEdits = editsArg(body, "parts");
     if (isResult(partEdits)) return partEdits;
-    const fillEdits = editsArg(body, "fills");
-    if (isResult(fillEdits)) return fillEdits;
+    const swapEdits = editsArg(body, "swaps");
+    if (isResult(swapEdits)) return swapEdits;
     const knobs = checkKnobs(body.knobs);
     if (!knobs.ok) return fail(400, knobs.error);
     const alternativeKnobs = checkKnobs(body.alternativeKnobs);
@@ -2269,7 +2269,7 @@ export function createApp({
       return writeResult(design, target, ctx, { writer: session, flow });
     }
     // A fork starts a new alternative from a sibling's version: that version's
-    // surfaces are what `parts`, `fills` and kept surface ids refer to.
+    // surfaces are what `parts`, `swaps` and kept surface ids refer to.
     let fork: { ref: ForkRef; surfaces: Surface[]; knobs?: Knobs; description?: string } | null =
       null;
     if (forkIn) {
@@ -2313,12 +2313,12 @@ export function createApp({
     let applied: string[] | undefined;
     if (fork && given.length === 0) {
       surfaces = fork.surfaces;
-    } else if (partEdits || fillEdits) {
+    } else if (partEdits || swapEdits) {
       const current = base();
       if (isResult(current)) return current;
       const result = partEdits
         ? spliceParts(current, partEdits)
-        : spliceFills(current, fillEdits as Record<string, string>);
+        : spliceSwaps(current, swapEdits as Record<string, string>);
       if (!result.ok) return fail(400, result.error);
       surfaces = result.surfaces;
       applied = result.applied;
@@ -2642,7 +2642,7 @@ export function createApp({
   // the version before it is current again (a hidden one would stay on stage
   // and keep its number), and an alternative with no other version goes.
   async function withdrawFlow(body: any, ctx: FlowContext): Promise<FlowResult> {
-    const extra = ["html", "surfaces", "parts", "fills", "fork", "flow", "poster", "amend"].filter(
+    const extra = ["html", "surfaces", "parts", "swaps", "fork", "flow", "poster", "amend"].filter(
       (k) => body[k] !== undefined && body[k] !== false,
     );
     if (extra.length) {
@@ -2925,17 +2925,17 @@ export function createApp({
 
   // `parts`: new outer html per part ("name" or "name#key"), spliced into the
   // alternative's html so a tweak costs the tweak rather than the whole document.
-  // `fills`: the same per slot alternative ("part#fill"), replaced or added.
+  // `swaps`: the same per slot alternative ("part#swap"), replaced or added.
   function editsArg(
     body: any,
-    key: "parts" | "fills",
+    key: "parts" | "swaps",
   ): Record<string, string> | FlowResult | undefined {
     if (body?.[key] === undefined) return undefined;
     const edits = body[key];
     const shape =
       key === "parts"
         ? '{ "<part name>": "<html for that part>" }'
-        : '{ "<part>#<fill>": "<html for that fill>" }';
+        : '{ "<part>#<swap>": "<html for that swap>" }';
     if (!edits || typeof edits !== "object" || Array.isArray(edits)) {
       return fail(400, `"${key}" must be an object: ${shape}`);
     }
@@ -3162,7 +3162,7 @@ export function createApp({
     const builtFrom = new Map<string, string[]>();
     for (const m of designs) {
       const designHeads = heads.get(m.id) ?? [];
-      // Only embeds and fills need the html: most of a workspace's bytes are
+      // Only embeds and swaps need the html: most of a workspace's bytes are
       // pages with neither, which this list has no reason to read. The version a design
       // shows may be an older one than its latest (a stay, a version in use), so both count.
       const marked = designHeads.some(
@@ -3500,15 +3500,15 @@ export function createApp({
         const post = postAtVersion(found, version) ?? found;
         picked.push(post);
         const html = post.surfaces.find((s) => s.kind === "html");
-        // With fills, the state as decided: only the chosen fills, by every
+        // With swaps, the state as decided: only the chosen swaps, by every
         // value sent so far (defaults before any reply). The authored markup with
-        // every fill stays available as `allFills`.
+        // every swap stays available as `allSwaps`.
         const raw =
           html && html.kind === "html"
             ? withAnswerAdditions(html.html, design.answerAdditions)
             : "";
         const slots = slotsInSurfaces([{ kind: "html", html: raw }]);
-        const composed = slots.length ? composeFills(raw, chosenFills(slots, settled)) : raw;
+        const composed = slots.length ? composeSwaps(raw, chosenSwaps(slots, settled)) : raw;
         entries.push({
           state,
           ...(design.variants ? { variant: post.alternative } : { alternative: post.alternative }),
@@ -3519,7 +3519,7 @@ export function createApp({
           ...(newestVisible(found) !== post.version ? { latest: newestVisible(found) } : {}),
           status: alternativeStatus(post.status),
           html: composed,
-          ...(slots.length ? { allFills: raw } : {}),
+          ...(slots.length ? { allSwaps: raw } : {}),
           markdown: postToMarkdown(post, {
             postUrl: `${ctx.base}/s/${post.id}`,
             assetBase: ctx.base,
@@ -3748,7 +3748,7 @@ export function createApp({
 
   // Ask the user structured questions. An ask whose id matches an existing one
   // replaces it (and reopens it); anything else is appended.
-  // Takes what answers bring off their options (style, fill, html), checked before
+  // Takes what answers bring off their options (style, swap, html), checked before
   // anything is written. Options then carry only what any option does: a `set`, or a
   // `alternative` whose `version` is filled in once its whole page exists.
   function answersBringing(
@@ -3764,7 +3764,7 @@ export function createApp({
         pages: { ask: number; option: number; target: Post; html: string }[];
         // A project knob's new values and styles, which go on the system.
         project: { knobs: Knobs; additions: SystemAddition[]; changed: boolean };
-        // Values whose style or fill was asked again with something new: "knob=value".
+        // Values whose style or swap was asked again with something new: "knob=value".
         revised: string[];
       }
     | string {
@@ -3791,14 +3791,14 @@ export function createApp({
       }
       const options: unknown[] = [];
       for (const [optionIndex, o] of entry.options.entries()) {
-        const { style, fill, html, ...rest } = o && typeof o === "object" ? o : ({} as any);
-        if (style === undefined && fill === undefined && html === undefined) {
+        const { style, swap, html, ...rest } = o && typeof o === "object" ? o : ({} as any);
+        if (style === undefined && swap === undefined && html === undefined) {
           options.push(o);
           continue;
         }
         const name = String(rest.label ?? "");
         if (html !== undefined) {
-          if (typeof html !== "string" || style !== undefined || fill !== undefined || rest.set) {
+          if (typeof html !== "string" || style !== undefined || swap !== undefined || rest.set) {
             return `option "${name}": html is a whole page; send it alone`;
           }
           if (entry.scope === "part") return `option "${name}": a part's question can't take html`;
@@ -3821,12 +3821,12 @@ export function createApp({
         const set = Object.entries((rest.set ?? {}) as Record<string, unknown>);
         const value = set[0]?.[1];
         if (set.length !== 1 || typeof value !== "string" || rest.alternative) {
-          return `option "${name}": style and fill go with a set of one new value`;
+          return `option "${name}": style and swap go with a set of one new value`;
         }
         const knob = set[0][0];
         if (system && Object.hasOwn(system.knobs, knob)) {
-          if (fill !== undefined)
-            return `option "${name}": "${knob}" is a project knob; it takes style, not fill`;
+          if (swap !== undefined)
+            return `option "${name}": "${knob}" is a project knob; it takes style, not swap`;
           const bad =
             typeof style === "string" ? checkAnswerStyle(style) : "style must be a string";
           if (bad) return `option "${name}": ${bad}`;
@@ -3863,21 +3863,21 @@ export function createApp({
           if (bad) return `option "${name}": ${bad}`;
           addition.style = style;
         }
-        if (fill !== undefined) {
-          const bad = typeof fill === "string" ? checkAnswerFill(fill) : "fill must be a string";
+        if (swap !== undefined) {
+          const bad = typeof swap === "string" ? checkAnswerSwap(swap) : "swap must be a string";
           if (bad) return `option "${name}": ${bad}`;
-          if (value === AS_IS_FILL) return `option "${name}": "${AS_IS_FILL}" is the part as it is`;
+          if (value === AS_IS_SWAP) return `option "${name}": "${AS_IS_SWAP}" is the part as it is`;
           if (!renders.some((h) => partOccurrences(h, knob) === 1)) {
-            return `option "${name}": no state has one part "${knob}" to add a fill to; declare data-part, or send html`;
+            return `option "${name}": no state has one part "${knob}" to add a swap to; declare data-part, or send html`;
           }
-          addition.fill = fill;
+          addition.swap = swap;
         }
         const at = additions.findIndex((a) => a.knob === knob && a.value === value);
         if (at >= 0) {
           // Asking again with what is already there is how a question grows; with a
-          // new style or fill, the value keeps its name and what it draws is revised.
+          // new style or swap, the value keeps its name and what it draws is revised.
           const same = additions[at];
-          if (same.style !== addition.style || same.fill !== addition.fill) {
+          if (same.style !== addition.style || same.swap !== addition.swap) {
             additions[at] = { ...addition, rev: (same.rev ?? 1) + 1 };
             revised.push(`${knob}=${value}`);
           }
@@ -3900,7 +3900,7 @@ export function createApp({
         }
         knobs[knob] = config
           ? { ...config, options: [...(config.options ?? []), value] }
-          : { type: "select", options: [AS_IS_FILL, value], value: AS_IS_FILL };
+          : { type: "select", options: [AS_IS_SWAP, value], value: AS_IS_SWAP };
         additions.push(addition);
         options.push(rest);
       }
@@ -3967,7 +3967,7 @@ export function createApp({
           if (design.answerAdditions.some((a) => a.knob === knob && a.value === value)) continue;
           if (html.some((h) => h.includes(value))) continue;
           out.push(
-            `couldn't confirm the page knows "${value}" (option "${option.label}"): if it doesn't, its picture won't change. Send the option with style, fill or html`,
+            `couldn't confirm the page knows "${value}" (option "${option.label}"): if it doesn't, its picture won't change. Send the option with style, swap or html`,
           );
         }
       }

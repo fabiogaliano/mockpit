@@ -39,7 +39,7 @@ MCP `feedback`, `GET /api/feedback?session=…`). It returns at once:
             "Writing": {
               "alternative": "dark",
               "parts": {
-                "bar": { "fill": "tabs", "label": "Tabs", "parts": { "badge": { "fill": "dot" } } }
+                "bar": { "swap": "tabs", "label": "Tabs", "parts": { "badge": { "swap": "dot" } } }
               }
             }
           },
@@ -237,33 +237,33 @@ mockpit read    --decisions               # the whole decision list, when a read
 - `publish` on an existing (design, state, alternative) makes its next version.
   `--from N` branches off an earlier one. `--fork quiet@2` (MCP/HTTP
   `fork: "quiet@2"`) starts a NEW alternative from a sibling's version and records
-  the lineage; alone it copies it, with `--parts`/`--fills` it edits the copy. The result flags vanished or renamed
+  the lineage; alone it copies it, with `--parts`/`--swaps` it edits the copy. The result flags vanished or renamed
   parts. Don't publish a near-duplicate alternative; publish the next version.
 - Replace one part instead of the document: `--parts body=body.html`
   (repeatable; `--parts body=-` reads stdin), MCP `publish({parts: {body:
   "<p data-part=\"body\">new copy</p>"}})`, or `parts` in the HTTP publish body.
   Each value replaces the whole element carrying `data-part="body"`, so you can
   rename, relabel or retag it. `"row#a"` targets one keyed instance. Send one of
-  `html`, `surfaces`, `parts` or `fills` per call. The response lists `applied` plus the
+  `html`, `surfaces`, `parts` or `swaps` per call. The response lists `applied` plus the
   usual `partChanges`. An unknown name, or one matching several instances,
   fails with the parts or keys present and writes nothing.
-- Replace or add one fill of a part: `--fills bar#tabs=tabs.html`, MCP
-  `publish({fills: {"bar#tabs": "<nav>…</nav>"}})`. A fill that exists is
-  replaced; a new one goes after that part's other fills. `data-part` and
-  `data-fill` are added to the element when missing.
-- `decisions` (only when the design has fills or the reply set knobs) is the
-  state as chosen: per state the alternative, then each part's chosen fill with
-  the parts inside it, then every knob value that picks no fill.
+- Replace or add one swap of a part: `--swaps bar#tabs=tabs.html`, MCP
+  `publish({swaps: {"bar#tabs": "<nav>…</nav>"}})`. A swap that exists is
+  replaced; a new one goes after that part's other swaps. `data-part` and
+  `data-swap` are added to the element when missing.
+- `decisions` (only when the design has swaps or the reply set knobs) is the
+  state as chosen: per state the alternative, then each part's chosen swap with
+  the parts inside it, then every knob value that picks no swap.
   `borrowedFrom` on a part means the user borrowed it from another alternative. A
-  part inside a fill that was not chosen is absent, and its question's answer
+  part inside a swap that was not chosen is absent, and its question's answer
   is not sent.
 - `say` posts a short plain-text message in the thread. Give substantial answers as a new
   version.
 - `export` returns the html in use (else current) per state, its version
-  history, the knobs, `settled` and the last reply. With fills, `html` is
-  the composed state (only the chosen fills, the fill marks dropped),
-  `allFills` keeps every fill, and `decisions` is as above. The CLI writes
-  `index.html`, `all-fills.html` and `decisions.json`. Port the composed html
+  history, the knobs, `settled` and the last reply. With swaps, `html` is
+  the composed state (only the chosen swaps, the swap marks dropped),
+  `allSwaps` keeps every swap, and `decisions` is as above. The CLI writes
+  `index.html`, `all-swaps.html` and `decisions.json`. Port the composed html
   into the codebase in its own language and components; mockpit does not
   generate code.
 - `settled` (on `read` and `export`) is every knob value the user has sent: each answered

@@ -49,7 +49,7 @@ export function iconsLine(system: System | null): string {
 const TOPIC_SUMMARY: Record<GuideTopic, string> = {
   system: "the project's system: the contract and its full lists",
   knobs: "every knob shape, how values reach html",
-  asks: "the question JSON, scopes, parts with fills (data-fill), the alternative question, multi",
+  asks: "the question JSON, scopes, parts with swaps (data-swap), the alternative question, multi",
   surfaces: "markdown, diff, mermaid, code, terminal, json, image; uploads",
   html: "the contract, tokens, kits, Tailwind, icons",
   feedback: "the feedback JSON, pending, delivery, export",
@@ -534,7 +534,7 @@ mockpit publish --design writer --state "Writing" --alternative dark --html dark
 mockpit ask     --design writer "Quiet or dark?" --option Quiet=quiet --option Dark=dark
 mockpit feedback                # after the user says they answered
 mockpit publish --design writer --state "Writing" --alternative dark --parts body=b.html  # v2, one part
-mockpit publish --design writer --state "Writing" --alternative dark --fills bar#tabs=t.html
+mockpit publish --design writer --state "Writing" --alternative dark --swaps bar#tabs=t.html
 mockpit export  --design writer   # the chosen html per state
 \`\`\`
 
@@ -675,17 +675,17 @@ To clear out older versions, only when the user asks: \`mockpit move --design <s
 embed, copy or fork points at, or that is in use, listing why. It can't be undone, so
 confirm first; \`--withdraw\` is still how you take back your own latest version.
 
-## Question, fills or knob
+## Question, swaps or knob
 
 Answers drive the design. A choice is several alternatives plus one question that
-binds them (ask it first), or a part with fills: one region's alternatives in
-one html, sharing \`data-part\`, each its own \`data-fill\`
-(\`<nav data-part="bar" data-fill="thin">\`). The viewer shows the chosen fill.
-A fill may hold parts with fills, asked only while it is chosen. Send
-publish's \`suggestedFillAsks\` (\`set: {"bar": "tabs"}\`). An alternative
+binds them (ask it first), or a part with swaps: one region's alternatives in
+one html, sharing \`data-part\`, each its own \`data-swap\`
+(\`<nav data-part="bar" data-swap="thin">\`). The viewer shows the chosen swap.
+A swap may hold parts with swaps, asked only while it is chosen. Send
+publish's \`suggestedSwapAsks\` (\`set: {"bar": "tabs"}\`). An alternative
 decides all it differs on; don't re-ask it. Visual options carry an \`alternative\`
 or knob \`set\`. An answer a page doesn't know how to draw brings it, in that one \`ask\`:
-\`style\` or \`fill\` beside a \`set\` of a new value, or \`html\` for a whole page. Never
+\`style\` or \`swap\` beside a \`set\` of a new value, or \`html\` for a whole page. Never
 publish a version to add answers: the user is on the old one, and their pictures won't
 change (\`mockpit guide asks\`). One render plus a control: a knob,
 \`--knobs '{...}'\`. Declare knobs for what is worth fine-tuning (size,
@@ -721,7 +721,7 @@ runners-up and rejects: never offer a hidden answer again; \`update\` asks you t
 kept screen up to date with the one in use;
 \`verdict\` (use, revise) replaces answers when there were
 no questions; \`decisions\` is the state as chosen: alternative, then each part's
-fill, nested; \`messages\` are what the user wrote in the thread. Each Send
+swap, nested; \`messages\` are what the user wrote in the thread. Each Send
 arrives exactly once: in a write's \`feedback\` or \`mockpit feedback\`. A
 \`mockpit watch\` line only says one landed. In Claude Code, arm \`mockpit watch\` under Monitor after
 asking, so a Send wakes you, unless your mockpit tools come from the plugin, which

@@ -55,7 +55,7 @@ from components, each its own design with its own alternatives and questions.
   what embeds it. `version="3"` pins it.
 - No `alternative`: the component's alternative in use (else `default`). Name one to
   show a specific alternative.
-- The component shows as decided: its parts with fills keep only the fills the user
+- The component shows as decided: its parts with swaps keep only the swaps the user
   settled on, and its other settled knob values ride on the embed's wrapper
   (`data-k-<path>` and `--k-<path>`), so write its knob CSS as
   `[data-k-tone="loud"] .chip`, not `html[data-k-tone=…]`.
@@ -110,7 +110,7 @@ MCP  publish { design, alternative, html, poster: "<asset id, or an image path o
 HTTP POST /api/designs { …, "html": "…", "poster": "<asset id>" }
 ```
 
-A version that changes the page without a new poster (`--parts`, `--fills`, a fork with edits)
+A version that changes the page without a new poster (`--parts`, `--swaps`, a fork with edits)
 drops it, so send one with each, or let the CLI or stdio server take the new one.
 
 ## What the user sees

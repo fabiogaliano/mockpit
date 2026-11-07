@@ -1,15 +1,15 @@
-// What an answer brings so it can draw itself: a little style, or a new fill of one
+// What an answer brings so it can draw itself: a little style, or a new swap of one
 // part. It lives on the design, so a version the user approved is never rewritten,
 // and it only takes effect while its value is chosen. Values are new and never
 // redefined, so everything the user has already seen keeps looking the same.
 //
-// String-only and runtime-agnostic, like fills.ts.
+// String-only and runtime-agnostic, like swaps.ts.
 
-import { addFill, cssString } from "./fills.ts";
+import { addSwap, cssString } from "./swaps.ts";
 import type { AnswerAddition } from "./types.ts";
 
 export const MAX_ANSWER_STYLE = 20_000;
-export const MAX_ANSWER_FILL = 200_000;
+export const MAX_ANSWER_SWAP = 200_000;
 export const MAX_ANSWER_ADDITIONS = 200;
 
 // Allowed inside a rule. The rest either escape the value's scope or do nothing there.
@@ -46,13 +46,13 @@ export function checkAnswerStyle(css: string): string | null {
   return depth === 0 ? null : "style has a { with no }";
 }
 
-// A fill sits in the document even while it isn't chosen, so anything that acts from
+// A swap sits in the document even while it isn't chosen, so anything that acts from
 // there (a script, a stylesheet) would change the page for every other answer too.
-export function checkAnswerFill(html: string): string | null {
-  if (html.length > MAX_ANSWER_FILL) return `fill is over ${MAX_ANSWER_FILL} characters`;
+export function checkAnswerSwap(html: string): string | null {
+  if (html.length > MAX_ANSWER_SWAP) return `swap is over ${MAX_ANSWER_SWAP} characters`;
   const acting = /<(script|style|link)\b/i.exec(html)?.[1].toLowerCase();
   if (acting) {
-    return `a fill can't hold <${acting}>: it would act while unchosen. Use style, or html for a whole page`;
+    return `a swap can't hold <${acting}>: it would act while unchosen. Use style, or html for a whole page`;
   }
   return null;
 }
@@ -65,7 +65,7 @@ export function withAnswerAdditions(html: string, additions: AnswerAddition[]): 
   if (additions.length === 0) return html;
   let out = html;
   for (const a of additions) {
-    if (a.fill !== undefined) out = addFill(out, a.knob, a.value, a.fill);
+    if (a.swap !== undefined) out = addSwap(out, a.knob, a.value, a.swap);
   }
   const css = additions.flatMap((a) =>
     a.style === undefined ? [] : [`${valueSelector(a)}{${a.style}}`],
