@@ -284,12 +284,12 @@ export function FlowStepTile(props: {
     designPath(
       props.project,
       props.node.slug,
-      props.state === null ? null : { state: props.state, variant: null },
+      props.state === null ? null : { state: props.state, alternative: null },
       props.flow,
     );
   const width = () => designWidth(props.node);
   // Drawn with nothing to picture (an image, some json) isn't the same as not drawn.
-  const planned = () => !props.node.variants.some((v) => v.state === props.state);
+  const planned = () => !props.node.alternatives.some((v) => v.state === props.state);
   return (
     <a
       class="home-step"

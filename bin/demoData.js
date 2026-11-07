@@ -1,5 +1,5 @@
 // Seed content for `mockpit demo`: the Writer design — four states of one
-// writing app, each drawn in three variants, with its parts marked so the viewer
+// writing app, each drawn in three alternatives, with its parts marked so the viewer
 // can show questions, tuning and part comments. Dependency-free like the CLI.
 
 const LOOKS = {
@@ -38,12 +38,12 @@ const GHOST = " She sat on the bollard and wrote the last line anyway.";
 
 // Knob values reach the render as --k-<path> custom properties (dots become
 // dashes), so every knob below has a CSS fallback for the un-tuned render.
-function render(state, variant) {
-  const look = LOOKS[variant.name];
+function render(state, alternative) {
+  const look = LOOKS[alternative.name];
   const lab = state.label === "Lab open";
   const versions = state.label === "Versions open";
   const ghost = state.label === "Ghost text";
-  const editorial = variant.name === "editorial";
+  const editorial = alternative.name === "editorial";
   return `<div class="writer" style="--paper:${look.paper};--ink:${look.ink};--muted:${look.muted};--rule:${look.rule};--panel:${look.panel};font-family:${look.font};background:var(--paper);color:var(--ink);display:flex;min-height:420px;border-radius:10px;overflow:hidden">
   <main style="flex:1;padding:36px 44px;position:relative">
     <div data-part="trim" data-part-label="Trim" style="display:flex;justify-content:space-between;font:12px/1 system-ui;color:var(--muted);padding-bottom:14px;border-bottom:1px solid var(--rule)">
@@ -92,7 +92,7 @@ export const DEMO = {
     { label: "Versions open" },
     { label: "Ghost text" },
   ],
-  variants: [{ name: "quiet" }, { name: "dark" }, { name: "editorial" }],
+  alternatives: [{ name: "quiet" }, { name: "dark" }, { name: "editorial" }],
   knobs: {
     "body.size": [17, 14, 22, 1],
     "body.measure": [64, 48, 80, 1],
@@ -105,9 +105,9 @@ export const DEMO = {
       text: "Quiet, dark or editorial?",
       scope: "design",
       options: [
-        { label: "Quiet", variant: "quiet" },
-        { label: "Dark", variant: "dark" },
-        { label: "Editorial", variant: "editorial" },
+        { label: "Quiet", alternative: "quiet" },
+        { label: "Dark", alternative: "dark" },
+        { label: "Editorial", alternative: "editorial" },
       ],
     },
     {

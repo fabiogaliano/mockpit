@@ -1,7 +1,7 @@
 # mockpit topic: scripts
 
 `run` executes a JavaScript script on the server against the mockpit API: one run can
-publish two variants and ask which. A script never waits for the user. End the turn after the
+publish two alternatives and ask which. A script never waits for the user. End the turn after the
 run that asks; once they say they answered, a later run reads `mockpit.feedback()`.
 
 ## When to use it
@@ -34,15 +34,20 @@ const card = (tone) => `
     <h1>Writer</h1>
     <button data-part="cta">Start writing</button>
   </section>`;
-await mockpit.publish({ design: "writer", title: "Writer", variant: "calm", html: card("calm") });
-await mockpit.publish({ design: "writer", variant: "bold", html: card("bold") });
+await mockpit.publish({
+  design: "writer",
+  title: "Writer",
+  alternative: "calm",
+  html: card("calm"),
+});
+await mockpit.publish({ design: "writer", alternative: "bold", html: card("bold") });
 const { url } = await mockpit.ask("writer", [
   {
     id: "tone",
     text: "Calm or bold?",
     options: [
-      { label: "Calm", variant: "calm" },
-      { label: "Bold", variant: "bold" },
+      { label: "Calm", alternative: "calm" },
+      { label: "Bold", alternative: "bold" },
     ],
   },
 ]);
@@ -89,14 +94,14 @@ A failed host call rejects with REST's message, so `try`/`catch` works:
 try {
   await mockpit.publish({
     design: "writer",
-    variant: "calm",
+    alternative: "calm",
     parts: { hero: '<section data-part="hero">…</section>' },
   });
 } catch (e) {
   print("part splice failed:", e.message);
   await mockpit.publish({
     design: "writer",
-    variant: "calm",
+    alternative: "calm",
     html: '<section data-part="hero">…</section>',
   });
 }

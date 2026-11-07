@@ -66,14 +66,15 @@ try {
   const design = list.designs[0];
   // A second version of the at-rest quiet look, so the versions popover has history.
   const detail = await call(url, `/api/designs/${design.id}?body=1`);
-  const rest = detail.variants.find(
-    (v: { state: string; variant: string }) => v.state === "Writing" && v.variant === "quiet",
+  const rest = detail.alternatives.find(
+    (v: { state: string; alternative: string }) =>
+      v.state === "Writing" && v.alternative === "quiet",
   );
   await call(url, "/api/designs", "POST", {
     design: design.id,
     session: design.sessionId,
     state: "Writing",
-    variant: "quiet",
+    alternative: "quiet",
     prompt: "tightened the title",
     html: rest.surfaces[0].html.replace("The Pier", "The Pier, again"),
   });

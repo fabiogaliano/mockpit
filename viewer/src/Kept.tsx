@@ -31,12 +31,14 @@ export function keptGroups(s: DesignScreenState): KeptGroup[] {
 // How many versions the screen in use gained since the kept one last changed.
 function behind(s: DesignScreenState, ask: Ask, kept: AskOption, inUse: AskOption[]): number {
   const pic = optionPicture(s, ask, kept);
-  const used = inUse.find((o) => o.variant);
-  if (!pic || !used?.variant) return 0;
-  const mine = s.variants().find((v) => v.state === pic.state && v.variant === used.variant);
+  const used = inUse.find((o) => o.alternative);
+  if (!pic || !used?.alternative) return 0;
+  const mine = s
+    .alternatives()
+    .find((v) => v.state === pic.state && v.alternative === used.alternative);
   if (!mine) return 0;
   const waited = s.standingFor(ask).since?.[kept.id] ?? "";
-  const since = waited > pic.variant.updatedAt ? waited : pic.variant.updatedAt;
+  const since = waited > pic.alternative.updatedAt ? waited : pic.alternative.updatedAt;
   return (mine.history ?? []).filter((h) => !("hidden" in h && h.hidden) && h.at > since).length;
 }
 
@@ -64,7 +66,7 @@ function KeptRow(props: { s: DesignScreenState; group: KeptGroup; option: AskOpt
   const ask = () => props.group.ask;
   const o = () => props.option;
   const pic = () => optionPicture(s, ask(), o());
-  const screen = () => !!o().variant;
+  const screen = () => !!o().alternative;
   const late = () => (screen() ? behind(s, ask(), o(), props.group.inUse) : 0);
   const carried = () => s.isCarried(ask(), o().id);
   const inUseName = () =>
@@ -92,7 +94,7 @@ function KeptRow(props: { s: DesignScreenState; group: KeptGroup; option: AskOpt
       </Show>
       <div class="keptrow-col">
         <span class="keptrow-name">{splitLabel(o().label).name}</span>
-        <Show when={splitLabel(o().label).sub ?? pic()?.variant.description}>
+        <Show when={splitLabel(o().label).sub ?? pic()?.alternative.description}>
           {(d) => <span class="keptrow-desc">{d()}</span>}
         </Show>
         <Show when={screen()}>

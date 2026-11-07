@@ -6,7 +6,7 @@
 import { type Decisions, decisionsFor } from "./decisions.ts";
 import { ROUTED_NOTE } from "./handoff.ts";
 import { standingOf, type StandingView, standingView } from "./standings.ts";
-import { archivedAnswer, optionStates, withAddedAnswers } from "./variantQuestion.ts";
+import { archivedAnswer, optionStates, withAddedAnswers } from "./alternativeQuestion.ts";
 import { shipped } from "./ready.ts";
 import {
   type AnswerStanding,
@@ -16,7 +16,7 @@ import {
   type Comment,
   type CommentAnchor,
   inUseVersion,
-  DEFAULT_VARIANT,
+  DEFAULT_ALTERNATIVE,
   type Design,
   type DesignEdit,
   type Lift,
@@ -28,13 +28,13 @@ import {
   type Store,
 } from "./types.ts";
 
-export interface VariantRef {
+export interface AlternativeRef {
   state: string | null;
-  variant: string;
+  alternative: string;
 }
 
-// A variant in use, with the version the user put in use.
-export interface InUseRef extends VariantRef {
+// An alternative in use, with the version the user put in use.
+export interface InUseRef extends AlternativeRef {
   version: number;
 }
 
@@ -42,7 +42,7 @@ export interface FeedbackMessage {
   seq: number;
   text: string;
   state: string | null;
-  variant: string | null;
+  alternative: string | null;
   version: number | null;
   anchor?: CommentAnchor;
   anchors?: Comment["anchors"];
@@ -65,7 +65,7 @@ export interface OtherChoice {
 }
 
 // An answered ask, resolved to the options the user chose, so the agent reads
-// "Which variant? → dark" without cross-referencing ids. `comment` qualifies the answer.
+// "Which alternative? → dark" without cross-referencing ids. `comment` qualifies the answer.
 export interface AnsweredAsk extends StandingView {
   ask: string;
   text: string;
@@ -107,10 +107,10 @@ export interface FeedbackReply extends Omit<
   seq: number;
   at: string;
   asks: AnsweredAsk[];
-  // One-tap reactions as one line each (`👍 part "hero" (variant B)`); they are
+  // One-tap reactions as one line each (`👍 part "hero" (alternative B)`); they are
   // left out of `comments`, which keeps only what the user typed.
   reactions?: string[];
-  // The state as decided: per state the variant and each part's chosen fill,
+  // The state as decided: per state the alternative and each part's chosen fill,
   // nested under the fill that holds it, plus the knob values set (decisions.ts).
   decisions?: Decisions;
 }
@@ -123,9 +123,9 @@ export interface FeedbackBatch {
   reply: FeedbackReply | null;
   // What the user wrote in the thread, outside any Send.
   messages: FeedbackMessage[];
-  // The variants the reply left in use / archived (restorable).
+  // The alternatives the reply left in use / archived (restorable).
   inUse: InUseRef[];
-  archived: VariantRef[];
+  archived: AlternativeRef[];
   // Set when this batch reached a session that didn't ask it (handoff.ts).
   handoff?: string;
   // The user moved the design from Home: its kind or area as they left it
@@ -143,7 +143,7 @@ export interface FeedbackBatch {
   lift?: Lift;
 }
 
-const ref = (p: Post): VariantRef => ({ state: p.state, variant: p.variant });
+const ref = (p: Post): AlternativeRef => ({ state: p.state, alternative: p.alternative });
 
 function moreAnswers(
   design: Design,
@@ -156,15 +156,16 @@ function moreAnswers(
   const ask = withAddedAnswers(stored, design, posts);
   const st = sent ?? standingOf(design, ask.id);
   const view = standingView(ask, st);
-  // A variant answer whose variant is archived is as hidden as one the user hid, with
-  // the variant's reason as its why.
+  // An alternative answer whose alternative is archived is as hidden as one the user hid, with
+  // the alternative's reason as its why.
   const archived = ask.options.filter(
     (o) => archivedAnswer(ask, o, design, posts) && !st.hidden.some((h) => h.id === o.id),
   );
   const reason = (o: AskOption) => {
     const states = optionStates(ask, o, design);
-    return posts.find((p) => p.variant === o.variant && states.includes(p.state) && p.archiveReason)
-      ?.archiveReason;
+    return posts.find(
+      (p) => p.alternative === o.alternative && states.includes(p.state) && p.archiveReason,
+    )?.archiveReason;
   };
   const hidden = [
     ...(view?.hidden ?? []).map((h) => ({ label: h.label, ...(h.why ? { why: h.why } : {}) })),
@@ -222,22 +223,22 @@ const REACTION_LEAD: Record<Reaction, string> = {
   more: "more like this:",
 };
 
-// `👍 part "hero" (variant B, state Mobile)`, `👎 variant B`, `more like this: the page`.
+// `👍 part "hero" (alternative B, state Mobile)`, `👎 alternative B`, `more like this: the page`.
 export function reactionLine(c: PartComment & { reaction: Reaction }): string {
-  // A design published without variant names has only "default": naming it is noise.
-  const named = c.variant && c.variant !== DEFAULT_VARIANT ? c.variant : null;
+  // A design published without alternative names has only "default": naming it is noise.
+  const named = c.alternative && c.alternative !== DEFAULT_ALTERNATIVE ? c.alternative : null;
   // A version is written as agents write it, dark@2.
   const at = c.version ? `@${c.version}` : "";
-  const variant = named ? `${named}${at}` : at ? `${DEFAULT_VARIANT}${at}` : null;
+  const alternative = named ? `${named}${at}` : at ? `${DEFAULT_ALTERNATIVE}${at}` : null;
   const where = [
-    c.part !== null && variant ? `variant ${variant}` : "",
+    c.part !== null && alternative ? `alternative ${alternative}` : "",
     c.state ? `state ${c.state}` : "",
   ].filter(Boolean);
   const target =
     c.part !== null
       ? `part ${JSON.stringify(c.part)}`
-      : variant
-        ? `variant ${variant}`
+      : alternative
+        ? `alternative ${alternative}`
         : "the page";
   const tail = where.length ? ` (${where.join(", ")})` : "";
   const note = c.text ? ` “${c.text}”` : "";
@@ -421,7 +422,7 @@ export function groupFeedback(
       seq: c.seq,
       text: c.text,
       state: post?.state ?? null,
-      variant: post?.variant ?? null,
+      alternative: post?.alternative ?? null,
       version: c.postVersion,
       ...(c.anchor ? { anchor: c.anchor } : {}),
       ...(c.anchors.length ? { anchors: c.anchors } : {}),

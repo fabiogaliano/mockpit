@@ -7,7 +7,7 @@ import type {
   designDetailView,
   designSummaryView,
   treeNodeView,
-  variantView,
+  alternativeView,
 } from "../../server/apiViews.ts";
 import type { DecisionLine } from "../../server/decisionList.ts";
 import type { FeedEvent } from "../../server/events.ts";
@@ -73,14 +73,14 @@ export type AreaView = ReturnType<typeof areaView>;
 export type AreaLine = { name: string; description?: string; alphabetical?: true };
 // A declared flow as `read` returns it: only steps whose screen exists.
 export type FlowView = { name: string; steps: FlowStep[] };
-export type VariantView = ReturnType<typeof variantView>;
-export type HistoryRow = NonNullable<VariantView["history"]>[number];
+export type AlternativeView = ReturnType<typeof alternativeView>;
+export type HistoryRow = NonNullable<AlternativeView["history"]>[number];
 // What a restore changed, sent back as it is by its Undo.
 export type RestoreUndo = {
   archivedAt: string | null;
   archiveReason: string | null;
   dismissed: string[];
-  variants: { id: string; archivedAt: string; reason: string | null }[];
+  alternatives: { id: string; archivedAt: string; reason: string | null }[];
 };
 export type DecisionListView = { project: string; total: number; lines: DecisionLine[] };
 // `ownerGone`: undelivered, and a newer agent session in the project superseded
@@ -125,7 +125,7 @@ export interface Shortlist {
   id: string;
   slug: string;
   title: string;
-  candidates: { variant: string; copiedFrom: CopyRef | null }[];
+  candidates: { alternative: string; copiedFrom: CopyRef | null }[];
 }
 export type SaveCandidate = CopyRef;
 export type { LiveCopy };
@@ -202,12 +202,12 @@ export const api = {
   }) =>
     call<{
       to: { id: string; slug: string; title: string; shortlist: boolean };
-      saved: { state: string | null; variant: string; already: boolean }[];
+      saved: { state: string | null; alternative: string; already: boolean }[];
     }>("/api/copies", json("POST", body)),
-  removeCopy: (design: string, state: string | null, variant: string) =>
+  removeCopy: (design: string, state: string | null, alternative: string) =>
     call<unknown>(
       `/api/copies/${encodeURIComponent(design)}/remove`,
-      json("POST", { state, variant }),
+      json("POST", { state, alternative }),
     ),
   system: (project: string) =>
     call<SystemPage>(`/api/projects/${encodeURIComponent(project)}/system`),
@@ -264,7 +264,7 @@ export const api = {
       flows: FlowView[];
       designs: { slug: string; title: string; states: (string | null)[] }[];
     }>(`/api/projects/${encodeURIComponent(project)}/flows`),
-  // The same view without version rows: enough to name a design and its variants.
+  // The same view without version rows: enough to name a design and its alternatives.
   designHead: (id: string) => call<DesignDetail>(`/api/designs/${encodeURIComponent(id)}`),
   draft: (id: string) =>
     call<{ draft: Draft | null }>(`/api/designs/${encodeURIComponent(id)}/draft`),
@@ -300,16 +300,16 @@ export const api = {
     call<{ reply: CommentRow }>(`/api/designs/${encodeURIComponent(id)}/reply`, json("POST", body)),
   recipients: (id: string) =>
     call<SendRecipients>(`/api/designs/${encodeURIComponent(id)}/recipients`),
-  // A new version of the variant made from an older one ("restore as vN").
+  // A new version of the alternative made from an older one ("restore as vN").
   restoreVersion: (id: string, postId: string, version: number) =>
     call<unknown>(
-      `/api/designs/${encodeURIComponent(id)}/variants/${encodeURIComponent(postId)}/variants/restore`,
+      `/api/designs/${encodeURIComponent(id)}/alternatives/${encodeURIComponent(postId)}/alternatives/restore`,
       json("POST", { version }),
     ),
   // Use this: one exact version goes in use; the agent hears it as a reply.
   use: (
     id: string,
-    body: { state: string | null; variant: string; version: number; to?: string },
+    body: { state: string | null; alternative: string; version: number; to?: string },
   ) =>
     call<{ reply: CommentRow | null }>(
       `/api/designs/${encodeURIComponent(id)}/use`,
@@ -318,7 +318,7 @@ export const api = {
   // Hide a version from the history, or bring it back.
   hide: (
     id: string,
-    body: { state: string | null; variant: string; version: number; hidden: boolean },
+    body: { state: string | null; alternative: string; version: number; hidden: boolean },
   ) => call<unknown>(`/api/designs/${encodeURIComponent(id)}/hide`, json("POST", body)),
   // Archive a design: off the shelf, its open asks dismissed, and the agent isn't told.
   // `reason` is the note picked up from what the user last wrote; restoreDesign undoes it.
@@ -337,22 +337,24 @@ export const api = {
       `/api/designs/${encodeURIComponent(id)}/rearchive`,
       json("POST", undo),
     ),
-  // Why an archived design, or with `variant` an archived variant, went.
+  // Why an archived design, or with `alternative` an archived alternative, went.
   reason: (
     id: string,
     body:
       | { reason: string | null }
-      | { reason: string | null; state: string | null; variant: string },
+      | { reason: string | null; state: string | null; alternative: string },
   ) => call<unknown>(`/api/designs/${encodeURIComponent(id)}/reason`, json("POST", body)),
   // Keep the version in use and stop asking about the newer one.
-  stay: (id: string, state: string | null, variant: string) =>
-    call<unknown>(`/api/designs/${encodeURIComponent(id)}/stay`, json("POST", { state, variant })),
+  stay: (id: string, state: string | null, alternative: string) =>
+    call<unknown>(
+      `/api/designs/${encodeURIComponent(id)}/stay`,
+      json("POST", { state, alternative }),
+    ),
   // Ready: this is the version, recorded at what each state shows now; false takes it off.
   ready: (id: string, ready: boolean) =>
-    call<{ carried: { slug: string; variant: string; version: number; alsoShown?: number[] }[] }>(
-      `/api/designs/${encodeURIComponent(id)}/ready`,
-      json("POST", { ready }),
-    ),
+    call<{
+      carried: { slug: string; alternative: string; version: number; alsoShown?: number[] }[];
+    }>(`/api/designs/${encodeURIComponent(id)}/ready`, json("POST", { ready })),
   decisions: (project: string) =>
     call<DecisionListView>(`/api/projects/${encodeURIComponent(project)}/decisions`),
   // The user's hand on a line: reword it, remove it, or take that back.
@@ -379,16 +381,16 @@ export const api = {
       `/api/designs/${encodeURIComponent(id)}/outlines`,
       json("POST", body),
     ),
-  // Un-archive one variant of one state (D13).
-  archiveVariant: (id: string, state: string | null, variant: string) =>
+  // Un-archive one alternative of one state (D13).
+  archiveAlternative: (id: string, state: string | null, alternative: string) =>
     call<unknown>(
-      `/api/designs/${encodeURIComponent(id)}/variants/archive`,
-      json("POST", { state, variant }),
+      `/api/designs/${encodeURIComponent(id)}/alternatives/archive`,
+      json("POST", { state, alternative }),
     ),
-  restoreVariant: (id: string, state: string | null, variant: string) =>
+  restoreAlternative: (id: string, state: string | null, alternative: string) =>
     call<unknown>(
-      `/api/designs/${encodeURIComponent(id)}/variants/restore`,
-      json("POST", { state, variant }),
+      `/api/designs/${encodeURIComponent(id)}/alternatives/restore`,
+      json("POST", { state, alternative }),
     ),
   // A plain comment from the user, outside a reply.
   comment: (designId: string, text: string) =>
@@ -416,11 +418,11 @@ export function surfaceUrl(
     version?: number;
     mode?: string;
     knobs?: Record<string, KnobValue>;
-    // The variant's embedsKey: a component's new version is a new URL.
+    // The alternative's embedsKey: a component's new version is a new URL.
     e?: string;
     // Older component versions to show instead of the latest, slug → version.
     embed?: Record<string, number>;
-    // The variant's rewrites: an amended version keeps its number.
+    // The alternative's rewrites: an amended version keeps its number.
     w?: number;
     // A palette of the project's system other than its default.
     p?: string;

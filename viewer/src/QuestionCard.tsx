@@ -27,7 +27,7 @@ export function QuestionCard(props: {
   const shown = () => !s.questionHidden() && !s.design()?.archivedAt;
   const total = () => s.questions().length;
   const i = () => Math.min(s.cur(), total() - 1);
-  // The built-in Which variant? comes last and isn't a question anyone asked, so
+  // The built-in Which alternative? comes last and isn't a question anyone asked, so
   // the count reads the same as Home's.
   const counted = (a: Ask) => asked() > 1 && !isBuiltinAsk(a);
   const askAt = (id: string) => s.questions().findIndex((q) => q.kind === "ask" && q.ask.id === id);
@@ -251,7 +251,7 @@ export function QuestionTab(props: { s: DesignScreenState }) {
       <button
         type="button"
         class="qtab"
-        aria-label={n() ? `Show the question, ${n()} open` : "Show the choice of variant"}
+        aria-label={n() ? `Show the question, ${n()} open` : "Show the choice of alternative"}
         onClick={() => s.goOwed()}
       >
         <Show when={n()} fallback="Pick one">

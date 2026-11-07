@@ -106,10 +106,10 @@ export function BuiltFrom(props: {
                               (n.inUse[0]
                                 ? `${versionName(
                                     n.inUse[0],
-                                    n.variants.filter((v) => v.state === n.inUse[0].state).length >
-                                      1,
+                                    n.alternatives.filter((v) => v.state === n.inUse[0].state)
+                                      .length > 1,
                                   )} in use`
-                                : `${n.variants.length} variants`)}
+                                : `${n.alternatives.length} alternatives`)}
                           </span>
                         </span>
                       </a>
@@ -205,7 +205,7 @@ function PartKnobs(props: { s: DesignScreenState; part: string | null }) {
           row remounted under the pointer would lose its hover. */}
       <Index each={borrow()}>
         {(o) => {
-          const on = () => s.draft()?.borrowed[o().part] === o().variant;
+          const on = () => s.draft()?.borrowed[o().part] === o().alternative;
           return (
             <button
               type="button"
@@ -214,15 +214,15 @@ function PartKnobs(props: { s: DesignScreenState; part: string | null }) {
               aria-pressed={on()}
               onMouseEnter={() =>
                 s.setPreview({
-                  key: `borrow:${o().part}:${o().variant}`,
-                  variant: o().variant,
+                  key: `borrow:${o().part}:${o().alternative}`,
+                  alternative: o().alternative,
                   part: o().part,
                 })
               }
               onMouseLeave={() => s.setHoveredPreview(null)}
               onClick={() => s.toggleMix(o())}
             >
-              <span>{`${partLabel(s.design() ?? { parts: [] }, o().part)} as in ${o().variant}`}</span>
+              <span>{`${partLabel(s.design() ?? { parts: [] }, o().part)} as in ${o().alternative}`}</span>
               <span class="borrow-act">{on() ? "Borrowed" : "Borrow"}</span>
             </button>
           );

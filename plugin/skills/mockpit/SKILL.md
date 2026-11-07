@@ -1,12 +1,12 @@
 ---
 name: mockpit
-description: Publish live design work — UI designs with states and variants, diagrams, visual explainers — to the user's mockpit surface, ask structured questions on it, and receive the user's batched reply as a notification. Use when the user asks you to design, illustrate, visualize, sketch, or design up something, mentions mockpit, or when a render would explain your work better than text.
+description: Publish live design work — UI designs with states and alternatives, diagrams, visual explainers — to the user's mockpit surface, ask structured questions on it, and receive the user's batched reply as a notification. Use when the user asks you to design, illustrate, visualize, sketch, or design up something, mentions mockpit, or when a render would explain your work better than text.
 ---
 
 # mockpit (plugin)
 
 The user keeps mockpit open in a browser. You publish a **design** (an idea, screen or
-component by slug) with **states** in the user's words, **variants** as parallel takes and
+component by slug) with **states** in the user's words, **alternatives** as parallel takes and
 numbered **versions**. Declare **parts** with `data-part`. The user answers, tunes and comments,
 then presses **Send** once.
 
@@ -25,7 +25,7 @@ every design at once.
 
 ## The loop
 
-Nothing waits for the user. Publish each variant, ask, tell the user in one line where to look,
+Nothing waits for the user. Publish each alternative, ask, tell the user in one line where to look,
 then end your turn. The question lives in the design (`ask`), never in chat. Never poll.
 
 Declare structure only when designing a product's screens: `--kind screen` for a screen,
@@ -41,7 +41,8 @@ library.
 A screen or component carries a spec: what it is for (`mockpit edit --design <slug> --purpose`)
 and how it works where the picture can't show it (`--behaviour "…" --state Now --part river`).
 Behaviour goes there, never in side files. A screen or component has nothing to choose: its
-newest version is current, alternatives belong in an idea, and the user marks it Ready (`read`
+newest version is current, alternatives belong in an idea (entries that all ship are variants:
+`--variants`, each named `--variant <name>`), and the user marks it Ready (`read`
 and `export`: `ready`, `changed`, `builtFrom`).
 `mockpit edit --design <slug> --slug <new>` renames it and rewrites every embed and flow step; it
 also retitles and reclassifies without a new version. Title a design, like a state, by what the
@@ -54,8 +55,8 @@ Prefer the MCP tools when connected (`publish`, `ask`, `read`, `feedback`,
 `say`, `move`, `edit`, `system`, `export`, `upload`, `guide`); otherwise use the CLI.
 
 ```sh
-mockpit publish --design writer --state "Writing" --variant quiet --html quiet.html
-mockpit publish --design writer --state "Writing" --variant dark  --html dark.html
+mockpit publish --design writer --state "Writing" --alternative quiet --html quiet.html
+mockpit publish --design writer --state "Writing" --alternative dark  --html dark.html
 mockpit ask     --design writer "Quiet or dark?" --option Quiet=quiet --option Dark=dark
 mockpit export  --design writer
 ```
@@ -82,13 +83,13 @@ one part) or with a short note in the thread (`say` / `mockpit say`).
 Rules of thumb:
 
 - One design per concept, with a stable kebab-case slug; publishing the same
-  (design, state, variant) again makes a new version.
-- A choice is several variants plus one question that binds them. A variant decides
-  everything it differs on; don't re-ask it. Visual options carry a `variant`
+  (design, state, alternative) again makes a new version.
+- A choice is several alternatives plus one question that binds them. An alternative decides
+  everything it differs on; don't re-ask it. Visual options carry an `alternative`
   or knob `set`, or a `palette` of the system. One render plus a control → declare a knob; declare knobs for
   what is worth fine-tuning even unasked. When a publish result nudges, send
   its `suggestedAsk`.
-- The html is the UI alone. Say what a variant is in `description`, never as text
+- The html is the UI alone. Say what an alternative is in `description`, never as text
   beside the design; name the widths it ships at once with `widths`.
 - Ask when a decision is genuinely the user's, not after every publish.
 - Use the kit, tokens and icons from `mockpit guide` before writing CSS.

@@ -1,4 +1,4 @@
-// Flatten a post to portable markdown — what a design export carries per variant,
+// Flatten a post to portable markdown — what a design export carries per alternative,
 // so an implementing agent can read non-html surfaces without the viewer.
 //
 // Runtime-agnostic (no `node:` imports, no DOM): the Worker DO serves exports

@@ -10,7 +10,7 @@ import type { DesignScreenState } from "./state.ts";
 export function ReadyMark(props: { s: DesignScreenState }) {
   const s = props.s;
   const m = () => s.design();
-  const drawn = () => (m()?.variants.length ?? 0) > 0;
+  const drawn = () => (m()?.alternatives.length ?? 0) > 0;
   const word = () => m()?.status ?? "in design";
   const set = () => word() !== "in design";
   // The components inside whose own mark isn't Ready, in the words their covers use.

@@ -16,14 +16,14 @@ import {
   type Reply,
   sameScreen,
 } from "../../server/types.ts";
-import { needsBuiltinAsk } from "../../server/variantQuestion.ts";
+import { needsBuiltinAsk } from "../../server/alternativeQuestion.ts";
 import type {
   CommentRow,
   DraftInput,
   HistoryRow,
   DesignDetail,
   TreeNode,
-  VariantView,
+  AlternativeView,
 } from "./api.ts";
 import { commentText, reactionWhere } from "./reactionRules.ts";
 
@@ -125,81 +125,89 @@ export function pickInDraft(
   return { draft: { ...d, answers, others, otherImages }, otherOpen: open };
 }
 
-// The variant question (Q9): design-wide, its options bound to variants.
+// The alternative question (Q9): design-wide, its options bound to alternatives.
 export const isLookAsk = (ask: Ask): boolean =>
-  ask.scope === "design" && ask.options.some((o) => o.variant);
+  ask.scope === "design" && ask.options.some((o) => o.alternative);
 
 export const lookAsk = (design: Pick<DesignDetail, "asks">): Ask | undefined =>
   design.asks.find(isLookAsk);
 
-// --- the built-in "Which variant?" ---
+// --- the built-in "Which alternative?" ---
 
 // The viewer's own question, not one the agent asked: it says nothing is waiting.
 export const isBuiltinAsk = (ask: Pick<Ask, "id">): boolean =>
   ask.id === BUILTIN_ASK_ID || ask.id.startsWith(`${BUILTIN_ASK_ID}:`);
 
 // Answered by comparing designs, which Studio does as well as Stage.
-export const picksVariant = (ask: Pick<Ask, "options">): boolean =>
-  ask.options.some((o) => o.variant);
+export const picksAlternative = (ask: Pick<Ask, "options">): boolean =>
+  ask.options.some((o) => o.alternative);
 
-type VariantRow = Pick<VariantView, "state" | "variant" | "status">;
+type AlternativeRow = Pick<AlternativeView, "state" | "alternative" | "status">;
 
-// What the user can still choose between in a state: its live variants.
-export const liveVariants = (variants: VariantRow[], state: string | null): string[] => [
-  ...new Set(variants.filter((v) => v.state === state && isLive(v.status)).map((v) => v.variant)),
+// What the user can still choose between in a state: its live alternatives.
+export const liveAlternatives = (
+  alternatives: AlternativeRow[],
+  state: string | null,
+): string[] => [
+  ...new Set(
+    alternatives.filter((v) => v.state === state && isLive(v.status)).map((v) => v.alternative),
+  ),
 ];
 
 // The built-in asks a design shows, under the ids the server reserves for them.
-// One design-wide ask when every state needs one and the live variant names line
+// One design-wide ask when every state needs one and the live alternative names line
 // up, so the user answers once; one per needing state otherwise. Option ids
-// are variant names, as the server's reply handling expects.
+// are alternative names, as the server's reply handling expects.
 export function builtinAsks(
   design: Pick<DesignDetail, "asks" | "states" | "kind"> & { archivedAt?: string | null },
-  variants: VariantRow[],
+  alternatives: AlternativeRow[],
 ): Ask[] {
   // Ending the design put its choices away with it.
   if (design.archivedAt) return [];
   const states = design.states.length ? design.states : [null];
-  const needing = states.filter((st) => needsBuiltinAsk(design.asks, design, variants, st));
+  const needing = states.filter((st) => needsBuiltinAsk(design.asks, design, alternatives, st));
   if (!needing.length) return [];
   const ask = (names: string[], state: string | null): Ask => ({
     id: state === null ? BUILTIN_ASK_ID : `${BUILTIN_ASK_ID}:${state}`,
-    text: "Which variant?",
+    text: "Which alternative?",
     scope: state === null ? "design" : "state",
     ...(state === null ? {} : { state }),
-    options: names.map((v) => ({ id: v, label: v, variant: v })),
+    options: names.map((v) => ({ id: v, label: v, alternative: v })),
     at: "",
   });
-  const first = liveVariants(variants, needing[0]);
+  const first = liveAlternatives(alternatives, needing[0]);
   const sameNames = (st: string | null) => {
-    const names = liveVariants(variants, st);
+    const names = liveAlternatives(alternatives, st);
     return names.length === first.length && names.every((n) => first.includes(n));
   };
   if (needing.length === states.length && states.every(sameNames)) return [ask(first, null)];
-  return needing.map((st) => ask(liveVariants(variants, st), st));
+  return needing.map((st) => ask(liveAlternatives(alternatives, st), st));
 }
 
-// The latest version any variant of the design reached.
-export const designVersion = (variants: Pick<VariantView, "version">[]): number =>
-  Math.max(1, ...variants.map((v) => v.version));
+// The latest version any alternative of the design reached.
+export const designVersion = (alternatives: Pick<AlternativeView, "version">[]): number =>
+  Math.max(1, ...alternatives.map((v) => v.version));
 
-// A variant as it stood at design version `n`: its newest version not after n.
-export function frameVersion(variant: Pick<VariantView, "version" | "history">, n: number): number {
-  const versions = variant.history?.map((h) => h.version) ?? [variant.version];
+// An alternative as it stood at design version `n`: its newest version not after n.
+export function frameVersion(
+  alternative: Pick<AlternativeView, "version" | "history">,
+  n: number,
+): number {
+  const versions = alternative.history?.map((h) => h.version) ?? [alternative.version];
   const fit = versions.filter((v) => v <= n);
   return fit.length ? Math.max(...fit) : Math.min(...versions);
 }
 
-export const historyRow = (variant: VariantView, version: number): HistoryRow | undefined =>
-  variant.history?.find((h) => h.version === version);
+export const historyRow = (alternative: AlternativeView, version: number): HistoryRow | undefined =>
+  alternative.history?.find((h) => h.version === version);
 
 // Every state an ask is shown on, in the design's order: its own state; each
-// state holding its part; for a design-wide ask that picks between variants,
-// each state with one of those variants; any other design-wide ask, every state.
+// state holding its part; for a design-wide ask that picks between alternatives,
+// each state with one of those alternatives; any other design-wide ask, every state.
 export function askStates(
   ask: Ask,
   design: Pick<DesignDetail, "states" | "parts">,
-  variants: Pick<VariantView, "state" | "variant">[],
+  alternatives: Pick<AlternativeView, "state" | "alternative">[],
 ): (string | null)[] {
   const all: (string | null)[] = design.states.length ? design.states : [null];
   if (ask.scope === "state" && ask.state !== undefined) {
@@ -213,9 +221,11 @@ export function askStates(
     if (holding.length) return holding;
     return ask.state !== undefined && all.includes(ask.state) ? [ask.state] : all.slice(0, 1);
   }
-  const named = new Set(ask.options.flatMap((o) => (o.variant ? [o.variant] : [])));
+  const named = new Set(ask.options.flatMap((o) => (o.alternative ? [o.alternative] : [])));
   if (named.size) {
-    const having = all.filter((s) => variants.some((v) => v.state === s && named.has(v.variant)));
+    const having = all.filter((s) =>
+      alternatives.some((v) => v.state === s && named.has(v.alternative)),
+    );
     if (having.length) return having;
   }
   return all;
@@ -271,9 +281,9 @@ export function partLabel(design: Pick<DesignDetail, "parts">, name: string): st
   return spokenName(name);
 }
 
-// The question's heading in the panel ("Variant", "Trim", "Versions open").
+// The question's heading in the panel ("Alternative", "Trim", "Versions open").
 export function askName(ask: Ask, design: Pick<DesignDetail, "parts">): string {
-  if (isLookAsk(ask)) return "Variant";
+  if (isLookAsk(ask)) return "Alternative";
   if (ask.scope === "part" && ask.part) return partLabel(design, ask.part);
   if (ask.scope === "state" && ask.state) return ask.state;
   return "Question";
@@ -281,7 +291,7 @@ export function askName(ask: Ask, design: Pick<DesignDetail, "parts">): string {
 
 // The same topic, lowercased, as the reply summary names it.
 function askTopic(ask: Ask): string {
-  if (isLookAsk(ask)) return "variant";
+  if (isLookAsk(ask)) return "alternative";
   if (ask.scope === "part" && ask.part) return ask.part;
   if (ask.scope === "state" && ask.state) return ask.state.toLowerCase();
   return "answer";
@@ -289,14 +299,14 @@ function askTopic(ask: Ask): string {
 
 // An answer to no stored ask is a built-in one, named like the ask it stood for.
 function builtinTopic(id: string): string {
-  if (id === BUILTIN_ASK_ID) return "variant";
+  if (id === BUILTIN_ASK_ID) return "alternative";
   if (id.startsWith(`${BUILTIN_ASK_ID}:`)) return id.slice(BUILTIN_ASK_ID.length + 1).toLowerCase();
   return id;
 }
 
 export interface MixOption {
   part: string;
-  variant: string;
+  alternative: string;
 }
 
 // What the user already chose, so Mix can never contradict it. A borrow brings
@@ -310,7 +320,7 @@ export interface MixOption {
 //   any part and the viewer cannot see which, so it closes Mix in its scope
 //   (every state for a design-wide ask).
 // A decided part is never offered, and a borrow made before the choice is
-// dropped (`pruneMix`). The variant question is borrowing's own input and counts for nothing.
+// dropped (`pruneMix`). The alternative question is borrowing's own input and counts for nothing.
 export interface MixSettled {
   decided: { part: string; state: string | null }[];
   // States Mix is closed in; null closes every state.
@@ -328,7 +338,7 @@ export function mixSettled(
     if (part !== null) out.decided.push({ part, state: null });
   }
   for (const ask of asks) {
-    if (ask.options.some((o) => o.variant)) continue;
+    if (ask.options.some((o) => o.alternative)) continue;
     const state = ask.scope === "design" ? null : (ask.state ?? null);
     const said = answers[ask.id] !== undefined || others[ask.id] !== undefined;
     if (ask.scope === "part") {
@@ -364,10 +374,10 @@ export function pruneMix(
   statesOf: (part: string) => (string | null)[],
 ): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const [part, variant] of Object.entries(mix)) {
+  for (const [part, alternative] of Object.entries(mix)) {
     const states = statesOf(part);
     if ((states.length ? states : [null]).every((st) => mixAllowed(settled, part, st)))
-      out[part] = variant;
+      out[part] = alternative;
   }
   return out;
 }
@@ -411,21 +421,21 @@ function wrapsFrame(report: PartsReport, name: string): boolean {
 // a frame that has not reported yet offers nothing until it does.
 export function mixOptions(
   design: Pick<DesignDetail, "asks" | "states">,
-  variants: Pick<VariantView, "state" | "variant" | "status" | "parts">[],
+  alternatives: Pick<AlternativeView, "state" | "alternative" | "status" | "parts">[],
   look: string | null,
-  reportOf: (state: string | null, variant: string) => PartsReport | undefined,
+  reportOf: (state: string | null, alternative: string) => PartsReport | undefined,
   settled: MixSettled = { decided: [], closed: [] },
 ): MixOption[] {
   const ask = lookAsk(design);
   if (!ask || !look) return [];
-  const looks = ask.options.flatMap((o) => (o.variant ? [o.variant] : []));
+  const looks = ask.options.flatMap((o) => (o.alternative ? [o.alternative] : []));
   const out: MixOption[] = [];
   const seen = new Set<string>();
   for (const state of design.states.length ? design.states : [null]) {
-    const inState = variants.filter(
-      (v) => v.state === state && isLive(v.status) && looks.includes(v.variant),
+    const inState = alternatives.filter(
+      (v) => v.state === state && isLive(v.status) && looks.includes(v.alternative),
     );
-    const picked = inState.find((v) => v.variant === look);
+    const picked = inState.find((v) => v.alternative === look);
     const mine = reportOf(state, look);
     if (!picked || !mine) continue;
     for (const part of picked.parts) {
@@ -433,14 +443,14 @@ export function mixOptions(
       if (base === undefined || !mixAllowed(settled, part, state) || wrapsFrame(mine, part))
         continue;
       for (const v of inState) {
-        const key = `${part}\u0000${v.variant}`;
+        const key = `${part}\u0000${v.alternative}`;
         if (v === picked || seen.has(key) || !v.parts.includes(part)) continue;
-        const donor = reportOf(state, v.variant);
+        const donor = reportOf(state, v.alternative);
         if (!donor || wrapsFrame(donor, part)) continue;
         const other = partShape(donor, part);
         if (other === undefined || other === base) continue;
         seen.add(key);
-        out.push({ part, variant: v.variant });
+        out.push({ part, alternative: v.alternative });
       }
     }
   }
@@ -470,7 +480,7 @@ function fmtValue(v: KnobValue): string {
   return String(v);
 }
 
-// One Send as a line in the thread: "Sent · Which variant? quiet · trim below · body from dark".
+// One Send as a line in the thread: "Sent · Which alternative? quiet · trim below · body from dark".
 export function summarizeReply(
   reply: Pick<
     Reply,
@@ -503,7 +513,7 @@ export function summarizeReply(
   if (n) parts.push(`${n} comment${n === 1 ? "" : "s"}`);
   if (reacted) parts.push(`${reacted} reaction${reacted === 1 ? "" : "s"}`);
   if (borrows) parts.push(borrows === 1 ? "a borrow" : `${borrows} borrows`);
-  if (reply.verdict) parts.push(`${reply.verdict.kind} ${reply.verdict.variant}`);
+  if (reply.verdict) parts.push(`${reply.verdict.kind} ${reply.verdict.alternative}`);
   if (reply.text) parts.push(`“${reply.text}”`);
   return parts.length ? `Sent · ${parts.join(" · ")}` : "Sent";
 }
@@ -513,10 +523,10 @@ export function summarizeReply(
 export function carryOver(
   draft: DraftInput,
   design: Pick<DesignDetail, "asks" | "knobs">,
-  variants: Pick<VariantView, "variant" | "parts" | "knobs">[],
+  alternatives: Pick<AlternativeView, "alternative" | "parts" | "knobs">[],
   toVersion: number,
 ): { draft: DraftInput; flagged: string[] } {
-  const names = new Set(variants.map((v) => v.variant));
+  const names = new Set(alternatives.map((v) => v.alternative));
   const answers: Record<string, AskAnswer> = {};
   const flagged: string[] = [];
   const known = <T>(byAsk: Record<string, T>) =>
@@ -529,22 +539,23 @@ export function carryOver(
       ask !== undefined &&
       answerIds(answer).every((oid) => {
         const opt = ask.options.find((o) => o.id === oid);
-        return opt !== undefined && (!opt.variant || names.has(opt.variant));
+        return opt !== undefined && (!opt.alternative || names.has(opt.alternative));
       });
     if (ok) answers[id] = answer;
     else flagged.push(id);
   }
   const mix: Record<string, string> = {};
-  for (const [part, variant] of Object.entries(draft.borrowed)) {
-    if (variants.some((v) => v.variant === variant && v.parts.includes(part))) mix[part] = variant;
+  for (const [part, alternative] of Object.entries(draft.borrowed)) {
+    if (alternatives.some((v) => v.alternative === alternative && v.parts.includes(part)))
+      mix[part] = alternative;
   }
   const paths = new Set([
     ...Object.keys(design.knobs),
-    ...variants.flatMap((v) => Object.keys(v.knobs ?? {})),
+    ...alternatives.flatMap((v) => Object.keys(v.knobs ?? {})),
   ]);
   const tuned: Record<string, KnobValue> = {};
   for (const [k, v] of Object.entries(draft.tuned)) if (paths.has(k)) tuned[k] = v;
-  // Words the user wrote outlive the part or variant they were written on: the
+  // Words the user wrote outlive the part or alternative they were written on: the
   // comment still names both, so it can go out with the Send rather than vanish.
   const comments = draft.comments;
   return {
@@ -658,7 +669,8 @@ export function changedPart(prev: PartsReport, next: PartsReport): string | null
   return best?.name ?? null;
 }
 
-export const frameKey = (state: string | null, variant: string) => `${state ?? ""}\u0000${variant}`;
+export const frameKey = (state: string | null, alternative: string) =>
+  `${state ?? ""}\u0000${alternative}`;
 
 // A reloading frame keeps its window, so its old document can still report.
 export const reportIsCurrent = (loaded: number, reported: unknown): boolean => reported === loaded;
@@ -694,11 +706,11 @@ export function knobDefault(cfg: KnobConfig): KnobValue | undefined {
 // answered knob-set options, then tuned values.
 export function draftKnobValues(
   design: Pick<DesignDetail, "asks" | "knobs" | "settled">,
-  variantKnobs: Knobs | undefined,
+  alternativeKnobs: Knobs | undefined,
   draft: DraftInput | null,
 ): Record<string, KnobValue> {
   return resolveKnobs({
-    knobs: { ...design.knobs, ...variantKnobs },
+    knobs: { ...design.knobs, ...alternativeKnobs },
     asks: design.asks,
     answers: draft?.answers ?? {},
     tuned: draft?.tuned ?? {},
@@ -741,24 +753,24 @@ export const commentWhere = (c: Pick<PartComment, "part" | "state" | "anchor">):
 // version is named as the version bar names it, with its state when there are several.
 export function threadRows(
   comments: CommentRow[],
-  variants: StepSource[],
+  alternatives: StepSource[],
   design: Pick<DesignDetail, "asks">,
 ): ThreadRow[] {
-  const states = [...new Set(variants.map((v) => v.state))];
+  const states = [...new Set(alternatives.map((v) => v.state))];
   type Event =
     | { kind: "publish"; at: string; label: string; id: string }
     | { kind: "comment"; at: string; c: CommentRow };
   const events: Event[] = [
     ...states.flatMap((state) => {
-      const named = variants.filter((v) => v.state === state).length > 1;
-      return versionSteps(variants, state).map((st): Event => ({
+      const named = alternatives.filter((v) => v.state === state).length > 1;
+      return versionSteps(alternatives, state).map((st): Event => ({
         kind: "publish",
         at: st.at,
         label:
           states.length > 1 && state !== null
             ? `${state}, ${versionName(st, named)}`
             : versionName(st, named),
-        id: `${state ?? ""}:${st.variant}@${st.version}`,
+        id: `${state ?? ""}:${st.alternative}@${st.version}`,
       }));
     }),
     ...comments.map((c): Event => ({ kind: "comment", at: c.createdAt, c })),
@@ -910,7 +922,7 @@ export function partBox(
 
 // --- Tune (D4): which knob value is in force, and where a change lands ---
 
-// What a knob's value depends on: the knobs declared for the variant on stage,
+// What a knob's value depends on: the knobs declared for the alternative on stage,
 // the asks (an answered knob-set option sets values), the drafted answers, the
 // user's tuned values, and what earlier replies settled.
 export interface KnobContext {
@@ -1057,16 +1069,16 @@ export function tuneComponents(
 }
 
 // Tiers, no modes: the Tune tab exists only when the agent gave it something.
-// Knobs count where the stage would show them (the design's, or any variant's in
+// Knobs count where the stage would show them (the design's, or any alternative's in
 // the state on stage, so hovering an option never blinks the tab); a marked
 // part (or a part ask) counts in any state, as Tune's selector walks parts
 // across states and each takes comments.
 export function tuneVisible(
   design: Pick<DesignDetail, "knobs" | "parts" | "asks">,
-  stateVariants: Pick<VariantView, "knobs">[],
+  stateAlternatives: Pick<AlternativeView, "knobs">[],
 ): boolean {
   if (Object.keys(design.knobs).length) return true;
-  if (stateVariants.some((v) => Object.keys(v.knobs ?? {}).length)) return true;
+  if (stateAlternatives.some((v) => Object.keys(v.knobs ?? {}).length)) return true;
   if (design.asks.some((a) => a.scope === "part")) return true;
   return design.parts.some((p) => p.parts.length > 0);
 }
@@ -1313,7 +1325,7 @@ export function findParagraph(
 // surface has reported: a frame still loading hasn't lost anything.
 export function paragraphPins(
   comments: readonly PartComment[],
-  at: { state: string | null; variant: string | null },
+  at: { state: string | null; alternative: string | null },
   surfaces: readonly (readonly ParagraphBlock[] | undefined)[],
 ): ParagraphPin[] {
   const out: ParagraphPin[] = [];
@@ -1324,7 +1336,7 @@ export function paragraphPins(
     if (!c.anchor) return;
     n++;
     const ref = c.anchor.paragraph;
-    if (!ref || c.state !== at.state || (c.variant && c.variant !== at.variant)) return;
+    if (!ref || c.state !== at.state || (c.alternative && c.alternative !== at.alternative)) return;
     const hit = findParagraph(ref, surfaces);
     if (!hit && !reported) return;
     const surface = hit ? hit.surface : Math.max(0, Math.min(ref.surface, surfaces.length - 1));
@@ -1382,7 +1394,7 @@ export function nextKept(
   return out;
 }
 
-// ia.md's "Inside a design": 2 to 6 variants switch, 7 to 50 compare first (Studio),
+// ia.md's "Inside a design": 2 to 6 alternatives switch, 7 to 50 compare first (Studio),
 // 50+ filter. Counted across every state and archived too: pruning a lab mustn't
 // change the layout under the hand doing it, and a lab with everything archived is
 // still a lot to look through. On the real data: concept-lab 108, onni-lab 99, onni
@@ -1455,7 +1467,7 @@ export function groupByArea<T>(
 }
 
 // Where a design stands, read off what mockpit already holds, for its card on
-// Home; null says nothing worth a word (one variant, nothing asked or chosen).
+// Home; null says nothing worth a word (one alternative, nothing asked or chosen).
 // A resolved design gets none: Home fades it instead.
 export type DesignStatus =
   | { kind: "open"; n: number }
@@ -1487,7 +1499,10 @@ export type StatusNode = Pick<
   TreeNode,
   "open" | "states" | "inUse" | "archivedAt" | "lastReplyAt" | "drafting" | "lastSend" | "status"
 > & {
-  variants: Pick<TreeNode["variants"][number], "state" | "status" | "updatedAt" | "changedTo">[];
+  alternatives: Pick<
+    TreeNode["alternatives"][number],
+    "state" | "status" | "updatedAt" | "changedTo"
+  >[];
 };
 
 export function designStatus(node: StatusNode, now: number): DesignStatus | null {
@@ -1496,19 +1511,19 @@ export function designStatus(node: StatusNode, now: number): DesignStatus | null
   if (node.drafting) return { kind: "draft" };
   // The agent moved on from what the user chose, and they haven't said whether to
   // take the new one or stay.
-  if (node.variants.some((v) => v.changedTo !== undefined)) return { kind: "changed" };
+  if (node.alternatives.some((v) => v.changedTo !== undefined)) return { kind: "changed" };
   // Ahead of In use: a Use this the agent hasn't heard is still on its way.
   if (node.lastSend && !node.lastSend.delivered) return { kind: "unseen" };
   // The user spoke last and nothing has been published since: the agent's turn.
   const reply = node.lastReplyAt;
-  const quiet = !!reply && node.variants.every((v) => v.updatedAt < reply);
+  const quiet = !!reply && node.alternatives.every((v) => v.updatedAt < reply);
   if (quiet && stillWorking(node.lastSend?.calledAt, now)) return { kind: "working" };
   if (node.inUse.length && node.states.every((st) => node.inUse.some((u) => u.state === st))) {
     return { kind: "decided" };
   }
   if (quiet) return { kind: "sent" };
   // Several designs of one screen still in play.
-  const live = node.variants.filter((v) => isLive(v.status));
+  const live = node.alternatives.filter((v) => isLive(v.status));
   if (node.states.some((st) => live.filter((v) => v.state === st).length > 1)) {
     return { kind: "exploring" };
   }
@@ -1516,14 +1531,14 @@ export function designStatus(node: StatusNode, now: number): DesignStatus | null
 }
 
 // Everything archived and no question waiting: nothing to look at on Home.
-export const nothingLeft = (node: Pick<TreeNode, "open" | "variants">): boolean =>
-  node.open === 0 && !node.variants.some((v) => isLive(v.status));
+export const nothingLeft = (node: Pick<TreeNode, "open" | "alternatives">): boolean =>
+  node.open === 0 && !node.alternatives.some((v) => isLive(v.status));
 
-// How far a design has come, as one number: every variant's version summed, so
-// any publish (a new version or a new variant) raises it. Home's "new" dot
+// How far a design has come, as one number: every alternative's version summed, so
+// any publish (a new version or a new alternative) raises it. Home's "new" dot
 // compares it against the last one this browser opened.
-export const versionStamp = (variants: { version: number }[]): number =>
-  variants.reduce((n, v) => n + v.version, 0);
+export const versionStamp = (alternatives: { version: number }[]): number =>
+  alternatives.reduce((n, v) => n + v.version, 0);
 
 // A code path cut from the left to its last two segments, the end that says
 // which piece it is: "apps/onni/src/spaces/food" → "…/spaces/food".
@@ -1742,16 +1757,16 @@ export const zoomScroll = (scroll: number, mid: number, z0: number, z1: number):
 
 // --- versions as the user counts them ---
 
-// One exact version of one variant: what the stage shows, what Use this puts
+// One exact version of one alternative: what the stage shows, what Use this puts
 // in use.
 export interface VersionRef {
-  variant: string;
+  alternative: string;
   version: number;
 }
 export const sameVersion = (a: VersionRef | null | undefined, b: VersionRef | null | undefined) =>
-  !!a && !!b && a.variant === b.variant && a.version === b.version;
+  !!a && !!b && a.alternative === b.alternative && a.version === b.version;
 
-// Every version of every variant in a state, in the order they were published:
+// Every version of every alternative in a state, in the order they were published:
 // `n` is its place in that timeline, which the version arrows walk. The user
 // never reads `n`, only the agent's own number (versionName).
 export interface VersionStep extends VersionRef {
@@ -1770,10 +1785,10 @@ export interface VersionStep extends VersionRef {
 }
 
 type StepSource = Pick<
-  VariantView,
+  AlternativeView,
   | "postId"
   | "state"
-  | "variant"
+  | "alternative"
   | "version"
   | "updatedAt"
   | "history"
@@ -1798,7 +1813,7 @@ export function keepSame<T>(was: readonly T[], next: readonly T[], key: (x: T) =
 }
 
 // A refetch (a poster landing, a sibling published) rebuilds every ask, the built-in
-// Which variant? included. New option objects make each answer card a new element,
+// Which alternative? included. New option objects make each answer card a new element,
 // and a press on the old card released on the new one is no click: keep what held.
 export function keepSameAsks(was: readonly Ask[], next: readonly Ask[]): Ask[] {
   const old = new Map(was.map((a) => [a.id, a]));
@@ -1810,10 +1825,10 @@ export function keepSameAsks(was: readonly Ask[], next: readonly Ask[]): Ask[] {
   });
 }
 
-export const stepKey = (x: VersionRef): string => `${x.variant}@${x.version}`;
+export const stepKey = (x: VersionRef): string => `${x.alternative}@${x.version}`;
 
-export function versionSteps(variants: StepSource[], state: string | null): VersionStep[] {
-  const rows = variants
+export function versionSteps(alternatives: StepSource[], state: string | null): VersionStep[] {
+  const rows = alternatives
     .filter((v) => v.state === state)
     .flatMap((v, order) => {
       const history = v.history?.length
@@ -1830,7 +1845,7 @@ export function versionSteps(variants: StepSource[], state: string | null): Vers
         order,
         step: {
           n: 0,
-          variant: v.variant,
+          alternative: v.alternative,
           version: h.version,
           postId: v.postId,
           at: h.at,
@@ -1852,23 +1867,23 @@ export function versionSteps(variants: StepSource[], state: string | null): Vers
 }
 
 // A version as the user reads it: the agent's own number, so "Dark #2" is the
-// agent's dark@2, with the variant's name in front when its state has others.
-export const variantName = (variant: string): string =>
-  `${variant.charAt(0).toUpperCase()}${variant.slice(1)}`;
+// agent's dark@2, with the alternative's name in front when its state has others.
+export const alternativeName = (alternative: string): string =>
+  `${alternative.charAt(0).toUpperCase()}${alternative.slice(1)}`;
 
 export const versionName = (ref: VersionRef, named: boolean): string =>
-  named ? `${variantName(ref.variant)} #${ref.version}` : `#${ref.version}`;
+  named ? `${alternativeName(ref.alternative)} #${ref.version}` : `#${ref.version}`;
 
 export const stepFor = (steps: VersionStep[], ref: VersionRef | null | undefined) =>
   ref ? steps.find((x) => sameVersion(x, ref)) : undefined;
 
 // The next or previous version to show from `ref`, passing over hidden ones.
-// The Versions list, one line per variant with the newest on top, from its far end:
-// so the arrows go up and down the list you can see, not across variants by date.
+// The Versions list, one line per alternative with the newest on top, from its far end:
+// so the arrows go up and down the list you can see, not across alternatives by date.
 export function listedSteps(steps: VersionStep[]): VersionStep[] {
   const newest = [...steps].reverse();
-  const lines = [...new Set(newest.map((x) => x.variant))];
-  return lines.flatMap((v) => newest.filter((x) => x.variant === v)).reverse();
+  const lines = [...new Set(newest.map((x) => x.alternative))];
+  return lines.flatMap((v) => newest.filter((x) => x.alternative === v)).reverse();
 }
 
 export function neighbourStep(
@@ -1883,7 +1898,7 @@ export function neighbourStep(
   return null;
 }
 
-// The versions a state's history draws: one line per variant, starting one
+// The versions a state's history draws: one line per alternative, starting one
 // column right of the version it was forked from (or at the left), its
 // versions in order along it. Columns and rows are grid cells; edges join a
 // version to the next one shown on its line, and a line's first to its fork.
@@ -1902,9 +1917,9 @@ export interface HistoryLayout {
 export function historyLayout(steps: VersionStep[]): HistoryLayout {
   const lines = new Map<string, VersionStep[]>();
   for (const st of [...steps].sort((a, b) => a.version - b.version)) {
-    const line = lines.get(st.variant) ?? [];
+    const line = lines.get(st.alternative) ?? [];
     line.push(st);
-    lines.set(st.variant, line);
+    lines.set(st.alternative, line);
   }
   // Lines in the order their first version appears, so a fork comes after
   // the line it branched from.
@@ -1914,14 +1929,14 @@ export function historyLayout(steps: VersionStep[]): HistoryLayout {
   const cells: HistoryCell[] = [];
   const edges: HistoryLayout["edges"] = [];
   const at = (ref: VersionRef) => cells.find((c) => sameVersion(c.step, ref));
-  order.forEach((variant, row) => {
-    const line = lines.get(variant)!;
+  order.forEach((alternative, row) => {
+    const line = lines.get(alternative)!;
     const fork = line[0].forkedFrom;
     // A fork from a version no longer shown starts beside the nearest one before it.
     const parent = fork
       ? (at(fork) ??
         cells
-          .filter((c) => c.step.variant === fork.variant && c.step.version <= fork.version)
+          .filter((c) => c.step.alternative === fork.alternative && c.step.version <= fork.version)
           .at(-1))
       : undefined;
     let col = parent ? parent.col + 1 : 0;
@@ -1990,19 +2005,19 @@ export interface ScreenPicture {
 
 // What a screen (one state of a design) looks like now: what's in use, else what the
 // agent recommends, else the first still live, else the first of any; null when it has
-// nothing that renders as a picture. Parallel variants have no "newest": they arrive
-// within minutes of each other, so the last to land says nothing. Inside one variant
+// nothing that renders as a picture. Parallel alternatives have no "newest": they arrive
+// within minutes of each other, so the last to land says nothing. Inside one alternative
 // the newest does win, unless it was hidden.
 export function screenPicture(
-  node: Pick<TreeNode, "inUse" | "variants"> & { recommended?: TreeNode["recommended"] },
+  node: Pick<TreeNode, "inUse" | "alternatives"> & { recommended?: TreeNode["recommended"] },
   state: string | null,
 ): ScreenPicture | null {
-  const inState = node.variants.filter((v) => v.state === state);
+  const inState = node.alternatives.filter((v) => v.state === state);
   const use = node.inUse.find((u) => u.state === state);
-  const used = use && inState.find((v) => v.variant === use.variant);
+  const used = use && inState.find((v) => v.alternative === use.alternative);
   const live = inState.filter((x) => isLive(x.status));
-  const recommended = node.recommended?.find((r) => r.state === state)?.variant;
-  const v = used ?? live.find((x) => x.variant === recommended) ?? live[0] ?? inState[0];
+  const recommended = node.recommended?.find((r) => r.state === state)?.alternative;
+  const v = used ?? live.find((x) => x.alternative === recommended) ?? live[0] ?? inState[0];
   if (!v || v.surface < 0) return null;
   const version = used && use ? use.version : (v.coverVersion ?? v.version);
   const poster =
@@ -2041,17 +2056,17 @@ export interface StateOutlineRow {
 // nobody an empty state.
 export const canOutline = (
   design: Pick<DesignDetail, "kind" | "archivedAt">,
-  variants: { surfaces: { kind?: unknown }[] }[],
+  alternatives: { surfaces: { kind?: unknown }[] }[],
 ): boolean =>
   design.kind === "screen" &&
   !design.archivedAt &&
-  variants.some((v) => v.surfaces.some((x) => x.kind === "html"));
+  alternatives.some((v) => v.surfaces.some((x) => x.kind === "html"));
 
 export function missingStates(
   design: Pick<DesignDetail, "kind" | "states" | "archivedAt" | "stateOutlines">,
-  variants: { surfaces: { kind?: unknown }[] }[],
+  alternatives: { surfaces: { kind?: unknown }[] }[],
 ): StateOutlineRow[] {
-  if (!canOutline(design, variants)) return [];
+  if (!canOutline(design, alternatives)) return [];
   const said = design.stateOutlines ?? {};
   const has = (name: string) =>
     design.states.some((st) => st.toLowerCase().includes(name.toLowerCase()));
@@ -2067,50 +2082,50 @@ export function missingStates(
   return [...standard, ...asked];
 }
 
-// --- the grid of variants and states ---
+// --- the grid of alternatives and states ---
 
-const liveNames = (variants: Pick<VariantView, "variant" | "state" | "status">[]) => {
+const liveNames = (alternatives: Pick<AlternativeView, "alternative" | "state" | "status">[]) => {
   const out = new Map<string, Set<string | null>>();
-  for (const v of variants) {
+  for (const v of alternatives) {
     if (!isLive(v.status)) continue;
-    const states = out.get(v.variant) ?? new Set();
+    const states = out.get(v.alternative) ?? new Set();
     states.add(v.state);
-    out.set(v.variant, states);
+    out.set(v.alternative, states);
   }
   return out;
 };
 
-// Several variants, and at least one of them drawn in more than one state: the same set
+// Several alternatives, and at least one of them drawn in more than one state: the same set
 // across states, which reads whole only as a grid. 23 of the 48 multi-state designs on the
 // real data. A lone name repeated across states is just a list of states.
 export function repeatsAcrossStates(
-  variants: Pick<VariantView, "variant" | "state" | "status">[],
+  alternatives: Pick<AlternativeView, "alternative" | "state" | "status">[],
 ): boolean {
-  const names = liveNames(variants);
+  const names = liveNames(alternatives);
   return names.size > 1 && [...names.values()].some((states) => states.size > 1);
 }
 
-// A component's variants are its forms, all kept, so they're compared in a grid even
+// A component's alternatives are its forms, all kept, so they're compared in a grid even
 // with one state.
 export const gridComparesForms = (
   kind: string,
-  variants: Pick<VariantView, "variant" | "state" | "status">[],
-): boolean => kind === "component" && liveNames(variants).size > 1;
+  alternatives: Pick<AlternativeView, "alternative" | "state" | "status">[],
+): boolean => kind === "component" && liveNames(alternatives).size > 1;
 
 // Rows and columns: every name still in play, in the order they were made, against every
 // state that has one or hasn't been drawn yet, so a whole missing state shows too. A
 // state with everything archived has left the tabs and leaves here.
 export function gridAxes(
   states: (string | null)[],
-  variants: Pick<VariantView, "variant" | "state" | "status">[],
+  alternatives: Pick<AlternativeView, "alternative" | "state" | "status">[],
 ): { rows: string[]; cols: (string | null)[] } {
-  const names = liveNames(variants);
+  const names = liveNames(alternatives);
   return {
     rows: [...names.keys()],
     cols: states.filter(
       (st) =>
-        !variants.some((v) => v.state === st) ||
-        variants.some((v) => v.state === st && isLive(v.status)),
+        !alternatives.some((v) => v.state === st) ||
+        alternatives.some((v) => v.state === st && isLive(v.status)),
     ),
   };
 }

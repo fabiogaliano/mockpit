@@ -1,5 +1,5 @@
 // The one-tap reaction row: like, dislike, "more like this". Used on a part
-// picked on the stage and on the variant in the stage head; each tap is a draft
+// picked on the stage and on the alternative in the stage head; each tap is a draft
 // reaction that goes out with the next Send.
 
 import { createSignal, For, type JSX, onCleanup, onMount } from "solid-js";
@@ -43,9 +43,9 @@ const ICON: Record<Reaction, () => JSX.Element> = {
 
 export function ReactionBar(props: {
   s: DesignScreenState;
-  // null: the variant on stage itself.
+  // null: the alternative on stage itself.
   part: string | null;
-  // What the reaction is about, for the group's name ("hero", "variant B").
+  // What the reaction is about, for the group's name ("hero", "alternative B").
   about: string;
   // Shown before the buttons where nothing nearby names the target.
   name?: string;

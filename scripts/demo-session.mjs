@@ -49,7 +49,7 @@ export async function boot() {
   return { base, api, dir, stop: () => proc.kill() };
 }
 
-// One session, one publish per (state, variant), then the questions: what an agent does.
+// One session, one publish per (state, alternative), then the questions: what an agent does.
 export async function publishShop(api, asks = DEMO.asks) {
   const session = await api("/api/sessions", {
     agent: DEMO.agent,
@@ -58,7 +58,7 @@ export async function publishShop(api, asks = DEMO.asks) {
   });
   let designId = "";
   for (const state of DEMO.states) {
-    for (const variant of DEMO.variants) {
+    for (const alternative of DEMO.alternatives) {
       const out = await api("/api/designs", {
         session: session.id,
         project: DEMO.project,
@@ -66,10 +66,10 @@ export async function publishShop(api, asks = DEMO.asks) {
         kind: "screen",
         title: DEMO.title,
         state: state.label,
-        variant: variant.name,
+        alternative: alternative.name,
         knobs: DEMO.knobs,
         widths: [1200],
-        surfaces: [{ kind: "html", html: DEMO.render(state, variant) }],
+        surfaces: [{ kind: "html", html: DEMO.render(state, alternative) }],
       });
       designId = out.design.id;
     }

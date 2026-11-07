@@ -50,12 +50,12 @@ export function VersionStepper(props: {
     const at = s.stageLabel();
     return at ? s.nameOf(at) : "#1";
   };
-  // What this version is: what prompted it, else the variant's own note, else
+  // What this version is: what prompted it, else the alternative's own note, else
   // its name when the label doesn't already say it.
   const note = () =>
     step()?.prompt ??
-    s.activeVariant()?.description ??
-    (name().startsWith("#") ? (step()?.variant ?? "") : "");
+    s.activeAlternative()?.description ??
+    (name().startsWith("#") ? (step()?.alternative ?? "") : "");
   return (
     <div class="vgroup">
       <button

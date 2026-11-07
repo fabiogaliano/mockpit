@@ -13,20 +13,20 @@ answers in place in a browser, tunes, comments on parts, and presses Send once.
 The loop — publish → ask → answer/tune/comment → one reply → revise — is the
 product. When in doubt, optimize for the loop.
 
-The model is **project › design › state › variant › version**: a project is a repo
+The model is **project › design › state › alternative › version**: a project is a repo
 (from the agent's cwd/git remote), a design is a screen or component by stable slug
-owning ordered **states**, **asks** and global **knobs**; a variant (a `Post`) is
+owning ordered **states**, **asks** and global **knobs**; an alternative (a `Post`) is
 a parallel take on one state; versions are its history. A **part** is a
 `data-part` element in a render. The agent's twelve verbs are `publish`, `ask`,
 `read`, `feedback`, `say`, `move`, `edit`, `system`, `export`, `upload`, `guide` and `run`
 (the CLI adds `init` and `watch`); `system` reads and changes the project's **system**
-(below); `move` takes variants to another design or state,
+(below); `move` takes alternatives to another design or state,
 archives or restores them (never touches one in use, and says so in the Thread), and,
 when the user asks, hides or deletes their older versions (`hideOlder`, `deleteOlder`:
 deleting skips any version a reply, comment, question, embed, copy, fork or Ready mark points at,
 `deleteBlocker` in `server/app.ts`); `edit` changes a design (slug, title, kind, area,
 source, spec, or the first name of its one unnamed state) without a new version, renames a project, sets its area order, or says what the project or one area is for;
-`publish` with `amend` replaces a variant's latest version in place and with
+`publish` with `amend` replaces an alternative's latest version in place and with
 `withdraw` deletes it, both only from the session that published it and only
 while the user hasn't acted on it (`touchedBy` in `server/app.ts`). A
 design may name its **area** (the project's own words, e.g. "Shell"; Home
@@ -39,8 +39,8 @@ it does, any word; a component with no area is **shared**, and the library lists
 ones by group). The user can move a design too,
 from Home's ⋯ menu (kind, area, archive); the agent hears a move as a feedback
 batch's `edited`, through the same cursor as a Send. The user's is Send (or Use this / New version on a design whose
-state has one variant and no asks), which releases one **reply**. A screen or component
-has nothing to choose between: no Use this, no Which variant?, nothing in use; its newest
+state has one alternative and no asks), which releases one **reply**. A screen or component
+has nothing to choose between: no Use this, no Which alternative?, nothing in use; its newest
 version is current, and the user's one mark on it is **Ready** (below).
 
 Current product stances (deliberate choices, not accidents — revisit
@@ -64,14 +64,14 @@ consciously, not as a side effect):
   a background `mockpit watch`). Guard this hardest — both halves have
   regressed before.
 - Tiers, no modes: each thing the agent adds lights up its part of the viewer
-  (variants → switcher and the built-in Which variant? question, which never counts as open, asks → Questions, `data-part` → Tune parts and part
+  (alternatives → switcher and the built-in Which alternative? question, which never counts as open, asks → Questions, `data-part` → Tune parts and part
   comments, `knobs` → Tune knobs, states and flows → the flow bar, `kind`
   screen/component and flows → Home's sections; undeclared is an idea or a document,
   by what it contains). A plain publish of any kind still gets stage + Thread + Use
   this / New version, except a document (only written surfaces and pictures, no declared
   width), which opens in `Reader` with its paragraphs to comment on and no Use this.
 - Archive tells the agent nothing, and nothing blocks a question. Ending a design or
-  archiving a variant writes nothing to the agent's stream and instructs no one:
+  archiving an alternative writes nothing to the agent's stream and instructs no one:
   `read` shows `archivedAt`, `archiveReason`, `status` and `archiveReason` as information,
   and a question on an archived design brings it back. Guidance over hard rules.
 - Self-hosted only; the embeddable viewer engine was dropped. Keep the
@@ -86,14 +86,14 @@ consciously, not as a side effect):
   rename rewrites every stored version's embeds in place (`SqlStore.renameDesign`):
   embeds resolve by slug at render time, so history must name the new one.
 - `server/types.ts` — data model + `Store` interface; no runtime imports.
-  `Design` (states, asks, knobs, draft), `Post` (one variant of one state: an
+  `Design` (states, asks, knobs, draft), `Post` (one alternative of one state: an
   ordered list of surfaces — `html` | `markdown` | `diff` | `terminal` | `image`
   | `mermaid` | `json` | `code` — plus history and per-part knob overrides),
   `Ask`/`AskOption`, the knob shapes (tunekit's `usePane` config as data),
   `Draft`, `Reply`. Assets are a separate entity; `selectEvictions` is the
   reference-aware LRU policy.
 - `server/decisionList.ts` — the project's decision list: plain lines derived from
-  what replies left on designs (answered asks, variants in use) and the system's palettes
+  what replies left on designs (answered asks, alternatives in use) and the system's palettes
   and settled project knobs (`system: true`, first on every read), never summarised,
   with the user's hand edits laid over them (`decisions:<project>` setting, each
   edit bound to the answer it was made on, so a new answer outranks it). `read`
@@ -136,7 +136,7 @@ consciously, not as a side effect):
 - `server/knobs.ts` — knob schema and value validation (Q3): every declared knob
   and every value (`?k=`, drafts, replies, ask `set`s) is checked here;
   `discreteChoices` drives the ask-not-knob nudge.
-- `server/jump.ts` — search to jump, over names, states, variants, notes,
+- `server/jump.ts` — search to jump, over names, states, alternatives, notes,
   questions and areas read by `SqlStore.listJumpRows`, never surfaces.
 - `server/parts.ts` — reads part identity (`data-part`, `-label`, `-key`) from
   html strings with a regex, and diffs versions into vanished/renamed. Never
@@ -182,7 +182,7 @@ consciously, not as a side effect):
   retired built-in question is dropped (`dropBuiltinPicks`). `shownVersion` is the newest
   visible version, or the marked one after a stay (`stayFlow`: Back to the Ready version,
   until something newer comes); export hands over every covered entry with the spec and
-  the `builtFrom` of those versions (`buildHandover`, `embedsIn`, every distinct variant and
+  the `builtFrom` of those versions (`buildHandover`, `embedsIn`, every distinct alternative and
   version referenced), and reads and the tree take `builtFrom` and embed edges from the
   versions they show (`shownEmbeds`), once per design. A screen's mark carries to each
   component once, at the newest version its entries show (`carried` names the others). The agent hears a mark as
@@ -225,7 +225,7 @@ consciously, not as a side effect):
   `read`), gathered by the user from the project's other designs: New idea on Home's
   shelves (`AddCandidates`), or a Studio bookmark (`SaveMenu`,
   `viewer/src/shortlist.ts`), which can also copy into any other design or state
-  and take the version out of where it is. Each is one version copied as a variant
+  and take the version out of where it is. Each is one version copied as an alternative
   with `copiedFrom`, originals untouched unless the user moves it. Until an agent writes to it, replies go to
   the project's live agent (`replySessionId` in `server/app.ts`).
 - Answers in `Questions.tsx`: `OptionCard` holds a preview after the pointer rests `HOLD_MS`
@@ -233,19 +233,19 @@ consciously, not as a side effect):
   answers). `MoreAnswers` sends `reply.more` through `sendAlone`, so the draft stays;
   `feedbackBatch.ts` resolves it to the question, its answers and what's settled around it, and
   the agent replies by asking the same id again. `answersView.ts` is the pictures or list choice.
-- One choice, one question (`server/variantQuestion.ts`, shared with the viewer): a Send
-  answering a variant question settles every live variant in the states it chooses in, so an
-  open question of the agent's that names some of a state's variants shows the rest as answers
-  mockpit added (`added: true`, id `added:<variant>`, stored on the ask once a Send answers
-  it), and the built-in Which variant? appears only where no such question chooses. Hiding a
-  variant answer archives the variant (the why as its reason; the one in use refuses), any
-  restore unhides it (`unhideRestored`), and a variant answer whose variant is archived reads
+- One choice, one question (`server/alternativeQuestion.ts`, shared with the viewer): a Send
+  answering an alternative question settles every live alternative in the states it chooses in, so an
+  open question of the agent's that names some of a state's alternatives shows the rest as answers
+  mockpit added (`added: true`, id `added:<alternative>`, stored on the ask once a Send answers
+  it), and the built-in Which alternative? appears only where no such question chooses. Hiding a
+  alternative answer archives the alternative (the why as its reason; the one in use refuses), any
+  restore unhides it (`unhideRestored`), and an alternative answer whose alternative is archived reads
   as hidden, so the question and Studio read one list.
 - Kept and hidden answers (`server/standings.ts`, `Design.standings` by ask id, the built-in
-  Which variant? included): saved on the click through `POST /api/designs/:id/standings`
+  Which alternative? included): saved on the click through `POST /api/designs/:id/standings`
   (serialized per design), never waiting for a Send; the next reply of any kind carries the
   changed ones (`Reply.standings`, `unsent`). A re-ask remaps them to the new option ids; a
-  hidden answer stays folded and `existing` in `more` leaves it out. A variant some question
+  hidden answer stays folded and `existing` in `more` leaves it out. An alternative some question
   keeps is never archived by a Send or Use this, only released from use (`release` in
   `commitReply`). The cards (`OptionCard`'s actions, `flipCards` for the fade and slide) put
   kept ones first and hidden ones in `HiddenAnswers`; `Kept.tsx` holds what waits after a
@@ -316,7 +316,7 @@ consciously, not as a side effect):
   has no sidebar and large covers; one small section lists its designs instead of
   section rows; a phone gets the sidebar as a drawer. `Album` is one thing and all
   its pictures: a cover by shape (phone, wide, both, part, or text for something to
-  read), sheets behind it for states else variants, and one turn word plus what's
+  read), sheets behind it for states else alternatives, and one turn word plus what's
   inside under the title, never on the art (`turnWord`, `designStatus`). Questions
   waiting glow on the cover and on the project's name (`ProjectSwitcher`), in words
   too, and `seen.ts` (localStorage) marks new work "New". Written pages are a dated
@@ -330,19 +330,19 @@ consciously, not as a side effect):
   `archiveReason`) or with everything archived and no question waiting (`nothingLeft`).
   Needs you lists the waiting ones, with Answer next above every place. A cover shows
   what's in use, else the agent's recommendation, else the first (`screenPicture`).
-  Hide is per version and dims in place; archive is per variant and per design, with Undo. `Jump` is search
+  Hide is per version and dims in place; archive is per alternative and per design, with Undo. `Jump` is search
   from anywhere (`/` or ⌘K), through `GET /api/search` (`server/jump.ts`), which
   never reads surfaces; results are text nodes. `DesignScreen`
   (`VersionCaption`: the version and New version / Use this on the design's top edge, or a document's column; `TopRow`, in three zones with the views centred: the path is the way up, project and area as links, ending at the
   design's name, with a ⋯ menu (Copy name, Archive for an idea) opening `About` (a component's
   place in the library, "Shared · Cards" or its area, with Make it shared where screens of
   several areas show it / Appears in / Built from / flows / code), and `SideOver`, the project's sidebar opening over the design from a button; the state tabs alone say which state;
-  `BuiltFrom` is Tune's drawer, open while Tune is; `Grid`, states against variants
+  `BuiltFrom` is Tune's drawer, open while Tune is; `Grid`, states against alternatives
   with what's missing shown (`?view=grid`, an arrangement offered where names repeat across states, and
   how a component with several forms opens unless it is wall-sized), sharing Studio's
   live-frame limit; `Outlines` (missing states in the margin or flow bar, `StateAsk`,
   `PlannedStage` where nothing is drawn); `Spec`; `Studio`, the state zoomed
-  out with every variant side by side, entered from the top bar's Stage | Studio switch and
+  out with every alternative side by side, entered from the top bar's Stage | Studio switch and
   remembered per design, with one row of controls in the header (`StudioBar`: states, filter, what's live, in use, hidden or archived, and Wall | Columns | Palettes | Grid; `PalettesBoard` is the state on stage in each visible palette, a column per palette, light over dark, offered once there are two), each steer its own reply (`steer`, `sendAlone`), with `SelectBar` acting on
   several versions at once. A fork is a column of its own saying where it came from.
   Past Use this a newer version takes over by itself (`changedTo`, `ChangedNote`): the stage
@@ -350,7 +350,7 @@ consciously, not as a side effect):
   before then. Back to the old one is a stay, which `stayedVersion` remembers until a newer one
   comes, as does Use this on an older version. Anything underway (a draft, an open question, a
   tool, typing) holds it to a See pill, and touching the page stops the count.
-  A design of `WALL_FROM` variants or more opens Studio as a wall: one grid of all its
+  A design of `WALL_FROM` alternatives or more opens Studio as a wall: one grid of all its
   states, filtered by state, status and text, with the closer look beside it as a
   preview on a wide window and over it otherwise; every card without a poster shares
   the live-frame budget; a closer look has no strip, its name opens the list;
@@ -372,9 +372,9 @@ consciously, not as a side effect):
   `presets.ts` (Tune presets in localStorage), `theme.ts`, `host.ts`.
 - `bin/poster.js` — automatic posters for the CLI and stdio MCP: a publish leaves a job, a
   detached worker renders it in one headless browser and attaches the still with
-  `POST /api/designs/:id/variants/:postId/poster`, which makes no new version. A `system`
+  `POST /api/designs/:id/alternatives/:postId/poster`, which makes no new version. A `system`
   write that changed something leaves a retake: the worker queues the project's latest live
-  variants that show no still now, and a still mockpit took under another revision may be
+  alternatives that show no still now, and a still mockpit took under another revision may be
   replaced, by any session (`setPosterOnce`); an agent's own poster never is. Built-ins only.
 - `bin/mockpit.js` — CLI, Node built-ins only; `bin/demoData.js` — the Writer
   design `mockpit demo` seeds.
@@ -447,7 +447,7 @@ consciously, not as a side effect):
   viewer. Version-pinned `/s/:id` responses are immutable, so they carry a
   long-lived `Cache-Control` and a per-`(id,surface,version,mode,knobs)`
   in-memory render cache (single-instance DO; swap for KV/Cache API if
-  multi-instance). The one rewritable version is a variant's latest, before
+  multi-instance). The one rewritable version is an alternative's latest, before
   the user acts on it: amend and withdraw bump `Post.rewrites`, which frame
   URLs (`w`), render keys and embed stamps carry, since the number stays.
   `?k=` values are re-validated against the knobs declared
@@ -483,9 +483,9 @@ consciously, not as a side effect):
   server-side draft per design — they survive reload, stay bound to the version
   they were made on, are never delivered before Send, and are cleared by it.
   The reply is one `kind: "reply"` comment through the same cursor; a
-  variant-bound answer puts one variant in use and archives its siblings, except
+  alternative-bound answer puts one alternative in use and archives its siblings, except
   kept ones, in the same transaction (stored as `accepted`, read as `inUse`).
-- Borrow (Tune, per part) offers a part from another variant only when that variant's frame reports it
+- Borrow (Tune, per part) offers a part from another alternative only when that alternative's frame reports it
   differently (count, labels, rounded sizes, visibility); a pure restyle at
   equal size is not offered.
 - tunekit is a second renderer (Preact) in a Solid page: it stays in its own
@@ -580,18 +580,18 @@ the finding needs.
 
 ## Conventions
 
-- **Naming.** project › design › state › variant › version; part, ask, knob,
+- **Naming.** project › design › state › alternative › version; part, ask, knob,
   reply, draft. A project has one **system**: sheet, token, scale, role, palette, pair,
-  project knob. Its revisions are `rev`. A variant is stored as a `Post` (an ordered list of
+  project knob. Its revisions are `rev`. An alternative is stored as a `Post` (an ordered list of
   **surfaces**); the tenant DB is a **workspace**. To agents and users an ask
   is a "question" (`ask` stays the tool and key name), a part with
-  alternatives is "a part with fills", and a variant the user picked is "in
+  alternatives is "a part with fills", and an alternative the user picked is "in
   use". A design's **kind** is idea, screen or component; a part is a named bit inside
-  one design, a component a whole design others embed. A variant has a `description`,
+  one design, a component a whole design others embed. An alternative has a `description`,
   a design has a `spec`, an area and a project a `description`, an answer has a `comment`. Retired words — item, group,
-  snippet, board, stream, `part` for a surface, trace, look (for a variant), slot, mix
+  snippet, board, stream, `part` for a surface, trace, look (for an alternative), slot, mix
   (now borrow), resolve, close and end (now archive), mock (now design), `page` and
-  `sketch` as kinds (now screen and idea), note for a variant or an answer, screen for
+  `sketch` as kinds (now screen and idea), note for an alternative or an answer, screen for
   a state, moment, design system and design settings (now system), accepted and dropped
   in anything an agent reads — appear nowhere in new code, routes,
   tools or docs. There is no back-compat beyond `SqlStore`'s in-place

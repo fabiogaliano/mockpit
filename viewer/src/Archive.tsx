@@ -53,7 +53,7 @@ export function Archive(props: {
           const same = () => reasons().every((r) => r === reasons()[0]);
           const unopened = () => nodes().filter((n) => props.fresh.has(n.id)).length;
           const areas = () => [...new Set(nodes().flatMap((n) => (n.area ? [n.area] : [])))];
-          const variants = () => nodes().reduce((sum, n) => sum + n.variants.length, 0);
+          const alternatives = () => nodes().reduce((sum, n) => sum + n.alternatives.length, 0);
           const emptyLabel = () =>
             nodes().length === 1
               ? "Add a reason"
@@ -65,7 +65,7 @@ export function Archive(props: {
               <div class="arch-head">
                 <h2>{day.label}</h2>
                 <p class="arch-sum">
-                  {[kinds(nodes()), plural(variants(), "variant"), areas().join(", ")]
+                  {[kinds(nodes()), plural(alternatives(), "alternative"), areas().join(", ")]
                     .filter(Boolean)
                     .join(" · ")}
                   <Show when={unopened() > 0}>
@@ -157,7 +157,7 @@ function Tile(props: {
         </Show>
         {n().title}
       </a>
-      <span class="arch-inside">{plural(n().variants.length, "variant")}</span>
+      <span class="arch-inside">{plural(n().alternatives.length, "alternative")}</span>
       <Show when={props.reason}>{(r) => <span class="arch-said">{r()}</span>}</Show>
     </article>
   );

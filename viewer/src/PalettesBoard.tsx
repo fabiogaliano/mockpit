@@ -20,10 +20,10 @@ export const boardPalettes = (s: DesignScreenState) =>
 
 export function PalettesBoard(props: { s: DesignScreenState }) {
   const s = props.s;
-  const variant = () => s.activeVariant();
-  const surface = () => variant()?.surfaces.findIndex((x) => x.kind === "html") ?? -1;
+  const alternative = () => s.activeAlternative();
+  const surface = () => alternative()?.surfaces.findIndex((x) => x.kind === "html") ?? -1;
   const picture = (palette: string, mode: "light" | "dark") => {
-    const v = variant();
+    const v = alternative();
     if (!v || surface() < 0) return null;
     return surfaceUrl(v.postId, surface(), {
       version: s.frameVersionOf(v),

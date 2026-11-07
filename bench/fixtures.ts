@@ -13,7 +13,7 @@ export type Size = "small" | "large";
 
 let benchDesignSeq = 0;
 
-// Every variant belongs to a design; benches that only care about the post get a
+// Every alternative belongs to a design; benches that only care about the post get a
 // fresh single-state design per post.
 export async function createBenchPost(
   store: Store,
@@ -276,11 +276,11 @@ export async function buildWorkspace(
 ): Promise<BuiltWorkspace> {
   const r = rng(seed);
   const cache = new Map<string, Record<string, unknown>>();
-  const surfaceFor = (kind: string, variant: number) => {
-    const key = `${kind}:${variant}`;
+  const surfaceFor = (kind: string, alternative: number) => {
+    const key = `${kind}:${alternative}`;
     let made = cache.get(key);
     if (!made) {
-      made = surfaceOfKind(kind, shape.size, seed + variant);
+      made = surfaceOfKind(kind, shape.size, seed + alternative);
       cache.set(key, made);
     }
     return made;

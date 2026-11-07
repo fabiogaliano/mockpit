@@ -44,7 +44,7 @@ curl -s -X POST $B/api/designs -H 'content-type: application/json' -d '{
   "html": "<section data-part=\"summary\" data-part-label=\"Summary\" style=\"padding:calc(var(--k-pad,16)*1px)\">Your cart is empty</section>"}'
 # → {"design":{…},"post":{…},"sessionId":"S","url":"…","parts":[{"state":"Empty cart","parts":[{"name":"summary","label":"Summary"}]}],"feedback":[]}
 
-# the same (design, state, variant) again: its next version
+# the same (design, state, alternative) again: its next version
 curl -s -X POST $B/api/designs -H 'content-type: application/json' -d '{
   "session": "S", "project": "demo", "design": "checkout", "state": "Empty cart",
   "html": "<section data-part=\"total\" data-part-label=\"Summary\">Nothing here yet</section>"}'
@@ -65,7 +65,7 @@ curl -s -X POST $B/api/designs/checkout/say -H 'content-type: application/json' 
 curl -s "$B/api/designs/checkout/export?project=demo"
 ```
 
-A publish that leaves two or more variants with no question binding them adds
+A publish that leaves two or more alternatives with no question binding them adds
 `nudges` and a ready `suggestedAsk`; POST it to `/asks` as `{"asks": [...]}`.
 
 ## Errors

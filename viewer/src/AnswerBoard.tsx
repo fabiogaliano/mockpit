@@ -26,7 +26,7 @@ export function AnswerBoard(props: { s: DesignScreenState; ask: Ask }) {
   let box: HTMLDivElement | undefined;
   const states = () => {
     const m = s.design();
-    return m ? askStates(props.ask, m, s.variants()) : [];
+    return m ? askStates(props.ask, m, s.alternatives()) : [];
   };
   const kept = () => s.shownOptions(props.ask).filter((o) => s.isKept(props.ask, o.id)).length;
   // The answer a key was pressed on.

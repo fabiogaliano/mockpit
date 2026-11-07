@@ -1,16 +1,16 @@
 // The project's decision list: what the user has settled, as plain lines any
 // agent can read first, so a new session stops contradicting it. Nothing here
 // summarises and no agent has to keep it: every line is built from what replies
-// already left on the design, the answers on its questions and the variants in
+// already left on the design, the answers on its questions and the alternatives in
 // use. Those are the current truth, so a later reply on a question replaces its
 // line by construction. Runtime-agnostic (no node imports).
 
 import {
   type Ask,
   type AskAnswer,
-  DEFAULT_VARIANT,
+  DEFAULT_ALTERNATIVE,
   type DecisionSources,
-  type DecisionVariant,
+  type DecisionAlternative,
   type Design,
   optionState,
 } from "./types.ts";
@@ -165,12 +165,15 @@ function askParts(design: Design, ask: Ask): DecisionParts | null {
   };
 }
 
-// The variants a question's answer put in use, by the states it settled.
-function pickedVariants(design: Design, ask: Ask): { state: string | null; variant: string }[] {
+// The alternatives a question's answer put in use, by the states it settled.
+function pickedAlternatives(
+  design: Design,
+  ask: Ask,
+): { state: string | null; alternative: string }[] {
   if (ask.scope === "part") return [];
   const ids = answerIds(ask.answer);
   return ask.options
-    .filter((o) => ids.includes(o.id) && o.variant)
+    .filter((o) => ids.includes(o.id) && o.alternative)
     .flatMap((o) =>
       (o.version !== undefined
         ? [optionState(ask, design)]
@@ -179,14 +182,14 @@ function pickedVariants(design: Design, ask: Ask): { state: string | null; varia
           : design.states.length
             ? design.states
             : [null]
-      ).map((state) => ({ state, variant: o.variant! })),
+      ).map((state) => ({ state, alternative: o.alternative! })),
     );
 }
 
-function useParts(v: DecisionVariant, siblings: DecisionVariant[]): DecisionParts {
+function useParts(v: DecisionAlternative, siblings: DecisionAlternative[]): DecisionParts {
   const version = v.version > 1 ? `v${v.acceptedVersion ?? v.version}` : "";
-  const named = v.variant === DEFAULT_VARIANT ? "" : v.variant;
-  const not = notList(siblings.filter((s) => s.status === "archived").map((s) => s.variant));
+  const named = v.alternative === DEFAULT_ALTERNATIVE ? "" : v.alternative;
+  const not = notList(siblings.filter((s) => s.status === "archived").map((s) => s.alternative));
   return {
     asked: v.state ? `${v.state}, in use:` : "In use:",
     chose: [named, version].filter(Boolean).join(" ") || "this design",
@@ -198,9 +201,9 @@ const sameQuestion = (ask: Ask) => `${ask.state ?? ""}\n${ask.text.trim().toLowe
 
 // The questions that still stand: an answered one, once per wording (the agent
 // may have re-asked it under a new id, and the later answer is the decision),
-// whose picked variant, if it picked one, was not replaced since. Ask order is
+// whose picked alternative, if it picked one, was not replaced since. Ask order is
 // the order the agent asked in.
-function standingAsks(design: Design, variants: DecisionVariant[]): Ask[] {
+function standingAsks(design: Design, alternatives: DecisionAlternative[]): Ask[] {
   const seen = new Set<string>();
   const out: Ask[] = [];
   for (const ask of [...design.asks].reverse()) {
@@ -210,17 +213,17 @@ function standingAsks(design: Design, variants: DecisionVariant[]): Ask[] {
     const wording = sameQuestion(ask);
     if (seen.has(wording)) continue;
     seen.add(wording);
-    const picks = pickedVariants(design, ask);
+    const picks = pickedAlternatives(design, ask);
     const named = picks.filter((p) =>
-      variants.some((v) => v.state === p.state && v.variant === p.variant),
+      alternatives.some((v) => v.state === p.state && v.alternative === p.alternative),
     );
     // A screen or a component puts nothing in use, so its answers stand as said.
     const replaced =
       design.kind === "idea" &&
       named.length > 0 &&
       !named.some((p) =>
-        variants.some(
-          (v) => v.state === p.state && v.variant === p.variant && v.status === "accepted",
+        alternatives.some(
+          (v) => v.state === p.state && v.alternative === p.alternative && v.status === "accepted",
         ),
       );
     if (!replaced) out.unshift(ask);
@@ -244,8 +247,8 @@ export function deriveDecisionLines(
   sources: DecisionSources,
   system: System | null = null,
 ): (DecisionLine & { basis: string })[] {
-  const byDesign = new Map<string, DecisionVariant[]>();
-  for (const v of sources.variants) {
+  const byDesign = new Map<string, DecisionAlternative[]>();
+  for (const v of sources.alternatives) {
     const list = byDesign.get(v.designId);
     if (list) list.push(v);
     else byDesign.set(v.designId, [v]);
@@ -257,33 +260,33 @@ export function deriveDecisionLines(
   );
   const out: (DecisionLine & { basis: string })[] = systemLines(system);
   for (const design of order) {
-    const variants = byDesign.get(design.id) ?? [];
+    const alternatives = byDesign.get(design.id) ?? [];
     const base = {
       design: design.slug,
       title: design.title,
       ...(design.archivedAt ? { closed: true as const } : {}),
       ...(sources.decidedAt[design.id] ? { at: sources.decidedAt[design.id] } : {}),
     };
-    const asks = standingAsks(design, variants);
+    const asks = standingAsks(design, alternatives);
     const answered = new Set(
-      asks.flatMap((a) => pickedVariants(design, a).map((p) => `${p.state}\n${p.variant}`)),
+      asks.flatMap((a) => pickedAlternatives(design, a).map((p) => `${p.state}\n${p.alternative}`)),
     );
-    for (const v of variants) {
+    for (const v of alternatives) {
       // The question that put it in use already says so, in better words. Nothing is in
       // use on a screen or a component, whatever an older reply put there.
       if (design.kind !== "idea") break;
-      if (v.status !== "accepted" || answered.has(`${v.state}\n${v.variant}`)) continue;
+      if (v.status !== "accepted" || answered.has(`${v.state}\n${v.alternative}`)) continue;
       const parts = useParts(
         v,
-        variants.filter((s) => s.state === v.state && s.variant !== v.variant),
+        alternatives.filter((s) => s.state === v.state && s.alternative !== v.alternative),
       );
       out.push({
         ...base,
-        id: `use:${design.id}:${v.state ?? ""}:${v.variant}`,
+        id: `use:${design.id}:${v.state ?? ""}:${v.alternative}`,
         ...(v.state ? { state: v.state } : {}),
         text: joinParts(parts),
         parts,
-        basis: `${v.variant}@${v.acceptedVersion ?? v.version}`,
+        basis: `${v.alternative}@${v.acceptedVersion ?? v.version}`,
       });
     }
     for (const ask of asks) {

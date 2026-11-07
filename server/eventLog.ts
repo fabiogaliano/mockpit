@@ -23,7 +23,7 @@ export interface LogEntry {
   // The slug when the response names it, else the id the request did.
   design?: string;
   state?: string | null;
-  variant?: string;
+  alternative?: string;
   version?: number;
   // Comment seqs handed to the agent in this response: the exactly-once
   // cursor made visible.
@@ -68,7 +68,7 @@ export function fromRequest(
     session: text(query.get("session")) ?? text(b.session),
     project: text(query.get("project")) ?? text(b.project),
     design: pathDesign ?? text(b.design),
-    variant: text(b.variant),
+    alternative: text(b.alternative),
     viewing: text(query.get("viewing")),
   });
 }
@@ -91,7 +91,7 @@ export function fromResponse(body: unknown): Partial<LogEntry> {
       text(body.slug) ??
       (typeof body.design === "string" ? text(body.design) : undefined),
     state: post ? (post.state ?? null) : undefined,
-    variant: text(post?.variant),
+    alternative: text(post?.alternative),
     version: typeof post?.version === "number" ? post.version : undefined,
     delivered: delivered.length ? delivered : undefined,
     pending: pending.length ? pending : undefined,

@@ -1,4 +1,4 @@
-// What a reply decided, as the state is built: per state, the variant and the
+// What a reply decided, as the state is built: per state, the alternative and the
 // chosen fill of each part with fills, with the parts inside a fill listed
 // under it only when that fill was chosen; plus every other knob value the
 // reply set. The agent
@@ -21,13 +21,13 @@ import {
 export interface FillDecision {
   fill: string;
   label?: string;
-  // Set when the user borrowed this part from another variant.
+  // Set when the user borrowed this part from another alternative.
   borrowedFrom?: string;
   parts?: Record<string, FillDecision>;
 }
 
 export interface StateDecision {
-  variant: string;
+  alternative: string;
   // Each part with fills, by part name.
   parts: Record<string, FillDecision>;
 }
@@ -146,7 +146,7 @@ export function decisionsFor(
     const slots = slotsInSurfaces(post.surfaces);
     for (const s of slots) slotPaths.add(s.part);
     states[state ?? ""] = {
-      variant: post.variant,
+      alternative: post.alternative,
       parts: tree(slots, chosenFills(slots, values), null, reply.borrowed ?? {}),
     };
   }

@@ -14,7 +14,7 @@ export type Add = { label: string; refs: SaveCandidate[] } & (
 export type Drop = {
   id: string;
   state: string | null;
-  variant: string;
+  alternative: string;
   ref: SaveCandidate;
   title?: string;
   label: string;
@@ -76,7 +76,7 @@ export function createShortlists(project: string, toast: (t: Toast) => void) {
       (c) =>
         c.copiedFrom.design === ref.design &&
         c.copiedFrom.state === ref.state &&
-        c.copiedFrom.variant === ref.variant &&
+        c.copiedFrom.alternative === ref.alternative &&
         c.copiedFrom.version === ref.version,
     );
   const isSaved = (ref: SaveCandidate) => copiesOf(ref).length > 0;
@@ -93,11 +93,11 @@ export function createShortlists(project: string, toast: (t: Toast) => void) {
         const { to, saved } = await api.saveCopies({ ...target, candidates: refs });
         if (to.shortlist) pick(to.id);
         for (const copy of saved) {
-          if (!copy.already) undos.push(() => api.removeCopy(to.id, copy.state, copy.variant));
+          if (!copy.already) undos.push(() => api.removeCopy(to.id, copy.state, copy.alternative));
         }
       }
       for (const d of drops) {
-        await api.removeCopy(d.id, d.state, d.variant);
+        await api.removeCopy(d.id, d.state, d.alternative);
         undos.push(() =>
           api.saveCopies({
             ...(d.title ? { title: d.title } : { to: d.id, state: d.state }),

@@ -10,12 +10,12 @@ import type { Ask, AskOption } from "./types.ts";
 const VISUAL =
   /\b(colou?rs?|borders?|radius|rounded|corners?|spacing|padding|fonts?|typeface|serif|shadows?|tint|hue|opacity|red|orange|yellow|green|olive|teal|blue|navy|purple|violet|pink|gr[ae]y|\d+\s?(px|rem|em|pt))\b|#[0-9a-f]{3,8}\b/i;
 
-const plain = (o: AskOption) => !o.variant && !(o.set && Object.keys(o.set).length);
+const plain = (o: AskOption) => !o.alternative && !(o.set && Object.keys(o.set).length);
 
 export const looksVisual = (label: string): boolean => VISUAL.test(label);
 
-// A Look-style ask: one whose options choose between variants.
-const bindsVariants = (a: Ask) => a.options.some((o) => o.variant);
+// A Look-style ask: one whose options choose between alternatives.
+const bindsAlternatives = (a: Ask) => a.options.some((o) => o.alternative);
 
 const quoted = (opts: AskOption[]) => opts.map((o) => `"${o.label}"`).join(", ");
 
@@ -26,19 +26,19 @@ export function askNudges(added: Ask[], all: Ask[]): string[] {
     if (!pills.length) continue;
     const visual = pills.filter((o) => looksVisual(o.label));
     const look =
-      ask.scope === "part" || bindsVariants(ask)
+      ask.scope === "part" || bindsAlternatives(ask)
         ? undefined
         : all.find(
             (a) =>
               a.id !== ask.id &&
               a.scope !== "part" &&
-              bindsVariants(a) &&
+              bindsAlternatives(a) &&
               (a.scope === "design" || ask.scope === "design" || a.state === ask.state),
           );
-    // Only a pill that names a look or reads visual overlaps the variants; a
+    // Only a pill that names a look or reads visual overlaps the alternatives; a
     // plain question on another axis ("Drawer or Margin?") stands beside them.
     const names = new Set(
-      look?.options.flatMap((o) => [o.label, o.variant ?? ""].map((n) => n.toLowerCase())),
+      look?.options.flatMap((o) => [o.label, o.alternative ?? ""].map((n) => n.toLowerCase())),
     );
     const reask = look
       ? pills.filter((o) => names.has(o.label.toLowerCase()) || looksVisual(o.label))
@@ -48,7 +48,9 @@ export function askNudges(added: Ask[], all: Ask[]): string[] {
         `ask "${ask.id}": ${quoted(reask)} may re-ask what "${look.id}" decides. Drop it or use knob sets.`,
       );
     } else if (visual.length) {
-      out.push(`ask "${ask.id}": ${quoted(visual)} look visual. Give each a knob set or variant.`);
+      out.push(
+        `ask "${ask.id}": ${quoted(visual)} look visual. Give each a knob set or alternative.`,
+      );
     }
   }
   return out;

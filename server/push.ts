@@ -32,7 +32,7 @@ export interface NotifyPayload {
   event: HookEvent;
   project: string;
   slug: string;
-  variant: string;
+  alternative: string;
   version: number;
   text: string;
   url: string;

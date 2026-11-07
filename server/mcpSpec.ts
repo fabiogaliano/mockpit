@@ -18,9 +18,9 @@ export const editsProject = (args: any) =>
 const SURFACE_KIND_ENUM = [...SURFACE_KINDS] as [SurfaceKind, ...SurfaceKind[]];
 
 export const MCP_INSTRUCTIONS =
-  "Mockpit shows design work to the user: project > design > state > variant > version. publish " +
-  "each variant (name states in the user's words; declare parts with data-part); publish again to " +
-  "revise. A choice is several variants plus one question that binds them (ask). One render plus a " +
+  "Mockpit shows design work to the user: project > design > state > alternative > version. publish " +
+  "each alternative (name states in the user's words; declare parts with data-part); publish again to " +
+  "revise. A choice is several alternatives plus one question that binds them (ask). One render plus a " +
   "control: declare a knob. Say where to look, then end your turn; nothing waits. When the " +
   "user says they answered, call feedback. Writes return feedback too; it is delivered once. " +
   "Fetch guide before html.";
@@ -28,7 +28,9 @@ export const MCP_INSTRUCTIONS =
 const field = {
   design: "Design slug, title or id",
   state: "State label; omit if single-state",
-  variant: 'Variant label; default "default"',
+  alternative: 'Alternative label; default "default"',
+  variant: "On a variants design, its label instead",
+  variants: "Its entries are variants that all ship (screen or component), not alternatives",
   project: "Default: the session's project",
   title: "Design title",
   session: "Session id from an earlier publish",
@@ -37,13 +39,13 @@ const field = {
   html: "HTML body fragment",
   knobs:
     'Global knobs (tunekit usePane shape) keyed by path: [default,min,max,step], boolean, {type:"select",options}, "#hex"',
-  variantKnobs: "Knobs this variant alone has",
+  alternativeKnobs: "Knobs this alternative alone has",
   from: "Branch from this version",
   amend: "Replace the latest version in place: a fix before the user acts on it",
   withdraw: "Take the latest version back, before the user acts on it",
-  fork: 'Start this new variant from a sibling: "variant" or "variant@N"; alone it copies it, with parts/fills it edits the copy',
+  fork: 'Start this new alternative from a sibling: "alternative" or "alternative@N"; alone it copies it, with parts/fills it edits the copy',
   prompt: "What prompted this version; usually omit",
-  description: "What this variant is; shown beside it, never in the html",
+  description: "What this alternative is; shown beside it, never in the html",
   widths: "Widths it ships at, side by side: [390,1280]",
   kind: "Only when building the product's screens: screen, component (a reusable design screens embed). With no html it plans one, drawn by a later publish. Omit for ideas, diagrams and reviews",
   area: 'Product area in the project\'s words; Home groups by it. "" clears',
@@ -116,7 +118,7 @@ const askSchema = z.object({
     z.object({
       id: z.string().optional(),
       label: z.string(),
-      variant: z.string().optional().describe("Bind to a published variant"),
+      alternative: z.string().optional().describe("Bind to a published alternative"),
       version: z.number().int().optional().describe("And one version of it"),
       set: z.record(z.string(), z.unknown()).optional().describe("Or to knob values {path: value}"),
       style: z.string().optional().describe("With a set of a new value: its CSS"),
@@ -214,12 +216,19 @@ function zodParam(p: Param): z.ZodType {
 const P = {
   design: { t: "string", d: field.design, req: true },
   state: { t: "string", d: field.state },
+  alternative: { t: "string", d: field.alternative },
   variant: { t: "string", d: field.variant },
   project: { t: "string", d: field.project },
   session: { t: "string", d: field.session },
 } as const satisfies Record<string, Param>;
 
-const VARIANT_REF = { design: P.design, state: P.state, variant: P.variant, project: P.project };
+const ALTERNATIVE_REF = {
+  design: P.design,
+  state: P.state,
+  alternative: P.alternative,
+  variant: P.variant,
+  project: P.project,
+};
 
 interface ToolDef {
   name: string;
@@ -235,13 +244,14 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "publish",
     description:
-      "Create or version one variant of one state of a design. One of html, surfaces (the full ordered list), parts or fills (splice the latest version); or kind screen or component and none of them, to plan it. Returns parts per state, nudges, feedback.",
+      "Create or version one alternative of one state of a design. One of html, surfaces (the full ordered list), parts or fills (splice the latest version); or kind screen or component and none of them, to plan it. Returns parts per state, nudges, feedback.",
     params: {
-      ...VARIANT_REF,
+      ...ALTERNATIVE_REF,
       title: { t: "string", d: field.title },
       kind: { t: "enum", values: ["screen", "component", "idea"], d: field.kind },
       area: { t: "string", d: field.area },
       group: { t: "string", d: field.group },
+      variants: { t: "boolean", d: field.variants },
       source: { t: "string", d: field.source },
       html: { t: "string", d: field.html },
       poster: { t: "string", d: field.poster },
@@ -255,7 +265,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
         d: '{"part#fill": outer html}; replaces that fill of a part, or adds it after its others',
       },
       knobs: { t: "object", d: field.knobs },
-      variantKnobs: { t: "object", d: field.variantKnobs },
+      alternativeKnobs: { t: "object", d: field.alternativeKnobs },
       from: { t: "integer", d: field.from },
       fork: { t: "string", d: field.fork },
       amend: { t: "boolean", d: field.amend },
@@ -274,7 +284,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "ask",
     description:
-      "Ask structured questions on a design. A choice is several variants plus one question that binds them; options may also set knob values. Reusing a question id replaces it.",
+      "Ask structured questions on a design. A choice is several alternatives plus one question that binds them; options may also set knob values. Reusing a question id replaces it.",
     params: {
       design: P.design,
       project: P.project,
@@ -286,15 +296,15 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "read",
     description:
-      "Read this first. Every form carries decisionList: what the user already settled in this project; it stands unless they say otherwise. Without design: every design (slug, states, variants, open questions), flows, plus pending. With area: all settled in it; read it before drawing there. With design: its spec (purpose, behaviour, decisions; the user's edits stand), states, variants, questions with answers, parts, knobs and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
+      "Read this first. Every form carries decisionList: what the user already settled in this project; it stands unless they say otherwise. Without design: every design (slug, states, alternatives, open questions), flows, plus pending. With area: all settled in it; read it before drawing there. With design: its spec (purpose, behaviour, decisions; the user's edits stand), states, alternatives, questions with answers, parts, knobs and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
     params: {
       design: { t: "string", d: field.design },
       project: P.project,
-      body: { t: "boolean", d: "Include each variant's surfaces" },
+      body: { t: "boolean", d: "Include each alternative's surfaces" },
       history: { t: "boolean", d: "Include version rows" },
       tree: {
         t: "boolean",
-        d: "Without design: the project as a tree (each design's variants with status and forkedFrom, the designs it embeds and is embedded in)",
+        d: "Without design: the project as a tree (each design's alternatives with status and forkedFrom, the designs it embeds and is embedded in)",
       },
       area: { t: "string", d: "Without design: one product area" },
       decisions: {
@@ -317,7 +327,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
     name: "say",
     description: "Post a short plain-text message in a design's thread. Returns feedback.",
     params: {
-      ...VARIANT_REF,
+      ...ALTERNATIVE_REF,
       message: { t: "string", d: "Plain text", req: true },
       session: P.session,
     },
@@ -326,16 +336,20 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "move",
     description:
-      "Tidy up variants: to or toState moves them there and out of here; archive takes them out of view; restore brings them back; a group goes along; one in use stays. Only when the user asks: hideOlder hides each variant's older versions (variants optional: all of them), and deleteOlder deletes them for good, skipping any that a reply, comment, question, embed, copy or fork still points at, or that is in use. Confirm a delete first: it can't be undone. Returns feedback.",
+      "Tidy up alternatives: to or toState moves them there and out of here; archive takes them out of view; restore brings them back; a group goes along; one in use stays. Only when the user asks: hideOlder hides each alternative's older versions (alternatives optional: all of them), and deleteOlder deletes them for good, skipping any that a reply, comment, question, embed, copy or fork still points at, or that is in use. Confirm a delete first: it can't be undone. Returns feedback.",
     params: {
       design: P.design,
       state: P.state,
-      variants: { t: "strings", d: "Variant names; required except with hideOlder or deleteOlder" },
+      alternatives: {
+        t: "strings",
+        d: "Alternative names; required except with hideOlder or deleteOlder",
+      },
+      variants: { t: "strings", d: "A variants design's names instead" },
       to: { t: "string", d: "Target design; default this one" },
       toState: { t: "string", d: "Target state; created if new" },
       archive: { t: "boolean" },
       restore: { t: "boolean" },
-      hideOlder: { t: "boolean", d: "Hide all but each variant's newest visible version" },
+      hideOlder: { t: "boolean", d: "Hide all but each alternative's newest visible version" },
       deleteOlder: { t: "boolean", d: "Delete them instead; permanent, skips what's referenced" },
       project: P.project,
       session: P.session,
@@ -346,7 +360,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
     name: "export",
     description:
       "The html in use (else current; a screen or component's every entry marked Ready) per state, version history, screenshot URL, knobs, the settled values and the last reply; a screen or component adds ready, its spec and builtFrom. Without design: the project's system for code (sheet, tokens as CSS and JSON, settled project knobs, components' sources).",
-    params: { ...VARIANT_REF, design: { t: "string", d: field.design } },
+    params: { ...ALTERNATIVE_REF, design: { t: "string", d: field.design } },
   },
   {
     name: "edit",
@@ -360,6 +374,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       kind: { t: "enum", values: ["screen", "component", "idea"] },
       area: { t: "string" },
       group: { t: "string" },
+      variants: { t: "boolean", d: field.variants },
       source: { t: "string" },
       firstState: { t: "string", d: "Names a design's one unnamed state, so it can have more" },
       purpose: {
@@ -452,8 +467,8 @@ const num = z.number();
 const nullStr = z.string().nullable();
 const strs = z.array(z.string());
 const bag = z.record(z.string(), z.unknown());
-const variantRef = o({ state: nullStr, variant: str });
-const inUseRef = o({ state: nullStr, variant: str, version: num });
+const alternativeRef = o({ state: nullStr, alternative: str });
+const inUseRef = o({ state: nullStr, alternative: str, version: num });
 const partsByState = z.array(o({ state: nullStr, parts: z.array(o({ name: str })) }));
 const flowSchema = o({ name: str, steps: z.array(o({ design: str, state: nullStr })) });
 
@@ -467,13 +482,13 @@ const feedbackSchema = o({
         description: str.optional(),
       }),
     ),
-    borrowed: bag.describe("Part → the variant to take it from"),
+    borrowed: bag.describe("Part → the alternative to take it from"),
     tuned: bag,
     comments: z.array(o({ part: nullStr, text: str })),
-    reactions: strs.optional().describe('One-tap reactions, e.g. 👍 part "hero" (variant B)'),
-    verdict: o({ kind: z.enum(["use", "revise"]), state: nullStr, variant: str })
+    reactions: strs.optional().describe('One-tap reactions, e.g. 👍 part "hero" (alternative B)'),
+    verdict: o({ kind: z.enum(["use", "revise"]), state: nullStr, alternative: str })
       .optional()
-      .describe("Use this or New version on one variant"),
+      .describe("Use this or New version on one alternative"),
     more: o({
       ask: str,
       text: str,
@@ -488,7 +503,7 @@ const feedbackSchema = o({
     .describe("The user's Send; null if only messages"),
   messages: z.array(o({ seq: num, text: str })).describe("What the user wrote in the thread"),
   inUse: z.array(inUseRef).describe("In use, each at the version the user put in use"),
-  archived: z.array(variantRef),
+  archived: z.array(alternativeRef),
   edited: o({
     kind: str.optional(),
     area: nullStr.optional(),
@@ -515,7 +530,7 @@ const pendingSchema = o({
 }).meta({ id: "Pending" });
 
 const writeOutput = {
-  post: o({ state: nullStr, variant: str, version: num })
+  post: o({ state: nullStr, alternative: str, version: num })
     .optional()
     .describe("Absent when planned: nothing is drawn yet"),
   planned: z.boolean().optional(),
@@ -564,17 +579,17 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
   },
   say: { feedback: feedbackRide },
   move: {
-    variants: z.array(o({ state: str.nullable(), variant: str, status: str })),
+    alternatives: z.array(o({ state: str.nullable(), alternative: str, status: str })),
     versions: z
-      .array(o({ state: str.nullable(), variant: str, version: num }))
+      .array(o({ state: str.nullable(), alternative: str, version: num }))
       .optional()
       .describe("With hideOlder or deleteOlder: what was hidden or deleted"),
     skipped: z.array(
-      o({ state: str.nullable().optional(), variant: str, version: num.optional(), why: str }),
+      o({ state: str.nullable().optional(), alternative: str, version: num.optional(), why: str }),
     ),
     to: o({ design: str, title: str, state: str.nullable() }).optional(),
     saved: z
-      .array(o({ state: str.nullable(), variant: str, already: z.boolean() }))
+      .array(o({ state: str.nullable(), alternative: str, already: z.boolean() }))
       .optional()
       .describe("What each is called there"),
     url: str,
@@ -596,14 +611,16 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
     feedback: feedbackRide,
   },
   read: {
-    designs: z.array(o({ slug: str, states: strs, variants: num, open: num })).optional(),
+    designs: z
+      .array(o({ slug: str, states: strs, alternatives: num.optional(), open: num }))
+      .optional(),
     states: strs.optional(),
     asks: z.array(o({ id: str, text: str })).optional(),
-    variants: z
+    alternatives: z
       .array(
         o({
           state: nullStr,
-          variant: str,
+          alternative: str,
           status: z.enum(["open", "inUse", "archived"]),
           version: num,
           inUseVersion: num.optional().describe("Set while in use: the version in use"),
@@ -657,7 +674,7 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
       .array(
         o({
           state: nullStr,
-          variant: str,
+          alternative: str,
           version: num,
           latest: num.optional().describe("Your newer version, not in use yet"),
           html: str.describe("With fills: only the chosen ones"),

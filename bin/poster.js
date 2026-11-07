@@ -3,7 +3,7 @@
 // only, like the rest of the CLI, and the stdio MCP server loads this same file.
 //
 // A publish only leaves a job here and returns. A detached worker does the rest, one page at
-// a time through one browser, because an agent publishing thirty variants in a loop must not
+// a time through one browser, because an agent publishing thirty alternatives in a loop must not
 // start thirty Chromes. Nothing in here may reach the agent: no browser, a timeout or a failed
 // capture means the page runs live in the overviews, which is what it did before posters.
 //
@@ -35,7 +35,7 @@ const CAPTURE_MS = 15_000;
 const LOAD_MS = 8_000;
 // A job this old describes a burst long past, and its version has likely moved on.
 const JOB_MAX_AGE_MS = 2 * 60_000;
-// Stills one system change retakes, latest variants first: the rest run live until then.
+// Stills one system change retakes, latest alternatives first: the rest run live until then.
 const RETAKE_MAX = 40;
 // Stays up briefly for the next publish of a burst, which saves starting a browser again.
 const WORKER_IDLE_MS = 3_000;
@@ -115,7 +115,7 @@ export function queuePoster(job) {
 }
 
 // { base, token, client, session, project }: after a system write that changed something.
-// The worker reads which variants need a new still, so this never waits either.
+// The worker reads which alternatives need a new still, so this never waits either.
 export function queueRetakes(job) {
   queuePoster({ ...job, retake: true });
 }
@@ -266,7 +266,7 @@ const headersOf = (job) => ({
   ...(job.token ? { authorization: `Bearer ${job.token}` } : {}),
 });
 
-// A retake becomes one job per live variant whose page shows no still now: the views
+// A retake becomes one job per live alternative whose page shows no still now: the views
 // already leave out one taken under another revision, and keep the agent's own.
 async function expandRetake(dir, job) {
   const res = await fetch(`${job.base}/api/projects/${encodeURIComponent(job.project)}/tree`, {
@@ -277,7 +277,7 @@ async function expandRetake(dir, job) {
   const wanted = (tree ?? [])
     .filter((d) => !d.archivedAt)
     .flatMap((d) =>
-      (d.variants ?? [])
+      (d.alternatives ?? [])
         .filter((v) => v.status !== "archived" && v.surface >= 0 && !v.poster)
         .map((v) => ({ design: d.id, postId: v.postId, version: v.version, at: v.updatedAt })),
     )
@@ -317,12 +317,12 @@ async function capture(port, job) {
     return res.json();
   };
   const design = await get(`/api/designs/${encodeURIComponent(job.design)}`);
-  const variant = design.variants?.find((v) => v.postId === job.postId);
-  const page = variant?.surfaces?.find((s) => s.kind === "html");
+  const alternative = design.alternatives?.find((v) => v.postId === job.postId);
+  const page = alternative?.surfaces?.find((s) => s.kind === "html");
   // Moved on already, or the agent's own still arrived: nothing to add.
   const { mode } = await get("/api/theme");
-  if (!page || page.poster || variant.version !== job.version) return;
-  const rewrites = variant.rewrites ?? 0;
+  if (!page || page.poster || alternative.version !== job.version) return;
+  const rewrites = alternative.rewrites ?? 0;
   const query = new URLSearchParams({
     surface: String(page.index),
     ver: String(job.version),
@@ -344,7 +344,7 @@ async function capture(port, job) {
     session: job.session,
   });
   await post(
-    `/api/designs/${encodeURIComponent(job.design)}/variants/${encodeURIComponent(job.postId)}/poster`,
+    `/api/designs/${encodeURIComponent(job.design)}/alternatives/${encodeURIComponent(job.postId)}/poster`,
     {
       version: job.version,
       rewrites,

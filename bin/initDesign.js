@@ -783,7 +783,7 @@ const BUILTIN_BODY = `<section class="card">
   </div>
 </section>`;
 
-// Basecoat 1.x: a card is header/section/footer children and variants are
+// Basecoat 1.x: a card is header/section/footer children and alternatives are
 // `data-variant`, not the builtin's `.btn-primary` classes.
 const BASECOAT_BODY = `<div class="card">
   <header>

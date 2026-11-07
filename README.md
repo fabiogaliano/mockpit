@@ -3,7 +3,7 @@
 **A design loop for terminal coding agents. Your agent shows designs in your browser and asks
 its questions there. You answer in place and press Send once.**
 
-The agent publishes a screen in its states and a few variants, then ends its turn. You compare
+The agent publishes a screen in its states and a few alternatives, then ends its turn. You compare
 them from pictures, tune knobs, comment on parts and keep the runners-up. One Send gives the
 agent the whole reply. Nothing it calls waits for you.
 
@@ -32,8 +32,8 @@ Then ask it to "design this up on mockpit". Claude Code, Codex, OpenCode, Pi and
 ## A turn
 
 ```sh
-mockpit publish --design shop --state Grid --variant index --html index.html
-mockpit publish --design shop --state Grid --variant gallery --html gallery.html
+mockpit publish --design shop --state Grid --alternative index --html index.html
+mockpit publish --design shop --state Grid --alternative gallery --html gallery.html
 mockpit ask --design shop "Which grid?" --option Index=index --option Gallery=gallery
 # the agent says where to look and stops. After your Send:
 mockpit feedback
@@ -46,10 +46,10 @@ mockpit feedback
 - **Hide** what you don't want, with a reason if you like. The agent won't offer it again.
 - **Ask for more** answers without sending the rest of your draft.
 - **Save a set** of answers across questions, like Warm or Quiet, and switch between sets.
-- **Tune** the knobs the agent declared, **borrow** a part from another variant, and
+- **Tune** the knobs the agent declared, **borrow** a part from another alternative, and
   **comment** on any part.
 
-Studio puts every variant side by side. Home groups a project's ideas, screens, flows and
+Studio puts every alternative side by side. Home groups a project's ideas, screens, flows and
 components, and Needs you lists what's waiting on you.
 
 <table>

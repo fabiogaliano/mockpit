@@ -318,6 +318,7 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
     const session = await ensureSession();
     return post(`/api/designs/${enc(args.design)}/say`, {
       state: args.state,
+      alternative: args.alternative,
       variant: args.variant,
       project: resolveProject(args.project),
       session,
@@ -388,6 +389,7 @@ const handlers: Record<string, (args: any) => Promise<unknown>> = {
           `/api/designs/${enc(args.design)}/export${query({
             project: resolveProject(args.project),
             state: args.state,
+            alternative: args.alternative,
             variant: args.variant,
           })}`,
         ),

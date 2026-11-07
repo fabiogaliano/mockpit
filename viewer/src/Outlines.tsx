@@ -170,7 +170,7 @@ export function StateAsk(props: { s: DesignScreenState }) {
 export function PlannedStage(props: { s: DesignScreenState }) {
   const s = props.s;
   const m = () => s.design();
-  const whole = () => !s.variants().length;
+  const whole = () => !s.alternatives().length;
   const state = () => s.activeState();
   return (
     <div class="planned-stage">

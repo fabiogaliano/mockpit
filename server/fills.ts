@@ -366,7 +366,7 @@ export type FillSplice =
 export function spliceFills(surfaces: Surface[], edits: Record<string, string>): FillSplice {
   const docs = surfaces.flatMap((s, i) => (s.kind === "html" ? [{ i, surface: s }] : []));
   if (docs.length === 0) {
-    return { ok: false, error: "fills needs an html surface; this variant has none" };
+    return { ok: false, error: "fills needs an html surface; this alternative has none" };
   }
   const scans = docs.map((d) => scanAll(d.surface.html).ranges);
   const plan = new Map<number, { start: number; end: number; text: string; n: number }[]>();

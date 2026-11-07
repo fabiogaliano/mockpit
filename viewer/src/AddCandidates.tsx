@@ -14,12 +14,12 @@ import type { Shortlists } from "./shortlist.ts";
 import { theme } from "./theme.ts";
 import { FRAME_W, Thumb } from "./Thumb.tsx";
 
-// A name can match hundreds of variants; each without a poster is a live page.
+// A name can match hundreds of alternatives; each without a poster is a live page.
 const MATCHES_SHOWN = 24;
 
-type Row = TreeNode["variants"][number];
+type Row = TreeNode["alternatives"][number];
 type Card = { node: TreeNode; v: Row };
-const keyOf = (c: Card) => JSON.stringify([c.node.id, c.v.state, c.v.variant]);
+const keyOf = (c: Card) => JSON.stringify([c.node.id, c.v.state, c.v.alternative]);
 
 export function AddCandidates(props: {
   sl: Shortlists;
@@ -41,12 +41,12 @@ export function AddCandidates(props: {
   const [tree] = createResource(() => api.tree(props.project));
   const sources = createMemo(() =>
     (tree()?.tree ?? [])
-      .filter((n) => !n.shortlist && !n.archivedAt && n.variants.some((v) => isLive(v.status)))
+      .filter((n) => !n.shortlist && !n.archivedAt && n.alternatives.some((v) => isLive(v.status)))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
   );
   const [picked, setPicked] = createSignal<string | null>(null);
   const node = () => sources().find((n) => n.id === picked()) ?? sources()[0];
-  const liveOf = (n: TreeNode) => n.variants.filter((v) => isLive(v.status));
+  const liveOf = (n: TreeNode) => n.alternatives.filter((v) => isLive(v.status));
   const statesOf = (n: TreeNode) => [...new Set(liveOf(n).map((v) => v.state))];
   const [stateIn, setStateIn] = createSignal<string | null | undefined>(undefined);
   const state = () => {
@@ -61,7 +61,7 @@ export function AddCandidates(props: {
   const matches = createMemo(() =>
     sources().flatMap((n) =>
       liveOf(n)
-        .filter((v) => v.variant.toLowerCase().includes(query()))
+        .filter((v) => v.alternative.toLowerCase().includes(query()))
         .map((v): Card => ({ node: n, v })),
     ),
   );
@@ -80,7 +80,7 @@ export function AddCandidates(props: {
       (x) =>
         x.copiedFrom?.design === c.node.id &&
         x.copiedFrom.state === c.v.state &&
-        x.copiedFrom.variant === c.v.variant,
+        x.copiedFrom.alternative === c.v.alternative,
     );
   };
   const [chosen, setChosen] = createSignal<Map<string, SaveCandidate>>(new Map());
@@ -92,7 +92,7 @@ export function AddCandidates(props: {
       next.set(k, {
         design: c.node.id,
         state: c.v.state,
-        variant: c.v.variant,
+        alternative: c.v.alternative,
         version: c.v.version,
       });
     }
@@ -279,7 +279,7 @@ function CandidateCard(props: {
       role="checkbox"
       aria-checked={props.on}
       aria-disabled={props.already}
-      aria-label={props.already ? `${v().variant}, already in this idea` : v().variant}
+      aria-label={props.already ? `${v().alternative}, already in this idea` : v().alternative}
       onClick={() => !props.already && props.onToggle()}
     >
       <span class="slcard-art">
@@ -306,7 +306,7 @@ function CandidateCard(props: {
           <span class="slcard-in">Already in</span>
         </Show>
       </span>
-      <span class="slcard-nm">{v().variant}</span>
+      <span class="slcard-nm">{v().alternative}</span>
       <Show when={props.showDesign}>
         <span class="slcard-from">{props.card.node.title}</span>
       </Show>

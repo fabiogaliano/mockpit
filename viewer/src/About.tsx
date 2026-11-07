@@ -222,7 +222,7 @@ export function About(props: {
                     designPath(
                       props.project,
                       props.slug,
-                      f.state === null ? null : { state: f.state, variant: null },
+                      f.state === null ? null : { state: f.state, alternative: null },
                       f.flow,
                     ),
                     f.state === null

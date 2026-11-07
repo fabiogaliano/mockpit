@@ -122,9 +122,9 @@ export function DesignScreen(props: {
   onCleanup(() => setPeek(null));
   const shortlists = createShortlists(props.project, s.setToast);
   // Stage, Studio or Grid: one version up close, the state zoomed out, or every state
-  // against every variant. The URL's ?view= wins and isn't remembered, so a link can't
+  // against every alternative. The URL's ?view= wins and isn't remembered, so a link can't
   // move your place. Else the agent's unanswered question opens on Stage, where it is
-  // asked (a question that picks a variant doesn't count: Studio is the other way to
+  // asked (a question that picks an alternative doesn't count: Studio is the other way to
   // compare them). Else the view last switched to in this browser, then Studio when
   // there is a choice to look at, or Grid when those are a component's forms.
   const asked = opening.get("view");
@@ -135,34 +135,34 @@ export function DesignScreen(props: {
     const v = id ? host().storage?.getItem(viewKey(id)) : null;
     return isView(v) ? v : null;
   };
-  const stateVariants = () =>
+  const stateAlternatives = () =>
     new Set(
       s
-        .variants()
+        .alternatives()
         .filter((v) => v.state === s.activeState() && isLive(v.status))
-        .map((v) => v.variant),
+        .map((v) => v.alternative),
     ).size;
   // What's on stage is written: it opens as a column instead of on the canvas. By the
   // version on stage, which can differ from its neighbours (markdown, then a page).
   const reading = createMemo(() => {
     const m = s.design();
-    const v = s.activeVariant();
+    const v = s.activeAlternative();
     if (!m || !v) return false;
     const version = s.frameVersionOf(v);
     const kinds = historyRow(v, version)?.surfaceKinds ?? v.surfaces.map((x) => x.kind);
     return readsAsDocument(m.widths, kinds as string[]);
   });
-  const wallSized = () => s.variants().length >= WALL_FROM;
+  const wallSized = () => s.alternatives().length >= WALL_FROM;
   const [columns, setColumns] = createSignal(
     new URLSearchParams(host().window.location.search).get("cols") === "1",
   );
   const [barSlot, setBarSlot] = createSignal<HTMLDivElement>();
   // The arrangement left off in, for the Studio button to come back to.
   const [compared, setCompared] = createSignal<"studio" | "grid" | null>(null);
-  const comparesForms = () => gridComparesForms(s.design()?.kind ?? "idea", s.variants());
-  const gridOffered = () => repeatsAcrossStates(s.variants()) || comparesForms();
+  const comparesForms = () => gridComparesForms(s.design()?.kind ?? "idea", s.alternatives());
+  const gridOffered = () => repeatsAcrossStates(s.alternatives()) || comparesForms();
   // The grid stands in for Studio on a component. Not on a wall: a component with 85
-  // variants (onni's) is more than a table can show, and Studio's wall is how it's read.
+  // alternatives (onni's) is more than a table can show, and Studio's wall is how it's read.
   const gridFirst = () => comparesForms() && !wallSized();
   // Decided once per visit: answering the last question or moving to another
   // state must not swap the view under you.
@@ -177,7 +177,7 @@ export function DesignScreen(props: {
       const was = remembered();
       if (gridFirst()) return was === "stage" ? "stage" : "grid";
       // A gathered idea is for comparing, and its Add candidate lives in Studio.
-      return was ?? (stateVariants() > 1 || s.design()?.shortlist ? "studio" : "stage");
+      return was ?? (stateAlternatives() > 1 || s.design()?.shortlist ? "studio" : "stage");
     });
   }, null);
   // A grid left by the last archive falls back rather than show an empty table.
@@ -186,7 +186,7 @@ export function DesignScreen(props: {
     return v === "grid" && !gridOffered() ? "stage" : v;
   };
   // On stage, in a state with nothing drawn: the plan stands where the design will.
-  const undrawn = () => !!s.design() && !s.variants().some((v) => v.state === s.activeState());
+  const undrawn = () => !!s.design() && !s.alternatives().some((v) => v.state === s.activeState());
   const outlining = () => shownView() === "stage" && !reading() && s.outlinable();
   let openLooked: (() => void) | null = null;
   // Each step between the views is its own history entry, so Back
@@ -237,7 +237,7 @@ export function DesignScreen(props: {
       };
       const pick = s.stagePick();
       put("state", s.activeState());
-      put("variant", pick?.variant);
+      put("alternative", pick?.alternative);
       put("version", pick?.version);
       put("view", shownView());
       q.delete("owed");
@@ -322,13 +322,13 @@ export function DesignScreen(props: {
     () => s.design()?.project ?? props.project,
     () => {
       const m = s.design();
-      return m ? `${m.updatedAt}:${versionStamp(m.variants)}` : null;
+      return m ? `${m.updatedAt}:${versionStamp(m.alternatives)}` : null;
     },
   );
   // On screen is seen: Home's dot for this design goes until a newer version.
   createEffect(() => {
     const m = s.design();
-    if (m) markSeen(m.project, m.id, versionStamp(m.variants));
+    if (m) markSeen(m.project, m.id, versionStamp(m.alternatives));
   });
   createEffect(() => {
     const id = s.design()?.id;
@@ -464,7 +464,7 @@ export function DesignScreen(props: {
   // Back doesn't return to the empty page.
   let hadLive = false;
   createEffect(() => {
-    if (s.variants().some((v) => isLive(v.status))) hadLive = true;
+    if (s.alternatives().some((v) => isLive(v.status))) hadLive = true;
     if (!hadLive || !s.emptied()) return;
     const back = `${host().location.pathname}${host().location.search}`;
     navigate(homePath(props.project, s.design()?.area ?? null), { replace: true });
@@ -494,7 +494,7 @@ export function DesignScreen(props: {
           about={about}
           view={shownView()}
           reading={reading()}
-          compare={s.variants().length > 1 || s.variants().some((v) => v.version > 1)}
+          compare={s.alternatives().length > 1 || s.alternatives().some((v) => v.version > 1)}
           tabs={m.statesShown() || (shownView() !== "stage" && s.states().length > 1)}
           shortlists={shortlists}
           panels={

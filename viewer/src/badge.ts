@@ -15,7 +15,7 @@ type BadgeNavigator = Navigator & {
   clearAppBadge?: () => Promise<void>;
 };
 
-// A burst of events (a Send flips several variants) costs one fetch.
+// A burst of events (a Send flips several alternatives) costs one fetch.
 const SETTLE_MS = 300;
 
 export function startBadge() {

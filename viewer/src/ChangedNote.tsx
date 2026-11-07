@@ -31,7 +31,8 @@ export function ChangedNote(props: { s: DesignScreenState; onStageView: boolean 
   const looking = () => sameVersion(s.onStage(), s.changed()?.to);
   // Beside each other the design is the same one, so only the number tells them apart.
   const name = (ref: VersionRef) =>
-    ref.variant === s.changed()?.to.variant && ref.variant === s.changed()?.use.variant
+    ref.alternative === s.changed()?.to.alternative &&
+    ref.alternative === s.changed()?.use.alternative
       ? `#${ref.version}`
       : s.nameOf(ref);
 
@@ -84,7 +85,7 @@ export function ChangedNote(props: { s: DesignScreenState; onStageView: boolean 
   // different version may start the count over.
   const key = createMemo(() => {
     const c = s.changed();
-    return c ? `${String(s.activeState())}:${c.to.variant}:${c.to.version}` : null;
+    return c ? `${String(s.activeState())}:${c.to.alternative}:${c.to.version}` : null;
   });
   createEffect(
     on(key, () => {

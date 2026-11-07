@@ -38,7 +38,7 @@ import {
   RIGHT_MARGIN_W,
   sameVersion,
   TOOL_BAND_W,
-  variantName,
+  alternativeName,
   type VersionStep,
   widthChoices,
 } from "./logic.ts";
@@ -88,7 +88,7 @@ export function createMargins(
   const leftHas = () => statesShown() || s.steps().length > 1;
   const page = () => {
     const kinds: readonly string[] =
-      s.stageStep()?.kinds ?? s.activeVariant()?.surfaces.map((x) => String(x.kind)) ?? [];
+      s.stageStep()?.kinds ?? s.activeAlternative()?.surfaces.map((x) => String(x.kind)) ?? [];
     return kinds.includes("html");
   };
 
@@ -100,7 +100,7 @@ export function createMargins(
   // Kept answers wait beside the design, so they hold the side open after a Send.
   const talkWants = () => !closed() && (!!s.curAsk() || s.sendable() || keptGroups(s).length > 0);
   const talkHas = () => talkWants() || s.flow().length > 0 || s.closedAsks("state").length > 0;
-  const builtHas = () => s.tunable().length > 0 || !!s.activeVariant()?.embedsKey;
+  const builtHas = () => s.tunable().length > 0 || !!s.activeAlternative()?.embedsKey;
   const side = createMemo<Side | null>(() => {
     if (s.drawer()) return "built";
     if (s.panel() === "thread") return "thread";
@@ -365,7 +365,7 @@ export function LeftMargin(props: { s: DesignScreenState; nav: FlowNav; m: Margi
 function AlternativesLine(props: { s: DesignScreenState }) {
   const s = props.s;
   const most = () => {
-    const live = s.variants().filter((v) => isLive(v.status));
+    const live = s.alternatives().filter((v) => isLive(v.status));
     const states = s.design()?.states.length ? s.design()!.states : [null];
     return Math.max(0, ...states.map((st) => live.filter((v) => v.state === st).length));
   };
@@ -470,20 +470,24 @@ function StateList(props: { s: DesignScreenState; nav: FlowNav; outlining: boole
 
 // A bar at the margin's foot that opens upward, so the states keep the margin until
 // the history is asked for. Shut, it still says which version is on stage. One line per
-// variant, newest first; each version names what prompted it.
+// alternative, newest first; each version names what prompted it.
 function VersionList(props: {
   s: DesignScreenState;
   open: boolean;
   onToggle: (open: boolean) => void;
 }) {
   const s = props.s;
-  const lines = createMemo(() => [...new Set([...s.steps()].reverse().map((x) => x.variant))], [], {
-    equals: sameList,
-  });
-  const inLine = (variant: string) =>
+  const lines = createMemo(
+    () => [...new Set([...s.steps()].reverse().map((x) => x.alternative))],
+    [],
+    {
+      equals: sameList,
+    },
+  );
+  const inLine = (alternative: string) =>
     s
       .steps()
-      .filter((x) => x.variant === variant)
+      .filter((x) => x.alternative === alternative)
       .reverse();
   return (
     <section class="lm-versions" classList={{ open: props.open }}>
@@ -507,14 +511,14 @@ function VersionList(props: {
           }
         >
           <For each={lines()}>
-            {(variant) => (
+            {(alternative) => (
               <>
                 <Show when={lines().length > 1}>
-                  <span class="lm-line" title={variant}>
-                    {variantName(variant)}
+                  <span class="lm-line" title={alternative}>
+                    {alternativeName(alternative)}
                   </span>
                 </Show>
-                <For each={inLine(variant)}>{(step) => <VersionRow s={s} step={step} />}</For>
+                <For each={inLine(alternative)}>{(step) => <VersionRow s={s} step={step} />}</For>
               </>
             )}
           </For>
@@ -531,8 +535,8 @@ function VersionRow(props: { s: DesignScreenState; step: VersionStep }) {
   const was = () => !current() && s.usedBefore().some((r) => sameVersion(r, props.step));
   const note = () => {
     const v = s
-      .variants()
-      .find((o) => o.state === s.activeState() && o.variant === props.step.variant);
+      .alternatives()
+      .find((o) => o.state === s.activeState() && o.alternative === props.step.alternative);
     return props.step.prompt ?? (v?.version === props.step.version ? v?.description : undefined);
   };
   const src = () => {

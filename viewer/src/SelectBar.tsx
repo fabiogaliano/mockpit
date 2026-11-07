@@ -14,7 +14,7 @@ type Panel = "more" | "comment" | "borrow";
 
 const list = (names: string[]) =>
   names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
-const keyOf = (st: VersionStep) => `${st.variant}@${st.version}`;
+const keyOf = (st: VersionStep) => `${st.alternative}@${st.version}`;
 
 export function SelectBar(props: {
   steps: VersionStep[];
@@ -57,7 +57,7 @@ export function SelectBar(props: {
   const more = () => {
     if (steps().length === 1) {
       const st = steps()[0];
-      const note = { variant: st.variant, version: st.version, reaction: "more" as const };
+      const note = { alternative: st.alternative, version: st.version, reaction: "more" as const };
       props.onSend([note], undefined, `More like ${props.name(st)}, sent`);
     } else open("more");
   };
@@ -89,13 +89,13 @@ export function SelectBar(props: {
           names={names()}
           onPick={(blend) => {
             const notes = steps().map((st) => ({
-              variant: st.variant,
+              alternative: st.alternative,
               version: st.version,
               reaction: "more" as const,
             }));
             props.onSend(
               notes,
-              blend ? `New variants that blend ${names()}.` : `More of each of ${names()}.`,
+              blend ? `New alternatives that blend ${names()}.` : `More of each of ${names()}.`,
               blend
                 ? `Asked for a blend of ${steps().length}, sent`
                 : `More of each of ${steps().length}, sent`,
@@ -165,11 +165,11 @@ function MorePanel(props: { names: string; onPick: (blend: boolean) => void }) {
     <section class="selp" aria-label="More like these">
       <button type="button" class="selp-choice" onClick={() => props.onPick(true)}>
         Blend them
-        <small>New variants that combine these</small>
+        <small>New alternatives that combine these</small>
       </button>
       <button type="button" class="selp-choice" onClick={() => props.onPick(false)}>
         More of each
-        <small>2 or 3 new ones from every variant</small>
+        <small>2 or 3 new ones from every alternative</small>
       </button>
     </section>
   );
@@ -196,7 +196,7 @@ function CommentPanel(props: {
   const notes = (): SteerNote[] =>
     props.steps.flatMap((st) => {
       const text = noteOf(st).trim();
-      return text ? [{ variant: st.variant, version: st.version, text }] : [];
+      return text ? [{ alternative: st.alternative, version: st.version, text }] : [];
     });
   const together = () => all().trim();
   const ready = () => !!together() || notes().length > 0;
@@ -339,10 +339,10 @@ function BorrowPanel(props: {
     if (!what) return;
     props.onSend(
       donors().map((d) => ({
-        variant: lead().variant,
+        alternative: lead().alternative,
         version: lead().version,
         text: what,
-        borrow: { from: { variant: d.variant, version: d.version } },
+        borrow: { from: { alternative: d.alternative, version: d.version } },
       })),
       undefined,
       `Borrow into ${props.name(lead())}, sent`,

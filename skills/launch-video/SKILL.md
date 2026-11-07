@@ -87,7 +87,7 @@ ffmpeg -y -i "$RAW" -vf "fps=30,format=yuv420p" \
   stage), `.strip [role="tab"]` (states), `.opt[data-option="<id>"]` (question
   options), `button.send`, `.themebtn` (dark/light).
 - Publish content via the HTTP API while recording: `POST /api/designs`
-  (`{project, design, state, variant, html | surfaces, knobs}`; pass the returned
+  (`{project, design, state, alternative, html | surfaces, knobs}`; pass the returned
   `sessionId` as `session` afterwards), `POST /api/designs/:id/asks`,
   `POST /api/designs/:id/revise` to revise (bumps the version live), and
   `POST /api/comments` (`{session, design, text}`) for agent replies.

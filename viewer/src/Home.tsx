@@ -156,7 +156,7 @@ export function Home(props: {
       refetchProjects(),
       ...(area() ? [refetchArea()] : []),
     ]);
-  // An agent publishing a batch fires an event per variant; one read covers them.
+  // An agent publishing a batch fires an event per alternative; one read covers them.
   let refetchTimer = 0;
   const refetchSoon = () => {
     if (refetchTimer) return;
@@ -325,7 +325,7 @@ export function Home(props: {
     if (!t) return new Set<string>();
     return unseen(
       t.project,
-      t.tree.map((n) => ({ id: n.id, stamp: versionStamp(n.variants) })),
+      t.tree.map((n) => ({ id: n.id, stamp: versionStamp(n.alternatives) })),
     );
   });
 

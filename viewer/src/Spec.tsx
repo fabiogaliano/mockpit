@@ -357,7 +357,7 @@ function LinesEditor(props: {
   );
 }
 
-// What an opened decision shows, resolved to the question (or the variant in use) it
+// What an opened decision shows, resolved to the question (or the alternative in use) it
 // came from, so the user's own comment and write-in are there whole, and each chosen
 // answer with what the agent said it is.
 interface DecisionDetail {
@@ -385,10 +385,10 @@ export function decisionDetail(
   // Reworded by the user, the line is their words alone: the question it came from
   // still holds the old answer, which their rewrite replaced.
   if (line.edited) return { chose: [], ...(line.state ? { state: line.state } : {}) };
-  const about = (state: string | null | undefined, variant: string | undefined) =>
-    variant
-      ? design?.variants.find(
-          (v) => v.variant === variant && (state === undefined || v.state === state),
+  const about = (state: string | null | undefined, alternative: string | undefined) =>
+    alternative
+      ? design?.alternatives.find(
+          (v) => v.alternative === alternative && (state === undefined || v.state === state),
         )?.description
       : undefined;
   const [kind, designId, ...rest] = line.id.split(":");
@@ -402,7 +402,10 @@ export function decisionDetail(
         chose: ask.options
           .filter((o) => ids.includes(o.id))
           .map((o) => {
-            const said = about(ask.scope === "state" ? (ask.state ?? null) : undefined, o.variant);
+            const said = about(
+              ask.scope === "state" ? (ask.state ?? null) : undefined,
+              o.alternative,
+            );
             return { label: o.label, ...(said ? { about: said } : {}) };
           }),
         ...(ask.comment ? { comment: ask.comment } : {}),
@@ -412,8 +415,8 @@ export function decisionDetail(
   }
   if (design && designId === design.id && kind === "use") {
     // State names can hold a colon ("Tapped: nudges"), so the id is matched, not split.
-    const v = design.variants.find(
-      (x) => line.id === `use:${design.id}:${x.state ?? ""}:${x.variant}`,
+    const v = design.alternatives.find(
+      (x) => line.id === `use:${design.id}:${x.state ?? ""}:${x.alternative}`,
     );
     const said = v?.description;
     return {

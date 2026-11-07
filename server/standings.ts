@@ -11,7 +11,7 @@ import {
   type HiddenAnswer,
   type Post,
 } from "./types.ts";
-import { optionStates, type VariantRow, withAddedAnswers } from "./variantQuestion.ts";
+import { optionStates, type AlternativeRow, withAddedAnswers } from "./alternativeQuestion.ts";
 
 export const MAX_WHY = 300;
 export const MAX_SETS = 12;
@@ -33,7 +33,7 @@ export const hiddenAnswer = (s: AnswerStanding, id: string): HiddenAnswer | unde
 // an answer that stops being kept stops being carried.
 export function withStanding(
   s: AnswerStanding,
-  option: Pick<AskOption, "id" | "label" | "variant">,
+  option: Pick<AskOption, "id" | "label" | "alternative">,
   to: StandingKind,
   why?: string,
 ): AnswerStanding {
@@ -48,7 +48,7 @@ export function withStanding(
       id: option.id,
       label: option.label,
       ...(why ? { why } : {}),
-      ...(option.variant ? { variant: option.variant } : {}),
+      ...(option.alternative ? { alternative: option.alternative } : {}),
     });
   }
   return {
@@ -64,11 +64,13 @@ const sameSet = (a: AskOption, b: AskOption) =>
   !!a.set && !!b.set && JSON.stringify(a.set) === JSON.stringify(b.set);
 
 // The answer in a re-asked question that is the same one under another id: the same
-// variant and version, the same values, else the same words.
+// alternative and version, the same values, else the same words.
 function sameAnswer(old: AskOption, next: AskOption[]): AskOption | undefined {
   return (
     next.find((o) => o.id === old.id) ??
-    next.find((o) => !!old.variant && o.variant === old.variant && o.version === old.version) ??
+    next.find(
+      (o) => !!old.alternative && o.alternative === old.alternative && o.version === old.version,
+    ) ??
     next.find((o) => sameSet(o, old)) ??
     next.find((o) => o.label.trim().toLowerCase() === old.label.trim().toLowerCase())
   );
@@ -109,11 +111,12 @@ export function reoffered(s: AnswerStanding, ask: Ask): HiddenAnswer[] {
   return s.hidden.filter((h) => ask.options.some((o) => o.id === h.id));
 }
 
-const variantKey = (state: string | null, variant: string) => `${state ?? ""}\n${variant}`;
+const alternativeKey = (state: string | null, alternative: string) =>
+  `${state ?? ""}\n${alternative}`;
 
-// Every variant some question keeps, by state and name: Send leaves them out of the
+// Every alternative some question keeps, by state and name: Send leaves them out of the
 // archive and `read` marks them kept.
-export function keptVariants(design: Design, posts: VariantRow[]): Set<string> {
+export function keptAlternatives(design: Design, posts: AlternativeRow[]): Set<string> {
   const out = new Set<string>();
   for (const [askId, s] of Object.entries(design.standings)) {
     if (!s.kept.length) continue;
@@ -122,15 +125,16 @@ export function keptVariants(design: Design, posts: VariantRow[]): Set<string> {
     if (!ask || ask.scope === "part") continue;
     for (const id of s.kept) {
       const o = ask.options.find((x) => x.id === id);
-      if (!o?.variant) continue;
-      for (const state of optionStates(ask, o, design)) out.add(variantKey(state, o.variant));
+      if (!o?.alternative) continue;
+      for (const state of optionStates(ask, o, design))
+        out.add(alternativeKey(state, o.alternative));
     }
   }
   return out;
 }
 
-export const isKeptVariant = (kept: Set<string>, p: Pick<Post, "state" | "variant">) =>
-  kept.has(variantKey(p.state, p.variant));
+export const isKeptAlternative = (kept: Set<string>, p: Pick<Post, "state" | "alternative">) =>
+  kept.has(alternativeKey(p.state, p.alternative));
 
 // A standing as the agent reads it: answers by label, each with its id.
 export interface StandingView {

@@ -1,5 +1,5 @@
 // A phone's bottom panel, opened from the version label: the state's History (one
-// line per variant, its versions along it, the one in use marked), the design's Spec
+// line per alternative, its versions along it, the one in use marked), the design's Spec
 // where it has them, and the Thread with the agent.
 
 import { createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js";
@@ -10,7 +10,7 @@ import {
   type HistoryCell,
   historyLayout,
   sameVersion,
-  variantName,
+  alternativeName,
   type VersionStep,
   widthKind,
 } from "./logic.ts";
@@ -158,9 +158,9 @@ function History(props: { s: DesignScreenState }) {
   const s = props.s;
   const layout = createMemo(() => historyLayout(s.steps()));
   const size = () => (widthKind(s.frameW()) === "phone" ? TALL : FLAT);
-  // Each variant numbers its own versions, so with several, "#1" alone says nothing
+  // Each alternative numbers its own versions, so with several, "#1" alone says nothing
   // until its line is named.
-  const lines = () => new Set(s.steps().map((st) => st.variant)).size > 1;
+  const lines = () => new Set(s.steps().map((st) => st.alternative)).size > 1;
   const nameH = () => (lines() ? LINE_NAME_H : 0);
   const rowH = () => size().h + GAP_Y + nameH();
   const x = (c: HistoryCell) => 6 + c.col * (size().w + GAP_X);
@@ -195,7 +195,7 @@ function History(props: { s: DesignScreenState }) {
             {(c) => (
               <div class="hcell" style={{ left: `${x(c)}px`, top: `${y(c)}px` }}>
                 <Show when={startsLine(c)}>
-                  <span class="hline">{variantName(c.step.variant)}</span>
+                  <span class="hline">{alternativeName(c.step.alternative)}</span>
                 </Show>
                 <HistoryThumb s={s} step={c.step} size={size()} />
               </div>

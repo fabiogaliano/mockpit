@@ -5,8 +5,8 @@ import { isShared } from "./library.ts";
 import { slotKnobs, slotsInSurfaces } from "./fills.ts";
 import type { Mode } from "./themes.ts";
 import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
-import { isKeptVariant, keptVariants } from "./standings.ts";
-import { withAddedAnswers } from "./variantQuestion.ts";
+import { isKeptAlternative, keptAlternatives } from "./standings.ts";
+import { withAddedAnswers } from "./alternativeQuestion.ts";
 import type { DecisionLine } from "./decisionList.ts";
 import { purposeLine, specView } from "./spec.ts";
 import {
@@ -33,12 +33,12 @@ import {
   type Post,
   type PostHead,
   type PostVersion,
-  recommendedVariant,
+  recommendedAlternative,
   type Session,
   SURFACE_CONTENT_FIELDS,
   type Surface,
   type SurfaceHead,
-  variantStatus,
+  alternativeStatus,
 } from "./types.ts";
 
 export const surfaceRef = (surface: Pick<Surface, "id" | "kind">, index: number) => ({
@@ -128,7 +128,7 @@ const posterOf = (surfaces: SurfaceHead[]) => {
   return poster ? { poster } : {};
 };
 
-// The poster of one version of a variant: what Home shows for it.
+// The poster of one version of an alternative: what Home shows for it.
 const posterAt = (post: PostHead, version: number) =>
   pagePoster(
     (version === post.version
@@ -186,20 +186,20 @@ export const historyMetaView = (version: PostVersion) => ({
   ...(drawsOnCanvas(version.surfaces) ? { canvas: true } : {}),
 });
 
-export interface VariantViewOptions {
+export interface AlternativeViewOptions {
   // Full surface bodies instead of refs (agent reads opt in; the viewer frames them).
   body?: boolean;
   // Version rows, newest first, current version included.
   history?: boolean;
   // What each post's embeds resolve to now, by post id.
   embeds?: Map<string, EmbedView>;
-  // The variants some question keeps (standings.ts keptVariants).
+  // The alternatives some question keeps (standings.ts keptAlternatives).
   kept?: Set<string>;
-  // Whose variants: a product design's say where its Ready mark stands.
+  // Whose alternatives: a product design's say where its Ready mark stands.
   design?: Pick<Design, "kind" | "ready">;
 }
 
-// A variant's embeds as they render now (nested ones included): each with the
+// An alternative's embeds as they render now (nested ones included): each with the
 // component's latest version and every version it has, for peeking back; and
 // the key that changes whenever any of them does.
 export interface EmbedView {
@@ -207,7 +207,7 @@ export interface EmbedView {
   list: (Embed & { latest: number; versions: number[] })[];
 }
 
-// Where a variant stands against what was chosen. An idea's: a newer version than the
+// Where an alternative stands against what was chosen. An idea's: a newer version than the
 // one in use (`changedTo`). A product design's, once marked Ready: the version the mark
 // recorded (`readyVersion`), a newer one (`changedTo`), and the one shown when the user
 // went back to the marked one (`shownVersion`).
@@ -215,7 +215,7 @@ function versionMarks(
   post: Pick<
     Post,
     | "state"
-    | "variant"
+    | "alternative"
     | "status"
     | "version"
     | "acceptedVersion"
@@ -241,11 +241,11 @@ function versionMarks(
   };
 }
 
-export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
+export const alternativeView = (post: Post, opts: AlternativeViewOptions = {}) => ({
   postId: post.id,
   state: post.state,
-  variant: post.variant,
-  status: variantStatus(post.status),
+  alternative: post.alternative,
+  status: alternativeStatus(post.status),
   version: post.version,
   title: post.title,
   sessionId: post.sessionId,
@@ -271,12 +271,12 @@ export const variantView = (post: Post, opts: VariantViewOptions = {}) => ({
   ...(post.embeds.length ? { publishedWith: post.embeds } : {}),
   ...(post.forkedFrom ? { forkedFrom: post.forkedFrom } : {}),
   ...(post.copiedFrom ? { copiedFrom: post.copiedFrom } : {}),
-  ...(opts.kept && isKeptVariant(opts.kept, post) ? { kept: true } : {}),
+  ...(opts.kept && isKeptAlternative(opts.kept, post) ? { kept: true } : {}),
   ...(post.acceptedVersion === undefined ? {} : { inUseVersion: post.acceptedVersion }),
   ...versionMarks(post, opts.design),
   ...(post.archiveReason ? { archiveReason: post.archiveReason } : {}),
-  // The part names this variant's own markup marks, so the viewer can tell
-  // which variants render a part (Borrow) without the html bodies.
+  // The part names this alternative's own markup marks, so the viewer can tell
+  // which alternatives render a part (Borrow) without the html bodies.
   parts: partsInSurfaces(post.surfaces).map((p) => p.name),
   surfaces: post.surfaces.map(opts.body ? fullSurfaceView : hydratedSurfaceView),
   ...(opts.history
@@ -307,7 +307,7 @@ const stateOrder = (design: Design) => (design.states.length ? design.states : [
 export const inUseByState = (design: Design, posts: PostHead[]) =>
   stateOrder(design).flatMap((state) => {
     const p = posts.find((x) => x.state === state && x.status === "accepted");
-    return p ? [{ state, variant: p.variant, version: inUseVersion(p) }] : [];
+    return p ? [{ state, alternative: p.alternative, version: inUseVersion(p) }] : [];
   });
 
 export interface StateParts {
@@ -315,7 +315,7 @@ export interface StateParts {
   parts: PartInfo[];
 }
 
-// The parts the agent marked, per state, across the variants still in play.
+// The parts the agent marked, per state, across the alternatives still in play.
 export function partsByState(design: Design, posts: Post[]): StateParts[] {
   return stateOrder(design).map((state) => ({
     state,
@@ -330,8 +330,9 @@ export function partsByState(design: Design, posts: Post[]): StateParts[] {
 // Where a design sits in the product, its library group and the code that implements it, only once
 // declared, so the views of a project that names neither cost nothing.
 export const placeOf = (
-  design: Pick<Design, "kind" | "area" | "group" | "source">,
-): { area?: string; shared?: true; group?: string; source?: string } => ({
+  design: Pick<Design, "kind" | "area" | "group" | "source" | "variants">,
+): { area?: string; shared?: true; group?: string; source?: string; variants?: true } => ({
+  ...(design.variants ? { variants: true as const } : {}),
   ...(design.area ? { area: design.area } : {}),
   // A component of no area: the library's shared part.
   ...(isShared(design) ? { shared: true as const } : {}),
@@ -345,10 +346,10 @@ function thumbnail(design: Design, all: PostHead[]) {
   const posts = shipped(design, all);
   const first = stateOrder(design)[0];
   const inState = posts.filter((p) => p.state === first);
-  const recommended = recommendedVariant(design.asks, first);
+  const recommended = recommendedAlternative(design.asks, first);
   const pick =
     inState.find((p) => p.status === "accepted") ??
-    inState.find((p) => p.variant === recommended && isLive(p.status)) ??
+    inState.find((p) => p.alternative === recommended && isLive(p.status)) ??
     inState.find((p) => p.status === "open") ??
     inState[0] ??
     posts[0];
@@ -366,8 +367,8 @@ function thumbnail(design: Design, all: PostHead[]) {
 }
 
 // Only a plan says so, so the views of everything drawn are unchanged.
-const plannedOf = (design: Design, variants: number) =>
-  isPlanned(design, variants) ? { planned: true as const } : {};
+const plannedOf = (design: Design, alternatives: number) =>
+  isPlanned(design, alternatives) ? { planned: true as const } : {};
 
 // Anything the user has yet to send. A stored draft can be an emptied one, which
 // waits on nobody.
@@ -393,7 +394,7 @@ export const designSummaryView = (design: Design, posts: PostHead[]) => {
     ...(design.spec ? { hasSpec: true as const } : {}),
     states: design.states,
     stateCount: Math.max(design.states.length, 1),
-    variants: posts.length,
+    alternatives: posts.length,
     open: openCount(design),
     // Only once the user has started one, so a list with no drafts costs nothing.
     ...(drafted === null ? {} : { drafted }),
@@ -410,7 +411,7 @@ export const designSummaryView = (design: Design, posts: PostHead[]) => {
 export const designDetailView = (
   design: Design,
   all: Post[],
-  opts: VariantViewOptions & {
+  opts: AlternativeViewOptions & {
     settled?: Record<string, KnobValue>;
     repliesGoTo?: string;
     // This design's lines of the decision list; absent where the read carries none.
@@ -426,7 +427,7 @@ export const designDetailView = (
 const detailOf = (
   design: Design,
   posts: Post[],
-  opts: VariantViewOptions & {
+  opts: AlternativeViewOptions & {
     settled?: Record<string, KnobValue>;
     repliesGoTo?: string;
     decisions?: string[];
@@ -450,7 +451,7 @@ const detailOf = (
   ...specView(design.spec, opts.decisions),
   ...(Object.keys(design.stateOutlines).length ? { stateOutlines: design.stateOutlines } : {}),
   ...(design.answerAdditions.length ? { answerAdditions: design.answerAdditions } : {}),
-  // With the variants each question chooses between added, as the user meets them.
+  // With the alternatives each question chooses between added, as the user meets them.
   asks: design.asks.map((a) => withAddedAnswers(a, design, posts)),
   // By question id: the answers the user kept for later and hid, with why.
   ...(Object.keys(design.standings).length ? { standings: design.standings } : {}),
@@ -463,8 +464,8 @@ const detailOf = (
   ...(design.archiveReason ? { archiveReason: design.archiveReason } : {}),
   createdAt: design.createdAt,
   updatedAt: design.updatedAt,
-  variants: ((kept) => posts.map((p) => variantView(p, { ...opts, kept, design })))(
-    keptVariants(design, posts),
+  alternatives: ((kept) => posts.map((p) => alternativeView(p, { ...opts, kept, design })))(
+    keptAlternatives(design, posts),
   ),
   inUse: inUseByState(design, posts),
   parts: partsByState(design, posts),
@@ -479,9 +480,9 @@ export const sessionRowView = (session: Session, postCount: number) => ({
 });
 
 // One design as a node of the project tree (GET /api/projects/:name/tree): its
-// variants per state with status and lineage, and the designs it embeds (`embeds`);
+// alternatives per state with status and lineage, and the designs it embeds (`embeds`);
 // `embeddedIn` is filled in once every node is known.
-// When it left the shelf: archived by hand, or with the last of its variants archived.
+// When it left the shelf: archived by hand, or with the last of its alternatives archived.
 // Designs archived before the date was kept fall back on the design's last change.
 function leftOf(design: Design, posts: PostHead[]): { leftAt?: string } {
   if (design.archivedAt) return { leftAt: design.archivedAt };
@@ -526,7 +527,7 @@ const nodeOf = (design: Design, posts: PostHead[], extra: Parameters<typeof tree
   open: openCount(design),
   // Any question ever asked, answered or not: it tells an idea from a document.
   ...(design.asks.length ? { asked: design.asks.length } : {}),
-  // Later than every variant: the user has spoken and it is the agent's turn.
+  // Later than every alternative: the user has spoken and it is the agent's turn.
   ...(extra.lastReplyAt ? { lastReplyAt: extra.lastReplyAt } : {}),
   ...(extra.lastSend ? { lastSend: extra.lastSend } : {}),
   ...(extra.drafting ? { drafting: true } : {}),
@@ -543,14 +544,14 @@ const nodeOf = (design: Design, posts: PostHead[], extra: Parameters<typeof tree
   inUse: inUseByState(design, posts),
   // What the agent recommends where nothing is in use: a cover shows it.
   recommended: stateOrder(design).flatMap((state) => {
-    const variant = recommendedVariant(design.asks, state);
-    return variant ? [{ state, variant }] : [];
+    const alternative = recommendedAlternative(design.asks, state);
+    return alternative ? [{ state, alternative }] : [];
   }),
-  variants: posts.map((p) => ({
+  alternatives: posts.map((p) => ({
     postId: p.id,
     state: p.state,
-    variant: p.variant,
-    status: variantStatus(p.status),
+    alternative: p.alternative,
+    status: alternativeStatus(p.status),
     version: p.version,
     updatedAt: p.updatedAt,
     ...(p.rewrites ? { rewrites: p.rewrites } : {}),
@@ -649,5 +650,28 @@ export function areaView(input: {
         title: d.title,
         status: ideaStatus(d, input.heads.get(d.id) ?? []),
       })),
+  };
+}
+
+// A variants design's entries all ship, so an agent reads them as variants: the list
+// (or its count) and each entry's name take that word, and the list says the rest. The
+// viewer reads one shape for every design, with `variants: true` beside its list.
+export function agentWords<T extends object>(view: T): T | Record<string, unknown> {
+  const v = view as Record<string, unknown>;
+  if (v.variants !== true) return view;
+  const { alternatives, variants: _, ...rest } = v;
+  const named = (e: unknown): unknown => {
+    if (!e || typeof e !== "object") return e;
+    const { alternative, forkedFrom, ...r } = e as Record<string, unknown>;
+    const fork = forkedFrom as { alternative?: string; version: number } | undefined;
+    return {
+      ...r,
+      ...(alternative === undefined ? {} : { variant: alternative }),
+      ...(fork ? { forkedFrom: { variant: fork.alternative, version: fork.version } } : {}),
+    };
+  };
+  return {
+    ...rest,
+    variants: Array.isArray(alternatives) ? alternatives.map(named) : alternatives,
   };
 }

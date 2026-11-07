@@ -1,12 +1,12 @@
 // Search to jump: find a design by anything the user might remember it by, its
-// title, a state, a variant's name or note, a question, or its area. It reads
+// title, a state, an alternative's name or note, a question, or its area. It reads
 // what `listJumpRows` hands it, which never includes surfaces, so a big
 // workspace costs its metadata and not its pages. This project comes first, then
 // the others. Runtime-agnostic (no node imports).
 
 import { isLive, openAsks, type JumpRows, type DesignKind } from "./types.ts";
 
-export type JumpMatch = "title" | "state" | "variant" | "area" | "question" | "description";
+export type JumpMatch = "title" | "state" | "alternative" | "area" | "question" | "description";
 
 export interface JumpHit {
   project: string;
@@ -21,7 +21,7 @@ export interface JumpHit {
   // What matched, clipped around the words, when it isn't the title.
   text: string | null;
   state: string | null;
-  variant: string | null;
+  alternative: string | null;
   archived: boolean;
   open: number;
   designArchived: boolean;
@@ -30,7 +30,7 @@ export interface JumpHit {
 
 const MAX_HERE = 20;
 const MAX_ELSEWHERE = 12;
-// A design whose variants all carry the word shouldn't push every other design off the list.
+// A design whose alternatives all carry the word shouldn't push every other design off the list.
 const MAX_PER_DESIGN = 3;
 const SNIPPET = 90;
 
@@ -41,7 +41,7 @@ const RANK = {
   word: 2,
   title: 3,
   state: 4,
-  variant: 5,
+  alternative: 5,
   area: 6,
   question: 7,
   description: 8,
@@ -68,8 +68,8 @@ interface Ranked {
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 function allHits(rows: JumpRows, terms: string[], whole: string): Ranked[] {
-  const byDesign = new Map<string, JumpRows["variants"]>();
-  for (const v of rows.variants) {
+  const byDesign = new Map<string, JumpRows["alternatives"]>();
+  for (const v of rows.alternatives) {
     const list = byDesign.get(v.designId);
     if (list) list.push(v);
     else byDesign.set(v.designId, [v]);
@@ -81,7 +81,7 @@ function allHits(rows: JumpRows, terms: string[], whole: string): Ranked[] {
   const out: Ranked[] = [];
   const areasSeen = new Set<string>();
   for (const m of rows.designs) {
-    const variants = byDesign.get(m.id) ?? [];
+    const alternatives = byDesign.get(m.id) ?? [];
     const base = {
       project: m.project,
       id: m.id,
@@ -93,10 +93,10 @@ function allHits(rows: JumpRows, terms: string[], whole: string): Ranked[] {
       open: openAsks(m).length,
       designArchived: !!m.archivedAt,
       // Nothing is in use on a screen or a component, whatever an older reply put there.
-      inUse: m.kind === "idea" && variants.some((v) => v.status === "accepted"),
+      inUse: m.kind === "idea" && alternatives.some((v) => v.status === "accepted"),
       text: null,
       state: null,
-      variant: null,
+      alternative: null,
       archived: false,
     };
     const mine: Ranked[] = [];
@@ -112,16 +112,16 @@ function allHits(rows: JumpRows, terms: string[], whole: string): Ranked[] {
       if (has(state)) add(RANK.state, "state", { text: state, state });
     }
     const namesSeen = new Set<string>();
-    for (const v of variants) {
+    for (const v of alternatives) {
       const gone = !isLive(v.status);
       const tail = gone ? 0.5 : 0;
-      // A variant named "default" says nothing the design's title doesn't.
-      if (v.variant !== "default" && !namesSeen.has(v.variant) && has(v.variant)) {
-        namesSeen.add(v.variant);
-        add(RANK.variant + tail, "variant", {
-          text: v.variant,
+      // An alternative named "default" says nothing the design's title doesn't.
+      if (v.alternative !== "default" && !namesSeen.has(v.alternative) && has(v.alternative)) {
+        namesSeen.add(v.alternative);
+        add(RANK.alternative + tail, "alternative", {
+          text: v.alternative,
           state: v.state,
-          variant: v.variant,
+          alternative: v.alternative,
           archived: gone,
         });
       }
@@ -129,7 +129,7 @@ function allHits(rows: JumpRows, terms: string[], whole: string): Ranked[] {
         add(RANK.description + tail, "description", {
           text: clip(v.description, terms[0]),
           state: v.state,
-          variant: v.variant,
+          alternative: v.alternative,
           archived: gone,
         });
       }
@@ -184,7 +184,7 @@ export function recentHits(rows: JumpRows, ids: string[]): JumpHit[] {
   const wanted = new Map(ids.map((id, i) => [id, i]));
   const ideas = new Set(rows.designs.filter((m) => m.kind === "idea").map((m) => m.id));
   const inUse = new Set(
-    rows.variants
+    rows.alternatives
       .filter((v) => v.status === "accepted" && ideas.has(v.designId))
       .map((v) => v.designId),
   );
@@ -202,7 +202,7 @@ export function recentHits(rows: JumpRows, ids: string[]): JumpHit[] {
       match: "title" as const,
       text: null,
       state: null,
-      variant: null,
+      alternative: null,
       archived: false,
       open: openAsks(m).length,
       designArchived: !!m.archivedAt,

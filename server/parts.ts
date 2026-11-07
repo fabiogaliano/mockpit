@@ -60,7 +60,7 @@ export function partsInHtml(html: string): PartInfo[] {
 }
 
 // Cached per surfaces array, which a stored post never mutates: a design's view
-// asks for every variant's parts on every read. Callers must not change the result.
+// asks for every alternative's parts on every read. Callers must not change the result.
 const bySurfaces = new WeakMap<Surface[], PartInfo[]>();
 export function partsInSurfaces(surfaces: Surface[]): PartInfo[] {
   const hit = bySurfaces.get(surfaces);
@@ -375,7 +375,7 @@ export type PartSplice =
 export function spliceParts(surfaces: Surface[], edits: Record<string, string>): PartSplice {
   const docs = surfaces.flatMap((s, i) => (s.kind === "html" ? [{ i, surface: s }] : []));
   if (docs.length === 0) {
-    return { ok: false, error: "parts needs an html surface; this variant has none" };
+    return { ok: false, error: "parts needs an html surface; this alternative has none" };
   }
   const elements = docs.map((d) => partElements(d.surface.html));
   const ranges = new Map<number, { start: number; end: number; target: string }[]>();

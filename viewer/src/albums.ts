@@ -36,12 +36,12 @@ export function sectionOf(node: {
   shortlist?: boolean;
   asked?: number;
   states: (string | null)[];
-  variants: unknown[];
+  alternatives: unknown[];
   widths: number[];
 }): ShelfSection {
   if (node.kind === "screen") return "screens";
   if (node.kind === "component") return "components";
-  if (node.shortlist || node.asked || node.variants.length > 1) return "ideas";
+  if (node.shortlist || node.asked || node.alternatives.length > 1) return "ideas";
   if (node.states.filter((s) => s !== null).length > 1 || node.widths.length) return "ideas";
   return "documents";
 }
@@ -63,7 +63,7 @@ export type CoverShape = "phone" | "wide" | "both" | "part" | "text";
 
 // The picture an album opens on: the design in use, else the first state with one.
 export function albumPicture(
-  node: Pick<TreeNode, "inUse" | "variants" | "states">,
+  node: Pick<TreeNode, "inUse" | "alternatives" | "states">,
 ): ScreenPicture | null {
   for (const state of [...node.inUse.map((u) => u.state), ...node.states]) {
     const pic = screenPicture(node, state);
@@ -96,32 +96,33 @@ export function coverShape(node: TreeNode): CoverShape {
   return designWidth(node) < PHONE_MAX ? "phone" : "wide";
 }
 
-const liveVariants = (node: Pick<TreeNode, "variants">) =>
-  node.variants.filter((v) => isLive(v.status)).length;
+const liveAlternatives = (node: Pick<TreeNode, "alternatives">) =>
+  node.alternatives.filter((v) => isLive(v.status)).length;
 
 // How many sheets stack behind the cover: states, else attempts, else none. Plain
 // sheets rather than the pictures themselves: each of those would be a whole page
 // loading, and a stack is only saying there's more inside.
-export function stackDepth(node: Pick<TreeNode, "states" | "variants">): number {
+export function stackDepth(node: Pick<TreeNode, "states" | "alternatives">): number {
   const states = node.states.filter((s) => s !== null).length;
-  const pictures = states > 1 ? states : liveVariants(node);
+  const pictures = states > 1 ? states : liveAlternatives(node);
   return Math.min(Math.max(pictures - 1, 0), 2);
 }
 
 // Named by the agent and with nothing in them yet.
-const undrawnStates = (node: Pick<TreeNode, "states" | "variants">) =>
-  node.states.filter((st) => st !== null && !node.variants.some((v) => v.state === st)).length;
+const undrawnStates = (node: Pick<TreeNode, "states" | "alternatives">) =>
+  node.states.filter((st) => st !== null && !node.alternatives.some((v) => v.state === st)).length;
 
 export function albumInside(node: TreeNode): string {
   const states = node.states.filter((s) => s !== null).length;
-  const live = liveVariants(node);
+  const live = liveAlternatives(node);
   const parts: string[] = [];
   if (node.planned) parts.push("Planned");
   if (node.shortlist) parts.push("Gathered");
   if (states > 1) parts.push(`${states} states`);
   const notYet = node.planned ? 0 : undrawnStates(node);
   if (notYet) parts.push(`${notYet} not drawn`);
-  if (live > 1 && live !== states) parts.push(`${live} variants`);
+  if (live > 1 && live !== states)
+    parts.push(`${live} ${node.variants ? "variants" : "alternatives"}`);
   if (bothWidths(node)) parts.push("Phone and desktop");
   return parts.join(" · ");
 }
@@ -150,7 +151,7 @@ export const SIDEBAR_FROM = 3;
 // Up to this many designs in a lone section, the sidebar lists them by name.
 const TREE_UP_TO = 12;
 
-// One way off the shelf, however it got there: archived by hand, or with every variant
+// One way off the shelf, however it got there: archived by hand, or with every alternative
 // archived. A plan has nothing live because nothing is drawn yet, which is not the same.
 export const inArchive = (n: TreeNode) => !!n.archivedAt || (nothingLeft(n) && !n.planned);
 
@@ -199,7 +200,7 @@ export function turnWord(node: StatusNode, now: number): { kind: TurnKind; text:
   if (node.archivedAt) return null;
   if (node.status !== undefined) {
     const status = designStatus(
-      { ...node, variants: node.variants.map((v) => ({ ...v, changedTo: undefined })) },
+      { ...node, alternatives: node.alternatives.map((v) => ({ ...v, changedTo: undefined })) },
       now,
     );
     if (status && ACTIVITY.has(status.kind)) {
@@ -231,8 +232,8 @@ export function usedIn(node: TreeNode, kindOf: (slug: string) => string | undefi
 
 // When a design last had new work. Not the design's own updatedAt, which a draft or an
 // ending also moves: what's newest shouldn't reshuffle because of a click.
-export function lastWork(node: Pick<TreeNode, "variants" | "createdAt">): string {
-  return node.variants.reduce((t, v) => (v.updatedAt > t ? v.updatedAt : t), node.createdAt);
+export function lastWork(node: Pick<TreeNode, "alternatives" | "createdAt">): string {
+  return node.alternatives.reduce((t, v) => (v.updatedAt > t ? v.updatedAt : t), node.createdAt);
 }
 
 export const newestFirst = (a: TreeNode, b: TreeNode) => lastWork(b).localeCompare(lastWork(a));

@@ -29,10 +29,10 @@ export type SaveFor = {
   items: { ref: SaveCandidate; name: string }[];
   // Where they are now, in the user's words.
   here: string;
-  // What leaving does: a last version takes its variant along. Null when none
+  // What leaving does: a last version takes its alternative along. Null when none
   // can leave, since only a new choice moves what is in use.
   leaves: "archived" | "hidden" | null;
-  // How many can leave, and the variants that would go entirely.
+  // How many can leave, and the alternatives that would go entirely.
   out: number;
   archives: string[];
   // Resolves to its undo, or to nothing if they stayed.
@@ -42,7 +42,7 @@ export type SaveFor = {
 type Place = { id: string; title: string; state: string | null };
 const keyOf = (id: string, state: string | null) => JSON.stringify([id, state]);
 const liveStates = (n: TreeNode) =>
-  n.states.filter((st) => n.variants.some((v) => v.state === st && isLive(v.status)));
+  n.states.filter((st) => n.alternatives.some((v) => v.state === st && isLive(v.status)));
 
 export function SaveMenu(props: {
   sl: Shortlists;
@@ -183,7 +183,7 @@ export function SaveMenu(props: {
       .map((c) => ({
         id: c.design,
         state: c.state,
-        variant: c.variant,
+        alternative: c.alternative,
         ref: c.item.ref,
         // A gathered idea left empty goes, so taking the removal back finds it by name.
         title: sl.lists().some((l) => l.id === c.design) ? titleOf(c.design) : undefined,
@@ -205,12 +205,12 @@ export function SaveMenu(props: {
   const showsIn = () => {
     const n = hereNode();
     if (!n?.embeddedIn.length || first.state !== n.states[0]) return [];
-    const inState = n.variants.filter((v) => v.state === first.state);
+    const inState = n.alternatives.filter((v) => v.state === first.state);
     const shown =
       inState.find((v) => v.status === "inUse") ??
-      inState.find((v) => v.variant === "default" && isLive(v.status)) ??
+      inState.find((v) => v.alternative === "default" && isLive(v.status)) ??
       inState.find((v) => isLive(v.status));
-    if (!shown || !it.archives.includes(shown.variant)) return [];
+    if (!shown || !it.archives.includes(shown.alternative)) return [];
     return n.embeddedIn.map((slug) => nodes().find((x) => x.slug === slug)?.title ?? slug);
   };
   const leaveNote = () => {
@@ -233,7 +233,7 @@ export function SaveMenu(props: {
     const [a, d] = [adds(), drops()];
     shut(true);
     props.onDone?.();
-    void sl.settle(many ? `${items.length} variants` : items[0].name, a, d, leave);
+    void sl.settle(many ? `${items.length} alternatives` : items[0].name, a, d, leave);
   };
 
   const tick = (id: string, state: string | null, title: string, small?: string) => (
@@ -254,18 +254,18 @@ export function SaveMenu(props: {
       </Show>
     </label>
   );
-  const liveOf = (n: TreeNode) => n.variants.filter((v) => isLive(v.status)).length;
+  const liveOf = (n: TreeNode) => n.alternatives.filter((v) => isLive(v.status)).length;
   return (
     <div
       class="savemenu"
       classList={{ phone: phoneLayout() }}
       role="dialog"
-      aria-label={`${leaving() ? "Move" : "Save"} ${many ? `${items.length} variants` : items[0].name}`}
+      aria-label={`${leaving() ? "Move" : "Save"} ${many ? `${items.length} alternatives` : items[0].name}`}
       ref={(el) => (menu = el)}
       style={phoneLayout() ? undefined : place()}
     >
       <div class="save-h">
-        {`${leaving() ? "Move" : "Save"} ${many ? `${items.length} variants` : items[0].name} to`}
+        {`${leaving() ? "Move" : "Save"} ${many ? `${items.length} alternatives` : items[0].name} to`}
       </div>
       <input
         class="save-find"
@@ -362,7 +362,7 @@ export function SaveMenu(props: {
             {`Remove from ${it.here}`}
             <small>{leaveNote()}</small>
             <Show when={removes() && showsIn().length}>
-              <small class="warn">{`${showsIn().join(", ")} will show another variant`}</small>
+              <small class="warn">{`${showsIn().join(", ")} will show another alternative`}</small>
             </Show>
           </span>
         </label>

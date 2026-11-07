@@ -4,7 +4,7 @@
 
 import type { FeedEvent } from "./api.ts";
 
-// A design gains asks or variants (design-*, post-*), or a Send answers them
+// A design gains asks or alternatives (design-*, post-*), or a Send answers them
 // (comment-created, then design-updated). Drafts never change what is owed.
 export const countMayChange = (e: FeedEvent): boolean =>
   e.type.startsWith("design-") || e.type.startsWith("post-") || e.type === "comment-created";

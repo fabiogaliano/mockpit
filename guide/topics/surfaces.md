@@ -1,6 +1,6 @@
 # mockpit topic: surfaces
 
-A variant version is an ordered list of surfaces. Each has a `kind`:
+An alternative version is an ordered list of surfaces. Each has a `kind`:
 
 ```
 { "kind": "html", "html": "<p>...</p>" }
@@ -49,17 +49,17 @@ from data, so send data, never markup.
 Any design can embed another of the project in its html with
 `<mockpit-embed slug="button"></mockpit-embed>`. The server inlines that design's html body in
 place and expands its own embeds (up to 6 levels), so build a screen from sections and sections
-from components, each its own design with its own variants and questions.
+from components, each its own design with its own alternatives and questions.
 
 - No `version`: follows the component's version in use, else its latest, without republishing
   what embeds it. `version="3"` pins it.
-- No `variant`: the component's variant in use (else `default`). Name one to
-  show a specific variant.
+- No `alternative`: the component's alternative in use (else `default`). Name one to
+  show a specific alternative.
 - The component shows as decided: its parts with fills keep only the fills the user
   settled on, and its other settled knob values ride on the embed's wrapper
   (`data-k-<path>` and `--k-<path>`), so write its knob CSS as
   `[data-k-tone="loud"] .chip`, not `html[data-k-tone=…]`.
-- `read` lists each variant's `embeds` as they render now (nested included,
+- `read` lists each alternative's `embeds` as they render now (nested included,
   with every version, for the user to peek back) and `publishedWith`, the
   versions it rendered with when you published it.
 - A chain that loops back is refused at publish. An unknown slug renders as an empty placeholder.
@@ -105,8 +105,8 @@ it. With no browser there is none, and the page runs live as before. Send your o
 moment; yours always wins. Over raw HTTP and `/mcp`, only yours exists:
 
 ```
-CLI  mockpit publish --design onni --variant felt --html felt.html --poster felt.png
-MCP  publish { design, variant, html, poster: "<asset id, or an image path on stdio>" }
+CLI  mockpit publish --design onni --alternative felt --html felt.html --poster felt.png
+MCP  publish { design, alternative, html, poster: "<asset id, or an image path on stdio>" }
 HTTP POST /api/designs { …, "html": "…", "poster": "<asset id>" }
 ```
 
@@ -118,7 +118,7 @@ drops it, so send one with each, or let the CLI or stdio server take the new one
 | you publish              | the user gets                                        |
 | ------------------------ | ---------------------------------------------------- |
 | a plain design, any kind | the stage and Thread, with Use this / New version    |
-| several variants         | a switcher, plus a built-in variant question         |
+| several alternatives     | a switcher, plus a built-in alternative question     |
 | questions (`ask`)        | Questions: picture options on the stage, then Send   |
 | `data-part`              | Tune's component list and comments anchored on parts |
 | `knobs`                  | Tune's controls, live on the stage                   |

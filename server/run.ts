@@ -34,7 +34,7 @@ export interface RunLimits {
 
 // A script never waits for the user, so the wall clock is only a sandbox guard:
 // 10 s clears a run of publishes with room to spare. 32 MiB and a 256 KiB stack are what the spike showed safe (512 KiB overflows the host
-// stack on workerd). The code cap clears a few full-page html variants written
+// stack on workerd). The code cap clears a few full-page html alternatives written
 // as template literals.
 export const DEFAULT_RUN_LIMITS: RunLimits = {
   deadlineMs: 10_000,
@@ -133,7 +133,7 @@ function writeSummary(body: any): string {
   const post = body?.post;
   const slug = body?.design?.slug ?? "?";
   if (!post) return slug;
-  return `${slug}/${post.state ? `${post.state}/` : ""}${post.variant} v${post.version}`;
+  return `${slug}/${post.state ? `${post.state}/` : ""}${post.alternative} v${post.version}`;
 }
 
 // Host calls past `size` in flight queue rather than fail, so Promise.all over
@@ -291,7 +291,7 @@ export function createRunFlow(deps: RunDeps) {
       async move([v]) {
         const r = plain(v);
         const value = await take(flows.move(r.design, await mine(r), flowCtx));
-        return [value, `${value.variants.length} moved`];
+        return [value, `${value.alternatives.length} moved`];
       },
       async system([v]) {
         const given = plain(v ?? {});

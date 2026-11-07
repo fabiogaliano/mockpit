@@ -117,7 +117,7 @@ export function createFlowNav(
     carryTry = s.trying();
     // Walking a flow keeps the view it is walked in.
     navigate(
-      designPath(project, to.design, { state: to.state, variant: null }, via, here.get("view")),
+      designPath(project, to.design, { state: to.state, alternative: null }, via, here.get("view")),
     );
   }
   const step = (by: 1 | -1) => {
@@ -139,7 +139,7 @@ export function createFlowNav(
   // A step's design in use (else its newest live one), as a picture.
   function picture(x: FlowStep): string | null {
     if (x.design === slug) {
-      const v = s.variantFor(x.state, false);
+      const v = s.alternativeFor(x.state, false);
       const i = v?.surfaces.findIndex((y) => y.kind === "html") ?? -1;
       return v && i >= 0
         ? surfaceUrl(v.postId, i, {
@@ -167,7 +167,7 @@ export function createFlowNav(
   // Declared, with nothing drawn there yet. Another design's says so once the tree is in.
   const planned = (x: FlowStep) =>
     x.design === slug
-      ? !s.variants().some((v) => v.state === x.state)
+      ? !s.alternatives().some((v) => v.state === x.state)
       : !!pictured().get(x.design)?.planned;
 
   return {

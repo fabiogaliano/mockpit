@@ -108,14 +108,14 @@ function header(title, crumb) {
   <p class="crumb">${crumb}</p>`;
 }
 
-function render(state, variant) {
+function render(state, alternative) {
   if (state.label === "Product") {
     const p = PRODUCTS[0];
     const alt = PRODUCTS.find((x) => x.kind === p.kind && x.id !== p.id) ?? PRODUCTS[1];
     return `<style>${CSS}</style>
 <div class="shop">
   ${header(" ", "Home › Footwear › " + p.name)}
-  <section class="pdp ${variant.name}-pdp" data-part="product" data-part-label="Product">
+  <section class="pdp ${alternative.name}-pdp" data-part="product" data-part-label="Product">
     <div class="pics"><span class="ph">${img(p)}</span><span class="ph">${img(p)}</span><span class="ph">${img(alt)}</span></div>
     <div class="info">
       <h2 data-part="name" data-part-label="Product name" data-part-key="pdp" class="nm">${p.name}</h2>
@@ -132,7 +132,7 @@ function render(state, variant) {
 <div class="shop">
   ${header("Products", "Home › Products")}
   <div class="bar" data-part="filters" data-part-label="Filters"><span><b>Filters</b> Size &nbsp; Colour</span><span><b>Available products</b> In stock &nbsp; Out of stock</span></div>
-  <div data-part="grid" data-part-label="Product grid">${GRIDS[variant.name]()}</div>
+  <div data-part="grid" data-part-label="Product grid">${GRIDS[alternative.name]()}</div>
 </div>`;
 }
 
@@ -143,7 +143,7 @@ export const STORE = {
   slug: "shop",
   title: "Shop",
   states: [{ label: "Grid" }, { label: "Product" }],
-  variants: [{ name: "index" }, { name: "gallery" }, { name: "editorial" }],
+  alternatives: [{ name: "index" }, { name: "gallery" }, { name: "editorial" }],
   knobs: {
     tile: "#efefef",
     "name.case": { type: "select", options: ["upper", "sentence"], value: "upper" },
@@ -155,9 +155,9 @@ export const STORE = {
       text: "Which grid?",
       scope: "design",
       options: [
-        { label: "Index", variant: "index" },
-        { label: "Gallery", variant: "gallery" },
-        { label: "Editorial", variant: "editorial" },
+        { label: "Index", alternative: "index" },
+        { label: "Gallery", alternative: "gallery" },
+        { label: "Editorial", alternative: "editorial" },
       ],
     },
     {

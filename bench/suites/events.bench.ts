@@ -175,7 +175,7 @@ export const eventsSuite: Suite = {
     if (ctx.matches("comment long-poll wakeup latency")) {
       const store = new SqlStore(createSqliteStorage());
       const session = await store.createSession({ agent: "bench", title: "poll" });
-      // Comments attach to a variant, so the poll needs one to point at.
+      // Comments attach to an alternative, so the poll needs one to point at.
       const post = await createBenchPost(store, {
         sessionId: session.id,
         title: "poll target",

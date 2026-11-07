@@ -68,7 +68,7 @@ export function DecisionRow(props: {
           : designPath(
               props.project,
               props.line.design,
-              props.line.state ? { state: props.line.state, variant: null } : null,
+              props.line.state ? { state: props.line.state, alternative: null } : null,
             )
       }
       editing={e.editing() === props.line.id}

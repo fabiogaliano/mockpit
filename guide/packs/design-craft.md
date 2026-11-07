@@ -2,11 +2,11 @@
 
 - Before designing something new, ask 2–3 short questions with likely answers
   as options (who, when, what matters most), then design. When the user asks for
-  a quick draft, skip them and write your assumptions in each variant's note.
-- Variants differ in one clear thing (layout, density, emphasis, voice), are
+  a quick draft, skip them and write your assumptions in each alternative's note.
+- Alternatives differ in one clear thing (layout, density, emphasis, voice), are
   named by what they are, and each note says when it's the best pick and what it
   costs. Three by default, five at most. A difference that is only colour or
-  size is a knob, not a variant.
+  size is a knob, not an alternative.
 - Don't ask what has a right answer (big enough to tap, undo, readable in light
   and dark): decide it and say why in one line of the note. Ask only what is the
   user's to decide.

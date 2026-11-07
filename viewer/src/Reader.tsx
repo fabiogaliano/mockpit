@@ -88,14 +88,14 @@ interface Pending {
 
 export function Reader(props: { s: DesignScreenState; head?: JSX.Element }) {
   const s = props.s;
-  const variant = () => s.activeVariant();
+  const alternative = () => s.activeAlternative();
   const version = createMemo(() => {
-    const v = variant();
+    const v = alternative();
     return v ? s.frameVersionOf(v) : 0;
   });
-  const current = () => version() === variant()?.version;
+  const current = () => version() === alternative()?.version;
   const kinds = createMemo<string[]>(() => {
-    const v = variant();
+    const v = alternative();
     if (!v) return [];
     return (historyRow(v, version())?.surfaceKinds ?? v.surfaces.map((x) => x.kind)) as string[];
   });
@@ -140,7 +140,7 @@ export function Reader(props: { s: DesignScreenState; head?: JSX.Element }) {
   // Another document on screen: a half-written comment was about the last one.
   createEffect(
     on(
-      () => `${s.activeState()}\n${variant()?.variant}\n${version()}`,
+      () => `${s.activeState()}\n${alternative()?.alternative}\n${version()}`,
       () => setPending(null),
       { defer: true },
     ),
@@ -148,7 +148,7 @@ export function Reader(props: { s: DesignScreenState; head?: JSX.Element }) {
   let scroller: HTMLDivElement | undefined;
   createEffect(
     on(
-      () => `${s.activeState()}\n${variant()?.variant}`,
+      () => `${s.activeState()}\n${alternative()?.alternative}`,
       () => scroller?.scrollTo(0, 0),
       { defer: true },
     ),
@@ -176,13 +176,13 @@ export function Reader(props: { s: DesignScreenState; head?: JSX.Element }) {
   const pins = createMemo(() =>
     paragraphPins(
       s.draft()?.comments ?? [],
-      { state: s.activeState(), variant: variant()?.variant ?? null },
+      { state: s.activeState(), alternative: alternative()?.alternative ?? null },
       kinds().map((_, i) => blocks[i]),
     ),
   );
   const nextPin = () => (s.draft()?.comments ?? []).filter((c) => c.anchor).length + 1;
   const save = (p: Pending, text: string) => {
-    const v = variant();
+    const v = alternative();
     if (!v) return;
     const b = p.block;
     s.addComment(
@@ -193,7 +193,7 @@ export function Reader(props: { s: DesignScreenState; head?: JSX.Element }) {
         paragraph: { surface: p.surface, index: b.index, kind: b.kind, text: b.text },
         box: [b.box.x, b.box.y, b.box.w, b.box.h].map((n) => Math.round(n * 10) / 10),
       },
-      { variant: v.variant, version: version() },
+      { alternative: v.alternative, version: version() },
     );
     setPending(null);
   };
@@ -216,9 +216,9 @@ export function Reader(props: { s: DesignScreenState; head?: JSX.Element }) {
           {(kind, i) => {
             const sandboxed = isSandboxedSurfaceKind(kind);
             const surface = () =>
-              current() ? (variant()?.surfaces[i()] as Surface | undefined) : undefined;
+              current() ? (alternative()?.surfaces[i()] as Surface | undefined) : undefined;
             const src = () => {
-              const v = variant();
+              const v = alternative();
               if (!v || !sandboxed) return null;
               const url = surfaceUrl(v.postId, i(), {
                 version: version(),
@@ -284,7 +284,7 @@ export function Reader(props: { s: DesignScreenState; head?: JSX.Element }) {
                         }}
                         src={url}
                         sandbox="allow-scripts"
-                        title={`${variant()?.variant ?? ""} ${kind}`}
+                        title={`${alternative()?.alternative ?? ""} ${kind}`}
                         height={heights[i()] ?? 240}
                       />
                     )}

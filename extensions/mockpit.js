@@ -28,8 +28,8 @@ const feedbackGuideline =
 // The never-block loop, in the words of every other tier: nothing waits for
 // the user, so the agent ends its turn and reads feedback when told.
 const loopGuidelines = [
-  "Publish each variant with mockpit_publish (name states in the user's words; declare parts with data-part); publish again to revise.",
-  "A choice is several variants plus one question that binds them: mockpit_ask with options bound to the variants. One render plus a control: declare a knob.",
+  "Publish each alternative with mockpit_publish (name states in the user's words; declare parts with data-part); publish again to revise.",
+  "A choice is several alternatives plus one question that binds them: mockpit_ask with options bound to the alternatives. One render plus a control: declare a knob.",
   "Tell the user in one line where to look, then end your turn. The question lives in the design, never in chat. Never poll.",
   "A reply sent from the viewer arrives on its own as a mockpit message; act on it. If the user says they answered and none came, call mockpit_feedback. Every write also returns feedback; read it.",
 ];
@@ -93,7 +93,7 @@ const surfaceSchema = {
 const surfacesSchema = {
   type: "array",
   description:
-    "The full ordered list of one variant's surfaces: {id} alone keeps a surface, a missing id removes it.",
+    "The full ordered list of one alternative's surfaces: {id} alone keeps a surface, a missing id removes it.",
   items: surfaceSchema,
 };
 
@@ -251,8 +251,8 @@ function feedbackLines(feedback) {
         lines.push(`- ${prefix}${a.text || a.ask} → ${chosen || "(no pick)"}`);
         if (a.comment) lines.push(`  comment: ${a.comment}`);
       }
-      for (const [part, variant] of Object.entries(reply.borrowed ?? {})) {
-        lines.push(`- ${prefix}borrow ${part} from ${variant}`);
+      for (const [part, alternative] of Object.entries(reply.borrowed ?? {})) {
+        lines.push(`- ${prefix}borrow ${part} from ${alternative}`);
       }
       for (const [path, value] of Object.entries(reply.tuned ?? {})) {
         lines.push(`- ${prefix}tuned ${path} = ${JSON.stringify(value)}`);
@@ -260,7 +260,7 @@ function feedbackLines(feedback) {
       for (const c of reply.comments ?? []) {
         if (c.borrow) {
           lines.push(
-            `- ${prefix}borrow ${c.borrow.part ? `${c.borrow.part} ` : ""}from ${c.borrow.from} into ${c.variant}@${c.version}${c.text ? `: ${c.text}` : ""}`,
+            `- ${prefix}borrow ${c.borrow.part ? `${c.borrow.part} ` : ""}from ${c.borrow.from} into ${c.alternative}@${c.version}${c.text ? `: ${c.text}` : ""}`,
           );
           continue;
         }
@@ -268,7 +268,8 @@ function feedbackLines(feedback) {
           `- ${prefix}${c.part ? `[${c.part}${c.state ? ` · ${c.state}` : ""}] ` : ""}${c.text}`,
         );
       }
-      if (reply.verdict) lines.push(`- ${prefix}${reply.verdict.kind} ${reply.verdict.variant}`);
+      if (reply.verdict)
+        lines.push(`- ${prefix}${reply.verdict.kind} ${reply.verdict.alternative}`);
       if (reply.text) lines.push(`- ${prefix}${reply.text}`);
     }
     for (const c of batch.messages ?? []) lines.push(`- ${prefix}${c.text}`);
@@ -462,14 +463,15 @@ export default function mockpitExtension(pi) {
     return created.id;
   }
 
-  // project › design › state › variant › version.
+  // project › design › state › alternative › version.
   const designProps = {
     design: { type: "string", description: "Design slug, e.g. writer" },
     state: {
       type: "string",
       description: "State label in the user's words; omit for a single-state design",
     },
-    variant: { type: "string", description: 'Variant label; default "default"' },
+    alternative: { type: "string", description: 'Alternative label; default "default"' },
+    variant: { type: "string", description: "On a variants design, its label instead" },
     project: { type: "string", description: "Project name; defaults to the repo" },
   };
 
@@ -477,8 +479,8 @@ export default function mockpitExtension(pi) {
     name: "mockpit_publish",
     label: "Mockpit Publish",
     description:
-      "Create or version one variant of one state of a design in the user's browser. One of html (or path), surfaces (the full ordered list) or parts (splices the latest version). Returns parts per state, nudges, feedback.",
-    promptSnippet: "Publish a UI design (state + variant) to mockpit for the user to review.",
+      "Create or version one alternative of one state of a design in the user's browser. One of html (or path), surfaces (the full ordered list) or parts (splices the latest version). Returns parts per state, nudges, feedback.",
+    promptSnippet: "Publish a UI design (state + alternative) to mockpit for the user to review.",
     promptGuidelines: [...loopGuidelines, feedbackGuideline],
     parameters: {
       type: "object",
@@ -495,6 +497,11 @@ export default function mockpitExtension(pi) {
           description:
             "A component's library group: Actions, Inputs, Navigation, Feedback, Containers or the project's word. \"\" clears",
         },
+        variants: {
+          type: "boolean",
+          description:
+            "Its entries are variants that all ship (screen or component), not alternatives",
+        },
         source: { type: "string", description: 'Code path that implements it. "" clears' },
         html: { type: "string", description: "HTML body fragment; declare parts with data-part" },
         path: { type: "string", description: "File to read the html from instead" },
@@ -510,7 +517,7 @@ export default function mockpitExtension(pi) {
             '{"name"|"name#key": outer html}; splices declared parts of the latest version',
         },
         knobs: { type: "object", description: "Knobs in tunekit usePane shape, keyed by path" },
-        variantKnobs: { type: "object", description: "Knobs this variant alone has" },
+        alternativeKnobs: { type: "object", description: "Knobs this alternative alone has" },
         from: { type: "number", description: "Branch from this version" },
         prompt: { type: "string", description: "What prompted this version" },
       },
@@ -560,7 +567,7 @@ export default function mockpitExtension(pi) {
           ]
         : [];
       const text = [
-        `${result.design.slug}/${post.state ? `${post.state}/` : ""}${post.variant} v${post.version} · ${result.url}`,
+        `${result.design.slug}/${post.state ? `${post.state}/` : ""}${post.alternative ?? post.variant} v${post.version} · ${result.url}`,
         ...parts,
         ...(result.applied?.length ? [`applied: ${result.applied.join(", ")}`] : []),
         ...changes,
@@ -580,10 +587,10 @@ export default function mockpitExtension(pi) {
     name: "mockpit_ask",
     label: "Mockpit Ask",
     description:
-      "Ask structured questions on a design. A choice is several variants plus one question that binds them ({label, variant}); options may also set knob values ({label, set}). Reusing a question id replaces it.",
-    promptSnippet: "Ask the user to choose between mockpit variants.",
+      "Ask structured questions on a design. A choice is several alternatives plus one question that binds them ({label, alternative}); options may also set knob values ({label, set}). Reusing a question id replaces it.",
+    promptSnippet: "Ask the user to choose between mockpit alternatives.",
     promptGuidelines: [
-      "Use mockpit_ask once the variants are published, tell the user where to look, then end your turn.",
+      "Use mockpit_ask once the alternatives are published, tell the user where to look, then end your turn.",
     ],
     parameters: {
       type: "object",
@@ -627,7 +634,7 @@ export default function mockpitExtension(pi) {
     name: "mockpit_read",
     label: "Mockpit Read",
     description:
-      "Without design: every design (slug, states, variants, open asks) plus pending; with area, one product area, all settled in it (read it before drawing there). With design: its spec (purpose, behaviour, decisions; the user's edits stand), states, variants, asks with answers, parts, knobs and last tuned values, plus pending. Never consumes feedback.",
+      "Without design: every design (slug, states, alternatives, open asks) plus pending; with area, one product area, all settled in it (read it before drawing there). With design: its spec (purpose, behaviour, decisions; the user's edits stand), states, alternatives, asks with answers, parts, knobs and last tuned values, plus pending. Never consumes feedback.",
     promptSnippet: "Read mockpit designs.",
     promptGuidelines: [
       "Use mockpit_read to recover design slugs or a design's state when you lost track.",
@@ -638,7 +645,7 @@ export default function mockpitExtension(pi) {
         design: { type: "string", description: "Design slug; omit for every design" },
         project: designProps.project,
         area: { type: "string", description: "Without design: one product area" },
-        body: { type: "boolean", description: "Include each variant's surfaces" },
+        body: { type: "boolean", description: "Include each alternative's surfaces" },
         history: { type: "boolean", description: "Include version rows" },
       },
     },
@@ -654,7 +661,7 @@ export default function mockpitExtension(pi) {
         const result = await requestJson(`/api/designs?${query}`);
         const lines = result.designs.map(
           (m) =>
-            `${m.slug} · ${m.kind} · ${m.states.length ? m.states.join(" / ") : "single state"} · ${m.variants} variants${m.open ? ` · ${m.open} open` : ""}`,
+            `${m.slug} · ${m.kind} · ${m.states.length ? m.states.join(" / ") : "single state"} · ${m.variants === undefined ? `${m.alternatives} alternatives` : `${m.variants} variants`}${m.open ? ` · ${m.open} open` : ""}`,
         );
         const busy = pendingLines(result.pending);
         return {
@@ -722,6 +729,7 @@ export default function mockpitExtension(pi) {
         body: JSON.stringify({
           message: params.message,
           state: params.state,
+          alternative: params.alternative,
           variant: params.variant,
           project: projectOf(params, ctx),
           session: state.sessionId,
@@ -760,6 +768,11 @@ export default function mockpitExtension(pi) {
           description: 'Area in the product; "" clears (a component: shared)',
         },
         group: { type: "string", description: 'A component\'s library group; "" clears' },
+        variants: {
+          type: "boolean",
+          description:
+            "Its entries are variants that all ship (screen or component), not alternatives",
+        },
         source: { type: "string", description: 'Code path that implements it; "" clears' },
         purpose: {
           type: "string",
@@ -872,6 +885,7 @@ export default function mockpitExtension(pi) {
     async execute(_id, params, _signal, _onUpdate, ctx) {
       const query = new URLSearchParams({ project: projectOf(params, ctx) });
       if (params.state) query.set("state", params.state);
+      if (params.alternative) query.set("alternative", params.alternative);
       if (params.variant) query.set("variant", params.variant);
       const data = await requestJson(`${designPath(params.design)}/export?${query}`);
       return { content: [{ type: "text", text: jsonText(data) }], details: data };
@@ -970,7 +984,7 @@ export default function mockpitExtension(pi) {
     name: "mockpit_run",
     label: "Mockpit Run",
     description:
-      "Run a script (the body of an async function, plain JavaScript) in the server's sandbox against the mockpit API: publish variants and ask in one call; nothing waits for the user. See mockpit_guide topic scripts.",
+      "Run a script (the body of an async function, plain JavaScript) in the server's sandbox against the mockpit API: publish alternatives and ask in one call; nothing waits for the user. See mockpit_guide topic scripts.",
     promptSnippet: "Run a mockpit script server-side.",
     parameters: {
       type: "object",

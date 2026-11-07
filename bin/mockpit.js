@@ -31,24 +31,26 @@ const HEADERS = {
 
 const HELP = `mockpit — a live visual surface for terminal coding agents
 
-vocabulary: project › design › state › variant › version. A project is a repo; a
+vocabulary: project › design › state › alternative › version. A project is a repo; a
 design is an idea, screen or component, by slug; a state is one thing the user sees in it ("Lab
-open"); a variant is a parallel take on a state; a version is its history.
+open"); an alternative is a parallel take on a state; a version is its history.
+A screen or component whose entries all ship (sizes, tones) holds variants instead
+(--variants), named with --variant.
 Declare the parts you want feedback on with data-part="name" in the html.
 
 the loop (never blocks on the user):
   1. mockpit init once per repo; read the brief (mockpit guide).
-  2. mockpit publish once per variant; declare parts with data-part.
-  3. A choice is several variants plus one question that binds them: mockpit ask
-     with options bound to variants. A variant decides everything it differs
-     on; don't re-ask it. Visual options carry a variant or knob set. One
+  2. mockpit publish once per alternative; declare parts with data-part.
+  3. A choice is several alternatives plus one question that binds them: mockpit ask
+     with options bound to alternatives. An alternative decides everything it differs
+     on; don't re-ask it. Visual options carry an alternative or knob set. One
      render plus a control: --knobs.
   4. Tell the user in one line where to look, then end your turn. The question
      itself lives in the design, never in chat. The user answers in the
      browser at their own pace. Never poll.
   5. When the user says they answered (or a mockpit watch line wakes you), run
      mockpit feedback. Every write also returns feedback; read it.
-  6. mockpit publish the revision; mockpit export once a variant is in use.
+  6. mockpit publish the revision; mockpit export once an alternative is in use.
   In Claude Code, arm mockpit watch under Monitor after asking, then end the
   turn, unless you have the mockpit plugin, which wakes you itself; elsewhere
   the user's next message is the wake-up.
@@ -58,9 +60,12 @@ verbs:
                                           read the repo's tokens, kit and icon sets
                                           into the project's system, write .mockpit/starter.html
   mockpit publish --design <slug> --html <file> [options]
-                                          create or version one variant of one state
+                                          create or version one alternative of one state
       --state <label>   state, in the user's words (omit for a single-state design)
-      --variant <name>  variant label (default "default")
+      --alternative <name>  alternative label (default "default")
+      --variant <name>  on a variants design, the variant's label instead
+      --variants        its entries are variants that all ship, not alternatives
+                        to choose between (screen or component; --no-variants: off)
       --html <file|->   the html body (or a positional file)
       --surfaces <json|file>  instead: the full ordered surface list; {"id"}
                         alone keeps a surface, a missing id removes it
@@ -80,7 +85,7 @@ verbs:
                         user has acted on it (one request, one version)
       --withdraw        take the latest version back, under the same rule
       --prompt <text>   what prompted this version
-      --description <text>  one line on what this variant is, shown beside it
+      --description <text>  one line on what this alternative is, shown beside it
       --widths <list>   device widths to show it at, e.g. 390,1280
       --flow <name> [--step <N>]  make this state step N of a flow (0 takes
                         it out); with no html it only places the state
@@ -92,10 +97,10 @@ verbs:
       --md/--mermaid/--diff/--terminal/--data/--code/--image <file|->
                         add a surface of that kind after the html (repeatable;
                         --data is a JSON tree)
-  mockpit ask --design <slug> "<question>" --option <label[=variant]> ...
-                                          ask the user; bind options to variants
-      --option <l[=v]>  an option (repeatable); "=variant" binds it to a variant,
-                        "=variant@3" to its version 3, "=knob:path=value" sets one knob,
+  mockpit ask --design <slug> "<question>" --option <label[=alternative]> ...
+                                          ask the user; bind options to alternatives
+      --option <l[=v]>  an option (repeatable); "=alternative" binds it to an alternative,
+                        "=alternative@3" to its version 3, "=knob:path=value" sets one knob,
                         "=palette:id" chooses a palette of the project's system
       --recommend <l>   the option you would pick, by label; a quiet mark on it
       --scope <s>       design|state|part (default design)
@@ -113,11 +118,11 @@ verbs:
                                           spec; --area: one area, all settled in it
   mockpit feedback                       what the user sent since you last heard,
                                           plus pending; returns at once
-  mockpit say "<text>" --design <slug> [--state s] [--variant v]
+  mockpit say "<text>" --design <slug> [--state s] [--alternative v]
                                           a plain-text message in a design's thread
-  mockpit move --design <slug> --variant <v>... (--to <design> [--to-state s] | --archive | --restore)
-                                          move variants elsewhere, archive or restore them
-  mockpit edit <slug> [--slug s] [--title t] [--kind k] [--area a] [--group g] [--source p]
+  mockpit move --design <slug> --alternative <v>... (--to <design> [--to-state s] | --archive | --restore)
+                                          move alternatives elsewhere, archive or restore them
+  mockpit edit <slug> [--slug s] [--title t] [--kind k] [--area a] [--group g] [--[no-]variants] [--source p]
           [--purpose t] [--behaviour t [--state s] [--part p]]
                                           change a design or its spec without a new
                                           version ("" clears)
@@ -130,7 +135,7 @@ verbs:
   mockpit system [--sheet f.css] [--classes j] [--tokens j] [--scales j] [--palettes j] ...
                                           the project's system: read it, or change a part
                                           (applies to every design at once)
-  mockpit export --design <slug> [--state s] [--variant v] [--out <dir>]
+  mockpit export --design <slug> [--state s] [--alternative v] [--out <dir>]
                                           write the html in use + history per state
                                           to .mockpit/accepted/<design>/<state>/
   mockpit upload <file> [--kind image|file]
@@ -211,18 +216,23 @@ mockpit icons remove <set> [<set>...]
 mockpit publish --design <slug> --surfaces <json|file> [options]
 mockpit publish --design <slug> --parts <name=file|-> ... [options]
 mockpit publish --design <slug> --fills <part#fill=file|-> ... [options]
-mockpit publish --design <slug> [--state s] [--variant v] --withdraw
-  Creates the design, state or variant, or the next version of an existing one.
+mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
+  Creates the design, state or alternative, or the next version of an existing one.
   One request gets one version: fixes to it before the user acts use --amend.
-  --amend            replace the variant's latest version in place (same number)
+  --amend            replace the alternative's latest version in place (same number)
                      instead of adding one. Only from the session that published
                      it, and only while the user hasn't acted on it (no Send,
                      comment, draft answer, not in use)
-  --withdraw         take the variant's latest version back under the same
-                     rule: the version before it is current again, and a
-                     variant with no other version goes
+  --withdraw         take the alternative's latest version back under the same
+                     rule: the version before it is current again, and an
+                     alternative with no other version goes
   --state <label>    state in the user's words (omit for a single-state design)
-  --variant <name>   variant label (default "default")
+  --alternative <name>   alternative label (default "default")
+  --variant <name>   on a variants design, the variant's label instead; the wrong one
+                     fails, naming the right one
+  --variants         its entries are variants that all ship (a component's sizes or
+                     tones), not alternatives to choose between: nothing on it is
+                     chosen. Screen or component only; --no-variants turns it off
   --surfaces <json|file>  the full ordered list: {"id"} alone keeps a surface,
                      a missing id removes it, order is the list order
   --parts <name=file|->   replace only the element carrying data-part="name"
@@ -242,11 +252,11 @@ mockpit publish --design <slug> [--state s] [--variant v] --withdraw
   --source <path>    the code path that implements it (apps/web/src/shell). "" clears
   --knobs <json|file>  knobs in tunekit usePane shape
   --from <N>         branch from version N
-  --fork <v[@N]>     start this new variant from sibling v (its version N, else
+  --fork <v[@N]>     start this new alternative from sibling v (its version N, else
                      its latest); alone it copies v, with --parts/--fills it
                      edits the copy
   --prompt <text>    what prompted this version
-  --description <text>  one line on what this variant is, shown beside it (never
+  --description <text>  one line on what this alternative is, shown beside it (never
                      inside the design)
   --widths <list>    device widths the design is judged at, side by side, e.g.
                      390,1280 (the ones the user ships to)
@@ -264,26 +274,26 @@ mockpit publish --design <slug> [--state s] [--variant v] --withdraw
   --md/--mermaid/--diff/--terminal/--data/--code/--image <file>  more surfaces
   --json / --quiet
   Prints the parts found per state, parts that vanished or were renamed,
-  nudges, a ready-to-run "mockpit ask" when variants have no question, and feedback.`,
-  ask: `mockpit ask --design <slug> "<question>" --option <label[=variant]> ... [--scope design|state|part]
+  nudges, a ready-to-run "mockpit ask" when alternatives have no question, and feedback.`,
+  ask: `mockpit ask --design <slug> "<question>" --option <label[=alternative]> ... [--scope design|state|part]
   [--state s] [--states s]... [--part p] [--multi] [--id id] [--after <ask id>] [--recommend <label>]
   mockpit ask --design <slug> --asks <json|file>
-  Ask the user. A choice is several variants plus one question that binds them.
+  Ask the user. A choice is several alternatives plus one question that binds them.
   Then tell the user where to look and end your turn.`,
   read: `mockpit read [slug] [--project <name>] [--body] [--history] [--tree] [--decisions]
 mockpit read --area <name> [--project <name>]
   Read this first. Every form carries the project's decision list, what the user
   already settled, from their replies: treat each line as settled unless they say
-  otherwise. No slug: one line per design (states, variants, open questions), one per
+  otherwise. No slug: one line per design (states, alternatives, open questions), one per
   flow, plus pending, what the user is doing now, then the decisions. A slug: the
   design's spec (purpose: what it is for; behaviour: how it works; decisions: what was
-  settled on it), states, variants, questions with answers, parts, knobs and settled
+  settled on it), states, alternatives, questions with answers, parts, knobs and settled
   values, plus its pending and decisionList (its own lines marked here), as JSON.
   --area: one product area, read before drawing in it: what the project and the area
   are for, its screens, flows and components (purpose, states), the shared components,
   their decisions and the ideas waiting there, as JSON.
   --body includes surfaces, --history version rows. --tree (no slug): the
-  project as a tree, each design's variants with status and forkedFrom, and the
+  project as a tree, each design's alternatives with status and forkedFrom, and the
   designs it embeds and is embedded in, as JSON. --decisions: the whole list, when
   a read says lines were left out. Never consumes feedback.`,
   feedback: `mockpit feedback [--project <name>] [--session <id>]
@@ -293,30 +303,32 @@ mockpit read --area <name> [--project <name>]
   every write; and pending ({design, viewerOpen, draft}) so you can tell the
   user "take your time" or "2 of 3 answered". Run it when the user says they
   answered.`,
-  say: `mockpit say "<text>" --design <slug> [--state s] [--variant v]
+  say: `mockpit say "<text>" --design <slug> [--state s] [--alternative v]
   A plain-text message in the design's thread, as your session's agent.`,
-  move: `mockpit move --design <slug> [--state s] --variant <v> [--variant <v>...]
+  move: `mockpit move --design <slug> [--state s] --alternative <v> [--alternative <v>...]
   --to <design> [--to-state <s>] | --to-state <s> | --archive | --restore
-mockpit move --design <slug> [--state s] [--variant <v>...] --hide-older | --delete-older
+mockpit move --design <slug> [--state s] [--alternative <v>...] --hide-older | --delete-older
   Tidy up. --to or --to-state moves them to another design or tab (a new state is
   created) and takes them out of here; --archive takes them out of sight; --restore
   brings them back. Their group goes along; one in use stays and is reported. The
   thread says what happened, so the user can undo it.
-  Only when the user asks: --hide-older hides all but each variant's newest visible
-  version (no --variant: every variant), and --delete-older deletes them for good,
+  Only when the user asks: --hide-older hides all but each alternative's newest visible
+  version (no --alternative: every alternative), and --delete-older deletes them for good,
   skipping and listing any that a reply, comment, question, embed, copy or fork still
   points at, or that is in use. It can't be undone: confirm first.`,
   edit: `mockpit edit <slug> [--slug <new>] [--title <t>] [--kind screen|component|idea]
   [--first-state <name>] [--purpose <text>|""]
   [--behaviour <text> [--state <s>] [--part <p>] | --behaviour <json|file>|""]
-  [--area <name>|""] [--group <word>|""] [--source <path>|""] [--project <name>]
+  [--area <name>|""] [--group <word>|""] [--[no-]variants] [--source <path>|""] [--project <name>]
 mockpit edit --project <name> --rename <new name>
 mockpit edit --project <name> --areas "Shell,Food,Chat"
 mockpit edit --project <name> [--area <name>] --description <one line>|""
   Change a design without publishing a new version; "" clears area, group or source.
   The design is named first, or with --design. A component with no area is shared;
   --group files it in the library by what it does (Actions, Inputs, Navigation,
-  Feedback, Containers, or the project's own word). A new
+  Feedback, Containers, or the project's own word). --variants says a screen's or
+  component's entries all ship, so they are named with --variant and nothing on it is
+  chosen; --no-variants makes them alternatives again. A new
   slug rewrites every embed, data-goto and flow step that names the old one, in
   every version. A design still embedded somewhere stays a component, not an idea.
   --purpose and --behaviour write the design's spec, which read returns: what it is for,
@@ -326,7 +338,7 @@ mockpit edit --project <name> [--area <name>] --description <one line>|""
   ('[{"text":"…","state":"Now","part":"river"}]') it replaces every line; "" clears. A
   section the user wrote by hand stands, so a draft is then not applied and the
   result says so.
-  --first-state names a design's one unnamed state, and every variant it holds goes
+  --first-state names a design's one unnamed state, and every alternative it holds goes
   there, so the design can then have more states.
   --rename moves the project's designs, sessions, flows, system and settings to the
   new name (refused if that project has designs); pass --project <new> or set
@@ -361,12 +373,12 @@ mockpit system --restore <rev>
   feedback or the next write delivers it, once.
   --once stops after the first Send, for a harness whose wake is a process
   exiting; --exit-code sets the code it stops with (default 0).`,
-  export: `mockpit export --design <slug> [--state s] [--variant v] [--out <dir>]
+  export: `mockpit export --design <slug> [--state s] [--alternative v] [--out <dir>]
   Write index.html + history.json per state to .mockpit/accepted/<design>/<state>/;
   with fills, index.html is the chosen state, plus all-fills.html and decisions.json.
   A screen or component writes every entry marked Ready (unmarked: every live one as it
-  shows) as <variant>.html + <variant>.history.json (with the start of the post id where two
-  variant names would share a file), and design.json: its mark, its spec
+  shows) as <alternative>.html + <alternative>.history.json (with the start of the post id where two
+  alternative names would share a file), and design.json: its mark, its spec
   and the components those versions are built from, each with its own mark.`,
   upload: `mockpit upload <file> [--kind image|file] [--session <id>]
   Upload an asset; prints its id and URL. Use the id as an image surface's assetId.`,
@@ -429,7 +441,7 @@ async function api(path, init = {}, { report, fix } = {}) {
     // actionable line ("error … : <message>") the agent needs.
     const issue = Array.isArray(body.issues) ? body.issues[0] : null;
     // The server names the valid choices when a call is ambiguous; say them.
-    const choices = body.variants ?? body.states ?? body.projects;
+    const choices = body.alternatives ?? body.states ?? body.projects;
     const main =
       (body.error ?? `${res.status} ${res.statusText}`) +
       (Array.isArray(choices) ? ` (${choices.join(", ")})` : "");
@@ -981,10 +993,12 @@ const query = (params) => {
   return s ? `?${s}` : "";
 };
 
-// The flags every design verb shares: which design, which state, which variant.
+// The flags every design verb shares: which design, which state, which alternative
+// (a variants design's entries are variants, named with --variant).
 const DESIGN_FLAGS = {
   design: { type: "string" },
   state: { type: "string" },
+  alternative: { type: "string" },
   variant: { type: "string" },
   project: { type: "string" },
   session: { type: "string" },
@@ -1090,7 +1104,7 @@ function printPublished(result, flags) {
       ? " (amended)"
       : "";
   console.log(
-    `${design.slug}/${stateLabel(post.state)}${post.variant} v${post.version}${branch && post.from ? ` (from v${post.from})` : ""}${how} · ${result.url}`,
+    `${design.slug}/${stateLabel(post.state)}${post.alternative ?? post.variant} v${post.version}${branch && post.from ? ` (from v${post.from})` : ""}${how} · ${result.url}`,
   );
   for (const { state, parts } of result.parts ?? []) {
     if (parts.length === 0) continue;
@@ -1122,6 +1136,7 @@ async function withdrawVersion(flags, slug, project) {
         project,
         design: slug,
         state: flags.state,
+        alternative: flags.alternative,
         variant: flags.variant,
         withdraw: true,
       }),
@@ -1133,7 +1148,7 @@ async function withdrawVersion(flags, slug, project) {
   if (flags.quiet) return;
   const w = result.withdrawn;
   console.log(
-    `${slug}/${stateLabel(w.state)}${w.variant} v${w.version} withdrawn, variant removed · ${result.url}`,
+    `${slug}/${stateLabel(w.state)}${w.alternative ?? w.variant} v${w.version} withdrawn, ${w.variant === undefined ? "alternative" : "variant"} removed · ${result.url}`,
   );
   printFeedback(result.feedback);
 }
@@ -1172,6 +1187,7 @@ function parsePublishFlags() {
       kind: { type: "string" },
       area: { type: "string" },
       group: { type: "string" },
+      variants: { type: "boolean" },
       source: { type: "string" },
       html: { type: "string" },
       poster: { type: "string" },
@@ -1301,11 +1317,13 @@ async function publishDesign() {
     project,
     design: slug,
     state: flags.state,
+    alternative: flags.alternative,
     variant: flags.variant,
     title: flags.title,
     kind: flags.kind,
     area: flags.area,
     group: flags.group,
+    variants: flags.variants,
     source: flags.source,
     ...(flags.knobs !== undefined && { knobs: readJsonFlag("knobs", flags.knobs) }),
     ...(from !== undefined && { from }),
@@ -1347,8 +1365,8 @@ async function publishDesign() {
   return result;
 }
 
-// "Quiet" is an unbound option; "Quiet=quiet" binds it to the quiet variant;
-// "Before=quiet@2" to its version 2 ("=@2" names the state's only variant);
+// "Quiet" is an unbound option; "Quiet=quiet" binds it to the quiet alternative;
+// "Before=quiet@2" to its version 2 ("=@2" names the state's only alternative);
 // "Above=knob:trim.position=top" sets one knob. The value is JSON when it
 // parses (17, true), else a string, so slider and toggle values keep their type.
 // "Grape=palette:grape" chooses a palette of the project's system.
@@ -1377,8 +1395,8 @@ function parseOption(raw) {
   const label = raw.slice(0, at);
   const bound = raw.slice(at + 1);
   const pin = /^(.*)@(\d+)$/.exec(bound);
-  if (!pin) return { label, variant: bound };
-  return { label, ...(pin[1] ? { variant: pin[1] } : {}), version: Number(pin[2]) };
+  if (!pin) return { label, alternative: bound };
+  return { label, ...(pin[1] ? { alternative: pin[1] } : {}), version: Number(pin[2]) };
 }
 
 // One feedback batch, one line — for a background monitor's notifications.
@@ -1472,14 +1490,14 @@ function watchLines(batch) {
         .filter((c) => c.borrow)
         .map(
           (c) =>
-            `borrow ${c.borrow.part ? `${c.borrow.part} ` : ""}from ${c.borrow.from} into ${c.variant}@${c.version}${c.text ? ` (“${c.text}”)` : ""}`,
+            `borrow ${c.borrow.part ? `${c.borrow.part} ` : ""}from ${c.borrow.from} into ${c.alternative}@${c.version}${c.text ? ` (“${c.text}”)` : ""}`,
         ),
       (() => {
         const n = (r.comments ?? []).filter((c) => !c.borrow).length;
         return n ? `${n} comment${n === 1 ? "" : "s"}` : "";
       })(),
       r.reactions?.length ? r.reactions.join(", ") : "",
-      r.verdict ? `${r.verdict.kind} ${r.verdict.variant}` : "",
+      r.verdict ? `${r.verdict.kind} ${r.verdict.alternative}` : "",
       r.text ?? "",
     ].filter(Boolean);
     lines.push(`mockpit reply on ${name}: ${bits.join(" · ").replace(/\s+/g, " ")}`);
@@ -1639,6 +1657,8 @@ function parse(config = {}) {
   try {
     parsed = parseArgs({
       args,
+      // --no-variants turns a design's variants off.
+      allowNegative: true,
       ...config,
       // --json/--quiet are global, but a command may redefine them (legacy
       // `publish --json <file>` adds a json surface), so config wins.
@@ -1966,7 +1986,7 @@ const commands = {
   },
 
   // Metadata by default. Bodies and version rows are opt-in, because a full
-  // variant with its history is the biggest thing an agent can pull into context.
+  // alternative with its history is the biggest thing an agent can pull into context.
   async read() {
     const { values: flags, positionals } = parse({
       allowPositionals: true,
@@ -2034,10 +2054,16 @@ const commands = {
           : " · nothing waiting on the user"),
     );
     if (list.system) console.log(`  system ${list.system}`);
+    // A variants design's entries all ship: the count says variants.
+    const entries = (m) => {
+      const [n, word] =
+        m.variants === undefined ? [m.alternatives, "alternative"] : [m.variants, "variant"];
+      return `${n} ${word}${n === 1 ? "" : "s"}`;
+    };
     for (const m of designs) {
       const states = m.states.length ? m.states.join(" / ") : "single state";
       console.log(
-        `  ${m.slug} · ${m.kind}${m.area ? ` · ${m.area}` : ""} · ${states} · ${m.variants} variant${m.variants === 1 ? "" : "s"}${m.planned ? " · planned" : ""}${m.archivedAt ? " · archived" : m.open ? ` · ${m.open} open` : ""}`,
+        `  ${m.slug} · ${m.kind}${m.area ? ` · ${m.area}` : ""} · ${states} · ${entries(m)}${m.planned ? " · planned" : ""}${m.archivedAt ? " · archived" : m.open ? ` · ${m.open} open` : ""}`,
       );
     }
     for (const flow of list.flows ?? []) console.log(`  ${flowLine(flow)}`);
@@ -2056,6 +2082,7 @@ const commands = {
       options: {
         design: { type: "string" },
         state: { type: "string" },
+        alternative: { type: "string" },
         variant: { type: "string" },
         project: { type: "string" },
         out: { type: "string" },
@@ -2065,7 +2092,7 @@ const commands = {
     const slug = requireDesign(flags, "mockpit export --design writer");
     const project = resolveProject(flags).name;
     const data = await api(
-      `${designPath(slug)}/export${query({ project, state: flags.state, variant: flags.variant })}`,
+      `${designPath(slug)}/export${query({ project, state: flags.state, alternative: flags.alternative, variant: flags.variant })}`,
       {},
       { report: "die", fix: `mockpit read ${slug}` },
     );
@@ -2086,11 +2113,11 @@ const commands = {
       }
     }
     // A screen or a component hands over every entry of a state, so each is named by its
-    // variant beside its siblings; an idea's one entry a state stays index.html. Two
-    // variant names can normalise to one file name ("A B", "A-B"): then every file of
+    // alternative beside its siblings; an idea's one entry a state stays index.html. Two
+    // alternative names can normalise to one file name ("A B", "A-B"): then every file of
     // those entries carries the start of its post id, which is stable, so none is lost.
     const product = data.ready !== undefined;
-    const base = (entry) => slugify(entry.variant) || "variant";
+    const base = (entry) => slugify(entry.alternative ?? entry.variant) || "entry";
     const taken = new Map();
     for (const entry of data.states) {
       const key = `${entry.state ?? ""}\n${base(entry)}`;
@@ -2122,6 +2149,7 @@ const commands = {
             project,
             design: slug,
             state: entry.state,
+            alternative: entry.alternative,
             variant: entry.variant,
             version: entry.version,
             status: entry.status,
@@ -2136,7 +2164,7 @@ const commands = {
       if (!flags.quiet) {
         const files = [page, ...(entry.allFills ? [join(dir, name("all-fills.html"))] : [])];
         console.log(
-          `${slug}/${stateLabel(entry.state)}${entry.variant} v${entry.version} → ${files.join(", ")} (+ ${name("history.json")})`,
+          `${slug}/${stateLabel(entry.state)}${entry.alternative ?? entry.variant} v${entry.version} → ${files.join(", ")} (+ ${name("history.json")})`,
         );
       }
     }
@@ -2293,6 +2321,7 @@ const commands = {
         body: JSON.stringify({
           message: text,
           state: flags.state,
+          alternative: flags.alternative,
           variant: flags.variant,
           project: resolveProject(flags).name,
           session: session ?? undefined,
@@ -2309,6 +2338,7 @@ const commands = {
     const { values: flags } = parse({
       options: {
         ...DESIGN_FLAGS,
+        alternative: { type: "string", multiple: true },
         variant: { type: "string", multiple: true },
         to: { type: "string" },
         "to-state": { type: "string" },
@@ -2318,10 +2348,12 @@ const commands = {
         "delete-older": { type: "boolean" },
       },
     });
-    const example = "mockpit move --design writer --variant quiet --archive";
+    const example = "mockpit move --design writer --alternative quiet --archive";
     const slug = requireDesign(flags, example);
     const tidying = flags["hide-older"] || flags["delete-older"];
-    if (!flags.variant?.length && !tidying) die("move needs --variant", example);
+    if (!flags.alternative?.length && !flags.variant?.length && !tidying) {
+      die("move needs --alternative (--variant on a variants design)", example);
+    }
     const session = await resolveSession(flags);
     const result = await api(
       `${designPath(slug)}/move`,
@@ -2329,6 +2361,7 @@ const commands = {
         method: "POST",
         body: JSON.stringify({
           state: flags.state,
+          alternatives: flags.alternative,
           variants: flags.variant,
           to: flags.to,
           toState: flags["to-state"],
@@ -2349,19 +2382,19 @@ const commands = {
       console.log(`${verb} ${result.versions.length} older versions`);
       for (const s of result.skipped) {
         const which = s.version ? ` v${s.version}` : "";
-        console.log(`stayed: ${s.state ? `${s.state}/` : ""}${s.variant}${which} (${s.why})`);
+        console.log(`stayed: ${s.state ? `${s.state}/` : ""}${s.alternative}${which} (${s.why})`);
       }
       printFeedback(result.feedback);
       return;
     }
-    const names = result.variants.map((v) => v.variant).join(", ") || "nothing";
+    const names = result.alternatives.map((v) => v.alternative).join(", ") || "nothing";
     const done = result.to
       ? `moved to ${result.to.design}`
       : flags.restore
         ? "restored"
         : "archived";
     console.log(`${done}: ${names}`);
-    for (const s of result.skipped) console.log(`stayed: ${s.variant} (${s.why})`);
+    for (const s of result.skipped) console.log(`stayed: ${s.alternative} (${s.why})`);
     printFeedback(result.feedback);
   },
   async edit() {
@@ -2376,6 +2409,7 @@ const commands = {
         kind: { type: "string" },
         area: { type: "string" },
         group: { type: "string" },
+        variants: { type: "boolean" },
         source: { type: "string" },
         "first-state": { type: "string" },
         purpose: { type: "string" },
@@ -2453,12 +2487,19 @@ const commands = {
       return;
     }
     const slug = requireDesign(flags, "mockpit edit --design writer --area Shell");
-    const fields = ["slug", "title", "kind", "area", "group", "source", "purpose"].filter(
-      (k) => flags[k] !== undefined,
-    );
+    const fields = [
+      "slug",
+      "title",
+      "kind",
+      "area",
+      "group",
+      "variants",
+      "source",
+      "purpose",
+    ].filter((k) => flags[k] !== undefined);
     if (!fields.length && flags["first-state"] === undefined && flags.behaviour === undefined) {
       die(
-        "edit needs --slug, --title, --kind, --area, --group, --source, --purpose, --behaviour or --first-state",
+        "edit needs --slug, --title, --kind, --area, --group, --variants, --source, --purpose, --behaviour or --first-state",
         "mockpit edit --help",
       );
     }
@@ -2493,6 +2534,7 @@ const commands = {
         m.kind,
         m.kind === "component" && !m.area ? "shared" : m.area && `area ${m.area}`,
         m.group && `group ${m.group}`,
+        m.variants && "variants",
         m.source && `source ${m.source}`,
         result.spec?.purpose &&
           (result.spec.purpose.applied ? "purpose saved" : "purpose NOT applied"),
@@ -2517,13 +2559,13 @@ const commands = {
     parse();
     const { DEMO } = await import("./demoData.js");
     // The demo goes in through the same path an agent uses: one session, one
-    // publish per (state, variant), then the asks.
+    // publish per (state, alternative), then the asks.
     const session = await api("/api/sessions", {
       method: "POST",
       body: JSON.stringify({ agent: DEMO.agent, title: DEMO.sessionTitle, project: DEMO.project }),
     });
     for (const state of DEMO.states) {
-      for (const variant of DEMO.variants) {
+      for (const alternative of DEMO.alternatives) {
         await api("/api/designs", {
           method: "POST",
           body: JSON.stringify({
@@ -2533,9 +2575,9 @@ const commands = {
             kind: "screen",
             title: DEMO.title,
             state: state.label,
-            variant: variant.name,
+            alternative: alternative.name,
             knobs: DEMO.knobs,
-            surfaces: [{ kind: "html", html: DEMO.render(state, variant) }],
+            surfaces: [{ kind: "html", html: DEMO.render(state, alternative) }],
           }),
         });
       }
@@ -2545,7 +2587,7 @@ const commands = {
       body: JSON.stringify({ project: DEMO.project, session: session.id, asks: DEMO.asks }),
     });
     console.log(
-      `Seeded ${DEMO.project} › ${DEMO.title} (${DEMO.states.length} states × ${DEMO.variants.length} variants) — open ${BASE}/project/${encodeURIComponent(DEMO.project)}/${DEMO.slug}`,
+      `Seeded ${DEMO.project} › ${DEMO.title} (${DEMO.states.length} states × ${DEMO.alternatives.length} alternatives) — open ${BASE}/project/${encodeURIComponent(DEMO.project)}/${DEMO.slug}`,
     );
   },
 

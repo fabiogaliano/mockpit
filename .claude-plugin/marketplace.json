@@ -7,7 +7,7 @@
     {
       "name": "mockpit",
       "source": "./plugin",
-      "description": "Publish design designs (states, variants, questions, knobs) to mockpit over MCP, and wake Claude Code the moment the user sends a reply from the browser.",
+      "description": "Publish design designs (states, alternatives, questions, knobs) to mockpit over MCP, and wake Claude Code the moment the user sends a reply from the browser.",
       "category": "Integrations",
       "keywords": ["mockpit", "design", "visualization", "feedback", "mcp"]
     }

@@ -2319,7 +2319,7 @@ a.home-count {
   text-align: left;
   font-size: 14px;
 }
-/* one-tap reactions: on the picked part, and on the variant in the stage head */
+/* one-tap reactions: on the picked part, and on the alternative in the stage head */
 .reactions {
   display: inline-flex;
   gap: 2px;
@@ -7002,7 +7002,7 @@ html:has(.design-screen) {
   }
 }
 
-/* Studio: every variant of a state side by side, newest version on top. */
+/* Studio: every alternative of a state side by side, newest version on top. */
 .studio {
   position: fixed;
   left: 0;
@@ -8978,7 +8978,7 @@ body:has(.selp) .toast {
   margin-left: 10px;
 }
 
-/* States by variants. The scroller is the whole view, so the names stay in sight both
+/* States by alternatives. The scroller is the whole view, so the names stay in sight both
    ways, and a phone gets there by scrolling rather than by a smaller table. */
 .gridview {
   position: fixed;

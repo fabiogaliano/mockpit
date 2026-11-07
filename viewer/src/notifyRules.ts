@@ -2,7 +2,7 @@
 // you", what the notification says, and how a burst folds into one per design.
 // notify.ts owns the permission, the timers and the Notification itself.
 
-import type { CommentRow, FeedEvent, VariantView } from "./api.ts";
+import type { CommentRow, FeedEvent, AlternativeView } from "./api.ts";
 import { versionName } from "./logic.ts";
 
 export type Bell = "hidden" | "off" | "on" | "blocked";
@@ -66,14 +66,16 @@ export function noticeFromComment(row: CommentRow): Notice | null {
 }
 
 // Named as the version bar names it: "New version of Writer: Writing, Dark #3".
-export function noticeFromVariant(
+export function noticeFromAlternative(
   designTitle: string,
-  v: VariantView,
+  v: AlternativeView,
   version: number,
-  variants: Pick<VariantView, "state">[],
+  alternatives: Pick<AlternativeView, "state">[],
 ): Notice {
-  const named = variants.filter((x) => x.state === v.state).length > 1;
-  const where = [v.state, versionName({ variant: v.variant, version }, named)].filter(Boolean);
+  const named = alternatives.filter((x) => x.state === v.state).length > 1;
+  const where = [v.state, versionName({ alternative: v.alternative, version }, named)].filter(
+    Boolean,
+  );
   return { kind: "version", text: `New version of ${designTitle}: ${where.join(", ")}` };
 }
 

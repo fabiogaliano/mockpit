@@ -79,7 +79,7 @@ export default {
     }
     const workspace = env.BOARD.get(env.BOARD.idFromName("default"));
 
-    // Screenshot: GET /s/:id.png → PNG of a variant's first surface.
+    // Screenshot: GET /s/:id.png → PNG of an alternative's first surface.
     // Auth is decided by the app — we forward the user's credentials to the DO
     // and only proceed if it returns 200.
     const url = new URL(request.url);

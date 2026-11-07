@@ -1,7 +1,7 @@
 # mockpit topic: knobs
 
 A knob is a value the user tunes live on one render. For a choice between renders, publish
-variants and ask (topic `asks`). A 2–3 option knob is a choice: ask with options that `set`
+alternatives and ask (topic `asks`). A 2–3 option knob is a choice: ask with options that `set`
 it; publishing one returns that nudge. Declare knobs for what is worth fine-tuning (size,
 spacing, colour, density) even unasked; they wait in Tune.
 
@@ -9,8 +9,8 @@ spacing, colour, density) even unasked; they wait in Tune.
 
 Knobs use tunekit's `usePane` shape, keyed by path. `"size"` is global,
 `"body.size"` belongs to the `body` part. Design-wide knobs go in `--knobs` (MCP
-and HTTP `knobs`). Over MCP and HTTP, knobs only one variant has go in
-`variantKnobs`.
+and HTTP `knobs`). Over MCP and HTTP, knobs only one alternative has go in
+`alternativeKnobs`.
 
 ```sh
 mockpit publish --design writer --state "Writing" --html w.html --knobs '{"body.size":[17,14,22,1]}'

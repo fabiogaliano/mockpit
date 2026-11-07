@@ -33,7 +33,7 @@ export interface McpFlows {
   exportDesign: Flow<
     [
       ref: unknown,
-      query: { project?: unknown; state?: unknown; variant?: unknown },
+      query: { project?: unknown; state?: unknown; alternative?: unknown; variant?: unknown },
       ctx: FlowContext,
     ]
   >;
@@ -64,7 +64,7 @@ export interface McpDeps {
 }
 
 // A flow's error status becomes a tool error carrying the same JSON body the
-// REST tier returns, so the agent sees the hint (states, variants) either way.
+// REST tier returns, so the agent sees the hint (states, alternatives) either way.
 export function unwrap(result: FlowResult): unknown {
   if (result.status >= 400) {
     const { error, ...extra } = result.body ?? {};

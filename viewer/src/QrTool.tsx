@@ -37,7 +37,7 @@ export function QrBody(props: { s: DesignScreenState }) {
     return designPath(
       m.project,
       m.slug,
-      { state: s.activeState(), variant: v?.variant ?? null, version: v?.version ?? null },
+      { state: s.activeState(), alternative: v?.alternative ?? null, version: v?.version ?? null },
       null,
       "stage",
     );

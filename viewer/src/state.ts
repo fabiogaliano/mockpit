@@ -15,7 +15,7 @@ import {
   askAnswered,
   type HiddenAnswer,
   isLive,
-  recommendedVariant,
+  recommendedAlternative,
   type KnobValue,
   MAX_ASK_IMAGES,
   optionState,
@@ -29,9 +29,9 @@ import type { SlotInfo } from "../../server/fills.ts";
 import { hiddenAnswer, type StandingKind, withStanding } from "../../server/standings.ts";
 import {
   archivedAnswer,
-  hiddenVariantAnswers,
+  hiddenAlternativeAnswers,
   optionStates,
-} from "../../server/variantQuestion.ts";
+} from "../../server/alternativeQuestion.ts";
 import { reactionOf, reactionStatus, toggleReaction } from "./reactionRules.ts";
 import {
   api,
@@ -41,7 +41,7 @@ import {
   type DesignSummary,
   type SendRecipients,
   subscribe,
-  type VariantView,
+  type AlternativeView,
   watchDesign,
   ApiError,
 } from "./api.ts";
@@ -65,7 +65,7 @@ import {
   type KnobContext,
   isBuiltinAsk,
   lookAsk,
-  picksVariant,
+  picksAlternative,
   mixDropCause,
   mixOptions,
   mixSettled,
@@ -135,14 +135,14 @@ export interface Stop {
   to: number;
 }
 
-// What the stage shows while the pointer rests on an option: another variant,
+// What the stage shows while the pointer rests on an option: another alternative,
 // or knob values sent live to the frame on stage.
 export interface Preview {
   key: string;
   // An option's words, for saying what the stage is showing.
   label?: string;
-  variant?: string;
-  // A version option: exactly that version of the variant.
+  alternative?: string;
+  // A version option: exactly that version of the alternative.
   version?: number;
   state?: string | null;
   knobs?: Record<string, KnobValue>;
@@ -165,7 +165,7 @@ const FORWARD_MS = 1600;
 
 // Where this browser last left a design. Versions stay out: a revision that
 // arrives while you are away must be what you come back to.
-type Place = { state: string | null; variants: Record<string, string> };
+type Place = { state: string | null; alternatives: Record<string, string> };
 const placeKey = (id: string) => `mockpit-place:${id}`;
 function readPlace(id: string): Place | null {
   try {
@@ -177,7 +177,7 @@ function readPlace(id: string): Place | null {
 }
 
 export type SteerNote = {
-  variant: string;
+  alternative: string;
   version: number;
   reaction?: Reaction;
   part?: string | null;
@@ -194,13 +194,13 @@ export function createDesignScreen(
   const [design, putDesign] = createSignal<DesignDetail | null>(null);
   const setDesign = (m: DesignDetail) =>
     putDesign((was) =>
-      was ? { ...m, variants: keepSame(was.variants, m.variants, (v) => v.postId) } : m,
+      was ? { ...m, alternatives: keepSame(was.alternatives, m.alternatives, (v) => v.postId) } : m,
     );
   const [missing, setMissing] = createSignal(false);
   const [comments, setComments] = createSignal<CommentRow[]>([]);
   const [draft, setDraftSignal] = createSignal<DraftInput | null>(null);
   const [activeState, setActiveState] = createSignal<string | null>(null);
-  const [chosenVariant, setChosenVariant] = createSignal<Record<string, string>>({});
+  const [chosenAlternative, setChosenAlternative] = createSignal<Record<string, string>>({});
   const [hoveredPreview, setHoveredPreview] = createSignal<Preview | null>(null);
   const [heldPreview, setHeldPreview] = createSignal<Preview | null>(null);
   const preview = () => hoveredPreview() ?? heldPreview();
@@ -341,27 +341,28 @@ export function createDesignScreen(
   // The least scale a zoom can reach on the stage now, so the header offers
   // only the steps it can take.
   const [zoomMin, setZoomMin] = createSignal(0.1);
-  // The stage frames' latest parts reports, keyed by frameKey(state, variant).
+  // The stage frames' latest parts reports, keyed by frameKey(state, alternative).
   const [reports, setReports] = createStore<Record<string, PartsReport | undefined>>({});
 
-  // Archives on their way: a variant leaves the screen on the click rather than
+  // Archives on their way: an alternative leaves the screen on the click rather than
   // when the server has answered, and a read that crosses the write can't bring
   // it back.
   const [archiving, setArchiving] = createSignal<ReadonlySet<string>>(new Set());
-  const archiveKey = (state: string | null, variant: string) => JSON.stringify([state, variant]);
-  const variants = createMemo(() => {
+  const archiveKey = (state: string | null, alternative: string) =>
+    JSON.stringify([state, alternative]);
+  const alternatives = createMemo(() => {
     const going = archiving();
-    const all = design()?.variants ?? [];
+    const all = design()?.alternatives ?? [];
     if (!going.size) return all;
     return all.map((v) =>
-      going.has(archiveKey(v.state, v.variant)) ? { ...v, status: "archived" as const } : v,
+      going.has(archiveKey(v.state, v.alternative)) ? { ...v, status: "archived" as const } : v,
     );
   });
   const states = createMemo<(string | null)[]>(() => {
     const m = design();
     return m && m.states.length ? m.states : [null];
   });
-  const latest = createMemo(() => designVersion(variants()));
+  const latest = createMemo(() => designVersion(alternatives()));
   // Q6: a draft made on an older version keeps the stage on that version until
   // the user chooses to view the new one.
   const boundVersion = createMemo(() => {
@@ -369,11 +370,11 @@ export function createDesignScreen(
     return d && !draftIsEmpty(d) && d.version < latest() ? d.version : null;
   });
   const stageVersion = createMemo(() => boundVersion() ?? latest());
-  // The agent's asks plus the built-in "Which variant?" where the agent left a
-  // choice between variants unasked; everything below reads asks from here.
+  // The agent's asks plus the built-in "Which alternative?" where the agent left a
+  // choice between alternatives unasked; everything below reads asks from here.
   const asks = createMemo<Ask[]>((was) => {
     const m = design();
-    return m ? keepSameAsks(was, [...m.asks, ...builtinAsks(m, variants())]) : [];
+    return m ? keepSameAsks(was, [...m.asks, ...builtinAsks(m, alternatives())]) : [];
   }, []);
   const withAsks = (m: DesignDetail) => ({ ...m, asks: asks() });
   const look = createMemo(() => lookAsk({ asks: asks() }));
@@ -403,15 +404,15 @@ export function createDesignScreen(
     field === "other" ? otherImagesOf(ask) : commentImagesOf(ask);
   const pendingOf = (ask: Ask, field: AskField) => uploads()[`${field}:${ask.id}`] ?? [];
 
-  // The variant the variant question settled on, drafted or sent.
+  // The alternative the alternative question settled on, drafted or sent.
   const lookPick = createMemo(() => {
     const ask = look();
     if (!ask) return null;
     const id = answerIds(answerOf(ask))[0];
-    return ask.options.find((o) => o.id === id)?.variant ?? null;
+    return ask.options.find((o) => o.id === id)?.alternative ?? null;
   });
 
-  const inState = (state: string | null) => variants().filter((v) => v.state === state);
+  const inState = (state: string | null) => alternatives().filter((v) => v.state === state);
 
   // The exact version a drafted answer picked on a state, when its option
   // names one. Drafted only: once sent, it is the version in use.
@@ -422,28 +423,29 @@ export function createDesignScreen(
     for (const a of asks()) {
       if (a.scope === "part" || optionState(a, m) !== state) continue;
       const ids = answerIds(d.answers[a.id]);
-      const o = a.options.find((x) => ids.includes(x.id) && x.variant && x.version);
-      if (o) return { variant: o.variant!, version: o.version! };
+      const o = a.options.find((x) => ids.includes(x.id) && x.alternative && x.version);
+      if (o) return { alternative: o.alternative!, version: o.version! };
     }
     return null;
   }
 
-  // The variant on stage for a state: a hovered option, the drafted look, the
+  // The alternative on stage for a state: a hovered option, the drafted look, the
   // version the user stepped to, the accepted one, else the first still open.
-  function variantFor(state: string | null, withPreview = true) {
+  function alternativeFor(state: string | null, withPreview = true) {
     const list = inState(state);
     const named = (name: string | null | undefined) =>
-      name ? list.find((v) => v.variant === name) : undefined;
+      name ? list.find((v) => v.alternative === name) : undefined;
     const p = withPreview ? preview() : null;
     return (
-      (p && (p.state === undefined || p.state === state) ? named(p.variant) : undefined) ??
-      named(shown()[String(state)]?.variant) ??
-      named(pickedVersion(state)?.variant) ??
+      (p && (p.state === undefined || p.state === state) ? named(p.alternative) : undefined) ??
+      named(shown()[String(state)]?.alternative) ??
+      named(pickedVersion(state)?.alternative) ??
       named(lookPick()) ??
-      named(chosenVariant()[String(state)]) ??
+      named(chosenAlternative()[String(state)]) ??
       list.find((v) => v.status === "inUse") ??
       list.find(
-        (v) => isLive(v.status) && v.variant === recommendedVariant(design()?.asks ?? [], state),
+        (v) =>
+          isLive(v.status) && v.alternative === recommendedAlternative(design()?.asks ?? [], state),
       ) ??
       list.find((v) => v.status === "open") ??
       list[0]
@@ -452,22 +454,26 @@ export function createDesignScreen(
   // What the user put in use on a state, if anything.
   const inUseOf = (state: string | null): VersionRef | null => {
     const u = design()?.inUse.find((x) => x.state === state);
-    return u ? { variant: u.variant, version: u.version } : null;
+    return u ? { alternative: u.alternative, version: u.version } : null;
   };
-  // The version of a variant the stage shows: the one stepped to, else a
+  // The version of an alternative the stage shows: the one stepped to, else a
   // version option previewed or picked, else the one in use, else the newest
   // at the stage's design version that isn't hidden.
-  function versionOf(v: VariantView): number {
+  function versionOf(v: AlternativeView): number {
     const pick = shown()[String(v.state)];
-    if (pick?.variant === v.variant) return pick.version;
+    if (pick?.alternative === v.alternative) return pick.version;
     const p = preview();
-    if (p?.version && p.variant === v.variant && (p.state === undefined || p.state === v.state)) {
+    if (
+      p?.version &&
+      p.alternative === v.alternative &&
+      (p.state === undefined || p.state === v.state)
+    ) {
       return p.version;
     }
     const picked = pickedVersion(v.state);
-    if (picked?.variant === v.variant) return picked.version;
+    if (picked?.alternative === v.alternative) return picked.version;
     const use = inUseOf(v.state);
-    if (use?.variant === v.variant) return use.version;
+    if (use?.alternative === v.alternative) return use.version;
     // A screen or a component the user took back to the version marked Ready.
     if (v.shownVersion !== undefined) return v.shownVersion;
     const n = frameVersion(v, stageVersion());
@@ -480,13 +486,13 @@ export function createDesignScreen(
   }
   // The version answers draw on: the stage's, before any answer moved it. Hovering or
   // picking an answer's whole page must not turn its neighbours' pictures into that page.
-  function answersBaseOf(v: VariantView): number {
+  function answersBaseOf(v: AlternativeView): number {
     const pick = shown()[String(v.state)];
-    if (pick?.variant === v.variant) return pick.version;
+    if (pick?.alternative === v.alternative) return pick.version;
     const use = inUseOf(v.state);
-    return use?.variant === v.variant ? use.version : frameVersion(v, stageVersion());
+    return use?.alternative === v.alternative ? use.version : frameVersion(v, stageVersion());
   }
-  const activeVariant = createMemo(() => variantFor(activeState()));
+  const activeAlternative = createMemo(() => alternativeFor(activeState()));
   // The palette the stage wears for an answer that chooses one: previewed, else picked
   // in the draft. Only the stage: the tool strip's stored pick is left as it is.
   const stagePalette = createMemo<string | undefined>(() => {
@@ -503,24 +509,26 @@ export function createDesignScreen(
     return undefined;
   });
   // The version a bound stage is holding back and the one it stays on, named
-  // after the variant that moved: "Dark #3 arrived", "stay on Dark #2". The
-  // draft stays bound to the design-wide number; only these labels name a variant.
+  // after the alternative that moved: "Dark #3 arrived", "stay on Dark #2". The
+  // draft stays bound to the design-wide number; only these labels name an alternative.
   const arrived = createMemo(() => {
     const n = latest();
-    const at = variants().filter((v) => v.version === n);
+    const at = alternatives().filter((v) => v.version === n);
     const v =
-      at.find((x) => x.state === activeState() && x.variant === activeVariant()?.variant) ??
+      at.find(
+        (x) => x.state === activeState() && x.alternative === activeAlternative()?.alternative,
+      ) ??
       at.find((x) => x.state === activeState()) ??
       at[0];
     if (!v) return null;
-    const named = variants().filter((x) => x.state === v.state).length > 1;
+    const named = alternatives().filter((x) => x.state === v.state).length > 1;
     const bound = boundVersion();
     return {
-      name: versionName({ variant: v.variant, version: n }, named),
+      name: versionName({ alternative: v.alternative, version: n }, named),
       bound:
         bound === null
           ? null
-          : versionName({ variant: v.variant, version: frameVersion(v, bound) }, named),
+          : versionName({ alternative: v.alternative, version: frameVersion(v, bound) }, named),
     };
   });
 
@@ -528,7 +536,7 @@ export function createDesignScreen(
 
   // The slots of the look on stage for a state, never a hovered one: a preview
   // must not make questions appear and vanish under the pointer.
-  const slotsIn = (state: string | null): SlotInfo[] => variantFor(state, false)?.fills ?? [];
+  const slotsIn = (state: string | null): SlotInfo[] => alternativeFor(state, false)?.fills ?? [];
   // The slot an ask chooses: every option sets exactly that one slot's path.
   function askSlot(ask: Ask): SlotInfo | null {
     const m = design();
@@ -544,7 +552,7 @@ export function createDesignScreen(
     if (!m) return {};
     return resolveKnobs({
       ...knobContext(),
-      knobs: { ...m.knobs, ...variantFor(state, false)?.knobs },
+      knobs: { ...m.knobs, ...alternativeFor(state, false)?.knobs },
     });
   }
   // A slot inside a fill that isn't chosen: its question doesn't apply now.
@@ -628,9 +636,9 @@ export function createDesignScreen(
     return m
       ? mixOptions(
           withAsks(m),
-          variants(),
+          alternatives(),
           lookPick(),
-          (state, variant) => reports[frameKey(state, variant)],
+          (state, alternative) => reports[frameKey(state, alternative)],
           settled(),
         )
       : [];
@@ -679,7 +687,7 @@ export function createDesignScreen(
     const out: FlowEntry[] = [];
     for (const state of states()) {
       for (const ask of open)
-        if (askStates(ask, m, variants()).includes(state)) out.push({ state, ask });
+        if (askStates(ask, m, alternatives()).includes(state)) out.push({ state, ask });
     }
     return out;
   });
@@ -698,7 +706,7 @@ export function createDesignScreen(
       (a) =>
         !live(a) &&
         (askAnswered(a) || !!a.dismissed) &&
-        (scope === "all" || askStates(a, m, variants()).includes(activeState())),
+        (scope === "all" || askStates(a, m, alternatives()).includes(activeState())),
     );
   };
   const owed = createMemo(() => {
@@ -709,23 +717,23 @@ export function createDesignScreen(
   // How many questions still owed are shown on a state, for its tab.
   const owedIn = (state: string | null) => entriesIn(state).filter((e) => isOwed(e.ask)).length;
   // What marks a state's tab: only what the agent asked counts as waiting, not
-  // the built-in Which variant?, and a design-wide question has no one state to mark.
+  // the built-in Which alternative?, and a design-wide question has no one state to mark.
   const askedIn = (state: string | null) =>
     entriesIn(state).filter(
       (e) => isOwed(e.ask) && !isBuiltinAsk(e.ask) && e.ask.scope !== "design",
     ).length;
-  const waitsOnStage = createMemo(() => owed().some((a) => !picksVariant(a)));
+  const waitsOnStage = createMemo(() => owed().some((a) => !picksAlternative(a)));
   // Tune is shown only with something to tune (tiers, no modes).
   const tuneShown = createMemo(() => {
     const m = design();
     return !!m && tuneVisible(m, inState(activeState()));
   });
-  // What Tune reads and writes: the knobs of the variant on stage, the drafted
+  // What Tune reads and writes: the knobs of the alternative on stage, the drafted
   // answers, the tuned values, and what earlier replies settled.
   const knobContext = createMemo<KnobContext>(() => {
     const m = design();
     return {
-      knobs: { ...m?.knobs, ...activeVariant()?.knobs },
+      knobs: { ...m?.knobs, ...activeAlternative()?.knobs },
       asks: m?.asks ?? [],
       answers: draft()?.answers ?? {},
       tuned: draft()?.tuned ?? {},
@@ -823,9 +831,9 @@ export function createDesignScreen(
   // What says where this screen opens: a link naming the place, or the memory.
   let heldBy: "link" | "place" | null = null;
   let placeRead = false;
-  // Not landed on: a state whose variants are all archived shows an empty Studio.
+  // Not landed on: a state whose alternatives are all archived shows an empty Studio.
   const holdsSomething = (m: DesignDetail, state: string | null) => {
-    const inIt = m.variants.filter((v) => v.state === state);
+    const inIt = m.alternatives.filter((v) => v.state === state);
     return !inIt.length || inIt.some((v) => isLive(v.status));
   };
   async function fetchDesign(): Promise<DesignDetail | null> {
@@ -849,12 +857,13 @@ export function createDesignScreen(
     batch(() => {
       setDesign(m);
       setMissing(false);
-      // The first load lands on the variant the user opened, once.
+      // The first load lands on the alternative the user opened, once.
       const at = open;
       if (
         at &&
-        m.variants.some(
-          (v) => v.state === at.state && (at.variant === null || v.variant === at.variant),
+        m.alternatives.some(
+          (v) =>
+            v.state === at.state && (at.alternative === null || v.alternative === at.alternative),
         )
       ) {
         landOn(at);
@@ -863,13 +872,15 @@ export function createDesignScreen(
       } else if (!at && !toOwed && !placeRead) {
         const place = readPlace(m.id);
         if (place) {
-          const here = (state: string | null, variant: string) =>
-            m.variants.some((v) => v.state === state && v.variant === variant && isLive(v.status));
-          // A variant archived since falls to the one in use, else the newest live.
-          setChosenVariant(
+          const here = (state: string | null, alternative: string) =>
+            m.alternatives.some(
+              (v) => v.state === state && v.alternative === alternative && isLive(v.status),
+            );
+          // An alternative archived since falls to the one in use, else the newest live.
+          setChosenAlternative(
             Object.fromEntries(
-              Object.entries(place.variants ?? {}).filter(([state, variant]) =>
-                here(state === "null" ? null : state, variant),
+              Object.entries(place.alternatives ?? {}).filter(([state, alternative]) =>
+                here(state === "null" ? null : state, alternative),
               ),
             ),
           );
@@ -1031,9 +1042,9 @@ export function createDesignScreen(
   function rememberPlace() {
     const m = design();
     if (!m) return;
-    const variants = { ...chosenVariant() };
-    for (const [state, ref] of Object.entries(shown())) variants[state] = ref.variant;
-    const place: Place = { state: activeState(), variants };
+    const alternatives = { ...chosenAlternative() };
+    for (const [state, ref] of Object.entries(shown())) alternatives[state] = ref.alternative;
+    const place: Place = { state: activeState(), alternatives };
     try {
       host().storage?.setItem(placeKey(m.id), JSON.stringify(place));
     } catch {
@@ -1055,32 +1066,32 @@ export function createDesignScreen(
         setTapped(null);
       }
       const key = String(at.state);
-      if (at.variant !== null && chosenVariant()[key] !== at.variant) {
-        setChosenVariant({ ...chosenVariant(), [key]: at.variant });
+      if (at.alternative !== null && chosenAlternative()[key] !== at.alternative) {
+        setChosenAlternative({ ...chosenAlternative(), [key]: at.alternative });
       }
-      if (at.variant !== null && at.version) {
-        const ref = { variant: at.variant, version: at.version };
+      if (at.alternative !== null && at.version) {
+        const ref = { alternative: at.alternative, version: at.version };
         const had = shown()[key];
-        const exists = variants().some(
+        const exists = alternatives().some(
           (v) =>
             v.state === at.state &&
-            v.variant === ref.variant &&
+            v.alternative === ref.alternative &&
             (v.version === ref.version || v.history?.some((h) => h.version === ref.version)),
         );
-        if (exists && !(had?.variant === ref.variant && had.version === ref.version)) {
+        if (exists && !(had?.alternative === ref.alternative && had.version === ref.version)) {
           setShown({ ...shown(), [key]: ref });
         }
       }
     });
   }
-  // The variant and version on stage when the user chose them; a default stays
+  // The alternative and version on stage when the user chose them; a default stays
   // out of the URL, so it can move on when a new version arrives.
-  const stagePick = createMemo((): { variant: string; version: number | null } | null => {
+  const stagePick = createMemo((): { alternative: string; version: number | null } | null => {
     const key = String(activeState());
     const ref = shown()[key];
     if (ref) return ref;
-    const variant = chosenVariant()[key];
-    return variant ? { variant, version: null } : null;
+    const alternative = chosenAlternative()[key];
+    return alternative ? { alternative, version: null } : null;
   });
   // Any move the user makes on this screen after a Send means they are still
   // here: the carry to the next design must not fire.
@@ -1234,9 +1245,9 @@ export function createDesignScreen(
     const m = design();
     if (m) void api.reason(m.id, { reason }).then(loadDesign, fail);
   }
-  function saveArchiveReason(variant: string, reason: string | null, state = activeState()) {
+  function saveArchiveReason(alternative: string, reason: string | null, state = activeState()) {
     const m = design();
-    if (m) void api.reason(m.id, { reason, state, variant }).then(loadDesign, fail);
+    if (m) void api.reason(m.id, { reason, state, alternative }).then(loadDesign, fail);
   }
   // The drawers. The bottom panel tucks the question card to its tab.
   const setDrawer = (on: boolean) => {
@@ -1272,9 +1283,9 @@ export function createDesignScreen(
     record();
     rememberPlace();
   }
-  function chooseVariant(variant: string) {
+  function chooseAlternative(alternative: string) {
     userMoved();
-    setChosenVariant({ ...chosenVariant(), [String(activeState())]: variant });
+    setChosenAlternative({ ...chosenAlternative(), [String(activeState())]: alternative });
     rememberPlace();
   }
   // A tap on a part outlines it and offers its reactions; with Tune on it
@@ -1311,8 +1322,8 @@ export function createDesignScreen(
   createEffect(() => {
     // Widths the agent declared are the ones to judge at, overflow or not.
     if (widthPicked() || (design()?.widths ?? []).length) return;
-    const v = activeVariant();
-    const w = v && overflowWidth(frameW(), reports[frameKey(v.state, v.variant)]);
+    const v = activeAlternative();
+    const w = v && overflowWidth(frameW(), reports[frameKey(v.state, v.alternative)]);
     if (w) setFrameWSignal(w);
   });
   function setFrameW(w: number) {
@@ -1379,7 +1390,7 @@ export function createDesignScreen(
   // `null` is "Other…".
   function pick(ask: Ask, optionId: string | null) {
     // Picking a look puts it on the stage, over a version stepped to before.
-    const picked = ask.options.find((o) => o.id === optionId)?.variant;
+    const picked = ask.options.find((o) => o.id === optionId)?.alternative;
     if (picked) setShown({});
     // A look picked now means that look as it stands. Left on an older draft's
     // version, Send would put a version nobody meant in use, on every screen embedding it.
@@ -1395,7 +1406,7 @@ export function createDesignScreen(
       if (!wasOpen && open && kept) d = setAskField(d, ask.id, "other", kept.text, kept.images);
       if (optionId !== null && look()?.id === ask.id) {
         // A borrow from the look just picked is no longer a borrow.
-        const chosen = ask.options.find((o) => o.id === optionId)?.variant;
+        const chosen = ask.options.find((o) => o.id === optionId)?.alternative;
         for (const p of Object.keys(d.borrowed)) if (d.borrowed[p] === chosen) delete d.borrowed[p];
       }
       return d;
@@ -1504,11 +1515,11 @@ export function createDesignScreen(
     for (const list of Object.values(uploads())) for (const p of list) URL.revokeObjectURL(p.url);
   });
   // `null` is "No, all <look>": clears every borrow.
-  function toggleMix(opt: { part: string; variant: string } | null) {
+  function toggleMix(opt: { part: string; alternative: string } | null) {
     writeDraft((d) => {
       if (!opt) d.borrowed = {};
-      else if (d.borrowed[opt.part] === opt.variant) delete d.borrowed[opt.part];
-      else d.borrowed[opt.part] = opt.variant;
+      else if (d.borrowed[opt.part] === opt.alternative) delete d.borrowed[opt.part];
+      else d.borrowed[opt.part] = opt.alternative;
       return d;
     });
     setMixTouched(true);
@@ -1530,7 +1541,7 @@ export function createDesignScreen(
         state,
         text,
         ...(anchor ? { anchor } : {}),
-        ...(on ? { variant: on.variant, version: on.version } : {}),
+        ...(on ? { alternative: on.alternative, version: on.version } : {}),
       });
       return d;
     });
@@ -1560,24 +1571,28 @@ export function createDesignScreen(
         }),
     });
   }
-  // A one-tap reaction on a part of the variant on stage, or (part null) on the
-  // variant itself. Toggles: the same reaction again takes it back.
+  // A one-tap reaction on a part of the alternative on stage, or (part null) on the
+  // alternative itself. Toggles: the same reaction again takes it back.
   function react(part: string | null, reaction: Reaction) {
-    const v = activeVariant();
+    const v = activeAlternative();
     if (!v) return;
-    const target = { part, state: activeState(), variant: v.variant };
+    const target = { part, state: activeState(), alternative: v.alternative };
     let now: Reaction | null = null;
     writeDraft((d) => {
       d.comments = toggleReaction(d.comments, target, reaction);
       now = reactionOf(d.comments, target);
       return d;
     });
-    setReactStatus(reactionStatus(part ?? v.variant, now));
+    setReactStatus(reactionStatus(part ?? v.alternative, now));
   }
   const reactionOn = (part: string | null): Reaction | null => {
-    const v = activeVariant();
+    const v = activeAlternative();
     return v
-      ? reactionOf(draft()?.comments ?? [], { part, state: activeState(), variant: v.variant })
+      ? reactionOf(draft()?.comments ?? [], {
+          part,
+          state: activeState(),
+          alternative: v.alternative,
+        })
       : null;
   };
   // A frame's sendPrompt: the text waits in Thread for the user to send it,
@@ -1600,12 +1615,12 @@ export function createDesignScreen(
       return false;
     }
   }
-  // D13: un-archive a variant in each of the given states.
-  async function restoreVariant(variant: string, inStates: (string | null)[]) {
+  // D13: un-archive an alternative in each of the given states.
+  async function restoreAlternative(alternative: string, inStates: (string | null)[]) {
     const m = design();
     if (!m) return;
     try {
-      for (const st of inStates) await api.restoreVariant(m.id, st, variant);
+      for (const st of inStates) await api.restoreAlternative(m.id, st, alternative);
       await loadDesign();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -1708,7 +1723,7 @@ export function createDesignScreen(
     if (!since) return null;
     let newest: (VersionStep & { state: string | null }) | null = null;
     for (const state of states()) {
-      for (const step of versionSteps(variants(), state)) {
+      for (const step of versionSteps(alternatives(), state)) {
         if (step.at > since && !step.hidden && (!newest || step.at > newest.at)) {
           newest = { ...step, state };
         }
@@ -1720,7 +1735,7 @@ export function createDesignScreen(
     const a = sinceSend();
     if (!a) return;
     userMoved();
-    landOn({ state: a.state, variant: a.variant, version: a.version });
+    landOn({ state: a.state, alternative: a.alternative, version: a.version });
     rememberPlace();
   }
 
@@ -1748,7 +1763,7 @@ export function createDesignScreen(
         ...toField(),
       });
       // The draft holds the picks until the design carrying them as sent answers
-      // arrives: dropping it first would put the stage on another variant for
+      // arrives: dropping it first would put the stage on another alternative for
       // one fetch (a flash of a different frame fading in, then back).
       const [next] = await Promise.all([
         api.design(m.id).catch(() => null),
@@ -1840,8 +1855,14 @@ export function createDesignScreen(
     if (!m || !o) return null;
     const key = optionKey(ask, o.id);
     const label = o.label;
-    if (o.variant && o.version) {
-      return { key, label, variant: o.variant, version: o.version, state: optionState(ask, m) };
+    if (o.alternative && o.version) {
+      return {
+        key,
+        label,
+        alternative: o.alternative,
+        version: o.version,
+        state: optionState(ask, m),
+      };
     }
     // A palette is the whole project's: every state wears it.
     if (o.palette) return { key, label, palette: o.palette };
@@ -1850,7 +1871,8 @@ export function createDesignScreen(
     const about = askAbout(ask, m);
     const on = activeState();
     if (about.length && (on === null || !about.includes(on))) return null;
-    if (o.variant) return { key, label, variant: o.variant, state: askState(ask, m, on) };
+    if (o.alternative)
+      return { key, label, alternative: o.alternative, state: askState(ask, m, on) };
     return o.set ? { key, label, knobs: o.set } : null;
   }
   // A tap, a click or a number key on an option: the first puts it on the
@@ -1932,25 +1954,25 @@ export function createDesignScreen(
 
   // Every version of the state on stage, in the order they were published.
   const steps = createMemo<VersionStep[]>(
-    (was) => keepSame(was, versionSteps(variants(), activeState()), stepKey),
+    (was) => keepSame(was, versionSteps(alternatives(), activeState()), stepKey),
     [],
   );
-  // "Dark #2", or "#2" while the state on stage has one variant.
+  // "Dark #2", or "#2" while the state on stage has one alternative.
   const nameOf = (ref: VersionRef) =>
-    versionName(ref, variants().filter((v) => v.state === activeState()).length > 1);
+    versionName(ref, alternatives().filter((v) => v.state === activeState()).length > 1);
   // The exact version on stage.
   const onStage = createMemo<VersionRef | null>(() => {
-    const v = activeVariant();
-    return v ? { variant: v.variant, version: versionOf(v) } : null;
+    const v = activeAlternative();
+    return v ? { alternative: v.alternative, version: versionOf(v) } : null;
   });
   const stageStep = createMemo(() => stepFor(steps(), onStage()));
   // An answer's whole page isn't a version until it's chosen, so looking at one doesn't
   // change the number the user reads, unless they stepped to it themselves.
   const stageLabel = createMemo<VersionRef | null>(() => {
     const on = onStage();
-    const v = activeVariant();
+    const v = activeAlternative();
     if (!on || !v || !stageStep()?.hidden || shown()[String(v.state)]) return on;
-    return { variant: v.variant, version: answersBaseOf(v) };
+    return { alternative: v.alternative, version: answersBaseOf(v) };
   });
   const inUse = createMemo(() => inUseOf(activeState()));
   // Earlier versions the user put in use here, from the replies that did.
@@ -1959,7 +1981,7 @@ export function createDesignScreen(
     for (const c of comments()) {
       const d = (c.payload as { verdict?: ReplyVerdict } | undefined)?.verdict;
       if (c.kind === "reply" && d?.kind === "use" && d.version && d.state === activeState()) {
-        out.push({ variant: d.variant, version: d.version });
+        out.push({ alternative: d.alternative, version: d.version });
       }
     }
     return out.filter((r) => !sameVersion(r, inUse()));
@@ -1968,7 +1990,7 @@ export function createDesignScreen(
     userMoved();
     batch(() => {
       setShown({ ...shown(), [String(activeState())]: ref });
-      setChosenVariant({ ...chosenVariant(), [String(activeState())]: ref.variant });
+      setChosenAlternative({ ...chosenAlternative(), [String(activeState())]: ref.alternative });
       setPreview(null);
     });
     rememberPlace();
@@ -2017,17 +2039,17 @@ export function createDesignScreen(
     const use = !v
       ? null
       : v.readyVersion !== undefined
-        ? { variant: v.variant, version: v.readyVersion }
+        ? { alternative: v.alternative, version: v.readyVersion }
         : inUseOf(v.state);
     return v?.changedTo !== undefined && use
-      ? { use, to: { variant: v.variant, version: v.changedTo } }
+      ? { use, to: { alternative: v.alternative, version: v.changedTo } }
       : null;
   });
   function stayOnUse() {
     const m = design();
     const c = changed();
     if (!m || !c || readonly()) return;
-    void api.stay(m.id, activeState(), c.use.variant).then(() => {
+    void api.stay(m.id, activeState(), c.use.alternative).then(() => {
       setToast({
         text: product() ? `Back to ${nameOf(c.use)}, marked Ready` : `Staying on ${nameOf(c.use)}`,
       });
@@ -2167,19 +2189,19 @@ export function createDesignScreen(
   const standingFor = (ask: Ask): AnswerStanding =>
     design()?.standings?.[ask.id] ?? { kept: [], hidden: [] };
   const isKept = (ask: Ask, id: string) => standingFor(ask).kept.includes(id);
-  // Hidden by the user, or a variant answer whose variant is archived, which is what
-  // hiding one does (server/variantQuestion.ts): its reason is the why.
+  // Hidden by the user, or an alternative answer whose alternative is archived, which is what
+  // hiding one does (server/alternativeQuestion.ts): its reason is the why.
   const hiddenOf = (ask: Ask, id: string): HiddenAnswer | undefined => {
     const said = hiddenAnswer(standingFor(ask), id);
     if (said) return said;
     const m = design();
     const o = ask.options.find((x) => x.id === id);
-    if (!m || !o || !archivedAnswer(ask, o, m, m.variants)) return undefined;
+    if (!m || !o || !archivedAnswer(ask, o, m, m.alternatives)) return undefined;
     const states = optionStates(ask, o, m);
-    const why = m.variants.find(
-      (v) => v.variant === o.variant && states.includes(v.state) && v.archiveReason,
+    const why = m.alternatives.find(
+      (v) => v.alternative === o.alternative && states.includes(v.state) && v.archiveReason,
     )?.archiveReason;
-    return { id, label: o.label, ...(why ? { why } : {}), variant: o.variant };
+    return { id, label: o.label, ...(why ? { why } : {}), alternative: o.alternative };
   };
   const isCarried = (ask: Ask, id: string) => !!standingFor(ask).carried?.includes(id);
   function putStanding(ask: Ask, next: AnswerStanding) {
@@ -2190,19 +2212,20 @@ export function createDesignScreen(
     const m = design();
     if (!m || readonly()) return;
     const was = standingFor(ask);
-    // A variant answer's variant follows it at once: hidden archives it, anything else
+    // An alternative answer's alternative follows it at once: hidden archives it, anything else
     // brings it back. The server refuses to hide the one in use.
-    const wasVariants = m.variants;
-    if (o.variant && ask.scope !== "part") {
+    const wasAlternatives = m.alternatives;
+    if (o.alternative && ask.scope !== "part") {
       const states = optionStates(ask, o, m);
-      const mine = (v: VariantView) => v.variant === o.variant && states.includes(v.state);
-      if (to === "hidden" && m.variants.some((v) => mine(v) && v.status === "inUse")) {
-        fail(new Error(`${o.variant} is in use: choose another before hiding it`));
+      const mine = (v: AlternativeView) =>
+        v.alternative === o.alternative && states.includes(v.state);
+      if (to === "hidden" && m.alternatives.some((v) => mine(v) && v.status === "inUse")) {
+        fail(new Error(`${o.alternative} is in use: choose another before hiding it`));
         return;
       }
       setDesign({
         ...m,
-        variants: m.variants.map((v) =>
+        alternatives: m.alternatives.map((v) =>
           !mine(v)
             ? v
             : to === "hidden" && v.status === "open"
@@ -2227,7 +2250,7 @@ export function createDesignScreen(
       await api.standing(m.id, { ask: ask.id, option: o.id, to, ...(why ? { why } : {}) });
     } catch (e) {
       const now = design();
-      if (now) setDesign({ ...now, variants: wasVariants });
+      if (now) setDesign({ ...now, alternatives: wasAlternatives });
       putStanding(ask, was);
       fail(e);
     }
@@ -2244,7 +2267,7 @@ export function createDesignScreen(
   };
   const hiddenOptions = (ask: Ask): AskOption[] => [
     ...ask.options.filter((o) => hiddenOf(ask, o.id)),
-    ...hiddenVariantAnswers(ask, standingFor(ask)),
+    ...hiddenAlternativeAnswers(ask, standingFor(ask)),
   ];
   const toggleKept = (ask: Ask, o: AskOption) =>
     void setStanding(ask, o, isKept(ask, o.id) ? "open" : "kept");
@@ -2361,7 +2384,7 @@ export function createDesignScreen(
         if (!p) continue;
         out = {
           ...out,
-          ...(p.variant ? { variant: p.variant, state: p.state } : {}),
+          ...(p.alternative ? { alternative: p.alternative, state: p.state } : {}),
           ...(p.palette ? { palette: p.palette } : {}),
         };
         if (p.version) out.version = p.version;
@@ -2389,13 +2412,13 @@ export function createDesignScreen(
         part: c.part ?? null,
         state: activeState(),
         text: c.text ?? "",
-        variant: c.variant,
+        alternative: c.alternative,
         version: c.version,
         ...(c.reaction ? { reaction: c.reaction } : {}),
         ...(c.borrow
           ? {
               borrow: {
-                from: `${c.borrow.from.variant}@${c.borrow.from.version}`,
+                from: `${c.borrow.from.alternative}@${c.borrow.from.version}`,
                 ...(c.borrow.part ? { part: c.borrow.part } : {}),
               },
             }
@@ -2404,13 +2427,13 @@ export function createDesignScreen(
     });
   }
   // Studio's ×. One version dims like any hidden version; the last one left takes
-  // its variant to Archived, where Restore brings it back.
+  // its alternative to Archived, where Restore brings it back.
   const liveIn = (state: string | null) =>
-    variants().some((v) => v.state === state && isLive(v.status));
+    alternatives().some((v) => v.state === state && isLive(v.status));
   // Everything archived: such a state leaves the tabs and every list of states,
   // unless a question still waits there.
   const emptiedState = (state: string | null) =>
-    !liveIn(state) && askedIn(state) === 0 && variants().some((v) => v.state === state);
+    !liveIn(state) && askedIn(state) === 0 && alternatives().some((v) => v.state === state);
   // Every design has left, once the last has really landed, and no question waits.
   const emptied = () =>
     archiving().size === 0 && states().every((state) => !liveIn(state) && askedIn(state) === 0);
@@ -2421,11 +2444,15 @@ export function createDesignScreen(
     return [...all.slice(at + 1), ...all.slice(0, at).reverse()].find(liveIn);
   }
   // Resolves to its undo, or to nothing if they stayed; quiet as hideVersion is.
-  async function archiveVariants(variants: string[], label = variants.join(", "), quiet = false) {
+  async function archiveAlternatives(
+    alternatives: string[],
+    label = alternatives.join(", "),
+    quiet = false,
+  ) {
     const m = design();
-    if (!m || readonly() || !variants.length) return undefined;
+    if (!m || readonly() || !alternatives.length) return undefined;
     const state = activeState();
-    const keys = variants.map((v) => archiveKey(state, v));
+    const keys = alternatives.map((v) => archiveKey(state, v));
     const going = (on: boolean) =>
       setArchiving((was) => {
         const next = new Set(was);
@@ -2442,7 +2469,7 @@ export function createDesignScreen(
     let landed = true;
     const done = (async () => {
       try {
-        for (const v of variants) await api.archiveVariant(m.id, state, v);
+        for (const v of alternatives) await api.archiveAlternative(m.id, state, v);
         await loadDesign();
       } catch (e) {
         landed = false;
@@ -2457,7 +2484,7 @@ export function createDesignScreen(
       if (movedOn !== undefined) showState(state);
       // After the archive lands, or the restore could be overtaken by it.
       void done.then(() => {
-        for (const v of variants) void restoreVariant(v, [state]);
+        for (const v of alternatives) void restoreAlternative(v, [state]);
       });
     };
     if (!quiet) {
@@ -2469,7 +2496,7 @@ export function createDesignScreen(
           // After the archive lands: the server only keeps a reason for what has gone.
           save: (reason) =>
             void done.then(() => {
-              for (const v of variants) saveArchiveReason(v, reason, state);
+              for (const v of alternatives) saveArchiveReason(v, reason, state);
             }),
         },
       });
@@ -2481,11 +2508,11 @@ export function createDesignScreen(
   // (an empty name is + New state, whose name is still to be typed).
   const outlinable = createMemo(() => {
     const m = design();
-    return !!m && !readonly() && canOutline(m, variants());
+    return !!m && !readonly() && canOutline(m, alternatives());
   });
   const stateOutlines = createMemo(() => {
     const m = design();
-    return m && outlinable() ? missingStates(m, variants()) : [];
+    return m && outlinable() ? missingStates(m, alternatives()) : [];
   });
   const [askingState, setAskingState] = createSignal<{ name: string } | null>(null);
   function setOutline(state: string, to: StateOutline | null) {
@@ -2563,7 +2590,7 @@ export function createDesignScreen(
     const ref = onStage();
     if (!ref) return;
     void send({
-      verdict: { kind: "revise", state: activeState(), variant: ref.variant },
+      verdict: { kind: "revise", state: activeState(), alternative: ref.alternative },
       text: `New version, please, from ${nameOf(ref)}.`,
     });
   }
@@ -2572,7 +2599,7 @@ export function createDesignScreen(
     const m = design();
     const d = draft();
     if (!m || !d) return;
-    const moved = carryOver(d, withAsks(m), variants(), latest());
+    const moved = carryOver(d, withAsks(m), alternatives(), latest());
     writeDraft(() => moved.draft);
     setFlagged(moved.flagged);
   }
@@ -2590,7 +2617,7 @@ export function createDesignScreen(
     missing,
     comments,
     draft,
-    variants,
+    alternatives,
     states,
     allWidths,
     latest,
@@ -2614,11 +2641,11 @@ export function createDesignScreen(
     dismissPending,
     attachStatus,
     tuneShown,
-    variantFor,
-    activeVariant,
+    alternativeFor,
+    activeAlternative,
     activeState,
     showState,
-    chooseVariant,
+    chooseAlternative,
     preview,
     setPreview,
     cur,
@@ -2796,10 +2823,10 @@ export function createDesignScreen(
     setThreadText,
     prefill,
     postComment,
-    restoreVariant,
+    restoreAlternative,
     steer,
     steerMany,
-    archiveVariants,
+    archiveAlternatives,
     nextLiveState,
     emptiedState,
     emptied,
@@ -2820,7 +2847,7 @@ export function createDesignScreen(
 
 export type DesignScreenState = ReturnType<typeof createDesignScreen>;
 
-// Several events in one burst (a reply flips statuses on every variant) cost
+// Several events in one burst (a reply flips statuses on every alternative) cost
 // one refetch per kind, not one per event.
 function coalesce<K extends string>(loaders: Record<K, () => Promise<void>>) {
   const timers = new Map<K, number>();

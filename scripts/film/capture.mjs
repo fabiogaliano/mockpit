@@ -90,9 +90,9 @@ try {
   // The agent publishes three grids in two states and asks four questions.
   mark("agent", {
     lines: [
-      "mockpit publish --design shop --state Grid --variant index …",
-      "mockpit publish --design shop --state Grid --variant gallery …",
-      "mockpit publish --design shop --state Grid --variant editorial …",
+      "mockpit publish --design shop --state Grid --alternative index …",
+      "mockpit publish --design shop --state Grid --alternative gallery …",
+      "mockpit publish --design shop --state Grid --alternative editorial …",
       'mockpit ask --design shop "Which grid?" …',
     ],
   });
@@ -146,7 +146,7 @@ try {
   mark("agent", {
     lines: [
       `mockpit say --design shop "${say}"`,
-      "mockpit publish --design shop --state Grid --variant gallery …",
+      "mockpit publish --design shop --state Grid --alternative gallery …",
     ],
   });
   await api(`/api/designs/${designId}/say`, { session, message: say });
@@ -156,7 +156,7 @@ try {
     design: designId,
     session,
     state: grid.label,
-    variant: "gallery",
+    alternative: "gallery",
     prompt: "gallery, bone, sentence case, prices",
     surfaces: [
       {

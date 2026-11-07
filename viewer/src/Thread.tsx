@@ -12,7 +12,7 @@ import type { DesignScreenState } from "./state.ts";
 export function useThreadRows(s: DesignScreenState) {
   return createMemo(() => {
     const m = s.design();
-    return m ? threadRows(s.comments(), s.variants(), m) : [];
+    return m ? threadRows(s.comments(), s.alternatives(), m) : [];
   });
 }
 

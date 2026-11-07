@@ -1,4 +1,4 @@
-// A set read whole: states one way, variants the other, one tile per render, with what
+// A set read whole: states one way, alternatives the other, one tile per render, with what
 // isn't drawn left visibly missing. Offered wherever names repeat across states, and how
 // a component's forms are compared, with where the component is used above it. A tile is
 // a picture that opens that render on Stage. The pictures obey Studio's limit: a poster
@@ -9,7 +9,7 @@
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { isLive } from "../../server/types.ts";
 import { type AboutState, aboutOf } from "./About.tsx";
-import { assetUrl, type VariantView } from "./api.ts";
+import { assetUrl, type AlternativeView } from "./api.ts";
 import { posterShown } from "./systemRev.ts";
 import { Icon } from "./icons.tsx";
 import {
@@ -18,7 +18,7 @@ import {
   nextKept,
   type VersionRef,
   type VersionStep,
-  variantName,
+  alternativeName,
   versionSteps,
   wallCard,
 } from "./logic.ts";
@@ -27,9 +27,9 @@ import type { DesignScreenState } from "./state.ts";
 import { pictureOf } from "./Studio.tsx";
 import { Thumb } from "./Thumb.tsx";
 
-type Cell = { v: VariantView; step: VersionStep | undefined };
+type Cell = { v: AlternativeView; step: VersionStep | undefined };
 
-const keyOf = (state: string | null, variant: string) => JSON.stringify([state, variant]);
+const keyOf = (state: string | null, alternative: string) => JSON.stringify([state, alternative]);
 
 export function Grid(props: {
   s: DesignScreenState;
@@ -39,7 +39,7 @@ export function Grid(props: {
   onOpen: (state: string | null, ref: VersionRef) => void;
 }) {
   const s = props.s;
-  const axes = createMemo(() => gridAxes(s.states(), s.variants()));
+  const axes = createMemo(() => gridAxes(s.states(), s.alternatives()));
   const flat = () => axes().cols.length === 1;
   const size = () => wallCard(s.frameW());
 
@@ -47,16 +47,18 @@ export function Grid(props: {
   const cells = createMemo(() => {
     const out = new Map<string, Cell>();
     for (const state of s.states()) {
-      const steps = versionSteps(s.variants(), state);
-      for (const v of s.variants()) {
+      const steps = versionSteps(s.alternatives(), state);
+      for (const v of s.alternatives()) {
         if (v.state !== state) continue;
-        const own = steps.filter((x) => x.variant === v.variant);
-        const used = s.design()?.inUse.find((u) => u.state === state && u.variant === v.variant);
+        const own = steps.filter((x) => x.alternative === v.alternative);
+        const used = s
+          .design()
+          ?.inUse.find((u) => u.state === state && u.alternative === v.alternative);
         const step =
           own.find((x) => x.version === used?.version) ??
           [...own].reverse().find((x) => !x.hidden) ??
           own.at(-1);
-        out.set(keyOf(state, v.variant), { v, step });
+        out.set(keyOf(state, v.alternative), { v, step });
       }
     }
     return out;
@@ -66,8 +68,8 @@ export function Grid(props: {
   // of what's on screen that shows, not whichever scrolled in first.
   const order = createMemo(() => {
     const out = new Map<string, number>();
-    for (const variant of axes().rows) {
-      for (const state of axes().cols) out.set(keyOf(state, variant), out.size);
+    for (const alternative of axes().rows) {
+      for (const state of axes().cols) out.set(keyOf(state, alternative), out.size);
     }
     return out;
   });
@@ -120,20 +122,22 @@ export function Grid(props: {
   const rel = aboutOf(props.about, props.slug);
   const isComponent = () => s.design()?.kind === "component";
   const count = () => {
-    const forms = `${axes().rows.length} ${isComponent() ? "forms" : "variants"}`;
+    const forms = `${axes().rows.length} ${isComponent() ? "forms" : "alternatives"}`;
     return flat() ? forms : `${forms}, ${axes().cols.length} states`;
   };
 
-  const tile = (state: string | null, variant: string) => (
+  const tile = (state: string | null, alternative: string) => (
     <Tile
       s={s}
       state={state}
-      variant={variant}
+      alternative={alternative}
       caption={flat()}
-      cell={cells().get(keyOf(state, variant))}
-      live={live().has(keyOf(state, variant)) || kept().keys.includes(keyOf(state, variant))}
-      watch={(el) => watch(el, keyOf(state, variant))}
-      onPoint={() => setPointed(keyOf(state, variant))}
+      cell={cells().get(keyOf(state, alternative))}
+      live={
+        live().has(keyOf(state, alternative)) || kept().keys.includes(keyOf(state, alternative))
+      }
+      watch={(el) => watch(el, keyOf(state, alternative))}
+      onPoint={() => setPointed(keyOf(state, alternative))}
       onOpen={(ref) => props.onOpen(state, ref)}
     />
   );
@@ -176,7 +180,7 @@ export function Grid(props: {
           <For each={axes().cols}>
             {(state) => (
               <div class="gv-flat">
-                <For each={axes().rows}>{(variant) => tile(state, variant)}</For>
+                <For each={axes().rows}>{(alternative) => tile(state, alternative)}</For>
               </div>
             )}
           </For>
@@ -192,12 +196,12 @@ export function Grid(props: {
             )}
           </For>
           <For each={axes().rows}>
-            {(variant) => (
+            {(alternative) => (
               <>
-                <span class="gv-row" role="rowheader" title={variant}>
-                  {variantName(variant)}
+                <span class="gv-row" role="rowheader" title={alternative}>
+                  {alternativeName(alternative)}
                 </span>
-                <For each={axes().cols}>{(state) => tile(state, variant)}</For>
+                <For each={axes().cols}>{(state) => tile(state, alternative)}</For>
               </>
             )}
           </For>
@@ -210,7 +214,7 @@ export function Grid(props: {
 function Tile(props: {
   s: DesignScreenState;
   state: string | null;
-  variant: string;
+  alternative: string;
   caption: boolean;
   cell: Cell | undefined;
   live: boolean;
@@ -220,7 +224,7 @@ function Tile(props: {
 }) {
   const s = props.s;
   const name = () =>
-    `${variantName(props.variant)}${props.state === null ? "" : `, ${props.state}`}`;
+    `${alternativeName(props.alternative)}${props.state === null ? "" : `, ${props.state}`}`;
   const step = () => (props.cell && isLive(props.cell.v.status) ? props.cell.step : undefined);
   const used = () => {
     const st = step();
@@ -229,14 +233,15 @@ function Tile(props: {
       s
         .design()
         ?.inUse.some(
-          (u) => u.state === props.state && u.variant === st.variant && u.version === st.version,
+          (u) =>
+            u.state === props.state && u.alternative === st.alternative && u.version === st.version,
         )
     );
   };
   const caption = () => (
     <Show when={props.caption}>
-      <span class="gv-cap" title={props.variant}>
-        {variantName(props.variant)}
+      <span class="gv-cap" title={props.alternative}>
+        {alternativeName(props.alternative)}
       </span>
     </Show>
   );
@@ -252,7 +257,7 @@ function Tile(props: {
             class="gv-tile"
             aria-label={`Open ${name()}${used() ? ", in use" : ""}`}
             title={props.cell?.v.description ?? name()}
-            onClick={() => props.onOpen({ variant: st().variant, version: st().version })}
+            onClick={() => props.onOpen({ alternative: st().alternative, version: st().version })}
             onPointerEnter={props.onPoint}
             onFocus={props.onPoint}
           >
@@ -261,7 +266,7 @@ function Tile(props: {
               fallback={
                 <span
                   class="gv-art"
-                  data-tile={JSON.stringify([props.state, props.variant])}
+                  data-tile={JSON.stringify([props.state, props.alternative])}
                   ref={props.watch}
                 >
                   <Show when={props.live && pictureOf(st())}>

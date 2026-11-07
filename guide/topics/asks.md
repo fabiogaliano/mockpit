@@ -1,7 +1,7 @@
 # mockpit topic: asks
 
 A question (`ask`) is your structured question on a design. A choice is several
-variants plus one question that binds them. Ask only when the decision is the
+alternatives plus one question that binds them. Ask only when the decision is the
 user's, and ask in the design, never in chat. To the user they are questions;
 `ask` is only the tool's name.
 
@@ -14,7 +14,7 @@ mockpit ask --design writer --asks asks.json
 `=knob:` sets one knob; for an option that sets several, use `--asks` JSON. `=palette:<id>`
 (JSON `palette`) chooses a palette of the project's system: see the `system` topic.
 `--recommend Quiet` (`"recommended": true` on one option) marks the one you
-would pick with a quiet dot; hovering shows the variant's description as why.
+would pick with a quiet dot; hovering shows the alternative's description as why.
 
 ## Shape
 
@@ -27,8 +27,8 @@ The same JSON goes to `--asks`, MCP `ask` and `POST /api/designs/:id/asks`:
     "text": "Quiet or dark?",
     "scope": "design",
     "options": [
-      { "label": "Quiet", "variant": "quiet" },
-      { "label": "Dark", "variant": "dark" }
+      { "label": "Quiet", "alternative": "quiet" },
+      { "label": "Dark", "alternative": "dark" }
     ]
   },
   {
@@ -57,7 +57,7 @@ The same JSON goes to `--asks`, MCP `ask` and `POST /api/designs/:id/asks`:
 `scope` says what a question decides and where it shows; the viewer shows each
 state with its own questions. Answered once, it counts once.
 
-- `design` (default): every state; if its options name variants, only states that have them.
+- `design` (default): every state; if its options name alternatives, only states that have them.
 - `state` (add `state`): that state.
 - `part` (add `part`, the `data-part` name): every state that declares the part.
 
@@ -75,9 +75,9 @@ answer on purpose, it arrives as a normal Send.
 
 An option binds to one of:
 
-- a `variant`: picking it puts that variant in use and archives its siblings
+- an `alternative`: picking it puts that alternative in use and archives its siblings
   in that state. Add `version` to offer one version of it (`"version": 2`, CLI
-  `--option Before=quiet@2`): two options can be two versions of one variant,
+  `--option Before=quiet@2`): two options can be two versions of one alternative,
   and the picked one is put in use. It needs the question's `state` when the
   design has several.
 - a knob `set`: picking it applies those values live.
@@ -119,8 +119,8 @@ that draws it:
 - A new value's knob is added or extended for you. A value already there can't take
   `style` or `fill`: changing what it means is a new version. Asked again with the same
   `style` or `fill` it is unchanged, so a question can keep growing under its id.
-- `html` needs a state when the design has several, and takes the state's variant in use
-  unless `variant` names one. The user only meets it as this answer; asked again with the
+- `html` needs a state when the design has several, and takes the state's alternative in use
+  unless `alternative` names one. The user only meets it as this answer; asked again with the
   same page it keeps its version.
 - A chosen answer's `brought` in the reply and `answerAdditions` in `read` say what isn't
   in any version yet. Fold them into your next version if you make one.
@@ -128,7 +128,7 @@ that draws it:
   page, not in the screens that embed it.
 - nothing: a plain pill.
 
-Options that change how something looks carry a `variant` or a knob `set`, so
+Options that change how something looks carry an `alternative` or a knob `set`, so
 the user sees them live. Plain pills only for what can't be seen.
 
 A question that only makes sense once another is answered takes
@@ -167,35 +167,35 @@ fill with `set: {"entry": "<fill>"}`. Send them with `ask`, relabelled if you
 like. On a pick the viewer outlines the fill on stage. `fills` in publish replaces
 or adds one fill without resending the page (topic `feedback`).
 
-Use fills when alternatives differ in one region, variants when the whole design
-differs. Each variant may have parts with fills.
+Use fills when alternatives differ in one region, alternatives when the whole design
+differs. Each alternative may have parts with fills.
 
-## The variant question
+## The alternative question
 
-When you publish variants, ask `scope: "design"` with one option per variant, and
+When you publish alternatives, ask `scope: "design"` with one option per alternative, and
 ask it first: questions appear in the order you ask them. Tune then offers, per
-part, to borrow that part from another variant. Variants without a variant
+part, to borrow that part from another alternative. Alternatives without an alternative
 question get a plain switcher in the frame header.
 
-A variant decides everything it differs on; don't re-ask it. Ask other axes as
+An alternative decides everything it differs on; don't re-ask it. Ask other axes as
 knob `set`s.
 
 ## When you forget to ask
 
-A publish that leaves a state with two or more open variants and no question
-binding them returns a nudge and a ready `suggestedAsk` (design-wide when variant
+A publish that leaves a state with two or more open alternatives and no question
+binding them returns a nudge and a ready `suggestedAsk` (design-wide when alternative
 names line up across states, else for that state), or your existing question plus
-the new variants. Send it with `ask`, or write your own with options bound to the
-variants; the CLI prints the `mockpit ask` command. Sending it stops the nudge and
+the new alternatives. Send it with `ask`, or write your own with options bound to the
+alternatives; the CLI prints the `mockpit ask` command. Sending it stops the nudge and
 keeps your answered question on the design.
 
-An open question of yours that names some of a state's variants is that state's
-variant question: a Send answering it puts the pick in use and archives every other
-live variant there, so the viewer shows them all in it. One you left out appears as an
-answer mockpit added, by name only (`added: true`, id `added:<variant>`); ask again to
+An open question of yours that names some of a state's alternatives is that state's
+alternative question: a Send answering it puts the pick in use and archives every other
+live alternative there, so the viewer shows them all in it. One you left out appears as an
+answer mockpit added, by name only (`added: true`, id `added:<alternative>`); ask again to
 describe it, or archive it if you don't mean to offer it.
 
-With no question of yours naming a state's variants, the viewer shows a built-in
-"Which variant?" with a picture of each variant, gone once answered. It doesn't count as open. Its answer reads like any
-other under the reserved id `variant` (per state: `variant:<state>`), and puts in
-use and archives per state. Your own question over those variants replaces it.
+With no question of yours naming a state's alternatives, the viewer shows a built-in
+"Which alternative?" with a picture of each alternative, gone once answered. It doesn't count as open. Its answer reads like any
+other under the reserved id `alternative` (per state: `alternative:<state>`), and puts in
+use and archives per state. Your own question over those alternatives replaces it.

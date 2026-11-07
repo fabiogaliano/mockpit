@@ -79,7 +79,7 @@ the viewer's palette switcher picks another. A palette dark in both modes says
 `scheme: {light: "dark", dark: "dark"}`. Statuses: `default`, `kept`, `open`, `hidden`.
 
 The user chooses through a question whose options carry `palette: "<id>"` (scope `design` or
-`state`, no variant): each answer is pictured as the same render in that palette, and the one
+`state`, no alternative): each answer is pictured as the same render in that palette, and the one
 sent becomes the default, the old default kept. Keep and Hide on an answer keep or hide that
 palette. Mappings between roles (`--c-go: var(--acc2)`) are a decision, not palette data: put
 them in an answer's `style`.

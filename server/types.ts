@@ -310,7 +310,7 @@ export interface PadValue {
 }
 export type KnobValue = number | boolean | string | PadValue | SpringKnob | EasingKnob;
 
-// --- project › design › state › variant › version ---
+// --- project › design › state › alternative › version ---
 
 // Structure is declared, never assumed: a design is an idea until the agent
 // calls it a screen (one of the product's) or a component (a reusable design screens
@@ -318,20 +318,20 @@ export type KnobValue = number | boolean | string | PadValue | SpringKnob | Easi
 export type DesignKind = "screen" | "component" | "idea";
 export const isDesignKind = (k: unknown): k is DesignKind =>
   k === "screen" || k === "component" || k === "idea";
-// A variant's review state. A variant-bound answer puts the chosen variant in
-// use and archives its siblings in that state; archived variants stay in view,
+// An alternative's review state. An alternative-bound answer puts the chosen alternative in
+// use and archives its siblings in that state; archived alternatives stay in view,
 // muted, and are restorable. "accepted" is storage's word for in use; every
-// view says `inUse` (variantStatus).
+// view says `inUse` (alternativeStatus).
 export type PostStatus = "open" | "accepted" | "archived";
-export type VariantStatus = "open" | "inUse" | "archived";
-export const variantStatus = (status: PostStatus): VariantStatus =>
+export type AlternativeStatus = "open" | "inUse" | "archived";
+export const alternativeStatus = (status: PostStatus): AlternativeStatus =>
   status === "accepted" ? "inUse" : status;
 
 // Still in the running: what the user can choose between.
-export const isLive = (status: PostStatus | VariantStatus): boolean =>
+export const isLive = (status: PostStatus | AlternativeStatus): boolean =>
   status === "open" || status === "accepted" || status === "inUse";
 
-// The version a variant is resolved at when nothing names one: the version in
+// The version an alternative is resolved at when nothing names one: the version in
 // use when accepted, else its latest.
 export const inUseVersion = (post: Pick<Post, "status" | "version" | "acceptedVersion">): number =>
   post.status === "accepted" ? (post.acceptedVersion ?? post.version) : post.version;
@@ -362,22 +362,22 @@ export const changedTo = (post: VersionLine): number | undefined => {
   return newest > Math.max(inUseVersion(post), post.stayedVersion ?? 0) ? newest : undefined;
 };
 
-// The variant the agent would pick for a state, read off its questions. Parallel
-// variants arrive within minutes of each other, so none of them is "the newest", and
+// The alternative the agent would pick for a state, read off its questions. Parallel
+// alternatives arrive within minutes of each other, so none of them is "the newest", and
 // this is the only thing that says one of them leads.
-export const recommendedVariant = (
+export const recommendedAlternative = (
   asks: Pick<Ask, "state" | "options">[],
   state: string | null,
 ): string | undefined => {
   for (const a of asks) {
     if (a.state !== undefined && a.state !== state) continue;
-    const pick = a.options.find((o) => o.recommended && o.variant);
-    if (pick) return pick.variant;
+    const pick = a.options.find((o) => o.recommended && o.alternative);
+    if (pick) return pick.alternative;
   }
   return undefined;
 };
 
-// A variant as it stood at one of its versions (current or retained), or null
+// An alternative as it stood at one of its versions (current or retained), or null
 // when that version is gone.
 export function postAtVersion(post: Post, version: number): Post | null {
   if (version === post.version) return post;
@@ -398,7 +398,7 @@ export function postAtVersion(post: Post, version: number): Post | null {
   };
 }
 
-// The variant's newest version not after design version `n` — what the stage
+// The alternative's newest version not after design version `n` — what the stage
 // showed when a draft or reply was bound to n (the viewer's frameVersion).
 export function versionAt(post: Pick<Post, "version" | "history">, n: number): number {
   const versions = [post.version, ...post.history.map((h) => h.version)];
@@ -409,9 +409,9 @@ export function versionAt(post: Pick<Post, "version" | "history">, n: number): n
 export interface AskOption {
   id: string;
   label: string;
-  // Picking this option means "this look": the variant it names is accepted.
-  variant?: string;
-  // With a variant: "this exact version of it" — accepted pinned there, not at
+  // Picking this option means "this look": the alternative it names is accepted.
+  alternative?: string;
+  // With an alternative: "this exact version of it" — accepted pinned there, not at
   // the version the reply was made on. Its state is `optionState`.
   version?: number;
   // Picking this option means "these knob values".
@@ -420,8 +420,8 @@ export interface AskOption {
   palette?: string;
   // The one the agent would pick: a quiet mark on it, never a label.
   recommended?: true;
-  // A live variant the question chooses between that the agent never put in it,
-  // added by mockpit (variantQuestion.ts). Stored once a Send answers the question.
+  // A live alternative the question chooses between that the agent never put in it,
+  // added by mockpit (alternativeQuestion.ts). Stored once a Send answers the question.
   added?: true;
 }
 
@@ -444,8 +444,8 @@ export interface HiddenAnswer {
   id: string;
   label: string;
   why?: string;
-  // A variant answer's variant: hiding it archived that, and restoring it unhides it.
-  variant?: string;
+  // An alternative answer's alternative: hiding it archived that, and restoring it unhides it.
+  alternative?: string;
 }
 
 // What the user said about a question's answers besides choosing one: the ones kept
@@ -454,7 +454,7 @@ export interface HiddenAnswer {
 export interface AnswerStanding {
   kept: string[];
   hidden: HiddenAnswer[];
-  // Kept whole screens (variant answers) the agent changes along with the one in use,
+  // Kept whole screens (alternative answers) the agent changes along with the one in use,
   // rather than leaving them as they were.
   carried?: string[];
   // By kept answer: when it started waiting, the reply that set it aside. A kept
@@ -540,7 +540,7 @@ export interface PartCommentAnchor {
   // at another width, so the agent and the viewer can tell which layout it meant.
   width?: number;
 }
-// A one-tap verdict on a part (or, with part null, on the variant itself),
+// A one-tap verdict on a part (or, with part null, on the alternative itself),
 // for a reviewer on a phone who would rather not type: like, dislike, or
 // "more like this". Rides as a part comment, so it travels in the one reply.
 export const REACTIONS = ["up", "down", "more"] as const;
@@ -553,23 +553,23 @@ export interface PartComment {
   text: string;
   anchor?: PartCommentAnchor;
   reaction?: Reaction;
-  // The variant on stage when the reaction was made: the same part differs by look.
-  variant?: string;
+  // The alternative on stage when the reaction was made: the same part differs by look.
+  alternative?: string;
   // The version it is about, when that is not simply the latest: Studio
   // shows every version side by side, so a reaction can point at an older one.
   version?: number;
-  // A Studio steer: make a new version of this one (variant@version) that takes
+  // A Studio steer: make a new version of this one (alternative@version) that takes
   // a part from another, `from` as agents write it ("felt@2"). `part` only when
   // the user picked a declared one; otherwise `text` says what to take.
   borrow?: { from: string; part?: string };
 }
 
-// What a reply says about one variant outside the ask flow: the user's Use this
+// What a reply says about one alternative outside the ask flow: the user's Use this
 // or New version.
 export interface ReplyVerdict {
   kind: "use" | "revise";
   state: string | null;
-  variant: string;
+  alternative: string;
   // On a use: the version put in use, the one the user was looking at.
   version?: number;
 }
@@ -577,11 +577,11 @@ export interface ReplyVerdict {
 // The user's unsent picks, tuned values and comments for one design. Lives
 // server-side so it survives a reload; never delivered until Send.
 export interface Draft {
-  // The variant version on stage when the draft was made; a newer version
+  // The alternative version on stage when the draft was made; a newer version
   // arriving mid-answer leaves the draft bound to this one.
   version: number;
   answers: Record<string, AskAnswer>;
-  // part → the variant the user borrowed it from.
+  // part → the alternative the user borrowed it from.
   borrowed: Record<string, string>;
   tuned: Record<string, KnobValue>;
   comments: PartComment[];
@@ -661,7 +661,7 @@ export interface DesignEdit {
   spec?: { purpose?: string | null; behaviour?: SpecLine[] | null };
   // The user marked the design Ready, or took the mark off.
   ready?: { ready: boolean; at: string };
-  // From when Studio could hang variants under a lead; stored rows still carry it.
+  // From when Studio could hang alternatives under a lead; stored rows still carry it.
 }
 
 // The settings key prefix of a project's areas (`areas:<project>`): a JSON array of
@@ -719,7 +719,7 @@ export const MAX_SPEC_LINES = 60;
 // The user's one mark on a screen or component: this is the version. It records what
 // each state showed when they marked it, so a newer version arriving reads as Changed
 // (derived, never stored: ready.ts) until the design shows that again or they mark it
-// again. `name` is the entry's variant name as stored.
+// again. `name` is the entry's alternative name as stored.
 export interface ReadyCover {
   state: string | null;
   name: string;
@@ -738,8 +738,8 @@ export type StateOutline = "dismissed" | "requested";
 
 // Declared and not drawn yet: a screen or component the agent planned, which its next
 // publish fills. An undeclared design with nothing in it is no plan, only empty.
-export const isPlanned = (design: { kind: DesignKind }, variants: number): boolean =>
-  design.kind !== "idea" && variants === 0;
+export const isPlanned = (design: { kind: DesignKind }, alternatives: number): boolean =>
+  design.kind !== "idea" && alternatives === 0;
 
 export interface Design {
   id: string;
@@ -772,6 +772,10 @@ export interface Design {
   // one an agent started. It has no session until an agent writes to it. The name is
   // in `read`'s contract, so it waits for the words release.
   shortlist: boolean;
+  // Its entries are variants that all ship (a component's sizes or tones), not
+  // alternatives to choose between: nothing on it is chosen, and agents name them
+  // as variants. Only a screen or a component holds variants.
+  variants: boolean;
   // When the user archived it: off the working shelf, its open asks dismissed, until
   // they restore it or an agent asks something new. null while it is live.
   archivedAt: string | null;
@@ -786,7 +790,7 @@ export interface Design {
   stateOutlines: Record<string, StateOutline>;
   // What answers brought so they could draw themselves: never removed or redefined.
   answerAdditions: AnswerAddition[];
-  // By ask id (the built-in Which variant? included): kept and hidden answers.
+  // By ask id (the built-in Which alternative? included): kept and hidden answers.
   standings: Record<string, AnswerStanding>;
   // The user's named combinations of answers, in the order they made them.
   sets: AnswerSet[];
@@ -826,9 +830,9 @@ export interface PostVersion {
   system?: number;
 }
 
-// A variant of one state of a design.
+// An alternative of one state of a design.
 export interface ForkRef {
-  variant: string;
+  alternative: string;
   version: number;
 }
 
@@ -836,7 +840,7 @@ export interface ForkRef {
 export interface CopyRef {
   design: string;
   state: string | null;
-  variant: string;
+  alternative: string;
   version: number;
 }
 
@@ -845,7 +849,7 @@ export interface Post {
   sessionId: string;
   design: string;
   state: string | null;
-  variant: string;
+  alternative: string;
   status: PostStatus;
   title: string;
   surfaces: Surface[];
@@ -853,16 +857,16 @@ export interface Post {
   updatedAt: string;
   version: number;
   history: PostVersion[];
-  // Per-part knob overrides for this variant.
+  // Per-part knob overrides for this alternative.
   knobs?: Knobs;
-  // A line or two on what this variant is, shown beside it so the design itself
+  // A line or two on what this alternative is, shown beside it so the design itself
   // carries no captions. Stays across versions until replaced.
   description?: string;
   // The component versions this version rendered with when published, nested
   // ones included (embeds.ts); rendering follows the latest unless pinned.
   embeds: Embed[];
-  // The variant (in the same state) and version this one was forked from: the
-  // lineage tree. Absent on a variant started from scratch.
+  // The alternative (in the same state) and version this one was forked from: the
+  // lineage tree. Absent on an alternative started from scratch.
   forkedFrom?: ForkRef;
   // Set on a shortlist's candidates; stays across the versions an agent adds.
   copiedFrom?: CopyRef;
@@ -890,7 +894,7 @@ export interface Post {
   amendedAt?: string;
   contract?: number;
   system?: number;
-  // How often a version of this variant was rewritten in place (amended or
+  // How often a version of this alternative was rewritten in place (amended or
   // withdrawn). A version number alone no longer names fixed content, so
   // render caches and frame URLs carry this too.
   rewrites?: number;
@@ -928,10 +932,10 @@ export interface JumpRows {
     archivedAt: string | null;
     updatedAt: string;
   }[];
-  variants: {
+  alternatives: {
     designId: string;
     state: string | null;
-    variant: string;
+    alternative: string;
     description: string | null;
     status: PostStatus;
   }[];
@@ -1113,6 +1117,7 @@ export interface CreateDesignInput {
   widths?: number[];
   sessionId?: string | null;
   shortlist?: boolean;
+  variants?: boolean;
 }
 
 export interface UpdateDesignInput {
@@ -1121,6 +1126,7 @@ export interface UpdateDesignInput {
   // undefined keeps, null clears.
   area?: string | null;
   group?: string | null;
+  variants?: boolean;
   source?: string | null;
   states?: string[];
   asks?: Ask[];
@@ -1143,7 +1149,7 @@ export interface CreatePostInput {
   sessionId: string;
   design: string;
   state: string | null;
-  variant?: string;
+  alternative?: string;
   title?: string;
   surfaces: Surface[];
   knobs?: Knobs;
@@ -1171,7 +1177,7 @@ export interface UpdatePostInput {
   from?: number;
   prompt?: string;
   author?: string;
-  // Re-files the variant under another state (a single-state design adopting its
+  // Re-files the alternative under another state (a single-state design adopting its
   // first named state).
   state?: string | null;
   publishedBy?: string;
@@ -1179,7 +1185,7 @@ export interface UpdatePostInput {
   system?: number;
 }
 
-// An in-place replacement of a variant's latest version: same number and
+// An in-place replacement of an alternative's latest version: same number and
 // creation time. undefined keeps a field, as in UpdatePostInput.
 export type AmendPostInput = Omit<UpdatePostInput, "state" | "publishedBy">;
 
@@ -1208,17 +1214,17 @@ export interface CommentQuery {
 
 // Everything one Send writes. The store applies it atomically: the reply
 // comment, the answers recorded on the asks, the status flips, the cleared draft.
-// What the decision list needs beyond the designs, without any variant's body.
-export interface DecisionVariant {
+// What the decision list needs beyond the designs, without any alternative's body.
+export interface DecisionAlternative {
   designId: string;
   state: string | null;
-  variant: string;
+  alternative: string;
   status: PostStatus;
   version: number;
   acceptedVersion: number | null;
 }
 export interface DecisionSources {
-  variants: DecisionVariant[];
+  alternatives: DecisionAlternative[];
   // Per design id, when its last reply that answered or chose anything was sent.
   decidedAt: Record<string, string>;
 }
@@ -1229,10 +1235,10 @@ export interface CommitReplyInput {
   text: string;
   payload: Reply;
   asks: Ask[];
-  // Each variant put in use, with the version.
+  // Each alternative put in use, with the version.
   accept: { id: string; version: number }[];
   archive: string[];
-  // Variants that leave use without being archived: kept answers.
+  // Alternatives that leave use without being archived: kept answers.
   release?: string[];
   standings?: Record<string, AnswerStanding>;
   // A lone "use this version" is not a Send: the user's unsent draft stays.
@@ -1286,11 +1292,11 @@ export interface Store {
   removeDesign(id: string): Promise<boolean>;
   // A new slug, and every reference to the old one in the project rewritten
   // with it, atomically: embed tags and data-goto in every version of every
-  // variant (current and history), recorded embeds, flow steps. Null when the
+  // alternative (current and history), recorded embeds, flow steps. Null when the
   // design is missing or the slug is taken.
   renameDesign(id: string, slug: string): Promise<Design | null>;
   // Gives a design with no states its first one, and everything it holds moves
-  // there: variants, flow steps, copies' origins, the draft's comments. Null when
+  // there: alternatives, flow steps, copies' origins, the draft's comments. Null when
   // the design is missing or already has states.
   nameFirstState(id: string, state: string): Promise<Design | null>;
   // Moves everything keyed by the project name (designs, sessions, flows, the
@@ -1328,25 +1334,25 @@ export interface Store {
 
   // Oldest first.
   listPosts(query?: PostQuery): Promise<Post[]>;
-  // Every variant of a project, or of the workspace, without its bodies; oldest first.
+  // Every alternative of a project, or of the workspace, without its bodies; oldest first.
   listPostHeads(project?: string): Promise<PostHead[]>;
   // Every live copy of a version in a project, without reading a body.
   listCopies(project: string): Promise<LiveCopy[]>;
-  // Variants per session, without loading bodies or history.
+  // Alternatives per session, without loading bodies or history.
   countPostsBySession(): Promise<Map<string, number>>;
   getPost(id: string): Promise<Post | null>;
   setForkedFrom(id: string, from: ForkRef | null): Promise<Post | null>;
-  findPost(designId: string, state: string | null, variant: string): Promise<Post | null>;
+  findPost(designId: string, state: string | null, alternative: string): Promise<Post | null>;
   createPost(input: CreatePostInput): Promise<Post | null>;
   updatePost(id: string, patch: UpdatePostInput): Promise<Post | null>;
   removePost(id: string): Promise<boolean>;
   // Both rewrite the latest version, so both expect it to still be `version`
   // (null otherwise, or when the post is missing). Amend replaces it in place;
   // withdraw deletes it and makes the version before it current again, with
-  // `embeds` (what that version renders with now), or removes the variant
-  // when it had no other ({ post: null }). The variant's comments stay, on the design.
+  // `embeds` (what that version renders with now), or removes the alternative
+  // when it had no other ({ post: null }). The alternative's comments stay, on the design.
   amendPost(id: string, version: number, patch: AmendPostInput): Promise<Post | null>;
-  // On a variant's latest version, if its first page has no poster yet. Touches nothing else:
+  // On an alternative's latest version, if its first page has no poster yet. Touches nothing else:
   // not the version, not when it was updated, so it reads as nothing having happened.
   setPosterOnce(
     id: string,
@@ -1373,7 +1379,7 @@ export interface Store {
   setPostReason(id: string, reason: string | null): Promise<Post | null>;
   setPostStayed(id: string, version: number): Promise<Post | null>;
 
-  // One project's variant statuses and reply times, for the decision list.
+  // One project's alternative statuses and reply times, for the decision list.
   listDecisionSources(project: string): Promise<DecisionSources>;
 
   listComments(query: CommentQuery): Promise<Comment[]>;
@@ -1424,7 +1430,7 @@ export interface SurfaceHead {
   marked?: boolean;
 }
 
-// A variant as overviews read it; a full Post reads as one too.
+// An alternative as overviews read it; a full Post reads as one too.
 export type PostHead = Omit<Post, "surfaces" | "history"> & {
   surfaces: SurfaceHead[];
   history: { version: number; surfaces: SurfaceHead[] }[];
@@ -1434,7 +1440,7 @@ export type PostHead = Omit<Post, "surfaces" | "history"> & {
 export interface LiveCopy {
   design: string;
   state: string | null;
-  variant: string;
+  alternative: string;
   copiedFrom: CopyRef;
 }
 
@@ -1506,7 +1512,7 @@ export function normalizeSurfaceIds(surfaces: Surface[]): Surface[] {
 
 // Fallback project for sessions that never declared one (bare `curl` publishes).
 export const DEFAULT_PROJECT = "workspace";
-export const DEFAULT_VARIANT = "default";
+export const DEFAULT_ALTERNATIVE = "default";
 
 // Stable, url-safe slug derived from a title. Empty input yields "design" so a
 // slug is never the empty string.
@@ -1545,7 +1551,7 @@ export const askAnswered = (a: Pick<Ask, "answer" | "other" | "comment">): boole
 export const openAsks = (design: Pick<Design, "asks">): Ask[] =>
   design.asks.filter((a) => !askAnswered(a) && !a.dismissed);
 
-// Questions an agent asked that wait on the user. The built-in "Which variant?"
+// Questions an agent asked that wait on the user. The built-in "Which alternative?"
 // is not one: no agent is waiting on it, and being shown several designs owes
 // nobody an answer.
 export const openCount = (design: Pick<Design, "asks">): number => openAsks(design).length;
@@ -1564,15 +1570,15 @@ export function draftedCount(design: Pick<Design, "asks" | "draft">): number | n
   return openAsks(design).filter((a) => said(a.id)).length;
 }
 
-// The viewer's built-in "Which variant?" for variants no agent ask binds: `variant`
-// design-wide, `variant:<state>` per state. Never stored; synthesized from the
-// variants so a reply answering it validates, flips and reads like any ask. An
-// option's id is the variant name, so the viewer needs no id mapping.
-export const BUILTIN_ASK_ID = "variant";
+// The viewer's built-in "Which alternative?" for alternatives no agent ask binds: `alternative`
+// design-wide, `alternative:<state>` per state. Never stored; synthesized from the
+// alternatives so a reply answering it validates, flips and reads like any ask. An
+// option's id is the alternative name, so the viewer needs no id mapping.
+export const BUILTIN_ASK_ID = "alternative";
 
 export function builtinAsk(
   design: Pick<Design, "states" | "kind">,
-  posts: Pick<Post, "state" | "variant">[],
+  posts: Pick<Post, "state" | "alternative">[],
   id: string,
 ): Ask | undefined {
   // A screen or a component holds what ships: there is nothing on it to choose.
@@ -1584,15 +1590,15 @@ export function builtinAsk(
     if (!design.states.includes(state)) return undefined;
   }
   const names = [
-    ...new Set(posts.filter((p) => state === null || p.state === state).map((p) => p.variant)),
+    ...new Set(posts.filter((p) => state === null || p.state === state).map((p) => p.alternative)),
   ];
   if (names.length === 0) return undefined;
   return {
     id,
-    text: "Which variant?",
+    text: "Which alternative?",
     scope: state === null ? "design" : "state",
     ...(state === null ? {} : { state }),
-    options: names.map((v) => ({ id: v, label: v, variant: v })),
+    options: names.map((v) => ({ id: v, label: v, alternative: v })),
     at: "",
   };
 }

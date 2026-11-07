@@ -49,7 +49,7 @@ export function iconsLine(system: System | null): string {
 const TOPIC_SUMMARY: Record<GuideTopic, string> = {
   system: "the project's system: the contract and its full lists",
   knobs: "every knob shape, how values reach html",
-  asks: "the question JSON, scopes, parts with fills (data-fill), the variant question, multi",
+  asks: "the question JSON, scopes, parts with fills (data-fill), the alternative question, multi",
   surfaces: "markdown, diff, mermaid, code, terminal, json, image; uploads",
   html: "the contract, tokens, kits, Tailwind, icons",
   feedback: "the feedback JSON, pending, delivery, export",
@@ -139,8 +139,8 @@ function usefulTokens(values: Record<string, string>, n: number): string[] {
     if (best) picked.push(best);
   }
   // A state of a picked token (`color.primary.hover`) says less than a new one.
-  const isVariant = (name: string) => picked.some((p) => name.startsWith(`${p}.`));
-  for (const name of [...names.filter((x) => !isVariant(x)), ...names]) {
+  const extendsPicked = (name: string) => picked.some((p) => name.startsWith(`${p}.`));
+  for (const name of [...names.filter((x) => !extendsPicked(x)), ...names]) {
     if (picked.length >= n) break;
     if (!picked.includes(name)) picked.push(name);
   }
@@ -505,10 +505,15 @@ instructions.
 
 ## Words
 
-project › design › state › variant › version. A project is the repo; a design is a
+project › design › state › alternative › version. A project is the repo; a design is an
 idea, screen or component, by slug; a state is one thing the user sees in it, in
-their words ("Writing"), omitted for a single-state design; a variant is a parallel
-take on a state; versions are its history. A part is an element declared with
+their words ("Writing"), omitted for a single-state design; an alternative is a parallel
+take on a state, one of several to choose between; versions are its history. A screen or
+component whose entries all ship (a component's sizes, tones or feelings) holds
+**variants** instead: say so with \`--variants\` (MCP and HTTP \`"variants": true\`) and
+name each with \`--variant <name>\` (\`"variant"\`), never \`--alternative\`; the wrong word
+fails, naming the right one. A state is what the user meets; a variant is what the
+product picks. A part is an element declared with
 \`data-part\`. The user answers your questions (\`ask\`), tunes knobs, presses
 Send once; you get one reply. To the user, say "question", never "ask".
 Name a state by what the user sees in it ("Home, idle", "Proposal
@@ -524,12 +529,12 @@ the question lives in the design, never in chat. Never poll.
 
 \`\`\`sh
 mockpit init                    # once per repo: the repo's tokens, kit, icons, starter
-mockpit publish --design writer --state "Writing" --variant quiet --html quiet.html
-mockpit publish --design writer --state "Writing" --variant dark --html dark.html
+mockpit publish --design writer --state "Writing" --alternative quiet --html quiet.html
+mockpit publish --design writer --state "Writing" --alternative dark --html dark.html
 mockpit ask     --design writer "Quiet or dark?" --option Quiet=quiet --option Dark=dark
 mockpit feedback                # after the user says they answered
-mockpit publish --design writer --state "Writing" --variant dark --parts body=b.html  # v2, one part
-mockpit publish --design writer --state "Writing" --variant dark --fills bar#tabs=t.html
+mockpit publish --design writer --state "Writing" --alternative dark --parts body=b.html  # v2, one part
+mockpit publish --design writer --state "Writing" --alternative dark --fills bar#tabs=t.html
 mockpit export  --design writer   # the chosen html per state
 \`\`\`
 
@@ -569,9 +574,10 @@ a later draft of that section isn't applied, and the result says so.
 ## Ready
 
 A screen or component holds what ships, one entry a state, so nothing on it is chosen:
-its newest version is current, with no Use this, no Which variant? and nothing in use.
+its newest version is current, with no Use this, no Which alternative? and nothing in use.
 Alternatives for it belong in an idea; \`read\` says \`holdsAlternatives\` until you
-\`move\` them there. Only the user marks it Ready, this is the version (a screen's mark
+\`move\` them there, or, when they all ship, make it a variants design (\`edit <slug>
+--variants\`): \`read\` then lists them as \`variants\`. Only the user marks it Ready, this is the version (a screen's mark
 carries to the components inside); a version it marked is acted on, so amend and withdraw
 refuse it. \`read\` and \`export\` give \`ready\` (the versions it
 covers), \`changed\` (something newer shows since) and \`builtFrom\` (each component's own
@@ -607,8 +613,8 @@ declare geometry; the viewer measures it.
 
 Publish the design alone, laid out for the width it ships at: no captions,
 side notes, labels or rationale beside it (they shrink the design on a phone).
-Say what a variant is in \`--description "System font, thin bars; feels like a tool"\`;
-the viewer shows it on the variant and its option. Name the widths the user
+Say what an alternative is in \`--description "System font, thin bars; feels like a tool"\`;
+the viewer shows it on the alternative and its option. Name the widths the user
 ships to once, \`--widths 390,1280\`, and the design is shown at each, side by
 side; without them the viewer picks one for the screen it is on. Studio and Home
 show a still of a page instead of running it: the CLI and stdio MCP take one with
@@ -656,28 +662,28 @@ slug rewrites every embed and flow step that names the old one. Home lists
 areas alphabetically unless \`mockpit edit --project <p> --areas
 "Shell,Food"\` sets the order (unlisted ones follow, alphabetical).
 
-Tidying up is yours too when the user asks: \`mockpit move --design <slug> --variant
-<v> --to <design> [--to-state <tab>]\` moves variants and takes them out of here,
+Tidying up is yours too when the user asks: \`mockpit move --design <slug> --alternative
+<v> --to <design> [--to-state <tab>]\` moves alternatives and takes them out of here,
 \`--archive\` takes them out of sight and \`--restore\` brings them back. Their group
 goes along and one in use stays. Copying by publishing leaves the originals behind,
 so use this instead. A design with no states takes tabs after
 \`mockpit edit --design <slug> --first-state <name>\`, which names the one it has.
 
 To clear out older versions, only when the user asks: \`mockpit move --design <slug>
---hide-older\` hides all but each variant's newest, and the user can bring them back.
+--hide-older\` hides all but each alternative's newest, and the user can bring them back.
 \`--delete-older\` deletes them for good and skips any that a reply, comment, question,
 embed, copy or fork points at, or that is in use, listing why. It can't be undone, so
 confirm first; \`--withdraw\` is still how you take back your own latest version.
 
 ## Question, fills or knob
 
-Answers drive the design. A choice is several variants plus one question that
+Answers drive the design. A choice is several alternatives plus one question that
 binds them (ask it first), or a part with fills: one region's alternatives in
 one html, sharing \`data-part\`, each its own \`data-fill\`
 (\`<nav data-part="bar" data-fill="thin">\`). The viewer shows the chosen fill.
 A fill may hold parts with fills, asked only while it is chosen. Send
-publish's \`suggestedFillAsks\` (\`set: {"bar": "tabs"}\`). A variant
-decides all it differs on; don't re-ask it. Visual options carry a \`variant\`
+publish's \`suggestedFillAsks\` (\`set: {"bar": "tabs"}\`). An alternative
+decides all it differs on; don't re-ask it. Visual options carry an \`alternative\`
 or knob \`set\`. An answer a page doesn't know how to draw brings it, in that one \`ask\`:
 \`style\` or \`fill\` beside a \`set\` of a new value, or \`html\` for a whole page. Never
 publish a version to add answers: the user is on the old one, and their pictures won't
@@ -699,11 +705,11 @@ Values reach the html unitless: \`calc(var(--k-body-size, 17) * 1px)\`, and as
 
 \`feedback\` returns \`{feedback, pending}\`. A batch is \`{design, reply: {asks, tuned,
 borrowed, comments, reactions, more, verdict, text}, messages, inUse, archived}\`. In
-order: answers decide structure (a variant answer already put it in use); tuned
-values become defaults; \`borrowed\` names a part to take from another variant
+order: answers decide structure (an alternative answer already put it in use); tuned
+values become defaults; \`borrowed\` names a part to take from another alternative
 (if it conflicts with an answer, the answer wins); address each comment and
 reaction on its part (a comment's \`borrow\` asks for a new version taking a part
-from another; "more like this" asks for 2–3 variants forked from it; a comment on a
+from another; "more like this" asks for 2–3 alternatives forked from it; a comment on a
 written document has \`anchor.paragraph\`: \`{surface, index, kind, text}\`, the block
 it is about);
 \`more\` asks for more answers to one question, \`{ask, text, existing, note, like, kept,
@@ -714,7 +720,7 @@ from \`hidden\` and each \`why\`. An answered ask's \`kept\` and \`hidden\` are 
 runners-up and rejects: never offer a hidden answer again; \`update\` asks you to bring one
 kept screen up to date with the one in use;
 \`verdict\` (use, revise) replaces answers when there were
-no questions; \`decisions\` is the state as chosen: variant, then each part's
+no questions; \`decisions\` is the state as chosen: alternative, then each part's
 fill, nested; \`messages\` are what the user wrote in the thread. Each Send
 arrives exactly once: in a write's \`feedback\` or \`mockpit feedback\`. A
 \`mockpit watch\` line only says one landed. In Claude Code, arm \`mockpit watch\` under Monitor after
@@ -729,11 +735,11 @@ of the design's spec, by section (null where they cleared one); \`edited: {ready
 they marked it Ready or took the mark off, with \`lift\` on a screen (The library). A
 batch's \`nudges\` say what the design needs now, such as its spec updated.
 \`read\` shows what the user took away, as information: a design's \`archivedAt\` and
-\`archiveReason\`, a variant's \`archived\` status and \`archiveReason\`. A question
+\`archiveReason\`, an alternative's \`archived\` status and \`archiveReason\`. A question
 you ask on an archived design brings it back to their list.
-A design with \`shortlist: true\` is one the user gathered: its variants are
+A design with \`shortlist: true\` is one the user gathered: its alternatives are
 copies (\`copiedFrom\` names each original) and its replies can reach you
-though you never wrote to it. Publish to those variants as usual; from then on
+though you never wrote to it. Publish to those alternatives as usual; from then on
 its replies are yours.
 The viewer shows each state its own questions and only open ones; a sent
 answer is not shown again.

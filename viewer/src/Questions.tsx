@@ -1,5 +1,5 @@
 // The pieces of a question answered in place, for the question card. Options
-// are pictures when the viewer can render them (a variant that exists for the
+// are pictures when the viewer can render them (an alternative that exists for the
 // ask's state, or a knob set it can apply), pills otherwise. A mouse hovering
 // one previews it on the stage, unless its question is about another state; a tap
 // puts it on the stage as your pick, and
@@ -8,7 +8,7 @@
 
 import { createSignal, createUniqueId, For, type JSX, onCleanup, Show } from "solid-js";
 import { type Ask, type AskOption, type KnobValue, optionState } from "../../server/types.ts";
-import { assetUrl, surfaceUrl, type VariantView } from "./api.ts";
+import { assetUrl, surfaceUrl, type AlternativeView } from "./api.ts";
 import { ACCEPT, filesOf, hasFiles } from "./attach.ts";
 import { answersView } from "./answersView.ts";
 import { host, readonly } from "./host.ts";
@@ -113,10 +113,10 @@ export function Answered(props: { s: DesignScreenState; scope: "state" | "all" }
   );
 }
 
-// What a picture of this variant shows besides the option itself: the draft's
+// What a picture of this alternative shows besides the option itself: the draft's
 // knob values (defaults, other answers, tuning), the same ones the stage shows.
 // A picture that ignored them would show a screen the user never chose.
-function draftValues(s: DesignScreenState, v: VariantView): Record<string, KnobValue> {
+function draftValues(s: DesignScreenState, v: AlternativeView): Record<string, KnobValue> {
   const m = s.design();
   return m ? draftKnobValues(m, v.knobs, s.draft()) : {};
 }
@@ -147,7 +147,7 @@ export function optionPicture(
 ): {
   src: string;
   knobs: Record<string, KnobValue>;
-  variant: VariantView;
+  alternative: AlternativeView;
   state: string | null;
 } | null {
   const m = s.design();
@@ -157,12 +157,12 @@ export function optionPicture(
     : at !== undefined
       ? at
       : askState(ask, m, s.activeState());
-  const html = (v: VariantView | undefined) => {
+  const html = (v: AlternativeView | undefined) => {
     if (!v) return -1;
     return v.surfaces.findIndex((x) => x.kind === "html");
   };
-  if (o.variant) {
-    const v = s.variants().find((x) => x.state === state && x.variant === o.variant);
+  if (o.alternative) {
+    const v = s.alternatives().find((x) => x.state === state && x.alternative === o.alternative);
     const idx = html(v);
     if (!v || idx < 0) return null;
     return {
@@ -173,12 +173,12 @@ export function optionPicture(
         w: v.rewrites,
       }),
       knobs: withoutSiblings(draftValues(s, v), ask, o),
-      variant: v,
+      alternative: v,
       state,
     };
   }
   if (o.palette) {
-    const v = s.variantFor(state, false);
+    const v = s.alternativeFor(state, false);
     const idx = html(v);
     if (!v || idx < 0) return null;
     return {
@@ -190,12 +190,12 @@ export function optionPicture(
         p: o.palette,
       }),
       knobs: withoutSiblings(draftValues(s, v), ask, o),
-      variant: v,
+      alternative: v,
       state,
     };
   }
   if (o.set && Object.keys(o.set).length) {
-    const v = s.variantFor(state, false);
+    const v = s.alternativeFor(state, false);
     const idx = html(v);
     if (!v || idx < 0) return null;
     return {
@@ -209,7 +209,7 @@ export function optionPicture(
         w: v.rewrites,
       }),
       knobs: { ...withoutSiblings(draftValues(s, v), ask, o), ...o.set },
-      variant: v,
+      alternative: v,
       state,
     };
   }
@@ -229,7 +229,7 @@ export function AskBody(props: {
   const s = props.s;
   const picked = (o: AskOption) => answerIds(s.answerOf(props.ask)).includes(o.id);
   let optsEl: HTMLDivElement | undefined;
-  // Keeping, hiding and more-like-this act on one answer; the built-in Which variant?
+  // Keeping, hiding and more-like-this act on one answer; the built-in Which alternative?
   // has no agent behind it to ask for more.
   const acts = () => !readonly() && !dormant();
   const moveCards = (change: () => void, gone?: Element | null) => flipCards(optsEl, change, gone);
@@ -299,7 +299,7 @@ export function AskBody(props: {
             const focus = () => {
               const p = pic();
               if (!p) return null;
-              const report = s.reports[frameKey(p.state, p.variant.variant)];
+              const report = s.reports[frameKey(p.state, p.alternative.alternative)];
               // An answer that sets a part's fill changes only that part: a whole-page
               // picture could crop it off, leaving a card that looks like its neighbours.
               const r = region() ?? Object.keys(o.set ?? {}).find((path) => partBox(report, path));
@@ -324,7 +324,7 @@ export function AskBody(props: {
                 label={o.label}
                 note={o.added ? "Not in the agent's question" : undefined}
                 pick={!!o.recommended}
-                why={pic()?.variant.description}
+                why={pic()?.alternative.description}
                 on={picked(o)}
                 held={s.heldPreview()?.key === keyOf(o)}
                 isNew={s.isNewOption(props.ask, o.id)}
@@ -357,22 +357,23 @@ export function AskBody(props: {
             );
             // D13: once the Look is sent its losers are archived; each stays restorable.
             const archivedIn = () => {
-              if (!isLookAsk(props.ask) || props.ask.answer === undefined || !o.variant) return [];
-              const mine = s.variants().filter((v) => v.variant === o.variant);
+              if (!isLookAsk(props.ask) || props.ask.answer === undefined || !o.alternative)
+                return [];
+              const mine = s.alternatives().filter((v) => v.alternative === o.alternative);
               return mine.length && mine.every((v) => v.status === "archived")
                 ? mine.map((v) => v.state)
                 : [];
             };
             return (
               <Show when={archivedIn().length} fallback={card()}>
-                <div class="opt-arch" data-archived={o.variant}>
+                <div class="opt-arch" data-archived={o.alternative}>
                   {card()}
                   <Show when={!readonly()}>
                     <button
                       type="button"
                       class="vrestore"
                       aria-label={`Restore ${o.label}`}
-                      onClick={() => void s.restoreVariant(o.variant!, archivedIn())}
+                      onClick={() => void s.restoreAlternative(o.alternative!, archivedIn())}
                     >
                       restore
                     </button>

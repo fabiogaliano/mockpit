@@ -1,18 +1,18 @@
 // One-tap reactions (like, dislike, "more like this") on a part or on a whole
-// variant, for a reviewer on a phone. Pure rules; they live in the draft as
+// alternative, for a reviewer on a phone. Pure rules; they live in the draft as
 // part comments with a `reaction`, so they ride the one reply like any comment.
 
 import type { PartComment, Reaction } from "../../server/types.ts";
 
 export interface ReactionTarget {
-  // null: the variant itself, not one of its parts.
+  // null: the alternative itself, not one of its parts.
   part: string | null;
   state: string | null;
-  variant: string;
+  alternative: string;
 }
 
 const sameTarget = (c: PartComment, t: ReactionTarget) =>
-  !!c.reaction && c.part === t.part && c.state === t.state && c.variant === t.variant;
+  !!c.reaction && c.part === t.part && c.state === t.state && c.alternative === t.alternative;
 
 export const reactionOf = (comments: PartComment[], t: ReactionTarget): Reaction | null =>
   comments.find((c) => sameTarget(c, t))?.reaction ?? null;
@@ -27,7 +27,7 @@ export function toggleReaction(
   const rest = comments.filter((c) => !sameTarget(c, t));
   return was === reaction
     ? rest
-    : [...rest, { part: t.part, state: t.state, text: "", reaction, variant: t.variant }];
+    : [...rest, { part: t.part, state: t.state, text: "", reaction, alternative: t.alternative }];
 }
 
 export const REACTION_LABEL: Record<Reaction, string> = {
@@ -88,10 +88,10 @@ export const commentText = (c: PartComment): string =>
 // "felt@2" as the viewer names a version: "Felt #2".
 const borrowSource = (from: string) => {
   const at = from.lastIndexOf("@");
-  const variant = at > 0 ? from.slice(0, at) : from;
-  return `${variant.charAt(0).toUpperCase()}${variant.slice(1)}${at > 0 ? ` #${from.slice(at + 1)}` : ""}`;
+  const alternative = at > 0 ? from.slice(0, at) : from;
+  return `${alternative.charAt(0).toUpperCase()}${alternative.slice(1)}${at > 0 ? ` #${from.slice(at + 1)}` : ""}`;
 };
 
-// Where a reaction was left: its part (if any), the variant, the state.
+// Where a reaction was left: its part (if any), the alternative, the state.
 export const reactionWhere = (c: PartComment): string =>
-  [c.part, c.variant, c.state].filter(Boolean).join(" · ") || "page";
+  [c.part, c.alternative, c.state].filter(Boolean).join(" · ") || "page";

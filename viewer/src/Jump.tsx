@@ -53,7 +53,9 @@ const hitPath = (hit: JumpHit): string => {
   return designPath(
     hit.project,
     hit.slug,
-    hit.state !== null || hit.variant !== null ? { state: hit.state, variant: hit.variant } : null,
+    hit.state !== null || hit.alternative !== null
+      ? { state: hit.state, alternative: hit.alternative }
+      : null,
   );
 };
 
@@ -67,7 +69,7 @@ const hitIcon = (hit: JumpHit): IconName => {
 const MATCH_WORD: Record<JumpHit["match"], string> = {
   title: "",
   state: "State",
-  variant: "Variant",
+  alternative: "Alternative",
   area: "Area",
   question: "Question",
   description: "Description",
@@ -245,8 +247,8 @@ function JumpBox(props: { onClose: () => void }) {
             aria-controls="jump-results"
             aria-activedescendant={hits()?.length ? `jump-${active()}` : undefined}
             aria-autocomplete="list"
-            aria-label="Search titles, states, variants, descriptions, questions and areas"
-            placeholder="Titles, states, variants, descriptions, questions"
+            aria-label="Search titles, states, alternatives, descriptions, questions and areas"
+            placeholder="Titles, states, alternatives, descriptions, questions"
             autocomplete="off"
             spellcheck={false}
             value={q()}

@@ -6,7 +6,7 @@
 // recent to its decisions or designs.
 // `?area=` alone is everything in one of the project's areas, and with `?sec=`
 // that section of it. On a design the URL is the whole place: `?state=`,
-// `?variant=`, `?version=`, `?view=`. The design screen keeps them current, so Back
+// `?alternative=`, `?version=`, `?view=`. The design screen keeps them current, so Back
 // and a reload land where the entry was.
 
 import { createSignal } from "solid-js";
@@ -44,7 +44,7 @@ export type Route =
       screen: "design";
       project: string;
       slug: string;
-      // Open on this state, and this variant when named (a step of a flow or a
+      // Open on this state, and this alternative when named (a step of a flow or a
       // screen on Home names the state alone).
       open: ScreenOpen | null;
       // The flow the user came through, which the flow bar keeps to.
@@ -52,7 +52,11 @@ export type Route =
     }
   | { screen: "missing" };
 
-export type ScreenOpen = { state: string | null; variant: string | null; version?: number | null };
+export type ScreenOpen = {
+  state: string | null;
+  alternative: string | null;
+  version?: number | null;
+};
 export type DesignRoute = Extract<Route, { screen: "design" }>;
 
 export function parseRoute(pathname: string, base = "", search = ""): Route {
@@ -78,17 +82,17 @@ export function parseRoute(pathname: string, base = "", search = ""): Route {
   }
   if (seg[0] === "project" && seg[1]) {
     if (seg[2]) {
-      const variant = q.get("variant");
+      const alternative = q.get("alternative");
       const version = Number(q.get("version"));
       return {
         screen: "design",
         project: dec(seg[1]),
         slug: dec(seg[2]),
         open:
-          variant || q.has("state")
+          alternative || q.has("state")
             ? {
                 state: q.get("state"),
-                variant: variant || null,
+                alternative: alternative || null,
                 version: Number.isInteger(version) && version > 0 ? version : null,
               }
             : null,
@@ -122,7 +126,7 @@ export const designPath = (
 ) => {
   const base = `${projectPath(project)}/${encodeURIComponent(slug)}`;
   const q = new URLSearchParams();
-  if (open?.variant) q.set("variant", open.variant);
+  if (open?.alternative) q.set("alternative", open.alternative);
   if (open?.version) q.set("version", String(open.version));
   if (open && open.state !== null) q.set("state", open.state);
   if (flow) q.set("flow", flow);

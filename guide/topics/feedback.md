@@ -17,7 +17,7 @@ MCP `feedback`, `GET /api/feedback?session=…`). It returns at once:
           {
             "ask": "tone",
             "text": "Quiet or dark?",
-            "chosen": [{ "id": "dark", "label": "Dark", "variant": "dark" }]
+            "chosen": [{ "id": "dark", "label": "Dark", "alternative": "dark" }]
           },
           {
             "ask": "trim",
@@ -37,7 +37,7 @@ MCP `feedback`, `GET /api/feedback?session=…`). It returns at once:
         "decisions": {
           "states": {
             "Writing": {
-              "variant": "dark",
+              "alternative": "dark",
               "parts": {
                 "bar": { "fill": "tabs", "label": "Tabs", "parts": { "badge": { "fill": "dot" } } }
               }
@@ -46,12 +46,12 @@ MCP `feedback`, `GET /api/feedback?session=…`). It returns at once:
           "knobs": { "trim.position": "bottom", "body.size": 19 }
         },
         "comments": [{ "part": "title", "state": "Writing", "text": "bigger" }],
-        "reactions": ["👍 part \"title\" (variant dark, state Writing)"],
+        "reactions": ["👍 part \"title\" (alternative dark, state Writing)"],
         "text": "close, go dark"
       },
       "messages": [],
-      "inUse": [{ "state": "Writing", "variant": "dark", "version": 2 }],
-      "archived": [{ "state": "Writing", "variant": "quiet" }]
+      "inUse": [{ "state": "Writing", "alternative": "dark", "version": 2 }],
+      "archived": [{ "state": "Writing", "alternative": "quiet" }]
     }
   ],
   "pending": [
@@ -72,15 +72,15 @@ without taking any feedback.
 
 ## Reading order
 
-1. `answers` and `asks` decide structure. A variant-bound answer has already put that
-   variant in use and archived its siblings (`inUse`, `archived`). Each `inUse` entry
+1. `answers` and `asks` decide structure. An alternative-bound answer has already put that
+   alternative in use and archived its siblings (`inUse`, `archived`). Each `inUse` entry
    is pinned at the `version` the user put in use (`read` → `inUse`): `export` and
    embeds show that one, not your newer publishes, until the user picks again.
    A batch's `system` (`{rev, changes}`) is what its Send decided for the whole project:
    a palette made the default, a project knob settled. Every design wears it now.
-   `read --history` flags a version the user hid `hidden`. The question `variant` (per
-   state `variant:<state>`) is the built-in variant question. A `chosen` entry with
-   `other: true` is the user's own answer (its `label`); it flips no variant and sets
+   `read --history` flags a version the user hid `hidden`. The question `alternative` (per
+   state `alternative:<state>`) is the built-in alternative question. A `chosen` entry with
+   `other: true` is the user's own answer (its `label`); it flips no alternative and sets
    no knob. `comment` qualifies the answer and may come with nothing chosen. Images
    attached to either come as `images` on the `other` choice and `commentImages` on the
    question, each `{id, url}`; the text may then be `""`. Look at every one: over MCP
@@ -88,21 +88,21 @@ without taking any feedback.
    the server has one) and open the file.
 2. `tuned` holds knob values. Write them back into the source as the new defaults
    (`skills/tunekit` in the tunekit package covers applying copied values).
-3. `borrowed` maps a part to the variant it was borrowed from. Compose that part from
-   the other variant into the chosen one. If a borrow conflicts with an answer, the
+3. `borrowed` maps a part to the alternative it was borrowed from. Compose that part from
+   the other alternative into the chosen one. If a borrow conflicts with an answer, the
    answer wins.
 4. `comments` are anchored on a part in a state (`part: null` means no part). Address
-   each one. A comment naming a `variant` and `version` is a steer: publish a new
-   version of that variant. One with `borrow` (`{from: "felt@2", part?}`) asks for a
+   each one. A comment naming an `alternative` and `version` is a steer: publish a new
+   version of that alternative. One with `borrow` (`{from: "felt@2", part?}`) asks for a
    new version that takes a part from `from`: the declared `part`, else what its `text`
    says. `reactions` are one-tap verdicts, one line each, never also in `comments`: 👍
-   keep it, 👎 rework it, "more like this" means publish 2–3 new variants forked from
+   keep it, 👎 rework it, "more like this" means publish 2–3 new alternatives forked from
    that version (`fork: "felt@2"`), each a different step the same way. A reaction
-   without a part is about the whole variant; one may end with the user's words in quotes.
-5. `verdict` (`{kind: use|revise, state, variant}`) is the user's word on one variant
+   without a part is about the whole alternative; one may end with the user's words in quotes.
+5. `verdict` (`{kind: use|revise, state, alternative}`) is the user's word on one alternative
    outside any question. `use` is Use this, with the `version` now in use; `revise` is
-   New version: publish another version of that variant (its `text` says from which).
-   Archived variants stay in view, muted, and the user can restore them.
+   New version: publish another version of that alternative (its `text` says from which).
+   Archived alternatives stay in view, muted, and the user can restore them.
 6. `text` is the user's message on the Send.
 
 `messages` (outside `reply`) are what the user wrote in the design's thread, delivered
@@ -177,12 +177,12 @@ Never poll `feedback` in a loop.
 ## Acting on it
 
 ```sh
-mockpit publish --design writer --state "Writing" --variant dark --html dark-v2.html --prompt "bigger title"
+mockpit publish --design writer --state "Writing" --alternative dark --html dark-v2.html --prompt "bigger title"
 mockpit say "Went dark; body at 19px" --design writer
 mockpit export  --design writer             # .mockpit/accepted/writer/<state>/{index.html,history.json,…}
 mockpit read                              # one line per design, plus pending, then what is already decided
-mockpit read    writer                    # states, variants, questions and answers, parts, knobs, settled
-mockpit read    --tree                    # the project as a tree: variants, forkedFrom, embeds / embeddedIn
+mockpit read    writer                    # states, alternatives, questions and answers, parts, knobs, settled
+mockpit read    --tree                    # the project as a tree: alternatives, forkedFrom, embeds / embeddedIn
 mockpit read    --area Food               # one area: what it is for, its designs, decisions, ideas waiting
 mockpit read    --decisions               # the whole decision list, when a read cut it
 ```
@@ -206,8 +206,8 @@ mockpit read    --decisions               # the whole decision list, when a read
   hands over every entry marked Ready at its marked version (unmarked: every live entry as
   it shows; a marked version that is gone is listed in `missing`, never replaced), with
   `ready`, `changed`, the `spec` and `builtFrom` (the components those versions embed, one per
-  variant and version referenced, each with its mark). The CLI writes each entry as
-  `<variant>.html` in its state's directory (two names that would collide each get the start
+  alternative and version referenced, each with its mark). The CLI writes each entry as
+  `<alternative>.html` in its state's directory (two names that would collide each get the start
   of their post id), and the rest to `design.json`.
 - A read with `area` (`mockpit read --area Food`) is one product area: `description`
   (the project's), `area` (`{name, description}`), `screens` and `components` (`{slug,
@@ -234,11 +234,11 @@ mockpit read    --decisions               # the whole decision list, when a read
   [{design, state}]}]`. In the design, `data-goto="next"`, `"prev"` or
   `"<design>:<state>"` on an element moves the user there while they try it.
 
-- `publish` on an existing (design, state, variant) makes its next version.
+- `publish` on an existing (design, state, alternative) makes its next version.
   `--from N` branches off an earlier one. `--fork quiet@2` (MCP/HTTP
-  `fork: "quiet@2"`) starts a NEW variant from a sibling's version and records
+  `fork: "quiet@2"`) starts a NEW alternative from a sibling's version and records
   the lineage; alone it copies it, with `--parts`/`--fills` it edits the copy. The result flags vanished or renamed
-  parts. Don't publish a near-duplicate variant; publish the next version.
+  parts. Don't publish a near-duplicate alternative; publish the next version.
 - Replace one part instead of the document: `--parts body=body.html`
   (repeatable; `--parts body=-` reads stdin), MCP `publish({parts: {body:
   "<p data-part=\"body\">new copy</p>"}})`, or `parts` in the HTTP publish body.
@@ -252,9 +252,9 @@ mockpit read    --decisions               # the whole decision list, when a read
   replaced; a new one goes after that part's other fills. `data-part` and
   `data-fill` are added to the element when missing.
 - `decisions` (only when the design has fills or the reply set knobs) is the
-  state as chosen: per state the variant, then each part's chosen fill with
+  state as chosen: per state the alternative, then each part's chosen fill with
   the parts inside it, then every knob value that picks no fill.
-  `borrowedFrom` on a part means the user borrowed it from another variant. A
+  `borrowedFrom` on a part means the user borrowed it from another alternative. A
   part inside a fill that was not chosen is absent, and its question's answer
   is not sent.
 - `say` posts a short plain-text message in the thread. Give substantial answers as a new
@@ -275,19 +275,19 @@ mockpit read    --decisions               # the whole decision list, when a read
   (each `{id, label, why}`) they don't want offered again, and `carried` names kept
   screens to change along with the one in use, every time. A reply's `asks` carry the
   same as labels when they changed since the last one. Never offer a hidden answer
-  again, and treat a `why` as taste that holds across the project. Hiding a variant
-  answer archives that variant, with the `why` as its reason, and restoring the variant
-  unhides it: a variant answer whose variant is archived counts as hidden. A variant a question
+  again, and treat a `why` as taste that holds across the project. Hiding an alternative
+  answer archives that alternative, with the `why` as its reason, and restoring the alternative
+  unhides it: an alternative answer whose alternative is archived counts as hidden. An alternative a question
   keeps reads `kept: true`; it is not archived when another is chosen, and nothing
   else changes it unless it is `carried`. Values follow every new version by themselves;
   a kept screen doesn't, so leave it as it is.
 - `update: {ask, text, kept, inUse}` asks you to bring one kept screen up to date with
-  the one in use, once: publish a new version of `kept.variant` with the changes made
+  the one in use, once: publish a new version of `kept.alternative` with the changes made
   to the one in use since.
 - `set` names a saved set the user put in use: a combination of answers across
   questions (`sets` on `read`, each `{name, answers}`). The reply's answers are its
   answers.
-- A variant's `status` is `open`, `inUse` (with `inUseVersion`) or `archived`
+- An alternative's `status` is `open`, `inUse` (with `inUseVersion`) or `archived`
   (with `archiveReason` if the user gave one). `changedTo` is a newer version
   than the one in use, which the user hasn't taken or passed on yet. Both are
   information.

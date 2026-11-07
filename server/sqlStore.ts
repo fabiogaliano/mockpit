@@ -15,7 +15,7 @@ import {
   type CreatePostInput,
   type CreateSessionInput,
   DEFAULT_PROJECT,
-  DEFAULT_VARIANT,
+  DEFAULT_ALTERNATIVE,
   type Draft,
   hashAssetId,
   HISTORY_LIMIT,
@@ -65,7 +65,7 @@ import {
   type UpdateDesignInput,
   type UpdatePostInput,
   type AmendPostInput,
-  type DecisionVariant,
+  type DecisionAlternative,
 } from "./types.ts";
 import { renameSlugRefs } from "./embeds.ts";
 import {
@@ -167,7 +167,7 @@ const SURFACE_HEADS_SQL = `CASE WHEN json_valid(surfaces) THEN (
 const POST_HEAD_COLUMNS =
   "id, sessionId, designId, state, variant, status, title, head, knobs, slots, createdAt, updatedAt, version, curFrom, curPrompt, curAuthor, description, forkedFrom, copiedFrom, starred, acceptedVersion, hiddenVersions, curSession, amendedAt, rewrites, archiveReason, stayedVersion, archivedAt";
 
-// Holding every column a head reads, so listing a project's variants never touches
+// Holding every column a head reads, so listing a project's alternatives never touches
 // a row with a body: those columns sit after `surfaces`, and reaching them through
 // the table walks the body's overflow pages. Any column added to the heads belongs
 // here too (it is built from them), under a new index name so the old one is replaced.
@@ -365,6 +365,129 @@ export class SqlStore implements Store {
     this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('askScopeWord', '1')");
   }
 
+  // Rewrites one JSON column of every row through `fix`, which returns whether it
+  // changed the value in place.
+  private rewriteJson(
+    table: string,
+    key: string,
+    column: string,
+    fix: (value: unknown) => boolean,
+    where = `${column} IS NOT NULL`,
+  ) {
+    for (const r of this.sql
+      .exec(`SELECT ${key}, ${column} FROM ${table} WHERE ${where}`)
+      .toArray()) {
+      const value = parseJson<unknown>(r[column], null);
+      if (value === null || !fix(value)) continue;
+      this.sql.exec(
+        `UPDATE ${table} SET ${column} = ? WHERE ${key} = ?`,
+        JSON.stringify(value),
+        r[key] as string | number,
+      );
+    }
+  }
+
+  // What the user chooses between is an alternative: the stored JSON that names one
+  // (ask options, the built-in question's ids, verdicts, reactions, standings, forks
+  // and copies) says so. A component instance still names its variant, and the posts
+  // column keeps its name.
+  private migrateToAlternativeWords() {
+    const askId = (id: string) =>
+      id === "variant"
+        ? "alternative"
+        : id.startsWith("variant:")
+          ? `alternative${id.slice(7)}`
+          : id;
+    const renameKey = (o: unknown): boolean => {
+      if (!o || typeof o !== "object" || !("variant" in o)) return false;
+      const rec = o as Record<string, unknown>;
+      rec.alternative = rec.variant;
+      delete rec.variant;
+      return true;
+    };
+    const byAskId = (map: unknown): boolean => {
+      if (!map || typeof map !== "object") return false;
+      const rec = map as Record<string, unknown>;
+      let changed = false;
+      for (const k of Object.keys(rec)) {
+        const to = askId(k);
+        if (to === k) continue;
+        rec[to] = rec[k];
+        delete rec[k];
+        changed = true;
+      }
+      return changed;
+    };
+    const standings = (map: unknown): boolean => {
+      let changed = byAskId(map);
+      for (const s of Object.values((map ?? {}) as Record<string, { hidden?: unknown[] }>)) {
+        for (const h of s?.hidden ?? []) changed = renameKey(h) || changed;
+      }
+      return changed;
+    };
+    // A draft and a reply share these fields.
+    const answered = (o: Record<string, unknown>): boolean => {
+      let changed = false;
+      for (const field of ["answers", "others", "askComments", "otherImages", "askCommentImages"]) {
+        changed = byAskId(o[field]) || changed;
+      }
+      for (const c of (o.comments as unknown[] | undefined) ?? [])
+        changed = renameKey(c) || changed;
+      return changed;
+    };
+    // An agent could reuse the built-in question's id for its own, and the replies
+    // answering it are keyed as the built-in's are.
+    this.rewriteJson("designs", "id", "asks", (asks) => {
+      let changed = false;
+      for (const a of asks as { id?: string; after?: string; options?: unknown[] }[]) {
+        for (const field of ["id", "after"] as const) {
+          const was = a[field];
+          if (was !== undefined && askId(was) !== was) {
+            a[field] = askId(was);
+            changed = true;
+          }
+        }
+        for (const o of a.options ?? []) changed = renameKey(o) || changed;
+      }
+      return changed;
+    });
+    this.rewriteJson("designs", "id", "draft", (d) => answered(d as Record<string, unknown>));
+    this.rewriteJson("designs", "id", "standings", standings);
+    this.rewriteJson("designs", "id", "sets", (sets) => {
+      let changed = false;
+      for (const s of sets as { answers?: unknown }[]) changed = byAskId(s.answers) || changed;
+      return changed;
+    });
+    this.rewriteJson("posts", "id", "forkedFrom", renameKey);
+    this.rewriteJson("posts", "id", "copiedFrom", renameKey);
+    this.rewriteJson(
+      "comments",
+      "seq",
+      "payload",
+      (p) => {
+        const reply = p as Record<string, unknown>;
+        let changed = answered(reply);
+        changed = standings(reply.standings) || changed;
+        changed = renameKey(reply.verdict) || changed;
+        const archived = reply.archived as { dismissed?: string[] } | undefined;
+        if (archived?.dismissed?.some((id) => askId(id) !== id)) {
+          archived.dismissed = archived.dismissed.map(askId);
+          changed = true;
+        }
+        for (const field of ["more", "update"]) {
+          const at = reply[field] as { ask?: string } | undefined;
+          if (at?.ask && askId(at.ask) !== at.ask) {
+            at.ask = askId(at.ask);
+            changed = true;
+          }
+        }
+        return changed;
+      },
+      "kind = 'reply' AND payload IS NOT NULL",
+    );
+    this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('alternativeWords', '1')");
+  }
+
   private renameMocksToDesigns() {
     if (!this.tables().has("mocks") || this.tables().has("designs")) return;
     for (const name of [
@@ -403,7 +526,7 @@ export class SqlStore implements Store {
         r.seq as number,
       );
     }
-    // The same release gave the design's archive fields and a variant's description
+    // The same release gave the design's archive fields and an alternative's description
     // their names; the JSON that speaks these words waits for migrateToDesignWords.
     const designCols = this.columns("designs");
     if (designCols.has("closedAt")) {
@@ -504,6 +627,7 @@ export class SqlStore implements Store {
       libraryGroup: "TEXT",
       source: "TEXT",
       shortlist: "INTEGER NOT NULL DEFAULT 0",
+      variants: "INTEGER NOT NULL DEFAULT 0",
       spec: "TEXT",
       ready: "TEXT",
       stateOutlines: "TEXT NOT NULL DEFAULT '{}'",
@@ -557,6 +681,7 @@ export class SqlStore implements Store {
     if (this.settingSync("contractTerms") !== "1") this.migrateToContractTerms();
     if (this.settingSync("designWords") !== "1") this.migrateToDesignWords();
     if (this.settingSync("askScopeWord") !== "1") this.migrateAskScopeWord();
+    if (this.settingSync("alternativeWords") !== "1") this.migrateToAlternativeWords();
     // The day it went was never kept, and the design's last change is the nearest thing.
     // Frozen now, or the next reason or draft on the design would move it to that day.
     if (!dated) {
@@ -681,9 +806,9 @@ export class SqlStore implements Store {
   // The agent contract renamed what replies and drafts store (mix → borrowed,
   // decision → verdict with accept → use, resolved → archived) and retired drop
   // and the `<mockpit-slot>` embed alias. Stored data is rewritten once, here,
-  // so nothing past the store reads an old name: a dropped variant is archived
+  // so nothing past the store reads an old name: a dropped alternative is archived
   // (both were hidden from the choice and restorable), a drop verdict loses its
-  // verdict (the variant's archived status says the rest), and every stored
+  // verdict (the alternative's archived status says the rest), and every stored
   // version spells its embeds `<mockpit-embed>` so it still renders them.
   private migrateToContractTerms() {
     this.sql.exec(
@@ -875,7 +1000,7 @@ export class SqlStore implements Store {
     }
   }
 
-  // Before items, posts had no project/slug/variant; derive them per post.
+  // Before items, posts had no project/slug/alternative; derive them per post.
   private migrateToItems() {
     this.addMissing("posts", {
       project: "TEXT NOT NULL DEFAULT 'workspace'",
@@ -936,7 +1061,7 @@ export class SqlStore implements Store {
   }
 
   // Every (project, item slug) becomes one single-state design; its posts become
-  // the design's variants with state null. Unsent operator drafts become the
+  // the design's alternatives with state null. Unsent operator drafts become the
   // design's draft so they are still there to send; decisions become plain
   // comments (they were already delivered).
   private migrateToDesigns() {
@@ -949,7 +1074,7 @@ export class SqlStore implements Store {
       else groups.set(key, [r]);
     }
     const designOf = new Map<string, string>();
-    const variantOf = new Map<string, string>();
+    const alternativeOf = new Map<string, string>();
     for (const group of groups.values()) {
       const first = group[0];
       const latest = group.reduce((a, b) =>
@@ -969,12 +1094,12 @@ export class SqlStore implements Store {
       );
       const used = new Set<string>();
       for (const r of group) {
-        const base = (r.variant as string) || DEFAULT_VARIANT;
-        let variant = base;
-        for (let n = 2; used.has(variant); n++) variant = `${base}-${n}`;
-        used.add(variant);
+        const base = (r.variant as string) || DEFAULT_ALTERNATIVE;
+        let alternative = base;
+        for (let n = 2; used.has(alternative); n++) alternative = `${base}-${n}`;
+        used.add(alternative);
         designOf.set(r.id as string, id);
-        variantOf.set(r.id as string, variant);
+        alternativeOf.set(r.id as string, alternative);
       }
     }
 
@@ -986,7 +1111,7 @@ export class SqlStore implements Store {
         id,
         r.sessionId as string,
         designOf.get(id)!,
-        variantOf.get(id)!,
+        alternativeOf.get(id)!,
         (r.status as string) || "open",
         r.title as string,
         r.surfaces as string,
@@ -1164,6 +1289,7 @@ export class SqlStore implements Store {
       draft: parseJson<Draft | null>(r.draft, null),
       sessionId: (r.sessionId as string) ?? null,
       shortlist: !!r.shortlist,
+      variants: !!r.variants,
       archivedAt: (r.archivedAt as string) ?? null,
       archiveReason: (r.archiveReason as string) ?? null,
       spec: parseJson<DesignSpec | null>(r.spec, null),
@@ -1185,7 +1311,7 @@ export class SqlStore implements Store {
       sessionId: r.sessionId as string,
       design: r.designId as string,
       state: (r.state as string) ?? null,
-      variant: r.variant as string,
+      alternative: r.variant as string,
       status: ((r.status as string) || "open") as PostStatus,
       title: r.title as string,
       surfaces: parseJson<Surface[]>(r.surfaces, []),
@@ -1332,7 +1458,7 @@ export class SqlStore implements Store {
           .map((r) => r.designId),
       );
       this.sql.exec("DELETE FROM posts WHERE sessionId = ?", id);
-      // A design left with no variants has nothing to show, unless it was declared ahead
+      // A design left with no alternatives has nothing to show, unless it was declared ahead
       // of being drawn, which only goes with the session that planned it. One this
       // session drew is not a plan, whoever wrote to it last: it would come back as one.
       const emptied =
@@ -1443,13 +1569,13 @@ export class SqlStore implements Store {
           archivedAt: (r.archivedAt as string | null) ?? null,
           updatedAt: r.updatedAt as string,
         })),
-      variants: this.sql
+      alternatives: this.sql
         .exec("SELECT designId, state, variant, description, status FROM posts")
         .toArray()
         .map((r) => ({
           designId: r.designId as string,
           state: (r.state as string | null) ?? null,
-          variant: r.variant as string,
+          alternative: r.variant as string,
           description: (r.description as string | null) ?? null,
           status: r.status as PostStatus,
         })),
@@ -1499,6 +1625,7 @@ export class SqlStore implements Store {
       draft: null,
       sessionId: input.sessionId ?? null,
       shortlist: !!input.shortlist,
+      variants: !!input.variants,
       archivedAt: null,
       archiveReason: null,
       spec: null,
@@ -1511,7 +1638,7 @@ export class SqlStore implements Store {
       updatedAt: now,
     };
     this.sql.exec(
-      "INSERT INTO designs (id, project, slug, title, kind, area, libraryGroup, source, states, asks, knobs, widths, draft, sessionId, shortlist, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, NULL, ?, ?, ?, ?)",
+      "INSERT INTO designs (id, project, slug, title, kind, area, libraryGroup, source, states, asks, knobs, widths, draft, sessionId, shortlist, variants, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, NULL, ?, ?, ?, ?, ?)",
       design.id,
       design.project,
       design.slug,
@@ -1525,6 +1652,7 @@ export class SqlStore implements Store {
       JSON.stringify(design.widths),
       design.sessionId,
       design.shortlist ? 1 : 0,
+      design.variants ? 1 : 0,
       design.createdAt,
       design.updatedAt,
     );
@@ -1540,6 +1668,7 @@ export class SqlStore implements Store {
       ...(patch.kind !== undefined && { kind: patch.kind }),
       ...(patch.area !== undefined && { area: label(patch.area) }),
       ...(patch.group !== undefined && { group: label(patch.group) }),
+      ...(patch.variants !== undefined && { variants: patch.variants }),
       ...(patch.source !== undefined && { source: label(patch.source) }),
       ...(patch.states !== undefined && { states: patch.states.map((s) => stripNul(s)) }),
       ...(patch.asks !== undefined && { asks: patch.asks }),
@@ -1558,11 +1687,12 @@ export class SqlStore implements Store {
       updatedAt: new Date().toISOString(),
     };
     this.sql.exec(
-      "UPDATE designs SET title = ?, kind = ?, area = ?, libraryGroup = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, archivedAt = ?, archiveReason = ?, spec = ?, ready = ?, stateOutlines = ?, answerAdditions = ?, standings = ?, sets = ?, updatedAt = ? WHERE id = ?",
+      "UPDATE designs SET title = ?, kind = ?, area = ?, libraryGroup = ?, variants = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, archivedAt = ?, archiveReason = ?, spec = ?, ready = ?, stateOutlines = ?, answerAdditions = ?, standings = ?, sets = ?, updatedAt = ? WHERE id = ?",
       next.title,
       next.kind,
       next.area,
       next.group,
+      next.variants ? 1 : 0,
       next.source,
       JSON.stringify(next.states),
       JSON.stringify(next.asks),
@@ -2019,7 +2149,7 @@ export class SqlStore implements Store {
       .map((r): LiveCopy => ({
         design: r.designId as string,
         state: r.state as string | null,
-        variant: r.variant as string,
+        alternative: r.variant as string,
         copiedFrom: parseJson<CopyRef>(r.copiedFrom, null!),
       }));
   }
@@ -2125,15 +2255,16 @@ export class SqlStore implements Store {
     return rows.length > 0 ? this.rowsToPosts(rows)[0] : null;
   }
 
-  async findPost(designId: string, state: string | null, variant: string) {
+  async findPost(designId: string, state: string | null, alternative: string) {
     const cached = this.postCache.get(designId);
-    if (cached) return cached.posts.find((p) => p.state === state && p.variant === variant) ?? null;
+    if (cached)
+      return cached.posts.find((p) => p.state === state && p.alternative === alternative) ?? null;
     const rows = this.sql
       .exec(
         "SELECT * FROM posts WHERE designId = ? AND state IS ? AND variant = ? ORDER BY createdAt ASC LIMIT 1",
         designId,
         state,
-        variant,
+        alternative,
       )
       .toArray();
     return rows.length > 0 ? this.rowsToPosts(rows)[0] : null;
@@ -2148,7 +2279,7 @@ export class SqlStore implements Store {
       sessionId: input.sessionId,
       design: input.design,
       state: input.state === null ? null : stripNul(input.state),
-      variant: stripNul(input.variant)?.trim() || DEFAULT_VARIANT,
+      alternative: stripNul(input.alternative)?.trim() || DEFAULT_ALTERNATIVE,
       status: "open",
       title: stripNul(input.title)?.trim() || "Untitled",
       surfaces: normalizeSurfaceIds(input.surfaces),
@@ -2177,7 +2308,7 @@ export class SqlStore implements Store {
         post.sessionId,
         post.design,
         post.state,
-        post.variant,
+        post.alternative,
         post.title,
         JSON.stringify(post.surfaces),
         surfaceHeads(post.surfaces),
@@ -2204,11 +2335,11 @@ export class SqlStore implements Store {
 
   // The versions of a post history keeps past its limit: the one in use and the ones
   // its design's Ready mark records for it. Never empty, so the SQL list is valid.
-  private pinnedVersions(post: Pick<Post, "design" | "state" | "variant" | "acceptedVersion">) {
+  private pinnedVersions(post: Pick<Post, "design" | "state" | "alternative" | "acceptedVersion">) {
     const row = this.sql.exec("SELECT ready FROM designs WHERE id = ?", post.design).toArray()[0];
     const ready = parseJson<DesignReady | null>(row?.ready, null);
     const covered = (ready?.covers ?? [])
-      .filter((c) => c.state === post.state && c.name === post.variant)
+      .filter((c) => c.state === post.state && c.name === post.alternative)
       .map((c) => c.version);
     return [post.acceptedVersion ?? -1, ...covered];
   }
@@ -2758,16 +2889,16 @@ export class SqlStore implements Store {
   }
 
   async listDecisionSources(project: string) {
-    const variants = this.sql
+    const alternatives = this.sql
       .exec(
         "SELECT designId, state, variant, status, version, acceptedVersion FROM posts WHERE designId IN (SELECT id FROM designs WHERE project = ?) ORDER BY createdAt ASC, rowid ASC",
         project,
       )
       .toArray()
-      .map((r): DecisionVariant => ({
+      .map((r): DecisionAlternative => ({
         designId: r.designId as string,
         state: (r.state as string | null) ?? null,
-        variant: r.variant as string,
+        alternative: r.variant as string,
         status: r.status as PostStatus,
         version: r.version as number,
         acceptedVersion: (r.acceptedVersion as number | null) ?? null,
@@ -2786,7 +2917,7 @@ export class SqlStore implements Store {
       .toArray()) {
       decidedAt[r.designId as string] = r.at as string;
     }
-    return { variants, decidedAt };
+    return { alternatives, decidedAt };
   }
 
   async commitReply(input: CommitReplyInput) {

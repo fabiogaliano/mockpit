@@ -71,7 +71,7 @@ async function publishWriter() {
   });
   let designId = "";
   for (const state of DEMO.states) {
-    for (const variant of DEMO.variants) {
+    for (const alternative of DEMO.alternatives) {
       const out = await api("/api/designs", {
         session: session.id,
         project: DEMO.project,
@@ -79,9 +79,9 @@ async function publishWriter() {
         kind: "screen",
         title: DEMO.title,
         state: state.label,
-        variant: variant.name,
+        alternative: alternative.name,
         knobs: DEMO.knobs,
-        surfaces: [{ kind: "html", html: DEMO.render(state, variant) }],
+        surfaces: [{ kind: "html", html: DEMO.render(state, alternative) }],
       });
       designId = out.design.id;
     }
@@ -157,7 +157,7 @@ await stage("hideCard");
 await sleep(700);
 await stage(
   "caption",
-  `Agents publish a design over <span class="hl">CLI, MCP, or plain HTTP</span> — every state, a few variants`,
+  `Agents publish a design over <span class="hl">CLI, MCP, or plain HTTP</span> — every state, a few alternatives`,
 );
 await sleep(900);
 const { designId, session } = await publishWriter();
@@ -168,7 +168,7 @@ await row.click();
 await app.locator('.opt[data-option="editorial"] iframe').waitFor();
 await sleep(2400);
 
-// 3. Questions: preview the variants on the stage, pick one, answer the rest.
+// 3. Questions: preview the alternatives on the stage, pick one, answer the rest.
 await stage(
   "caption",
   `The agent asks — <span class="hl">you answer from pictures</span> of each option`,
@@ -209,7 +209,7 @@ await api("/api/designs", {
   design: designId,
   session,
   state: writing.label,
-  variant: "quiet",
+  alternative: "quiet",
   prompt: "applied your answers",
   surfaces: [
     {

@@ -1,4 +1,4 @@
-// Studio: the state zoomed out, every variant side by side with its newest
+// Studio: the state zoomed out, every alternative side by side with its newest
 // version on top, for exploring before anything is in use. A click looks
 // closer without leaving: one version large, flipped through in reading order;
 // Stage, where answers are, is a deliberate step from there. What's hidden, archived or
@@ -32,7 +32,7 @@ import {
 } from "solid-js";
 import type { CopyRef } from "../../server/types.ts";
 import { AddCandidates } from "./AddCandidates.tsx";
-import { api, assetUrl, surfaceUrl, type VariantView } from "./api.ts";
+import { api, assetUrl, surfaceUrl, type AlternativeView } from "./api.ts";
 import { posterShown } from "./systemRev.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
@@ -114,68 +114,72 @@ type Acts = Record<
   select: (st: VersionStep, e: MouseEvent) => void;
 };
 
-// What one state shows: its variants as columns, each down its versions.
+// What one state shows: its alternatives as columns, each down its versions.
 // Everything here reads the board's own state rather than the one on stage,
 // since a phone's strip draws every state at once.
 type Board = ReturnType<typeof boardOf>;
 function boardOf(s: DesignScreenState, state: string | null) {
-  const inState = createMemo(() => s.variants().filter((v) => v.state === state));
+  const inState = createMemo(() => s.alternatives().filter((v) => v.state === state));
   const allSteps = createMemo<VersionStep[]>(
-    (was) => keepSame(was, versionSteps(s.variants(), state), stepKey),
+    (was) => keepSame(was, versionSteps(s.alternatives(), state), stepKey),
     [],
   );
-  const drawnOf = (variant: string) =>
+  const drawnOf = (alternative: string) =>
     allSteps()
-      .filter((st) => st.variant === variant && !st.hidden)
+      .filter((st) => st.alternative === alternative && !st.hidden)
       .reverse();
   // What's still in play, which is what decides whether a × hides or archives.
   const versionsOf = drawnOf;
-  const live = (v: VariantView) => isLive(v.status);
-  const isFork = (v: VariantView) =>
+  const live = (v: AlternativeView) => isLive(v.status);
+  const isFork = (v: AlternativeView) =>
     !!v.forkedFrom &&
     live(v) &&
-    inState().some((p) => p.variant === v.forkedFrom?.variant && live(p));
+    inState().some((p) => p.alternative === v.forkedFrom?.alternative && live(p));
   // Roots in the order they were made, each followed by its forks.
   const columns = createMemo(() => {
-    const vs = inState().filter((v) => live(v) && drawnOf(v.variant).length);
-    const out: VariantView[] = [];
-    const visit = (v: VariantView) => {
+    const vs = inState().filter((v) => live(v) && drawnOf(v.alternative).length);
+    const out: AlternativeView[] = [];
+    const visit = (v: AlternativeView) => {
       if (out.includes(v)) return;
       out.push(v);
-      for (const c of vs) if (c.forkedFrom?.variant === v.variant) visit(c);
+      for (const c of vs) if (c.forkedFrom?.alternative === v.alternative) visit(c);
     };
     for (const v of vs)
-      if (!v.forkedFrom || !vs.some((p) => p.variant === v.forkedFrom?.variant)) visit(v);
+      if (!v.forkedFrom || !vs.some((p) => p.alternative === v.forkedFrom?.alternative)) visit(v);
     for (const v of vs) visit(v);
     return out;
   });
   const inUse = (): VersionRef | null => {
     const u = s.design()?.inUse.find((x) => x.state === state);
-    return u ? { variant: u.variant, version: u.version } : null;
+    return u ? { alternative: u.alternative, version: u.version } : null;
   };
-  // "Dark #2", or "#2" while the state has one variant.
+  // "Dark #2", or "#2" while the state has one alternative.
   const nameOf = (ref: VersionRef) => versionName(ref, inState().length > 1);
   // What is in use stays: only a new choice moves it.
-  const isUsed = (variant: string) => inUse()?.variant === variant;
-  const aside = createMemo(() => inState().filter((v) => !live(v) && versionsOf(v.variant).length));
+  const isUsed = (alternative: string) => inUse()?.alternative === alternative;
+  const aside = createMemo(() =>
+    inState().filter((v) => !live(v) && versionsOf(v.alternative).length),
+  );
   // What was forked from this version, which moves along with it, as `move` moves it
   // for an agent.
   const familyOf = (st: VersionStep) =>
     inState()
       .filter(
         (v) =>
-          live(v) && v.forkedFrom?.variant === st.variant && v.forkedFrom.version === st.version,
+          live(v) &&
+          v.forkedFrom?.alternative === st.alternative &&
+          v.forkedFrom.version === st.version,
       )
-      .flatMap((v) => versionsOf(v.variant));
-  // Which the wall can list on purpose. Of an archived variant they went with it.
+      .flatMap((v) => versionsOf(v.alternative));
+  // Which the wall can list on purpose. Of an archived alternative they went with it.
   const hiddenSteps = () =>
     allSteps().filter(
-      (st) => st.hidden && inState().some((v) => v.variant === st.variant && live(v)),
+      (st) => st.hidden && inState().some((v) => v.alternative === st.alternative && live(v)),
     );
   // What Look closer flips through: the columns left to right, each down its
   // versions, as the eye reads the grid.
   const runs = createMemo(() =>
-    columns().map((v) => ({ variant: v.variant, steps: drawnOf(v.variant) })),
+    columns().map((v) => ({ alternative: v.alternative, steps: drawnOf(v.alternative) })),
   );
   return {
     state,
@@ -197,8 +201,8 @@ function boardOf(s: DesignScreenState, state: string | null) {
 // which state goes on stage with it.
 type Entry = { b: Board; st: VersionStep };
 
-// What the wall lists. An archived variant is one card, its newest version: what comes
-// back is the variant, so a card per version would offer the same Restore many times.
+// What the wall lists. An archived alternative is one card, its newest version: what comes
+// back is the alternative, so a card per version would offer the same Restore many times.
 type WallShow = "live" | "use" | "archived" | "hidden";
 const FILTER_FROM = 8;
 const WALL_SHOWS: { id: WallShow; label: string }[] = [
@@ -208,7 +212,7 @@ const WALL_SHOWS: { id: WallShow; label: string }[] = [
   { id: "hidden", label: "Hidden" },
 ];
 function cardsOf(b: Board, show: WallShow): VersionStep[] {
-  if (show === "archived") return b.aside().map((v) => b.versionsOf(v.variant)[0]);
+  if (show === "archived") return b.aside().map((v) => b.versionsOf(v.alternative)[0]);
   if (show === "hidden") return b.hiddenSteps();
   const live = b.runs().flatMap((r) => r.steps);
   return show === "use" ? live.filter((st) => sameVersion(b.inUse(), st)) : live;
@@ -250,12 +254,12 @@ export function Studio(props: {
     else q.delete(name);
     return `${w.location.pathname}?${q}`;
   };
-  const key = (st: VersionStep) => `${st.variant}@${st.version}`;
-  // Variant names repeat across states, so a frame is told apart by both.
+  const key = (st: VersionStep) => `${st.alternative}@${st.version}`;
+  // Alternative names repeat across states, so a frame is told apart by both.
   const frameKey = (b: Board, st: VersionStep) => `${b.state ?? ""}\n${key(st)}`;
 
   // The wall's filters live in the URL, so Back from Stage finds the wall as it was left.
-  const sized = () => s.variants().length >= WALL_FROM;
+  const sized = () => s.alternatives().length >= WALL_FROM;
   const columnsOn = () => !sized() || props.columns();
   // Only what's live has columns: anything else is a list of what to bring back or open.
   const wall = () => !columnsOn() || show() !== "live";
@@ -269,30 +273,33 @@ export function Studio(props: {
   const within = () => (columnsOn() ? s.activeState() : narrowedTo());
   const [showPick, setShowPick] = createSignal(readParam("show"));
   // A lab with everything archived would otherwise open on nothing.
-  // So would one whose last archived variant was just brought back.
+  // So would one whose last archived alternative was just brought back.
   const show = (): WallShow =>
     WALL_SHOWS.find((x) => x.id === showPick() && boards().some((b) => cardsOf(b, x.id).length))
-      ?.id ?? (s.variants().some((v) => isLive(v.status)) ? "live" : "archived");
+      ?.id ?? (s.alternatives().some((v) => isLive(v.status)) ? "live" : "archived");
   const [query, setQuery] = createSignal(readParam("find") ?? "");
   const wallText = createMemo(() => {
     const out = new Map<string, string>();
-    for (const v of s.variants()) {
-      out.set(`${v.state ?? ""}\n${v.variant}`, foldText(`${v.variant}\n${v.description ?? ""}`));
+    for (const v of s.alternatives()) {
+      out.set(
+        `${v.state ?? ""}\n${v.alternative}`,
+        foldText(`${v.alternative}\n${v.description ?? ""}`),
+      );
     }
     return out;
   });
-  const matches = (b: Board, variant: string) => {
+  const matches = (b: Board, alternative: string) => {
     const q = foldText(query().trim());
     return (
       !q ||
       !!wallText()
-        .get(`${b.state ?? ""}\n${variant}`)
+        .get(`${b.state ?? ""}\n${alternative}`)
         ?.includes(q)
     );
   };
   const wallCards = (b: Board, which: WallShow) =>
-    cardsOf(b, which).filter((st) => matches(b, st.variant));
-  const columnsIn = (b: Board) => b.columns().filter((v) => matches(b, v.variant));
+    cardsOf(b, which).filter((st) => matches(b, st.alternative));
+  const columnsIn = (b: Board) => b.columns().filter((v) => matches(b, v.alternative));
   const inWithin = (b: Board) => within() === null || b.state === within();
   // Every state's cards stay in the page, a state not picked hidden: its frames keep
   // their documents and their place in the DOM, either of which would reload them.
@@ -365,7 +372,7 @@ export function Studio(props: {
       if (there) s.showState(there.state);
     });
   // A handful is read at a glance; a filter only earns its place past that.
-  const filterable = () => s.variants().length > FILTER_FROM || !!query();
+  const filterable = () => s.alternatives().length > FILTER_FROM || !!query();
   const barShown = () =>
     tabs().length > 1 ||
     filterable() ||
@@ -387,14 +394,14 @@ export function Studio(props: {
         ? boards().filter((b) => b.state === s.activeState() || b.columns().length > 0)
         : [active()];
   const countIn = (state: string | null) =>
-    s.variants().filter((v) => v.state === state && isLive(v.status)).length;
+    s.alternatives().filter((v) => v.state === state && isLive(v.status)).length;
   const runs = createMemo(() =>
     drawn().flatMap((b) =>
       b
         .runs()
-        .filter((r) => matches(b, r.variant))
+        .filter((r) => matches(b, r.alternative))
         .map((r) => ({
-          variant: r.variant,
+          alternative: r.alternative,
           steps: r.steps.map((st): Entry => ({ b, st })),
         })),
     ),
@@ -474,22 +481,22 @@ export function Studio(props: {
       setPicked([...picked(), key]);
     }
   };
-  // A version dims; all of a variant's going takes it to Archived.
-  const variantsGone = (b: Board, out: VersionStep[]) =>
-    [...new Set(out.map((st) => st.variant))].filter(
-      (v) => b.versionsOf(v).length === out.filter((st) => st.variant === v).length,
+  // A version dims; all of an alternative's going takes it to Archived.
+  const alternativesGone = (b: Board, out: VersionStep[]) =>
+    [...new Set(out.map((st) => st.alternative))].filter(
+      (v) => b.versionsOf(v).length === out.filter((st) => st.alternative === v).length,
     );
   const leaveAll = async (b: Board, out: VersionStep[]) => {
     if (b.state !== s.activeState()) s.showState(b.state);
-    const gone = variantsGone(b, out);
+    const gone = alternativesGone(b, out);
     const undos: (() => void)[] = [];
     for (const st of out) {
-      if (gone.includes(st.variant)) continue;
+      if (gone.includes(st.alternative)) continue;
       const undo = await s.hideVersion(st, true, true);
       if (undo) undos.push(undo);
     }
     if (gone.length) {
-      const undo = await s.archiveVariants(gone, undefined, true);
+      const undo = await s.archiveAlternatives(gone, undefined, true);
       if (undo) undos.push(undo);
     }
     if (!undos.length) return undefined;
@@ -502,10 +509,10 @@ export function Studio(props: {
     if (!m) return null;
     const state = b.state;
     const out = steps.filter((st) => !sameVersion(b.inUse(), st));
-    const archives = variantsGone(b, out);
+    const archives = alternativesGone(b, out);
     return {
       items: steps.map((st) => ({
-        ref: { design: m.id, state, variant: st.variant, version: st.version },
+        ref: { design: m.id, state, alternative: st.alternative, version: st.version },
         name: b.nameOf(st),
       })),
       here: state ? `${m.title} · ${state}` : m.title,
@@ -519,12 +526,12 @@ export function Studio(props: {
     const b = active();
     const out = chosen().filter((st) => !sameVersion(b.inUse(), st));
     const stays = chosen().length - out.length;
-    const gone = variantsGone(b, out);
+    const gone = alternativesGone(b, out);
     const single = out.length === 1 ? b.nameOf(out[0]) : null;
     setPicked([]);
     const undo = await leaveAll(b, out);
     if (!undo) return;
-    const hid = out.filter((st) => !gone.includes(st.variant)).length;
+    const hid = out.filter((st) => !gone.includes(st.alternative)).length;
     const parts = [
       gone.length ? `Archived ${single ?? gone.length}` : "",
       hid ? `${gone.length ? "hid" : "Hid"} ${single ?? hid}` : "",
@@ -948,8 +955,8 @@ export function Studio(props: {
         if (st.hidden) void s.hideVersion(st, false);
         else {
           void s
-            .restoreVariant(st.variant, [b.state])
-            .then(() => s.setToast({ text: `Restored ${st.variant}` }));
+            .restoreAlternative(st.alternative, [b.state])
+            .then(() => s.setToast({ text: `Restored ${st.alternative}` }));
         }
       },
       full: (st) => openFull({ b, st }),
@@ -961,7 +968,7 @@ export function Studio(props: {
       more(st) {
         here();
         void s
-          .steer({ variant: st.variant, version: st.version, reaction: "more" })
+          .steer({ alternative: st.alternative, version: st.version, reaction: "more" })
           .then((ok) => ok && s.setToast({ text: `More like ${b.nameOf(st)}, sent` }));
       },
       comment(st) {
@@ -982,16 +989,21 @@ export function Studio(props: {
         setBorrowFrom(null);
         setWriting({ kind: "borrow", to: st, from: from.st });
       },
-      // The last version of a variant can't be hidden; it archives the variant.
+      // The last version of an alternative can't be hidden; it archives the alternative.
       remove(st) {
         here();
-        if (b.versionsOf(st.variant).length > 1) void s.hideVersion(st, true);
-        else void s.archiveVariants([st.variant]);
+        if (b.versionsOf(st.alternative).length > 1) void s.hideVersion(st, true);
+        else void s.archiveAlternatives([st.alternative]);
       },
       saved(st) {
         const id = s.design()?.id;
         if (!id) return false;
-        return sl.isSaved({ design: id, state: b.state, variant: st.variant, version: st.version });
+        return sl.isSaved({
+          design: id,
+          state: b.state,
+          alternative: st.alternative,
+          version: st.version,
+        });
       },
       family: (st) => b.familyOf(st),
       leave: (st) =>
@@ -1010,9 +1022,9 @@ export function Studio(props: {
   // On the wall a card is one design among many, in no column: its name has to say
   // which version it is, and that it was forked from another.
   const wallCaption = (b: Board, st: VersionStep) => {
-    const v = s.variants().find((x) => x.state === b.state && x.variant === st.variant);
+    const v = s.alternatives().find((x) => x.state === b.state && x.alternative === st.alternative);
     const name =
-      st.hidden || b.versionsOf(st.variant).length > 1 ? versionName(st, true) : st.variant;
+      st.hidden || b.versionsOf(st.alternative).length > 1 ? versionName(st, true) : st.alternative;
     return v && b.isFork(v) ? `↳ ${name}` : name;
   };
   const card = (b: Board, act: Acts, st: VersionStep, small = false, onWall = false) => {
@@ -1032,7 +1044,7 @@ export function Studio(props: {
         live={inBudget(frameKey(b, st)) || kept().keys.includes(frameKey(b, st))}
         borrowing={borrowing()}
         source={borrowing() && sameVersion(borrowFrom()?.st, st)}
-        last={b.versionsOf(st.variant).length === 1}
+        last={b.versionsOf(st.alternative).length === 1}
         ref={watch}
         onWake={() => bump(b, st)}
         act={act}
@@ -1166,29 +1178,29 @@ export function Studio(props: {
                 <div class="studio-run">
                   <For each={columnsIn(b)}>
                     {(v) => (
-                      <section class="studio-col" aria-label={v.variant}>
+                      <section class="studio-col" aria-label={v.alternative}>
                         <header class="studio-colh">
-                          <h2>{v.variant}</h2>
+                          <h2>{v.alternative}</h2>
                           <Show when={v.forkedFrom}>
-                            {(f) => <span class="studio-from">{`from ${f().variant}`}</span>}
+                            {(f) => <span class="studio-from">{`from ${f().alternative}`}</span>}
                           </Show>
-                          <Show when={!readonly() && !borrowFrom() && !b.isUsed(v.variant)}>
+                          <Show when={!readonly() && !borrowFrom() && !b.isUsed(v.alternative)}>
                             <button
                               type="button"
                               class="ib x-remove col-x"
                               aria-label={
                                 isShortlist()
-                                  ? `Remove ${v.variant} from this idea`
-                                  : `Archive ${v.variant}`
+                                  ? `Remove ${v.alternative} from this idea`
+                                  : `Archive ${v.alternative}`
                               }
                               title={
                                 isShortlist()
-                                  ? `Remove ${v.variant} from this idea`
-                                  : `Archive ${v.variant}`
+                                  ? `Remove ${v.alternative} from this idea`
+                                  : `Archive ${v.alternative}`
                               }
                               onClick={() => {
                                 if (b.state !== s.activeState()) s.showState(b.state);
-                                void s.archiveVariants([v.variant]);
+                                void s.archiveAlternatives([v.alternative]);
                               }}
                             >
                               <Icon name="close" />
@@ -1198,7 +1210,7 @@ export function Studio(props: {
                         <Show when={v.copiedFrom}>
                           {(c) => <Origin from={c()} designs={projectDesigns()?.designs ?? []} />}
                         </Show>
-                        <For each={b.drawnOf(v.variant)}>{(st) => card(b, act, st)}</For>
+                        <For each={b.drawnOf(v.alternative)}>{(st) => card(b, act, st)}</For>
                       </section>
                     )}
                   </For>
@@ -1273,7 +1285,7 @@ export function Studio(props: {
             entry={e()}
             top={props.top}
             order={order()}
-            last={e().b.versionsOf(e().st.variant).length === 1}
+            last={e().b.versionsOf(e().st.alternative).length === 1}
             wall={wall()}
             perState={strip() && drawn().length > 1}
             gone={goneShown()}
@@ -1293,7 +1305,7 @@ export function Studio(props: {
             entry={e()}
             top={props.top}
             order={order()}
-            last={e().b.versionsOf(e().st.variant).length === 1}
+            last={e().b.versionsOf(e().st.alternative).length === 1}
             wall
             beside
             gone={goneShown()}
@@ -1367,7 +1379,7 @@ function StudioCard(props: {
         gone: !!props.gone,
         hid: st().hidden,
       }}
-      data-key={`${st().variant}@${st().version}`}
+      data-key={`${st().alternative}@${st().version}`}
       data-state={props.b.state ?? ""}
       // A poster is an image: it holds no context, so it takes no budget.
       // On a wall any page counts: there can be a screenful of them with no canvas at all.
@@ -1432,8 +1444,8 @@ function StudioCard(props: {
         </button>
       </Show>
       <Show when={props.small}>
-        <span class="sk-name" title={st().variant}>
-          {props.caption ?? st().variant}
+        <span class="sk-name" title={st().alternative}>
+          {props.caption ?? st().alternative}
         </span>
       </Show>
       <Show when={!props.small}>
@@ -1516,7 +1528,7 @@ function StudioCard(props: {
         <button
           type="button"
           class="ib x-remove sk-x"
-          aria-label={props.last ? `Archive ${st().variant}` : `Hide ${name()}`}
+          aria-label={props.last ? `Archive ${st().alternative}` : `Hide ${name()}`}
           title={props.last ? "Archive" : "Hide"}
           onClick={() => props.act.remove(st())}
         >
@@ -1540,7 +1552,7 @@ function Origin(props: {
         const href = () =>
           designPath(m().project, m().slug, {
             state: props.from.state,
-            variant: props.from.variant,
+            alternative: props.from.alternative,
             version: props.from.version,
           });
         return (
@@ -1665,10 +1677,10 @@ function LookPick(props: { name: string; order: Entry[]; entry: Entry; onGo: (e:
                       button?.focus();
                     }}
                   >
-                    {props.order.filter((x) => x.b === e.b && x.st.variant === e.st.variant)
+                    {props.order.filter((x) => x.b === e.b && x.st.alternative === e.st.alternative)
                       .length > 1
                       ? e.b.nameOf(e.st)
-                      : e.st.variant}
+                      : e.st.alternative}
                   </button>
                 </>
               )}
@@ -1705,7 +1717,8 @@ function Look(props: {
   const at = () => props.order.indexOf(props.entry);
   const name = () => b().nameOf(st());
   const inUse = () => sameVersion(b().inUse(), st());
-  const row = () => s.variants().find((x) => x.state === b().state && x.variant === st().variant);
+  const row = () =>
+    s.alternatives().find((x) => x.state === b().state && x.alternative === st().alternative);
   const can = () => !readonly();
   // Where the reason can be written, the box says it.
   const note = () => {
@@ -1854,7 +1867,7 @@ function Look(props: {
         <div class="look-reason">
           <Reason
             value={row()?.archiveReason}
-            onSave={(r) => s.saveArchiveReason(st().variant, r, b().state)}
+            onSave={(r) => s.saveArchiveReason(st().alternative, r, b().state)}
           />
         </div>
       </Show>
@@ -1912,7 +1925,9 @@ function NoteBox(props: { s: DesignScreenState; draft: Draft; onDone: () => void
   const to = () => props.draft.to;
   const from = () => props.draft.from;
   const parts = () =>
-    s.variants().find((v) => v.state === s.activeState() && v.variant === (from() ?? to()).variant)
+    s
+      .alternatives()
+      .find((v) => v.state === s.activeState() && v.alternative === (from() ?? to()).alternative)
       ?.parts ?? [];
   let input: HTMLInputElement | undefined;
   onMount(() => input?.focus());
@@ -1923,7 +1938,7 @@ function NoteBox(props: { s: DesignScreenState; draft: Draft; onDone: () => void
     const sent = f ? `Borrow into ${s.nameOf(to())}, sent` : `Comment on ${s.nameOf(to())}, sent`;
     void s
       .steer({
-        variant: to().variant,
+        alternative: to().alternative,
         version: to().version,
         part: f ? null : part(),
         text: what,

@@ -14,7 +14,7 @@ import {
   mergeNotices,
   type Notice,
   noticeFromComment,
-  noticeFromVariant,
+  noticeFromAlternative,
   notificationText,
   parseBellPref,
 } from "./notifyRules.ts";
@@ -80,8 +80,8 @@ async function deliver(designId: string, items: Candidate[]) {
       const n = row ? noticeFromComment(row) : null;
       return n ? [n] : [];
     }
-    const v = design.variants.find((x) => x.postId === c.postId);
-    return v ? [noticeFromVariant(design.title, v, c.version, design.variants)] : [];
+    const v = design.alternatives.find((x) => x.postId === c.postId);
+    return v ? [noticeFromAlternative(design.title, v, c.version, design.alternatives)] : [];
   });
   const notice = mergeNotices(notices);
   // Re-checked after the fetch: the user may have come back meanwhile.

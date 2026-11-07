@@ -1,5 +1,5 @@
 // A product design (a screen or a component) holds what ships, so nothing on it is
-// chosen: no Use this, no Which variant?, nothing in use. The newest version of each
+// chosen: no Use this, no Which alternative?, nothing in use. The newest version of each
 // entry is current, and the user's one mark is Ready, which records what each state
 // showed. Changed is derived from it on every read, never stored. Runtime-agnostic;
 // the viewer shares these rules.
@@ -19,7 +19,7 @@ import {
 type Line = Pick<
   Post,
   | "state"
-  | "variant"
+  | "alternative"
   | "status"
   | "version"
   | "acceptedVersion"
@@ -29,7 +29,7 @@ type Line = Pick<
 
 // What an older reply put in use on a design that is now a screen or a component stays
 // stored, as history, and reads as open: the design shows its newest version, and a
-// variant can't be both shipped and chosen. Copies only where changed.
+// alternative can't be both shipped and chosen. Copies only where changed.
 export function shipped<P extends { status: PostStatus; acceptedVersion?: number }>(
   design: Pick<Design, "kind">,
   posts: P[],
@@ -42,13 +42,13 @@ export function shipped<P extends { status: PostStatus; acceptedVersion?: number
   });
 }
 
-const coverOf = (ready: DesignReady | null, post: Pick<Line, "state" | "variant">) =>
-  ready?.covers.find((c) => c.state === post.state && c.name === post.variant)?.version;
+const coverOf = (ready: DesignReady | null, post: Pick<Line, "state" | "alternative">) =>
+  ready?.covers.find((c) => c.state === post.state && c.name === post.alternative)?.version;
 
 // The version Ready recorded for this entry, if it recorded one.
 export const readyVersion = (
   design: Pick<Design, "ready">,
-  post: Pick<Line, "state" | "variant">,
+  post: Pick<Line, "state" | "alternative">,
 ) => coverOf(design.ready, post);
 
 // The version an entry shows. An idea's: the one in use, else its newest. A product
@@ -81,7 +81,7 @@ export function shownCovers(design: Pick<Design, "kind" | "ready" | "states">, p
   return stateOrder(design).flatMap((state) =>
     live
       .filter((p) => p.state === state)
-      .map((p): ReadyCover => ({ state, name: p.variant, version: shownVersion(design, p) })),
+      .map((p): ReadyCover => ({ state, name: p.alternative, version: shownVersion(design, p) })),
   );
 }
 
@@ -111,7 +111,7 @@ export function isChanged(design: Pick<Design, "kind" | "ready" | "states">, pos
 // its entry deleted): said, never stood in for by another version.
 export type ReadyCoverView = ReadyCover & { missing?: true };
 export function coverMissing(c: ReadyCover, posts: Line[]): boolean {
-  const p = posts.find((x) => x.state === c.state && x.variant === c.name);
+  const p = posts.find((x) => x.state === c.state && x.alternative === c.name);
   return !p || (p.version !== c.version && !p.history.some((h) => h.version === c.version));
 }
 export function readyView(
@@ -140,8 +140,12 @@ export function readyWord(
 
 // The most live entries one state of a product design holds, when that is more than
 // one: alternatives, which belong in an idea for it.
-export function alternativesHeld(design: Pick<Design, "kind" | "states">, posts: Line[]): number {
-  if (!isProduct(design)) return 0;
+// A variants design's entries all ship, so it holds none to move out.
+export function alternativesHeld(
+  design: Pick<Design, "kind" | "states" | "variants">,
+  posts: Line[],
+): number {
+  if (!isProduct(design) || design.variants) return 0;
   const live = posts.filter((p) => isLive(p.status));
   const most = Math.max(
     0,
@@ -151,7 +155,7 @@ export function alternativesHeld(design: Pick<Design, "kind" | "states">, posts:
 }
 
 export const alternativesNudge = (design: Pick<Design, "title">, n: number) =>
-  `${design.title} holds ${n} alternatives; move them to an idea for it (\`move\`).`;
+  `${design.title} holds ${n} alternatives; move them to an idea for it (\`move\`), or, if they all ship, make it a variants design (\`edit --variants\`).`;
 
 // What a product design says about its mark on every read: the mark, whether it moved,
 // and whether it still holds alternatives. Nothing on an idea.
@@ -163,7 +167,7 @@ export interface ReadyFields {
   nudges?: string[];
 }
 export function readyFields(
-  design: Pick<Design, "kind" | "ready" | "states" | "title">,
+  design: Pick<Design, "kind" | "ready" | "states" | "title" | "variants">,
   posts: Line[],
 ): ReadyFields {
   if (!isProduct(design)) return {};

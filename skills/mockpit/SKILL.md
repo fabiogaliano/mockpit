@@ -1,6 +1,6 @@
 ---
 name: mockpit
-description: Show design and visual work on the user's mockpit surface — UI designs with states and variants, diagrams, interactive explainers, code reviews — ask structured questions on it, expose knobs to tune, and receive the user's one batched reply. Use when the user asks you to design, illustrate, visualize, sketch, design up, or review something visually, mentions mockpit, or when a render would explain your work better than text.
+description: Show design and visual work on the user's mockpit surface — UI designs with states and alternatives, diagrams, interactive explainers, code reviews — ask structured questions on it, expose knobs to tune, and receive the user's one batched reply. Use when the user asks you to design, illustrate, visualize, sketch, design up, or review something visually, mentions mockpit, or when a render would explain your work better than text.
 ---
 
 # mockpit
@@ -16,11 +16,11 @@ The loop never waits for the user:
 
 1. `mockpit init` once per repo; read the brief (`mockpit guide`). In a new session
    `mockpit read` first: its decisions are settled unless the user says otherwise.
-2. `mockpit publish --design <slug> --state "<user's words>" --variant <v> --html f.html`,
-   once per variant; declare parts with `data-part`. Name a state by what the
+2. `mockpit publish --design <slug> --state "<user's words>" --alternative <v> --html f.html`,
+   once per alternative; declare parts with `data-part`. Name a state by what the
    user sees ("Home, idle"), never by your process ("Prototype", "v2"); title
    a design by what it is ("Hold menu"), never "Round 2 · …". The html is the UI alone:
-   say what a variant is in `--description`, never in the design, and name the
+   say what an alternative is in `--description`, never in the design, and name the
    widths it ships at once with `--widths 390,1280`.
    Declare structure only when designing a product's screens: `--kind screen`
    for a screen, `--flow <name> --step N` for states the user moves between,
@@ -36,14 +36,15 @@ The loop never waits for the user:
    for (`edit --purpose`) and how it works where the picture can't show it
    (`edit --behaviour "…" --state Now --part river`); that goes there, never in
    side files. A screen or component has nothing to choose: its newest version is
-   current, alternatives belong in an idea, and the user marks it Ready (`read` and
+   current, alternatives belong in an idea (entries that all ship are variants:
+   `--variants`, each named `--variant <name>`), and the user marks it Ready (`read` and
    `export`: `ready`, `changed`, `builtFrom`). A batch with `edited` is the user moving
    a design from Home (kind, area), correcting its spec or marking it Ready: build on it.
    A screen's mark brings `lift`: swap copies for library instances, lift the rest
    into components, then ask `lift` (topic `feedback`).
-3. A choice is several variants plus one question that binds them: `mockpit ask`
-   with options bound to variants. A variant decides everything it differs on;
-   don't re-ask it. Visual options carry a `variant`, knob `set` or `palette`. One render
+3. A choice is several alternatives plus one question that binds them: `mockpit ask`
+   with options bound to alternatives. An alternative decides everything it differs on;
+   don't re-ask it. Visual options carry an `alternative`, knob `set` or `palette`. One render
    plus a control: `--knobs`; declare knobs for what is worth fine-tuning
    even unasked. When a publish result nudges, send its `suggestedAsk`.
    What every design shares (sheet, tokens, scales, palettes, project knobs) is the
@@ -55,7 +56,7 @@ The loop never waits for the user:
    `mockpit feedback`. Every write also returns `feedback`; read it. Empty `feedback` with a
    `pending` draft means they are still answering.
 6. `mockpit publish` the revision (`--parts name=file` for one part);
-   `mockpit export` once a variant is in use; `mockpit export` alone writes the system.
+   `mockpit export` once an alternative is in use; `mockpit export` alone writes the system.
 
 In Claude Code, arm `mockpit watch` under Monitor after asking, then end the turn:
 `Monitor({ command: "mockpit watch", description: "mockpit replies", timeout_ms: 1800000 })`.

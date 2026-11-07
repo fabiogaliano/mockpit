@@ -1,5 +1,5 @@
 // D1: one stage per design, never replaced: a pannable, zoomable canvas under the
-// top bar. Every (state, variant) of the version on stage is its own sandboxed
+// top bar. Every (state, alternative) of the version on stage is its own sandboxed
 // frame, all loaded at once; only the active one is visible, the rest stay laid
 // out (visibility, not display) so they report their parts up front and
 // switching is instant. The design's other widths sit beside the live one as
@@ -25,7 +25,7 @@ import {
 } from "solid-js";
 import { createStore } from "solid-js/store";
 import { isLive, isSandboxedSurfaceKind, type Surface } from "../../server/types.ts";
-import { assetUrl, surfaceUrl, type VariantView } from "./api.ts";
+import { assetUrl, surfaceUrl, type AlternativeView } from "./api.ts";
 import { palettePick } from "./systemRev.ts";
 import { host, readonly, root } from "./host.ts";
 import { useInspectGestures } from "./gestures.ts";
@@ -197,8 +197,8 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
     return edge + (zoom() === "all" ? 0 : Math.max(0, (availW() - frameW() * fitScale()) / 2));
   };
   const activeKey = createMemo(() => {
-    const v = s.activeVariant();
-    return v ? frameKey(v.state, v.variant) : "";
+    const v = s.activeAlternative();
+    return v ? frameKey(v.state, v.alternative) : "";
   });
   // The design is shown whole across, fitted to the width between what floats
   // at the sides and never past true size; on a tablet or wider it also fits
@@ -232,15 +232,15 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
   createEffect(() => s.setZoomMin(Math.min(zoomFloor(), 1)));
 
   const shown = createMemo(() =>
-    s.variants().filter((v) => isLive(v.status) || v === s.variantFor(v.state)),
+    s.alternatives().filter((v) => isLive(v.status) || v === s.alternativeFor(v.state)),
   );
-  // Frames are keyed by (state, variant), not by object: every refetch brings
-  // new variant objects, and keying by them would remount every frame (a fresh
+  // Frames are keyed by (state, alternative), not by object: every refetch brings
+  // new alternative objects, and keying by them would remount every frame (a fresh
   // load and fade-in) even though the version on stage did not change.
-  const shownKeys = createMemo(() => shown().map((v) => frameKey(v.state, v.variant)), [], {
+  const shownKeys = createMemo(() => shown().map((v) => frameKey(v.state, v.alternative)), [], {
     equals: (a, b) => a.length === b.length && a.every((k, i) => k === b[i]),
   });
-  const byKey = (key: string) => shown().find((v) => frameKey(v.state, v.variant) === key);
+  const byKey = (key: string) => shown().find((v) => frameKey(v.state, v.alternative) === key);
 
   function primaryOf(key: string): HTMLIFrameElement | null {
     for (const [el, info] of frames) if (info.key === key && info.primary) return el;
@@ -556,8 +556,8 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
               }${viewedIn() ? ` · ${viewedIn()}` : ""}`}
             </div>
           </Show>
-          <Show when={s.activeVariant()}>
-            {(variant) => (
+          <Show when={s.activeAlternative()}>
+            {(alternative) => (
               <For each={others()}>
                 {(w) => (
                   <>
@@ -569,7 +569,7 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
                     </div>
                     <Board
                       s={s}
-                      variant={variant()}
+                      alternative={alternative()}
                       w={w}
                       scale={scale()}
                       x={xOf(w)}
@@ -590,10 +590,10 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
             <For each={shownKeys()}>
               {(key) => (
                 <Show when={byKey(key)}>
-                  {(variant) => (
-                    <VariantFrame
+                  {(alternative) => (
+                    <AlternativeFrame
                       s={s}
-                      variant={variant()}
+                      alternative={alternative()}
                       active={key === activeKey()}
                       scale={scale()}
                       frameW={frameW()}
@@ -643,12 +643,12 @@ export function ArrivedBanner(props: { s: DesignScreenState }) {
   );
 }
 
-// Another width of the variant on stage, beside the live one on the canvas: a
+// Another width of the alternative on stage, beside the live one on the canvas: a
 // picture only (no parts, marks or hits) of every surface the live frame shows,
 // with the draft's knob values baked into its html's URL so it matches.
 function Board(props: {
   s: DesignScreenState;
-  variant: VariantView;
+  alternative: AlternativeView;
   w: number;
   scale: number;
   x: number;
@@ -663,24 +663,25 @@ function Board(props: {
   const frames = new Map<HTMLIFrameElement, number>();
   let column!: HTMLDivElement;
   const shownH = () => Math.min(props.height, props.cap);
-  const version = () => s.frameVersionOf(props.variant);
-  const current = () => version() === props.variant.version;
+  const version = () => s.frameVersionOf(props.alternative);
+  const current = () => version() === props.alternative.version;
   const kinds = () =>
-    historyRow(props.variant, version())?.surfaceKinds ?? props.variant.surfaces.map((x) => x.kind);
+    historyRow(props.alternative, version())?.surfaceKinds ??
+    props.alternative.surfaces.map((x) => x.kind);
   const primary = () => kinds().indexOf("html");
   const src = (index: number) => {
     const m = s.design();
     if (!m) return "";
     const knobs =
       index === primary()
-        ? { ...draftKnobValues(m, props.variant.knobs, s.draft()), ...s.preview()?.knobs }
+        ? { ...draftKnobValues(m, props.alternative.knobs, s.draft()), ...s.preview()?.knobs }
         : undefined;
-    return surfaceUrl(props.variant.postId, index, {
+    return surfaceUrl(props.alternative.postId, index, {
       version: version(),
       mode: theme(),
       knobs,
-      e: props.variant.embedsKey,
-      w: props.variant.rewrites,
+      e: props.alternative.embedsKey,
+      w: props.alternative.rewrites,
       p: s.stagePalette(),
     });
   };
@@ -722,7 +723,7 @@ function Board(props: {
                 <NativeSurface
                   kind={kind}
                   surface={
-                    current() ? (props.variant.surfaces[i()] as Surface | undefined) : undefined
+                    current() ? (props.alternative.surfaces[i()] as Surface | undefined) : undefined
                   }
                   version={version()}
                 />
@@ -741,7 +742,7 @@ function Board(props: {
                       sandbox="allow-scripts"
                       tabIndex={-1}
                       aria-hidden="true"
-                      title={`${props.variant.variant} ${kind} at ${props.w}`}
+                      title={`${props.alternative.alternative} ${kind} at ${props.w}`}
                       width={props.w}
                       height={heights[i()] ?? (i() === primary() ? 640 : 160)}
                     />
@@ -815,9 +816,9 @@ function Pin(props: { s: DesignScreenState; index: number; style: JSX.CSSPropert
   );
 }
 
-function VariantFrame(props: {
+function AlternativeFrame(props: {
   s: DesignScreenState;
-  variant: VariantView;
+  alternative: AlternativeView;
   active: boolean;
   scale: number;
   frameW: number;
@@ -838,14 +839,15 @@ function VariantFrame(props: {
   height: number;
 }) {
   const s = props.s;
-  const key = () => frameKey(props.variant.state, props.variant.variant);
+  const key = () => frameKey(props.alternative.state, props.alternative.alternative);
   // A memo, not a getter: the reload below must fire only when this frame's own
   // version changes, not whenever the stage's version moves. A frame whose
   // document stays put would lose its parts report and never send another.
-  const version = createMemo(() => s.frameVersionOf(props.variant));
-  const current = () => version() === props.variant.version;
+  const version = createMemo(() => s.frameVersionOf(props.alternative));
+  const current = () => version() === props.alternative.version;
   const kinds = () =>
-    historyRow(props.variant, version())?.surfaceKinds ?? props.variant.surfaces.map((x) => x.kind);
+    historyRow(props.alternative, version())?.surfaceKinds ??
+    props.alternative.surfaces.map((x) => x.kind);
   const primary = () => kinds().indexOf("html");
   let column!: HTMLDivElement;
   let primaryWrap: HTMLDivElement | undefined;
@@ -874,7 +876,7 @@ function VariantFrame(props: {
     const reported = props.report?.version ?? props.ready;
     if (!m || reported === undefined) return;
     const values = {
-      ...draftKnobValues(m, props.variant.knobs, s.draft()),
+      ...draftKnobValues(m, props.alternative.knobs, s.draft()),
       ...(props.active ? (s.preview()?.knobs ?? {}) : {}),
     };
     const k = `${reported}|${JSON.stringify(values)}`;
@@ -945,8 +947,8 @@ function VariantFrame(props: {
         height: `${props.height * props.scale}px`,
         width: `${props.frameW * props.scale}px`,
       }}
-      data-state={props.variant.state ?? ""}
-      data-variant={props.variant.variant}
+      data-state={props.alternative.state ?? ""}
+      data-alternative={props.alternative.alternative}
       aria-hidden={!props.active}
     >
       <div
@@ -956,18 +958,18 @@ function VariantFrame(props: {
       >
         <For each={kinds()}>
           {(kind, i) => {
-            const surface = () => props.variant.surfaces[i()];
+            const surface = () => props.alternative.surfaces[i()];
             if (isSandboxedSurfaceKind(kind)) {
               const isPrimary = i() === primary();
               // The draft's values ride in the URL so the first paint already
               // shows the user's answers, scripts or no scripts. Read untracked:
               // a pick must not reload the frame; it goes over the bridge.
               const src = () =>
-                surfaceUrl(props.variant.postId, i(), {
+                surfaceUrl(props.alternative.postId, i(), {
                   version: version(),
                   mode: theme(),
-                  e: props.variant.embedsKey,
-                  w: props.variant.rewrites,
+                  e: props.alternative.embedsKey,
+                  w: props.alternative.rewrites,
                   p: s.stagePalette(),
                   knobs: isPrimary
                     ? untrack(() => {
@@ -975,11 +977,11 @@ function VariantFrame(props: {
                         if (!m) return undefined;
                         // Only declared paths: the route refuses the whole URL
                         // over one value it can't check, which would blank the stage.
-                        const declared = { ...m.knobs, ...props.variant.knobs };
+                        const declared = { ...m.knobs, ...props.alternative.knobs };
                         return Object.fromEntries(
-                          Object.entries(draftKnobValues(m, props.variant.knobs, s.draft())).filter(
-                            ([path]) => path in declared,
-                          ),
+                          Object.entries(
+                            draftKnobValues(m, props.alternative.knobs, s.draft()),
+                          ).filter(([path]) => path in declared),
                         );
                       })
                     : undefined,
@@ -994,7 +996,7 @@ function VariantFrame(props: {
                         ref={(el) => register(el, i())}
                         src={url}
                         sandbox="allow-scripts"
-                        title={`${props.variant.variant} ${kind}`}
+                        title={`${props.alternative.alternative} ${kind}`}
                         width={props.frameW}
                         height={surfaceH(i())}
                         tabIndex={props.active ? 0 : -1}
