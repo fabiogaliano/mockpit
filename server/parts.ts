@@ -290,12 +290,23 @@ export function partsOutsideInstances(html: string): PartInfo[] {
       own.add(el.name);
       continue;
     }
-    const inner = html.slice(el.open.end, range.end).replace(/<!--[\s\S]*?-->/g, "");
-    const names = [...inner.matchAll(/<\/?([A-Za-z][\w:-]*)/g)].map((m) => m[1].toLowerCase());
+    // Tags and text told apart by the tokenizer, so a `>` in a quoted attribute is never
+    // read as text. The element's own close tag is not part of what it holds.
+    const inner = html.slice(el.open.end, range.end);
+    const inside = [...tags(inner)];
+    const last = inside.at(-1);
+    const close = last?.type === "close" && last.name === el.open.name ? inside.pop() : undefined;
+    let text = "";
+    let at = 0;
+    for (const t of inside) {
+      text += inner.slice(at, t.start);
+      at = t.end;
+    }
+    text += inner.slice(at, close ? close.start : inner.length);
     const placesOnly =
-      names.includes("mockpit-embed") &&
-      names.every((n) => WRAPPERS.has(n)) &&
-      !inner.replace(/<[^>]*>/g, "").trim();
+      inside.some((t) => t.name === "mockpit-embed") &&
+      inside.every((t) => WRAPPERS.has(t.name)) &&
+      !text.replace(/<!--[\s\S]*?-->|<![^>]*>/g, "").trim();
     if (!placesOnly) own.add(el.name);
   }
   return partsInHtml(html).filter((p) => own.has(p.name));

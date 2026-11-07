@@ -369,9 +369,12 @@ export function groupFeedback(
     }
     if (edit) {
       batch.edited = mergeEdits(batch.edited, edit);
-      // A mark taken off again in the same batch leaves nothing to lift.
-      if (c.payload?.lift) batch.lift = c.payload.lift;
-      else if (edit.ready && !edit.ready.ready) delete batch.lift;
+      // The latest mark says what there is to lift: a later one with nothing (taken off,
+      // or over versions that draw nothing of their own) leaves nothing.
+      if (edit.ready) {
+        if (c.payload?.lift) batch.lift = c.payload.lift;
+        else delete batch.lift;
+      }
       continue;
     }
     if (c.kind === "reply" && c.payload) {
