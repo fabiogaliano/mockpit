@@ -300,8 +300,10 @@ mockpit read    --decisions               # the whole decision log, when a read 
   Morning --step 2` (MCP/HTTP `flow`, `step`) puts this (design, state) at step
   2, moving it if it is there; without `--step` it joins at the end, `--step 0`
   takes it out. `flow` with no html places an existing state without a new
-  version. `read` (no design) and `read --tree` return `flows: [{name, steps:
-  [{design, state}]}]`. In the design, `data-goto="next"`, `"prev"` or
+  version. `read` (no design), `read --tree` and `read --area` return `flows: [{name,
+  status, steps: [{design, state, planned?}]}]`. A flow has no mark of its own: `status`
+  is Ready when every step's screen is Ready, Changed when any is Changed, else In design
+  (a step with nothing drawn keeps it there). In the design, `data-goto="next"`, `"prev"` or
   `"<design>:<state>"` on an element moves the user there while they try it.
 
 - `publish` on an existing (design, state, alternative) makes its next version.

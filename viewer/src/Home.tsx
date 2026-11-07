@@ -107,6 +107,7 @@ interface Row {
   // The declared flow the row is, carried into the screens it opens.
   flow: string;
   steps: FlowStep[];
+  status?: string;
 }
 
 type Shown = HomePlace | "area" | "tiny";
@@ -216,7 +217,12 @@ export function Home(props: {
     (was) =>
       keepSame(
         was,
-        (tree()?.flows ?? []).map((f) => ({ name: f.name, flow: f.name, steps: f.steps })),
+        (tree()?.flows ?? []).map((f) => ({
+          name: f.name,
+          flow: f.name,
+          steps: f.steps,
+          status: f.status,
+        })),
         (r) => r.name,
       ),
     [],
@@ -752,6 +758,7 @@ export function Home(props: {
       <h3>
         {row.name}
         <span>{`${row.steps.length} ${row.steps.length === 1 ? "step" : "steps"}`}</span>
+        <Show when={row.status}>{(w) => <span>{w()}</span>}</Show>
       </h3>
       <div class="home-flow">
         <For each={row.steps}>

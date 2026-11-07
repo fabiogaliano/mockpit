@@ -106,10 +106,13 @@ import {
   alternativesNudge,
   type BuiltFrom,
   coverMissing,
+  flowWord,
   isChanged,
   readyMark,
   readyVersion,
   readyView,
+  type ReadyWord,
+  readyWord,
   shipped,
   shownCovers,
   shownVersion,
@@ -3246,14 +3249,24 @@ export function createApp({
     const drawn = new Set(
       (await store.drawnStates(project)).map((p) => JSON.stringify([p.designId, p.state])),
     );
-    return flows.map((f) => ({
-      name: f.name,
-      steps: f.steps.map((x) =>
+    const words = new Map<string, ReadyWord | undefined>();
+    for (const slug of new Set(flows.flatMap((f) => f.steps.map((x) => x.design)))) {
+      const m = bySlug.get(slug)!;
+      if (m.kind !== "screen") continue;
+      words.set(slug, readyWord(m, isChanged(m, await store.listPosts({ designId: m.id }))));
+    }
+    return flows.map((f) => {
+      const steps = f.steps.map((x) =>
         drawn.has(JSON.stringify([bySlug.get(x.design)!.id, x.state]))
           ? x
           : { ...x, planned: true as const },
-      ),
-    }));
+      );
+      return {
+        name: f.name,
+        status: flowWord(steps.map((x) => ({ ...x, word: words.get(x.design) }))),
+        steps,
+      };
+    });
   }
 
   // `fork`: "alternative" or "alternative@N", the sibling version a new alternative starts

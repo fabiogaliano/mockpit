@@ -42,6 +42,7 @@ import {
 } from "./systemRev.ts";
 
 import type { JumpHit } from "../../server/jump.ts";
+import type { ReadyWord } from "../../server/ready.ts";
 import type { PaletteStatus, System, SystemRevisionHead } from "../../server/system.ts";
 import type { PairResult } from "../../server/systemChecks.ts";
 import type { ComponentLine } from "../../server/designGuide.ts";
@@ -76,7 +77,12 @@ export type AreaView = ReturnType<typeof areaView>;
 export type AreaLine = { name: string; description?: string; alphabetical?: true };
 // A declared flow as `read` returns it: only steps whose screen exists.
 // `planned`: the step's state is declared and not drawn yet.
-export type FlowView = { name: string; steps: (FlowStep & { planned?: true })[] };
+export type FlowView = {
+  name: string;
+  // Derived from its steps' screens: a flow carries no mark of its own.
+  status?: ReadyWord;
+  steps: (FlowStep & { planned?: true })[];
+};
 export type AlternativeView = ReturnType<typeof alternativeView>;
 export type HistoryRow = NonNullable<AlternativeView["history"]>[number];
 // What a restore changed, sent back as it is by its Undo.

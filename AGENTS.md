@@ -284,7 +284,10 @@ consciously, not as a side effect):
   (`flowsView`, `SqlStore.drawnStates`). A state-only link lands there (the planned stage).
   Home, the bar and the docked list draw such a step as Not drawn, and the Flows shelf says
   "N states in no flow" under each area with screens, flows or not; a screen's cover says
-  nothing of it.
+  nothing of it. A flow carries no mark: its `status` is derived in `flowsView` (`flowWord` in
+  `server/ready.ts`: Ready when every step's screen is Ready, Changed when any is, else In
+  design, an undrawn step included), in `read`, `read --area`, the tree and as the word on
+  Home's Flows rows.
 - A **gathered idea** is a design with `shortlist` set (the stored name, which is also in
   `read`), gathered by the user from the project's other designs: New idea on Home's
   shelves (`AddCandidates`), or a Studio bookmark, Keep, with Move beside it (`SaveMenu`,

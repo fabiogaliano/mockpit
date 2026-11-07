@@ -1171,7 +1171,8 @@ function flowLine(flow) {
     (x) =>
       `${x.state === null ? x.design : `${x.design}/${x.state}`}${x.planned ? " (not drawn)" : ""}`,
   );
-  return `flow ${flow.name}: ${steps.length ? steps.join(" → ") : "empty, removed"}`;
+  const status = flow.status ? ` (${flow.status})` : "";
+  return `flow ${flow.name}${status}: ${steps.length ? steps.join(" → ") : "empty, removed"}`;
 }
 
 // Only speak when there IS feedback: an empty line per write is pure token

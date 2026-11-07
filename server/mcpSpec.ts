@@ -491,7 +491,11 @@ const entryNamed = <T extends z.ZodRawShape>(shape: T) =>
   ]);
 const inUseRef = o({ state: nullStr, alternative: str, version: num });
 const partsByState = z.array(o({ state: nullStr, parts: z.array(o({ name: str })) }));
-const flowSchema = o({ name: str, steps: z.array(o({ design: str, state: nullStr })) });
+const flowSchema = o({
+  name: str,
+  status: str.optional().describe("In design, Ready or Changed, from its steps' screens"),
+  steps: z.array(o({ design: str, state: nullStr })),
+});
 
 const followUpsSchema = o({
   apply: o({ target: str, states: o({ matched: z.array(nullStr), missing: z.array(nullStr) }) })

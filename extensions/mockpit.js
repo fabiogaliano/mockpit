@@ -353,7 +353,7 @@ const stateName = (x) => x ?? "the one unnamed state";
 
 // A flow as its steps, an undrawn one marked.
 const flowText = (f) =>
-  `flow ${f.name}: ${f.steps.map((x) => `${x.design}${x.state ? ` · ${x.state}` : ""}${x.planned ? " (not drawn)" : ""}`).join(" → ") || "no steps"}`;
+  `flow ${f.name}${f.status ? ` (${f.status})` : ""}: ${f.steps.map((x) => `${x.design}${x.state ? ` · ${x.state}` : ""}${x.planned ? " (not drawn)" : ""}`).join(" → ") || "no steps"}`;
 
 // What a decision requires next, one line each.
 function followUpTexts(f) {

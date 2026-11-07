@@ -664,7 +664,7 @@ export function areaView(input: {
   area: { name: string; description: string };
   designs: Design[];
   heads: Map<string, PostHead[]>;
-  flows: { name: string; steps: FlowStep[] }[];
+  flows: { name: string; status?: string; steps: FlowStep[] }[];
   lines: DecisionLine[];
   // By slug: the components each design is built from, as their marks stand.
   builtFrom: Map<string, BuiltFrom[]>;
@@ -703,7 +703,7 @@ export function areaView(input: {
     // A flow is in the area when one of its steps is.
     flows: input.flows
       .filter((f) => f.steps.some((x) => kindOf.get(x.design)?.area === input.area.name))
-      .map((f) => ({ name: f.name, steps: f.steps })),
+      .map((f) => ({ name: f.name, ...(f.status ? { status: f.status } : {}), steps: f.steps })),
     components: components.map(line),
     shared: live
       .filter((d) => d.kind === "component" && !d.area)

@@ -138,6 +138,14 @@ export function readyWord(
   return changed ? "Changed" : "Ready";
 }
 
+// A flow carries no mark of its own: it reads Ready when every step's screen is Ready,
+// Changed when any is, and In design otherwise, a step with nothing drawn included.
+export function flowWord(steps: { word?: ReadyWord; planned?: boolean }[]): ReadyWord {
+  if (steps.some((s) => s.word === "Changed")) return "Changed";
+  if (steps.length && steps.every((s) => s.word === "Ready" && !s.planned)) return "Ready";
+  return "In design";
+}
+
 // The most live entries one state of a product design holds, when that is more than
 // one: alternatives, which belong in an idea for it.
 // A variants design's entries all ship, so it holds none to move out.
