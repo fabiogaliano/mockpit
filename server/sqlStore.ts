@@ -819,46 +819,156 @@ export class SqlStore implements Store {
 
   // A reply names the design a use landed on by id, so a rename changes nothing stored, and
   // keeps only what the moment alone knew (`apply`, `lift`): gaps and the designs showing a
-  // changed component are worked out at delivery. A slug whose design is gone stays a label.
+  // changed component are worked out at delivery. A slug no design of the project has now
+  // was most likely renamed since, so the target is recovered from what the idea left
+  // behind before anything is given up: the copies its uses made (`copiedFrom.design` is the
+  // idea), then the design the idea is for. Only an `apply` nothing corroborates is dropped;
+  // a `usedIn` keeps its slug as a label. A use stored without `drawn` gets the states the
+  // idea draws the used alternative in now, as a new use would record, so the upgrade
+  // invents no gaps.
   private migrateFollowUpIds() {
+    const designs = new Map<
+      string,
+      {
+        project: string;
+        slug: string;
+        kind: string;
+        for: string | null;
+        states: (string | null)[];
+      }
+    >();
     const idOf = new Map<string, string>();
-    for (const r of this.sql.exec("SELECT id, project, slug FROM designs").toArray()) {
+    for (const r of this.sql
+      .exec("SELECT id, project, slug, kind, forDesign, states FROM designs")
+      .toArray()) {
+      const states = parseJson<(string | null)[]>(r.states, []);
+      designs.set(r.id as string, {
+        project: r.project as string,
+        slug: r.slug as string,
+        kind: r.kind as string,
+        for: (r.forDesign as string | null) ?? null,
+        states,
+      });
       idOf.set(`${r.project}\n${r.slug}`, r.id as string);
     }
-    const projectOf = new Map<string, string>();
-    for (const r of this.sql.exec("SELECT id, project FROM designs").toArray()) {
-      projectOf.set(r.id as string, r.project as string);
-    }
-    const designOf = new Map<number, string>();
+    // Every copy a use or a gathering made, by the design it came from.
+    const copiesFrom = new Map<
+      string,
+      { target: string; state: string | null; alternative: string; from: string }[]
+    >();
     for (const r of this.sql
+      .exec("SELECT designId, state, variant, copiedFrom FROM posts WHERE copiedFrom IS NOT NULL")
+      .toArray()) {
+      const ref = parseJson<{ design?: string; alternative?: string } | null>(r.copiedFrom, null);
+      if (!ref?.design) continue;
+      const list = copiesFrom.get(ref.design) ?? [];
+      list.push({
+        target: r.designId as string,
+        state: (r.state as string | null) ?? null,
+        alternative: r.variant as string,
+        from: ref.alternative ?? "",
+      });
+      copiesFrom.set(ref.design, list);
+    }
+    const replies = this.sql
       .exec(
         "SELECT seq, designId FROM comments WHERE kind = 'reply' AND designId IS NOT NULL AND (instr(payload, '\"usedIn\":') > 0 OR instr(payload, '\"followUps\":') > 0)",
       )
-      .toArray()) {
-      designOf.set(r.seq as number, r.designId as string);
-    }
+      .toArray();
+    const ideaOf = new Map(replies.map((r) => [r.seq as number, r.designId as string]));
+    type Copy = { state: string | null; alternative: string };
+    // The project's design a reply's slug named: by the slug, else by what the idea's uses
+    // copied (the copies this one made first), else by what the idea is for.
+    const targetOf = (idea: string, slug: unknown, copies: Copy[]) => {
+      const project = designs.get(idea)?.project;
+      if (!project) return undefined;
+      const bySlug = typeof slug === "string" ? idOf.get(`${project}\n${slug}`) : undefined;
+      if (bySlug) return bySlug;
+      // A gathered idea's candidates are copies too: only a screen or a component is a target.
+      const made = (copiesFrom.get(idea) ?? []).filter((c) => {
+        const t = designs.get(c.target);
+        return t?.project === project && t.kind !== "idea";
+      });
+      const one = (list: typeof made) => {
+        const ids = [...new Set(list.map((c) => c.target))];
+        return ids.length === 1 ? ids[0] : undefined;
+      };
+      const fromThisUse = made.filter((c) =>
+        copies.some((x) => x.state === c.state && x.alternative === c.alternative),
+      );
+      const forId = designs.get(idea)?.for;
+      return (
+        one(fromThisUse) ??
+        one(made) ??
+        (forId && designs.get(forId)?.project === project ? forId : undefined)
+      );
+    };
+    const livePosts = new Map<string, { state: string | null; alternative: string }[]>();
+    const liveOf = (idea: string) => {
+      let list = livePosts.get(idea);
+      if (!list) {
+        list = this.sql
+          .exec(
+            "SELECT state, variant FROM posts WHERE designId = ? AND status IN ('open', 'accepted')",
+            idea,
+          )
+          .toArray()
+          .map((r) => ({
+            state: (r.state as string | null) ?? null,
+            alternative: r.variant as string,
+          }));
+        livePosts.set(idea, list);
+      }
+      return list;
+    };
+    // Where the idea draws the alternative a use put in use: the states copied, and every
+    // live state of the same alternative, named on the idea's side by what the copies say
+    // they came from, else by the reply's verdict, else as copied.
+    const drawnOf = (idea: string, reply: Record<string, any>, copies: Copy[]) => {
+      const names = new Set<string>();
+      for (const c of copiesFrom.get(idea) ?? []) {
+        if (designs.get(c.target)?.kind === "idea" || !c.from) continue;
+        if (copies.some((x) => x.state === c.state && x.alternative === c.alternative))
+          names.add(c.from);
+      }
+      if (typeof reply.verdict?.alternative === "string") names.add(reply.verdict.alternative);
+      if (!names.size) for (const c of copies) names.add(c.alternative);
+      const drawn = new Set<string | null>(copies.map((c) => c.state));
+      for (const p of liveOf(idea)) if (names.has(p.alternative)) drawn.add(p.state);
+      const order = designs.get(idea)?.states ?? [];
+      const states = order.length ? order : [null];
+      return [
+        ...states.filter((st) => drawn.has(st)),
+        ...[...drawn].filter((st) => !states.includes(st)),
+      ];
+    };
     this.rewriteJson(
       "comments",
       "seq",
       "payload",
       (p, seq) => {
         const reply = p as Record<string, any>;
-        const project = projectOf.get(designOf.get(seq as number) ?? "");
-        const find = (slug: unknown) =>
-          project && typeof slug === "string" ? idOf.get(`${project}\n${slug}`) : undefined;
+        const idea = ideaOf.get(seq as number) ?? "";
         let changed = false;
         const used = reply.usedIn;
-        if (used && typeof used === "object" && !used.targetId) {
-          const id = find(used.target);
-          if (id) {
-            used.targetId = id;
+        if (used && typeof used === "object") {
+          const copies: Copy[] = Array.isArray(used.copies) ? used.copies : [];
+          if (!used.targetId) {
+            const id = targetOf(idea, used.target, copies);
+            if (id) {
+              used.targetId = id;
+              changed = true;
+            }
+          }
+          if (!Array.isArray(used.drawn)) {
+            used.drawn = drawnOf(idea, reply, copies);
             changed = true;
           }
         }
         const f = reply.followUps;
         if (f && typeof f === "object") {
           if (f.apply && !f.apply.targetId) {
-            const id = find(f.apply.target);
+            const id = targetOf(idea, f.apply.target, []);
             if (id) f.apply = { targetId: id, states: f.apply.states };
             else delete f.apply;
             changed = true;

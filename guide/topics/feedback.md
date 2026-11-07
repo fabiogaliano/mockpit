@@ -171,8 +171,9 @@ what and where:
 - `spec`: that design's decisions are newer than its spec (`noSpec: true`: it has none).
   Edit it yourself.
 - `apply`: an alternative used in a design whose states it couldn't drop into, so nothing
-  was copied. Publish the next version on `target` yourself; it takes over as any newer
-  version does.
+  was copied, not even in the states it has (`matched`). Publish it on `target` yourself in
+  every state listed; it takes over as any newer version does, and each state leaves the
+  list once it shows a version drawn after the decision.
 - `gaps`: what `target` has that the used alternative doesn't draw: its other `states`,
   and on a variants design the other `variants` of the states it landed in. Draw them on
   the target so they follow the choice.

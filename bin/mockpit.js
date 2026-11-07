@@ -1451,10 +1451,12 @@ const stateName = (x) => x ?? "the one unnamed state";
 function followUpTexts(f) {
   if (!f) return [];
   const out = [];
-  if (f.apply)
+  if (f.apply) {
+    const { matched, missing } = f.apply.states;
     out.push(
-      `apply: publish it on ${f.apply.target}, which lacks ${f.apply.states.missing.map(stateName).join(", ")}`,
+      `apply: publish it on ${f.apply.target} in ${[...matched, ...missing].map(stateName).join(", ")}${missing.length ? ` (it lacks ${missing.map(stateName).join(", ")})` : ""}`,
     );
+  }
   if (f.gaps) {
     const bits = [
       f.gaps.states?.length ? `states ${f.gaps.states.map(stateName).join(", ")}` : "",

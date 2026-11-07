@@ -623,8 +623,9 @@ knob (\`mockpit guide system\`). \`read\` of a screen or component lists \`ideas
 
 A batch's \`followUps\` is what a decision now requires, each by what and where. Do
 \`spec\` yourself (\`[{design, decisions, noSpec?}]\`: that design's decisions are newer
-than its spec; edit it). \`apply\` (\`{target, states: {matched, missing}}\`): publish the
-next version on the target, which takes over as any newer one does. \`gaps\` (\`{target,
+than its spec; edit it). \`apply\` (\`{target, states: {matched, missing}}\`): nothing was copied;
+publish it on the target in each of those states, which takes over as any newer version
+does (each state leaves the list once drawn). \`gaps\` (\`{target,
 states?, variants?}\`): what the target has that the used alternative doesn't draw; draw
 those states or variants there so they follow the choice. \`lift\`: The library.
 \`instanceIn\` (\`{component, ready, designs: [{slug, kind, ready}]}\`): the designs showing a

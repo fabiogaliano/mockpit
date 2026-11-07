@@ -1188,12 +1188,16 @@ export function createApp({
       : undefined;
     if (!target || !isProduct(target)) return { usedIn, followUps: out };
     const posts = await postsOf(target);
+    // Nothing was copied, so every state the alternative is drawn in waits for it, those
+    // the target has as much as those it lacks: each leaves once it shows a version written
+    // after the decision.
     if (apply) {
-      const missing = apply.states.missing.filter(
-        (state) => !drawnSince(target, posts, since, { state }),
-      );
-      if (missing.length)
-        out.apply = { target: target.slug, states: { matched: apply.states.matched, missing } };
+      const open = (states: (string | null)[]) =>
+        states.filter((state) => !drawnSince(target, posts, since, { state }));
+      const matched = open(apply.states.matched);
+      const missing = open(apply.states.missing);
+      if (matched.length || missing.length)
+        out.apply = { target: target.slug, states: { matched, missing } };
     }
     const drawn = used
       ? (used.drawn ?? used.copies.map((c) => c.state))
