@@ -860,12 +860,17 @@ export function createDesignScreen(
       setMissing(false);
       // The first load lands on the alternative the user opened, once.
       const at = open;
+      // A link naming only a state may land where nothing is drawn yet, a step a flow walks
+      // before it is drawn; one naming an alternative needs that alternative there.
+      const declared = (state: string | null) =>
+        m.states.length ? state !== null && m.states.includes(state) : state === null;
       if (
         at &&
-        m.alternatives.some(
+        (m.alternatives.some(
           (v) =>
             v.state === at.state && (at.alternative === null || v.alternative === at.alternative),
-        )
+        ) ||
+          (at.alternative === null && declared(at.state)))
       ) {
         landOn(at);
         heldBy = "link";

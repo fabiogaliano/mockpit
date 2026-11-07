@@ -67,6 +67,7 @@ import {
   type AreaGroup,
   flowArea,
   groupByArea,
+  orderAreas,
   nextOwedDesign,
   shortSource,
   timeAgo,
@@ -782,10 +783,26 @@ export function Home(props: {
       .flatMap((n) => n.states.map((st) => JSON.stringify([n.slug, st])))
       .filter((k) => !walked().has(k)).length;
   const flowsAll = () => {
-    const groups = () =>
-      area() === null
-        ? groupByArea(allRows(), rowArea, areaRanks())
-        : [{ area: null, rows: allRows().filter((r) => rowIn(r, area())) }];
+    const groups = (): AreaGroup<Row>[] => {
+      if (area() !== null) return [{ area: null, rows: allRows().filter((r) => rowIn(r, area())) }];
+      const base = groupByArea(allRows(), rowArea, areaRanks());
+      // An area whose screens no flow walks yet still gets its heading, for the count.
+      const have = new Set(base.map((g) => g.area));
+      const bare = new Set(
+        onShow().flatMap((n) =>
+          n.kind === "screen" && n.area && !have.has(n.area) && statesInNoFlow(n.area) > 0
+            ? [n.area]
+            : [],
+        ),
+      );
+      if (!bare.size) return base;
+      const rows = new Map<string, Row[]>([...bare].map((a) => [a, []]));
+      for (const g of base) if (g.area !== null) rows.set(g.area, g.rows);
+      return [
+        ...orderAreas(rows.keys(), areaRanks()).map((a) => ({ area: a, rows: rows.get(a)! })),
+        ...base.filter((g) => g.area === null && g.rows.length),
+      ];
+    };
     const rest = () => restOfFlows(groups());
     // The group no one area claims is either Across areas, which has no screens of its own
     // to count, or the screens with no area.

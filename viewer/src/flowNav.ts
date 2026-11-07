@@ -5,7 +5,7 @@
 // the current history entry first, so Back returns to it.
 
 import { createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js";
-import { type FlowStep, isFlowIdea } from "../../server/types.ts";
+import { type FlowStep, isFlowIdea, sameScreen } from "../../server/types.ts";
 import { api, subscribe, surfaceUrl } from "./api.ts";
 import { host } from "./host.ts";
 import { flowFor, gotoTarget, screenPicture } from "./logic.ts";
@@ -59,12 +59,15 @@ export function createFlowNav(
       ? { name: m.title, steps: s.states().map((state) => ({ design: slug, state })) }
       : null;
   });
+  // A flow idea walks its own story, even where a declared flow takes in some of its states.
   const flow = createMemo<Flow | null>((was) => {
+    const own = ideaFlow();
+    if (own) return own;
     const flows = data()?.flows ?? [];
     return (
       flowOf() ??
       flows.find((f) => f.name === was?.name && f.steps.some((x) => x.design === slug)) ??
-      ideaFlow()
+      null
     );
   }, null);
   // Only a step in another design takes its picture from the tree.
@@ -171,11 +174,13 @@ export function createFlowNav(
 
   // Whether the agent still waits on a step; known only for this design's own steps.
   const owes = (x: FlowStep) => x.design === slug && s.askedIn(x.state) > 0;
-  // Declared, with nothing drawn there yet. Another design's step says so itself.
+  // Declared, with nothing drawn there yet. Another design's step says so itself, read off
+  // the flow's own step whatever copy of it the caller holds (a list keyed by name has none).
   const planned = (x: FlowStep & { planned?: true }) =>
     x.design === slug
       ? !s.alternatives().some((v) => v.state === x.state)
-      : !!x.planned || !!pictured().get(x.design)?.planned;
+      : !!(x.planned ?? flow()?.steps.find((y) => sameScreen(y, x))?.planned) ||
+        !!pictured().get(x.design)?.planned;
 
   return {
     flow,

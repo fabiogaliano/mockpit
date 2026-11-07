@@ -2468,6 +2468,40 @@ export function createApp({
     }
     const inState = posts.filter((p) => p.state === state);
     const screen: FlowStep = { design: slug, state };
+    // Taking a step out never declares anything: with nothing drawn there, the state (or the
+    // planned design) must already be declared, else nothing changes.
+    if (flowIn?.step === 0 && given.length === 0 && !forkIn && inState.length === 0) {
+      const declared =
+        !!design && (state === null ? design.states.length === 0 : design.states.includes(state));
+      if (!design || !declared) {
+        return fail(
+          404,
+          design
+            ? `${slug} has no ${state === null ? "design" : `state "${state}"`} to take out of flow "${flowIn.name}"`
+            : `${project} has no design "${slug}" to take out of flow "${flowIn.name}"`,
+          design ? { states: design.states } : {},
+        );
+      }
+      const flow = await placeFlow(project, flowIn.name, screen, 0);
+      bus.broadcast({ type: "design-updated", id: design.id, project });
+      return ok({
+        design: {
+          id: design.id,
+          project: design.project,
+          slug: design.slug,
+          title: design.title,
+          kind: design.kind,
+          ...placeOf(design),
+          states: design.states,
+        },
+        planned: true,
+        ...(state === null ? {} : { state }),
+        ...(session ? { sessionId: session.id } : {}),
+        url: designUrl(ctx.base, design),
+        flow,
+        ...(session ? { feedback: await collectFeedback(session.id, ctx.base) } : {}),
+      });
+    }
     // Nothing to draw and nothing there yet: the plan itself is the write. A body-less
     // publish naming an alternative, or landing on what is already drawn, is a forgotten body.
     // A flow may walk a screen's state before it is drawn: `flow` alone declares it there.
@@ -2494,11 +2528,6 @@ export function createApp({
         bus.broadcast({ type: "session-created", id: session.id });
       }
       const created = !design;
-      // As when drawing it: a plan with no state name takes its first, and the steps
-      // of any flow that planned it follow.
-      if (design && state !== null && design.states.length === 0 && posts.length === 0) {
-        design = (await store.nameFirstState(design.id, state)) ?? design;
-      }
       if (!design) {
         design = await store.createDesign({
           project,
@@ -2518,19 +2547,36 @@ export function createApp({
         });
         bus.broadcast({ type: "design-created", id: design.id, project });
       } else {
-        design = await updateDesignAfterWrite(design, {
-          state,
-          kind,
-          title,
-          knobs: knobs.value,
-          widths,
-          area,
-          group,
-          variants,
-          for: forId,
-          becomes,
-          source,
-          session,
+        // One declaration at a time per design, each read as the last left it, so two plans
+        // landing at once both keep their state. The design's decision queue; nothing in it
+        // takes the copy queue, so the order stays decision, then copy.
+        const id = design.id;
+        const writer = session;
+        design = await serialDecision(id, async () => {
+          let now = (await store.getDesign(id)) ?? design!;
+          // As when drawing it: a plan with no state name takes its first, and the steps
+          // of any flow that planned it follow.
+          if (
+            state !== null &&
+            now.states.length === 0 &&
+            (await store.listPosts({ designId: id })).length === 0
+          ) {
+            now = (await store.nameFirstState(id, state)) ?? now;
+          }
+          return updateDesignAfterWrite(now, {
+            state,
+            kind,
+            title,
+            knobs: knobs.value,
+            widths,
+            area,
+            group,
+            variants,
+            for: forId,
+            becomes,
+            source,
+            session: writer,
+          });
         });
       }
       const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;

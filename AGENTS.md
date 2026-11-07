@@ -268,15 +268,20 @@ consciously, not as a side effect):
 - A **flow idea** (`becomes: flow`, or `for: "flow:<name>"`: `isFlowIdea`, `flowFor` in
   `server/types.ts`; the flow's name is stored in the `forDesign` column with that prefix) is a
   flow told as a story: its states are the steps, in order. The viewer opens it on Stage with
-  the flow bar named after it (`flowNav.ts`'s `ideaFlow`), walkable with Try. Using it copies
+  the flow bar named after it (`flowNav.ts`'s `ideaFlow`, which wins over any declared flow
+  holding some of its states), walkable with Try. Using it copies
   nothing: the reply stores `followUps.placeFlow: true`, and delivery works out `placeFlow`
   (`placeFlowOf`: the steps with the alternative each shows, the live screens of the idea's
   area), open until the idea is for a flow written since the use. The agent places each step
   (an existing state, a new state, or a planned screen), sets `for`, and asks `placement` on
   the idea. A flow step may name a declared state with nothing drawn: `flow` alone on a screen's
-  new state declares it (`publishFlow`'s `planning`), and `read` marks the step `planned`
-  (`flowsView`, `SqlStore.drawnStates`). Home draws such a step as Not drawn, and the Flows shelf
-  says "N states in no flow" under each area; a screen's cover says nothing of it.
+  new state declares it (`publishFlow`'s `planning`, in the design's `serialDecision` queue so
+  plans landing at once all keep their state; `step: 0` never declares, and taking out a state
+  that isn't declared is a 404), and `read` marks the step `planned`
+  (`flowsView`, `SqlStore.drawnStates`). A state-only link lands there (the planned stage).
+  Home, the bar and the docked list draw such a step as Not drawn, and the Flows shelf says
+  "N states in no flow" under each area with screens, flows or not; a screen's cover says
+  nothing of it.
 - A **gathered idea** is a design with `shortlist` set (the stored name, which is also in
   `read`), gathered by the user from the project's other designs: New idea on Home's
   shelves (`AddCandidates`), or a Studio bookmark, Keep, with Move beside it (`SaveMenu`,
