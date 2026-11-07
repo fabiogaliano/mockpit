@@ -358,7 +358,8 @@ mockpit system --restore <rev>
   Write index.html + history.json per state to .mockpit/accepted/<design>/<state>/;
   with fills, index.html is the chosen state, plus all-fills.html and decisions.json.
   A screen or component writes every entry marked Ready (unmarked: every live one as it
-  shows) as <variant>.html + <variant>.history.json, and design.json: its mark, its spec
+  shows) as <variant>.html + <variant>.history.json (with the start of the post id where two
+  variant names would share a file), and design.json: its mark, its spec
   and the components those versions are built from, each with its own mark.`,
   upload: `mockpit upload <file> [--kind image|file] [--session <id>]
   Upload an asset; prints its id and URL. Use the id as an image surface's assetId.`,
@@ -2061,13 +2062,26 @@ const commands = {
       }
     }
     // A screen or a component hands over every entry of a state, so each is named by its
-    // variant beside its siblings; an idea's one entry a state stays index.html.
+    // variant beside its siblings; an idea's one entry a state stays index.html. Two
+    // variant names can normalise to one file name ("A B", "A-B"): then every file of
+    // those entries carries the start of its post id, which is stable, so none is lost.
     const product = data.ready !== undefined;
+    const base = (entry) => slugify(entry.variant) || "variant";
+    const taken = new Map();
+    for (const entry of data.states) {
+      const key = `${entry.state ?? ""}\n${base(entry)}`;
+      taken.set(key, (taken.get(key) ?? 0) + 1);
+    }
+    const stem = (entry) =>
+      taken.get(`${entry.state ?? ""}\n${base(entry)}`) > 1
+        ? `${base(entry)}-${entry.postId.slice(0, 6)}`
+        : base(entry);
     for (const entry of data.states) {
       const dir = join(root, entry.state === null ? "default" : slugify(entry.state));
-      const name = (file) => (product ? `${slugify(entry.variant)}.${file}` : file);
+      const name = (file) => (product ? `${stem(entry)}.${file}` : file);
+      const page = join(dir, product ? name("html") : "index.html");
       mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, product ? name("html") : "index.html"), entry.html ?? "");
+      writeFileSync(page, entry.html ?? "");
       // The state with every fill, when the html is the composed choice.
       if (entry.allFills) writeFileSync(join(dir, name("all-fills.html")), entry.allFills);
       const decided = data.decisions?.states?.[entry.state ?? ""];
@@ -2096,8 +2110,9 @@ const commands = {
         ) + "\n",
       );
       if (!flags.quiet) {
+        const files = [page, ...(entry.allFills ? [join(dir, name("all-fills.html"))] : [])];
         console.log(
-          `${slug}/${stateLabel(entry.state)}${entry.variant} v${entry.version} → ${dir}`,
+          `${slug}/${stateLabel(entry.state)}${entry.variant} v${entry.version} → ${files.join(", ")} (+ ${name("history.json")})`,
         );
       }
     }

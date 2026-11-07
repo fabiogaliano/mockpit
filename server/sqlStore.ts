@@ -510,6 +510,7 @@ export class SqlStore implements Store {
       sets: "TEXT NOT NULL DEFAULT '[]'",
     });
     if (!specced) this.migrateNotesToSpec();
+    this.migrateReadyStates();
     this.migrateAreaOrder();
     this.migrateSituations();
     // Before the legacy lift, whose history rows are written with every column.
@@ -642,6 +643,34 @@ export class SqlStore implements Store {
       this.sql.exec(
         "UPDATE designs SET states = ?, situations = '{}' WHERE id = ?",
         JSON.stringify(states),
+        r.id as string,
+      );
+    }
+  }
+
+  // A Ready mark first stored only its covers. It records the states the design declared
+  // since, so a state declared later reads Changed; an older mark gets the states its
+  // covers name, in the design's order, which says nothing of a state declared after it
+  // and leaves a mark that still matches reading Ready. Only rows without `states`, so it
+  // runs on every boot and changes nothing the second time.
+  private migrateReadyStates() {
+    for (const r of this.sql
+      .exec(
+        "SELECT id, states, ready FROM designs WHERE ready IS NOT NULL AND ready NOT LIKE '%\"states\"%'",
+      )
+      .toArray()) {
+      const ready = parseJson<Omit<DesignReady, "states"> | null>(r.ready, null);
+      if (!ready) continue;
+      const order = parseJson<string[]>(r.states, []);
+      const named = new Set(ready.covers.map((c) => c.state));
+      const states = [
+        ...order.filter((s) => named.has(s)),
+        // A covered state renamed or removed since keeps its place after the rest.
+        ...[...named].filter((s): s is string => s !== null && !order.includes(s)),
+      ];
+      this.sql.exec(
+        "UPDATE designs SET ready = ? WHERE id = ?",
+        JSON.stringify({ ...ready, states }),
         r.id as string,
       );
     }

@@ -196,9 +196,10 @@ mockpit read    --decisions               # the whole decision list, when a read
   `holdsAlternatives: true` with a nudge: move them to an idea for it (`move`). `export`
   hands over every entry marked Ready at its marked version (unmarked: every live entry as
   it shows; a marked version that is gone is listed in `missing`, never replaced), with
-  `ready`, `changed`, the `spec` and `builtFrom` (the components those versions embed, each
-  with its variant, version and mark). The CLI writes each entry as `<variant>.html` in its
-  state's directory, and the rest to `design.json`.
+  `ready`, `changed`, the `spec` and `builtFrom` (the components those versions embed, one per
+  variant and version referenced, each with its mark). The CLI writes each entry as
+  `<variant>.html` in its state's directory (two names that would collide each get the start
+  of their post id), and the rest to `design.json`.
 - A read with `area` (`mockpit read --area Food`) is one product area: `description`
   (the project's), `area` (`{name, description}`), `screens` and `components` (`{slug,
   title, kind, purpose, states, ready, changed, status}`), `flows`, `shared` (components with no area),

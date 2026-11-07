@@ -163,7 +163,8 @@ consciously, not as a side effect):
   missing states (`dismissed`, `requested`; `POST /api/designs/:id/outlines`, viewer only),
   and only a declared page with html offers them (`canOutline` in `viewer/src/logic.ts`).
 - **Ready** (`server/ready.ts`, shared with the viewer): `Design.ready` (`{at, covers:
-  [{state, name, version}], states}`, a column) records what each state of a screen or
+  [{state, name, version}], states}`, a column; an older mark without `states` gets those its
+  covers name, `migrateReadyStates`) records what each state of a screen or
   component showed when the user marked it, and the states it declared then
   (`POST /api/designs/:id/ready`, viewer only, never a tool; a screen's mark carries to the
   components it embeds, nested ones included, at the versions they resolve to there; taking
@@ -179,8 +180,10 @@ consciously, not as a side effect):
   retired built-in question is dropped (`dropBuiltinPicks`). `shownVersion` is the newest
   visible version, or the marked one after a stay (`stayFlow`: Back to the Ready version,
   until something newer comes); export hands over every covered entry with the spec and
-  the `builtFrom` of those versions (`buildHandover`, `embedsIn`), and reads take
-  `builtFrom` from the versions they show (`shownEmbeds`). The agent hears a mark as
+  the `builtFrom` of those versions (`buildHandover`, `embedsIn`, every distinct variant and
+  version referenced), and reads and the tree take `builtFrom` and embed edges from the
+  versions they show (`shownEmbeds`), once per design. A screen's mark carries to each
+  component once, at the newest version its entries show (`carried` names the others). The agent hears a mark as
   `edited.ready`. Viewer: `ReadyMark` beside the name in `TopRow`, the cover's dot
   (`Album.tsx`, its word in the status line where nothing hovers), each instance's word in
   `BuiltFrom`, and `ChangedNote`'s way back with no countdown, which follows the server's

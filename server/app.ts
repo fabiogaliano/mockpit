@@ -215,6 +215,7 @@ import {
   type PartComment,
   type Post,
   type PostHead,
+  type SurfaceHead,
   type Reaction,
   REACTIONS,
   projectFromCwd,
@@ -1643,16 +1644,30 @@ export function createApp({
 
   // The components the given versions of a design embed, nested ones included, each at
   // the variant and version it resolves to there.
+  // Every distinct reference is kept: two entries may pin two versions of one component,
+  // and a handover needs both. A list of designs dedupes by slug where it reads them.
   async function embedsIn(design: Design, picked: Post[]): Promise<Embed[]> {
     const out = new Map<string, Embed>();
     for (const at of picked) {
       const html = at.surfaces.find((x) => x.kind === "html");
       if (html?.kind !== "html" || !hasEmbedTags(html.html)) continue;
       const { used } = await composedHtml(design.project, design.slug, html.html);
-      for (const e of used) if (!out.has(e.slug)) out.set(e.slug, e);
+      for (const e of used) {
+        const key = `${e.slug}\n${e.variant}\n${e.version}`;
+        if (!out.has(key)) out.set(key, e);
+      }
     }
     return [...out.values()];
   }
+
+  // The surface heads of the version a live entry shows, from an overview's heads.
+  const shownHead = (design: Design, head: PostHead): SurfaceHead[] => {
+    if (!isLive(head.status)) return [];
+    const at = shownVersion(design, shipped(design, [head])[0]);
+    return at === head.version
+      ? head.surfaces
+      : (head.history.find((h) => h.version === at)?.surfaces ?? head.surfaces);
+  };
 
   // Each live entry at the version it shows: what a read describes.
   const shownPosts = (design: Design, posts: Post[]): Post[] =>
@@ -2976,15 +2991,18 @@ export function createApp({
     for (const m of designs) {
       const designHeads = heads.get(m.id) ?? [];
       // Only embeds and fills need the html: most of a workspace's bytes are
-      // pages with neither, which this list has no reason to read.
-      const marked = designHeads.some((p) => p.surfaces.some((x) => x.marked));
+      // pages with neither, which this list has no reason to read. The version a design
+      // shows may be an older one than its latest (a stay, a version in use), so both count.
+      const marked = designHeads.some(
+        (p) => p.surfaces.some((x) => x.marked) || shownHead(m, p).some((x) => x.marked),
+      );
       const posts = marked
         ? postersFor(await store.listPosts({ designId: m.id }), mode, rev)
         : null;
       const views = posts ? await embedViews(m, posts) : new Map<string, EmbedView>();
+      // What it embeds, from the versions it shows.
       const embeds = new Set<string>();
-      for (const p of posts ?? []) {
-        if (!isLive(p.status)) continue;
+      for (const p of posts ? shownPosts(m, posts) : []) {
         for (const x of p.surfaces) {
           if (x.kind === "html") for (const t of parseEmbedTags(x.html)) embeds.add(t.slug);
         }
@@ -3036,7 +3054,9 @@ export function createApp({
       for (const s of n.embeds) bySlug.get(s)!.embeddedIn.push(n.slug);
     }
     for (const n of nodes) {
-      const from = (builtFrom.get(n.slug) ?? []).filter((s) => s !== n.slug && marks.has(s));
+      const from = [...new Set(builtFrom.get(n.slug) ?? [])].filter(
+        (s) => s !== n.slug && marks.has(s),
+      );
       if (from.length) n.builtFrom = from.map((slug) => ({ slug, ...marks.get(slug)! }));
     }
     return ok({
@@ -4996,21 +5016,32 @@ export function createApp({
     const covers = shownCovers(design, posts);
     if (!covers.length) return fail(409, `${design.slug} isn't drawn yet`);
     const ready = await setReady(design, readyMark(design, covers, at));
-    const carried: string[] = [];
+    const carried: { slug: string; variant: string; version: number; alsoShown?: number[] }[] = [];
     if (design.kind === "screen") {
+      // Each component inside, once, by the variants the screen shows of it.
+      const inside = new Map<string, Map<string, number[]>>();
       for (const e of await shownEmbeds(design, posts)) {
-        const inside = await store.findDesign(design.project, e.slug);
-        if (!inside || !isProduct(inside) || inside.id === design.id) continue;
-        const own = shownCovers(inside, await store.listPosts({ designId: inside.id }));
-        const state = inside.states[0] ?? null;
-        // What the screen shows of it, where that is another version than its own.
-        const shown = own.some((c) => c.state === state && c.name === e.variant)
-          ? own.map((c) =>
-              c.state === state && c.name === e.variant ? { ...c, version: e.version } : c,
-            )
-          : [...own, { state, name: e.variant, version: e.version }];
-        await setReady(inside, readyMark(inside, shown, at));
-        carried.push(inside.slug);
+        const byVariant = inside.get(e.slug) ?? new Map<string, number[]>();
+        byVariant.set(e.variant, [...(byVariant.get(e.variant) ?? []), e.version]);
+        inside.set(e.slug, byVariant);
+      }
+      for (const [slug, byVariant] of inside) {
+        const m = await store.findDesign(design.project, slug);
+        if (!m || !isProduct(m) || m.id === design.id) continue;
+        const state = m.states[0] ?? null;
+        let shown = shownCovers(m, await store.listPosts({ designId: m.id }));
+        for (const [variant, versions] of byVariant) {
+          // Two entries of the screen pinning two versions of it: a mark records one, so
+          // the newest, and the response names the others.
+          const version = Math.max(...versions);
+          const others = [...new Set(versions)].filter((v) => v !== version).sort((a, b) => a - b);
+          // What the screen shows of it, where that is another version than its own.
+          shown = shown.some((c) => c.state === state && c.name === variant)
+            ? shown.map((c) => (c.state === state && c.name === variant ? { ...c, version } : c))
+            : [...shown, { state, name: variant, version }];
+          carried.push({ slug, variant, version, ...(others.length ? { alsoShown: others } : {}) });
+        }
+        await setReady(m, readyMark(m, shown, at));
       }
     }
     return ok({ ready, changed: isChanged({ ...design, ready }, posts), carried });

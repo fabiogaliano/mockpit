@@ -2047,7 +2047,7 @@ export function createDesignScreen(
         text: !on
           ? `${m.title} is in design again`
           : carried.length
-            ? `${m.title} is Ready, with ${carried.join(", ")} inside`
+            ? `${m.title} is Ready, with ${[...new Set(carried.map((c) => c.slug))].join(", ")} inside`
             : `${m.title} is Ready`,
       });
     } catch (e) {
