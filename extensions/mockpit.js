@@ -268,8 +268,23 @@ function feedbackLines(feedback) {
           `- ${prefix}${c.part ? `[${c.part}${c.state ? ` · ${c.state}` : ""}] ` : ""}${c.text}`,
         );
       }
+      if (reply.more) {
+        const m = reply.more;
+        lines.push(
+          `- ${prefix}more answers to "${m.text}" (ask ${m.ask} again with them)${m.like ? `, like ${m.like}` : ""}${m.note ? `: ${m.note}` : ""}${m.existing?.length ? `; it has ${m.existing.join(", ")}` : ""}${m.kept?.length ? `; kept ${m.kept.join(", ")}` : ""}${m.hidden?.length ? `; avoid ${m.hidden.map((h) => `${h.label}${h.why ? ` (${h.why})` : ""}`).join(", ")}` : ""}`,
+        );
+      }
+      if (reply.update) {
+        lines.push(
+          `- ${prefix}bring the kept ${reply.update.kept.label} up to date with ${reply.update.inUse.map((o) => o.label).join(", ")} ("${reply.update.text}")`,
+        );
+      }
+      for (const r of reply.reactions ?? []) lines.push(`- ${prefix}${r}`);
+      if (reply.combo) lines.push(`- ${prefix}put the combo ${reply.combo} in use`);
       if (reply.verdict)
-        lines.push(`- ${prefix}${reply.verdict.kind} ${reply.verdict.alternative}`);
+        lines.push(
+          `- ${prefix}${reply.verdict.kind} ${reply.verdict.alternative ?? reply.verdict.variant}`,
+        );
       if (reply.usedIn) {
         const at = reply.usedIn.copies.map((c) => `${c.state ?? c.alternative} v${c.version}`);
         lines.push(
@@ -279,6 +294,21 @@ function feedbackLines(feedback) {
       if (reply.text) lines.push(`- ${prefix}${reply.text}`);
     }
     for (const c of batch.messages ?? []) lines.push(`- ${prefix}${c.text}`);
+    if (batch.inUse?.length) {
+      lines.push(
+        `- ${prefix}in use: ${batch.inUse.map((r) => `${r.state ? `${r.state} · ` : ""}${r.alternative} v${r.version}`).join(", ")}`,
+      );
+    }
+    if (batch.archived?.length) {
+      lines.push(
+        `- ${prefix}archived: ${batch.archived.map((r) => `${r.state ? `${r.state} · ` : ""}${r.alternative}`).join(", ")}`,
+      );
+    }
+    if (batch.system) {
+      lines.push(
+        `- ${prefix || `${batch.project ?? "the project"}: `}the system changed (rev ${batch.system.rev}): ${batch.system.changes.join("; ")}`,
+      );
+    }
     if (batch.edited) {
       const e = batch.edited;
       const moved = [
@@ -321,6 +351,10 @@ function feedbackLines(feedback) {
 
 const stateName = (x) => x ?? "the one unnamed state";
 
+// A flow as its steps, an undrawn one marked.
+const flowText = (f) =>
+  `flow ${f.name}: ${f.steps.map((x) => `${x.design}${x.state ? ` · ${x.state}` : ""}${x.planned ? " (not drawn)" : ""}`).join(" → ") || "no steps"}`;
+
 // What a decision requires next, one line each.
 function followUpTexts(f) {
   if (!f) return [];
@@ -338,12 +372,14 @@ function followUpTexts(f) {
         (v) => `variants of ${stateName(v.state)}: ${v.names.join(", ")}`,
       ),
     ].filter(Boolean);
-    out.push(`gaps: draw on ${f.gaps.target} what the choice lacks (${bits.join("; ")})`);
+    out.push(
+      `gaps: draw on ${f.gaps.target} what the choice lacks (${bits.join("; ")}${f.gaps.more ? `; ${f.gaps.more} more` : ""})`,
+    );
   }
   if (f.instanceIn) {
     const i = f.instanceIn;
     out.push(
-      `instanceIn: ${i.component}${i.ready ? " (was Ready, now Changed)" : ""} shows in ${i.designs.map((d) => `${d.slug}${d.ready ? " (Ready)" : ""}`).join(", ")}; an idea for each, with a question`,
+      `instanceIn: ${i.component}${i.ready ? " (was Ready, now Changed)" : ""} shows in ${i.designs.map((d) => `${d.slug}${d.ready ? " (Ready)" : ""}`).join(", ")}${i.more ? `, ${i.more} more` : ""}; an idea for each, with a question`,
     );
   }
   for (const x of f.spec ?? [])
@@ -393,10 +429,11 @@ function pendingLines(pending) {
   return lines.length ? ["Pending:", ...lines] : [];
 }
 
+// Delivered once: the batches go in whole after the lines, so a kind the lines don't
+// name still reaches the model.
 function feedbackSummary(feedback) {
-  const lines = feedbackLines(feedback);
-  if (lines.length === 0) return "";
-  return `\n\nUser feedback delivered with this result:\n${lines.join("\n")}`;
+  if (!feedback?.length) return "";
+  return `\n\nUser feedback delivered with this result:\n${feedbackLines(feedback).join("\n")}\n\n${jsonText(feedback)}`;
 }
 
 const pause = (ms, signal) =>
@@ -406,8 +443,10 @@ const pause = (ms, signal) =>
   });
 
 // The user's reply wakes the idle agent, as the Claude Code plugin's hook
-// does. Reading feedback advances the server's cursor, so the message carries
-// the whole reply: a nudge to call mockpit_feedback would come back empty.
+// does. The watcher peeks, so the reply stays on the session's cursor and
+// mockpit_feedback (or the next write) delivers it whole: a wake that fails, or a
+// batch the lines don't name, loses nothing. The server remembers what a peek
+// has seen, so the same reply doesn't wake twice.
 // followUp waits for a busy agent to finish rather than cutting into its work.
 async function watchReplies(pi, state, signal) {
   while (!signal.aborted) {
@@ -416,14 +455,21 @@ async function watchReplies(pi, state, signal) {
       continue;
     }
     try {
-      const query = new URLSearchParams({ session: state.sessionId, author: "user", wait: "60" });
+      const query = new URLSearchParams({
+        session: state.sessionId,
+        author: "user",
+        wait: "60",
+        peek: "1",
+      });
       const result = await requestJson(`/api/comments?${query}`, { signal });
-      const lines = feedbackLines(result.feedback);
-      if (!lines.length || signal.aborted) continue;
+      const batches = result.feedback ?? [];
+      if (!batches.length || signal.aborted) continue;
+      const where = [...new Set(batches.map((b) => b.design ?? b.project ?? "a design"))];
+      const lines = feedbackLines(batches);
       pi.sendMessage(
         {
           customType: "mockpit-reply",
-          content: `The user replied in mockpit:\n${lines.join("\n")}`,
+          content: `The user replied in mockpit on ${where.join(", ")}. Call mockpit_feedback for the reply.${lines.length ? `\n${lines.join("\n")}` : ""}`,
           display: true,
           details: { feedback: result.feedback },
         },
@@ -538,7 +584,12 @@ export default function mockpitExtension(pi) {
       properties: {
         ...designProps,
         title: { type: "string", description: "Design title" },
-        kind: { type: "string", enum: ["component", "screen"], description: "Design kind" },
+        kind: {
+          type: "string",
+          enum: ["screen", "component", "idea"],
+          description:
+            "Only when building the product's screens: screen, component (a reusable design screens include). With no html it plans one, drawn by a later publish. Omit for ideas, diagrams and reviews",
+        },
         area: {
           type: "string",
           description: 'Where in the product it belongs ("Shell"); Home groups by it. "" clears',
@@ -555,13 +606,29 @@ export default function mockpitExtension(pi) {
         },
         for: {
           type: "string",
-          description: 'An idea\'s screen or component: Use this changes it. "" clears',
+          description:
+            'An idea\'s screen or component (Use this changes it), or flow:<name>. "" clears',
         },
         becomes: {
           type: "string",
           description: 'An idea for nothing yet: screen, component, flow or system. "" clears',
         },
         source: { type: "string", description: 'Code path that implements it. "" clears' },
+        description: {
+          type: "string",
+          description: "What this alternative is; shown beside it, never in the html",
+        },
+        widths: {
+          type: "array",
+          items: { type: "integer" },
+          description: "Widths it ships at, side by side: [390,1280]",
+        },
+        flow: {
+          type: "string",
+          description:
+            "Flow this state is a step of; alone (no body), only places it, and on a screen declares a new state",
+        },
+        step: { type: "integer", description: "1-based place in the flow; 0 removes" },
         html: { type: "string", description: "HTML body fragment; declare parts with data-part" },
         path: { type: "string", description: "File to read the html from instead" },
         poster: {
@@ -574,6 +641,24 @@ export default function mockpitExtension(pi) {
           type: "object",
           description:
             '{"name"|"name#key": outer html}; splices declared parts of the latest version',
+        },
+        swaps: {
+          type: "object",
+          description:
+            '{"part#swap": outer html}; replaces that swap of a part, or adds it after its others',
+        },
+        fork: {
+          type: "string",
+          description:
+            'Start this new alternative from a sibling: "alternative" or "alternative@N"; alone it copies it, with parts/swaps it edits the copy',
+        },
+        amend: {
+          type: "boolean",
+          description: "Replace the latest version in place: a fix before the user acts on it",
+        },
+        withdraw: {
+          type: "boolean",
+          description: "Take the latest version back, before the user acts on it",
         },
         knobs: { type: "object", description: "Knobs in tunekit usePane shape, keyed by path" },
         alternativeKnobs: { type: "object", description: "Knobs this alternative alone has" },
@@ -603,12 +688,24 @@ export default function mockpitExtension(pi) {
       });
       rememberSession(state, result.sessionId);
       const { post } = result;
+      if (result.withdrawn && !post) {
+        const w = result.withdrawn;
+        return {
+          content: [
+            {
+              type: "text",
+              text: `${params.design}: withdrew ${w.state ? `${w.state}/` : ""}${w.alternative ?? w.variant} v${w.version}, its only version, so it is gone · ${result.url}${feedbackSummary(result.feedback)}`,
+            },
+          ],
+          details: { ...result, baseUrl: baseUrl() },
+        };
+      }
       if (result.planned) {
         return {
           content: [
             {
               type: "text",
-              text: `${result.design.slug}${result.state ? `/${result.state}` : ""}: planned, nothing drawn yet · ${result.url}${feedbackSummary(result.feedback)}`,
+              text: `${result.design.slug}${result.state ? `/${result.state}` : ""}: planned, nothing drawn yet · ${result.url}${result.flow ? `\n${flowText(result.flow)}` : ""}${(result.nudges ?? []).map((n) => `\nnudge: ${n}`).join("")}${feedbackSummary(result.feedback)}`,
             },
           ],
           details: { ...result, baseUrl: baseUrl() },
@@ -630,6 +727,8 @@ export default function mockpitExtension(pi) {
         ...parts,
         ...(result.applied?.length ? [`applied: ${result.applied.join(", ")}`] : []),
         ...changes,
+        ...(result.flow ? [flowText(result.flow)] : []),
+        ...followUpTexts(result.followUps).map((t) => `follow-up ${t}`),
         ...(result.nudges ?? []).map((n) => `nudge: ${n}`),
         ...(result.suggestedAsk
           ? [`suggestedAsk (send with mockpit_ask): ${JSON.stringify(result.suggestedAsk)}`]
@@ -704,6 +803,16 @@ export default function mockpitExtension(pi) {
         design: { type: "string", description: "Design slug; omit for every design" },
         project: designProps.project,
         area: { type: "string", description: "Without design: one product area" },
+        tree: {
+          type: "boolean",
+          description:
+            "Without design: the project as a tree (each design's alternatives with status and forkedFrom, the designs it includes and is included in)",
+        },
+        decisions: {
+          type: "boolean",
+          description:
+            "Without design: the whole decision log, when a read says lines were left out",
+        },
         body: { type: "boolean", description: "Include each alternative's surfaces" },
         history: { type: "boolean", description: "Include version rows" },
       },
@@ -716,6 +825,13 @@ export default function mockpitExtension(pi) {
         );
         return { content: [{ type: "text", text: jsonText(area) }], details: area };
       }
+      if (params.design === undefined && (params.tree || params.decisions)) {
+        const name = encodeURIComponent(query.get("project"));
+        const whole = await requestJson(
+          params.tree ? `/api/projects/${name}/tree` : `/api/projects/${name}/decisions`,
+        );
+        return { content: [{ type: "text", text: jsonText(whole) }], details: whole };
+      }
       if (params.design === undefined) {
         const result = await requestJson(`/api/designs?${query}`);
         const lines = result.designs.map(
@@ -723,11 +839,21 @@ export default function mockpitExtension(pi) {
             `${m.slug} · ${m.kind} · ${m.states.length ? m.states.join(" / ") : "single state"} · ${m.variants === undefined ? `${m.alternatives} alternatives` : `${m.variants} variants`}${m.open ? ` · ${m.open} open` : ""}`,
         );
         const busy = pendingLines(result.pending);
+        const log = result.decisionLog;
+        const decided = log
+          ? [
+              `Decided, ${log.total}. Treat as settled unless the user says otherwise:`,
+              ...log.lines.map((d) => `  ${d.system ? "project" : d.design}: ${d.text}`),
+              ...(log.more ? [`  ${log.more} more (read with decisions)`] : []),
+            ]
+          : [];
         return {
           content: [
             {
               type: "text",
-              text: [...lines, ...busy].join("\n") || `No designs in ${query.get("project")}.`,
+              text:
+                [...lines, ...(result.flows ?? []).map(flowText), ...busy, ...decided].join("\n") ||
+                `No designs in ${query.get("project")}.`,
             },
           ],
           details: { ...result, baseUrl: baseUrl() },
@@ -801,6 +927,117 @@ export default function mockpitExtension(pi) {
             text: `Said on ${params.design}.${feedbackSummary(result.feedback)}`,
           },
         ],
+        details: { ...result, baseUrl: baseUrl() },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "mockpit_move",
+    label: "Mockpit Move",
+    description:
+      "Tidy up alternatives: to or toState moves them there and out of here; archive takes them out of view; restore brings them back; one in use stays. Only when the user asks: hideOlder hides each alternative's older versions (alternatives optional: all of them), and deleteOlder deletes them for good, skipping any that a reply, comment, question, instance, copy or fork still points at, or that is in use. Confirm a delete first: it can't be undone. Returns feedback.",
+    promptSnippet: "Move, archive or restore mockpit alternatives.",
+    promptGuidelines: [feedbackGuideline],
+    parameters: {
+      type: "object",
+      properties: {
+        design: designProps.design,
+        state: designProps.state,
+        project: designProps.project,
+        alternatives: {
+          type: "array",
+          items: { type: "string" },
+          description: "Alternative names; required except with hideOlder or deleteOlder",
+        },
+        variants: {
+          type: "array",
+          items: { type: "string" },
+          description: "A variants design's names instead",
+        },
+        to: { type: "string", description: "Target design; default this one" },
+        toState: { type: "string", description: "Target state; created if new" },
+        archive: { type: "boolean" },
+        restore: { type: "boolean" },
+        hideOlder: {
+          type: "boolean",
+          description: "Hide all but each alternative's newest visible version",
+        },
+        deleteOlder: {
+          type: "boolean",
+          description: "Delete them instead; permanent, skips what's referenced",
+        },
+      },
+      required: ["design"],
+    },
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const session = await ensureSession(ctx);
+      const result = await requestJson(`${designPath(params.design)}/move`, {
+        method: "POST",
+        body: JSON.stringify({ ...params, project: projectOf(params, ctx), session }),
+      });
+      const { feedback, ...rest } = result;
+      return {
+        content: [{ type: "text", text: `${jsonText(rest)}${feedbackSummary(feedback)}` }],
+        details: { ...result, sessionId: session, baseUrl: baseUrl() },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "mockpit_system",
+    label: "Mockpit System",
+    description:
+      "Read or change the project's system (sheet, tokens, scales, palettes, project knobs), which every render wears at once. No arguments reads it; each argument replaces its part, tokens, scales and palettes upsert. Shapes: mockpit_guide topic system.",
+    promptSnippet: "Read or change the project's mockpit system.",
+    promptGuidelines: [feedbackGuideline],
+    parameters: {
+      type: "object",
+      properties: {
+        project: designProps.project,
+        sheet: { type: "string", description: "CSS; no @import" },
+        sheetPath: { type: "string", description: "A .css file to read the sheet from instead" },
+        classes: { type: "array", items: {}, description: "[{name, note}] or names" },
+        fonts: { type: "array", items: { type: "object" }, description: "[{family, href?}]" },
+        tokens: {
+          type: "array",
+          items: { type: "object" },
+          description: "[{name, type, value, note?}]",
+        },
+        scales: {
+          type: "array",
+          items: { type: "object" },
+          description: "[{id, family: type|space, prefix, steps, zero, base, ratio, fluid?}]",
+        },
+        roles: { type: "array", items: {}, description: "[{name, note}] or names" },
+        palettes: {
+          type: "array",
+          items: { type: "object" },
+          description: "[{id, label, note, light, dark}]",
+        },
+        pairs: { type: "array", items: { type: "array" }, description: "[[fg, bg, min?]]" },
+        as: { type: "object" },
+        knobs: { type: "object", description: "Project knobs" },
+        remove: { type: "object", description: "{tokens?, palettes?, scales?}" },
+        restore: { type: "integer", description: "A revision, alone" },
+      },
+    },
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const { project: _named, sheetPath, ...rest } = params;
+      const project = projectOf(params, ctx);
+      const sheet = sheetPath ? await readFile(resolve(ctx.cwd, sheetPath), "utf8") : rest.sheet;
+      const body = { ...rest, ...(sheet === undefined ? {} : { sheet }) };
+      const writes = Object.keys(body).filter((k) => body[k] !== undefined);
+      const path = `/api/projects/${encodeURIComponent(project)}/system`;
+      const result = writes.length
+        ? await requestJson(path, {
+            method: "PUT",
+            body: JSON.stringify({ ...body, session: await ensureSession(ctx) }),
+          })
+        : await requestJson(path);
+      const { feedback, ...shown } = result;
+      return {
+        content: [{ type: "text", text: `${jsonText(shown)}${feedbackSummary(feedback)}` }],
         details: { ...result, baseUrl: baseUrl() },
       };
     },
@@ -1033,7 +1270,7 @@ export default function mockpitExtension(pi) {
         project: designProps.project,
         topic: {
           type: "string",
-          enum: ["knobs", "asks", "surfaces", "html", "feedback", "http", "scripts"],
+          enum: ["system", "knobs", "asks", "surfaces", "html", "feedback", "http", "scripts"],
           description: "One reference section instead of the brief",
         },
       },
