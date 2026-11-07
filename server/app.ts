@@ -3183,7 +3183,7 @@ export function createApp({
           if (x.kind === "html") for (const t of parseInstanceTags(x.html)) instances.add(t.slug);
         }
       }
-      // What it is built from: what the versions it shows instance, nested ones included,
+      // What it is built from: what the versions it shows include, nested ones too,
       // as they resolve there.
       if (posts)
         builtFrom.set(

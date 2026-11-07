@@ -43,9 +43,9 @@ mockpit feedback
 
 - **Pick** from pictures. Hover to preview it on the stage.
 - **Keep** runners-up. After Send they stay beside the design, one click from Use this instead.
-- **Hide** what you don't want, with a reason if you like. The agent won't offer it again.
+- **Archive** what you don't want, with a reason if you like. The agent won't offer it again.
 - **Ask for more** answers without sending the rest of your draft.
-- **Save a set** of answers across questions, like Warm or Quiet, and switch between sets.
+- **Save a combo** of answers across questions, like Warm or Quiet, and switch between combos.
 - **Tune** the knobs the agent declared, **borrow** a part from another alternative, and
   **comment** on any part.
 

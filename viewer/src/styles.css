@@ -3823,8 +3823,8 @@ html.theming *:not(iframe) {
   }
 }
 
-/* Slots: the chip on a question that chooses a slot's fill, a question that
-   doesn't apply to the fill chosen, and the review's state groups. */
+/* Parts with swaps: the chip on a question that chooses a part's swap, a question that
+   doesn't apply to the swap chosen, and the review's state groups. */
 .slotchip {
   margin-inline-start: 8px;
   font: 600 12px/1 var(--sans);
@@ -9367,13 +9367,13 @@ body:has(.selp) .toast {
 
 /* Kept answers beside the design, and saved combos (Kept.tsx). */
 .keptans,
-.asets {
+.combos {
   margin-top: 12px;
   border-top: 1px solid var(--line);
   padding-top: 10px;
 }
 .keptans ul,
-.asets ul {
+.combos ul {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -9396,7 +9396,7 @@ body:has(.selp) .toast {
   color: var(--t4);
 }
 .keptrow,
-.setrow {
+.comborow {
   display: flex;
   gap: 10px;
   padding: 6px;
@@ -9406,10 +9406,10 @@ body:has(.selp) .toast {
   transition: box-shadow 120ms ease;
 }
 .keptrow.previewing,
-.setrow.previewing {
+.comborow.previewing {
   box-shadow: inset 0 0 0 1.5px var(--t4);
 }
-.setrow {
+.comborow {
   align-items: center;
   padding-left: 12px;
 }
@@ -9460,12 +9460,12 @@ body:has(.selp) .toast {
   gap: 6px;
   margin-top: 4px;
 }
-.setrow .keptrow-acts {
+.comborow .keptrow-acts {
   flex: none;
   margin-top: 0;
 }
 .keptrow .optic,
-.setrow .optic {
+.comborow .optic {
   opacity: 1;
   background: var(--fill);
   color: var(--t2);
@@ -9522,7 +9522,7 @@ body:has(.selp) .toast {
 .vcap:has(.apill.on) .previewcap {
   display: none;
 }
-.setrow-use {
+.comborow-use {
   padding: 0 6px;
   border-radius: 6px;
   background: var(--fill);
@@ -9530,16 +9530,16 @@ body:has(.selp) .toast {
   line-height: 17px;
   color: var(--t2);
 }
-.asets .moreans {
+.combos .moreans {
   margin-top: 6px;
   width: 100%;
 }
-.asets-new {
+.combos-new {
   display: flex;
   gap: 6px;
   margin-top: 6px;
 }
-.asets-new input {
+.combos-new input {
   flex: 1;
   min-width: 0;
   height: 36px;

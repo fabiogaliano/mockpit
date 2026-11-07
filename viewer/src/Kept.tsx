@@ -259,7 +259,7 @@ export function AnswerCombos(props: { s: DesignScreenState }) {
   }
   return (
     <Show when={show()}>
-      <section class="asets" aria-label="Saved combos">
+      <section class="combos" aria-label="Saved combos">
         <h4 class="keptans-hd">
           <span>{`Combos${s.combos().length ? ` · ${s.combos().length}` : ""}`}</span>
           <small>Answers across questions, under one name</small>
@@ -278,7 +278,7 @@ export function AnswerCombos(props: { s: DesignScreenState }) {
             }
           >
             <form
-              class="asets-new"
+              class="combos-new"
               onSubmit={(e) => {
                 e.preventDefault();
                 void save();
@@ -328,7 +328,7 @@ function ComboRow(props: { s: DesignScreenState; combo: AnswerCombo }) {
   const [busy, setBusy] = createSignal(false);
   return (
     <li
-      class="setrow"
+      class="comborow"
       classList={{ previewing: s.preview()?.key === p()?.key }}
       onPointerEnter={(e) => e.pointerType === "mouse" && s.setHoveredPreview(p())}
       onPointerLeave={(e) => e.pointerType === "mouse" && s.setHoveredPreview(null)}
@@ -337,7 +337,7 @@ function ComboRow(props: { s: DesignScreenState; combo: AnswerCombo }) {
         <span class="keptrow-name">
           {props.combo.name}
           <Show when={s.comboInUse(props.combo)}>
-            <span class="setrow-use">In use</span>
+            <span class="comborow-use">In use</span>
           </Show>
         </span>
         <span class="keptrow-desc">{summary()}</span>
