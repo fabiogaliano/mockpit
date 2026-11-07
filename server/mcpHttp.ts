@@ -145,24 +145,31 @@ export function registerMcp(app: Hono, deps: McpDeps) {
         return unwrap(await flows.publish(args, ctx));
       case "ask":
         return unwrap(await flows.ask(args.design, args, ctx));
-      case "read":
+      case "read": {
+        // The session's project, as on the other tiers: a bare read lists that project with
+        // its open follow-ups, and the tree and the decision log need one (never a guess).
+        const project = await namedProject(args);
+        if (!project && (args.decisions === true || (args.design === undefined && args.tree))) {
+          throw new Error('pass "project", or the "session" an earlier write returned');
+        }
         if (args.decisions === true) {
-          return unwrap(await flows.decisions({ project: args.project }));
+          return unwrap(await flows.decisions({ project }));
         }
         if (args.design === undefined && args.tree === true) {
-          return unwrap(await flows.tree({ project: args.project }));
+          return unwrap(await flows.tree({ project }));
         }
         if (args.design === undefined && typeof args.area === "string") {
           return unwrap(await flows.area({ project: await projectOf(args), area: args.area }));
         }
-        if (args.design === undefined) return unwrap(await flows.list({ project: args.project }));
+        if (args.design === undefined) return unwrap(await flows.list({ project }));
         return unwrap(
           await flows.get(args.design, {
-            project: args.project,
+            project,
             body: args.body === true,
             history: args.history === true,
           }),
         );
+      }
       case "feedback":
         return unwrap(await flows.feedback({ session: args.session, project: args.project }, ctx));
       case "say":

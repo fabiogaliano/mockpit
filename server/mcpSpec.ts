@@ -315,7 +315,9 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
         t: "boolean",
         d: "Only the whole decision log, when decisionLog says it was cut",
       },
+      session: P.session,
     },
+    httpOnly: ["session"],
   },
   {
     name: "feedback",
@@ -364,7 +366,8 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
     name: "export",
     description:
       "The html in use (else current; a screen or component's every entry marked Ready) per state, version history, screenshot URL, knobs, the settled values and the last reply; a screen or component adds ready, its spec and builtFrom. Without design: the project's system for code (sheet, tokens as CSS and JSON, settled project knobs, components' sources).",
-    params: { ...ALTERNATIVE_REF, design: { t: "string", d: field.design } },
+    params: { ...ALTERNATIVE_REF, design: { t: "string", d: field.design }, session: P.session },
+    httpOnly: ["session"],
   },
   {
     name: "edit",
@@ -442,7 +445,9 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
     params: {
       project: P.project,
       topic: { t: "enum", values: GUIDE_TOPICS, d: "One reference section instead of the brief" },
+      session: P.session,
     },
+    httpOnly: ["session"],
   },
 ];
 
