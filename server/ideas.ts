@@ -67,8 +67,8 @@ export function ideaStatus(
 ): string {
   if (open) return `${open} question${open === 1 ? "" : "s"}`;
   if (posts.some((p) => p.status === "accepted"))
-    return target ? `in use in ${target.title}` : "in use";
-  return "exploring";
+    return target ? `In use in ${target.title}` : "In use";
+  return "Exploring";
 }
 
 // Which states an alternative put in use would land in on the design an idea is for:

@@ -1435,7 +1435,7 @@ function StudioCard(props: {
         </Show>
       </button>
       <Show when={props.wall && inUse()}>
-        <span class="sk-tag wall-use">in use</span>
+        <span class="sk-tag wall-use">In use</span>
       </Show>
       <Show when={props.small && steers()}>
         <button
@@ -1472,7 +1472,7 @@ function StudioCard(props: {
             </button>
           </Show>
           <Show when={inUse()}>
-            <span class="sk-tag">in use</span>
+            <span class="sk-tag">In use</span>
           </Show>
           <Show when={steers()}>
             <div class="sk-acts" role="group" aria-label={`Steer ${name()}`}>
@@ -1803,7 +1803,7 @@ function Look(props: {
       <header class="look-h">
         <LookPick name={name()} order={props.order} entry={props.entry} onGo={props.onGo} />
         <Show when={inUse()}>
-          <span class="sk-tag">in use</span>
+          <span class="sk-tag">In use</span>
         </Show>
         <span class="look-at">{counter()}</span>
         <span class="look-sp" />

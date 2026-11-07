@@ -197,7 +197,7 @@ consciously, not as a side effect):
   it off clears one design). A covered version is acted on (`touchedBy`: amend and withdraw
   refuse) and kept past history's limit (`SqlStore.pinnedVersions`, `deleteBlocker`); one
   gone anyway reads `missing: true` (`readyView`), never replaced. `changed` (another
-  version or entry shows, or a state was declared since), `status` (`in design`, `Ready`,
+  version or entry shows, or a state was declared since), `status` (`In design`, `Ready`,
   `Changed`), `builtFrom` and `holdsAlternatives` are derived on every read
   (`readyFields`). `shipped` reads an older reply's `accepted` rows on a product design as
   open, so every current-status path (views, export, instances, Jump, decisions, option
@@ -661,8 +661,9 @@ the finding needs.
   alternatives is "a part with swaps", and an alternative the user picked is "in
   use". A design's **kind** is idea, screen or component; a part is a named bit inside
   one design, a component a whole design others include as instances. Each level has one
-  status ladder: a screen or component is In design, Ready or Changed (or Archived); an
-  alternative is Kept, In use or Archived; a version is current or, older ones, Hidden.
+  status ladder, capitalised wherever it shows: a screen or component is In design, Ready
+  or Changed (or Archived); an idea Exploring or In use in <target> (or how many questions
+  wait); an alternative is Kept, In use or Archived; a version is current or, older ones, Hidden.
   Hide only ever means a version, taking an alternative out is Archive, and the bookmark
   is Keep. An alternative has a `description`,
   a design has a `spec`, an area and a project a `description`, an answer has a `comment`. Retired words — item, group (for a lead's followers; a component's library `group` is live),

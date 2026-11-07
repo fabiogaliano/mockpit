@@ -284,7 +284,8 @@ mockpit read    --decisions               # the whole decision log, when a read 
   several), and `note` says so in words; a later use from the idea replaces it. When it is drawn in
   a state the target lacks, nothing is copied and the batch carries `followUps.apply`
   (Follow-ups): the next version there is yours to publish. A screen's or component's
-  reads list `ideasFor` (`[{slug, title, status}]`).
+  reads list `ideasFor` (`[{slug, title, status}]`, `status` reading `Exploring`,
+  `In use in <target>` or how many questions wait, `2 questions`).
 - `planned: true` is a declared screen or component with nothing drawn; your first publish
   draws it. `stateOutlines` says which missing states the user dismissed or asked for by
   name (`{"Loading": "dismissed"}`).
