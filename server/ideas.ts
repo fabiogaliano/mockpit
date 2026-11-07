@@ -144,7 +144,8 @@ export function ruledOutOf(
   // down: said twice it would only crowd out the rest. The newest is kept.
   const seen = new Set<string>();
   const distinct = out.filter((r) => {
-    const key = `${r.name}\n${r.reason ?? ""}`;
+    // A tuple, not a join: a name or reason may hold any character, a separator included.
+    const key = JSON.stringify([r.name, r.reason ?? ""]);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

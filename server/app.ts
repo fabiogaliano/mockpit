@@ -5071,41 +5071,45 @@ export function createApp({
       );
       if (states.missing.length) return { apply: { target: target.slug, states } };
     }
-    // Everything is checked before anything is written: a page that can't be included
-    // where it lands stops the whole use.
-    const slug = target?.slug ?? (await uniqueSlug(idea.project, idea.title));
-    const plans: { post: Post; version: number; surfaces: Surface[]; instances: Instance[] }[] = [];
-    for (const u of used) {
-      const surfaces =
-        u.version === u.post.version
-          ? u.post.surfaces
-          : u.post.history.find((h) => h.version === u.version)?.surfaces;
-      if (!surfaces) return fail(404, `${u.post.alternative} has no version ${u.version}`);
-      const instances = await publishInstances(idea.project, slug, surfaces);
-      if (isResult(instances)) return instances;
-      plans.push({ ...u, surfaces, instances });
-    }
-    const created = !target;
-    if (!target) {
-      const order = idea.states.filter((st) => used.some((u) => u.post.state === st));
-      target = await store.createDesign({
-        project: idea.project,
-        slug,
-        title: idea.title,
-        kind: making!,
-        area: idea.area,
-        states: order,
-        widths: idea.widths,
-        sessionId: idea.sessionId,
-      });
-      bus.broadcast({ type: "design-created", id: target.id, project: target.project });
-      const linked = await store.updateDesign(idea.id, { for: target.id, becomes: null });
-      if (linked) bus.broadcast({ type: "design-updated", id: idea.id, project: idea.project });
-    }
-    // One design's copies land one at a time, whichever ideas they come from: each reads
-    // the entries it lands on as they are now.
-    const into = target;
-    return serialDecision(`copy:${into.id}`, async () => {
+    // One project's copies land one at a time, whichever ideas they come from: each checks
+    // its instances against the graph as the last copy left it, so two uses onto different
+    // designs can't close a loop between them, and reads the entries it lands on as they are.
+    const known = target;
+    return serialDecision(`copy:${idea.project}`, async () => {
+      let target = known;
+      // Everything is checked before anything is written: a page that can't be included
+      // where it lands stops the whole use.
+      const slug = target?.slug ?? (await uniqueSlug(idea.project, idea.title));
+      const plans: { post: Post; version: number; surfaces: Surface[]; instances: Instance[] }[] =
+        [];
+      for (const u of used) {
+        const surfaces =
+          u.version === u.post.version
+            ? u.post.surfaces
+            : u.post.history.find((h) => h.version === u.version)?.surfaces;
+        if (!surfaces) return fail(404, `${u.post.alternative} has no version ${u.version}`);
+        const instances = await publishInstances(idea.project, slug, surfaces);
+        if (isResult(instances)) return instances;
+        plans.push({ ...u, surfaces, instances });
+      }
+      const created = !target;
+      if (!target) {
+        const order = idea.states.filter((st) => used.some((u) => u.post.state === st));
+        target = await store.createDesign({
+          project: idea.project,
+          slug,
+          title: idea.title,
+          kind: making!,
+          area: idea.area,
+          states: order,
+          widths: idea.widths,
+          sessionId: idea.sessionId,
+        });
+        bus.broadcast({ type: "design-created", id: target.id, project: target.project });
+        const linked = await store.updateDesign(idea.id, { for: target.id, becomes: null });
+        if (linked) bus.broadcast({ type: "design-updated", id: idea.id, project: idea.project });
+      }
+      const into = target;
       const here = await store.listPosts({ designId: into.id });
       const copies: UsedIn["copies"] = [];
       for (const { post, version, surfaces, instances } of plans) {

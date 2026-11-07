@@ -233,7 +233,7 @@ consciously, not as a side effect):
   alternatives, hidden answers and decisions' "Not:"); a product design's reads carry
   `ideasFor`, and `read --area` groups `ideasWaiting` by `for`. Using an alternative there
   (`useInTarget`, from `useFlow` and `replyFlow`, one decision per design at a time and one copy
-  per target at a time, `serialDecision`) copies each version put in use onto the
+  per project at a time, instance checks included, `serialDecision`) copies each version put in use onto the
   design as the next version of the entry of the same name in the state of the same name
   (`entryFor`), `copiedFrom.asVersion` naming the version it became and `author: "user"`, so it
   is current at once and amend refuses it; the reply says `usedIn`. When the idea draws the
