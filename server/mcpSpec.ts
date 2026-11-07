@@ -468,6 +468,13 @@ const nullStr = z.string().nullable();
 const strs = z.array(z.string());
 const bag = z.record(z.string(), z.unknown());
 const alternativeRef = o({ state: nullStr, alternative: str });
+// An entry named as its design names them: an alternative, or a variants design's
+// variant. Exactly one of the two, so a correct result of either kind validates.
+const entryNamed = <T extends z.ZodRawShape>(shape: T) =>
+  z.union([
+    o({ ...shape, alternative: str, variant: z.never().optional() }),
+    o({ ...shape, variant: str, alternative: z.never().optional() }),
+  ]);
 const inUseRef = o({ state: nullStr, alternative: str, version: num });
 const partsByState = z.array(o({ state: nullStr, parts: z.array(o({ name: str })) }));
 const flowSchema = o({ name: str, steps: z.array(o({ design: str, state: nullStr })) });
@@ -530,7 +537,7 @@ const pendingSchema = o({
 }).meta({ id: "Pending" });
 
 const writeOutput = {
-  post: o({ state: nullStr, alternative: str, version: num })
+  post: entryNamed({ state: nullStr, version: num })
     .optional()
     .describe("Absent when planned: nothing is drawn yet"),
   planned: z.boolean().optional(),
@@ -672,9 +679,8 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
   export: {
     states: z
       .array(
-        o({
+        entryNamed({
           state: nullStr,
-          alternative: str,
           version: num,
           latest: num.optional().describe("Your newer version, not in use yet"),
           html: str.describe("With swaps: only the chosen ones"),

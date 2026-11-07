@@ -147,6 +147,10 @@ const surfaceHeads = (surfaces: Surface[]): string =>
     }),
   );
 
+// One attribute of an open tag (after its name): the space before it, its name, and its
+// value, quoted values read whole.
+const TAG_ATTR = /(\s+)([^\s"'>/=]+)(\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?/g;
+
 // An open tag, its quoted attribute values read whole so a ">" inside one doesn't end it.
 const OPEN_TAG =
   /<[A-Za-z][\w:-]*(?:\s+[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*\/?>/g;
@@ -396,12 +400,7 @@ export class SqlStore implements Store {
   // and copies) says so. A component instance still names its variant, and the posts
   // column keeps its name.
   private migrateToAlternativeWords() {
-    const askId = (id: string) =>
-      id === "variant"
-        ? "alternative"
-        : id.startsWith("variant:")
-          ? `alternative${id.slice(7)}`
-          : id;
+    const OLD = /^variant(:|$)/;
     const renameKey = (o: unknown): boolean => {
       if (!o || typeof o !== "object" || !("variant" in o)) return false;
       const rec = o as Record<string, unknown>;
@@ -409,92 +408,163 @@ export class SqlStore implements Store {
       delete rec.variant;
       return true;
     };
-    const byAskId = (map: unknown): boolean => {
-      if (!map || typeof map !== "object") return false;
-      const rec = map as Record<string, unknown>;
-      let changed = false;
-      for (const k of Object.keys(rec)) {
-        const to = askId(k);
-        if (to === k) continue;
-        rec[to] = rec[k];
-        delete rec[k];
-        changed = true;
+    const ANSWER_MAPS = ["answers", "others", "askComments", "otherImages", "askCommentImages"];
+    type Rec = Record<string, unknown>;
+    const asRec = (v: unknown): Rec | null => (v && typeof v === "object" ? (v as Rec) : null);
+    const designs = this.sql
+      .exec("SELECT id, project, asks, draft, standings, sets FROM designs")
+      .toArray()
+      .map((r) => ({
+        id: r.id as string,
+        project: r.project as string,
+        asks: parseJson<Rec[]>(r.asks, []),
+        draft: parseJson<Rec | null>(r.draft, null),
+        standings: parseJson<Rec>(r.standings, {}),
+        sets: parseJson<Rec[]>(r.sets, []),
+      }));
+    const replies = this.sql
+      .exec(
+        "SELECT seq, designId, payload FROM comments WHERE kind = 'reply' AND payload IS NOT NULL",
+      )
+      .toArray()
+      .map((r) => ({
+        seq: r.seq as number,
+        designId: r.designId as string | null,
+        payload: parseJson<Rec | null>(r.payload, null),
+      }));
+    // Every question id a design's data names: its asks and what answered them.
+    const idsOf = (d: (typeof designs)[number], own: typeof replies): string[] => {
+      const ids: string[] = [];
+      const keys = (v: unknown) => ids.push(...Object.keys(asRec(v) ?? {}));
+      const answered = (o: Rec | null) => {
+        if (!o) return;
+        for (const field of ANSWER_MAPS) keys(o[field]);
+      };
+      for (const a of d.asks) {
+        if (typeof a.id === "string") ids.push(a.id);
+        if (typeof a.after === "string") ids.push(a.after);
       }
-      return changed;
-    };
-    const standings = (map: unknown): boolean => {
-      let changed = byAskId(map);
-      for (const s of Object.values((map ?? {}) as Record<string, { hidden?: unknown[] }>)) {
-        for (const h of s?.hidden ?? []) changed = renameKey(h) || changed;
-      }
-      return changed;
-    };
-    // A draft and a reply share these fields.
-    const answered = (o: Record<string, unknown>): boolean => {
-      let changed = false;
-      for (const field of ["answers", "others", "askComments", "otherImages", "askCommentImages"]) {
-        changed = byAskId(o[field]) || changed;
-      }
-      for (const c of (o.comments as unknown[] | undefined) ?? [])
-        changed = renameKey(c) || changed;
-      return changed;
-    };
-    // An agent could reuse the built-in question's id for its own, and the replies
-    // answering it are keyed as the built-in's are.
-    this.rewriteJson("designs", "id", "asks", (asks) => {
-      let changed = false;
-      for (const a of asks as { id?: string; after?: string; options?: unknown[] }[]) {
-        for (const field of ["id", "after"] as const) {
-          const was = a[field];
-          if (was !== undefined && askId(was) !== was) {
-            a[field] = askId(was);
-            changed = true;
-          }
+      answered(d.draft);
+      keys(d.standings);
+      for (const c of d.sets) keys(c.answers);
+      for (const { payload } of own) {
+        answered(payload);
+        keys(payload?.standings);
+        ids.push(...((asRec(payload?.archived)?.dismissed as string[] | undefined) ?? []));
+        for (const field of ["more", "update"]) {
+          const ask = asRec(payload?.[field])?.ask;
+          if (typeof ask === "string") ids.push(ask);
         }
-        for (const o of a.options ?? []) changed = renameKey(o) || changed;
       }
-      return changed;
-    });
-    this.rewriteJson("designs", "id", "draft", (d) => answered(d as Record<string, unknown>));
-    this.rewriteJson("designs", "id", "standings", standings);
-    this.rewriteJson("designs", "id", "sets", (sets) => {
+      return ids;
+    };
+    // The built-in question's ids become the new built-in's, unless an agent already asked a
+    // question under that id: its answers stand, and the old built-in's take the next free
+    // id instead (`alternative-2`, `alternative-2:<state>`), so no answer is overwritten.
+    const mapFor = (ids: string[]): Map<string, string> => {
+      const taken = new Set(ids.filter((id) => !OLD.test(id)));
+      const map = new Map<string, string>();
+      for (const old of [...new Set(ids.filter((id) => OLD.test(id)))].sort()) {
+        const rest = old.slice("variant".length);
+        let to = `alternative${rest}`;
+        for (let n = 2; taken.has(to); n++) to = `alternative-${n}${rest}`;
+        taken.add(to);
+        map.set(old, to);
+      }
+      return map;
+    };
+    const byAskId = (v: unknown, map: Map<string, string>): unknown => {
+      const rec = asRec(v);
+      if (!rec || !Object.keys(rec).some((k) => map.has(k))) return v;
+      return Object.fromEntries(Object.entries(rec).map(([k, x]) => [map.get(k) ?? k, x]));
+    };
+    const answered = (o: Rec, map: Map<string, string>) => {
+      for (const field of ANSWER_MAPS)
+        if (o[field] !== undefined) o[field] = byAskId(o[field], map);
+      for (const c of (o.comments as unknown[] | undefined) ?? []) renameKey(c);
+    };
+    const standings = (v: unknown, map: Map<string, string>): unknown => {
+      const next = byAskId(v, map);
+      for (const st of Object.values(asRec(next) ?? {}) as { hidden?: unknown[] }[]) {
+        for (const h of st?.hidden ?? []) renameKey(h);
+      }
+      return next;
+    };
+    const maps = new Map<string, Map<string, string>>();
+    for (const d of designs) {
+      const own = replies.filter((r) => r.designId === d.id);
+      const map = mapFor(idsOf(d, own));
+      maps.set(d.id, map);
+      const id = (x: string) => map.get(x) ?? x;
+      for (const a of d.asks) {
+        if (typeof a.id === "string") a.id = id(a.id);
+        if (typeof a.after === "string") a.after = id(a.after);
+        for (const o of (a.options as unknown[] | undefined) ?? []) renameKey(o);
+      }
+      if (d.draft) answered(d.draft, map);
+      const nextStandings = standings(d.standings, map);
+      for (const c of d.sets) c.answers = byAskId(c.answers, map);
+      this.sql.exec(
+        "UPDATE designs SET asks = ?, draft = ?, standings = ?, sets = ? WHERE id = ?",
+        JSON.stringify(d.asks),
+        d.draft ? JSON.stringify(d.draft) : null,
+        JSON.stringify(nextStandings),
+        JSON.stringify(d.sets),
+        d.id,
+      );
+      for (const r of own) {
+        const reply = r.payload;
+        if (!reply) continue;
+        answered(reply, map);
+        if (reply.standings !== undefined) reply.standings = standings(reply.standings, map);
+        renameKey(reply.verdict);
+        const archived = asRec(reply.archived);
+        if (Array.isArray(archived?.dismissed)) archived.dismissed = archived.dismissed.map(id);
+        for (const field of ["more", "update"]) {
+          const at = asRec(reply[field]);
+          if (typeof at?.ask === "string") at.ask = id(at.ask);
+        }
+        this.sql.exec(
+          "UPDATE comments SET payload = ? WHERE seq = ?",
+          JSON.stringify(reply),
+          r.seq,
+        );
+      }
+    }
+    // A hand edit to the decision log is keyed by the question's id: it follows the rename,
+    // its text, removal and basis as they were.
+    for (const r of this.sql
+      .exec("SELECT key, value FROM settings WHERE key LIKE ?", `${DECISION_EDITS_SETTING}:%`)
+      .toArray()) {
+      const edits = parseJson<Rec>(r.value, {});
       let changed = false;
-      for (const s of sets as { answers?: unknown }[]) changed = byAskId(s.answers) || changed;
-      return changed;
-    });
+      const next = Object.fromEntries(
+        Object.entries(edits).map(([key, edit]) => {
+          const m = /^ask:([^:]+):(.*)$/s.exec(key);
+          const to = m ? maps.get(m[1])?.get(m[2]) : undefined;
+          if (!m || !to) return [key, edit];
+          changed = true;
+          return [`ask:${m[1]}:${to}`, edit];
+        }),
+      );
+      if (changed) {
+        this.sql.exec(
+          "UPDATE settings SET value = ? WHERE key = ?",
+          JSON.stringify(next),
+          r.key as string,
+        );
+      }
+    }
     this.rewriteJson("posts", "id", "forkedFrom", renameKey);
     this.rewriteJson("posts", "id", "copiedFrom", renameKey);
-    this.rewriteJson(
-      "comments",
-      "seq",
-      "payload",
-      (p) => {
-        const reply = p as Record<string, unknown>;
-        let changed = answered(reply);
-        changed = standings(reply.standings) || changed;
-        changed = renameKey(reply.verdict) || changed;
-        const archived = reply.archived as { dismissed?: string[] } | undefined;
-        if (archived?.dismissed?.some((id) => askId(id) !== id)) {
-          archived.dismissed = archived.dismissed.map(askId);
-          changed = true;
-        }
-        for (const field of ["more", "update"]) {
-          const at = reply[field] as { ask?: string } | undefined;
-          if (at?.ask && askId(at.ask) !== at.ask) {
-            at.ask = askId(at.ask);
-            changed = true;
-          }
-        }
-        return changed;
-      },
-      "kind = 'reply' AND payload IS NOT NULL",
-    );
     this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('alternativeWords', '1')");
   }
 
   // Rewrites the html of every stored version, current and past, through `fix`. Only
   // rows `like` matches are read, and each rewritten row's head is worked out again.
-  private rewriteStoredHtml(like: string, fix: (html: string) => string) {
+  // Returns the designs whose versions changed.
+  private rewriteStoredHtml(like: string, fix: (html: string) => string): Set<string> {
+    const touched = new Set<string>();
     const rewrite = (raw: SqlStorageValue): string | null => {
       const surfaces = parseJson<Surface[]>(raw, []);
       let changed = false;
@@ -509,18 +579,23 @@ export class SqlStore implements Store {
       return changed ? JSON.stringify(surfaces) : null;
     };
     for (const r of this.sql
-      .exec("SELECT id, surfaces FROM posts WHERE surfaces LIKE ?", like)
+      .exec("SELECT id, designId, surfaces FROM posts WHERE surfaces LIKE ?", like)
       .toArray()) {
       const next = rewrite(r.surfaces);
       if (!next) continue;
+      touched.add(r.designId as string);
       this.sql.exec("UPDATE posts SET surfaces = ? WHERE id = ?", next, r.id as string);
       this.sql.exec(`UPDATE posts SET head = ${SURFACE_HEADS_SQL} WHERE id = ?`, r.id as string);
     }
     for (const r of this.sql
-      .exec("SELECT postId, version, surfaces FROM post_versions WHERE surfaces LIKE ?", like)
+      .exec(
+        "SELECT v.postId, v.version, v.surfaces, p.designId FROM post_versions v LEFT JOIN posts p ON p.id = v.postId WHERE v.surfaces LIKE ?",
+        like,
+      )
       .toArray()) {
       const next = rewrite(r.surfaces);
       if (!next) continue;
+      if (r.designId) touched.add(r.designId as string);
       this.sql.exec(
         "UPDATE post_versions SET surfaces = ? WHERE postId = ? AND version = ?",
         next,
@@ -533,24 +608,51 @@ export class SqlStore implements Store {
         r.version as number,
       );
     }
+    return touched;
   }
 
   // What can go in a part is a swap: `data-swap` in every stored version, and `swap`
-  // on the answers that bring one. Only an element that is a part was ever one: a
-  // page's own `data-fill` elsewhere (a meter's level) stays as it is.
+  // on the answers that bring one. Only an element that is a part was ever one: a page's
+  // own `data-fill` elsewhere (a meter's level) stays as it is, and so do its selectors.
+  // On a page that had swaps, the selectors in its styles and scripts follow the marks,
+  // and so do the styles its answers brought.
   private migrateToSwapWords() {
-    const marks = (tag: string) =>
-      /\sdata-part\s*=/.test(tag)
-        ? tag.replace(
-            /(\s)data-fill(-label|-default)?(?=[\s=/>]|$)/g,
-            (_, space: string, rest = "") => `${space}data-swap${rest}`,
-          )
-        : tag;
-    const attrs = (html: string) => html.replace(OPEN_TAG, marks);
-    this.rewriteStoredHtml("%data-fill%", attrs);
+    const OLD_MARK = /^data-fill(-label|-default)?$/i;
+    // One open tag's attributes, renamed by their name alone: a quoted value is read
+    // whole, so text inside it never changes.
+    const marks = (tag: string): string => {
+      const name = /^<[A-Za-z][\w:-]*/.exec(tag)?.[0];
+      if (!name) return tag;
+      const body = tag.slice(name.length);
+      const attrs = [...body.matchAll(TAG_ATTR)].map((a) => a[2].toLowerCase());
+      if (!attrs.includes("data-part") || !attrs.some((a) => OLD_MARK.test(a))) return tag;
+      return (
+        name +
+        body.replace(TAG_ATTR, (all, space: string, attr: string, value = "") =>
+          OLD_MARK.test(attr) ? `${space}data-swap${attr.slice("data-fill".length)}${value}` : all,
+        )
+      );
+    };
+    const selectors = (css: string) =>
+      css.replace(/\[(\s*)data-fill(-label|-default)?(?=[\s\]=~|^$*])/gi, "[$1data-swap$2");
+    const page = (html: string): string => {
+      let marked = false;
+      const next = html.replace(OPEN_TAG, (tag) => {
+        const renamed = marks(tag);
+        if (renamed !== tag) marked = true;
+        return renamed;
+      });
+      if (!marked) return html;
+      return next.replace(
+        /(<(style|script)\b[^>]*>)([\s\S]*?)(<\/\2\s*>)/gi,
+        (_, open: string, _tag: string, body: string, close: string) =>
+          open + selectors(body) + close,
+      );
+    };
+    const swapped = this.rewriteStoredHtml("%data-fill%", page);
     const swapKey = (o: Record<string, unknown>): boolean => {
       if (!("fill" in o)) return false;
-      o.swap = typeof o.fill === "string" ? attrs(o.fill) : o.fill;
+      o.swap = typeof o.fill === "string" ? page(o.fill) : o.fill;
       delete o.fill;
       return true;
     };
@@ -561,11 +663,27 @@ export class SqlStore implements Store {
       }
       return changed;
     });
-    this.rewriteJson("designs", "id", "answerAdditions", (list) => {
+    for (const r of this.sql.exec("SELECT id, answerAdditions FROM designs").toArray()) {
+      const list = parseJson<Record<string, unknown>[]>(r.answerAdditions, []);
       let changed = false;
-      for (const a of list as Record<string, unknown>[]) changed = swapKey(a) || changed;
-      return changed;
-    });
+      for (const a of list) {
+        changed = swapKey(a) || changed;
+        if (swapped.has(r.id as string) && typeof a.style === "string") {
+          const next = selectors(a.style);
+          if (next !== a.style) {
+            a.style = next;
+            changed = true;
+          }
+        }
+      }
+      if (changed) {
+        this.sql.exec(
+          "UPDATE designs SET answerAdditions = ? WHERE id = ?",
+          JSON.stringify(list),
+          r.id as string,
+        );
+      }
+    }
     this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('swapWords', '1')");
   }
 
@@ -578,12 +696,19 @@ export class SqlStore implements Store {
         .replace(/<(\/?)mockpit-embed(?=[\s/>])/gi, "<$1mockpit-instance")
         .replace(/data-mockpit-embed\b/g, "data-mockpit-instance");
     this.rewriteStoredHtml("%mockpit-embed%", tags);
+    // An answer's style is CSS alone: the tag's name and the wrapper's attribute as selectors.
+    const styles = (css: string) =>
+      css.replace(/(?<![\w-])(data-)?mockpit-embed(?![\w-])/g, "$1mockpit-instance");
     const pages = (o: Record<string, unknown>): boolean => {
       let changed = false;
-      for (const field of ["html", "swap"]) {
+      for (const [field, fix] of [
+        ["html", tags],
+        ["swap", tags],
+        ["style", styles],
+      ] as const) {
         const v = o[field];
-        if (typeof v === "string" && tags(v) !== v) {
-          o[field] = tags(v);
+        if (typeof v === "string" && fix(v) !== v) {
+          o[field] = fix(v);
           changed = true;
         }
       }

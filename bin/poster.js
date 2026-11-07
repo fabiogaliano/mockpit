@@ -277,7 +277,8 @@ async function expandRetake(dir, job) {
   const wanted = (tree ?? [])
     .filter((d) => !d.archivedAt)
     .flatMap((d) =>
-      (d.alternatives ?? [])
+      // An agent's read names a variants design's entries `variants`.
+      (d.variants ?? d.alternatives ?? [])
         .filter((v) => v.status !== "archived" && v.surface >= 0 && !v.poster)
         .map((v) => ({ design: d.id, postId: v.postId, version: v.version, at: v.updatedAt })),
     )
@@ -317,7 +318,9 @@ async function capture(port, job) {
     return res.json();
   };
   const design = await get(`/api/designs/${encodeURIComponent(job.design)}`);
-  const alternative = design.alternatives?.find((v) => v.postId === job.postId);
+  const alternative = (design.variants ?? design.alternatives)?.find(
+    (v) => v.postId === job.postId,
+  );
   const page = alternative?.surfaces?.find((s) => s.kind === "html");
   // Moved on already, or the agent's own still arrived: nothing to add.
   const { mode } = await get("/api/theme");
