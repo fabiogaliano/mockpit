@@ -20,7 +20,7 @@ import {
 } from "solid-js";
 import { isLive } from "../../server/types.ts";
 import { assetUrl, surfaceUrl } from "./api.ts";
-import { posterShown } from "./systemRev.ts";
+import { frameMode, posterShown } from "./systemRev.ts";
 import { BuiltFrom } from "./BuiltFrom.tsx";
 import { AnswerCombos, KeptAnswers, keptGroups } from "./Kept.tsx";
 import type { FlowNav } from "./flowNav.ts";
@@ -52,7 +52,6 @@ import { Answered } from "./Questions.tsx";
 import { REACTION_LABEL } from "./reactionRules.ts";
 import { SendTo } from "./SendTo.tsx";
 import type { DesignScreenState } from "./state.ts";
-import { theme } from "./theme.ts";
 import { Thread } from "./Thread.tsx";
 import { Thumb } from "./Thumb.tsx";
 import type { TuneState } from "./tune.ts";
@@ -265,7 +264,7 @@ export function ToolStrip(props: { s: DesignScreenState; m: Margins }) {
           </Show>
           <PreviewTool s={s} qr={m.page()} />
         </Show>
-        <Show when={paletteChoices(s).length > 1}>
+        <Show when={paletteChoices(s).length}>
           <Show when={tools() || m.previewHas()}>
             <span class="toolstrip-sep" />
           </Show>
@@ -557,7 +556,7 @@ function VersionRow(props: { s: DesignScreenState; step: VersionStep }) {
       ? null
       : surfaceUrl(props.step.postId, i, {
           version: props.step.version,
-          mode: theme(),
+          mode: frameMode(),
           w: props.step.rewrites,
         });
   };

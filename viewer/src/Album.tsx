@@ -6,7 +6,7 @@
 
 import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import { assetUrl, surfaceUrl, type TreeNode } from "./api.ts";
-import { posterShown } from "./systemRev.ts";
+import { frameMode, posterShown } from "./systemRev.ts";
 import {
   albumInside,
   albumPicture,
@@ -27,7 +27,6 @@ import {
   type StatusNode,
 } from "./logic.ts";
 import { linkClick, designPath } from "./route.ts";
-import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 
 // The picture of one version: its poster where the agent gave one, else the page
@@ -40,7 +39,7 @@ export function Picture(props: { pic: ScreenPicture; width: number; whole: boole
         <Thumb
           src={surfaceUrl(props.pic.postId, props.pic.surface, {
             version: props.pic.version,
-            mode: theme(),
+            mode: frameMode(),
             e: props.pic.instancesKey,
             w: props.pic.rewrites,
           })}

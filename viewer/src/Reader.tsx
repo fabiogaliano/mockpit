@@ -38,7 +38,7 @@ import type { Margins } from "./Margins.tsx";
 import { WithThisSend } from "./Margins.tsx";
 import { ArrivedBanner, httpUrl, MarkField, NativeSurface, num } from "./Stage.tsx";
 import type { DesignScreenState } from "./state.ts";
-import { theme } from "./theme.ts";
+import { frameMode } from "./systemRev.ts";
 import { cardInset, coarse } from "./viewport.ts";
 
 const MAX_HEIGHT = 60000;
@@ -222,7 +222,7 @@ export function Reader(props: { s: DesignScreenState; head?: JSX.Element }) {
               if (!v || !sandboxed) return null;
               const url = surfaceUrl(v.postId, i(), {
                 version: version(),
-                mode: theme(),
+                mode: frameMode(),
                 e: v.instancesKey,
                 w: v.rewrites,
               });

@@ -64,6 +64,7 @@ export type PaletteChoice = {
   label: string;
   status: "default" | "kept" | "open" | "hidden";
   swatch: { light: string[]; dark: string[] };
+  oneMode?: true;
 };
 export type DesignDetail = ReturnType<typeof designDetailView> & {
   systemRev?: number;

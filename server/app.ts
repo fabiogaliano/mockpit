@@ -4099,13 +4099,14 @@ export function createApp({
   }
 
   // What a design view says about the system its frames wear: the revision, and for
-  // the viewer the palettes to switch between (each a swatch of its first roles).
+  // the viewer the palettes to view in (each a swatch of its first roles), one being
+  // enough to view in light or dark. `oneMode`: its light and dark are one scheme.
   async function systemPalettesField(project: string, viewer: boolean) {
     const system = await systemFor(project);
     const roles = (system?.color.roles ?? []).slice(0, 4).map((r) => r.name);
     return {
       systemRev: system?.rev ?? 0,
-      ...(viewer && system && system.color.palettes.length > 1
+      ...(viewer && system && system.color.palettes.length
         ? {
             palettes: system.color.palettes.map((p) => ({
               id: p.id,
@@ -4115,6 +4116,7 @@ export function createApp({
                 light: roles.map((r) => p.light[r] ?? "transparent"),
                 dark: roles.map((r) => p.dark[r] ?? "transparent"),
               },
+              ...(p.scheme && p.scheme.light === p.scheme.dark ? { oneMode: true as const } : {}),
             })),
           }
         : {}),

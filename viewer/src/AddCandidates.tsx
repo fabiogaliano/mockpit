@@ -7,12 +7,11 @@
 import { createMemo, createResource, createSignal, For, onMount, Show } from "solid-js";
 import { type IdeaBecomes, isLive } from "../../server/types.ts";
 import { api, assetUrl, surfaceUrl, type SaveCandidate, type TreeNode } from "./api.ts";
-import { posterShown } from "./systemRev.ts";
+import { frameMode, posterShown } from "./systemRev.ts";
 import { Icon } from "./icons.tsx";
 import { designPath, navigate } from "./route.ts";
 import { phoneLayout } from "./viewport.ts";
 import type { Shortlists } from "./shortlist.ts";
-import { theme } from "./theme.ts";
 import { FRAME_W, Thumb } from "./Thumb.tsx";
 
 // A name can match hundreds of alternatives; each without a poster is a live page.
@@ -293,7 +292,7 @@ function CandidateCard(props: {
       ? null
       : surfaceUrl(v().postId, v().surface, {
           version: v().version,
-          mode: theme(),
+          mode: frameMode(),
           w: v().rewrites,
         });
   return (

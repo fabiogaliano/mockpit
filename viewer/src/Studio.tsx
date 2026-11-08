@@ -33,7 +33,7 @@ import {
 import type { CopyRef } from "../../server/types.ts";
 import { AddCandidates } from "./AddCandidates.tsx";
 import { api, assetUrl, surfaceUrl, type AlternativeView } from "./api.ts";
-import { posterShown } from "./systemRev.ts";
+import { frameMode, posterShown } from "./systemRev.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import {
@@ -53,7 +53,6 @@ import {
   wallPreviewW,
 } from "./logic.ts";
 import type { DesignScreenState } from "./state.ts";
-import { theme } from "./theme.ts";
 import { FullView } from "./FullView.tsx";
 import { Thumb } from "./Thumb.tsx";
 import { linkClick, designPath } from "./route.ts";
@@ -78,7 +77,7 @@ export function pictureOf(st: VersionStep): string | null {
   const i = picture >= 0 ? picture : st.kinds.findIndex(isSandboxedSurfaceKind);
   return i < 0
     ? null
-    : surfaceUrl(st.postId, i, { version: st.version, mode: theme(), w: st.rewrites });
+    : surfaceUrl(st.postId, i, { version: st.version, mode: frameMode(), w: st.rewrites });
 }
 
 // Full screen is the page itself, live, so the version's own html comes first;
@@ -87,7 +86,7 @@ function pageOf(st: VersionStep): string | null {
   const i = st.kinds.includes("html") ? st.kinds.indexOf("html") : st.kinds.indexOf("image");
   return i < 0
     ? null
-    : surfaceUrl(st.postId, i, { version: st.version, mode: theme(), w: st.rewrites });
+    : surfaceUrl(st.postId, i, { version: st.version, mode: frameMode(), w: st.rewrites });
 }
 
 type Draft = { kind: "comment" | "borrow"; to: VersionStep; from?: VersionStep };

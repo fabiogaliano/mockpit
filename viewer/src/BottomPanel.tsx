@@ -17,7 +17,7 @@ import {
 import { Spec, specShown } from "./Spec.tsx";
 import { Answered } from "./Questions.tsx";
 import type { DesignScreenState } from "./state.ts";
-import { theme } from "./theme.ts";
+import { frameMode } from "./systemRev.ts";
 import { Thread } from "./Thread.tsx";
 import { Thumb } from "./Thumb.tsx";
 
@@ -222,7 +222,7 @@ function HistoryThumb(props: {
       ? null
       : surfaceUrl(props.step.postId, i, {
           version: props.step.version,
-          mode: theme(),
+          mode: frameMode(),
           w: props.step.rewrites,
         });
   };

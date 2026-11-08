@@ -1,12 +1,13 @@
 // The system of the project on screen, as frames wear it. Every frame URL carries
 // its revision (`y`), so a system change is a new URL: frames reload and a
 // version-pinned document stays cacheable for as long as the system doesn't change.
-// Two view settings ride along, neither of which settles anything: the palette
-// picked in the tool strip (`p`, kept per project) and an older revision looked at
-// from the System changed note (`sys`, this tab only).
+// Three view settings ride along, none of which settles anything: the palette and
+// the mode picked in the tool strip (`p` and `mode`, kept per project) and an older
+// revision looked at from the System changed note (`sys`, this tab only).
 
 import { createSignal } from "solid-js";
 import { host } from "./host.ts";
+import { type Theme, theme } from "./theme.ts";
 
 const [onScreen, setOnScreen] = createSignal<{ project: string; rev: number } | null>(null);
 
@@ -112,7 +113,39 @@ export function notePalettes(project: string, ids: readonly string[]): void {
   // A pick the system no longer offers is forgotten, so showing the palette again
   // doesn't bring it back unasked.
   if (pick && !ids.includes(pick)) setPalettePick(project, null);
+  // The mode is a palette's other half: with no palette there is nothing to switch.
+  if (!ids.length && modePick(project)) setModePick(project, null);
 }
+
+const MODE_KEY = "mockpit:mode:";
+const [modeStamp, setModeStamp] = createSignal(0);
+
+// The mode picked to view a project's designs in, null to follow the app's own. It
+// stays when the app's mode changes, so a light product can be worked on in a dark app.
+export function modePick(project: string | undefined): Theme | null {
+  modeStamp();
+  if (!project) return null;
+  try {
+    const v = host().window.localStorage.getItem(MODE_KEY + project);
+    return v === "light" || v === "dark" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setModePick(project: string, mode: Theme | null): void {
+  try {
+    const ls = host().window.localStorage;
+    if (mode) ls.setItem(MODE_KEY + project, mode);
+    else ls.removeItem(MODE_KEY + project);
+  } catch {
+    // Private mode: nothing to keep it in.
+  }
+  setModeStamp((n) => n + 1);
+}
+
+// The mode the frames on screen wear.
+export const frameMode = (): Theme => modePick(systemProject()) ?? theme();
 
 // The palette the frames on screen wear, when it isn't the default. Until a design
 // view says what's offered, the pick stands.
@@ -131,8 +164,9 @@ export const setPeek = (rev: number | null): void => {
 };
 
 // A poster is a still of the frame as published under the current system with its
-// default palette; anything else must be drawn live.
-export const framesAsPosted = (): boolean => framePalette() === null && peek() === null;
+// default palette, in the app's mode; anything else must be drawn live.
+export const framesAsPosted = (): boolean =>
+  framePalette() === null && peek() === null && frameMode() === theme();
 
 // A poster, only while frames are drawn as it was taken.
 export const posterShown = (id: string | undefined): string | undefined =>

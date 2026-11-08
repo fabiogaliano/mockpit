@@ -11,7 +11,7 @@ import { designWidth, screenPicture } from "./logic.ts";
 import { linkClick, designPath } from "./route.ts";
 import type { DesignScreenState } from "./state.ts";
 import { readonly } from "./host.ts";
-import { theme } from "./theme.ts";
+import { frameMode } from "./systemRev.ts";
 import { Thumb } from "./Thumb.tsx";
 
 export interface AboutState {
@@ -47,7 +47,7 @@ function nodePicture(node: TreeNode, state: string | null): string | null {
   return pic
     ? surfaceUrl(pic.postId, pic.surface, {
         version: pic.version,
-        mode: theme(),
+        mode: frameMode(),
         e: pic.instancesKey,
         w: pic.rewrites,
       })

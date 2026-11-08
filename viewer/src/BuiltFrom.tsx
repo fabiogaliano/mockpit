@@ -10,7 +10,7 @@ import { Icon } from "./icons.tsx";
 import { designWidth, partLabel, screenPicture, versionName } from "./logic.ts";
 import { linkClick, designPath } from "./route.ts";
 import type { DesignScreenState } from "./state.ts";
-import { theme } from "./theme.ts";
+import { frameMode } from "./systemRev.ts";
 import { Thumb } from "./Thumb.tsx";
 import type { TuneState } from "./tune.ts";
 
@@ -20,7 +20,7 @@ function nodePicture(node: TreeNode): string | null {
   return pic
     ? surfaceUrl(pic.postId, pic.surface, {
         version: pic.version,
-        mode: theme(),
+        mode: frameMode(),
         e: pic.instancesKey,
         w: pic.rewrites,
       })

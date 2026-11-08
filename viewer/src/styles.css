@@ -10146,6 +10146,18 @@ body:has(.selp) .toast {
   color: var(--t5);
   font-size: 12px;
 }
+/* Light or dark, for the frames alone: a switch the width of the menu. */
+.vswitch.pmode {
+  margin: 4px 5px 2px;
+}
+.vswitch.pmode button {
+  flex: 1;
+  justify-content: center;
+}
+.vswitch.pmode button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
 .pmenu-note {
   max-width: 220px;
   padding: 6px 10px 4px;

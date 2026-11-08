@@ -6,13 +6,12 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import type { DecisionLine } from "../../server/decisionLog.ts";
 import { assetUrl, type DecisionLogView, type DesignSummary, surfaceUrl } from "./api.ts";
-import { posterShown } from "./systemRev.ts";
+import { frameMode, posterShown } from "./systemRev.ts";
 import { byDay, plural, questions } from "./albums.ts";
 import { DecisionRow, createDecisionEdits } from "./Decisions.tsx";
 import { Icon } from "./icons.tsx";
 import { timeAgo } from "./logic.ts";
 import { linkClick, designPath, projectPath, type RecentShow } from "./route.ts";
-import { theme } from "./theme.ts";
 import { Thumb } from "./Thumb.tsx";
 import { Toast } from "./toast.tsx";
 
@@ -32,7 +31,7 @@ export function DesignThumb(props: { design: DesignSummary }) {
             <Thumb
               src={surfaceUrl(t().postId, t().surface, {
                 version: t().version,
-                mode: theme(),
+                mode: frameMode(),
                 w: t().rewrites,
               })}
             />

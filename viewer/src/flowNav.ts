@@ -11,7 +11,7 @@ import { host } from "./host.ts";
 import { flowFor, gotoTarget, screenPicture } from "./logic.ts";
 import { designPath, navigate } from "./route.ts";
 import type { DesignScreenState } from "./state.ts";
-import { theme } from "./theme.ts";
+import { frameMode } from "./systemRev.ts";
 
 // Try stays on across a step into another design, which mounts a fresh screen.
 let carryTry = false;
@@ -154,7 +154,7 @@ export function createFlowNav(
       return v && i >= 0
         ? surfaceUrl(v.postId, i, {
             version: s.frameVersionOf(v),
-            mode: theme(),
+            mode: frameMode(),
             e: v.instancesKey,
             w: v.rewrites,
           })
@@ -165,7 +165,7 @@ export function createFlowNav(
     return pic
       ? surfaceUrl(pic.postId, pic.surface, {
           version: pic.version,
-          mode: theme(),
+          mode: frameMode(),
           e: pic.instancesKey,
           w: pic.rewrites,
         })

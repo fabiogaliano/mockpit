@@ -25,7 +25,7 @@ import {
 } from "./logic.ts";
 import type { AskField, DesignScreenState } from "./state.ts";
 import { Reason } from "./Reason.tsx";
-import { theme } from "./theme.ts";
+import { frameMode } from "./systemRev.ts";
 import { Thumb } from "./Thumb.tsx";
 import { Icon } from "./icons.tsx";
 
@@ -169,7 +169,7 @@ export function optionPicture(
     return {
       src: surfaceUrl(v.postId, idx, {
         version: o.version ?? s.frameVersionOf(v),
-        mode: theme(),
+        mode: frameMode(),
         e: v.instancesKey,
         w: v.rewrites,
       }),
@@ -185,7 +185,7 @@ export function optionPicture(
     return {
       src: surfaceUrl(v.postId, idx, {
         version: s.frameVersionOf(v),
-        mode: theme(),
+        mode: frameMode(),
         e: v.instancesKey,
         w: v.rewrites,
         p: o.palette,
@@ -204,7 +204,7 @@ export function optionPicture(
       // rest of the draft changes; those arrive through `knobs`.
       src: surfaceUrl(v.postId, idx, {
         version: s.answersBaseOf(v),
-        mode: theme(),
+        mode: frameMode(),
         knobs: o.set,
         e: v.instancesKey,
         w: v.rewrites,
