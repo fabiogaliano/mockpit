@@ -503,6 +503,9 @@ export interface Ask {
   part?: string;
   options: AskOption[];
   multi?: boolean;
+  // The agent's word that these answers are all there are ("Still stands?": Yes or No),
+  // which nothing in the options can tell: the viewer offers no way to ask for more.
+  allowMore?: false;
   // The id of an ask this one depends on: it waits until that one is answered
   // and its pictures then show that answer.
   after?: string;

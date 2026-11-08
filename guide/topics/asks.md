@@ -137,7 +137,9 @@ then, and its pictures render with that answer and say so. Ask the deciding
 question first.
 
 The viewer shows a picture of each option it can render. `multi: true` allows
-several answers. Option ids default to the slugged label. Reusing a question `id`
+several answers. `allowMore: false` (CLI `--no-more`) says the answers are all there
+are, as in a check whose answer is Yes or No: the viewer then offers no way to ask for
+more. Option ids default to the slugged label. Reusing a question `id`
 replaces it. The viewer adds an "Other…" write-in and a comment to every question
 (both take attached images), so don't add your own; the option id `other` is
 reserved.

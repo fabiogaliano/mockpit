@@ -16,9 +16,10 @@ import {
   answerIds,
   askState,
   draftKnobValues,
+  drawsAnswer,
   frameKey,
-  isBuiltinAsk,
   isLookAsk,
+  moreAllowed,
   partBox,
   splitLabel,
 } from "./logic.ts";
@@ -234,6 +235,22 @@ export function AskBody(props: {
   const acts = () => !readonly() && !dormant();
   const moveCards = (change: () => void, gone?: Element | null) => flipCards(optsEl, change, gone);
   const keyOf = (o: AskOption) => s.optionKey(props.ask, o.id);
+  // An answer kept before it lost its design still shows the mark, read only.
+  const answerActions = (o: AskOption) => {
+    const kept = s.isKept(props.ask, o.id);
+    const curate = acts() && drawsAnswer(o);
+    const like = acts() && moreAllowed(props.ask);
+    if (!curate && !like) return kept ? { kept } : undefined;
+    return {
+      kept,
+      ...(curate && {
+        onKeep: () => moveCards(() => s.toggleKept(props.ask, o)),
+        onHide: (card: Element | null, key: boolean) =>
+          moveCards(() => s.hideAnswer(props.ask, o), key ? null : card),
+      }),
+      ...(like && { onLike: () => void s.askMore(props.ask, "", o) }),
+    };
+  };
   const slot = () => s.askSlot(props.ask);
   const dormant = () => s.dormantOf(props.ask);
   // The region the pictures crop to: the slot the ask chooses, else its part.
@@ -338,21 +355,7 @@ export function AskBody(props: {
                     : undefined
                 }
                 onChoose={() => s.choose(props.ask, o.id)}
-                actions={
-                  acts()
-                    ? {
-                        kept: s.isKept(props.ask, o.id),
-                        onKeep: () => moveCards(() => s.toggleKept(props.ask, o)),
-                        onHide: (card, key) =>
-                          moveCards(() => s.hideAnswer(props.ask, o), key ? null : card),
-                        ...(isBuiltinAsk(props.ask)
-                          ? {}
-                          : { onLike: () => void s.askMore(props.ask, "", o) }),
-                      }
-                    : s.isKept(props.ask, o.id)
-                      ? { kept: true }
-                      : undefined
-                }
+                actions={answerActions(o)}
               />
             );
             // D13: once the Look is sent its losers are archived; each stays restorable.
@@ -399,7 +402,7 @@ export function AskBody(props: {
             onLeave={() => {}}
             onChoose={() => s.pick(props.ask, null)}
           />
-          <Show when={!isBuiltinAsk(props.ask) && !dormant()}>
+          <Show when={moreAllowed(props.ask) && !dormant()}>
             <MoreAnswers s={s} ask={props.ask} />
           </Show>
         </Show>
@@ -885,7 +888,7 @@ function OptionCard(props: {
     >
       {card}
       <span class="optleft">
-        <Show when={a.onKeep} fallback={<KeptMark />}>
+        <Show when={a.onKeep} fallback={a.kept && <KeptMark />}>
           <button
             type="button"
             class="optic optkeep"

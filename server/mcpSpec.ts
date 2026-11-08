@@ -112,6 +112,10 @@ const askSchema = z.object({
     .describe("Design-wide question: the states its answers can be seen on, best first"),
   part: z.string().optional().describe("data-part name, for scope part"),
   multi: z.boolean().optional(),
+  allowMore: z
+    .boolean()
+    .optional()
+    .describe("false: these answers are all there are (Yes or No); the user can't ask for more"),
   after: z
     .string()
     .optional()

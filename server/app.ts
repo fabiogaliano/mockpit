@@ -2154,6 +2154,7 @@ export function createApp({
         scope: existing.scope,
         ...(existing.state ? { state: existing.state } : {}),
         ...(existing.multi ? { multi: true } : {}),
+        ...(existing.allowMore === false ? { allowMore: false } : {}),
         options: [
           ...existing.options.map((o) => ({
             id: o.id,
@@ -4425,6 +4426,7 @@ export function createApp({
       ...(part ? { part } : {}),
       options,
       ...(raw.multi === true ? { multi: true } : {}),
+      ...(raw.allowMore === false ? { allowMore: false as const } : {}),
       ...(after ? { after } : {}),
       at: new Date().toISOString(),
     };
@@ -5392,6 +5394,9 @@ export function createApp({
     const moreAsk = str(body?.more?.ask, MAX_LABEL);
     if (moreAsk && !design.asks.some((a) => a.id === moreAsk)) {
       return fail(400, `${design.slug} has no question "${moreAsk}"`);
+    }
+    if (moreAsk && design.asks.find((a) => a.id === moreAsk)?.allowMore === false) {
+      return fail(400, `question "${moreAsk}" has all its answers`);
     }
     const moreNote = str(body?.more?.note, MAX_COMMENT_TEXT);
     const moreLike = str(body?.more?.like, MAX_LABEL);

@@ -3,6 +3,7 @@
 import {
   type Ask,
   type AskAnswer,
+  type AskOption,
   askAnswered,
   BUILTIN_ASK_ID,
   type FlowStep,
@@ -137,6 +138,16 @@ export const lookAsk = (design: Pick<DesignDetail, "asks">): Ask | undefined =>
 // The viewer's own question, not one the agent asked: it says nothing is waiting.
 export const isBuiltinAsk = (ask: Pick<Ask, "id">): boolean =>
   ask.id === BUILTIN_ASK_ID || ask.id.startsWith(`${BUILTIN_ASK_ID}:`);
+
+// Keep and Archive sort designs the user may come back to: an answer that is only words
+// ("Yes", "No") has no design behind it to keep or let go.
+export const drawsAnswer = (o: Pick<AskOption, "alternative" | "set" | "palette">): boolean =>
+  !!(o.alternative || o.set || o.palette);
+
+// Asking for more answers, on the question or like one answer: never on the built-in,
+// whose answers are the alternatives there are, nor where the agent said they are all.
+export const moreAllowed = (ask: Pick<Ask, "id" | "allowMore">): boolean =>
+  !isBuiltinAsk(ask) && ask.allowMore !== false;
 
 // Answered by comparing designs, which Studio does as well as Stage.
 export const picksAlternative = (ask: Pick<Ask, "options">): boolean =>

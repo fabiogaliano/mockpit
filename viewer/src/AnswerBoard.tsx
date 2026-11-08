@@ -7,7 +7,7 @@ import { createSignal, For, Show } from "solid-js";
 import type { Ask } from "../../server/types.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import { askStates, splitLabel } from "./logic.ts";
+import { askStates, drawsAnswer, splitLabel } from "./logic.ts";
 import { AskBody, flipCards, optionPicture } from "./Questions.tsx";
 import type { DesignScreenState } from "./state.ts";
 import { Thumb } from "./Thumb.tsx";
@@ -41,7 +41,8 @@ export function AnswerBoard(props: { s: DesignScreenState; ask: Ask }) {
     const list = cards();
     const at = list.indexOf(e.target as HTMLElement);
     const go = (i: number) => list[Math.max(0, Math.min(list.length - 1, i))]?.focus();
-    const o = answerAt(e.target);
+    const found = answerAt(e.target);
+    const o = found && drawsAnswer(found) ? found : undefined;
     const k = e.key.toLowerCase();
     if (e.key === "ArrowRight" || e.key === "ArrowLeft") go(at + (e.key === "ArrowRight" ? 1 : -1));
     else if (k === "k" && o) {
@@ -125,7 +126,7 @@ function EveryState(props: { s: DesignScreenState; ask: Ask; states: (string | n
               >
                 {splitLabel(o.label).name}
               </button>
-              <Show when={!readonly()}>
+              <Show when={!readonly() && drawsAnswer(o)}>
                 <button
                   type="button"
                   class="optic optkeep"

@@ -112,6 +112,7 @@ verbs:
                         on (repeatable, best first)
       --part <name>     the part a part-scoped question is about
       --multi           allow several answers
+      --no-more         these answers are all there are (Yes or No): no asking for more
       --id <id>         stable id; reusing one replaces that question
       --asks <json|file>  several questions at once, full shape
   mockpit read [slug] [--body] [--history] [--decisions] [--tree] [--area <name>]
@@ -286,7 +287,7 @@ mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
   Prints the parts found per state, parts that vanished or were renamed,
   nudges, a ready-to-run "mockpit ask" when alternatives have no question, and feedback.`,
   ask: `mockpit ask --design <slug> "<question>" --option <label[=alternative]> ... [--scope design|state|part]
-  [--state s] [--states s]... [--part p] [--multi] [--id id] [--after <ask id>] [--recommend <label>]
+  [--state s] [--states s]... [--part p] [--multi] [--no-more] [--id id] [--after <ask id>] [--recommend <label>]
   mockpit ask --design <slug> --asks <json|file>
   Ask the user. A choice is several alternatives plus one question that binds them.
   Then tell the user where to look and end your turn.`,
@@ -1981,6 +1982,7 @@ const commands = {
         states: { type: "string", multiple: true },
         part: { type: "string" },
         multi: { type: "boolean" },
+        more: { type: "boolean" },
         id: { type: "string" },
         after: { type: "string" },
         asks: { type: "string" },
@@ -2035,6 +2037,7 @@ const commands = {
           ...(flags.states && { states: flags.states }),
           ...(flags.part && { part: flags.part }),
           ...(flags.multi && { multi: true }),
+          ...(flags.more === false && { allowMore: false }),
           ...(flags.after && { after: flags.after }),
         },
       ];
