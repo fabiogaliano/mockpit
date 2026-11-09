@@ -74,6 +74,7 @@ import { Portal } from "solid-js/web";
 import { AnswerBoard, boardAsk } from "./AnswerBoard.tsx";
 import { LIST_ABOVE } from "./Questions.tsx";
 import { SideOver } from "./SideOver.tsx";
+import { SideBySide, sideAsk } from "./SideBySide.tsx";
 import { Reader, ReaderSend } from "./Reader.tsx";
 import { markSeen } from "./seen.ts";
 import {
@@ -189,6 +190,11 @@ export function DesignScreen(props: {
   // On stage, in a state with nothing drawn: the plan stands where the design will.
   const undrawn = () => !!s.design() && !s.alternatives().some((v) => v.state === s.activeState());
   const outlining = () => shownView() === "stage" && !reading() && s.outlinable();
+  // The question whose answers stand side by side in place of the design, if any. A
+  // phone has no room for a row: it keeps one answer at a time on the frame.
+  const sideRow = createMemo(() =>
+    shownView() === "stage" && !reading() && !undrawn() && !phoneLayout() ? sideAsk(s) : null,
+  );
   let openLooked: (() => void) | null = null;
   // Each step between the views is its own history entry, so Back
   // returns to the view you came from rather than leaving the design.
@@ -307,6 +313,7 @@ export function DesignScreen(props: {
     () => !!s.design() && !phoneLayout() && shownView() === "stage",
     () => (reading() ? READING_W : null),
     outlining,
+    () => !!sideRow(),
   );
   // The tools act on a page, and a document isn't one.
   createEffect(() => {
@@ -470,7 +477,7 @@ export function DesignScreen(props: {
   return (
     <div
       class="screen design-screen"
-      classList={{ phone: phoneLayout() }}
+      classList={{ phone: phoneLayout(), sbsmode: !!sideRow() }}
       style={{
         "--canvas-l": `${m.band().left}px`,
         "--canvas-r": `${m.band().right}px`,
@@ -511,7 +518,7 @@ export function DesignScreen(props: {
           }}
         />
         {/* Beside a docked left margin the same steps are its first list. */}
-        <Show when={m.statesShown() && !m.leftDocked() && shownView() === "stage"}>
+        <Show when={m.statesShown() && !m.leftDocked() && shownView() === "stage" && !sideRow()}>
           <FlowBar nav={nav}>
             <Show when={outlining()}>
               <OutlineChips s={s} />
@@ -556,6 +563,7 @@ export function DesignScreen(props: {
                 }
               >
                 <Stage s={s} onGoto={nav.follow} />
+                <Show when={sideRow()}>{(ask) => <SideBySide s={s} ask={ask()} />}</Show>
                 <Show when={m.ghosts()}>
                   <Ghost s={s} nav={nav} by={-1} />
                   <Ghost s={s} nav={nav} by={1} />
@@ -655,7 +663,7 @@ export function DesignScreen(props: {
             fallback={
               <>
                 <ToolStrip s={s} m={m} />
-                <Show when={m.active() && !undrawn() && !reading()}>
+                <Show when={m.active() && !undrawn() && !reading() && !sideRow()}>
                   <VersionCaption s={s} m={m} reading={false} />
                 </Show>
                 <LeftMargin s={s} nav={nav} m={m} />

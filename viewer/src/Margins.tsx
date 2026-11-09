@@ -49,6 +49,7 @@ import { PaletteTool, paletteChoices } from "./PaletteTool.tsx";
 import { PreviewTool } from "./PreviewTool.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
 import { Answered } from "./Questions.tsx";
+import { AnsweredQuestions, answeredRows } from "./SideBySide.tsx";
 import { REACTION_LABEL } from "./reactionRules.ts";
 import { SendTo } from "./SendTo.tsx";
 import type { DesignScreenState } from "./state.ts";
@@ -73,6 +74,9 @@ export function createMargins(
   columnW: () => number | null,
   // A screen whose states can still grow lists them even with only the one so far.
   outlining: () => boolean,
+  // Answers side by side take the canvas: the design's frame, its states and its tools
+  // step aside, and the question beside it stays.
+  sideBySide: () => boolean,
 ) {
   const [folded, setFolded] = createSignal(false);
   const [over, setOver] = createSignal(false);
@@ -86,7 +90,8 @@ export function createMargins(
     (nav.steps().length + nav.outside().length > 1 || nav.emptied().length > 0) && onList();
   const statesShown = () => walkable() || (outlining() && onList());
   const ideasFor = () => s.design()?.ideasFor ?? [];
-  const leftHas = () => statesShown() || s.steps().length > 1 || ideasFor().length > 0;
+  const leftHas = () =>
+    !sideBySide() && (statesShown() || s.steps().length > 1 || ideasFor().length > 0);
   const page = () => {
     const kinds: readonly string[] =
       s.stageStep()?.kinds ?? s.activeAlternative()?.surfaces.map((x) => String(x.kind)) ?? [];
@@ -98,8 +103,11 @@ export function createMargins(
     columnW() === null && (page() || widthChoices(s.design()?.widths ?? []).length > 1);
 
   const closed = () => !!s.design()?.archivedAt;
-  // Kept answers wait beside the design, so they hold the side open after a Send.
-  const talkWants = () => !closed() && (!!s.curAsk() || s.sendable() || keptGroups(s).length > 0);
+  // Kept answers and a sent question's row wait beside the design, so they hold the side
+  // open after a Send.
+  const talkWants = () =>
+    !closed() &&
+    (!!s.curAsk() || s.sendable() || keptGroups(s).length > 0 || answeredRows(s).length > 0);
   const talkHas = () => talkWants() || s.flow().length > 0 || s.closedAsks("state").length > 0;
   const builtHas = () => s.tunable().length > 0 || !!s.activeAlternative()?.instancesKey;
   const side = createMemo<Side | null>(() => {
@@ -122,14 +130,20 @@ export function createMargins(
     });
   };
   const fit = createMemo(() =>
-    active() ? fitWith(leftHas() && !folded()) : { left: false, right: false },
+    !active()
+      ? { left: false, right: false }
+      : sideBySide()
+        ? { left: false, right: side() !== null }
+        : fitWith(leftHas() && !folded()),
   );
   const leftDocked = () => fit().left;
   const rightDocked = () => fit().right;
   const leftTab = () => active() && leftHas() && !leftDocked();
   const leftFloats = () => leftTab() && over();
   const stripW = () =>
-    active() && (page() || s.tunable().length > 0 || leftTab() || previewHas()) ? TOOL_BAND_W : 0;
+    active() && !sideBySide() && (page() || s.tunable().length > 0 || leftTab() || previewHas())
+      ? TOOL_BAND_W
+      : 0;
   const band = () => ({
     left: leftDocked() ? LEFT_MARGIN_W : 0,
     right: rightDocked() ? RIGHT_MARGIN_W : 0,
@@ -138,6 +152,7 @@ export function createMargins(
   // would run under them.
   const ghosts = () =>
     active() &&
+    !sideBySide() &&
     walkable() &&
     boards().length === 1 &&
     win().w - safeX() - band().left - band().right - stripW() - 2 * BOARD_PAD - 2 * GHOST_W >=
@@ -818,8 +833,9 @@ export function WithThisSend(props: { s: DesignScreenState; m: Margins }) {
           </button>
         </div>
       </Show>
+      <AnsweredQuestions s={s} />
       <KeptAnswers s={s} />
-      <Answered s={s} scope="state" />
+      <Answered s={s} scope="state" except={answeredRows(s).map((a) => a.id)} />
       <AnswerCombos s={s} />
     </>
   );

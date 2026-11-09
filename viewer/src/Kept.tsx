@@ -9,6 +9,7 @@ import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { answerIds, splitLabel } from "./logic.ts";
 import { optionPicture } from "./Questions.tsx";
+import { pictured } from "./SideBySide.tsx";
 import type { DesignScreenState } from "./state.ts";
 import { Thumb } from "./Thumb.tsx";
 
@@ -182,6 +183,8 @@ function KeptRow(props: { s: DesignScreenState; group: KeptGroup; option: AskOpt
 export function AnswerPills(props: { s: DesignScreenState }) {
   const s = props.s;
   const combos = () => s.combos();
+  // A question whose answers have pictures keeps them in its own row instead.
+  const groups = () => keptGroups(s).filter((g) => !pictured(s, g.ask));
   const hold = (p: ReturnType<typeof s.previewOf>) => {
     if (!p) return;
     if (s.heldPreview()?.key === p.key) s.setPreview(null);
@@ -206,9 +209,9 @@ export function AnswerPills(props: { s: DesignScreenState }) {
     </button>
   );
   return (
-    <Show when={keptGroups(s).length || combos().length}>
+    <Show when={groups().length || combos().length}>
       <div class="apills" role="group" aria-label="Kept answers and combos: look without changing">
-        <For each={keptGroups(s)}>
+        <For each={groups()}>
           {(g) => (
             <span class="apills-row">
               {pill(

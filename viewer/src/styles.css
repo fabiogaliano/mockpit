@@ -10442,3 +10442,251 @@ a.ideas-row {
 .home-groupby .vswitch button {
   font-size: 13px;
 }
+
+/* Side by side (SideBySide.tsx): one question's answers in a row on the canvas, in place
+   of the design's frame, which stays loaded underneath so it still reports its parts. */
+.design-screen.sbsmode .stagewrap {
+  visibility: hidden;
+}
+.sbs {
+  position: fixed;
+  top: var(--canvas-top, 0px);
+  right: var(--canvas-end, 0px);
+  bottom: 0;
+  left: var(--canvas-l, 0px);
+  z-index: 2;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background-color: var(--page);
+  background-image: radial-gradient(var(--line) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+/* As wide as its frames: centred while it fits, scrolled sideways once it doesn't. */
+.sbs-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  width: max-content;
+  margin: 0 auto;
+  padding: 24px;
+}
+.sbs-cell {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: var(--sbs-w);
+}
+.sbs-cell > .sbs-lab {
+  min-height: 20px;
+  padding-left: 1px;
+}
+.sbs-pic {
+  display: block;
+  width: 100%;
+  min-height: var(--sbs-h);
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 12px;
+  background: var(--frame);
+  color: inherit;
+  font: inherit;
+  box-shadow:
+    0 0 0 1px var(--edge),
+    0 10px 40px rgb(0 0 0 / 0.35);
+  cursor: default;
+  transition:
+    opacity 150ms ease,
+    box-shadow 150ms ease;
+}
+/* Until its page reports a height the frame holds a first screen's room, so the row
+   doesn't jump as the pages come in. */
+.sbs-pic:has(.thumb[data-sized]) {
+  min-height: 0;
+}
+.sbs-pic .thumb {
+  width: 100%;
+}
+.sbs-cell.pickable .sbs-pic {
+  cursor: pointer;
+}
+.sbs-cell.chosen .sbs-pic {
+  box-shadow:
+    0 0 0 3px var(--t1),
+    0 10px 40px rgb(0 0 0 / 0.35);
+}
+/* The rest stay readable: dimmed, never hidden, until they are archived. */
+.sbs-row.picked .sbs-cell:not(.chosen):not(.current) .sbs-pic,
+.sbs-cell.archived .sbs-pic {
+  opacity: 0.45;
+}
+@media (hover: hover) {
+  .sbs-row.picked .sbs-cell.pickable:not(.chosen) .sbs-pic:hover {
+    opacity: 0.8;
+  }
+}
+.sbs-pic:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.sbs-none {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--sbs-h);
+  padding: 16px;
+  color: var(--t4);
+  font-size: 13px;
+}
+.sbs-lab,
+.ansd-lbl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  color: var(--t3);
+  font-size: 12.5px;
+}
+.sbs-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sbs-tag {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 99px;
+  background: var(--fill);
+  color: var(--t1);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.sbs-tag.on {
+  background: var(--t1);
+  color: var(--page);
+}
+.sbs-kept {
+  display: inline-flex;
+  flex: none;
+  color: var(--accent);
+}
+.sbs-kept .icon {
+  width: 14px;
+  height: 14px;
+}
+.sbs-kept .icon path {
+  fill: currentColor;
+}
+.sbs-fold {
+  flex: none;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--t3);
+  font: inherit;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sbs-pic,
+  .ansd-opt {
+    transition: none;
+  }
+}
+
+/* One | Side by side on a question card beside the design. */
+.qlayout-row {
+  padding: 0 16px 10px;
+}
+.vswitch.qlayout {
+  display: inline-flex;
+}
+.vswitch.qlayout button {
+  padding: 3px 12px;
+  font-size: 12.5px;
+}
+.vswitch.qlayout button[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* A sent question beside the design, as its answers were left. */
+.ansd {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.ansd + .ansd {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.ansd-st {
+  color: var(--t5);
+  font-size: 12px;
+}
+.ansd-q {
+  color: var(--t1);
+  font-size: 14px;
+  line-height: 20px;
+}
+.ansd-opts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+.ansd-opt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 4px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--row);
+  color: var(--t2);
+  font: inherit;
+  text-align: left;
+  box-shadow: inset 0 0 0 1.5px transparent;
+  cursor: pointer;
+  transition:
+    opacity 150ms ease,
+    box-shadow 150ms ease;
+}
+.ansd-opt .crop {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 3.6;
+  border-radius: 8px;
+}
+.ansd-opt .crop.flat {
+  aspect-ratio: 4 / 3;
+}
+.ansd-opt .ansd-lbl {
+  padding: 0 4px;
+}
+.ansd-opts.picked .ansd-opt:not(.chosen) {
+  opacity: 0.45;
+}
+.ansd-opt.previewing,
+.ansd-opt[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 1.5px var(--t4);
+}
+.ansd-opt.chosen {
+  box-shadow: inset 0 0 0 2px var(--t1);
+}
+@media (hover: hover) {
+  .ansd-opts.picked .ansd-opt:hover {
+    opacity: 1;
+  }
+}
+.ansd .answered-change {
+  margin-top: 2px;
+}

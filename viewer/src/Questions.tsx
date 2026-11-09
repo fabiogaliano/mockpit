@@ -50,11 +50,16 @@ export function ArchivedNote(props: { s: DesignScreenState }) {
 
 // Sent answers, folded: read-only, each with the answer it got. Changing one
 // is its own button, so a stray tap can't reopen it.
-export function Answered(props: { s: DesignScreenState; scope: "state" | "all" }) {
+export function Answered(props: {
+  s: DesignScreenState;
+  scope: "state" | "all";
+  // Shown whole above, with their pictures: not listed again here.
+  except?: string[];
+}) {
   const s = props.s;
   const [open, setOpen] = createSignal(false);
   const id = createUniqueId();
-  const rows = () => s.closedAsks(props.scope);
+  const rows = () => s.closedAsks(props.scope).filter((a) => !props.except?.includes(a.id));
   const said = (a: Ask) => {
     if (a.dismissed) return "Dismissed, not answered";
     const out = answerIds(a.answer).map((x) => a.options.find((o) => o.id === x)?.label ?? x);
@@ -226,6 +231,8 @@ export function AskBody(props: {
   // Beside the design a picture has the room to be read: filled and cropped from
   // the top, rather than a whole page shrunk into a chip.
   beside?: boolean;
+  // Every answer is already on the canvas side by side: hovering one shows nothing new.
+  still?: boolean;
 }) {
   const s = props.s;
   const picked = (o: AskOption) => answerIds(s.answerOf(props.ask)).includes(o.id);
@@ -347,10 +354,10 @@ export function AskBody(props: {
                 isNew={s.isNewOption(props.ask, o.id)}
                 data={o.id}
                 shortcut={i() < 9 ? String(i() + 1) : undefined}
-                onEnter={() => s.setHoveredPreview(s.previewOf(props.ask, o.id))}
+                onEnter={() => !props.still && s.setHoveredPreview(s.previewOf(props.ask, o.id))}
                 onLeave={() => s.hoveredPreview()?.key === keyOf(o) && s.setHoveredPreview(null)}
                 onHold={
-                  s.previewOf(props.ask, o.id)
+                  !props.still && s.previewOf(props.ask, o.id)
                     ? () => s.setHeldPreview(s.previewOf(props.ask, o.id))
                     : undefined
                 }

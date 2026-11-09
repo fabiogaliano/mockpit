@@ -49,6 +49,7 @@ import {
 import { extensionOf, prepareImage, rejectReason } from "./attach.ts";
 import { BEAT_MS, setCarried } from "./carry.ts";
 import { host, readonly } from "./host.ts";
+import { answersLayout } from "./answersLayout.ts";
 import {
   answerIds,
   askName,
@@ -1426,6 +1427,16 @@ export function createDesignScreen(
     }
     setFlagged(flagged().filter((x) => x !== ask.id));
   }
+  // Taking a pick back leaves the question unanswered; picking it again would send it on.
+  function unpick(ask: Ask, optionId: string) {
+    if (readonly()) return;
+    writeDraft((d) => {
+      const left = answerIds(d.answers[ask.id]).filter((x) => x !== optionId);
+      if (ask.multi && left.length) d.answers[ask.id] = left;
+      else delete d.answers[ask.id];
+      return d;
+    });
+  }
   const foldedOf = (ask: Ask, field: AskField) => !!folded()[`${field}:${ask.id}`];
   const setFolded = (ask: Ask, field: AskField, on: boolean) =>
     setFoldedSignal({ ...folded(), [`${field}:${ask.id}`]: on });
@@ -1947,10 +1958,15 @@ export function createDesignScreen(
     // A hidden tab never moves on by itself: the user would come back elsewhere.
     // Nor does it carry the user into another agent conversation's work, which
     // is a different piece of work even in the same repo: that one is offered.
+    // Laid out side by side, the row a Send leaves is what there is to look at: the next
+    // design is offered, not taken to.
+    const id = design()?.id;
+    const sideBySide = !!id && !phoneLayout() && answersLayout(id) === "side";
     const auto =
       !!next &&
       next.sessionId === design()?.sessionId &&
-      host().window.document.visibilityState !== "hidden";
+      host().window.document.visibilityState !== "hidden" &&
+      !sideBySide;
     setAfterSend({ next, auto });
     host().window.clearTimeout(forwardTimer);
     if (auto) forwardTimer = host().window.setTimeout(goNext, FORWARD_MS);
@@ -2857,6 +2873,7 @@ export function createDesignScreen(
     error,
     setError,
     pick,
+    unpick,
     toggleMix,
     addComment,
     setCommentText,

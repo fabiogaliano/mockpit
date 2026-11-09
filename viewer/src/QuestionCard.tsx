@@ -13,6 +13,7 @@ import { isBuiltinAsk, partLabel } from "./logic.ts";
 import { answersView, setAnswersView } from "./answersView.ts";
 import { AskBody, listed } from "./Questions.tsx";
 import { SendTo } from "./SendTo.tsx";
+import { LayoutToggle, sideAsk } from "./SideBySide.tsx";
 import type { DesignScreenState } from "./state.ts";
 
 export function QuestionCard(props: {
@@ -163,12 +164,18 @@ export function QuestionCard(props: {
                     </button>
                   </Show>
                 </div>
+                <Show when={props.beside}>
+                  <div class="qlayout-row">
+                    <LayoutToggle s={s} ask={ask()} />
+                  </div>
+                </Show>
                 <div class="qscroll">
                   <AskBody
                     s={s}
                     ask={ask()}
                     noteOpen={noteFor() === ask().id}
                     beside={props.beside}
+                    still={!!props.beside && sideAsk(s)?.id === ask().id}
                   />
                   {props.below}
                 </div>
