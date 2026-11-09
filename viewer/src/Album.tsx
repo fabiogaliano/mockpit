@@ -20,15 +20,13 @@ import {
 import { host } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { designWidth, shortSource, type ScreenPicture, type StatusNode } from "./logic.ts";
-import { linkClick, designPath, focusPath } from "./route.ts";
+import { linkClick, designPath } from "./route.ts";
 import { Thumb } from "./Thumb.tsx";
 
 // A screen, or a component of an area, has a frame on the Board, where a link lands fit to
-// it; anything else (an idea, a document, a shared component) opens on its own.
-const coverPath = (project: string, n: Pick<TreeNode, "slug" | "kind" | "area">) =>
-  n.kind === "screen" || (n.kind === "component" && n.area)
-    ? designPath(project, n.slug)
-    : focusPath(project, n.slug);
+// it; anything else (an idea, a document, a shared component) opens in Focus.
+const onBoard = (n: Pick<TreeNode, "kind" | "area">) =>
+  n.kind === "screen" || (n.kind === "component" && !!n.area);
 
 // The picture of one version: its poster where the agent gave one, else the page
 // itself, shrunk in a sandboxed frame that starts only when near the screen.
@@ -163,7 +161,7 @@ export function Album(props: {
   target?: string;
   // A screen's or a component's: how many ideas are for it, and where they are listed.
   ideas?: { n: number; href: string };
-  // Ideas end with a quiet × on the cover, as a design leaves Studio, and an outline
+  // Ideas end with a quiet × on the cover, and an outline
   // nobody needs goes the same way.
   onEnd?: () => void;
   endLabel?: string;
@@ -173,7 +171,7 @@ export function Album(props: {
   const pic = createMemo(() => albumPicture(n()));
   const depth = createMemo(() => stackDepth(n()));
   const widths = createMemo(() => bothWidths(n()));
-  const href = () => coverPath(props.project, n());
+  const href = () => designPath(props.project, n().slug);
   return (
     <div class="alb" data-shape={shape()}>
       <div class="alb-front">
@@ -185,7 +183,7 @@ export function Album(props: {
           tabIndex={shape() === "text" ? undefined : -1}
           aria-hidden={shape() === "text" ? undefined : "true"}
           data-design={n().slug}
-          onClick={(e) => linkClick(e, href())}
+          onClick={(e) => linkClick(e, href(), !onBoard(n()))}
         >
           <For each={Array.from({ length: depth() }, (_, i) => depth() - i)}>
             {(i) => <span class="alb-sheet" style={{ "--i": i }} />}
@@ -239,7 +237,7 @@ export function Album(props: {
       </div>
       <div class="alb-cap">
         <Show when={shape() !== "text"}>
-          <a class="alb-title" href={href()} onClick={(e) => linkClick(e, href())}>
+          <a class="alb-title" href={href()} onClick={(e) => linkClick(e, href(), !onBoard(n()))}>
             {n().title}
           </a>
         </Show>
@@ -272,14 +270,14 @@ export function DocRow(props: {
   menu: JSX.Element | undefined;
 }) {
   const n = () => props.node;
-  const href = () => coverPath(props.project, n());
+  const href = () => designPath(props.project, n().slug);
   return (
     <li class="home-doc">
       <a
         class="home-doc-link"
         href={href()}
         data-design={n().slug}
-        onClick={(e) => linkClick(e, href())}
+        onClick={(e) => linkClick(e, href(), !onBoard(n()))}
       >
         <span class="home-doc-title">{n().title}</span>
         <AlbumWords node={n()} fresh={props.fresh} />

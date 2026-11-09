@@ -5,9 +5,26 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { assetUrl } from "./api.ts";
 import { readonly } from "./host.ts";
+import { CopyButton } from "./CopyButton.tsx";
 import { threadRows, timeAgo } from "./logic.ts";
-import { WakeLine } from "./NextCard.tsx";
 import type { DesignScreenState } from "./state.ts";
+
+// For an agent nothing will wake. What the server knows is that no watch is held open
+// for its session, not that the agent is stopped, so that's all this claims: a busy
+// agent reads the reply on its next call anyway.
+export function WakeLine(props: { slug: string }) {
+  const line = () =>
+    `Read my mockpit reply on ${props.slug}: run mockpit feedback, or call your feedback tool.`;
+  return (
+    <div class="wake">
+      <p>No watcher is open, so your agent hears this on its next call. To wake it now, tell it:</p>
+      <div class="wake-line">
+        <code>{line()}</code>
+        <CopyButton text={line()} label="Copy the line for your agent" />
+      </div>
+    </div>
+  );
+}
 
 export function useThreadRows(s: DesignScreenState) {
   return createMemo(() => {

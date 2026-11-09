@@ -125,16 +125,10 @@ export function createFlowNav(
     if (via) here.set("flow", via);
     w.history.replaceState(w.history.state, "", `${w.location.pathname}?${here}`);
     carryTry = s.trying();
-    // Walking a flow keeps the view it is walked in.
-    const path = designPath(
-      project,
-      to.design,
-      { state: to.state, alternative: null },
-      via,
-      here.get("view"),
-    );
-    // A flow being presented stays presented across its designs.
-    navigate(here.has("present") ? `${path}&present=1` : path);
+    const path = designPath(project, to.design, { state: to.state, alternative: null }, via);
+    // Walking a flow stays in Focus, and a flow being presented stays presented across
+    // its designs.
+    navigate(here.has("present") ? `${path}&present=1` : path, { focus: true });
   }
   const step = (by: 1 | -1) => {
     const to = near(by);

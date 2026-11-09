@@ -1,15 +1,14 @@
-// The design screen: a quiet top bar (where you are, Stage, Studio or Grid, the panels),
-// the design on a canvas with its version and what acts on that above it and its tools
-// beside it, states and versions in a margin on its left and what's said about it in one
-// on its right, each there only with something in it (Margins.tsx). A phone has no room beside the design:
-// its states are tabs above, one bar floats below (New version, the versions, Use this,
-// Try / Mark / Tune) with the question above that, and the version label opens the
-// history and the thread as a bottom panel.
+// Focus: one design, decided on. A quiet top bar (project / page / design, the panel's
+// toggle), the design live on a canvas with its version and what acts on that above it and
+// its tools beside it, its states (or variants, or alternatives) in a margin on its left
+// and a panel on its right with Question, Spec and Activity (Margins.tsx). Esc and the
+// page in the path go back up to the Board, fit to the frame. A phone has no room beside
+// the design: its states are tabs above, one bar floats below (New version, the versions,
+// Use this, Try / Mark / Tune) with the question above that, and the version label opens
+// the history and the thread as a bottom panel.
 
-import type { Shortlist } from "./api.ts";
+import type { DesignDetail, Shortlist } from "./api.ts";
 import { rememberRecent } from "./Jump.tsx";
-import { ArrangeSwitch, type Arrangement, StudioBar } from "./StudioBar.tsx";
-import { IdeasForMenu } from "./IdeasFor.tsx";
 import { AddCandidates } from "./AddCandidates.tsx";
 import { createShortlists, type Shortlists } from "./shortlist.ts";
 import {
@@ -21,13 +20,10 @@ import {
   on,
   onCleanup,
   onMount,
-  Match,
   Show,
-  Switch,
-  untrack,
 } from "solid-js";
 import { isProduct } from "../../server/spec.ts";
-import { isFlowIdea, isLive } from "../../server/types.ts";
+import { isLive } from "../../server/types.ts";
 import { About, type AboutState, createAbout } from "./About.tsx";
 import { BottomPanel } from "./BottomPanel.tsx";
 import { hasFiles } from "./attach.ts";
@@ -35,53 +31,45 @@ import { BuiltFrom } from "./BuiltFrom.tsx";
 import { ChangedNote } from "./ChangedNote.tsx";
 import { ReadyMark } from "./ReadyMark.tsx";
 import { SystemNote } from "./SystemNote.tsx";
-import { useFlowKeys } from "./flowKeys.ts";
+import { FIELD, useFlowKeys } from "./flowKeys.ts";
 import { createFlowNav, type FlowNav } from "./flowNav.ts";
-import { Grid } from "./Grid.tsx";
 import { host, readonly, root } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import {
   GHOST_W,
-  gridComparesVariants,
   historyRow,
-  isBuiltinAsk,
   READING_W,
   readsAsDocument,
-  repeatsAcrossStates,
   sameVersion,
   stillWorking,
   type VersionRef,
   versionStamp,
-  WALL_FROM,
 } from "./logic.ts";
-import { questions, sectionOf } from "./albums.ts";
+import { sectionOf } from "./albums.ts";
 import { turnClock } from "./Album.tsx";
 import {
   createMargins,
   LeftMargin,
   type Margins,
-  PanelTabs,
+  PanelToggle,
   RightMargin,
   ToolStrip,
 } from "./Margins.tsx";
-import { CarriedChip, NextCard, WakeLine } from "./NextCard.tsx";
 import { NotFound } from "./NotFound.tsx";
 import { OutlineChips, PlannedStage, StateAsk } from "./Outlines.tsx";
 import { QuestionCard, QuestionTab } from "./QuestionCard.tsx";
 import { ArchivedNote } from "./Questions.tsx";
 import { AnswerPills } from "./Kept.tsx";
-import { Portal } from "solid-js/web";
-import { AnswerBoard, boardAsk } from "./AnswerBoard.tsx";
-import { LIST_ABOVE } from "./Questions.tsx";
 import { Present } from "./Present.tsx";
 import { SideOver } from "./SideOver.tsx";
 import { SideBySide, sideAsk } from "./SideBySide.tsx";
 import { Reader, ReaderSend } from "./Reader.tsx";
 import { markSeen } from "./seen.ts";
 import {
+  boardPath,
+  designPath,
   homePath,
   linkClick,
-  designPath,
   navigate,
   projectPath,
   replaceUrl,
@@ -89,14 +77,13 @@ import {
 } from "./route.ts";
 import { usePopover } from "./popover.ts";
 import { PaletteTool } from "./PaletteTool.tsx";
-import { boardPalettes, PalettesBoard } from "./PalettesBoard.tsx";
 import { PreviewTool } from "./PreviewTool.tsx";
 import { Stage } from "./Stage.tsx";
-import { Studio } from "./Studio.tsx";
 import type { ScreenOpen } from "./route.ts";
 import { carryToast, Toast } from "./toast.tsx";
 import { createDesignScreen, type DesignScreenState } from "./state.ts";
 import { Thumb } from "./Thumb.tsx";
+import { WakeLine } from "./Thread.tsx";
 import { createTune } from "./tune.ts";
 import { NewVersionButton, UseThis, VersionBar, VersionStepper } from "./VersionBar.tsx";
 import {
@@ -111,9 +98,23 @@ import {
 } from "./viewport.ts";
 import { setPeek } from "./systemRev.ts";
 
-type View = "stage" | "studio" | "grid";
-const isView = (v: string | null | undefined): v is View =>
-  v === "stage" || v === "studio" || v === "grid";
+// Where a design lives on the Board, which Esc and the path go back to: its page, fit to
+// the frame on stage and selected; or, for what no page draws, the Library or Exploring
+// page that lists it.
+function boardHome(m: DesignDetail, state: string | null): { href: string; name: string } {
+  const sel = { slug: m.slug, state };
+  if (m.archivedAt) return { href: projectPath(m.project, "archive"), name: "Archive" };
+  if (isProduct(m)) {
+    if (m.area) return { href: boardPath(m.project, { page: m.area, sel }), name: m.area };
+    if (m.kind === "screen")
+      return { href: boardPath(m.project, { unsorted: true, sel }), name: "No area" };
+    return { href: projectPath(m.project, "components"), name: "Components" };
+  }
+  const states = m.states.length ? m.states : [null];
+  return sectionOf({ ...m, states, asked: m.asks.length }) === "documents"
+    ? { href: projectPath(m.project, "documents"), name: "Documents" }
+    : { href: projectPath(m.project, "ideas"), name: "Ideas" };
+}
 
 export function DesignScreen(props: {
   project: string;
@@ -132,11 +133,6 @@ export function DesignScreen(props: {
   // See before is a look from this screen's note; nowhere else says it is on.
   onCleanup(() => setPeek(null));
   const shortlists = createShortlists(props.project, s.setToast);
-  // Stage, Studio or Grid: one version up close, the state zoomed out, or every state
-  // against every alternative. The URL's ?view= wins, so a link can't move your place.
-  // Else a design opens by what it is, and nothing is remembered per design (see opened).
-  const asked = opening.get("view");
-  const [view, setViewSignal] = createSignal<View | null>(isView(asked) ? asked : null);
   // What's on stage is written: it opens as a column instead of on the canvas. By the
   // version on stage, which can differ from its neighbours (markdown, then a page).
   const reading = createMemo(() => {
@@ -147,84 +143,14 @@ export function DesignScreen(props: {
     const kinds = historyRow(v, version)?.surfaceKinds ?? v.surfaces.map((x) => x.kind);
     return readsAsDocument(m.widths, kinds as string[]);
   });
-  const wallSized = () => s.alternatives().length >= WALL_FROM;
-  const [columns, setColumns] = createSignal(
-    new URLSearchParams(host().window.location.search).get("cols") === "1",
-  );
-  const [barSlot, setBarSlot] = createSignal<HTMLDivElement>();
-  // The arrangement left off in, for the second view's button to come back to.
-  const [compared, setCompared] = createSignal<"studio" | "grid" | null>(null);
-  // A screen or component holds what ships, so its second view is All states, the grid:
-  // every state side by side, with its variants as rows when it has them.
-  const product = () => {
-    const m = s.design();
-    return !!m && isProduct(m);
-  };
-  const allStates = () =>
-    product() &&
-    (s.states().length > 1 || gridComparesVariants(!!s.design()?.variants, s.alternatives()));
-  const gridOffered = () => allStates() || repeatsAcrossStates(s.alternatives());
-  // An open question with many pictured answers opens Studio on them, until the user
-  // picks another arrangement.
-  const askOnBoard = () => boardAsk(s);
-  const [answersPick, setAnswersPick] = createSignal<boolean | null>(null);
-  // A design opens by what it is, decided once per visit so answering the last question
-  // or moving to another state doesn't swap the view under you. A question the agent is
-  // waiting on opens Answers (Stage, where it is asked, when its answers have no
-  // pictures); something to read opens to read; a variants design as the grid of its
-  // forms; a screen or component on Stage; an idea in Studio.
-  const opened = createMemo<View | null>((before) => {
-    if (before || !s.design()) return before;
-    return untrack(() => {
-      const m = s.design()!;
-      if (s.owed().some((a) => !isBuiltinAsk(a))) {
-        if (!askOnBoard()) return "stage";
-        setAnswersPick(true);
-        return "studio";
-      }
-      // A gathered idea stays for comparing, below, even if what it holds is written.
-      if (reading() && !m.shortlist) return "stage";
-      if (m.variants && gridOffered()) return "grid";
-      // A flow idea is a story to walk, step by step, with Try.
-      return isProduct(m) || isFlowIdea(m) ? "stage" : "studio";
-    });
-  }, null);
-  // A grid left by the last archive falls back rather than show an empty table.
-  const shownView = (): View => {
-    const v = view() ?? opened() ?? "stage";
-    return v === "grid" && !gridOffered() ? "stage" : v;
-  };
-  // On stage, in a state with nothing drawn: the plan stands where the design will.
+  // In a state with nothing drawn: the plan stands where the design will.
   const undrawn = () => !!s.design() && !s.alternatives().some((v) => v.state === s.activeState());
-  const outlining = () => shownView() === "stage" && !reading() && s.outlinable();
+  const outlining = () => !reading() && s.outlinable();
   // The question whose answers stand side by side in place of the design, if any. A
   // phone has no room for a row: it keeps one answer at a time on the frame.
   const sideRow = createMemo(() =>
-    shownView() === "stage" && !reading() && !undrawn() && !phoneLayout() ? sideAsk(s) : null,
+    !reading() && !undrawn() && !phoneLayout() ? sideAsk(s) : null,
   );
-  let openLooked: (() => void) | null = null;
-  // Each step between the views is its own history entry, so Back
-  // returns to the view you came from rather than leaving the design.
-  const setView = (v: View) => {
-    if (v !== "stage") setCompared(v);
-    const w = host().window;
-    const q = new URLSearchParams(w.location.search);
-    q.set("view", v);
-    // A closer look belongs to the Studio entry it was opened on, where Back finds it.
-    q.delete("look");
-    // Before the view changes: the URL's upkeep below writes to the current
-    // entry, and the one being left must keep naming the view it was.
-    w.history.pushState(w.history.state, "", `${w.location.pathname}?${q}`);
-    setViewSignal(v);
-  };
-  // The route ignores ?view=, so Back between the views keeps this screen mounted;
-  // the view follows the URL here.
-  const onPop = () => {
-    const v = new URLSearchParams(host().window.location.search).get("view");
-    setViewSignal(isView(v) ? v : null);
-  };
-  host().window.addEventListener("popstate", onPop);
-  onCleanup(() => host().window.removeEventListener("popstate", onPop));
   // The URL follows the place on screen. A tick later: Back runs several popstate
   // listeners in turn, and writing between them would stamp the place being left
   // onto the entry just arrived at.
@@ -232,7 +158,6 @@ export function DesignScreen(props: {
   onCleanup(() => host().window.clearTimeout(urlTimer));
   createEffect(() => {
     if (!s.design()) return;
-    shownView();
     s.activeState();
     s.stagePick();
     host().window.clearTimeout(urlTimer);
@@ -247,10 +172,9 @@ export function DesignScreen(props: {
       put("state", s.activeState());
       put("alternative", pick?.alternative);
       put("version", pick?.version);
-      put("view", shownView());
       q.delete("owed");
       q.delete("question");
-      const next = `?${q}`;
+      const next = q.size ? `?${q}` : "";
       if (next !== w.location.search) replaceUrl(`${w.location.pathname}${next}`);
     }, 0);
   });
@@ -269,50 +193,6 @@ export function DesignScreen(props: {
       { defer: true },
     ),
   );
-  const answersOn = () =>
-    !!askOnBoard() &&
-    (answersPick() ??
-      askOnBoard()!.options.filter((o) => !s.hiddenOf(askOnBoard()!, o.id)).length > LIST_ABOVE);
-  // Palettes is a way to look at the state on stage, picked by hand and never by default.
-  const [palettesPick, setPalettesPick] = createSignal(false);
-  const palettesOffered = () => boardPalettes(s).length > 1;
-  const palettesOn = () => palettesPick() && palettesOffered() && shownView() === "studio";
-  const arrangement = (): Arrangement =>
-    shownView() === "grid"
-      ? "grid"
-      : palettesOn()
-        ? "palettes"
-        : answersOn()
-          ? "answers"
-          : wallSized() && !columns()
-            ? "wall"
-            : "columns";
-  const arrangements = (): Arrangement[] => [
-    ...(askOnBoard() ? (["answers"] as const) : []),
-    ...(wallSized() ? (["wall"] as const) : []),
-    "columns",
-    ...(palettesOffered() ? (["palettes"] as const) : []),
-    ...(gridOffered() ? (["grid"] as const) : []),
-  ];
-  const arrange = (to: Arrangement) => {
-    setPalettesPick(to === "palettes");
-    if (to === "palettes") return setView("studio");
-    setAnswersPick(to === "answers");
-    if (to === "answers") return setView("studio");
-    if (to === "grid") return setView("grid");
-    setColumns(to === "columns");
-    if (shownView() !== "studio") setView("studio");
-  };
-  const arrangeSwitch = (
-    <Show when={arrangements().length > 1}>
-      <ArrangeSwitch on={arrangement()} options={arrangements()} onPick={arrange} />
-    </Show>
-  );
-  // A screen's or a component's ideas, offered where its versions are compared.
-  const ideasMenu = () => {
-    const ideas = s.design()?.ideasFor;
-    return ideas?.length ? <IdeasForMenu project={props.project} ideas={ideas} /> : null;
-  };
   const nav = createFlowNav(s, props.project, props.slug, props.flow ?? null);
   // Played from the Board's ▶ or P: the flow full screen, ended back on the Board.
   const presenting = opening.has("present");
@@ -322,7 +202,7 @@ export function DesignScreen(props: {
   const m = createMargins(
     s,
     nav,
-    () => !!s.design() && !phoneLayout() && shownView() === "stage",
+    () => !!s.design() && !phoneLayout(),
     () => (reading() ? READING_W : null),
     outlining,
     () => !!sideRow(),
@@ -355,7 +235,7 @@ export function DesignScreen(props: {
     const m = s.design();
     if (!m || (m.slug === props.slug && m.project === props.project)) return;
     const path = `${projectPath(m.project)}/${encodeURIComponent(m.slug)}`;
-    navigate(`${path}${host().location.search}`, { replace: true });
+    navigate(`${path}${host().location.search}`, { replace: true, focus: true });
   });
   createEffect(() =>
     s.setTunable(
@@ -421,15 +301,18 @@ export function DesignScreen(props: {
     });
   });
 
-  // Esc turns a canvas tool off, then closes what is open, one at a time.
+  // Esc turns a canvas tool off, then closes what floats, one at a time, then goes back
+  // up to the Board, fit to this frame.
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (e.key !== "Escape" || e.defaultPrevented || presenting) return;
+      const at = e.composedPath()[0];
+      if (at instanceof Element && at.closest(FIELD)) return;
       if (s.tool()) s.toggleTool(s.tool()!);
       else if (s.askingState()) s.setAskingState(null);
       else if (m.leftFloats()) m.closeLeft();
       else if (s.drawer()) s.setDrawer(false);
-      else if (s.panel()) s.setPanel(null);
+      else if (s.design()) navigate(boardHome(s.design()!, s.activeState()).href);
       else return;
       e.preventDefault();
     };
@@ -437,19 +320,13 @@ export function DesignScreen(props: {
     onCleanup(() => root().removeEventListener("keydown", onKey));
   });
 
-  // On a phone a swipe across the design moves between the steps. Only on
-  // Stage: Studio's strip and its closer look swipe through versions, and a
-  // step taken under the same swipe skips whatever the state had left to show.
+  // On a phone a swipe across the design moves between the steps.
   onMount(() => {
     let start: { x: number; y: number } | null = null;
     const down = (e: TouchEvent) => {
       const t0 = e.touches[0];
       start =
-        phoneLayout() &&
-        shownView() === "stage" &&
-        e.touches.length === 1 &&
-        !s.trying() &&
-        s.zoom() === "fit"
+        phoneLayout() && e.touches.length === 1 && !s.trying() && s.zoom() === "fit"
           ? { x: t0.clientX, y: t0.clientY }
           : null;
     };
@@ -507,39 +384,22 @@ export function DesignScreen(props: {
           project={props.project}
           slug={props.slug}
           about={about}
-          view={shownView()}
           reading={reading()}
-          compare={
-            product()
-              ? allStates()
-              : s.alternatives().length > 1 || s.alternatives().some((v) => v.version > 1)
-          }
-          second={product() ? "All states" : "Studio"}
-          tabs={m.statesShown() || (shownView() !== "stage" && s.states().length > 1)}
+          tabs={m.statesShown()}
           shortlists={shortlists}
           panels={
             <Show when={m.active()}>
-              <PanelTabs s={s} m={m} />
+              <PanelToggle m={m} />
             </Show>
           }
-          onView={(v) => {
-            if (v === "stage" ? shownView() === "stage" : shownView() !== "stage") return;
-            s.setDrawer(false);
-            if (v === "stage" && openLooked) openLooked();
-            else setView(v === "stage" ? "stage" : (compared() ?? (product() ? "grid" : "studio")));
-          }}
         />
         {/* Beside a docked left margin the same steps are its first list. */}
-        <Show when={m.statesShown() && !m.leftDocked() && shownView() === "stage" && !sideRow()}>
+        <Show when={m.statesShown() && !m.leftDocked() && !sideRow()}>
           <FlowBar nav={nav}>
             <Show when={outlining()}>
               <OutlineChips s={s} />
             </Show>
           </FlowBar>
-        </Show>
-        <div ref={setBarSlot} />
-        <Show when={shownView() === "grid" && (arrangements().length > 1 || ideasMenu() !== null)}>
-          <StudioBar ideas={ideasMenu()} arrange={arrangeSwitch} />
         </Show>
       </header>
       <Show
@@ -556,86 +416,28 @@ export function DesignScreen(props: {
         }
       >
         <Show when={s.design()}>
-          <Switch>
-            <Match when={shownView() === "stage" && undrawn()}>
-              <PlannedStage s={s} />
-            </Match>
-            <Match when={shownView() === "stage"}>
-              <Show
-                when={!reading()}
-                fallback={
-                  <Reader
-                    s={s}
-                    head={
-                      <Show when={m.active()}>
-                        <VersionCaption s={s} m={m} reading />
-                      </Show>
-                    }
-                  />
-                }
-              >
-                <Stage s={s} onGoto={nav.follow} />
-                <Show when={sideRow()}>{(ask) => <SideBySide s={s} ask={ask()} />}</Show>
-                <Show when={m.ghosts()}>
-                  <Ghost s={s} nav={nav} by={-1} />
-                  <Ghost s={s} nav={nav} by={1} />
-                </Show>
+          <Show when={!undrawn()} fallback={<PlannedStage s={s} />}>
+            <Show
+              when={!reading()}
+              fallback={
+                <Reader
+                  s={s}
+                  head={
+                    <Show when={m.active()}>
+                      <VersionCaption s={s} m={m} reading />
+                    </Show>
+                  }
+                />
+              }
+            >
+              <Stage s={s} onGoto={nav.follow} />
+              <Show when={sideRow()}>{(ask) => <SideBySide s={s} ask={ask()} />}</Show>
+              <Show when={m.ghosts()}>
+                <Ghost s={s} nav={nav} by={-1} />
+                <Ghost s={s} nav={nav} by={1} />
               </Show>
-            </Match>
-            <Match when={palettesOn()}>
-              <div class="aboard-wrap" style={{ top: `${canvasTop()}px` }}>
-                <Show when={barSlot()}>
-                  {(slot) => (
-                    <Portal mount={slot()}>
-                      <div class="sbar">{arrangeSwitch}</div>
-                    </Portal>
-                  )}
-                </Show>
-                <PalettesBoard s={s} />
-              </div>
-            </Match>
-            <Match when={shownView() === "studio" && answersOn() && askOnBoard()}>
-              {(ask) => (
-                <div class="aboard-wrap" style={{ top: `${canvasTop()}px` }}>
-                  <Show when={barSlot()}>
-                    {(slot) => (
-                      <Portal mount={slot()}>
-                        <div class="sbar">{arrangeSwitch}</div>
-                      </Portal>
-                    )}
-                  </Show>
-                  <AnswerBoard s={s} ask={ask()} />
-                </div>
-              )}
-            </Match>
-            <Match when={shownView() === "studio"}>
-              <Studio
-                s={s}
-                top={canvasTop()}
-                shortlists={shortlists}
-                onOpen={() => setView("stage")}
-                onLooking={(open) => (openLooked = open)}
-                columns={columns}
-                barSlot={barSlot()}
-                arrange={arrangeSwitch}
-                ideas={ideasMenu()}
-                arrangeable={arrangements().length > 1}
-              />
-            </Match>
-            <Match when={shownView() === "grid"}>
-              <Grid
-                s={s}
-                about={about}
-                project={props.project}
-                slug={props.slug}
-                onOpen={(state, ref) => {
-                  s.showState(state);
-                  s.showVersion(ref);
-                  setView("stage");
-                }}
-              />
-            </Match>
-          </Switch>
+            </Show>
+          </Show>
         </Show>
         <div
           class="mbottom"
@@ -655,8 +457,8 @@ export function DesignScreen(props: {
               </div>
             )}
           </Show>
-          <SentNote s={s} project={props.project} slug={props.slug} view={shownView()} />
-          <Show when={s.design() && shownView() === "stage"}>
+          <SentNote s={s} slug={props.slug} />
+          <Show when={s.design()}>
             <StateAsk s={s} />
             <Show when={phoneLayout()}>
               <Show when={reading()}>
@@ -669,7 +471,7 @@ export function DesignScreen(props: {
             </Show>
           </Show>
         </div>
-        <Show when={s.design() && shownView() === "stage"}>
+        <Show when={s.design()}>
           <Show
             when={phoneLayout()}
             fallback={
@@ -679,7 +481,7 @@ export function DesignScreen(props: {
                   <VersionCaption s={s} m={m} reading={false} />
                 </Show>
                 <LeftMargin s={s} nav={nav} m={m} />
-                <RightMargin s={s} t={t} m={m} />
+                <RightMargin s={s} t={t} m={m} sl={shortlists} />
               </>
             }
           >
@@ -761,41 +563,33 @@ function VersionCaption(props: { s: DesignScreenState; m: Margins; reading: bool
   );
 }
 
-// Where you are, as the way up: the project and the area are links, the design's
-// name opens what's around it, then the state. A phone has room for the name
-// alone (the tabs below it name the state), so an arrow up to the area (else the
-// project) stands in for the rest.
-// Three zones: the design on the left, the views in the middle, the panels on the right.
-// A phone's row runs them together, and keeps the width since it has no tool strip.
+// Where you are, as the way up: project / page / design, where the page is the Board's
+// page the design is on and goes back there fit to it, as Esc does. The design's name
+// opens what's around it, then the state. A phone has room for the name alone (the tabs
+// below it name the state), so an arrow up to the page stands in for the rest.
+// Two zones: the design on the left, the panel's toggle on the right. A phone's row runs
+// them together, and keeps the width since it has no tool strip.
 function TopRow(props: {
   s: DesignScreenState;
   project: string;
   slug: string;
   about: AboutState;
-  view: View;
   // A document: no widths to choose between.
   reading: boolean;
-  // More than one design or version to compare, in any state, archived too: Studio is
-  // where those are.
-  compare: boolean;
   // Whether the state tabs are showing, which name the state where it isn't.
   tabs: boolean;
   shortlists: Shortlists;
-  onView: (v: "stage" | "studio") => void;
-  // What the second view is called: Studio, or a product design's All states.
-  second: "Studio" | "All states";
-  // The right margin's tabs: in this row they cost the design no room.
+  // The right panel's toggle: in this row it costs the design no room.
   panels: JSX.Element;
 }) {
   const s = props.s;
   const sl = props.shortlists;
   // A new idea started here is for this screen or component.
   const [ideaFor, setIdeaFor] = createSignal(false);
-  const home = () => homePath(props.project);
-  const areaHome = (area: string) => homePath(props.project, area);
+  const home = () => boardPath(props.project);
   const up = () => {
-    const area = s.design()?.area;
-    return area ? { href: areaHome(area), name: area } : { href: home(), name: shortProject() };
+    const m = s.design();
+    return m ? boardHome(m, s.activeState()) : { href: home(), name: shortProject() };
   };
   // The owner is the same on every design; the repo's own name is enough.
   const shortProject = () => props.project.split("/").pop() ?? props.project;
@@ -808,7 +602,7 @@ function TopRow(props: {
   };
   // The name an agent finds this by, as far down as the screen is looking.
   const spoken = () => {
-    const step = props.view === "stage" ? s.stageStep() : null;
+    const step = s.stageStep();
     const named = step && (s.steps().length > 1 || !s.nameOf(step).startsWith("#"));
     return [title(), s.activeState(), named ? s.nameOf(step) : null].filter(Boolean).join(", ");
   };
@@ -819,16 +613,6 @@ function TopRow(props: {
     const copying = host().window.navigator.clipboard?.writeText(name);
     if (!copying) return failed();
     copying.then(() => s.setToast({ text: `Copied: ${name}` }), failed);
-  };
-  const openAsked = () =>
-    new Set(s.flow().flatMap((e) => (isBuiltinAsk(e.ask) ? [] : [e.ask.id]))).size;
-  // Off Stage the panels are gone, but questions keep the corner their tab has there.
-  const questionsTab = () =>
-    !phoneLayout() && props.view !== "stage" && !s.design()?.archivedAt && openAsked() > 0;
-  const toQuestions = () => {
-    s.showTalk();
-    if (!s.curAsk()) s.goOwed();
-    props.onView("stage");
   };
   const [more, setMore] = createSignal(false);
   let moreMenu: HTMLDivElement | undefined;
@@ -891,19 +675,16 @@ function TopRow(props: {
               {shortProject()}
             </a>
             <span class="crumb-far sep">/</span>
-            <Show when={s.design()?.area}>
-              {(area) => (
-                <>
-                  <a
-                    class="crumb-far crumb-link"
-                    href={areaHome(area())}
-                    onClick={(e) => linkClick(e, areaHome(area()))}
-                  >
-                    {area()}
-                  </a>
-                  <span class="crumb-far sep">/</span>
-                </>
-              )}
+            <Show when={s.design()}>
+              <a
+                class="crumb-far crumb-link"
+                href={up().href}
+                title={`Back to ${up().name} (Esc)`}
+                onClick={(e) => linkClick(e, up().href)}
+              >
+                {up().name}
+              </a>
+              <span class="crumb-far sep">/</span>
             </Show>
             <b class="crumb-name">{title()}</b>
             <Show when={!props.tabs && s.activeState()}>
@@ -1048,55 +829,15 @@ function TopRow(props: {
       <div class="mzone mzone-mid">
         <Show when={phoneLayout()}>
           {pill()}
-          <Show when={props.view === "stage" && !props.reading && s.design()}>
+          <Show when={!props.reading && s.design()}>
             <PreviewTool s={s} qr={false} />
             <PaletteTool s={s} />
           </Show>
-        </Show>
-        <Show when={props.compare || props.view !== "stage"}>
-          <div class="vswitch" role="group" aria-label="View">
-            <button
-              type="button"
-              aria-pressed={props.view === "stage"}
-              aria-label={
-                phoneLayout() && props.view !== "stage" && s.waitsOnStage()
-                  ? "Stage, a question is waiting"
-                  : "Stage"
-              }
-              onClick={() => props.onView("stage")}
-            >
-              Stage
-              <Show when={phoneLayout() && props.view !== "stage" && s.waitsOnStage()}>
-                <i class="vswitch-q" aria-hidden="true" />
-              </Show>
-            </button>
-            <button
-              type="button"
-              aria-pressed={props.view !== "stage"}
-              onClick={() => props.onView("studio")}
-            >
-              {props.second}
-            </button>
-          </div>
         </Show>
       </div>
       <div class="mzone mzone-end">
         <Show when={!phoneLayout()}>{pill()}</Show>
         {props.panels}
-        <Show when={questionsTab()}>
-          <div class="mtabs">
-            <button
-              type="button"
-              class="ib ib-count"
-              aria-label={`${questions(openAsked())}, open them on Stage`}
-              title={`${questions(openAsked())}, open them on Stage`}
-              onClick={toQuestions}
-            >
-              <Icon name="question" />
-              <span class="num">{openAsked()}</span>
-            </button>
-          </div>
-        </Show>
       </div>
     </div>
   );
@@ -1175,7 +916,7 @@ function FlowBar(props: { nav: FlowNav; children?: JSX.Element }) {
         </Show>
         {props.children}
       </div>
-      {/* The way back to what they hold: each state's archive sits in its own Studio. */}
+      {/* The way back to what they hold: each state's archived alternatives fold under it. */}
       <Show when={nav.emptied().length}>
         <select
           class="ftab-emptied"
@@ -1231,9 +972,8 @@ function Ghost(props: { s: DesignScreenState; nav: FlowNav; by: 1 | -1 }) {
 }
 
 // After a Send: how far it has come (not seen, delivered, the agent working, a new
-// version), and where to go next. With nothing left to answer this is what the screen
-// stays on, so it can't be a dead end.
-function SentNote(props: { s: DesignScreenState; project: string; slug: string; view: View }) {
+// version). What's next is Needs you's to say.
+function SentNote(props: { s: DesignScreenState; slug: string }) {
   const s = props.s;
   const looking = (a: VersionRef & { state: string | null }) =>
     s.activeState() === a.state && sameVersion(s.onStage(), a);
@@ -1255,8 +995,8 @@ function SentNote(props: { s: DesignScreenState; project: string; slug: string; 
         <ArchivedNote s={s} />
       </Show>
       <SystemNote s={s} />
-      <ChangedNote s={s} onStageView={props.view === "stage"} />
-      <Show when={s.sent()} fallback={<CarriedChip project={props.project} slug={props.slug} />}>
+      <ChangedNote s={s} />
+      <Show when={s.sent()}>
         <div class="sentrow" role="status">
           <Show
             when={s.sinceSend()}
@@ -1297,18 +1037,11 @@ function SentNote(props: { s: DesignScreenState; project: string; slug: string; 
             </span>
           </Show>
         </div>
-        {/* The Thread says this itself when it's open beside the design, on Stage alone. */}
-        <Show
-          when={
-            s.beatPassed() &&
-            !s.agentListening() &&
-            !(props.view === "stage" && s.panel() === "thread")
-          }
-        >
+        {/* Activity says this itself when it's open beside the design. */}
+        <Show when={s.beatPassed() && !s.agentListening() && s.panel() !== "thread"}>
           <WakeLine slug={props.slug} />
         </Show>
       </Show>
-      <NextCard s={s} />
     </div>
   );
 }

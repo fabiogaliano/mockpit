@@ -31,7 +31,7 @@ import { Icon } from "./icons.tsx";
 
 // Long enough that a pointer crossing the list on its way somewhere previews nothing.
 const HOLD_MS = 750;
-export const LIST_ABOVE = 4;
+const LIST_ABOVE = 4;
 
 // A design the user archived: what that did, the way back, and why, if they want to say.
 export function ArchivedNote(props: { s: DesignScreenState }) {
@@ -1007,7 +1007,7 @@ const EASE_MOVE = "cubic-bezier(0.645, 0.045, 0.355, 1)";
 // An answer leaving fades out, then the others slide from where they were into the gap
 // (FLIP); one arriving grows in. Only transform and opacity move, and reduced motion
 // skips all of it.
-export function flipCards(box: HTMLElement | undefined, change: () => void, gone?: Element | null) {
+function flipCards(box: HTMLElement | undefined, change: () => void, gone?: Element | null) {
   const w = host().window;
   if (!box || w.matchMedia("(prefers-reduced-motion: reduce)").matches) return change();
   const cards = () => [...box.children] as HTMLElement[];

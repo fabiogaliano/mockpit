@@ -74,7 +74,7 @@ const [carried, setCarried] = createSignal<{ line: ToastLine; back: string; at: 
   null,
 );
 
-// `back` is the screen it came from, which its Undo returns to.
+// `back` is the design it came from, which its Undo returns to, in Focus.
 export function carryToast(line: ToastLine | null, back: string) {
   setCarried(line && { line, back, at: host().location.pathname });
 }
@@ -94,7 +94,7 @@ export function CarriedToast() {
       ...c.line,
       undo: () => {
         undo();
-        navigate(c.back);
+        navigate(c.back, { focus: true });
       },
     };
   };

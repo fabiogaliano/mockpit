@@ -1,9 +1,10 @@
-// The open screen's sides. States and versions stand on the left of the design and
-// what's said about it on the right, each only with something in it, so a plain
-// render is the design alone. When a margin would shrink the design past what
-// marginLayout allows it stops standing there: its tab opens it floating over the
-// canvas instead, which stays the size it was. The centre only reads the bands they
-// take (--canvas-l, --canvas-r, canvasBox), so it needn't be the stage.
+// Focus's sides. States and versions stand on the left of the design; on the right a
+// panel with three tabs, Question, Spec (with its Instances) and Activity, which stands
+// open while there is room for it, and opens for a question whatever the room. When a
+// margin would shrink the design past what marginLayout allows it stops standing there:
+// its tab opens it floating over the canvas instead, which stays the size it was. The
+// centre only reads the bands they take (--canvas-l, --canvas-r, canvasBox), so it
+// needn't be the stage.
 
 import {
   createEffect,
@@ -25,7 +26,7 @@ import { BuiltFrom } from "./BuiltFrom.tsx";
 import { AnswerCombos, KeptAnswers, keptGroups } from "./Kept.tsx";
 import type { FlowNav } from "./flowNav.ts";
 import { host, readonly } from "./host.ts";
-import { Icon, type IconName } from "./icons.tsx";
+import { Icon } from "./icons.tsx";
 import {
   BOARD_GAP,
   BOARD_PAD,
@@ -49,9 +50,11 @@ import { PaletteTool, paletteChoices } from "./PaletteTool.tsx";
 import { PreviewTool } from "./PreviewTool.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
 import { Answered } from "./Questions.tsx";
+import { AlternativeActs, AlternativeList } from "./Alternatives.tsx";
 import { AnsweredQuestions, answeredRows } from "./SideBySide.tsx";
 import { REACTION_LABEL } from "./reactionRules.ts";
 import { SendTo } from "./SendTo.tsx";
+import type { Shortlists } from "./shortlist.ts";
 import type { DesignScreenState } from "./state.ts";
 import { Thread } from "./Thread.tsx";
 import { Thumb } from "./Thumb.tsx";
@@ -59,11 +62,12 @@ import type { TuneState } from "./tune.ts";
 import { CanvasTools } from "./VersionBar.tsx";
 import { NO_BOX, safeX, setCanvasBox, win } from "./viewport.ts";
 
+// "built" is Tune's: the panel while Tune is on, with no tabs.
 export type Side = "talk" | "spec" | "built" | "thread";
 export type Margins = ReturnType<typeof createMargins>;
 
 // Past this many a list is names alone: every picture is a whole page loading, and
-// a lab has over a hundred. Comparing that many is Studio's work anyway.
+// a lab has over a hundred.
 const PICTURED_UP_TO = 24;
 
 export function createMargins(
@@ -82,6 +86,8 @@ export function createMargins(
   const [over, setOver] = createSignal(false);
   // Opened by hand with only sent answers in it, which never open it themselves.
   const [pinned, setPinned] = createSignal(false);
+  // Shut by hand: it stays shut until opened, or until a new question comes.
+  const [shut, setShut] = createSignal(false);
   // Held here because folding the margin unmounts the list.
   const [versionsOpen, setVersionsOpen] = createSignal(false);
 
@@ -90,8 +96,13 @@ export function createMargins(
     (nav.steps().length + nav.outside().length > 1 || nav.emptied().length > 0) && onList();
   const statesShown = () => walkable() || (outlining() && onList());
   const ideasFor = () => s.design()?.ideasFor ?? [];
+  const alternativesHere = () => s.alternatives().filter((v) => v.state === s.activeState());
   const leftHas = () =>
-    !sideBySide() && (statesShown() || s.steps().length > 1 || ideasFor().length > 0);
+    !sideBySide() &&
+    (statesShown() ||
+      s.steps().length > 1 ||
+      ideasFor().length > 0 ||
+      alternativesHere().length > 1);
   const page = () => {
     const kinds: readonly string[] =
       s.stageStep()?.kinds ?? s.activeAlternative()?.surfaces.map((x) => String(x.kind)) ?? [];
@@ -104,31 +115,52 @@ export function createMargins(
 
   const closed = () => !!s.design()?.archivedAt;
   // Kept answers and a sent question's row wait beside the design, so they hold the side
-  // open after a Send.
+  // open after a Send; so does what can be done with an idea's alternative on stage.
+  const ideaActs = () =>
+    !readonly() &&
+    !s.product() &&
+    alternativesHere().some((v) => isLive(v.status) && v === s.activeAlternative());
   const talkWants = () =>
     !closed() &&
-    (!!s.curAsk() || s.sendable() || keptGroups(s).length > 0 || answeredRows(s).length > 0);
-  const talkHas = () => talkWants() || s.flow().length > 0 || s.closedAsks("state").length > 0;
-  const builtHas = () => s.tunable().length > 0 || !!s.activeAlternative()?.instancesKey;
-  const side = createMemo<Side | null>(() => {
-    if (s.drawer()) return "built";
-    if (s.panel() === "thread") return "thread";
-    if (s.panel() === "spec") return "spec";
-    if (s.cardMin()) return null;
-    return talkWants() || (pinned() && talkHas()) ? "talk" : null;
-  });
-
+    (!!s.curAsk() ||
+      s.sendable() ||
+      keptGroups(s).length > 0 ||
+      answeredRows(s).length > 0 ||
+      ideaActs());
   const boards = () => boardWidths(s.design()?.widths ?? [], s.frameW(), s.allWidths(), false);
-  const fitWith = (left: boolean) => {
+  const fitWith = (left: boolean, right = side() !== null) => {
     const row = boards();
     return marginLayout({
       winW: win().w - safeX(),
       designW: columnW() ?? row.reduce((sum, w) => sum + w, 0) + BOARD_GAP * (row.length - 1),
       tools: page() || leftHas() || previewHas(),
       left,
-      right: side() !== null,
+      right,
     });
   };
+  const builtHas = () => s.tunable().length > 0 || !!s.activeAlternative()?.instancesKey;
+  const specHas = () => specShown(s) || builtHas();
+  // With nothing asked, the panel stands open only where it costs the design nothing.
+  const rests = () => active() && !closed() && fitWith(leftHas() && !folded(), true).right;
+  const side = createMemo<Side | null>(() => {
+    if (s.drawer()) return "built";
+    if (shut()) return null;
+    if (s.panel() === "thread") return "thread";
+    if (s.panel() === "spec") return "spec";
+    if (s.cardMin()) return null;
+    if (talkWants() || pinned()) return "talk";
+    if (!rests()) return null;
+    return specHas() ? "spec" : "talk";
+  });
+  createEffect(
+    on(
+      () => s.curAsk()?.id,
+      (id, was) => {
+        if (id && id !== was) setShut(false);
+      },
+    ),
+  );
+
   const fit = createMemo(() =>
     !active()
       ? { left: false, right: false }
@@ -193,18 +225,24 @@ export function createMargins(
     else setFolded(true);
   }
   function closeSide() {
-    const at = side();
-    if (at === "built") {
+    if (side() === "built") {
       if (s.tool() === "tune") s.toggleTool("tune");
       else s.setDrawer(false);
-    } else if (at === "thread" || at === "spec") s.setPanel(null);
-    else {
-      setPinned(false);
-      s.setCardMin(true);
+      return;
     }
+    setPinned(false);
+    setShut(true);
   }
+  // The toggle in the top bar: shut, or open on what there is to see.
+  function togglePanel() {
+    if (side()) return closeSide();
+    setShut(false);
+    toggleSide(talkWants() || !specHas() ? "talk" : "spec");
+  }
+  // A tab: what it shows, in the panel whether or not it stood open.
   function toggleSide(to: Side) {
-    if (side() === to) return closeSide();
+    setShut(false);
+    if (side() === to && to === "built") return closeSide();
     if (to === "built") {
       s.setPanel(null);
       s.setDrawer(true);
@@ -225,8 +263,8 @@ export function createMargins(
     outlining,
     statesShown,
     page,
-    talkHas,
     builtHas,
+    specHas,
     side,
     closed,
     leftDocked,
@@ -241,6 +279,7 @@ export function createMargins(
     closeLeft,
     closeSide,
     toggleSide,
+    togglePanel,
     versionsOpen,
     setVersionsOpen,
   };
@@ -290,63 +329,36 @@ export function ToolStrip(props: { s: DesignScreenState; m: Margins }) {
   );
 }
 
-const PANELS: { id: Side; icon: IconName; label: string }[] = [
-  { id: "talk", icon: "question", label: "On this design" },
-  { id: "spec", icon: "spec", label: "Spec" },
-  { id: "built", icon: "layers", label: "Instances" },
-  { id: "thread", icon: "thread", label: "Thread" },
+const TABS: { id: Exclude<Side, "built">; label: string }[] = [
+  { id: "talk", label: "Question" },
+  { id: "spec", label: "Spec" },
+  { id: "thread", label: "Activity" },
 ];
 
-// The right margin's tabs live in the top bar, where they cost the design nothing
-// and stay put whether the margin stands, floats or is shut.
-export function PanelTabs(props: { s: DesignScreenState; m: Margins }) {
-  const s = props.s;
+// The panel's toggle, in the top bar where it costs the design nothing.
+export function PanelToggle(props: { m: Margins }) {
   const m = props.m;
-  const shown = () =>
-    PANELS.filter((p) =>
-      p.id === "talk"
-        ? m.talkHas()
-        : p.id === "built"
-          ? m.builtHas()
-          : p.id === "spec"
-            ? specShown(s)
-            : true,
-    );
-  const asked = () =>
-    new Set(s.flow().flatMap((e) => (isBuiltinAsk(e.ask) ? [] : [e.ask.id]))).size;
-  const label = (p: (typeof PANELS)[number]) =>
-    p.id === "talk" && asked() ? `${p.label}, ${asked()} open` : p.label;
-  // Something there the user hasn't got in front of them.
-  const waiting = (p: (typeof PANELS)[number]) =>
-    p.id === "talk" && m.side() !== "talk" && !m.closed() && !asked() && s.sendable();
-  // The one place the screen counts its questions, on the tab that holds them.
-  const count = (p: (typeof PANELS)[number]) => (p.id === "talk" ? asked() : 0);
+  const label = () => (m.side() ? "Hide the panel" : "Show the panel");
   return (
-    <div class="mtabs" role="group" aria-label="Panels">
-      <For each={shown()}>
-        {(p) => (
-          <button
-            type="button"
-            class="ib"
-            classList={{ on: m.side() === p.id, "ib-count": count(p) > 0 }}
-            aria-pressed={m.side() === p.id}
-            aria-label={label(p)}
-            title={label(p)}
-            onClick={() => m.toggleSide(p.id)}
-          >
-            <Icon name={p.icon} />
-            <Show when={count(p) > 0}>
-              <span class="num">{count(p)}</span>
-            </Show>
-            <Show when={waiting(p)}>
-              <span class="mtab-dot" aria-hidden="true" />
-            </Show>
-          </button>
-        )}
-      </For>
+    <div class="mtabs">
+      <button
+        type="button"
+        class="ib"
+        classList={{ on: !!m.side() }}
+        aria-pressed={!!m.side()}
+        aria-label={label()}
+        title={label()}
+        onClick={() => m.togglePanel()}
+      >
+        <Icon name="spec" />
+      </button>
     </div>
   );
 }
+
+// The questions open on this design: the one place Focus counts them.
+const askedCount = (s: DesignScreenState) =>
+  new Set(s.flow().flatMap((e) => (isBuiltinAsk(e.ask) ? [] : [e.ask.id]))).size;
 
 export function LeftMargin(props: { s: DesignScreenState; nav: FlowNav; m: Margins }) {
   const s = props.s;
@@ -366,6 +378,7 @@ export function LeftMargin(props: { s: DesignScreenState; nav: FlowNav; m: Margi
         <Show when={m.statesShown()}>
           <StateList s={s} nav={props.nav} outlining={m.outlining()} />
         </Show>
+        <AlternativeList s={s} />
         <AlternativesLine s={s} />
         <Show when={s.design()?.ideasFor}>
           {(ideas) => <IdeasForList project={s.project} ideas={ideas()} />}
@@ -470,7 +483,7 @@ function StateList(props: { s: DesignScreenState; nav: FlowNav; outlining: boole
         <h3 class="lm-others">Other states</h3>
         <For each={outsideKeys()}>{row}</For>
       </Show>
-      {/* The way back to what they hold: each state's archive sits in its own Studio. */}
+      {/* The way back to what they hold: each state's archived alternatives fold under it. */}
       <Show when={nav.emptied().length}>
         <select
           class="ftab-emptied lm-emptied"
@@ -654,26 +667,60 @@ function VersionRow(props: { s: DesignScreenState; step: VersionStep }) {
   );
 }
 
-export function RightMargin(props: { s: DesignScreenState; t: TuneState; m: Margins }) {
+export function RightMargin(props: {
+  s: DesignScreenState;
+  t: TuneState;
+  m: Margins;
+  sl: Shortlists;
+}) {
   const s = props.s;
   const m = props.m;
   const [body, setBody] = createSignal<HTMLElement>();
-  const title = () => {
-    const at = m.side();
-    if (at === "built" && s.tool() === "tune") return "Tune";
-    return PANELS.find((p) => p.id === at)?.label ?? "";
+  const tabs = () => TABS.filter((t) => t.id !== "spec" || m.specHas());
+  const tabLabel = (t: (typeof TABS)[number]) => {
+    const n = t.id === "talk" ? askedCount(s) : 0;
+    return n ? `${t.label} · ${n}` : t.label;
   };
+  // Something there the user hasn't got in front of them.
+  const waiting = (t: (typeof TABS)[number]) =>
+    t.id === "talk" && m.side() !== "talk" && !m.closed() && !askedCount(s) && s.sendable();
   return (
     <Show when={m.side()}>
       {(side) => (
-        <aside class="rmargin" classList={{ float: !m.rightDocked() }} aria-label={title()}>
+        <aside
+          class="rmargin"
+          classList={{ float: !m.rightDocked() }}
+          aria-label={side() === "built" ? "Tune" : "Panel"}
+        >
           <div class="rm-head">
-            <h2>{title()}</h2>
+            <Show
+              when={side() !== "built"}
+              fallback={<h2>{s.tool() === "tune" ? "Tune" : "Instances"}</h2>}
+            >
+              <div class="rm-tabs" role="tablist" aria-label="Panel">
+                <For each={tabs()}>
+                  {(t) => (
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={side() === t.id}
+                      classList={{ on: side() === t.id, q: t.id === "talk" && askedCount(s) > 0 }}
+                      onClick={() => m.toggleSide(t.id)}
+                    >
+                      {tabLabel(t)}
+                      <Show when={waiting(t)}>
+                        <span class="mtab-dot" aria-hidden="true" />
+                      </Show>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
             <button
               type="button"
               class="ib"
-              aria-label={`Close ${title()}`}
-              title="Close"
+              aria-label={side() === "built" ? "Close Tune" : "Hide the panel"}
+              title={side() === "built" ? "Close" : "Hide"}
               onClick={() => m.closeSide()}
             >
               <Icon name="close" />
@@ -682,11 +729,17 @@ export function RightMargin(props: { s: DesignScreenState; t: TuneState; m: Marg
           <div class="rm-body">
             <Switch>
               <Match when={side() === "talk"}>
-                <Talk s={s} m={m} />
+                <Talk s={s} m={m} sl={props.sl} />
               </Match>
               <Match when={side() === "spec"}>
                 <div class="rm-scroll">
-                  <Spec s={s} />
+                  <Show when={specShown(s)}>
+                    <Spec s={s} />
+                  </Show>
+                  <Show when={m.builtHas()}>
+                    <h3 class="rm-sub">Instances</h3>
+                    <BuiltFrom s={s} t={props.t} inline />
+                  </Show>
                 </div>
               </Match>
               <Match when={side() === "built"}>
@@ -708,17 +761,27 @@ export function RightMargin(props: { s: DesignScreenState; t: TuneState; m: Marg
   );
 }
 
-// On this design: the question, then everything else this Send will carry, so what
+// The Question tab: the question, then everything else this Send will carry, so what
 // goes is on screen before it goes.
-function Talk(props: { s: DesignScreenState; m: Margins }) {
+function Talk(props: { s: DesignScreenState; m: Margins; sl: Shortlists }) {
   const s = props.s;
-  const below = (): JSX.Element => <WithThisSend s={s} m={props.m} />;
+  const below = (): JSX.Element => (
+    <>
+      <AlternativeActs s={s} sl={props.sl} />
+      <WithThisSend s={s} m={props.m} />
+    </>
+  );
   return (
     <Show
       when={s.curAsk() && !props.m.closed()}
       fallback={
         <>
-          <div class="qscroll rm-scroll">{below()}</div>
+          <div class="qscroll rm-scroll">
+            <Show when={!s.flow().length && !s.sendable()}>
+              <p class="rm-none">Nothing waiting on you here.</p>
+            </Show>
+            {below()}
+          </div>
           <Show when={s.sendable()}>
             <SendTo s={s} />
             <div class="qfoot">

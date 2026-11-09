@@ -39,7 +39,6 @@ import {
   type CommentRow,
   type DraftInput,
   type DesignDetail,
-  type DesignSummary,
   type SendRecipients,
   subscribe,
   type AlternativeView,
@@ -47,9 +46,7 @@ import {
   ApiError,
 } from "./api.ts";
 import { extensionOf, prepareImage, rejectReason } from "./attach.ts";
-import { BEAT_MS, setCarried } from "./carry.ts";
 import { host, readonly } from "./host.ts";
-import { answersLayout } from "./answersLayout.ts";
 import {
   answerIds,
   askName,
@@ -67,7 +64,6 @@ import {
   type KnobContext,
   isBuiltinAsk,
   lookAsk,
-  picksAlternative,
   mixDropCause,
   mixOptions,
   mixSettled,
@@ -76,7 +72,6 @@ import {
   knobPart,
   resolveKnobs,
   designVersion,
-  nextOwedDesign,
   overflowWidth,
   listedSteps,
   neighbourStep,
@@ -101,7 +96,7 @@ import {
   shortLabel,
   splitLabel,
 } from "./logic.ts";
-import { designPath, navigate, questionPath, type ScreenOpen } from "./route.ts";
+import { designPath, navigate, type ScreenOpen } from "./route.ts";
 import { setTheme } from "./theme.ts";
 import { coarse, phoneLayout, win } from "./viewport.ts";
 
@@ -154,16 +149,10 @@ export interface Preview {
   part?: string;
 }
 
-// Where Send leaves the user: the next design still owing answers (null when none
-// does), and whether the screen is about to carry them there on its own.
-export interface AfterSend {
-  next: DesignSummary | null;
-  auto: boolean;
-}
-
 const SAVE_MS = 300;
-// Long enough to read "Next: …" and press Stay, short enough to feel carried.
-const FORWARD_MS = 1600;
+// How long a Send gets to reach a live agent before the user is offered a way to
+// wake it. A held watch takes it in moments; this only has to outlast a slow network.
+const BEAT_MS = 4000;
 
 // Where this browser last left a design. Versions stay out: a revision that
 // arrives while you are away must be what you come back to.
@@ -178,7 +167,7 @@ function readPlace(id: string): Place | null {
   }
 }
 
-export type SteerNote = {
+type SteerNote = {
   alternative: string;
   version: number;
   reaction?: Reaction;
@@ -228,7 +217,6 @@ export function createDesignScreen(
   // Sent answers the user chose to change ("Change answer"): back among the
   // open questions until the next Send. A sent answer is otherwise read-only.
   const [revising, setRevising] = createSignal<Record<string, true>>({});
-  const [afterSend, setAfterSend] = createSignal<AfterSend | null>(null);
   // The part picked on the stage, open in Instances' Tune; null is the page.
   const [selectedPart, setSelectedPart] = createSignal<string | null>(null);
   const [hoverPart, setHoverPart] = createSignal<string | null>(null);
@@ -726,7 +714,6 @@ export function createDesignScreen(
     entriesIn(state).filter(
       (e) => isOwed(e.ask) && !isBuiltinAsk(e.ask) && e.ask.scope !== "design",
     ).length;
-  const waitsOnStage = createMemo(() => owed().some((a) => !picksAlternative(a)));
   // Tune is shown only with something to tune (tiers, no modes).
   const tuneShown = createMemo(() => {
     const m = design();
@@ -818,9 +805,6 @@ export function createDesignScreen(
       setSent(false);
       setError(null);
     });
-    // Answering again here means staying: no carrying off to the next design.
-    host().window.clearTimeout(forwardTimer);
-    setAfterSend(null);
     pending = next;
     lastLocalWrite = Date.now();
     host().window.clearTimeout(saveTimer);
@@ -835,7 +819,7 @@ export function createDesignScreen(
   // What says where this screen opens: a link naming the place, or the memory.
   let heldBy: "link" | "place" | null = null;
   let placeRead = false;
-  // Not landed on: a state whose alternatives are all archived shows an empty Studio.
+  // Not landed on: a state whose alternatives are all archived shows nothing.
   const holdsSomething = (m: DesignDetail, state: string | null) => {
     const inIt = m.alternatives.filter((v) => v.state === state);
     return !inIt.length || inIt.some((v) => isLive(v.status));
@@ -1031,14 +1015,15 @@ export function createDesignScreen(
   // --- navigation inside the screen ---
 
   // Back leaves for the place before this one: a question, a state or a version
-  // moves sideways, so it replaces the entry, which stays current for Back to
-  // restore when a step between Stage and Studio comes back to it.
+  // moves sideways, so it replaces the entry, which stays current for Back to restore.
+  // The entry stays Focus's (route.ts).
   type Snap = {
     mockpit: "design";
+    focus: true;
     state: string | null;
     cur: number;
   };
-  const snap = (): Snap => ({ mockpit: "design", state: activeState(), cur: cur() });
+  const snap = (): Snap => ({ mockpit: "design", focus: true, state: activeState(), cur: cur() });
   const record = () => host().history.replaceState(snap(), "");
   function restoreSnap(s: unknown) {
     if (!s || typeof s !== "object" || (s as Snap).mockpit !== "design") return false;
@@ -1107,10 +1092,6 @@ export function createDesignScreen(
     const alternative = chosenAlternative()[key];
     return alternative ? { alternative, version: null } : null;
   });
-  // Any move the user makes on this screen after a Send means they are still
-  // here: the carry to the next design must not fire.
-  const userMoved = () => stayHere();
-
   // The ith question on a state (the one on stage unless named), which comes
   // on stage with it.
   // Going to a question is asking to see it, so the stage goes to a state it
@@ -1119,7 +1100,6 @@ export function createDesignScreen(
     i: number,
     opts: { quiet?: boolean; state?: string | null; stay?: boolean } = {},
   ) {
-    if (!opts.quiet) userMoved();
     const from = activeState();
     let state = opts.state === undefined ? from : opts.state;
     let index = i;
@@ -1265,16 +1245,13 @@ export function createDesignScreen(
   }
   // The drawers. The bottom panel tucks the question card to its tab.
   const setDrawer = (on: boolean) => {
-    userMoved();
     setDrawerSignal(on);
   };
   const setPanel = (tab: PanelTab | null) => {
-    userMoved();
     setPanelSignal(tab);
   };
   // Back to the question and the comments from whatever stands in their place.
   function showTalk() {
-    userMoved();
     batch(() => {
       if (tool() === "tune") setTool(null);
       setDrawerSignal(false);
@@ -1285,7 +1262,6 @@ export function createDesignScreen(
   // A step of the flow brings its own questions: the first it still owes,
   // else its first.
   function showState(state: string | null) {
-    userMoved();
     const here = entriesIn(state);
     const owedAt = here.findIndex((e) => isOwed(e.ask));
     batch(() => {
@@ -1298,7 +1274,6 @@ export function createDesignScreen(
     rememberPlace();
   }
   function chooseAlternative(alternative: string) {
-    userMoved();
     setChosenAlternative({ ...chosenAlternative(), [String(activeState())]: alternative });
     rememberPlace();
   }
@@ -1758,7 +1733,6 @@ export function createDesignScreen(
   function seeSinceSend() {
     const a = sinceSend();
     if (!a) return;
-    userMoved();
     landOn({ state: a.state, alternative: a.alternative, version: a.version });
     rememberPlace();
   }
@@ -1810,7 +1784,6 @@ export function createDesignScreen(
       record();
       armBeat();
       void loadRecipients();
-      void planNext();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1934,51 +1907,6 @@ export function createDesignScreen(
     else if (n === list.length && !readonly()) pick(a, null);
   }
 
-  async function owedDesign(by: 1 | -1): Promise<DesignSummary | null> {
-    const list = await api.designs(project).catch(() => null);
-    return list ? nextOwedDesign(list.designs, slug, by) : null;
-  }
-  async function goOwedDesign(by: 1 | -1) {
-    const next = await owedDesign(by);
-    if (next && !disposed) navigate(questionPath(project, next.slug));
-  }
-  let forwardTimer = 0;
-  onCleanup(() => host().window.clearTimeout(forwardTimer));
-  // The Send's status rides along, so Delivered stays in sight on the next design.
-  function goNext() {
-    const a = afterSend();
-    const m = design();
-    const id = sentId();
-    host().window.clearTimeout(forwardTimer);
-    if (!a?.next || disposed) return;
-    if (m && id) setCarried({ project, slug, title: m.title, replyId: id, designId: m.id });
-    navigate(questionPath(project, a.next.slug));
-  }
-  function stayHere() {
-    host().window.clearTimeout(forwardTimer);
-    const a = afterSend();
-    if (a?.auto) setAfterSend({ ...a, auto: false });
-  }
-  async function planNext() {
-    const next = await owedDesign(1);
-    if (disposed) return;
-    // A hidden tab never moves on by itself: the user would come back elsewhere.
-    // Nor does it carry the user into another agent conversation's work, which
-    // is a different piece of work even in the same repo: that one is offered.
-    // Laid out side by side, the row a Send leaves is what there is to look at: the next
-    // design is offered, not taken to.
-    const id = design()?.id;
-    const sideBySide = !!id && !phoneLayout() && answersLayout(id) === "side";
-    const auto =
-      !!next &&
-      next.sessionId === design()?.sessionId &&
-      host().window.document.visibilityState !== "hidden" &&
-      !sideBySide;
-    setAfterSend({ next, auto });
-    host().window.clearTimeout(forwardTimer);
-    if (auto) forwardTimer = host().window.setTimeout(goNext, FORWARD_MS);
-  }
-
   // --- versions ---
 
   // Every version of the state on stage, in the order they were published.
@@ -2016,7 +1944,6 @@ export function createDesignScreen(
     return out.filter((r) => !sameVersion(r, inUse()));
   });
   function showVersion(ref: VersionRef) {
-    userMoved();
     batch(() => {
       setShown({ ...shown(), [String(activeState())]: ref });
       setChosenAlternative({ ...chosenAlternative(), [String(activeState())]: ref.alternative });
@@ -2136,7 +2063,7 @@ export function createDesignScreen(
     try {
       const { idea, moved } = await api.toIdea(m.id);
       setToast({ text: `Moved ${moved.length} into ${idea.title}` });
-      navigate(designPath(m.project, idea.slug));
+      navigate(designPath(m.project, idea.slug), { focus: true });
     } catch (e) {
       fail(e);
     }
@@ -2193,10 +2120,9 @@ export function createDesignScreen(
       return undefined;
     }
   }
-  // Studio has no Send to wait for: each steer (more like this, a comment, a
-  // borrow) is a reply of its own. It goes alone — never with the answers,
-  // tuning or notes the user is still composing on Stage, which a steer must
-  // not decide — and that draft is left as it was.
+  // A steer (more like this, a borrow) has no Send to wait for: it is a reply of its
+  // own. It goes alone — never with the answers, tuning or notes the user is still
+  // composing, which a steer must not decide — and that draft is left as it was.
   // True once the reply is stored, so a "sent" never shows for one that wasn't.
   async function sendAlone(body: {
     comments?: DraftInput["comments"];
@@ -2485,15 +2411,10 @@ export function createDesignScreen(
     });
   const useCombo = (combo: AnswerCombo) =>
     sendAlone({ answers: combo.answers, combo: combo.name, text: `Use ${combo.name}` });
-  // A steer names the version, since Studio shows older ones side by side.
-  // Several go as one reply, with `text` for what is said about all of them.
+  // A steer names the version it is about.
   function steer(c: SteerNote) {
-    return steerMany([c]);
-  }
-  function steerMany(notes: SteerNote[], text?: string) {
     return sendAlone({
-      ...(text ? { text } : {}),
-      comments: notes.map((c) => ({
+      comments: [c].map((c) => ({
         part: c.part ?? null,
         state: activeState(),
         text: c.text ?? "",
@@ -2511,8 +2432,6 @@ export function createDesignScreen(
       })),
     });
   }
-  // Studio's ×. One version dims like any hidden version; the last one left takes
-  // its alternative to Archived, where Restore brings it back.
   const liveIn = (state: string | null) =>
     alternatives().some((v) => v.state === state && isLive(v.status));
   // Everything archived: such a state leaves the tabs and every list of states,
@@ -2746,7 +2665,6 @@ export function createDesignScreen(
     reopen,
     archiveDesign,
     saveEndReason,
-    saveArchiveReason,
     changed,
     stayOnUse,
     followShown,
@@ -2789,10 +2707,6 @@ export function createDesignScreen(
     isNewOption,
     answeredAround,
     optionKey,
-    afterSend,
-    goNext,
-    stayHere,
-    goOwedDesign,
     nextStop,
     questions,
     flow,
@@ -2801,7 +2715,6 @@ export function createDesignScreen(
     owed,
     owedIn,
     askedIn,
-    waitsOnStage,
     landOn,
     stagePick,
     settled,
@@ -2913,9 +2826,7 @@ export function createDesignScreen(
     postComment,
     restoreAlternative,
     steer,
-    steerMany,
     archiveAlternatives,
-    nextLiveState,
     emptiedState,
     emptied,
     handToast,

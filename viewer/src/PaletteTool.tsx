@@ -12,7 +12,7 @@ import { type Theme, theme } from "./theme.ts";
 const ORDER = { default: 0, kept: 1, open: 2, hidden: 3 } as const;
 const STATUS_WORD = { default: "Default", kept: "Kept", open: "", hidden: "" } as const;
 
-export function PaletteDot(props: { p: PaletteChoice; small?: boolean; mode?: Theme }) {
+function PaletteDot(props: { p: PaletteChoice; small?: boolean; mode?: Theme }) {
   return (
     <span class="pdot" classList={{ sm: !!props.small }} aria-hidden="true">
       <For each={props.p.swatch[props.mode ?? theme()]}>

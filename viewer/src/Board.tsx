@@ -56,7 +56,6 @@ import {
   type BoardSel,
   boardPath,
   designPath,
-  focusPath,
   type HomePlace,
   navigate,
   projectPath,
@@ -64,7 +63,6 @@ import {
   replaceUrl,
   rootPath,
 } from "./route.ts";
-import { setCarried } from "./carry.ts";
 import { openJump } from "./Jump.tsx";
 
 // A frame as the Board draws it: the server's, or a state the screen is still owed.
@@ -97,8 +95,6 @@ export function Board(props: {
   show: RecentShow | null;
   for: string | null;
 }) {
-  // A Send carried from a design ends here, as it did on Home.
-  setCarried(null);
   const [rawProjects] = createResource(() => api.projects().catch(() => null));
   const rememberedProjects = readHomeProjects();
   const projects = () => rawProjects() ?? rememberedProjects ?? [];
@@ -191,12 +187,12 @@ export function Board(props: {
       const sel = untrack(() => props.sel);
       if (sel && d.onBoard === false) {
         navigate(
-          focusPath(
+          designPath(
             d.project,
             sel.slug,
             sel.state === undefined ? null : { state: sel.state, alternative: null },
           ),
-          { replace: true },
+          { replace: true, focus: true },
         );
         return;
       }
@@ -265,6 +261,19 @@ export function Board(props: {
     return keepSame(was, steady, (s) => s.id);
   }, []);
   const allFrames = createMemo(() => sections().flatMap(framesOf));
+  // The questions open on each frame: one asked on a state sits on that state's frame,
+  // one asked of the whole design on its first frame on the page. Answering is Focus's.
+  const asksOn = createMemo(() => {
+    const out = new Map<string, number>();
+    const drawn = allFrames().filter((f) => !f.missing && !f.planned);
+    for (const q of data()?.questions ?? []) {
+      const f =
+        (q.state === null ? null : drawn.find((x) => x.slug === q.slug && x.state === q.state)) ??
+        drawn.find((x) => x.slug === q.slug);
+      if (f) out.set(f.key, (out.get(f.key) ?? 0) + 1);
+    }
+    return out;
+  });
   const pageWidth = createMemo(() => allFrames().find((f) => f.width)?.width ?? DEFAULT_WIDTH);
   const widthOf = (f: Frame) => f.width ?? pageWidth();
 
@@ -397,11 +406,12 @@ export function Board(props: {
     const d = data();
     if (!f || !d) return;
     navigate(
-      focusPath(
+      designPath(
         d.project,
         f.slug,
         f.state === null || f.missing ? null : { state: f.state, alternative: null },
       ),
+      { focus: true },
     );
   };
 
@@ -415,9 +425,13 @@ export function Board(props: {
       flow ?? flows.find((x) => framesOf(x).some((y) => y.key === selected()?.key)) ?? flows[0];
     const first = f?.steps[0]?.frame;
     if (!d || !f || !first) return;
-    navigate(
-      `${designPath(d.project, first.slug, first.state === null ? null : { state: first.state, alternative: null }, f.name, null, true)}&present=1`,
+    const path = designPath(
+      d.project,
+      first.slug,
+      first.state === null ? null : { state: first.state, alternative: null },
+      f.name,
     );
+    navigate(`${path}${path.includes("?") ? "&" : "?"}present=1`, { focus: true });
   };
 
   // Keys, while the canvas is what's shown.
@@ -653,6 +667,16 @@ export function Board(props: {
         <div class="bf-nm" title={f.name}>
           {f.name}
         </div>
+        <Show when={asksOn().get(f.key)}>
+          {(n) => (
+            <span
+              class="bf-q"
+              title={n() === 1 ? "A question waits here" : `${n()} questions wait here`}
+            >
+              ?
+            </span>
+          )}
+        </Show>
         <div
           class="bf-pic"
           style={

@@ -34,13 +34,11 @@ export function QrBody(props: { s: DesignScreenState }) {
     const m = s.design();
     if (!m) return null;
     const v = s.onStage();
-    return designPath(
-      m.project,
-      m.slug,
-      { state: s.activeState(), alternative: v?.alternative ?? null, version: v?.version ?? null },
-      null,
-      "stage",
-    );
+    return designPath(m.project, m.slug, {
+      state: s.activeState(),
+      alternative: v?.alternative ?? null,
+      version: v?.version ?? null,
+    });
   });
   const where = () => host().location;
   const link = () => `${where().origin}${place() ?? ""}`;

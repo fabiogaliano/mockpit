@@ -970,8 +970,6 @@ a {
   gap: 4px;
 }
 
-/* What needs the user. A glow is the colour and the softness together; the number
-   or the word beside it says the same thing without either. */
 /* The project switcher. */
 .proj {
   position: relative;
@@ -3164,66 +3162,12 @@ html.theming *:not(iframe) {
   overflow-wrap: anywhere;
 }
 
-.nextcard {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 12px 16px 0;
-}
-.nextcard-go {
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  margin-top: 0;
-  padding: 0 16px;
-}
-.nextcard-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.nextcard-n {
-  flex: none;
-  white-space: pre;
-}
 /* The beat before the screen moves on by itself, as a draining line. */
-.nextcard-bar {
-  position: absolute;
-  inset: auto 0 0;
-  height: 3px;
-  background: var(--accent);
-  transform-origin: left;
-  animation: nextcard-drain 1.6s linear forwards;
-}
-@keyframes nextcard-drain {
-  to {
-    transform: scaleX(0);
-  }
-}
-.nextcard-stay {
-  min-height: 32px;
-  font-size: 14px;
-}
-.nextcard-done {
-  margin: 0;
-  align-self: stretch;
-  color: var(--t4);
-  font-size: 14px;
-}
+
 .carried {
   text-decoration: none;
 }
-.carried-title {
-  max-width: 16ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+
 /* The line that wakes an agent nothing is listening for. */
 .sendto {
   position: relative;
@@ -3376,21 +3320,7 @@ html.theming *:not(iframe) {
   min-width: 64px;
   justify-content: center;
 }
-@media (prefers-reduced-motion: reduce) {
-  .nextcard-bar {
-    animation: none;
-  }
-}
-@media (pointer: coarse) {
-  .nextcard-stay {
-    min-height: 44px;
-  }
-}
-@media (max-width: 599px) {
-  .carried-title {
-    max-width: 9ch;
-  }
-}
+
 /* ---------- touch ---------- */
 @media (pointer: coarse) {
   input,
@@ -4373,8 +4303,7 @@ html:has(.design-screen) {
     color: var(--t1);
   }
 }
-.ftab-q,
-.vswitch-q {
+.ftab-q {
   flex: none;
   width: 6px;
   height: 6px;
@@ -5575,17 +5504,7 @@ html:has(.design-screen) {
   gap: 2px;
 }
 /* Three classes, so a hover or the open panel's colour never takes the orange away. */
-.mtabs .ib.ib-count {
-  display: inline-flex;
-  gap: 5px;
-  width: auto;
-  min-width: 40px;
-  padding: 0 10px 0 9px;
-  color: var(--q);
-  font-size: 14px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
+
 .mtab-dot {
   position: absolute;
   top: 7px;
@@ -5794,6 +5713,32 @@ html:has(.design-screen) {
     background var(--ease),
     color var(--ease);
 }
+.lm-alts {
+  margin-top: 14px;
+}
+.lm-alt .lm-text b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lm-fold {
+  align-self: flex-start;
+  margin: 4px 0 0 6px;
+  color: var(--t4);
+  font-size: 12px;
+}
+.lm-fold:hover {
+  color: var(--t2);
+}
+.lm-archived {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 6px;
+  color: var(--t5);
+  font-size: 12.5px;
+}
 .lm-row.on {
   background: var(--row);
   color: var(--t1);
@@ -5912,6 +5857,112 @@ html:has(.design-screen) {
   justify-content: space-between;
   gap: 8px;
   padding: 6px 6px 2px 16px;
+}
+/* Question · Spec · Activity, the panel's own tabs, as a design tool's inspector has. */
+.rm-tabs {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+.rm-tabs button {
+  position: relative;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 7px;
+  color: var(--t4);
+  font-size: 13px;
+  white-space: nowrap;
+  transition:
+    background var(--ease),
+    color var(--ease);
+}
+.rm-tabs button:hover {
+  color: var(--t2);
+}
+.rm-tabs button.on {
+  background: var(--row);
+  color: var(--t1);
+}
+.rm-tabs button.q {
+  color: var(--q);
+  font-weight: 600;
+}
+.rm-tabs .mtab-dot {
+  top: 4px;
+  right: 2px;
+}
+.rm-sub {
+  margin: 18px 0 6px;
+  color: var(--t5);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.rm-none {
+  margin: 4px 0 12px;
+  color: var(--t4);
+  font-size: 13px;
+}
+/* What to do with an idea's alternative on stage. */
+.altacts {
+  margin: 0 0 16px;
+  padding: 0 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+.altacts h3 {
+  margin: 0 0 8px;
+  color: var(--t2);
+  font-size: 13px;
+  font-weight: 500;
+}
+.altacts-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.altacts-none {
+  margin: 10px 0 0;
+  color: var(--t4);
+  font-size: 13px;
+}
+.borrowbox {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.borrowbox label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--t4);
+  font-size: 13px;
+}
+.borrowbox select,
+.borrowbox input {
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: var(--row);
+  color: var(--t1);
+  font: inherit;
+  font-size: 13px;
+}
+.borrowbox select {
+  flex: 1;
+}
+.borrowbox-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.borrowbox-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
 .rm-head h2 {
   margin: 0;
@@ -6538,24 +6589,10 @@ html:has(.design-screen) {
   overflow: auto;
   padding: 4px 20px 120px;
 }
-.studio-cols {
-  display: flex;
-  gap: 20px;
-  align-items: flex-start;
-  width: max-content;
-}
-.studio-col {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  width: 224px;
-}
+
 /* A grid of one state needs no wrappers; only the phone's strip groups its
    columns by state. */
-.studio-state,
-.studio-run {
-  display: contents;
-}
+
 /* The phone's strip: every state's columns in one row, one card per swipe,
    a card's width short of the screen so the next one shows there is more. */
 .studio.strip {
@@ -6563,209 +6600,18 @@ html:has(.design-screen) {
   scroll-padding-inline: 20px;
   overscroll-behavior-x: contain;
 }
-.studio.strip .studio-cols {
-  gap: 32px;
-}
-.studio.strip .studio-state {
-  display: flex;
-  flex-direction: column;
-}
-.studio.strip .studio-run {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
-.studio.strip .studio-col {
-  width: min(calc(100vw - 72px), 420px);
-  scroll-snap-align: start;
-  scroll-snap-stop: always;
-}
+
 /* The state's name rides at the left edge until its last card goes by. */
-.studio-sth {
-  position: sticky;
-  left: 0;
-  display: flex;
-  align-self: flex-start;
-  align-items: baseline;
-  gap: 6px;
-  margin: 6px 0 0;
-  color: var(--t3);
-  font: 600 12px var(--sans);
-}
-.studio-sth .n {
-  color: var(--t5);
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
-}
-.studio-colh {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 8px 2px 6px;
-  background: var(--page);
-}
+
 /* A column's own ×, beside its name: out of the way until the column is pointed at. */
-.col-x {
-  width: 26px;
-  height: 26px;
-  margin: -6px 0 -6px auto;
-  opacity: 0;
-  transition: opacity 0.15s ease-out;
-}
-.col-x svg {
-  width: 13px;
-  height: 13px;
-}
-.studio-col:hover .col-x,
-.col-x:focus-visible {
-  opacity: 1;
-}
-@media (hover: none) {
-  .col-x {
-    opacity: 1;
-  }
-}
-.studio-colh h2 {
-  margin: 0;
-  color: var(--t1);
-  font: 600 13px var(--sans);
-}
-.studio-from {
-  color: var(--t4);
-  font-size: 12px;
-  line-height: 1;
-  white-space: nowrap;
-}
-.sk {
-  position: relative;
-  border-radius: 14px;
-  background: var(--panel);
-  box-shadow: 0 0 0 1px var(--line);
-  transition:
-    box-shadow 0.15s ease-out,
-    outline-color 0.15s ease-out;
-}
-.sk-art {
-  display: block;
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  padding: 10px;
-  border: 0;
-  border-radius: 14px 14px 0 0;
-  background: var(--frame);
-  overflow: hidden;
-  cursor: pointer;
-}
+
 /* A phone's card is the whole screen: the design needs every pixel of it. */
-.studio.strip .sk-art {
-  padding: 0;
-}
-.sk-art .thumb {
-  width: 100%;
-  height: 100%;
-}
-.sk-poster {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-.sk-foot {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 40px;
-  padding: 0 4px 0 12px;
-}
-.sk-n {
-  color: var(--t2);
-  font: 600 12px var(--sans);
-  font-variant-numeric: tabular-nums;
-}
+
 /* The number is also the tick. It says so on hover, not at rest, so a board of
    cards stays quiet; on a touch screen, and once one is ticked, it always shows. */
-.sk-pick {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  margin-left: -6px;
-  padding: 0 6px;
-  border-radius: 7px;
-}
-.sk-box {
-  display: none;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 15px;
-  height: 15px;
-  border: 1.5px solid var(--t4);
-  border-radius: 4px;
-  color: var(--page);
-}
-.sk-box svg {
-  width: 11px;
-  height: 11px;
-  opacity: 0;
-}
-.sk:hover .sk-box,
-.sk:focus-within .sk-box,
-.studio.selecting .sk-box {
-  display: inline-flex;
-}
-.sk.on .sk-box {
-  border-color: var(--t1);
-  background: var(--t1);
-}
-.sk.on .sk-box svg {
-  opacity: 1;
-}
-@media (hover: hover) {
-  .sk-pick:hover {
-    background: var(--row);
-    color: var(--t1);
-  }
-}
-@media (hover: none) {
-  .sk .sk-box {
-    display: inline-flex;
-  }
-}
-.sk-pick:focus-visible,
-.sk-tick:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-.sk-tick {
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  width: 20px;
-  height: 20px;
-  border-color: #fff;
-  background: rgba(0, 0, 0, 0.55);
-}
-.sk.on {
-  box-shadow: 0 0 0 2px var(--t1);
-}
+
 /* While selecting a stray click must not archive or save one card. */
-.studio.selecting :is(.sk-acts, .sk-x, .sk-save, .col-x) {
-  display: none;
-}
-.studio.selecting .sk {
-  cursor: pointer;
-}
-.selbar {
-  position: fixed;
-  left: 50%;
-  bottom: calc(var(--selbar-bottom) + env(safe-area-inset-bottom));
-  z-index: 50;
-  transform: translateX(-50%);
-}
+
 /* A sent reply's status sits at the same spot and has to stay in sight. */
 body:has(.sentrow) {
   --selbar-bottom: 72px;
@@ -6775,404 +6621,15 @@ body:has(.sentnote .wake) {
 }
 /* An Undo waits until dismissed, so a new selection can start under it: it stacks
    above the bar, and leaves room for what the bar opens. */
-body:has(.selbar) .toast {
-  bottom: calc(var(--selbar-bottom) + 54px + env(safe-area-inset-bottom));
-}
-body:has(.selp) .toast {
-  visibility: hidden;
-}
-/* No transform here: it would make the sheet's fixed position relative to the bar. */
-.selbar.phone {
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: center;
-  transform: none;
-}
-.selbar.phone .selbar-b {
-  width: 32px;
-}
-.selbar.phone .selbar-count {
-  padding: 0 6px;
-}
-.selbar-row {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  padding: 4px;
-  border: 1px solid var(--edge);
-  border-radius: 12px;
-  background: var(--panel);
-  box-shadow: var(--dd-shadow);
-  white-space: nowrap;
-}
-.selbar-count {
-  padding: 0 10px 0 8px;
-  color: var(--t1);
-  font-size: 13px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.selbar-b {
-  position: relative;
-  width: 34px;
-  height: 34px;
-}
-.selbar-b svg {
-  width: 17px;
-  height: 17px;
-}
-.selbar-b[aria-expanded="true"] {
-  background: var(--row);
-  color: var(--t1);
-}
-.selbar-b:disabled {
-  cursor: default;
-}
-.selbar-b:disabled svg {
-  opacity: 0.35;
-}
-.selbar-n {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  min-width: 14px;
-  height: 14px;
-  padding: 0 3px;
-  border-radius: 7px;
-  background: var(--t1);
-  color: var(--page);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 14px;
-  font-variant-numeric: tabular-nums;
-}
-.selbar-sep {
-  flex: none;
-  width: 1px;
-  height: 20px;
-  margin: 0 3px;
-  background: var(--edge);
-}
-.selp {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 8px);
-  display: flex;
-  flex-direction: column;
-  width: 340px;
-  max-height: min(70vh, 560px);
-  border: 1px solid var(--edge);
-  border-radius: 12px;
-  background: var(--panel);
-  box-shadow: var(--dd-shadow);
-  font-size: 13px;
-}
-.selbar.phone .selp {
-  z-index: 1;
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  width: 100%;
-  max-height: 80dvh;
-  padding-bottom: env(safe-area-inset-bottom);
-  border-width: 1px 0 0;
-  border-radius: 18px 18px 0 0;
-}
-.selp-h {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 12px 14px 8px;
-  color: var(--t1);
-  font-weight: 600;
-}
-.selp-seg {
-  display: flex;
-  gap: 1px;
-  padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 400;
-}
-.selp-seg button {
-  padding: 2px 8px;
-  border-radius: 6px;
-  color: var(--t3);
-}
-.selp-seg button[aria-pressed="true"] {
-  background: var(--row);
-  color: var(--t1);
-}
-.selp-b {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 0;
-  padding: 0 14px 10px;
-  overflow: auto;
-  overscroll-behavior: contain;
-}
-.selp-f {
-  display: flex;
-  flex: none;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 10px;
-  border-top: 1px solid var(--line);
-}
-.selp-lab {
-  color: var(--t4);
-  font-size: 12px;
-}
-.selp-say {
-  color: var(--t3);
-  font-size: 12px;
-}
-.selp-in {
-  flex: none;
-  min-width: 0;
-  height: 32px;
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: transparent;
-  color: var(--t1);
-  font-size: 13px;
-}
-.selp-in::placeholder {
-  color: var(--t5);
-}
-.selp-in:focus {
-  outline: none;
-  border-color: var(--t6);
-}
-.selp-line .selp-in {
-  flex: 1;
-}
-.selp-line {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 8px;
-}
-.selp-th {
-  display: block;
-  flex: none;
-  width: 44px;
-  height: 44px;
-  overflow: hidden;
-  border-radius: 8px;
-  background: var(--row);
-}
-.selp-big {
-  flex: none;
-  height: 200px;
-  overflow: hidden;
-  border-radius: 10px;
-  background: var(--row);
-}
-.selp-picks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.selp-pick {
-  width: 60px;
-  color: var(--t3);
-  font-size: 12px;
-  text-align: center;
-}
-.selp-pick .selp-th {
-  width: 60px;
-  height: 60px;
-  border: 2px solid transparent;
-  opacity: 0.6;
-}
-.selp-pick[aria-checked="true"] {
-  color: var(--t1);
-}
-.selp-pick[aria-checked="true"] .selp-th {
-  border-color: var(--t1);
-  opacity: 1;
-}
-.selp-nm {
-  display: block;
-  margin-top: 3px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.selp-choice {
-  display: block;
-  width: 100%;
-  padding: 10px 14px;
-  border-radius: 10px;
-  color: var(--t1);
-  text-align: start;
-}
-.selp-choice small {
-  display: block;
-  color: var(--t4);
-  font-size: 12px;
-}
-@media (hover: hover) {
-  .selp-choice:hover {
-    background: var(--row);
-  }
-}
-.sk-tag {
-  color: var(--keep-ink);
-  font-size: 12px;
-}
-.sk-acts {
-  display: flex;
-  margin-left: auto;
-  opacity: 0;
-  transition: opacity 0.15s ease-out;
-}
-.sk-acts .ib {
-  width: 32px;
-  height: 32px;
-}
-.sk-acts .ib svg {
-  width: 17px;
-  height: 17px;
-}
-.sk-x {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  opacity: 0;
-  transition:
-    opacity 0.2s ease-out,
-    color 0.3s ease-out;
-}
-.sk-x svg {
-  width: 13px;
-  height: 13px;
-}
-.sk:hover :is(.sk-acts, .sk-x),
-.sk:focus-within :is(.sk-acts, .sk-x) {
-  opacity: 1;
-}
-/* No hover to reveal them on a touch screen: they are always there. */
-@media (hover: none) {
-  .sk :is(.sk-acts, .sk-x) {
-    opacity: 1;
-  }
-}
-/* Hidden: dimmed where it stands. */
-.sk.hid .sk-art {
-  opacity: 0.45;
-}
-.sk.small {
-  width: 96px;
-  border-radius: 10px;
-}
-.sk.small .sk-art {
-  border-radius: 10px;
-}
-.sk.small .sk-x {
-  top: 2px;
-  right: 2px;
-  width: 24px;
-  height: 24px;
-}
-.sk.target {
-  outline: 1.5px dashed var(--t6);
-  outline-offset: 3px;
-}
-.sk.target:hover,
-.sk.target:focus-within {
-  outline: 2px solid var(--t1);
-}
-.sk.source {
-  box-shadow: 0 0 0 2px var(--t1);
-}
-.studio-banner {
-  position: sticky;
-  top: 0;
-  left: 0;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: max-content;
-  margin: 0 0 8px;
-  padding: 6px 6px 6px 14px;
-  border-radius: 999px;
-  background: var(--panel);
-  box-shadow:
-    var(--dd-shadow),
-    0 0 0 1px var(--line);
-  color: var(--t2);
-  font-size: 13px;
-}
 
-.studio-note {
-  position: fixed;
-  left: 50%;
-  bottom: 96px;
-  z-index: 35;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: min(420px, calc(100vw - 32px));
-  padding: 14px;
-  border-radius: 14px;
-  background: var(--panel);
-  box-shadow:
-    var(--shadow),
-    0 0 0 1px var(--line);
-  transform: translateX(-50%);
-}
-.studio-note label {
-  color: var(--t2);
-  font-size: 13px;
-}
-.studio-note input {
-  height: 40px;
-  padding: 0 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--row);
-  color: var(--t1);
-  font: 14px var(--sans);
-}
-.studio-parts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.studio-parts .chip[aria-pressed="true"] {
-  background: var(--fill);
-  color: var(--t1);
-}
-.studio-note-foot {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
+/* No transform here: it would make the sheet's fixed position relative to the bar. */
+
+/* No hover to reveal them on a touch screen: they are always there. */
+
+/* Hidden: dimmed where it stands. */
+
 /* A fork's name under its small picture: the newest work is what you name back. */
-.sk-name {
-  display: block;
-  overflow: hidden;
-  padding: 5px 8px 6px;
-  color: var(--t3);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+
 /* Look closer: one version over the grid, below the top row, above everything
    in Studio but a comment being written. */
 .look {
@@ -7186,55 +6643,9 @@ body:has(.selp) .toast {
   background: var(--page);
   outline: none;
 }
-.look-h {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px 6px 20px;
-}
-.look-h h2 {
-  margin: 0;
-  overflow: hidden;
-  color: var(--t1);
-  font: 600 15px var(--sans);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.look-at {
-  flex: none;
-  color: var(--t4);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.look-sp {
-  flex: 1;
-}
-.look-art {
-  display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) 56px;
-  align-items: center;
-  min-height: 0;
-  touch-action: none;
-}
-.look-frame {
-  position: relative;
-  height: 100%;
-  min-height: 0;
-  padding: 6px 0;
-}
+
 /* On the preview's corner, where a finger looks for "bigger". */
-.ib.look-full {
-  position: absolute;
-  right: 8px;
-  bottom: 14px;
-  z-index: 1;
-  border-radius: 50%;
-  background: var(--panel);
-  box-shadow:
-    0 0 0 1px var(--line),
-    var(--dd-shadow);
-  color: var(--t1);
-}
+
 /* Full screen: the page alone, above everything but a toast. */
 .full {
   position: fixed;
@@ -7294,104 +6705,11 @@ body:has(.selp) .toast {
   font: 500 13px var(--sans);
   font-variant-numeric: tabular-nums;
 }
-.look-frame .thumb,
-.look-frame .sk-poster {
-  width: 100%;
-  height: 100%;
-}
-.look-nav {
-  justify-self: center;
-  width: 44px;
-  height: 44px;
-}
-.look-nav svg {
-  width: 22px;
-  height: 22px;
-}
-.look-nav:disabled {
-  visibility: hidden;
-}
-.look-note {
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 2px;
-  box-sizing: border-box;
-  width: 100%;
-  max-width: calc(68ch + 40px);
-  margin: 4px auto 0;
-  padding: 0 20px;
-  color: var(--t2);
-  font-size: 14px;
-  line-height: 1.45;
-}
-.look-note-tx {
-  min-width: 0;
-  overflow: hidden;
-  padding-block: 3px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.look-note-tx.more {
-  cursor: pointer;
-}
-.look-note.open .look-note-tx {
-  max-height: 30vh;
-  overflow-y: auto;
-  text-wrap: pretty;
-  white-space: normal;
-}
-.look-note-more {
-  flex: none;
-  width: 27px;
-  height: 27px;
-}
-.look-note-more svg {
-  transition: rotate 150ms;
-}
-.look-note.open .look-note-more svg {
-  rotate: 180deg;
-}
-.look-acts {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  padding: 12px 16px 4px;
-}
-.look-acts .btn.quiet {
-  border-color: transparent;
-  background: none;
-  color: var(--t3);
-}
 
 /* A phone swipes instead of reaching for arrows, and keeps the note short. */
-@media (max-width: 640px), (hover: none) {
-  .look-art {
-    grid-template-columns: minmax(0, 1fr);
-    padding: 0 12px;
-  }
-  .look-nav {
-    display: none;
-  }
-}
-@media (max-width: 640px) {
-  .look-h {
-    padding-left: 14px;
-  }
-  .look-note {
-    font-size: 13px;
-  }
-  .look-acts .btn {
-    padding: 0 10px;
-    font-size: 13px;
-  }
-}
+
 @media (prefers-reduced-motion: reduce) {
-  .ib::before,
-  .sk,
-  .sk-acts,
-  .sk-x {
+  .ib::before {
     transition: none;
   }
 }
@@ -7399,54 +6717,11 @@ body:has(.selp) .toast {
 /* Shortlists: the bookmark, the list it saves to, a candidate's origin, and the
    picker. A saved bookmark stays visible; the rest of a card's tools wait for hover.
    It sits on the picture, so it needs its own ground: designs can be any colour. */
-.sk-save {
-  position: absolute;
-  top: 6px;
-  left: 6px;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--panel);
-  color: var(--t2);
-  opacity: 0;
-  transition: opacity 0.15s ease-out;
-}
-.sk-save svg {
-  width: 15px;
-  height: 15px;
-}
-.sk.small .sk-save {
-  top: 2px;
-  left: 2px;
-  width: 24px;
-  height: 24px;
-}
+
 /* Move stands beside Keep. */
-.sk-move {
-  left: 38px;
-}
-.sk.small .sk-move {
-  left: 28px;
-}
-.sk-save[aria-pressed="true"] {
-  color: var(--t1);
-  opacity: 1;
-}
+
 /* A tint, not a solid fill: the arrow has to stay readable inside the folder. */
-.sk-save[aria-pressed="true"] svg path:first-child,
-.look-save[aria-pressed="true"] svg path:first-child {
-  fill: currentColor;
-  fill-opacity: 0.3;
-}
-.sk:hover .sk-save,
-.sk:focus-within .sk-save {
-  opacity: 1;
-}
-@media (hover: none) {
-  .sk .sk-save {
-    opacity: 1;
-  }
-}
+
 .slpill {
   display: flex;
   align-items: center;
@@ -7704,46 +6979,7 @@ body:has(.selp) .toast {
   justify-content: flex-end;
   gap: 8px;
 }
-.studio-origin {
-  margin-top: -8px;
-  overflow: hidden;
-  color: var(--t4);
-  font-size: 12px;
-  text-decoration: none;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-@media (hover: hover) {
-  .studio-origin:hover {
-    color: var(--t2);
-    text-decoration: underline;
-  }
-}
-.studio-add {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  align-self: flex-start;
-  width: 148px;
-  height: 168px;
-  border: 1px dashed var(--edge);
-  border-radius: 14px;
-  color: var(--t4);
-  font-size: 13px;
-}
-@media (hover: hover) {
-  .studio-add:hover {
-    border-color: var(--t6);
-    color: var(--t1);
-  }
-}
-.studio-add svg {
-  width: 18px;
-  height: 18px;
-}
+
 .treach {
   margin: 8px 0;
   color: var(--t5);
@@ -8062,268 +7298,16 @@ body:has(.selp) .toast {
 }
 /* The wall: every design of a big lab in one grid, filtered. It only scrolls down, and
    its budget of live frames comes from the same watch as the columns'. */
-.studio.wall {
-  overflow-x: hidden;
-  padding-inline: 16px;
-}
+
 .studio.peeking {
   right: var(--peek-w);
 }
-.studio.peeking .selbar:not(.phone) {
-  left: calc((100vw - var(--peek-w)) / 2);
-}
 
-.sbar-tabs {
-  display: flex;
-  gap: 2px;
-  min-width: 0;
-  max-width: 100%;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.sbar-tabs button {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  padding: 6px 10px;
-  border-radius: 8px;
-  color: var(--t4);
-  font-size: 13px;
-  transition:
-    background var(--ease),
-    color var(--ease);
-}
-.sbar-tabs button[aria-checked="true"] {
-  background: var(--row);
-  color: var(--t1);
-}
-@media (hover: hover) {
-  .sbar-tabs button:hover {
-    color: var(--t1);
-  }
-}
-.sbar-tabs svg {
-  width: 15px;
-  height: 15px;
-}
-.sbar-tabs .n {
-  margin-inline-start: 6px;
-  color: var(--t5);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.wall-state .studio-sth {
-  position: static;
-  margin: 14px 0 8px;
-}
-.wall-grid {
-  display: grid;
-  /* 44vw: two across on a phone whatever the design's shape. */
-  grid-template-columns: repeat(auto-fill, minmax(min(var(--wall-card), 44vw), 1fr));
-  gap: 10px;
-}
-.wall-grid .sk.small {
-  width: auto;
-  /* Clear of the filters when an arrow key scrolls it into view. */
-  scroll-margin-block: 110px 16px;
-}
-.wall-grid .sk-art {
-  aspect-ratio: var(--wall-art);
-}
 /* In a small card the tick has the corner, so Keep and Move stand next to the ×. */
-.wall-grid .sk.small .sk-save {
-  left: auto;
-  right: 28px;
-}
-.wall-grid .sk.small .sk-move {
-  right: 54px;
-}
-.wall-grid .sk.peek:not(.on) {
-  box-shadow: 0 0 0 2px var(--accent);
-}
-.wall-grid .sk.elsewhere {
-  opacity: 0.45;
-}
-.wall-grid .wall-use {
-  position: absolute;
-  bottom: 34px;
-  left: 6px;
-  padding: 1px 6px;
-  border-radius: 6px;
-  background: var(--panel);
-  font-size: 11px;
-}
-.wall-grid .wall-restore {
-  background: var(--panel);
-  color: var(--t1);
-}
+
 /* On a finger the cards are too small and too close for these: they wait in the large
    view a tap away, except the tick and, on what's gone, Restore. */
-@media (hover: none) {
-  .wall-grid .sk:not(.gone) :is(.sk-x, .sk-save) {
-    display: none;
-  }
-}
-.wall-empty {
-  margin: 48px 0;
-  color: var(--t4);
-  font-size: 14px;
-  text-align: center;
-}
 
-.sbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 44px;
-  padding: 0 12px 6px;
-}
-.sbar-sp {
-  flex: 1;
-}
-.sbar-find.slpick-filter {
-  flex: 0 1 200px;
-  width: auto;
-  min-width: 96px;
-}
-.sbar-arrange button {
-  padding: 4px 6px;
-}
-.sbar-arrange svg {
-  width: 17px;
-  height: 17px;
-}
-.sbar-show {
-  position: relative;
-  flex: none;
-}
-.sbar-show .wmenu {
-  min-width: 170px;
-}
-.sbar-show .wmenu > button {
-  min-height: 32px;
-  font-size: 13px;
-}
-.sbar-showb {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 10px;
-  border-radius: 8px;
-  color: var(--t3);
-  font-size: 13px;
-  white-space: nowrap;
-  transition: background var(--ease);
-}
-.sbar-showb .n {
-  color: var(--t5);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-.sbar-showb svg {
-  width: 14px;
-  height: 14px;
-  color: var(--t4);
-}
-@media (hover: hover) {
-  .sbar-showb:hover {
-    background: var(--row);
-  }
-}
-.sbar-tabs .ftab-q {
-  margin-inline-start: 6px;
-}
-.slpick-filter.sbar-phonefind {
-  width: 100%;
-  margin-top: 10px;
-  /* 16px, or iOS zooms the whole page in on focus. */
-  font-size: 16px;
-}
-.look-pick {
-  position: relative;
-  min-width: 0;
-}
-.look-pick h2 {
-  display: flex;
-  overflow: visible;
-}
-.look-pick h2 button {
-  display: flex;
-  flex: 0 1 auto;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 2px 6px;
-  margin-inline-start: -6px;
-  border-radius: 7px;
-  color: inherit;
-  font: inherit;
-  transition: background var(--ease);
-}
-.look-pick h2 span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.look-pick h2 svg {
-  flex: none;
-  width: 14px;
-  height: 14px;
-  color: var(--t4);
-}
-@media (hover: hover) {
-  .look-pick h2 button:hover {
-    background: var(--row);
-  }
-}
-.look-list {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: -6px;
-  z-index: 45;
-  display: grid;
-  gap: 1px;
-  width: max-content;
-  min-width: 200px;
-  max-width: min(320px, 80vw);
-  max-height: min(420px, 60dvh);
-  padding: 5px;
-  overflow-y: auto;
-  border: 1px solid var(--edge);
-  border-radius: 10px;
-  background: var(--panel);
-  box-shadow: var(--dd-shadow);
-}
-.look-list button {
-  padding: 5px 8px;
-  overflow: hidden;
-  border-radius: 6px;
-  color: var(--t3);
-  font-size: 13px;
-  text-align: start;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-@media (hover: hover) {
-  .look-list button:hover {
-    background: var(--row);
-  }
-}
-.look-list button[aria-current] {
-  background: var(--row);
-  color: var(--t1);
-}
-.look-list-h {
-  padding: 8px 8px 3px;
-  color: var(--t5);
-  font-size: 12px;
-}
-.look-reason {
-  padding: 0 20px 8px;
-  text-align: center;
-}
 /* The closer look as the wall's preview: beside it instead of over it. */
 .look.beside {
   left: auto;
@@ -8331,39 +7315,13 @@ body:has(.selp) .toast {
   width: var(--peek-w);
   border-left: 1px solid var(--line);
 }
-.look.beside .look-h {
-  padding-left: 16px;
-}
-.look.beside .look-art {
-  grid-template-columns: 36px minmax(0, 1fr) 36px;
-}
-.look.beside .look-nav {
-  width: 32px;
-  height: 32px;
-}
-.look.beside .look-acts {
-  padding-bottom: 14px;
-}
+
 /* The one track, held to the screen: without it a note that stays on one line sizes the
    track and everything in it past the edge of a phone. */
 .look {
   grid-template-columns: minmax(0, 1fr);
 }
 /* A swipe is the way across here, and 112px of arrows is a third of a phone's width. */
-@media (hover: none) {
-  .look-art {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .look-nav {
-    display: none;
-  }
-  .look-frame {
-    padding-inline: 10px;
-  }
-  .look-acts {
-    padding-bottom: max(12px, env(safe-area-inset-bottom));
-  }
-}
 
 /* Declared and not drawn. One dashed edge says it everywhere: where the picture will go. */
 .lm-pic.lm-dash {
@@ -8517,156 +7475,6 @@ body:has(.selp) .toast {
 
 /* States by alternatives. The scroller is the whole view, so the names stay in sight both
    ways, and a phone gets there by scrolling rather than by a smaller table. */
-.gridview {
-  position: fixed;
-  top: var(--canvas-top, 0);
-  right: 0;
-  bottom: 0;
-  left: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-  padding-bottom: calc(24px + env(safe-area-inset-bottom));
-  background: var(--page);
-  --gv-name: 128px;
-}
-.gv-head {
-  position: sticky;
-  left: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 14px;
-  width: min(100vw, 100%);
-  padding: 12px 16px;
-  color: var(--t4);
-  font-size: 13px;
-}
-.gv-count {
-  color: var(--t2);
-}
-.gv-used {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-}
-.gv-used a {
-  color: var(--t2);
-  text-decoration: underline;
-  text-decoration-color: var(--edge);
-  text-underline-offset: 3px;
-}
-
-.gv-table {
-  display: grid;
-  grid-template-columns: var(--gv-name) repeat(var(--gv-cols), var(--gv-cell));
-  gap: 12px;
-  width: max-content;
-  padding: 0 16px 16px 0;
-}
-.gv-corner,
-.gv-col {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  padding: 6px 0;
-  background: var(--page);
-}
-.gv-corner {
-  left: 0;
-  z-index: 3;
-}
-.gv-col {
-  overflow: hidden;
-  color: var(--t2);
-  font-size: 13px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.gv-row {
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  padding: 8px 8px 8px 16px;
-  background: var(--page);
-  color: var(--t2);
-  font-size: 13px;
-  font-weight: 500;
-  overflow-wrap: anywhere;
-}
-.gv-flat {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--gv-cell), 1fr));
-  gap: 16px;
-  padding: 4px 16px 16px;
-}
-.gv-cell {
-  min-width: 0;
-}
-.gv-tile {
-  position: relative;
-  display: block;
-  width: 100%;
-  padding: 0;
-  overflow: hidden;
-  aspect-ratio: var(--gv-art);
-  border: 0;
-  border-radius: 10px;
-  background: var(--frame);
-  box-shadow: 0 0 0 1px var(--edge);
-  cursor: pointer;
-  transition: box-shadow var(--ease);
-}
-.gv-tile:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--accent);
-}
-.gv-art,
-.gv-art .thumb {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-.gv-art img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-.gv-tile.gv-missing {
-  display: grid;
-  place-items: center;
-  background: none;
-  border: 1px dashed var(--t5);
-  box-shadow: none;
-  color: var(--t4);
-  font-size: 12px;
-  cursor: default;
-}
-.gv-cap {
-  display: block;
-  margin-top: 6px;
-  overflow: hidden;
-  color: var(--t3);
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-@media (hover: hover) {
-  button.gv-tile:hover {
-    box-shadow: 0 0 0 1px var(--t4);
-  }
-}
-@media (max-width: 640px) {
-  .gridview {
-    --gv-name: 84px;
-  }
-  .gv-row {
-    padding-left: 10px;
-    padding-right: 4px;
-    font-size: 12px;
-  }
-}
 
 /* Spec: three sections, plain text kept as written. */
 .spec {
@@ -9124,138 +7932,6 @@ body:has(.selp) .toast {
 }
 
 /* Studio's Answers (AnswerBoard.tsx): every answer of the open question at once. */
-.aboard-wrap {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  overflow-y: auto;
-}
-.aboard {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 16px 24px 48px;
-}
-.aboard-hd {
-  position: sticky;
-  top: 0;
-  z-index: 4;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px 0 12px;
-  background: var(--page);
-}
-.aboard-hd h2 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 500;
-  color: var(--t1);
-  text-wrap: balance;
-}
-.aboard-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 14px;
-  font-size: 13px;
-  color: var(--t4);
-}
-.aboard-every {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--t2);
-  cursor: pointer;
-}
-.aboard-every input {
-  accent-color: var(--accent);
-}
-.aboard-keys kbd {
-  padding: 1px 5px;
-  border-radius: 5px;
-  background: var(--row);
-  font: 11px var(--mono, monospace);
-  color: var(--t2);
-}
-.aboard-send {
-  margin-left: auto;
-}
-.aboard-grid .opts {
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-  gap: 12px;
-}
-.aboard-grid .opt .crop {
-  aspect-ratio: 3 / 4;
-}
-.aboard-grid .opt:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-.aevery {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(180px, 220px);
-  gap: 12px;
-  overflow-x: auto;
-  padding-bottom: 12px;
-}
-.aevery-col {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px;
-  border-radius: 14px;
-  background: var(--row);
-  box-shadow: inset 0 0 0 1.5px transparent;
-}
-.aevery-col.kept {
-  order: -1;
-  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent);
-}
-.aevery-hd {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.aevery-name {
-  flex: 1;
-  min-width: 0;
-  padding: 4px;
-  border-radius: 7px;
-  text-align: start;
-  font-weight: 500;
-  color: var(--t2);
-}
-.aevery-name[aria-pressed="true"] {
-  box-shadow: inset 0 0 0 1.5px var(--t2);
-}
-.aevery-hd .optic {
-  opacity: 1;
-  background: var(--fill);
-  color: var(--t2);
-}
-.aevery-hd .optkeep.on {
-  background: var(--accent);
-  color: #fff;
-}
-.aevery-hd .optkeep.on .icon path {
-  fill: currentColor;
-}
-.aevery-pic {
-  margin: 0;
-}
-.aevery-pic .crop {
-  width: 100%;
-  aspect-ratio: 3 / 4;
-  border-radius: var(--r);
-  background: var(--frame);
-}
-.aevery-pic figcaption {
-  padding: 4px 2px 0;
-  font-size: 12px;
-  color: var(--t4);
-}
 
 /* The System place in Home: one tab per family. */
 .sys-tabs {
@@ -9681,43 +8357,7 @@ body:has(.selp) .toast {
 }
 
 /* Studio's Palettes: a column per palette, light over dark; wraps rather than scrolls. */
-.pboard {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 24px 18px;
-  padding: 18px 24px 60px;
-}
-.pboard-col {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-}
-.pboard-hd {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 24px;
-  color: var(--t1);
-  font-size: 14px;
-}
-.pboard-hd b {
-  font-weight: 500;
-}
-.pboard-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.pboard-mode {
-  color: var(--t5);
-  font-size: 11px;
-}
-.pboard-empty {
-  padding: 24px;
-  color: var(--t4);
-  font-size: 13px;
-}
+
 .dot.sys {
   background: var(--accent);
 }
@@ -9927,12 +8567,7 @@ a.ideas-row {
   padding: 6px;
   text-decoration: none;
 }
-.ideas-menu {
-  min-width: 240px;
-}
-.ideas-menu a.ideas-row {
-  border-radius: 8px;
-}
+
 /* On a product cover: how many ideas are for it, which opens them on the Ideas shelf. */
 .alb-ideas {
   display: inline-block;
@@ -10383,6 +9018,20 @@ a.ideas-row {
   line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* A question waits on this frame; it is answered in Focus. */
+.bf-q {
+  position: absolute;
+  top: calc(8px / var(--kl));
+  right: calc(8px / var(--kl));
+  z-index: 1;
+  padding: calc(1px / var(--kl)) calc(7px / var(--kl));
+  border-radius: 99px;
+  background: var(--q);
+  color: #fff;
+  font-size: calc(11px / var(--kl));
+  font-weight: 700;
+  line-height: 1.4;
 }
 .bf-pic {
   overflow: hidden;

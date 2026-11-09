@@ -54,7 +54,7 @@ function nodePicture(node: TreeNode, state: string | null): string | null {
     : null;
 }
 
-export function aboutOf(r: AboutState, slug: string) {
+function aboutOf(r: AboutState, slug: string) {
   const bySlug = createMemo(() => new Map((r.tree()?.tree ?? []).map((n) => [n.slug, n])));
   const me = () => bySlug().get(slug);
   const instanceIn = () => (me()?.instanceIn ?? []).flatMap((s) => bySlug().get(s) ?? []);

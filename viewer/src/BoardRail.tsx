@@ -77,13 +77,14 @@ export function BoardRail(props: {
     current: () => boolean,
     body: JSX.Element,
     cls = "side-row",
+    focus = false,
   ) => (
     <a
       class={cls}
       href={href()}
       aria-current={current() ? "page" : undefined}
       onClick={(e) => {
-        linkClick(e, href());
+        linkClick(e, href(), focus);
         props.onNav?.();
       }}
     >
@@ -180,6 +181,7 @@ export function BoardRail(props: {
                       <small>{q.kind === "idea" ? `${q.title} · idea` : q.title}</small>
                     </>,
                     "rail-qi",
+                    true,
                   )
                 }
               </For>

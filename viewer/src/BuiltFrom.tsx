@@ -1,7 +1,7 @@
-// Instances, in the right margin (a bottom sheet on a phone), open while Tune is:
-// the components this state includes and its own parts, each opening its knobs
-// (tunekit, see tune.ts) with what is tuned riding in the next answer. What
-// sits around the design is in About, under its name.
+// Instances: the components this state includes and its own parts, each opening its
+// knobs (tunekit, see tune.ts) with what is tuned riding in the next answer. In the
+// panel's Spec, and as the panel itself while Tune is on (a bottom sheet on a phone).
+// What sits around the design is in About, under its name.
 
 import { createEffect, createMemo, createResource, For, Index, on, Show } from "solid-js";
 import { api, surfaceUrl, type TreeNode } from "./api.ts";
@@ -30,15 +30,16 @@ function nodePicture(node: TreeNode): string | null {
 export function BuiltFrom(props: {
   s: DesignScreenState;
   t: TuneState;
-  // In the margin, which has its own head and close, and only mounts this while open.
+  // In the panel, which has its own head and close, and only mounts this while shown.
   inline?: boolean;
 }) {
   const s = props.s;
   const t = props.t;
+  const shown = () => !!props.inline || s.drawer();
   const project = () => s.design()?.project ?? s.project;
   // Refetched whenever the design changes, so a newly included component shows.
   const [tree] = createResource(
-    () => (s.drawer() ? `${project()}\u0000${s.design()?.updatedAt ?? ""}` : null),
+    () => (shown() ? `${project()}\u0000${s.design()?.updatedAt ?? ""}` : null),
     () => api.tree(project()).then((r) => r.tree),
   );
   const bySlug = createMemo(() => new Map((tree() ?? []).map((n) => [n.slug, n])));
@@ -68,10 +69,10 @@ export function BuiltFrom(props: {
   return (
     <aside
       class={props.inline ? "builtfrom" : "drawer"}
-      classList={{ open: s.drawer() }}
-      aria-label="Tune"
-      aria-hidden={!s.drawer()}
-      inert={!s.drawer() || undefined}
+      classList={{ open: shown() }}
+      aria-label={props.inline ? "Instances" : "Tune"}
+      aria-hidden={!shown()}
+      inert={!shown() || undefined}
       ref={(el) => (panel = el)}
     >
       <Show when={!props.inline}>

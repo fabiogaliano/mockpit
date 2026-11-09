@@ -136,8 +136,8 @@ export function FullView(props: {
   });
   const percent = () => Math.round(scale() * 100);
 
-  // On the body: whatever opened it may sit in a stacking context of its own
-  // (Studio is fixed), under which no z-index would clear the viewer's header.
+  // On the body: whatever opened it may sit in a stacking context of its own, under
+  // which no z-index would clear the viewer's header.
   return (
     <Portal mount={host().window.document.body}>
       <div

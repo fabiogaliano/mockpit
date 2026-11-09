@@ -47,6 +47,9 @@ export function rememberRecent(id: string) {
   }
 }
 
+// A question or an alternative is narrower than a frame on the Board: it opens in Focus.
+const hitFocus = (hit: JumpHit) =>
+  hit.slug !== null && ((hit.match === "question" && hit.open > 0) || hit.alternative !== null);
 const hitPath = (hit: JumpHit): string => {
   if (hit.slug === null) return boardPath(hit.project, { page: hit.area });
   if (hit.match === "question" && hit.open > 0) return questionPath(hit.project, hit.slug);
@@ -186,7 +189,7 @@ function JumpBox(props: { onClose: () => void }) {
   const go = (hit: JumpHit | undefined) => {
     if (!hit) return;
     props.onClose();
-    navigate(hitPath(hit));
+    navigate(hitPath(hit), { focus: hitFocus(hit) });
   };
   const move = (by: number) => {
     const n = hits()?.length ?? 0;
@@ -285,7 +288,7 @@ function JumpBox(props: { onClose: () => void }) {
                   href={hitPath(hit)}
                   onPointerMove={() => setActive(i())}
                   onClick={(e) => {
-                    linkClick(e, hitPath(hit));
+                    linkClick(e, hitPath(hit), hitFocus(hit));
                     if (e.defaultPrevented) props.onClose();
                   }}
                 >

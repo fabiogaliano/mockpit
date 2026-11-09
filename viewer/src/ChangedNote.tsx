@@ -15,7 +15,7 @@ import type { DesignScreenState } from "./state.ts";
 const TAKEOVER_MS = 10_000;
 const TICK_MS = 100;
 
-export function ChangedNote(props: { s: DesignScreenState; onStageView: boolean }) {
+export function ChangedNote(props: { s: DesignScreenState }) {
   const s = props.s;
   const [counting, setCounting] = createSignal(false);
   // Once stopped it never counts again for this version: the user is looking closely,
@@ -48,7 +48,7 @@ export function ChangedNote(props: { s: DesignScreenState; onStageView: boolean 
   function tick(elapsed: number) {
     const c = s.changed();
     if (!c || stopped() || s.product()) return;
-    const here = props.onStageView && !away(root().visibilityState, root().hasFocus());
+    const here = !away(root().visibilityState, root().hasFocus());
     if (!counting()) {
       if (!here || busy()) return;
       s.showVersion(c.to);

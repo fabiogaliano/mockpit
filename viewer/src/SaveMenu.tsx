@@ -1,7 +1,7 @@
 // Where a version lives: tick the ideas, designs and states it should be in,
 // and flip one switch to take it out of here. Nothing happens until the button,
 // which says what will: a move is two changes, and either alone would leave the
-// version in the wrong place. Fixed to the window, since Studio's scroller would
+// version in the wrong place. Fixed to the window, since the panel's scroller would
 // clip it; a sheet on a phone.
 
 import {
@@ -89,7 +89,7 @@ export function SaveMenu(props: {
       const t = e.target as Node;
       if (!menu?.contains(t) && !props.anchor.contains(t)) shut();
     };
-    // It is placed once, so it would float off its card as Studio scrolls; its
+    // It is placed once, so it would float off its button as the panel scrolls; its
     // own list scrolling is the menu in use.
     const onScroll = (e: Event) => {
       if (!menu?.contains(e.target as Node)) shut();

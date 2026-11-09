@@ -1,8 +1,6 @@
 // The design screen's keyboard: flowKey (logic.ts) says what a key means, this
 // applies it: number keys pick on the question card, ←/→ step through the
 // versions, Enter sends on. The Mark tool owns its keys while on.
-// Any key or press on the screen also keeps it from moving on by itself after
-// a Send: the user is reading or doing something here.
 
 import { onCleanup, onMount } from "solid-js";
 import { root } from "./host.ts";
@@ -14,11 +12,7 @@ const CONTROL = "button, a[href], summary, [role='button'], [role='tab'], [role=
 
 export function useFlowKeys(s: DesignScreenState) {
   onMount(() => {
-    const stay = () => {
-      if (s.afterSend()?.auto) s.stayHere();
-    };
     const onKey = (e: KeyboardEvent) => {
-      stay();
       if (e.defaultPrevented || e.isComposing || s.marking()) return;
       // tunekit's controls live in a shadow root: the event's own target is
       // retargeted to the host, the first node of its path is the real one.
@@ -41,26 +35,17 @@ export function useFlowKeys(s: DesignScreenState) {
           s.stepVersion(key.by);
           break;
         case "primary":
-          if (s.afterSend()?.next) s.goNext();
-          else if (s.commitKind() && !s.questionHidden()) s.commit();
+          if (s.commitKind() && !s.questionHidden()) s.commit();
           else return;
           break;
-        case "design":
-          void s.goOwedDesign(key.by);
-          break;
         case "clear":
-          if (!s.preview() && !s.afterSend()?.auto) return;
+          if (!s.preview()) return;
           s.setPreview(null);
-          s.stayHere();
           break;
       }
       e.preventDefault();
     };
     root().addEventListener("keydown", onKey);
-    root().addEventListener("pointerdown", stay, true);
-    onCleanup(() => {
-      root().removeEventListener("keydown", onKey);
-      root().removeEventListener("pointerdown", stay, true);
-    });
+    onCleanup(() => root().removeEventListener("keydown", onKey));
   });
 }

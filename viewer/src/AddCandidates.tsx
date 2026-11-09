@@ -135,7 +135,7 @@ export function AddCandidates(props: {
       await props.sl.load();
       props.onDone?.(chosen().size);
       dialog.close();
-      if (!props.list) navigate(designPath(props.project, to.slug));
+      if (!props.list) navigate(designPath(props.project, to.slug), { focus: true });
     } catch (e) {
       setError(`Couldn't add them. ${e instanceof Error ? e.message : e}`);
       setBusy(false);

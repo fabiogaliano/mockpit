@@ -89,7 +89,7 @@ export function Home(props: {
     const d = decisions.list();
     return d && d.project === project() ? d.lines.length : (remembered()?.decisions ?? 0);
   };
-  // The switcher's glow speaks for every project, so any change may move it.
+  // Any change in the project may move what the shelves show.
   const refetch = () => Promise.all([refetchList(), refetchTree(), decisions.refetch()]);
   // An agent publishing a batch fires an event per alternative; one read covers them.
   let refetchTimer = 0;

@@ -149,10 +149,6 @@ export const drawsAnswer = (o: Pick<AskOption, "alternative" | "set" | "palette"
 export const moreAllowed = (ask: Pick<Ask, "id" | "allowMore">): boolean =>
   !isBuiltinAsk(ask) && ask.allowMore !== false;
 
-// Answered by comparing designs, which Studio does as well as Stage.
-export const picksAlternative = (ask: Pick<Ask, "options">): boolean =>
-  ask.options.some((o) => o.alternative);
-
 type AlternativeRow = Pick<AlternativeView, "state" | "alternative" | "status">;
 
 // What the user can still choose between in a state: its live alternatives.
@@ -885,7 +881,7 @@ const KIND_NAMES: Record<DesignKind, string> = {
 };
 
 // A move made from Home, the spec corrected by hand, the Ready mark, or a grouping from
-// when Studio could make one, as the thread lists it.
+// when the viewer could make one, as the thread lists it.
 export const editedLine = (e: DesignEdit): string =>
   [
     e.kind ? `Moved to ${KIND_NAMES[e.kind]}` : "",
@@ -1370,65 +1366,6 @@ export function paragraphPins(
   return out;
 }
 
-// --- the wall: a lab too big to compare side by side ---
-
-// More canvas pages live than this and a browser drops the oldest one's WebGL
-// context; one past the budget waits as a placeholder until it is pointed at.
-// Any other page has no such limit and is live whenever it is near the screen, except
-// on a wall or a grid, where a screenful of pages costs as much with no canvas at all.
-export const CANVAS_MAX = 16;
-// Frames that left the screen but stay loaded, so coming back to them costs nothing.
-// Enough for the screenful just left and most of the one before: a wall screen is about
-// 16 cards. Each holds a document's memory while it waits, so this is not the budget's
-// size again and again.
-export const KEPT_MAX = 24;
-// Who stays loaded once `now` is what's live: those that just stopped being live, most
-// recent first, then those already waiting. A hidden canvas still holds a context, which
-// the browser will take back past its limit, so canvases share CANVAS_MAX with the live
-// ones, and the live ones come first.
-export function nextKept(
-  kept: readonly string[],
-  was: ReadonlySet<string>,
-  now: ReadonlySet<string>,
-  isCanvas: (key: string) => boolean,
-): string[] {
-  let canvases = [...now].filter(isCanvas).length;
-  const out: string[] = [];
-  for (const key of new Set([...[...was].reverse(), ...kept])) {
-    if (now.has(key) || out.length >= KEPT_MAX) continue;
-    if (isCanvas(key)) {
-      if (canvases >= CANVAS_MAX) continue;
-      canvases++;
-    }
-    out.push(key);
-  }
-  return out;
-}
-
-// ia.md's "Inside a design": 2 to 6 alternatives switch, 7 to 50 compare first (Studio),
-// 50+ filter. Counted across every state and archived too: pruning a lab mustn't
-// change the layout under the hand doing it, and a lab with everything archived is
-// still a lot to look through. On the real data: concept-lab 108, onni-lab 99, onni
-// 85; the next is visions at 30, which stays Studio.
-export const WALL_FROM = 50;
-// The preview needs a pointer to aim with and room to stand beside the grid; anything
-// else goes from the wall to one large design, a swipe apart.
-export const WALL_PREVIEW_MIN_W = 1000;
-// Sized so about a screenful stays within the live-frame budget: 6 columns of tall
-// phone cards by 3 rows, or 3 columns of wide ones by 5.
-export const wallCard = (designW: number): { min: number; art: string } =>
-  designW <= 600 ? { min: 132, art: "3 / 5" } : { min: 240, art: "4 / 3" };
-// Beside the wall: enough for a phone page near true size, and a wide page gets more
-// of the window because it needs it.
-export const wallPreviewW = (designW: number, winW: number): number =>
-  designW <= 600
-    ? Math.max(380, Math.min(560, Math.round(winW * 0.36)))
-    : Math.max(440, Math.min(860, Math.round(winW * 0.46)));
-
-// Accents and case don't count, as in the jump search.
-export const foldText = (s: string): string =>
-  s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
-
 // --- the decision flow: across designs, review, keys and swipes ---
 
 export interface AreaGroup<T> {
@@ -1558,40 +1495,10 @@ export function shortSource(path: string): string {
   return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : path;
 }
 
-type QueueDesign = { slug: string; open: number; createdAt: string };
-
-// An agent publishes designs in the order it wants them answered, so the queue
-// runs oldest first. Most recently updated would put the last design asked on
-// first: the reverse of the agent's plan.
-export const queueOrder = <T extends QueueDesign>(designs: T[]): T[] =>
-  [...designs].sort(
-    (a, b) => a.createdAt.localeCompare(b.createdAt) || a.slug.localeCompare(b.slug),
-  );
-
-// The next design that still owes answers after `current` in queue order (or
-// before it, for `dir` -1), wrapping around; never `current` itself. With no
-// current design (Home), the first one owed.
-export function nextOwedDesign<T extends QueueDesign>(
-  designs: T[],
-  current: string | null,
-  dir: 1 | -1 = 1,
-): T | null {
-  const order = queueOrder(designs);
-  const at = current === null ? -1 : order.findIndex((m) => m.slug === current);
-  const n = order.length;
-  for (let k = 1; k <= n; k++) {
-    const i = at < 0 ? (dir === 1 ? k - 1 : n - k) : (((at + dir * k) % n) + n) % n;
-    const m = order[i];
-    if (m.slug !== current && m.open > 0) return m;
-  }
-  return null;
-}
-
 export type FlowKey =
   | { kind: "pick"; n: number }
   | { kind: "step"; by: 1 | -1 }
   | { kind: "primary" }
-  | { kind: "design"; by: 1 | -1 }
   | { kind: "clear" };
 
 // What a key does on the design screen, or null when it isn't ours. Keys typed
@@ -1612,10 +1519,6 @@ export function flowKey(e: {
       return { kind: "step", by: 1 };
     case "ArrowLeft":
       return { kind: "step", by: -1 };
-    case "]":
-      return { kind: "design", by: 1 };
-    case "[":
-      return { kind: "design", by: -1 };
     case "Escape":
       return { kind: "clear" };
     case "Enter":
@@ -1779,8 +1682,6 @@ export interface VersionStep extends VersionRef {
   kinds: string[];
   // The still of this version's page, which overviews show instead of it.
   poster?: string;
-  // The page draws on a canvas, so its live frame counts against the WebGL budget.
-  canvas?: boolean;
   forkedFrom?: VersionRef;
   rewrites?: number;
 }
@@ -1854,7 +1755,6 @@ export function versionSteps(alternatives: StepSource[], state: string | null): 
           hidden: "hidden" in h && h.hidden === true,
           kinds: h.surfaceKinds as string[],
           ...("poster" in h && typeof h.poster === "string" ? { poster: h.poster } : {}),
-          ...("canvas" in h && h.canvas === true ? { canvas: true } : {}),
           ...(v.forkedFrom ? { forkedFrom: v.forkedFrom } : {}),
           ...(v.rewrites ? { rewrites: v.rewrites } : {}),
         },
@@ -2091,52 +1991,6 @@ export function owedStates(
 }
 
 // --- the grid of alternatives and states ---
-
-const liveNames = (alternatives: Pick<AlternativeView, "alternative" | "state" | "status">[]) => {
-  const out = new Map<string, Set<string | null>>();
-  for (const v of alternatives) {
-    if (!isLive(v.status)) continue;
-    const states = out.get(v.alternative) ?? new Set();
-    states.add(v.state);
-    out.set(v.alternative, states);
-  }
-  return out;
-};
-
-// Several alternatives, and at least one of them drawn in more than one state: the same set
-// across states, which reads whole only as a grid. 23 of the 48 multi-state designs on the
-// real data. A lone name repeated across states is just a list of states.
-export function repeatsAcrossStates(
-  alternatives: Pick<AlternativeView, "alternative" | "state" | "status">[],
-): boolean {
-  const names = liveNames(alternatives);
-  return names.size > 1 && [...names.values()].some((states) => states.size > 1);
-}
-
-// A variants design's entries are its forms, all shipping, so they're compared in a grid
-// even with one state.
-export const gridComparesVariants = (
-  variants: boolean,
-  alternatives: Pick<AlternativeView, "alternative" | "state" | "status">[],
-): boolean => variants && liveNames(alternatives).size > 1;
-
-// Rows and columns: every name still in play, in the order they were made, against every
-// state that has one or hasn't been drawn yet, so a whole missing state shows too. A
-// state with everything archived has left the tabs and leaves here.
-export function gridAxes(
-  states: (string | null)[],
-  alternatives: Pick<AlternativeView, "alternative" | "state" | "status">[],
-): { rows: string[]; cols: (string | null)[] } {
-  const names = liveNames(alternatives);
-  return {
-    rows: [...names.keys()],
-    cols: states.filter(
-      (st) =>
-        !alternatives.some((v) => v.state === st) ||
-        alternatives.some((v) => v.state === st && isLive(v.status)),
-    ),
-  };
-}
 
 // "Clay: linen, terracotta and pine" reads as a name and what it is: the name alone
 // where room is short, the rest on a line of its own under it.
