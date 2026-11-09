@@ -3917,8 +3917,8 @@ export function createApp({
     return d ? { description: d.text } : {};
   }
 
-  // One area, everything settled in it: what `read --area` returns and the viewer's
-  // area page draws (apiViews.ts areaView).
+  // One area, everything settled in it and what's left: what `read --area` returns
+  // (apiViews.ts areaView), its coverage the same map the Board's page card draws.
   async function areaFlow(query: { project?: unknown; area?: unknown }): Promise<FlowResult> {
     const project = str(query.project, MAX_TITLE);
     if (!project) return fail(400, 'provide "project"');

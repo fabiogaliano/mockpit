@@ -20,7 +20,8 @@ export const MAX_ZOOM = 3;
 // Fit never blows a page up past its size, and a single frame only a little past it.
 const FIT_MAX = 1;
 const FIT_MAX_FRAME = 1.1;
-// Room the page's header card and the hint bar take, so a fit isn't hidden under them.
+// Room the page's header card and the hint bar take, so a fit isn't hidden under them; the
+// Board measures the card where it can, since its map makes it taller.
 export const RESERVE_TOP = 130;
 export const RESERVE_BOTTOM = 56;
 export const FIT_MS = 420;
@@ -38,9 +39,10 @@ export const clampZoom = (k: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, k)
 export function fitView(
   box: Box,
   stage: { w: number; h: number },
-  opts: { pad: number; frame: boolean },
+  opts: { pad: number; frame: boolean; top?: number },
 ): View {
-  const room = { w: stage.w - opts.pad * 2, h: stage.h - RESERVE_TOP - RESERVE_BOTTOM };
+  const top = opts.top ?? RESERVE_TOP;
+  const room = { w: stage.w - opts.pad * 2, h: stage.h - top - RESERVE_BOTTOM };
   const k = clampZoom(
     Math.min(room.w / box.w, room.h / box.h, opts.frame ? FIT_MAX_FRAME : FIT_MAX),
   );
@@ -49,10 +51,7 @@ export function fitView(
   return {
     k,
     x: box.w * k > room.w ? opts.pad - box.x * k : stage.w / 2 - (box.x + box.w / 2) * k,
-    y:
-      box.h * k > room.h
-        ? RESERVE_TOP - box.y * k
-        : RESERVE_TOP + room.h / 2 - (box.y + box.h / 2) * k,
+    y: box.h * k > room.h ? top - box.y * k : top + room.h / 2 - (box.y + box.h / 2) * k,
   };
 }
 

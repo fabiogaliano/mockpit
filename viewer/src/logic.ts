@@ -18,6 +18,7 @@ import {
   sameScreen,
 } from "../../server/types.ts";
 import { needsBuiltinAsk } from "../../server/alternativeQuestion.ts";
+import { owedStates, type StateOutlineRow } from "../../server/coverage.ts";
 import type {
   CommentRow,
   DraftInput,
@@ -1940,20 +1941,6 @@ export function screenPicture(
 
 // --- what a declared screen doesn't have yet ---
 
-// The standard states a screen is expected to have, and what already counts as each:
-// an agent that drew "Error" or "No results" has drawn it, whatever it called it.
-const STANDARD_STATES: { name: string; covered: RegExp }[] = [
-  { name: "Empty", covered: /\b(empty|blank|no (results|data|items))\b/i },
-  { name: "Loading", covered: /\b(loading|skeleton)\b/i },
-  { name: "Failed", covered: /\b(fail(ed|ure)?|errors?|offline|couldn.t)\b/i },
-];
-
-export interface StateOutlineRow {
-  name: string;
-  // Already asked for: it waits on the agent, not on the user.
-  requested: boolean;
-}
-
 // Only on a screen with a drawn design: on an idea, a document or a component these would
 // be noise, and on a plan the whole screen is the outline. Once per screen, not per
 // state: seven states times three would be twenty-one frames of nothing.
@@ -1972,26 +1959,6 @@ export function missingStates(
   alternatives: { surfaces: { kind?: unknown }[] }[],
 ): StateOutlineRow[] {
   return canOutline(design, alternatives) ? owedStates(design) : [];
-}
-
-// What a screen that can be outlined is still owed: the Board reads whether it can from
-// the server, which has its pages.
-export function owedStates(
-  design: Pick<DesignDetail, "states" | "stateOutlines">,
-): StateOutlineRow[] {
-  const said = design.stateOutlines ?? {};
-  const has = (name: string) =>
-    design.states.some((st) => st.toLowerCase().includes(name.toLowerCase()));
-  const standard = STANDARD_STATES.filter(
-    (x) => said[x.name] !== "dismissed" && !design.states.some((st) => x.covered.test(st)),
-  ).map((x) => ({ name: x.name, requested: said[x.name] === "requested" }));
-  const asked = Object.entries(said)
-    .filter(
-      ([name, to]) =>
-        to === "requested" && !STANDARD_STATES.some((x) => x.name === name) && !has(name),
-    )
-    .map(([name]) => ({ name, requested: true }));
-  return [...standard, ...asked];
 }
 
 // --- the grid of alternatives and states ---

@@ -1,6 +1,7 @@
 // Response shapes shared by every tier (REST, both MCP transports, the CLI), so
 // one design reads the same however an agent asks for it.
 
+import { coverageOf, coverageText, flowLine } from "./coverage.ts";
 import { isShared } from "./library.ts";
 import { slotKnobs, slotsInSurfaces } from "./swaps.ts";
 import type { Mode } from "./themes.ts";
@@ -665,10 +666,10 @@ const productLine = (design: Design, posts: PostHead[], builtFrom: BuiltFrom[]) 
   builtFrom: builtFrom.length ? builtFrom : undefined,
 });
 
-// One area of a project, as `read --area` returns it and the viewer's area page draws
-// it: what it is for, its screens, flows and components, the shared components beside
-// them, what was decided on them, and the ideas waiting in it. Everything settled in
-// one place, so an agent reads the area before drawing in it.
+// One area of a project, as `read --area` returns it: what it is for, what's left in it
+// (the coverage map the Board's page card draws), its screens, flows and components, the
+// shared components beside them, what was decided on them, and the ideas waiting in it.
+// Everything settled in one place, so an agent reads the area before drawing in it.
 export function areaView(input: {
   project: string;
   description: Described | null;
@@ -706,15 +707,30 @@ export function areaView(input: {
   const kindOf = new Map(input.designs.map((d) => [d.slug, d]));
   const line = (d: Design) =>
     productLine(d, input.heads.get(d.id) ?? [], input.builtFrom.get(d.slug) ?? []);
+  // The map the Board's page card draws, from the same function.
+  const coverage = coverageOf({
+    area: input.area.name,
+    live,
+    heads: input.heads,
+    flows: input.flows,
+  });
+  const stepsReady = new Map(coverage.flows.map((f) => [f.name, flowLine(f)]));
+  const { flows: _, ...map } = coverageText(coverage);
   return {
     project: input.project,
     description: input.description?.text ?? null,
     area: { name: input.area.name, description: input.area.description || null },
+    coverage: map,
     screens: screens.map(line),
     // A flow is in the area when one of its steps is.
     flows: input.flows
       .filter((f) => f.steps.some((x) => kindOf.get(x.design)?.area === input.area.name))
-      .map((f) => ({ name: f.name, ...(f.status ? { status: f.status } : {}), steps: f.steps })),
+      .map((f) => ({
+        name: f.name,
+        ...(f.status ? { status: f.status } : {}),
+        ...(stepsReady.has(f.name) ? { coverage: stepsReady.get(f.name)! } : {}),
+        steps: f.steps,
+      })),
     components: components.map(line),
     shared: live
       .filter((d) => d.kind === "component" && !d.area)

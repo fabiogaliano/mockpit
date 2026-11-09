@@ -703,9 +703,10 @@ you use adds its section to Home:
 A product with several areas names them: \`--area Shell\` (the project's own
 words) groups each Home section by area, and \`--source apps/web/src/shell\` says
 which code implements the design. Read an area before drawing in it:
-\`mockpit read --area Food\` is what the project and the area are for, its screens,
-flows and components, the shared components, what was decided on them and the
-ideas waiting there. \`mockpit edit --project <p> --area Food --description "..."\`
+\`mockpit read --area Food\` is what the project and the area are for, what's left
+in it (\`coverage\`: each design's states as Ready, In design, Planned or Missing,
+and each flow's steps ready), its screens, flows and components, the shared
+components, what was decided on them and the ideas waiting there. \`mockpit edit --project <p> --area Food --description "..."\`
 says in one line what an area is for, and without \`--area\` what the project is
 for; the user's own stands. An idea that becomes a screen is promoted
 with \`mockpit edit --design <slug> --kind screen\` (no new version), and

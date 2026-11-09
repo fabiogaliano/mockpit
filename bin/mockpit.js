@@ -302,8 +302,10 @@ mockpit read --area <name> [--project <name>]
   settled on it), states, alternatives, questions with answers, parts, knobs and settled
   values, plus its pending and decisionLog (its own lines marked here), as JSON.
   --area: one product area, read before drawing in it: what the project and the area
-  are for, its screens, flows and components (purpose, states), the shared components,
-  their decisions and the ideas waiting there, as JSON.
+  are for, what's left in it (coverage: each design's states as Ready, In design,
+  Planned or Missing, the map the Board's page card draws, and each flow's steps ready),
+  its screens, flows and components (purpose, states), the shared components, their
+  decisions and the ideas waiting there, as JSON.
   --body includes surfaces, --history version rows. --tree (no slug): the
   project as a tree, each design's alternatives with status and forkedFrom, and the
   designs it includes and is included in, as JSON. --decisions: the whole list, when

@@ -304,7 +304,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "read",
     description:
-      "Read this first. Every form carries decisionLog: what the user already settled in this project; it stands unless they say otherwise. Without design: every design (slug, states, alternatives, open questions), flows, plus pending. With area: all settled in it; read it before drawing there. With design: its spec (purpose, behaviour, decisions; the user's edits stand), states, alternatives, questions with answers, parts, knobs and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
+      "Read this first. Every form carries decisionLog: what the user already settled in this project; it stands unless they say otherwise. Without design: every design (slug, states, alternatives, open questions), flows, plus pending. With area: all settled in it and what's left (coverage); read it before drawing there. With design: its spec (purpose, behaviour, decisions; the user's edits stand), states, alternatives, questions with answers, parts, knobs and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
     params: {
       design: { t: "string", d: field.design },
       project: P.project,

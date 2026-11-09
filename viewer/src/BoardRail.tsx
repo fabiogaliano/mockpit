@@ -1,7 +1,8 @@
 // The Board's left rail, Figma's pages and layers: Needs you (the one inbox, folding out
-// the questions that wait), the project's pages (its areas), the Library and Exploring
-// pages, and under the open page (the Ideas page too) its layers, the sections and their
-// frames. A section fits the canvas to it; a frame is selected and fit.
+// the questions that wait), the project's pages (its areas, each with how many of its
+// designs are Ready, "3/7"), the Library and Exploring pages, and under the open page
+// (the Ideas page too) its layers, the sections and their frames. A section fits the
+// canvas to it; a frame is selected and fit.
 
 import { createSignal, For, type JSX, Show } from "solid-js";
 import type { BoardPage, ProjectSummary } from "./api.ts";
@@ -57,7 +58,7 @@ export function BoardRail(props: {
   project: string;
   projects: ProjectSummary[];
   pages: BoardPage["pages"];
-  unsortedPage: boolean;
+  unsortedPage: BoardPage["unsorted"];
   // The page on the canvas; null with none (a Library page, or the screens with no area).
   onPage: string | null;
   onUnsorted: boolean;
@@ -97,6 +98,15 @@ export function BoardRail(props: {
     <span class="side-nm">
       <Show when={icon}>{(i) => <Icon name={i()} />}</Show>
       {text}
+    </span>
+  );
+  const readyOf = (c: { ready: number; of: number }) => (
+    <span
+      class="side-n rail-ready"
+      classList={{ all: c.ready === c.of }}
+      title={`${c.ready} of ${c.of} ${c.of === 1 ? "design" : "designs"} Ready`}
+    >
+      {`${c.ready}/${c.of}`}
     </span>
   );
   const layerRows = () => (
@@ -199,19 +209,29 @@ export function BoardRail(props: {
                   {link(
                     () => boardPath(props.project, { page: p.name }),
                     () => props.onPage === p.name,
-                    named(null, p.name),
+                    <>
+                      {named(null, p.name)}
+                      {readyOf(p)}
+                    </>,
                   )}
                   <Show when={props.onPage === p.name}>{layerRows()}</Show>
                 </>
               )}
             </For>
             <Show when={props.unsortedPage}>
-              {link(
-                () => boardPath(props.project, { unsorted: true }),
-                () => props.onUnsorted,
-                named(null, props.pages.length ? "No area" : "Screens"),
+              {(c) => (
+                <>
+                  {link(
+                    () => boardPath(props.project, { unsorted: true }),
+                    () => props.onUnsorted,
+                    <>
+                      {named(null, props.pages.length ? "No area" : "Screens")}
+                      {readyOf(c())}
+                    </>,
+                  )}
+                  <Show when={props.onUnsorted}>{layerRows()}</Show>
+                </>
               )}
-              <Show when={props.onUnsorted}>{layerRows()}</Show>
             </Show>
           </nav>
         </Show>

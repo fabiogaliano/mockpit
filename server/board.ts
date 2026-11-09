@@ -2,10 +2,12 @@
 // is a section of steps across, each with the states of its screen that no flow names
 // stacked under it; a screen's other states are a section of their own; then the
 // components the page's screens are built from, then what is planned and not drawn.
-// Built from the same designs `read --area` reads, plus each frame's poster, so the
-// viewer draws a page from one call and never runs a page to show it.
+// Built from the same designs `read --area` reads, plus each frame's poster and the
+// page's coverage map (coverage.ts), so the viewer draws a page from one call and never
+// runs a page to show it. The missing frames are the map's Missing cells.
 
 import { offShelf } from "./apiViews.ts";
+import { coverageOf, outlinable, pageReady } from "./coverage.ts";
 import { readyWord, isChanged, shipped, shownVersion } from "./ready.ts";
 import { isProduct } from "./spec.ts";
 import {
@@ -16,7 +18,6 @@ import {
   openAsks,
   type PostHead,
   recommendedAlternative,
-  type StateOutline,
 } from "./types.ts";
 
 export interface BoardFrame {
@@ -59,10 +60,6 @@ export interface BoardDesign {
   open: number;
   ideas: number;
   states: string[];
-  // A screen with a page drawn, which is owed its standard states (Empty, Loading, Failed)
-  // unless it has them or the user waved them off.
-  outlinable: boolean;
-  stateOutlines: Record<string, StateOutline>;
 }
 
 export interface BoardQuestion {
@@ -102,12 +99,11 @@ function posterOf(design: Design, posts: PostHead[], state: string | null): stri
   return surfaces.find((s) => s.kind === "html")?.poster;
 }
 
-// The project's pages in its order (`edit --areas`), then the rest alphabetical. A page is
-// an area with a screen or component on it.
+// The project's pages in its order (`edit --areas`), then the rest alphabetical, each with
+// how many of its designs are Ready. A page is an area with a screen or component on it.
 export function boardPages(input: Pick<BoardInput, "areas" | "designs" | "heads">) {
-  const live = input.designs.filter(
-    (d) => isProduct(d) && !offShelf(d, input.heads.get(d.id) ?? []),
-  );
+  const shelved = input.designs.filter((d) => !offShelf(d, input.heads.get(d.id) ?? []));
+  const live = shelved.filter(isProduct);
   const named = new Set(live.flatMap((d) => (d.area ? [d.area] : [])));
   const order = input.areas.filter((a) => !a.alphabetical).map((a) => a.name);
   const rank = new Map(order.map((a, i) => [a, i]));
@@ -121,9 +117,12 @@ export function boardPages(input: Pick<BoardInput, "areas" | "designs" | "heads"
     pages: pages.map((name) => ({
       name,
       ...(described.get(name) ? { description: described.get(name)! } : {}),
+      ...pageReady({ area: name, live: shelved, heads: input.heads }),
     })),
     // Screens with no area: a page of their own, after the named ones.
-    unsorted: live.some((d) => d.kind === "screen" && !d.area),
+    unsorted: live.some((d) => d.kind === "screen" && !d.area)
+      ? pageReady({ area: null, live: shelved, heads: input.heads })
+      : null,
   };
 }
 
@@ -221,8 +220,9 @@ export function boardView(input: BoardInput) {
     );
     const inFlow = states(d).some((s) => isStep(d.slug, s));
     // Its suggested states are drawn here as missing, so a screen whose states are all
-    // in flows still has a section when it may be owed some; the viewer works those out.
-    if (!loose.length && !outlinable(d)) continue;
+    // in flows still has a section when it may be owed some; the viewer draws them from
+    // the coverage's Missing cells.
+    if (!loose.length && !outlinable(d, posts(d))) continue;
     sections.push({
       kind: "screen",
       id: `screen:${d.slug}`,
@@ -281,8 +281,6 @@ export function boardView(input: BoardInput) {
       open: openAsks(d).length,
       ideas: live.filter((x) => x.kind === "idea" && x.for === d.id).length,
       states: d.states,
-      outlinable: outlinable(d),
-      stateOutlines: d.stateOutlines ?? {},
     };
   }
 
@@ -309,13 +307,7 @@ export function boardView(input: BoardInput) {
     ...boardPages(input),
     sections,
     designs,
+    coverage: coverageOf({ area: input.area, live, heads: input.heads, flows: input.flows }),
     questions,
   };
-
-  function outlinable(d: Design) {
-    return (
-      d.kind === "screen" &&
-      posts(d).some((p) => isLive(p.status) && p.surfaces.some((s) => s.kind === "html"))
-    );
-  }
 }

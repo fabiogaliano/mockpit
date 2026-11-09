@@ -6,7 +6,9 @@
 // frame is its poster under its name, never a running page: live pages run only in
 // Focus, which Enter, a double-click or Open ↵ opens. Pan by dragging empty space, with
 // Space held, or by scrolling; zoom with ⌘-scroll, a pinch or +/-; Shift 1 fits the page,
-// Shift 2 the selection, Esc lets go of it, ⌘/ hides the rail and the cards.
+// Shift 2 the selection, Esc lets go of it, ⌘/ hides the rail and the cards. The page's
+// card holds its coverage map (server/coverage.ts), what's left to design there; a cell
+// is a way to its frame.
 // The address is the place: `?page=` and `?sel=` (route.ts), so a link or a reload opens
 // fit to the same frame.
 
@@ -26,6 +28,7 @@ import {
   Switch,
   untrack,
 } from "solid-js";
+import { type Cell, CELLS, coverageSummary, flowLine } from "../../server/coverage.ts";
 import {
   api,
   assetUrl,
@@ -53,7 +56,7 @@ import { Home, NewIdea } from "./Home.tsx";
 import { readHomeProjects, saveHomeProjects } from "./homeCache.ts";
 import { host, readonly, root } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import { keepSame, owedStates, rankedAreas } from "./logic.ts";
+import { keepSame, rankedAreas } from "./logic.ts";
 import { NotFound } from "./NotFound.tsx";
 import { ProjectSwitcher } from "./ProjectSwitcher.tsx";
 import {
@@ -243,10 +246,17 @@ export function Board(props: {
       ? boardPath(d.project, { ideas: true, for: props.for, sel })
       : boardPath(d.project, { page: d.area, unsorted: d.area === null, sel });
 
-  // The page's sections, with the states each screen is owed drawn as missing frames.
+  // The page's sections, with the states each screen is owed (the map's Missing cells)
+  // drawn as missing frames.
   const pageDrawn = createMemo<Section[]>(() => {
     const d = data();
     if (!d) return [];
+    const owedOf = (slug: string) => {
+      const row = d.coverage.designs.find((r) => r.slug === slug);
+      return row
+        ? d.coverage.states.filter((_, i) => row.cells[i] === "Missing").map((x) => x ?? "")
+        : [];
+    };
     const withKey = (f: BoardFrame): Frame => ({ ...f, key: frameKey(f.slug, f.state) });
     return d.sections.flatMap((s): Section[] => {
       if (s.kind === "flow")
@@ -257,16 +267,14 @@ export function Board(props: {
           },
         ];
       if (s.kind !== "screen") return [{ ...s, frames: s.frames.map(withKey) }];
-      const m = d.designs[s.slug];
-      const owed = m?.outlinable ? owedStates(m) : [];
       const frames = [
         ...s.frames.map(withKey),
-        ...owed.map((o): Frame => ({
+        ...owedOf(s.slug).map((name): Frame => ({
           slug: s.slug,
-          state: o.name,
-          name: o.name,
+          state: name,
+          name,
           width: s.frames[0]?.width ?? null,
-          key: frameKey(s.slug, o.name, true),
+          key: frameKey(s.slug, name, true),
           missing: true,
         })),
       ];
@@ -406,6 +414,7 @@ export function Board(props: {
   const [panning, setPanning] = createSignal(false);
   let stage: HTMLDivElement | undefined;
   let world: HTMLDivElement | undefined;
+  let card: HTMLDivElement | undefined;
   const frameEls = new Map<string, HTMLElement>();
   const sectionEls = new Map<string, HTMLElement>();
   // Until the user moves the view, it keeps fitting what it opened on as stills arrive and
@@ -448,10 +457,12 @@ export function Board(props: {
   onCleanup(() => host().window.clearTimeout(animTimer));
   const fit = (box: Box | null, opts: { animate: boolean; frame: boolean; pad?: number }) => {
     if (!box || !stage) return;
+    // The page card grows with its map, and what is fit sits below it.
+    const top = card?.isConnected ? card.offsetTop + card.offsetHeight + 18 : undefined;
     const next = fitView(
       box,
       { w: stage.clientWidth, h: stage.clientHeight },
-      { pad: opts.pad ?? 60, frame: opts.frame },
+      { pad: opts.pad ?? 60, frame: opts.frame, top },
     );
     if (opts.animate && !reducedMotion()) {
       setAnimating(true);
@@ -694,25 +705,15 @@ export function Board(props: {
     if (d.area !== null) return d.area;
     return d.pages.length ? "No area" : (d.project.split("/").pop() ?? d.project);
   };
-  // Only this page's own designs count: a component from elsewhere is counted on its page.
-  const ownDesigns = createMemo(() => {
-    const d = data();
-    if (!d) return [];
-    return Object.values(d.designs).filter((m) =>
-      d.area === null ? m.area === null && m.kind === "screen" : m.area === d.area,
-    );
-  });
-  const coverage = createMemo(() => {
-    const own = ownDesigns();
-    const frames = allFrames();
-    return {
-      ready: own.filter((m) => m.status === "Ready").length,
-      of: own.length,
-      missing: frames.filter((f) => f.missing).length,
-      planned: frames.filter((f) => f.planned).length,
-      questions: own.reduce((n, m) => n + m.open, 0),
-    };
-  });
+  // The page's coverage map, open under the summary until the user folds it, which holds
+  // for every page.
+  const [mapOpen, setMapOpen] = createSignal(host().storage?.getItem(MAP_KEY) !== "closed");
+  const foldMap = () => {
+    const next = !mapOpen();
+    setMapOpen(next);
+    host().storage?.setItem(MAP_KEY, next ? "open" : "closed");
+    host().window.requestAnimationFrame(settle);
+  };
 
   const ideaAsks = () => sections().reduce((n, s) => n + (s.kind === "grid" ? s.grid.open : 0), 0);
   // New idea, from the Ideas page: one design's ideas start one for it.
@@ -738,8 +739,8 @@ export function Board(props: {
     );
     return [...slugs].reduce((n, slug) => n + (designOf(slug)?.open ?? 0), 0);
   };
-  const flowReady = (s: Extract<Section, { kind: "flow" }>) =>
-    s.steps.filter((x) => designOf(x.frame.slug)?.status === "Ready" && !x.frame.planned).length;
+  const flowCoverage = (s: Extract<Section, { kind: "flow" }>) =>
+    data()?.coverage.flows.find((f) => f.name === s.name) ?? { ready: 0, steps: s.steps.length };
 
   // A grid's frames are too many to list; its section is the layer.
   const layers = createMemo<RailLayer[]>(() =>
@@ -770,6 +771,17 @@ export function Board(props: {
       const el = frameEls.get(f.key);
       if (el) fit(boxOf(el), { animate: true, frame: true, pad: 120 });
     });
+  };
+  // A cell of the map is its frame on the page: a Missing cell its dashed frame. A state
+  // the page draws no frame of (a component shows its first) falls back to the design's.
+  const pickCell = (slug: string, state: string | null, cell: Cell) => {
+    const of = allFrames().filter((f) => f.slug === slug);
+    const f =
+      of.find((x) => x.state === state && !!x.missing === (cell === "Missing") && !x.archived) ??
+      of.find((x) => x.state === state) ??
+      of.find((x) => !x.missing && !x.archived) ??
+      of[0];
+    if (f) pickFrame(f.key);
   };
 
   // --- drawing ---
@@ -854,8 +866,8 @@ export function Board(props: {
         <Match when={s.kind === "flow" && s}>
           {(f) => (
             <>
-              {chip(`flow · ${f().steps.length} steps`, "flow")}
-              {chip(`${flowReady(f())} of ${f().steps.length} ready`)}
+              {chip("flow", "flow")}
+              {chip(flowLine(flowCoverage(f())))}
               <button
                 type="button"
                 class="bchip bplay"
@@ -869,7 +881,9 @@ export function Board(props: {
         </Match>
         <Match when={s.kind === "screen" && s}>
           {(sc) => (
-            <Show when={designOf(sc().slug)?.status}>{(w) => chip(w(), statusClass(w()))}</Show>
+            <Show when={designOf(sc().slug)?.status} keyed>
+              {(w) => chip(w, statusClass(w))}
+            </Show>
           )}
         </Match>
         <Match when={s.kind === "grid" && s}>
@@ -1119,7 +1133,7 @@ export function Board(props: {
         </Show>
       </div>
       <Show when={!hideUi()}>
-        <div class="bcard">
+        <div class="bcard" ref={(el) => (card = el)}>
           <h2>{pageName()}</h2>
           <Show
             when={ideasPage()}
@@ -1151,29 +1165,35 @@ export function Board(props: {
               </Show>
             </div>
           </Show>
-          <Show when={data() && !ideasPage()}>
-            <div class="bcov">
-              <span>
-                <b>{coverage().ready}</b>
-                {` of ${coverage().of} ready`}
-              </span>
-              <Show when={coverage().missing}>
-                <span class="m">
-                  <b>{coverage().missing}</b>
-                  {" missing"}
-                </span>
-              </Show>
-              <Show when={coverage().planned}>
-                <span>
-                  <b>{coverage().planned}</b>
-                  {" planned"}
-                </span>
-              </Show>
-              <span>
-                <b>{coverage().questions}</b>
-                {coverage().questions === 1 ? " question" : " questions"}
-              </span>
-            </div>
+          <Show when={!ideasPage() && data()?.coverage}>
+            {(c) => (
+              <>
+                <div class="bcov">
+                  <For each={coverageSummary(c())}>
+                    {(p) => (
+                      <span classList={{ m: !!p.missing }}>
+                        <b>{p.n}</b>
+                        {p.text}
+                      </span>
+                    )}
+                  </For>
+                  <Show when={c().states.length}>
+                    <button
+                      type="button"
+                      class="bcov-link"
+                      aria-expanded={mapOpen()}
+                      title={mapOpen() ? "Fold the map to this line" : "Each design's states"}
+                      onClick={foldMap}
+                    >
+                      {mapOpen() ? "Hide map" : "Map"}
+                    </button>
+                  </Show>
+                </div>
+                <Show when={mapOpen() && c().states.length}>
+                  <CoverageMap coverage={c()} onCell={pickCell} onFlow={fitSection} />
+                </Show>
+              </>
+            )}
           </Show>
         </div>
         <Show when={selected()}>
@@ -1219,7 +1239,7 @@ export function Board(props: {
             project={p()}
             projects={projects()}
             pages={data()?.project === p() ? (data()?.pages ?? []) : []}
-            unsortedPage={data()?.project === p() && !!data()?.unsorted}
+            unsortedPage={data()?.project === p() ? (data()?.unsorted ?? null) : null}
             onPage={props.sec ? null : data()?.project === p() ? (data()?.area ?? null) : null}
             onUnsorted={!props.sec && data()?.project === p() && data()?.area === null}
             sec={props.sec}
@@ -1295,6 +1315,101 @@ export function Board(props: {
       </div>
       <Show when={gathering() && project()}>
         {(p) => <NewIdea project={p()} typed={newIdeaFor()} onClose={() => setGathering(false)} />}
+      </Show>
+    </div>
+  );
+}
+
+const MAP_KEY = "mockpit:board-map";
+
+const CELL_CLASS: Record<Cell, string> = {
+  Ready: "r",
+  "In design": "d",
+  Planned: "p",
+  Missing: "m",
+};
+const stateName = (s: string | null) => s ?? "Single state";
+
+// Designs down, states across, the cells as the legend says; a cell is a way to its frame.
+function CoverageMap(props: {
+  coverage: BoardPage["coverage"];
+  onCell: (slug: string, state: string | null, cell: Cell) => void;
+  onFlow: (id: string) => void;
+}) {
+  return (
+    <div class="bmap">
+      <div class="bmap-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th />
+              <For each={props.coverage.states}>
+                {(s) => (
+                  <th scope="col" title={stateName(s)}>
+                    <span>{stateName(s)}</span>
+                  </th>
+                )}
+              </For>
+            </tr>
+          </thead>
+          <tbody>
+            <For each={props.coverage.designs}>
+              {(r) => (
+                <tr>
+                  <th scope="row" title={`${r.title} · ${r.status}`}>
+                    {r.title}
+                  </th>
+                  <For each={r.cells}>
+                    {(cell, i) => (
+                      <td>
+                        <Show when={cell} fallback={<span class="bmc" />}>
+                          {(x) => {
+                            const state = () => props.coverage.states[i()] ?? null;
+                            const what = () => `${r.title} · ${stateName(state())}: ${x()}`;
+                            return (
+                              <button
+                                type="button"
+                                class={`bmc ${CELL_CLASS[x()]}`}
+                                title={what()}
+                                aria-label={what()}
+                                onClick={() => props.onCell(r.slug, state(), x())}
+                              />
+                            );
+                          }}
+                        </Show>
+                      </td>
+                    )}
+                  </For>
+                </tr>
+              )}
+            </For>
+          </tbody>
+        </table>
+      </div>
+      <div class="bmap-legend">
+        <For each={CELLS}>
+          {(x) => (
+            <span>
+              <i class={`bmc ${CELL_CLASS[x]}`} aria-hidden="true" />
+              {x}
+            </span>
+          )}
+        </For>
+      </div>
+      <Show when={props.coverage.flows.length}>
+        <div class="bmap-flows">
+          <For each={props.coverage.flows}>
+            {(f) => (
+              <button
+                type="button"
+                class="bcov-link"
+                onClick={() => props.onFlow(`flow:${f.name}`)}
+              >
+                {`${f.name}: ${flowLine(f)}`}
+              </button>
+            )}
+          </For>
+        </div>
       </Show>
     </div>
   );

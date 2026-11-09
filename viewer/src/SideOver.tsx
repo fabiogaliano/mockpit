@@ -73,7 +73,7 @@ export function SideOver(props: { project: string; area: string | null }) {
           project={props.project}
           projects={projects() ?? []}
           pages={page()?.pages ?? []}
-          unsortedPage={!!page()?.unsorted}
+          unsortedPage={page()?.unsorted ?? null}
           onPage={null}
           onUnsorted={false}
           sec={null}
