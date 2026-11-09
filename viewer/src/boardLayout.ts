@@ -44,10 +44,15 @@ export function fitView(
   const k = clampZoom(
     Math.min(room.w / box.w, room.h / box.h, opts.frame ? FIT_MAX_FRAME : FIT_MAX),
   );
+  // Too big to fit even at the least zoom (a long Ideas page): it starts at its top left,
+  // where reading starts, rather than at its middle.
   return {
     k,
-    x: stage.w / 2 - (box.x + box.w / 2) * k,
-    y: RESERVE_TOP + room.h / 2 - (box.y + box.h / 2) * k,
+    x: box.w * k > room.w ? opts.pad - box.x * k : stage.w / 2 - (box.x + box.w / 2) * k,
+    y:
+      box.h * k > room.h
+        ? RESERVE_TOP - box.y * k
+        : RESERVE_TOP + room.h / 2 - (box.y + box.h / 2) * k,
   };
 }
 

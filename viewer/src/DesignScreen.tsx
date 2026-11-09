@@ -29,6 +29,7 @@ import { BottomPanel } from "./BottomPanel.tsx";
 import { hasFiles } from "./attach.ts";
 import { BuiltFrom } from "./BuiltFrom.tsx";
 import { ChangedNote } from "./ChangedNote.tsx";
+import { comparable, CompareTwo } from "./Compare.tsx";
 import { ReadyMark } from "./ReadyMark.tsx";
 import { SystemNote } from "./SystemNote.tsx";
 import { FIELD, useFlowKeys } from "./flowKeys.ts";
@@ -38,6 +39,7 @@ import { Icon } from "./icons.tsx";
 import {
   GHOST_W,
   historyRow,
+  type VersionStep,
   READING_W,
   readsAsDocument,
   sameVersion,
@@ -99,9 +101,13 @@ import {
 import { setPeek } from "./systemRev.ts";
 
 // Where a design lives on the Board, which Esc and the path go back to: its page, fit to
-// the frame on stage and selected; or, for what no page draws, the Library or Exploring
-// page that lists it.
-function boardHome(m: DesignDetail, state: string | null): { href: string; name: string } {
+// the frame on stage and selected (an idea's on the Ideas page, at the alternative on
+// stage); or, for what no page draws, the Library page that lists it.
+function boardHome(
+  m: DesignDetail,
+  state: string | null,
+  alternative?: string,
+): { href: string; name: string } {
   const sel = { slug: m.slug, state };
   if (m.archivedAt) return { href: projectPath(m.project, "archive"), name: "Archive" };
   if (isProduct(m)) {
@@ -113,7 +119,13 @@ function boardHome(m: DesignDetail, state: string | null): { href: string; name:
   const states = m.states.length ? m.states : [null];
   return sectionOf({ ...m, states, asked: m.asks.length }) === "documents"
     ? { href: projectPath(m.project, "documents"), name: "Documents" }
-    : { href: projectPath(m.project, "ideas"), name: "Ideas" };
+    : {
+        href: boardPath(m.project, {
+          ideas: true,
+          sel: { ...sel, ...(alternative ? { alternative } : {}) },
+        }),
+        name: "Ideas",
+      };
 }
 
 export function DesignScreen(props: {
@@ -198,6 +210,11 @@ export function DesignScreen(props: {
   const presenting = opening.has("present");
   const endPresent = () =>
     navigate(designPath(props.project, props.slug, { state: s.activeState(), alternative: null }));
+  // A version picked to compare with the one on stage, 2-up in one frame.
+  const [comparing, setComparing] = createSignal<VersionStep | null>(null);
+  createEffect(
+    on([() => s.activeState(), () => s.design()?.id], () => setComparing(null), { defer: true }),
+  );
   const t = createTune(s);
   const m = createMargins(
     s,
@@ -312,7 +329,8 @@ export function DesignScreen(props: {
       else if (s.askingState()) s.setAskingState(null);
       else if (m.leftFloats()) m.closeLeft();
       else if (s.drawer()) s.setDrawer(false);
-      else if (s.design()) navigate(boardHome(s.design()!, s.activeState()).href);
+      else if (s.design())
+        navigate(boardHome(s.design()!, s.activeState(), s.activeAlternative()?.alternative).href);
       else return;
       e.preventDefault();
     };
@@ -432,6 +450,14 @@ export function DesignScreen(props: {
             >
               <Stage s={s} onGoto={nav.follow} />
               <Show when={sideRow()}>{(ask) => <SideBySide s={s} ask={ask()} />}</Show>
+              <Show when={!sideRow() && comparing() && s.stageStep()}>
+                <CompareTwo
+                  s={s}
+                  before={comparing()!}
+                  after={s.stageStep()!}
+                  onClose={() => setComparing(null)}
+                />
+              </Show>
               <Show when={m.ghosts()}>
                 <Ghost s={s} nav={nav} by={-1} />
                 <Ghost s={s} nav={nav} by={1} />
@@ -478,7 +504,7 @@ export function DesignScreen(props: {
               <>
                 <ToolStrip s={s} m={m} />
                 <Show when={m.active() && !undrawn() && !reading() && !sideRow()}>
-                  <VersionCaption s={s} m={m} reading={false} />
+                  <VersionCaption s={s} m={m} reading={false} onCompare={setComparing} />
                 </Show>
                 <LeftMargin s={s} nav={nav} m={m} />
                 <RightMargin s={s} t={t} m={m} sl={shortlists} />
@@ -507,7 +533,12 @@ export function DesignScreen(props: {
 // The version on stage and what acts on it, on the top edge of the design they're about:
 // a row of its own over the canvas, or the head of a document's column. Each piece is
 // opaque, since panning brings the design under them.
-function VersionCaption(props: { s: DesignScreenState; m: Margins; reading: boolean }) {
+function VersionCaption(props: {
+  s: DesignScreenState;
+  m: Margins;
+  reading: boolean;
+  onCompare?: (with_: VersionStep) => void;
+}) {
   const s = props.s;
   const holding = () => s.heldPreview()?.key === s.preview()?.key;
   return (
@@ -552,6 +583,25 @@ function VersionCaption(props: { s: DesignScreenState; m: Margins; reading: bool
             onList={props.m.toggleLeft}
           />
         </Show>
+        <Show when={props.onCompare && comparable(s).length}>
+          <select
+            class="btn vcap-compare"
+            aria-label="Compare with another version"
+            title="Compare with another version, 2-up"
+            value=""
+            onChange={(e) => {
+              const n = Number(e.currentTarget.value);
+              e.currentTarget.value = "";
+              const to = comparable(s).find((x) => x.n === n);
+              if (to) props.onCompare?.(to);
+            }}
+          >
+            <option value="">Compare with…</option>
+            <For each={comparable(s).toReversed()}>
+              {(x) => <option value={x.n}>{s.nameOf(x)}</option>}
+            </For>
+          </select>
+        </Show>
         <Show when={!readonly()}>
           <NewVersionButton s={s} />
         </Show>
@@ -589,7 +639,9 @@ function TopRow(props: {
   const home = () => boardPath(props.project);
   const up = () => {
     const m = s.design();
-    return m ? boardHome(m, s.activeState()) : { href: home(), name: shortProject() };
+    return m
+      ? boardHome(m, s.activeState(), s.activeAlternative()?.alternative)
+      : { href: home(), name: shortProject() };
   };
   // The owner is the same on every design; the repo's own name is enough.
   const shortProject = () => props.project.split("/").pop() ?? props.project;

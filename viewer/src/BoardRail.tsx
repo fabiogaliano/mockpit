@@ -1,7 +1,7 @@
 // The Board's left rail, Figma's pages and layers: Needs you (the one inbox, folding out
 // the questions that wait), the project's pages (its areas), the Library and Exploring
-// pages, and under the open page its layers, the sections and their frames. A section
-// fits the canvas to it; a frame is selected and fit.
+// pages, and under the open page (the Ideas page too) its layers, the sections and their
+// frames. A section fits the canvas to it; a frame is selected and fit.
 
 import { createSignal, For, type JSX, Show } from "solid-js";
 import type { BoardPage, ProjectSummary } from "./api.ts";
@@ -16,7 +16,7 @@ import { ChromeButtons } from "./TopBar.tsx";
 
 export interface RailLayer {
   id: string;
-  kind: "flow" | "screen" | "components" | "planned";
+  kind: "flow" | "screen" | "components" | "planned" | "idea" | "variants";
   name: string;
   frames: { key: string; label: string }[];
 }
@@ -49,6 +49,8 @@ const LAYER_DOT: Record<RailLayer["kind"], string> = {
   screen: "",
   components: "cmp",
   planned: "plan",
+  idea: "idea",
+  variants: "cmp",
 };
 
 export function BoardRail(props: {
@@ -224,7 +226,10 @@ export function BoardRail(props: {
         <Show when={props.library.ideas || props.library.archive || props.library.recent}>
           <nav class="side-group" aria-label="Exploring">
             <h6 class="side-hd">Exploring</h6>
-            <Show when={props.library.ideas}>{sec("ideas", "idea", "Ideas")}</Show>
+            <Show when={props.library.ideas}>
+              {sec("ideas", "idea", "Ideas")}
+              <Show when={props.sec === "ideas"}>{layerRows()}</Show>
+            </Show>
             <Show when={props.library.archive}>{sec("archive", "archive", "Archive")}</Show>
             <Show when={props.library.recent}>{sec("recent", "recent", "Recent")}</Show>
           </nav>

@@ -5,8 +5,8 @@
 // /project/:name/:slug with an optional `?state=`, lands on the Board too, fit to that
 // design or state and selected: it is the link agents and the viewer hand out. The
 // Library's and Exploring's pages are `?sec=` inside the Board's frame: components,
-// shared, system, documents, ideas (`?for=` narrows them to one design's), archive and
-// recent (`?show=`).
+// shared, system, documents, archive and recent (`?show=`); ideas is a canvas of its own,
+// each idea a section (`?for=` narrows it to one design's).
 // Focus, the design's own screen, is the same address entered from the Board (Enter, a
 // double-click, Open) or from a question in Needs you: the history entry says so, never
 // the address, so every link anyone copies or sends lands on the Board, while Back,
@@ -30,10 +30,12 @@ const isHomePlace = (v: string | null): v is HomePlace => HOME_PLACES.includes(v
 export type RecentShow = "decisions" | "designs";
 const isRecentShow = (v: string | null): v is RecentShow => v === "decisions" || v === "designs";
 
-// A frame on the Board: one state of a design, or all of it (`state` undefined).
+// A frame on the Board: one state of a design, or all of it (`state` undefined); on an
+// idea or a variants design, one alternative's (`?alt=`).
 export interface BoardSel {
   slug: string;
   state?: string | null;
+  alternative?: string;
 }
 
 export type Route =
@@ -101,6 +103,7 @@ export function parseRoute(pathname: string, base = "", search = "", focus = fal
       return board(dec(seg[1]), {
         slug: dec(seg[2]),
         ...(q.has("state") ? { state: q.get("state") } : {}),
+        ...(q.get("alternative") ? { alternative: q.get("alternative")! } : {}),
       });
     }
     if (seg[2]) {
@@ -121,7 +124,9 @@ export function parseRoute(pathname: string, base = "", search = "", focus = fal
         flow: q.get("flow") || null,
       };
     }
-    return board(dec(seg[1]), parseSel(q.get("sel")));
+    const sel = parseSel(q.get("sel"));
+    const alt = q.get("alt");
+    return board(dec(seg[1]), sel && alt ? { ...sel, alternative: alt } : sel);
   }
   return board(null, null);
 }
@@ -133,16 +138,27 @@ function parseSel(raw: string | null): BoardSel | null {
   return at < 0 ? { slug: raw } : { slug: raw.slice(0, at), state: raw.slice(at + 1) };
 }
 
+// `ideas` is the Ideas page, all of them or (`for`) one design's.
 export const boardPath = (
   project: string,
-  place: { page?: string | null; unsorted?: boolean; sel?: BoardSel | null } = {},
+  place: {
+    page?: string | null;
+    unsorted?: boolean;
+    ideas?: boolean;
+    for?: string | null;
+    sel?: BoardSel | null;
+  } = {},
 ) => {
   const q = new URLSearchParams();
-  if (place.unsorted) q.set("unsorted", "1");
+  if (place.ideas) {
+    q.set("sec", "ideas");
+    if (place.for) q.set("for", place.for);
+  } else if (place.unsorted) q.set("unsorted", "1");
   else if (place.page) q.set("page", place.page);
   if (place.sel) {
     const st = place.sel.state;
     q.set("sel", st === undefined || st === null ? place.sel.slug : `${place.sel.slug}:${st}`);
+    if (place.sel.alternative) q.set("alt", place.sel.alternative);
   }
   const qs = q.toString();
   return `${basePath()}/project/${encodeURIComponent(project)}${qs ? `?${qs}` : ""}`;

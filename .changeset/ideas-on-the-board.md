@@ -1,0 +1,5 @@
+---
+"mockpit": minor
+---
+
+Ideas are on the Board. The Ideas page lays out every idea as a dashed section, its alternatives down and its states across, labelled "idea for <design>" or "becomes <kind>"; where each state has alternatives of its own, as in a lab, each state is a column of them. A screen with ideas for it carries "Ideas · N" on its section, which unfolds those ideas right under it, dashed and dimmed, and folds them back, with nothing else on the page moving but what follows. Archived alternatives fold under "N archived", and a section with more than 20 alternatives has a filter on its header, by name or description. Double-clicking an idea's frame opens Focus on that alternative; a link to an idea lands on the Ideas page, fit to it. A variants design has its own section on its page, its states across and its variants down. In Focus, "Compare with…" beside the version shows another version of the state 2-up with the one on stage, in one frame with a divider to drag (or ← and →); Esc ends it. The palette to view frames in is picked from the tool strip beside Light and Dark, as before. A page too tall to fit at the least zoom opens at its top.

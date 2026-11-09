@@ -1366,6 +1366,10 @@ export function paragraphPins(
   return out;
 }
 
+// Accents and case don't count, as in the jump search.
+export const foldText = (s: string): string =>
+  s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+
 // --- the decision flow: across designs, review, keys and swipes ---
 
 export interface AreaGroup<T> {

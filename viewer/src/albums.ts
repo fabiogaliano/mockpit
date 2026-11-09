@@ -306,24 +306,16 @@ export const DATED_FROM = 13;
 // sparse (`workspace`: 2 pages in September, 90 before) would land on almost nothing.
 const OPEN_UNTIL = 12;
 
-// Rows newest first under date headings, which give a burst of work a place. With
-// `byDay` the newest month goes by day; older months always go by month. Older
+// Rows newest first under month headings, which give a burst of work a place. Older
 // groups start folded, unless something in them waits on the user.
-export function dateGroups(rows: TreeNode[], byDay: boolean, now = new Date()): DateGroup[] {
+export function dateGroups(rows: TreeNode[], now = new Date()): DateGroup[] {
   const sorted = [...rows].sort(newestFirst);
-  const month = (d: Date) => d.getFullYear() * 12 + d.getMonth();
-  const newest = sorted.length ? month(new Date(lastWork(sorted[0]))) : 0;
   const groups = new Map<string, DateGroup>();
   for (const row of sorted) {
     const d = new Date(lastWork(row));
-    const daily = byDay && month(d) === newest;
-    const key = daily
-      ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
-      : `${d.getFullYear()}-${d.getMonth()}`;
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
     const year = d.getFullYear() === now.getFullYear() ? "" : ` ${d.getFullYear()}`;
-    const label = daily
-      ? `${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)}${year}`
-      : `${MONTHS[d.getMonth()]}${year}`;
+    const label = `${MONTHS[d.getMonth()]}${year}`;
     const group = groups.get(key);
     if (group) group.rows.push(row);
     else groups.set(key, { key, label, rows: [row], open: false });

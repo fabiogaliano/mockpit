@@ -692,17 +692,7 @@ a {
 .home-phone .home-main {
   padding: 18px max(16px, env(safe-area-inset-right)) 60px max(16px, env(safe-area-inset-left));
 }
-.home-next {
-  color: var(--t1);
-  font-weight: 500;
-  text-decoration: none;
-}
-@media (hover: hover) {
-  .home-next:hover {
-    text-decoration: underline;
-    text-underline-offset: 3px;
-  }
-}
+
 .home-empty {
   color: var(--t4);
 }
@@ -737,9 +727,7 @@ a {
   font-variant-numeric: tabular-nums;
   letter-spacing: normal;
 }
-.home-unfilter {
-  font-size: 13px;
-}
+
 .home-phone .home-head {
   margin-bottom: 18px;
 }
@@ -5858,6 +5846,80 @@ html:has(.design-screen) {
   gap: 8px;
   padding: 6px 6px 2px 16px;
 }
+/* Two versions 2-up: the picked one left of the divider, the one on stage right of it. */
+.cmp2 {
+  position: fixed;
+  top: var(--canvas-top, 0px);
+  right: var(--canvas-r, 0px);
+  bottom: 0;
+  left: var(--canvas-l, 0px);
+  /* Over the tool strip and the notes: what acts on one version waits while two are up. */
+  z-index: 31;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 24px 24px;
+  background: var(--page);
+}
+.cmp2-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(var(--cmp-w, 390px), 100%);
+  color: var(--t2);
+  font-size: 13px;
+}
+.cmp2-side {
+  flex: 1;
+}
+.cmp2-after {
+  text-align: end;
+}
+.cmp2-frame {
+  position: relative;
+  flex: 1;
+  width: min(var(--cmp-w), 100%);
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--frame);
+  box-shadow: 0 0 0 1px var(--edge);
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
+}
+.cmp2-layer,
+.cmp2-layer .thumb {
+  position: absolute;
+  inset: 0;
+}
+.cmp2-before {
+  clip-path: inset(0 calc(100% - var(--at)) 0 0);
+}
+.cmp2-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--at);
+  width: 2px;
+  margin-left: -1px;
+  background: var(--hi);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+.cmp2-divider::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--hi);
+  content: "";
+  translate: -50% -50%;
+}
+.vcap-compare {
+  max-width: 150px;
+}
 /* Question · Spec · Activity, the panel's own tabs, as a design tool's inspector has. */
 .rm-tabs {
   display: flex;
@@ -6267,11 +6329,7 @@ html:has(.design-screen) {
     min-width: 40px;
     min-height: 40px;
   }
-  .home-next {
-    display: inline-flex;
-    align-items: center;
-    min-height: 40px;
-  }
+
   .qfoot .qsend {
     height: 44px;
   }
@@ -8582,15 +8640,6 @@ a.ideas-row {
     text-decoration: underline;
   }
 }
-.home-groupby {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-.home-groupby .vswitch button {
-  font-size: 13px;
-}
 
 /* Side by side (SideBySide.tsx): one question's answers in a row on the canvas, in place
    of the design's frame, which stays loaded underneath so it still reports its parts. */
@@ -8977,6 +9026,66 @@ a.ideas-row {
 .bchip.changed {
   color: var(--changed);
 }
+/* An idea is a dashed section; unfolded under the design it is for, it is dimmed too, so
+   the product reads first. */
+.bsec.idea {
+  border: calc(1.5px / var(--kl)) dashed #463f74;
+  background: #16141f;
+}
+.bsec.under {
+  opacity: 0.82;
+}
+.bchip.idea {
+  background: #231f3b;
+  color: #c3b8ff;
+}
+button.bchip:hover {
+  filter: brightness(1.25);
+}
+.bfilter {
+  width: 16em;
+  height: 1.9em;
+  padding: 0 0.7em;
+  border: 1px solid var(--edge);
+  border-radius: 99px;
+  background: var(--row);
+  color: var(--t1);
+  font: inherit;
+  font-size: 0.75em;
+}
+/* Alternatives (or variants) down, states across: the rows line up under their names. */
+.bgrid {
+  display: grid;
+  align-items: start;
+  gap: 0 40px;
+}
+.bgrid-col,
+.bgrid-row {
+  color: var(--t4);
+  font-size: calc(13px / var(--kl));
+  white-space: nowrap;
+}
+.bgrid-col {
+  align-self: end;
+}
+.bgrid-row {
+  align-self: center;
+  color: var(--t2);
+  font-weight: 600;
+}
+/* A lab: each state a column of its own alternatives. */
+.bcols {
+  display: flex;
+  align-items: flex-start;
+  gap: 40px;
+}
+.bcol {
+  display: flex;
+  flex-direction: column;
+}
+.bf.archived {
+  opacity: 0.45;
+}
 .bframes,
 .bsteps {
   display: flex;
@@ -9135,6 +9244,15 @@ a.ideas-row {
 .bcov .m b {
   color: var(--q);
 }
+.bcov-link {
+  color: var(--t2);
+  text-decoration: underline;
+  text-decoration-color: var(--t6);
+  text-underline-offset: 3px;
+}
+.bcov-link:hover {
+  color: var(--t1);
+}
 .bselbar {
   top: 12px;
   right: 16px;
@@ -9228,6 +9346,10 @@ a.ideas-row {
 .rail-dot.cmp {
   background: #c084fc;
   transform: rotate(45deg);
+}
+.rail-dot.idea {
+  border-radius: 2px;
+  background: var(--accent);
 }
 .rail-dot.plan {
   border: 1px dashed var(--t5);
