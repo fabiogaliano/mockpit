@@ -406,7 +406,9 @@ Stances reversed knowingly, so nobody restores them by accident:
     `GET /api/projects/:name/board`, from `server/board.ts`). A page is an area. Its
     sections, in order: each flow (steps across, a screen's other states stacked under the
     step they follow), each screen's states in no flow, "Components used here", each
-    variants design as a grid (variants down, states across), then Planned. Every frame is
+    variants design as a grid (variants down, states across), then Planned, wrapping in rows
+    at the width whose rows best fit the stage (`wrapWidth` in `boardLayout.ts`); a grid
+    shows its first rows and "N more ▾" the rest. Every frame is
     its poster under its name, never a running page; a frame with no poster yet shows a
     placeholder until `bin/poster.js` brings one, and the palette pick and See before don't
     apply here. A state a screen is owed (`owedStates`) is an orange dashed frame, a
@@ -453,7 +455,7 @@ Stances reversed knowingly, so nobody restores them by accident:
     the right a panel with Question · N, Spec (with Instances, `BuiltFrom`) and Activity
     (`Thread.tsx`), standing open where it fits and opening for a question whatever the
     room (`marginLayout` in `logic.ts` floats a margin as a tab when it would take the
-    design below 80%). By the design, a strip of Try, Comment, Tune, the palette pick
+    design below 80%). By the design, a strip of Try, Comment (C), Tune, the palette pick
     beside Light | Dark (`PaletteTool`) and the preview with the QR. On an idea's
     alternative the panel offers More like this, Borrow, Keep, Move and Archive.
     `VersionCaption` holds the version and New version / Use this, and Compare with…:

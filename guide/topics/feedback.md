@@ -343,7 +343,7 @@ mockpit read    --decisions               # the whole decision log, when a read 
   generate code.
 - `settled` (on `read` and `export`) is every knob value the user has sent: each answered
   option's `set` and each tuned value, later replies winning. The viewer renders later
-  questions and the stage on top of it, so ask the deciding question first and its
+  questions and the frame in Focus on top of it, so ask the deciding question first and its
   dependents after.
 - `standings` (on `read`), by question id, is what the user said about answers besides
   choosing one: `kept` answers are runners-up they want to come back to, `hidden` ones

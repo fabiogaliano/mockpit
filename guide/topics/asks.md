@@ -63,7 +63,7 @@ state with its own questions. Answered once, it counts once.
 
 When a design-wide question's answers only show on some states, name them, best
 first: `"states": ["Food · try it", "Food, around lunch"]`. It still shows on
-every state, going to it brings the stage to the first, and elsewhere its card
+every state, going to it brings Focus to the first, and elsewhere its card
 offers the way there.
 
 Only open questions are shown and counted ("1 of 3"). A Send folds an answered
